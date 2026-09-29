@@ -42,7 +42,8 @@ use crate::analysis_exchange_protocol::{
     write_ready, write_request, AnalysisReady, AnalysisRequest, ValidatedRequest, REQUEST_SCHEMA,
 };
 use crate::analysis_lease::AnalysisLease;
-use crate::attack_perception::band::{AttackBand, AttackBandPair};
+use crate::attack_perception::band::AttackBand;
+use crate::attack_runtime::{AttackBandResults, AttackPreBand};
 use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference, SpectrumFrame};
@@ -125,12 +126,12 @@ pub struct AttackPairViewSnapshot {
     /// POST measured at each matched PRE onset over that PRE detail's windows (B-1016), so a
     /// paired difference always compares the same content samples.
     pub post_anchored: Vec<crate::AttackDetailedEvent>,
-    /// The band POST asked for, and the band PRE's snapshot declared (B-1096). A PRE that
-    /// predates bands declares none, however long the pair runs.
+    /// The band POST asked for (B-1096), whether PRE's side of it is there, and PRE's hits in it
+    /// as its snapshot declared them (B-1098). POST's own results are read from its runtime
+    /// when polled, so this view never holds a band measurement twice.
     pub band: Option<AttackBand>,
-    pub pre_band: Option<AttackBand>,
-    /// PRE's and POST's measures of the chosen band at each matched onset.
-    pub band_pairs: Vec<AttackBandPair>,
+    pub pre_band: AttackPreBand,
+    pub pre_band_results: Option<Arc<AttackBandResults>>,
 }
 
 #[derive(Clone)]
@@ -167,6 +168,8 @@ pub struct SpectrumCoordinator {
     /// difference renews the request at once.
     post_attack_band: AtomicU8,
     sent_attack_band: AtomicU8,
+    /// When the band the request carries last changed: how long PRE has had to declare it.
+    attack_band_sent_at: Mutex<Option<Instant>>,
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
     view: Mutex<SpectrumViewSnapshot>,
@@ -240,6 +243,7 @@ impl SpectrumCoordinator {
             post_visible: AtomicBool::new(false),
             post_attack_band: AtomicU8::new(0),
             sent_attack_band: AtomicU8::new(0),
+            attack_band_sent_at: Mutex::new(None),
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
             view: Mutex::new(SpectrumViewSnapshot::default()),

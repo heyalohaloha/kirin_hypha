@@ -43,13 +43,16 @@ juce::String valueText (attack_lanes::Lane, float value, bool delta, bool withUn
 juce::String resolutionText (float ms);
 juce::String boundText (float ms);
 juce::String reasonText (const attack_lanes::Hit&, attack_lanes::Reason);
-// What a cell says: its value, the ATT bound "<16 ms" (D4), or why it is withheld.
+// The reason in a cell too narrow for it: the 100% glance and the smallest readouts.
+juce::String shortReasonText (const attack_lanes::Hit&, attack_lanes::Reason);
+// What a cell says: its value, a bound ("<16 ms", ">288 ms", "<-66.0 dB"), or why it is withheld.
 juce::String cellText (const attack_lanes::Hit&, attack_lanes::Lane, bool delta, bool withUnit);
 // A cell that states a fact (a value or a bound) is drawn as a value; a reason is not.
 inline bool stated (const attack_lanes::Cell& cell) noexcept
 {
     return cell.reason == attack_lanes::Reason::value
-        || cell.reason == attack_lanes::Reason::belowResolution;
+        || cell.reason == attack_lanes::Reason::withinResolution
+        || cell.reason == attack_lanes::Reason::atLeast;
 }
 
 // One lane row is split by lifetime. The chrome (name, fixed scale, stage, zero line) only

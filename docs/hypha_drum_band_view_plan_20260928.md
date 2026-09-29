@@ -14,6 +14,7 @@
 - **2026-09-28、D1〜D5 は推奨どおりで Daisuke が確定した**（§9）。
 - **2026-09-29、PR-A（計算・FFI・負荷の実測）を実装した。** 実装で決めた点は §11。
 - **2026-09-29、PR-B（画面）を実装した。** 実装で決めた点は §12。不変条件は INV-S44。
+- **2026-09-29、厳しめレビューの11件を構造から直した（B-1098）。** 規則と使いやすさの改善、負荷の測り直しは §13。§11・§12 と食い違う点は §13 を正とする。
 - **Hypha の立場**：
   - 音を変えない（R-12）。シェイパーやコンプは PRE と POST の間にある利用者のプラグインで、Hypha はその前後を**同じ打撃で**比べて示す。
   - 良し悪しは言わない（R-22）。
@@ -213,9 +214,9 @@
 - **存在の下限**：帯域包絡のピークが −72 dBFS 以下なら、その帯域はその打撃に「なし」。
 - **計算するタイミング**：打撃が complete（頭 30 ms + 胴 100 ms）になった後、尾の 300 ms 内の onset がすべて決まり、リングに尾＋半窓ぶんの音が入ってから 1 回。POST は PRE の onset と PRE の span 終端で自分のリングから測る。
 - **要求**：`kirin_hypha_analysis_request_v4` に任意項目 `attack_band` を足した（v5 にはしない）。serde は未知の項目を無視するので、**古い PRE は帯域なしで従来どおり動く**。ATTACK 以外のモード、1〜8 以外の値は帯域なし。
-- **交換**：スナップショットは帯域を要求されている間だけ version 4（v3 の末尾に帯域の節を追加、1打 692 バイト、最大 64 打）。要求のない POST（古い POST）には v3 を書く。上限を 262,144 バイトに上げた。帯域の節は自分の event を持ち、details と独立に復号できる。
-- **FFI**：`kirin_hypha_set_attack_band(handle, 0..8)` と `kirin_hypha_poll_attack_band`（`KirinAttackBandBatch`：status、band、`pre_band_available`、最大 64 打。各打は kind 0=matched / 2=POST のみ、resolution_micros、delay、PRE/POST 各側の arrival・ATT・REL・LEVEL・HEAD・TAIL）。C の配置は `band_c_layout_is_fixed` で固定。
-- **負荷の実測**（`reports_the_worker_cost_with_and_without_a_band`、release、48 kHz ステレオ、2打/秒を実時間で 20 秒、プロセスの CPU 時間）：
+- **交換**：スナップショットは帯域を要求されている間だけ version 4（v3 の末尾に帯域の節を追加、1打 692 バイト、最大 64 打。B-1098 で 1打 384 バイトの固定長・最大 240 打に変更、§13.1）。要求のない POST（古い POST）には v3 を書く。上限を 262,144 バイトに上げた。帯域の節は自分の event を持ち、details と独立に復号できる。
+- **FFI**：`kirin_hypha_set_attack_band(handle, 0..8)` と `kirin_hypha_poll_attack_band`（`KirinAttackBandBatch`：status、band、`pre_band_available`、最大 64 打。各打は kind 0=matched / 2=POST のみ、resolution_micros、delay、PRE/POST 各側の arrival・ATT・REL・LEVEL・HEAD・TAIL）。C の配置は `band_c_layout_is_fixed` で固定。B-1098 で PRE の4状態・最大 240 打・包絡の別問い合わせに変更（§13.1）。
+- **負荷の実測**（`reports_the_worker_cost_with_and_without_a_band`、release、48 kHz ステレオ、2打/秒を実時間で 20 秒、プロセスの CPU 時間。PRE 側 worker だけの測定で、POST が PRE の onset で測る分を含まない。§13.3 で両方を含めて測り直した）：
   - 帯域なし（ALL、今の main と同じ経路）：6.02 %（1コア比）
   - 63 Hz：5.87 %
   - 8 kHz：6.01 %
@@ -252,9 +253,96 @@
 - **VIEW 2 ROWS**：面を PRE 上・POST 下に分け、各行に自分の印を置く。括弧（DELAY・REL の差）は OVERLAY だけ。
 - **段の尺度**：差分は DELAY ±10 ms、ATT ±10 ms、REL ±100 ms、LEVEL ±12 dB。POST 値は ATT 0〜40 ms、REL 0〜300 ms、LEVEL −72〜0 dBFS。DELAY は差でしか意味がないので POST 値の段は空で `NO PAIR`。実測のあと見直す。
 - **D4（ATT の上限）**：|ATT| または |ΔATT| が帯域の時間の細かさ（1周期）未満のとき、読み出しは `<16 ms` の形で上限を示し、棒は 0 線の中空の印にする。`≤` ではなく ASCII の `<` にしたのは、既存の尺度表記が `+/-` を使っており、mono 書体と Windows で記号の有無を確かめずに済ませるため。
-- **理由の語**：`RINGING`（前の打音の余韻で到達が取れない。DELAY・ATT）、`NEXT HIT`（次の打音で尾が切れた。REL）、`PRE NO BAND`（ペアだが PRE が帯域を返していない。DELAY）、`POST ONLY` / `NO PAIR` は従来どおり。
-- **古い PRE**：`pre_band_available == 0` の間は「届く前」と「帯域より古い PRE」を区別できないので、両方を同じ言葉で扱う。段は POST 値、DELAY は `PRE NO BAND`、HEAD の見出しは `PRE: NO BAND YET`、選んだチップのホバーで「帯域より古い PRE からは届かない。PRE を更新すると比べられる」と説明する（R-28）。
+- **理由の語**（B-1098 で置き換え。§13.2）：`RINGING`（前の打音の余韻で到達が取れない。DELAY・ATT）、`NEXT HIT`（次の打音で尾が切れた。REL）、`PRE NO BAND`（ペアだが PRE が帯域を返していない。DELAY）、`POST ONLY` / `NO PAIR` は従来どおり。
+- **古い PRE**（B-1098 で「切替中」と「帯域より古い版」を分けた。§13.1）：`pre_band_available == 0` の間は「届く前」と「帯域より古い PRE」を区別できないので、両方を同じ言葉で扱う。段は POST 値、DELAY は `PRE NO BAND`、HEAD の見出しは `PRE: NO BAND YET`、選んだチップのホバーで「帯域より古い PRE からは届かない。PRE を更新すると比べられる」と説明する（R-28）。
 - **エンジンとの同期**：帯域は `AttackComponent` のエディター寿命の状態（VIEW と同じ）。エディターは `onBandChange` で `setAttackBand` を呼び、DRUM ページに入るたびに自分の帯域を送り直す（開き直したエディターは ALL、エンジンに前の帯域が残っていても揃う）。プロセッサは帯域を覚え、ATTACK をエンジン（新規・再有効化）へ適用するたびに送り直す。届いた batch の帯域が選んだ帯域と違う間（切替直後）は何も出さない。
 - **ホバー**：チップ・HEAD・TAIL・帯域の4段に日本語つきの説明（INV-S40）。従来の4段には付けていない。
 - **画像**：`KIRIN_ATTACK_UI_SHOWCASE_DIR` で 63 Hz の見本画像（900 overlay / rows、600、450、375、300）を書く。
 - **検証**：`verifyBandModel`（差分・POST 値・PRE 待ち・理由・D4・文字）、`verifyBandRendering`（5 サイズ、チップ、面、段、ALL で完全に元へ戻る）、`verifyBandInteraction`（チップ、面は選ばない、段は選ぶ、ホバー、100% で反応なし）、`verifyChromeCache`（帯域・PRE 待ち・2 ROWS を含む）。`KIRIN_ATTACK_FRAME_BUDGET` で 300% 帯域表示の描画時間も測る。
+
+## 13. レビュー後の構造の見直し（B-1098、2026-09-29）
+
+厳しめレビューの11件を、同じ種類の問題が二度と起きない形に直した。
+内部を厳しくしても、利用者の操作が増えたり、表示が止まったりしないことを条件にし、分かりやすさと判断のしやすさも同時に上げた。
+§11・§12 と食い違う点は本節を正とする。
+
+### 13.1 構造の規則
+
+- **測るのは worker だけ、1回だけ**：各打音×帯域は ATTACK の worker だけが1回だけ測る。音のリングも worker だけが持ち、mutex を置かない。
+  - POST が PRE の onset で測る位置（anchor）は、交換スレッドが `request_band_anchors` で頼むだけにした。中身が変わったときだけ revision を進め、交換スレッドは信号処理をしない。
+  - B-1096 では、交換スレッドが tick（最大 30 Hz）ごとに全 anchor を測り直し、その間リングの lock を握っていた（指摘1）。
+- **打音の鍵は段の鍵**：FFI は段と同じ鍵で1打1列を返す。鍵は、PAIR 中は対の共通 onset、それ以外は POST の detail の onset とする。
+  - 測った位置（PRE の onset）は `measured_at_sample` に分けた。
+  - batch と包絡の問い合わせは同じ `sources()` から作るので、両者が別の打音を指すことはない（指摘2・3）。
+- **結果は履歴の外に置く**：帯域の結果は `AttackHistory` に入れず、`Arc<AttackBandResults>` で持つ。公開のたびに履歴の revision を進め、PRE が送り直す。
+- **結果を必ず言葉にする**：エンジンは結果を型で言い切り、UI はそれをそのまま理由と下限・上限にする。
+  - 音：`Rises`（立ち上がる）、`RingsOn`（前の打音の余韻が鳴り続けるだけ）、`Silent`（ピーク −72 dBFS 以下）
+  - 到達：`At`、`Ringing`（余韻に隠れる）
+  - REL：`At`、`CutByNextHit`、`AtLeast`（測った尾の終わりでもまだ鳴る）
+  - 区間の終わり：`Window`、`NextHit`、`AudioEnd`
+  - 測れなかった打音は `measure: None`（NOT MEASURED）
+  - 300 ms を超える尾を `NEXT HIT` と言っていた点（指摘4）と、前の打音の余韻をその打音の LEVEL・REL にしていた点（指摘5）を直した。onset −20 ms の包絡から 3 dB 未満の上昇は `RingsOn` とする。
+- **§4 のとおり、帯域の切替でリングを保つ**：帯域から別の帯域へ替えるとリングを保ち、直近 7 秒を停止中でも測り直す（B-1096 はリングを捨てていた）。ALL で解放する。
+  - リングは最初から 7 秒ぶんを確保し、途中で再確保しない（指摘8）。
+- **止まっても最後の打音を仕上げる**：音が 200 ms 途切れたら、保持した音の終わりまでで測る（区間の終わりは `AudioEnd`）か、測れないと明示する。
+  - worker は、取り込んだ block の世代で判断する。停止中は block ごとに runtime の世代が進むため、以前は最後の打音が捨てられていた。
+- **仕事の上限**：1回の処理は 4 ms まで、新しい打音から、anchor を自分の打音より先に測る。公開は 30 ms ごと以下（残りが無ければすぐ）。
+- **交換の大きさを型で固定**：帯域の記録は1打 384 バイトの固定長（包絡は i16 の centi-dB）、最大 240 打（ATTACK の履歴と同じ数）。
+  - 最悪の snapshot（231,456 バイト）が上限（262,144 バイト）に収まることを、コンパイル時に確かめる（`ATTACK_SNAPSHOT_WORST_CASE_BYTES`）。
+  - 帯域の節が整合しないときは丸ごと拒む。
+- **PRE の状態を4つに分ける**：`Off`、`Same`、`Waiting`、`Predates`。
+  - 帯域を送ってから 2.5 秒たっても帯域の節が無い PRE を「帯域より古い版」とし、`UPDATE PRE` と案内する。
+  - それまでは切替中として、`POST − PRE` の枠のまま全段 `--` にする。
+
+### 13.2 使いやすさ
+
+- 帯域を替えても、再生し直す必要がない（停止中も直近 7 秒を測り直す）。
+- 停止の直前の打音にも値が出る。
+- LIVE は、帯域が明示された最新の打音を追う。測っている途中の打音で面が `MEASURING` にちらつかない。
+- 6 秒の中に測れた打音が無いときは、`PLAY TO MEASURE 63 Hz` を1か所に出す。
+  - 200%・300% は TAIL の面、125%・150% は HISTORY の左上、100% は HISTORY の見出し。
+- 値の無い段は、全サイズで理由を示す。
+  - 収まれば全文：`RINGING`、`NO SOUND`、`PRE NO SOUND`、`POST NO SOUND`、`LONG TAIL`、`NEXT HIT`、`NOT MEASURED`、`UPDATE PRE`、`NO PAIR`
+  - 狭ければ短い語：`RING`、`NONE`、`LONG`、`UPDATE`、`NEXT`、`QUIET`（日本語あり）
+  - それも入らなければ `--`
+  - 125% の1行読み出しも、`--` ではなく理由を出す。100% では理由を読み出しの書体で描き、他の値の書体を縮めない。
+- 値の外側は、下限・上限で示す：`<2 ms`（時間の細かさの内側）、`>+146 ms`・`>288 ms`（尾がまだ鳴る）、`<-66.0 dB`（POST に帯域の音が無い）。
+- ALL と帯域で、列と選択がそのまま残る（同じ打音）。時間軸行の `N EVENTS` も段の列数と一致する（指摘7）。
+- 包絡は、面を出している間だけ、選んだ打音の分を取る。
+- 余韻で到達が取れないことは、DELAY と ATT の読み出しが1回だけ言う。面の中には文字を重ねない。
+
+### 13.3 負荷の測り直し（指摘9の訂正）
+
+§11 の数字は PRE 側 worker だけの測定で、POST が PRE の onset で測る分を含んでいなかった。
+B-1098 では anchor も同じ worker で1回ずつ測るので、両方を含めて測り直した。
+
+- 条件：release、48 kHz ステレオ、2打/秒を実時間で 20 秒、プロセスの CPU 時間。帯域ありでは、自分の打音 40 と anchor 40（30 Hz で要求）を測る。
+- 別セッションのビルドで、負荷平均が 9〜13 の時間帯に測った。
+
+| 条件 | CPU（1コア比） | 帯域の計測回数 |
+|---|---|---|
+| 帯域なし（ALL）1回目 | 6.56 % | 0 |
+| 63 Hz | 6.81 % | 78 |
+| 8 kHz | 6.66 % | 78 |
+| 帯域なし（ALL）2回目 | 6.19 % | 0 |
+
+- 計測は 78 回で、結果 80 件（自分 40・anchor 40）より 2 回少ない。先頭の1打は onset が音の始まり（0 frame）にあり、onset 前 20 ms の音が無いので、自分と anchor の両方が NOT MEASURED になった。同じ打音を2回測ることはない。
+- 1打あたり（`reports_the_cost_of_one_band_measurement`）：48 kHz で 236〜305 µs、96 kHz で 492〜591 µs、192 kHz で 1,027〜1,204 µs。
+- 2打/秒で自分と anchor の2回を測ると、48 kHz で1コアの約 0.1 % になる。
+- ALL との差（0.1〜0.6 %）は、ALL 同士の2回の差（0.4 %）と同じ程度で、測定のゆらぎの中にある。
+
+### 13.4 検証
+
+- **Rust**：
+  - worker：1回だけ測る、切替で停止中も測り直す、止まった打音を仕上げる、anchor を1回ずつ測って保持しない打音を明示する。
+  - 結果：無音と下限、区間の理由、音の終わり、余韻、キックの余韻の上のハイハット（`RingsOn`）、リングの容量が変わらないこと。
+  - codec：全結果の往復、最悪の大きさ、整合しない節の拒否。join：`Waiting` と `Predates` の区別。
+  - 統合：POST が 15 ms 遅い対で、鍵、DELAY（15 ms ±0.5）、LEVEL（−6.02 dB）、tick を重ねても計測回数が増えないこと、ALL で帯域を落とすこと。
+- **FFI**：C の配置、段と同じ鍵で重複しないこと、ペアなしで POST の detail と包絡、C の入口。
+- **JUCE**：
+  - `verifyBandModel`：段の打音と鍵、全理由と下限・上限
+  - `verifyBandRendering`：5 サイズ、案内、面、チップ、理由、ALL で元どおり
+  - `verifyBandInteraction`：LIVE が明示済みの最新打音を追う、選んだ打音の包絡を取る、古い PRE の案内
+  - `verifyBandTranslations`：実行時の文字列で日本語があること、日本語で全サイズを描けること（指摘11）
+  - `verifyBandReasonsAtSmallSizes`：125% で理由を出す、100% で理由が他の値の書体を変えない
+  - 描画予算：従来表示と帯域の両方を測ってから合否を出す（指摘10）

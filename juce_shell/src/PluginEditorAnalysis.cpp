@@ -30,6 +30,8 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
     };
     // The DRUM band is the view's own state; the engine follows it and PRE follows the engine.
     attackView.onBandChange = [this] (std::uint8_t band) { processorRef.setAttackBand (band); };
+    attackView.bandEnvelopeSource = [this] (std::int64_t sample, KirinAttackBandHitEnvelope& out)
+    { return processorRef.pollAttackBandEnvelope (sample, out); };
 }
 
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)

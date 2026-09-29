@@ -104,12 +104,19 @@ juce::String reasonText (const attack_lanes::Hit& hit, Reason reason)
     switch (reason)
     {
         case Reason::value:
-        case Reason::belowResolution: return {};
+        case Reason::withinResolution:
+        case Reason::atLeast:         return {};
         case Reason::missing:         return "--";
         case Reason::nextHit:         return "NEXT HIT";
         case Reason::quietBody:       return "QUIET AFTER";
         case Reason::ringing:         return "RINGING";
-        case Reason::noPreBand:       return "PRE NO BAND";
+        case Reason::noSound:         return "NO SOUND";
+        case Reason::preNoSound:      return "PRE NO SOUND";
+        case Reason::postNoSound:     return "POST NO SOUND";
+        case Reason::longTail:        return "LONG TAIL";
+        case Reason::notMeasured:     return "NOT MEASURED";
+        case Reason::updatePre:       return "UPDATE PRE";
+        case Reason::noPair:          return "NO PAIR";
         case Reason::noMatch:
             return hit.pre.available && ! hit.post.available ? "PRE ONLY"
                  : hit.post.available && ! hit.pre.available ? "POST ONLY" : "NO PAIR";
@@ -117,14 +124,63 @@ juce::String reasonText (const attack_lanes::Hit& hit, Reason reason)
     return "--";
 }
 
+juce::String shortReasonText (const attack_lanes::Hit& hit, Reason reason)
+{
+    // One short word for the narrowest cells; "--" where no short word would be honest. The full
+    // reason is shown wherever it fits.
+    switch (reason)
+    {
+        case Reason::value:
+        case Reason::withinResolution:
+        case Reason::atLeast:     return {};
+        case Reason::nextHit:     return "NEXT";
+        case Reason::quietBody:   return "QUIET";
+        case Reason::noMatch:
+            return hit.pre.available && ! hit.post.available ? "PRE"
+                 : hit.post.available && ! hit.pre.available ? "POST" : "--";
+        case Reason::ringing:     return "RING";
+        case Reason::noSound:
+        case Reason::preNoSound:
+        case Reason::postNoSound: return "NONE";
+        case Reason::longTail:    return "LONG";
+        case Reason::updatePre:   return "UPDATE";
+        case Reason::missing:
+        case Reason::notMeasured:
+        case Reason::noPair:      return "--";
+    }
+    return "--";
+}
+
 juce::String cellText (const attack_lanes::Hit& hit, Lane lane, bool delta, bool withUnit)
 {
     const auto& cell = hit.cells[index (lane)];
-    if (cell.reason == Reason::value)
-        return valueText (lane, cell.value, delta, withUnit);
-    // ATT within the band's resolution: the bound, never a finer number (D4).
-    if (cell.reason == Reason::belowResolution)
-        return withUnit ? boundText (cell.value) : boundText (cell.value).upToFirstOccurrenceOf (" ", false, false);
+    switch (cell.reason)
+    {
+        case Reason::value:
+            return valueText (lane, cell.value, delta, withUnit);
+        case Reason::withinResolution:
+        {
+            // ATT within the band's resolution: the bound, never a finer number (D4).
+            const auto text = boundText (cell.value);
+            return withUnit ? text : text.upToFirstOccurrenceOf (" ", false, false);
+        }
+        case Reason::atLeast:
+            // "at least" above zero, "at most" below; a POST value is always "at least".
+            return (cell.value < 0.0f ? "<" : ">") + valueText (lane, cell.value, delta, withUnit);
+        case Reason::missing:
+        case Reason::noMatch:
+        case Reason::nextHit:
+        case Reason::quietBody:
+        case Reason::ringing:
+        case Reason::noSound:
+        case Reason::preNoSound:
+        case Reason::postNoSound:
+        case Reason::longTail:
+        case Reason::notMeasured:
+        case Reason::updatePre:
+        case Reason::noPair:
+            break;
+    }
     return reasonText (hit, cell.reason);
 }
 }

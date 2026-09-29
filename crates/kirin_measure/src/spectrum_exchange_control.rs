@@ -169,8 +169,23 @@ impl SpectrumCoordinator {
     }
 
     pub(super) fn note_sent_attack_band(&self, band: Option<AttackBand>) {
-        self.sent_attack_band
-            .store(band.map_or(0, AttackBand::index), Ordering::Release);
+        let index = band.map_or(0, AttackBand::index);
+        if self.sent_attack_band.swap(index, Ordering::AcqRel) != index {
+            let mut sent_at = match self.attack_band_sent_at.lock() {
+                Ok(sent_at) => sent_at,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            *sent_at = band.map(|_| Instant::now());
+        }
+    }
+
+    /// How long ago the request first carried the band it carries now.
+    pub(super) fn attack_band_sent_for(&self, now: Instant) -> Option<Duration> {
+        let sent_at = match self.attack_band_sent_at.lock() {
+            Ok(sent_at) => *sent_at,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        sent_at.map(|sent_at| now.saturating_duration_since(sent_at))
     }
 
     pub(super) fn disable_analysis_runtimes(&self) {

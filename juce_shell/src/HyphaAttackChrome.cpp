@@ -30,7 +30,7 @@ bool AttackComponent::ChromeKey::operator== (const ChromeKey& other) const noexc
     return width == other.width && height == other.height
         && std::equal_to<float> {} (scale, other.scale) && context == other.context
         && overlay == other.overlay && paired == other.paired && dormant == other.dormant
-        && band == other.band && bandDelta == other.bandDelta && prePending == other.prePending;
+        && band == other.band && bandDelta == other.bandDelta && preBand == other.preBand;
 }
 
 void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& shape, bool dormant)
@@ -43,7 +43,7 @@ void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& s
         && static_cast<std::size_t> (pixelWidth) * static_cast<std::size_t> (pixelHeight) * 4
                <= chromeByteBudget;
     const ChromeKey key { getWidth(), getHeight(), scale, presentationContext, overlayMode,
-                          pairedObservation(), dormant, chosenBand, bandModel.delta, preBandPending() };
+                          pairedObservation(), dormant, chosenBand, bandModel.delta, preBand() };
     // A size that differs from the previous paint is a corner drag or a Capture layout: building
     // an image for every step costs more than drawing once. The image of the last held size is
     // kept, so the editor size is served from it again after a Capture.
@@ -90,7 +90,7 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
     if (bandPanes (shape))
         attack_band_painter::paintPaneChrome (g, shape, presentationContext,
                                               twoRows() && bandModel.delta, bandModel.delta,
-                                              preBandPending());
+                                              preBand());
     else if (! history.isEmpty())
         drawHistoryChrome (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)

@@ -29,7 +29,7 @@ impl AttackRuntime {
                 assembler.reset();
                 detail_tracker.reset();
                 peak_picker.reset();
-                band_worker.reset();
+                self.reset_band(&mut band_worker);
                 let guard = match self.wake.0.lock() {
                     Ok(guard) => guard,
                     Err(_) => return,
@@ -38,6 +38,8 @@ impl AttackRuntime {
                 continue;
             }
             let Ok(block) = consumers.blocks.pop() else {
+                // No audio: the band side finishes what the stopped run allows.
+                self.service_band(&mut band_worker, detail_tracker.decided_before());
                 thread::sleep(WORKER_IDLE);
                 continue;
             };
@@ -65,6 +67,7 @@ impl AttackRuntime {
             if !self.consume_block(
                 consumers,
                 block.frames,
+                block.generation,
                 &mut assembler,
                 &mut peak_picker,
                 &mut detail_tracker,
@@ -77,15 +80,18 @@ impl AttackRuntime {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn consume_block(
         &self,
         consumers: &mut AttackConsumers,
         frames: u32,
+        generation: u64,
         assembler: &mut AttackAssembler,
         peak_picker: &mut AttackPeakPicker,
         detail_tracker: &mut AttackDetailTracker,
         band_worker: &mut BandWorker,
     ) -> bool {
+        self.band_begin_block(band_worker, generation);
         for _ in 0..frames {
             let Ok(left) = consumers.samples.pop() else {
                 return false;
@@ -104,21 +110,20 @@ impl AttackRuntime {
                 Err(()) => return false,
             }
             if let Some(frame) = assembler.push_frame(left, right) {
-                self.publish(frame, peak_picker, detail_tracker);
+                self.publish(frame, peak_picker, detail_tracker, band_worker);
             }
         }
-        self.service_band_audio(band_worker, detail_tracker);
-        let details = detail_tracker.flush(&self.bins);
-        for detail in &details {
+        self.band_block_audio(band_worker, detail_tracker);
+        for detail in detail_tracker.flush(&self.bins) {
             if let Ok(mut history) = self.history.lock() {
                 if self.enabled.load(Ordering::Acquire)
                     && detail.event.generation == self.generation.load(Ordering::Acquire)
                 {
-                    history.push_detail(*detail);
+                    history.push_detail(detail);
                 }
             }
         }
-        self.service_band_hits(band_worker, detail_tracker, &details);
+        self.service_band(band_worker, detail_tracker.decided_before());
         true
     }
 
@@ -138,6 +143,7 @@ impl AttackRuntime {
         frame: super::AttackOdfFrame,
         peak_picker: &mut AttackPeakPicker,
         detail_tracker: &mut AttackDetailTracker,
+        band_worker: &mut BandWorker,
     ) {
         if !self.frame_is_current(&frame) {
             return;
@@ -145,6 +151,7 @@ impl AttackRuntime {
         let event = peak_picker.push(frame);
         if let Some(event) = event {
             detail_tracker.queue_event(event);
+            band_worker.note_event(event);
         }
         detail_tracker.note_decided_before(super::peak::decided_before(
             frame.event_sample,

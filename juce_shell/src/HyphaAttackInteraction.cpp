@@ -43,6 +43,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
         {
             followLatest = true;
             selectBoundaryEvent (true);
+            refreshBandEnvelope();
             repaint();
             return;
         }
@@ -66,6 +67,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
     {
         followLatest = true;
         selectBoundaryEvent (true);
+        refreshBandEnvelope();
         repaint();
         return;
     }
@@ -73,6 +75,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
         return;
     followLatest = false;
     selectNearestEventAtX (event.x);
+    refreshBandEnvelope();
     repaint();
 }
 
@@ -82,6 +85,7 @@ void AttackComponent::mouseDrag (const juce::MouseEvent& event)
         return;
     followLatest = false;
     selectNearestEventAtX (event.x);
+    refreshBandEnvelope();
     repaint();
 }
 
@@ -91,8 +95,8 @@ juce::String AttackComponent::tooltipAt (const attack_ui::Layout& shape, juce::P
 {
     for (std::size_t choice = 0; choice < attack_band::choiceCount; ++choice)
         if (rectangleOf (attack_band::chipCell (shape, presentationContext, choice)).contains (point))
-            return choice == chosenBand && preBandPending()
-                ? attack_band_painter::pendingTooltip()
+            return choice != 0 && choice == chosenBand && preBand() == attack_band::PreBand::predates
+                ? attack_band_painter::predatesTooltip()
                 : attack_band_painter::chipTooltip (static_cast<std::uint8_t> (choice));
     if (chosenBand == 0)
         return {};
@@ -149,20 +153,25 @@ void AttackComponent::selectNearestEventAtX (int x) noexcept
     }
 }
 
+// LIVE and END follow the newest hit worth showing, HOME the oldest: with a band, one with its band
+// stated before one still measuring, and that before one never measured (followRank).
 void AttackComponent::selectBoundaryEvent (bool selectLast) noexcept
 {
-    auto selected = selectLast ? std::numeric_limits<std::int64_t>::min()
-                               : std::numeric_limits<std::int64_t>::max();
+    int bestRank = -1;
+    auto selected = std::int64_t { -1 };
     for (std::uint32_t item = 0; item < laneModel.count; ++item)
     {
-        const auto& hit = laneModel.hits[item];
-        if (! hit.selectable || ! attack_ui::eventIsVisible (hit.sample, latest, rate))
+        const auto rank = followRank (item);
+        const auto sample = laneModel.hits[item].sample;
+        if (rank < 0 || rank < bestRank)
             continue;
-        if ((selectLast && hit.sample > selected) || (! selectLast && hit.sample < selected))
-            selected = hit.sample;
+        if (rank > bestRank || (selectLast ? sample > selected : sample < selected))
+        {
+            bestRank = rank;
+            selected = sample;
+        }
     }
-    if (selected != std::numeric_limits<std::int64_t>::min()
-        && selected != std::numeric_limits<std::int64_t>::max())
+    if (bestRank >= 0)
         selectedEventSample = selected;
 }
 
@@ -198,6 +207,7 @@ bool AttackComponent::keyPressed (const juce::KeyPress& key)
     }
     else
         return false;
+    refreshBandEnvelope();
     repaint();
     return true;
 }

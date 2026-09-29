@@ -1,32 +1,35 @@
 //! Exact content-time ATTACK join and presentation snapshot.
 
-use std::sync::TryLockError;
-use std::time::Instant;
+use std::sync::{Arc, TryLockError};
+use std::time::{Duration, Instant};
 
 use super::{
     AttackPairViewSnapshot, PostSession, SpectrumCoordinator, SpectrumViewStatus,
     PRESENTATION_HOLD, WARMUP_LIMIT,
 };
-use crate::attack_perception::band::{band_delay_frames, AttackBand, AttackBandPair};
-use crate::attack_runtime::AttackAnchor;
+use crate::attack_perception::band::AttackBand;
+use crate::attack_runtime::{AttackAnchor, AttackBandResults, AttackPreBand, BandAnchor};
 use crate::{
     AttackDetailedEvent, AttackEvent, AttackHistory, AttackPairEvent, AttackPairEventKind,
     AttackPairJoiner,
 };
+
+/// A PRE whose snapshots still carry no band this long after the band was sent predates bands.
+const PRE_BAND_PREDATES_AFTER: Duration = Duration::from_millis(2_500);
 
 pub(super) fn store_joined_attack(
     coordinator: &SpectrumCoordinator,
     session: &mut PostSession,
     now: Instant,
     post: Option<AttackHistory>,
-    pre: Option<(AttackHistory, Option<AttackBand>)>,
+    pre: Option<(AttackHistory, Option<AttackBandResults>)>,
 ) {
     let band = coordinator
         .attack_runtime
         .as_ref()
         .and_then(|runtime| runtime.band());
-    let (pre, pre_band) = match pre {
-        Some((history, pre_band)) => (Some(history), pre_band),
+    let (pre, pre_band_results) = match pre {
+        Some((history, results)) => (Some(history), results.map(Arc::new)),
         None => (None, None),
     };
     let joined = post
@@ -39,11 +42,18 @@ pub(super) fn store_joined_attack(
             .zip(pre.as_ref())
             .map(|(post, pre)| anchored_post_details(coordinator, pre, post, &pair_events))
             .unwrap_or_default();
-        let band_pairs = band
-            .filter(|band| pre_band == Some(*band))
-            .zip(post.as_ref().zip(pre.as_ref()))
-            .map(|(band, (post, pre))| band_pairs(coordinator, band, pre, post, &pair_events))
-            .unwrap_or_default();
+        let pre_band = pre_band_state(
+            band,
+            pre_band_results.as_deref(),
+            coordinator.attack_band_sent_for(now),
+        );
+        let anchors = match (pre_band, pre_band_results.as_deref(), post.as_ref()) {
+            (AttackPreBand::Same, Some(results), Some(post)) => {
+                band_anchors(results, post, &pair_events)
+            }
+            _ => Vec::new(),
+        };
+        request_anchors(coordinator, band, anchors);
         coordinator.store_attack_view(AttackPairViewSnapshot {
             status: SpectrumViewStatus::Active,
             pre,
@@ -52,12 +62,13 @@ pub(super) fn store_joined_attack(
             post_anchored,
             band,
             pre_band,
-            band_pairs,
+            pre_band_results,
         });
         session.last_presented_at = Some(now);
         session.last_presented_end_samples = Some(endpoint);
         return;
     }
+    request_anchors(coordinator, band, Vec::new());
     if session
         .last_presented_at
         .is_some_and(|presented| now.duration_since(presented) < PRESENTATION_HOLD)
@@ -80,72 +91,70 @@ pub(super) fn store_joined_attack(
         pre,
         post,
         band,
-        pre_band,
         ..Default::default()
     });
 }
 
-/// PRE's band measure at each matched onset, with POST measured there over the same span from
-/// its ring. A pair whose PRE measure has not arrived, or whose POST audio is not retained yet,
-/// carries PRE alone until it is.
-fn band_pairs(
+/// Whether PRE's side of the chosen band is there. A PRE that declares another band will follow
+/// the request; one that declares none (version 3) long after the band was sent predates bands.
+pub(super) fn pre_band_state(
+    band: Option<AttackBand>,
+    pre_results: Option<&AttackBandResults>,
+    sent_for: Option<Duration>,
+) -> AttackPreBand {
+    match (band, pre_results) {
+        (None, _) => AttackPreBand::Off,
+        (Some(band), Some(results)) if results.band == Some(band) => AttackPreBand::Same,
+        (Some(_), Some(_)) => AttackPreBand::Waiting,
+        (Some(_), None) => {
+            if sent_for.is_some_and(|sent_for| sent_for >= PRE_BAND_PREDATES_AFTER) {
+                AttackPreBand::Predates
+            } else {
+                AttackPreBand::Waiting
+            }
+        }
+    }
+}
+
+fn request_anchors(
     coordinator: &SpectrumCoordinator,
-    band: AttackBand,
-    pre: &AttackHistory,
+    band: Option<AttackBand>,
+    anchors: Vec<BandAnchor>,
+) {
+    if let Some(runtime) = coordinator.attack_runtime.as_ref() {
+        runtime.request_band_anchors(band, anchors);
+    }
+}
+
+/// The PRE onsets POST measures the band at: every matched pair whose PRE hit was kept, over the
+/// tail PRE measured. The POST worker measures each once; asking every tick costs nothing.
+fn band_anchors(
+    pre_results: &AttackBandResults,
     post: &AttackHistory,
     pairs: &[AttackPairEvent],
-) -> Vec<AttackBandPair> {
-    let (Some(runtime), Some(identity)) = (coordinator.attack_runtime.as_ref(), post.newest())
-    else {
+) -> Vec<BandAnchor> {
+    let Some(identity) = post.newest() else {
         return Vec::new();
     };
-    let pre_details = pre
-        .band_details()
-        .filter(|detail| detail.measure.band == band)
-        .collect::<Vec<_>>();
-    let matched = pairs
+    pairs
         .iter()
         .filter(|pair| pair.kind == AttackPairEventKind::Matched)
         .filter_map(|pair| {
             let onset = pair.pre_event_sample?;
-            let found =
-                pre_details.binary_search_by_key(&onset, |detail| detail.event.event_sample);
-            let pre_detail = pre_details[found.ok()?];
-            let anchor = AttackEvent {
-                generation: identity.generation,
-                sample_rate: identity.sample_rate,
-                channels: identity.channels,
-                definition_hash: identity.definition_hash,
-                event_sample: onset,
-                decision_sample: pair.decision_sample.max(onset),
-                value: pair.post_value.unwrap_or(0.0),
-            };
-            Some((
-                pre_detail.measure,
-                (anchor, pre_detail.measure.span_end_sample),
-            ))
-        })
-        .collect::<Vec<_>>();
-    let anchors = matched
-        .iter()
-        .map(|(_, anchor)| *anchor)
-        .collect::<Vec<_>>();
-    let post_details = runtime.band_details_at(band, &anchors);
-    matched
-        .into_iter()
-        .map(|(pre_measure, (anchor, _))| {
-            let post_measure = post_details
-                .iter()
-                .find(|detail| detail.event.event_sample == anchor.event_sample)
-                .map(|detail| detail.measure);
-            AttackBandPair {
-                event_sample: anchor.event_sample,
-                pre: pre_measure,
-                post: post_measure,
-                delay_frames: post_measure
-                    .as_ref()
-                    .and_then(|post| band_delay_frames(&pre_measure, post)),
-            }
+            let measure = pre_results.own_at(onset)?.measure?;
+            Some(BandAnchor {
+                event: AttackEvent {
+                    generation: identity.generation,
+                    sample_rate: identity.sample_rate,
+                    channels: identity.channels,
+                    definition_hash: identity.definition_hash,
+                    event_sample: onset,
+                    decision_sample: pair.decision_sample.max(onset),
+                    value: pair.post_value.unwrap_or(0.0),
+                },
+                span_end_sample: measure.span_end_sample,
+                span_end: measure.span_end,
+            })
         })
         .collect()
 }
@@ -237,6 +246,18 @@ impl SpectrumCoordinator {
             Ok(view) => Some(view.clone()),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().clone()),
+        }
+    }
+
+    /// Reads the view in place, without copying its histories: the band polls use this.
+    pub fn with_attack_view<R>(
+        &self,
+        read: impl FnOnce(&AttackPairViewSnapshot) -> R,
+    ) -> Option<R> {
+        match self.attack_view.try_lock() {
+            Ok(view) => Some(read(&view)),
+            Err(TryLockError::WouldBlock) => None,
+            Err(TryLockError::Poisoned(poisoned)) => Some(read(&poisoned.into_inner())),
         }
     }
 

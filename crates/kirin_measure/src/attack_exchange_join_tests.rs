@@ -78,3 +78,28 @@ fn mismatched_content_stays_unavailable_instead_of_correlating() {
         SpectrumViewStatus::Unavailable
     );
 }
+
+#[test]
+fn pre_band_state_tells_waiting_from_a_pre_that_predates_bands() {
+    use super::pre_band_state;
+    use crate::attack_perception::band::AttackBand;
+    use crate::attack_runtime::{AttackBandResults, AttackPreBand};
+    use std::time::Duration;
+
+    let band = AttackBand::from_index(3);
+    let other = AttackBandResults::new(AttackBand::from_index(5), 1);
+    let same = AttackBandResults::new(band, 1);
+    let soon = Some(Duration::from_millis(100));
+    let late = Some(Duration::from_secs(3));
+    assert_eq!(pre_band_state(None, Some(&same), late), AttackPreBand::Off);
+    assert_eq!(pre_band_state(band, Some(&same), soon), AttackPreBand::Same);
+    // A PRE on another band follows the request, however long it takes.
+    assert_eq!(
+        pre_band_state(band, Some(&other), late),
+        AttackPreBand::Waiting
+    );
+    // No band section at all: waiting at first, then a PRE that predates bands.
+    assert_eq!(pre_band_state(band, None, None), AttackPreBand::Waiting);
+    assert_eq!(pre_band_state(band, None, soon), AttackPreBand::Waiting);
+    assert_eq!(pre_band_state(band, None, late), AttackPreBand::Predates);
+}

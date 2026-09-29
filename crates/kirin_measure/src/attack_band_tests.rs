@@ -5,16 +5,16 @@ use super::*;
 /// A drum-like hit: silence, then a carrier at `carrier_hz` whose amplitude rises linearly over
 /// `rise_ms`, then decays with the time constant `tau_ms`.
 #[derive(Clone, Copy)]
-struct Burst {
-    carrier_hz: f64,
-    delay_ms: f64,
-    rise_ms: f64,
-    tau_ms: f64,
-    amplitude: f64,
+pub(super) struct Burst {
+    pub(super) carrier_hz: f64,
+    pub(super) delay_ms: f64,
+    pub(super) rise_ms: f64,
+    pub(super) tau_ms: f64,
+    pub(super) amplitude: f64,
 }
 
 impl Burst {
-    fn sample(&self, seconds_from_onset: f64) -> f64 {
+    pub(super) fn sample(&self, seconds_from_onset: f64) -> f64 {
         let t = seconds_from_onset - self.delay_ms / 1_000.0;
         if t < 0.0 {
             return 0.0;
@@ -33,7 +33,7 @@ impl Burst {
 
 /// Interleaved audio covering the analysis range of one measurement, `channels` copies of one
 /// generator evaluated at each frame's time from the onset.
-fn audio_for(
+pub(super) fn audio_for(
     band: AttackBand,
     sample_rate: u32,
     channels: usize,
@@ -52,7 +52,7 @@ fn audio_for(
     audio
 }
 
-fn measure(
+pub(super) fn measure(
     band: AttackBand,
     sample_rate: u32,
     channels: usize,
@@ -60,7 +60,7 @@ fn measure(
     generate: impl FnMut(f64) -> f64,
 ) -> Option<AttackBandMeasure> {
     let onset = 48_000;
-    let span_end = span_end_for(sample_rate, onset, next_onset);
+    let (span_end, reason) = span_end_for(sample_rate, onset, next_onset);
     let audio = audio_for(band, sample_rate, channels, onset, span_end, generate);
     let mut scratch = BandScratch::default();
     measure_band(
@@ -69,16 +69,51 @@ fn measure(
         channels,
         onset,
         span_end,
+        reason,
         &audio,
         &mut scratch,
     )
 }
 
-fn ms(frames: f32, sample_rate: u32) -> f64 {
+pub(super) fn ms(frames: f32, sample_rate: u32) -> f64 {
     f64::from(frames) * 1_000.0 / f64::from(sample_rate)
 }
 
-fn band(index: u8) -> AttackBand {
+pub(super) fn rises(measure: &AttackBandMeasure) -> (BandArrival, BandRelease) {
+    match measure.sound {
+        BandSound::Rises { arrival, release } => (arrival, release),
+        other => panic!("the band does not rise: {other:?}"),
+    }
+}
+
+pub(super) fn arrival_frames(measure: &AttackBandMeasure) -> f32 {
+    match rises(measure).0 {
+        BandArrival::At { arrival_frames, .. } => arrival_frames,
+        BandArrival::Ringing => panic!("no timed start"),
+    }
+}
+
+pub(super) fn attack_frames(measure: &AttackBandMeasure) -> f32 {
+    match rises(measure).0 {
+        BandArrival::At { attack_frames, .. } => attack_frames,
+        BandArrival::Ringing => panic!("no timed start"),
+    }
+}
+
+pub(super) fn release_frames(measure: &AttackBandMeasure) -> f32 {
+    match rises(measure).1 {
+        BandRelease::At(frames) => frames,
+        other => panic!("no timed release: {other:?}"),
+    }
+}
+
+pub(super) fn peak_of(points: &[i16]) -> f32 {
+    points
+        .iter()
+        .fold(f32::MIN, |peak, value| peak.max(dbfs_from_centi(*value)))
+}
+
+pub(super) fn band(index: u8) -> AttackBand {
     AttackBand::from_index(index).unwrap()
 }
 
@@ -149,28 +184,26 @@ fn measure_reads_arrival_attack_release_and_level_of_a_shaped_burst() {
     let measured = measure(band(4), 48_000, 2, None, |t| burst.sample(t)).unwrap();
     assert_eq!(measured.band, band(4));
     assert_eq!(measured.span_end_sample, 48_000 + 14_400);
+    assert_eq!(measured.span_end, BandSpanEnd::Window);
     // The envelope is the one-period RMS of a sine of amplitude 0.5: -9.03 dBFS.
     assert!(
         (measured.level_dbfs + 9.03).abs() < 0.6,
         "{}",
         measured.level_dbfs
     );
-    let arrival = ms(measured.arrival_frames.unwrap(), 48_000);
-    let attack = ms(measured.attack_frames.unwrap(), 48_000);
-    let release = ms(measured.release_frames.unwrap(), 48_000);
+    let arrival = ms(arrival_frames(&measured), 48_000);
+    let attack = ms(attack_frames(&measured), 48_000);
+    let release = ms(release_frames(&measured), 48_000);
     // 10 % of a 6 ms linear rise is at 0.6 ms; 10 % to 90 % takes 4.8 ms; the decay reaches
     // -20 dB at tau x ln 10 = 103.6 ms. Each within the band's 2 ms period.
     assert!((arrival - 0.6).abs() < 2.0, "arrival {arrival} ms");
     assert!((attack - 4.8).abs() < 2.0, "attack {attack} ms");
     assert!((release - 103.6).abs() < 4.0, "release {release} ms");
     assert!(measured.has_valid_layout());
-    let head_peak = measured
-        .head_dbfs
-        .iter()
-        .fold(f32::MIN, |peak, value| peak.max(*value));
-    assert!((head_peak - measured.level_dbfs).abs() < 1.0);
+    assert!((peak_of(&measured.envelope.head) - measured.level_dbfs).abs() < 1.0);
     // The tail falls: its last point is far below its first.
-    assert!(measured.tail_dbfs[63] < measured.tail_dbfs[1] - 20.0);
+    let tail = measured.envelope.tail;
+    assert!(dbfs_from_centi(tail[63]) < dbfs_from_centi(tail[1]) - 20.0);
 }
 
 #[test]
@@ -215,14 +248,8 @@ fn a_slower_rise_a_longer_ring_out_and_a_lower_level_read_as_such() {
     };
     let pre = measure(band(3), 48_000, 2, None, |t| pre_burst.sample(t)).unwrap();
     let post = measure(band(3), 48_000, 2, None, |t| post_burst.sample(t)).unwrap();
-    let attack = ms(
-        post.attack_frames.unwrap() - pre.attack_frames.unwrap(),
-        48_000,
-    );
-    let release = ms(
-        post.release_frames.unwrap() - pre.release_frames.unwrap(),
-        48_000,
-    );
+    let attack = ms(attack_frames(&post) - attack_frames(&pre), 48_000);
+    let release = ms(release_frames(&post) - release_frames(&pre), 48_000);
     assert!((attack - 0.8).abs() < 1.5, "attack difference {attack} ms");
     assert!(
         (release - 23.0).abs() < 4.0,
@@ -289,88 +316,6 @@ fn a_minimum_phase_high_pass_delays_the_low_band_by_its_group_delay() {
 }
 
 #[test]
-fn silence_and_a_band_below_the_presence_floor_measure_nothing() {
-    assert!(measure(band(4), 48_000, 2, None, |_| 0.0).is_none());
-    // -72 dBFS peak envelope: a sine of amplitude 10^(-72/20) x sqrt 2 sits on the floor.
-    let faint = Burst {
-        carrier_hz: 4_000.0,
-        delay_ms: 0.0,
-        rise_ms: 6.0,
-        tau_ms: 45.0,
-        amplitude: 10.0_f64.powf(-74.0 / 20.0) * std::f64::consts::SQRT_2,
-    };
-    assert!(measure(band(7), 48_000, 2, None, |t| faint.sample(t)).is_none());
-    let present = Burst {
-        amplitude: 10.0_f64.powf(-70.0 / 20.0) * std::f64::consts::SQRT_2,
-        ..faint
-    };
-    assert!(measure(band(7), 48_000, 2, None, |t| present.sample(t)).is_some());
-}
-
-#[test]
-fn a_tail_cut_by_the_next_onset_has_no_release() {
-    let burst = Burst {
-        carrier_hz: 500.0,
-        delay_ms: 0.0,
-        rise_ms: 6.0,
-        tau_ms: 45.0,
-        amplitude: 0.5,
-    };
-    let next = 48_000 + 2_400;
-    let measured = measure(band(4), 48_000, 2, Some(next), |t| burst.sample(t)).unwrap();
-    assert_eq!(measured.span_end_sample, next);
-    assert!(measured.release_frames.is_none());
-    assert!(measured.arrival_frames.is_some());
-    assert!(measured.tail_dbfs[63] == ATTACK_LEVEL_FLOOR_DBFS);
-    assert_eq!(span_end_for(48_000, 48_000, Some(47_000)), 48_000 + 14_400);
-    assert_eq!(span_end_for(48_000, 48_000, Some(200_000)), 48_000 + 14_400);
-}
-
-#[test]
-fn a_band_still_ringing_before_the_onset_has_no_arrival() {
-    // The previous hit's ring-out sits above this hit's peak - 20 dB throughout the lead.
-    let burst = Burst {
-        carrier_hz: 500.0,
-        delay_ms: 0.0,
-        rise_ms: 6.0,
-        tau_ms: 45.0,
-        amplitude: 0.5,
-    };
-    let measured = measure(band(4), 48_000, 2, None, |t| {
-        burst.sample(t) + 0.2 * (std::f64::consts::TAU * 500.0 * t).sin()
-    })
-    .unwrap();
-    assert!(measured.arrival_frames.is_none());
-    assert!(measured.attack_frames.is_none());
-    assert!(measured.has_valid_layout());
-}
-
-#[test]
-fn ring_addresses_content_positions_and_restarts_on_a_gap() {
-    let mut ring = AttackBandRing::new(1_000, 2);
-    assert!(ring.is_empty());
-    ring.push_block(100, &[1.0, 2.0, 3.0, 4.0]);
-    ring.push_block(102, &[5.0, 6.0]);
-    assert_eq!((ring.first(), ring.end()), (100, 103));
-    let mut copied = Vec::new();
-    assert!(ring.copy_frames(101, 103, &mut copied));
-    assert_eq!(copied, [3.0, 4.0, 5.0, 6.0]);
-    assert!(!ring.copy_frames(99, 101, &mut copied));
-    assert!(!ring.copy_frames(102, 104, &mut copied));
-    assert!(!ring.copy_frames(102, 102, &mut copied));
-    ring.push_block(110, &[7.0, 8.0]);
-    assert_eq!((ring.first(), ring.end()), (110, 111));
-    // Seven seconds at 1 kHz is 7 000 frames: older frames fall off the front.
-    let block = vec![0.5; 2 * 4_000];
-    ring.push_block(111, &block);
-    ring.push_block(4_111, &block);
-    assert_eq!(ring.end(), 8_111);
-    assert_eq!(ring.first(), 8_111 - 7_000);
-    ring.push_block(8_111, &[1.0]);
-    assert_eq!(ring.end(), 8_111, "an odd sample count is refused");
-}
-
-#[test]
 fn measures_are_the_same_at_every_supported_rate() {
     let burst = Burst {
         carrier_hz: 250.0,
@@ -383,11 +328,23 @@ fn measures_are_the_same_at_every_supported_rate() {
     for rate in [44_100, 96_000, 192_000] {
         let measured = measure(band(3), rate, 2, None, |t| burst.sample(t)).unwrap();
         for (label, a, b) in [
-            ("arrival", reference.arrival_frames, measured.arrival_frames),
-            ("attack", reference.attack_frames, measured.attack_frames),
-            ("release", reference.release_frames, measured.release_frames),
+            (
+                "arrival",
+                arrival_frames(&reference),
+                arrival_frames(&measured),
+            ),
+            (
+                "attack",
+                attack_frames(&reference),
+                attack_frames(&measured),
+            ),
+            (
+                "release",
+                release_frames(&reference),
+                release_frames(&measured),
+            ),
         ] {
-            let difference = (ms(a.unwrap(), 48_000) - ms(b.unwrap(), rate)).abs();
+            let difference = (ms(a, 48_000) - ms(b, rate)).abs();
             assert!(
                 difference < 0.5,
                 "{label} differs by {difference} ms at {rate}"
@@ -395,31 +352,6 @@ fn measures_are_the_same_at_every_supported_rate() {
         }
         assert!((reference.level_dbfs - measured.level_dbfs).abs() < 0.2);
     }
-}
-
-#[test]
-fn measure_from_ring_needs_the_whole_analysis_range() {
-    let burst = Burst {
-        carrier_hz: 500.0,
-        delay_ms: 0.0,
-        rise_ms: 6.0,
-        tau_ms: 45.0,
-        amplitude: 0.5,
-    };
-    let onset = 48_000;
-    let span_end = span_end_for(48_000, onset, None);
-    let (from, to) = analysis_range(band(4), 48_000, onset, span_end);
-    let mut ring = AttackBandRing::new(48_000, 2);
-    let mut scratch = BandScratch::default();
-    // Everything but the last frame: not yet.
-    let audio = audio_for(band(4), 48_000, 2, onset, span_end, |t| burst.sample(t));
-    ring.push_block(from, &audio[..audio.len() - 2]);
-    assert!(measure_from_ring(&ring, band(4), 48_000, 2, onset, span_end, &mut scratch).is_none());
-    ring.push_block(to - 1, &audio[audio.len() - 2..]);
-    let measured =
-        measure_from_ring(&ring, band(4), 48_000, 2, onset, span_end, &mut scratch).unwrap();
-    assert_eq!(measured.event_sample, onset);
-    assert!(measured.release_frames.is_some());
 }
 
 /// Run with `-- --ignored --nocapture`: the cost of one band measurement per hit.
@@ -436,7 +368,7 @@ fn reports_the_cost_of_one_band_measurement() {
                 amplitude: 0.5,
             };
             let onset = 48_000;
-            let span_end = span_end_for(rate, onset, None);
+            let (span_end, reason) = span_end_for(rate, onset, None);
             let audio = audio_for(band(index), rate, channels, onset, span_end, |t| {
                 burst.sample(t)
             });
@@ -450,6 +382,7 @@ fn reports_the_cost_of_one_band_measurement() {
                     channels,
                     onset,
                     span_end,
+                    reason,
                     &audio,
                     &mut scratch,
                 );

@@ -1,115 +1,93 @@
-//! DRUM band C ABI (B-1096): the chosen band and, per hit, PRE's and POST's band measures.
+//! DRUM band C ABI (B-1096, B-1098): the chosen band, and for every hit the lanes show, PRE's
+//! and POST's outcome in it.
 //!
-//! A band is chosen on POST only. It rides the pair request to PRE, so both sides measure the
-//! same band at the same onsets; nothing is measured while no band is chosen.
+//! The hits are exactly the lanes' hits, keyed by the same `event_sample`: the pair events while
+//! a pair is active (as `kirin_hypha_poll_attack_pair_events` gives them), POST's own details
+//! otherwise (as `kirin_hypha_poll_attack_details`). One function maps a hit to its band sides,
+//! and both polls use it, so the band lanes cannot have other columns than the whole-signal
+//! lanes, and the envelope of a hit is the one its values came from. Nothing here measures: the
+//! ATTACK workers did, once per hit.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use kirin_measure::attack_perception::band::{
-    AttackBand, AttackBandMeasure, ATTACK_BAND_HEAD_POINTS, ATTACK_BAND_HISTORY_CAPACITY,
-    ATTACK_BAND_TAIL_POINTS,
+    AttackBand, ATTACK_BAND_HEAD_POINTS, ATTACK_BAND_TAIL_POINTS,
 };
-use kirin_measure::{AttackPairViewSnapshot, PluginDataRole, SpectrumViewStatus};
+use kirin_measure::{AttackOdfFrame, AttackPairViewSnapshot, PluginDataRole, SpectrumViewStatus};
 
-use super::KirinHyphaEngine;
+use super::{KirinHyphaEngine, KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY};
 
-pub const KIRIN_ATTACK_BAND_BATCH_CAPACITY: usize = ATTACK_BAND_HISTORY_CAPACITY;
+pub const KIRIN_ATTACK_BAND_BATCH_CAPACITY: usize = KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY;
 pub const KIRIN_ATTACK_BAND_HEAD_POINTS: usize = ATTACK_BAND_HEAD_POINTS;
 pub const KIRIN_ATTACK_BAND_TAIL_POINTS: usize = ATTACK_BAND_TAIL_POINTS;
 
-/// One side of one hit. Times are milliseconds from the onset; a value whose `*_available` is
-/// 0 was not in the audio and reads as unavailable, never as 0.
+/// A side's outcome in the band.
+pub const KIRIN_ATTACK_BAND_SIDE_PENDING: u8 = 0;
+pub const KIRIN_ATTACK_BAND_SIDE_RISES: u8 = 1;
+pub const KIRIN_ATTACK_BAND_SIDE_RINGS_ON: u8 = 2;
+pub const KIRIN_ATTACK_BAND_SIDE_SILENT: u8 = 3;
+pub const KIRIN_ATTACK_BAND_SIDE_NOT_KEPT: u8 = 4;
+pub const KIRIN_ATTACK_BAND_SIDE_ABSENT: u8 = 5;
+pub const KIRIN_ATTACK_BAND_ARRIVAL_AT: u8 = 0;
+pub const KIRIN_ATTACK_BAND_ARRIVAL_RINGING: u8 = 1;
+pub const KIRIN_ATTACK_BAND_RELEASE_AT: u8 = 0;
+pub const KIRIN_ATTACK_BAND_RELEASE_NEXT_HIT: u8 = 1;
+pub const KIRIN_ATTACK_BAND_RELEASE_AT_LEAST: u8 = 2;
+/// Whether PRE's side of the chosen band is there.
+pub const KIRIN_ATTACK_BAND_PRE_OFF: u8 = 0;
+pub const KIRIN_ATTACK_BAND_PRE_SAME: u8 = 1;
+pub const KIRIN_ATTACK_BAND_PRE_WAITING: u8 = 2;
+pub const KIRIN_ATTACK_BAND_PRE_PREDATES: u8 = 3;
+/// A hit's kind: the pair event kinds 0 to 3, and 4 for POST's own hit while no pair is active.
+pub const KIRIN_ATTACK_BAND_KIND_POST_ALONE: u8 = 4;
+
+/// One side of one hit. Times are ms from `measured_at_sample`. `state` says which values mean
+/// anything: RISES all of them (as `arrival_state` and `release_state` qualify), RINGS_ON and
+/// SILENT only `level_dbfs` and `peak_ms`, the others none.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct KirinAttackBandSide {
-    pub available: u8,
-    pub arrival_available: u8,
-    pub attack_available: u8,
-    pub release_available: u8,
-    pub reserved: [u8; 4],
-    pub span_end_sample: i64,
+    pub state: u8,
+    pub arrival_state: u8,
+    pub release_state: u8,
+    pub reserved: u8,
     pub peak_ms: f32,
     pub arrival_ms: f32,
     pub attack_ms: f32,
+    /// The release, or its lower bound when `release_state` is AT_LEAST.
     pub release_ms: f32,
     pub level_dbfs: f32,
-    pub reserved2: f32,
-    /// dBFS envelope over [onset - 20 ms, onset + 40 ms).
-    pub head_dbfs: [f32; KIRIN_ATTACK_BAND_HEAD_POINTS],
-    /// dBFS envelope over [onset, onset + 300 ms); points past `span_end_sample` sit on the floor.
-    pub tail_dbfs: [f32; KIRIN_ATTACK_BAND_TAIL_POINTS],
 }
 
-impl Default for KirinAttackBandSide {
-    fn default() -> Self {
-        Self {
-            available: 0,
-            arrival_available: 0,
-            attack_available: 0,
-            release_available: 0,
-            reserved: [0; 4],
-            span_end_sample: 0,
-            peak_ms: 0.0,
-            arrival_ms: 0.0,
-            attack_ms: 0.0,
-            release_ms: 0.0,
-            level_dbfs: 0.0,
-            reserved2: 0.0,
-            head_dbfs: [0.0; KIRIN_ATTACK_BAND_HEAD_POINTS],
-            tail_dbfs: [0.0; KIRIN_ATTACK_BAND_TAIL_POINTS],
-        }
-    }
-}
-
-/// kind: 0 = matched (PRE and POST at the PRE onset), 2 = POST only.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct KirinAttackBandHit {
-    pub generation: u64,
-    pub sample_rate: u32,
-    pub channels: u8,
-    pub band: u8,
-    pub kind: u8,
-    pub delay_available: u8,
+    /// The lanes' key for this hit: the pair event's, or POST's own onset.
     pub event_sample: i64,
-    /// The band's time resolution: one period of its centre frequency.
-    pub resolution_micros: u32,
-    /// POST minus PRE arrival, ms.
-    pub delay_ms: f32,
+    /// Where both sides were measured: the PRE onset for a matched pair.
+    pub measured_at_sample: i64,
+    pub kind: u8,
+    pub reserved: [u8; 7],
     pub pre: KirinAttackBandSide,
     pub post: KirinAttackBandSide,
 }
 
-impl Default for KirinAttackBandHit {
-    fn default() -> Self {
-        Self {
-            generation: 0,
-            sample_rate: 0,
-            channels: 0,
-            band: 0,
-            kind: 0,
-            delay_available: 0,
-            event_sample: 0,
-            resolution_micros: 0,
-            delay_ms: 0.0,
-            pre: KirinAttackBandSide::default(),
-            post: KirinAttackBandSide::default(),
-        }
-    }
-}
-
-/// `status` uses the pair view's vocabulary. `band` is the chosen band (0 = none).
-/// `pre_band_available` is 1 once PRE's snapshot declares the same band: a PRE that predates
-/// bands never does, and the hits then stay POST only.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct KirinAttackBandBatch {
+    /// The pair view's status vocabulary.
     pub status: u8,
+    /// The band the hits are for; 0 = none chosen.
     pub band: u8,
-    pub pre_band_available: u8,
+    pub pre_band: u8,
     pub reserved: u8,
     pub count: u32,
     pub capacity: u32,
+    /// The band's time resolution: one period of its centre.
+    pub resolution_micros: u32,
+    /// The run the hits belong to, as the lanes' other batches carry it.
+    pub generation: u64,
+    pub sample_rate: u32,
     pub reserved2: u32,
     pub hits: [KirinAttackBandHit; KIRIN_ATTACK_BAND_BATCH_CAPACITY],
 }
@@ -119,43 +97,51 @@ impl Default for KirinAttackBandBatch {
         Self {
             status: 0,
             band: 0,
-            pre_band_available: 0,
+            pre_band: KIRIN_ATTACK_BAND_PRE_OFF,
             reserved: 0,
             count: 0,
             capacity: KIRIN_ATTACK_BAND_BATCH_CAPACITY as u32,
+            resolution_micros: 0,
+            generation: 0,
+            sample_rate: 0,
             reserved2: 0,
             hits: [KirinAttackBandHit::default(); KIRIN_ATTACK_BAND_BATCH_CAPACITY],
         }
     }
 }
 
-fn ms(frames: f32, sample_rate: u32) -> f32 {
-    frames * 1_000.0 / sample_rate as f32
+/// dBFS points over [measured_at - 20 ms, + 40 ms) and [measured_at, + 300 ms).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KirinAttackBandEnvelope {
+    pub head_dbfs: [f32; KIRIN_ATTACK_BAND_HEAD_POINTS],
+    pub tail_dbfs: [f32; KIRIN_ATTACK_BAND_TAIL_POINTS],
 }
 
-fn to_c_band_side(measure: &AttackBandMeasure) -> KirinAttackBandSide {
-    let rate = measure.sample_rate;
-    KirinAttackBandSide {
-        available: 1,
-        arrival_available: measure.arrival_frames.is_some() as u8,
-        attack_available: measure.attack_frames.is_some() as u8,
-        release_available: measure.release_frames.is_some() as u8,
-        reserved: [0; 4],
-        span_end_sample: measure.span_end_sample,
-        peak_ms: ms(measure.peak_frames, rate),
-        arrival_ms: measure
-            .arrival_frames
-            .map_or(0.0, |frames| ms(frames, rate)),
-        attack_ms: measure.attack_frames.map_or(0.0, |frames| ms(frames, rate)),
-        release_ms: measure
-            .release_frames
-            .map_or(0.0, |frames| ms(frames, rate)),
-        level_dbfs: measure.level_dbfs,
-        reserved2: 0.0,
-        head_dbfs: measure.head_dbfs,
-        tail_dbfs: measure.tail_dbfs,
+impl Default for KirinAttackBandEnvelope {
+    fn default() -> Self {
+        Self {
+            head_dbfs: [0.0; KIRIN_ATTACK_BAND_HEAD_POINTS],
+            tail_dbfs: [0.0; KIRIN_ATTACK_BAND_TAIL_POINTS],
+        }
     }
 }
+
+/// One hit with its envelopes: the same record the batch carries for it, and the band both are
+/// for. An envelope means something when its side's state is RISES, RINGS_ON or SILENT.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KirinAttackBandHitEnvelope {
+    pub hit: KirinAttackBandHit,
+    pub band: u8,
+    pub reserved: [u8; 7],
+    pub pre: KirinAttackBandEnvelope,
+    pub post: KirinAttackBandEnvelope,
+}
+
+#[path = "attack_ffi_band_map.rs"]
+mod map;
+use map::{pre_band_code, sources, status_code, to_c_envelope, Source};
 
 impl KirinHyphaEngine {
     /// POST only. 0 chooses no band; 1 to 8 choose 63 Hz to 8 kHz. It is not persisted.
@@ -185,88 +171,92 @@ impl KirinHyphaEngine {
             .map_or(0, AttackBand::index)
     }
 
-    /// The chosen band's hits: matched pairs from the pair view, and POST's own hits for every
-    /// other onset. `None` while the pair view is being replaced.
-    pub fn poll_attack_band(&self) -> Option<KirinAttackBandBatch> {
+    /// Runs `read` over the lanes' hits in the chosen band, with the identity of the run they
+    /// belong to. `None` while the view or history is being replaced: the editor keeps what it
+    /// had.
+    fn with_band_sources<R>(
+        &self,
+        read: impl FnOnce(
+            &AttackPairViewSnapshot,
+            Option<AttackBand>,
+            Option<&AttackOdfFrame>,
+            &[Source<'_>],
+        ) -> R,
+    ) -> Option<R> {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return None;
         }
         let runtime = self.attack_runtime.as_ref()?;
-        let view = self.attack_pair_view()?;
-        let mut batch = KirinAttackBandBatch {
-            status: view.status as u8,
-            ..Default::default()
+        let band = runtime.band();
+        let results = runtime.band_results();
+        let active = self
+            .spectrum
+            .with_attack_view(|view| view.status == SpectrumViewStatus::Active)?;
+        let history = if active {
+            None
+        } else {
+            Some(runtime.try_history()?)
         };
-        let Some(band) = runtime.band() else {
-            return Some(batch);
-        };
-        batch.band = band.index();
-        batch.pre_band_available = (view.pre_band == Some(band)) as u8;
-        let history = runtime.try_history()?;
-        let Some(identity) = history.newest() else {
-            return Some(batch);
-        };
-        let matched = band_pair_hits(&view, band, identity.generation);
-        let mut hits = matched.clone();
-        hits.extend(
-            history
-                .band_details()
-                .filter(|detail| detail.measure.band == band)
-                .filter(|detail| {
-                    matched
-                        .iter()
-                        .all(|hit| hit.event_sample != detail.event.event_sample)
-                })
-                .map(|detail| KirinAttackBandHit {
-                    generation: detail.event.generation,
-                    sample_rate: detail.event.sample_rate,
-                    channels: detail.event.channels,
-                    band: band.index(),
-                    kind: 2,
-                    delay_available: 0,
-                    event_sample: detail.event.event_sample,
-                    resolution_micros: band.resolution_micros(),
-                    delay_ms: 0.0,
-                    pre: KirinAttackBandSide::default(),
-                    post: to_c_band_side(&detail.measure),
-                }),
-        );
-        hits.sort_by_key(|hit| hit.event_sample);
-        let skip = hits.len().saturating_sub(KIRIN_ATTACK_BAND_BATCH_CAPACITY);
-        for (destination, source) in batch.hits.iter_mut().zip(hits.iter().skip(skip)) {
-            *destination = *source;
-            batch.count += 1;
-        }
-        Some(batch)
+        self.spectrum
+            .with_attack_view(|view| {
+                // The pair came or went between the two reads: keep what the editor has rather
+                // than show an empty band for one poll.
+                if (view.status == SpectrumViewStatus::Active) != active {
+                    return None;
+                }
+                let identity = match history.as_ref() {
+                    Some(history) => history.newest(),
+                    None => view.post.as_ref().and_then(|post| post.newest()),
+                };
+                let hits = band
+                    .map(|band| sources(view, history.as_ref(), &results, band))
+                    .unwrap_or_default();
+                Some(read(view, band, identity, &hits))
+            })
+            .flatten()
     }
-}
 
-fn band_pair_hits(
-    view: &AttackPairViewSnapshot,
-    band: AttackBand,
-    generation: u64,
-) -> Vec<KirinAttackBandHit> {
-    if view.status != SpectrumViewStatus::Active || view.band != Some(band) {
-        return Vec::new();
-    }
-    view.band_pairs
-        .iter()
-        .map(|pair| KirinAttackBandHit {
-            generation,
-            sample_rate: pair.pre.sample_rate,
-            channels: pair.pre.channels,
-            band: band.index(),
-            kind: 0,
-            delay_available: pair.delay_frames.is_some() as u8,
-            event_sample: pair.event_sample,
-            resolution_micros: band.resolution_micros(),
-            delay_ms: pair
-                .delay_frames
-                .map_or(0.0, |frames| ms(frames, pair.pre.sample_rate)),
-            pre: to_c_band_side(&pair.pre),
-            post: pair.post.as_ref().map(to_c_band_side).unwrap_or_default(),
+    pub fn poll_attack_band(&self) -> Option<KirinAttackBandBatch> {
+        self.with_band_sources(|view, band, identity, hits| {
+            let mut batch = KirinAttackBandBatch {
+                status: status_code(view.status),
+                band: band.map_or(0, AttackBand::index),
+                pre_band: if view.status == SpectrumViewStatus::Active {
+                    pre_band_code(view.pre_band)
+                } else {
+                    KIRIN_ATTACK_BAND_PRE_OFF
+                },
+                resolution_micros: band.map_or(0, AttackBand::resolution_micros),
+                generation: identity.map_or(0, |identity| identity.generation),
+                sample_rate: identity.map_or(0, |identity| identity.sample_rate),
+                ..Default::default()
+            };
+            for (destination, source) in batch.hits.iter_mut().zip(hits) {
+                *destination = source.hit;
+                batch.count += 1;
+            }
+            batch
         })
-        .collect()
+    }
+
+    /// The hit keyed `event_sample` with both envelopes; `None` when it is not a lanes hit now.
+    pub fn poll_attack_band_envelope(
+        &self,
+        event_sample: i64,
+    ) -> Option<KirinAttackBandHitEnvelope> {
+        self.with_band_sources(|_, band, _, hits| {
+            hits.iter()
+                .find(|source| source.hit.event_sample == event_sample)
+                .map(|source| KirinAttackBandHitEnvelope {
+                    hit: source.hit,
+                    band: band.map_or(0, AttackBand::index),
+                    reserved: [0; 7],
+                    pre: to_c_envelope(source.pre),
+                    post: to_c_envelope(source.post),
+                })
+        })
+        .flatten()
+    }
 }
 
 /// Chooses the DRUM band. POST only; 0 is no band. UI/control thread only.
@@ -287,7 +277,7 @@ pub unsafe extern "C" fn kirin_hypha_set_attack_band(
     .unwrap_or(false)
 }
 
-/// Copies the chosen band's newest 64 hits, oldest first. UI/control thread only.
+/// Copies the chosen band's outcome for every hit the lanes show, oldest first. UI thread only.
 ///
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
@@ -304,6 +294,30 @@ pub unsafe extern "C" fn kirin_hypha_poll_attack_band(
             return false;
         };
         unsafe { *out = batch };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Copies one hit with its PRE and POST band envelopes, for the HEAD / TAIL panes. UI thread
+/// only.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_attack_band_envelope(
+    handle: *mut KirinHyphaEngine,
+    event_sample: i64,
+    out: *mut KirinAttackBandHitEnvelope,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(envelope) = (unsafe { &*handle }).poll_attack_band_envelope(event_sample) else {
+            return false;
+        };
+        unsafe { *out = envelope };
         true
     }))
     .unwrap_or(false)
