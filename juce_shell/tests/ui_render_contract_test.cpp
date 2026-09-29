@@ -14,6 +14,8 @@
 #include "ReferenceGuidanceReview.h"
 #include "LargePageReview.h"
 #include "FreqHistoryReview.h"
+#include "PageLightReview.h"
+#include "MaterialLightContract.h"
 #include "SpectrumControlsContract.h"
 #include "LanguageContract.h"
 #include "MagnifiedInspectionContract.h"
@@ -149,26 +151,10 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (hypha::tests::writeReferenceReview());
     KIRIN_REQUIRE (hypha::tests::writeLargePageReview());
     KIRIN_REQUIRE (hypha::tests::writeFreqHistoryReview());
+    KIRIN_REQUIRE (hypha::tests::writeLightingReview());
     if (std::getenv ("KIRIN_HYPHA_REVIEW_ONLY") != nullptr) return 0;
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
-    {
-        juce::Image panel (juce::Image::RGB, 120, 60, true);
-        juce::Graphics panelGraphics (panel);
-        panelGraphics.fillAll (hypha::BG);
-        hypha::surface_material::paintPanel (
-            panelGraphics, panel.getBounds().toFloat(), 0.96f, 5.0f);
-        KIRIN_REQUIRE (panel.getPixelAt (60, 30) != hypha::BG);
-        KIRIN_REQUIRE (panel.getPixelAt (60, 2).getPerceivedBrightness()
-                       > panel.getPixelAt (60, 30).getPerceivedBrightness());
-
-        juce::Image frame (juce::Image::RGB, 300, 200, true);
-        juce::Graphics frameGraphics (frame);
-        frameGraphics.fillAll (hypha::BG);
-        hypha::surface_material::paintInstrumentFrame (
-            frameGraphics, frame.getBounds().toFloat(), false);
-        KIRIN_REQUIRE (frame.getPixelAt (150, 1) != hypha::BG);
-        KIRIN_REQUIRE (frame.getPixelAt (150, 100) == hypha::BG);
-    }
+    KIRIN_REQUIRE (hypha::tests::verifyMaterialLight());
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());

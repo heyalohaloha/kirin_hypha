@@ -10,11 +10,12 @@ namespace hypha::attack_depth
 {
 namespace
 {
-// The approved depth (A3, 2026-09-26): the richest of the three reviewed strengths.
+// The approved depth (A3, 2026-09-26): the richest of the three reviewed strengths. On
+// 2026-09-29 the wells took the composition light of the VU: HISTORY alone is lit at its edge.
 constexpr Look product {
     0.58f,  // wellShadow
-    0.22f,  // wellRim
-    0.045f, // sheen
+    0.73f,  // mainEdge (2026-09-29: the composition light of the VU)
+    0.10f,  // laneOutline
     0.35f,  // vignette
     2.20f,  // bloom
     0.50f,  // specular
@@ -40,10 +41,9 @@ const Look& look() noexcept
 void paintWell (juce::Graphics& g, juce::Rectangle<float> area, float radius, bool vignette)
 {
     const auto& depth = look();
-    const auto gold = juce::Colour (attack_ui::waveformColour);
     depth_material::paintRecessedWell (g, area, radius,
-        { depth.wellShadow, depth.wellRim, depth.sheen, vignette ? depth.vignette : 0.0f, 0.0f,
-          gold });
+        { depth.wellShadow, vignette ? depth.vignette : 0.0f, vignette ? depth.mainEdge : 0.0f,
+          vignette ? 0.0f : depth.laneOutline });
 }
 
 void paintGlints (juce::Graphics& g, const juce::Path& edge, float crestY, juce::Colour colour,
