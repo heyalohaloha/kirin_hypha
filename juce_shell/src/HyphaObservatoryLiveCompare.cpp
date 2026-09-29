@@ -3,10 +3,8 @@
 #include <array>
 #include <cstdlib>
 
-// The footer controls of the two explicit PRE / POST comparisons: Blind (one exact four second
-// capture, INV-S25) and the live compare (AGENTS R-12, INV-LC4). Both are POST entries at the
-// large sizes. A running live session replaces the footer actions at every size, so returning to
-// POST and ending it never need a larger editor.
+// POST comparisons: live BLIND or named LISTEN. Exact 4 S is secondary, through MENU -> PIN.
+// Active/recovery controls remain reachable at every size and always disclose a level rise.
 namespace hypha::observatory
 {
 namespace
@@ -31,7 +29,7 @@ void View::configureComparisonEntries()
     }
     localBlindButton.setComponentID ("observatory-local-blind");
     localBlindButton.setTitle ("PRE / POST Blind Compare");
-    localBlindButton.setDescription ("Capture and compare one exact four second PRE and POST range");
+    localBlindButton.setDescription ("Match levels and compare while the song plays");
     localBlindButton.setTooltip (localBlindButton.getDescription());
     localBlindButton.onClick = [this] { if (onLocalBlind) onLocalBlind(); };
 
@@ -53,11 +51,13 @@ void View::configureComparisonEntries()
     liveMatchButton.onClick = [this] { if (onLiveCompareMatch) onLiveCompareMatch(); };
     liveEndButton.setComponentID ("observatory-live-end");
     liveEndButton.setTitle ("END");
-    liveEndButton.setDescription ("End PRE / POST listening and return to POST");
+    liveEndButton.setColour (juce::TextButton::textColourOffId, COL_NORMAL);
+    liveEndButton.setDescription ("End listening and restore normal POST level");
     liveEndButton.setTooltip (liveEndButton.getDescription());
     liveEndButton.onClick = [this] { if (onLiveCompareEnd) onLiveCompareEnd(); };
     liveReturnButton.setComponentID ("observatory-live-return");
     liveReturnButton.setTitle ("RETURN");
+    liveReturnButton.setColour (juce::TextButton::textColourOffId, COL_NORMAL);
     liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
     liveReturnButton.setTooltip (liveReturnButton.getDescription());
     liveReturnButton.onClick = [this] { if (onLiveCompareReturn) onLiveCompareReturn(); };
@@ -77,8 +77,8 @@ void View::setLiveCompareFooter (const LiveCompareFooter& next)
     repaint();
 }
 
-// PRE, POST, MATCH, END and MENU while a session runs. Where the rail is narrow MENU goes first,
-// then MATCH, then PRE; POST and END stay at every size. The PRE control names what it plays: its
+// PRE, POST, MATCH, BLIND, END and MENU while a session runs. Narrow rails move secondary actions
+// to MENU; END and MENU never disappear. The PRE control names what it plays: its
 // MATCH gain, or WAIT while PRE is selected and POST still sounds, never by colour alone. MATCH
 // reads TP LIMIT while its gain stopped at the true-peak ceiling, and AUTO while PRE follows POST.
 // Each slot is as wide as its longest text, so a boundary that toggles WAIT never moves a control.
@@ -102,19 +102,24 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
                                        footerButtonWidth ("AUTO"));
     const bool postLowered = state.postHeldTenthsDb < 0;
     const juce::String postNamed = postLowered ? "POST " + signedGain (state.postHeldTenthsDb) : juce::String ("POST");
-    // PIN comes before MENU and after MATCH; without Blind in this host it never shows.
-    auto withPin = [this] (juce::Array<juce::Button*> set)
+    liveEndButton.setButtonText (state.finishing ? "RETURNING"
+        : postLowered ? "END " + signedGain (-state.postHeldTenthsDb) : juce::String ("END"));
+    liveEndButton.setEnabled (! state.finishing);
+    liveEndButton.setTitle (liveEndButton.getButtonText());
+    localBlindButton.setEnabled (state.blindAvailable && ! state.finishing);
+    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton })
+        button->setEnabled (! state.finishing);
+    auto withBlind = [this] (juce::Array<juce::Button*> set)
     {
-        if (liveCompareState.pinAvailable)
-            set.insert (3, &livePinButton);
+        if (liveCompareState.blindAvailable) set.insert (3, &localBlindButton);
         return set;
     };
     const std::array<juce::Array<juce::Button*>, 5> sets {
-        withPin ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &operationsButton }),
-        withPin ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton }),
-        juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton },
-        juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveEndButton },
-        juce::Array<juce::Button*> { &livePostButton, &liveEndButton } };
+        withBlind ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &operationsButton }),
+        juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &operationsButton },
+        juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveEndButton, &operationsButton },
+        juce::Array<juce::Button*> { &livePostButton, &liveEndButton, &operationsButton },
+        juce::Array<juce::Button*> { &liveEndButton, &operationsButton } };
     const auto widthsFor = [&] (const juce::Array<juce::Button*>& set, int preWidth, bool rich)
     {
         juce::Array<int> widths;
@@ -206,17 +211,17 @@ bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
         return sum <= actions.getWidth();
     };
     const juce::Array<juce::Button*>* chosen = &sets.back();
-    juce::String returnText = "RETURN";
+    juce::String returnText = named;
     for (const auto& set : sets)
     {
         if (fits (set, named)) { chosen = &set; returnText = named; break; }
-        if (fits (set, "RETURN")) { chosen = &set; break; }
     }
     for (auto* button : { static_cast<juce::Button*> (&hybridVuButton), static_cast<juce::Button*> (&stopButton),
                           static_cast<juce::Button*> (&noteButton), static_cast<juce::Button*> (&liveCompareButton),
                           static_cast<juce::Button*> (&operationsButton) })
         button->setVisible (chosen->contains (button));
     liveReturnButton.setButtonText (returnText);
+    liveReturnButton.setTitle (returnText);
     liveReturnButton.setVisible (true);
     placeFooterButtons (*chosen, widthsFor (*chosen, returnText), actions);
     return true;

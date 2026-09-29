@@ -41,6 +41,8 @@ bool analyse (const std::vector<float>& post, const std::vector<float>& pre, std
 MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
 {
     MatchPlan plan;
+    plan.generation = result.generation;
+    plan.generationBound = result.generationBound;
     plan.ceilingDbtp = result.ceilingDbtp;
     const double held = std::min (0.0, heldPostDb);
     const double needed = result.measuredDb + held; // POST already sounds `held` dB quieter

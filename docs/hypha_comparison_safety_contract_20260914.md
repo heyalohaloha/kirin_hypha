@@ -1,10 +1,27 @@
 # Hypha比較機能の共通安全契約と検証計画
 
 作成日: 2026-09-14。
-改訂: 第2版。Pauseと停止後の出力、Undoと保存通知、実機対象の固定方法を追加。
-状態: 利用者が指定した4条件を計画へ反映。新しい製品実装と実機検証は未実施。
-適用対象: Reference通常A/B/C、Reference Blind、ローカルPRE/POST Blind。
+改訂: 2026-09-29。第2版の共通条件を維持し、Live Blindと明示ENDの適用を追加。
+状態: Live Blind／ENDの製品コードとローカル試験を追加。共通条件の全host実証は未完了。
+適用対象: Reference通常A/B/C、Reference Blind、ローカルPRE/POST Live BlindとExact 4 S。
 今日の確認、比較しおり、音源の再選択や再開から入るReference試聴にも同じ条件を適用する。
+
+### 2026-09-29: Live BlindとENDの適用
+
+[一回再生の実装計画](planning/hypha_one_pass_live_blind_implementation_plan_20260929.md)と
+[ローカル検証記録](planning/hypha_one_pass_live_blind_validation_20260929.md)を併読する。
+以下の「Local Blind」の共通安全条件はLive BlindとExactの両方に適用し、固定pass固有の条件はExactに限定する。
+Reference／Exactの復帰手順を、Live BlindのENDへ一括変更するものではない。
+
+- Live Blindは直接BLINDで固定MATCHを準備し、LISTENで成立済みのMATCHも再利用する。AUTOは開始前に止める。
+- Sourceごとの安定した実出力を、trial世代と要求sequenceが一致するRT receiptで確認する。両側のreceipt前に回答できない。
+- 対応、gain、pair、runの失効やoffline／bypass／他ownerの開始でtrialを失効させる。回復だけで同じ匿名割当へ戻らない。
+- LISTEN／Live BlindのENDは、上昇量を事前表示した通常音量復帰要求である。PREの退避後にPOSTをrampし、同じ終了世代の実unity receiptで完了する。MATCHへ戻らず比較全体を終了する。
+- 回答とRevealでは音量を戻さない。close／hide／故障だけなら実適用済みPOST減衰を保持する。先に明示したENDはclose後も保持する。
+- callback不在、offline、bypass、他ownerのbufferを終了完了に数えない。対象bufferは無変更とし、次の適用可能なrealtime callbackを待つ。
+- Source、割当、回答、MATCH、復帰receiptは非永続のprocessor状態。parameter gestureや周期dirty通知を加えず、project restoreや再生成から比較を再開しない。
+
+CS1〜CS8はLive Blindにも別途適用する。ローカルの共通editor／processor試験を、DAWのUndo、offline bounce、各formatの実機証跡へ代用しない。
 
 ## 1. 共通に守る四つの条件
 
@@ -18,7 +35,7 @@
 条件を満たすことを画面文言だけで主張せず、音声出力、ホスト通知、保存と復元、遅延した要求を検証する。
 
 共通化するのは安全条件と試験であり、異なる比較のGain基準や状態機械を一つに統合しない。
-ReferenceのライブA、Version B、Check Cと、Local Blindの固定PRE/POSTコピーを区別する。
+ReferenceのライブA、Version B、Check C、Live Blindの連続PRE/POST、Exactの固定PRE/POSTコピーを区別する。
 元音源、正本の測定、Record、DAWの制作設定は比較用の一時状態から分離する。
 
 ## 2. 現行で確認した土台
@@ -98,7 +115,7 @@ Audio Threadは既存のRT-safeな出力拒否と事実通知にとどめ、非R
 
 リアルタイム書き出しをホストが通常再生として渡す場合は、Hypha単独で確実に区別できない。
 CPU負荷、callback間隔、GUIの非表示、Record状態から書き出しだと推測しない。
-利用者向けには、Reference通常比較はAを選び実出力の復帰を確認、BlindはEnd/StopとReturnを完了してから書き出す手順を示す。
+利用者向けには、Reference通常比較はAを選び実出力の復帰を確認、Reference Blind／ExactはEnd/StopとReturn、Live Blindは通常復帰まで含むENDを完了してから書き出す手順を示す。
 ホストから得られる追加の公式通知で保護できる場合も、当該hostの検証なしに共通保証へ広げない。
 
 ## 6. 中断と復元後の出力許可
@@ -127,7 +144,7 @@ DAWの通常の一時停止と、比較の取消または失効を区別する�
 | offlineまたはbypass | 当該bufferへ比較コピーと一時減衰を適用しない。解除だけで比較コピーを再開しない |
 | 実適用済み一時減衰 | offlineまたはbypass中の出力無変更と、realtime復帰後の通常復帰待ちを区別する。復帰済みと推定しない |
 
-Local Blindの詳細な状態と表示は[PRE/POST Blind計画](hypha_pre_post_blind_usability_plan_20260914.md)第6.4節を正本とする。
+Exactの固定passの状態と表示は[旧PRE/POST Blind計画](hypha_pre_post_blind_usability_plan_20260914.md)第6.4節、Live Blindと新しい主入口は[一回再生の計画](planning/hypha_one_pass_live_blind_implementation_plan_20260929.md)を正本とする。
 Reference通常比較とReference Blindは、それぞれの状態機械について同じ境界表を作り、Local Blindの結果を代用しない。
 
 ## 7. 全比較経路の受入試験

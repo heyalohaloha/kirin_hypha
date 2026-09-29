@@ -4,6 +4,12 @@ option(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS "Build live PRE/POST compare runtime
 if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
    OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     enable_testing()
+    foreach(contract IN ITEMS live_blind_session live_compare_completion)
+        add_executable(Kirin_${contract}_Tests tests/live_compare/${contract}_test.cpp)
+        target_compile_features(Kirin_${contract}_Tests PRIVATE cxx_std_17)
+        target_compile_options(Kirin_${contract}_Tests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+        add_test(NAME kirin_${contract} COMMAND Kirin_${contract}_Tests)
+    endforeach()
     find_package(Threads REQUIRED)
     add_executable(KirinLiveCompareCorrespondenceTests
         tests/live_compare/live_compare_correspondence_test.cpp)

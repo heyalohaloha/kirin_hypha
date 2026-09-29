@@ -187,6 +187,25 @@ void View::resized()
         footerActions.setLeft (footerActions.getRight() - (preset.density == Density::inspection ? 290 : 250));
         sessionArea.setRight (footerActions.getX() - 4);
     }
+    if (! captureFrame && (liveCompareState.active || liveCompareState.postHeldTenthsDb < 0))
+    {
+        // Safety controls own the compact second row while comparing. The rise must never be
+        // reduced to an invisible tooltip to preserve unrelated navigation in this narrow rail.
+        if (folded)
+        {
+            footerActions.setX (layout.header.x);
+            footerActions.setWidth (layout.header.width);
+            for (auto* button : { &domainCycleButton, &targetButton, &deltaButton, &sizeButton, &guideButton })
+                button->setVisible (false);
+        }
+        else
+        {
+            const int minimum = footerButtonWidth ("RETURN +24.0 dB")
+                              + footerButtonWidth ("POST") + footerButtonWidth ("MENU");
+            footerActions.setLeft (std::min (footerActions.getX(), footerActions.getRight() - minimum));
+            sessionArea.setRight (footerActions.getX() - 4);
+        }
+    }
     statusStripOverBody = folded;
     statusStrip = folded ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
     statusButton.setVisible (! captureFrame && ! folded && feedbackText.isNotEmpty());

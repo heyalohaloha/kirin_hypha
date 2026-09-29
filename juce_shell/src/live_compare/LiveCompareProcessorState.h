@@ -8,6 +8,8 @@
 #include "LiveComparePinResult.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
+#include "LiveCompareCompletion.h"
+#include "LiveBlindSession.h"
 
 #include <atomic>
 #include <cstdint>
@@ -22,11 +24,25 @@ enum class StartResult : std::uint8_t
     noPair,            // POST is not paired with a PRE
     unsupportedLayout, // mono/stereo only; AAX mono only as the one instance of its group (INV-LC9)
     preUnavailable,    // PRE's ring is missing, stale, for another rate, or the platform has none
-    preMultiMono       // PRE is one channel of an AAX multi-mono set (INV-LC9)
+    preMultiMono,      // PRE is one channel of an AAX multi-mono set (INV-LC9)
+    comparisonBusy
+};
+
+enum class BlindStage { idle, preparing, approval, settling, active, invalidated, finishing };
+struct LiveBlindStatus
+{
+    BlindStage stage = BlindStage::idle;
+    BlindView trial;
+    MatchFailure waiting = MatchFailure::notProven;
+    double lowerPostDb = 0.0;
+    std::uint64_t generation = 0;
 };
 
 struct Status
 {
+    bool finishing = false, matched = false, matchLimited = false, matchReady = false;
+    float postActual = 1.0f;
+    std::uint64_t sessionGeneration = 0;
     bool active = false;
     bool preSelected = false;
     bool preAudible = false;
@@ -44,6 +60,23 @@ struct Status
 // Thread reads it only through the slot and publishes its observations through the atomics.
 struct ProcessorState
 {
+    Completion completion;
+    BlindSession blind;
+    std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
+    std::atomic<bool> matched { false }, matchLimited { false };
+    std::atomic<std::uint32_t> matchRun { 0 };
+    std::atomic<float> postActual { 1.0f };
+    BlindStage blindStage = BlindStage::idle; // message thread only
+    MatchFailure blindWaiting = MatchFailure::notProven;
+    MatchPlan blindPlan;
+    std::uint64_t blindPreparation = 0, blindScope = 0, finishServiced = 0;
+    std::int64_t blindMeasuredEnd = 0;
+    std::uint32_t blindApprovalRun = 0;
+    std::atomic<std::uint64_t> timelineGeneration { 0 };
+    std::atomic<std::uint64_t> matchGeneration { 0 };
+    std::uint64_t blindApprovalTimeline = 0;
+    std::int64_t previousProjectEnd = 0; // audio thread only, blind continuity
+    bool previousProjectValid = false;
     local_blind::RtPublicationSlot<SharedRingMapping> ring;
     PreFeeder feeder;
     PostRenderer renderer;

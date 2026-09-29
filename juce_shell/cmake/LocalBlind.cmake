@@ -83,6 +83,26 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     # Live compare PIN to Blind (INV-LC15) and the offset warning, end to end through the live ring
     # of each platform (POSIX shared memory on macOS, a named section on Windows).
     add_executable(KirinLiveComparePinProductTests tests/live_compare_pin_product_test.cpp)
+    add_executable(KirinLiveBlindProductTests tests/live_blind_product_test.cpp)
+    if(APPLE)
+        target_sources(KirinLiveBlindProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
+    endif()
+    target_compile_features(KirinLiveBlindProductTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLiveBlindProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_compile_definitions(KirinLiveBlindProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+    target_include_directories(KirinLiveBlindProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+    target_link_libraries(KirinLiveBlindProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_live_blind_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
+    add_test(NAME kirin_live_blind_reuse_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --reuse)
+    set_tests_properties(kirin_live_blind_product kirin_live_blind_reuse_product PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_live_blind_fault_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --fault)
+    set_tests_properties(kirin_live_blind_fault_product PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_live_blind_approval_product COMMAND KirinLiveBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --approval)
+    set_tests_properties(kirin_live_blind_approval_product PROPERTIES TIMEOUT 90)
     if(APPLE)
         target_sources(KirinLiveComparePinProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
     endif()

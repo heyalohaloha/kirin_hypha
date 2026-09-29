@@ -230,34 +230,22 @@ void verifyLiveCompareFooterContract()
     state = plain;
     post.setLiveCompareFooter (state);
 
-    // INV-LC15: PIN sits between MATCH and END at 200% and 300% where Blind exists, and never
-    // where it does not.
-    auto* pinButton = control (post, "observatory-live-pin");
-    int pinned = 0;
-    post.onLiveComparePin = [&] { ++pinned; };
-    state.pinAvailable = true;
+    // A settled MATCH exposes the primary BLIND; PIN remains available through MENU.
+    state.blindAvailable = true;
     post.setLiveCompareFooter (state);
     for (const auto preset : observatory::sizePresets)
     {
         post.setSize (preset.width, preset.height);
-        require (pinButton->isVisible() == (preset.width >= 600), "PIN shows at the large sizes");
-        if (! pinButton->isVisible())
-            continue;
-        require (readable (post, *pinButton) && post.getLocalBounds().contains (pinButton->getBounds()),
-                 "PIN reads whole");
-        for (auto* other : std::vector<juce::Component*> { preButton, postButton, match, end, menu })
-            require (! other->isVisible() || ! other->getBounds().intersects (pinButton->getBounds()),
-                     "PIN overlaps no other control");
-        require (match->getX() < pinButton->getX() && pinButton->getX() < end->getX(),
-                 "PIN sits between MATCH and END");
+        require (menu->isVisible(), "small layouts never lose the menu");
+        if (blind->isVisible())
+            require (blind->isEnabled() && readable (post, *blind), "matched Blind is reachable and readable");
+        if (preset.width >= 600) require (blind->isVisible(), "large MATCH footer exposes BLIND");
     }
-    pinButton->onClick();
-    require (pinned == 1, "PIN reaches the editor");
-    state.pinAvailable = false;
+    state.blindAvailable = false;
     post.setLiveCompareFooter (state);
-    require (! pinButton->isVisible(), "without Blind in this host there is no PIN");
+    require (! blind->isVisible(), "an unsettled or limited MATCH never exposes direct BLIND");
 
-    // An approved POST attenuation is named on POST during a session; after END it is held, and
+    // An approved POST attenuation is named on POST during a session; after window close it is held, and
     // RETURN names how much POST rises, at every size, while Blind waits for it (INV-LC14).
     auto* returnButton = control (post, "observatory-live-return");
     int returned = 0;
@@ -269,6 +257,13 @@ void verifyLiveCompareFooterContract()
     require (postButton->getButtonText() == "POST -7.0 dB" && readable (post, *postButton) && ! returnButton->isVisible(),
              "a session names the approved POST attenuation");
     const auto held = state;
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (end->isVisible() && end->getButtonText() == "END +7.0 dB" && readable (post, *end),
+                 "END announces the rise visibly at every size, never only in a tooltip");
+        require (menu->isVisible() && ! menu->getBounds().intersects (end->getBounds()), "MENU remains reachable");
+    }
     state = {};
     state.entryEnabled = true;
     state.postHeldTenthsDb = -70;
@@ -277,6 +272,7 @@ void verifyLiveCompareFooterContract()
     {
         post.setSize (preset.width, preset.height);
         require (returnButton->isVisible() && readable (post, *returnButton)
+                     && returnButton->getButtonText() == "RETURN +7.0 dB"
                      && post.getLocalBounds().contains (returnButton->getBounds()),
                  "RETURN stays reachable and reads whole at every size");
         require (! blind->isVisible() && ! postButton->isVisible(), "Blind waits for RETURN; no session controls");
@@ -290,6 +286,31 @@ void verifyLiveCompareFooterContract()
     state.postHeldTenthsDb = 0;
     post.setLiveCompareFooter (state);
     require (! returnButton->isVisible(), "without a held attenuation there is no RETURN");
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        i18n::ScopedLanguage scoped (language);
+        for (const auto preset : observatory::sizePresets)
+            for (const bool active : { false, true })
+            {
+                auto safety = held;
+                safety.active = active;
+                safety.postHeldTenthsDb = -240;
+                post.setSize (preset.width, preset.height);
+                post.setLiveCompareFooter (safety);
+                auto* action = active ? end : returnButton;
+                require (action->isVisible() && readable (post, *action)
+                    && action->getTitle().contains ("+24.0 dB"), "maximum rise is visible and accessible in both languages");
+                const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+                if (preview.isNotEmpty())
+                {
+                    auto stream = juce::File (preview).getChildFile ("live-return-" + juce::String (static_cast<int> (language))
+                        + "-" + juce::String (active ? 1 : 0) + "-" + juce::String (preset.width) + ".png").createOutputStream();
+                    require (stream != nullptr && juce::PNGImageFormat().writeImageToStream (
+                        post.createComponentSnapshot (post.getLocalBounds()), *stream), "END preview renders");
+                }
+            }
+    }
+    post.setSize (900, 600);
     state = held;
     state.postHeldTenthsDb = 0;
     post.setLiveCompareFooter (state);

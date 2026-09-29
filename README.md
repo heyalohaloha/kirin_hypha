@@ -613,20 +613,21 @@ and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checke
    MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
    changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN. These
    values are experimental until listening tests settle them.
-5. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
-   the sample rate, and removing or re-preparing PRE also end the session. Offline render, a bypass
-   the DAW reports, and another audition return to POST and ask you to select PRE again.
-6. A lowered POST stays lowered after END, even with the window closed, until you press
-   **RETURN**. RETURN names how much POST rises, for example **RETURN +7.0 dB**, and brings it back
-   over half a second. Blind and Reference audition wait for RETURN. Offline render and a bypass
-   the DAW reports are never lowered, and measurement is always taken before the attenuation.
+5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
+   names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
+   then restores normal POST level with the existing slow ramp (500 ms for the full gain range).
+   Completion waits for actual audio output at unity; without callbacks it stays pending.
+6. Closing the window or a fault is different: it stops PRE but holds approved POST attenuation.
+   **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
+   the DAW reports, and another audition are never attenuated. Measurements remain before this path.
 
-At 200% and 300%, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
+In **MENU**, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
 PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
 seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise Hypha says why.
 PIN ends the live session, and Blind's own RETURN brings back POST.
 
-While a session runs, the footer keeps **POST** and **END** at every size. Keep POST's window
+While a session runs, **END** and **MENU** stay at every size; MENU includes any controls that
+do not fit the footer. Keep POST's window
 open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
 same channel; in Pro Tools, turn off its **Target** button.
 
@@ -656,19 +657,37 @@ same channel; in Pro Tools, turn off its **Target** button.
 
 ## Local PRE/POST Blind Compare
 
-Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a
-preference listening trial, not a score or proof that either side is better, and it does not require
-Kirin OS.
+**BLIND** is a one-pass live preference trial, without Capture or rewinding. Press BLIND, keep
+the DAW playing, and Hypha prepares a fixed level match. Switch **SOURCE 1 / SOURCE 2** as often
+as needed during that same playback. Once both have actually sounded, **ANSWER** offers source 1,
+source 2, no preference, or cannot tell, then reveals the assignment. No Kirin OS is required.
+
+Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
+another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match. If matching
+requires lowering POST, approval names both the reduction and the rise on END before applying it.
+END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
+END, ramped, and confirmed by the Audio Thread. Closing the window alone never raises the level.
+
+Live Blind compares different moments within one continuous playback; it does not claim identical
+sample ranges, an ABX identification test, or proof of better sound. Stop, seek, loop wrap, clock
+failure, bypass, offline render or a safety failure ends that trial without automatically restarting.
+Meters, names, gain details and their accessibility are isolated until the comparison ends.
+The new one-pass/END flow still requires real-host acceptance on each supported format.
+
+### Optional Exact 4 S
+
+For the identical four-second range on both sides, use **LISTEN → MENU → PIN 4 S**. This retains
+the immutable-PCM trial below, with replay of the same range for each source. It is a preference
+listening trial, not a score or proof that either side is better.
 
 The AAX entry is enabled by user direction for current-candidate validation. Its
 Pro Tools clock/PDC acceptance remains pending; exact capture and runtime checks
 are enforced on every format.
 
-1. In POST, select the exact PRE pair and open **PRE / POST Blind Compare** from POST's menu.
-2. Keep the DAW playing, then press **CAPTURE 4 S**. The small **2MIX / TRACK / STEM** selector
-   starts from the normal meter setting; change it only if needed for this comparison. Capture
-   freezes that Gain Match policy without changing the normal meter context or WIDE / FOCUS.
-   Wait for both sides of the exact range to finish preparation. If Gain Match is unavailable,
+1. In POST, select the PRE pair and start LISTEN.
+2. Keep the DAW playing for at least four seconds, then choose **MENU → PIN 4 S**. It uses the
+   current meter context without changing the normal meter context or WIDE / FOCUS.
+   Wait for the pinned range to finish preparation. If Gain Match is unavailable,
    follow the section guidance and use **CAPTURE AGAIN** in the same screen.
 3. Optionally, press **NAMED A/B** first (from 200%, or wherever the screen fits it beside
    **START BLIND**). It plays the same frozen range by name: **PRE** with its fixed gain and

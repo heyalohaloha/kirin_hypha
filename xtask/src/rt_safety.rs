@@ -150,7 +150,10 @@ mod tests {
         assert!(LOCAL_PRODUCT_SESSION_H.contains("block.epochs = epochs.read()"));
         assert!(output
             .contains("role == Role::Post && localBlindProductSession.hasPublishedRealtime()"));
-        assert!(output.contains("buffer.getNumSamples(), block)) return;"));
+        assert!(output.contains("buffer.getNumSamples(), block))"));
+        assert!(
+            output.contains("processLiveCompare (buffer, clock, bypassed, nonRealtimeMode, true);")
+        );
         assert!(
             output.find("localBlindProductSession.render").unwrap()
                 < output

@@ -164,7 +164,9 @@ private:
                 if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (4600)
                     || post->liveCompareStatus().verdict != hypha::live_compare::Verdict::accepted)
                     break;
-                if (! click ("observatory-live-pin")) break;
+                if (const auto* view = findView (*editor); view && view->onLiveComparePin)
+                    view->onLiveComparePin(); // PIN now lives in MENU, behind the primary live BLIND.
+                else break;
                 if (post->liveCompareStatus().active)
                 {
                     // A scheduling stall of the test machine longer than the callback-gap rule

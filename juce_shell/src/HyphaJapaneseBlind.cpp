@@ -8,6 +8,28 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "LIVE BLIND", u8"LIVE BLIND" },
+    { "PREFER SOURCE 1", u8"1が好み" },
+    { "PREFER SOURCE 2", u8"2が好み" },
+    { "END restores normal level", u8"終了すると通常の音量に戻ります" },
+    { "END returns +%1 dB", u8"終了すると音量が%1 dB上がります" },
+    { "Blind stopped; POST plays", u8"比較を中止しました。POSTを再生します" },
+    { "Returning to normal level", u8"通常の音量に戻しています" },
+    { "Return waiting for audio", u8"再生すると通常音量に戻って終了します" },
+    { "Lower POST to match levels?", u8"POSTを下げて音量を揃えますか？" },
+    { "Lower %1 dB; END returns the same amount", u8"%1 dB下げます。終了時に同じ量だけ上がります" },
+    { "Choose an answer when ready", u8"聴き比べたら回答を選んでください" },
+    { "Try both sources while playing", u8"再生したまま1と2を切り替えてください" },
+    { "Play the DAW to begin", u8"DAWを再生すると準備が始まります" },
+    { "Matching levels; POST plays", u8"POSTを再生しながら音量を揃えています" },
+    { "Choose an answer and reveal", u8"回答して正体を表示します" },
+    { "Lower POST and begin Blind", u8"POSTを下げてBlindを開始します" },
+    { "End and restore normal level", u8"終了して通常の音量に戻します" },
+    { "LOWER POST", u8"POSTを下げる" },
+    { "RETURNING", u8"復帰待ち" },
+    { "End the current comparison first", u8"現在の比較を終了してください" },
+    { "Match levels and compare while the song plays", u8"再生を続けたまま、音量を揃えて聴き比べます" },
+    { "End listening and restore normal POST level", u8"試聴を終了してPOSTを通常の音量に戻します" },
     // The step bar and the purpose line (HyphaLocalBlindSteps.h, INV-S43).
     { "1  Capture", u8"1  取り込み" },
     { "2  Start", u8"2  開始" },

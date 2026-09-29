@@ -15,7 +15,8 @@ hypha::live_compare::LivePinResult KirinHyphaProcessorBase::pinLiveCompareForBli
     using Admission = hypha::local_blind::CaptureAdmission;
     hypha::live_compare::LivePinResult result;
     result.pin = hypha::live_compare::PinFailure::notProven;
-    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire))
+    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
+        || liveCompare.blindScope != 0 || liveCompare.completion.pending())
         return result;
     const auto* mapping = liveCompare.ring.control();
     if (mapping == nullptr || mapping->ring() == nullptr)

@@ -14,7 +14,8 @@ void KirinHyphaProcessorBase::timerCallback()
     }
     applyHeldFormatIfRecordReleased();
     serviceLocalBlindProductSession();
+    serviceLiveCompare();
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
-        && ! heldFormat.held)
+        && ! heldFormat.held && ! liveCompareNeedsService())
         stopTimer();
 }

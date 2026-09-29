@@ -33,9 +33,11 @@ void KirinHyphaEditor::chooseLiveCompareFollow()
         .withMinimumWidth (juce::jlimit (300, 520, getWidth()))
         .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    menu.showMenuAsync (options, [safe] (int result)
+    const auto generation = processorRef.liveCompareStatus().sessionGeneration;
+    menu.showMenuAsync (options, [safe, generation] (int result)
     {
-        if (safe == nullptr)
+        if (safe == nullptr || safe->liveBlindOpen || safe->processorRef.liveCompareStatus().finishing
+            || safe->processorRef.liveCompareStatus().sessionGeneration != generation)
             return;
         if (result == 1)
             safe->matchLiveCompare();
@@ -65,7 +67,7 @@ void KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& sta
     auto& a = liveCompareAuto;
     if (! a.on)
         return;
-    if (! status.active || ! liveCompareMatched || liveCompareLimited)
+    if (! status.active || status.finishing || liveBlindOpen || ! status.matched || status.matchLimited)
     {
         a.on = false;
         return;

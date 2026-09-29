@@ -195,6 +195,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         configureReferenceAudition();
         configureLocalBlindProduct();
         configureLiveCompare();
+        configureLiveBlind();
        #endif
     }
     else
@@ -395,7 +396,7 @@ void KirinHyphaEditor::layoutFeedbackStrip()
 {
     bool shown = observatoryView.statusStripFolded() && feedbackStrip.text().isNotEmpty();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    shown = shown && ! localBlindOpen;
+    shown = shown && ! localBlindOpen && ! liveBlindOpen;
    #endif
     feedbackStrip.setBounds (observatoryView.statusStripBounds());
     if (shown && ! feedbackStrip.isVisible())

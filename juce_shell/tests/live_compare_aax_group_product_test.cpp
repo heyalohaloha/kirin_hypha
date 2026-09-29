@@ -177,10 +177,12 @@ private:
                 if (! post->liveCompareStatus().preSelected && ! click ("observatory-live-pre")) break;
                 if (! post->liveCompareStatus().preAudible) break;
                 std::cout << "mono track: PRE plays" << std::endl;
-                require (click ("observatory-live-end") && ! post->liveCompareStatus().active, "END closes the session");
+                require (click ("observatory-live-end") && post->liveCompareStatus().finishing,
+                         "END waits for the audio return receipt");
                 ++stage;
                 break;
             case 4:
+                if (post->liveCompareStatus().active || post->liveCompareStatus().finishing) break;
                 // One channel of a multi-mono PRE set: its ring says so.
                 require (preLeft->aaxMultiMonoMember() && preRight->aaxMultiMonoMember(), "the PRE set shares a group");
                 if (! pairWith (*preLeft)) break;

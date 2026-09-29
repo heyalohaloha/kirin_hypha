@@ -126,6 +126,8 @@ struct RenderReport
     bool preAudible = false;   // PRE weight above zero at the end of the block
     bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
     bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
+    bool stableSource = false; // at least one frame entirely from the requested side
+    bool gainSettled = false;  // PRE gain and POST level reached the command targets
 };
 
 // POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
@@ -206,7 +208,7 @@ public:
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
-                         float ceilingLinear) noexcept
+                         float ceilingLinear, bool blind = false) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -237,7 +239,13 @@ public:
         }
         if (weight <= 0.0f)
             preLevel.settle (preGain);
-        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear))
+        bool finitePost = true;
+        if (blind)
+            for (int channel = 0; channel < channels; ++channel)
+                for (std::int32_t i = 0; i < block.frames; ++i)
+                    finitePost = finitePost && std::isfinite (io[channel][i]);
+        if (! finitePost || ((blind || preSelected || weight > 0.0f)
+            && ! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear)))
         {
             weight = 0.0f;
             report.guardTripped = true;
@@ -248,6 +256,8 @@ public:
         if (weight <= 0.0f && target <= 0.0f)
         {
             post.apply (io, channels, block.frames, postTarget);
+            report.stableSource = true;
+            report.gainSettled = post.value() >= postTarget && post.value() <= postTarget;
             return report;
         }
         const float step = 1.0f / static_cast<float> (fadeFrames);
@@ -256,6 +266,9 @@ public:
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
             const float postGain = post.next (postTarget) * (1.0f - weight);
             const float gain = preLevel.next (preGain);
+            report.stableSource = report.stableSource || (weight >= target && weight <= target);
+            report.gainSettled = gain >= preGain && gain <= preGain
+                && post.value() >= postTarget && post.value() <= postTarget;
             for (int channel = 0; channel < channels; ++channel)
             {
                 const float pre = scratch[std::min (channel, 1)][i] * gain;
@@ -268,6 +281,7 @@ public:
 
     // Audio Thread: the host stopped processing the session (end, format change).
     void silenceTransition() noexcept { weight = 0.0f; }
+    bool hasPre() const noexcept { return weight > 0.0f; } // Audio Thread only
 
 private:
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)

@@ -24,7 +24,8 @@
         // B-961: format binding lives in its own translation unit; parity still reads one shell.
         include_str!("../../../juce_shell/src/PluginProcessorFormat.cpp"),
         "\n",
-        include_str!("../../../juce_shell/src/PluginProcessorState.cpp")
+        include_str!("../../../juce_shell/src/PluginProcessorState.cpp"),
+        include_str!("../../../juce_shell/src/PluginProcessorService.cpp")
     );
     const PLUGIN_PROCESSOR_PAIRING_CPP: &str =
         include_str!("../../../juce_shell/src/PluginProcessorPairing.cpp");

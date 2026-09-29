@@ -109,7 +109,7 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
     // A selected domain survives VU/Blind replacement, but does not own the visible surface.
     // Timer refresh must not bring an invisible Reference pane over the VU return control.
     const bool reference = observatoryDomain == hypha::observatory::Domain::reference
-        && ! observatoryView.hybridVuVisible() && ! localBlindOpen;
+        && ! observatoryView.hybridVuVisible() && ! localBlindOpen && ! liveBlindOpen;
     const bool access = hypha::reference_ui::needsAccessPanel (referenceView.state());
     processorRef.setReferenceViewPresented (reference);
     referenceView.setBounds (body);

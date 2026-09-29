@@ -41,7 +41,11 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         // renderer itself observes. PPQ loop points are never converted into sample boundaries.
         block.exactLoopRangeValid = clock.looping;
         if (localBlindProductSession.render (buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
-                                             buffer.getNumSamples(), block)) return;
+                                             buffer.getNumSamples(), block))
+        {
+            processLiveCompare (buffer, clock, bypassed, nonRealtimeMode, true);
+            return;
+        }
     }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (role == Role::Post && referenceAuditionController != nullptr)

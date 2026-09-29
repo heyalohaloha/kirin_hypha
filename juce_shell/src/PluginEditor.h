@@ -30,6 +30,7 @@
  #include "HyphaReferenceComponent.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
+ #include "HyphaLiveBlindComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -136,6 +137,11 @@ private:
     void refreshLocalBlindProduct();
     void layoutLocalBlindProduct();
     void setLocalBlindIsolation (bool active);
+    void configureLiveBlind();
+    void addLiveCompareMenu (juce::PopupMenu&, bool keepActive);
+    bool handleLiveCompareMenu (int result);
+    void openLiveBlind();
+    void refreshLiveBlind();
     void configureLiveCompare();
     void refreshLiveCompare();
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
@@ -224,6 +230,9 @@ private:
     hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
     hypha::reference_ui::AccessPanel referenceAccessView;
     hypha::local_blind_ui::Component localBlindView;
+    hypha::live_blind_ui::Component liveBlindView;
+    bool liveBlindOpen = false;
+    bool liveCompareFinishingSeen = false;
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
@@ -251,9 +260,10 @@ private:
     bool localBlindPreflight = false;
     struct LocalBlindUnderlyingState
     {
-        juce::Component* component = nullptr;
+        juce::Component::SafePointer<juce::Component> component;
         bool accessible = true;
         bool enabled = true;
+        bool restoreEnabled = false;
     };
     std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
     bool liveCompareMatched = false;

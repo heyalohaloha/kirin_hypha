@@ -56,6 +56,7 @@ struct LiveCompareFooter
 {
     bool entryEnabled = false; // this POST can open a session (host format, platform, layout)
     bool active = false;
+    bool finishing = false, blindAvailable = false;
     bool preSelected = false;
     bool preWaiting = false;
     bool matched = false;      // an explicit MATCH set the PRE gain in this session
@@ -68,7 +69,8 @@ struct LiveCompareFooter
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off; PRE waits
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
-        return entryEnabled == other.entryEnabled && active == other.active && pinAvailable == other.pinAvailable
+        return finishing == other.finishing && blindAvailable == other.blindAvailable
+            && entryEnabled == other.entryEnabled && active == other.active && pinAvailable == other.pinAvailable
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchLimited == other.matchLimited
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
