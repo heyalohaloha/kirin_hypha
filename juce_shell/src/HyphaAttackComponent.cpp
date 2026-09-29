@@ -35,26 +35,6 @@ void AttackComponent::setOverlayMode (bool shouldOverlay)
     repaint();
 }
 
-void AttackComponent::setBand (std::uint8_t band)
-{
-    if (band > attack_band::bandCount || band == chosenBand) return;
-    chosenBand = band;
-    rebuildBandModel();
-    if (onBandChange) onBandChange (band);
-    repaint();
-}
-
-bool AttackComponent::preBandPending() const noexcept
-{
-    return chosenBand != 0 && pairedObservation()
-        && (bandBatch.band != chosenBand || bandBatch.pre_band_available == 0);
-}
-
-void AttackComponent::rebuildBandModel() noexcept
-{
-    attack_band::build (bandModel, bandBatch, chosenBand, currentGeneration, rate, pairedObservation());
-}
-
 void AttackComponent::advancePresentation (double nowMs) noexcept
 {
     if (presentationStartLatest < 0 || presentationTargetLatest < 0)
@@ -80,6 +60,8 @@ void AttackComponent::presentationTick (bool signalActive)
         presentationStartMs = juce::Time::getMillisecondCounterHiRes();
         if (followLatest)
             selectBoundaryEvent (true);
+        if (selectedEventSample != previousSelection)
+            refreshBandEnvelope();
         if (stateChanged || latest != previousLatest || selectedEventSample != previousSelection)
             repaint();
         return;
@@ -95,6 +77,9 @@ void AttackComponent::presentationTickAt (double nowMs)
     advancePresentation (nowMs);
     if (followLatest)
         selectBoundaryEvent (true);
+    // Time moves: a locked hit can leave the six seconds, so its envelope goes with it.
+    if (selectedEventSample != previousSelection || (bandEnvelopeValid && visibleSelection() == nullptr))
+        refreshBandEnvelope();
     if (latest != previousLatest || selectedEventSample != previousSelection)
         repaint();
 }
@@ -185,25 +170,7 @@ bool AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
         selectedEventSample = -1;
         selectBoundaryEvent (true);
     }
-    repaint();
-    return true;
-}
-
-bool AttackComponent::setBandSnapshot (const KirinAttackBandBatch& batch)
-{
-    const auto current = [this] (const auto& hit) {
-        return hit.generation == currentGeneration && hit.sample_rate == rate; };
-    if (bandBatch.status == batch.status && bandBatch.band == batch.band
-        && bandBatch.pre_band_available == batch.pre_band_available
-        && attack_equality::retained (bandBatch.hits, bandBatch.count, batch.hits, batch.count, current))
-        return false;
-    bandBatch = batch;
-    const auto count = juce::jmin (bandBatch.count,
-        static_cast<std::uint32_t> (KIRIN_ATTACK_BAND_BATCH_CAPACITY));
-    auto* hits = bandBatch.hits;
-    bandBatch.count = static_cast<std::uint32_t> (std::remove_if (hits, hits + count,
-        [&current] (const auto& hit) { return ! current (hit); }) - hits);
-    rebuildBandModel();
+    refreshBandEnvelope();
     repaint();
     return true;
 }
@@ -217,6 +184,8 @@ void AttackComponent::clearSnapshot()
     preDetailBatch = {};
     pairEventBatch = {};
     bandBatch = {};
+    bandEnvelope = {};
+    bandEnvelopeValid = false;
     runtimeStats = {};
     laneModel.count = 0;
     laneModel.delta = false;
@@ -304,19 +273,6 @@ const attack_lanes::Hit* AttackComponent::visibleSelection() const noexcept
 {
     const auto* hit = attack_lanes::find (laneModel, selectedEventSample);
     return hit != nullptr && attack_ui::eventIsVisible (hit->sample, latest, rate) ? hit : nullptr;
-}
-
-const attack_lanes::Hit* AttackComponent::bandSelection (const attack_lanes::Hit* selected) const noexcept
-{
-    return selected != nullptr && chosenBand != 0 ? attack_lanes::find (bandModel, selected->sample)
-                                                  : nullptr;
-}
-
-const KirinAttackBandHit* AttackComponent::selectedBandHit (const attack_lanes::Hit* selected) const noexcept
-{
-    return selected != nullptr
-        ? attack_band::findHit (bandBatch, chosenBand, selected->sample, currentGeneration, rate)
-        : nullptr;
 }
 
 juce::String AttackComponent::timeMode() const
@@ -449,11 +405,19 @@ void AttackComponent::paint (juce::Graphics& g)
         bandView ? bandSelection (selected) : selected, presentationContext,
         bandView ? attack_lanes::bandLanes : attack_lanes::lanes };
     const auto history = rectangleOf (attack_ui::historyPlot (shape));
+    const bool needsPlay = bandNeedsPlay();
     if (bandPanes (shape))
-        attack_band_painter::paintPanes (g, shape, presentationContext, selectedBandHit (selected),
-                                         twoRows() && bandModel.delta);
+        attack_band_painter::paintPanes (g, shape, presentationContext,
+                                         { selectedBandEnvelope (selected), selected != nullptr,
+                                           needsPlay, bandModel.delta, twoRows() && bandModel.delta,
+                                           chosenBand });
     else if (! history.isEmpty())
+    {
         paintHistory (g, history);
+        // Below 200% the six seconds stay; a band with nothing measured in them says what to do.
+        if (needsPlay && shape.arrangement != attack_ui::Arrangement::glance)
+            attack_band_painter::paintPlayGuidance (g, history, presentationContext, chosenBand);
+    }
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
         if (shape.loupe)
@@ -478,7 +442,8 @@ void AttackComponent::paint (juce::Graphics& g)
         g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization));
         if (timeMode() != "LIVE")
             text_style::drawText (g, timeMode(), history.reduced (6, 3), juce::Justification::topRight);
-        attack_band_painter::paintGlanceCaption (g, history, presentationContext, chosenBand);
+        attack_band_painter::paintGlanceCaption (g, history, presentationContext, chosenBand,
+                                                 needsPlay);
     }
     else
     {

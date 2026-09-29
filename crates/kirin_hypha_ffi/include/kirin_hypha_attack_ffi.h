@@ -10,9 +10,28 @@
 #define KIRIN_ATTACK_DETAIL_BATCH_CAPACITY 240u
 #define KIRIN_ATTACK_SHAPE_CAPACITY 96u
 #define KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY 240u
-#define KIRIN_ATTACK_BAND_BATCH_CAPACITY 64u
+#define KIRIN_ATTACK_BAND_BATCH_CAPACITY 240u
 #define KIRIN_ATTACK_BAND_HEAD_POINTS 96u
 #define KIRIN_ATTACK_BAND_TAIL_POINTS 64u
+/* DRUM帯域の片側の結果。PENDINGは未計測、NOT_KEPTは音を保持していない（帯域を選ぶ前、または
+ * 再生が止まってピークまで届かなかった）、ABSENTはこの打音にその側がない（PREのみ等）。 */
+#define KIRIN_ATTACK_BAND_SIDE_PENDING 0u
+#define KIRIN_ATTACK_BAND_SIDE_RISES 1u
+#define KIRIN_ATTACK_BAND_SIDE_RINGS_ON 2u
+#define KIRIN_ATTACK_BAND_SIDE_SILENT 3u
+#define KIRIN_ATTACK_BAND_SIDE_NOT_KEPT 4u
+#define KIRIN_ATTACK_BAND_SIDE_ABSENT 5u
+#define KIRIN_ATTACK_BAND_ARRIVAL_AT 0u
+#define KIRIN_ATTACK_BAND_ARRIVAL_RINGING 1u
+#define KIRIN_ATTACK_BAND_RELEASE_AT 0u
+#define KIRIN_ATTACK_BAND_RELEASE_NEXT_HIT 1u
+#define KIRIN_ATTACK_BAND_RELEASE_AT_LEAST 2u
+#define KIRIN_ATTACK_BAND_PRE_OFF 0u
+#define KIRIN_ATTACK_BAND_PRE_SAME 1u
+#define KIRIN_ATTACK_BAND_PRE_WAITING 2u
+#define KIRIN_ATTACK_BAND_PRE_PREDATES 3u
+#define KIRIN_ATTACK_BAND_KIND_POST_ALONE 4u
+#define KIRIN_ATTACK_BAND_PRESENCE_FLOOR_DBFS (-72.0f)
 
 /* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
 typedef struct {
@@ -148,51 +167,61 @@ typedef struct {
   uint64_t analyzed_frames;
 } KirinAttackStats;
 
-/* DRUM帯域（B-1096）: 1打の片側。時刻はonsetからのms。*_available=0の値は音に無かった事実で、0ではない。 */
+/* DRUM帯域（B-1096, B-1098）: 1打の片側。時刻はmeasured_at_sampleからのms。stateがRISESのときだけ
+ * 全値に意味があり（arrival_state・release_stateが限定）、RINGS_ONとSILENTはlevel_dbfsとpeak_msだけ。 */
 typedef struct {
-  uint8_t available;
-  uint8_t arrival_available;
-  uint8_t attack_available;
-  uint8_t release_available;
-  uint8_t reserved[4];
-  int64_t span_end_sample; /* 測った尾の終わり（排他）: onset+300 ms か次のonset */
+  uint8_t state;         /* KIRIN_ATTACK_BAND_SIDE_* */
+  uint8_t arrival_state; /* KIRIN_ATTACK_BAND_ARRIVAL_*: RINGINGは前の打音の余韻で始まりを測れない */
+  uint8_t release_state; /* KIRIN_ATTACK_BAND_RELEASE_*: AT_LEASTは測った尾の終わりでも-20 dBに届かない */
+  uint8_t reserved;
   float peak_ms;
   float arrival_ms;  /* 帯域がピーク-20 dBを上向きに越える時刻 */
   float attack_ms;   /* ピークの10 %から90 %まで */
-  float release_ms;  /* ピークからピーク-20 dBまで */
+  float release_ms;  /* ピークからピーク-20 dBまで。AT_LEASTのときはその下限 */
   float level_dbfs;  /* 帯域包絡のピーク */
-  float reserved2;
-  float head_dbfs[KIRIN_ATTACK_BAND_HEAD_POINTS]; /* [onset-20 ms, onset+40 ms) */
-  float tail_dbfs[KIRIN_ATTACK_BAND_TAIL_POINTS]; /* [onset, onset+300 ms); span_end以降は床 */
 } KirinAttackBandSide;
 
-/* kind: 0=matched（PRE onsetでPREとPOST）, 2=POSTのみ。resolution_microsは帯域の中心周波数1周期。 */
+/* 打音はレーンと同じ: pairが有効ならpair event、そうでなければPOST自身のdetail。event_sampleが同じ鍵。
+ * kindはpair eventの0..3、pairがないときKIRIN_ATTACK_BAND_KIND_POST_ALONE。 */
 typedef struct {
-  uint64_t generation;
-  uint32_t sample_rate;
-  uint8_t channels;
-  uint8_t band; /* 1=63 Hz … 8=8 kHz */
-  uint8_t kind;
-  uint8_t delay_available;
   int64_t event_sample;
-  uint32_t resolution_micros;
-  float delay_ms; /* POST − PRE のarrival */
+  int64_t measured_at_sample; /* 両側を測った位置。matchedではPREのonset */
+  uint8_t kind;
+  uint8_t reserved[7];
   KirinAttackBandSide pre;
   KirinAttackBandSide post;
 } KirinAttackBandHit;
 
-/* statusはpair viewと同じ語彙。bandは選択中の帯域（0=なし）。pre_band_availableはPREのsnapshotが
- * 同じ帯域を名乗ったときだけ1: 帯域を知らないPREは名乗らず、hitsはPOSTだけのまま。 */
+/* statusはpair viewと同じ語彙。bandは打音の帯域（0=なし）。pre_bandはKIRIN_ATTACK_BAND_PRE_*。 */
 typedef struct {
   uint8_t status;
   uint8_t band;
-  uint8_t pre_band_available;
+  uint8_t pre_band;
   uint8_t reserved;
   uint32_t count;
   uint32_t capacity;
+  uint32_t resolution_micros; /* 帯域の時間の細かさ: 中心周波数の1周期 */
+  uint64_t generation;
+  uint32_t sample_rate;
   uint32_t reserved2;
   KirinAttackBandHit hits[KIRIN_ATTACK_BAND_BATCH_CAPACITY];
 } KirinAttackBandBatch;
+
+/* [measured_at-20 ms, +40 ms) と [measured_at, +300 ms) のdBFS。 */
+typedef struct {
+  float head_dbfs[KIRIN_ATTACK_BAND_HEAD_POINTS];
+  float tail_dbfs[KIRIN_ATTACK_BAND_TAIL_POINTS];
+} KirinAttackBandEnvelope;
+
+/* 1打と両側の包絡。hitはbatchと同じ記録、bandはその帯域。包絡はその側がRISES・RINGS_ON・SILENTのとき
+ * だけ意味を持つ。 */
+typedef struct {
+  KirinAttackBandHit hit;
+  uint8_t band;
+  uint8_t reserved[7];
+  KirinAttackBandEnvelope pre;
+  KirinAttackBandEnvelope post;
+} KirinAttackBandHitEnvelope;
 
 /* ATTACK DRUM製品導線。POSTだけが有効化可能で、画面非表示時は停止・state保存なし。 */
 bool kirin_hypha_set_attack_enabled(KirinHypha* handle, bool enabled);
@@ -210,5 +239,7 @@ bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 /* DRUM帯域。POSTだけが選べ、0で解除。選んでいる間だけ計測し、state保存なし。 */
 bool kirin_hypha_set_attack_band(KirinHypha* handle, uint8_t band);
 bool kirin_hypha_poll_attack_band(KirinHypha* handle, KirinAttackBandBatch* out);
+bool kirin_hypha_poll_attack_band_envelope(KirinHypha* handle, int64_t event_sample,
+                                           KirinAttackBandHitEnvelope* out);
 
 #endif /* KIRIN_HYPHA_ATTACK_FFI_H */

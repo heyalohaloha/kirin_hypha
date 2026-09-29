@@ -11,7 +11,8 @@
 // DRUM at 100% is read at a glance. Under the one-row HISTORY the selected hit's four values stand
 // large in four cells, each led by its lane's colour mark and named by its code, with the delta sign
 // when PRE is paired. All four use the one face in which every present value fits, so no cell looks
-// louder than another. A withheld value shows its short reason.
+// louder than another. A withheld value says why in the readout face: the full reason where the
+// cell allows, its short word otherwise; a reason never shrinks the values.
 namespace hypha::attack_lane_painter
 {
 namespace
@@ -27,13 +28,24 @@ juce::Rectangle<int> rectangleOf (attack_ui::Box box)
     return { box.x, box.y, box.width, box.height };
 }
 
+// The large text of a cell: its value or bound, "--" without a hit, nothing for a reason.
 juce::String glanceText (const attack_lanes::Hit* hit, Lane lane, bool delta)
 {
     if (hit == nullptr)
         return "--";
-    if (stated (hit->cells[index (lane)]))
-        return cellText (*hit, lane, delta, false);
-    return cellText (*hit, lane, delta, false).upToFirstOccurrenceOf (" ", false, false);
+    const auto& cell = hit->cells[index (lane)];
+    return stated (cell) ? cellText (*hit, lane, delta, false) : juce::String();
+}
+
+// Why a value is withheld, in the readout face; false when not even the short word fits.
+bool paintReason (juce::Graphics& g, const attack_lanes::Hit& hit, Reason reason,
+                  juce::Rectangle<int> cell, const presentation::Context& context)
+{
+    const auto brief = shortReasonText (hit, reason);
+    g.setColour (COL_TEXT_SECONDARY);
+    return reason != Reason::missing
+        && drawFitting (g, { reasonText (hit, reason), brief == "--" ? juce::String() : brief }, cell,
+                        context, TextRole::readout, juce::Justification::centredLeft);
 }
 }
 
@@ -76,9 +88,19 @@ void paintGlance (juce::Graphics& g, const attack_ui::Layout& layout, const Fram
         g.setColour (COL_TEXT_TERTIARY);
         drawFitting (g, { unitFor (lane, delta) }, head.withTrimmedRight (2), frame.context,
                      TextRole::unit, juce::Justification::centredRight);
-        g.setColour (measured ? COL_OBSERVATORY_VALUE : COL_TEXT_TERTIARY);
-        drawTabularText (g, valueFont, texts[index (lane)], cell.toFloat(),
-                         juce::Justification::centredLeft);
+        if (measured)
+        {
+            g.setColour (COL_OBSERVATORY_VALUE);
+            drawTabularText (g, valueFont, texts[index (lane)], cell.toFloat(),
+                             juce::Justification::centredLeft);
+        }
+        else if (hit == nullptr
+                 || ! paintReason (g, *hit, hit->cells[index (lane)].reason, cell.withTrimmedRight (2),
+                                   frame.context))
+        {
+            g.setColour (COL_TEXT_TERTIARY);
+            drawTabularText (g, valueFont, "--", cell.toFloat(), juce::Justification::centredLeft);
+        }
     }
 }
 }

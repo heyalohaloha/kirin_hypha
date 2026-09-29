@@ -78,10 +78,16 @@ PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arriv
 envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band peak), **REL** (peak →
 −20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. At 200 % and 300 %
 HISTORY shows the selected hit's **HEAD** (−5 to +40 ms) and **TAIL** (0 to 300 ms) in that band.
-An ATT shorter than the band's time resolution (one period of its centre) reads as an upper bound
-such as `<16 ms`. **ALL** returns to the whole-signal DRUM, and while no band is chosen nothing
-extra is measured. A PRE older than bands keeps pairing but sends no band: the lanes then show
-POST values and DELAY says so.
+The band lanes are the same hits as the whole-signal lanes. Each hit is measured once, after its
+ring-out, and choosing another band measures the last 7 s again, even while stopped. Every missing
+value says why at every size: `RINGING` (the previous hit still rings in the band), `NO SOUND`,
+`NEXT HIT` (the tail was cut), `LONG TAIL`, or `NOT MEASURED` (played before the band was chosen).
+A value past what was measured reads as a bound, such as `<16 ms` for an ATT shorter than the band's
+time resolution (one period of its centre), `>288 ms` for a tail still ringing, or `<-66.0 dB` when
+POST has no sound in the band. When nothing in view was measured yet, DRUM says
+`PLAY TO MEASURE 63 Hz`. **ALL** returns to the whole-signal DRUM, and while no band is chosen
+nothing extra is measured or kept. A PRE older than bands keeps pairing but sends no band: the
+lanes then show POST values and DELAY says `UPDATE PRE`.
 
 ### FREQ — where the chain changed
 

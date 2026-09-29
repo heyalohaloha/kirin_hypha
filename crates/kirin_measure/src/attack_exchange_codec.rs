@@ -6,11 +6,8 @@ use uuid::Uuid;
 
 use super::attack_snapshot_path;
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
-use crate::attack_perception::band::{
-    AttackBand, AttackBandMeasure, ATTACK_BAND_HEAD_POINTS, ATTACK_BAND_HISTORY_CAPACITY,
-    ATTACK_BAND_TAIL_POINTS,
-};
-use crate::attack_runtime::AttackBandDetail;
+use crate::attack_perception::band::{AttackBand, ATTACK_BAND_HISTORY_CAPACITY};
+use crate::attack_runtime::AttackBandResults;
 use crate::{
     AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory, AttackOdfFrame,
     AttackPerceptualFeatures, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
@@ -20,20 +17,35 @@ use crate::{
 const SNAPSHOT_MAGIC: &[u8; 8] = b"KHATK001";
 /// Version 2 (B-1016): content-grid windows, body end, TRANSIENT as head minus body, and the
 /// loudness-weighted Sharpness of the 100 ms from the onset. Version 3 (B-1024): a detail may be
-/// head-only (`complete` = 0) and its shape covers only the measured span. Version 4 (B-1096):
-/// written only while a band is requested, it appends the band and its measures. A POST that
-/// never requests a band keeps receiving version 3.
+/// head-only (`complete` = 0) and its shape covers only the measured span. Version 4 (B-1096,
+/// fixed records since B-1098): written only while a band is requested, it appends the band and
+/// every hit's outcome in it. A POST that never requests a band keeps receiving version 3.
 const SNAPSHOT_VERSION: u16 = 3;
 const SNAPSHOT_VERSION_BAND: u16 = 4;
+const HEADER_BYTES: usize = 92;
+const FRAME_BYTES: usize = 12;
+const WAVEFORM_BYTES: usize = 24;
 const DETAIL_BYTES: usize = 460;
-const BAND_DETAIL_BYTES: usize = 692;
 pub(super) const ATTACK_SNAPSHOT_MAX_BYTES: u64 = 262_144;
+/// Every history at its bounds, with a full band section, fits: the reader never refuses a
+/// snapshot the writer produced, however dense the hits.
+pub(super) const ATTACK_SNAPSHOT_WORST_CASE_BYTES: usize = HEADER_BYTES
+    + ATTACK_ODF_HISTORY_CAPACITY * FRAME_BYTES
+    + ATTACK_WAVEFORM_HISTORY_CAPACITY * WAVEFORM_BYTES
+    + ATTACK_EVENT_HISTORY_CAPACITY * DETAIL_BYTES
+    + band::BAND_SECTION_HEADER_BYTES
+    + ATTACK_BAND_HISTORY_CAPACITY * band::BAND_DETAIL_BYTES;
+const _: () = assert!(ATTACK_SNAPSHOT_WORST_CASE_BYTES as u64 <= ATTACK_SNAPSHOT_MAX_BYTES);
+
+#[path = "attack_exchange_codec_band.rs"]
+mod band;
 
 pub(super) struct DecodedAttackSnapshot {
     pub(super) request_id: Uuid,
     pub(super) history: AttackHistory,
-    /// The band PRE was measuring, when the snapshot is version 4.
-    pub(super) band: Option<AttackBand>,
+    /// Version 4: the band PRE declares and its hits in it. `None` for version 3, which a PRE
+    /// that predates bands always writes.
+    pub(super) band_results: Option<AttackBandResults>,
 }
 
 pub(super) fn read_attack_snapshot(instance_dir: &Path) -> Option<DecodedAttackSnapshot> {
@@ -62,10 +74,13 @@ pub(super) fn remove_attack_snapshot(instance_dir: &Path) {
     );
 }
 
+/// `band` is the band POST asked for; `results` what this side's worker published. Version 4 is
+/// written whenever a band is asked for, with no hits while the results are still another band's.
 pub(super) fn encode_attack_snapshot(
     request_id: Uuid,
     history: &AttackHistory,
     band: Option<AttackBand>,
+    results: &AttackBandResults,
 ) -> Vec<u8> {
     let Some(identity) = history.newest() else {
         return Vec::new();
@@ -76,20 +91,14 @@ pub(super) fn encode_attack_snapshot(
         .len()
         .min(ATTACK_WAVEFORM_HISTORY_CAPACITY) as u16;
     let detail_count = history.details().len().min(ATTACK_EVENT_HISTORY_CAPACITY) as u16;
-    let band_details = band
-        .map(|band| {
-            history
-                .band_details()
-                .filter(|detail| detail.measure.band == band)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let band_count = band_details.len().min(ATTACK_BAND_HISTORY_CAPACITY) as u16;
+    let band_count = band.map_or(0, |_| results.own().len().min(ATTACK_BAND_HISTORY_CAPACITY));
     let mut bytes = Vec::with_capacity(
-        96 + frame_count as usize * 12
-            + waveform_count as usize * 24
+        HEADER_BYTES
+            + frame_count as usize * FRAME_BYTES
+            + waveform_count as usize * WAVEFORM_BYTES
             + detail_count as usize * DETAIL_BYTES
-            + band_count as usize * BAND_DETAIL_BYTES,
+            + band::BAND_SECTION_HEADER_BYTES
+            + band_count * band::BAND_DETAIL_BYTES,
     );
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
     let version = if band.is_some() {
@@ -125,38 +134,9 @@ pub(super) fn encode_attack_snapshot(
         encode_detail(&mut bytes, detail);
     }
     if let Some(band) = band {
-        bytes.push(band.index());
-        bytes.push(0);
-        bytes.extend_from_slice(&band_count.to_le_bytes());
-        for detail in band_details.iter().take(band_count as usize) {
-            encode_band_detail(&mut bytes, detail);
-        }
+        band::encode_band_section(&mut bytes, band, results);
     }
     bytes
-}
-
-fn encode_band_detail(bytes: &mut Vec<u8>, detail: &AttackBandDetail) {
-    let measure = detail.measure;
-    bytes.extend_from_slice(&detail.event.event_sample.to_le_bytes());
-    bytes.extend_from_slice(&detail.event.decision_sample.to_le_bytes());
-    bytes.extend_from_slice(&detail.event.value.to_le_bytes());
-    bytes.extend_from_slice(&measure.span_end_sample.to_le_bytes());
-    bytes.extend_from_slice(&measure.peak_frames.to_le_bytes());
-    bytes.extend_from_slice(&measure.level_dbfs.to_le_bytes());
-    bytes.push(measure.arrival_frames.is_some() as u8);
-    bytes.push(measure.attack_frames.is_some() as u8);
-    bytes.push(measure.release_frames.is_some() as u8);
-    bytes.push(0);
-    for value in [
-        measure.arrival_frames.unwrap_or(0.0),
-        measure.attack_frames.unwrap_or(0.0),
-        measure.release_frames.unwrap_or(0.0),
-    ] {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-    for value in measure.head_dbfs.iter().chain(measure.tail_dbfs.iter()) {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
 }
 
 fn encode_detail(bytes: &mut Vec<u8>, detail: &AttackDetailedEvent) {
@@ -251,83 +231,24 @@ pub(super) fn decode_attack_snapshot(bytes: &[u8]) -> Option<DecodedAttackSnapsh
         history.push_event(detail.event);
         history.push_detail(detail);
     }
-    let mut band = None;
-    if version == SNAPSHOT_VERSION_BAND {
-        let chosen = AttackBand::from_index(cursor.u8()?)?;
-        let _reserved = cursor.u8()?;
-        let band_count = cursor.u16()? as usize;
-        (band_count <= ATTACK_BAND_HISTORY_CAPACITY).then_some(())?;
-        for _ in 0..band_count {
-            let detail = decode_band_detail(
-                &mut cursor,
-                chosen,
+    let band_results = if version == SNAPSHOT_VERSION_BAND {
+        Some(band::decode_band_section(
+            &mut cursor,
+            &band::BandIdentity {
                 generation,
                 sample_rate,
                 channels,
                 definition_hash,
-            )?;
-            if history.events().all(|event| *event != detail.event) {
-                history.push_event(detail.event);
-            }
-            history.push_band_detail(detail);
-        }
-        band = Some(chosen);
-    }
+            },
+        )?)
+    } else {
+        None
+    };
     (cursor.remaining() == 0).then_some(DecodedAttackSnapshot {
         request_id,
         history,
-        band,
+        band_results,
     })
-}
-
-fn decode_band_detail(
-    cursor: &mut Cursor<'_>,
-    band: AttackBand,
-    generation: u64,
-    sample_rate: u32,
-    channels: u8,
-    definition_hash: [u8; 32],
-) -> Option<AttackBandDetail> {
-    let event_sample = cursor.i64()?;
-    let decision_sample = cursor.i64()?;
-    let value = cursor.f32()?;
-    let span_end_sample = cursor.i64()?;
-    let peak_frames = cursor.f32()?;
-    let level_dbfs = cursor.f32()?;
-    let arrival_available = cursor.bool()?;
-    let attack_available = cursor.bool()?;
-    let release_available = cursor.bool()?;
-    let _reserved = cursor.u8()?;
-    let times = cursor.f32_array::<3>()?;
-    let head_dbfs = cursor.f32_array::<ATTACK_BAND_HEAD_POINTS>()?;
-    let tail_dbfs = cursor.f32_array::<ATTACK_BAND_TAIL_POINTS>()?;
-    let event = AttackEvent {
-        generation,
-        sample_rate,
-        channels,
-        definition_hash,
-        event_sample,
-        decision_sample,
-        value,
-    };
-    let detail = AttackBandDetail {
-        event,
-        measure: AttackBandMeasure {
-            band,
-            sample_rate,
-            channels,
-            event_sample,
-            span_end_sample,
-            peak_frames,
-            level_dbfs,
-            arrival_frames: arrival_available.then_some(times[0]),
-            attack_frames: attack_available.then_some(times[1]),
-            release_frames: release_available.then_some(times[2]),
-            head_dbfs,
-            tail_dbfs,
-        },
-    };
-    detail.has_valid_layout().then_some(detail)
 }
 
 fn decode_detail(

@@ -253,8 +253,9 @@ B-1016で、§3.2の止血のうち`ONSET DIFFERS`と`QUIET BEFORE`を撤去し�
   - UIの窓定数（`headBins`、`bodyBins`、`shapeLeadBins`）が`kirin_measure`の定義と一致すること（`drum_ui_windows_are_the_measurement_windows`）。
 - 未実施：Studio One / Pro Toolsでの実機表示、Windows実画面。
 
-## 6. 帯域（BAND、B-1097）
+## 6. 帯域（BAND、B-1097、B-1098）
 
 見出し2行目のBANDで1オクターブ帯域を選ぶと、4laneはその帯域のDELAY／ATT／REL／LEVELに替わり、
 200%以上のHISTORYは選択打音のHEAD／TAILの帯域包絡になる。ALLは本書のDRUMそのものである。
-正本は`hypha_drum_band_view_plan_20260928.md`の§11（計算）と§12（画面）、不変条件はINV-S44とする。
+帯域の段は本書のlaneと同じ打音・同じ鍵で、時間軸行の打音数（§3.2）もそのまま一致する。
+正本は`hypha_drum_band_view_plan_20260928.md`の§11（計算）、§12（画面）、§13（レビュー後の構造）、不変条件はINV-S44とする。

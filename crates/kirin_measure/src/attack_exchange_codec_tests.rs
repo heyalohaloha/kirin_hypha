@@ -1,9 +1,9 @@
 use super::*;
 use crate::attack_perception::band::{
-    AttackBand, AttackBandMeasure, ATTACK_BAND_HEAD_POINTS, ATTACK_BAND_HISTORY_CAPACITY,
-    ATTACK_BAND_TAIL_POINTS,
+    centi_db, AttackBand, AttackBandMeasure, BandArrival, BandEnvelope, BandRelease, BandSound,
+    BandSpanEnd,
 };
-use crate::attack_runtime::AttackBandDetail;
+use crate::attack_runtime::{AttackBandDetail, AttackBandResults};
 
 fn history() -> AttackHistory {
     history_with(true)
@@ -74,7 +74,7 @@ fn history_with(complete: bool) -> AttackHistory {
 #[test]
 fn attack_snapshot_round_trips_exact_history_and_request() {
     let request_id = Uuid::new_v4();
-    let bytes = encode_attack_snapshot(request_id, &history(), None);
+    let bytes = encode_attack_snapshot(request_id, &history(), None, &AttackBandResults::default());
     assert!(bytes.len() < ATTACK_SNAPSHOT_MAX_BYTES as usize);
     let decoded = decode_attack_snapshot(&bytes).unwrap();
     assert_eq!(decoded.request_id, request_id);
@@ -94,7 +94,12 @@ fn attack_snapshot_round_trips_exact_history_and_request() {
 
 #[test]
 fn attack_snapshot_rejects_truncation_trailing_bytes_and_invalid_bool() {
-    let bytes = encode_attack_snapshot(Uuid::new_v4(), &history(), None);
+    let bytes = encode_attack_snapshot(
+        Uuid::new_v4(),
+        &history(),
+        None,
+        &AttackBandResults::default(),
+    );
     assert!(decode_attack_snapshot(&bytes[..bytes.len() - 1]).is_none());
     let mut trailing = bytes.clone();
     trailing.push(0);
@@ -113,7 +118,7 @@ fn a_head_only_detail_round_trips_and_its_flag_is_checked() {
         1,
         "a head-only detail is a valid detail"
     );
-    let bytes = encode_attack_snapshot(Uuid::new_v4(), &head, None);
+    let bytes = encode_attack_snapshot(Uuid::new_v4(), &head, None, &AttackBandResults::default());
     let decoded = decode_attack_snapshot(&bytes).unwrap();
     assert_eq!(
         decoded.history.details().copied().collect::<Vec<_>>(),
@@ -156,106 +161,210 @@ fn a_complete_detail_replaces_its_head_and_advances_the_revision() {
 
 #[test]
 fn empty_history_has_no_publishable_payload() {
-    assert!(encode_attack_snapshot(Uuid::new_v4(), &AttackHistory::default(), None).is_empty());
+    assert!(encode_attack_snapshot(
+        Uuid::new_v4(),
+        &AttackHistory::default(),
+        None,
+        &AttackBandResults::default()
+    )
+    .is_empty());
 }
 
-fn band_history() -> AttackHistory {
-    let mut history = history();
-    let event = *history.events().next_back().unwrap();
-    let mut head_dbfs = [-60.0_f32; ATTACK_BAND_HEAD_POINTS];
-    head_dbfs[40] = -12.0;
-    let mut tail_dbfs = [-40.0_f32; ATTACK_BAND_TAIL_POINTS];
-    tail_dbfs[0] = -12.0;
-    history.push_band_detail(AttackBandDetail {
+fn band3() -> AttackBand {
+    AttackBand::from_index(3).unwrap()
+}
+
+/// One band result at `event`: measured with `sound` over a 300 ms or next-hit tail, or not kept.
+fn band_detail(event: AttackEvent, sound: Option<BandSound>, next_hit: bool) -> AttackBandDetail {
+    let span_end_sample = event.event_sample + if next_hit { 4_800 } else { 14_400 };
+    let mut envelope = BandEnvelope::default();
+    envelope.head[40] = centi_db(-12.0);
+    envelope.tail[0] = centi_db(-12.25);
+    AttackBandDetail {
         event,
-        measure: AttackBandMeasure {
-            band: AttackBand::from_index(3).unwrap(),
+        band: band3(),
+        span_end_sample,
+        measure: sound.map(|sound| AttackBandMeasure {
+            band: band3(),
             sample_rate: 48_000,
             channels: 2,
             event_sample: event.event_sample,
-            span_end_sample: event.event_sample + 14_400,
+            span_end_sample,
+            span_end: if next_hit {
+                BandSpanEnd::NextHit
+            } else {
+                BandSpanEnd::Window
+            },
             peak_frames: 300.0,
-            level_dbfs: -12.0,
-            arrival_frames: Some(20.5),
-            attack_frames: Some(240.0),
-            release_frames: None,
-            head_dbfs,
-            tail_dbfs,
-        },
-    });
-    assert_eq!(history.band_details().len(), 1);
-    history
+            level_dbfs: if sound == BandSound::Silent {
+                -80.0
+            } else {
+                -12.0
+            },
+            sound,
+            envelope,
+        }),
+    }
+}
+
+/// Six hits, one of every outcome a band result states.
+fn every_outcome() -> (AttackHistory, AttackBandResults) {
+    let mut history = history();
+    let identity = *history.newest().unwrap();
+    let first = *history.events().next_back().unwrap();
+    let mut results = AttackBandResults::new(Some(band3()), first.generation);
+    let rises = |arrival, release| Some(BandSound::Rises { arrival, release });
+    let timed = BandArrival::At {
+        arrival_frames: 20.5,
+        attack_frames: 240.0,
+    };
+    let outcomes = [
+        (rises(timed, BandRelease::At(4_000.0)), false),
+        (rises(BandArrival::Ringing, BandRelease::CutByNextHit), true),
+        (rises(timed, BandRelease::AtLeast(14_100.0)), false),
+        (Some(BandSound::RingsOn), false),
+        (Some(BandSound::Silent), false),
+        (None, false),
+    ];
+    for (index, (sound, next_hit)) in outcomes.into_iter().enumerate() {
+        let event = AttackEvent {
+            event_sample: first.event_sample + index as i64 * 9_600,
+            decision_sample: first.decision_sample + index as i64 * 9_600,
+            ..first
+        };
+        if index > 0 {
+            history.push(AttackOdfFrame {
+                event_sample: event.event_sample,
+                support_start_samples: event.event_sample - 1_024,
+                support_end_samples: event.event_sample + 1_024,
+                ..identity
+            });
+            history.push_event(event);
+        }
+        assert!(results.put_own(band_detail(event, sound, next_hit)));
+    }
+    (history, results)
 }
 
 #[test]
-fn a_band_snapshot_round_trips_its_measures_and_a_plain_one_has_none() {
+fn a_band_snapshot_round_trips_every_outcome_and_a_plain_one_has_none() {
     let request_id = Uuid::new_v4();
-    let band = AttackBand::from_index(3);
-    let bytes = encode_attack_snapshot(request_id, &band_history(), band);
-    assert!(bytes.len() < ATTACK_SNAPSHOT_MAX_BYTES as usize);
+    let (history, results) = every_outcome();
+    let bytes = encode_attack_snapshot(request_id, &history, Some(band3()), &results);
     let decoded = decode_attack_snapshot(&bytes).unwrap();
-    assert_eq!(decoded.band, band);
-    assert_eq!(
-        decoded.history.band_details().copied().collect::<Vec<_>>(),
-        band_history().band_details().copied().collect::<Vec<_>>()
-    );
-    // The same history published without a band is version 3: no band, no measures.
-    let plain =
-        decode_attack_snapshot(&encode_attack_snapshot(request_id, &band_history(), None)).unwrap();
-    assert_eq!(plain.band, None);
-    assert_eq!(plain.history.band_details().len(), 0);
-    // Measures of another band than the declared one are left out.
-    let other = decode_attack_snapshot(&encode_attack_snapshot(
-        request_id,
-        &band_history(),
-        AttackBand::from_index(5),
+    assert_eq!(decoded.band_results.as_ref(), Some(&results));
+    // Without a requested band the snapshot is version 3: no band, no hits.
+    let plain = decode_attack_snapshot(&encode_attack_snapshot(
+        request_id, &history, None, &results,
     ))
     .unwrap();
-    assert_eq!(other.band, AttackBand::from_index(5));
-    assert_eq!(other.history.band_details().len(), 0);
+    assert_eq!(plain.band_results, None);
+    // PRE declares the requested band at once, with no hits while its results are another band's.
+    let declared = decode_attack_snapshot(&encode_attack_snapshot(
+        request_id,
+        &history,
+        AttackBand::from_index(5),
+        &results,
+    ))
+    .unwrap()
+    .band_results
+    .unwrap();
+    assert_eq!(declared.band, AttackBand::from_index(5));
+    assert!(declared.own().is_empty());
 }
 
 #[test]
-fn a_band_snapshot_is_bounded_and_rejects_a_measure_of_an_unknown_hit() {
-    let mut full = history();
-    let identity = *full.newest().unwrap();
-    for index in 0..ATTACK_BAND_HISTORY_CAPACITY as i64 + 8 {
-        let event = AttackEvent {
-            event_sample: 1_024 + (index + 1) * 4_800,
-            decision_sample: 2_048 + (index + 1) * 4_800,
-            ..*full.events().next_back().unwrap()
-        };
-        full.push(AttackOdfFrame {
-            event_sample: event.event_sample,
-            support_start_samples: event.event_sample - 1_024,
-            support_end_samples: event.event_sample + 1_024,
+fn every_history_at_its_bounds_fits_the_snapshot() {
+    let mut history = AttackHistory::with_capacity();
+    let identity = *self::history().newest().unwrap();
+    for index in 0..ATTACK_ODF_HISTORY_CAPACITY as i64 {
+        history.push(AttackOdfFrame {
+            event_sample: 1_024 + index * 256,
+            support_start_samples: index * 256,
+            support_end_samples: 2_048 + index * 256,
             ..identity
         });
-        full.push_event(event);
-        full.push_band_detail(AttackBandDetail {
-            event,
-            measure: AttackBandMeasure {
-                event_sample: event.event_sample,
-                span_end_sample: event.event_sample + 4_800,
-                ..band_history().band_details().next().unwrap().measure
-            },
+    }
+    for index in 0..ATTACK_WAVEFORM_HISTORY_CAPACITY as i64 {
+        history.push_waveform(AttackWaveformPoint {
+            generation: 3,
+            sample_rate: 48_000,
+            channels: 2,
+            start_sample: index * 480,
+            end_sample: (index + 1) * 480,
+            peak_linear: 0.5,
+            rms_dbfs: -12.0,
         });
     }
-    assert_eq!(full.band_details().len(), ATTACK_BAND_HISTORY_CAPACITY);
-    let bytes = encode_attack_snapshot(Uuid::new_v4(), &full, AttackBand::from_index(3));
-    assert!(bytes.len() < ATTACK_SNAPSHOT_MAX_BYTES as usize);
+    let template = *self::history().details().next().unwrap();
+    let mut results = AttackBandResults::new(Some(band3()), 3);
+    for index in 0..ATTACK_EVENT_HISTORY_CAPACITY as i64 {
+        let event = AttackEvent {
+            event_sample: 1_024 + index * 1_200,
+            decision_sample: 2_048 + index * 1_200,
+            ..template.event
+        };
+        history.push_event(event);
+        history.push_detail(AttackDetailedEvent {
+            event,
+            features: AttackPerceptualFeatures {
+                window_start_sample: event.event_sample / 48 * 48,
+                body_end_sample: event.event_sample / 48 * 48 + 130 * 48,
+                ..template.features
+            },
+            shape: AttackEventShape {
+                start_sample: event.event_sample / 48 * 48 - 20 * 48,
+                end_sample: event.event_sample / 48 * 48 + 130 * 48,
+                event_sample: event.event_sample,
+                ..template.shape
+            },
+        });
+        let sound = BandSound::Rises {
+            arrival: BandArrival::Ringing,
+            release: BandRelease::AtLeast(100.0),
+        };
+        assert!(results.put_own(band_detail(event, Some(sound), false)));
+    }
+    assert_eq!(history.frames().len(), ATTACK_ODF_HISTORY_CAPACITY);
+    assert_eq!(history.waveform().len(), ATTACK_WAVEFORM_HISTORY_CAPACITY);
+    assert_eq!(history.details().len(), ATTACK_EVENT_HISTORY_CAPACITY);
+    assert_eq!(results.own().len(), ATTACK_BAND_HISTORY_CAPACITY);
+    let bytes = encode_attack_snapshot(Uuid::new_v4(), &history, Some(band3()), &results);
+    assert_eq!(bytes.len(), ATTACK_SNAPSHOT_WORST_CASE_BYTES);
+    assert!(bytes.len() as u64 <= ATTACK_SNAPSHOT_MAX_BYTES);
+    let decoded = decode_attack_snapshot(&bytes).unwrap();
     assert_eq!(
-        decode_attack_snapshot(&bytes)
-            .unwrap()
-            .history
-            .band_details()
-            .len(),
+        decoded.band_results.unwrap().own().len(),
         ATTACK_BAND_HISTORY_CAPACITY
     );
-    // A band measure whose span ends before its onset is refused whole.
-    let mut bytes =
-        encode_attack_snapshot(Uuid::new_v4(), &band_history(), AttackBand::from_index(3));
-    let band_section = bytes.len() - 4 - 692;
-    bytes[band_section + 24..band_section + 32].copy_from_slice(&0_i64.to_le_bytes());
-    assert!(decode_attack_snapshot(&bytes).is_none());
+}
+
+#[test]
+fn a_band_section_that_does_not_hold_together_is_refused_whole() {
+    let (history, results) = every_outcome();
+    let bytes = encode_attack_snapshot(Uuid::new_v4(), &history, Some(band3()), &results);
+    let section = bytes.len() - 4 - 6 * 384;
+    let record = |index: usize| section + 4 + index * 384;
+    // An unknown sound code.
+    let mut unknown = bytes.clone();
+    unknown[record(0) + 30] = 7;
+    assert!(decode_attack_snapshot(&unknown).is_none());
+    // A 300 ms tail that does not end 300 ms after its onset.
+    let mut stretched = bytes.clone();
+    let end = record(0) + 36;
+    let span = i64::from_le_bytes(stretched[end..end + 8].try_into().unwrap());
+    stretched[end..end + 8].copy_from_slice(&(span + 1).to_le_bytes());
+    assert!(decode_attack_snapshot(&stretched).is_none());
+    // A release cut by the next hit over a 300 ms tail.
+    let mut cut = bytes.clone();
+    cut[record(0) + 32] = 1;
+    assert!(decode_attack_snapshot(&cut).is_none());
+    // More hits than the history can show.
+    let mut many = bytes.clone();
+    many[section + 2..section + 4].copy_from_slice(&241_u16.to_le_bytes());
+    assert!(decode_attack_snapshot(&many).is_none());
+    // An unknown band.
+    let mut band = bytes;
+    band[section] = 9;
+    assert!(decode_attack_snapshot(&band).is_none());
 }

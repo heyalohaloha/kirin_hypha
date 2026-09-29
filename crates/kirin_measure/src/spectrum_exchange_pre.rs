@@ -244,13 +244,16 @@ impl SpectrumCoordinator {
                     .waveform()
                     .next_back()
                     .map(|_| history.revision() as i64);
-                let band = self
+                // The band results are published apart from the history; publishing them
+                // advances the history's revision, so a new band result is a new snapshot too.
+                let (band, results) = self
                     .attack_runtime
                     .as_ref()
-                    .and_then(|runtime| runtime.band());
+                    .map(|runtime| (runtime.band(), runtime.band_results()))
+                    .unwrap_or_default();
                 (
                     revision,
-                    encode_attack_snapshot(request_id, &history, band),
+                    encode_attack_snapshot(request_id, &history, band, &results),
                     None,
                 )
             }

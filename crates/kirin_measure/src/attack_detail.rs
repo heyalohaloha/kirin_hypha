@@ -139,13 +139,7 @@ impl AttackDetailTracker {
         (self.block_start, &self.block)
     }
 
-    /// The earliest confirmed onset still waiting for its windows, if any.
-    pub(super) fn next_pending_onset(&self) -> Option<i64> {
-        self.pending_events
-            .front()
-            .map(|pending| pending.event.event_sample)
-    }
-
+    /// Every onset before this sample has been decided by the peak picker.
     pub(super) fn decided_before(&self) -> Option<i64> {
         self.decided_before
     }

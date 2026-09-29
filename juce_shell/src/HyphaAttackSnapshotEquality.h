@@ -53,14 +53,12 @@ inline auto key (const KirinAttackStats& v) noexcept
                    v.pushed_blocks, v.dropped_blocks, v.analyzed_frames); }
 inline auto key (const KirinAttackBandSide& v) noexcept
 {
-    return std::tie (v.available, v.arrival_available, v.attack_available, v.release_available,
-        v.span_end_sample, v.peak_ms, v.arrival_ms, v.attack_ms, v.release_ms, v.level_dbfs,
-        v.head_dbfs, v.tail_dbfs);
+    return std::tie (v.state, v.arrival_state, v.release_state, v.peak_ms, v.arrival_ms,
+        v.attack_ms, v.release_ms, v.level_dbfs);
 }
 inline auto key (const KirinAttackBandHit& v) noexcept
 {
-    return std::tie (v.generation, v.sample_rate, v.channels, v.band, v.kind, v.delay_available,
-        v.event_sample, v.resolution_micros, v.delay_ms, v.pre, v.post);
+    return std::tie (v.event_sample, v.measured_at_sample, v.kind, v.pre, v.post);
 }
 template <typename T> bool same (const T& a, const T& b) noexcept
 {

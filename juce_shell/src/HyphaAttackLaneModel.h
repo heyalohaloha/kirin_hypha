@@ -38,13 +38,23 @@ inline constexpr std::array<Lane, attack_ui::laneCount> bandLanes {
 enum class Reason : std::uint8_t
 {
     value,
-    missing,          // detail or its body not delivered yet, or a non-finite descriptor
+    missing,          // not delivered or not measured yet ("--")
     noMatch,          // PRE-only, POST-only or ambiguous common event
     nextHit,          // TRANSIENT: the next onset leaves less than 20 ms of body; REL: tail cut
     quietBody,        // TRANSIENT: the body is below the HISTORY floor, silence or near-silence
-    belowResolution,  // band ATT: within one period of the band's centre; the value is the bound
-    ringing,          // band: the band still rings from the previous hit, so no arrival
-    noPreBand,        // band DELAY: paired, but PRE has not sent this band
+    // The band lanes (B-1098). Each is a fact the engine stated, never inferred here.
+    withinResolution, // ATT (or its change) inside one period of the band's centre: `value` is
+                      // that period, shown as an upper bound "<16 ms"
+    atLeast,          // a bound: REL past the measured tail, or LEVEL against a silent side;
+                      // `value` is the bound, positive "at least", negative "at most"
+    ringing,          // the previous hit still rings in the band
+    noSound,          // the band is below -72 dBFS at this hit
+    preNoSound,       // paired: PRE's band is silent at this hit
+    postNoSound,      // paired: POST's band is silent at this hit
+    longTail,         // REL: both sides ring past the measured tail
+    notMeasured,      // the hit's audio was not kept: before the band was chosen, or stopped
+    updatePre,        // DELAY: the paired PRE predates bands
+    noPair,           // DELAY without a PRE
 };
 
 struct Cell

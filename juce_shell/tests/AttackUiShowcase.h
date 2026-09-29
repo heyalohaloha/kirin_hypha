@@ -177,31 +177,21 @@ inline DrumScene drumScene()
     auto& band = *scene.band;
     band.status = KIRIN_SPECTRUM_ACTIVE;
     band.band = 1;
-    band.pre_band_available = 1;
+    band.pre_band = KIRIN_ATTACK_BAND_PRE_SAME;
     band.capacity = KIRIN_ATTACK_BAND_BATCH_CAPACITY;
+    band.resolution_micros = 16'000;
+    band.generation = 7;
+    band.sample_rate = rate;
     for (int hit = 0; hit < hitCount; ++hit)
     {
         const bool snare = hit % 2 == 1;
         auto& item = band.hits[band.count++];
-        item.generation = 7;
-        item.sample_rate = rate;
-        item.channels = 2;
-        item.band = 1;
-        item.event_sample = onset (hit);
-        item.resolution_micros = 16'000;
-        item.delay_available = 1;
+        item.event_sample = item.measured_at_sample = onset (hit);
         const auto j = jitter (hit, 9);
-        if (snare)
-        {
-            fillBandSide (item.pre, 0.0f, 8.0f, 40.0f, -23.0f + 0.6f * j, onset (hit));
-            fillBandSide (item.post, 1.1f + 0.2f * j, 8.5f, 44.0f, -23.6f + 0.6f * j, onset (hit));
-        }
-        else
-        {
-            fillBandSide (item.pre, 0.0f, 9.0f, 60.0f, -7.0f + 0.5f * j, onset (hit));
-            fillBandSide (item.post, 2.4f + 0.3f * j, 10.0f, 75.0f, -7.8f + 0.5f * j, onset (hit));
-        }
-        item.delay_ms = item.post.arrival_ms - item.pre.arrival_ms;
+        item.pre = snare ? risingSide (0.0f, 8.0f, 40.0f, -23.0f + 0.6f * j)
+                         : risingSide (0.0f, 9.0f, 60.0f, -7.0f + 0.5f * j);
+        item.post = snare ? risingSide (1.1f + 0.2f * j, 8.5f, 44.0f, -23.6f + 0.6f * j)
+                          : risingSide (2.4f + 0.3f * j, 10.0f, 75.0f, -7.8f + 0.5f * j);
     }
     return scene;
 }
@@ -221,6 +211,7 @@ inline juce::Image render (const DrumScene& scene, int editorWidth, bool overlay
     scene.submit (*component);
     if (band != 0)
     {
+        component->bandEnvelopeSource = EnvelopeSource { scene.band.get() };
         component->setBand (band);
         component->setBandSnapshot (*scene.band);
     }

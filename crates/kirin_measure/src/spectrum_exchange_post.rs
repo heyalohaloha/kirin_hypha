@@ -173,10 +173,16 @@ impl SpectrumCoordinator {
             .attack_runtime
             .as_ref()
             .and_then(|runtime| runtime.try_history());
+        // Without a PRE there is no PRE onset to measure at.
+        let band = self.attack_runtime.as_ref().and_then(|runtime| {
+            runtime.request_band_anchors(runtime.band(), Vec::new());
+            runtime.band()
+        });
         self.store_attack_view(AttackPairViewSnapshot {
             status: SpectrumViewStatus::NoPair,
             pre: None,
             post,
+            band,
             ..Default::default()
         });
         true
@@ -317,7 +323,7 @@ impl SpectrumCoordinator {
             .then(|| read_attack_snapshot(&target.instance_dir))
             .flatten()
             .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| (snapshot.history, snapshot.band));
+            .map(|snapshot| (snapshot.history, snapshot.band_results));
         let mut slot = match self.post_session.try_lock() {
             Ok(slot) => slot,
             Err(TryLockError::WouldBlock) => return false,
