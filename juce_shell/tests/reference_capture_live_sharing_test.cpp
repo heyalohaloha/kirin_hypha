@@ -86,7 +86,11 @@ static void captureLiveSharing(const juce::File& sandbox) {
                 require (wait ([&] { const auto state = access->snapshot(); return unitIndex < state.unitPass.size()
                     && state.unitPass[unitIndex] > previousUnitPass; }),
                     "synthetic host waits for each held-capture comparison unit");
-            else juce::Thread::sleep(12);
+            else
+                // A held capture is compared with the live A stream. Keep the synthetic host
+                // near the 100 ms/block rate of its 48 kHz input; feeding eight times faster can
+                // overflow the bounded RT queue while the worker verifies the Version source.
+                juce::Thread::sleep (observationBefore.held ? 100 : 12);
             if (! paceLive && observationBefore.held && unitBoundary && unitIndex % 4 == 3)
             {
                 bool ready = false;
