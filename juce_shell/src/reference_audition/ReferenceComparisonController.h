@@ -23,6 +23,8 @@ public:
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
     Snapshot snapshot();
+    bool captureObservationReady() const noexcept { return version.captureObservationReady(); }
+    bool captureObservationQueueDrained() const noexcept { return version.captureObservationQueueDrained(); }
     ReferenceComparisonSettings savedSettings();
     void restoreSettings (const ReferenceComparisonSettings&);
     bool selectVersion (const juce::String&);

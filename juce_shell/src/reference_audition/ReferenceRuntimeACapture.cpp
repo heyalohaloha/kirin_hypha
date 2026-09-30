@@ -185,6 +185,7 @@ namespace hypha::reference_audition
 
     void RuntimeACapture::disconnect()
     {
+        observationArmed.store (false, std::memory_order_release);
         captureEnabled.store (false, std::memory_order_release);
         removeReceiptFile();
         resetAccumulator();
@@ -382,6 +383,7 @@ namespace hypha::reference_audition
             && nowMs >= 0 && nowMs <= maximumSafeInteger - receiptLeaseMs;
         if (! authorityValid)
         {
+            observationArmed.store (false, std::memory_order_release);
             captureEnabled.store (false, std::memory_order_release);
             if (receipt || ! activeBindingId.isEmpty())
                 removeReceiptFile();
@@ -420,6 +422,7 @@ namespace hypha::reference_audition
         const auto targetFrames = std::min (
             maximumCaptureFrames, activeSampleRateHz * captureSeconds);
         captureEnabled.store (true, std::memory_order_release);
+        observationArmed.store (local && gridEnabled, std::memory_order_release);
         for (;;)
         {
             const auto currentRead = readSlot.load (std::memory_order_relaxed);

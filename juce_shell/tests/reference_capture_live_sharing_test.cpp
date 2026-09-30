@@ -39,6 +39,10 @@ static void captureLiveSharing(const juce::File& sandbox) {
             require(wait([&]{const auto s=controller.snapshot();return s.visualTimeline
                 && s.visualTimeline->observing && s.visualTimeline->pairedObserving;}),
                 "LIVE comparison is observing before the synthetic host runs");
+        else if (access->snapshot().held)
+            require (wait ([&] { controller.setPresented (true);
+                return controller.captureObservationReady(); }),
+                "local A observation is armed before the synthetic host starts");
         juce::AudioBuffer<float> input(2,4800);
         for(int at=0;at<fixture.audio.getNumSamples();at+=4800) {
             const auto index = size_t (at / 4800);
@@ -86,11 +90,14 @@ static void captureLiveSharing(const juce::File& sandbox) {
                 require (wait ([&] { const auto state = access->snapshot(); return unitIndex < state.unitPass.size()
                     && state.unitPass[unitIndex] > previousUnitPass; }),
                     "synthetic host waits for each held-capture comparison unit");
-            else
-                // A held capture is compared with the live A stream. Keep the synthetic host
-                // near the 100 ms/block rate of its 48 kHz input; feeding eight times faster can
-                // overflow the bounded RT queue while the worker verifies the Version source.
-                juce::Thread::sleep (observationBefore.held ? 100 : 12);
+            else if (! observationBefore.held)
+                juce::Thread::sleep (12);
+            // The held-A comparison and local A observation have independent workers. Do not
+            // outrun either bounded queue: each exact 100 ms host block must be consumed before
+            // the next block, even when the CI machine is slower than real-time.
+            if (observationBefore.held)
+                require (wait ([&] { return controller.captureObservationQueueDrained(); }),
+                         "synthetic host waits for the local A observation worker");
             if (! paceLive && observationBefore.held && unitBoundary && unitIndex % 4 == 3)
             {
                 bool ready = false;
