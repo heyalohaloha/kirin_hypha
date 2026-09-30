@@ -162,7 +162,13 @@ Guide guide (const State& state)
     if (state.pendingAudition.stage != reference_audition::PendingAuditionView::Stage::none)
     {
         result.heading = pendingAuditionHeading (state);
-        result.detail = pendingAuditionReason (state) + " / "
+        result.detail = state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::approval
+            ? juce::String ("Approve below. A stays live; press A to cancel.")
+            : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable
+            ? juce::String ("Prepare this source in Kirin OS. A stays live.")
+            : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::ceilingExceeded
+            ? juce::String ("MATCH exceeds the safe level. A stays live.")
+            : pendingAuditionReason (state) + " / "
             + (state.pendingAudition.waiting() ? "A stays live until ready. Press A to cancel."
                                               : "A stays live. Choose the source again.");
         return result;

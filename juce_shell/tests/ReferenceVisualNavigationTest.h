@@ -33,6 +33,17 @@ inline void verifyReferenceVisualNavigation()
         panel.setVisible (true);
         panel.setPresentationContext (presentation::forEditor (size.width, size.height));
         panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+        for (const auto* name : { "queued_b_rate_c_view", "queued_c_rate_b_view" })
+        {
+            panel.setState (named (name));
+            auto* action = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-action"));
+            require (action && action->isVisible() && !action->getBounds().isEmpty()
+                && panel.getComponentAt (action->getBounds().getCentre()) == action,
+                "pending approval has a directly reachable action in the other visual pane at every size");
+            int approvals = 0; panel.onAction = [&] { ++approvals; };
+            action->onClick(); require (approvals == 1, "one click reaches the pending approval");
+            panel.onAction = {};
+        }
         auto state = named ("ready");
         state.comparisonSlot = 1;
         state.checks = { { "low/ref-a", "Low end  /  The actual C song" } };

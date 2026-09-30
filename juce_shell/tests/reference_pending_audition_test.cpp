@@ -2,6 +2,7 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
+#include "ReferenceSelectionSafetyTest.h"
 
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
@@ -14,6 +15,7 @@ bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
 }
 void testReferencePendingAudition (const juce::File& sandbox)
 {
+    verifyReferenceSelectionSafety (sandbox);
     using Stage = ref::PendingAuditionView::Stage;
     const auto root = sandbox.getChildFile ("queued-abc");
     require (root.createDirectory(), "queued audition fixture directory");
@@ -139,7 +141,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
     require (controller.snapshot().pendingAudition.stage == Stage::level && !host (true),
         "unknown live A loudness cannot silently choose original C volume");
     controller.servicePendingAudition (-1, -2, true);
-    require (controller.snapshot().pendingAudition.stage == Stage::startFailed && !host (true),
+    require (controller.snapshot().pendingAudition.stage == Stage::ceilingExceeded && !host (true),
         "ceiling-limited MATCH cancels instead of falling back to original volume");
     controller.selectA(); host (false);
     preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "original");

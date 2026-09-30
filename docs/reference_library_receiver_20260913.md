@@ -72,10 +72,23 @@ the audio callback reads the same bounded atomic demand instead of adding anothe
 The source/Cue/format identity, explicit conversion permission, callback/clock and prepared pages
 must still match before the one-shot intent is claimed. The runtime selection generation spans
 gain preparation and activation; an intervening A command or reconfiguration invalidates it.
-Loudness/peak-matched queued starts require a valid match and never silently fall back to original
+Loudness/peak-matched immediate and queued starts require a valid match and never silently fall back to original
 volume. A Preset explicitly set to original mode keeps that mode. Cancellation/failure reasons
 remain visible. A cancels; B/C replaces the intent; source controls, restore, configuration and
 Blind admission clear it. It is never serialized as playback authority or rearmed after stopping.
+
+The worker publishes the same length-prefixed playback identity that revokes ordinary audio,
+including the complete Cue clock/loop policy and host rate/channel format. The pending intent
+stores that identity, not a separate reconstruction from the visual binding. Gain preparation
+checks it again under the state lock, then the existing generation/epoch guards span activation.
+Names, chart settings and unrelated options are not audio dependencies. No identity work runs
+on the audio callback. Required SRC approval targets the pending source regardless of VIEW;
+without a pending intent, the inspected source owns that action.
+
+Manual B/C processor commands accept no meter values from the editor. Both manual commands and
+the pending timer sample the existing active, live A meter through `ReferenceLiveALevel.h`.
+Frozen comparison facts remain display-only. `MatchFailure` separates absent live evidence,
+absent source evidence and exceeded headroom; none grants an original-volume fallback.
 
 A is fixed to the live DAW input. B selects a registered Version from its dropdown; C selects a
 Check (and its candidate when several are registered) from the independently retained preset.

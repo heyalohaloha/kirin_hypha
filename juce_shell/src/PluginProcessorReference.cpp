@@ -22,8 +22,17 @@ void KirinHyphaProcessorBase::setReferenceViewPresented (bool active)
    #endif
 }
 
-bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
-                                                double aMaximumTruePeakDbtp)
+hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALevel() const
+{
+    KirinObservatoryFrame frame {};
+    const bool received = pollObservatoryFrame (frame);
+    return hypha::reference_audition::liveALevel (frame, received, heartbeatLive(), isPlaying());
+}
+
+bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAudition (1); }
+bool KirinHyphaProcessorBase::selectReferenceC() { return requestReferenceAudition (2); }
+
+bool KirinHyphaProcessorBase::requestReferenceAudition (int slot)
 {
     refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -33,12 +42,13 @@ bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
             referenceAuditionController->suspendAudition();
         return false;
     }
+    const auto level = referenceLiveALevel();
     const bool accepted = referenceAuditionController != nullptr
-        && referenceAuditionController->requestAudition (1, aIntegratedLoudness, aMaximumTruePeakDbtp);
+        && referenceAuditionController->requestAudition (slot, level.loudness, level.peak);
     if (accepted && referencePendingAuditionNeedsService()) startTimer (50);
     return accepted;
    #else
-    juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
+    juce::ignoreUnused (slot);
     return false;
    #endif
 }
@@ -48,25 +58,6 @@ void KirinHyphaProcessorBase::selectReferenceA()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (referenceAuditionController != nullptr)
         referenceAuditionController->selectA();
-   #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferenceC (double loudness, double peak)
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
-    {
-        if (referenceAuditionController) referenceAuditionController->suspendAudition();
-        return false;
-    }
-    const bool accepted = referenceAuditionController != nullptr
-        && referenceAuditionController->requestAudition (2, loudness, peak);
-    if (accepted && referencePendingAuditionNeedsService()) startTimer (50);
-    return accepted;
-   #else
-    juce::ignoreUnused (loudness, peak);
-    return false;
    #endif
 }
 

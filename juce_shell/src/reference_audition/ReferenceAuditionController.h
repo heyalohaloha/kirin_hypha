@@ -37,12 +37,16 @@ namespace hypha::reference_audition
         bool requiresPreparation = false;
     };
 
+    enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
+
     struct Snapshot
     {
         RuntimeState state = RuntimeState::disconnected;
         juce::String title;
         juce::String sourceKind;
         juce::String rejectionCode;
+        MatchFailure matchFailure = MatchFailure::none;
+        juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;
         double sourceIntegratedLoudness = 0.0;
         double sourceMaximumTruePeakDbtp = 0.0;

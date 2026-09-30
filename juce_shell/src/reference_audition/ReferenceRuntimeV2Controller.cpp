@@ -220,6 +220,8 @@ namespace hypha::reference_audition
     void RuntimeV2Controller::publishLocked (Snapshot next)
     {
         next.workflowCatalog = workflowCatalog;
+        if (next.playbackIdentity.isNotEmpty() && next.playbackIdentity == currentSnapshot.playbackIdentity)
+            next.matchFailure = currentSnapshot.matchFailure;
         next.migratedVersionChoice = legacyVersionChoice;
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())

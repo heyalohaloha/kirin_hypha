@@ -72,7 +72,7 @@ namespace hypha::reference_audition
                             bool auditionAllowed, bool confirmAudible = true) noexcept;
         void confirmAOutput() noexcept { aAudibleConfirmations.fetch_add (1, std::memory_order_release); }
         bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp,
-                      bool requireMatchedGain = false, std::uint64_t queuedGeneration = 0) noexcept;
+                      std::uint64_t queuedGeneration = 0, const juce::String& expectedPlaybackIdentity = {}) noexcept;
         std::uint64_t normalSelectionTicket() const noexcept { return normalSelectionGeneration.load (std::memory_order_acquire); }
         void selectA (bool allowFade = true) noexcept;
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
@@ -171,7 +171,7 @@ namespace hypha::reference_audition
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
-                                   std::uint64_t selectionGeneration) noexcept;
+                                   std::uint64_t selectionGeneration, const juce::String& expectedPlaybackIdentity) noexcept;
         bool activatePreparedB (std::uint64_t selectionGeneration) noexcept;
         bool startBlindWithApproval (double aIntegratedLoudness,
                                      bool approveLowerA) noexcept;

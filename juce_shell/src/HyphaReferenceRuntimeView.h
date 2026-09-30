@@ -112,14 +112,29 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
                                               : slotStep (check, state.aAvailable);
 }
 
-// Approval belongs to the source, never to whichever slot happens to own the detail pane.
-// The action belongs to the displayed source. The other source still names its need on its row
-// and button; inspecting it must not require starting audition first.
+inline juce::String matchFailureText (reference_audition::MatchFailure failure)
+{
+    using Failure = reference_audition::MatchFailure;
+    switch (failure)
+    {
+        case Failure::liveLevelUnavailable: return "Level match needs A measurements. Keep playing A, then select again.";
+        case Failure::sourceLevelUnavailable: return "Source measurements are missing. Prepare this source again in Kirin OS.";
+        case Failure::ceilingExceeded: return "Level match exceeds the safe ceiling. A stays live.";
+        case Failure::none: return {};
+    }
+    return {};
+}
+
+// A pending intent owns its next action independently of the visual pane. Without an intent,
+// the inspected source owns the action. Never substitute another source's conversion consent.
 inline void setSampleRateApproval (State& state, const reference_audition::Snapshot& comparison)
 {
     const bool versionPending = state.versionStep == SourceStep::approveSampleRate;
     const bool checkPending = state.checkStep == SourceStep::approveSampleRate;
-    state.sampleRateApprovalSlot = comparison.comparisonSlot == 1 && versionPending ? 1
+    const auto pending = comparison.pendingAudition;
+    state.sampleRateApprovalSlot = pending.waiting() && pending.slot == 1 && versionPending ? 1
+        : pending.waiting() && pending.slot == 2 && checkPending ? 2
+        : comparison.comparisonSlot == 1 && versionPending ? 1
         : comparison.comparisonSlot == 2 && checkPending ? 2 : 0;
     state.sampleRateApprovalRequired = state.sampleRateApprovalSlot != 0;
     if (! state.sampleRateApprovalRequired) return;

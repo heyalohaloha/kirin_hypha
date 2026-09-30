@@ -463,7 +463,7 @@ void Component::paint (juce::Graphics& g)
         if (current.bSelected && std::isfinite (current.appliedGainDb))
         {
             const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
-                + (current.comparisonFallbackOriginal ? "ORIGINAL"
+                + (current.originalAudition || current.comparisonFallbackOriginal ? "ORIGINAL"
                    : current.gainLimited ? "MATCH UNAVAILABLE" : "MATCHED");
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,

@@ -565,21 +565,28 @@ Blind, which opens at 300% (900×600).
 While the DAW is stopped, a prepared B or C can be queued with its button. The waiting button and
 reason are distinct from the source currently playing; A cancels the queue. On playback, Hypha
 keeps A until the same source, position, conversion permission and required level are verified.
-Matched modes never silently fall back to original volume for a queued start. A changed source,
+Both immediate and queued selections require the configured MATCH; neither silently falls back
+to original volume. A changed source,
 unsafe playback, or failed safe switch leaves A with a reason. The intent is one-shot: it is not
 saved or restored with the Song, and stopping an audition does not queue it again. Visual navigation
-does not cancel it; changing source, Preset or Cue does.
+does not cancel it; changing source, Preset or Cue does, including an OS-side change to that Cue's
+loop policy. Label-only updates do not cancel it. Required conversion approval remains directly
+available for the queued source even while the other visual pane is displayed.
 For Version comparison, play the DAW input to establish the same song and position against B's
 verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
 playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
 passages wait for distinguishing content. Ordinary B preserves A at 0 dB; if full matching exceeds
-the allowed peak ceiling, B remains available at its original level and Blind requires explicit
+the allowed peak ceiling, ordinary B does not start, and Blind requires explicit
 approval before lowering A. The approved gain stays fixed through switches, seeks and pauses.
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
 Unlike the live PRE/POST compare, a stop, an unknown position or an unready B returns Reference to
 A and asks you to select B again.
+The processor reads the live A meter for each new manual or queued C selection. Frozen display
+values from a previous B/C comparison never feed the next MATCH. Missing measurements or an
+unsafe gain leave A with a reason; an OS Preset explicitly set to original mode still plays C
+at its original level without claiming a match.
 
 Until B or C can be heard, the page says why instead of showing empty comparisons (already prepared
 Preset visuals stay visible): the next step

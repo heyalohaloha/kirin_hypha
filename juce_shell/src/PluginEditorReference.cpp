@@ -25,14 +25,13 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectB = [this]
     {
         if (liveCompareHoldBlocksAudition()) return;
-        const auto& state = referenceView.state();
-        if (! processorRef.selectReferenceB (state.aIntegratedLoudness,
-                                              state.aMaximumTruePeakDbtp))
+        if (! processorRef.selectReferenceB())
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.versionSelection ? *latest.versionSelection : latest;
             const auto step = slotStep (slot, latest.transportPlaying);
-            showToast (step == hypha::reference_ui::SourceStep::ready
+            const auto failure = matchFailureText (slot.matchFailure);
+            showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
                 ? "B could not switch at this playhead. A remains live; retry when B is ready."
                 : "B: " + hypha::reference_ui::stepText (step));
         }
@@ -40,13 +39,13 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectC = [this]
     {
         if (liveCompareHoldBlocksAudition()) return;
-        const auto& state = referenceView.state();
-        if (! processorRef.selectReferenceC (state.aIntegratedLoudness, state.aMaximumTruePeakDbtp))
+        if (! processorRef.selectReferenceC())
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.checkSelection ? *latest.checkSelection : latest;
             const auto step = slotStep (slot, latest.transportPlaying);
-            showToast (step == hypha::reference_ui::SourceStep::ready
+            const auto failure = matchFailureText (slot.matchFailure);
+            showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
                 ? "C could not switch at this playhead. A remains live; retry when C is ready."
                 : "C: " + hypha::reference_ui::stepText (step));
         }
@@ -202,6 +201,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.bSelected = runtime.bSelected;
     state.gainLimited = audible.gainLimited;
     state.comparisonFallbackOriginal = audible.comparisonFallbackOriginal;
+    state.originalAudition = audible.comparisonMode == "original";
     state.activeBlindStimulus = runtime.activeBlindStimulus;
     state.pendingBlindStimulus = runtime.pendingBlindStimulus;
     state.answeredBlindStimulus = runtime.answeredBlindStimulus;

@@ -28,6 +28,8 @@ inline juce::String pendingAuditionReason (const State& state)
         case Stage::sourceChanged: return "SOURCE CHANGED";
         case Stage::safetyChanged: return "PLAYBACK CHANGED";
         case Stage::startFailed: return "SAFE SWITCH UNAVAILABLE";
+        case Stage::sourceLevelUnavailable: return "PREPARE SOURCE LEVEL IN KIRIN OS";
+        case Stage::ceilingExceeded: return "MATCH EXCEEDS SAFE LEVEL";
         case Stage::none: break;
     }
     return {};

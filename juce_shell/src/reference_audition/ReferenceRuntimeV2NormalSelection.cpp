@@ -21,7 +21,7 @@ namespace hypha::reference_audition
     bool RuntimeV2Controller::prepareReferenceGain (
         double aIntegratedLoudness,
         double aMaximumTruePeakDbtp,
-        std::uint64_t selectionGeneration) noexcept
+        std::uint64_t selectionGeneration, const juce::String& expectedPlaybackIdentity) noexcept
     {
         if (! ready.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
@@ -35,7 +35,9 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             if (! ready.load (std::memory_order_acquire)
                 || normalSelectionGeneration.load (std::memory_order_acquire)
-                    != selectionGeneration)
+                    != selectionGeneration
+                || (expectedPlaybackIdentity.isNotEmpty()
+                    && currentSnapshot.playbackIdentity != expectedPlaybackIdentity))
                 return false;
             epoch = auditionEpoch.load (std::memory_order_acquire);
             comparisonMode = currentSnapshot.comparisonMode;
@@ -43,30 +45,38 @@ namespace hypha::reference_audition
         }
         if (source == nullptr)
             return false;
+        const auto rejectMatch = [&] (MatchFailure reason)
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (normalSelectionGeneration.load (std::memory_order_acquire) == selectionGeneration)
+            { currentSnapshot.matchFailure = reason; preparedNormalSelection.valid = false; }
+            return false;
+        };
 
         double requiredGain = 0.0;
-        bool fallbackOriginal = false;
-        if (comparisonMode == "loudness_match")
+        if (!versionComparison && comparisonMode == "loudness_match")
         {
-            if (! std::isfinite (aIntegratedLoudness)
-                || ! source->measurementSummary
+            if (! std::isfinite (aIntegratedLoudness))
+                return rejectMatch (MatchFailure::liveLevelUnavailable);
+            if (! source->measurementSummary
                 || ! source->measurementSummary->loudnessLufsI)
-                fallbackOriginal = true;
+                return rejectMatch (MatchFailure::sourceLevelUnavailable);
             else
                 requiredGain = aIntegratedLoudness
                              - *source->measurementSummary->loudnessLufsI;
         }
-        else if (comparisonMode == "peak_match")
+        else if (!versionComparison && comparisonMode == "peak_match")
         {
-            if (! std::isfinite (aMaximumTruePeakDbtp)
-                || ! source->measurementSummary
+            if (! std::isfinite (aMaximumTruePeakDbtp))
+                return rejectMatch (MatchFailure::liveLevelUnavailable);
+            if (! source->measurementSummary
                 || ! source->measurementSummary->maximumTruePeakDbtp)
-                fallbackOriginal = true;
+                return rejectMatch (MatchFailure::sourceLevelUnavailable);
             else
                 requiredGain = aMaximumTruePeakDbtp
                              - *source->measurementSummary->maximumTruePeakDbtp;
         }
-        else if (comparisonMode != "original")
+        else if (!versionComparison && comparisonMode != "original")
             return false;
         if (versionComparison)
         {
@@ -76,7 +86,6 @@ namespace hypha::reference_audition
             {
                 requiredGain = calibration.pairedLoudnessDeltaDb;
                 aMaximumTruePeakDbtp = calibration.aCueTruePeakDbtp;
-                fallbackOriginal = false;
                 // The paired observation determines gain. It does not establish
                 // an integrated whole-song LUFS value for the live, editable A.
                 aIntegratedLoudness = unavailable();
@@ -86,16 +95,12 @@ namespace hypha::reference_audition
             || requiredGain < -100.0 || requiredGain > 100.0)
             return false;
 
-        double appliedGain = requiredGain;
-        bool limited = false;
+        const double appliedGain = requiredGain;
         if (requiredGain > 0.0)
         {
             if (! source->measurementSummary
                 || ! source->measurementSummary->maximumTruePeakDbtp)
-            {
-                appliedGain = 0.0;
-                fallbackOriginal = true;
-            }
+                return rejectMatch (MatchFailure::sourceLevelUnavailable);
             else
             {
                 const auto ceiling = juce::jmax (
@@ -107,12 +112,8 @@ namespace hypha::reference_audition
                     0.0,
                     ceiling - *source->measurementSummary->maximumTruePeakDbtp);
                 if (availableGain + 1.0e-9 < requiredGain)
-                {
-                    appliedGain = 0.0;
-                    fallbackOriginal = true;
-                }
+                    return rejectMatch (MatchFailure::ceilingExceeded);
             }
-            limited = appliedGain + 1.0e-9 < requiredGain;
         }
 
         const auto sourceLoudness = source->measurementSummary
@@ -138,8 +139,9 @@ namespace hypha::reference_audition
         prepared.truePeakDeltaBMinusA = std::isfinite (aMaximumTruePeakDbtp)
             && std::isfinite (prepared.adjustedBMaximumTruePeakDbtp)
             ? prepared.adjustedBMaximumTruePeakDbtp - aMaximumTruePeakDbtp : unavailable();
-        prepared.gainLimited = limited;
-        prepared.comparisonFallbackOriginal = fallbackOriginal;
+        // A normal MATCH is exact or rejected. Only explicit original mode uses zero gain.
+        prepared.gainLimited = false;
+        prepared.comparisonFallbackOriginal = false;
         prepared.valid = true;
 
         const juce::ScopedLock lock (stateLock);
@@ -231,8 +233,8 @@ namespace hypha::reference_audition
     }
 
     bool RuntimeV2Controller::selectB (double aIntegratedLoudness,
-                                       double aMaximumTruePeakDbtp, bool requireMatchedGain,
-                                       std::uint64_t queuedGeneration) noexcept
+                                       double aMaximumTruePeakDbtp, std::uint64_t queuedGeneration,
+                                       const juce::String& expectedPlaybackIdentity) noexcept
     {
         if (blind.ongoing())
             return false;
@@ -241,13 +243,9 @@ namespace hypha::reference_audition
             : normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel) + 1;
         const bool alreadySelected = bSelected.load (std::memory_order_acquire);
         const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
-        if (!prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp, generation)) return false;
-        if (requireMatchedGain)
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (preparedNormalSelection.gainLimited || preparedNormalSelection.comparisonFallbackOriginal)
-                return false;
-        }
+        { const juce::ScopedLock lock (stateLock); currentSnapshot.matchFailure = MatchFailure::none; }
+        if (!prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp, generation,
+                                    expectedPlaybackIdentity)) return false;
         const bool selected = activatePreparedB (generation);
         if (selected && ! alreadySelected)
             beginAuditionEventSession (bBaseline);

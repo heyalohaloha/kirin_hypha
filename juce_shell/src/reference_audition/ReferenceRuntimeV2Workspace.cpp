@@ -313,8 +313,11 @@ namespace hypha::reference_audition
         }
         const auto mediaKey = workspace->library ? runtimeSourceAudioIdentity (*selectedSource)
             : candidate->sourceArtifact.sha256;
-        const auto publicationKey = runtimeSelectionPlaybackIdentity (
+        auto publicationKey = runtimeSelectionPlaybackIdentity (
             *preset, *check, *candidate, *cue, workspace->library ? mediaKey : juce::String {});
+        appendPlaybackIdentity (publicationKey, juce::String (next.hostSampleRateHz));
+        appendPlaybackIdentity (publicationKey, juce::String (configuration.channels));
+        next.playbackIdentity = publicationKey;
         if (publicationKey != activePublishedSelectionKey)
         {
             revokeAuditionPublication();

@@ -90,6 +90,7 @@ struct State
     bool aAvailable = false;
     bool gainLimited = false;
     bool comparisonFallbackOriginal = false;
+    bool originalAudition = false; // Explicit OS mode, not a failed match.
     bool bSelected = false;
     bool auditionBuffered = false;
     os_access::State osAccess = os_access::State::unowned;

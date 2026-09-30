@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <type_traits>
 
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
@@ -19,6 +20,8 @@ void initialiseBlindProductHostApplication();
 namespace
 {
 using Processor = KirinHyphaProcessorBase;
+static_assert (std::is_same_v<decltype (&Processor::selectReferenceB), bool (Processor::*)()>);
+static_assert (std::is_same_v<decltype (&Processor::selectReferenceC), bool (Processor::*)()>);
 using Domain = hypha::observatory::Domain;
 using AnalysisPage = hypha::analysis_navigation::Page;
 

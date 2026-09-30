@@ -54,6 +54,20 @@ inline std::vector<Case> cases()
 {
     using Step = reference_ui::SourceStep;
     std::vector<Case> result;
+    for (const int pendingSlot : { 1, 2 })
+    {
+        auto state = library();
+        state.versionId = "v4"; state.versionArmable = state.checkArmable = true;
+        state.comparisonSlot = pendingSlot == 1 ? 2 : 1;
+        state.versionStep = pendingSlot == 1 ? Step::approveSampleRate : Step::playDaw;
+        state.checkStep = pendingSlot == 2 ? Step::approveSampleRate : Step::playDaw;
+        state.pendingAudition = { pendingSlot, reference_audition::PendingAuditionView::Stage::approval };
+        state.sampleRateApprovalRequired = true; state.sampleRateApprovalSlot = pendingSlot;
+        state.sourceSampleRateHz = 44100; state.hostSampleRateHz = 48000;
+        state.actionText = pendingSlot == 1 ? "APPROVE B RATE" : "APPROVE C RATE";
+        state.status = reference_ui::pendingAuditionText (state);
+        result.push_back ({ pendingSlot == 1 ? "queued_b_rate_c_view" : "queued_c_rate_b_view", state });
+    }
     for (const auto slot : { 1, 2 })
     {
         auto state = library();
@@ -66,6 +80,12 @@ inline std::vector<Case> cases()
         state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::safetyChanged;
         state.status = reference_ui::pendingAuditionText (state);
         result.push_back ({ slot == 1 ? "queued_b_cancelled" : "queued_c_cancelled", state });
+        state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::ceilingExceeded;
+        state.status = reference_ui::pendingAuditionText (state);
+        result.push_back ({ slot == 1 ? "queued_b_ceiling" : "queued_c_ceiling", state });
+        state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable;
+        state.status = reference_ui::pendingAuditionText (state);
+        result.push_back ({ slot == 1 ? "queued_b_no_level" : "queued_c_no_level", state });
     }
     {
         Case unowned { "unowned", {}, true };
@@ -185,6 +205,9 @@ inline std::vector<Case> cases()
         state.blindPhase = reference_ui::BlindPhase::available;
         state.status = "READY / A REMAINS LIVE";
         result.push_back ({ "ready", state });
+        state.bSelected = true; state.audibleComparisonSlot = 2;
+        state.originalAudition = true; state.appliedGainDb = 0;
+        result.push_back ({ "c_original", state });
     }
     return result;
 }

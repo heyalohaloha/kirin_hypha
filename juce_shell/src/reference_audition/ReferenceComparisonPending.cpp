@@ -6,15 +6,6 @@ namespace hypha::reference_audition
 namespace
 {
 using Stage = PendingAuditionView::Stage;
-juce::String intentIdentity (const Snapshot& state, const VisualBinding& binding)
-{
-    if (!binding.source) return {};
-    const auto& source = *binding.source;
-    return state.presetId + ":" + state.checkId + ":" + state.candidateId + ":" + state.cueId
-        + ":" + state.comparisonMode + ":" + source.absolutePath + ":" + source.sourceFileSha256
-        + ":" + source.sourcePcmSha256 + ":" + juce::String (source.audio.sampleRateHz)
-        + ":" + juce::String (binding.sourceCueStartSample) + ":" + juce::String (binding.sourceCueEndSample);
-}
 }
 
 void ReferenceComparisonController::clearPendingAudition()
@@ -38,8 +29,9 @@ void ReferenceComparisonController::appendPendingAudition (
     const auto& versionState = *state.versionSelection;
     const auto chosen = versionState.presetId + "/" + versionState.checkId + "/" + versionState.candidateId;
     state.versionArmable = b.source != nullptr && state.selectedVersionId.isNotEmpty()
-        && state.selectedVersionId == chosen && versionState.blindPhase == BlindPhase::inactive;
-    state.checkArmable = c.source != nullptr && !c.hidden;
+        && state.selectedVersionId == chosen && versionState.playbackIdentity.isNotEmpty()
+        && versionState.blindPhase == BlindPhase::inactive;
+    state.checkArmable = c.source != nullptr && !c.hidden && state.checkSelection->playbackIdentity.isNotEmpty();
 }
 
 bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
@@ -51,9 +43,7 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     if (trialActive() || hasActiveWorkflow() || capture.access->busy()
         || !(slot == 1 ? state.versionArmable : state.checkArmable)) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
-    auto& target = slot == 1 ? version : check;
-    const auto identity = intentIdentity (slot == 1 ? *state.versionSelection : *state.checkSelection,
-                                         target.visualBinding());
+    const auto identity = (slot == 1 ? *state.versionSelection : *state.checkSelection).playbackIdentity;
     if (identity.isEmpty()) return false;
     selectA();
     PendingIntent next;
@@ -94,7 +84,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     { publish (Stage::safetyChanged); return; }
     const auto binding = target.visualBinding();
     if (state.state == RuntimeState::rejected || state.state == RuntimeState::disconnected
-        || (binding.source && intentIdentity (state, binding) != intent.identity))
+        || (state.playbackIdentity.isNotEmpty() && state.playbackIdentity != intent.identity))
     { publish (Stage::sourceChanged); return; }
     if (state.sampleRateApprovalRequired) { publish (Stage::approval, state.transportPlaying); return; }
     if (!state.transportPlaying) { publish (Stage::play); return; }
@@ -110,12 +100,19 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     { publish (Stage::sourceChanged); return; }
     // Claim once on the control thread, then use the runtime generation across gain preparation.
     // A, a source change or reconfiguration invalidates that generation before publication.
-    // Unlike a fresh manual click, queued playback must never fall back to an unmatched level.
+    // Bind preparation to the same condition even if a publication changes after this snapshot.
+    // Manual and queued selection share the same no-fallback MATCH policy.
     const auto generation = target.normalSelectionTicket();
     auto expected = intent.intentId;
     if (!activePendingIntent.compare_exchange_strong (expected, 0, std::memory_order_acq_rel)) return;
-    if (!target.selectB (loudness, peak, true, generation))
-    { publish (Stage::startFailed, true); return; }
+    if (!target.selectB (loudness, peak, generation, intent.identity))
+    {
+        const auto failure = target.snapshot().matchFailure;
+        publish (failure == MatchFailure::ceilingExceeded ? Stage::ceilingExceeded
+            : failure == MatchFailure::sourceLevelUnavailable ? Stage::sourceLevelUnavailable
+            : Stage::startFailed, true);
+        return;
+    }
     normalOutputSlot.store (intent.view.slot, std::memory_order_release);
     publish (Stage::none, true);
 }

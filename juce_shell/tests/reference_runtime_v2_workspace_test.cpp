@@ -208,6 +208,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
         auto controllerPreset = bindRuntimeV2PresetToSource (
             presetId, revisionId, sourceCandidate.sourceArtifact, exactFileHash, pcmHash);
         controllerPreset.getDynamicObject()->setProperty ("name", "Factory 1");
+        controllerPreset["checks"][0].getDynamicObject()->setProperty ("comparison_mode", "original");
         const auto presentationFile = v2Root.getChildFile ("presentations")
                                             .getChildFile (workId + ".json");
         auto presentation = new juce::DynamicObject();
@@ -287,13 +288,13 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      "Reference v2 must keep its own exact capability lease alive");
             require (controller.selectB (std::numeric_limits<double>::quiet_NaN(),
                                          std::numeric_limits<double>::quiet_NaN()),
-                     "missing comparison measurements must keep original-gain B available");
+                     "explicit original mode needs no matching measurements");
             runtime = controller.snapshot();
-            require (runtime.comparisonFallbackOriginal
+            require (! runtime.comparisonFallbackOriginal
                      && ! runtime.gainLimited
                      && std::abs (runtime.appliedGainDb) < 1.0e-9
                      && comparisonSuspended.load(),
-                     "measurement fallback must be explicit internally while leaving A unchanged and B at original gain");
+                     "explicit original mode is not a failed MATCH fallback");
             juce::AudioBuffer<float> output (2, 256);
             output.clear();
             require (controller.renderSelectedB (output, 128, true)
@@ -358,15 +359,10 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                     break;
                 juce::Thread::sleep (10);
             }
-            require (controller.selectB (-11.0, -2.0),
-                     "v2 normal A/B must keep original-level B audible when an exact match lacks headroom");
+            require (!controller.selectB (-11.0, -2.0), "a headroom-limited match must not choose original volume");
             runtime = controller.snapshot();
-            require (runtime.gainLimited
-                     && runtime.comparisonFallbackOriginal
-                     && std::abs (runtime.appliedGainDb) < 1.0e-9
-                     && std::abs (runtime.adjustedBMaximumTruePeakDbtp + 3.0) < 1.0e-9
-                     && std::abs (runtime.loudnessDeltaBMinusA + 3.0) < 1.0e-9,
-                     "v2 normal A/B must forbid partial matching and expose original-level B facts");
+            require (!runtime.bSelected && runtime.matchFailure == ref::MatchFailure::ceilingExceeded,
+                     "MATCH failure preserves A and exposes the actual headroom reason");
             controller.selectA();
             require (controller.selectB (-11.0, 0.2),
                      "a pre-existing A peak above -1 dBTP must not make a safe exact match unavailable");
@@ -383,7 +379,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 presetFile, manifestFile, measuredPreset, presetId, revisionId);
 
             gateReleasedOnCallingThread.store (false);
-            require (controller.selectB (-11.0, -2.0),
+            require (controller.selectB (-15.0, -2.0),
                      "audio-thread fail-close fixture must enter B first");
             output.clear();
             output.setSample (0, 0, 0.625f);
@@ -416,6 +412,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             const auto alignedPreset = bindRuntimeV2WorkVersionPresetToSource (
                 presetId, revisionId, alignedSourceReceipt, alignedBFileHash,
                 alignedBPcmHash, recordingId, alignedVersionId, alignedBFrames);
+            alignedPreset["checks"][0].getDynamicObject()->setProperty ("comparison_mode", "original");
             require (writeJson (presetFile, alignedPreset)
                      && writeJson (manifestFile,
                                    makeRuntimeV2Manifest (

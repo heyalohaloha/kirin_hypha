@@ -6,8 +6,10 @@ void verifyReferenceVisualSourceEvidence (const juce::File& root, const juce::St
 {
     ref::RuntimeV2Controller controller (root);
     controller.configure ({ "abc-visual-only", {}, 42, true }, 44100, 2);
-    require (wait (controller, [] (const auto& state) { return state.libraryReceived; }),
-        "selection waits for the published OS library");
+    require (wait (controller, [&] (const auto& state) {
+        return std::any_of (state.versions.begin(), state.versions.end(),
+            [&] (const auto& option) { return option.id == versionId; });
+    }), "selection waits for the exact published option, not an earlier library receipt");
     require (controller.selectLibraryVersion (versionId), "select prepared visual-only source");
     require (wait (controller, [&] (const auto& state) {
         return state.presetId + "/" + state.checkId + "/" + state.candidateId == versionId
