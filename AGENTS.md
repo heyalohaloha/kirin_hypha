@@ -55,18 +55,19 @@ node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
 は payload smoke test 用のみで、LSには絶対にアップロードしない。
 
 ## プロジェクト概要
-Kirin Hypha は Kirin OS と連携する計測プラグイン。VST3。通常の計測経路ではDAW入力を加工せず、
+Kirin Hypha は Kirin OS と連携する計測プラグイン。出荷shellはJUCE共通実装で、AAXは既定OFFの追加formatとする。通常の計測経路ではDAW入力を加工せず、
 利用者が明示した比較試聴では登録済みReferenceを非破壊再生できる。
 PRE/POST の2バイナリでマスタリングチェインの前後を計測し、差分（Δ）を表示する。
 ライセンス: GPLv3（オープンソース公開）。Kirin OS本体（プロプライエタリ）とは完全分離。
 
 
 ## 技術スタック
-- Rust + nih-plug（VST3フレームワーク）
+- 計測core: Rust、JUCEとの境界: `kirin_hypha_ffi` C ABI
 - ebur128 クレート（LUFS/TP）
-- GUI: nih-plug対応フレームワーク（iced / egui / カスタム。選定は公式確認後に決定）
-- ビルド: `cargo xtask bundle --release` → .vst3 生成
-- 対象DAW: Studio One（Daisuke主環境）。他DAWは後日
+- 出荷processor / GUI: JUCE共通shell（macOS AU / VST3、Windows VST3、追加AAX）
+- nih-plug: 旧VST3 identityとstate互換性を検証するlegacy経路。出荷GUIの選定待ちではない
+- macOS通常build: `scripts/build_juce_universal.sh`。AAXは`docs/aax_build_signing_entry.md`、Windowsは対応手順書を正本とする
+- 対象DAWと受入状況: `README.md`と各hostの検証記録を参照し、formatの生成成功をhost対応完了としない
 
 ## 絶対原則
 
@@ -194,7 +195,10 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 上位domainはLEVEL / TIME / FREQ / SPACE。TIMEにはHISTORY / ATTACK / SHARP / LIVEがある。
 - PREは絶対観測、POSTは検証済みの同時刻PREがある場合だけ差分を表示する。PRE不在時もPOSTの
   絶対観測を捏造せず維持する。
-- 通常経路はmono / stereo限定。サラウンド対応を計測coreの引数だけから推定しない。
+- mono / stereoを基本範囲とし、機能ごとのrole / platform / host gateを維持する。
+  exact 5.1（L, R, C, LFE, Ls, Rs）はLEVEL / TIMEの計測専用で、
+  Record / Keep、Reference、local Blind、live比較、Hybrid VU、FREQ、SPACEは許可しない（INV-S33）。
+  他layoutは拒否する。AAX等の実host受入は別に検証し、計測coreの引数やlayout宣言だけから完了を推定しない。
 - macOSのPRE表示共有はatomic file、Windowsはpagefile-backed共有メモリを使う。platformごとの
   transport正本を確認し、`/tmp/`だけを全platform共通仕様として扱わない。
 - Reference比較試聴、live PRE/POST比較、承認済みのローカルBlind（その前の記名A/Bを含む）は通常A経路とは別の明示操作である。
