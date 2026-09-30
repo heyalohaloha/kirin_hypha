@@ -260,14 +260,8 @@ private:
                     stage = 50;
                     break;
                 }
-                // The audio receipt can arrive between the fixture's 20 ms tick and the
-                // editor's 100 ms presentation tick. Wait for the actual enabled control,
-                // but bound that wait so a missing UI transition remains a test failure.
-                if (! revealReady)
-                {
-                    revealReady = true;
-                    revealReadyAt = std::chrono::steady_clock::now();
-                }
+                // The 20 ms fixture can precede the editor's 100 ms presentation tick.
+                if (! revealReady) { revealReady = true; revealReadyAt = std::chrono::steady_clock::now(); }
                 if (! click ("live-blind-reveal"))
                 {
                     require (std::chrono::steady_clock::now() - revealReadyAt < std::chrono::seconds (2),
