@@ -24,10 +24,12 @@ enum class SourceStep
     chooseSource,
     playDaw,
     aligning,
+    noMatchingPassage,
     playAnotherPassage,
     approveSampleRate,
     verifyingSource,
     loadingAudio,
+    outsideCue,
     preparing,
     attention,
 };

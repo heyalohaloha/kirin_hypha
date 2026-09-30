@@ -30,10 +30,12 @@ juce::String headingFor (SourceStep step, bool version)
         case SourceStep::enableCheck: return "No Check is enabled in Kirin OS";
         case SourceStep::chooseSource: return "Choose a source for C in Kirin OS";
         case SourceStep::aligning: return "Aligning B with A";
+        case SourceStep::noMatchingPassage: return "B did not match this passage";
         case SourceStep::playAnotherPassage: return "Play another passage to align B";
         case SourceStep::approveSampleRate: return version ? "Approve B conversion" : "Approve C conversion";
         case SourceStep::verifyingSource: return version ? "Verifying B source" : "Verifying C source";
         case SourceStep::loadingAudio: return version ? "Loading B at the playhead" : "Loading C at the playhead";
+        case SourceStep::outsideCue: return "This playhead is outside C's Cue";
         case SourceStep::preparing: return version ? "Preparing B" : "Preparing C";
         case SourceStep::attention: return "Open Kirin OS to check the source";
         case SourceStep::waitingForKirinOs: return "Open Kirin OS";
@@ -54,12 +56,16 @@ juce::String detailFor (SourceStep step)
         case SourceStep::enableCheck:
         case SourceStep::chooseSource: return "C plays the source a Check compares your mix with.";
         case SourceStep::aligning: return "Keep playing. B must be a Version of the song you are playing.";
+        case SourceStep::noMatchingPassage:
+            return "Check that B is a Version of A at this POST, or play a different matching passage.";
         case SourceStep::playAnotherPassage:
             return "This passage repeats in B. Play a part that occurs only once.";
         case SourceStep::approveSampleRate:
             return "Only the audition copy changes. A stays unchanged.";
         case SourceStep::verifyingSource: return "The source is being checked. A stays live.";
         case SourceStep::loadingAudio: return "Keep playing while audio loads.";
+        case SourceStep::outsideCue:
+            return "Move to the comparison passage, or choose a longer or looping Cue in Kirin OS. A stays live.";
         case SourceStep::preparing: return "This takes a moment.";
         case SourceStep::attention: return "The source changed or could not be opened.";
         case SourceStep::waitingForKirinOs:
@@ -221,10 +227,12 @@ juce::String stepText (SourceStep step)
         case SourceStep::chooseSource: return "Choose a source in Kirin OS";
         case SourceStep::playDaw: return "Ready when the DAW plays";
         case SourceStep::aligning: return "Aligning with A. Keep playing";
+        case SourceStep::noMatchingPassage: return "No verified match here; check Version";
         case SourceStep::playAnotherPassage: return "Play another passage";
         case SourceStep::approveSampleRate: return "Approve rate conversion";
         case SourceStep::verifyingSource: return "Verifying source";
         case SourceStep::loadingAudio: return "Loading audio here; keep playing";
+        case SourceStep::outsideCue: return "Outside Cue; move or choose longer Cue";
         case SourceStep::preparing: return "Preparing";
         case SourceStep::attention: return "Check the source in Kirin OS";
     }

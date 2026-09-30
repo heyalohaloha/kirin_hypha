@@ -298,6 +298,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "WAITING FOR KIRIN OS REFERENCE";
     else if (runtime.state == Runtime::ready)
         state.status = state.auditionBuffered ? "READY / A REMAINS LIVE"
+            : runtime.auditionOutsideCue ? "OUTSIDE C CUE / MOVE OR CHOOSE LONGER CUE"
             : state.aAvailable ? "LOADING " + juce::String (runtime.comparisonSlot == 1 ? "B" : "C")
                 + " AT PLAYHEAD / KEEP PLAYING" : "PLAY A TO AUDITION";
     else if (runtime.rejectionCode == "reference_selection_unavailable")
@@ -309,6 +310,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.state == Runtime::waiting)
         state.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION B"
             : runtime.rejectionCode == "reference_alignment_waiting_for_content" ? "PLAY A / ALIGNING VERSION B"
+            : runtime.rejectionCode == "reference_alignment_no_match" ? "NO VERIFIED MATCH / CHECK VERSION B"
             : runtime.rejectionCode == "reference_alignment_ambiguous" ? "PLAY ANOTHER PASSAGE TO ALIGN B"
             : runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
             : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"

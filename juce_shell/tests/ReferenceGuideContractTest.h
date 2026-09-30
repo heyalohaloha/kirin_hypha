@@ -138,6 +138,19 @@ inline void verifyIndependentRateApproval()
                  && reference_ui::unavailableText (state, false)
                         == "C: Loading audio here; keep playing",
              "a verified source awaiting its playhead page names buffering, not an unknown failure");
+    c->auditionOutsideCue = true;
+    reference_ui::runtime_view::setSourceSteps (state, comparison);
+    require (state.checkStep == reference_ui::SourceStep::outsideCue
+                 && reference_ui::unavailableText (state, false)
+                        == "C: Outside Cue; move or choose longer Cue",
+             "a playhead outside the selected C Cue must not masquerade as buffering");
+    b->state = RuntimeState::waiting;
+    b->rejectionCode = "reference_alignment_no_match";
+    reference_ui::runtime_view::setSourceSteps (state, comparison);
+    require (state.versionStep == reference_ui::SourceStep::noMatchingPassage
+                 && reference_ui::unavailableText (state, true)
+                        == "B: No verified match here; check Version",
+             "a completed non-match must explain the selected Version instead of asking to wait");
 }
 
 inline void verifyUnavailableButtons()

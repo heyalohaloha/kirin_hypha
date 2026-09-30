@@ -77,12 +77,14 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
     {
         case Runtime::ready:
             return ! playing ? SourceStep::playDaw
+                 : slot.auditionOutsideCue ? SourceStep::outsideCue
                  : slot.auditionBuffered ? SourceStep::ready : SourceStep::loadingAudio;
         case Runtime::verifying: return SourceStep::verifyingSource;
         case Runtime::rejected: return SourceStep::attention;
         case Runtime::waiting:
             if (code == "reference_alignment_waiting_for_content")
                 return playing ? SourceStep::aligning : SourceStep::playDaw;
+            if (code == "reference_alignment_no_match") return SourceStep::noMatchingPassage;
             if (code == "reference_alignment_ambiguous") return SourceStep::playAnotherPassage;
             if (code == "reference_checks_empty") return SourceStep::enableCheck;
             if (code == "reference_candidates_empty" || code == "reference_cues_empty")

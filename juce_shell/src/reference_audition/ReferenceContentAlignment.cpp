@@ -118,6 +118,10 @@ namespace hypha::reference_audition
         for (const auto& channel : measured.waveform->rmsMillidbfs)
             if (channel.size() != bins) return result;
         for (const auto value : a.interleaved) if (!std::isfinite (value)) return result;
+        double aEnergy = 0.0;
+        for (const auto value : a.interleaved)
+            aEnergy += static_cast<double> (value) * value;
+        const bool informativeA = aEnergy / a.interleaved.size() > 1.0e-8;
         if (source.audio.sampleRateHz != a.sampleRateHz && !conversionApproved) return result;
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -146,6 +150,7 @@ namespace hypha::reference_audition
             channel = energy[1] > energy[0] ? 1 : 0;
         }
         std::vector<std::pair<std::int64_t, RuntimeContentAlignment>> matches;
+        bool sourceProbeRead = false;
         for (const auto position : positions)
         {
             std::array<std::int64_t, 3> offsets {};
@@ -161,6 +166,7 @@ namespace hypha::reference_audition
                 std::vector<float> raw, left (static_cast<size_t> (window)), right (static_cast<size_t> (window));
                 if (!readReferenceProbe (*reader, sourceFirst, window, static_cast<int> (a.sampleRateHz), a.channels, raw))
                 { accepted = false; break; }
+                sourceProbeRead = true;
                 for (std::int64_t frame = 0; frame < window; ++frame)
                 {
                     left[static_cast<size_t> (frame)] = a.interleaved[static_cast<size_t> ((first + frame) * a.channels + channel)];
@@ -226,6 +232,7 @@ namespace hypha::reference_audition
                 if (! readReferenceProbe (*reader, position, a.frameCount,
                         static_cast<int> (a.sampleRateHz), a.channels, probe))
                     continue;
+                sourceProbeRead = true;
                 const auto identity = correlateReferenceEnvelope (
                     a.interleaved, probe, static_cast<int> (a.sampleRateHz), a.channels);
                 if (identity.accepted)
@@ -314,7 +321,12 @@ namespace hypha::reference_audition
                 return result;
             }
         }
-        if (matches.empty()) return result;
+        if (matches.empty())
+        {
+            if (! expectedSourceStart && informativeA && sourceProbeRead)
+                result.reason = "reference_alignment_no_match";
+            return result;
+        }
         // A repeated matching passage cannot choose its own occurrence. Continue
         // observing instead of silently choosing the earliest or loudest chorus.
         for (const auto& match : matches)

@@ -96,6 +96,20 @@ static void captureLiveSharing(const juce::File& sandbox) {
                     ready = state.versionSelection && state.versionSelection->aCaptureAvailable;
                     if (! ready) juce::Thread::sleep (5);
                 }
+                if (! ready)
+                {
+                    const auto state = controller.snapshot();
+                    const auto& versionState = state.versionSelection ? *state.versionSelection : state;
+                    std::cerr << "local A observation timeout: version_state="
+                              << static_cast<int> (versionState.state)
+                              << " reason=" << versionState.rejectionCode
+                              << " selected=" << state.selectedVersionId
+                              << " version_candidate=" << versionState.candidateId
+                              << " library=" << versionState.libraryReceived
+                              << " transport=" << versionState.transportPlaying
+                              << " A_capture=" << versionState.aCaptureAvailable
+                              << " held=" << bool (access->snapshot().held) << '\n';
+                }
                 require (ready, "synthetic host waits for the four-second local A observation");
             }
         }

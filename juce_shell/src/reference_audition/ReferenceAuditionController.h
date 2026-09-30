@@ -58,6 +58,7 @@ namespace hypha::reference_audition
         bool transportPlaying = false;
         bool transportPositionValid = false;
         bool auditionBuffered = false;
+        bool auditionOutsideCue = false;
         bool blindEligible = false;
         BlindPhase blindPhase = BlindPhase::inactive;
         int activeBlindStimulus = 0;
