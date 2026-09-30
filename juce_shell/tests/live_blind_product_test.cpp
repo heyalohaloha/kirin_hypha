@@ -260,7 +260,20 @@ private:
                     stage = 50;
                     break;
                 }
-                require (click ("live-blind-reveal"), "one click reveals without a menu or an answer");
+                // The audio receipt can arrive between the fixture's 20 ms tick and the
+                // editor's 100 ms presentation tick. Wait for the actual enabled control,
+                // but bound that wait so a missing UI transition remains a test failure.
+                if (! revealReady)
+                {
+                    revealReady = true;
+                    revealReadyAt = std::chrono::steady_clock::now();
+                }
+                if (! click ("live-blind-reveal"))
+                {
+                    require (std::chrono::steady_clock::now() - revealReadyAt < std::chrono::seconds (2),
+                             "one-click reveal becomes available after both source receipts");
+                    break;
+                }
                 require (post->liveBlindStatus().trial.revealed, "assignment revealed by the button");
                 require (post->liveBlindStatus().trial.firstPre == (firstRatio > 0.0f), "revealed mapping agrees with actual PCM");
                 require (! post->revealLiveBlind(), "reveal cannot be repeated");
@@ -449,10 +462,10 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
-    std::chrono::steady_clock::time_point started, listenedAt, requestedAt;
+    std::chrono::steady_clock::time_point started, listenedAt, requestedAt, revealReadyAt;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
-    bool reuse = false, fault = false, approval = false, reused = false, approved = false;
+    bool reuse = false, fault = false, approval = false, reused = false, approved = false, revealReady = false;
     bool loopMode = false;
     float faultGain = 1.0f;
     hypha::live_compare::RecoveryReason faultReason;
