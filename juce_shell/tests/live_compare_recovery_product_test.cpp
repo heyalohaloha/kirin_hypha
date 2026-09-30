@@ -113,7 +113,7 @@ static void verifyHoldAfterEnd()
     juce::MidiBuffer midi;
     const auto process = [&]
     { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; processor.serviceLiveCompare(); };
-    processor.holdLiveCompareForContentJump();
+    processor.holdLiveCompareForContentJump (-3000);
     processor.finishLiveCompare(); process();
     using namespace live_compare_ui;
     require (processor.isPlaying() && ! processor.liveCompareStatus().finishing, "END acknowledged during playback");

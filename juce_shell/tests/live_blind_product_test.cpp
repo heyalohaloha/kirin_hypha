@@ -253,7 +253,7 @@ private:
                 {
                     using Reason = hypha::live_compare::RecoveryReason;
                     faultGain = post->liveCompareStatus().gain;
-                    if (faultReason == Reason::contentChanged) post->holdLiveCompareForContentJump();
+                    if (faultReason == Reason::contentChanged) post->holdLiveCompareForContentJump (-3000);
                     else if (faultReason == Reason::callbackGap) injectGap.store (true);
                     else if (faultReason == Reason::stopped) play.store (false);
                     else post->kirinHostDelayCompensationStateChanged (false);

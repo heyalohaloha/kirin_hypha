@@ -298,7 +298,7 @@ fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() 
         "void KirinHyphaEditor::monitorLiveCompareOffset",
     );
     assert!(monitor.contains("if (step.jumped)"));
-    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump();"));
+    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump (step.lagFrames);"));
     assert_eq!(
         EDITOR_LIVE_COMPARE_CPP
             .matches("holdLiveCompareForContentJump")
