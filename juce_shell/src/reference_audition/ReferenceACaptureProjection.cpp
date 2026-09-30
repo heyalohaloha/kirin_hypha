@@ -125,8 +125,8 @@ void ACaptureProjection::run()
             const auto tonalNow=juce::Time::getMillisecondCounterHiRes();
             if(tonalNow>=nextTonalCheck)
             { tonalPublicationKey=tonalRepository.publicationKey(); nextTonalCheck=tonalNow+1000.0; }
-            const auto nextReferenceKey=tonalMap.key+":"+juce::String(tonalMap.cueStartSample)
-                +":"+juce::String(tonalMap.cueEndSample)+":"+tonalPublicationKey;
+            const auto nextReferenceKey=tonalMap.key+":"+juce::String(tonalMap.sourceCueStartSample)
+                +":"+juce::String(tonalMap.sourceCueEndSample)+":"+tonalPublicationKey;
             const bool keyChanged=nextReferenceKey!=referenceTonalKey;
             const bool retryDue=nextReferenceTonalRetry>0&&tonalNow>=nextReferenceTonalRetry;
             if(keyChanged||retryDue)
@@ -134,8 +134,8 @@ void ACaptureProjection::run()
                 bool retrySource=false,retryGenre=false;
                 if(keyChanged||result.tonalReference==nullptr)
                     result.tonalReference=!tonalMap.hidden&&tonalMap.source
-                        ?tonalRepository.load(*tonalMap.source,tonalMap.cueStartSample,
-                            tonalMap.cueEndSample,&retrySource):nullptr;
+                        ?tonalRepository.load(*tonalMap.source,tonalMap.sourceCueStartSample,
+                            tonalMap.sourceCueEndSample,&retrySource):nullptr;
                 if(keyChanged||result.tonalGenre==nullptr)
                     result.tonalGenre=!tonalMap.hidden
                         ?tonalRepository.loadGenre(tonalMap.presetId,tonalMap.presetRevisionId,

@@ -9,6 +9,23 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "B...", u8"B待機" }, { "C...", u8"C待機" },
+    { "B WAIT", u8"B待機" }, { "C WAIT", u8"C待機" },
+    { "B STOPPED", u8"Bへの切替中断" }, { "C STOPPED", u8"Cへの切替中断" },
+    { "PLAY DAW", u8"DAWを再生" },
+    { "APPROVE CONVERSION", u8"変換の承認が必要" },
+    { "MEASURING A LEVEL", u8"Aの音量を確認中" },
+    { "VERIFYING PLAYBACK", u8"再生条件を確認中" },
+    { "SOURCE CHANGED", u8"音源が変わりました" },
+    { "PLAYBACK CHANGED", u8"再生条件が変化" },
+    { "SELECT AGAIN", u8"選び直す" },
+    { "SAFE SWITCH UNAVAILABLE", u8"安全に切替できませんでした" },
+    { "A stays live until ready. Press A to cancel.", u8"準備が整うまでAを保ちます。Aで待機解除。" },
+    { "A stays live. Choose the source again.", u8"Aを保っています。音源を選び直してください。" },
+    { "Queue B for DAW playback. A stays live until ready; press A to cancel.",
+      u8"DAW再生後にBへ切り替えます。準備が整うまではAを保ち、Aで待機を解除します。" },
+    { "Queue C for DAW playback. A stays live until ready; press A to cancel.",
+      u8"DAW再生後にCへ切り替えます。準備が整うまではAを保ち、Aで待機を解除します。" },
     // Status facts.
     { "A REMAINS LIVE", u8"Aは今の音のまま" },
     { "BLIND STOPPED", u8"Blindを中止" },
@@ -65,7 +82,6 @@ const Entry entries[] = {
     { "SAMPLE RATE %1 TO %2 kHz", u8"サンプルレート %1 → %2 kHz" },
     { "BLIND NEEDS HEADROOM", u8"Blindには余裕が必要" },
     { "A RETURNS +%1 dB ON END", u8"終了時にAは+%1 dB戻ります" },
-    { "SOURCE CHANGED", u8"ソース変更" },
     { "PREPARE AGAIN IN KIRIN OS", u8"Kirin OSで準備し直す" },
     { "SOURCE COULD NOT BE OPENED", u8"ソースを開けませんでした" },
     { "VERIFY IN KIRIN OS", u8"Kirin OSで確認" },
@@ -144,6 +160,13 @@ const Entry entries[] = {
     { "Preparing B overview", u8"Bの全体表示を準備中" },
 
     // Selectors and buttons.
+    { "Visual comparison", u8"表示の比較対象" },
+    { "Showing captured A. Switch to live A/C without changing audio.",
+      u8"保存したAを表示中。音を変えず、今のA/C表示へ切り替えます。" },
+    { "Showing the Preset's A/C visuals. Switch to A/B without changing audio.",
+      u8"PresetのA/C比較を表示中。音を変えず、A/B表示へ切り替えます。" },
+    { "Showing A/B. Switch to the Preset's A/C visuals without changing audio.",
+      u8"A/B比較を表示中。音を変えず、PresetのA/C表示へ切り替えます。" },
     { "Temporarily call a Check Preset received from Kirin OS.",
       u8"Kirin OSから受け取ったCheck Presetを一時的に呼び出します。" },
     { "Choose the registered Version for B. A stays the current DAW input.",

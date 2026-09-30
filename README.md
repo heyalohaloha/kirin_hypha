@@ -549,7 +549,26 @@ remain visible when media is unavailable. Hypha does not substitute its own Fact
 
 A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
 Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
-available at every size. Blind opens at 300% (900×600).
+available at every size. A fresh instance receives Kirin OS's default Preset; saved session choices
+remain independent. C always names its source, including when a Check has only one candidate.
+Preset and C's Cue remain reachable before audition and while the Version display is open.
+
+The **A / B / C** buttons change sound; **VIEW A/C / VIEW A/B** changes only the display. The initial
+A/C view uses the Preset's configured visuals at detailed sizes; compact sizes retain the existing
+summary presentation. Choosing or auditioning B does not replace the selected visual view.
+A/C uses cyan for A and gold for C; Spectrum compares live A with C's whole-track
+distribution, not a time-aligned pair. Missing evidence stays missing. Verified OS-prepared display
+evidence can be inspected before approving audio sample-rate conversion; that approval is still
+required before audition. A pending C does not block a ready B. Select the A/B view for Version
+Blind, which opens at 300% (900×600).
+
+While the DAW is stopped, a prepared B or C can be queued with its button. The waiting button and
+reason are distinct from the source currently playing; A cancels the queue. On playback, Hypha
+keeps A until the same source, position, conversion permission and required level are verified.
+Matched modes never silently fall back to original volume for a queued start. A changed source,
+unsafe playback, or failed safe switch leaves A with a reason. The intent is one-shot: it is not
+saved or restored with the Song, and stopping an audition does not queue it again. Visual navigation
+does not cancel it; changing source, Preset or Cue does.
 For Version comparison, play the DAW input to establish the same song and position against B's
 verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
 playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
@@ -562,10 +581,13 @@ single comparison owner with PRE/POST Blind. Unsupported host clock proof remain
 Unlike the live PRE/POST compare, a stop, an unknown position or an unready B returns Reference to
 A and asks you to select B again.
 
-Until B or C can be heard, the page says why instead of showing empty comparisons: the next step
+Until B or C can be heard, the page says why instead of showing empty comparisons (already prepared
+Preset visuals stay visible): the next step
 (open Kirin OS, play the song in the DAW, choose a Version for B, enable a Check in Kirin OS) and
 where A, B and C each stand. A B or C that cannot be heard yet is drawn dimmed but stays
-clickable: a click or hover gives its reason instead of doing nothing.
+clickable: a click opens that source's display and recovery controls without changing audio;
+hover gives its reason. Conversion approval is scoped to that displayed source and cannot grant
+playback authority: a separate audition click (including an explicitly queued B/C) is required.
 
 The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
 Only observed A regions are drawn; older passes are dimmed. Select a region for the shared

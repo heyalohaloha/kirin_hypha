@@ -1,4 +1,5 @@
 #include "HyphaReferenceTonalView.h"
+#include "HyphaReferenceLegend.h"
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -164,9 +165,8 @@ void TonalView::paint (juce::Graphics& g)
         condition += " / " + timeline->tonalGenre->displayLabel.toUpperCase();
     g.setFont (labelFont (context, typography::TextRole::legend,
                           typography::Composition::visualization));
-    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
-    text_style::drawEllipsized (g, activeBand() >= 0 ? "CLICK AGAIN FOR OVERVIEW" : condition,
-                                header.toNearestInt(), juce::Justification::centredRight);
+    paintReferenceLegend (g, activeBand() >= 0 ? "CLICK AGAIN FOR OVERVIEW" : condition,
+                           header.toNearestInt());
 
     const auto a = aCurve(), c = cCurve();
     if (compact)
@@ -197,7 +197,7 @@ void TonalView::paint (juce::Graphics& g)
         }
         if (a.values != nullptr)
         {
-            g.setColour (COL_SPECTRUM_POST.withAlpha (0.94f));
+            g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.94f));
             g.strokePath (curvePath (a, graphArea), juce::PathStrokeType (1.55f));
         }
         const auto band = activeBand();

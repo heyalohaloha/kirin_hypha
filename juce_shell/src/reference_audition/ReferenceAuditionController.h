@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferencePendingAudition.h"
 
 #include <atomic>
 #include <functional>
@@ -90,6 +91,8 @@ namespace hypha::reference_audition
         juce::String selectedVersionId, migratedVersionChoice;
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
+        bool versionArmable = false, checkArmable = false;
+        PendingAuditionView pendingAudition;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
         std::shared_ptr<const VisualTimeline> visualTimeline;
         double visualPositionSeconds = -1.0;

@@ -111,15 +111,21 @@ inline void verifyIndependentRateApproval()
     reference_ui::runtime_view::setSampleRateApproval (state, comparison);
     require (state.versionStep == reference_ui::SourceStep::approveSampleRate
                  && state.checkStep == reference_ui::SourceStep::ready
-                 && state.sampleRateApprovalSlot == 1
-                 && state.sourceSampleRateHz == 44100 && state.hostSampleRateHz == 48000,
-             "B approval remains actionable while C owns the detail pane");
+                 && state.sampleRateApprovalSlot == 0,
+             "B names its approval without commandeering C's display action");
+    comparison.comparisonSlot = 1;
+    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
+    require (state.sampleRateApprovalSlot == 1 && state.sourceSampleRateHz == 44100
+        && state.hostSampleRateHz == 48000, "inspecting B exposes B's exact conversion");
     b->state = RuntimeState::ready; b->sampleRateApprovalRequired = false;
     b->rejectionCode.clear(); b->auditionBuffered = true;
     c->state = RuntimeState::waiting; c->auditionBuffered = false;
     c->sampleRateApprovalRequired = true;
     c->sourceSampleRateHz = 96000; c->hostSampleRateHz = 48000;
     reference_ui::runtime_view::setSourceSteps (state, comparison);
+    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
+    require (!state.sampleRateApprovalRequired, "C's approval never commandeers B's display action");
+    comparison.comparisonSlot = 2;
     reference_ui::runtime_view::setSampleRateApproval (state, comparison);
     require (state.versionStep == reference_ui::SourceStep::ready
                  && state.checkStep == reference_ui::SourceStep::approveSampleRate

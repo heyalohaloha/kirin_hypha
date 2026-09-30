@@ -324,18 +324,33 @@ namespace hypha::reference_audition
                 selectA();
         }
         next.sourceSampleRateHz = selectedSource->audio.sampleRateHz;
+        // OS-prepared display evidence is independent of permission to resample audition audio.
+        // Read the existing bounded projections, without adding a decoder, analysis or RT work.
+        const auto measurement = measurementRepository.load (*selectedSource);
+        if (measurement.accepted())
+        {
+            next.detailedMeasurement = measurement.measurement;
+            next.measurementAvailable = true;
+        }
+        for (const auto& binding : check->profileBindings)
+        {
+            const auto profile = profileRepository.load (binding.profileArtifact);
+            if (profile.accepted()) next.profiles.push_back (profile.profile);
+        }
         const auto approvalKey = mediaKey + ":"
             + juce::String (selectedSource->audio.sampleRateHz) + ":"
             + juce::String (next.hostSampleRateHz);
         const bool rateDiffers = selectedSource->audio.sampleRateHz != next.hostSampleRateHz;
         const bool rateApproved = ! rateDiffers || selection.sampleRateApprovalKey == approvalKey;
+        const auto mappedCueStart = outputSample (cue->startSample, cue->sampleRateHz, next.hostSampleRateHz);
+        const auto mappedCueEnd = outputSample (cue->endSample, cue->sampleRateHz, next.hostSampleRateHz);
         if (! rateApproved)
         {
             failClosedToA();
             next.state = RuntimeState::waiting;
             next.sampleRateApprovalRequired = true;
             next.rejectionCode = "reference_sample_rate_approval_required";
-            publishApprovalRequired (std::move (next), approvalKey);
+            publishApprovalRequired (std::move (next), approvalKey, selectedSource, *cue);
             return;
         }
 
@@ -362,25 +377,9 @@ namespace hypha::reference_audition
             activeSourceKey = sourceKey;
         }
         workerSource = selectedSource;
-        const auto measurement = measurementRepository.load (*selectedSource);
-        if (measurement.accepted())
-        {
-            next.detailedMeasurement = measurement.measurement;
-            next.measurementAvailable = true;
-        }
         const auto alignment = alignmentRepository.load (*selectedSource);
         next.alignmentPrepared = alignment.accepted();
-        for (const auto& binding : check->profileBindings)
-        {
-            const auto profile = profileRepository.load (binding.profileArtifact);
-            if (profile.accepted()) next.profiles.push_back (profile.profile);
-        }
 
-        const auto hostRate = next.hostSampleRateHz;
-        const auto mappedCueStart = outputSample (
-            cue->startSample, cue->sampleRateHz, hostRate);
-        const auto mappedCueEnd = outputSample (
-            cue->endSample, cue->sampleRateHz, hostRate);
         const auto cueKey = runtimeCuePlaybackIdentity (*cue);
         const auto mappingKey = activeSourceKey + ":" + cueKey;
         if (activeMappingKey != mappingKey)
@@ -448,7 +447,7 @@ namespace hypha::reference_audition
             activeEventCue = *cue;
             activeEventSource = selectedSource;
         }
-        publishReady (std::move (next), selectedSource);
+        publishReady (std::move (next), selectedSource, *cue);
         activePublishedSelectionKey = publicationKey;
     }
 

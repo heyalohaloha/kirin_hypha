@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <limits>
 
 void KirinHyphaProcessorBase::timerCallback()
 {
@@ -15,7 +16,31 @@ void KirinHyphaProcessorBase::timerCallback()
     applyHeldFormatIfRecordReleased();
     serviceLocalBlindProductSession();
     serviceLiveCompare();
+    serviceReferencePendingAudition();
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
-        && ! heldFormat.held && ! liveCompareNeedsService())
+        && ! heldFormat.held && ! liveCompareNeedsService() && ! referencePendingAuditionNeedsService())
         stopTimer();
+}
+
+bool KirinHyphaProcessorBase::referencePendingAuditionNeedsService() const
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController && referenceAuditionController->pendingAuditionNeedsService();
+   #else
+    return false;
+   #endif
+}
+
+void KirinHyphaProcessorBase::serviceReferencePendingAudition()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (!referencePendingAuditionNeedsService()) return;
+    if (!licenseIsOs()) { referenceAuditionController->suspendAudition(); return; }
+    KirinObservatoryFrame frame {};
+    const bool live = heartbeatLive();
+    const bool measured = live && pollObservatoryFrame (frame) && frame.meter.state == KIRIN_METER_SESSION_ACTIVE;
+    const auto missing = std::numeric_limits<double>::quiet_NaN();
+    referenceAuditionController->servicePendingAudition (
+        measured ? frame.meter.lufs_i : missing, measured ? frame.meter.max_true_peak : missing, live);
+   #endif
 }

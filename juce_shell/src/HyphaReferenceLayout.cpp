@@ -4,7 +4,7 @@ namespace hypha::reference_ui
 {
 void Component::resized()
 {
-    const int comparisonWidth = detailedLayout() ? 62 : current.separateComparisons ? 36 : 48;
+    const int comparisonWidth = comparisonButtonWidth();
     connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 3 : 2) - 39, 6, 24, 18);
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
@@ -42,15 +42,18 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
-        auto top = area.removeFromTop (selectionVisible (presetBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
-        if (detailedLayout())
+        auto top = area.removeFromTop (selectionVisible (presetBox) || viewButton.isVisible()
+            ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
+        if (viewButton.isVisible())
         {
-            const auto width = selectionVisible (cueBox) ? (top.getWidth() - 5) * 3 / 4 : top.getWidth();
-            presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (22));
-            top.removeFromLeft (5);
-            cueBox.setBounds (top.removeFromBottom (22));
+            viewButton.setBounds (top.removeFromRight (detailedLayout() ? 96 : 72)
+                .removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
+            top.removeFromRight (5);
         }
-        else presetBox.setBounds (top);
+        const auto width = selectionVisible (cueBox) ? (top.getWidth() - 5) * 3 / 5 : top.getWidth();
+        presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
+        top.removeFromLeft (5);
+        cueBox.setBounds (top.removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
     }
     else if (detailedLayout() && ! blindSession)
     {

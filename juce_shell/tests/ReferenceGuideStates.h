@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaReferencePendingUI.h"
 
 #include <vector>
 
@@ -42,6 +43,7 @@ inline reference_ui::State library()
 inline reference_ui::State playing (reference_ui::State state)
 {
     state.aAvailable = true;
+    state.transportPlaying = true;
     state.auditionBuffered = true;
     state.aIntegratedLoudness = -14.3;
     state.aMaximumTruePeakDbtp = -1.2;
@@ -52,6 +54,19 @@ inline std::vector<Case> cases()
 {
     using Step = reference_ui::SourceStep;
     std::vector<Case> result;
+    for (const auto slot : { 1, 2 })
+    {
+        auto state = library();
+        state.versionId = "v4";
+        state.versionArmable = state.checkArmable = true;
+        state.versionStep = state.checkStep = Step::playDaw;
+        state.pendingAudition = { slot, reference_audition::PendingAuditionView::Stage::play };
+        state.status = reference_ui::pendingAuditionText (state);
+        result.push_back ({ slot == 1 ? "queued_b" : "queued_c", state });
+        state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::safetyChanged;
+        state.status = reference_ui::pendingAuditionText (state);
+        result.push_back ({ slot == 1 ? "queued_b_cancelled" : "queued_c_cancelled", state });
+    }
     {
         Case unowned { "unowned", {}, true };
         unowned.state.separateComparisons = true;
@@ -128,6 +143,31 @@ inline std::vector<Case> cases()
         state.sampleRateApprovalSlot = 2;
         state.actionText = "APPROVE C 44.1 TO 48.0 kHz";
         result.push_back ({ "approve_c_rate", state });
+        state.aAvailable = false;
+        state.versionStep = Step::playDaw;
+        result.push_back ({ "stopped_c_rate", state });
+        state.aAvailable = true;
+        state.versionReady = true;
+        state.versionStep = Step::ready;
+        state.bSelected = true;
+        state.audibleComparisonSlot = 1;
+        state.appliedGainDb = -2.5;
+        state.viewBindings = { "spectrum_full", "spectrum_low" };
+        // Synthetic, visibly distinct A and C curves for layout/color inspection only.
+        auto measurement = std::make_shared<reference_audition::RuntimeDetailedMeasurement>();
+        measurement->spectrum.emplace();
+        for (int band = 0; band < 64; ++band)
+        {
+            const auto level = -22000 - band * 600 + juce::roundToInt (2000.0 * std::sin (band * 0.4));
+            measurement->spectrum->bandCentersHz.push_back (20.0 * std::pow (1000.0, band / 63.0));
+            measurement->spectrum->medianMillidbfs.push_back (level);
+            measurement->spectrum->p10Millidbfs.push_back (level - 4000);
+            measurement->spectrum->p90Millidbfs.push_back (level + 4000);
+            state.liveSpectrumDbfs.push_back (static_cast<float> (level / 1000.0 + 5.0 * std::sin (band * 0.2)));
+        }
+        state.detailedMeasurement = measurement;
+        state.liveSpectrumMinimumHz = 20; state.liveSpectrumMaximumHz = 20000;
+        result.push_back ({ "b_audible_c_view", state });
     }
     {
         auto state = playing (library());

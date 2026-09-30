@@ -231,18 +231,24 @@ namespace hypha::reference_audition
     }
 
     bool RuntimeV2Controller::selectB (double aIntegratedLoudness,
-                                       double aMaximumTruePeakDbtp) noexcept
+                                       double aMaximumTruePeakDbtp, bool requireMatchedGain,
+                                       std::uint64_t queuedGeneration) noexcept
     {
         if (blind.ongoing())
             return false;
         if (bSelected.load (std::memory_order_acquire)) return true;
-        const auto generation = normalSelectionGeneration.fetch_add (
-            1, std::memory_order_acq_rel) + 1;
+        const auto generation = queuedGeneration != 0 ? queuedGeneration
+            : normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel) + 1;
         const bool alreadySelected = bSelected.load (std::memory_order_acquire);
         const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
-        const bool selected = prepareReferenceGain (
-            aIntegratedLoudness, aMaximumTruePeakDbtp, generation)
-                           && activatePreparedB (generation);
+        if (!prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp, generation)) return false;
+        if (requireMatchedGain)
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (preparedNormalSelection.gainLimited || preparedNormalSelection.comparisonFallbackOriginal)
+                return false;
+        }
+        const bool selected = activatePreparedB (generation);
         if (selected && ! alreadySelected)
             beginAuditionEventSession (bBaseline);
         return selected;

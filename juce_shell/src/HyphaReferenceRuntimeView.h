@@ -113,14 +113,14 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
 }
 
 // Approval belongs to the source, never to whichever slot happens to own the detail pane.
-// Prefer that pane when both need approval, then expose the remaining one on the next refresh.
+// The action belongs to the displayed source. The other source still names its need on its row
+// and button; inspecting it must not require starting audition first.
 inline void setSampleRateApproval (State& state, const reference_audition::Snapshot& comparison)
 {
     const bool versionPending = state.versionStep == SourceStep::approveSampleRate;
     const bool checkPending = state.checkStep == SourceStep::approveSampleRate;
     state.sampleRateApprovalSlot = comparison.comparisonSlot == 1 && versionPending ? 1
-        : comparison.comparisonSlot == 2 && checkPending ? 2
-        : versionPending ? 1 : checkPending ? 2 : 0;
+        : comparison.comparisonSlot == 2 && checkPending ? 2 : 0;
     state.sampleRateApprovalRequired = state.sampleRateApprovalSlot != 0;
     if (! state.sampleRateApprovalRequired) return;
     const auto& source = state.sampleRateApprovalSlot == 1

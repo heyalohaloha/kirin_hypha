@@ -24,7 +24,8 @@ struct VisualBinding
     double gainDb = 0.0;
     bool matched = false;
     std::shared_ptr<const ACaptureReceipt> captureEvidence;
-    std::int64_t cueStartSample = 0, cueEndSample = 0;
+    // OS tonal artifacts aggregate source-rate samples, never host-rate playback positions.
+    std::int64_t sourceCueStartSample = 0, sourceCueEndSample = 0;
 };
 struct VisualPairBin
 {

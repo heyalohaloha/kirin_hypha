@@ -33,9 +33,10 @@ bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
             referenceAuditionController->suspendAudition();
         return false;
     }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->selectB (
-            aIntegratedLoudness, aMaximumTruePeakDbtp);
+    const bool accepted = referenceAuditionController != nullptr
+        && referenceAuditionController->requestAudition (1, aIntegratedLoudness, aMaximumTruePeakDbtp);
+    if (accepted && referencePendingAuditionNeedsService()) startTimer (50);
+    return accepted;
    #else
     juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
     return false;
@@ -59,8 +60,10 @@ bool KirinHyphaProcessorBase::selectReferenceC (double loudness, double peak)
         if (referenceAuditionController) referenceAuditionController->suspendAudition();
         return false;
     }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->selectC (loudness, peak);
+    const bool accepted = referenceAuditionController != nullptr
+        && referenceAuditionController->requestAudition (2, loudness, peak);
+    if (accepted && referencePendingAuditionNeedsService()) startTimer (50);
+    return accepted;
    #else
     juce::ignoreUnused (loudness, peak);
     return false;
@@ -148,6 +151,17 @@ bool KirinHyphaProcessorBase::startLatestReferenceReview()
     return licenseIsOs() && referenceAuditionController != nullptr
         && referenceAuditionController->startLatestReview();
    #else
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectVisualSlot (slot);
+   #else
+    juce::ignoreUnused (slot);
     return false;
    #endif
 }

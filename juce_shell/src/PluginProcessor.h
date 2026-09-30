@@ -124,6 +124,7 @@ public:
     bool selectReferenceCandidate (const juce::String&);
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
+    bool selectReferenceVisualSlot (int);
     bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
     bool startLatestReferenceReview();
@@ -365,6 +366,8 @@ private:
     // the Timer publishes Inactive PRE/POST presence after either setStateInformation arrives or the
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
+    void serviceReferencePendingAudition();
+    bool referencePendingAuditionNeedsService() const;
     void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
     void restorePersistedPairUnderHandleLock();
