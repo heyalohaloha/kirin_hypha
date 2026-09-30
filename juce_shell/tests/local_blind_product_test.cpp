@@ -200,10 +200,13 @@ private:
                 break;
             case 2:
                 if (! post->isPlaying() || ! post->heartbeatLive()) break;
-                // The operations menu and this shared editor entry invoke the same owner.
-                click ("observatory-local-blind", false);
-                if (channelCount == 2) selectBlindMode (1);
-                if (! click ("local-blind-capture")) break;
+                // Exact capture is the retained secondary engine, not the primary BLIND entry.
+                if (post->requestLocalBlindProductCapture (hypha::meter_context::MeterContext::twoMix)
+                    != hypha::local_blind::CaptureAdmission::ready) break;
+                closeEditor();
+                editor.reset (post->createEditorIfNeeded());
+                editor->setSize (900, 600);
+                editor->setVisible (true);
                 stage = channelCount == 1 ? 20 : 3;
                 break;
             case 20:

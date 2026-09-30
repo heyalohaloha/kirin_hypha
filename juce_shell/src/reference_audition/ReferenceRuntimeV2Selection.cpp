@@ -235,7 +235,8 @@ namespace hypha::reference_audition
     bool RuntimeV2Controller::revealBlind() noexcept
     {
         if (! blind.reveal()) return false;
-        completeBlindEventSession (blind.snapshot());
+        const auto facts = blind.snapshot();
+        if (facts.answeredStimulus != 0) completeBlindEventSession (facts);
         return true;
     }
 

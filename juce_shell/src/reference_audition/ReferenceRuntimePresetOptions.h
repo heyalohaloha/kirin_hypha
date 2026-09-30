@@ -26,7 +26,8 @@ namespace hypha::reference_audition
                     for (const auto& check : preset.checks)
                     {
                         if (check.candidates.empty())
-                            snapshot.checkTargets.push_back ({ check.checkId + "/", check.label, {}, false });
+                            snapshot.checkTargets.push_back ({ check.checkId + "/",
+                                check.label + " / NO SOURCE IN KIRIN OS", {}, false });
                         for (const auto& candidate : check.candidates)
                             snapshot.checkTargets.push_back ({ check.checkId + "/" + candidate.candidateId,
                                 check.label + (check.candidates.size() > 1 ? " / " + candidate.displayName : ""),

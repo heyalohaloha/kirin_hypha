@@ -39,9 +39,13 @@ void KirinHyphaProcessorBase::processComparisonPaths (
                         clock.inputPresentationValid, clock.outputPresentationValid };
         // The host looping boolean authorizes only the exact native end->start wrap that the
         // renderer itself observes. PPQ loop points are never converted into sample boundaries.
-        block.exactLoopRangeValid = clock.looping;
+        block.exactLoopRangeValid = clock.loop.active;
         if (localBlindProductSession.render (buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
-                                             buffer.getNumSamples(), block)) return;
+                                             buffer.getNumSamples(), block))
+        {
+            processLiveCompare (buffer, clock, bypassed, nonRealtimeMode, true);
+            return;
+        }
     }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (role == Role::Post && referenceAuditionController != nullptr)

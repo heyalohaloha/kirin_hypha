@@ -99,7 +99,7 @@ void Component::resized()
         area.removeFromTop (panelGap());
     }
     if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
-    auto footer = area.removeFromBottom (detailedLayout() ? 24 : 18);
+    auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
     if (blindSession)
@@ -117,7 +117,6 @@ void Component::resized()
         if (oneButton.isVisible()) placeLeft (oneButton, buttonWidth);
         if (twoButton.isVisible()) placeLeft (twoButton, buttonWidth);
         if (revealButton.isVisible()) placeRight (revealButton, detailedLayout() ? 78 : 62);
-        if (answerButton.isVisible()) placeRight (answerButton, detailedLayout() ? 88 : 70);
     }
     else if (blindButton.isVisible())
     {
@@ -125,7 +124,7 @@ void Component::resized()
         footer.removeFromRight (detailedLayout() ? 8 : 6);
     }
     if (actionButton.isVisible())
-        actionButton.setBounds (footer.removeFromRight (detailedLayout() ? 188 : 116));
+        actionButton.setBounds (footer.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116));
     layoutSelectionReadouts();
 }
 

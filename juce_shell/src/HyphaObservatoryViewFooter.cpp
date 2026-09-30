@@ -61,9 +61,9 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     captureButton.setVisible (false); // Image Capture has one entry in MENU.
     localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
     localBlindButton.setEnabled (! keepActive);
-    localBlindButton.setButtonText (getWidth() < 900 ? "BLIND 300%" : "PRE/POST BLIND");
+    localBlindButton.setButtonText ("BLIND");
     localBlindButton.setTooltip (keepActive ? "Finish Keep / Record before PRE / POST Blind"
-        : getWidth() < 900 ? "Open PRE / POST Blind at 300%" : "Open PRE / POST Blind");
+        : "Match levels and compare while the song plays");
     liveCompareButton.setVisible (full && liveCompareState.entryEnabled && ! captureFrame);
     liveCompareButton.setButtonText (getWidth() < 900 ? "LISTEN" : "PRE/POST LISTEN");
     if (layoutLiveCompareFooter (actions))

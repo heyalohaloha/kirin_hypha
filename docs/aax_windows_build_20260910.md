@@ -5,7 +5,11 @@ Date: 2026-09-10
 This public-repository document records technical build and packaging facts only. It contains no
 account identifiers, credentials, private correspondence, or contract terms.
 
-## Verified build state
+Start with the [AAX build and signing entry guide](aax_build_signing_entry.md) for signing-input
+locations and the existing private factory. Its GitHub Secrets are injected at runtime; an empty
+local certificate store after cleanup does not establish missing signing configuration.
+
+## Historical verified build state (not current-candidate acceptance)
 
 PRE and POST were configured and built on the Windows validation host with AAX SDK 2.9.0, Visual
 Studio Build Tools 2022, MSVC x64, and the tracked JUCE patch stack on 2026-09-10. The produced PE
@@ -114,7 +118,7 @@ exact PRE and POST bundles are present, both are x64 and version-matched, and bo
 Authenticode verification. It also requires the signed AAX provenance to match the clean installer
 source commit and B number. The signed provenance is copied beside the installer, hashed into the
 installer manifest, and rechecked by the three-channel release-set gate. This prevents a signed AAX
-from another same-version commit, a system-font diagnostic build, or an AudioSuite-enabled build
+from another same-version commit, an explicitly diagnostic build, or an AudioSuite-enabled build
 from being mixed into a release. AAX is copied after the VST3 eSigner payload stage and is never
 signed again by the installer builder.
 
@@ -127,8 +131,10 @@ Common Files directory:
 Repeat install and uninstall verification checks both formats, both signature systems, exact hashes,
 and preservation of unrelated files. The ordinary VST3-only installer remains the default path.
 
-The latest public Windows installer and the current source version are both 1.1.49. A real
-prior-public-version upgrade can therefore run only after the next release version is assigned.
+At the original 2026-09-10 checkpoint, the public Windows installer and source were both 1.1.49,
+so a prior-public-version upgrade was not yet possible. For each new candidate, read its version
+from `crates/hypha_pre/Cargo.toml` and independently verify the preceding public installer version;
+do not treat that historical version as the current source or release.
 `verify-installer.ps1` requires an explicit older installer for the AAX variant and rejects an equal
 or newer version, so a same-version reinstall cannot be mislabeled as an upgrade.
 

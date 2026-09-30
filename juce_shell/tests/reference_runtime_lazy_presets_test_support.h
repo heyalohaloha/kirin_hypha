@@ -80,6 +80,17 @@ namespace
 
         ref::Snapshot options;
         ref::appendRuntimePresetOptions (options, *first.workspace);
+        ref::RuntimeWorkspace emptyLibrary;
+        emptyLibrary.library = true;
+        ref::RuntimePreset emptyPreset;
+        emptyPreset.sourcePresetArtifact.presetId = "empty-preset";
+        ref::RuntimeCheck emptyCheck; emptyCheck.checkId = "empty-check"; emptyCheck.label = "No candidate Check";
+        emptyPreset.checks.push_back (emptyCheck); emptyLibrary.presets.push_back (emptyPreset);
+        ref::Snapshot emptyOptions; emptyOptions.presetId = "empty-preset";
+        ref::appendRuntimePresetOptions (emptyOptions, emptyLibrary);
+        require (emptyOptions.checkTargets.size() == 1
+                 && emptyOptions.checkTargets[0].label == "No candidate Check / NO SOURCE IN KIRIN OS",
+                 "a Check without a source must not look ready in the menu");
         require (options.presets.size() == 7 && options.presets.back().id == secondOption
                  && options.presets.back().requiresPreparation,
                  "retired Work settings must remain selectable beside Global Presets");

@@ -10,7 +10,8 @@ class ComparisonView final : public juce::Component
 public:
     ComparisonView();
     void update (std::shared_ptr<const reference_audition::VisualTimeline>, double,
-                 presentation::Context, bool concealed, std::shared_ptr<reference_audition::VisualPreferences> = {});
+                 presentation::Context, bool concealed, std::shared_ptr<reference_audition::VisualPreferences> = {},
+                 juce::String emptyMessage = "Choose Version");
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -36,6 +37,7 @@ private:
     juce::Rectangle<float> waveform, graph;
     std::uint64_t cacheRevision = 0;
     juce::String key, captureId;
+    juce::String emptyMessage { "Choose Version" };
     bool fitCapture = true;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
     bool following = true, showingCrest = false, showingTonal = false, hidden = false;

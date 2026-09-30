@@ -146,8 +146,8 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
     std::vector<float> post (static_cast<std::size_t> (frames) * 2);
     std::vector<float> pre (static_cast<std::size_t> (frames + 2 * lag) * 2);
     copyPostHistory (view, postStart, frames, post);
-    if (renderer.historyWriteEnd() - postStart > view.frames
-        || ! copyPreRing (ring, postStart - view.k - lag, frames + 2 * lag, pre))
+    if (! copyPreRing (ring, postStart - view.k - lag, frames + 2 * lag, pre, view.preRun)
+        || ! renderer.historyStillValid (view, postStart))
         return {};
     auto estimate = estimateOffset (monoSum (post), monoSum (pre), lag);
     estimate.sampleRate = static_cast<double> (ring.header.sampleRate.load (std::memory_order_relaxed));

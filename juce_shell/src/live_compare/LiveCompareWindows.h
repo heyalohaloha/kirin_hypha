@@ -27,10 +27,12 @@ inline void copyPostHistory (const PostRenderer::HistoryView& view, std::int64_t
 // Interleaved stereo PRE [start, start + frames). PRE keeps writing ahead of the window; the copy is
 // valid when, afterwards, the window still lies inside PRE's current run and within the ring
 // capacity of its write end.
-inline bool copyPreRing (const Ring& ring, std::int64_t start, std::int64_t frames, std::vector<float>& out)
+inline bool copyPreRing (const Ring& ring, std::int64_t start, std::int64_t frames, std::vector<float>& out,
+                        std::uint64_t expectedRun = 0)
 {
     const auto& h = ring.header;
     const auto runBefore = h.run.load (std::memory_order_acquire);
+    if (expectedRun != 0 && runBefore != expectedRun) return false;
     if (start < h.runStart.load (std::memory_order_acquire) || h.writeEnd.load (std::memory_order_acquire) < start + frames)
         return false;
     for (std::int64_t i = 0; i < frames; ++i)

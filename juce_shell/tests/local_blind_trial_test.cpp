@@ -326,7 +326,13 @@ static void concurrentRetirement()
         slot.control()->start();
         slot.control()->stop();
         slot.control()->requestNormalReturn();
-        while (! slot.control()->normalReturnConfirmed()) std::this_thread::yield();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (5);
+        while (! slot.control()->normalReturnConfirmed())
+        {
+            require (std::chrono::steady_clock::now() < deadline,
+                     "explicit RETURN must survive concurrent automatic source advancement");
+            std::this_thread::yield();
+        }
         require (slot.retireAfterNormalReceipt(), "retire raced callback safely");
     }
     done.store (true, std::memory_order_release);
@@ -366,11 +372,13 @@ static void coherentEpochs()
 
 #include "LocalBlindPlaybackContract.h"
 #include "LocalBlindTransitionContract.h"
+#include "LocalBlindCommandContract.h"
 
 void verifyNamedAb(); // local_blind_named_trial_test.cpp (INV-LC17)
 
 int main()
 {
+    localBlindCommandContract();
     nativeRangePlaybackContract();
     capturedClockPlaybackContract();
     stoppedHostClockContract();

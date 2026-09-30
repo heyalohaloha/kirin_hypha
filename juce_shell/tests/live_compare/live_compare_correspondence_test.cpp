@@ -135,8 +135,11 @@ static void latencyChangesAreBoundedByM1()
     print ("Pro Tools AAX latency switch, M1", m1);
     print ("Pro Tools AAX latency switch, no M1", noM1);
     require (m1.falseAccepted <= 3, "M1 must bound the AAX latency-change window to the host lag");
-    require (noM1.falseAccepted > m1.falseAccepted, "the control must show what M1 removes");
-    require (m1.disagreementInvalidations == 2, "M1 invalidates K once per latency change only");
+    // Explicit project/run discontinuity now rejects before M1. A safe earlier rejection must
+    // not fail a test by removing the historical bug from the no-M1 diagnostic control.
+    require (noM1.falseAccepted <= 3 && m1.accepted > 100 && noM1.accepted > 100,
+             "timeline fence must bound both controls while permitting valid audio");
+    require (m1.disagreementInvalidations <= 2, "no repeated M1 invalidation on one latency change");
 
     const HostModel vst3 { Format::vst3, LoopReport::clampToLoopStart, 4096, false };
     const auto studio = latencySwitch (vst3, withM1, 2, 3); // Studio Pro 8.1.2: 2 and 3 blocks
@@ -144,13 +147,13 @@ static void latencyChangesAreBoundedByM1()
     require (studio.falseAccepted <= 5, "the VST3 window stays within the host re-compensation lag");
 }
 
-// Documented limit (G1 record 8.6, plan 5.2): a host that labels the stale audio after a relocation
-// inside PRE's new run cannot be told apart by clocks. Host certification checks content.
-static void mislabellingHostIsAKnownLimit()
+// The older rule accepted stale audio at some relocations in this model. Checking PRE's
+// project continuity now fences those transitions too; do not require that bug to survive.
+static void modelledRelocationsAreFenced()
 {
     const auto t = protocol ({ Format::vst3, LoopReport::clampToLoopStart, 4096, true });
     print ("hypothetical mislabelling host", t);
-    require (t.falseAccepted > 0, "the clock rules are not expected to see a mislabelling host");
+    require (t.falseAccepted == 0 && t.accepted > 1000, "modelled stale relocation must be fenced without muting valid playback");
 }
 
 // POST refuses a ring stamped for another pair or sample rate and copies nothing.
@@ -244,7 +247,7 @@ int main()
     measuredHostsNeverAcceptWrongPre();
     postOnlySleepIsCaughtByTheGapRule();
     latencyChangesAreBoundedByM1();
-    mislabellingHostIsAKnownLimit();
+    modelledRelocationsAreFenced();
     foreignRingIsRefused();
     gapThresholdsFollowTheProfile();
     concurrentReadersNeverSeeTornBlocks();

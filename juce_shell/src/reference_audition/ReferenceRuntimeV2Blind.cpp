@@ -300,7 +300,11 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Blind::reveal() noexcept
     {
-        if (answeredStimulus.load (std::memory_order_acquire) == 0)
+        const auto facts = snapshot();
+        const auto minimumFrames = facts.wholeSong ? static_cast<std::uint64_t> (facts.aSampleRateHz) * 3 : 1;
+        if (facts.stimulusOneConfirmedSwitches == 0 || facts.stimulusTwoConfirmedSwitches == 0
+            || facts.stimulusOneAudibleFrames < minimumFrames
+            || facts.stimulusTwoAudibleFrames < minimumFrames)
             return false;
         int expected = active;
         return lifecycle.compare_exchange_strong (expected, revealed,

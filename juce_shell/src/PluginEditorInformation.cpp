@@ -18,7 +18,8 @@ juce::String toString (std::string_view value)
 
 bool KirinHyphaEditor::informationBlockedByBlind() const
 {
-    return isPost && (processorRef.referenceAuditionSnapshot().blindPhase
+    return isPost && (processorRef.liveBlindStatus().trial.active
+        || processorRef.referenceAuditionSnapshot().blindPhase
         != hypha::reference_audition::BlindPhase::inactive
         || (processorRef.localBlindProductSupported()
             && hypha::local_blind_ui::blocksDisclosure (processorRef.localBlindProductView())));

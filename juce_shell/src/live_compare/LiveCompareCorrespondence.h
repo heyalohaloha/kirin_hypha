@@ -26,7 +26,9 @@ enum class Verdict : std::uint8_t
     beforeRun,    // the range starts before PRE's current run
     notWritten,   // the range ends after what PRE has written
     overwritten,  // the range is older than the ring capacity
-    torn          // PRE wrote while POST was reading
+    torn,         // PRE wrote while POST was reading
+    loopUnproven, // no unique K before entering a loop
+    loopWaiting   // known K retained, but these loop coordinates do not prove this block
 };
 
 struct Decision
@@ -38,6 +40,8 @@ struct Decision
     bool candidateSeen = false;
     std::int64_t candidate = 0;
     bool invalidatedByDisagreement = false;
+    bool timelineChanged = false;
+    std::uint64_t run = 0;
 };
 
 // POST, Audio Thread. Maps POST's continuous clock to PRE's through K, calibrated from steady
@@ -60,7 +64,16 @@ public:
             decision.verdict = Verdict::foreignRing;
             return decision;
         }
-        if (block.afterGap)
+        const auto run = ring.header.run.load (std::memory_order_acquire);
+        const auto runStart = ring.header.runStart.load (std::memory_order_acquire);
+        const auto writeEnd = ring.header.writeEnd.load (std::memory_order_acquire);
+        const auto age = kValid ? writeEnd - (block.clock - k) : 0;
+        const auto timelineStep = timeline.observe (block, sampleRate,
+            age > 0 && age < ringCapacityFrames ? age : 0);
+        decision.run = run;
+        decision.timelineChanged = timelineStep.broken || (haveRun && run != previousRun);
+        previousRun = run; haveRun = true;
+        if (decision.timelineChanged)
             invalidate();
         if (! block.clockValid || block.frames <= 0)
         {
@@ -72,7 +85,10 @@ public:
         const bool continuous = havePrevious && block.projectValid
                              && block.project == previousProject + previousFrames;
         std::int64_t candidate = 0;
-        if (continuous && block.playing && joinCandidate (ring.header, block, candidate))
+        // A project-time match is not unique inside a loop. Preserve an already proven K;
+        // never recalibrate it onto a newer occurrence of the same project coordinate.
+        if (continuous && block.playing && ! block.loop.active
+            && joinCandidate (ring.header, block, runStart, candidate))
         {
             decision.candidateSeen = true;
             decision.candidate = candidate;
@@ -94,11 +110,24 @@ public:
         }
         if (! kValid)
         {
-            decision.verdict = Verdict::calibrating;
+            decision.verdict = block.loop.active ? Verdict::loopUnproven : Verdict::calibrating;
             return fill (decision);
         }
         decision.preStart = block.clock - k;
+        if (block.loop.active && ! loopJoin (ring.header, block, decision.preStart, sampleRate))
+        {
+            // No PRE copy or fade from an unproven boundary. A finite clamped interval may
+            // recover on the same K; a broken timeline/run already invalidated it above.
+            decision.verdict = Verdict::loopWaiting;
+            return fill (decision);
+        }
         decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels);
+        if (ring.header.run.load (std::memory_order_acquire) != run)
+        {
+            invalidate();
+            decision.timelineChanged = true;
+            decision.verdict = Verdict::torn;
+        }
         return fill (decision);
     }
 
@@ -106,6 +135,8 @@ public:
     {
         invalidate();
         havePrevious = false;
+        haveRun = false;
+        timeline.reset();
     }
 
     bool calibrated() const noexcept { return kValid; }
@@ -139,34 +170,46 @@ private:
         }
     }
 
-    // The latest PRE block whose project range holds this block's first frame gives
-    // K = POST clock - PRE clock of the same project frame.
-    static bool joinCandidate (const RingHeader& h, const BlockClock& block, std::int64_t& candidate) noexcept
+    // A linear PRE run has one project origin, checked at EVERY publish, so one anchor is
+    // sufficient. No backwards descriptor scan, even for a long delay or a small host buffer.
+    static bool joinCandidate (const RingHeader& h, const BlockClock& block, std::int64_t runStart,
+                               std::int64_t& candidate) noexcept
     {
-        const auto count = h.published.load (std::memory_order_acquire);
-        const auto limit = std::min<std::uint64_t> (count, joinSearchDepth);
-        for (std::uint64_t back = 1; back <= limit; ++back)
-        {
-            const auto& d = h.descriptors[(count - back) % ringDescriptors];
-            const auto seq = d.seq.load (std::memory_order_acquire);
-            if ((seq & 1u) != 0)
-                continue;
-            const auto clock = d.clock.load (std::memory_order_relaxed);
-            const auto project = d.project.load (std::memory_order_relaxed);
-            const auto frames = d.frames.load (std::memory_order_relaxed);
-            const auto flags = d.flags.load (std::memory_order_relaxed);
-            std::atomic_thread_fence (std::memory_order_acquire);
-            if (d.seq.load (std::memory_order_relaxed) != seq)
-                continue;
-            if ((flags & (descriptorPlaying | descriptorProjectValid)) != (descriptorPlaying | descriptorProjectValid))
-                continue;
-            if (block.project >= project && block.project < project + frames)
-            {
-                candidate = block.clock - (clock + (block.project - project));
-                return true;
-            }
-        }
-        return false;
+        const auto seq = h.seq.load (std::memory_order_acquire);
+        if ((seq & 1u) != 0) return false;
+        const auto flags = h.anchorFlags.load (std::memory_order_relaxed);
+        const auto project = h.runProject.load (std::memory_order_relaxed);
+        const auto end = h.writeEnd.load (std::memory_order_relaxed);
+        const auto pre = runStart + (block.project - project);
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (h.seq.load (std::memory_order_relaxed) != seq || flags != 1u
+            || pre < runStart || pre + block.frames > end || end - pre > ringCapacityFrames) return false;
+        candidate = block.clock - pre;
+        return true;
+    }
+
+    // Validate known K against the PRE run's constant-tempo loop anchor. Musical coordinates
+    // corroborate the address, never choose it. Publisher advances the run on any unexplained
+    // position change, missing data, tempo/range edit, clock reset or callback gap.
+    static bool loopJoin (const RingHeader& h, const BlockClock& block, std::int64_t start,
+                          double rate) noexcept
+    {
+        if (! block.loop.usable (rate)) return false;
+        const auto seq = h.seq.load (std::memory_order_acquire);
+        if ((seq & 1u) != 0) return false;
+        const auto flags = h.anchorFlags.load (std::memory_order_relaxed);
+        const auto anchorClock = h.loopClock.load (std::memory_order_relaxed);
+        const auto project = h.loopProject.load (std::memory_order_relaxed);
+        const auto runStart = h.runStart.load (std::memory_order_relaxed);
+        const auto runProject = h.runProject.load (std::memory_order_relaxed);
+        const LoopContext context { true, (flags & 2u) != 0,
+            h.loopPpq.load (std::memory_order_relaxed), h.loopStart.load (std::memory_order_relaxed),
+            h.loopEnd.load (std::memory_order_relaxed), h.loopBpm.load (std::memory_order_relaxed) };
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (h.seq.load (std::memory_order_relaxed) != seq || ! context.sameRange (block.loop)) return false;
+        if (start < anchorClock)
+            return (flags & 1u) != 0 && start >= runStart && block.project == runProject + start - runStart;
+        return loopPositionMatches (context, project, start - anchorClock, block.loop, block.project, rate);
     }
 
     static Verdict read (const Ring& ring, std::int64_t start, std::int32_t frames,
@@ -207,5 +250,8 @@ private:
     bool havePrevious = false;
     std::int64_t previousProject = 0;
     std::int32_t previousFrames = 0;
+    LoopTimeline timeline;
+    bool haveRun = false;
+    std::uint64_t previousRun = 0;
 };
 }

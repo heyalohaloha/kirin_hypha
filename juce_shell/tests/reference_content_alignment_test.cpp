@@ -164,6 +164,12 @@ void testReferenceContentAlignment (const juce::File& sandbox)
     }
     require (ref::alignReferenceContent (unrelated, source, measured, false, match.sourceStartSample).reason
         == "reference_alignment_content_changed", "three incompatible informative probes detect a changed A source");
+    require (ref::alignReferenceContent (unrelated, source, measured, false).reason
+        == "reference_alignment_no_match",
+        "an informative A with no verified Version match must not report indefinite alignment");
+    require (ref::alignReferenceContent (silence, source, measured, false).reason
+        != "reference_alignment_no_match",
+        "silence cannot establish that the selected Version does not match");
     juce::AudioFormatManager formats; formats.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
     std::vector<float> invalidProbe;

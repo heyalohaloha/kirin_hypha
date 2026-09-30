@@ -43,6 +43,8 @@ namespace hypha::reference_audition
         ReferenceChoice savedChoice() const;
         void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
+        bool captureObservationReady() const noexcept { return aCapture.observationReady(); }
+        bool captureObservationQueueDrained() const noexcept { return aCapture.observationQueueDrained(); }
         VisualBinding visualBinding() const;
         void setCaptureObservation(const juce::String&,std::int64_t);
         void serviceCaptureEvidence(const RuntimeACaptureAudio&,const RuntimeSource&,const RuntimeContentAlignment&);

@@ -62,7 +62,17 @@ namespace hypha::reference_audition
         void setObservationGrid(bool enabled,std::int64_t anchor)
         {
             if(gridEnabled==enabled && gridAnchor==anchor) return;
+            observationArmed.store (false, std::memory_order_release);
             gridEnabled=enabled; gridAnchor=anchor; resetAccumulator(true);
+        }
+        bool observationReady() const noexcept
+        {
+            return observationArmed.load (std::memory_order_acquire);
+        }
+        bool observationQueueDrained() const noexcept
+        {
+            return writeSlot.load (std::memory_order_acquire)
+                == readSlot.load (std::memory_order_acquire);
         }
 
         const std::optional<RuntimeACaptureReceipt>& currentReceipt() const noexcept
@@ -103,6 +113,7 @@ namespace hypha::reference_audition
         std::vector<float> queueSamples;
         std::vector<float> capturedSamples;
         std::atomic<bool> captureEnabled { false };
+        std::atomic<bool> observationArmed { false };
         bool gridEnabled=false; std::int64_t gridAnchor=0;
         bool localObservation = false;
         std::atomic<unsigned int> writeSlot { 0 };

@@ -6,7 +6,10 @@ const CORRESPONDENCE_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareCorrespondence.h");
 const CLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareClock.h");
 const SESSION_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareSession.h");
-const PROCESSOR_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorLiveCompare.cpp");
+const PROCESSOR_CPP: &str = concat!(
+    include_str!("../../juce_shell/src/PluginProcessorLiveCompare.cpp"),
+    include_str!("../../juce_shell/src/PluginProcessorLiveCompareRealtime.cpp")
+);
 const AUDITION_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
 const EDITOR_LIFECYCLE_CPP: &str = include_str!("../../juce_shell/src/PluginEditorLifecycle.cpp");
 const EDITOR_LOCAL_BLIND_CPP: &str =
@@ -19,6 +22,9 @@ const PROCESSOR_PIN_CPP: &str =
 const PIN_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveComparePin.cpp");
 const EDITOR_AUTO_CPP: &str = include_str!("../../juce_shell/src/PluginEditorLiveCompareAuto.cpp");
 const MATCH_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareMatch.cpp");
+
+#[path = "rt_safety_live_blind_tests.rs"]
+mod live_blind_tests;
 
 // The body of the first function whose definition starts with signature (brace matched).
 fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -55,6 +61,10 @@ fn live_compare_audio_thread_code_avoids_blocking_work() {
         ("LiveCompareCorrespondence.h", CORRESPONDENCE_H),
         ("LiveCompareClock.h", CLOCK_H),
         (
+            "LiveCompareLoop.h",
+            include_str!("../../juce_shell/src/live_compare/LiveCompareLoop.h"),
+        ),
+        (
             "PluginProcessorLiveCompare.cpp processLiveCompare",
             function_body(
                 PROCESSOR_CPP,
@@ -82,7 +92,8 @@ fn live_compare_audio_thread_code_avoids_blocking_work() {
             "fopen",
             "printf",
             "sleep",
-            "wait",
+            "wait(",
+            "wait (",
             "juce::",
         ] {
             assert!(
@@ -108,7 +119,9 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
     }
     for required in [
         "if (! ring.matches (pairKey, sampleRate))",
-        "if (block.afterGap)",
+        "timeline.observe (block, sampleRate,",
+        "if (decision.timelineChanged)",
+        "! block.loop.active",
         "profile.invalidateOnDisagreement",
         "if (start < runStart)",
         "return Verdict::torn;",
@@ -239,9 +252,9 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
     assert!(rt.contains("if (report.guardTripped)"));
     let apply = function_body(
         PROCESSOR_CPP,
-        "bool KirinHyphaProcessorBase::applyLiveCompareMatch",
+        "hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch",
     );
-    assert!(apply.contains("plan.needsApproval == (choice == MatchChoice::basis)"));
+    assert!(apply.contains("validateMatchPlan (plan, choice)"));
     assert!(apply.contains("std::min (1.0f, linear (postDb))"));
     let stop = function_body(
         PROCESSOR_CPP,
@@ -252,7 +265,7 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
         "ending a session must not release the held attenuation"
     );
     let render = function_body(SESSION_H, "RenderReport render (");
-    assert!(render.contains("! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear)"));
+    assert!(render.contains("guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear)"));
     assert!(render.contains("report.guardTripped = true;"));
     let blind = function_body(
         EDITOR_LOCAL_BLIND_CPP,
@@ -285,7 +298,7 @@ fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() 
         "void KirinHyphaEditor::monitorLiveCompareOffset",
     );
     assert!(monitor.contains("if (step.jumped)"));
-    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump();"));
+    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump (step.lagFrames);"));
     assert_eq!(
         EDITOR_LIVE_COMPARE_CPP
             .matches("holdLiveCompareForContentJump")
@@ -343,7 +356,8 @@ fn live_compare_auto_follows_pre_only_within_the_approved_point() {
         PROCESSOR_CPP,
         "bool KirinHyphaProcessorBase::followLiveCompareGain",
     );
-    assert!(gain.contains("setLiveCompareGain ("));
+    assert!(gain.contains("liveCompare.gain.store ("));
+    assert!(gain.contains("liveCompare.gainRevision.fetch_add"));
     assert!(!gain.contains("postTarget") && !gain.contains("ceilingLinear"));
     let step = function_body(MATCH_CPP, "FollowStep followStep (");
     assert!(

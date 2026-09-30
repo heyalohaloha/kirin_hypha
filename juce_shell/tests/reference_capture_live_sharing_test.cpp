@@ -39,6 +39,10 @@ static void captureLiveSharing(const juce::File& sandbox) {
             require(wait([&]{const auto s=controller.snapshot();return s.visualTimeline
                 && s.visualTimeline->observing && s.visualTimeline->pairedObserving;}),
                 "LIVE comparison is observing before the synthetic host runs");
+        else if (access->snapshot().held)
+            require (wait ([&] { controller.setPresented (true);
+                return controller.captureObservationReady(); }),
+                "local A observation is armed before the synthetic host starts");
         juce::AudioBuffer<float> input(2,4800);
         for(int at=0;at<fixture.audio.getNumSamples();at+=4800) {
             const auto index = size_t (at / 4800);
@@ -86,7 +90,39 @@ static void captureLiveSharing(const juce::File& sandbox) {
                 require (wait ([&] { const auto state = access->snapshot(); return unitIndex < state.unitPass.size()
                     && state.unitPass[unitIndex] > previousUnitPass; }),
                     "synthetic host waits for each held-capture comparison unit");
-            else juce::Thread::sleep(12);
+            else if (! observationBefore.held)
+                juce::Thread::sleep (12);
+            // The held-A comparison and local A observation have independent workers. Do not
+            // outrun either bounded queue: each exact 100 ms host block must be consumed before
+            // the next block, even when the CI machine is slower than real-time.
+            if (observationBefore.held)
+                require (wait ([&] { return controller.captureObservationQueueDrained(); }),
+                         "synthetic host waits for the local A observation worker");
+            if (! paceLive && observationBefore.held && unitBoundary && unitIndex % 4 == 3)
+            {
+                bool ready = false;
+                for (int attempt = 0; attempt < 4000 && ! ready; ++attempt)
+                {
+                    const auto state = controller.snapshot();
+                    ready = state.versionSelection && state.versionSelection->aCaptureAvailable;
+                    if (! ready) juce::Thread::sleep (5);
+                }
+                if (! ready)
+                {
+                    const auto state = controller.snapshot();
+                    const auto& versionState = state.versionSelection ? *state.versionSelection : state;
+                    std::cerr << "local A observation timeout: version_state="
+                              << static_cast<int> (versionState.state)
+                              << " reason=" << versionState.rejectionCode
+                              << " selected=" << state.selectedVersionId
+                              << " version_candidate=" << versionState.candidateId
+                              << " library=" << versionState.libraryReceived
+                              << " transport=" << versionState.transportPlaying
+                              << " A_capture=" << versionState.aCaptureAvailable
+                              << " held=" << bool (access->snapshot().held) << '\n';
+                }
+                require (ready, "synthetic host waits for the four-second local A observation");
+            }
         }
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();
@@ -100,7 +136,18 @@ static void captureLiveSharing(const juce::File& sandbox) {
     require(controller.savedSettings().captureState==selection.captureState,"configured controller immediately saves pending restoration");
     require(wait([&]{const auto s=access->snapshot();return s.held && s.held->restored;}),"Capture restored independently of B");
     for(int pass=0;pass<8 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
-    require(wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}),"later B gains a receipt only through matching four-unit A evidence");
+    if (! wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}))
+    {
+        const auto runtime = controller.snapshot();
+        const auto b = runtime.versionSelection ? *runtime.versionSelection : runtime;
+        const auto held = access->snapshot();
+        std::cerr << "late B evidence: state=" << static_cast<int> (b.state)
+                  << " reason=" << b.rejectionCode << " selected=" << runtime.selectedVersionId
+                  << " A=" << b.aBindingAvailable << " capture=" << b.aCaptureAvailable
+                  << " alignment=" << b.alignmentPrepared << " units=" << held.unitStatus.size()
+                  << " bindings=" << (held.held ? held.held->bindings.size() : 0u) << '\n';
+        require (false, "later B gains a receipt only through matching four-unit A evidence");
+    }
     const auto bound=access->snapshot().held; const auto proof=bound->bindings.front();
     require(proof.valid() && std::abs(proof.displayGainDb+6.0205999)<0.01,"captured B uses fixed paired-block gain, not whole-song integrated difference");
     require(proof.hostAnchor==proof.sourceAnchor && proof.probeEnd-proof.probeStart==192000,"historical source position error is zero samples");

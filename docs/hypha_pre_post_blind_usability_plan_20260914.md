@@ -1,5 +1,11 @@
 # PRE/POST Blindの使いやすさと比較条件の実装計画
 
+2026-09-29: **主動線の計画としてはsuperseded**。
+利用者が承認した[一回再生のLive Blind計画](planning/hypha_one_pass_live_blind_implementation_plan_20260929.md)を現行の正本とする。
+直接BLINDは連続再生中の匿名切替へ移り、取得＋2回試聴を既定にしない。固定PCMの比較はLISTENのMENU → PIN 4 Sから入るExactとして残す。
+本書の固定pass／hash／復帰に関する条件はExactに限って維持し、未実装の提案を完了扱いしない。
+Live Blindの全サイズ表示、MATCH再利用、上昇量を示すEND、close時の減衰保持は新計画を優先する。
+
 作成日: 2026-09-14。
 改訂: 第2版。初回レビューで確認した7件を反映。
 状態: 実装計画。製品実装、DAW操作、GainMatchとの実機比較、配置、公開は未実施。

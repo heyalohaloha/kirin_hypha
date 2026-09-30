@@ -173,24 +173,45 @@ private:
             case 3:
                 // Two agreeing estimates two seconds apart settle the offset (INV-LC7).
                 if (footer() != "PRE 41.67 ms early") break;
+                {
+                    const auto measured = post->measureLiveCompare();
+                    if (! measured.ok()) break;
+                    const auto plan = hypha::live_compare::planMatch (measured, 0.0);
+                    require (post->applyLiveCompareMatch (plan, hypha::live_compare::MatchChoice::basis),
+                             "named comparison starts with a valid MATCH before the fault");
+                    matchedGain = post->liveCompareStatus().gain;
+                }
                 std::cout << "settled: " << footer() << std::endl;
                 require (! post->liveCompareStatus().contentHeld, "the first settled offset is the baseline");
                 delayFrames.store (3000);
                 ++stage;
                 break;
             case 4:
+            {
                 // The latency changed with the clocks unchanged: POST is held (INV-LC10).
-                heldNoticeSeen = heldNoticeSeen || footer() == "PRE held: latency changed";
-                if (! post->liveCompareStatus().contentHeld || footer() != "PRE 62.50 ms early") break;
-                require (heldNoticeSeen, "the hold is announced");
+                heldNoticeSeen = heldNoticeSeen || footer() == "Timing changed: stop/play DAW (POST)";
+                if (! post->liveCompareStatus().contentHeld || ! heldNoticeSeen) break;
+                if (heldAt == std::chrono::steady_clock::time_point()) heldAt = std::chrono::steady_clock::now();
+                if (std::chrono::steady_clock::now() - heldAt < std::chrono::milliseconds (3500)) break;
+                require (footer() == "Timing changed: stop/play DAW (POST)", "recovery persists beyond the toast timeout");
+                // The exact settled measurement that triggered the hold is retained. Re-reading
+                // a moving RT history here can be undetermined and is not the jump evidence.
+                require (post->liveCompareStatus().contentJumpLagFrames == -3000,
+                         "the 62.50 ms observation remains measured under the recovery notice");
                 std::cout << "held: " << footer() << std::endl;
                 play.store (false);
                 ++stage;
                 break;
+            }
             case 5:
                 // Stopping ends the hold; the session stays for the next run.
                 if (post->liveCompareStatus().contentHeld) break;
+                require (post->liveCompareStatus().contentJumpLagFrames == 0,
+                         "the prior run's jump evidence does not leak into a new run");
                 require (post->liveCompareStatus().active, "the session survives the stop");
+                require (post->liveCompareStatus().matchHeld && ! post->liveCompareStatus().matched
+                    && std::abs (post->liveCompareStatus().gain - matchedGain) <= 0.0f,
+                    "named comparison retains the gain as HELD across stop/play");
                 play.store (true);
                 ++stage;
                 break;
@@ -198,6 +219,9 @@ private:
                 // PRE plays again in the new run.
                 if (! post->liveCompareStatus().preSelected && ! click ("observatory-live-pre")) break;
                 if (! post->liveCompareStatus().preAudible) break;
+                // At 600 px the sentence cannot fit beside the safety controls. At 900 px the
+                // shorter English wording can fit in the footer and legitimately needs no strip.
+                editor->setSize (600, 400);
                 post->kirinHostDelayCompensationStateChanged (false);
                 ++stage;
                 break;
@@ -206,8 +230,10 @@ private:
                 // INV-LC8: with the host's delay compensation off, POST sounds, PRE waits and the
                 // status line says why; the offset monitor claims no jump.
                 const auto status = post->liveCompareStatus();
-                if (! status.preWaiting || status.preAudible || footer() != "Delay compensation is off in Pro Tools") break;
+                if (! status.preWaiting || status.preAudible || footer() != "Compensation off: enable it (POST)") break;
                 require (! status.contentHeld, "switching compensation off is not a latency jump");
+                require (find (*editor, "feedback-strip")->isVisible(),
+                         "recovery is visible in the full-width strip, not clipped in the footer");
                 std::cout << "compensation off: " << footer() << std::endl;
                 post->kirinHostDelayCompensationStateChanged (true);
                 ++stage;
@@ -218,7 +244,7 @@ private:
                 // Back on: the correspondence is proven again and PRE returns by itself.
                 const auto status = post->liveCompareStatus();
                 if (! status.preAudible || status.preWaiting) break;
-                require (footer() != "Delay compensation is off in Pro Tools", "the reason clears once it is on");
+                require (footer() != "Compensation off: enable it (POST)", "the reason clears once it is on");
                 std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold, "
                              "delay compensation off)\n";
                 passed = true;
@@ -272,9 +298,10 @@ private:
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
     std::atomic<std::int64_t> delayFrames { 2000 };
-    std::chrono::steady_clock::time_point started, requestedAt;
+    std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
+    float matchedGain = 1.0f;
     bool demanded = false, heldNoticeSeen = false;
 };
 }

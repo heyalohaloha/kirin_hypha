@@ -39,7 +39,9 @@ PinnedWindow pinLatest (const Ring& ring, const PostRenderer& renderer, std::int
     // A stretch that restarts after this read starts after the window, which stays in the old one.
     std::vector<float> post (static_cast<std::size_t> (frames) * 2), pre (post.size());
     copyPostHistory (view, start, frames, post);
-    if (renderer.historyWriteEnd() - start > view.frames || ! copyPreRing (ring, start - view.k, frames, pre))
+    if (! renderer.historyStillValid (view, start)
+        || ! copyPreRing (ring, start - view.k, frames, pre, view.preRun)
+        || ! renderer.historyStillValid (view, start))
     {
         pin.failure = PinFailure::overwritten;
         return pin;

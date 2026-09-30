@@ -107,9 +107,17 @@ namespace hypha::reference_audition
         result.transportPlaying = latestPlaying.load (std::memory_order_acquire);
         result.transportPositionValid = latestPositionValid.load (std::memory_order_acquire);
         const bool publishedReady = ready.load (std::memory_order_acquire);
+        const auto mappingBefore = mappingGeneration.load (std::memory_order_acquire);
+        const auto sourcePosition = result.transportPositionValid
+            ? mappedSourcePosition (latestHostPosition.load (std::memory_order_acquire)) : -1;
+        const auto mappingAfter = mappingGeneration.load (std::memory_order_acquire);
+        result.auditionOutsideCue = publishedReady && ! versionComparison
+            && result.transportPositionValid && sourcePosition < 0
+            && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter
+            && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
         result.auditionBuffered = publishedReady && (blindState.eligible
             || (result.transportPositionValid
-                && pages.readyAt (mappedSourcePosition (latestHostPosition.load()), 1)));
+                && pages.readyAt (sourcePosition, 1)));
         result.blindEligible = publishedReady && blindState.eligible;
         if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;

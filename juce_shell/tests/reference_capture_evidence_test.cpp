@@ -26,9 +26,15 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
     require(access && access->request(ref::ACaptureAccess::start),"Capture A begins without selected B");
     const auto wait=[](const auto& test){ for(int i=0;i<800;++i){ if(test())return true;juce::Thread::sleep(5); }return false; };
     require(wait([&]{return access->active.load();}),"Capture A admitted");
+    bool observedVersionReceipt=false;
     const auto feed=[&](float gain) {
         juce::AudioBuffer<float> input(2,4800);
         for(int at=0;at<fixture.audio.getNumSamples();at+=4800) {
+            const auto unitIndex=size_t(at/48000);
+            const bool unitBoundary=((at+4800)%48000)==0;
+            const auto before=access->snapshot();
+            const auto previousPass=unitBoundary && unitIndex<before.unitPass.size()
+                ? before.unitPass[unitIndex] : 0;
             for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,at,4800); input.applyGain(gain);
             const auto processedBefore=access->framesProcessed.load(std::memory_order_acquire);
             controller.observeTransport(at,true,true); controller.observeAInput(input,at,true,true,true,1);
@@ -37,7 +43,12 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
                 require(wait([&]{return !access->active.load(std::memory_order_acquire)
                     || access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;}),
                     "synthetic host waits for finite Capture A worker capacity");
+            else if(unitBoundary && before.held)
+                require(wait([&]{const auto s=access->snapshot();return unitIndex<s.unitPass.size()
+                    && s.unitPass[unitIndex]>previousPass;}),
+                    "synthetic host waits for each held-capture comparison unit");
             else juce::Thread::sleep(12);
+            if(unitBoundary) { const auto s=controller.snapshot(); observedVersionReceipt |= s.versionSelection && s.versionSelection->aCaptureAvailable; }
         }
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();
@@ -49,8 +60,24 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
     controller.restoreSettings(selection);
     require(controller.savedSettings().captureState==selection.captureState,"configured controller immediately saves pending restoration");
     require(wait([&]{const auto s=access->snapshot();return s.held && s.held->restored;}),"Capture restored independently of B");
-    for(int pass=0;pass<8 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
-    require(wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}),"later B gains a receipt only through matching four-unit A evidence");
+    // The source worker may start observing after the first synthetic four-second window. Keep
+    // advancing the host clock instead of waiting at that boundary for audio not yet supplied.
+    for(int pass=0;pass<12 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
+    if (! wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}))
+    {
+        const auto runtime = controller.snapshot();
+        const auto b = runtime.versionSelection ? *runtime.versionSelection : runtime;
+        const auto held = access->snapshot();
+        std::cerr << "late B evidence: state=" << static_cast<int> (b.state)
+                  << " reason=" << b.rejectionCode << " selected=" << runtime.selectedVersionId
+                  << " A=" << b.aBindingAvailable << " capture=" << b.aCaptureAvailable
+                  << " alignment=" << b.alignmentPrepared << " units=" << held.unitStatus.size()
+                  << " exact=" << std::count (held.unitStatus.begin(), held.unitStatus.end(), std::uint8_t (1))
+                  << " timing=" << held.timingVerified
+                  << " everA=" << observedVersionReceipt
+                  << " bindings=" << (held.held ? held.held->bindings.size() : 0u) << '\n';
+        require (false, "later B gains a receipt only through matching four-unit A evidence");
+    }
     const auto bound=access->snapshot().held; const auto proof=bound->bindings.front();
     require(proof.valid() && std::abs(proof.displayGainDb+6.0205999)<0.01,"captured B uses fixed paired-block gain, not whole-song integrated difference");
     require(proof.hostAnchor==proof.sourceAnchor && proof.probeEnd-proof.probeStart==192000,"historical source position error is zero samples");

@@ -1,5 +1,11 @@
 # Hypha 連続PRE/POST比較とBlindをつなぐ実装計画 第14版
 
+2026-09-29の追補: 主Blind動線と終了は[一回再生のLive Blind計画](hypha_one_pass_live_blind_implementation_plan_20260929.md)を優先する。
+直接BLINDとLISTEN → MATCH → BLINDを同じprocessor状態へ接続し、有効な固定MATCHを再利用する。
+Live Blindは現在の300×200〜900×600で使い、4秒固定や拡大を要求しない。本書の固定PCM／900×600のBlind契約は任意のExact 4 Sに限定する。
+LISTEN／Live BlindのENDは、事前に戻り量を示して通常POST unityまで戻す。close／hideは減衰保持、回答／Revealは試聴継続であり、END後に以前のMATCHへ戻さない。
+追加受入は新計画のLB1〜LB18。旧commitのhost結果を新フローへ流用せず、[ローカル検証記録](hypha_one_pass_live_blind_validation_20260929.md)に未実施gateを残す。
+
 作成日: 2026-09-27。
 改訂: 第14版（2026-09-28）。厳しめの見直し（[精査記録](hypha_live_chain_compare_review_20260927.md)第0節）の指摘と、AAXについての利用者の指示（重要な対象とする、出来る限り完璧に近く他のプラグインより高い精度を保つ）を反映し、Pro Tools（AAX）の実測（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第9節）を加えた。
 第13版（同日、1096行、SHA-256 `454762c1e1bf39f81ea3cf1f2e7d61b5119c5070508e4c9d1d92d96a7213c78e`）は、G1Rで利用者が決めた4件を記録した版である。

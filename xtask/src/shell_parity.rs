@@ -420,10 +420,9 @@ mod tests {
             .contains("void KirinHyphaProcessorBase::refreshLicenseForUserAction()"));
         assert!(PLUGIN_PROCESSOR_CPP.contains("refreshLicenseForUserAction();"));
         assert!(!PLUGIN_PROCESSOR_CPP.contains("licenseRefreshTicks"));
-        let timer = between(
+        let timer = cpp_body(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::timerCallback()",
-            "void KirinHyphaProcessorBase::enableWritesNow()",
         );
         assert!(!timer.contains("kirin_hypha_load_license"));
         assert!(PLUGIN_PROCESSOR_CPP

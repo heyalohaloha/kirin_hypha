@@ -13,7 +13,9 @@ enum class MatchFailure : std::uint8_t
     tooShort,        // less than minimumSeconds of contiguous, proven history
     overwritten,     // PRE or POST moved past the window while it was copied
     notEnoughSignal, // neither gain policy found enough paired active signal
-    outOfRange       // the difference is beyond maximumMatchDb
+    outOfRange,      // the final gain (including held POST) is beyond maximumMatchDb
+    stale,           // remeasure on the current session; never reuse an old approval
+    invalidPlan      // malformed plan; no gain is applied
 };
 
 // A MATCH never moves either side by more than this (the TRACK/STEM gate of Local Blind).
@@ -29,6 +31,10 @@ struct MatchResult
     double ceilingDbtp = 0.0;
     std::uint64_t analysisUnits = 0;
     double seconds = 0.0;
+    std::uint64_t generation = 0;
+    bool generationBound = false; // processor-measured plans must stay on the same continuous session
+    std::uint64_t proof = 0, preRun = 0;
+    bool proofBound = false;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
 
@@ -39,18 +45,30 @@ struct MatchResult
 // clamped without that choice, and a MATCH never raises POST.
 struct MatchPlan
 {
+    MatchFailure failure = MatchFailure::none;
     double preGainDb = 0.0, postGainDb = 0.0; // POST basis, when no choice is needed
     bool needsApproval = false;
     double neededPreGainDb = 0.0;             // what PRE would need on the POST basis
     double lowerPostGainDb = 0.0;             // approved: PRE at 0 dB, POST at this
     double limitedPreGainDb = 0.0;            // declined: PRE at this, POST held
     double ceilingDbtp = 0.0;
+    std::uint64_t generation = 0;
+    bool generationBound = false;
+    std::uint64_t proof = 0, preRun = 0;
+    bool proofBound = false;
 };
 
 MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;
 
 // What the user chose for a plan that needs approval; `basis` for a plan that does not.
 enum class MatchChoice : std::uint8_t { basis, lowerPost, limitPre };
+
+MatchFailure validateMatchPlan (const MatchPlan&, MatchChoice) noexcept;
+struct MatchApplication
+{
+    MatchFailure failure = MatchFailure::none;
+    operator bool() const noexcept { return failure == MatchFailure::none; }
+};
 
 // INV-LC16, AUTO after an explicit MATCH. The plan's experimental values (6.2) until listening
 // decides them: a step a second, 0.5 dB of tolerance, at most 6 dB from the MATCH.

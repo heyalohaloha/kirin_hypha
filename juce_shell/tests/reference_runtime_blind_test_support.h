@@ -221,7 +221,7 @@ namespace
                  "Blind stimulus 1 must render from frozen PCM at the DAW content sample");
         require (blind.snapshot().phase == ref::BlindPhase::active,
                  "only the first real audio callback may advance Blind from starting to active");
-        require (! blind.reveal(), "Blind reveal must require an explicit answer");
+        require (! blind.reveal(), "Blind reveal requires both sources to be heard");
         require (blind.requestStimulus (2), "Blind stimulus 2 must be selectable");
         output.clear();
         require (blind.render (output, a->startSample + 256, true),
@@ -267,6 +267,20 @@ namespace
                  && state.assignmentCommitmentSha256.isEmpty()
                  && state.revealedNonceHex.isEmpty(),
                  "ending Blind must return to live A without retaining a public assignment");
+
+        require (blind.startSession (false, 78, 42), "an answer-free trial can start explicitly");
+        output.clear();
+        require (blind.render (output, a->startSample, true)
+                 && ! blind.reveal(), "one heard source cannot be revealed");
+        require (blind.requestStimulus (2), "second source can be selected without answering");
+        output.clear();
+        require (blind.render (output, a->startSample + 256, true)
+                 && blind.reveal(), "both heard sources can be revealed in one click");
+        state = blind.snapshot();
+        require (state.phase == ref::BlindPhase::revealed && state.answeredStimulus == 0
+                 && state.revealedNonceHex.length() == 64,
+                 "answer-free reveal discloses the assignment without inventing a preference");
+        completeBlindNormalReturn (blind, output);
 
         std::atomic<bool> identityReadStop { false };
         std::atomic<bool> mixedIdentityObserved { false };

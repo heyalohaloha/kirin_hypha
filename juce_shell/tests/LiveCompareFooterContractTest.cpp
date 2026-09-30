@@ -3,6 +3,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -43,12 +44,74 @@ std::vector<juce::Rectangle<int>> boundsOf (const std::vector<juce::Component*>&
         bounds.push_back (component->isVisible() ? component->getBounds() : juce::Rectangle<int>());
     return bounds;
 }
+
+void recoveryPreview (observatory::View& view, const juce::String& name)
+{
+    const auto dir = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    if (dir.isEmpty()) return;
+    auto stream = juce::File (dir).getChildFile (name + ".png").createOutputStream();
+    require (stream != nullptr && juce::PNGImageFormat().writeImageToStream (
+        view.createComponentSnapshot (view.getLocalBounds()), *stream), "recovery preview renders");
+}
 }
 
 void verifyLiveCompareFooterContract()
 {
     observatory::View post (observatory::Role::post);
     observatory::View pre (observatory::Role::pre);
+    bool recoveryFits = true;
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (auto preset : observatory::sizePresets)
+        {
+            post.setSize (preset.width, preset.height);
+            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopWaiting); ++code)
+                for (int phase = 0; phase < 4; ++phase)
+                {
+                    live_compare::Status recovery;
+                    recovery.reason = static_cast<live_compare::RecoveryReason> (code);
+                    recovery.observation = recovery.reason;
+                    recovery.active = phase < 2;
+                    if (phase == 3) recovery.postTarget = recovery.postActual = 0.5f;
+                    recovery.preSelected = recovery.preWaiting = phase == 0;
+                    recovery.matched = recovery.reason == live_compare::RecoveryReason::loopWaiting;
+                    recovery.interrupted = phase == 1;
+                    recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
+                    recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
+                    const auto* notice = live_compare_ui::namedRecovery (recovery);
+                    observatory::LiveCompareFooter footer;
+                    footer.active = recovery.active;
+                    footer.preSelected = recovery.preSelected;
+                    footer.preWaiting = recovery.preWaiting;
+                    footer.matched = recovery.matched;
+                    footer.entryEnabled = true;
+                    footer.postHeldTenthsDb = phase == 3 ? -60 : 0;
+                    post.setLiveCompareFooter (footer);
+                    post.setFeedback (notice);
+                    if (phase == 0 && (recovery.reason == live_compare::RecoveryReason::loopWaiting
+                        || recovery.reason == live_compare::RecoveryReason::loopUnproven))
+                        recoveryPreview (post, "loop-" + juce::String (code) + "-"
+                            + juce::String (static_cast<int> (language)) + "-" + juce::String (preset.width));
+                    if (juce::String (notice).contains ("RETURN"))
+                        require (post.findChildWithID ("observatory-live-return")->isVisible(), "recovery RETURN exists");
+                    if (! recovery.active)
+                        require (! juce::String (notice).contains ("END"), "inactive recovery never points to missing END");
+                    const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
+                        ? typography::TextRole::status : typography::TextRole::action);
+                    if (text_style::shownWidth (font, notice) > post.statusStripBounds().getWidth() - 12)
+                    {
+                        std::cerr << preset.width << " recovery width=" << text_style::shownWidth (font, notice)
+                            << " available=" << post.statusStripBounds().getWidth() - 12 << ": "
+                            << text_style::shownText (notice) << '\n';
+                        recoveryFits = false;
+                    }
+                }
+        }
+    }
+    require (recoveryFits, "persistent recovery reads whole in both languages at every size");
+    post.setFeedback ({});
+    post.setLiveCompareFooter ({});
     auto* entry = control (post, "observatory-live-compare");
     auto* preEntry = control (pre, "observatory-live-compare");
     auto* preButton = control (post, "observatory-live-pre");
@@ -178,6 +241,34 @@ void verifyLiveCompareFooterContract()
     }
     state.matchLimited = false;
 
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const auto preset : observatory::sizePresets)
+        {
+            post.setSize (preset.width, preset.height);
+            state.matchHeld = true;
+            post.setLiveCompareFooter (state);
+            require (! match->isVisible() || (readable (post, *match)
+                && match->getButtonText() == "HELD"), "retained MATCH says HELD in both languages");
+            live_compare::Status heldMatch;
+            heldMatch.active = heldMatch.matchHeld = true;
+            const auto* notice = live_compare_ui::namedRecovery (heldMatch);
+            post.setFeedback (notice);
+            recoveryPreview (post, "held-" + juce::String (static_cast<int> (language))
+                + "-" + juce::String (preset.width));
+            const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
+                ? typography::TextRole::status : typography::TextRole::action);
+            if (text_style::shownWidth (font, notice) > post.statusStripBounds().getWidth() - 12)
+                std::cerr << preset.width << " HELD width=" << text_style::shownWidth (font, notice)
+                    << " available=" << post.statusStripBounds().getWidth() - 12 << '\n';
+            require (text_style::shownWidth (font, notice) <= post.statusStripBounds().getWidth() - 12,
+                     "held MATCH recovery reads whole at every size");
+        }
+    }
+    state.matchHeld = false;
+    post.setFeedback ({});
+
     // INV-LC16: while PRE follows POST the MATCH slot reads AUTO, in the same place.
     for (const auto preset : { observatory::sizePresets[3], observatory::sizePresets[4] })
     {
@@ -230,34 +321,22 @@ void verifyLiveCompareFooterContract()
     state = plain;
     post.setLiveCompareFooter (state);
 
-    // INV-LC15: PIN sits between MATCH and END at 200% and 300% where Blind exists, and never
-    // where it does not.
-    auto* pinButton = control (post, "observatory-live-pin");
-    int pinned = 0;
-    post.onLiveComparePin = [&] { ++pinned; };
-    state.pinAvailable = true;
+    // A settled MATCH exposes the primary BLIND; PIN remains available through MENU.
+    state.blindAvailable = true;
     post.setLiveCompareFooter (state);
     for (const auto preset : observatory::sizePresets)
     {
         post.setSize (preset.width, preset.height);
-        require (pinButton->isVisible() == (preset.width >= 600), "PIN shows at the large sizes");
-        if (! pinButton->isVisible())
-            continue;
-        require (readable (post, *pinButton) && post.getLocalBounds().contains (pinButton->getBounds()),
-                 "PIN reads whole");
-        for (auto* other : std::vector<juce::Component*> { preButton, postButton, match, end, menu })
-            require (! other->isVisible() || ! other->getBounds().intersects (pinButton->getBounds()),
-                     "PIN overlaps no other control");
-        require (match->getX() < pinButton->getX() && pinButton->getX() < end->getX(),
-                 "PIN sits between MATCH and END");
+        require (menu->isVisible(), "small layouts never lose the menu");
+        if (blind->isVisible())
+            require (blind->isEnabled() && readable (post, *blind), "matched Blind is reachable and readable");
+        if (preset.width >= 600) require (blind->isVisible(), "large MATCH footer exposes BLIND");
     }
-    pinButton->onClick();
-    require (pinned == 1, "PIN reaches the editor");
-    state.pinAvailable = false;
+    state.blindAvailable = false;
     post.setLiveCompareFooter (state);
-    require (! pinButton->isVisible(), "without Blind in this host there is no PIN");
+    require (! blind->isVisible(), "an unsettled or limited MATCH never exposes direct BLIND");
 
-    // An approved POST attenuation is named on POST during a session; after END it is held, and
+    // An approved POST attenuation is named on POST during a session; after window close it is held, and
     // RETURN names how much POST rises, at every size, while Blind waits for it (INV-LC14).
     auto* returnButton = control (post, "observatory-live-return");
     int returned = 0;
@@ -269,6 +348,13 @@ void verifyLiveCompareFooterContract()
     require (postButton->getButtonText() == "POST -7.0 dB" && readable (post, *postButton) && ! returnButton->isVisible(),
              "a session names the approved POST attenuation");
     const auto held = state;
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (end->isVisible() && end->getButtonText() == "END +7.0 dB" && readable (post, *end),
+                 "END announces the rise visibly at every size, never only in a tooltip");
+        require (menu->isVisible() && ! menu->getBounds().intersects (end->getBounds()), "MENU remains reachable");
+    }
     state = {};
     state.entryEnabled = true;
     state.postHeldTenthsDb = -70;
@@ -277,6 +363,7 @@ void verifyLiveCompareFooterContract()
     {
         post.setSize (preset.width, preset.height);
         require (returnButton->isVisible() && readable (post, *returnButton)
+                     && returnButton->getButtonText() == "RETURN +7.0 dB"
                      && post.getLocalBounds().contains (returnButton->getBounds()),
                  "RETURN stays reachable and reads whole at every size");
         require (! blind->isVisible() && ! postButton->isVisible(), "Blind waits for RETURN; no session controls");
@@ -290,6 +377,31 @@ void verifyLiveCompareFooterContract()
     state.postHeldTenthsDb = 0;
     post.setLiveCompareFooter (state);
     require (! returnButton->isVisible(), "without a held attenuation there is no RETURN");
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        i18n::ScopedLanguage scoped (language);
+        for (const auto preset : observatory::sizePresets)
+            for (const bool active : { false, true })
+            {
+                auto safety = held;
+                safety.active = active;
+                safety.postHeldTenthsDb = -240;
+                post.setSize (preset.width, preset.height);
+                post.setLiveCompareFooter (safety);
+                auto* action = active ? end : returnButton;
+                require (action->isVisible() && readable (post, *action)
+                    && action->getTitle().contains ("+24.0 dB"), "maximum rise is visible and accessible in both languages");
+                const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+                if (preview.isNotEmpty())
+                {
+                    auto stream = juce::File (preview).getChildFile ("live-return-" + juce::String (static_cast<int> (language))
+                        + "-" + juce::String (active ? 1 : 0) + "-" + juce::String (preset.width) + ".png").createOutputStream();
+                    require (stream != nullptr && juce::PNGImageFormat().writeImageToStream (
+                        post.createComponentSnapshot (post.getLocalBounds()), *stream), "END preview renders");
+                }
+            }
+    }
+    post.setSize (900, 600);
     state = held;
     state.postHeldTenthsDb = 0;
     post.setLiveCompareFooter (state);

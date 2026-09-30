@@ -146,7 +146,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
     tooltip.hideTip();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (localBlindOpen) return;
+    if (localBlindOpen || liveBlindOpen) return;
    #endif
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
@@ -196,6 +196,8 @@ void KirinHyphaEditor::visibilityChanged()
         commitEditorSizeStateIfSettled (true);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
+        if (liveBlindOpen) processorRef.closeLiveBlind();
+        else processorRef.stopLiveCompare();
         // Pro Tools can hide an editor without destroying it when another insert is opened.
         // The editor owns one typed optional-analysis request and releases it at this boundary.
         syncAnalysisDemand();
@@ -223,6 +225,7 @@ void KirinHyphaEditor::refreshObservatory()
         setObservatoryDomain (hypha::observatory::Domain::level);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     syncAnalysisDemand();
+    if (liveBlindOpen) { refreshLiveBlind(); return; }
     if (localBlindOpen)
     {
         const auto now = nowSecs();

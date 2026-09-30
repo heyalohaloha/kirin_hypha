@@ -9,6 +9,15 @@ Status: implemented development baseline; release conformance pending; Kimera is
 SPACE DECAY とローカル PRE/POST Blind は研究中で、以下の既存 FIELD／登録 Reference 契約を置き換えていない。
 承認範囲と 2 枠の Blind 方針は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
+2026-09-29の差分: PRE/POSTの主Blindは[一回再生のLive Blind](planning/hypha_one_pass_live_blind_implementation_plan_20260929.md)へ変更する。
+直接BLINDは固定MATCHを準備し、LISTENで有効なMATCHがあれば再利用する。AUTOは持ち込まない。
+mono／stereoのPOSTで現在サイズの匿名面を開き、AAXはstereoまたは組の唯一のmono instanceに限る。対応時計、exact pair、排他のgateは維持する。
+100%／125%はMENUを入口とし、試聴中は上段2行目を比較操作へ優先してENDとMENUを残す。小サイズでも終了時の上昇量を隠さない。
+Source 1／2の実出力receipt後だけ回答可能。ENDは上昇量の明示→POSTへの退避→通常音量へのramp→実unity確認を一回の要求にまとめる。
+close／hideだけなら減衰保持、回答／Revealだけなら試聴継続。終了後にMATCHへ戻さない。
+固定4秒の厳密比較はLISTENのMENU → PIN 4 Sに残し、Exactの固定PCM／最小900×600契約を維持する。直接CAPTURE入口は主面とMENUから外す。
+以下の登録Referenceの拡大規則は変更しない。本差分の実機format検証と公開適合は未完了である。
+
 Date: 2026-08-31
 
 Branch: `codex/hypha-meter`
@@ -474,8 +483,11 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をmix／master busと連続active区間、
 `TRACK / STEM`をindividual／group busと短い・疎なeventとして説明する選択menuを開く。
-ローカルPRE／POST Blindは取得前の全画面preflightで現在contextとGain Match根拠を再表示し、
-利用者の`CAPTURE 4 S`操作後だけ取得を始める。取得後のtagは開始時に固定したpolicyから表示する。
+PRE／POST Live Blindは現在の再生から固定MATCHを準備し、Capture操作を要求しない。
+復元で失効した試行はSource／回答を閉じ、保持減衰と明示済みENDだけを残す。減衰保持中の新規比較は
+主面とMENUで同じ開始条件を使い、上昇量付きRETURNを先に完了する。同一sessionのMATCH→BLINDは継続できる。
+MATCHの最終gainが±24 dBを超える場合は理由とENDを示し、準備中表示のまま待たせない。
+任意のExact 4 Sでは明示PINで同じ4秒を固定し、準備画面のtagは取得時のpolicyから表示する。
 channel数、名前、routing、levelからcontextを推測または自動変更せず、通常画面の行も増やさない。
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。

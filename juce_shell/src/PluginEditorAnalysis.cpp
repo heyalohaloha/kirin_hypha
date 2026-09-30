@@ -148,7 +148,7 @@ hypha::analysis::Demand KirinHyphaEditor::desiredAnalysisDemand() const noexcept
 
 bool KirinHyphaEditor::analysisSurfaceShowing() const noexcept
 {
-    return isPost && analysisOwnerToken != 0 && isShowing() && ! localBlindOpen
+    return isPost && analysisOwnerToken != 0 && isShowing() && ! localBlindOpen && ! liveBlindOpen
         && ! observatoryView.hybridVuVisible()
         && hypha::analysis_navigation::isAnalysis (analysisPage);
 }

@@ -124,7 +124,7 @@ public:
     bool selectReferenceCandidate (const juce::String&);
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
-    bool approveReferenceSampleRateConversion();
+    bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
     bool startLatestReferenceReview();
     bool startLatestReferenceBookmark();
@@ -153,27 +153,7 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
-    // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
-    hypha::live_compare::StartResult startLiveCompare();
-    void stopLiveCompare();
-    void selectLiveComparePre (bool pre) noexcept;
-    void setLiveCompareGain (float linear) noexcept;
-    hypha::live_compare::MatchResult measureLiveCompare();
-    bool applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
-    bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
-    void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
-    void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC9, AAX only
-    void returnLiveComparePostToNormal() noexcept;
-    bool takeLiveCompareGuardTrip() noexcept;
-    hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
-    void holdLiveCompareForContentJump() noexcept;
-    std::uint32_t liveComparePlaybackRun() const noexcept;
-    hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
-    hypha::live_compare::Status liveCompareStatus() const noexcept;
-    bool liveCompareSupported() const noexcept;
-    bool aaxMultiMonoMember() const noexcept;
-    bool takeLiveComparePreWait() noexcept;
-    bool serviceLiveCompare();
+    #include "live_compare/LiveCompareProcessorApi.h"
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;

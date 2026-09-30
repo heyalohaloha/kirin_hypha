@@ -66,6 +66,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     initialHeight = allowedInitial.height;
     editorSizePersistenceReady = true;
     setSize (initialWidth, initialHeight);
+    observatoryView.onBodyLayoutChanged = [this] { layoutBodyAndFeedback(); };
     observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
     observatoryView.setManualHybridVuVisible (processorRef.manualHybridVuSelection());
     observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain) {
@@ -195,6 +196,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         configureReferenceAudition();
         configureLocalBlindProduct();
         configureLiveCompare();
+        configureLiveBlind();
        #endif
     }
     else
@@ -301,17 +303,11 @@ void KirinHyphaEditor::resized()
         spectrumToggle.setVisible (false);
         spectrumSizeToggle.setVisible (false);
         updateTimePageNavigation();
-        auto analysisBody = observatoryView.analysisBodyBounds();
-        timePageNavigation.setBounds (observatoryView.timeNavigationBounds());
-        spectrumView.setBounds (analysisBody);
-        perceptualView.setBounds (analysisBody);
-        absoluteView.setBounds (analysisBody);
-        attackView.setBounds (analysisBody);
-        layoutReferenceAudition (analysisBody);
+        layoutReferenceAudition();
         timePageNavigation.toFront (false);
     }
    #endif
-    layoutFeedbackStrip();
+    layoutBodyAndFeedback();
     feedbackStrip.toFront (false);
     if (observatoryView.hybridVuVisible()) observatoryView.toFront (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -388,17 +384,42 @@ void KirinHyphaEditor::updateFeedback (
     observatoryView.setFeedback (text);
     // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows.
     feedbackStrip.setFeedback (text.isNotEmpty() ? text : observatoryView.footerStatus());
-    layoutFeedbackStrip();
+    layoutBodyAndFeedback();
 }
 
-void KirinHyphaEditor::layoutFeedbackStrip()
+void KirinHyphaEditor::layoutBodyAndFeedback()
 {
+    // One parent-owned geometry boundary, also called when feedback changes the shell without
+    // changing editor size. Component::setBounds is a no-op for equal rectangles; never call
+    // parent resized() from the shell callback (it would persist size and re-enter the shell).
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost)
+    {
+        const auto body = observatoryView.analysisBodyBounds();
+        timePageNavigation.setBounds (observatoryView.timeNavigationBounds());
+        for (auto* pane : std::array<juce::Component*, 6> { &spectrumView, &perceptualView,
+                                                         &absoluteView, &attackView, &referenceView, &referenceAccessView })
+            if (pane->getBounds() != body) pane->setBounds (body);
+    }
+   #endif
     bool shown = observatoryView.statusStripFolded() && feedbackStrip.text().isNotEmpty();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    shown = shown && ! localBlindOpen;
+    shown = shown && ! localBlindOpen && ! liveBlindOpen;
    #endif
     feedbackStrip.setBounds (observatoryView.statusStripBounds());
-    if (shown && ! feedbackStrip.isVisible())
-        feedbackStrip.toFront (false);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (captureStatus.getBounds() != observatoryView.statusStripBounds())
+        captureStatus.setBounds (observatoryView.statusStripBounds());
+   #endif
     feedbackStrip.setVisible (shown);
+    // Only repair ordering when another visible body actually overtook the strip. Do not disturb
+    // Blind/VU ownership or raise the Reference body on every presentation tick.
+    if (shown)
+    {
+        const int index = scaleRoot.getIndexOfChildComponent (&feedbackStrip);
+        for (int i = index + 1; i < scaleRoot.getNumChildComponents(); ++i)
+            if (auto* child = scaleRoot.getChildComponent (i); child->isVisible()
+                && child->getBounds().intersects (feedbackStrip.getBounds()))
+            { feedbackStrip.toFront (false); break; }
+    }
 }

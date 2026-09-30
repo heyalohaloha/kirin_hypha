@@ -116,7 +116,7 @@ void KirinHyphaEditor::openLocalBlindProduct()
     localBlindOpen = true;
     localBlindView.clearActionNotice();
     refreshLocalBlindProduct();
-    localBlindView.grabKeyboardFocus();
+    if (localBlindView.isShowing()) localBlindView.grabKeyboardFocus();
 }
 
 void KirinHyphaEditor::beginLocalBlindProductCapture()
@@ -145,7 +145,7 @@ void KirinHyphaEditor::closeLocalBlindProduct()
     localBlindPreflight = false;
     localBlindOpen = false;
     localBlindView.setVisible (false);
-    setLocalBlindIsolation (false);
+    setLocalBlindIsolation (liveBlindOpen);
     setResizable (true, false);
     if (! localBlindReturnSize.isOrigin())
     {
@@ -166,7 +166,7 @@ void KirinHyphaEditor::refreshLocalBlindProduct()
         localBlindPreflight = false;
         localBlindOpen = false;
         localBlindView.setVisible (false);
-        setLocalBlindIsolation (false);
+        setLocalBlindIsolation (liveBlindOpen);
         setResizable (true, false);
         if (! localBlindReturnSize.isOrigin())
         {
@@ -212,7 +212,10 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
     setResizable (! localBlindOpen && ! referenceBlind, false);
     localBlindView.setBounds (scaleRoot.getLocalBounds());
     localBlindView.setVisible (localBlindOpen);
-    setLocalBlindIsolation (localBlindOpen);
+    liveBlindView.setBounds (scaleRoot.getLocalBounds());
+    liveBlindView.setVisible (liveBlindOpen);
+    setLocalBlindIsolation (localBlindOpen || liveBlindOpen);
+    if (liveBlindOpen) liveBlindView.toFront (true);
     syncAnalysisDemand();
     if (localBlindOpen)
     {
@@ -226,15 +229,21 @@ void KirinHyphaEditor::setLocalBlindIsolation (bool active)
     if (active && localBlindUnderlyingStates.empty())
     {
         tooltip.hideTip();
+        const auto conceal = [this] (auto&& self, juce::Component* component, bool root) -> void
+        {
+            localBlindUnderlyingStates.push_back (
+                { component, component->isAccessible(), component->isEnabled(), root });
+            component->setAccessible (false);
+            for (int index = 0; index < component->getNumChildComponents(); ++index)
+                self (self, component->getChildComponent (index), false);
+            if (root) component->setEnabled (false);
+        };
         for (int index = 0; index < scaleRoot.getNumChildComponents(); ++index)
         {
             auto* component = scaleRoot.getChildComponent (index);
-            if (component == &localBlindView)
+            if (component == &localBlindView || component == &liveBlindView)
                 continue;
-            localBlindUnderlyingStates.push_back (
-                { component, component->isAccessible(), component->isEnabled() });
-            component->setAccessible (false);
-            component->setEnabled (false);
+            conceal (conceal, component, true);
         }
         return;
     }
@@ -242,7 +251,8 @@ void KirinHyphaEditor::setLocalBlindIsolation (bool active)
     {
         for (const auto& state : localBlindUnderlyingStates)
         {
-            state.component->setEnabled (state.enabled);
+            if (state.component == nullptr) continue;
+            if (state.restoreEnabled) state.component->setEnabled (state.enabled);
             state.component->setAccessible (state.accessible);
         }
         localBlindUnderlyingStates.clear();

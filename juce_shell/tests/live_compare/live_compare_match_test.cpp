@@ -3,10 +3,12 @@
 #include "live_compare_offset_test.h"
 
 #include <cmath>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <vector>
 
 using namespace hypha::live_compare;
@@ -135,6 +137,32 @@ static void aHeldAttenuationCarriesIntoTheNextMatch()
              "a louder PRE is cut, and POST is not raised");
 }
 
+static void validatesFinalGainsBeforeAdmission()
+{
+    MatchResult measured;
+    measured.failure = MatchFailure::none;
+    measured.measuredDb = -6.021;
+    measured.prePeakDbtp = -6.0;
+    measured.ceilingDbtp = -1.0;
+    const auto outside = planMatch (measured, -20.0);
+    require (outside.failure == MatchFailure::outOfRange, "held -20 plus measured -6.021 is not a valid plan");
+    require (validateMatchPlan (outside, MatchChoice::basis) == MatchFailure::outOfRange,
+             "processor and preparation use the same failure reason");
+    measured.measuredDb = -4.0;
+    const auto boundary = planMatch (measured, -20.0);
+    require (boundary.failure == MatchFailure::none && boundary.preGainDb == -24.0,
+             "exact -24 dB remains accepted");
+    auto invalid = boundary;
+    invalid.preGainDb = std::numeric_limits<double>::quiet_NaN();
+    require (validateMatchPlan (invalid, MatchChoice::basis) == MatchFailure::invalidPlan, "NaN fails closed");
+    require (validateMatchPlan (boundary, MatchChoice::lowerPost) == MatchFailure::invalidPlan,
+             "a plan cannot be applied through the wrong approval choice");
+    require (planMatch (measured, std::numeric_limits<double>::quiet_NaN()).failure == MatchFailure::invalidPlan,
+             "NaN held level cannot be normalised to unity");
+    measured.failure = MatchFailure::notEnoughSignal;
+    require (planMatch (measured, 0.0).failure == MatchFailure::notEnoughSignal, "analysis failure survives planning");
+}
+
 // INV-LC7: through the ring and the proven K, a POST that carries PRE 10 ms later than the clocks
 // say (a plug-in between that does not report its latency) shows PRE playing 480 frames early.
 static void theMappingShowsAnUnreportedDelay()
@@ -222,12 +250,42 @@ static void unprovenOrShortWindowsAreRefused()
     require (farResult.failure == MatchFailure::outOfRange, "a difference beyond 24 dB is refused");
 }
 
+static void measurementProofNeverBridgesAnUnverifiedBlock()
+{
+    Pair pair;
+    pair.run (5.0, 1.0f, 0.5f);
+    const auto previous = pair.renderer.historyView();
+    require (previous.kValid, "positive history before fault");
+    std::array<float, frames> pcm {};
+    float* io[] { pcm.data(), pcm.data() };
+    BlockClock bad;
+    bad.frames = frames; bad.clock = bad.project = pair.clock;
+    bad.projectValid = bad.playing = true; // missing continuous clock
+    pair.renderer.render (*pair.ring, key, rate, bad, io, 2, false, 1.0f, pair.level, 1.0f, 1.0f);
+    require (! pair.renderer.historyView().kValid
+        && ! pair.renderer.historyStillValid (previous, previous.end - frames), "missing clock revokes old window proof");
+    require (! computeMatch (*pair.ring, pair.renderer, rate).ok(), "old window cannot measure during clock loss");
+    pair.clock += frames;
+    pair.run (1.0, 1.0f, 0.5f);
+    require (computeMatch (*pair.ring, pair.renderer, rate).failure == MatchFailure::tooShort,
+             "a new proven tail cannot glue to the earlier four seconds");
+    pair.run (4.0, 1.0f, 0.5f);
+    const auto next = computeMatch (*pair.ring, pair.renderer, rate);
+    require (next.ok() && next.proofBound && next.proof != previous.proof,
+             "fresh full window recovers with its own proof");
+    const auto plan = planMatch (next, 0.0);
+    require (plan.proofBound && plan.proof == next.proof && plan.preRun == next.preRun,
+             "approval carries the exact measurement proof");
+}
+
 int main()
 {
     matchesALevelDifference();
     aBoostAboveTheCeilingAsksToLowerPost();
     aHeldAttenuationCarriesIntoTheNextMatch();
+    validatesFinalGainsBeforeAdmission();
     unprovenOrShortWindowsAreRefused();
+    measurementProofNeverBridgesAnUnverifiedBlock();
     theMappingShowsAnUnreportedDelay();
     autoFollowsWithinReachAndStopsAtTheCeiling();
     aJumpNeedsTwoAgreeingEstimates();

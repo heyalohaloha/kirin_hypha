@@ -6,6 +6,9 @@ This document records the SDK-independent Phase A preparation. Later macOS build
 results are recorded separately in `docs/aax_macos_universal_build_20260910.md`; Phase A alone does
 not claim AAX product support.
 
+For a new build/signing session, begin with [the common AAX entry guide](aax_build_signing_entry.md).
+The historical proof below does not replace current-candidate signing or host validation.
+
 ## Build boundary
 
 AAX remains disabled by default. The existing platform formats stay AU + VST3 on macOS and VST3
@@ -46,7 +49,8 @@ their filesystem syntax and SDK installation locations differ.
 The macOS self-hosted leg uses `scripts/build_aax_universal.sh` and builds both Apple architectures
 before linking PRE/POST. It deliberately does not sign in CI. PACE signing stays a release-operator
 step on the Mac holding the physical authorization device. The Windows leg remains host-x64 and
-writes build provenance; a diagnostic build without the licensed App font cannot enter signing.
+writes build provenance; an explicitly diagnostic build cannot enter distribution signing.
+The optional Kimera App font is not a prerequisite for signing or distribution.
 
 ## Remaining external gates
 

@@ -2,13 +2,29 @@
 #include "../../src/live_compare/LiveComparePin.h"
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
+#include "../../src/live_compare/LiveBlindSession.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <new>
 #include <vector>
+
+static thread_local bool inRt = false;
+static unsigned rtAllocations = 0, rtDeletions = 0;
+void* operator new (std::size_t bytes)
+{
+    if (inRt) ++rtAllocations;
+    if (auto* p = std::malloc (bytes == 0 ? 1 : bytes)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[] (std::size_t bytes) { return ::operator new (bytes); }
+void operator delete (void* p) noexcept { if (inRt && p != nullptr) ++rtDeletions; std::free (p); }
+void operator delete[] (void* p) noexcept { ::operator delete (p); }
+void operator delete (void* p, std::size_t) noexcept { ::operator delete (p); }
+void operator delete[] (void* p, std::size_t) noexcept { ::operator delete (p); }
 
 using namespace hypha::live_compare;
 
@@ -46,7 +62,7 @@ struct Pair
     }
 
     RenderReport step (bool demand, bool preSelected, float gain, bool afterGap = false, int channels = 2,
-                       bool poison = false)
+                       bool poison = false, bool blind = false, bool poisonPost = false)
     {
         ring->header.demand.store (demand ? 1u : 0u);
         BlockClock b;
@@ -64,10 +80,13 @@ struct Pair
         if (poison)
             pre[0][5] = std::nanf ("");
         const float* in[] = { pre[0].data(), pre[1].data() };
+        inRt = true;
         feeder.feed (*ring, b, in, 2);
         float* io[] = { post[0].data(), post[1].data() };
+        if (poisonPost) post[0][7] = std::nanf ("");
         const auto report = renderer.render (*ring, key, 48000, b, io, channels, preSelected, gain, level,
-                                             postTarget, ceiling);
+                                             postTarget, ceiling, blind);
+        inRt = false;
         clock += frames;
         return report;
     }
@@ -113,6 +132,7 @@ static void preSoundsOnlyWhenProven()
 
     const auto lost = pair.step (true, true, 1.0f, true);
     require (lost.verdict == Verdict::calibrating && lost.preWaiting && ! lost.preAudible, "a gap invalidates K and switches to POST");
+    require (lost.reason == RecoveryReason::callbackGap, "lost correspondence retains the actual gap reason");
     require (pair.postUntouched(), "losing the proof switches at the block start without unproven PRE");
 }
 
@@ -195,10 +215,12 @@ static void guardKeepsPreUnderTheCeiling()
     const auto tripped = raised.step (true, true, 2.0f);
     require (tripped.guardTripped && ! tripped.preAudible && raised.postUntouched(),
              "a raised PRE over the ceiling is POST from the block start");
+    require (tripped.reason == RecoveryReason::ceiling, "ceiling rejection retains its exact cause");
     Pair poisoned;
     poisoned.calibrate (true, 1.0f);
     const auto nan = poisoned.step (true, true, 1.0f, false, 2, true);
     require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
+    require (nan.reason == RecoveryReason::nonFinite, "invalid audio is not misreported as a level limit");
 }
 
 // A gain that changes while PRE sounds (a new MATCH, AUTO) moves linearly over 50 ms, never in a
@@ -264,9 +286,9 @@ static void pinFixesOneProjectRange()
              "more than the history is too short");
     pair.projectShift = 96000;
     pair.step (true, false, 1.0f);
-    require (pinLatest (*pair.ring, pair.renderer, 4096, 2).failure == PinFailure::notOneRange,
+    require (pinLatest (*pair.ring, pair.renderer, 4096, 2).failure == PinFailure::notProven,
              "a seek inside the window fixes nothing");
-    for (int i = 0; i < 9; ++i) pair.step (true, false, 1.0f);
+    for (int i = 0; i < 17; ++i) pair.step (true, false, 1.0f);
     const auto after = pinLatest (*pair.ring, pair.renderer, 4096, 2);
     require (after.ok() && after.projectStart == pair.clock - 4096 + 96000, "after the seek, a new range");
 }
@@ -275,7 +297,7 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc-", 0) == 0, "the name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc3-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");
@@ -350,6 +372,32 @@ static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
 
 int main()
 {
+    BlindSession trial;
+    NamedSelection selection;
+    for (int i = 0; i < 1000; ++i)
+    {
+        trial.start ((i & 1) != 0); selection.select (true);
+        const auto command = trial.command(); const auto named = selection.command();
+        inRt = true;
+        trial.observe (command, true);
+        trial.invalidate (command, RecoveryReason::callbackGap);
+        selection.fail (named, RecoveryReason::ceiling);
+        inRt = false;
+    }
+    for (const bool choosePre : { false, true })
+    {
+        Pair pair;
+        pair.calibrate (false, 1.0f);
+        auto report = pair.step (true, choosePre, 1.0f, false, 2, false, true);
+        require (report.stableSource && report.gainSettled, "proven Blind source earns an output receipt");
+        report = pair.step (true, choosePre, 1.0f, false, 2, true, true);
+        require (report.guardTripped && ! report.stableSource && pair.postUntouched(),
+                 "invalid PRE ends Blind even when anonymous POST is selected");
+        report = pair.step (true, choosePre, 1.0f, false, 2, false, true, true);
+        require (report.guardTripped && ! report.stableSource, "invalid POST never counts as heard");
+        report = pair.step (true, choosePre, 1.0f, true, 2, false, true);
+        require (! report.stableSource && pair.postUntouched(), "gap fallback never counts as anonymous output");
+    }
     preSoundsOnlyWhenProven();
     userSwitchFadesBothWays();
     approvedGainAppliesToPre();
@@ -361,6 +409,7 @@ int main()
     guardKeepsPreUnderTheCeiling();
     preGainRampsOverFiftyMilliseconds();
     pinFixesOneProjectRange();
-    std::printf ("live compare session: all checks passed\n");
+    require (rtAllocations == 0 && rtDeletions == 0, "PRE feed / POST render never new/delete in named or Blind mode");
+    std::printf ("live compare session: all checks passed; RT new=%u delete=%u\n", rtAllocations, rtDeletions);
     return 0;
 }

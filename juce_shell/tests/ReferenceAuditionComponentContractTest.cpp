@@ -144,7 +144,6 @@ void verifyReferenceAuditionComponentContract()
     bool requestedA = false;
     bool requestedB = false;
     bool requestedBlind = false;
-    int requestedAnswer = 0;
     bool requestedReveal = false;
     bool requestedEnd = false;
     bool requestedAction = false;
@@ -158,9 +157,6 @@ void verifyReferenceAuditionComponentContract()
     component.onStartBlind = [&requestedBlind] { requestedBlind = true; };
     component.onSelectBlindStimulus = [&requestedStimulus] (int value) {
         requestedStimulus = value;
-    };
-    component.onAnswerBlind = [&requestedAnswer] (int value) {
-        requestedAnswer = value;
     };
     component.onRevealBlind = [&requestedReveal] { requestedReveal = true; };
     component.onEndBlind = [&requestedEnd] { requestedEnd = true; };
@@ -189,17 +185,16 @@ void verifyReferenceAuditionComponentContract()
         component.findChildWithID ("reference-blind-1"));
     auto* two = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-2"));
-    auto* answer = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-answer"));
     auto* reveal = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-reveal"));
     auto* endBlind = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-end"));
     KIRIN_REF_REQUIRE (a != nullptr && b != nullptr && b->isEnabled()
                        && startBlind != nullptr && startBlind->isVisible()
-                       && one != nullptr && two != nullptr && answer != nullptr
+                       && one != nullptr && two != nullptr
                        && reveal != nullptr
-                       && endBlind != nullptr);
+                       && endBlind != nullptr
+                       && component.findChildWithID ("reference-blind-answer") == nullptr);
     KIRIN_REF_REQUIRE (startBlind->getButtonText() == "BLIND 300%"
                        && startBlind->getY() > b->getBottom());
     KIRIN_REF_REQUIRE (compactCheck != nullptr && compactCheck->isVisible()
@@ -237,7 +232,7 @@ void verifyReferenceAuditionComponentContract()
     component.setState (startingState);
     KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
                        && ! one->isVisible() && ! two->isVisible()
-                       && ! answer->isVisible() && ! reveal->isVisible()
+                       && ! reveal->isVisible()
                        && endBlind->isVisible());
 
     auto blindState = readyState();
@@ -246,24 +241,19 @@ void verifyReferenceAuditionComponentContract()
     blindState.pendingBlindStimulus = 2;
     component.setState (blindState);
     KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
-                       && one->isVisible() && two->isVisible() && ! answer->isVisible()
-                       && ! reveal->isVisible()
+                       && one->isVisible() && two->isVisible() && reveal->isVisible()
+                       && ! reveal->isEnabled()
                        && endBlind->isVisible() && one->isEnabled() && ! two->isEnabled());
     blindState.pendingBlindStimulus = 0;
     component.setState (blindState);
     one->onClick();
     two->onClick();
-    KIRIN_REF_REQUIRE (! answer->isVisible() && ! reveal->isVisible());
+    KIRIN_REF_REQUIRE (reveal->isVisible() && ! reveal->isEnabled());
     blindState.activeBlindStimulus = 2;
     blindState.blindStimulusOneHeard = true;
     blindState.blindStimulusTwoHeard = true;
     component.setState (blindState);
-    KIRIN_REF_REQUIRE (answer->isVisible() && ! reveal->isVisible());
-    answer->onClick();
-    KIRIN_REF_REQUIRE (requestedAnswer == 2);
-    blindState.answeredBlindStimulus = 2;
-    component.setState (blindState);
-    KIRIN_REF_REQUIRE (answer->isVisible() && reveal->isVisible());
+    KIRIN_REF_REQUIRE (reveal->isVisible() && reveal->isEnabled());
     reveal->onClick();
     endBlind->onClick();
     KIRIN_REF_REQUIRE (requestedStimulus == 2 && requestedReveal && requestedEnd);

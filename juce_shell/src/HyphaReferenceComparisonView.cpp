@@ -58,9 +58,11 @@ ComparisonView::ComparisonView()
     tonal.onClick=[this]{showingTonal=true;repaint();};
 }
 void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTimeline> next,
-    double currentPosition, presentation::Context presentation, bool concealed, std::shared_ptr<reference_audition::VisualPreferences> saved)
+    double currentPosition, presentation::Context presentation, bool concealed,
+    std::shared_ptr<reference_audition::VisualPreferences> saved, juce::String message)
 {
     context = presentation; hidden = concealed; preferences = std::move (saved);
+    emptyMessage = std::move (message);
     if (concealed) { data.reset(); waveformCache = {}; setTitle ({}); return; }
     data = std::move (next); position = currentPosition;
     const bool sameCapture = data && data->capture && data->capture->id == captureId;
@@ -233,7 +235,7 @@ void ComparisonView::paint (juce::Graphics& g)
         ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "B OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
     if (!data || (!data->capture && (!data->binding.overview || !data->binding.overview->waveform)))
-    { text_style::drawEllipsized (g, "Choose Version", getLocalBounds().reduced (20), juce::Justification::centred); return; }
+    { text_style::drawEllipsized (g, emptyMessage, getLocalBounds().reduced (20), juce::Justification::centred); return; }
     if (cacheRevision != data->revision) rebuild();
     if (waveformCache.isValid()) g.drawImageAt (waveformCache, int(waveform.getX()), int(waveform.getY()));
     g.setColour (COL_TEXT_SECONDARY);

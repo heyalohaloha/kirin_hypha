@@ -33,11 +33,6 @@ namespace
         return latchedPreInstanceId;
     }
 
-    juce::String meterContextLabel (hypha::meter_context::MeterContext context)
-    {
-        return context == hypha::meter_context::MeterContext::trackStem
-            ? "TRACK / STEM" : "2MIX";
-    }
 }
 
 KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
@@ -157,11 +152,9 @@ void KirinHyphaEditor::showOperationsMenu()
             menu.addItem (22, "Add NOTE at current position", osOwned);
         if (observatoryDomain != hypha::observatory::Domain::reference)
             menu.addItem (21, "Save measurement image");
-        if (stereoWorkflows && observatoryView.localBlindEntryAvailable()
-            && ! observatoryView.localBlindDirectEntryVisible())
-            menu.addItem (23, (getWidth() < 900 ? juce::String ("PRE / POST Blind / Open at 300% / ")
-                                              : juce::String ("PRE / POST Blind Compare / "))
-                              + meterContextLabel (processorRef.meterContextPreference()));
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        addLiveCompareMenu (menu, keepActive);
+       #endif
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");
@@ -189,6 +182,10 @@ void KirinHyphaEditor::showOperationsMenu()
 
 void KirinHyphaEditor::handleOperationsMenu (int result)
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (liveBlindOpen || localBlindOpen) return;
+    if (handleLiveCompareMenu (result)) return;
+   #endif
     if (handleLanguageMenu (result)) return;
     if (result == 20)
     {
@@ -211,7 +208,6 @@ void KirinHyphaEditor::handleOperationsMenu (int result)
     else
         handleCandidateMenu (result, {});
 }
-
 void KirinHyphaEditor::showMeterContextMenu (juce::Component& anchor)
 {
     const auto current = processorRef.meterContextPreference();

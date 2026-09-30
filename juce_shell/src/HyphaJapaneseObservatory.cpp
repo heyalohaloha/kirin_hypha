@@ -24,8 +24,6 @@ const Entry entries[] = {
     { "Clear True Peak and Clip holds", u8"トゥルーピークとClipの保持を消去" },
     { "Clear held channel True Peak and Clip indicators; keep current values and history",
       u8"チャンネルごとに保持したトゥルーピークとClipの表示を消します。現在値と履歴は残ります" },
-    { "Capture and compare one exact four second PRE and POST range",
-      u8"PREとPOSTの同じ4秒間を取り込んで聴き比べます" },
     { "Switch between PRE and POST of this chain while the song plays. "
       "Keep this window open (pin it in Studio One / Studio Pro, turn off "
       "Target in Pro Tools); closing or replacing it returns to POST",
@@ -56,7 +54,6 @@ const Entry entries[] = {
       u8"押すと、もう一度MATCHするか、PREをPOSTに追従させます（AUTO）" },
     { "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO",
       u8"AUTO：PREがPOSTのラウドネスに0.5 dB以内で追従します（MATCHから最大6 dB）。押すと、もう一度MATCHするかAUTOを止めます" },
-    { "End PRE / POST listening and return to POST", u8"PRE／POSTの試聴を終えてPOSTに戻ります" },
     { "Select LR, MID, or SIDE to view Delta",
       u8"差分を見るには、LR、MID、SIDEのいずれかを選んでください" },
     { "POST minus PRE; select POST to return to absolute values",

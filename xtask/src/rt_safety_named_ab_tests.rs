@@ -4,6 +4,7 @@
 
 const TRIAL_H: &str = include_str!("../../juce_shell/src/local_blind/LocalBlindTrial.h");
 const TRIAL_CPP: &str = include_str!("../../juce_shell/src/local_blind/LocalBlindTrial.cpp");
+const COMMAND_H: &str = include_str!("../../juce_shell/src/local_blind/TrialCommandState.h");
 const COMPONENT_CPP: &str = include_str!("../../juce_shell/src/HyphaLocalBlindComponent.cpp");
 const PRESENTATION_CPP: &str = include_str!("../../juce_shell/src/HyphaLocalBlindPresentation.cpp");
 const STEPS_CPP: &str = include_str!("../../juce_shell/src/HyphaLocalBlindSteps.cpp");
@@ -77,6 +78,29 @@ fn named_ab_counts_nothing_and_blind_after_it_is_a_new_trial() {
     }
     let view = function_body(TRIAL_CPP, "TrialView LocalBlindTrial::view");
     assert!(view.contains("result.canAnswer = ! result.named"));
+}
+
+#[test]
+fn automatic_source_advance_is_bounded_and_cannot_replace_newer_control() {
+    let render = function_body(TRIAL_CPP, "TrialOutput LocalBlindTrial::render");
+    assert!(render.contains("command.advanceRendered (requested, two)"));
+    assert!(!render.contains("issue ("));
+    let advance = function_body(COMMAND_H, "bool advanceRendered");
+    assert!(advance.contains("value.compare_exchange_strong (rendered, next (rendered, kind)"));
+    for forbidden in [
+        "while",
+        "for (",
+        "issue (",
+        ".store (",
+        "std::mutex",
+        "sleep",
+        "new ",
+    ] {
+        assert!(
+            !advance.contains(forbidden),
+            "RT advancement must not contain {forbidden}"
+        );
+    }
 }
 
 #[test]

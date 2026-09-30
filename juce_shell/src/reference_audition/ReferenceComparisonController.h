@@ -23,6 +23,8 @@ public:
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
     Snapshot snapshot();
+    bool captureObservationReady() const noexcept { return version.captureObservationReady(); }
+    bool captureObservationQueueDrained() const noexcept { return version.captureObservationQueueDrained(); }
     ReferenceComparisonSettings savedSettings();
     void restoreSettings (const ReferenceComparisonSettings&);
     bool selectVersion (const juce::String&);
@@ -32,7 +34,7 @@ public:
     bool selectCue (const juce::String&);
     bool retryPresetSelection();
     bool retryCandidatePreparation();
-    bool approveSampleRateConversion();
+    bool approveSampleRateConversion(int slot);
     bool requestRecovery();
     bool startLatestReview();
     bool startLatestBookmark();

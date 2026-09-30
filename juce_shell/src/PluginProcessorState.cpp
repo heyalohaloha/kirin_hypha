@@ -47,6 +47,10 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 }
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
+    // Host-thread revocation precedes parsing, including malformed/legacy state. Cleanup is
+    // deferred to the message thread; the next audio block independently refuses the old source.
+    const auto restore = liveCompare.authority.restoringState();
+    startTimer (50);
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
     // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
     // these at enable time (enableWritesNow), deferred to the message-thread Timer.
@@ -188,4 +192,3 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         enablePending.store (true, std::memory_order_release);
     }
 }
-

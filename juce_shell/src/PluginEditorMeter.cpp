@@ -65,7 +65,7 @@ void KirinHyphaEditor::updatePre()
 void KirinHyphaEditor::updatePost()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (localBlindOpen)
+    if (localBlindOpen || liveBlindOpen)
         return;
    #endif
     const bool alive = processorRef.measureAlive();

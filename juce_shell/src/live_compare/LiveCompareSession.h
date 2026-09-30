@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LiveCompareCorrespondence.h"
+#include "LiveCompareRecovery.h"
 
 #include <algorithm>
 #include <atomic>
@@ -123,9 +124,13 @@ private:
 struct RenderReport
 {
     Verdict verdict = Verdict::noClock;
+    RecoveryReason reason = RecoveryReason::none;
     bool preAudible = false;   // PRE weight above zero at the end of the block
     bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
     bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
+    bool stableSource = false; // at least one frame entirely from the requested side
+    bool gainSettled = false;  // PRE gain and POST level reached the command targets
+    bool timelineChanged = false;
 };
 
 // POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
@@ -168,18 +173,31 @@ public:
         std::int64_t frames = 0;
         std::int64_t start = 0, end = 0, k = 0;
         bool kValid = false;
+        std::uint64_t proof = 0, preRun = 0;
     };
 
     HistoryView historyView() const noexcept
     {
         HistoryView view;
+        const auto seq = historySequence.load();
+        if ((seq & 1u) != 0) return view;
         view.samples = history.get();
         view.frames = historyFrames;
         view.end = historyEnd.load (std::memory_order_acquire);
         view.start = historyStart.load (std::memory_order_acquire);
         view.k = matchOffset.load (std::memory_order_acquire);
         view.kValid = matchOffsetValid.load (std::memory_order_acquire);
+        view.proof = historyProof.load();
+        view.preRun = historyPreRun.load();
+        if (seq != historySequence.load()) return {};
         return view;
+    }
+
+    bool historyStillValid (const HistoryView& view, std::int64_t start) const noexcept
+    {
+        const auto now = historyView();
+        return now.kValid && now.proof == view.proof && now.preRun == view.preRun && now.k == view.k
+            && start >= now.start && now.end - start <= now.frames;
     }
 
     std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
@@ -206,28 +224,37 @@ public:
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
-                         float ceilingLinear) noexcept
+                         float ceilingLinear, bool blind = false) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
         {
+            invalidateHistory();
+            report.reason = RecoveryReason::formatChanged;
             weight = 0.0f;
             report.preWaiting = preSelected;
             return report;
         }
         if (block.frames > capacity)
         {
+            invalidateHistory();
+            report.reason = RecoveryReason::blockTooLarge;
             weight = 0.0f;
             report.preWaiting = preSelected;
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        recordHistory (block, io, channels);
         float* scratch[] = { left.get(), right.get() };
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
-        matchOffset.store (decision.k, std::memory_order_release);
-        matchOffsetValid.store (decision.kValid, std::memory_order_release);
+        recordHistory (block, io, channels, decision);
+        report.timelineChanged = decision.timelineChanged || decision.invalidatedByDisagreement;
         report.verdict = decision.verdict;
+        report.reason = recoveryReason (decision.verdict);
+        if (report.timelineChanged)
+            report.reason = block.afterGap ? RecoveryReason::callbackGap
+                : ! block.playing ? RecoveryReason::stopped
+                : ! block.clockValid ? RecoveryReason::clockMissing
+                : ! block.projectValid ? RecoveryReason::projectClockMissing : RecoveryReason::positionChanged;
         if (decision.verdict != Verdict::accepted)
         {
             weight = 0.0f; // switch to POST at the block start
@@ -237,7 +264,15 @@ public:
         }
         if (weight <= 0.0f)
             preLevel.settle (preGain);
-        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear))
+        bool finitePost = true;
+        if (blind)
+            for (int channel = 0; channel < channels; ++channel)
+                for (std::int32_t i = 0; i < block.frames; ++i)
+                    finitePost = finitePost && std::isfinite (io[channel][i]);
+        report.reason = ! finitePost ? RecoveryReason::nonFinite
+            : (blind || preSelected || weight > 0.0f)
+                ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
+        if (report.reason != RecoveryReason::none)
         {
             weight = 0.0f;
             report.guardTripped = true;
@@ -248,6 +283,8 @@ public:
         if (weight <= 0.0f && target <= 0.0f)
         {
             post.apply (io, channels, block.frames, postTarget);
+            report.stableSource = true;
+            report.gainSettled = post.value() >= postTarget && post.value() <= postTarget;
             return report;
         }
         const float step = 1.0f / static_cast<float> (fadeFrames);
@@ -256,6 +293,9 @@ public:
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
             const float postGain = post.next (postTarget) * (1.0f - weight);
             const float gain = preLevel.next (preGain);
+            report.stableSource = report.stableSource || (weight >= target && weight <= target);
+            report.gainSettled = gain >= preGain && gain <= preGain
+                && post.value() >= postTarget && post.value() <= postTarget;
             for (int channel = 0; channel < channels; ++channel)
             {
                 const float pre = scratch[std::min (channel, 1)][i] * gain;
@@ -268,6 +308,7 @@ public:
 
     // Audio Thread: the host stopped processing the session (end, format change).
     void silenceTransition() noexcept { weight = 0.0f; }
+    bool hasPre() const noexcept { return weight > 0.0f; } // Audio Thread only
 
 private:
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
@@ -276,25 +317,41 @@ private:
     // INV-LC14: a PRE block is never output when a sample is not finite or, raised by the approved
     // gain, peaks above the ceiling fixed at MATCH. Sample peaks miss inter-sample peaks, so this
     // guard alone does not prove the true peak.
-    bool guardPasses (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
+    RecoveryReason guardFailure (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
     {
         const float limit = preGain > 1.0f ? ceilingLinear / preGain : std::numeric_limits<float>::infinity();
         for (const float* channel : { left.get(), right.get() })
             for (std::int32_t i = 0; i < frames; ++i)
-                if (! std::isfinite (channel[i]) || std::fabs (channel[i]) > limit)
-                    return false;
-        return true;
+            {
+                if (! std::isfinite (channel[i])) return RecoveryReason::nonFinite;
+                if (std::fabs (channel[i]) > limit) return RecoveryReason::ceiling;
+            }
+        return RecoveryReason::none;
     }
 
     // Audio Thread: the POST input (A, before any output mixing) indexed by POST's continuous clock.
-    void recordHistory (const BlockClock& block, float* const* io, int channels) noexcept
+    void recordHistory (const BlockClock& block, float* const* io, int channels, const Decision& decision) noexcept
     {
         if (history == nullptr || ! block.clockValid)
+        {
+            invalidateHistory();
             return;
+        }
+        historySequence.fetch_add (1);
         const auto end = historyEnd.load (std::memory_order_relaxed);
-        const bool restarted = block.afterGap || ! block.playing || block.clock != end || end == 0;
+        const bool proven = decision.verdict == Verdict::accepted;
+        const bool restarted = block.afterGap || ! block.playing || block.clock != end || end == 0
+            || ! proven || ! matchOffsetValid.load (std::memory_order_relaxed)
+            || decision.k != matchOffset.load (std::memory_order_relaxed)
+            || decision.run != historyPreRun.load();
         if (restarted)
+        {
             historyStart.store (block.clock, std::memory_order_release);
+            historyProof.fetch_add (1);
+        }
+        historyPreRun.store (decision.run);
+        matchOffset.store (decision.k, std::memory_order_release);
+        matchOffsetValid.store (proven, std::memory_order_release);
         const auto offset = block.project - block.clock;
         if (restarted || ! block.projectValid || ! projectKnown.load (std::memory_order_relaxed)
             || offset != projectOffset.load (std::memory_order_relaxed))
@@ -311,6 +368,15 @@ private:
             history[slot + 1].store (io[std::min (1, channels - 1)][i], std::memory_order_relaxed);
         }
         historyEnd.store (block.clock + block.frames, std::memory_order_release);
+        historySequence.fetch_add (1);
+    }
+
+    void invalidateHistory() noexcept
+    {
+        historySequence.fetch_add (1);
+        matchOffsetValid.store (false, std::memory_order_release);
+        historyProof.fetch_add (1);
+        historySequence.fetch_add (1);
     }
 
     Consumer consumer;
@@ -325,5 +391,6 @@ private:
     std::atomic<std::int64_t> projectRunStart { 0 }, projectOffset { 0 };
     std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
+    std::atomic<std::uint64_t> historySequence { 0 }, historyProof { 0 }, historyPreRun { 0 };
 };
 }

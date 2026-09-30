@@ -41,6 +41,18 @@ bool analyse (const std::vector<float>& post, const std::vector<float>& pre, std
 MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
 {
     MatchPlan plan;
+    plan.failure = result.failure;
+    if (! result.ok()) return plan;
+    if (! std::isfinite (heldPostDb) || heldPostDb > 0.0
+        || ! std::isfinite (result.measuredDb) || ! std::isfinite (result.prePeakDbtp)
+        || ! std::isfinite (result.ceilingDbtp))
+    {
+        plan.failure = MatchFailure::invalidPlan;
+        return plan;
+    }
+    plan.generation = result.generation;
+    plan.generationBound = result.generationBound;
+    plan.proof = result.proof; plan.preRun = result.preRun; plan.proofBound = result.proofBound;
     plan.ceilingDbtp = result.ceilingDbtp;
     const double held = std::min (0.0, heldPostDb);
     const double needed = result.measuredDb + held; // POST already sounds `held` dB quieter
@@ -49,13 +61,30 @@ MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
     if (needed <= 0.0 || result.prePeakDbtp + needed <= result.ceilingDbtp + 1.0e-9)
     {
         plan.preGainDb = needed;
+        plan.failure = validateMatchPlan (plan, MatchChoice::basis);
         return plan;
     }
     plan.needsApproval = true;
     plan.lowerPostGainDb = held - needed;
     plan.limitedPreGainDb = std::max (0.0, result.ceilingDbtp - result.prePeakDbtp);
     plan.preGainDb = plan.limitedPreGainDb;
+    plan.failure = validateMatchPlan (plan, MatchChoice::lowerPost);
     return plan;
+}
+
+MatchFailure validateMatchPlan (const MatchPlan& plan, MatchChoice choice) noexcept
+{
+    if (plan.failure != MatchFailure::none) return plan.failure;
+    if (plan.needsApproval == (choice == MatchChoice::basis)
+        || (choice != MatchChoice::basis && choice != MatchChoice::lowerPost && choice != MatchChoice::limitPre)
+        || ! std::isfinite (plan.preGainDb) || ! std::isfinite (plan.lowerPostGainDb)
+        || ! std::isfinite (plan.postGainDb) || ! std::isfinite (plan.ceilingDbtp)
+        || plan.lowerPostGainDb > 0.0 || plan.postGainDb > 0.0)
+        return MatchFailure::invalidPlan;
+    if (std::abs (plan.preGainDb) > maximumMatchDb || plan.lowerPostGainDb < -maximumMatchDb
+        || plan.postGainDb < -maximumMatchDb)
+        return MatchFailure::outOfRange;
+    return MatchFailure::none;
 }
 
 FollowStep followStep (const MatchResult& result, double heldPostDb, double approvedPreDb, double ceilingDbtp,
@@ -96,8 +125,8 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
     std::vector<float> post (static_cast<std::size_t> (frames) * 2), pre (post.size());
     copyPostHistory (view, postStart, frames, post);
     // The history must not have advanced past the window while it was copied.
-    if (renderer.historyWriteEnd() - postStart > view.frames
-        || ! copyPreRing (ring, postStart - view.k, frames, pre))
+    if (! copyPreRing (ring, postStart - view.k, frames, pre, view.preRun)
+        || ! renderer.historyStillValid (view, postStart))
     {
         result.failure = MatchFailure::overwritten;
         return result;
@@ -107,6 +136,13 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
         result.failure = MatchFailure::notEnoughSignal;
         return result;
     }
+    if (! renderer.historyStillValid (view, postStart)
+        || ring.header.run.load (std::memory_order_acquire) != view.preRun)
+    {
+        result.failure = MatchFailure::stale;
+        return result;
+    }
+    result.proof = view.proof; result.preRun = view.preRun; result.proofBound = true;
     result.seconds = static_cast<double> (frames) / sampleRate;
     result.ceilingDbtp = std::max ({ -1.0, result.postPeakDbtp, result.prePeakDbtp });
     result.failure = std::isfinite (result.measuredDb) && std::fabs (result.measuredDb) <= maximumMatchDb

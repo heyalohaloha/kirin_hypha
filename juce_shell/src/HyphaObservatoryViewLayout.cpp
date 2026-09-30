@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTextStyle.h"
 namespace hypha::observatory
 {
 namespace {
@@ -80,6 +81,7 @@ void View::resized()
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
+        if (onBodyLayoutChanged) onBodyLayoutChanged();
         return;
     }
     if (captureFrame)
@@ -187,10 +189,35 @@ void View::resized()
         footerActions.setLeft (footerActions.getRight() - (preset.density == Density::inspection ? 290 : 250));
         sessionArea.setRight (footerActions.getX() - 4);
     }
-    statusStripOverBody = folded;
-    statusStrip = folded ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
-    statusButton.setVisible (! captureFrame && ! folded && feedbackText.isNotEmpty());
+    if (! captureFrame && (liveCompareState.active || liveCompareState.postHeldTenthsDb < 0))
+    {
+        // Safety controls own the compact second row while comparing. The rise must never be
+        // reduced to an invisible tooltip to preserve unrelated navigation in this narrow rail.
+        if (folded)
+        {
+            footerActions.setX (layout.header.x);
+            footerActions.setWidth (layout.header.width);
+            for (auto* button : { &domainCycleButton, &targetButton, &deltaButton, &sizeButton, &guideButton })
+                button->setVisible (false);
+        }
+        else
+        {
+            const int minimum = footerButtonWidth ("RETURN +24.0 dB")
+                              + footerButtonWidth ("POST") + footerButtonWidth ("MENU");
+            footerActions.setLeft (std::min (footerActions.getX(), footerActions.getRight() - minimum));
+            sessionArea.setRight (footerActions.getX() - 4);
+        }
+    }
+    // Safety guidance needs more room than the residual footer after PRE/POST/END. Reuse the
+    // full-width feedback strip when the complete sentence does not fit; never compress it.
+    const bool overflow = ! captureFrame && feedbackText.isNotEmpty()
+        && text_style::shownWidth (monoFont (presentationContext(), typography::TextRole::action), feedbackText)
+            > sessionArea.getWidth() - 14;
+    statusStripOverBody = folded || overflow;
+    statusStrip = statusStripOverBody ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
+    statusButton.setVisible (! captureFrame && ! statusStripOverBody && feedbackText.isNotEmpty());
     statusButton.setBounds (sessionArea.reduced (1, 2));
     layoutFooterActions (footerActions);
+    if (onBodyLayoutChanged) onBodyLayoutChanged();
 }
 }
