@@ -71,19 +71,22 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
 {
     using Runtime = reference_audition::RuntimeState;
     const auto& code = slot.rejectionCode;
+    if (slot.sampleRateApprovalRequired || code == "reference_sample_rate_approval_required")
+        return SourceStep::approveSampleRate;
     switch (slot.state)
     {
         case Runtime::ready:
             return ! playing ? SourceStep::playDaw
-                 : slot.auditionBuffered ? SourceStep::ready : SourceStep::preparing;
-        case Runtime::verifying: return SourceStep::preparing;
+                 : slot.auditionBuffered ? SourceStep::ready : SourceStep::loadingAudio;
+        case Runtime::verifying: return SourceStep::verifyingSource;
         case Runtime::rejected: return SourceStep::attention;
         case Runtime::waiting:
             if (code == "reference_alignment_waiting_for_content")
                 return playing ? SourceStep::aligning : SourceStep::playDaw;
             if (code == "reference_alignment_ambiguous") return SourceStep::playAnotherPassage;
             if (code == "reference_checks_empty") return SourceStep::enableCheck;
-            if (code == "reference_candidates_empty") return SourceStep::chooseSource;
+            if (code == "reference_candidates_empty" || code == "reference_cues_empty")
+                return SourceStep::chooseSource;
             if (code == "reference_source_unavailable" || code == "reference_selection_unavailable")
                 return SourceStep::attention;
             return SourceStep::preparing;
@@ -105,5 +108,23 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
         : slotStep (version, state.aAvailable);
     state.checkStep = ! check.libraryReceived ? SourceStep::waitingForKirinOs
                                               : slotStep (check, state.aAvailable);
+}
+
+// Approval belongs to the source, never to whichever slot happens to own the detail pane.
+// Prefer that pane when both need approval, then expose the remaining one on the next refresh.
+inline void setSampleRateApproval (State& state, const reference_audition::Snapshot& comparison)
+{
+    const bool versionPending = state.versionStep == SourceStep::approveSampleRate;
+    const bool checkPending = state.checkStep == SourceStep::approveSampleRate;
+    state.sampleRateApprovalSlot = comparison.comparisonSlot == 1 && versionPending ? 1
+        : comparison.comparisonSlot == 2 && checkPending ? 2
+        : versionPending ? 1 : checkPending ? 2 : 0;
+    state.sampleRateApprovalRequired = state.sampleRateApprovalSlot != 0;
+    if (! state.sampleRateApprovalRequired) return;
+    const auto& source = state.sampleRateApprovalSlot == 1
+        ? (comparison.versionSelection ? *comparison.versionSelection : comparison)
+        : (comparison.checkSelection ? *comparison.checkSelection : comparison);
+    state.sourceSampleRateHz = source.sourceSampleRateHz;
+    state.hostSampleRateHz = source.hostSampleRateHz;
 }
 }

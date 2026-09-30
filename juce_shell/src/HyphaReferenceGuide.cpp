@@ -17,7 +17,7 @@ SourceStep shownStep (SourceStep step, bool audible, bool playing) noexcept
 {
     if (audible) return SourceStep::ready;
     if (step == SourceStep::ready || (! playing && step == SourceStep::aligning))
-        return playing ? SourceStep::preparing : SourceStep::playDaw;
+        return playing ? SourceStep::loadingAudio : SourceStep::playDaw;
     return step;
 }
 
@@ -31,6 +31,9 @@ juce::String headingFor (SourceStep step, bool version)
         case SourceStep::chooseSource: return "Choose a source for C in Kirin OS";
         case SourceStep::aligning: return "Aligning B with A";
         case SourceStep::playAnotherPassage: return "Play another passage to align B";
+        case SourceStep::approveSampleRate: return version ? "Approve B conversion" : "Approve C conversion";
+        case SourceStep::verifyingSource: return version ? "Verifying B source" : "Verifying C source";
+        case SourceStep::loadingAudio: return version ? "Loading B at the playhead" : "Loading C at the playhead";
         case SourceStep::preparing: return version ? "Preparing B" : "Preparing C";
         case SourceStep::attention: return "Open Kirin OS to check the source";
         case SourceStep::waitingForKirinOs: return "Open Kirin OS";
@@ -53,6 +56,10 @@ juce::String detailFor (SourceStep step)
         case SourceStep::aligning: return "Keep playing. B must be a Version of the song you are playing.";
         case SourceStep::playAnotherPassage:
             return "This passage repeats in B. Play a part that occurs only once.";
+        case SourceStep::approveSampleRate:
+            return "Only the audition copy changes. A stays unchanged.";
+        case SourceStep::verifyingSource: return "The source is being checked. A stays live.";
+        case SourceStep::loadingAudio: return "Keep playing while audio loads.";
         case SourceStep::preparing: return "This takes a moment.";
         case SourceStep::attention: return "The source changed or could not be opened.";
         case SourceStep::waitingForKirinOs:
@@ -69,6 +76,7 @@ Mark markFor (SourceStep step) noexcept
 {
     return step == SourceStep::ready ? Mark::ready
          : step == SourceStep::waitingForKirinOs || step == SourceStep::aligning
+             || step == SourceStep::verifyingSource || step == SourceStep::loadingAudio
              || step == SourceStep::preparing ? Mark::waiting : Mark::action;
 }
 
@@ -139,15 +147,18 @@ Guide guide (const State& state)
         && ! state.bSelected && ! isBlindSession (state.blindPhase) && ! workflowActive
         && ! (state.captureAccess && state.captureAccess->capturedView)
         && result.version != SourceStep::ready && result.check != SourceStep::ready;
-    if (! state.libraryReceived)
+    const bool versionApproval = result.version == SourceStep::approveSampleRate;
+    const bool checkApproval = result.check == SourceStep::approveSampleRate;
+    if (! state.libraryReceived && ! versionApproval && ! checkApproval)
     {
         result.heading = state.osOnline ? "Receiving from Kirin OS" : "Open Kirin OS";
         result.detail = detailFor (SourceStep::waitingForKirinOs);
         return result;
     }
-    const auto first = ! state.aAvailable ? SourceStep::playDaw
+    const auto first = versionApproval ? result.version : checkApproval ? result.check
+        : ! state.aAvailable ? SourceStep::playDaw
         : result.version != SourceStep::ready ? result.version : result.check;
-    const bool version = state.aAvailable && result.version != SourceStep::ready;
+    const bool version = versionApproval || (! checkApproval && state.aAvailable && result.version != SourceStep::ready);
     result.heading = headingFor (first, version);
     result.detail = detailFor (first);
     return result;
@@ -211,6 +222,9 @@ juce::String stepText (SourceStep step)
         case SourceStep::playDaw: return "Ready when the DAW plays";
         case SourceStep::aligning: return "Aligning with A. Keep playing";
         case SourceStep::playAnotherPassage: return "Play another passage";
+        case SourceStep::approveSampleRate: return "Approve rate conversion";
+        case SourceStep::verifyingSource: return "Verifying source";
+        case SourceStep::loadingAudio: return "Loading audio here; keep playing";
         case SourceStep::preparing: return "Preparing";
         case SourceStep::attention: return "Check the source in Kirin OS";
     }

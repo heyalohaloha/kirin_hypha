@@ -124,7 +124,7 @@ public:
     bool selectReferenceCandidate (const juce::String&);
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
-    bool approveReferenceSampleRateConversion();
+    bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
     bool startLatestReferenceReview();
     bool startLatestReferenceBookmark();

@@ -148,5 +148,38 @@ namespace
         const auto exportPath = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_WHOLE_SONG_EXPORT", {});
         if (exportPath.isNotEmpty())
             require (root.copyDirectoryTo (juce::File (exportPath)), "cross-language whole-song journal fixture export");
+
+        controller.observeTransport (0, true, true);
+        juce::Thread::sleep (200);
+        require (controller.startBlind (-22, -6), "an answer-free whole-song trial can start");
+        for (int stimulus = 1; stimulus <= 2; ++stimulus)
+        {
+            if (stimulus == 2) require (controller.selectBlindStimulus (2), "switch to second anonymous source");
+            for (int callback = 0; callback < 155; ++callback)
+            {
+                const auto position = callback * input.getNumSamples();
+                for (int channel = 0; channel < 2; ++channel)
+                    input.copyFrom (channel, 0, fixture.audio, channel, position, input.getNumSamples());
+                controller.observeTransport (position, true, true);
+                controller.observeAInput (input, position, true, true, true);
+                require (controller.renderSelectedB (input, position, true, true, true),
+                         "answer-free trial must render both sources");
+                juce::Thread::sleep (5);
+            }
+        }
+        require (controller.revealBlind() && controller.snapshot().answeredBlindStimulus == 0,
+                 "one reveal discloses both sources without recording a preference");
+        controller.observeTransport (0, false, false);
+        controller.endBlind();
+        juce::Thread::sleep (300);
+        starts = completions = 0;
+        for (const auto& file : root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json"))
+        {
+            const auto type = juce::JSON::parse (file)["event_type"].toString();
+            if (type == "blind_compare_started") ++starts;
+            if (type == "blind_compare_completed") ++completions;
+        }
+        require (starts == 2 && completions == 1,
+                 "unanswered reveal records Start only and never fabricates a Completed answer");
     }
 }

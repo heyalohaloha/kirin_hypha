@@ -125,6 +125,7 @@ struct State
     float liveSpectrumMinimumHz = 0.0f;
     float liveSpectrumMaximumHz = 0.0f;
     bool sampleRateApprovalRequired = false;
+    int sampleRateApprovalSlot = 0; // 1 = B/Version, 2 = C/Check; never infer from the viewed slot.
     std::int64_t sourceSampleRateHz = 0;
     std::int64_t hostSampleRateHz = 0;
     juce::String presetSelectionAction;
@@ -174,7 +175,7 @@ public:
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
         for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
-                              &answerButton, &revealButton, &endBlindButton, &actionButton })
+                              &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);
         tonalView.update (current.visualTimeline, presentationContext,
                           isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
@@ -193,7 +194,6 @@ public:
     std::function<void()> onAction;
     std::function<void()> onStartBlind;
     std::function<void(int)> onSelectBlindStimulus;
-    std::function<void(int)> onAnswerBlind;
     std::function<void()> onRevealBlind;
     std::function<void()> onEndBlind;
     std::function<void()> onStartReview, onStartBookmark, onWorkflowBack;
@@ -227,11 +227,12 @@ private:
         }
         // Not ready yet: drawn like a disabled button, but a click still reaches onClick to explain.
         void setReady (bool next) { if (ready != next) { ready = next; repaint(); } }
+        void setAttention (bool next) { if (attention != next) { attention = next; repaint(); } }
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
 
     private:
         presentation::Context presentationContext = presentation::defaultContext();
-        bool ready = true;
+        bool ready = true, attention = false;
     };
 
     State current;
@@ -256,7 +257,6 @@ private:
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
-    SideButton answerButton { "CHOOSE" };
     SideButton revealButton { "REVEAL" };
     SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };

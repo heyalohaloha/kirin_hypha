@@ -114,6 +114,31 @@ inline std::vector<Case> cases()
     }
     {
         auto state = playing (library());
+        state.versionId = "v4";
+        state.versionStep = Step::approveSampleRate;
+        state.checkStep = Step::preparing;
+        state.sampleRateApprovalRequired = true;
+        state.sampleRateApprovalSlot = 1;
+        state.sourceSampleRateHz = 44100;
+        state.hostSampleRateHz = 48000;
+        state.actionText = "APPROVE B 44.1 TO 48.0 kHz";
+        result.push_back ({ "approve_b_rate", state });
+        state.versionStep = Step::preparing;
+        state.checkStep = Step::approveSampleRate;
+        state.sampleRateApprovalSlot = 2;
+        state.actionText = "APPROVE C 44.1 TO 48.0 kHz";
+        result.push_back ({ "approve_c_rate", state });
+    }
+    {
+        auto state = playing (library());
+        state.versionId = "v4";
+        state.versionStep = Step::loadingAudio;
+        state.checkStep = Step::verifyingSource;
+        state.status = "LOADING SOURCE AT PLAYHEAD / A REMAINS LIVE";
+        result.push_back ({ "loading_audio", state });
+    }
+    {
+        auto state = playing (library());
         state.checkReady = state.versionReady = true;
         state.versionId = "v4";
         state.versionStep = state.checkStep = Step::ready;

@@ -87,6 +87,17 @@ static void captureLiveSharing(const juce::File& sandbox) {
                     && state.unitPass[unitIndex] > previousUnitPass; }),
                     "synthetic host waits for each held-capture comparison unit");
             else juce::Thread::sleep(12);
+            if (! paceLive && observationBefore.held && unitBoundary && unitIndex % 4 == 3)
+            {
+                bool ready = false;
+                for (int attempt = 0; attempt < 4000 && ! ready; ++attempt)
+                {
+                    const auto state = controller.snapshot();
+                    ready = state.versionSelection && state.versionSelection->aCaptureAvailable;
+                    if (! ready) juce::Thread::sleep (5);
+                }
+                require (ready, "synthetic host waits for the four-second local A observation");
+            }
         }
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();
@@ -100,7 +111,18 @@ static void captureLiveSharing(const juce::File& sandbox) {
     require(controller.savedSettings().captureState==selection.captureState,"configured controller immediately saves pending restoration");
     require(wait([&]{const auto s=access->snapshot();return s.held && s.held->restored;}),"Capture restored independently of B");
     for(int pass=0;pass<8 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
-    require(wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}),"later B gains a receipt only through matching four-unit A evidence");
+    if (! wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}))
+    {
+        const auto runtime = controller.snapshot();
+        const auto b = runtime.versionSelection ? *runtime.versionSelection : runtime;
+        const auto held = access->snapshot();
+        std::cerr << "late B evidence: state=" << static_cast<int> (b.state)
+                  << " reason=" << b.rejectionCode << " selected=" << runtime.selectedVersionId
+                  << " A=" << b.aBindingAvailable << " capture=" << b.aCaptureAvailable
+                  << " alignment=" << b.alignmentPrepared << " units=" << held.unitStatus.size()
+                  << " bindings=" << (held.held ? held.held->bindings.size() : 0u) << '\n';
+        require (false, "later B gains a receipt only through matching four-unit A evidence");
+    }
     const auto bound=access->snapshot().held; const auto proof=bound->bindings.front();
     require(proof.valid() && std::abs(proof.displayGainDb+6.0205999)<0.01,"captured B uses fixed paired-block gain, not whole-song integrated difference");
     require(proof.hostAnchor==proof.sourceAnchor && proof.probeEnd-proof.probeStart==192000,"historical source position error is zero samples");

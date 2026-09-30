@@ -71,7 +71,6 @@ Component::Component()
     blindButton.setComponentID ("reference-blind");
     oneButton.setComponentID ("reference-blind-1");
     twoButton.setComponentID ("reference-blind-2");
-    answerButton.setComponentID ("reference-blind-answer");
     revealButton.setComponentID ("reference-blind-reveal");
     endBlindButton.setComponentID ("reference-blind-end");
     actionButton.setComponentID ("reference-action");
@@ -81,7 +80,6 @@ Component::Component()
     blindButton.setTitle ("Start Version Blind");
     oneButton.setTitle ("Audition blind source 1");
     twoButton.setTitle ("Audition blind source 2");
-    answerButton.setTitle ("Choose the audible blind source and reveal the result");
     revealButton.setTitle ("Reveal blind sources");
     endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
@@ -90,7 +88,6 @@ Component::Component()
         "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
     oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
     twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
-    answerButton.setTooltip ("Choose the source you are hearing and reveal the result.");
     revealButton.setTooltip ("Reveal which source is A and which source is B.");
     endBlindButton.setTooltip ("End Blind Compare and return to live A.");
     actionButton.setTooltip ("Continue with the safe next action.");
@@ -119,11 +116,6 @@ Component::Component()
     blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
     oneButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (1); };
     twoButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (2); };
-    answerButton.onClick = [this]
-    {
-        if (current.activeBlindStimulus != 0 && onAnswerBlind)
-            onAnswerBlind (current.activeBlindStimulus);
-    };
     revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
     endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
@@ -149,7 +141,6 @@ Component::Component()
     addChildComponent (blindButton);
     addChildComponent (oneButton);
     addChildComponent (twoButton);
-    addChildComponent (answerButton);
     addChildComponent (revealButton);
     addChildComponent (endBlindButton);
     addChildComponent (actionButton);
@@ -188,13 +179,10 @@ void Component::setState (State next)
     oneButton.setVisible (blindAudition);
     twoButton.setVisible (blindAudition);
     const bool bothHeard = current.blindStimulusOneHeard && current.blindStimulusTwoHeard;
-    answerButton.setVisible (current.blindPhase == BlindPhase::active
-                             && bothHeard && current.activeBlindStimulus != 0);
-    answerButton.setButtonText (current.answeredBlindStimulus == current.activeBlindStimulus
-        ? "CHOSEN " + juce::String (current.activeBlindStimulus)
-        : "PREFER " + juce::String (current.activeBlindStimulus));
-    revealButton.setVisible (current.blindPhase == BlindPhase::active
-                             && current.answeredBlindStimulus != 0);
+    revealButton.setVisible (current.blindPhase == BlindPhase::active);
+    revealButton.setEnabled (bothHeard);
+    revealButton.setTooltip (bothHeard ? "Reveal both sources without recording a preference."
+        : "Listen to both sources before revealing them.");
     const bool heldA = current.blindPhase == BlindPhase::invalidated
                     && current.blindRequiredAAttenuationDb > 0.0;
     endBlindButton.setButtonText (heldA
@@ -222,8 +210,11 @@ void Component::setState (State next)
     cueBox.setVisible (showDetailedSelectors && ! workflowActive && ! current.cues.empty()
         && (!current.separateComparisons || current.comparisonSlot == 2));
     actionButton.setButtonText (current.actionText);
-    actionButton.setTooltip (current.actionText == "EDIT GENRE"
-        ? "Open this Balance Check in Kirin OS." : "Continue with the safe next action.");
+    actionButton.setAttention (current.sampleRateApprovalRequired);
+    actionButton.setTooltip (current.sampleRateApprovalRequired
+        ? "Approve " + juce::String (current.sampleRateApprovalSlot == 1 ? "B " : "C ") + juce::String (current.sourceSampleRateHz / 1000.0, 1) + " to " + juce::String (current.hostSampleRateHz / 1000.0, 1) + " kHz for the audition copy only. A stays unchanged."
+        : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
+        : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
     captureControls.update(current.captureAccess,blindSession||workflowActive,presentationContext);
     workflowControls.update(current.workflow,blindSession,!detailedLayout());
@@ -231,7 +222,11 @@ void Component::setState (State next)
         ||current.workflow.bookmarkAvailable
         ||current.workflow.mode!=reference_audition::WorkflowView::Mode::normal));
     comparisonView.setVisible (! guideShown && current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
-    comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext, blindSession, current.visualPreferences);
+    const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")
+        : current.versionStep == SourceStep::ready ? juce::String ("Preparing B overview")
+        : stepText (current.versionStep);
+    comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext,
+                           blindSession, current.visualPreferences, emptyB);
     const bool tonalSelected = std::find (current.viewBindings.begin(), current.viewBindings.end(),
                                           "balance") != current.viewBindings.end();
     tonalView.setVisible (! guideShown && ! blindSession && ! comparisonView.isVisible() && tonalSelected);
@@ -359,9 +354,8 @@ void Component::paint (juce::Graphics& g)
         else if (! blindInvalidated && current.activeBlindStimulus != 0)
             status = "AUDIBLE SOURCE " + juce::String (current.activeBlindStimulus)
                    + " / CONFIRMED";
-        if (! blindInvalidated && current.answeredBlindStimulus != 0)
-            status = "CHOSEN " + juce::String (current.answeredBlindStimulus)
-                   + " / REVEAL WHEN READY";
+        if (! blindInvalidated && current.blindStimulusOneHeard && current.blindStimulusTwoHeard)
+            status = "BOTH HEARD / REVEAL WHEN READY";
         if (current.blindPaused) status = "PAUSED / PLAY TO RESUME BLIND";
         else if (current.blindOutsideSong) status = "PLAY WITHIN THE SONG";
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
@@ -400,7 +394,7 @@ void Component::paint (juce::Graphics& g)
     area.removeFromTop (panelGap());
     if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
     if(captureControls.isVisible()) area.removeFromTop(captureControls.preferredHeight(area.getWidth()));
-    auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
+    auto statusArea = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
     const auto statusColour = current.readiness == Readiness::rejected
         ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;
     g.setColour (statusColour.withAlpha (0.92f));
@@ -423,7 +417,7 @@ void Component::paint (juce::Graphics& g)
     if (blindButton.isVisible())
         availableStatusArea.removeFromRight (detailedLayout() ? 120 : 90);
     if (actionButton.isVisible())
-        availableStatusArea.removeFromRight (detailedLayout() ? 194 : 122);
+        availableStatusArea.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 244 : detailedLayout() ? 194 : 122);
     auto primaryStatusArea = availableStatusArea;
     auto gainStatusArea = availableStatusArea;
     if (detailedLayout() && current.bSelected)

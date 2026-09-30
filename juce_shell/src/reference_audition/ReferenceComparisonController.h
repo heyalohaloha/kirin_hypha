@@ -32,7 +32,7 @@ public:
     bool selectCue (const juce::String&);
     bool retryPresetSelection();
     bool retryCandidatePreparation();
-    bool approveSampleRateConversion();
+    bool approveSampleRateConversion(int slot);
     bool requestRecovery();
     bool startLatestReview();
     bool startLatestBookmark();

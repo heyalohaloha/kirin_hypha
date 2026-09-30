@@ -5,6 +5,32 @@
 
 namespace
 {
+    // Publication is prepared on a non-RT thread while the DAW keeps calling process().
+    // Keep that independent callback alive during the potentially slow fixture writes too;
+    // otherwise the Blind watchdog correctly treats this test as a stopped host.
+    class RefreshTransport final : private juce::Thread
+    {
+    public:
+        RefreshTransport (ref::RuntimeV2Controller& runtime, std::int64_t position)
+            : juce::Thread ("refresh test transport"), controller (runtime), hostPosition (position)
+        {
+            startThread();
+        }
+        ~RefreshTransport() override { stopThread (1000); }
+
+    private:
+        void run() override
+        {
+            while (! threadShouldExit())
+            {
+                controller.observeTransport (hostPosition, true, true);
+                juce::Thread::sleep (10);
+            }
+        }
+        ref::RuntimeV2Controller& controller;
+        const std::int64_t hostPosition;
+    };
+
     [[maybe_unused]] void verifyPlaybackIdentityDependencies()
     {
         ref::RuntimePreset preset;
@@ -58,6 +84,7 @@ namespace
         require (controller.renderSelectedB (output, hostPosition, true),
                  "refresh fixture must have audible output before publication");
         const juce::AudioBuffer<float> beforeAudio (output);
+        RefreshTransport transport (controller, hostPosition);
         auto updated = presetValue.clone();
         updated.getDynamicObject()->setProperty ("name", "Updated Check Preset label");
         auto* checks = updated.getDynamicObject()->getProperty ("checks").getArray();

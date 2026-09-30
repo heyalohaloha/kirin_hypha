@@ -25,6 +25,9 @@ enum class SourceStep
     playDaw,
     aligning,
     playAnotherPassage,
+    approveSampleRate,
+    verifyingSource,
+    loadingAudio,
     preparing,
     attention,
 };

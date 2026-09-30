@@ -17,11 +17,11 @@ void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bo
     const auto area = getLocalBounds().toFloat().reduced (1.0f);
     const bool selected = getToggleState();
     const bool separateTrial = getComponentID() == "reference-blind";
-    const auto accent = separateTrial ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR;
+    const auto accent = separateTrial || attention ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR;
     surface_material::paintControl (g, area, highlighted && ready, down && ready, selected, accent, 4.0f);
     g.setColour (! isEnabled() || ! ready ? COL_MUTED.withAlpha (0.32f)
                                : selected ? COL_OBSERVATORY_VALUE
-                                          : separateTrial ? COL_FLORA_BR : COL_NORMAL);
+                                          : separateTrial || attention ? COL_FLORA_BR : COL_NORMAL);
     g.setFont (labelFont (presentationContext, typography::TextRole::action,
                           typography::Composition::information));
     text_style::drawText (g, getButtonText(), getLocalBounds(), juce::Justification::centred);

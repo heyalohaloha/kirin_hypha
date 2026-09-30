@@ -356,7 +356,12 @@ bool ReferenceComparisonController::selectCue (const juce::String& id)
 }
 bool ReferenceComparisonController::retryPresetSelection() { return check.retryPresetSelection(); }
 bool ReferenceComparisonController::retryCandidatePreparation() { return viewed().retryCandidatePreparation(); }
-bool ReferenceComparisonController::approveSampleRateConversion() { return viewed().approveSampleRateConversion(); }
+bool ReferenceComparisonController::approveSampleRateConversion(int slot)
+{
+    if (slot == 1) return version.approveSampleRateConversion();
+    if (slot == 2) return check.approveSampleRateConversion();
+    return false;
+}
 bool ReferenceComparisonController::requestRecovery() { return viewed().requestRecovery(); }
 
 bool ReferenceComparisonController::selectB (double loudness, double peak) noexcept
