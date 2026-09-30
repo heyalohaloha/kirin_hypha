@@ -173,6 +173,14 @@ private:
             case 3:
                 // Two agreeing estimates two seconds apart settle the offset (INV-LC7).
                 if (footer() != "PRE 41.67 ms early") break;
+                {
+                    const auto measured = post->measureLiveCompare();
+                    if (! measured.ok()) break;
+                    const auto plan = hypha::live_compare::planMatch (measured, 0.0);
+                    require (post->applyLiveCompareMatch (plan, hypha::live_compare::MatchChoice::basis),
+                             "named comparison starts with a valid MATCH before the fault");
+                    matchedGain = post->liveCompareStatus().gain;
+                }
                 std::cout << "settled: " << footer() << std::endl;
                 require (! post->liveCompareStatus().contentHeld, "the first settled offset is the baseline");
                 delayFrames.store (3000);
@@ -197,6 +205,9 @@ private:
                 // Stopping ends the hold; the session stays for the next run.
                 if (post->liveCompareStatus().contentHeld) break;
                 require (post->liveCompareStatus().active, "the session survives the stop");
+                require (post->liveCompareStatus().matchHeld && ! post->liveCompareStatus().matched
+                    && std::abs (post->liveCompareStatus().gain - matchedGain) <= 0.0f,
+                    "named comparison retains the gain as HELD across stop/play");
                 play.store (true);
                 ++stage;
                 break;
@@ -286,6 +297,7 @@ private:
     std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
+    float matchedGain = 1.0f;
     bool demanded = false, heldNoticeSeen = false;
 };
 }

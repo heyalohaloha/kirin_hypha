@@ -150,8 +150,8 @@ void Component::resized()
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     detail.setFont (labelFont (context, typography::TextRole::status, typography::Composition::information));
-    cause.setFont (status.getFont());
-    recovery.setFont (status.getFont());
+    cause.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
+    recovery.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     auto area = getLocalBounds().reduced (compact ? 12 : 24);
     title.setBounds (area.removeFromTop (compact ? 24 : 40));
     status.setBounds (area.removeFromTop (compact ? 30 : 48));

@@ -26,6 +26,15 @@ B-1106の成立性試験で見つけた整数周回ずれに対し、以下の�
 必要条件として通過、長遅延clampの150条件は安全退避だけを確認し継続可能とは認定しない。
 17種の失効、初回LOOPの拒否、非LOOPの停止／欠損からの再取得も検査する。
 LOOP単体のAudio Thread経路ではalloc/freeとも0。PCM容量は変更しない。
+`sizeof(Ring)`は4,227,152→4,227,216 bytes（+64）、PCMは4,194,304 bytesのまま。
+ASan／UBSanでも正常継続と失効・復帰を確認した。
+
+局所rendererの3回比較（同じMac、Clang `-O3`、64/128/256/512 frames）では、64-frame BLINDの
+中央値は旧0.590〜0.630 µs、新0.634〜0.663 µs、確認済みLOOPは0.706〜0.738 µs。
+512-frameでは旧4.302〜6.745 µs、新4.590〜6.851 µs、LOOPは4.705〜6.884 µsだった。
+同時ビルド等の負荷がありp99は変動した（512-frame旧23.132〜28.747 µs、新23.164〜29.727 µs、
+LOOP 23.839〜34.069 µs）。追加処理をゼロ負荷とは言わず、full processor／実DAWの低buffer認定は別途必要。
+再現用は`juce_shell/tests/live_compare/live_compare_recovery_benchmark.cpp`。試験内の時計読取りは製品へ入れない。
 
 実processorの試験は0.5秒LOOPで再MATCHの実3秒窓と−6.0206 dBの測定、同じMATCHからBLINDの100周、
 開示と終了を検査する。fixtureの8192-frame callbackはDAWの低buffer負荷の証拠にはしない。

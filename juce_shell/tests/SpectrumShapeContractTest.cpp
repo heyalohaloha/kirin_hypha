@@ -121,10 +121,10 @@ void verifySpectrumShapeContract (const KirinSpectrumView& baseline)
         sized.setSignalActive (true);
         sized.setSnapshot (view);
         const auto area = sized.getLocalBounds().toFloat();
-        const auto scale = spectrum_geometry::visualScaleFor (area);
+        const auto sizedScale = spectrum_geometry::visualScaleFor (area);
         const auto control = spectrum_geometry::deltaModeBoundsFor (
-            spectrum_geometry::plotBoundsFor (area), scale);
-        if (spectrum_geometry::viewOnly (scale))
+            spectrum_geometry::plotBoundsFor (area), sizedScale);
+        if (spectrum_geometry::viewOnly (sizedScale))
         {
             // 100% is view-only (INV-S38): RAW / SHAPE has no position, paint, hit or tooltip.
             SHAPE_REQUIRE (control.isEmpty());

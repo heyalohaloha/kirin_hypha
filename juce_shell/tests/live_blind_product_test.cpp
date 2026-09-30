@@ -190,6 +190,11 @@ private:
                     --stale.generation;
                     require (stale.generationBound && ! post->applyLiveCompareMatch (stale, hypha::live_compare::MatchChoice::basis),
                              "old measurement generations cannot apply a MATCH");
+                    auto staleProof = plan;
+                    ++staleProof.proof;
+                    require (staleProof.proofBound && post->applyLiveCompareMatch (staleProof,
+                        hypha::live_compare::MatchChoice::basis).failure == hypha::live_compare::MatchFailure::stale,
+                        "an expired measurement proof cannot apply its gain");
                     require (post->applyLiveCompareMatch (plan, hypha::live_compare::MatchChoice::basis),
                              "manual MATCH accepted");
                     reusedGain = post->liveCompareStatus().gain;
@@ -247,6 +252,7 @@ private:
                 if (fault)
                 {
                     using Reason = hypha::live_compare::RecoveryReason;
+                    faultGain = post->liveCompareStatus().gain;
                     if (faultReason == Reason::contentChanged) post->holdLiveCompareForContentJump();
                     else if (faultReason == Reason::callbackGap) injectGap.store (true);
                     else if (faultReason == Reason::stopped) play.store (false);
@@ -269,6 +275,10 @@ private:
                 require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
                 require (post->liveBlindStatus().reason == faultReason,
                          "the first fault survives RT invalidation and message-thread teardown");
+                if (faultReason != hypha::live_compare::RecoveryReason::contentChanged)
+                    require (! post->liveCompareStatus().matched
+                        && std::abs (post->liveCompareStatus().gain - faultGain) <= 0.0f,
+                        "an ended Blind retains numeric gain but never a valid MATCH");
                 require (lastOutputRatio.load() < 0.0f, "PDC failure falls back to original POST");
                 post->kirinHostDelayCompensationStateChanged (true);
                 play.store (true);
@@ -444,6 +454,7 @@ private:
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false;
     bool loopMode = false;
+    float faultGain = 1.0f;
     hypha::live_compare::RecoveryReason faultReason;
     std::atomic<bool> injectGap { false };
     float reusedGain = 1.0f, held = 1.0f, firstRatio = 0.0f;

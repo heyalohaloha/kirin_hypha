@@ -38,6 +38,7 @@ inline void verifyLiveBlindUiContract()
                 state.trial.firstPre = phase == 4;
                 state.reason = phase >= 11 ? static_cast<live_compare::RecoveryReason> (phase - 10)
                                           : live_compare::RecoveryReason::none;
+                state.observation = phase == 0 ? live_compare::RecoveryReason::loopUnproven : state.reason;
                 state.contentHeld = state.reason == live_compare::RecoveryReason::contentChanged;
                 state.compensationOff = state.reason == live_compare::RecoveryReason::compensationOff;
                 view.setSize (preset.width, preset.height);
