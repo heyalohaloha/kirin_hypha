@@ -326,7 +326,8 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.recoveryHelp = recovery;
     footer.pinAvailable = processorRef.localBlindProductSupported()
         && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
-    footer.matched = status.active && liveCompareMatched;
+    footer.matched = status.active && (liveCompareMatched || status.matchHeld);
+    footer.matchHeld = status.active && status.matchHeld;
     footer.matchLimited = footer.matched && liveCompareLimited;
     footer.following = status.active && liveCompareAuto.on;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;

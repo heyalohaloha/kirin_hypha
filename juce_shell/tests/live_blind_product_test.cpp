@@ -2,6 +2,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
+#include "LiveBlindLoopFixture.h"
 
 #include <atomic>
 #include <chrono>
@@ -56,20 +57,22 @@ struct Clock final : juce::AudioPlayHead
         {
             info.setTimeInSamples (position);
             info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
+            loop.decorate (info, position);
         }
         return info;
     }
     std::int64_t position = 0;
     bool playing = false;
+    LiveBlindLoopFixture loop;
 };
 
 class BlindContract final : private juce::Timer
 {
 public:
     explicit BlindContract (std::vector<float> signalIn, bool reuseIn,
-                            hypha::live_compare::RecoveryReason faultIn, bool approvalIn)
+                            hypha::live_compare::RecoveryReason faultIn, bool approvalIn, bool loopIn = false)
         : signal (std::move (signalIn)), reuse (reuseIn), fault (faultIn != hypha::live_compare::RecoveryReason::none),
-          approval (approvalIn), faultReason (faultIn)
+          approval (approvalIn), loopMode (loopIn), faultReason (faultIn)
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
@@ -125,7 +128,7 @@ private:
 
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (60), "Blind round trip timed out");
+        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (loopMode ? 110 : 60), "Blind round trip timed out");
         switch (stage)
         {
             case 0:
@@ -190,12 +193,21 @@ private:
                     require (post->applyLiveCompareMatch (plan, hypha::live_compare::MatchChoice::basis),
                              "manual MATCH accepted");
                     reusedGain = post->liveCompareStatus().gain;
+                    if (loopMode) clock.loop.requested.store (true);
                     reused = true;
                     break;
                 }
                 if (reuse && post->liveBlindStatus().stage == hypha::live_compare::BlindStage::idle)
                 {
                     if (! post->liveCompareStatus().matchReady) break;
+                    if (loopMode)
+                    {
+                        if (clock.loop.laps.load() < 8) break;
+                        const auto loopMatch = post->measureLiveCompare();
+                        require (loopMatch.ok() && loopMatch.seconds >= 3.0
+                            && std::abs (loopMatch.measuredDb + 6.0206) < 0.002,
+                            "short loops accumulate a real, continuous MATCH window");
+                    }
                     if (! click ("observatory-local-blind")) break; // editor observes the RT receipt on its own tick
                 }
                 if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::active) break;
@@ -212,6 +224,13 @@ private:
                 ++stage;
                 break;
             case 4:
+                if (loopMode && clock.loop.laps.load() < 100)
+                {
+                    require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active
+                        && post->liveCompareStatus().matched && std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f,
+                        "100 loop laps preserve the fixed MATCH and Blind trial");
+                    break;
+                }
                 if (post->liveBlindStatus().trial.played != 1 || audioBlocks.load() <= observedBlock + 1) break;
                 firstRatio = lastOutputRatio.load();
                 require (approval ? lastPcmError.load() < 0.0001f : std::abs (std::abs (firstRatio) - 0.5f) < 0.0001f,
@@ -375,6 +394,7 @@ private:
                 next = std::chrono::steady_clock::now();
             }
             clock.playing = play.load();
+            clock.loop.advance (clock.position);
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
                     buffer.setSample (c, f, signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
@@ -423,6 +443,7 @@ private:
     hypha::pair_preview::Ticket preview;
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false;
+    bool loopMode = false;
     hypha::live_compare::RecoveryReason faultReason;
     std::atomic<bool> injectGap { false };
     float reusedGain = 1.0f, held = 1.0f, firstRatio = 0.0f;
@@ -452,7 +473,7 @@ int main (int argc, char** argv)
     const auto fault = mode == "--fault" ? Reason::compensationOff
         : mode == "--fault-gap" ? Reason::callbackGap : mode == "--fault-content" ? Reason::contentChanged
         : mode == "--fault-stop" ? Reason::stopped : Reason::none;
-    BlindContract contract (std::move (signal), mode == "--reuse", fault, mode == "--approval");
+    BlindContract contract (std::move (signal), mode == "--reuse" || mode == "--loop", fault, mode == "--approval", mode == "--loop");
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

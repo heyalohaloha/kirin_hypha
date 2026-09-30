@@ -28,6 +28,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     block.projectValid = clock.hasPosition;
     block.playing = clock.playing;
     block.frames = frames;
+    block.loop = clock.loop;
     block.afterGap = liveCompare.gaps.observe (steadyNanos(), frames, preparedFormat.sampleRate);
     const int channels = buffer.getNumChannels();
     const bool usable = ! bypassed && ! nonRealtimeMode && channels > 0 && channels <= 2;
@@ -68,11 +69,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     float postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
     const bool coherent = (revision & 1u) == 0
         && revision == liveCompare.gainRevision.load (std::memory_order_acquire);
-    const bool positionChanged = liveCompare.previousProjectValid && block.project != liveCompare.previousProjectEnd;
-    const bool discontinuity = ! block.playing || ! block.projectValid || block.afterGap || positionChanged;
-    liveCompare.previousProjectEnd = block.project + frames;
-    liveCompare.previousProjectValid = block.projectValid && block.playing;
-    if (discontinuity) block.afterGap = true; // MATCH never joins history across stop/seek/loop.
+    const bool discontinuity = ! block.playing || ! block.projectValid || ! block.clockValid || block.afterGap;
     if (discontinuity)
     {
         liveCompare.timelineGeneration.fetch_add (1, std::memory_order_acq_rel);
@@ -96,7 +93,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             : ! usable ? Reason::formatChanged : outputTaken ? Reason::outputTaken
             : compensationOff ? Reason::compensationOff : contentHeld ? Reason::contentChanged
             : ! block.playing ? Reason::stopped : ! block.projectValid ? Reason::projectClockMissing
-            : callbackGap ? Reason::callbackGap : positionChanged ? Reason::positionChanged
+            : callbackGap ? Reason::callbackGap
             : ! block.clockValid ? Reason::clockMissing : Reason::gainChanged;
         if (! finishing) liveCompare.blind.invalidate (blindCommand, reason);
     }
@@ -138,6 +135,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                          gain,
                                                          liveCompare.postLevel, postTarget,
                                                          ceiling, blindCommand.active() && ! blindRejected);
+        if (report.timelineChanged && ! discontinuity)
+        {
+            liveCompare.timelineGeneration.fetch_add (1, std::memory_order_acq_rel);
+            liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
+            liveCompare.matched.store (false, std::memory_order_release);
+        }
         preRemaining = liveCompare.renderer.hasPre();
         if (blindCommand.active() && ! blindRejected)
         {

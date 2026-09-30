@@ -3,6 +3,7 @@
 #include "live_compare_offset_test.h"
 
 #include <cmath>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -249,6 +250,34 @@ static void unprovenOrShortWindowsAreRefused()
     require (farResult.failure == MatchFailure::outOfRange, "a difference beyond 24 dB is refused");
 }
 
+static void measurementProofNeverBridgesAnUnverifiedBlock()
+{
+    Pair pair;
+    pair.run (5.0, 1.0f, 0.5f);
+    const auto previous = pair.renderer.historyView();
+    require (previous.kValid, "positive history before fault");
+    std::array<float, frames> pcm {};
+    float* io[] { pcm.data(), pcm.data() };
+    BlockClock bad;
+    bad.frames = frames; bad.clock = bad.project = pair.clock;
+    bad.projectValid = bad.playing = true; // missing continuous clock
+    pair.renderer.render (*pair.ring, key, rate, bad, io, 2, false, 1.0f, pair.level, 1.0f, 1.0f);
+    require (! pair.renderer.historyView().kValid
+        && ! pair.renderer.historyStillValid (previous, previous.end - frames), "missing clock revokes old window proof");
+    require (! computeMatch (*pair.ring, pair.renderer, rate).ok(), "old window cannot measure during clock loss");
+    pair.clock += frames;
+    pair.run (1.0, 1.0f, 0.5f);
+    require (computeMatch (*pair.ring, pair.renderer, rate).failure == MatchFailure::tooShort,
+             "a new proven tail cannot glue to the earlier four seconds");
+    pair.run (4.0, 1.0f, 0.5f);
+    const auto next = computeMatch (*pair.ring, pair.renderer, rate);
+    require (next.ok() && next.proofBound && next.proof != previous.proof,
+             "fresh full window recovers with its own proof");
+    const auto plan = planMatch (next, 0.0);
+    require (plan.proofBound && plan.proof == next.proof && plan.preRun == next.preRun,
+             "approval carries the exact measurement proof");
+}
+
 int main()
 {
     matchesALevelDifference();
@@ -256,6 +285,7 @@ int main()
     aHeldAttenuationCarriesIntoTheNextMatch();
     validatesFinalGainsBeforeAdmission();
     unprovenOrShortWindowsAreRefused();
+    measurementProofNeverBridgesAnUnverifiedBlock();
     theMappingShowsAnUnreportedDelay();
     autoFollowsWithinReachAndStopsAtTheCeiling();
     aJumpNeedsTwoAgreeingEstimates();

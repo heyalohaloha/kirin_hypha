@@ -132,7 +132,7 @@ static void preSoundsOnlyWhenProven()
 
     const auto lost = pair.step (true, true, 1.0f, true);
     require (lost.verdict == Verdict::calibrating && lost.preWaiting && ! lost.preAudible, "a gap invalidates K and switches to POST");
-    require (lost.reason == RecoveryReason::calibrating, "lost correspondence has a recovery reason");
+    require (lost.reason == RecoveryReason::callbackGap, "lost correspondence retains the actual gap reason");
     require (pair.postUntouched(), "losing the proof switches at the block start without unproven PRE");
 }
 
@@ -286,9 +286,9 @@ static void pinFixesOneProjectRange()
              "more than the history is too short");
     pair.projectShift = 96000;
     pair.step (true, false, 1.0f);
-    require (pinLatest (*pair.ring, pair.renderer, 4096, 2).failure == PinFailure::notOneRange,
+    require (pinLatest (*pair.ring, pair.renderer, 4096, 2).failure == PinFailure::notProven,
              "a seek inside the window fixes nothing");
-    for (int i = 0; i < 9; ++i) pair.step (true, false, 1.0f);
+    for (int i = 0; i < 17; ++i) pair.step (true, false, 1.0f);
     const auto after = pinLatest (*pair.ring, pair.renderer, 4096, 2);
     require (after.ok() && after.projectStart == pair.clock - 4096 + 96000, "after the seek, a new range");
 }
@@ -297,7 +297,7 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc-", 0) == 0, "the name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc3-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");

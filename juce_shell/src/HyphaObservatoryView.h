@@ -59,7 +59,7 @@ struct LiveCompareFooter
     bool finishing = false, blindAvailable = false;
     bool preSelected = false;
     bool preWaiting = false;
-    bool matched = false;      // an explicit MATCH set the PRE gain in this session
+    bool matched = false, matchHeld = false; // fixed gain exists; held needs reconfirmation
     bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
     int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
@@ -73,7 +73,7 @@ struct LiveCompareFooter
         return finishing == other.finishing && blindAvailable == other.blindAvailable
             && entryEnabled == other.entryEnabled && active == other.active && pinAvailable == other.pinAvailable
             && preSelected == other.preSelected && preWaiting == other.preWaiting
-            && matched == other.matched && matchLimited == other.matchLimited
+            && matched == other.matched && matchHeld == other.matchHeld && matchLimited == other.matchLimited
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
             && contentHeld == other.contentHeld && following == other.following
             && compensationOff == other.compensationOff && recoveryHelp == other.recoveryHelp;

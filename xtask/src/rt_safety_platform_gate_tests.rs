@@ -65,7 +65,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(live_compare.contains("KirinLiveCompareMatchTests"));
     assert!(ci.contains("KirinLiveCompareMatchTests"));
     assert!(ci.contains(
-        "-R '^(kirin_live_compare_correspondence|kirin_live_compare_session|kirin_live_compare_match)$'"
+        "-R '^(kirin_live_compare_(correspondence|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'"
     ));
     assert!(source_gate.contains("KirinLiveCompareMatchTests"));
     assert!(source_gate.contains("KirinLiveCompareSessionTests"));
@@ -90,8 +90,20 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         ci.contains("--target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests")
     );
     assert!(
-        ci.contains("-R '^(kirin_live_compare_pin_product|kirin_live_compare_offset_product|kirin_live_compare_aax_group_product)$'")
+        ci.contains("-R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'")
     );
+    for target in [
+        "KirinLiveCompareLoopTests",
+        "KirinLiveCompareLoopFeasibilityTests",
+        "KirinLiveBlindProductTests",
+        "KirinLiveRecoveryProductTests",
+        "KirinLiveCompareLifecycleTests",
+        "Kirin_live_blind_session_Tests",
+        "Kirin_live_compare_completion_Tests",
+        "Kirin_live_compare_authority_Tests",
+    ] {
+        assert!(ci.contains(target) && source_gate.contains(target));
+    }
     let selected: Vec<_> = source_gate
         .lines()
         .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))

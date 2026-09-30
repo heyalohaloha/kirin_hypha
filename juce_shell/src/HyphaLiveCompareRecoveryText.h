@@ -16,6 +16,8 @@ inline const char* cause (Reason reason) noexcept
         case Reason::projectClockMissing: return "DAW position unavailable";
         case Reason::clockMissing: return "Audio clock unavailable";
         case Reason::calibrating: return "PRE timing is not confirmed";
+        case Reason::loopUnproven: return "PRE timing must be confirmed before LOOP";
+        case Reason::loopWaiting: return "Loop boundary timing is not confirmed";
         case Reason::writing: return "PRE data is being written";
         case Reason::beforeRun: return "PRE continuity changed";
         case Reason::notWritten: return "PRE data has not arrived";
@@ -59,6 +61,9 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
     if (state.compensationOff)
         return { reason, RecoveryAction::compensation, stopped ? "Enable compensation; END, then BLIND"
                                                               : "Enable DAW delay compensation" };
+    if (state.observation == Reason::loopUnproven)
+        return { reason, RecoveryAction::stopPlay, stopped ? "Turn LOOP off; END, then BLIND"
+                                                           : "Turn LOOP off and play; then enable LOOP" };
     if (! stopped)
     {
         if (reason == Reason::notWritten) return { reason, RecoveryAction::checkPre, "Play the DAW and check PRE is enabled" };
@@ -83,6 +88,11 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
+    if (state.active && state.observation == Reason::loopUnproven)
+        return result (RecoveryAction::stopPlay, "LOOP off, play to confirm PRE; then LOOP on");
+    if (state.active && state.observation == Reason::loopWaiting)
+        return result (RecoveryAction::automatic, state.matched || state.matchHeld
+            ? "Loop timing pending; MATCH held; POST plays" : "Checking PRE: auto-resume; POST plays");
     if (! state.active && state.reason != Reason::none)
     {
         if (state.postActual < 1.0f || state.postTarget < 1.0f)
@@ -107,6 +117,8 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         if (state.observation == Reason::notWritten) return result (RecoveryAction::checkPre, "PRE pending: check PRE is on (POST)");
         return result (RecoveryAction::automatic, "Checking PRE: auto-resume; POST plays");
     }
+    if (state.active && state.matchHeld && ! state.interrupted)
+        return result (RecoveryAction::selectPre, "MATCH held; rematch to confirm levels");
     if (! state.interrupted || ! state.active) return {};
     if (state.reason == Reason::ceiling) return result (RecoveryAction::checkLevels, "Level limit: rematch, select PRE (POST)");
     if (state.reason == Reason::nonFinite) return result (RecoveryAction::checkLevels, "Invalid audio: check chain (POST)");

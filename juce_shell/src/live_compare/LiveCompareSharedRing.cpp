@@ -34,7 +34,7 @@ std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept
 std::string sharedRingName (std::uint64_t pairKey)
 {
     char text[32] {};
-    std::snprintf (text, sizeof (text), "/kh-lc-%016llx", static_cast<unsigned long long> (pairKey));
+    std::snprintf (text, sizeof (text), "/kh-lc3-%016llx", static_cast<unsigned long long> (pairKey));
     return text;
 }
 

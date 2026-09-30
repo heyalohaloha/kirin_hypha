@@ -44,6 +44,15 @@ std::vector<juce::Rectangle<int>> boundsOf (const std::vector<juce::Component*>&
         bounds.push_back (component->isVisible() ? component->getBounds() : juce::Rectangle<int>());
     return bounds;
 }
+
+void recoveryPreview (observatory::View& view, const juce::String& name)
+{
+    const auto dir = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    if (dir.isEmpty()) return;
+    auto stream = juce::File (dir).getChildFile (name + ".png").createOutputStream();
+    require (stream != nullptr && juce::PNGImageFormat().writeImageToStream (
+        view.createComponentSnapshot (view.getLocalBounds()), *stream), "recovery preview renders");
+}
 }
 
 void verifyLiveCompareFooterContract()
@@ -57,7 +66,7 @@ void verifyLiveCompareFooterContract()
         for (auto preset : observatory::sizePresets)
         {
             post.setSize (preset.width, preset.height);
-            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::unknown); ++code)
+            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopWaiting); ++code)
                 for (int phase = 0; phase < 4; ++phase)
                 {
                     live_compare::Status recovery;
@@ -66,6 +75,7 @@ void verifyLiveCompareFooterContract()
                     recovery.active = phase < 2;
                     if (phase == 3) recovery.postTarget = recovery.postActual = 0.5f;
                     recovery.preSelected = recovery.preWaiting = phase == 0;
+                    recovery.matched = recovery.reason == live_compare::RecoveryReason::loopWaiting;
                     recovery.interrupted = phase == 1;
                     recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
                     recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
@@ -74,10 +84,15 @@ void verifyLiveCompareFooterContract()
                     footer.active = recovery.active;
                     footer.preSelected = recovery.preSelected;
                     footer.preWaiting = recovery.preWaiting;
+                    footer.matched = recovery.matched;
                     footer.entryEnabled = true;
                     footer.postHeldTenthsDb = phase == 3 ? -60 : 0;
                     post.setLiveCompareFooter (footer);
                     post.setFeedback (notice);
+                    if (phase == 0 && (recovery.reason == live_compare::RecoveryReason::loopWaiting
+                        || recovery.reason == live_compare::RecoveryReason::loopUnproven))
+                        recoveryPreview (post, "loop-" + juce::String (code) + "-"
+                            + juce::String (static_cast<int> (language)) + "-" + juce::String (preset.width));
                     if (juce::String (notice).contains ("RETURN"))
                         require (post.findChildWithID ("observatory-live-return")->isVisible(), "recovery RETURN exists");
                     if (! recovery.active)
@@ -225,6 +240,34 @@ void verifyLiveCompareFooterContract()
         require (preButton->isVisible() && menu->isVisible(), "the longest texts keep PRE, MATCH and MENU");
     }
     state.matchLimited = false;
+
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const auto preset : observatory::sizePresets)
+        {
+            post.setSize (preset.width, preset.height);
+            state.matchHeld = true;
+            post.setLiveCompareFooter (state);
+            require (! match->isVisible() || (readable (post, *match)
+                && match->getButtonText() == "HELD"), "retained MATCH says HELD in both languages");
+            live_compare::Status heldMatch;
+            heldMatch.active = heldMatch.matchHeld = true;
+            const auto* notice = live_compare_ui::namedRecovery (heldMatch);
+            post.setFeedback (notice);
+            recoveryPreview (post, "held-" + juce::String (static_cast<int> (language))
+                + "-" + juce::String (preset.width));
+            const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
+                ? typography::TextRole::status : typography::TextRole::action);
+            if (text_style::shownWidth (font, notice) > post.statusStripBounds().getWidth() - 12)
+                std::cerr << preset.width << " HELD width=" << text_style::shownWidth (font, notice)
+                    << " available=" << post.statusStripBounds().getWidth() - 12 << '\n';
+            require (text_style::shownWidth (font, notice) <= post.statusStripBounds().getWidth() - 12,
+                     "held MATCH recovery reads whole at every size");
+        }
+    }
+    state.matchHeld = false;
+    post.setFeedback ({});
 
     // INV-LC16: while PRE follows POST the MATCH slot reads AUTO, in the same place.
     for (const auto preset : { observatory::sizePresets[3], observatory::sizePresets[4] })

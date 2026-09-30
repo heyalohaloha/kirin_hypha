@@ -13,7 +13,7 @@ enum class RecoveryReason : std::uint8_t
     calibrating, writing, beforeRun, notWritten, overwritten, torn, foreignRing,
     pairChanged, preUnavailable, formatChanged, restored, compensationOff, contentChanged,
     bypassed, offline, outputTaken, gainChanged, nonFinite, ceiling, blockTooLarge,
-    randomUnavailable, unknown
+    randomUnavailable, unknown, loopUnproven, loopWaiting
 };
 
 inline RecoveryReason recoveryReason (Verdict verdict) noexcept
@@ -31,6 +31,8 @@ inline RecoveryReason recoveryReason (Verdict verdict) noexcept
         case Verdict::notWritten: return R::notWritten;
         case Verdict::overwritten: return R::overwritten;
         case Verdict::torn: return R::torn;
+        case Verdict::loopUnproven: return R::loopUnproven;
+        case Verdict::loopWaiting: return R::loopWaiting;
     }
     return R::unknown;
 }

@@ -15,7 +15,7 @@ int main()
     using Clock = std::chrono::steady_clock;
     auto ring = std::make_unique<Ring>();
     for (const int frames : { 64, 128, 256, 512 })
-    for (const int mode : { 0, 1, 2, 3 }) // POST, PRE, Blind, Blind failed correspondence
+    for (const int mode : { 0, 1, 2, 3, 4 }) // POST, PRE, Blind, failed correspondence, proven loop
     {
         ring->initialise (123, 48000);
         ring->header.demand.store (1);
@@ -37,6 +37,15 @@ int main()
             block.clock = block.project = static_cast<std::int64_t> (i) * frames;
             block.clockValid = block.projectValid = block.playing = true;
             block.frames = frames;
+            if (mode == 4 && i >= 400)
+            {
+                constexpr std::int64_t length = 24000;
+                const auto origin = static_cast<std::int64_t> (400) * frames;
+                block.project = origin + (block.clock - origin) % length;
+                block.loop = { true, true, static_cast<double> (block.project) / 24000.0,
+                    static_cast<double> (origin) / 24000.0,
+                    static_cast<double> (origin + length) / 24000.0, 120.0 };
+            }
             feeder.feed (*ring, block, input, 2);
             if (mode >= 2) blind.start (true);
             if (mode == 3) block.afterGap = true;

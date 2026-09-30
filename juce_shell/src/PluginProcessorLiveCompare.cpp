@@ -141,6 +141,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
     liveCompare.sessionActive.store (false, std::memory_order_release);
     liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
     liveCompare.matched.store (false, std::memory_order_release);
+    liveCompare.matchRetained.store (false, std::memory_order_release);
     if (liveCompare.blindStage != hypha::live_compare::BlindStage::idle
         && liveCompare.blindStage != hypha::live_compare::BlindStage::finishing)
         liveCompare.blindStage = hypha::live_compare::BlindStage::invalidated;
@@ -206,6 +207,12 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         return { MatchFailure::stale };
     const auto failure = hypha::live_compare::validateMatchPlan (plan, choice);
     if (failure != MatchFailure::none) return { failure };
+    if (plan.proofBound)
+    {
+        const auto history = liveCompare.renderer.historyView();
+        if (! history.kValid || history.proof != plan.proof || history.preRun != plan.preRun)
+            return { MatchFailure::stale };
+    }
     const bool lower = choice == MatchChoice::lowerPost;
     const double preDb = lower ? 0.0 : plan.preGainDb;
     const double postDb = lower ? plan.lowerPostGainDb : plan.postGainDb;
@@ -224,6 +231,7 @@ hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareM
         : liveCompare.sessionGeneration.load (std::memory_order_acquire), std::memory_order_release);
     liveCompare.matchLimited.store (choice == MatchChoice::limitPre, std::memory_order_release);
     liveCompare.matched.store (true, std::memory_order_release);
+    liveCompare.matchRetained.store (true, std::memory_order_release);
     liveCompare.gainRevision.fetch_add (1, std::memory_order_release);
     return {};
 }
@@ -365,6 +373,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     const bool permitted = liveCompare.authority.permitted();
     status.matched = permitted && liveCompare.matched.load (std::memory_order_acquire);
     status.matched = status.matched && liveCompare.matchGeneration.load (std::memory_order_acquire) == status.sessionGeneration;
+    status.matchHeld = permitted && liveCompare.matchRetained.load (std::memory_order_acquire) && ! status.matched;
     status.matchLimited = liveCompare.matchLimited.load (std::memory_order_acquire);
     const auto revision = liveCompare.gainRevision.load (std::memory_order_acquire);
     status.matchReady = status.matched && ! status.matchLimited && (revision & 1u) == 0
@@ -376,6 +385,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.preWaiting = permitted && liveCompare.preWaiting.load (std::memory_order_acquire);
     status.interrupted = selection.reason() != hypha::live_compare::RecoveryReason::none;
     status.verdict = static_cast<hypha::live_compare::Verdict> (liveCompare.verdict.load (std::memory_order_acquire));
+    status.matchReady = status.matchReady && status.verdict == hypha::live_compare::Verdict::accepted;
     status.gain = liveCompare.gain.load (std::memory_order_acquire);
     status.postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
     status.contentHeld = liveCompare.contentHold.load (std::memory_order_acquire);

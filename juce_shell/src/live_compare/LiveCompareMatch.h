@@ -33,6 +33,8 @@ struct MatchResult
     double seconds = 0.0;
     std::uint64_t generation = 0;
     bool generationBound = false; // processor-measured plans must stay on the same continuous session
+    std::uint64_t proof = 0, preRun = 0;
+    bool proofBound = false;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
 
@@ -52,6 +54,8 @@ struct MatchPlan
     double ceilingDbtp = 0.0;
     std::uint64_t generation = 0;
     bool generationBound = false;
+    std::uint64_t proof = 0, preRun = 0;
+    bool proofBound = false;
 };
 
 MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;

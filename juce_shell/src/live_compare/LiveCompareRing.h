@@ -1,4 +1,5 @@
 #pragma once
+#include "LiveCompareLoop.h"
 
 #include <algorithm>
 #include <atomic>
@@ -13,7 +14,7 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-constexpr std::uint32_t ringVersion = 2;
+constexpr std::uint32_t ringVersion = 3;
 constexpr std::uint32_t ringChannels = 2;
 constexpr std::uint32_t ringCapacityFrames = 1u << 19; // power of two: about 10.9 s at 48 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
@@ -27,6 +28,7 @@ static_assert (std::atomic<std::int64_t>::is_always_lock_free);
 static_assert (std::atomic<std::uint32_t>::is_always_lock_free);
 static_assert (std::atomic<std::int32_t>::is_always_lock_free);
 static_assert (std::atomic<float>::is_always_lock_free);
+static_assert (std::atomic<double>::is_always_lock_free);
 
 enum DescriptorFlag : std::uint32_t
 {
@@ -60,6 +62,11 @@ struct RingHeader
     std::atomic<std::int64_t> runStart { 0 };
     std::atomic<std::int64_t> writeEnd { 0 };
     std::atomic<std::uint64_t> published { 0 };
+    // One continuity-checked anchor, not a descriptor/PCM history expansion. These fields are
+    // covered by seq and valid only in this run. A loop anchor never calibrates an initial K.
+    std::atomic<std::int64_t> runProject { 0 }, loopClock { 0 }, loopProject { 0 };
+    std::atomic<std::uint32_t> anchorFlags { 0 }; // bit 0: linear origin; bit 1: loop anchor
+    std::atomic<double> loopPpq { 0 }, loopStart { 0 }, loopEnd { 0 }, loopBpm { 0 };
     BlockDescriptor descriptors[ringDescriptors];
 };
 
@@ -86,6 +93,7 @@ struct Ring
         h.runStart.store (0, std::memory_order_relaxed);
         h.writeEnd.store (0, std::memory_order_relaxed);
         h.published.store (0, std::memory_order_relaxed);
+        h.anchorFlags.store (0, std::memory_order_relaxed);
         for (auto& d : h.descriptors)
         {
             d.seq.store (0, std::memory_order_relaxed);
@@ -123,6 +131,7 @@ struct BlockClock
     bool projectValid = false;
     bool playing = false;
     bool afterGap = false;    // the host did not call this side for a while before this block
+    LoopContext loop;
 };
 
 // PRE, Audio Thread. A run starts whenever the clock does not continue the previous block or the
@@ -139,7 +148,9 @@ public:
             haveRun = false; // the next valid block must open a new run
             return false;
         }
-        const bool newRun = ! haveRun || block.clock != runEnd || block.afterGap;
+        const auto continuity = timeline.observe (block, h.sampleRate.load (std::memory_order_relaxed));
+        const bool newRun = ! haveRun || block.clock != runEnd || continuity.broken
+            || (wasLooping && ! block.loop.active);
         const auto seq = h.seq.load (std::memory_order_relaxed);
         h.seq.store (seq + 1, std::memory_order_relaxed);
         std::atomic_thread_fence (std::memory_order_release);
@@ -148,7 +159,21 @@ public:
             h.run.store (h.run.load (std::memory_order_relaxed) + 1, std::memory_order_relaxed);
             h.runStart.store (block.clock, std::memory_order_relaxed);
             h.writeEnd.store (block.clock, std::memory_order_relaxed);
+            h.runProject.store (block.project, std::memory_order_relaxed);
+            h.anchorFlags.store (block.playing && block.projectValid && ! block.loop.active ? 1u : 0u,
+                                 std::memory_order_relaxed);
         }
+        if (block.loop.active && (newRun || ! wasLooping) && block.loop.usable (h.sampleRate.load (std::memory_order_relaxed)))
+        {
+            h.loopClock.store (block.clock, std::memory_order_relaxed);
+            h.loopProject.store (block.project, std::memory_order_relaxed);
+            h.loopPpq.store (block.loop.ppq, std::memory_order_relaxed);
+            h.loopStart.store (block.loop.start, std::memory_order_relaxed);
+            h.loopEnd.store (block.loop.end, std::memory_order_relaxed);
+            h.loopBpm.store (block.loop.bpm, std::memory_order_relaxed);
+            h.anchorFlags.store (h.anchorFlags.load (std::memory_order_relaxed) | 2u, std::memory_order_relaxed);
+        }
+        wasLooping = block.loop.active;
         for (std::uint32_t channel = 0; channel < ringChannels; ++channel)
         {
             const auto* source = input[std::min (static_cast<int> (channel), inputChannels - 1)];
@@ -175,10 +200,12 @@ public:
         return newRun;
     }
 
-    void reset() noexcept { haveRun = false; }
+    void reset() noexcept { haveRun = false; timeline.reset(); }
 
 private:
     bool haveRun = false;
     std::int64_t runEnd = 0;
+    LoopTimeline timeline;
+    bool wasLooping = false;
 };
 }

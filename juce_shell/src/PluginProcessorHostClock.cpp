@@ -23,12 +23,22 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     uint32_t outputPresentationSamples = 0;
     bool looping = false;
     hypha::HostAuxiliaryClock auxiliary;
+    hypha::live_compare::LoopContext loop;
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
         {
             playing = pos->getIsPlaying();
             recording = pos->getIsRecording();
             looping = pos->getIsLooping();
+            loop.active = looping;
+            const auto points = pos->getLoopPoints();
+            const auto ppq = pos->getPpqPosition(), bpm = pos->getBpm();
+            if (points && ppq && bpm)
+            {
+                loop.valid = true;
+                loop.ppq = *ppq; loop.bpm = *bpm;
+                loop.start = points->ppqStart; loop.end = points->ppqEnd;
+            }
             if (const auto timeSamples = pos->getTimeInSamples())
             {
                 hasPosition = true;
@@ -83,7 +93,7 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     const hypha::HostProcessClock clock { playing, hasPosition, clockSource, positionSamples, hasClockEnd,
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
-             outputPresentationValid, outputPresentationSamples, looping, auxiliary };
+             outputPresentationValid, outputPresentationSamples, loop, auxiliary };
     // Release PRE never issues a capture request. Keep its Audio Thread free of an otherwise
     // unused snapshot write while retaining both-role clock diagnostics in Debug validation.
    #if JUCE_DEBUG

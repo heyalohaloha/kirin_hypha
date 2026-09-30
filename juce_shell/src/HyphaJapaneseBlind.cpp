@@ -8,6 +8,14 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "PRE timing must be confirmed before LOOP", u8"LOOP前にPREの時刻対応の確認が必要です" },
+    { "Loop boundary timing is not confirmed", u8"ループ境界の時刻対応を確認できません" },
+    { "Turn LOOP off and play; then enable LOOP", u8"LOOPを切って再生し、PRE確認後にLOOPを戻してください" },
+    { "Turn LOOP off; END, then BLIND", u8"LOOPを切り、終了してBLINDを開始してください" },
+    { "LOOP off, play to confirm PRE; then LOOP on", u8"LOOPを切って再生→PRE確認後にLOOPを戻す" },
+    { "Loop timing pending; MATCH held; POST plays", u8"ループ時刻確認中・MATCH保持（POST出力）" },
+    { "MATCH held; rematch to confirm levels", u8"MATCH値を保持中・再MATCHで音量を確認" },
+    { "HELD", u8"保持" },
     { "Stop/play DAW; END, then BLIND", u8"DAWを停止→再生し、終了後にBLINDへ" },
     { "Stopped: RETURN, then LISTEN (POST)", u8"中断：RETURN後にLISTEN（POST出力）" },
     { "Comparison releasing; POST plays", u8"比較を終了処理中（POST出力）" },

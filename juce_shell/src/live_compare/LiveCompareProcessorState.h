@@ -32,7 +32,7 @@ struct LiveBlindStatus
 
 struct Status
 {
-    bool finishing = false, matched = false, matchLimited = false, matchReady = false;
+    bool finishing = false, matched = false, matchLimited = false, matchReady = false, matchHeld = false;
     float postActual = 1.0f;
     std::uint64_t sessionGeneration = 0;
     bool active = false;
@@ -61,6 +61,7 @@ struct ProcessorState
     NamedSelection selection;
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
     std::atomic<bool> matched { false }, matchLimited { false };
+    std::atomic<bool> matchRetained { false }; // fixed gains remain, independently of current proof
     std::atomic<std::uint32_t> matchRun { 0 };
     std::atomic<float> postActual { 1.0f };
     BlindStage blindStage = BlindStage::idle; // message thread only
@@ -73,8 +74,6 @@ struct ProcessorState
     std::atomic<std::uint64_t> timelineGeneration { 0 };
     std::atomic<std::uint64_t> matchGeneration { 0 };
     std::uint64_t blindApprovalTimeline = 0;
-    std::int64_t previousProjectEnd = 0; // audio thread only, blind continuity
-    bool previousProjectValid = false;
     local_blind::RtPublicationSlot<SharedRingMapping> ring;
     PreFeeder feeder;
     PostRenderer renderer;

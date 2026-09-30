@@ -96,7 +96,8 @@ public:
         o.pre.playing = o.post.playing = true;
         o.pre.project = projectAt (emitted);
         o.post.project = ! looping ? emitted - delay
-            : position == Position::content ? projectAt (emitted - delay)
+            : position == Position::content || (enabledDuringRun && emitted < loopStart + loopLength)
+                ? projectAt (emitted - delay)
             : std::max (loopStart, o.pre.project - delay);
         // Two explicit synthetic clock assumptions, not universal format guarantees. The
         // counter origins do not encode latency. The VST3-like clock includes compensation.
@@ -105,6 +106,9 @@ public:
         o.ppq = static_cast<double> (o.post.project) / 24000.0; // constant 120 BPM fixture only
         o.loopStartPpq = looping ? static_cast<double> (loopStart) / 24000.0 : 0.0;
         o.loopEndPpq = looping ? static_cast<double> (loopStart + loopLength) / 24000.0 : 0.0;
+        o.pre.loop = { looping, looping, static_cast<double> (o.pre.project) / 24000.0,
+                       o.loopStartPpq, o.loopEndPpq, 120.0 };
+        o.post.loop = { looping, looping, o.ppq, o.loopStartPpq, o.loopEndPpq, 120.0 };
         return o;
     }
 
@@ -119,9 +123,10 @@ public:
         enabledDuringRun = true;
     }
 
-    Decision step (int frames)
+    Decision step (int frames, void (*alterObservation) (Observation&) = nullptr)
     {
-        const auto o = observations (frames);
+        auto o = observations (frames);
+        if (alterObservation != nullptr) alterObservation (o);
         lastStart = emitted;
         lastFrames = frames;
         for (int i = 0; i < frames; ++i)

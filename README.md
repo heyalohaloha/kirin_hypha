@@ -621,6 +621,22 @@ and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checke
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
    the DAW reports, and another audition are never attenuated. Measurements remain before this path.
 
+For a DAW loop, start **LISTEN → MATCH** during ordinary playback, then enable the DAW's loop.
+No Hypha LOOP button or per-lap approval is needed. With a confirmed, constant-tempo loop and
+continuous PRE/POST timing, the fixed gain and selection stay unchanged at each wrap. Short loops
+can accumulate real playback time for **MATCH again**; Hypha does not duplicate recorded samples.
+If timing becomes uncertain, POST plays at the approved level and PRE WAIT explains the next step.
+**HELD** means the previous gain remains, but MATCH needs reconfirmation—not that the current
+levels are verified equal. A failed or cancelled rematch never discards the previous gain.
+
+Starting LISTEN or BLIND for the first time while already looping cannot establish a unique PRE
+occurrence from repeated timeline positions. The screen asks you to turn LOOP off and play to
+confirm PRE, then turn LOOP back on. Missing loop timing, a tempo/range change or a callback gap
+also requires reconfirmation. Some hosts hold POST's reported position at the loop start while
+delayed audio is still arriving: that interval stays on POST, not unverified PRE. Long-delay
+clamped loops may not support continuous comparison. These conditions have local fixture coverage;
+this implementation has not yet been qualified in a real DAW on macOS or Windows.
+
 In **MENU**, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
 PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
 seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise Hypha says why.
@@ -675,8 +691,10 @@ attenuation into BLIND. A match outside the final ±24 dB range reports why it c
 it does not remain in preparation without an explanation.
 
 Live Blind compares different moments within one continuous playback; it does not claim identical
-sample ranges, an ABX identification test, or proof of better sound. Stop, seek, loop wrap, clock
-failure, bypass, offline render or a safety failure ends that trial without automatically restarting.
+sample ranges, an ABX identification test, or proof of better sound. A confirmed loop may continue
+the same trial only while every block remains verified. Even one POST fallback invalidates the
+trial; it is never counted as the other Source. Stop, seek, unconfirmed loop timing, clock failure,
+bypass, offline render or a safety failure ends that trial without automatically restarting.
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
 Existing attenuation stays held; an END already requested continues to actual normal level.
 The first detected interruption reason survives teardown and remains on the stopped screen with

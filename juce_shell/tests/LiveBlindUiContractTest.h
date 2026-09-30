@@ -24,7 +24,7 @@ inline void verifyLiveBlindUiContract()
     {
         i18n::ScopedLanguage scoped (language);
         for (auto preset : observatory::sizePresets)
-            for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::unknown); ++phase)
+            for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::loopWaiting); ++phase)
             {
                 live_compare::LiveBlindStatus state;
                 state.stage = phase == 0 ? Stage::preparing : phase == 1 ? Stage::approval
