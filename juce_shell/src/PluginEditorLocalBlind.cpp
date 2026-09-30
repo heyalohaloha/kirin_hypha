@@ -116,7 +116,7 @@ void KirinHyphaEditor::openLocalBlindProduct()
     localBlindOpen = true;
     localBlindView.clearActionNotice();
     refreshLocalBlindProduct();
-    localBlindView.grabKeyboardFocus();
+    if (localBlindView.isShowing()) localBlindView.grabKeyboardFocus();
 }
 
 void KirinHyphaEditor::beginLocalBlindProductCapture()

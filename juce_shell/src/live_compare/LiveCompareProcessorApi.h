@@ -2,7 +2,7 @@
 // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
 hypha::live_compare::StartResult startLiveCompare();
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
-void stopLiveCompare();
+void stopLiveCompare (hypha::live_compare::RecoveryReason reason = hypha::live_compare::RecoveryReason::none);
 void selectLiveComparePre (bool pre) noexcept;
 void setLiveCompareGain (float linear) noexcept;
 hypha::live_compare::MatchResult measureLiveCompare();
@@ -28,5 +28,5 @@ void serviceLiveBlind();
 bool approveLiveBlindMatch (std::uint64_t generation);
 hypha::live_compare::LiveBlindStatus liveBlindStatus() const;
 bool selectLiveBlind (int stimulus);
-bool answerLiveBlind (int answer);
+bool revealLiveBlind();
 void closeLiveBlind();

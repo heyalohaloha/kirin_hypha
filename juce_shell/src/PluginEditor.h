@@ -128,7 +128,7 @@ private:
     void showReferenceInformationMenu();
     void refreshCaptureControls();
     hypha::reference_ui::CaptureControls captureStatus{true};
-    void layoutReferenceAudition (juce::Rectangle<int>);
+    void layoutReferenceAudition();
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
@@ -193,7 +193,7 @@ private:
     juce::String liveCompareWarningText() const { return {}; }
 #endif
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
-    void layoutFeedbackStrip();
+    void layoutBodyAndFeedback();
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);

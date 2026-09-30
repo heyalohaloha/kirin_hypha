@@ -657,10 +657,12 @@ same channel; in Pro Tools, turn off its **Target** button.
 
 ## Local PRE/POST Blind Compare
 
-**BLIND** is a one-pass live preference trial, without Capture or rewinding. Press BLIND, keep
+**BLIND** is a one-pass live blind comparison, without Capture or rewinding. Press BLIND, keep
 the DAW playing, and Hypha prepares a fixed level match. Switch **SOURCE 1 / SOURCE 2** as often
-as needed during that same playback. Once both have actually sounded, **ANSWER** offers source 1,
-source 2, no preference, or cannot tell, then reveals the assignment. No Kirin OS is required.
+as needed during that same playback. Once both have actually sounded, **REVEAL** shows the
+PRE/POST assignment in one click, without a preference question or another playback. You can keep
+switching after reveal, or press **END**. Live Blind does not collect preference answers, save a
+vote, learn from it, or change audio from it. No Kirin OS is required.
 
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
 another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match. If matching
@@ -677,6 +679,21 @@ sample ranges, an ABX identification test, or proof of better sound. Stop, seek,
 failure, bypass, offline render or a safety failure ends that trial without automatically restarting.
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
 Existing attenuation stays held; an END already requested continues to actual normal level.
+The first detected interruption reason survives teardown and remains on the stopped screen with
+POST's output status and recovery instructions. A later callback cannot overwrite that reason or
+attribute an old failure to a new attempt. It describes the detected condition, not an inferred
+fault in another plug-in. END clears it only after the normal-level output receipt.
+In named LISTEN, PRE WAIT has persistent guidance: ordinary timing checks resume automatically;
+a changed content offset requires stopping and restarting DAW playback; disabled delay compensation
+requires enabling it. Selecting POST leaves the comparison's approved attenuation intact.
+The retained fault and the current recovery condition are separate: END alone does not clear a
+content-timing hold. The stop/play instruction remains until a stopped audio callback clears it.
+After an automatically ended session at normal level, the route is **MENU → LISTEN**, not a
+nonexistent END button. Held attenuation instead keeps the visible **RETURN +x dB** control.
+Blind interruption and its first reason are committed together for the sampled trial; named PRE
+selection uses the same command-bound rule, so a late callback cannot clear a newer selection.
+Reference and its access panel follow the parent editor's current body bounds when a recovery
+line appears or disappears. Unchanged geometry does not relayout those panes.
 Meters, names, gain details and their accessibility are isolated until the comparison ends.
 The new one-pass/END flow still requires real-host acceptance on each supported format.
 
@@ -826,6 +843,10 @@ The macOS release ship set is one JUCE role-parameterised processor/editor compi
 Run the macOS pluginval gate before opening Studio One for manual validation. It recreates the exact role-first installed layout (`PRE Kirin Hypha.vst3` / `POST Kirin Hypha.vst3`) in an isolated runtime directory, resolves each executable through `CFBundleExecutable`, verifies the preserved component IDs and host names, and then runs pluginval at strictness level 5 against those staged bundles. Logs are written to `target/pluginval/logs/macos`, while plug-in runtime writes stay under `target/pluginval/runtime/macos/`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only for the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
 
 ## Maintainer release packaging
+
+For opt-in AAX builds, start with the [AAX build and signing entry guide](docs/aax_build_signing_entry.md).
+It separates diagnostic builds, local host validation and distribution candidates, and identifies
+the macOS and Windows signing inputs without storing customer information or credentials here.
 
 On the release machine, after signing and notarizing the four source plug-in bundles with `cargo run --package xtask -- notarize`, build the Lemon Squeezy installer package with the Kirin OS-style release scripts:
 

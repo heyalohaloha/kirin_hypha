@@ -145,7 +145,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         if (total (widthsFor (set, briefWidth, false)) <= actions.getWidth()) { chosen = &set; break; }
     }
 
-    const juce::String preHelp = state.compensationOff
+    const juce::String preHelp = *state.recoveryHelp != 0 ? state.recoveryHelp : state.compensationOff
         ? "PRE waits while delay compensation is off in Pro Tools. Turn it on to hear PRE"
         : state.contentHeld
         ? "PRE is held because the latency changed. Stop and restart playback"

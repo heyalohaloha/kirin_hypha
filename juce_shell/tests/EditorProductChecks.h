@@ -161,10 +161,13 @@ inline void verifyFoldedFeedbackStrip()
                 (shipping->*privateMember (ShowToast {})) (message);
                 const auto body = view->bodyBounds();
                 const auto area = view->statusStripBounds();
-                require (strip->isVisible() == folded, "the strip shows feedback only where the footer folds");
-                require (view->feedbackDetailsAnchor().isVisible() == ! folded,
-                         "the footer's status line shows feedback where the footer stays");
-                if (folded)
+                const bool overflow = text_style::shownWidth (monoFont (view->presentationContext(),
+                    typography::TextRole::action), message) > view->sessionBounds().getWidth() - 14;
+                const bool usesStrip = folded || overflow;
+                require (strip->isVisible() == usesStrip, "folded or overflowing feedback uses the full-width strip");
+                require (view->feedbackDetailsAnchor().isVisible() == ! usesStrip,
+                         "fitting feedback stays in the footer");
+                if (usesStrip)
                 {
                     require (area.getX() == body.getX() && area.getRight() == body.getRight()
                                  && area.getBottom() == body.getBottom() && area.getY() > body.getY(),

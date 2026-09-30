@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LiveCompareCorrespondence.h"
+#include "LiveCompareRecovery.h"
 
 #include <algorithm>
 #include <atomic>
@@ -123,6 +124,7 @@ private:
 struct RenderReport
 {
     Verdict verdict = Verdict::noClock;
+    RecoveryReason reason = RecoveryReason::none;
     bool preAudible = false;   // PRE weight above zero at the end of the block
     bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
     bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
@@ -213,12 +215,14 @@ public:
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
         {
+            report.reason = RecoveryReason::formatChanged;
             weight = 0.0f;
             report.preWaiting = preSelected;
             return report;
         }
         if (block.frames > capacity)
         {
+            report.reason = RecoveryReason::blockTooLarge;
             weight = 0.0f;
             report.preWaiting = preSelected;
             post.apply (io, channels, block.frames, postTarget);
@@ -230,6 +234,7 @@ public:
         matchOffset.store (decision.k, std::memory_order_release);
         matchOffsetValid.store (decision.kValid, std::memory_order_release);
         report.verdict = decision.verdict;
+        report.reason = recoveryReason (decision.verdict);
         if (decision.verdict != Verdict::accepted)
         {
             weight = 0.0f; // switch to POST at the block start
@@ -244,8 +249,10 @@ public:
             for (int channel = 0; channel < channels; ++channel)
                 for (std::int32_t i = 0; i < block.frames; ++i)
                     finitePost = finitePost && std::isfinite (io[channel][i]);
-        if (! finitePost || ((blind || preSelected || weight > 0.0f)
-            && ! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear)))
+        report.reason = ! finitePost ? RecoveryReason::nonFinite
+            : (blind || preSelected || weight > 0.0f)
+                ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
+        if (report.reason != RecoveryReason::none)
         {
             weight = 0.0f;
             report.guardTripped = true;
@@ -290,14 +297,16 @@ private:
     // INV-LC14: a PRE block is never output when a sample is not finite or, raised by the approved
     // gain, peaks above the ceiling fixed at MATCH. Sample peaks miss inter-sample peaks, so this
     // guard alone does not prove the true peak.
-    bool guardPasses (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
+    RecoveryReason guardFailure (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
     {
         const float limit = preGain > 1.0f ? ceilingLinear / preGain : std::numeric_limits<float>::infinity();
         for (const float* channel : { left.get(), right.get() })
             for (std::int32_t i = 0; i < frames; ++i)
-                if (! std::isfinite (channel[i]) || std::fabs (channel[i]) > limit)
-                    return false;
-        return true;
+            {
+                if (! std::isfinite (channel[i])) return RecoveryReason::nonFinite;
+                if (std::fabs (channel[i]) > limit) return RecoveryReason::ceiling;
+            }
+        return RecoveryReason::none;
     }
 
     // Audio Thread: the POST input (A, before any output mixing) indexed by POST's continuous clock.

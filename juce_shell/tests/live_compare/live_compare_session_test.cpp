@@ -2,6 +2,7 @@
 #include "../../src/live_compare/LiveComparePin.h"
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
+#include "../../src/live_compare/LiveBlindSession.h"
 
 #include <cmath>
 #include <cstdio>
@@ -131,6 +132,7 @@ static void preSoundsOnlyWhenProven()
 
     const auto lost = pair.step (true, true, 1.0f, true);
     require (lost.verdict == Verdict::calibrating && lost.preWaiting && ! lost.preAudible, "a gap invalidates K and switches to POST");
+    require (lost.reason == RecoveryReason::calibrating, "lost correspondence has a recovery reason");
     require (pair.postUntouched(), "losing the proof switches at the block start without unproven PRE");
 }
 
@@ -213,10 +215,12 @@ static void guardKeepsPreUnderTheCeiling()
     const auto tripped = raised.step (true, true, 2.0f);
     require (tripped.guardTripped && ! tripped.preAudible && raised.postUntouched(),
              "a raised PRE over the ceiling is POST from the block start");
+    require (tripped.reason == RecoveryReason::ceiling, "ceiling rejection retains its exact cause");
     Pair poisoned;
     poisoned.calibrate (true, 1.0f);
     const auto nan = poisoned.step (true, true, 1.0f, false, 2, true);
     require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
+    require (nan.reason == RecoveryReason::nonFinite, "invalid audio is not misreported as a level limit");
 }
 
 // A gain that changes while PRE sounds (a new MATCH, AUTO) moves linearly over 50 ms, never in a
@@ -368,6 +372,18 @@ static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
 
 int main()
 {
+    BlindSession trial;
+    NamedSelection selection;
+    for (int i = 0; i < 1000; ++i)
+    {
+        trial.start ((i & 1) != 0); selection.select (true);
+        const auto command = trial.command(); const auto named = selection.command();
+        inRt = true;
+        trial.observe (command, true);
+        trial.invalidate (command, RecoveryReason::callbackGap);
+        selection.fail (named, RecoveryReason::ceiling);
+        inRt = false;
+    }
     for (const bool choosePre : { false, true })
     {
         Pair pair;

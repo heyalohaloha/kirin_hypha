@@ -104,7 +104,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     {processorRef.setReferenceCaptureTonalRange(start,end);};
     scaleRoot.addChildComponent (referenceView); scaleRoot.addChildComponent(captureStatus);
 }
-void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
+void KirinHyphaEditor::layoutReferenceAudition()
 {
     // A selected domain survives VU/Blind replacement, but does not own the visible surface.
     // Timer refresh must not bring an invisible Reference pane over the VU return control.
@@ -112,13 +112,13 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
         && ! observatoryView.hybridVuVisible() && ! localBlindOpen && ! liveBlindOpen;
     const bool access = hypha::reference_ui::needsAccessPanel (referenceView.state());
     processorRef.setReferenceViewPresented (reference);
-    referenceView.setBounds (body);
+    const bool referenceWasVisible = referenceView.isVisible(), accessWasVisible = referenceAccessView.isVisible();
     referenceView.setVisible (reference && ! access);
-    if (referenceView.isVisible()) referenceView.toFront (false);
-    referenceAccessView.setBounds (body);
+    if (referenceView.isVisible() && ! referenceWasVisible) referenceView.toFront (false);
     referenceAccessView.setVisible (reference && access);
-    if (referenceAccessView.isVisible()) referenceAccessView.toFront (false);
+    if (referenceAccessView.isVisible() && ! accessWasVisible) referenceAccessView.toFront (false);
     layoutLocalBlindProduct(); refreshCaptureControls();
+    layoutBodyAndFeedback();
 }
 void KirinHyphaEditor::showReferenceInformationMenu()
 {
@@ -438,6 +438,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.actionText = "EDIT GENRE";
     referenceView.setState (std::move (state));
     referenceAccessView.setOwned (processorRef.licenseIsOs());
-    layoutReferenceAudition (referenceView.getBounds());
+    layoutReferenceAudition();
 }
 #endif

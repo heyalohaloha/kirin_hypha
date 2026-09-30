@@ -13,7 +13,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     liveCompare.blind.end();
     liveCompare.blindStage = BlindStage::finishing;
     liveCompare.matched.store (false, std::memory_order_release);
-    liveCompare.preSelected.store (false, std::memory_order_release);
+    liveCompare.selection.end();
     liveCompare.completion.request();
     startTimer (50);
 }
@@ -74,12 +74,14 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
         return StartResult::notReady;
     }
     liveCompare.blindScope = epoch;
+    liveCompare.blind.reset();
+    liveCompare.blindPreparationReason = RecoveryReason::none;
     ++liveCompare.blindPreparation;
     liveCompare.blindMeasuredEnd = 0;
     liveCompare.blindWaiting = MatchFailure::notProven;
     liveCompare.blindStage = BlindStage::preparing;
     // The only sound during preparation is POST. The match itself can be reused unchanged.
-    liveCompare.preSelected.store (false, std::memory_order_release);
+    liveCompare.selection.select (false);
     startTimer (50);
     return StartResult::started;
 }
@@ -92,7 +94,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         if (liveCompare.blind.view().invalidated)
         {
             liveCompare.blindStage = BlindStage::invalidated;
-            stopLiveCompare();
+            stopLiveCompare (RecoveryReason::unknown);
         }
         return;
     }
@@ -110,7 +112,7 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         if (! liveCompare.blind.startWith (hypha::reference_audition::secureRandomBit))
         {
             liveCompare.blindStage = BlindStage::invalidated;
-            stopLiveCompare();
+            stopLiveCompare (RecoveryReason::randomUnavailable);
             return;
         }
         liveCompare.blindStage = BlindStage::active;
@@ -183,9 +185,15 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
 {
     LiveBlindStatus status { liveCompare.blindStage, liveCompare.blind.view(), liveCompare.blindWaiting,
                             liveCompare.blindPlan.lowerPostGainDb, liveCompare.blindPreparation };
+    const auto state = liveCompareStatus();
+    status.reason = state.reason;
+    status.observation = state.observation;
+    status.contentHeld = state.contentHeld;
+    status.compensationOff = state.compensationOff;
     if (! liveCompare.authority.permitted() && status.stage != BlindStage::idle)
     {
         status.trial = {}; // no stale assignment, played receipts or answer while service is pending
+        if (status.reason == RecoveryReason::none) status.reason = RecoveryReason::restored;
         if (status.stage != BlindStage::finishing) status.stage = BlindStage::invalidated;
     }
     return status;
@@ -197,10 +205,10 @@ bool KirinHyphaProcessorBase::selectLiveBlind (int stimulus)
         && liveCompare.blind.select (stimulus);
 }
 
-bool KirinHyphaProcessorBase::answerLiveBlind (int answer)
+bool KirinHyphaProcessorBase::revealLiveBlind()
 {
     return liveCompare.authority.permitted() && liveCompare.blindStage == BlindStage::active
-        && liveCompare.blind.answer (answer);
+        && liveCompare.blind.reveal();
 }
 
 void KirinHyphaProcessorBase::closeLiveBlind()

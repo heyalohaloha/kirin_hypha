@@ -1,6 +1,9 @@
 #include "HyphaLiveBlindComponent.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaLiveCompareRecoveryText.h"
+#include "HyphaLanguage.h"
 #include <cmath>
+#include <tuple>
 
 namespace hypha::live_blind_ui
 {
@@ -13,7 +16,7 @@ Component::Component()
     setFocusContainerType (FocusContainerType::keyboardFocusContainer);
     setLookAndFeel (&look);
     int index = 0;
-    for (auto* label : { &title, &status, &detail })
+    for (auto* label : { &title, &status, &detail, &cause, &recovery })
     {
         label->setComponentID ("live-blind-text-" + juce::String (++index));
         label->setJustificationType (juce::Justification::centred);
@@ -22,9 +25,9 @@ Component::Component()
         addAndMakeVisible (*label);
     }
     index = 0;
-    for (auto* button : { &one, &two, &answer, &end, &approve })
+    for (auto* button : { &one, &two, &reveal, &end, &approve })
     {
-        const char* ids[] { "source-1", "source-2", "answer", "end", "approve" };
+        const char* ids[] { "source-1", "source-2", "reveal", "end", "approve" };
         button->setComponentID ("live-blind-" + juce::String (ids[index++]));
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
         button->setWantsKeyboardFocus (true);
@@ -32,7 +35,7 @@ Component::Component()
     }
     one.onClick = [this] { if (onSelect) onSelect (1); };
     two.onClick = [this] { if (onSelect) onSelect (2); };
-    answer.onClick = [this] { if (onAnswer) onAnswer(); };
+    reveal.onClick = [this] { if (onReveal) onReveal(); };
     end.onClick = [this] { if (onEnd) onEnd(); };
     approve.onClick = [this] { if (onApprove) onApprove(); };
     refresh();
@@ -42,10 +45,22 @@ Component::~Component() { setLookAndFeel (nullptr); }
 
 void Component::setState (const live_compare::LiveBlindStatus& next, bool hostPlaying, float postActual)
 {
+    const auto key = [] (const live_compare::LiveBlindStatus& state)
+    {
+        const auto& trial = state.trial;
+        return std::make_tuple (state.stage, state.waiting, state.lowerPostDb, state.generation,
+            state.reason, state.observation, state.contentHeld, state.compensationOff,
+            trial.active, trial.revealed, trial.invalidated, trial.firstPre, trial.audible, trial.played, trial.epoch);
+    };
+    const bool languageChanged = languageRevision != i18n::revision();
+    if (! languageChanged && key (next) == key (current) && playing == hostPlaying && std::abs (actualPost - postActual) <= 0.0f)
+        return;
+    languageRevision = i18n::revision();
     current = next;
     playing = hostPlaying;
     actualPost = postActual;
     refresh();
+    if (languageChanged) resized();
 }
 
 void Component::refresh()
@@ -53,6 +68,17 @@ void Component::refresh()
     const bool live = current.stage == Stage::active && ! current.trial.invalidated;
     const bool revealed = live && current.trial.revealed;
     const bool finishing = current.stage == Stage::finishing;
+    const bool stopped = current.stage == Stage::invalidated || current.trial.invalidated;
+    const auto guidance = live_compare_ui::blindRecovery (current, stopped);
+    const bool waiting = (current.stage == Stage::preparing || current.stage == Stage::settling)
+        && (current.contentHeld || current.compensationOff
+            || (playing && current.observation != live_compare::RecoveryReason::none));
+    cause.setVisible (stopped || waiting);
+    recovery.setVisible (stopped || waiting);
+    const auto visibleCause = stopped ? guidance.reason : current.contentHeld ? live_compare::RecoveryReason::contentChanged
+        : current.compensationOff ? live_compare::RecoveryReason::compensationOff : guidance.reason;
+    cause.setText (live_compare_ui::cause (visibleCause), juce::dontSendNotification);
+    recovery.setText (guidance.instruction, juce::dontSendNotification);
     title.setText (revealed ? "BLIND RESULT" : "LIVE BLIND", juce::dontSendNotification);
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     juce::String instruction, explanation = returnDb > 0.05
@@ -60,9 +86,10 @@ void Component::refresh()
     if (current.stage == Stage::failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange
             ? "MATCH over 24 dB" : "MATCH failed; try again";
-    else if (current.stage == Stage::invalidated || current.trial.invalidated)
+    else if (stopped)
     {
-        instruction = "Blind stopped; POST plays";
+        instruction = current.reason == live_compare::RecoveryReason::outputTaken
+            ? "Blind stopped; output released" : "Blind stopped; POST output";
         const auto db = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
         explanation = db > 0.05 ? "END returns +" + juce::String (db, 1) + " dB" : explanation;
     }
@@ -75,12 +102,9 @@ void Component::refresh()
             + " dB; END returns the same amount";
     }
     else if (revealed)
-    {
-        const char* answers[] { "", "ANSWER: PREFER 1", "ANSWER: PREFER 2", "ANSWER: NO PREFERENCE", "ANSWER: CANNOT TELL" };
-        instruction = answers[juce::jlimit (0, 4, current.trial.answer)];
-    }
+        instruction = "Sources revealed; keep comparing";
     else if (live)
-        instruction = current.trial.played == 3 ? "Choose an answer when ready" : "Try both sources while playing";
+        instruction = current.trial.played == 3 ? "Reveal the sources when ready" : "Try both sources while playing";
     else if (! playing)
         instruction = "Play the DAW to begin";
     else if (current.waiting == live_compare::MatchFailure::outOfRange)
@@ -103,10 +127,11 @@ void Component::refresh()
         button->setDescription (button->getButtonText());
         button->setTooltip (button->getButtonText());
     }
-    answer.setVisible (live && ! revealed);
-    answer.setEnabled (live && ! revealed && current.trial.played == 3);
-    answer.setTitle ("Choose an answer and reveal");
-    answer.setDescription (answer.getTitle());
+    reveal.setVisible (live && ! revealed);
+    reveal.setEnabled (live && ! revealed && current.trial.played == 3);
+    reveal.setTitle ("Reveal the sources without an answer");
+    reveal.setDescription (reveal.getTitle());
+    reveal.setTooltip (reveal.getTitle());
     approve.setVisible (current.stage == Stage::approval);
     approve.setTitle ("Lower POST and begin Blind");
     approve.setDescription (detail.getText());
@@ -114,7 +139,6 @@ void Component::refresh()
     end.setTitle ("End and restore normal level");
     end.setDescription (end.getTitle() + " / " + explanation);
     end.setTooltip (end.getDescription());
-    resized();
     repaint();
 }
 
@@ -122,19 +146,24 @@ void Component::resized()
 {
     context = presentation::forEditor (getWidth(), getHeight());
     const bool compact = getWidth() < 450;
-    for (auto* button : { &one, &two, &answer, &end, &approve }) button->setPresentationContext (context);
+    for (auto* button : { &one, &two, &reveal, &end, &approve }) button->setPresentationContext (context);
     title.setFont (labelFont (context, typography::TextRole::sectionTitle, typography::Composition::information));
     status.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     detail.setFont (labelFont (context, typography::TextRole::status, typography::Composition::information));
+    cause.setFont (status.getFont());
+    recovery.setFont (status.getFont());
     auto area = getLocalBounds().reduced (compact ? 12 : 24);
     title.setBounds (area.removeFromTop (compact ? 24 : 40));
     status.setBounds (area.removeFromTop (compact ? 30 : 48));
     detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
     end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
-    answer.setBounds (actions.reduced (3, 0));
+    reveal.setBounds (actions.reduced (3, 0));
     area.reduce (0, compact ? 5 : 12);
     approve.setBounds (area);
+    auto guidance = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 90));
+    cause.setBounds (guidance.removeFromTop (guidance.getHeight() / 2));
+    recovery.setBounds (guidance);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
     two.setBounds (area.reduced (3, 0));
 }

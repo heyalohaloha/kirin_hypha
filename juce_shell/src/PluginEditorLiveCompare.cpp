@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaLocalBlindAdmissionText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -238,7 +239,7 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
     localBlindOpen = true;
     localBlindView.clearActionNotice();
     refreshLocalBlindProduct();
-    localBlindView.grabKeyboardFocus();
+    if (localBlindView.isShowing()) localBlindView.grabKeyboardFocus();
 }
 
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
@@ -270,7 +271,7 @@ void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
         if (step.jumped)
         {
             processorRef.holdLiveCompareForContentJump();
-            if (! liveBlindOpen) showToast ("PRE held: latency changed");
+            if (! liveBlindOpen) showToast ("Timing changed: stop/play DAW (POST)");
         }
         if (step.settled)
         {
@@ -299,15 +300,17 @@ void KirinHyphaEditor::refreshLiveCompare()
     if (processorRef.takeLiveComparePreWait() || status.preWaiting)
         liveComparePreWaitUntil = now + 0.5;
     if (processorRef.takeLiveCompareGuardTrip())
-        showToast ("PRE over TP ceiling");
+        showToast (hypha::live_compare_ui::namedRecovery (status));
     else if (status.interrupted && ! liveCompareInterruptSeen)
-        showToast ("Select PRE again");
+        showToast (hypha::live_compare_ui::namedRecovery (status));
     liveCompareInterruptSeen = status.interrupted;
     // A format change, a changed pair or a closed PRE ended the session without END: say so.
     if (liveCompareActiveSeen && ! status.active && ! status.finishing)
-        showToast ("LISTEN ended; POST plays");
+        showToast (hypha::live_compare_ui::namedRecovery (status));
     liveCompareActiveSeen = status.active && ! status.finishing;
     monitorLiveCompareOffset (status, now);
+    const auto recovery = hypha::live_compare_ui::namedPresentation (status, processorRef.liveCompareAdmission (false)).instruction;
+    if (*recovery != 0) liveCompareWarning = recovery;
     followLiveCompare (status, now);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
@@ -320,6 +323,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
     footer.contentHeld = status.active && status.contentHeld;
     footer.compensationOff = status.active && status.compensationOff;
+    footer.recoveryHelp = recovery;
     footer.pinAvailable = processorRef.localBlindProductSupported()
         && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && liveCompareMatched;

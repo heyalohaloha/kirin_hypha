@@ -89,7 +89,7 @@ private:
             else post->setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
         });
         host.join();
-        require (! post->answerLiveBlind (1) && ! post->selectLiveBlind (1), "old trial controls rejected before service");
+        require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "old trial controls rejected before service");
         require (! post->liveCompareStatus().matched && ! post->liveCompareStatus().active,
                  "MATCH and output permission immediately revoked");
         require (! post->liveBlindStatus().trial.revealed && post->liveBlindStatus().trial.played == 0,
@@ -247,7 +247,7 @@ private:
             }
             case 6:
                 if (Steady::now() - checkedAt < std::chrono::milliseconds (500)) break;
-                require (! post->liveCompareStatus().active && ! post->answerLiveBlind (1), "old trial never resumes after service");
+                require (! post->liveCompareStatus().active && ! post->revealLiveBlind(), "old trial never resumes after service");
                 require (std::abs (post->liveCompareStatus().postActual - held) <= 0.0f
                     && postErrors.load() == 0, "held output stays unchanged");
                 verifyPost.store (false);

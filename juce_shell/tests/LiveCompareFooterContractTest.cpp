@@ -3,6 +3,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -49,6 +50,53 @@ void verifyLiveCompareFooterContract()
 {
     observatory::View post (observatory::Role::post);
     observatory::View pre (observatory::Role::pre);
+    bool recoveryFits = true;
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (auto preset : observatory::sizePresets)
+        {
+            post.setSize (preset.width, preset.height);
+            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::unknown); ++code)
+                for (int phase = 0; phase < 4; ++phase)
+                {
+                    live_compare::Status recovery;
+                    recovery.reason = static_cast<live_compare::RecoveryReason> (code);
+                    recovery.observation = recovery.reason;
+                    recovery.active = phase < 2;
+                    if (phase == 3) recovery.postTarget = recovery.postActual = 0.5f;
+                    recovery.preSelected = recovery.preWaiting = phase == 0;
+                    recovery.interrupted = phase == 1;
+                    recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
+                    recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
+                    const auto* notice = live_compare_ui::namedRecovery (recovery);
+                    observatory::LiveCompareFooter footer;
+                    footer.active = recovery.active;
+                    footer.preSelected = recovery.preSelected;
+                    footer.preWaiting = recovery.preWaiting;
+                    footer.entryEnabled = true;
+                    footer.postHeldTenthsDb = phase == 3 ? -60 : 0;
+                    post.setLiveCompareFooter (footer);
+                    post.setFeedback (notice);
+                    if (juce::String (notice).contains ("RETURN"))
+                        require (post.findChildWithID ("observatory-live-return")->isVisible(), "recovery RETURN exists");
+                    if (! recovery.active)
+                        require (! juce::String (notice).contains ("END"), "inactive recovery never points to missing END");
+                    const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
+                        ? typography::TextRole::status : typography::TextRole::action);
+                    if (text_style::shownWidth (font, notice) > post.statusStripBounds().getWidth() - 12)
+                    {
+                        std::cerr << preset.width << " recovery width=" << text_style::shownWidth (font, notice)
+                            << " available=" << post.statusStripBounds().getWidth() - 12 << ": "
+                            << text_style::shownText (notice) << '\n';
+                        recoveryFits = false;
+                    }
+                }
+        }
+    }
+    require (recoveryFits, "persistent recovery reads whole in both languages at every size");
+    post.setFeedback ({});
+    post.setLiveCompareFooter ({});
     auto* entry = control (post, "observatory-live-compare");
     auto* preEntry = control (pre, "observatory-live-compare");
     auto* preButton = control (post, "observatory-live-pre");

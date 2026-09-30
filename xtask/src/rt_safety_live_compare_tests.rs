@@ -285,7 +285,7 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
         "ending a session must not release the held attenuation"
     );
     let render = function_body(SESSION_H, "RenderReport render (");
-    assert!(render.contains("! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear)"));
+    assert!(render.contains("guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear)"));
     assert!(render.contains("report.guardTripped = true;"));
     let blind = function_body(
         EDITOR_LOCAL_BLIND_CPP,

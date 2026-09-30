@@ -3,6 +3,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 #include <iostream>
 
 namespace hypha::tests
@@ -23,11 +24,11 @@ inline void verifyLiveBlindUiContract()
     {
         i18n::ScopedLanguage scoped (language);
         for (auto preset : observatory::sizePresets)
-            for (int phase = 0; phase < 11; ++phase)
+            for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::unknown); ++phase)
             {
                 live_compare::LiveBlindStatus state;
                 state.stage = phase == 0 ? Stage::preparing : phase == 1 ? Stage::approval
-                    : phase == 7 ? Stage::invalidated : phase == 8 ? Stage::finishing
+                    : phase == 7 || phase >= 11 ? Stage::invalidated : phase == 8 ? Stage::finishing
                     : phase >= 9 ? Stage::failed : Stage::active;
                 state.waiting = phase == 9 ? live_compare::MatchFailure::outOfRange : live_compare::MatchFailure::invalidPlan;
                 state.lowerPostDb = -24.0;
@@ -35,15 +36,19 @@ inline void verifyLiveBlindUiContract()
                 state.trial.audible = phase == 2 ? 1 : 2;
                 state.trial.revealed = phase >= 4 && phase <= 6;
                 state.trial.firstPre = phase == 4;
-                state.trial.answer = phase - 3;
+                state.reason = phase >= 11 ? static_cast<live_compare::RecoveryReason> (phase - 10)
+                                          : live_compare::RecoveryReason::none;
+                state.contentHeld = state.reason == live_compare::RecoveryReason::contentChanged;
+                state.compensationOff = state.reason == live_compare::RecoveryReason::compensationOff;
                 view.setSize (preset.width, preset.height);
                 view.setState (state, phase != 8, phase >= 7 ? 0.0631f : 1.0f);
                 require (! button ("live-blind-end")->isEnabled() == (phase == 8), "END receipt controls availability");
-                if (phase == 2) require (! button ("live-blind-answer")->isEnabled(), "one source cannot answer");
-                if (phase == 3) require (button ("live-blind-answer")->isEnabled(), "both sources can answer");
+                require (view.findChildWithID ("live-blind-answer") == nullptr, "no unused preference collection");
+                if (phase == 2) require (! button ("live-blind-reveal")->isEnabled(), "one source cannot reveal");
+                if (phase == 3) require (button ("live-blind-reveal")->isEnabled(), "both sources can reveal");
                 if (phase >= 9) require (! button ("live-blind-source-1")->isVisible()
-                    && ! button ("live-blind-answer")->isVisible() && button ("live-blind-end")->isEnabled(),
-                    "failed MATCH offers END, never source selection or an answer");
+                    && ! button ("live-blind-reveal")->isVisible() && button ("live-blind-end")->isEnabled(),
+                    "failed MATCH offers END, never source selection or reveal");
                 for (int i = 0; i < view.getNumChildComponents(); ++i)
                 {
                     auto* child = view.getChildComponent (i);

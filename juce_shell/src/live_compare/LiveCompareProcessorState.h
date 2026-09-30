@@ -25,6 +25,9 @@ struct LiveBlindStatus
     MatchFailure waiting = MatchFailure::notProven;
     double lowerPostDb = 0.0;
     std::uint64_t generation = 0;
+    RecoveryReason reason = RecoveryReason::none;
+    RecoveryReason observation = RecoveryReason::none;
+    bool contentHeld = false, compensationOff = false;
 };
 
 struct Status
@@ -42,6 +45,8 @@ struct Status
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
     bool contentHeld = false; // INV-LC10: POST until playback stops and restarts
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off
+    RecoveryReason reason = RecoveryReason::none; // retained first failure, never a current blocker
+    RecoveryReason observation = RecoveryReason::none;
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
@@ -53,11 +58,13 @@ struct ProcessorState
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     Completion completion;
     BlindSession blind;
+    NamedSelection selection;
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
     std::atomic<bool> matched { false }, matchLimited { false };
     std::atomic<std::uint32_t> matchRun { 0 };
     std::atomic<float> postActual { 1.0f };
     BlindStage blindStage = BlindStage::idle; // message thread only
+    RecoveryReason blindPreparationReason = RecoveryReason::none;
     MatchFailure blindWaiting = MatchFailure::notProven;
     MatchPlan blindPlan;
     std::uint64_t blindPreparation = 0, blindScope = 0, finishServiced = 0;
@@ -74,13 +81,12 @@ struct ProcessorState
     ContinuousClock clock;
     GapDetector gaps;
     std::atomic<bool> sessionActive { false };
-    std::atomic<bool> preSelected { false };
     std::atomic<bool> preAudible { false };
     std::atomic<bool> preWaiting { false };
     std::atomic<bool> preWaitSeen { false }; // any waiting block since the editor last looked
-    std::atomic<bool> interrupted { false };
     std::atomic<float> gain { 1.0f };
     std::atomic<std::uint8_t> verdict { 0 };
+    std::atomic<RecoveryReason> observationReason { RecoveryReason::none };
     PostLevel postLevel;                      // Audio Thread; the message thread configures it
     std::atomic<float> postTarget { 1.0f };   // approved POST attenuation (linear, at most 1)
     std::atomic<float> ceilingLinear { 1.0f }; // PRE guard fixed at MATCH, 10^(C/20)

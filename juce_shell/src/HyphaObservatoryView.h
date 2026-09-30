@@ -67,6 +67,7 @@ struct LiveCompareFooter
     bool pinAvailable = false; // PIN can hand the last four seconds to PRE / POST Blind
     bool following = false;    // INV-LC16: AUTO keeps PRE's gain on POST's loudness
     bool compensationOff = false; // INV-LC8: the host's delay compensation is off; PRE waits
+    const char* recoveryHelp = "";
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
         return finishing == other.finishing && blindAvailable == other.blindAvailable
@@ -75,7 +76,7 @@ struct LiveCompareFooter
             && matched == other.matched && matchLimited == other.matchLimited
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
             && contentHeld == other.contentHeld && following == other.following
-            && compensationOff == other.compensationOff;
+            && compensationOff == other.compensationOff && recoveryHelp == other.recoveryHelp;
     }
 };
 
@@ -83,6 +84,7 @@ class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit View (Role roleIn);
+    std::function<void()> onBodyLayoutChanged;
 
     std::function<void (Domain)> onDomainChange;
     std::function<void (ObservationTarget)> onTargetChange;

@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaLiveCompareRecoveryText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 using hypha::live_compare::BlindStage;
@@ -23,26 +24,10 @@ void KirinHyphaEditor::configureLiveBlind()
         processorRef.approveLiveBlindMatch (liveBlindView.state().generation);
         refreshLiveBlind();
     };
-    liveBlindView.onAnswer = [this]
+    liveBlindView.onReveal = [this]
     {
-        const auto trial = processorRef.liveBlindStatus().trial;
-        if (trial.played != 3 || trial.revealed || trial.invalidated) return;
-        juce::PopupMenu menu;
-        menu.setLookAndFeel (&pairMenuLookAndFeel());
-        menu.addItem (1, "PREFER SOURCE 1");
-        menu.addItem (2, "PREFER SOURCE 2");
-        menu.addItem (3, "NO PREFERENCE");
-        menu.addItem (4, "CANNOT TELL");
-        juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&liveBlindView.answerAnchor())
-            .withDeletionCheck (*this).withMinimumWidth (240).withMaximumNumColumns (1),
-            [safe, epoch = trial.epoch] (int choice)
-            {
-                if (safe == nullptr || ! safe->liveBlindOpen || choice == 0
-                    || safe->processorRef.liveBlindStatus().trial.epoch != epoch) return;
-                safe->processorRef.answerLiveBlind (choice);
-                safe->refreshLiveBlind();
-            });
+        processorRef.revealLiveBlind();
+        refreshLiveBlind();
     };
 }
 
@@ -64,7 +49,7 @@ void KirinHyphaEditor::openLiveBlind()
     // Isolate every measurement, tooltip and accessibility sibling BEFORE publishing an anonymous source.
     layoutLocalBlindProduct();
     refreshLiveBlind();
-    liveBlindView.grabKeyboardFocus();
+    if (liveBlindView.isShowing()) liveBlindView.grabKeyboardFocus();
 }
 
 void KirinHyphaEditor::refreshLiveBlind()
@@ -91,6 +76,8 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     const auto live = processorRef.liveCompareStatus();
     if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported()) return;
     menu.addSectionHeader ("PRE / POST");
+    const auto recovery = hypha::live_compare_ui::namedPresentation (live, processorRef.liveCompareAdmission (false));
+    if (*recovery.instruction != 0) menu.addSectionHeader (recovery.instruction);
     if (! live.active) menu.addItem (40, "LISTEN", processorRef.liveCompareAdmission (false) == StartResult::started);
     else
     {

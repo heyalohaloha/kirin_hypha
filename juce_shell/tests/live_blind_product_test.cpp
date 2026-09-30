@@ -66,8 +66,10 @@ struct Clock final : juce::AudioPlayHead
 class BlindContract final : private juce::Timer
 {
 public:
-    explicit BlindContract (std::vector<float> signalIn, bool reuseIn, bool faultIn, bool approvalIn)
-        : signal (std::move (signalIn)), reuse (reuseIn), fault (faultIn), approval (approvalIn)
+    explicit BlindContract (std::vector<float> signalIn, bool reuseIn,
+                            hypha::live_compare::RecoveryReason faultIn, bool approvalIn)
+        : signal (std::move (signalIn)), reuse (reuseIn), fault (faultIn != hypha::live_compare::RecoveryReason::none),
+          approval (approvalIn), faultReason (faultIn)
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
@@ -200,7 +202,7 @@ private:
                 require (! approval || approved, "limited-master fixture required explicit approval");
                 require (! post->liveCompareStatus().finishing, "trial is not returning");
                 if (reuse) require (std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f, "existing MATCH is reused exactly");
-                require (! post->answerLiveBlind (1), "a trial cannot be answered before both sources sound");
+                require (! post->revealLiveBlind(), "both source receipts are required before reveal");
                 require (find (*editor, "live-blind-screen")->isVisible(), "anonymous screen opens");
                 require (! findView (*editor)->isAccessible() && ! findView (*editor)->isEnabled(),
                          "underlying identity-bearing UI and accessibility are isolated");
@@ -225,14 +227,18 @@ private:
                          "Source 2 actually outputs the other PCM");
                 if (fault)
                 {
-                    post->kirinHostDelayCompensationStateChanged (false);
+                    using Reason = hypha::live_compare::RecoveryReason;
+                    if (faultReason == Reason::contentChanged) post->holdLiveCompareForContentJump();
+                    else if (faultReason == Reason::callbackGap) injectGap.store (true);
+                    else if (faultReason == Reason::stopped) play.store (false);
+                    else post->kirinHostDelayCompensationStateChanged (false);
                     stage = 50;
                     break;
                 }
-                require (post->answerLiveBlind (4), "answer commits and reveals without another playback");
-                require (post->liveBlindStatus().trial.revealed, "assignment revealed after answer only");
+                require (click ("live-blind-reveal"), "one click reveals without a menu or an answer");
+                require (post->liveBlindStatus().trial.revealed, "assignment revealed by the button");
                 require (post->liveBlindStatus().trial.firstPre == (firstRatio > 0.0f), "revealed mapping agrees with actual PCM");
-                require (! post->answerLiveBlind (1), "answer cannot be changed");
+                require (! post->revealLiveBlind(), "reveal cannot be repeated");
                 require (post->requestLocalBlindProductCapture (hypha::meter_context::MeterContext::twoMix)
                          != hypha::local_blind::CaptureAdmission::ready, "Exact capture cannot overlap Blind");
                 require (click ("live-blind-end"), "END requests normal output");
@@ -241,16 +247,42 @@ private:
                 break;
             case 50:
                 if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::invalidated) break;
-                require (! post->answerLiveBlind (1) && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
+                require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
+                require (post->liveBlindStatus().reason == faultReason,
+                         "the first fault survives RT invalidation and message-thread teardown");
                 require (lastOutputRatio.load() < 0.0f, "PDC failure falls back to original POST");
                 post->kirinHostDelayCompensationStateChanged (true);
-                require (click ("live-blind-end"), "invalidated trial retains END");
+                play.store (true);
+                post->serviceLiveBlind();
+                require (post->liveBlindStatus().reason == faultReason,
+                         "later recovery does not rewrite the stopped trial's reason");
+                if (faultReason == hypha::live_compare::RecoveryReason::callbackGap)
+                {
+                    editor->giveAwayKeyboardFocus();
+                    post->editorBeingDeleted (editor.get()); editor.reset();
+                    editor.reset (post->createEditorIfNeeded());
+                    editor->setSize (900, 600); editor->setVisible (true);
+                    require (post->liveCompareStatus().reason == faultReason,
+                             "close and reopen retain the specific Blind failure, not teardown's unknown");
+                    stage = 51; // admission and footer arrive on the new editor's first tick
+                    break;
+                }
+                else require (click ("live-blind-end"), "invalidated trial retains END");
+                stage = 6;
+                break;
+            case 51:
+                if (! click ("observatory-live-compare")) break;
+                require (post->liveCompareStatus().reason == hypha::live_compare::RecoveryReason::none,
+                         "a new explicit LISTEN clears the old trial cause");
+                require (click ("observatory-live-end"), "new named session has a real END");
                 stage = 6;
                 break;
             case 6:
                 if (post->liveCompareStatus().active || post->liveCompareStatus().finishing) break;
                 if (find (*editor, "live-blind-screen")->isVisible()) break;
                 require (post->liveCompareStatus().postActual == 1.0f, "END completed at actual unity");
+                require (post->liveBlindStatus().reason == hypha::live_compare::RecoveryReason::none,
+                         "explicit END clears the retained cause only after its output receipt");
                 require (findView (*editor)->isAccessible() && findView (*editor)->isEnabled(),
                          "measurement accessibility restored only after END");
                 require (post->startLiveCompare() == hypha::live_compare::StartResult::started,
@@ -337,6 +369,11 @@ private:
                 continue;
             }
             suspended.store (false);
+            if (injectGap.exchange (false))
+            {
+                std::this_thread::sleep_for (std::chrono::milliseconds (600));
+                next = std::chrono::steady_clock::now();
+            }
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
@@ -386,6 +423,8 @@ private:
     hypha::pair_preview::Ticket preview;
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false;
+    hypha::live_compare::RecoveryReason faultReason;
+    std::atomic<bool> injectGap { false };
     float reusedGain = 1.0f, held = 1.0f, firstRatio = 0.0f;
     int observedBlock = 0;
     std::atomic<float> lastOutputRatio { 0.0f };
@@ -408,9 +447,12 @@ int main (int argc, char** argv)
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
-    BlindContract contract (std::move (signal), argc == 3 && std::string (argv[2]) == "--reuse",
-                            argc == 3 && std::string (argv[2]) == "--fault",
-                            argc == 3 && std::string (argv[2]) == "--approval");
+    using Reason = hypha::live_compare::RecoveryReason;
+    const auto mode = argc == 3 ? std::string (argv[2]) : std::string();
+    const auto fault = mode == "--fault" ? Reason::compensationOff
+        : mode == "--fault-gap" ? Reason::callbackGap : mode == "--fault-content" ? Reason::contentChanged
+        : mode == "--fault-stop" ? Reason::stopped : Reason::none;
+    BlindContract contract (std::move (signal), mode == "--reuse", fault, mode == "--approval");
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

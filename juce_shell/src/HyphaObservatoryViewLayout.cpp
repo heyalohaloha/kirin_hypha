@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTextStyle.h"
 namespace hypha::observatory
 {
 namespace {
@@ -80,6 +81,7 @@ void View::resized()
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
+        if (onBodyLayoutChanged) onBodyLayoutChanged();
         return;
     }
     if (captureFrame)
@@ -206,10 +208,16 @@ void View::resized()
             sessionArea.setRight (footerActions.getX() - 4);
         }
     }
-    statusStripOverBody = folded;
-    statusStrip = folded ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
-    statusButton.setVisible (! captureFrame && ! folded && feedbackText.isNotEmpty());
+    // Safety guidance needs more room than the residual footer after PRE/POST/END. Reuse the
+    // full-width feedback strip when the complete sentence does not fit; never compress it.
+    const bool overflow = ! captureFrame && feedbackText.isNotEmpty()
+        && text_style::shownWidth (monoFont (presentationContext(), typography::TextRole::action), feedbackText)
+            > sessionArea.getWidth() - 14;
+    statusStripOverBody = folded || overflow;
+    statusStrip = statusStripOverBody ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
+    statusButton.setVisible (! captureFrame && ! statusStripOverBody && feedbackText.isNotEmpty());
     statusButton.setBounds (sessionArea.reduced (1, 2));
     layoutFooterActions (footerActions);
+    if (onBodyLayoutChanged) onBodyLayoutChanged();
 }
 }
