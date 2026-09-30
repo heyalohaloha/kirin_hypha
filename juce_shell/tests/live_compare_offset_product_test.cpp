@@ -194,10 +194,10 @@ private:
                 if (heldAt == std::chrono::steady_clock::time_point()) heldAt = std::chrono::steady_clock::now();
                 if (std::chrono::steady_clock::now() - heldAt < std::chrono::milliseconds (3500)) break;
                 require (footer() == "Timing changed: stop/play DAW (POST)", "recovery persists beyond the toast timeout");
-                // The editor has already required two agreeing estimates before it enters the
-                // hold. A fresh non-RT correlation can be undetermined when the real-time history
-                // advances while it is copied. This stage verifies the persistent recovery state,
-                // not that a second measurement happens to succeed after the hold.
+                // The exact settled measurement that triggered the hold is retained. Re-reading
+                // a moving RT history here can be undetermined and is not the jump evidence.
+                require (post->liveCompareStatus().contentJumpLagFrames == -3000,
+                         "the 62.50 ms observation remains measured under the recovery notice");
                 std::cout << "held: " << footer() << std::endl;
                 play.store (false);
                 ++stage;
@@ -206,6 +206,8 @@ private:
             case 5:
                 // Stopping ends the hold; the session stays for the next run.
                 if (post->liveCompareStatus().contentHeld) break;
+                require (post->liveCompareStatus().contentJumpLagFrames == 0,
+                         "the prior run's jump evidence does not leak into a new run");
                 require (post->liveCompareStatus().active, "the session survives the stop");
                 require (post->liveCompareStatus().matchHeld && ! post->liveCompareStatus().matched
                     && std::abs (post->liveCompareStatus().gain - matchedGain) <= 0.0f,

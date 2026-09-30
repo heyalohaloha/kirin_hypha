@@ -270,7 +270,7 @@ void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
         const auto step = m.monitor.observe (estimate, status.contentHeld);
         if (step.jumped)
         {
-            processorRef.holdLiveCompareForContentJump();
+            processorRef.holdLiveCompareForContentJump (step.lagFrames);
             if (! liveBlindOpen) showToast ("Timing changed: stop/play DAW (POST)");
         }
         if (step.settled)

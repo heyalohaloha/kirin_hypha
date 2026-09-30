@@ -13,7 +13,7 @@ void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC
 void returnLiveComparePostToNormal() noexcept;
 bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
-void holdLiveCompareForContentJump() noexcept;
+void holdLiveCompareForContentJump (std::int64_t measuredLagFrames) noexcept;
 std::uint32_t liveComparePlaybackRun() const noexcept;
 hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
 hypha::live_compare::Status liveCompareStatus() const noexcept;

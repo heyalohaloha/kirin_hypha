@@ -289,8 +289,9 @@ hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareO
 
 // Message thread (INV-LC10): the offset jumped with unchanged clocks, a latency change the DAW did
 // not compensate. POST sounds, PRE stays selected, until playback stops and restarts.
-void KirinHyphaProcessorBase::holdLiveCompareForContentJump() noexcept
+void KirinHyphaProcessorBase::holdLiveCompareForContentJump (std::int64_t measuredLagFrames) noexcept
 {
+    liveCompare.contentJumpLagFrames.store (measuredLagFrames, std::memory_order_relaxed);
     liveCompare.contentHold.store (true, std::memory_order_release);
 }
 
@@ -389,6 +390,8 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.gain = liveCompare.gain.load (std::memory_order_acquire);
     status.postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
     status.contentHeld = liveCompare.contentHold.load (std::memory_order_acquire);
+    if (status.contentHeld)
+        status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
     status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
     using Reason = hypha::live_compare::RecoveryReason;
     status.reason = liveCompare.blindStage == hypha::live_compare::BlindStage::idle
