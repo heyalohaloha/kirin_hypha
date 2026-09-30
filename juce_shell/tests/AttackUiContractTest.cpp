@@ -167,12 +167,17 @@ int main()
     component.setOverlayMode (false);
     // Timing runs before the image-heavy contracts: their caches and heap growth measurably slow
     // later frames in the same process (about 0.5 ms at 300% / DPI 2).
-    KIRIN_REQUIRE (verifyAttackFrameBudget());
-    KIRIN_REQUIRE (verifyBandFrameBudget());
+    // Both budgets run and report before either decides: one failing never hides the other.
+    const bool wholeSignalBudget = verifyAttackFrameBudget();
+    const bool bandBudget = verifyBandFrameBudget();
+    KIRIN_REQUIRE (wholeSignalBudget && bandBudget);
     KIRIN_REQUIRE (verifyLaneModel());
     KIRIN_REQUIRE (verifyBandModel());
     KIRIN_REQUIRE (verifyBandRendering());
     KIRIN_REQUIRE (verifyBandInteraction());
+    KIRIN_REQUIRE (verifyBandTranslations());
+    KIRIN_REQUIRE (verifyBandReasonsAtSmallSizes());
+    KIRIN_REQUIRE (verifySummaryReasons());
     KIRIN_REQUIRE (verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (verifyMeasuredEnvelope());
     KIRIN_REQUIRE (verifyEnvelopeSimplificationBound());

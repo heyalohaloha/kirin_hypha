@@ -2,8 +2,9 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-// DRUM depth material (2.5D). One key light from the upper left, a cool rim light from below and
-// recessed glass wells give the observation surface physical depth without a GPU. Measured light
+// DRUM depth material (2.5D). One key light from above and recessed glass wells give the
+// observation surface physical depth without a GPU; as on every page, only the main window
+// (HISTORY) catches the light on its edge (HyphaDepthMaterial.h). Measured light
 // stays sharp: depth belongs to the vessel, never to a value. Every effect is drawn inside the
 // region whose data it belongs to, so nothing crosses from HISTORY into a lane, from one hit column
 // into another, or from a value's side of the zero line to the other.
@@ -12,8 +13,8 @@ namespace hypha::attack_depth
 struct Look
 {
     float wellShadow = 0.0f; // inner shadow along the upper and left walls of a recessed well
-    float wellRim = 0.0f;    // cool bounce light along the lower and right rims
-    float sheen = 0.0f;      // static glass reflection across the upper part of a well
+    float mainEdge = 0.0f;   // HISTORY, DRUM's main window: the key light on its cut edge
+    float laneOutline = 0.0f; // every other well is quiet: its fine outline
     float vignette = 0.0f;   // darker ends of the HISTORY well
     float bloom = 0.0f;      // soft outer light around measured strokes
     float specular = 0.0f;   // key-light highlight inside the upper envelope edge, shade below
@@ -33,7 +34,8 @@ struct Look
 // The shipped look. Lanes crowded with hits fall back to a Look {} (every effect off).
 const Look& look() noexcept;
 
-// Chrome. A recessed glass well: inner shadow, rim light, sheen and (for HISTORY) vignette.
+// Chrome. A recessed glass well: inner shadow, and for HISTORY the lit edge and vignette; a
+// quiet outline otherwise.
 void paintWell (juce::Graphics&, juce::Rectangle<float> area, float radius, bool vignette);
 
 // Glints where the key light catches the crests of the upper edge: local peaks that rise above

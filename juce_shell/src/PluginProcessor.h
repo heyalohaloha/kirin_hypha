@@ -242,10 +242,10 @@ public:
     bool attackStats (KirinAttackStats& out) const;
     bool setAttackBand (uint8_t band);                  // DRUM band, 0 = ALL; kept across engines
     bool pollAttackBand (KirinAttackBandBatch& out) const;
+    bool pollAttackBandEnvelope (std::int64_t eventSample, KirinAttackBandHitEnvelope& out) const;
+    bool pollAttackBandSummary (KirinAttackBandSummary& out) const;
     uint8_t spectrumSizePreference() const              // nearest preset; exact free size stored below
-    {
-        return preferredSpectrumSize.load (std::memory_order_acquire);
-    }
+    { return preferredSpectrumSize.load (std::memory_order_acquire); }
     void setSpectrumSizePreference (uint8_t index)
     {
         const uint8_t bounded = index < 5u ? index : uint8_t { 0 };

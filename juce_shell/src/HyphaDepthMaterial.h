@@ -4,29 +4,74 @@
 
 #include "HyphaTheme.h"
 
-// Hypha depth material (2.5D), shared by every page. One key light sits at the upper left, so
-// every surface agrees: observation windows are recessed glass (their upper and left walls face
-// away from the light, their lower rims catch it), and cards and controls are raised plates (a
-// lit upper bevel, a shaded lower edge and a soft contact shadow). Material only: nothing here
-// follows a measured value, so every caller may draw it once into a cached image.
+// Hypha depth material (2.5D), shared by every page. The light follows the page's composition, as
+// on the VU chassis (2026-09-29, Daisuke): each page has one main observation window, and only it
+// catches the light from above, on its cut edge (brightest along the top, a warm bounce along the
+// bottom). No light is placed the same on every window: a spot at each upper corner of every
+// window read as ornament, not as light (Daisuke). Cards, panels and lanes stay quiet: a
+// fine outline and the shadow of their upper wall. The glass itself never holds a reflection
+// shape, so no line crosses a surface. Controls are raised plates (a lit upper bevel, a shaded
+// lower edge and a soft contact shadow). Material only: nothing here follows a measured value, so
+// every caller may draw it once into a cached image.
 namespace hypha::depth_material
 {
 struct WellLight
 {
     float shadow = 0.0f;   // inner shadow along the upper and left walls
-    float rim = 0.0f;      // bounce light along the lower and right rims
-    float sheen = 0.0f;    // still reflection on the glass cover
     float vignette = 0.0f; // darker right end and floor
-    float lip = 0.0f;      // the upper edge of the cut catching the key light
-    juce::Colour rimColour;
+    float edge = 0.0f;     // the page's main window only: the key light on its cut edge
+    float outline = 0.0f;  // a quiet well: its fine outline
 };
+
+// The main window's cut edge, a bevel a few pixels wide as on the VU chassis: a dark outer line,
+// the lit face of the bevel and a fine ivory lip where the glass begins, and a dark band just
+// inside that sets the glass back.
+inline void paintMainEdge (juce::Graphics& g, juce::Rectangle<float> area, float radius, float k)
+{
+    const auto black = juce::Colours::black;
+    const auto warm = juce::Colour (0xffe0ad62); // the VU chassis rim
+    // Diffuse light falling from above onto the glass: no edge anywhere.
+    const auto fall = area.getHeight() * 0.38f;
+    g.setGradientFill ({ COL_NORMAL.withAlpha (0.030f * k), 0.0f, area.getY(),
+                         COL_NORMAL.withAlpha (0.0f), 0.0f, area.getY() + fall, false });
+    g.fillRect (area.withHeight (fall));
+    juce::Path inner;
+    inner.addRoundedRectangle (area.reduced (2.2f), juce::jmax (0.0f, radius - 1.0f));
+    g.setColour (black.withAlpha (0.42f * k));
+    g.strokePath (inner, juce::PathStrokeType (3.2f));
+    juce::Path outer;
+    outer.addRoundedRectangle (area.reduced (0.6f), radius);
+    g.setColour (black.withAlpha (0.55f * k));
+    g.strokePath (outer, juce::PathStrokeType (1.4f));
+    // Bright along the top, dim down the sides, a warm bounce at the bottom.
+    juce::Path bevel;
+    bevel.addRoundedRectangle (area.reduced (2.0f), juce::jmax (0.0f, radius - 1.2f));
+    juce::ColourGradient lit (warm.withAlpha (0.78f * k), 0.0f, area.getY(),
+                              warm.withAlpha (0.42f * k), 0.0f, area.getBottom(), false);
+    lit.addColour (0.12, warm.withAlpha (0.40f * k));
+    lit.addColour (0.55, warm.withAlpha (0.10f * k));
+    lit.addColour (0.88, warm.withAlpha (0.16f * k));
+    g.setGradientFill (lit);
+    g.strokePath (bevel, juce::PathStrokeType (2.2f));
+    juce::Path lip;
+    lip.addRoundedRectangle (area.reduced (3.4f), juce::jmax (0.0f, radius - 2.4f));
+    juce::ColourGradient lipLight (COL_NORMAL.withAlpha (0.36f * k), 0.0f, area.getY(),
+                                   COL_NORMAL.withAlpha (0.10f * k), 0.0f, area.getBottom(), false);
+    lipLight.addColour (0.3, COL_NORMAL.withAlpha (0.04f * k));
+    g.setGradientFill (lipLight);
+    g.strokePath (lip, juce::PathStrokeType (0.7f));
+    const auto bounce = juce::jlimit (3.0f, 10.0f, area.getHeight() * 0.08f);
+    g.setGradientFill ({ warm.withAlpha (0.0f), 0.0f, area.getBottom() - bounce,
+                         warm.withAlpha (0.10f * k), 0.0f, area.getBottom(), false });
+    g.fillRect (area.withTop (area.getBottom() - bounce));
+}
 
 inline void paintRecessedWell (juce::Graphics& g, juce::Rectangle<float> area, float radius,
                                const WellLight& light)
 {
     if (area.getWidth() < 6.0f || area.getHeight() < 6.0f
-        || (light.shadow <= 0.0f && light.rim <= 0.0f && light.sheen <= 0.0f
-            && light.vignette <= 0.0f && light.lip <= 0.0f))
+        || (light.shadow <= 0.0f && light.vignette <= 0.0f && light.edge <= 0.0f
+            && light.outline <= 0.0f))
         return;
     juce::Graphics::ScopedSaveState saved (g);
     juce::Path clip;
@@ -35,7 +80,7 @@ inline void paintRecessedWell (juce::Graphics& g, juce::Rectangle<float> area, f
     const auto black = juce::Colours::black;
     if (light.shadow > 0.0f)
     {
-        // The upper and left walls face away from the key light.
+        // The upper and left walls face away from the light.
         const auto drop = juce::jlimit (3.0f, 12.0f, area.getHeight() * 0.16f);
         g.setGradientFill ({ black.withAlpha (light.shadow), 0.0f, area.getY(),
                              black.withAlpha (0.0f), 0.0f, area.getY() + drop, false });
@@ -56,47 +101,17 @@ inline void paintRecessedWell (juce::Graphics& g, juce::Rectangle<float> area, f
                              black.withAlpha (light.vignette * 0.5f), 0.0f, area.getBottom(), false });
         g.fillRect (area.withTop (area.getBottom() - low));
     }
-    if (light.lip > 0.0f)
+    if (light.edge > 0.0f)
     {
-        // Depth lives on the edges, never in a lit centre: the upper edge of the cut catches
-        // the key light as one fine ivory line above the shadowed wall.
-        g.setGradientFill ({ COL_NORMAL.withAlpha (light.lip), area.getX(), 0.0f,
-                             COL_NORMAL.withAlpha (light.lip * 0.35f), area.getRight(), 0.0f, false });
-        g.fillRect (juce::Rectangle<float> (area.getX() + radius, area.getY() + 1.1f,
-                                            area.getWidth() - 2.0f * radius, 0.9f));
+        paintMainEdge (g, area, radius, juce::jmin (1.0f, light.edge));
+        return;
     }
-    if (light.sheen > 0.0f)
+    if (light.outline > 0.0f)
     {
-        // A still reflection on the glass cover, falling away before the centre of the well.
-        juce::Path band;
-        band.startNewSubPath (area.getX(), area.getY());
-        band.lineTo (area.getX() + area.getWidth() * 0.62f, area.getY());
-        band.lineTo (area.getX() + area.getWidth() * 0.34f, area.getBottom());
-        band.lineTo (area.getX(), area.getBottom());
-        band.closeSubPath();
-        g.setGradientFill ({ COL_NORMAL.withAlpha (light.sheen), area.getX(), area.getY(),
-                             COL_NORMAL.withAlpha (0.0f), area.getX() + area.getWidth() * 0.36f,
-                             area.getBottom(), false });
-        g.fillPath (band);
-    }
-    if (light.rim > 0.0f)
-    {
-        // The lower and right walls catch the light and bounce a little of it back up.
-        const auto rim = light.rimColour;
-        const auto bounce = juce::jlimit (2.0f, 8.0f, area.getHeight() * 0.08f);
-        g.setGradientFill ({ rim.withAlpha (0.0f), 0.0f, area.getBottom() - bounce,
-                             rim.withAlpha (light.rim * 0.35f), 0.0f, area.getBottom(), false });
-        g.fillRect (area.withTop (area.getBottom() - bounce));
-        g.setColour (rim.withAlpha (light.rim));
-        g.fillRect (juce::Rectangle<float> (area.getX() + radius, area.getBottom() - 1.0f,
-                                            area.getWidth() - 2.0f * radius, 1.0f));
-        // The cut glass edge: a fine ivory lip just above the lit lower rim.
-        g.setColour (COL_NORMAL.withAlpha (light.rim * 0.55f));
-        g.fillRect (juce::Rectangle<float> (area.getX() + radius * 2.0f, area.getBottom() - 2.0f,
-                                            area.getWidth() - 4.0f * radius, 0.6f));
-        g.setColour (rim.withAlpha (light.rim * 0.45f));
-        g.fillRect (juce::Rectangle<float> (area.getRight() - 1.0f, area.getY() + radius,
-                                            1.0f, area.getHeight() - 2.0f * radius));
+        juce::Path outline;
+        outline.addRoundedRectangle (area.reduced (0.5f), radius);
+        g.setColour (COL_NORMAL.withAlpha (light.outline));
+        g.strokePath (outline, juce::PathStrokeType (1.0f));
     }
 }
 
@@ -136,16 +151,16 @@ inline void paintRaisedPlate (juce::Graphics& g, juce::Rectangle<float> area, fl
                                         area.getWidth() - 2.0f * radius, 0.8f));
 }
 
-// The shared light for observation windows outside DRUM (plots such as FREQ, LIVE and SHARP).
+// A page's main observation window outside DRUM (the plot of FREQ, LIVE, SHARP and the like):
+// the one surface the light lands on.
 inline WellLight observationWellLight() noexcept
 {
-    return { 0.66f, 0.30f, 0.050f, 0.32f, 0.16f, COL_FLORA };
+    return { 0.66f, 0.32f, 1.0f, 0.0f };
 }
 
-// Measurement cards and section panels: the same recessed glass without the plot's vignette,
-// scaled by how opaque the panel is.
+// Measurement cards and section panels: quiet, the shadow scaled by how opaque the panel is.
 inline WellLight panelWellLight (float strength) noexcept
 {
-    return { 0.62f * strength, 0.30f * strength, 0.050f * strength, 0.0f, 0.24f * strength, COL_FLORA };
+    return { 0.62f * strength, 0.0f, 0.0f, strength > 0.0f ? 0.10f : 0.0f };
 }
 }

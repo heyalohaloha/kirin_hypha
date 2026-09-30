@@ -1,10 +1,14 @@
 //! One octave band of a DRUM hit: where the band arrives, how long it rises, how long it rings
 //! and how loud it peaks, measured on PRE and POST at one onset so the two can be compared.
 //!
-//! Nothing here runs unless a band is chosen. The audio ring is allocated on the ATTACK worker
-//! only while a band is selected, each confirmed hit is measured once for that one band, and the
-//! Audio Thread is untouched. A band has an octave's worth of time resolution: about one period
-//! of its centre frequency (16 ms at 63 Hz, 0.125 ms at 8 kHz), which every measure carries.
+//! Nothing here runs unless a band is chosen. The audio ring belongs to the ATTACK worker and
+//! exists only while a band is selected; every band measurement runs on that worker, once per
+//! hit and band; the Audio Thread is untouched. A band has an octave's worth of time resolution:
+//! about one period of its centre frequency (16 ms at 63 Hz, 0.125 ms at 8 kHz).
+//!
+//! Every outcome is stated, never implied by a missing value: the band rises at the hit, only
+//! rings on from before, or is silent; its start is timed or hidden by that ring-out; its
+//! release is timed, cut by the next hit, or longer than the tail that was measured.
 //!
 //! Bands follow IEC 61260's base-two octave series with ISO 266 nominal labels: 63, 125, 250,
 //! 500, 1k, 2k, 4k and 8k Hz, each from centre / √2 to centre × √2, so they tile without gaps.
@@ -12,6 +16,13 @@
 use std::collections::VecDeque;
 
 use super::ATTACK_LEVEL_FLOOR_DBFS;
+
+#[path = "attack_band_measure.rs"]
+mod measure;
+pub use measure::band_delay_frames;
+#[cfg(test)]
+pub(crate) use measure::measure_band;
+pub(crate) use measure::{measure_from_ring, BandScratch};
 
 pub const ATTACK_BAND_COUNT: u8 = 8;
 /// The head envelope sent to the other side and drawn: [onset - 20 ms, onset + 40 ms).
@@ -23,10 +34,14 @@ pub const ATTACK_BAND_HEAD_SPAN_MICROS: i64 = 60_000;
 pub const ATTACK_BAND_TAIL_MICROS: i64 = 300_000;
 /// The peak is looked for where the loupe looks: up to 130 ms after the onset.
 pub const ATTACK_BAND_PEAK_SEARCH_MICROS: i64 = 130_000;
-/// A band whose peak stays below this has nothing to measure in this hit.
+/// A band whose peak stays at or below this is silent at the hit.
 pub const ATTACK_BAND_PRESENCE_FLOOR_DBFS: f32 = -72.0;
-pub const ATTACK_BAND_HISTORY_CAPACITY: usize = 64;
-/// The ring reaches back as far as the bins do, so POST can be measured at a PRE onset.
+/// A band that rises less than this above its level 20 ms before the onset only rings on.
+pub const ATTACK_BAND_RISE_DB: f32 = 3.0;
+/// One band result for every hit the lanes can show: the event history's own bound.
+pub const ATTACK_BAND_HISTORY_CAPACITY: usize = crate::ATTACK_EVENT_HISTORY_CAPACITY;
+/// The ring reaches back as far as the bins do, so POST can be measured at a PRE onset and a
+/// band change can measure the kept hits again.
 pub const ATTACK_BAND_RETENTION_MICROS: i64 = 7_000_000;
 const SETTLE_PERIODS: i64 = 4;
 
@@ -173,8 +188,9 @@ impl BandFilter {
     }
 }
 
-/// Interleaved audio kept back on the worker while a band is selected, addressed by content
-/// sample position. A gap restarts it: the ring never spans two runs.
+/// Interleaved audio kept back on the ATTACK worker while a band is selected, addressed by
+/// content sample position. The worker is its only owner. A gap restarts it: the ring never
+/// spans two runs. Its whole capacity is reserved when it is made, so it never grows.
 pub struct AttackBandRing {
     channels: usize,
     capacity_frames: usize,
@@ -184,12 +200,17 @@ pub struct AttackBandRing {
 
 impl AttackBandRing {
     pub fn new(sample_rate: u32, channels: usize) -> Self {
+        let capacity_frames = frames_for_micros(sample_rate, ATTACK_BAND_RETENTION_MICROS) as usize;
         Self {
             channels,
-            capacity_frames: frames_for_micros(sample_rate, ATTACK_BAND_RETENTION_MICROS) as usize,
+            capacity_frames,
             first: 0,
-            samples: VecDeque::new(),
+            samples: VecDeque::with_capacity(capacity_frames * channels),
         }
+    }
+
+    pub fn capacity_frames(&self) -> usize {
+        self.capacity_frames
     }
 
     pub fn first(&self) -> i64 {
@@ -204,6 +225,10 @@ impl AttackBandRing {
         self.samples.is_empty()
     }
 
+    pub fn clear(&mut self) {
+        self.samples.clear();
+    }
+
     pub fn push_block(&mut self, start: i64, interleaved: &[f32]) {
         if interleaved.is_empty() || !interleaved.len().is_multiple_of(self.channels) {
             return;
@@ -212,13 +237,21 @@ impl AttackBandRing {
             self.samples.clear();
             self.first = start;
         }
-        self.samples.extend(interleaved.iter().copied());
-        let frames = self.samples.len() / self.channels;
-        if frames > self.capacity_frames {
-            let drop_frames = frames - self.capacity_frames;
-            self.samples.drain(..drop_frames * self.channels);
-            self.first += drop_frames as i64;
+        // A block longer than the whole ring keeps only its newest frames.
+        let incoming = interleaved.len() / self.channels;
+        let skipped = incoming.saturating_sub(self.capacity_frames);
+        if skipped > 0 {
+            self.samples.clear();
+            self.first = start + skipped as i64;
         }
+        let kept = self.samples.len() / self.channels;
+        let overflow = (kept + incoming - skipped).saturating_sub(self.capacity_frames);
+        if overflow > 0 {
+            self.samples.drain(..overflow * self.channels);
+            self.first += overflow as i64;
+        }
+        self.samples
+            .extend(interleaved[skipped * self.channels..].iter().copied());
     }
 
     /// Copies [from, to) into `into`; false when any of it is not retained.
@@ -234,47 +267,149 @@ impl AttackBandRing {
     }
 }
 
-/// One side of one hit in one band. Times are frames relative to the onset; `None` is a fact
-/// the audio did not contain (a band never below its peak - 20 dB before the peak, a ring-out
-/// cut by the next onset), never a substitute.
+/// Why a measured tail ends where it does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BandSpanEnd {
+    /// 300 ms after the onset.
+    Window,
+    /// The next onset came first.
+    NextHit,
+    /// The run's audio ended first: the transport stopped.
+    AudioEnd,
+}
+
+/// Where the band starts at this hit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BandArrival {
+    /// Frames from the onset where the band rises through its peak - 20 dB, and from there to
+    /// peak - 0.9 dB (10 % to 90 % of the peak amplitude).
+    At {
+        arrival_frames: f32,
+        attack_frames: f32,
+    },
+    /// The band never fell 20 dB below its peak in the 20 ms before it: the previous hit still
+    /// rings, so this hit's start cannot be timed.
+    Ringing,
+}
+
+/// How the band falls after its peak.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BandRelease {
+    /// Frames from the peak down to peak - 20 dB.
+    At(f32),
+    /// The next onset came before the band fell 20 dB.
+    CutByNextHit,
+    /// Still above peak - 20 dB where the measured tail ends: at least this many frames.
+    AtLeast(f32),
+}
+
+/// What this hit does in the band.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BandSound {
+    /// The band rises at this hit: every measure describes it.
+    Rises {
+        arrival: BandArrival,
+        release: BandRelease,
+    },
+    /// The band only rings on from before: it rises less than 3 dB above its level 20 ms before
+    /// the onset, so its level and fall are the previous hit's.
+    RingsOn,
+    /// The band stays at or below -72 dBFS at this hit.
+    Silent,
+}
+
+/// The band's envelope in centi-dBFS, for drawing: [onset - 20 ms, onset + 40 ms) and
+/// [onset, onset + 300 ms). Points past the measured tail sit on the -120 dBFS floor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BandEnvelope {
+    pub head: [i16; ATTACK_BAND_HEAD_POINTS],
+    pub tail: [i16; ATTACK_BAND_TAIL_POINTS],
+}
+
+impl Default for BandEnvelope {
+    fn default() -> Self {
+        let floor = centi_db(ATTACK_LEVEL_FLOOR_DBFS);
+        Self {
+            head: [floor; ATTACK_BAND_HEAD_POINTS],
+            tail: [floor; ATTACK_BAND_TAIL_POINTS],
+        }
+    }
+}
+
+impl BandEnvelope {
+    pub fn is_valid(&self) -> bool {
+        let floor = centi_db(ATTACK_LEVEL_FLOOR_DBFS);
+        self.head
+            .iter()
+            .chain(self.tail.iter())
+            .all(|value| *value >= floor)
+    }
+}
+
+pub fn centi_db(dbfs: f32) -> i16 {
+    (dbfs * 100.0)
+        .round()
+        .clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16
+}
+
+pub fn dbfs_from_centi(value: i16) -> f32 {
+    f32::from(value) / 100.0
+}
+
+/// One side of one hit in one band. Times are frames from the onset it was measured at.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AttackBandMeasure {
     pub band: AttackBand,
     pub sample_rate: u32,
     pub channels: u8,
     pub event_sample: i64,
-    /// Exclusive end of the measured tail: 300 ms after the onset, or the next onset.
+    /// Exclusive end of the measured tail, and why it ends there.
     pub span_end_sample: i64,
+    pub span_end: BandSpanEnd,
     pub peak_frames: f32,
     pub level_dbfs: f32,
-    /// Where the band rises through its peak - 20 dB.
-    pub arrival_frames: Option<f32>,
-    /// From peak - 20 dB up to peak - 0.9 dB (10 % to 90 % of the peak amplitude).
-    pub attack_frames: Option<f32>,
-    /// From the peak down to peak - 20 dB.
-    pub release_frames: Option<f32>,
-    pub head_dbfs: [f32; ATTACK_BAND_HEAD_POINTS],
-    pub tail_dbfs: [f32; ATTACK_BAND_TAIL_POINTS],
+    pub sound: BandSound,
+    pub envelope: BandEnvelope,
 }
 
 impl AttackBandMeasure {
     pub fn has_valid_layout(&self) -> bool {
+        let window_end =
+            self.event_sample + frames_for_micros(self.sample_rate.max(1), ATTACK_BAND_TAIL_MICROS);
+        let span_consistent = match self.span_end {
+            BandSpanEnd::Window => self.span_end_sample == window_end,
+            BandSpanEnd::NextHit | BandSpanEnd::AudioEnd => self.span_end_sample <= window_end,
+        };
+        let finite_frames = |value: f32| value.is_finite() && value >= 0.0;
+        let sound_consistent = match self.sound {
+            BandSound::Silent => self.level_dbfs <= ATTACK_BAND_PRESENCE_FLOOR_DBFS,
+            BandSound::RingsOn => self.level_dbfs > ATTACK_BAND_PRESENCE_FLOOR_DBFS,
+            BandSound::Rises { arrival, release } => {
+                self.level_dbfs > ATTACK_BAND_PRESENCE_FLOOR_DBFS
+                    && match arrival {
+                        BandArrival::At {
+                            arrival_frames,
+                            attack_frames,
+                        } => arrival_frames.is_finite() && finite_frames(attack_frames),
+                        BandArrival::Ringing => true,
+                    }
+                    && match release {
+                        BandRelease::At(frames) => finite_frames(frames),
+                        BandRelease::CutByNextHit => self.span_end == BandSpanEnd::NextHit,
+                        BandRelease::AtLeast(frames) => {
+                            finite_frames(frames) && self.span_end != BandSpanEnd::NextHit
+                        }
+                    }
+            }
+        };
         self.sample_rate > 0
             && matches!(self.channels, 1 | 2)
             && self.span_end_sample > self.event_sample
+            && span_consistent
             && self.peak_frames.is_finite()
             && self.level_dbfs.is_finite()
-            && self.level_dbfs > ATTACK_BAND_PRESENCE_FLOOR_DBFS
-            && [self.arrival_frames, self.attack_frames, self.release_frames]
-                .into_iter()
-                .flatten()
-                .all(|value| value.is_finite())
-            && self.attack_frames.is_some() == self.arrival_frames.is_some()
-            && self
-                .head_dbfs
-                .iter()
-                .chain(self.tail_dbfs.iter())
-                .all(|value| value.is_finite())
+            && sound_consistent
+            && self.envelope.is_valid()
     }
 
     pub fn resolution_micros(&self) -> u32 {
@@ -290,7 +425,7 @@ pub(crate) fn analysis_range(
     onset: i64,
     span_end: i64,
 ) -> (i64, i64) {
-    let half_window = band.period_frames(sample_rate) / 2 + 1;
+    let half_window = half_window_frames(band, sample_rate);
     let lead = frames_for_micros(sample_rate, ATTACK_BAND_HEAD_LEAD_MICROS);
     (
         onset - lead - band.settle_frames(sample_rate) - half_window,
@@ -298,202 +433,43 @@ pub(crate) fn analysis_range(
     )
 }
 
+pub(crate) fn half_window_frames(band: AttackBand, sample_rate: u32) -> i64 {
+    band.period_frames(sample_rate) / 2 + 1
+}
+
 /// The tail end a hit measures to: 300 ms after its onset, or the next onset when that comes
 /// first.
-pub(crate) fn span_end_for(sample_rate: u32, onset: i64, next_onset: Option<i64>) -> i64 {
+pub(crate) fn span_end_for(
+    sample_rate: u32,
+    onset: i64,
+    next_onset: Option<i64>,
+) -> (i64, BandSpanEnd) {
     let limit = onset + frames_for_micros(sample_rate, ATTACK_BAND_TAIL_MICROS);
     next_onset
         .filter(|next| *next > onset && *next < limit)
-        .unwrap_or(limit)
-}
-
-/// Measures one band of one hit from `audio`, interleaved frames covering exactly
-/// [`analysis_range`]. `None` when the band holds nothing in this hit.
-pub(crate) fn measure_band(
-    band: AttackBand,
-    sample_rate: u32,
-    channels: usize,
-    onset: i64,
-    span_end: i64,
-    audio: &[f32],
-    scratch: &mut BandScratch,
-) -> Option<AttackBandMeasure> {
-    let (analysis_start, analysis_end) = analysis_range(band, sample_rate, onset, span_end);
-    let frames = usize::try_from(analysis_end - analysis_start).ok()?;
-    if !matches!(channels, 1 | 2) || audio.len() != frames * channels || frames < 2 {
-        return None;
-    }
-    let filter = BandFilter::new(band, sample_rate);
-    scratch.power.clear();
-    scratch.power.resize(frames, 0.0);
-    for channel in 0..channels {
-        scratch.channel.clear();
-        scratch
-            .channel
-            .extend(audio.iter().skip(channel).step_by(channels).copied());
-        filter.run(&scratch.channel, &mut scratch.filtered);
-        for (power, value) in scratch.power.iter_mut().zip(&scratch.filtered) {
-            *power += value * value / channels as f64;
-        }
-    }
-    // Prefix sums give the mean power over any window in constant time.
-    scratch.prefix.clear();
-    scratch.prefix.reserve(frames + 1);
-    scratch.prefix.push(0.0);
-    let mut sum = 0.0;
-    for power in &scratch.power {
-        sum += power;
-        scratch.prefix.push(sum);
-    }
-    let window = band.period_frames(sample_rate).max(1) as usize;
-    let envelope = |frame: i64| -> f64 {
-        let index = (frame - analysis_start).clamp(0, frames as i64 - 1) as usize;
-        let from = index.saturating_sub(window / 2);
-        let to = (from + window).min(frames);
-        let from = to.saturating_sub(window);
-        ((scratch.prefix[to] - scratch.prefix[from]) / (to - from) as f64).sqrt()
-    };
-    let floor = 10.0_f64.powf(f64::from(ATTACK_LEVEL_FLOOR_DBFS) / 20.0);
-    let dbfs = |amplitude: f64| (20.0 * amplitude.max(floor).log10()) as f32;
-
-    let lead = frames_for_micros(sample_rate, ATTACK_BAND_HEAD_LEAD_MICROS);
-    let search_start = onset - lead;
-    let search_end =
-        span_end.min(onset + frames_for_micros(sample_rate, ATTACK_BAND_PEAK_SEARCH_MICROS));
-    let mut peak_frame = search_start;
-    let mut peak = 0.0_f64;
-    for frame in search_start..search_end {
-        let amplitude = envelope(frame);
-        if amplitude > peak {
-            peak = amplitude;
-            peak_frame = frame;
-        }
-    }
-    let level_dbfs = dbfs(peak);
-    if level_dbfs <= ATTACK_BAND_PRESENCE_FLOOR_DBFS {
-        return None;
-    }
-    // Where the envelope crosses `threshold` between two frames, as a fractional frame.
-    let crossing = |before: i64, after: i64, threshold: f64| -> f32 {
-        let (low, high) = (envelope(before), envelope(after));
-        let fraction = if high > low {
-            ((threshold - low) / (high - low)).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        (before - onset) as f32 + fraction as f32
-    };
-    let backward = |threshold: f64| -> Option<f32> {
-        (search_start..peak_frame)
-            .rev()
-            .find(|frame| envelope(*frame) < threshold)
-            .map(|frame| crossing(frame, frame + 1, threshold))
-    };
-    let arrival_frames = backward(peak * 0.1);
-    let attack_frames = arrival_frames
-        .and_then(|arrival| backward(peak * 0.9).map(|rise_end| (rise_end - arrival).max(0.0)));
-    let release_frames = (peak_frame + 1..span_end)
-        .find(|frame| envelope(*frame) <= peak * 0.1)
-        .map(|frame| {
-            let (high, low) = (envelope(frame - 1), envelope(frame));
-            let fraction = if high > low {
-                ((high - peak * 0.1) / (high - low)).clamp(0.0, 1.0)
-            } else {
-                1.0
-            };
-            (frame - 1 - peak_frame) as f32 + fraction as f32
-        });
-
-    let head_span = frames_for_micros(sample_rate, ATTACK_BAND_HEAD_SPAN_MICROS);
-    let tail_span = frames_for_micros(sample_rate, ATTACK_BAND_TAIL_MICROS);
-    let mut head_dbfs = [ATTACK_LEVEL_FLOOR_DBFS; ATTACK_BAND_HEAD_POINTS];
-    let mut tail_dbfs = [ATTACK_LEVEL_FLOOR_DBFS; ATTACK_BAND_TAIL_POINTS];
-    for (index, point) in head_dbfs.iter_mut().enumerate() {
-        let frame = search_start
-            + (head_span * (2 * index as i64 + 1)) / (2 * ATTACK_BAND_HEAD_POINTS as i64);
-        if frame < span_end {
-            *point = dbfs(envelope(frame));
-        }
-    }
-    for (index, point) in tail_dbfs.iter_mut().enumerate() {
-        let frame =
-            onset + (tail_span * (2 * index as i64 + 1)) / (2 * ATTACK_BAND_TAIL_POINTS as i64);
-        if frame < span_end {
-            *point = dbfs(envelope(frame));
-        }
-    }
-    let measure = AttackBandMeasure {
-        band,
-        sample_rate,
-        channels: channels as u8,
-        event_sample: onset,
-        span_end_sample: span_end,
-        peak_frames: (peak_frame - onset) as f32,
-        level_dbfs,
-        arrival_frames,
-        attack_frames,
-        release_frames,
-        head_dbfs,
-        tail_dbfs,
-    };
-    measure.has_valid_layout().then_some(measure)
-}
-
-/// Work buffers reused across hits so a measurement allocates nothing after the first.
-#[derive(Default)]
-pub(crate) struct BandScratch {
-    pub(crate) audio: Vec<f32>,
-    channel: Vec<f32>,
-    filtered: Vec<f64>,
-    power: Vec<f64>,
-    prefix: Vec<f64>,
-}
-
-/// POST measured at a PRE onset over the PRE measure's span, from this side's ring.
-pub(crate) fn measure_from_ring(
-    ring: &AttackBandRing,
-    band: AttackBand,
-    sample_rate: u32,
-    channels: usize,
-    onset: i64,
-    span_end: i64,
-    scratch: &mut BandScratch,
-) -> Option<AttackBandMeasure> {
-    let (from, to) = analysis_range(band, sample_rate, onset, span_end);
-    let mut audio = std::mem::take(&mut scratch.audio);
-    let copied = ring.copy_frames(from, to, &mut audio);
-    let measure = copied
-        .then(|| {
-            measure_band(
-                band,
-                sample_rate,
-                channels,
-                onset,
-                span_end,
-                &audio,
-                scratch,
-            )
+        .map_or((limit, BandSpanEnd::Window), |next| {
+            (next, BandSpanEnd::NextHit)
         })
-        .flatten();
-    scratch.audio = audio;
-    measure
 }
 
-/// POST minus PRE, in frames: when each side's band rises through its own peak - 20 dB.
-pub fn band_delay_frames(pre: &AttackBandMeasure, post: &AttackBandMeasure) -> Option<f32> {
-    Some(post.arrival_frames? - pre.arrival_frames?)
+/// The tail a hit can still be measured over when its run's audio ended at `audio_end`: the
+/// kept audio less half the smoothing window, or `None` when that does not reach past the peak
+/// search, so nothing about the hit's rise and peak would be known.
+pub(crate) fn audio_end_span(
+    band: AttackBand,
+    sample_rate: u32,
+    onset: i64,
+    span_end: i64,
+    audio_end: i64,
+) -> Option<i64> {
+    let available = audio_end - half_window_frames(band, sample_rate);
+    let needed = onset + frames_for_micros(sample_rate, ATTACK_BAND_PEAK_SEARCH_MICROS);
+    (available >= needed).then_some(available.min(span_end))
 }
 
-/// One matched hit in the chosen band: PRE's measure and POST measured at the PRE onset over
-/// the same span. POST is `None` while its audio is not retained yet, or holds nothing there.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct AttackBandPair {
-    pub event_sample: i64,
-    pub pre: AttackBandMeasure,
-    pub post: Option<AttackBandMeasure>,
-    pub delay_frames: Option<f32>,
-}
-
+#[cfg(test)]
+#[path = "attack_band_outcome_tests.rs"]
+mod outcome_tests;
 #[cfg(test)]
 #[path = "attack_band_tests.rs"]
 mod tests;

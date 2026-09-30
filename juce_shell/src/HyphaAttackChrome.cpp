@@ -6,6 +6,7 @@
 #include <initializer_list>
 
 #include "HyphaAttackBandPainter.h"
+#include "HyphaAttackBandSummaryPainter.h"
 #include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
@@ -30,7 +31,8 @@ bool AttackComponent::ChromeKey::operator== (const ChromeKey& other) const noexc
     return width == other.width && height == other.height
         && std::equal_to<float> {} (scale, other.scale) && context == other.context
         && overlay == other.overlay && paired == other.paired && dormant == other.dormant
-        && band == other.band && bandDelta == other.bandDelta && prePending == other.prePending;
+        && band == other.band && bandDelta == other.bandDelta && preBand == other.preBand
+        && summary == other.summary;
 }
 
 void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& shape, bool dormant)
@@ -43,7 +45,8 @@ void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& s
         && static_cast<std::size_t> (pixelWidth) * static_cast<std::size_t> (pixelHeight) * 4
                <= chromeByteBudget;
     const ChromeKey key { getWidth(), getHeight(), scale, presentationContext, overlayMode,
-                          pairedObservation(), dormant, chosenBand, bandModel.delta, preBandPending() };
+                          pairedObservation(), dormant, chosenBand, bandModel.delta, preBand(),
+                          summaryShown() };
     // A size that differs from the previous paint is a corner drag or a Capture layout: building
     // an image for every step costs more than drawing once. The image of the last held size is
     // kept, so the editor size is served from it again after a Capture.
@@ -86,31 +89,53 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
     if (dormant || shape.arrangement == attack_ui::Arrangement::header)
         return;
     const bool bandView = chosenBand != 0;
+    const bool live = summaryShown();
     const auto history = rectangleOf (attack_ui::historyPlot (shape));
+    // With a band, the six seconds give way to the panes (200%, 300%) or, while LIVE, the reading
+    // (125%, 150%); 100% keeps them under its medians.
+    const bool reading = bandView && live && shape.arrangement != attack_ui::Arrangement::glance;
     if (bandPanes (shape))
         attack_band_painter::paintPaneChrome (g, shape, presentationContext,
                                               twoRows() && bandModel.delta, bandModel.delta,
-                                              preBandPending());
-    else if (! history.isEmpty())
+                                              preBand());
+    else if (! history.isEmpty() && ! reading)
         drawHistoryChrome (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
         const auto label = rectangleOf (attack_ui::labelCell (shape, shape.history));
-        if (bandPanes (shape))
-            attack_band_painter::paintPaneLabel (g, label, presentationContext, chosenBand);
+        if (bandView && (bandPanes (shape) || live))
+            attack_band_painter::paintPaneLabel (g, label, presentationContext, chosenBand,
+                                                 ! live ? "HIT" : bandPanes (shape) ? "AVERAGE" : "SUMMARY");
         else
             attack_lane_painter::paintHistoryLabel (g, label, presentationContext);
-        if (shape.loupe)
+        if (shape.loupe && ! (bandView && live))
             attack_loupe::paintPanel (g, rectangleOf (attack_ui::loupeArea (shape)));
-        const auto& order = bandView ? attack_lanes::bandLanes : attack_lanes::lanes;
         const bool delta = bandView ? bandModel.delta : pairedObservation();
         for (std::size_t index = 0; index < attack_ui::laneCount; ++index)
-            attack_lane_painter::paintLaneChrome (
-                g, order[index],
-                rectangleOf (attack_ui::labelCell (shape, shape.lanes[index])),
-                rectangleOf (attack_ui::lanePlot (shape, index)), delta, presentationContext);
+        {
+            const auto labelCell = rectangleOf (attack_ui::labelCell (shape, shape.lanes[index]));
+            const auto plot = rectangleOf (attack_ui::lanePlot (shape, index));
+            if (bandView)
+            {
+                // The band's lanes are number lines of the recent hits, not time.
+                attack_lane_painter::paintLaneLabel (g, attack_lanes::bandLanes[index], labelCell, delta,
+                                                     presentationContext);
+                attack_band_summary_painter::paintLaneChrome (g, index, plot, delta, presentationContext);
+            }
+            else
+                attack_lane_painter::paintLaneChrome (g, attack_lanes::lanes[index], labelCell, plot, delta,
+                                                      presentationContext);
+        }
+        if (bandView)
+        {
+            attack_band_summary_painter::paintAxisRow (g, rectangleOf (attack_ui::axisPlot (shape)),
+                                                       rectangleOf (attack_ui::lanePlot (shape, 0)), delta,
+                                                       presentationContext);
+            return;
+        }
     }
-    if (! shape.axis.empty())
+    // The time axis, where six seconds are shown.
+    if (! shape.axis.empty() && ! reading)
     {
         auto axis = rectangleOf (attack_ui::axisPlot (shape));
         const auto labelWidth = attack_ui::axisLabelWidth (shape);

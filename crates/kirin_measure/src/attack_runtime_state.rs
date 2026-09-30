@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use crate::attack_perception::band::{AttackBandMeasure, ATTACK_BAND_HISTORY_CAPACITY};
 use crate::AttackPerceptualFeatures;
 
 pub const ATTACK_ODF_HISTORY_CAPACITY: usize = 1_200;
@@ -149,23 +148,6 @@ impl AttackDetailedEvent {
     }
 }
 
-/// One band of one confirmed hit (HyphaAttackBand): measured once, after its tail.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct AttackBandDetail {
-    pub event: AttackEvent,
-    pub measure: AttackBandMeasure,
-}
-
-impl AttackBandDetail {
-    pub fn has_valid_layout(&self) -> bool {
-        self.event.has_valid_layout()
-            && self.measure.has_valid_layout()
-            && self.event.event_sample == self.measure.event_sample
-            && self.event.sample_rate == self.measure.sample_rate
-            && self.event.channels == self.measure.channels
-    }
-}
-
 /// POST measured at a PRE onset: the event to report and the PRE body end it must share, or
 /// `None` while the PRE detail has only its head.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -180,8 +162,6 @@ pub struct AttackHistory {
     events: VecDeque<AttackEvent>,
     details: VecDeque<AttackDetailedEvent>,
     waveform: VecDeque<AttackWaveformPoint>,
-    /// The chosen band of the newest hits, in event order; empty while no band is chosen.
-    band_details: VecDeque<AttackBandDetail>,
     /// Advances on every accepted change, including a detail completed after its waveform.
     revision: u64,
 }
@@ -199,7 +179,6 @@ impl AttackHistory {
             events: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
             details: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
             waveform: VecDeque::with_capacity(ATTACK_WAVEFORM_HISTORY_CAPACITY),
-            band_details: VecDeque::with_capacity(ATTACK_BAND_HISTORY_CAPACITY),
             revision: 0,
         }
     }
@@ -218,7 +197,6 @@ impl AttackHistory {
             self.events.clear();
             self.details.clear();
             self.waveform.clear();
-            self.band_details.clear();
         }
         if self.frames.len() == ATTACK_ODF_HISTORY_CAPACITY {
             self.frames.pop_front();
@@ -291,7 +269,6 @@ impl AttackHistory {
             self.events.clear();
             self.details.clear();
             self.waveform.clear();
-            self.band_details.clear();
         }
         if self.waveform.len() == ATTACK_WAVEFORM_HISTORY_CAPACITY {
             self.waveform.pop_front();
@@ -300,33 +277,10 @@ impl AttackHistory {
         self.revision += 1;
     }
 
-    /// Append a hit's band measure. Each hit has one; a band change clears them all.
-    pub(crate) fn push_band_detail(&mut self, detail: AttackBandDetail) {
-        if !detail.has_valid_layout() || self.events.iter().all(|event| *event != detail.event) {
-            return;
-        }
-        if self
-            .band_details
-            .iter()
-            .any(|current| current.event.event_sample == detail.event.event_sample)
-        {
-            return;
-        }
-        if self.band_details.len() == ATTACK_BAND_HISTORY_CAPACITY {
-            self.band_details.pop_front();
-        }
-        self.band_details.push_back(detail);
-        self.band_details
-            .make_contiguous()
-            .sort_by_key(|current| current.event.event_sample);
+    /// Advance the revision for a change kept outside the history (the band results), so every
+    /// reader keyed on the revision (PRE's snapshot publication) sees it.
+    pub(crate) fn touch(&mut self) {
         self.revision += 1;
-    }
-
-    pub(crate) fn clear_band_details(&mut self) {
-        if !self.band_details.is_empty() {
-            self.band_details.clear();
-            self.revision += 1;
-        }
     }
 
     pub fn revision(&self) -> u64 {
@@ -356,12 +310,6 @@ impl AttackHistory {
     ) -> impl DoubleEndedIterator<Item = &AttackWaveformPoint> + ExactSizeIterator {
         self.waveform.iter()
     }
-
-    pub fn band_details(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &AttackBandDetail> + ExactSizeIterator {
-        self.band_details.iter()
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -372,4 +320,8 @@ pub struct AttackRuntimeStats {
     pub pushed_blocks: u64,
     pub dropped_blocks: u64,
     pub analyzed_frames: u64,
+    /// Band measurements run so far (each hit once per band), and the frames the band ring
+    /// holds room for: 0 while no band is chosen.
+    pub band_measurements: u64,
+    pub band_ring_frames: u64,
 }

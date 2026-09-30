@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::thread;
 
 use super::*;
+use crate::AttackPairEventKind;
 
 fn push_impulse_pair(pre: &AttackRuntime, post: &AttackRuntime, frames: usize, impulse_at: usize) {
     const BLOCK_FRAMES: usize = 256;
@@ -207,12 +208,19 @@ fn a_pairing_flicker_keeps_the_post_attack_history() {
     post_spectrum.shutdown_and_join();
 }
 
-/// A 500 Hz burst at `onset` on both sides: POST at half the amplitude.
-fn push_burst_pair(pre: &AttackRuntime, post: &AttackRuntime, frames: usize, onset: usize) {
+/// A 500 Hz burst at `onset` on PRE, and `post_delay` frames later on POST at half the amplitude:
+/// the two detectors then report different onsets for the same hit, as a real chain makes them.
+fn push_burst_pair(
+    pre: &AttackRuntime,
+    post: &AttackRuntime,
+    frames: usize,
+    onset: usize,
+    post_delay: usize,
+) {
     // 1 024-frame blocks: a second of audio fits the 128-slot ingress ring while the worker warms up.
     const BLOCK_FRAMES: usize = 1_024;
-    let value_at = |absolute: usize, amplitude: f64| -> f32 {
-        let t = (absolute as f64 - onset as f64) / 48_000.0;
+    let value_at = |absolute: usize, start: usize, amplitude: f64| -> f32 {
+        let t = (absolute as f64 - start as f64) / 48_000.0;
         if t < 0.0 {
             return 0.0;
         }
@@ -229,8 +237,8 @@ fn push_burst_pair(pre: &AttackRuntime, post: &AttackRuntime, frames: usize, ons
         let mut pre_samples = Vec::with_capacity(count * 2);
         let mut post_samples = Vec::with_capacity(count * 2);
         for offset in 0..count {
-            let pre_value = value_at(position + offset, 0.5);
-            let post_value = value_at(position + offset, 0.25);
+            let pre_value = value_at(position + offset, onset, 0.5);
+            let post_value = value_at(position + offset, onset + post_delay, 0.25);
             pre_samples.extend_from_slice(&[pre_value, pre_value]);
             post_samples.extend_from_slice(&[post_value, post_value]);
         }
@@ -242,7 +250,7 @@ fn push_burst_pair(pre: &AttackRuntime, post: &AttackRuntime, frames: usize, ons
 }
 
 #[test]
-fn a_chosen_band_rides_the_request_and_comes_back_paired() {
+fn a_chosen_band_rides_the_request_and_post_measures_each_pre_onset_once() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
@@ -277,36 +285,67 @@ fn a_chosen_band_rides_the_request_and_comes_back_paired() {
         "the request carried the band to PRE"
     );
 
-    // The hit after Phase D settles, then its 300 ms tail and the decisions past it.
-    push_burst_pair(&pre_attack, &post_attack, 48_000, 20_000);
+    // POST hears the hit 15 ms after PRE: more than one detector hop, within the 25 ms match, so
+    // its own onset differs from PRE's while the two still pair.
+    push_burst_pair(&pre_attack, &post_attack, 48_000, 20_000, 720);
     let deadline = Instant::now() + Duration::from_secs(4);
-    let mut view = None;
+    let mut found = None;
     while Instant::now() < deadline {
         assert!(pre.pre_tick("pre", &pre_dir));
         assert!(post.post_tick("post", Some(target.clone())));
-        view = post
+        found = post
             .try_attack_view()
-            .filter(|view| view.band_pairs.iter().any(|pair| pair.post.is_some()));
-        if view.is_some() {
+            .filter(|view| view.pre_band == AttackPreBand::Same)
+            .and_then(|view| {
+                let pair = *view
+                    .pair_events
+                    .iter()
+                    .find(|pair| pair.kind == AttackPairEventKind::Matched)?;
+                let pre_detail = *view
+                    .pre_band_results
+                    .as_ref()?
+                    .own_at(pair.pre_event_sample?)?;
+                let measure = pre_detail.measure?;
+                let post_detail = *post_attack
+                    .band_results()
+                    .anchored_at(pair.pre_event_sample?, measure.span_end_sample)?;
+                Some((view, pair, pre_detail, post_detail))
+            });
+        if found.is_some() {
             break;
         }
         thread::sleep(Duration::from_millis(5));
     }
-    let view = view.expect("a paired band measure");
+    let (view, pair, pre_detail, post_detail) = found.expect("a paired band measure");
     assert_eq!(view.status, SpectrumViewStatus::Active);
     assert_eq!(view.band, Some(band));
-    assert_eq!(view.pre_band, Some(band));
-    let pair = view
-        .band_pairs
-        .iter()
-        .find(|pair| pair.post.is_some())
-        .unwrap();
-    let post_measure = pair.post.unwrap();
-    assert_eq!(pair.pre.event_sample, pair.event_sample);
-    assert_eq!(post_measure.span_end_sample, pair.pre.span_end_sample);
-    assert!((post_measure.level_dbfs - pair.pre.level_dbfs + 6.02).abs() < 0.3);
-    let delay_ms = pair.delay_frames.unwrap() * 1_000.0 / 48_000.0;
-    assert!(delay_ms.abs() < 0.3, "same content: {delay_ms} ms");
+    assert_ne!(
+        pair.pre_event_sample, pair.post_event_sample,
+        "the two sides report their own onsets"
+    );
+    // POST is measured at the PRE onset over the PRE tail: the same content samples.
+    let pre_measure = pre_detail.measure.unwrap();
+    let post_measure = post_detail.measure.unwrap();
+    assert_eq!(post_measure.event_sample, pre_measure.event_sample);
+    assert_eq!(post_measure.span_end_sample, pre_measure.span_end_sample);
+    assert!((post_measure.level_dbfs - pre_measure.level_dbfs + 6.02).abs() < 0.3);
+    let delay_ms = crate::attack_perception::band::band_delay_frames(&pre_measure, &post_measure)
+        .unwrap()
+        * 1_000.0
+        / 48_000.0;
+    assert!(
+        (delay_ms - 15.0).abs() < 0.5,
+        "POST 15 ms late: {delay_ms} ms"
+    );
+
+    // Every further tick asks for the same onsets again; none is measured twice.
+    let measured = post_attack.stats().band_measurements;
+    for _ in 0..30 {
+        assert!(pre.pre_tick("pre", &pre_dir));
+        assert!(post.post_tick("post", Some(target.clone())));
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(post_attack.stats().band_measurements, measured);
 
     // ALL on POST: the next request drops the band and PRE stops measuring it.
     post_attack.set_band(None);

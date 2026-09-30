@@ -18,7 +18,8 @@ struct ChromeState
     bool running = true;
     float dpi = 1.0f;
     std::uint8_t band = 0;
-    bool preBand = true;
+    std::uint8_t preBand = KIRIN_ATTACK_BAND_PRE_SAME;
+    bool locked = false;
 };
 
 inline void applyChromeState (AttackComponent& component, const ChromeState& state)
@@ -36,12 +37,18 @@ inline void applyChromeState (AttackComponent& component, const ChromeState& sta
     fixture.submit (component);
     component.setBand (state.band);
     if (state.band != 0)
-        component.setBandSnapshot (*bandBatch ({ 96'000, 192'000, 240'000 }, state.band, state.preBand));
+    {
+        const auto batch = bandBatchFor (fixture, state.band, state.preBand);
+        component.setBandSnapshot (*batch);
+        component.setBandSummary (summaryFor (*batch));
+    }
+    component.keyPressed (juce::KeyPress (state.locked ? juce::KeyPress::homeKey : juce::KeyPress::endKey));
 }
 
 // The cached structure follows every input it depends on. One component walks through size,
-// density, VIEW, pairing, data validity, the band and device scale; after each step both its
-// first frame and its cached second frame must equal a fresh component's frame in that state.
+// density, VIEW, pairing, data validity, the band, LIVE or a locked hit and device scale; after
+// each step both its first frame and its cached second frame must equal a fresh component's frame
+// in that state.
 inline bool verifyChromeCache()
 {
     const auto base = ChromeState {};
@@ -54,14 +61,16 @@ inline bool verifyChromeCache()
     auto dormant = unpaired;   dormant.running = false;
     auto awake = dormant;      awake.running = true;
     auto banded = awake;       banded.paired = true; banded.band = 4;
-    auto pending = banded;     pending.preBand = false;
-    auto rows = pending;       rows.preBand = true; rows.overlay = false;
-    auto retina = rows;        retina.dpi = 2.0f;
+    auto pending = banded;     pending.preBand = KIRIN_ATTACK_BAND_PRE_PREDATES;
+    auto rows = pending;       rows.preBand = KIRIN_ATTACK_BAND_PRE_SAME; rows.overlay = false;
+    auto locked = rows;        locked.locked = true;
+    auto live = locked;        live.locked = false;
+    auto retina = live;        retina.dpi = 2.0f;
     auto whole = retina;       whole.band = 0;
     auto back = whole;         back.width = 580; back.height = 248;
                                back.context = presentation::forEditor (600, 400);
     const std::array states { base, size, density, inspection, overlay, unpaired, dormant, awake,
-                              banded, pending, rows, retina, whole, back };
+                              banded, pending, rows, locked, live, retina, whole, back };
     auto moving = std::make_unique<AttackComponent>();
     for (std::size_t step = 0; step < states.size(); ++step)
     {

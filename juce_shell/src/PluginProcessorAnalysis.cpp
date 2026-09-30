@@ -216,6 +216,24 @@ bool KirinHyphaProcessorBase::pollAttackBand (KirinAttackBandBatch& out) const
         && kirin_hypha_poll_attack_band (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollAttackBandSummary (KirinAttackBandSummary& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_attack_band_summary (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackBandEnvelope (std::int64_t eventSample,
+                                                      KirinAttackBandHitEnvelope& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_band_envelope (hyphaHandle, eventSample, &out);
+}
+
 bool KirinHyphaProcessorBase::attackStats (KirinAttackStats& out) const
 {
     if (role != Role::Post)

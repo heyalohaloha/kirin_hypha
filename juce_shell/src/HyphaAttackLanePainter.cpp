@@ -25,11 +25,6 @@ int lineHeight (const presentation::Context& context, TextRole role)
     return text_style::requiredLineHeight (typography::resolve (context, role, visualization));
 }
 
-juce::String shortReason (const juce::String& reason)
-{
-    return reason.upToFirstOccurrenceOf (" ", false, false); // NEXT, QUIET, PRE, POST, NO
-}
-
 juce::Rectangle<int> rectangleOf (attack_ui::Box box)
 {
     return { box.x, box.y, box.width, box.height };
@@ -89,8 +84,8 @@ bool drawFitting (juce::Graphics& g, std::initializer_list<juce::String> candida
     return false;
 }
 
-void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
-                      juce::Rectangle<int> plot, bool delta, const presentation::Context& context)
+void paintLaneLabel (juce::Graphics& g, Lane lane, juce::Rectangle<int> label, bool delta,
+                     const presentation::Context& context)
 {
     const auto colour = colourFor (lane);
     if (! label.isEmpty())
@@ -114,7 +109,12 @@ void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
                          juce::Justification::topLeft, attack_stage::captionTracking (context));
         }
     }
+}
 
+void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
+                      juce::Rectangle<int> plot, bool delta, const presentation::Context& context)
+{
+    paintLaneLabel (g, lane, label, delta, context);
     attack_stage::paint (g, plot.toFloat(), 3.0f, 0.16f);
     const auto inner = lanePlotInner (plot);
     const auto fraction = baseFraction (attack_lanes::scaleFor (lane, delta));
@@ -174,7 +174,9 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
         const auto age = window > 0.0f
             ? juce::jlimit (0.0f, 1.0f, static_cast<float> (frame.latest - hit.sample) / window) : 0.0f;
         const auto life = 1.0f - (depth.age > 0.0f ? depth.age : 0.45f) * age;
-        if (cell.reason != Reason::value)
+        // A bound draws its bar to the bound; a withheld value and a change inside the band's
+        // resolution keep the hollow mark on the zero line.
+        if (cell.reason != Reason::value && cell.reason != Reason::atLeast)
         {
             g.setColour (COL_TEXT_TERTIARY.withAlpha (selected ? 1.0f : 0.72f));
             g.drawEllipse (centreX - 1.6f, baseY - 1.6f, 3.2f, 3.2f, 0.8f);
@@ -219,6 +221,19 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
         }
         g.setColour (colour.withAlpha (life));
         g.fillRect (juce::Rectangle<float> (core.getX() - 0.5f, tipY, core.getWidth() + 1.0f, 1.0f));
+        if (cell.reason == Reason::atLeast)
+        {
+            // "At least": an open chevron just beyond the tip, pointing away from zero, inside
+            // the hit's own column and its side of the zero line.
+            const auto from = juce::jlimit (inner.getY() + 2.0f, inner.getBottom() - 2.0f,
+                                            rising ? tipY - 1.5f : tipY + 2.5f);
+            const auto apex = rising ? from - 2.0f : from + 2.0f;
+            juce::Path chevron;
+            chevron.startNewSubPath (centreX - 2.5f, from);
+            chevron.lineTo (centreX, apex);
+            chevron.lineTo (centreX + 2.5f, from);
+            g.strokePath (chevron, juce::PathStrokeType (1.0f));
+        }
         if (extent.clippedHigh || extent.clippedLow)
         {
             // An out-of-range value reaches the lane edge and keeps a cap; the exact
@@ -266,7 +281,8 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
     }
     const auto reason = cellText (*hit, lane, delta, false);
     g.setColour (COL_TEXT_SECONDARY);
-    drawFitting (g, { reason, shortReason (reason), "--" }, cell, context, TextRole::readout,
+    drawFitting (g, { reason, shortReasonText (*hit, hit->cells[index (lane)].reason), "--" },
+                 cell, context, TextRole::readout,
                  juce::Justification::centredLeft, attack_stage::captionTracking (context));
 }
 
@@ -291,9 +307,24 @@ void paintLine (juce::Graphics& g, const attack_ui::Layout& layout, const Frame&
         }
         else
         {
+            // Why the value is withheld, after the lane's code. The two are drawn apart so the
+            // reason keeps its Japanese; where no reason fits, the code and "--".
+            const auto codeWidth = juce::roundToInt (std::ceil (text_style::shownWidth (
+                monoFont (frame.context, TextRole::readout, visualization), code + " ")));
+            const auto reason = hit != nullptr ? hit->cells[index (lane)].reason : Reason::missing;
+            const auto brief = hit != nullptr ? shortReasonText (*hit, reason) : juce::String();
+            g.setColour (COL_TEXT_SECONDARY);
+            const bool said = reason != Reason::missing
+                && drawFitting (g, { reasonText (*hit, reason), brief == "--" ? juce::String() : brief },
+                                cell.withTrimmedLeft (codeWidth), frame.context, TextRole::readout,
+                                juce::Justification::centredLeft);
             g.setColour (COL_TEXT_TERTIARY);
-            drawFitting (g, { code + " --", "--" }, cell, frame.context,
-                         TextRole::readout, juce::Justification::centredLeft);
+            if (said)
+                drawFitting (g, { code }, cell, frame.context, TextRole::readout,
+                             juce::Justification::centredLeft);
+            else
+                drawFitting (g, { code + " --", "--" }, cell, frame.context, TextRole::readout,
+                             juce::Justification::centredLeft);
         }
     }
 }
