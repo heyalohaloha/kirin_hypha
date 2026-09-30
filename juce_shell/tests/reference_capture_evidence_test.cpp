@@ -49,15 +49,6 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
                     "synthetic host waits for each held-capture comparison unit");
             else juce::Thread::sleep(12);
             if(unitBoundary) { const auto s=controller.snapshot(); observedVersionReceipt |= s.versionSelection && s.versionSelection->aCaptureAvailable; }
-            if(before.held && unitBoundary && unitIndex%4==3)
-            {
-                bool ready=false;
-                for(int attempt=0;attempt<4000 && !ready;++attempt)
-                { const auto s=controller.snapshot(); ready=s.versionSelection && s.versionSelection->aCaptureAvailable;
-                  if(!ready) juce::Thread::sleep(5); }
-                require(ready,
-                    "synthetic host waits for the four-second local A observation");
-            }
         }
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();
@@ -69,7 +60,9 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
     controller.restoreSettings(selection);
     require(controller.savedSettings().captureState==selection.captureState,"configured controller immediately saves pending restoration");
     require(wait([&]{const auto s=access->snapshot();return s.held && s.held->restored;}),"Capture restored independently of B");
-    for(int pass=0;pass<8 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
+    // The source worker may start observing after the first synthetic four-second window. Keep
+    // advancing the host clock instead of waiting at that boundary for audio not yet supplied.
+    for(int pass=0;pass<12 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
     if (! wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}))
     {
         const auto runtime = controller.snapshot();
