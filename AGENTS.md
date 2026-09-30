@@ -216,6 +216,11 @@ napi-rs依存を外し、純粋なRustライブラリとして抽出。
 
 ### AAX境界
 
+AAX作業は最初に`docs/aax_build_signing_entry.md`を読む。モード選択、PACE顧客入力の参照先、
+Mac KeychainとWindows private signing factoryの違い、完了条件を共通入口にまとめている。
+機器固有の資料所在は、存在すればgitignore対象の`release_state/aax_signing_local_handoff.md`を参照する。
+存在未確認の設定fileを前提に質問せず、顧客番号・認証情報・管理画面を公開repoやログへ転記しない。
+
 AAXは既定OFFで、SDKとPACEツールはリポジトリ外に保つ。macOS Universal build/PACE署名と
 Windows x64 build/PACE+Authenticode署名の単体経路は実証済み。B-786のIntel版Pro Tools実機では
 Native load、再open、stereo/multi-mono、pairing、0 sample表示、Offline Bounceを確認済みだが、

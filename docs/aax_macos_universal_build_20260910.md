@@ -5,7 +5,11 @@ Date: 2026-09-10
 This is the public-repository source of truth for the technical AAX build and packaging path. It
 does not contain account identifiers, credentials, private correspondence, or contract terms.
 
-## Current verified state
+Start with the [AAX build and signing entry guide](aax_build_signing_entry.md) for mode selection,
+PACE Central field mapping, signing-input locations, and the next-session checklist. The build
+script consumes environment variables; it does not automatically load a shared signing-settings file.
+
+## Historical verified state (not current-candidate acceptance)
 
 PRE and POST have been built on macOS as `x86_64 arm64` AAX bundles from the external AAX SDK.
 The local build and installed copies passed both PACE `wraptool verify` and Apple
