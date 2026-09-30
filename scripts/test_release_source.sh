@@ -74,6 +74,7 @@ run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run node --test scripts/ls_release/release_metadata.test.mjs
 run node --test scripts/windows/windows_installer.test.mjs
+run node --test scripts/windows/inno_signing.test.mjs
 
 # Pure C++ contract used by the common AU/VST3 editor. This deliberately runs before any JUCE
 # bundle build and blocks mismatched dimensions, bounds, ABI contracts, fonts, colours, or shared

@@ -56,8 +56,13 @@ order for every release:
 3. Integrate the distribution-procedure commit into the validated product line, choose the next
    unused version, and assign the integration commit its unique B number. The integration is required
    because the pinned signing factory executes `scripts/windows/build-installer.mjs` from the checked-out
-   Hypha source. If any of the four trusted distribution files changed, review them and update the
+   Hypha source. If any trusted distribution file changed, review it and update the
    private factory's SHA-256 allowlist in the same integration step.
+   The tracked `scripts/windows/inno-sign-codesigntool.mjs` stages Inno's temporary uninstaller
+   as an executable and keeps unsigned inputs intact until signing output is checked. The factory
+   must not rewrite this hook or `build-installer.mjs` after checkout. Apply the approved JUCE patch
+   stack and pass the clean-source gate before signing. Pin the preceding public release tag for
+   the upgrade test; do not silently reuse a stale hard-coded baseline.
 4. Record the resulting integration commit as the release candidate. Run the complete local suites,
    macOS/AU CI, and Windows CI/pluginval for that exact commit and version. This commit, not its
    pre-integration parent, owns the release evidence.

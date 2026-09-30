@@ -251,6 +251,8 @@ test('Inno compiler signed route uses the shared eSigner hook', () => {
   assert.ok(signed.includes('/DSignedBuild=1'));
   assert.ok(signed.some((arg) => arg.startsWith('/Skirin_esigner=')));
   assert.ok(signed.some((arg) => arg.endsWith('--input-file $f')));
+  assert.equal(signed.find((arg) => arg.startsWith('/Skirin_esigner=')),
+    `/Skirin_esigner=$q${process.execPath}$q $q${path.join(scriptDir, 'inno-sign-codesigntool.mjs')}$q --input-file $f`);
 
   const withAax = innoCompilerArgs({
     outputDir: 'C:\\out',
