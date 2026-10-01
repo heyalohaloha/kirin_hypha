@@ -12,6 +12,7 @@ const MODULE_PATH = fileURLToPath(import.meta.url);
 export const PROJECT_ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
 
 export const HELP = `Usage: node scripts/build_hypha.mjs --sdk PATH --license-confirmed [options]
+Quick local test: node scripts/build_hypha.mjs --without-aax
 
 macOS: PRE/POST x AAX/AU/VST3, each x86_64 + arm64 (Universal).
 Windows: PRE/POST x AAX/VST3, each x64. AU is Apple-only.
@@ -19,6 +20,7 @@ This is a local UNSIGNED/DIAGNOSTIC build, not a release or a retail Pro Tools g
 No iLok, credentials, CI, installation, notarization or upload is used by this command.
 
 Options:
+  --without-aax         SDK-free local test: AU/VST3 on Mac, VST3 on Windows
   --sdk PATH             External licensed AAX SDK (or KIRIN_AAX_SDK_PATH)
   --license-confirmed    Explicit confirmation for this SDK use
   --platform macos|windows  Auto-detected; cross-OS planning only with --dry-run
@@ -30,13 +32,14 @@ Options:
   --help                Show this entry and the signing/release boundary
 
 Output: target/hypha-build/<macos-universal|windows-x64>[-ID]/hypha-build.json
+SDK-free output has a separate -no-aax directory; the default still builds all formats.
 Signing/distribution: docs/aax_build_signing_entry.md and docs/ls_release/kirin_hypha_ls_runbook.md
 End-to-end through HP: node scripts/build_hypha.mjs --release --help
 `;
 
 export function parseArgs(argv, env = process.env) {
   const options = { sdk: env.KIRIN_AAX_SDK_PATH || '', licenseConfirmed: false,
-    platform: '', arch: '', jobs: 2, buildId: 'default', dryRun: false, verifyOnly: false };
+    platform: '', arch: '', jobs: 2, buildId: 'default', dryRun: false, verifyOnly: false, withoutAax: false };
   const values = { '--sdk': 'sdk', '--platform': 'platform', '--arch': 'arch',
     '--jobs': 'jobs', '--build-id': 'buildId' };
   for (let index = 0; index < argv.length; index++) {
@@ -46,6 +49,7 @@ export function parseArgs(argv, env = process.env) {
       if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`);
       options[values[arg]] = value;
     } else if (arg === '--license-confirmed') options.licenseConfirmed = true;
+    else if (arg === '--without-aax') options.withoutAax = true;
     else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--verify-only') options.verifyOnly = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
@@ -87,7 +91,10 @@ export function createPlan(options, { root = PROJECT_ROOT, host = process.platfo
     throw new Error('--jobs must be an integer from 1 to 64');
   }
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(options.buildId)) throw new Error('Invalid --build-id');
-  const label = `${platform}-${arch}`;
+  const withAax = !options.withoutAax;
+  const formats = (platform === 'macos' ? ['AAX', 'AU', 'VST3'] : ['AAX', 'VST3'])
+    .filter(format => withAax || format !== 'AAX');
+  const label = `${platform}-${arch}${withAax ? '' : '-no-aax'}`;
   const buildDir = path.join(root, 'target', 'hypha-build',
     `${label}${options.buildId === 'default' ? '' : `-${options.buildId}`}`);
   rejectSymlinkAncestors(root, buildDir);
@@ -95,7 +102,7 @@ export function createPlan(options, { root = PROJECT_ROOT, host = process.platfo
     .match(/^version\s*=\s*"(\d+\.\d+\.\d+)"/m)?.[1];
   if (!version) throw new Error('Hypha version missing');
   let sdk;
-  if (!options.verifyOnly) {
+  if (withAax && !options.verifyOnly) {
     if (!options.sdk) throw new Error('--sdk or KIRIN_AAX_SDK_PATH is required');
     if (!options.licenseConfirmed) throw new Error('--license-confirmed is required');
     sdk = fs.realpathSync(path.resolve(root, options.sdk));
@@ -117,11 +124,11 @@ export function createPlan(options, { root = PROJECT_ROOT, host = process.platfo
   if (platform === 'macos') commands.push(command('lipo', ['-create',
     ...targets.map((target) => path.join(root, 'target', target, 'release', 'libkirin_hypha_ffi.a')),
     '-output', ffiLibrary]));
-  const formats = platform === 'macos' ? ['AAX', 'AU', 'VST3'] : ['AAX', 'VST3'];
   const configure = ['-S', path.join(root, 'juce_shell'), '-B', buildDir,
     '-DCMAKE_BUILD_TYPE=Release', `-DKIRIN_FFI_LIB=${ffiLibrary}`,
-    `-DKIRIN_HYPHA_AAX_SDK_PATH=${sdk || ''}`, '-DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=ON',
-    '-DKIRIN_HYPHA_REQUIRE_AAX=ON', '-DKIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=OFF',
+    `-DKIRIN_HYPHA_AAX_SDK_PATH=${sdk || ''}`,
+    `-DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=${withAax ? 'ON' : 'OFF'}`,
+    `-DKIRIN_HYPHA_REQUIRE_AAX=${withAax ? 'ON' : 'OFF'}`, '-DKIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=OFF',
     '-DKIRIN_HYPHA_KIMERA_FONT_FILE=', '-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=OFF'];
   if (platform === 'macos') configure.push('-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64');
   else configure.push('-G', 'Visual Studio 17 2022', '-A', 'x64');

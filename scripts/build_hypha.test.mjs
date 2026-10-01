@@ -28,7 +28,7 @@ function pe(machine = 0x8664, certificateBytes = 0) {
 }
 
 function populate(plan, platform = plan.platform) {
-  for (const a of expectedArtifacts(platform, plan.buildDir)) {
+  for (const a of expectedArtifacts(platform, plan.buildDir, plan.formats)) {
     fs.mkdirSync(path.dirname(a.executable), { recursive: true });
     fs.writeFileSync(a.executable, platform === 'windows' ? pe() : Buffer.from(`fixture-${a.role}-${a.format}`));
   }
@@ -66,6 +66,71 @@ test('Windows plans explicit MSVC x64, four targets, one FFI build, and no AU', 
   assert.ok(p.commands.find(c => c.tool === 'cmake').args.includes('Visual Studio 17 2022'));
   assert.equal(p.commands.at(-1).args.filter(a => /^KirinHypha(?:PRE|POST)_/.test(a)).length, 4);
   assert.ok(!p.commands.at(-1).args.some(a => a.endsWith('_AU')));
+});
+
+test('SDK-free quick tests explicitly disable AAX and keep both roles and native architectures', t => {
+  const f = fixture(t);
+  const options = parseArgs(['--without-aax'], { KIRIN_AAX_SDK_PATH: 'nonexistent-sdk' });
+  for (const [host, formats] of [['darwin', ['AU', 'VST3']], ['win32', ['VST3']]]) {
+    const p = createPlan(options, { root: f.root, host });
+    const full = createPlan(f.options, { root: f.root, host });
+    assert.deepEqual(p.formats, formats); assert.notEqual(p.buildDir, full.buildDir);
+    assert.match(p.buildDir, /-no-aax$/);
+    const config = p.commands.find(c => c.tool === 'cmake').args;
+    assert.ok(config.includes('-DKIRIN_HYPHA_AAX_SDK_PATH='));
+    assert.ok(config.includes('-DKIRIN_HYPHA_REQUIRE_AAX=OFF'));
+    assert.ok(config.includes('-DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=OFF'));
+    assert.equal(p.commands.at(-1).args.filter(a => /^KirinHypha(?:PRE|POST)_/.test(a)).length, formats.length * 2);
+    assert.ok(!p.commands.at(-1).args.some(a => a.endsWith('_AAX')));
+    assert.equal(p.arch, host === 'darwin' ? 'universal' : 'x64');
+  }
+});
+
+test('SDK-free receipts recheck every selected bundle and cannot reuse all-format output', t => {
+  const f = fixture(t); const options = parseArgs(['--without-aax'], {});
+  for (const host of ['darwin', 'win32']) {
+    const p = createPlan(options, { root: f.root, host }); populate(p);
+    const deps = { run: () => {}, snapshot, verify: () => verifyArtifacts(p, inspectionRunner), log: () => {} };
+    const result = executePlan(p, options, deps);
+    assert.equal(result.artifacts.length, host === 'darwin' ? 4 : 2);
+    assert.ok(result.artifacts.every(a => a.format !== 'AAX'));
+    assert.equal(result.notForDistribution, true); assert.equal(result.signed, false);
+    assert.deepEqual(executePlan(p, { ...options, verifyOnly: true }, deps), result);
+    const saved = JSON.parse(fs.readFileSync(p.manifestPath, 'utf8'));
+    saved.platform = saved.platform.replace('-no-aax', '');
+    fs.writeFileSync(p.manifestPath, JSON.stringify(saved));
+    assert.throws(() => executePlan(p, { ...options, verifyOnly: true }, deps), /current source/);
+  }
+});
+
+test('quick tests still reject missing output and protect signed bundles', t => {
+  const f = fixture(t); const options = parseArgs(['--without-aax'], {});
+  const p = createPlan(options, { root: f.root, host: 'darwin' });
+  assert.throws(() => verifyArtifacts(p, inspectionRunner), /Missing or empty/);
+  populate(p);
+  const first = expectedArtifacts(p.platform, p.buildDir, p.formats)[0];
+  fs.mkdirSync(path.join(first.bundle, 'Contents/_CodeSignature'));
+  assert.throws(() => executePlan(p, options, { run: () => 'Authority=Developer ID Application',
+    snapshot, log: () => {} }), /signed Mac/);
+  assert.ok(fs.existsSync(first.executable)); assert.ok(!fs.existsSync(p.manifestPath));
+});
+
+test('quick-test CLI needs no SDK or license flags and its plan is read-only', () => {
+  const env = { PATH: process.env.PATH, ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}) };
+  const planning = ['darwin', 'win32'].includes(process.platform) ? [] : ['--platform', 'macos'];
+  const output = execFileSync(process.execPath, [path.join(PROJECT_ROOT, 'scripts/build_hypha.mjs'),
+    '--without-aax', '--dry-run', ...planning], { env, encoding: 'utf8', cwd: path.dirname(PROJECT_ROOT) });
+  const p = JSON.parse(output);
+  assert.ok(!p.formats.includes('AAX'));
+  assert.equal(p.expectedBundles, process.platform === 'win32' ? 2 : 4);
+  assert.equal(p.signing, 'not performed');
+  assert.ok(p.commands.every(c => !['wraptool', 'xcrun', 'gh'].includes(c.tool)));
+});
+
+test('release mode refuses the SDK-free diagnostic shortcut rather than weakening release gates', () => {
+  assert.throws(() => execFileSync(process.execPath, [path.join(PROJECT_ROOT, 'scripts/build_hypha.mjs'),
+    '--release', '--without-aax', '--help'], { encoding: 'utf8', stdio: 'pipe' }),
+  error => error.status === 1 && /Unknown release option: --without-aax/.test(error.stderr));
 });
 
 test('bad arguments and unsupported OS/architecture fail before tools', (t) => {
@@ -108,7 +173,7 @@ test('dry-run is read-only, permits cross-OS planning, and ignores all signing s
     snapshot: () => assert.fail('dry-run read source'), log: value => { printed += value; } });
   assert.match(printed, /windows-x64/); assert.ok(!fs.existsSync(plan.buildDir));
   const output = execFileSync(process.execPath, [path.join(PROJECT_ROOT, 'scripts/build_hypha.mjs'),
-    '--sdk', f.sdk, '--license-confirmed', '--dry-run'], { encoding: 'utf8',
+    '--sdk', f.sdk, '--license-confirmed', '--platform', 'macos', '--dry-run'], { encoding: 'utf8',
     cwd: path.dirname(f.root),
     env: { ...process.env, KIRIN_AAX_PACE_CUSTOMER_NUMBER: 'fixture-private-input' } });
   assert.ok(!output.includes('fixture-private-input'));

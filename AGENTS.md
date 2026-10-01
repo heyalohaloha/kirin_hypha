@@ -7,10 +7,12 @@
 
 |目的|入口|手順書|
 |---|---|---|
+|GUI / DSP用の検証プラグインを簡単に作る|`node scripts/build_hypha.mjs --without-aax`|`docs/hypha_build_entry.md`|
 |全formatの未署名診断build|`node scripts/build_hypha.mjs --help`|`docs/hypha_build_entry.md`|
 |正規build・署名・公証からHPアップまで|`node scripts/build_hypha.mjs --release --help`|`docs/hypha_release_entry.md`|
 
 MacはPRE/POST × AAX/AU/VST3 Universal、WindowsはPRE/POST × AAX/VST3 x64。AUはApple専用。
+`--without-aax`はSDK不要の明示的な検証専用。全formatや通常Pro Tools用署名・公開gateを代用しない。
 helpはSDK・認証・USB不要。未署名buildにもiLok不要。既存の成果物・CI・private stateは照合して再利用し、
 この案内のためにbuild / CI / 署名を起動しない。実機受入、LS担当者工程、公開承認、3チャネル条件は維持する。
 途中再開のprivate profile・証跡は作業checkoutのignored `release_state/`で確認し、管理URLや秘密値を転載しない。

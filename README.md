@@ -6,6 +6,9 @@ Developers / Codex / Claude: start with the [build-to-HP workflow](docs/hypha_re
 One entry, `node scripts/build_hypha.mjs --release --help`, explains signing, qualification and HP publication;
 [`--help`](docs/hypha_build_entry.md) explains unsigned native builds. Neither help command needs SDKs, credentials or iLok.
 Project instructions live in [AGENTS.md](AGENTS.md), shared with Claude through [CLAUDE.md](CLAUDE.md).
+For a quick unsigned GUI/DSP test build, run `node scripts/build_hypha.mjs --without-aax`
+(Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok).
+The default still builds all formats; this shortcut is not a full-format/release gate.
 
 Kirin Hypha is a free, open-source pass-through measurement plug-in for macOS and Windows. Place
 **PRE** before the processors you want to inspect and **POST** after them. POST then shows the measured

@@ -19,9 +19,13 @@ node scripts/build_hypha.mjs --release --help
 
 |依頼の目的|選ぶmode|実行前に確認するもの|
 |---|---|---|
+|日常のGUI / DSP用検証プラグインをすぐ作る|`--without-aax`|toolchainと採用source。AAX SDK / 署名 / iLokは不要|
 |全formatを未署名でbuild / 既存buildを再確認|build-only|native OS、採用source、外部SDK / license、既存output / lock|
 |署名・公証・3チャネル・HP反映まで進める|`--release`|clean exact candidate、必要CI / Windows factory、private profile、受入証跡、公開権限|
 |所在・使い方だけ確認|どちらの`--help`も可|build / CI / 署名 / uploadを起動しない|
+
+検証専用は`node scripts/build_hypha.mjs --without-aax`。詳しくは[build-only入口](hypha_build_entry.md)。
+この選択肢を全format受入や公開gateの代用にしない。`--release`との併用は拒否する。
 
 途中再開は、**作業checkout内**のignored `release_state/`のprofile・receipt・Handoffを先に照合する。
 古いworktreeに入口が無い場合は未統合であり、利用者の変更を消さず必要差分を統合する。

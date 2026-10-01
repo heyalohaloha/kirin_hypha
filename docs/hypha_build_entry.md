@@ -1,5 +1,24 @@
 # Hyphaの統合ビルド入口
 
+## 検証用プラグインをすぐ作る
+
+toolchainを用意した作業checkoutで、日常のGUI / DSP確認用なら次の1コマンド。
+MacはPRE/POST × AU/VST3 Universalの4本、WindowsはPRE/POST × VST3 x64の2本を作る。
+AAX SDK、署名認証、iLok USB / Cloud、公証、CI、公開操作は不要。
+
+```bash
+node scripts/build_hypha.mjs --without-aax
+```
+
+これはAAXを**明示的に外すローカル検証専用**の選択肢。通常の全format buildは既定のまま維持する。
+AAXも含めた検証は、後述の`--sdk PATH --license-confirmed`の1コマンドで6本／4本を作る。
+全format版と出力/cacheを分離するため、既存のAAX成果物や正規署名物を上書きしない。
+再確認だけなら`node scripts/build_hypha.mjs --without-aax --verify-only`で、再buildしない。
+配置・DAW起動はこのscriptで自動実行しない。**通常のPro Tools用AAX検証だけはPACE署名が必要**であり、
+未署名AAXを使える診断hostと区別する。詳細は[署名入口](aax_build_signing_entry.md)。
+
+## 公開までの入口との違い
+
 **ビルドからHPアップまで**は同じscriptの`--release` modeを使う。
 [全工程の入口](hypha_release_entry.md)で、署名・公証、3チャネル配布物、受入gate、英日HP反映と
 公開物再取得までを一連の作業として扱う。本書のbuild-only modeは診断用に残す。
@@ -60,9 +79,11 @@ node scripts/build_hypha.mjs --verify-only
 
 ## 出力と安全性
 
-出力は`target/hypha-build/macos-universal/`または`target/hypha-build/windows-x64/`。
+全formatの出力は`target/hypha-build/macos-universal/`または`target/hypha-build/windows-x64/`。
+`--without-aax`の出力はそれぞれ`macos-universal-no-aax/` / `windows-x64-no-aax/`へ分離する。
 各roleの`KirinHypha{PRE,POST}_artefacts/Release/<format>/`へbundleを生成する。
-全6本／全4本の存在、サイズ、実binaryのCPU、versionを確認した後だけ`hypha-build.json`を出す。
+選択した全bundle（既定6本／4本、`--without-aax`では4本／2本）の存在、サイズ、実binaryのCPU、
+versionを確認した後だけ`hypha-build.json`を出す。選択modeの異なるmanifestを再利用しない。
 manifestにはsource commit / B / modified state、JUCEのcommitと実bytesを含む変更fingerprint、各binaryのhashを残す。
 ビルド中にsourceが変わった場合は成功扱いにしない。
 

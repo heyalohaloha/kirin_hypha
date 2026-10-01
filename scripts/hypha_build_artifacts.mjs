@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function expectedArtifacts(platform, buildDir) {
-  const formats = platform === 'macos' ? ['AAX', 'AU', 'VST3'] : ['AAX', 'VST3'];
+export function expectedArtifacts(platform, buildDir,
+  formats = platform === 'macos' ? ['AAX', 'AU', 'VST3'] : ['AAX', 'VST3']) {
   const extensions = { AAX: 'aaxplugin', AU: 'component', VST3: 'vst3' };
   return ['PRE', 'POST'].flatMap((role) => formats.map((format) => {
     const name = `Kirin Hypha ${role}`;
@@ -58,8 +58,8 @@ export function rejectSignedArtifacts(platform, buildDir, run) {
   }
 }
 
-export function verifyArtifacts({ platform, buildDir, version }, run) {
-  return expectedArtifacts(platform, buildDir).map((artifact) => {
+export function verifyArtifacts({ platform, buildDir, version, formats }, run) {
+  return expectedArtifacts(platform, buildDir, formats).map((artifact) => {
     const stat = fs.statSync(artifact.executable, { throwIfNoEntry: false });
     if (!stat?.isFile() || stat.size === 0) {
       throw new Error(`Missing or empty ${artifact.role} ${artifact.format} executable`);

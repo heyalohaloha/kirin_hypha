@@ -51,3 +51,11 @@ test('both entry help modes work from another directory without SDK or signing c
     assert.ok(args.includes('--release') ? output.includes('HP upload') : output.includes('DIAGNOSTIC'));
   }
 });
+
+test('quick diagnostic build is visible without changing the full-format and release boundaries', () => {
+  for (const file of ['AGENTS.md', 'README.md', guide, build]) {
+    assert.ok(read(file).includes('--without-aax'), `missing quick diagnostic entry: ${file}`);
+  }
+  assert.match(read(build), /通常のPro Tools/);
+  assert.ok(read(build).includes('--verify-only'));
+});
