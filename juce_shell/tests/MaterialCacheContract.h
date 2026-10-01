@@ -143,10 +143,14 @@ inline void verifyCachedMaterialIsCheaper()
         juce::Image image (juce::Image::ARGB, 1'490, 620, true);
         juce::Graphics g (image);
         g.addTransform (juce::AffineTransform::scale (2.0f));
+        // The whole material either way: a main window's glass and the frame around it.
         const auto painted = median ([&] {
             const juce::Graphics::ScopedSaveState saved (g);
             if (c.kind == Kind::well)
+            {
                 surface_material::uncached::paintObservationWell (g, c.area);
+                main_frame::uncached::paint (g, c.area);
+            }
             else
                 surface_material::uncached::paintPanel (g, c.area, 0.76f, 4.0f, false);
         });
