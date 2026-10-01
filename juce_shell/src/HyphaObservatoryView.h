@@ -3,6 +3,7 @@
 #include <functional>
 #include <optional>
 #include <vector>
+#include "kirin_hypha_level_snapshot.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -43,9 +44,19 @@ public:
         return labelFont (presentationContext, typography::TextRole::action).getHeight();
     }
     void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+    // A pending operation is readable status, not a dimmed action to press again.
+    void setStatusOnly (bool next)
+    {
+        if (statusOnly == next) return;
+        statusOnly = next;
+        setEnabled (! next);
+        setMouseCursor (next ? juce::MouseCursor::NormalCursor : juce::MouseCursor::PointingHandCursor);
+        repaint();
+    }
+    bool isStatusOnly() const noexcept { return statusOnly; }
 
 private:
-    bool tab = false;
+    bool tab = false, statusOnly = false;
     Mark mark = Mark::none;
     presentation::Context presentationContext = presentation::defaultContext();
 };
@@ -203,6 +214,9 @@ public:
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
+    void setLevelObservation (const KirinLevelSnapshot*, std::vector<KirinMeterHistoryEntry>,
+                              const KirinChainPoint*, const KirinObservatoryFrame* fallback = nullptr);
+    std::uint64_t levelChainRevision (bool latestOnly) const noexcept;
     void setRecordDisplay (const KirinRecordDisplay&, bool available);
     void setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setChainObservation (const KirinChainSnapshot&, const KirinChainPoint*);

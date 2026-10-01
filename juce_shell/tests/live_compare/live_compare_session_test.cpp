@@ -297,7 +297,7 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc3-", 0) == 0, "versioned name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc5-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");

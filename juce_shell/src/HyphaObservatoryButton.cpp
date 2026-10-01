@@ -34,7 +34,7 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
     const auto area = getLocalBounds().toFloat().reduced (1.0f);
     const bool selected = getToggleState();
-    if (! tab)
+    if (! tab && ! statusOnly)
         surface_material::paintControl (g, area, highlighted, down, selected);
     else if (highlighted)
     {
@@ -42,7 +42,7 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
         g.fillRoundedRectangle (area, 2.0f);
     }
 
-    const auto textColour = ! isEnabled() ? COL_MUTED
+    const auto textColour = statusOnly ? COL_NORMAL : ! isEnabled() ? COL_MUTED
                           : selected ? COL_FLORA_BR
                           : isColourSpecified (juce::TextButton::textColourOffId)
                               ? findColour (juce::TextButton::textColourOffId)

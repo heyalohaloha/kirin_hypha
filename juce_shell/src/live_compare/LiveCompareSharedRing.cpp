@@ -1,7 +1,9 @@
 #include "LiveCompareSharedRing.h"
+#include "LiveCompareOwnerClaim.h"
 
 #include <cstdio>
 #include <new>
+#include <random>
 
 #if defined (_WIN32)
  #ifndef NOMINMAX
@@ -20,6 +22,22 @@
 
 namespace hypha::live_compare
 {
+namespace
+{
+struct OwnerIdentity { std::uint64_t a = 0, b = 0; };
+// Non-RT mapping identity only, never an audio clock, trial assignment, or output permission.
+OwnerIdentity newOwnerIdentity() noexcept
+{
+    try
+    {
+        std::random_device random;
+        const auto word = [&random] { return (static_cast<std::uint64_t> (random()) << 32) | random(); };
+        return { word(), word() };
+    }
+    catch (...) { return {}; }
+}
+}
+
 std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept
 {
     std::uint64_t hash = 1469598103934665603ull; // FNV-1a 64
@@ -34,9 +52,11 @@ std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept
 std::string sharedRingName (std::uint64_t pairKey)
 {
     char text[32] {};
-    std::snprintf (text, sizeof (text), "/kh-lc3-%016llx", static_cast<unsigned long long> (pairKey));
+    std::snprintf (text, sizeof (text), "/kh-lc5-%016llx", static_cast<unsigned long long> (pairKey));
     return text;
 }
+
+SharedRingMapping::SharedRingMapping() = default;
 
 SharedRingMapping::~SharedRingMapping()
 {
@@ -59,7 +79,7 @@ constexpr std::size_t mappingBytes() noexcept
 // slot stamped for its pair and rate that its PRE has not closed.
 constexpr int ringSlots = 4;
 
-// "Local\kh-lc-" + 16 hex digits + "-" + slot: this logon session's namespace with the creator's
+// "Local\kh-lc5-" + 16 hex digits + "-" + slot: this logon session's namespace with the creator's
 // default access, like the Analysis exchange (INV-LC11).
 std::wstring slotName (std::uint64_t pairKey, int slot)
 {
@@ -92,6 +112,10 @@ void* mapSection (HANDLE section) noexcept
 bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source)
 {
     close();
+    auto ownership = std::make_unique<OwnerClaim>();
+    if (! ownership->acquire (pairKey)) return false;
+    const auto identity = newOwnerIdentity();
+    if (identity.a == 0 || identity.b == 0) return false;
     const auto bytes = static_cast<std::uint64_t> (mappingBytes());
     for (int slot = 0; slot < ringSlots; ++slot)
     {
@@ -104,25 +128,29 @@ bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate,
         const bool fresh = GetLastError() != ERROR_ALREADY_EXISTS; // read before anything else runs
         void* memory = mapSection (handle); // a smaller stale section cannot be mapped at this size
         auto* existing = memory != nullptr ? std::launder (reinterpret_cast<Ring*> (memory)) : nullptr;
-        if (existing == nullptr || (! fresh && existing->header.ownerClosed.load (std::memory_order_acquire) != 0))
+        if (existing == nullptr || ! fresh)
         {
+            // Exclusive PRE ownership proves no previous writer is alive. A POST may still
+            // retain this section after a crash: retire it, NEVER reset it under that reader.
+            if (existing != nullptr) existing->header.ownerClosed.store (1, std::memory_order_release);
             if (memory != nullptr)
                 UnmapViewOfFile (memory);
             CloseHandle (handle);
             continue;
         }
-        mapped = fresh ? ::new (memory) Ring() : existing;
-        mapped->initialise (pairKey, sampleRate, source);
+        mapped = ::new (memory) Ring();
+        mapped->initialise (pairKey, sampleRate, source, identity.a, identity.b);
         section = handle;
         owner = true;
         pairKeyValue = pairKey;
         sampleRateValue = sampleRate;
+        claim = std::move (ownership);
         return true;
     }
     return false;
 }
 
-bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate)
+bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate, bool ownsDemandIn)
 {
     close();
     for (int slot = 0; slot < ringSlots; ++slot)
@@ -144,6 +172,7 @@ bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate)
         mapped = candidate;
         section = handle;
         owner = false;
+        ownsDemand = ownsDemandIn;
         pairKeyValue = pairKey;
         sampleRateValue = sampleRate;
         return true;
@@ -158,7 +187,7 @@ void SharedRingMapping::close() noexcept
         // As on macOS: a POST still holding this ring learns that its owner has gone.
         if (owner)
             mapped->header.ownerClosed.store (1, std::memory_order_release);
-        else
+        else if (ownsDemand)
             mapped->header.demand.store (0, std::memory_order_release);
         UnmapViewOfFile (mapped);
     }
@@ -167,6 +196,7 @@ void SharedRingMapping::close() noexcept
     mapped = nullptr;
     section = nullptr;
     owner = false;
+    claim.reset();
 }
 
 #else
@@ -182,7 +212,7 @@ constexpr std::size_t mappingBytes() noexcept
 void* mapNamed (const std::string& name, bool create, bool& fresh) noexcept
 {
     fresh = false;
-    const int fd = create ? shm_open (name.c_str(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    const int fd = create ? shm_open (name.c_str(), O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR)
                           : shm_open (name.c_str(), O_RDWR, 0);
     if (fd < 0)
         return nullptr;
@@ -190,7 +220,7 @@ void* mapNamed (const std::string& name, bool create, bool& fresh) noexcept
     bool usable = fstat (fd, &info) == 0;
     if (usable && info.st_size == 0 && create)
     {
-        // macOS sizes a shared-memory object once; a stale object of the right size is reused.
+        // Only the exclusive creator sizes the fresh object; an existing reader never does.
         usable = ftruncate (fd, static_cast<off_t> (mappingBytes())) == 0;
         fresh = usable;
     }
@@ -216,20 +246,33 @@ void* mapNamed (const std::string& name, bool create, bool& fresh) noexcept
 bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source)
 {
     close();
+    auto ownership = std::make_unique<OwnerClaim>();
+    if (! ownership->acquire (pairKey)) return false;
+    const auto identity = newOwnerIdentity();
+    if (identity.a == 0 || identity.b == 0) return false;
     name = sharedRingName (pairKey);
     bool fresh = false;
+    // The PRE-only claim is released by process death. Retire a stale object while old POST
+    // views retain their closed lifetime, then create a genuinely new object under the name.
+    if (void* retired = mapNamed (name, false, fresh))
+    {
+        std::launder (reinterpret_cast<Ring*> (retired))->header.ownerClosed.store (1, std::memory_order_release);
+        munmap (retired, mappingBytes());
+    }
+    shm_unlink (name.c_str());
     void* memory = mapNamed (name, true, fresh);
     if (memory == nullptr)
         return false;
-    mapped = fresh ? ::new (memory) Ring() : std::launder (reinterpret_cast<Ring*> (memory));
-    mapped->initialise (pairKey, sampleRate, source);
+    mapped = ::new (memory) Ring();
+    mapped->initialise (pairKey, sampleRate, source, identity.a, identity.b);
     owner = true;
     pairKeyValue = pairKey;
     sampleRateValue = sampleRate;
+    claim = std::move (ownership);
     return true;
 }
 
-bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate)
+bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate, bool ownsDemandIn)
 {
     close();
     name = sharedRingName (pairKey);
@@ -245,6 +288,7 @@ bool SharedRingMapping::open (std::uint64_t pairKey, std::uint32_t sampleRate)
     }
     mapped = candidate;
     owner = false;
+    ownsDemand = ownsDemandIn;
     pairKeyValue = pairKey;
     sampleRateValue = sampleRate;
     return true;
@@ -258,7 +302,7 @@ void SharedRingMapping::close() noexcept
         // would wait for writes that never come, so it learns that the owner has gone.
         if (owner)
             mapped->header.ownerClosed.store (1, std::memory_order_release);
-        else
+        else if (ownsDemand)
             mapped->header.demand.store (0, std::memory_order_release);
         munmap (mapped, mappingBytes());
         if (owner)
@@ -266,6 +310,7 @@ void SharedRingMapping::close() noexcept
     }
     mapped = nullptr;
     owner = false;
+    claim.reset();
 }
 
 #endif

@@ -11,6 +11,7 @@
 #include "LiveCompareCompletion.h"
 #include "LiveBlindSession.h"
 #include "LiveCompareAuthority.h"
+#include "LiveCompareTimingPreparation.h"
 
 #include <atomic>
 #include <cstdint>
@@ -80,7 +81,8 @@ struct ProcessorState
     PostRenderer renderer;
     ContinuousClock clock;
     GapDetector gaps;
-    std::atomic<bool> sessionActive { false };
+    TimingPreparation preparation;
+    std::atomic<bool> sessionActive { false }; // user session, independent of the ring's fade/ramp lease
     std::atomic<bool> preAudible { false };
     std::atomic<bool> preWaiting { false };
     std::atomic<bool> preWaitSeen { false }; // any waiting block since the editor last looked

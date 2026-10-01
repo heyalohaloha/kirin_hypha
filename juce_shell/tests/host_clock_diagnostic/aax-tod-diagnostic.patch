@@ -1,0 +1,30 @@
+diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+--- a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
++++ b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+@@ -414,1 +414,5 @@
+         void setKirinAuxiliaryClockSamples (Optional<int64_t> value) { setOptional (flagKirinAuxiliaryClock, kirinAuxiliaryClockSamples, value); }
++       #if KIRIN_CLOCK_DIAGNOSTIC_TOD
++        Optional<int64_t> getKirinDiagnosticTodSamples() const { return kirinDiagnosticTodSamples; }
++        void setKirinDiagnosticTodSamples (Optional<int64_t> value) { kirinDiagnosticTodSamples = value; }
++       #endif
+@@ -458,1 +462,4 @@
+                                         i.getKirinAuxiliaryClockSamples(),
++                                       #if KIRIN_CLOCK_DIAGNOSTIC_TOD
++                                        i.getKirinDiagnosticTodSamples(),
++                                       #endif
+@@ -541,1 +548,4 @@
+         int64_t kirinAuxiliaryClockSamples = 0;
++       #if KIRIN_CLOCK_DIAGNOSTIC_TOD
++        Optional<int64_t> kirinDiagnosticTodSamples;
++       #endif
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+@@ -1181,1 +1181,7 @@
+             info.setKirinAuxiliaryClockSamples (info.getIsPlaying() ? optionalTimeInSamples : nullopt);
++           #if KIRIN_CLOCK_DIAGNOSTIC_TOD
++            // Diagnostic only. TOD is a raw engine clock, NOT a certified content timestamp.
++            AAX_CTimeOfDay diagnosticTod = 0;
++            if (Controller() != nullptr && Controller()->GetTODLocation (&diagnosticTod) == AAX_SUCCESS)
++                info.setKirinDiagnosticTodSamples (static_cast<int64_t> (diagnosticTod));
++           #endif

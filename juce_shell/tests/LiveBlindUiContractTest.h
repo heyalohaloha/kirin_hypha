@@ -43,6 +43,14 @@ inline void verifyLiveBlindUiContract()
                 state.compensationOff = state.reason == live_compare::RecoveryReason::compensationOff;
                 view.setSize (preset.width, preset.height);
                 view.setState (state, phase != 8, phase >= 7 ? 0.0631f : 1.0f);
+                if (phase == 0)
+                    require (dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-text-2"))->getText()
+                                 == "Loop comparison is unavailable",
+                             "unproven initial loop is unavailable, not a promise of progress");
+                if (state.observation == live_compare::RecoveryReason::loopUnproven)
+                    require (live_compare_ui::blindRecovery (state, phase != 0).action
+                                 == live_compare_ui::RecoveryAction::none,
+                             "unknown loop proof does not request LOOP off or promise automatic recovery");
                 require (! button ("live-blind-end")->isEnabled() == (phase == 8), "END receipt controls availability");
                 require (view.findChildWithID ("live-blind-answer") == nullptr, "no unused preference collection");
                 if (phase == 2) require (! button ("live-blind-reveal")->isEnabled(), "one source cannot reveal");

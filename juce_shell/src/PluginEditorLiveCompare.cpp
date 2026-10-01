@@ -64,6 +64,7 @@ juce::String startFailure (StartResult result)
         case StartResult::started:
         case StartResult::notPost:           return {};
         case StartResult::comparisonBusy:    return "End the current comparison first";
+        case StartResult::returnPending:     return "Ended; normal level returns with audio";
         case StartResult::returnRequired:    return "Press RETURN first";
         case StartResult::notReady:          return "LISTEN could not start";
         case StartResult::noPair:            return "Choose the PRE first";
@@ -315,7 +316,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
         && processorRef.liveCompareAdmission (false) == StartResult::started;
-    footer.active = status.active || status.finishing;
+    footer.active = status.active;
     footer.finishing = status.finishing;
     footer.blindAvailable = status.matchReady
         && processorRef.liveCompareAdmission (true) == StartResult::started;

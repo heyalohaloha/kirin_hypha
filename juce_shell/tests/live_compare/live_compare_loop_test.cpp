@@ -1,4 +1,5 @@
 #include "LiveCompareLoopOracle.h"
+#include "LiveCompareAuLoopProjectionTest.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -53,7 +54,7 @@ static void continuation (int length, int delay, Clock clock, Position position,
     const auto played = after.acceptedFrames - before.acceptedFrames;
     const auto total = after.totalFrames - before.totalFrames;
     require (after.wrong == 0, "wrong position/lap reached PRE");
-    if (position == Position::content)
+    if (position == Position::content || (position == Position::nativeBeforeLoop && delay < length))
         require (played == total, "proven content-coordinate loop must play every frame");
     else if (delay < length / 2)
         require (played * 100 >= total * 75, "bounded clamp must recover, not stay in POST");
@@ -118,6 +119,7 @@ int main (int argc, char** argv)
 {
     if (argc > 2 || (argc == 2 && std::strcmp (argv[1], "--matrix") != 0)) return 64;
     faults();
+    verifyAuLoopProjection();
     const bool matrix = argc == 2;
     unsigned cases = 0;
     for (int length : { 24000, 48000, 96000, 192000, 384000 })
@@ -125,7 +127,7 @@ int main (int argc, char** argv)
         if (! matrix && length != 24000) continue;
         for (int delay : { 0, 4096, length - 1, length, length + 1 })
         for (auto clock : { Clock::vst3, Clock::renderCounter })
-        for (auto position : { Position::content, Position::clamp })
+        for (auto position : { Position::content, Position::clamp, Position::nativeBeforeLoop })
         for (int buffer : buffers)
         {
             continuation (length, delay, clock, position, buffer, matrix ? 100 : 4);

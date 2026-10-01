@@ -25,6 +25,8 @@ const MATCH_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveComp
 
 #[path = "rt_safety_live_blind_tests.rs"]
 mod live_blind_tests;
+#[path = "rt_safety_live_compare_timing_tests.rs"]
+mod live_compare_timing_tests;
 
 // The body of the first function whose definition starts with signature (brace matched).
 fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -119,7 +121,9 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
     }
     for required in [
         "if (! ring.matches (pairKey, sampleRate))",
-        "timeline.observe (block, sampleRate,",
+        "const bool loopVerified = kValid && block.loop.active",
+        "timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,",
+        "decision.preStart = block.clock - k;",
         "if (decision.timelineChanged)",
         "! block.loop.active",
         "profile.invalidateOnDisagreement",
@@ -131,6 +135,9 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
             "LiveCompareCorrespondence.h lost {required}"
         );
     }
+    // The extracted AU projection is audited together with clock preparation. The PCM path
+    // must keep using that same rule, never a second/laxer one.
+    assert!(function_body(CORRESPONDENCE_H, "static bool loopJoin (").contains("corroborateLoop ("));
     assert!(CLOCK_H.contains("ClockBasis::pluginFrames"));
 }
 

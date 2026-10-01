@@ -273,14 +273,14 @@ jobs:
 
       - name: Validate live PRE/POST compare correspondence
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLiveCompareCorrespondenceTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests KirinLiveCompareLoopFeasibilityTests Kirin_live_blind_session_Tests Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'
+          cmake --build juce_shell/build-windows --config Release --target KirinLiveCompareCorrespondenceTests KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests KirinLiveCompareLoopFeasibilityTests Kirin_live_blind_session_Tests Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'
 
       # The Windows live ring end to end: the real PRE and POST processors, pair discovery, the
       # named section, the product editor, PIN to Blind and the offset warning.
       - name: Validate live PRE/POST compare product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests
+          cmake --build juce_shell/build-windows --config Release --target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'
 
       - name: Validate Work attachment transport

@@ -304,10 +304,7 @@ private:
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
     KirinWatchDisplay observatoryWatchDisplay {};
     bool haveObservatoryWatchDisplay = false;
-    KirinChainSnapshot chainSnapshot {};
     std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY> chainPoints {};
-    bool chainLatestOnly = false;
-    std::uint64_t chainRevision = 0u;
     std::uint64_t comparisonObservedGeneration = 0;
     std::uint64_t comparisonActionAfterGeneration = 0;
     bool comparisonActionAwaitingResult = false;

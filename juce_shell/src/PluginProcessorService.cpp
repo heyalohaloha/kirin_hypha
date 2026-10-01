@@ -19,6 +19,18 @@ void KirinHyphaProcessorBase::timerCallback()
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
         && ! heldFormat.held && ! liveCompareNeedsService() && ! referencePendingAuditionNeedsService())
         stopTimer();
+    else
+    {
+        // Reuse the processor's existing service timer, at 4 Hz for idle clock preparation.
+        // An explicit audition/return or another pending workflow keeps its normal 20 Hz.
+        const bool idleTiming = writesEnabled.load (std::memory_order_acquire) && ! heldFormat.held
+            && ! localBlindProductSession.needsService() && ! referencePendingAuditionNeedsService()
+            && ! liveCompare.sessionActive.load (std::memory_order_acquire)
+            && ! liveCompare.completion.pending() && liveCompare.blindScope == 0
+            && ! liveCompare.authority.restoring();
+        const int interval = idleTiming ? 250 : 50;
+        if (getTimerInterval() != interval) startTimer (interval);
+    }
 }
 
 bool KirinHyphaProcessorBase::referencePendingAuditionNeedsService() const

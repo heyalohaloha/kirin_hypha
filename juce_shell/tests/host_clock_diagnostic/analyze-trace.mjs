@@ -32,17 +32,24 @@ for (let i = 0; i < frames; i++) {
   positions.set(k, positions.has(k) ? null : i); // ambiguous boundaries are not matches
 }
 const header = 'index,project,auxiliary,rate,frames,channels,flags,input_latency,output_latency,aux_source,presentation_source,first_left,last_left,first_right,last_right';
-const fields = header.split(',');
+const extendedHeader = header + ',host_ns,ppq,bpm,loop_start,loop_end';
+const todHeader = extendedHeader + ',tod_samples';
+const fullHeader = todHeader + ',add_clock_samples,identity_first,identity_last,identity_frames,silent_prefix,identity_errors';
 const count = (map, value) => { map[value] = (map[value] || 0) + 1; };
 const results = tracePaths.map(file => {
   const bytes = fs.readFileSync(file);
   const lines = bytes.toString('utf8').trimEnd().split(/\r?\n/);
-  if (lines.shift() !== header) throw new Error(`Unexpected trace schema: ${file}`);
+  const observedHeader = lines.shift();
+  if (![header, extendedHeader, todHeader, fullHeader].includes(observedHeader))
+    throw new Error(`Unexpected trace schema: ${file}`);
+  const fields = observedHeader.split(',');
   const rows = lines.map((line, index) => {
     const cells = line.split(',');
-    if (cells.some(cell => !/^-?\d+$/.test(cell))) throw new Error(`Invalid integer: ${index}`);
+    if (cells.some((cell, i) => !(i >= 16 && i <= 19 ? /^-?\d+(\.\d+)?$/ : /^-?\d+$/).test(cell)))
+      throw new Error(`Invalid number: ${index}`);
     const values = cells.map(Number);
-    if (values.length !== fields.length || values.some(v => !Number.isSafeInteger(v)))
+    if (values.length !== fields.length || values.some((v, i) =>
+      i >= 16 && i <= 19 ? !Number.isFinite(v) : !Number.isSafeInteger(v)))
       throw new Error(`Invalid numeric row: ${index}`);
     const row = Object.fromEntries(fields.map((f, i) => [f, values[i]]));
     if (row.index !== index || row.rate !== rate || row.channels !== 2 || row.frames <= 0)

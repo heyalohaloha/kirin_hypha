@@ -39,7 +39,8 @@ void KirinHyphaEditor::openLiveBlind()
     if (result != StartResult::started)
     {
         if (result == StartResult::noPair) showCandidateMenu();
-        else showToast (result == StartResult::returnRequired ? "Press RETURN first"
+        else showToast (result == StartResult::returnPending ? "Ended; normal level returns with audio"
+                      : result == StartResult::returnRequired ? "Press RETURN first"
                       : result == StartResult::comparisonBusy ? "End the current comparison first"
                                                             : "BLIND COMPARE COULD NOT START");
         return;
@@ -59,7 +60,8 @@ void KirinHyphaEditor::refreshLiveBlind()
     processorRef.serviceLiveBlind();
     const auto status = processorRef.liveCompareStatus();
     const auto blind = processorRef.liveBlindStatus();
-    if (blind.stage == BlindStage::idle && ! status.finishing)
+    // END is accepted even without callbacks. Only the non-modal audio-return notice remains.
+    if (blind.stage == BlindStage::idle || status.finishing)
     {
         liveBlindOpen = false;
         liveCompareActiveSeen = false;

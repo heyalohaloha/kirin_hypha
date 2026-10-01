@@ -1,6 +1,12 @@
 #include "ClockTrace.h"
-#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <thread>
+
+static void require (bool value)
+{
+    if (! value) { std::fprintf (stderr, "clock trace contract failed\n"); std::abort(); }
+}
 
 int main()
 {
@@ -8,13 +14,13 @@ int main()
     ClockTrace<3> bounded;
     Row row;
     bounded.append (row);
-    assert (bounded.size() == 0);
+    require (bounded.size() == 0);
     bounded.start();
     for (int i = 0; i < 8; ++i) { row.project = i; bounded.append (row); }
-    assert (bounded.size() == 3 && bounded[0].project == 0 && bounded[2].project == 2);
+    require (bounded.size() == 3 && bounded[0].project == 0 && bounded[2].project == 2);
     bounded.start(); // Never resets/overwrites an exported prefix.
     bounded.append (row);
-    assert (bounded.size() == 3 && bounded[0].project == 0);
+    require (bounded.size() == 3 && bounded[0].project == 0);
     ClockTrace<4096> concurrent;
     concurrent.start();
     std::thread writer ([&]
@@ -24,6 +30,9 @@ int main()
             Row next;
             next.project = i;
             next.auxiliary = -i;
+            next.todSamples = i * 3;
+            next.addClockSamples = i * 4;
+            next.identityFrames = static_cast<std::uint32_t> (i);
             next.frames = static_cast<std::uint32_t> (i + 1);
             concurrent.append (next);
         }
@@ -34,9 +43,12 @@ int main()
         const auto count = concurrent.size();
         for (; checked < count; ++checked)
         {
-            assert (concurrent[checked].project == static_cast<std::int64_t> (checked));
-            assert (concurrent[checked].auxiliary == -static_cast<std::int64_t> (checked));
-            assert (concurrent[checked].frames == checked + 1);
+            require (concurrent[checked].project == static_cast<std::int64_t> (checked));
+            require (concurrent[checked].auxiliary == -static_cast<std::int64_t> (checked));
+            require (concurrent[checked].todSamples == static_cast<std::int64_t> (checked) * 3);
+            require (concurrent[checked].addClockSamples == static_cast<std::int64_t> (checked) * 4);
+            require (concurrent[checked].identityFrames == checked);
+            require (concurrent[checked].frames == checked + 1);
         }
     }
     writer.join();

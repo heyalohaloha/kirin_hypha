@@ -317,11 +317,6 @@ void KirinHyphaEditor::refreshObservatory()
     const auto levelAbsolute = observatoryDomain == hypha::observatory::Domain::level
         && observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
     const auto latestOnly = ! observatoryView.fullCockpit();
-    if (levelAbsolute && chainLatestOnly != latestOnly)
-    {
-        chainLatestOnly = latestOnly;
-        chainRevision = 0u;
-    }
     const auto levelOutput = static_cast<size_t> (
         juce::jlimit (128, 600, observatoryView.bodyBounds().getWidth() * 2));
     const bool levelReady = levelAbsolute
@@ -329,13 +324,20 @@ void KirinHyphaEditor::refreshObservatory()
             levelSnapshot, levelHistory, chainPoints,
             observatoryView.fullCockpit() ? 600u : 0u,
             observatoryView.fullCockpit() ? levelOutput : 0u,
-            chainRevision, latestOnly);
-    // A busy history lock cannot make the absolute meter disappear. The standalone publication
-    // remains useful, but never combine it with an older LEVEL history/chain packet.
+            observatoryView.levelChainRevision (latestOnly), latestOnly);
+    // Keep the standalone observation for lifecycle/command decisions. LEVEL itself publishes
+    // only complete packets; a busy writer cannot clear and then recreate its history.
     const bool frameAvailable = levelReady || processorRef.pollObservatoryFrame (frame);
     if (levelReady)
         frame = levelSnapshot.frame;
-    observatoryView.setObservatoryFrame (frame, frameAvailable);
+    if (levelAbsolute)
+        observatoryView.setLevelObservation (levelReady ? &levelSnapshot : nullptr,
+            std::move (levelHistory), chainPoints.data(), frameAvailable ? &frame : nullptr);
+    else
+    {
+        observatoryView.setObservatoryFrame (frame, frameAvailable);
+        observatoryView.clearChainObservation();
+    }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setComparisonStatus (
         frameAvailable
@@ -363,7 +365,8 @@ void KirinHyphaEditor::refreshObservatory()
             }
         }
     }
-    observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
+    if (! levelAbsolute || levelReady)
+        observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
@@ -392,31 +395,12 @@ void KirinHyphaEditor::refreshObservatory()
         }
     }
     else if (observatoryDomain == hypha::observatory::Domain::level
-             && observatoryView.fullCockpit())
+             && observatoryView.fullCockpit() && ! levelAbsolute)
     {
-        if (levelAbsolute)
-            observatoryView.setHistory (levelReady
-                ? std::move (levelHistory) : std::vector<KirinMeterHistoryEntry> {});
-        else
-        {
-            std::vector<KirinMeterHistoryEntry> history;
-            if (processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, history,
-                                                    600u, levelOutput))
-                observatoryView.setHistory (std::move (history));
-        }
-    }
-
-    if (levelReady && isPost && levelSnapshot.chain_updated != 0u)
-    {
-        chainSnapshot = levelSnapshot.chain;
-        chainRevision = chainSnapshot.revision;
-        observatoryView.setChainObservation (chainSnapshot, chainPoints.data());
-    }
-    else if (! levelAbsolute || ! levelReady)
-    {
-        chainRevision = 0u;
-        chainSnapshot = {};
-        observatoryView.clearChainObservation();
+        std::vector<KirinMeterHistoryEntry> history;
+        if (processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, history,
+                                                600u, levelOutput))
+            observatoryView.setHistory (std::move (history));
     }
 
     const auto sourceName = isPost ? processorRef.pairDisplayName() : processorRef.preName();

@@ -11,6 +11,13 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
         add_test(NAME kirin_${contract} COMMAND Kirin_${contract}_Tests)
     endforeach()
     find_package(Threads REQUIRED)
+    add_executable(KirinLiveCompareTimingTests tests/live_compare/live_compare_timing_test.cpp
+        src/live_compare/LiveCompareSharedRing.cpp)
+    target_compile_features(KirinLiveCompareTimingTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLiveCompareTimingTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinLiveCompareTimingTests PRIVATE Threads::Threads)
+    add_test(NAME kirin_live_compare_timing COMMAND KirinLiveCompareTimingTests)
+    set_tests_properties(kirin_live_compare_timing PROPERTIES TIMEOUT 30)
     add_executable(KirinLiveCompareCorrespondenceTests
         tests/live_compare/live_compare_correspondence_test.cpp)
     target_compile_features(KirinLiveCompareCorrespondenceTests PRIVATE cxx_std_17)
