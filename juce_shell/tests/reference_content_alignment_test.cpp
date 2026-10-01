@@ -122,6 +122,26 @@ void testReferenceContentAlignment (const juce::File& sandbox)
     require (blind.answer (1) && blind.reveal(), "two heard stimuli must allow answer and reveal");
     const auto revealed = blind.snapshot();
     const int aStimulus = revealed.revealedStimulusOneSide == 0 ? 1 : 2;
+    const int bStimulus = aStimulus == 1 ? 2 : 1;
+    require (blind.requestStimulus (bStimulus), "whole-song B can enter a preparation wait");
+    pages.close();
+    require (pages.open (source, rate, channels, false).isEmpty(), "streamed source can reopen with an empty cache");
+    for (int channel = 0; channel < channels; ++channel)
+        for (int frame = 0; frame < callbackFrames; ++frame) live.setSample (channel, frame, 0.23456f);
+    require (blind.render (live, a.startSample + rate * 10, true, &pages, beyondProbe),
+             "an empty page cache safely keeps live A without invalidating Blind");
+    const auto waiting = blind.snapshot();
+    require (waiting.phase == ref::BlindPhase::revealed && waiting.activeStimulus == 0
+        && waiting.pendingStimulus == bStimulus,
+        "the requested anonymous source remains pending until its page is ready");
+    const auto safeAGain = static_cast<float> (std::pow (10.0, waiting.aGainDb / 20.0));
+    const auto expectedSafeA = 0.23456f * safeAGain;
+    require (std::memcmp (live.getReadPointer (0), &expectedSafeA, sizeof (float)) == 0,
+             "page preparation never substitutes unverified B for live A");
+    pages.request (beyondProbe); pages.service();
+    require (blind.render (live, a.startSample + rate * 10, true, &pages, beyondProbe)
+        && blind.snapshot().activeStimulus == bStimulus,
+        "the same request becomes audible after its exact page is ready");
     require (blind.requestStimulus (aStimulus), "live A must remain selectable");
     pages.request (beyondProbe); pages.service();
     for (int callback = 0; callback < 3; ++callback)
@@ -133,7 +153,6 @@ void testReferenceContentAlignment (const juce::File& sandbox)
     const float expectedLive = 0.23456f;
     require (std::memcmp (live.getReadPointer (0) + callbackFrames - 1, &expectedLive, sizeof (float)) == 0,
              "A must be the unchanged current DAW sample, never the frozen observation");
-    const int bStimulus = aStimulus == 1 ? 2 : 1;
     require (blind.requestStimulus (bStimulus), "whole-song B remains selectable at boundaries");
     const auto endPosition = pages.lengthInSamples() - 100;
     pages.request (endPosition); pages.service();

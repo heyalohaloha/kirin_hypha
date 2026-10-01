@@ -62,7 +62,26 @@ namespace hypha::reference_audition
             // JUCE keeps the two channel pointers in its inline array. This view
             // neither allocates sample memory nor resizes the prepared scratch.
             juce::AudioBuffer<float> region (buffer.getArrayOfWritePointers(), channels, first, available);
-            if (!pages.render (region, sourceFirst, bGain)) { release(); return false; }
+            if (! pages.render (region, sourceFirst, bGain))
+            {
+                // A cache miss is a recoverable preparation wait, not evidence that the
+                // immutable source or trial became invalid. AudioPages acquires every required
+                // page before copying, but restore the captured live input explicitly so this
+                // safety contract cannot be weakened by a later renderer change.
+                for (int channel = 0; channel < channels; ++channel)
+                    std::memcpy (buffer.getWritePointer (channel), liveScratch.getReadPointer (channel),
+                                 static_cast<size_t> (count) * sizeof (float));
+                rtSourceBlend = 0.0f;
+                activeStimulus.store (0, std::memory_order_release);
+                if (aGainDb < 0.0)
+                {
+                    heldALinearGain.store (aGain, std::memory_order_relaxed);
+                    attenuationHoldActive.store (true, std::memory_order_release);
+                    buffer.applyGain (aGain);
+                }
+                release();
+                return true;
+            }
         }
         if (available == 0)
         {
