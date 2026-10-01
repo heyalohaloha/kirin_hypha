@@ -3,6 +3,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
 #include "LiveBlindLoopFixture.h"
+#include "LiveTimingProductDiagnostic.h"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -135,6 +136,8 @@ private:
     }
     void timerCallback() override
     {
+        diagnostic.setPhase (stage);
+        diagnostic.printReady();
         const auto now = std::chrono::steady_clock::now();
         if (now - started >= std::chrono::seconds (60))
             std::cerr << "stage=" << stage << " blind=" << static_cast<int> (post->liveBlindStatus().stage)
@@ -289,6 +292,7 @@ private:
             const bool ordinary = rawAudit.load(), comparing = audit.load (std::memory_order_seq_cst);
             const float gain = expectedGain.load();
             post->processBlock (buffer, midi);
+            diagnostic.observe (*pre, *post, blocks.load());
             bool preMatch = true, postMatch = true;
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
@@ -316,6 +320,7 @@ private:
     static constexpr int blockFrames = 1024;
     Clock preClock, postClock;
     LiveBlindLoopFixture loop;
+    LiveTimingProductDiagnostic diagnostic;
     std::vector<float> signal;
     std::unique_ptr<Processor> pre, post;
     std::unique_ptr<juce::AudioProcessorEditor> editor;

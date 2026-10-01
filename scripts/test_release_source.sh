@@ -108,6 +108,9 @@ PRE_DISPLAY_CMAKE_ARGS=(
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
+  # Evidence for clock-proof loss on the ARM64 runner. Test executable only: shipping
+  # processor flags, the 60-second deadline, PCM oracle and safety criteria stay unchanged.
+  PRE_DISPLAY_CMAKE_ARGS+=("-DKIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC=ON")
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 JUCE_TEST_TARGETS=(
