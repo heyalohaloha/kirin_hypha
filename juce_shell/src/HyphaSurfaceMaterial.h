@@ -71,9 +71,14 @@ inline void paintPanel (juce::Graphics& g,
     depth_material::paintRecessedWell (g, outer, radius, depth_material::panelWellLight (fillAlpha));
 }
 
+inline juce::Colour observationGlass() noexcept
+{
+    return BG.darker (0.48f);
+}
+
 inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area)
 {
-    g.setColour (BG.darker (0.48f));
+    g.setColour (observationGlass());
     g.fillRect (area);
 
     const auto inner = area.reduced (0.35f);
@@ -186,9 +191,12 @@ inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area
 {
     if (area.isEmpty())
         return;
+    // The glass is one colour beyond the shadows of its walls and its edge lines.
+    const material_cache::Flat glass { depth_material::untouchedBy (area, 2.0f, depth_material::observationWellLight()),
+                                       uncached::observationGlass() };
     material_cache::draw (g, area, { 2 }, {},
                           [] (juce::Graphics& target, juce::Rectangle<float> local) {
-                              uncached::paintObservationWell (target, local); });
+                              uncached::paintObservationWell (target, local); }, glass);
     if (framed)
         main_frame::paint (g, area);
 }

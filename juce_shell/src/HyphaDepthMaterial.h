@@ -67,6 +67,26 @@ inline void paintRecessedWell (juce::Graphics& g, juce::Rectangle<float> area, f
     }
 }
 
+// The middle of a well that `paintRecessedWell` leaves as it was: beyond its shadows, its
+// vignette, its outline and its corners. Empty when they reach across the whole well.
+inline juce::Rectangle<float> untouchedBy (juce::Rectangle<float> area, float radius, const WellLight& light)
+{
+    if (area.getWidth() < 6.0f || area.getHeight() < 6.0f
+        || (light.shadow <= 0.0f && light.vignette <= 0.0f && light.outline <= 0.0f))
+        return area;
+    const auto edge = radius + 1.5f;
+    const auto shadow = light.shadow > 0.0f;
+    const auto vignette = light.vignette > 0.0f;
+    const auto top = shadow ? juce::jlimit (3.0f, 12.0f, area.getHeight() * 0.16f) : 0.0f;
+    const auto left = shadow ? juce::jlimit (2.0f, 8.0f, area.getWidth() * 0.02f) : 0.0f;
+    const auto right = vignette ? area.getWidth() * 0.12f : 0.0f;
+    const auto bottom = vignette ? area.getHeight() * 0.24f : 0.0f;
+    const auto inside = juce::Rectangle<float>::leftTopRightBottom (
+        area.getX() + juce::jmax (edge, left), area.getY() + juce::jmax (edge, top),
+        area.getRight() - juce::jmax (edge, right), area.getBottom() - juce::jmax (edge, bottom));
+    return inside.getWidth() > 0.0f && inside.getHeight() > 0.0f ? inside : juce::Rectangle<float> {};
+}
+
 inline void paintCastShadowAbove (juce::Graphics& g, juce::Rectangle<float> area, float radius, float strength)
 {
     if (strength <= 0.0f || area.getWidth() <= 2.0f * radius)
