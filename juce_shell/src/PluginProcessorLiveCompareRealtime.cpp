@@ -168,7 +168,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                 liveCompare.blind.invalidate (blindCommand, report.reason);
             }
             else
-                liveCompare.blind.observe (blindCommand, report.stableSource && report.gainSettled);
+            {
+                using Source = hypha::live_compare::RenderReport::AudibleSource;
+                const auto requested = blindCommand.pre() ? Source::pre : Source::post;
+                liveCompare.blind.observe (blindCommand, report.stableSource && report.gainSettled
+                    && report.audibleSource == requested);
+            }
         }
         if (coherent && report.gainSettled && ! report.guardTripped)
             liveCompare.gainReceipt.store (revision, std::memory_order_release);

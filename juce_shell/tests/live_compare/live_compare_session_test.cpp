@@ -147,7 +147,9 @@ static void userSwitchFadesBothWays()
     require (! out.stableSource, "a transition block is never reported as a stable POST receipt");
     require (pair.post[0][frames - 1] == postValue, "the fade ends exactly at POST");
     const auto settled = pair.step (true, false, 1.0f);
-    require (settled.stableSource && settled.gainSettled, "the first wholly POST block earns the receipt");
+    require (settled.stableSource && settled.gainSettled
+             && settled.audibleSource == RenderReport::AudibleSource::post,
+             "the first direct POST block earns a typed receipt");
     require (pair.postUntouched(), "POST selected leaves POST bit-identical");
 }
 
@@ -157,7 +159,14 @@ static void approvedGainAppliesToPre()
     Pair pair;
     pair.calibrate (true, 0.5f);
     pair.step (true, true, 0.5f);
-    require (pair.post[0][7] == preValue (pair.clock - frames + 7, 0) * 0.5f, "PRE is played at the approved gain");
+    const auto direct = pair.step (true, true, 0.5f);
+    require (direct.stableSource && direct.gainSettled
+             && direct.audibleSource == RenderReport::AudibleSource::pre,
+             "only the direct PRE path earns a typed receipt");
+    for (int c = 0; c < 2; ++c)
+        for (int i = 0; i < frames; ++i)
+            require (pair.post[c][i] == preValue (pair.clock - frames + i, c) * 0.5f,
+                     "direct PRE is exact at every frame with the approved gain");
 }
 
 // More than two channels never render PRE; without demand PRE publishes nothing.
