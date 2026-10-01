@@ -23,6 +23,7 @@ public:
     {
         const auto area = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height)
                               .reduced (0.5f);
+        const key_light::Scope light (box);
         surface_material::paintControl (
             g, area, box.isMouseOver(), isButtonDown, false, COL_FLORA_BR);
 

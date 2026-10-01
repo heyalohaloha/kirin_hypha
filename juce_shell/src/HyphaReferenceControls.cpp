@@ -1,4 +1,5 @@
 #include "HyphaReferenceComponent.h"
+#include "HyphaKeyLight.h"
 
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
@@ -14,6 +15,7 @@ Component::SideButton::SideButton (const juce::String& text) : juce::TextButton 
 
 void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
+    const key_light::Scope light (*this);
     const auto area = getLocalBounds().toFloat().reduced (1.0f);
     const bool selected = getToggleState();
     const bool separateTrial = getComponentID() == "reference-blind";

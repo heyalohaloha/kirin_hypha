@@ -392,6 +392,7 @@ void View::updateControls()
 void View::paint (juce::Graphics& g)
 {
     metricHelpCount = 0;
+    const key_light::Scope light (*this);
     if (hybridVuVisible())
     {
         hybrid_vu::paint (g, getLocalBounds(), {

@@ -11,6 +11,7 @@
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
 #include "HyphaAttackStage.h"
+#include "HyphaMainFrame.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
@@ -32,7 +33,7 @@ bool AttackComponent::ChromeKey::operator== (const ChromeKey& other) const noexc
         && std::equal_to<float> {} (scale, other.scale) && context == other.context
         && overlay == other.overlay && paired == other.paired && dormant == other.dormant
         && band == other.band && bandDelta == other.bandDelta && preBand == other.preBand
-        && summary == other.summary;
+        && summary == other.summary && light == other.light;
 }
 
 void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& shape, bool dormant)
@@ -46,7 +47,7 @@ void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& s
                <= chromeByteBudget;
     const ChromeKey key { getWidth(), getHeight(), scale, presentationContext, overlayMode,
                           pairedObservation(), dormant, chosenBand, bandModel.delta, preBand(),
-                          summaryShown() };
+                          summaryShown(), key_light::current().position };
     // A size that differs from the previous paint is a corner drag or a Capture layout: building
     // an image for every step costs more than drawing once. The image of the last held size is
     // kept, so the editor size is served from it again after a Capture.
@@ -100,6 +101,8 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
                                               preBand());
     else if (! history.isEmpty() && ! reading)
         drawHistoryChrome (g, history);
+    // HISTORY's row is the page's main window, whatever it shows: its frame catches the key light.
+    main_frame::paint (g, history.toFloat());
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
         const auto label = rectangleOf (attack_ui::labelCell (shape, shape.history));
