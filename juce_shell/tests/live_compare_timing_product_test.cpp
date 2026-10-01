@@ -87,7 +87,11 @@ public:
         : signal (std::move (signalIn)), initialLoop (initialLoopIn)
     {
         preClock.loop = postClock.loop = &loop;
-        preClock.certifiedContent = postClock.certifiedContent = initialLoop;
+        // This direct product fixture models the exact Studio Pro VST3 host profile, not a
+        // plug-in-owned fallback clock. Both entry paths therefore carry the same certified
+        // content clock that the shipping VST3 wrapper supplies. Scheduler stalls on a shared
+        // CI runner are not missing host samples and must not manufacture a transport gap.
+        preClock.certifiedContent = postClock.certifiedContent = true;
         if (initialLoop) loop.requested.store (true);
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
@@ -102,9 +106,8 @@ public:
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
 #if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
-            if (initialLoop)
-                instance->liveCompare.clockAuthority
-                    = static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedContent);
+            instance->liveCompare.clockAuthority
+                = static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedContent);
 #endif
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
@@ -159,7 +162,11 @@ private:
                       << " reason=" << static_cast<int> (post->liveCompareStatus().reason) << '\n';
         require (now - started < std::chrono::seconds (60),
                  initialLoop ? "initial LOOP -> Blind timed out" : "linear -> loop -> late Blind timed out");
-        require (pcmErrors.load() == 0 && rawErrors.load() == 0 && preErrors.load() == 0, "independent full-frame PCM oracle");
+        if (pcmErrors.load() != 0 || rawErrors.load() != 0 || preErrors.load() != 0)
+            std::cerr << "oracle counters pcm=" << pcmErrors.load() << " raw=" << rawErrors.load()
+                      << " pre=" << preErrors.load() << " auditCommand=" << auditCommand.load() << '\n';
+        require (pcmErrors.load() == 0 && rawErrors.load() == 0 && preErrors.load() == 0,
+                 "independent full-frame PCM oracle");
         if (stage >= 5 && stage <= 8)
         {
             const auto status = post->liveCompareStatus();
@@ -223,8 +230,14 @@ private:
                 observedBlock = blocks.load(); stage = 5; break;
             }
             case 5:
-                if (blocks.load() <= observedBlock + 3) break;
+            {
+                const auto command = post->liveCompare.blind.command();
+                const auto heard = post->liveBlindStatus().trial;
+                if (blocks.load() <= observedBlock + 3 || ! command.active()
+                    || heard.audible != command.stimulus()) break;
+                auditCommand.store (command.word, std::memory_order_release);
                 audit.store (true); checkpointLap = loop.laps.load(); stage = 6; break;
+            }
             case 6:
                 if (loop.laps.load() < checkpointLap + 10) break;
                 if (! verifyContentOffset()) break;
@@ -235,8 +248,14 @@ private:
                 if (! click ("live-blind-source-2")) break;
                 observedBlock = blocks.load(); stage = 7; break;
             case 7:
-                if (post->liveBlindStatus().trial.played != 3 || blocks.load() <= observedBlock + 3) break;
+            {
+                const auto command = post->liveCompare.blind.command();
+                const auto heard = post->liveBlindStatus().trial;
+                if (heard.played != 3 || blocks.load() <= observedBlock + 3 || ! command.active()
+                    || heard.audible != command.stimulus()) break;
+                auditCommand.store (command.word, std::memory_order_release);
                 audit.store (true); checkpointLap = loop.laps.load(); stage = 8; break;
+            }
             case 8:
                 if (loop.laps.load() < checkpointLap + 10) break;
                 if (! verifyContentOffset()) break;
@@ -317,6 +336,8 @@ private:
             }
             auditReaders.fetch_add (1, std::memory_order_seq_cst);
             const bool ordinary = rawAudit.load(), comparing = audit.load (std::memory_order_seq_cst);
+            const auto expectedCommand = auditCommand.load (std::memory_order_acquire);
+            const auto commandBefore = post->liveCompare.blind.command();
             const float gain = expectedGain.load();
             post->processBlock (buffer, midi);
             diagnostic.observe (*pre, *post, blocks.load());
@@ -331,7 +352,12 @@ private:
                     preMatch = preMatch && std::fabs (actual - delayed[channel][frame] * gain) <= 0.0f;
                     postMatch = postMatch && std::fabs (actual - expectedPost) <= 0.0f;
                 }
-            if (comparing && audit.load())
+            const auto commandAfter = post->liveCompare.blind.command();
+            const auto heardAfter = post->liveCompare.blind.view();
+            const bool stableAuditedCommand = comparing && audit.load()
+                && expectedCommand != 0 && commandBefore.word == expectedCommand
+                && commandAfter.word == expectedCommand && heardAfter.audible == commandAfter.stimulus();
+            if (stableAuditedCommand)
             {
                 if (! preMatch && ! postMatch) pcmErrors.fetch_add (1);
                 if (preMatch) preFrames.fetch_add (blockFrames);
@@ -362,6 +388,7 @@ private:
     std::chrono::steady_clock::time_point started, checkpoint;
     std::atomic<bool> running { true }, play { false }, audit { false }, rawAudit { true };
     std::atomic<unsigned> auditReaders { 0 };
+    std::atomic<std::uint64_t> auditCommand { 0 };
     std::atomic<int> blocks { 0 }, preErrors { 0 }, rawErrors { 0 }, pcmErrors { 0 };
     std::atomic<float> expectedGain { 1 }, minimumGain { 1 }, maximumGain { 0 };
     std::atomic<std::uint64_t> preFrames { 0 }, postFrames { 0 };

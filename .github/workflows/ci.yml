@@ -186,7 +186,10 @@ jobs:
     name: windows VST3 preflight
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: windows-latest
-    timeout-minutes: 45
+    # A cold hosted runner completed every validation/build/package step in 45m03s before the
+    # former 45-minute job cap terminated post-job cleanup. Preserve the complete gate and leave
+    # bounded headroom for runner variance instead of weakening or duplicating the preflight.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v6
         with:

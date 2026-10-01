@@ -32,9 +32,14 @@ inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
         && (executableVersion == "8.1.2 Build 113407" || executableVersion == "8.1.2.113407");
     if (wrapper == juce::AudioProcessor::wrapperType_VST3 && studioPro812)
         return { live_compare::ClockAuthority::certifiedContent, 0 };
-    const bool proTools2026 = (executableName == "Pro Tools" || executableName == "ProTools")
-        && executableVersion.startsWith ("2026.4");
-    if (wrapper == juce::AudioProcessor::wrapperType_AAX && proTools2026)
+    // File::getVersion() exposes the executable's fixed/file bundle version, not Pro Tools'
+    // marketing year. The measured Developer host reports 26.4.0.5 on both macOS and Windows.
+    // Keep this exact: AddClock is useful only after the corresponding host build has qualified
+    // the bounded-engine proof, so a nearby patch or the marketing string must fail closed.
+    const bool proToolsDeveloper26405
+        = (executableName == "Pro Tools" || executableName == "ProTools")
+        && executableVersion == "26.4.0.5";
+    if (wrapper == juce::AudioProcessor::wrapperType_AAX && proToolsDeveloper26405)
         return { live_compare::ClockAuthority::boundedAaxEngine, proToolsDelayBound (rate) };
     return {};
 }

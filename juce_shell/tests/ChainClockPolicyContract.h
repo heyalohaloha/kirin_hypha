@@ -36,16 +36,17 @@ inline void verifyChainClockPolicy()
     require (windowsVst.authority == ClockAuthority::certifiedContent,
              "measured Windows VST3 content clock is exact-host certified");
     const auto aax = live_compare_clock_policy::classify (Wrapper::wrapperType_AAX,
-        "ProTools", "2026.4.0.158", 48000.0);
+        "ProTools", "26.4.0.5", 48000.0);
     require (aax.authority == ClockAuthority::boundedAaxEngine && aax.maximumDelaySamples == 16383,
              "measured AAX host uses the documented 48 kHz compensation bound");
     require (live_compare_clock_policy::proToolsDelayBound (96000.0) == 32767
         && live_compare_clock_policy::proToolsDelayBound (192000.0) == 65534
         && live_compare_clock_policy::proToolsDelayBound (50000.0) == 0,
         "AAX delay bounds cover only documented sample rates");
-    require (live_compare_clock_policy::classify (Wrapper::wrapperType_AAX,
-        "ProTools", "2026.5", 48000.0).authority == ClockAuthority::none,
-        "an unmeasured Pro Tools release is not silently certified");
+    for (const auto& version : { "26.4.0.6", "26.4.1.179", "2026.4.0.5", "2026.5" })
+        require (live_compare_clock_policy::classify (Wrapper::wrapperType_AAX,
+            "ProTools", version, 48000.0).authority == ClockAuthority::none,
+            "an unmeasured or marketing-form Pro Tools version is not silently certified");
    #if ! JUCE_DEBUG
     for (const auto wrapper : { Wrapper::wrapperType_VST3, Wrapper::wrapperType_AudioUnit,
                                 Wrapper::wrapperType_AAX })

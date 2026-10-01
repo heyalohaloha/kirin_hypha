@@ -917,9 +917,12 @@ VST3の[公式ProcessContext仕様](https://steinbergmedia.github.io/vst3_doc/vs
 - AUはApple公式SDKのpresentation latency定義を使う。両側が有効でPRE側のoutput latencyが正に大きく、
   native sample折返しから測ったLOOP長の中で候補が一意な場合だけ認める。0は「無遅延または不明」なので、
   両側0や欠損からK=0を作らない。
-- Pro Tools 2026.4 AAXはpatch 0011のDAE AddClockと、SDKに記載されたsample rate別の最大delay-compensation値を
+- Pro Tools Developer 26.4.0.5 AAXはpatch 0011のDAE AddClockと、SDKに記載されたsample rate別の最大delay-compensation値を
   組み合わせる。実測LOOP長が上限より長く、modulo候補が上限内に一つだけある場合に限る。
   48 kHzでは16,383 samples以下のLOOPを短すぎるとして拒否する。AddClock単独では認定しない。
+  JUCEの`File::getVersion()`が返す実値はMac／Windowsともマーケティング表記の`2026.4`ではなく
+  `26.4.0.5`だったため、この完全一致だけを認定する。近接patch、製品版26.4.1.179、`2026.4`形式は
+  未計測としてPOSTへ倒す。版名の表記違いで対応時計が無効になる回帰はsource contractで検出する。
 
 PREはproof種別、clock出所、presentation latency／delay bound、native sampleで測ったLOOP長を固定サイズmetadataへ公開する。
 POSTは両側のLOOP長とproofを照合し、既存の8回連続確認後に、利用者の最初のBLIND／LISTEN操作へ同じcallbackの証明を渡す。
