@@ -69,6 +69,14 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
                                                 double rate,
                                                 std::int64_t capacity) noexcept
 {
+    // Wrapper clocks have different origins and lifetimes. Once both sides expose explicit but
+    // different bases, another lap cannot turn them into a common content clock. Fail before the
+    // cycle-observation wait so a VST3/AU pair never promises automatic progress indefinitely.
+    const auto pluginFrames = static_cast<std::uint8_t> (ClockBasis::pluginFrames);
+    if (pre.clockBasis != pluginFrames && post.clockBasis != pluginFrames
+        && pre.clockBasis != post.clockBasis)
+        return { 0, LoopEntryKind::none, LoopEntryFailure::clockUnavailable, false };
+
     const bool common = pre.clockAuthority != 0 && pre.clockAuthority == post.clockAuthority
         && pre.clockBasis == post.clockBasis;
     if (common && pre.clockBasis == static_cast<std::uint8_t> (ClockBasis::vst3Continuous)

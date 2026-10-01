@@ -131,8 +131,8 @@ struct RenderReport
     bool preAudible = false;   // PRE weight above zero at the end of the block
     bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
     bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
-    bool stableSource = false; // at least one frame entirely from the requested side
-    bool gainSettled = false;  // PRE gain and POST level reached the command targets
+    bool stableSource = false; // every frame came entirely from the requested side
+    bool gainSettled = false;  // every frame used the command's PRE and POST gain targets
     bool timelineChanged = false;
 };
 
@@ -295,13 +295,15 @@ public:
             return report;
         }
         const float step = 1.0f / static_cast<float> (fadeFrames);
+        bool stableSource = true;
+        bool gainSettled = true;
         for (std::int32_t i = 0; i < block.frames; ++i)
         {
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
             const float postGain = post.next (postTarget) * (1.0f - weight);
             const float gain = preLevel.next (preGain);
-            report.stableSource = report.stableSource || (weight >= target && weight <= target);
-            report.gainSettled = gain >= preGain && gain <= preGain
+            stableSource = stableSource && weight >= target && weight <= target;
+            gainSettled = gainSettled && gain >= preGain && gain <= preGain
                 && post.value() >= postTarget && post.value() <= postTarget;
             for (int channel = 0; channel < channels; ++channel)
             {
@@ -309,6 +311,8 @@ public:
                 io[channel][i] = io[channel][i] * postGain + pre * weight;
             }
         }
+        report.stableSource = stableSource;
+        report.gainSettled = gainSettled;
         report.preAudible = weight > 0.0f;
         return report;
     }

@@ -181,6 +181,14 @@ void initialLoopDoesNotInventAnOrigin()
 
 void certifiedInitialLoopStartsWithoutAnotherGesture()
 {
+    LoopAnchor noCycleYet;
+    BlockClock vstPre, auPost;
+    vstPre.clockBasis = static_cast<std::uint8_t> (ClockBasis::vst3Continuous);
+    auPost.clockBasis = static_cast<std::uint8_t> (ClockBasis::audioUnitRender);
+    const auto mixed = initialLoopCandidate (noCycleYet, vstPre, auPost, 0, rate, ringCapacityFrames);
+    require (! mixed.valid && mixed.failure == LoopEntryFailure::clockUnavailable,
+             "different explicit wrapper clocks fail immediately instead of waiting another lap");
+
     for (const auto mode : { ClockMode::certifiedContent, ClockMode::presentationAu,
                              ClockMode::boundedAax })
     {

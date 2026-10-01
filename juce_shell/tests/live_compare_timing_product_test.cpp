@@ -128,6 +128,29 @@ public:
     bool passed = false;
 
 private:
+    struct AuditedBlindCommand
+    {
+        std::uint64_t token = 0;
+        int stimulus = 0;
+        bool active = false;
+    };
+
+    AuditedBlindCommand auditedBlindCommand() const noexcept
+    {
+#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
+        const auto command = post->liveCompare.blind.command();
+        return { command.word, command.stimulus(), command.active() };
+#else
+        // The portable product fixture stays behind the shipping public boundary. An audible
+        // receipt is valid only for the current epoch and requested stimulus; the exact atomic
+        // command word is reserved for the opt-in macOS timing diagnostic.
+        const auto view = post->liveBlindStatus().trial;
+        const auto token = (static_cast<std::uint64_t> (view.epoch) << 32)
+            | static_cast<std::uint32_t> (view.audible);
+        return { token, view.audible, view.active && view.audible != 0 };
+#endif
+    }
+
     bool click (const char* id)
     {
         auto* button = dynamic_cast<juce::Button*> (find (*editor, id));
@@ -231,11 +254,11 @@ private:
             }
             case 5:
             {
-                const auto command = post->liveCompare.blind.command();
+                const auto command = auditedBlindCommand();
                 const auto heard = post->liveBlindStatus().trial;
-                if (blocks.load() <= observedBlock + 3 || ! command.active()
-                    || heard.audible != command.stimulus()) break;
-                auditCommand.store (command.word, std::memory_order_release);
+                if (blocks.load() <= observedBlock + 3 || ! command.active
+                    || heard.audible != command.stimulus) break;
+                auditCommand.store (command.token, std::memory_order_release);
                 audit.store (true); checkpointLap = loop.laps.load(); stage = 6; break;
             }
             case 6:
@@ -249,11 +272,11 @@ private:
                 observedBlock = blocks.load(); stage = 7; break;
             case 7:
             {
-                const auto command = post->liveCompare.blind.command();
+                const auto command = auditedBlindCommand();
                 const auto heard = post->liveBlindStatus().trial;
-                if (heard.played != 3 || blocks.load() <= observedBlock + 3 || ! command.active()
-                    || heard.audible != command.stimulus()) break;
-                auditCommand.store (command.word, std::memory_order_release);
+                if (heard.played != 3 || blocks.load() <= observedBlock + 3 || ! command.active
+                    || heard.audible != command.stimulus) break;
+                auditCommand.store (command.token, std::memory_order_release);
                 audit.store (true); checkpointLap = loop.laps.load(); stage = 8; break;
             }
             case 8:
@@ -337,7 +360,7 @@ private:
             auditReaders.fetch_add (1, std::memory_order_seq_cst);
             const bool ordinary = rawAudit.load(), comparing = audit.load (std::memory_order_seq_cst);
             const auto expectedCommand = auditCommand.load (std::memory_order_acquire);
-            const auto commandBefore = post->liveCompare.blind.command();
+            const auto commandBefore = auditedBlindCommand();
             const float gain = expectedGain.load();
             post->processBlock (buffer, midi);
             diagnostic.observe (*pre, *post, blocks.load());
@@ -352,11 +375,11 @@ private:
                     preMatch = preMatch && std::fabs (actual - delayed[channel][frame] * gain) <= 0.0f;
                     postMatch = postMatch && std::fabs (actual - expectedPost) <= 0.0f;
                 }
-            const auto commandAfter = post->liveCompare.blind.command();
-            const auto heardAfter = post->liveCompare.blind.view();
+            const auto commandAfter = auditedBlindCommand();
+            const auto heardAfter = post->liveBlindStatus().trial;
             const bool stableAuditedCommand = comparing && audit.load()
-                && expectedCommand != 0 && commandBefore.word == expectedCommand
-                && commandAfter.word == expectedCommand && heardAfter.audible == commandAfter.stimulus();
+                && expectedCommand != 0 && commandBefore.token == expectedCommand
+                && commandAfter.token == expectedCommand && heardAfter.audible == commandAfter.stimulus;
             if (stableAuditedCommand)
             {
                 if (! preMatch && ! postMatch) pcmErrors.fetch_add (1);

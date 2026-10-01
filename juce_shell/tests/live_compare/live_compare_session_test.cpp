@@ -144,8 +144,10 @@ static void userSwitchFadesBothWays()
     pair.step (true, true, 1.0f);
     const auto out = pair.step (true, false, 1.0f);
     require (out.verdict == Verdict::accepted && ! out.preAudible, "selecting POST fades PRE out within the block");
+    require (! out.stableSource, "a transition block is never reported as a stable POST receipt");
     require (pair.post[0][frames - 1] == postValue, "the fade ends exactly at POST");
-    pair.step (true, false, 1.0f);
+    const auto settled = pair.step (true, false, 1.0f);
+    require (settled.stableSource && settled.gainSettled, "the first wholly POST block earns the receipt");
     require (pair.postUntouched(), "POST selected leaves POST bit-identical");
 }
 
@@ -389,7 +391,11 @@ int main()
         Pair pair;
         pair.calibrate (false, 1.0f);
         auto report = pair.step (true, choosePre, 1.0f, false, 2, false, true);
-        require (report.stableSource && report.gainSettled, "proven Blind source earns an output receipt");
+        require (report.stableSource == ! choosePre && report.gainSettled,
+                 "only a wholly stable Blind block earns an output receipt");
+        report = pair.step (true, choosePre, 1.0f, false, 2, false, true);
+        require (report.stableSource && report.gainSettled,
+                 "the first whole block of either Blind source earns its receipt");
         report = pair.step (true, choosePre, 1.0f, false, 2, true, true);
         require (report.guardTripped && ! report.stableSource && pair.postUntouched(),
                  "invalid PRE ends Blind even when anonymous POST is selected");

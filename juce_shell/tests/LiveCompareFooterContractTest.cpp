@@ -81,10 +81,11 @@ void verifyLiveCompareFooterContract()
                     recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
                     recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
                     const auto* notice = live_compare_ui::namedRecovery (recovery);
-                    if (recovery.active && recovery.observation == live_compare::RecoveryReason::loopUnproven)
+                    if (recovery.active && (recovery.observation == live_compare::RecoveryReason::loopUnproven
+                        || recovery.observation == live_compare::RecoveryReason::loopClockUnavailable))
                         require (live_compare_ui::namedPresentation (recovery).action
                             == live_compare_ui::RecoveryAction::none && juce::String (notice).contains ("POST"),
-                            "unknown initial loop is explicit, not an instruction to turn LOOP off or rematch");
+                            "unprovable initial loop is explicit, not an instruction to wait, turn LOOP off or rematch");
                     observatory::LiveCompareFooter footer;
                     footer.active = recovery.active;
                     footer.preSelected = recovery.preSelected;
@@ -95,7 +96,8 @@ void verifyLiveCompareFooterContract()
                     post.setLiveCompareFooter (footer);
                     post.setFeedback (notice);
                     if (phase == 0 && (recovery.reason == live_compare::RecoveryReason::loopWaiting
-                        || recovery.reason == live_compare::RecoveryReason::loopUnproven))
+                        || recovery.reason == live_compare::RecoveryReason::loopUnproven
+                        || recovery.reason == live_compare::RecoveryReason::loopClockUnavailable))
                         recoveryPreview (post, "loop-" + juce::String (code) + "-"
                             + juce::String (static_cast<int> (language)) + "-" + juce::String (preset.width));
                     if (juce::String (notice).contains ("RETURN"))

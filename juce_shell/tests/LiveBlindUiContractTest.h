@@ -50,10 +50,11 @@ inline void verifyLiveBlindUiContract()
                                      ? juce::String::fromUTF8 (u8"このLOOPではDAWの時刻対応を確認できません")
                                      : juce::String ("DAW timing is unavailable for this loop")),
                              "unproven initial loop is unavailable, not a promise of progress");
-                if (state.observation == live_compare::RecoveryReason::loopUnproven)
+                if (state.observation == live_compare::RecoveryReason::loopUnproven
+                    || state.observation == live_compare::RecoveryReason::loopClockUnavailable)
                     require (live_compare_ui::blindRecovery (state, phase != 0).action
                                  == live_compare_ui::RecoveryAction::none,
-                             "unknown loop proof does not request LOOP off or promise automatic recovery");
+                             "unprovable loop does not request LOOP off or promise automatic recovery");
                 require (! button ("live-blind-end")->isEnabled() == (phase == 8), "END receipt controls availability");
                 require (view.findChildWithID ("live-blind-answer") == nullptr, "no unused preference collection");
                 if (phase == 2) require (! button ("live-blind-reveal")->isEnabled(), "one source cannot reveal");
