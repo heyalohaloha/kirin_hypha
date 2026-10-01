@@ -19,6 +19,7 @@
 #include "HyphaReferenceWorkflowControls.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
+#include "reference_audition/ReferencePendingAudition.h"
 
 namespace hypha::reference_ui
 {
@@ -70,6 +71,8 @@ struct State
     // Where B and C each stand, whichever of them the page shows (the guide names both).
     SourceStep versionStep = SourceStep::waitingForKirinOs, checkStep = SourceStep::waitingForKirinOs;
     int comparisonSlot = 2, audibleComparisonSlot = 0;
+    bool transportPlaying = false, versionArmable = false, checkArmable = false;
+    reference_audition::PendingAuditionView pendingAudition;
     juce::String versionId;
     std::vector<SelectionOption> versions;
     Readiness readiness = Readiness::disconnected;
@@ -87,6 +90,7 @@ struct State
     bool aAvailable = false;
     bool gainLimited = false;
     bool comparisonFallbackOriginal = false;
+    bool originalAudition = false; // Explicit OS mode, not a failed match.
     bool bSelected = false;
     bool auditionBuffered = false;
     os_access::State osAccess = os_access::State::unowned;
@@ -145,7 +149,9 @@ inline bool canSelectB (const State& state) noexcept
 inline bool canStartBlind (const State& state) noexcept
 {
     return state.blindPhase == BlindPhase::available
-        && ! state.blindLowerAApprovalRequired && canSelectB (state);
+        && ! state.blindLowerAApprovalRequired
+        && (state.separateComparisons ? state.osAccess != os_access::State::unowned
+            && state.libraryReceived && state.aAvailable && state.versionReady : canSelectB (state));
 }
 
 // B and C as their buttons deliver them: Kirin OS has sent the library, the DAW plays A, and the
@@ -175,7 +181,7 @@ public:
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
         for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
-                              &revealButton, &endBlindButton, &actionButton })
+                              &revealButton, &endBlindButton, &actionButton, &viewButton })
             button->setPresentationContext (next);
         tonalView.update (current.visualTimeline, presentationContext,
                           isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
@@ -191,6 +197,7 @@ public:
     std::function<void(const juce::String&)> onSelectCheck;
     std::function<void(const juce::String&)> onSelectCandidate;
     std::function<void(const juce::String&)> onSelectCue;
+    std::function<void(int)> onSelectVisualSlot;
     std::function<void()> onAction;
     std::function<void()> onStartBlind;
     std::function<void(int)> onSelectBlindStimulus;
@@ -205,6 +212,7 @@ public:
     void setState (State);
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
+    int comparisonButtonWidth() const noexcept { return detailedLayout() ? 80 : current.separateComparisons ? 36 : 48; }
     // Whether the last paint showed the guide whole (HyphaReferenceGuide.h); checked by the tests.
     const GuideFit& guideFit() const noexcept { return lastGuideFit; }
     bool shortPanel() const noexcept { return getHeight()<150 && !isBlindSession(current.blindPhase); }
@@ -260,6 +268,10 @@ private:
     SideButton revealButton { "REVEAL" };
     SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };
+    SideButton viewButton { "VIEW A/C" };
+
+    void configureVisualNavigation();
+    void updateVisualNavigation (bool enabled);
 
     bool selectionVisible (const juce::ComboBox&) const;
     // B and C while they cannot be heard: dimmed, with the reason on hover and after a click, and

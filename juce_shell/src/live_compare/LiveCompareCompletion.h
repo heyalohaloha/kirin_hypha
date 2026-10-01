@@ -5,8 +5,10 @@
 
 namespace hypha::live_compare
 {
-// One message-thread writer requests END/RETURN. Only an eligible audio block acknowledges it.
-// No callback, offline, bypass and another output owner never manufacture a completion.
+// END closes the user's comparison as soon as request() is accepted. This object tracks only
+// the remaining audio return, not UI lifetime. The ring/renderer lease stays alive for its fade.
+// Only an eligible audio block acknowledges actual unity; no callback, offline, bypass or other
+// output owner manufactures a receipt. Re-entry waits for that receipt, not another END click.
 class Completion
 {
 public:

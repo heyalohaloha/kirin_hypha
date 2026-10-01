@@ -4,6 +4,14 @@
 本書は操作の選択と設定の参照先をまとめる。署名処理の詳細は各OSの手順書と実装を正本とし、
 顧客番号、アカウント、認証情報、管理画面の画像を公開資料へ転記しない。
 
+全formatをまとめてビルドする場合は[統合入口](hypha_build_entry.md)の
+`node scripts/build_hypha.mjs --sdk PATH --license-confirmed`を使う。
+Macは6本のUniversal、Windowsは4本のx64を同じCoreから作る。これは未署名診断buildで
+iLok USB / Cloudの移動は不要。以下の署名・配布経路とは分けて扱い、成功を公開可能と読み替えない。
+ビルドからHPアップまでの全工程は同じscriptの`--release` modeへ進む。
+[release統合入口](hypha_release_entry.md)が、本書の正規producerを使って署名・公証・受入・配布・
+GitHub Release・英日HP本番反映をつなぐ。未完了の実host試験や個別候補の公開承認は省略しない。
+
 ## 最初に区別すること
 
 「AAXをビルドした」と「通常のPro Toolsで検証できる」「公開できる」は別の状態である。
@@ -61,7 +69,9 @@ GitHub Secretsの登録状態、署名成功を証明するものではない。
 4. [Mac手順書](aax_macos_universal_build_20260910.md)の正規scriptを実行する。
    `--dry-run`は引数とコマンド構成の確認のみで、認証・署名・公証の合格ではない。
    再実行は生成済みPRE/POST AAX productを作り直すため、必要な既存成果物は先に保全する。
-5. 出力の署名とreceiptを照合する。配布用は現在のcommit／bundleに結び付くAccepted v2 receiptが必要。
+5. 出力の署名とreceiptを照合する。配布用は現在のcommit／bundleに結び付くAccepted v3 receiptが必要。
+   Apple notary logのarchive SHA-256と、保持した提出archiveの実bytesのSHA-256の一致も検証する。
+   hash結合のない旧v2 receiptは配布用の合格根拠にしない。
    AU/VST3の公証成功や古いAAX receiptでは代用できない。
 6. 配置は別の操作として扱う。未署名AAXで既存の署名済みAAXを置換しない。
    公開候補は`--with-aax`のpkg／zip検証と、exact candidateのPro Tools試験へ進める。

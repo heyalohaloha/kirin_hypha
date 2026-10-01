@@ -32,6 +32,7 @@ public:
     bool selectCheck (const juce::String&);
     bool selectCandidate (const juce::String&);
     bool selectCue (const juce::String&);
+    bool selectVisualSlot (int); // Display only; never changes the audible source or gain.
     bool retryPresetSelection();
     bool retryCandidatePreparation();
     bool approveSampleRateConversion(int slot);
@@ -43,6 +44,9 @@ public:
     void setCaptureTonalRange (double startSeconds, double endSeconds);
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
+    bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues only.
+    void servicePendingAudition (double, double, bool callbackLive);
+    bool pendingAuditionNeedsService() const;
     void selectA() noexcept;
     bool reserveLocalBlind();
     void bindLocalBlind(std::uint64_t);
@@ -91,6 +95,8 @@ private:
     void serviceWorkflowCommits();
     void handleAsyncUpdate() override;
     bool hasActiveWorkflow() const;
+    void clearPendingAudition();
+    void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
     bool finishWorkflow (bool completed);
     void applyWorkflowFinish();
     SelectionGate gate, captureGate, blindCaptureGate;
@@ -109,11 +115,23 @@ private:
     ReferenceChoice normalCheckChoice;
     int workflowItemIndex = 0;
     StateChanged stateChanged;
+    struct PendingIntent
+    {
+        PendingAuditionView view;
+        juce::String identity;
+        std::uint64_t safetyEpoch = 0;
+        std::uint64_t intentId = 0;
+        bool sawPlayback = false;
+    } pendingAudition; // selectionLock; control thread only.
+    std::uint64_t pendingSequence = 0;
+    std::atomic<std::uint64_t> activePendingIntent { 0 };
+    std::atomic<std::uint64_t> pendingSafetyEpoch { 0 };
+    std::atomic<int> pendingInputSafety { -1 }; // -1: no callback yet, 0: forbidden, 1: allowed.
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
     std::atomic<bool> versionChosen { false };
-    bool rtPlaying = false, rtInputAllowed = false;
+    bool rtPlaying = false, rtInputAllowed = false, rtInputObserved = false;
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
     std::shared_ptr<WorkflowCommitInbox> workflowCommitInbox = std::make_shared<WorkflowCommitInbox>();

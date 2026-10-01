@@ -19,16 +19,19 @@ class PreFeeder
 public:
     bool feed (Ring& ring, const BlockClock& block, const float* const* input, int channels) noexcept
     {
+        if (ring.header.timing.sequence.load (std::memory_order_relaxed) == 0) publisher.reset();
+        const auto continuity = timing.observe (ring.header.timing, block, ring.header.sampleRate.load (std::memory_order_relaxed));
         if (ring.header.demand.load (std::memory_order_acquire) == 0)
         {
             publisher.reset();
             return false;
         }
-        publisher.publish (ring, block, input, channels);
+        publisher.publishAfterClock (ring, block, input, channels, continuity);
         return true;
     }
 
 private:
+    TimingPublisher timing;
     Publisher publisher;
 };
 
@@ -164,6 +167,10 @@ public:
         consumer.reset();
         weight = 0.0f;
     }
+
+    bool adoptInitialTiming (const Ring& ring, const BlockClock& block,
+                             const TimingEvidence& evidence) noexcept
+    { return consumer.adoptInitialTiming (ring, block, evidence); }
 
     // MATCH (non-RT) reads the POST input history, contiguous over [start, end) of POST's clock,
     // and the K that mapped the latest block, then verifies the history was not overwritten.

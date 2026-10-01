@@ -3,6 +3,7 @@
 #include "JungleAppearanceContractTest.h"
 #include "SurroundObservatoryContractTest.h"
 #include "LiveCompareFooterContractTest.h"
+#include "LevelPublicationContract.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include <cmath>
@@ -478,5 +479,6 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (request.maxEntries == 300);
     KIRIN_OBSERVATORY_REQUIRE (request.maxOutputEntries <= 1'200);
     verifyObservatoryCaptureContract (post, pre, history, activeFrame(), inactiveFrame);
+    verifyLevelPublication (activeFrame(), history);
 }
 }

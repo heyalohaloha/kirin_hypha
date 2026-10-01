@@ -56,6 +56,21 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
     let live_compare = include_str!("../../juce_shell/cmake/LiveCompare.cmake");
     assert!(root_cmake.contains("include(cmake/LiveCompare.cmake)"));
+    for (definition, target, test) in [
+        (
+            live_compare,
+            "KirinLiveCompareTimingTests",
+            "kirin_live_compare_timing",
+        ),
+        (
+            cmake,
+            "KirinLiveTimingProductTests",
+            "kirin_live_timing_product",
+        ),
+    ] {
+        assert!(definition.contains(target) && definition.contains(test));
+        assert!(ci.contains(target) && source_gate.contains(target) && source_gate.contains(test));
+    }
     assert!(live_compare.contains("KirinLiveCompareCorrespondenceTests"));
     assert!(live_compare.contains("kirin_live_compare_correspondence"));
     assert!(ci.contains("KirinLiveCompareCorrespondenceTests"));
@@ -65,7 +80,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(live_compare.contains("KirinLiveCompareMatchTests"));
     assert!(ci.contains("KirinLiveCompareMatchTests"));
     assert!(ci.contains(
-        "-R '^(kirin_live_compare_(correspondence|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'"
+        "-R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'"
     ));
     assert!(source_gate.contains("KirinLiveCompareMatchTests"));
     assert!(source_gate.contains("KirinLiveCompareSessionTests"));
@@ -94,6 +109,8 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     );
     for target in [
         "KirinLiveCompareLoopTests",
+        "KirinLiveCompareTimingTests",
+        "KirinLiveTimingProductTests",
         "KirinLiveCompareLoopFeasibilityTests",
         "KirinLiveBlindProductTests",
         "KirinLiveRecoveryProductTests",
@@ -130,6 +147,8 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "kirin_reference_capture_memory",
         "kirin_reference_audio_streaming",
         "kirin_live_compare_correspondence",
+        "kirin_live_compare_timing",
+        "kirin_live_timing_product",
         "kirin_live_compare_session",
         "kirin_live_compare_match",
         "kirin_live_compare_pin_product",

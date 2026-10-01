@@ -18,7 +18,7 @@ import { requireCleanReleaseSource } from '../ls_release/release_source_identity
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
 const ISS_FILE = path.join(ROOT, 'scripts', 'windows', 'kirin-hypha-installer.iss');
-const SIGNER_FILE = path.join(ROOT, 'scripts', 'windows', 'sign-codesigntool.mjs');
+const SIGNER_FILE = path.join(ROOT, 'scripts', 'windows', 'inno-sign-codesigntool.mjs');
 export const PRODUCT_NAME = 'Kirin Hypha';
 export const PAYLOAD_DIR_NAME = 'installer-payload';
 
@@ -169,7 +169,7 @@ export function innoCompilerArgs({ outputDir, payloadDir, signing, aaxRecords = 
   ];
   if (signing === 'signed') {
     args.push('/DSignedBuild=1');
-    args.push(`/Skirin_esigner="${process.execPath}" "${SIGNER_FILE}" --input-file $f`);
+    args.push(`/Skirin_esigner=$q${process.execPath}$q $q${SIGNER_FILE}$q --input-file $f`);
   }
   if (aaxRecords.length > 0) {
     if (aaxRecords.length !== 2) throw new Error('AAX installer payload must contain PRE and POST');

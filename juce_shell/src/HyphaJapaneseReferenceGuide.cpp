@@ -26,8 +26,8 @@ const Entry entries[] = {
     // Why.
     { "Versions and References registered in Kirin OS arrive here automatically.",
       u8"Kirin OSに登録したVersionとReferenceが、ここに自動で届きます。" },
-    { "B and C play at the same place in the song as A.",
-      u8"BとCは、Aと同じ曲の位置で鳴ります。" },
+    { "B follows the song; C uses its Cue.",
+      u8"Bは同曲、Cは設定済みCueを比較します。" },
     { "B plays another Version of the song you are playing, registered in Kirin OS.",
       u8"Bでは、Kirin OSに登録した、再生中の曲の別Versionを鳴らします。" },
     { "Choose it in B / VERSION above. B plays another Version of the song you are playing.",
@@ -57,9 +57,9 @@ const Entry entries[] = {
     { "Play another passage", u8"別の箇所を再生" },
     { "Preparing", u8"準備中" },
     { "Check the source in Kirin OS", u8"Kirin OSで音源を確認" },
-    { "While the DAW plays, press A, B or C to switch what you hear. B and C are matched to "
-      "A's loudness.",
-      u8"再生中にA・B・Cを押すと、聴く音が切り替わります。BとCはAの音量にそろえます。" },
+    { "Press A, B or C to switch audio. VIEW changes only the visuals. "
+      "The audition level is shown while listening.",
+      u8"A・B・Cで音を切り替えます。VIEWは表示だけを切り替えます。試聴中の音量は下に表示します。" },
 
     // A B or C not ready yet, on hover and after a click.
     { "B: %1", u8"B：%1" },

@@ -30,7 +30,7 @@ namespace hypha::reference_audition
                                 check.label + " / NO SOURCE IN KIRIN OS", {}, false });
                         for (const auto& candidate : check.candidates)
                             snapshot.checkTargets.push_back ({ check.checkId + "/" + candidate.candidateId,
-                                check.label + (check.candidates.size() > 1 ? " / " + candidate.displayName : ""),
+                                check.label + "  /  " + candidate.displayName,
                                 {}, ! candidate.prepared });
                     }
         std::set<juce::String> versions;

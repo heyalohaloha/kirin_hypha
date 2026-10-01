@@ -8,7 +8,12 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     VisualBinding result;
     const auto calibration = blind.snapshot();
     result.hidden = calibration.phase != BlindPhase::inactive;
-    result.source = ready.load (std::memory_order_acquire) ? publishedSource : nullptr;
+    const bool awaitingApproval = currentSnapshot.sampleRateApprovalRequired;
+    // A transport-only revoke stops output, not the verified display/queued source identity.
+    // Invalid/replaced publications clear these pointers; aligned still requires audio readiness.
+    const bool validPublication = currentSnapshot.state == RuntimeState::ready
+        || currentSnapshot.state == RuntimeState::waiting;
+    result.source = !validPublication ? nullptr : awaitingApproval ? approvalVisualSource : publishedSource;
     result.overview = result.source ? currentSnapshot.detailedMeasurement : nullptr;
     result.presetId = currentSnapshot.presetId;
     result.checkId = currentSnapshot.checkId;
@@ -21,12 +26,12 @@ VisualBinding RuntimeV2Controller::visualBinding() const
             }
     result.hostRate = static_cast<std::int64_t> (std::llround (requestedConfiguration.sampleRate));
     result.channels = requestedConfiguration.channels;
-    result.cueStartSample = cueStart.load (std::memory_order_acquire);
-    result.cueEndSample = cueEnd.load (std::memory_order_acquire);
+    result.sourceCueStartSample = visualSourceCueStart;
+    result.sourceCueEndSample = visualSourceCueEnd;
     const auto generation = mappingGeneration.load (std::memory_order_acquire);
     result.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
     result.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
-    result.aligned = ready.load (std::memory_order_acquire) && calibration.wholeSong && calibration.eligible
+    result.aligned = result.source && ready.load (std::memory_order_acquire) && calibration.wholeSong && calibration.eligible
         && generation % 2 == 0 && generation == mappingGeneration.load (std::memory_order_acquire);
     result.hostPositionValid = latestPositionValid.load (std::memory_order_acquire);
     result.hostPosition = result.hostPositionValid
@@ -34,7 +39,7 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     if (result.source)
         result.key = result.source->sourceFileSha256 + ":" + juce::String (requestedConfiguration.generation)
             + ":" + juce::String (generation) + ":" + juce::String (calibration.pairedLoudnessDeltaDb, 9)
-            + ":cue:" + juce::String (result.cueStartSample) + ":" + juce::String (result.cueEndSample);
+            + ":cue:" + juce::String (result.sourceCueStartSample) + ":" + juce::String (result.sourceCueEndSample);
     result.key += ":selection:" + result.presetId + ":" + result.presetRevisionId + ":" + result.checkId;
     if (result.aligned)
     {

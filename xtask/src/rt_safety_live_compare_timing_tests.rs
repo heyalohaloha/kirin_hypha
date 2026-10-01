@@ -1,0 +1,168 @@
+use super::{function_body, without_line_comments, CORRESPONDENCE_H, RING_H, SESSION_H};
+
+const BLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareBlockClock.h");
+const TIMING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareTimingWitness.h");
+const PREPARATION_H: &str =
+    include_str!("../../juce_shell/src/live_compare/LiveCompareTimingPreparation.h");
+
+#[test]
+fn clock_preparation_and_shared_projection_stay_realtime_safe() {
+    for source in [
+        BLOCK_H,
+        TIMING_H,
+        function_body(PREPARATION_H, "TimingEvidence observe ("),
+    ] {
+        let code = without_line_comments(source);
+        for forbidden in [
+            "make_unique",
+            "new ",
+            "delete ",
+            "mutex",
+            ".lock(",
+            ".lock (",
+            "malloc",
+            "calloc",
+            "realloc",
+            "free(",
+            "std::vector",
+            "std::string",
+            "std::thread",
+            "std::filesystem",
+            "fstream",
+            "fopen",
+            "printf",
+            "sleep",
+            "wait(",
+            "wait (",
+            "juce::",
+            ".open (",
+            ".close (",
+        ] {
+            assert!(
+                !code.contains(forbidden),
+                "clock preparation contains {forbidden}"
+            );
+        }
+    }
+    // AU's measured clamp may normalize corroboration coordinates, NEVER the PCM address/K.
+    let projection = function_body(BLOCK_H, "inline bool corroborateLoop (");
+    for required in [
+        "if (! LoopContext::identical (block.loop.ppq, block.loop.start)) return false;",
+        "std::abs (static_cast<double> (block.project) - (expected - length)) > 1.01",
+        "std::abs (expected) >= 9007199254740992.0",
+    ] {
+        assert!(
+            projection.contains(required),
+            "AU projection lost {required}"
+        );
+    }
+}
+
+#[test]
+fn clock_preparation_never_copies_pcm_or_grants_output_permission() {
+    let publisher = function_body(TIMING_H, "TimelineStep observe (TimingHeader&");
+    for forbidden in [
+        "samples[",
+        "input[",
+        "demand",
+        "gain",
+        "selection",
+        "renderer",
+    ] {
+        assert!(
+            !without_line_comments(publisher).contains(forbidden),
+            "metadata publisher uses {forbidden}"
+        );
+    }
+    let observe = function_body(PREPARATION_H, "TimingEvidence observe (");
+    for forbidden in [
+        "demand.store",
+        "gain.store",
+        "selection",
+        "renderer",
+        "arm (",
+    ] {
+        assert!(
+            !observe.contains(forbidden),
+            "clock-only observer authorises {forbidden}"
+        );
+    }
+    assert!(PREPARATION_H.contains("peer->mapping.open (pairKey, rate, false)"));
+    assert!(
+        SESSION_H.find("timing.observe (").unwrap()
+            < SESSION_H.find("ring.header.demand.load").unwrap()
+    );
+    assert!(SESSION_H
+        .contains("publisher.publishAfterClock (ring, block, input, channels, continuity)"));
+    assert!(!function_body(SESSION_H, "bool feed (").contains("timeline.observe"));
+    let consume = function_body(CORRESPONDENCE_H, "bool adoptInitialTiming (");
+    for required in [
+        "! initialAdmission",
+        "evidence.postClock != block.clock",
+        "! initialPcmReady (ring)",
+        "current.generation != evidence.preGeneration",
+        "current.ownerA != evidence.ownerA",
+        "current.ownerB != evidence.ownerB",
+        "ownerClosed.load",
+        "initialAdmission = false;",
+    ] {
+        assert!(consume.contains(required), "entry lost {required}");
+    }
+    assert!(RING_H.contains("timingGeneration.store (h.timing.generation.load"));
+    assert!(CORRESPONDENCE_H.contains(
+        "h.writeEnd.load (std::memory_order_relaxed) == current.block.clock + current.block.frames"
+    ));
+    let process = function_body(CORRESPONDENCE_H, "Decision process (");
+    assert_eq!(
+        process
+            .matches("! preparedTimingCurrent (ring.header)")
+            .count(),
+        2,
+        "PRE generation/lifetime must fence both before and after the PCM copy"
+    );
+    assert!(
+        process
+            .rfind("! preparedTimingCurrent (ring.header)")
+            .unwrap()
+            > process.find("decision.verdict = read (").unwrap()
+    );
+}
+
+#[test]
+fn preparation_uses_the_existing_low_rate_service_timer() {
+    let service = include_str!("../../juce_shell/src/PluginProcessorService.cpp");
+    assert!(service.contains("idleTiming ? 250 : 50"));
+    assert!(!PREPARATION_H.contains("Timer") && !TIMING_H.contains("Timer"));
+    let observer = function_body(TIMING_H, "TimingEvidence observe (");
+    assert!(observer.contains("! post.loop.active"));
+    assert!(observer.contains("coherent && active &&"));
+    assert!(TIMING_H.contains("CalibrationProfile profile"));
+    assert!(CORRESPONDENCE_H.contains("CalibrationProfile profile"));
+}
+
+#[test]
+fn full_processor_probe_keeps_display_queries_off_the_audio_thread() {
+    let probe = include_str!("../../juce_shell/tests/live_compare_processor_benchmark.cpp");
+    let audio = function_body(probe, "void process()");
+    assert!(!audio.contains("->liveCompareStatus()"));
+    assert!(!audio.contains("->liveBlindStatus()"));
+    assert!(audio.contains("const bool preOutput = mode > 0;"));
+    assert!(audio.contains("every compared frame has the right source and gain"));
+}
+
+#[test]
+fn pre_mapping_ownership_is_non_rt_and_cannot_restamp_readers() {
+    let mapping = include_str!("../../juce_shell/src/live_compare/LiveCompareSharedRing.cpp");
+    let header = include_str!("../../juce_shell/src/live_compare/LiveCompareSharedRing.h");
+    let claim = include_str!("../../juce_shell/src/live_compare/LiveCompareOwnerClaim.h");
+    assert!(header.contains("std::unique_ptr<OwnerClaim> claim;"));
+    assert!(!header.contains("#include \"LiveCompareOwnerClaim.h\""));
+    assert!(!RING_H.contains("OwnerClaim") && !SESSION_H.contains("OwnerClaim"));
+    assert!(!mapping.contains("mapped = fresh ?"));
+    assert!(mapping.contains("if (! ownership->acquire (pairKey)) return false;"));
+    assert!(mapping.contains("if (existing == nullptr || ! fresh)"));
+    assert!(mapping.contains("O_CREAT | O_EXCL | O_RDWR"));
+    assert!(claim.contains("LOCK_EX | LOCK_NB") && claim.contains("O_NOFOLLOW"));
+    assert!(claim.contains("ERROR_ALREADY_EXISTS"));
+    assert_eq!(mapping.matches("claim.reset();").count(), 2);
+}

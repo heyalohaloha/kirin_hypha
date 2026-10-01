@@ -1,5 +1,24 @@
 # Kirin Hypha — 計測プラグイン開発
 
+## 最初に確認するビルド・HPアップ入口（Codex / Claude共通）
+
+ビルド・署名・配布・HP反映を行う前に、`docs/hypha_release_entry.md`を読む。
+入口は`node scripts/build_hypha.mjs`一つ。まず採用commitと作業checkoutを確認し、以下のhelpから目的を選ぶ。
+
+|目的|入口|手順書|
+|---|---|---|
+|GUI / DSP用の検証プラグインを簡単に作る|`node scripts/build_hypha.mjs --without-aax`|`docs/hypha_build_entry.md`|
+|全formatの未署名診断build|`node scripts/build_hypha.mjs --help`|`docs/hypha_build_entry.md`|
+|正規build・署名・公証からHPアップまで|`node scripts/build_hypha.mjs --release --help`|`docs/hypha_release_entry.md`|
+
+MacはPRE/POST × AAX/AU/VST3 Universal、WindowsはPRE/POST × AAX/VST3 x64。AUはApple専用。
+`--without-aax`はSDK不要の明示的な検証専用。全formatや通常Pro Tools用署名・公開gateを代用しない。
+helpはSDK・認証・USB不要。未署名buildにもiLok不要。既存の成果物・CI・private stateは照合して再利用し、
+この案内のためにbuild / CI / 署名を起動しない。実機受入、LS担当者工程、公開承認、3チャネル条件は維持する。
+途中再開のprivate profile・証跡は作業checkoutのignored `release_state/`で確認し、管理URLや秘密値を転載しない。
+入口が無い古いworktreeには必要差分の統合が必要。別checkoutのscriptを絶対pathで実行して代用しない。
+Claudeは`CLAUDE.md`の`@AGENTS.md`で本正本を読む。詳細手順・安全契約を別コピーへ分岐させない。
+
 ## Notion操作 全面禁止
 Codexセッションは Notion へのいかなる書き込みも行わない。
 - 📍現在地 SECTION:DEV 更新 → 禁止
@@ -55,18 +74,20 @@ node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
 は payload smoke test 用のみで、LSには絶対にアップロードしない。
 
 ## プロジェクト概要
-Kirin Hypha は Kirin OS と連携する計測プラグイン。VST3。通常の計測経路ではDAW入力を加工せず、
+Kirin Hypha は Kirin OS と連携する計測プラグイン。出荷shellはJUCE共通実装で、AAXは既定OFFの追加formatとする。通常の計測経路ではDAW入力を加工せず、
 利用者が明示した比較試聴では登録済みReferenceを非破壊再生できる。
 PRE/POST の2バイナリでマスタリングチェインの前後を計測し、差分（Δ）を表示する。
 ライセンス: GPLv3（オープンソース公開）。Kirin OS本体（プロプライエタリ）とは完全分離。
 
 
 ## 技術スタック
-- Rust + nih-plug（VST3フレームワーク）
+- 計測core: Rust、JUCEとの境界: `kirin_hypha_ffi` C ABI
 - ebur128 クレート（LUFS/TP）
-- GUI: nih-plug対応フレームワーク（iced / egui / カスタム。選定は公式確認後に決定）
-- ビルド: `cargo xtask bundle --release` → .vst3 生成
-- 対象DAW: Studio One（Daisuke主環境）。他DAWは後日
+- 出荷processor / GUI: JUCE共通shell（macOS AU / VST3、Windows VST3、追加AAX）
+- nih-plug: 旧VST3 identityとstate互換性を検証するlegacy経路。出荷GUIの選定待ちではない
+- 全formatの統合入口: 本書冒頭の「最初に確認するビルド・HPアップ入口」。詳細は`docs/hypha_build_entry.md` / `docs/hypha_release_entry.md`を正本とする
+- AAX不要のmacOS通常build: `scripts/build_juce_universal.sh`。署名は`docs/aax_build_signing_entry.md`、Windows配布は対応手順書を正本とする
+- 対象DAWと受入状況: `README.md`と各hostの検証記録を参照し、formatの生成成功をhost対応完了としない
 
 ## 絶対原則
 
@@ -194,7 +215,10 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 上位domainはLEVEL / TIME / FREQ / SPACE。TIMEにはHISTORY / ATTACK / SHARP / LIVEがある。
 - PREは絶対観測、POSTは検証済みの同時刻PREがある場合だけ差分を表示する。PRE不在時もPOSTの
   絶対観測を捏造せず維持する。
-- 通常経路はmono / stereo限定。サラウンド対応を計測coreの引数だけから推定しない。
+- mono / stereoを基本範囲とし、機能ごとのrole / platform / host gateを維持する。
+  exact 5.1（L, R, C, LFE, Ls, Rs）はLEVEL / TIMEの計測専用で、
+  Record / Keep、Reference、local Blind、live比較、Hybrid VU、FREQ、SPACEは許可しない（INV-S33）。
+  他layoutは拒否する。AAX等の実host受入は別に検証し、計測coreの引数やlayout宣言だけから完了を推定しない。
 - macOSのPRE表示共有はatomic file、Windowsはpagefile-backed共有メモリを使う。platformごとの
   transport正本を確認し、`/tmp/`だけを全platform共通仕様として扱わない。
 - Reference比較試聴、live PRE/POST比較、承認済みのローカルBlind（その前の記名A/Bを含む）は通常A経路とは別の明示操作である。

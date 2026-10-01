@@ -183,6 +183,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceComparisonController.cpp
+    src/reference_audition/ReferenceComparisonPending.cpp
     src/reference_audition/ReferenceComparisonWorkflow.cpp
     src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
@@ -893,6 +894,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
+        tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
         tests/reference_content_alignment_test.cpp
         tests/reference_real_content_alignment_test.cpp

@@ -33,6 +33,7 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
+    configureVisualNavigation();
     addChildComponent (comparisonView); addChildComponent (tonalView);
     addChildComponent(captureControls); addChildComponent(workflowControls);
     workflowControls.onStart=[this]{if(onStartReview)onStartReview();};
@@ -172,7 +173,9 @@ void Component::setState (State next)
     versionBox.setVisible (! blindSession && current.separateComparisons);
     const bool versionChosen = current.separateComparisons && current.versionId.isNotEmpty()
         && current.libraryReceived && current.osAccess != os_access::State::unowned;
-    blindButton.setVisible (! blindSession && ! workflowActive && (versionChosen || canStartBlind (current)));
+    blindButton.setVisible (! blindSession && ! workflowActive
+        && (!current.separateComparisons || current.comparisonSlot == 1)
+        && (versionChosen || canStartBlind (current)));
     blindButton.setEnabled (!current.blindLargeScreen || canStartBlind (current));
     blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
     blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
@@ -203,12 +206,12 @@ void Component::setState (State next)
     syncSelectionControl (cueBox, current.cues, current.cueId);
     cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
-    presetBox.setVisible (!blindSession && !workflowActive && !current.presets.empty()
-        && (!current.separateComparisons || current.comparisonSlot == 2));
+    presetBox.setVisible (!blindSession && !workflowActive && !current.presets.empty());
     checkBox.setVisible (! blindSession && ! workflowActive && ! current.checks.empty());
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
-    cueBox.setVisible (showDetailedSelectors && ! workflowActive && ! current.cues.empty()
-        && (!current.separateComparisons || current.comparisonSlot == 2));
+    cueBox.setVisible ((showDetailedSelectors || (current.separateComparisons && !blindSession))
+        && !workflowActive && !current.cues.empty());
+    updateVisualNavigation (!blindSession && !workflowActive);
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (current.sampleRateApprovalRequired);
     actionButton.setTooltip (current.sampleRateApprovalRequired
@@ -254,7 +257,7 @@ void Component::paint (juce::Graphics& g)
     const bool blindSession = isBlindSession (current.blindPhase);
     if (current.separateComparisons && ! blindSession)
     {
-        area.removeFromTop ((selectionVisible (presetBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
+        area.removeFromTop ((selectionVisible (presetBox) || viewButton.isVisible() ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
                             + panelGap() + (detailedLayout() ? 40 : panelPickerHeight()));
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentationContext, typography::TextRole::unit,
@@ -318,8 +321,8 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredLeft);
         }
     }
-    int controlsWidth = current.separateComparisons
-        ? (detailedLayout() ? 62 : 36) * 3 + 6 : (detailedLayout() ? 62 : 48) * 2 + 3;
+    int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 3 : 2)
+        + (current.separateComparisons ? 6 : 3);
     if (isBlindSession (current.blindPhase))
         controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
                                          : (detailedLayout() ? 62 : 48);
@@ -409,8 +412,9 @@ void Component::paint (juce::Graphics& g)
     auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
         ? "REVEALED / " + current.blindReveal : current.status;
     const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
+    const auto audibleSide = current.separateComparisons && current.audibleComparisonSlot == 2 ? "C" : "B";
     if (current.bSelected && ! blindRevealed)
-        statusText = juce::String { side } + juce::String (juce::CharPointer_UTF8 ("  /  PRE Δ PAUSED"));
+        statusText = juce::String { audibleSide } + juce::String (juce::CharPointer_UTF8 ("  /  PRE Δ PAUSED"));
     auto availableStatusArea = statusArea;
     if (blindRevealed)
         availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);
@@ -458,8 +462,8 @@ void Component::paint (juce::Graphics& g)
         }
         if (current.bSelected && std::isfinite (current.appliedGainDb))
         {
-            const auto gain = juce::String { side } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
-                + (current.comparisonFallbackOriginal ? "ORIGINAL"
+            const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
+                + (current.originalAudition || current.comparisonFallbackOriginal ? "ORIGINAL"
                    : current.gainLimited ? "MATCH UNAVAILABLE" : "MATCHED");
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,

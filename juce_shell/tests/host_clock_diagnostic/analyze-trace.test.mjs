@@ -42,6 +42,15 @@ test('trace oracle distinguishes cycle wraps, missing latency, and malformed dat
     assert.deepEqual(run.outputLatency, { 0: 1, missing: 2 });
     assert.equal(run.projectDiscontinuities.length, 1);
     assert.equal(run.auxiliaryDiscontinuities.length, 0);
+    const extended = valid.trimEnd().split('\n').map((line, i) => i === 0
+      ? line + ',host_ns,ppq,bpm,loop_start,loop_end'
+      : line + ',1234567890123,1.234567890123456,128.000000000000000,0.000000000000000,4.000000000000000').join('\n') + '\n';
+    fs.writeFileSync(trace, extended);
+    const extendedResult = invoke('analyze-trace.mjs', fixture, trace);
+    assert.equal(extendedResult.status, 0, extendedResult.stderr);
+    assert.equal(JSON.parse(extendedResult.stdout).traces[0].runs[0].matchedFirst, 3);
+    fs.writeFileSync(trace, extended.replace('1.234567890123456', 'NaN'));
+    assert.notEqual(invoke('analyze-trace.mjs', fixture, trace).status, 0);
     for (const malformed of [valid.replace('48000', ''), valid.replace('48000', 'NaN'),
       valid.replace('48000', '44100'), valid.replace('0,0,0,48000', '7,0,0,48000'),
       valid.replace('first_left', 'wrong_schema')]) {

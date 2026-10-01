@@ -1,4 +1,5 @@
 #include "LiveCompareLoopOracle.h"
+#include "LoopEntryEvidenceContract.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -138,8 +139,12 @@ static void precalibratedContinuation()
         const auto atActivation = host.observations (frames);
         host.enableLoopAtCurrentPosition();
         const auto afterActivation = host.observations (frames);
-        require (sameClock (atActivation.pre, afterActivation.pre)
-                     && sameClock (atActivation.post, afterActivation.post), "enabling loop must not seek");
+        require (sameSampleClock (atActivation.pre, afterActivation.pre)
+                     && sameSampleClock (atActivation.post, afterActivation.post), "enabling loop must not seek");
+        require (! atActivation.pre.loop.active && afterActivation.pre.loop.active
+                     && ! atActivation.post.loop.active && afterActivation.post.loop.active
+                     && ! sameObservation (atActivation, afterActivation),
+                 "the full observation must still distinguish the loop activation");
         Decision after;
         for (int i = 0; i < (4 * length + frames - 1) / frames; ++i) after = host.step (frames);
         char name[128];
@@ -219,6 +224,7 @@ int main (int argc, char** argv)
     }
     oracleDetectsMutations();
     initialLoopClockAmbiguity();
+    loop_entry_evidence::verify();
     nonLoopPositiveControls();
     precalibratedContinuation();
     surveyPredicateControls();

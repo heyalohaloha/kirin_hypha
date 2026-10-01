@@ -194,7 +194,7 @@ void VisualObservation::run()
         {
             if (bindingChanged || tonalPublicationChanged || nextTonalReference == nullptr)
                 nextTonalReference = !next.hidden && next.source
-                    ? tonalRepository.load (*next.source, next.cueStartSample, next.cueEndSample,
+                    ? tonalRepository.load (*next.source, next.sourceCueStartSample, next.sourceCueEndSample,
                                             &retrySource) : nullptr;
             if (bindingChanged || tonalPublicationChanged || nextTonalGenre == nullptr)
                 nextTonalGenre = !next.hidden

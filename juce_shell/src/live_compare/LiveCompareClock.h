@@ -3,30 +3,33 @@
 #include "../HostAuxiliaryClock.h"
 
 #include <cstdint>
+#include <limits>
 
 namespace hypha::live_compare
 {
 // Which continuous clock a side uses as the ring index. VST3 continuous time and AU render time
-// come from the host. AAX has no loop-free host clock (its native sample location folds at loop
-// ends), so an AAX side counts its own frames; that clock, like AU render time, advances only
-// while the host calls the instance, and the gap rule covers the calls it skips.
+// are NOT the same origin or a content/PDC proof. The current AAX adapter has no qualified
+// loop-free host clock (native location folds); it counts this instance's callbacks instead.
+// The non-shipping AddClock feasibility probe does not change that product policy.
 enum class ClockBasis : std::uint8_t
 {
-    hostContinuous,
+    vst3Continuous,
+    audioUnitRender,
     pluginFrames
 };
 
 constexpr ClockBasis clockBasisFor (AuxiliaryClockSource source) noexcept
 {
-    return source == AuxiliaryClockSource::vst3Continuous || source == AuxiliaryClockSource::audioUnitRender
-               ? ClockBasis::hostContinuous
-               : ClockBasis::pluginFrames;
+    return source == AuxiliaryClockSource::vst3Continuous ? ClockBasis::vst3Continuous
+         : source == AuxiliaryClockSource::audioUnitRender ? ClockBasis::audioUnitRender
+         : ClockBasis::pluginFrames;
 }
 
 struct ContinuousReading
 {
     std::int64_t samples = 0;
     bool valid = false;
+    ClockBasis basis = ClockBasis::pluginFrames;
 };
 
 // Audio Thread. One per side; never shared between PRE and POST.
@@ -38,20 +41,29 @@ public:
         ContinuousReading reading;
         if (frames <= 0)
             return reading;
-        if (clockBasisFor (auxiliary.source) == ClockBasis::hostContinuous)
+        reading.basis = clockBasisFor (auxiliary.source);
+        // Equal numbers must not carry K between unrelated clock origins. One invalid block
+        // fences Publisher/Consumer's existing run/proof; normal reacquisition is unchanged.
+        const bool changed = haveBasis && reading.basis != previousBasis;
+        previousBasis = reading.basis;
+        haveBasis = true;
+        if (reading.basis != ClockBasis::pluginFrames)
         {
             reading.samples = auxiliary.samples;
-            reading.valid = auxiliary.valid;
+            reading.valid = auxiliary.valid && ! changed;
             return reading;
         }
         reading.samples = pluginFrames;
-        reading.valid = true;
+        if (pluginFrames > std::numeric_limits<std::int64_t>::max() - frames) return reading;
+        reading.valid = ! changed;
         pluginFrames += frames;
         return reading;
     }
 
 private:
     std::int64_t pluginFrames = 0;
+    ClockBasis previousBasis = ClockBasis::pluginFrames;
+    bool haveBasis = false;
 };
 
 // Host-profile values for the callback gap. The initial values come from Studio Pro 8.1.2 and

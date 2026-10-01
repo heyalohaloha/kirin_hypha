@@ -8,11 +8,14 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
-    { "PRE timing must be confirmed before LOOP", u8"LOOP前にPREの時刻対応の確認が必要です" },
+    { "Ended; normal level returns with audio", u8"比較終了・音声処理の再開で通常音量へ" },
+    { "RETURNING +%1 dB", u8"復帰待ち +%1 dB" },
+    { "Waiting for comparison; POST plays", u8"比較の準備を待っています（POST出力）" },
+    { "Loop comparison is unavailable", u8"このLOOPでは比較を開始できません" },
+    { "The PRE loop occurrence is not verified", u8"PREのどの周回に対応するか確認できません" },
     { "Loop boundary timing is not confirmed", u8"ループ境界の時刻対応を確認できません" },
-    { "Turn LOOP off and play; then enable LOOP", u8"LOOPを切って再生し、PRE確認後にLOOPを戻してください" },
-    { "Turn LOOP off; END, then BLIND", u8"LOOPを切り、終了してBLINDを開始してください" },
-    { "LOOP off, play to confirm PRE; then LOOP on", u8"LOOPを切って再生→PRE確認後にLOOPを戻す" },
+    { "POST plays; END closes comparison", u8"POSTを出力中。「終了」で比較を閉じられます" },
+    { "Loop unverified; POST plays; END to close", u8"LOOP対応未確認・POST出力中（終了で閉じる）" },
     { "Loop timing pending; MATCH held; POST plays", u8"ループ時刻確認中・MATCH保持（POST出力）" },
     { "MATCH held; rematch to confirm levels", u8"MATCH値を保持中・再MATCHで音量を確認" },
     { "Stop/play DAW; END, then BLIND", u8"DAWを停止→再生し、終了後にBLINDへ" },

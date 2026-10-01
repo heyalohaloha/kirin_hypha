@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferencePendingAudition.h"
 
 #include <atomic>
 #include <functional>
@@ -36,12 +37,16 @@ namespace hypha::reference_audition
         bool requiresPreparation = false;
     };
 
+    enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
+
     struct Snapshot
     {
         RuntimeState state = RuntimeState::disconnected;
         juce::String title;
         juce::String sourceKind;
         juce::String rejectionCode;
+        MatchFailure matchFailure = MatchFailure::none;
+        juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;
         double sourceIntegratedLoudness = 0.0;
         double sourceMaximumTruePeakDbtp = 0.0;
@@ -90,6 +95,8 @@ namespace hypha::reference_audition
         juce::String selectedVersionId, migratedVersionChoice;
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
+        bool versionArmable = false, checkArmable = false;
+        PendingAuditionView pendingAudition;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
         std::shared_ptr<const VisualTimeline> visualTimeline;
         double visualPositionSeconds = -1.0;

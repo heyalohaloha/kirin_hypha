@@ -2,6 +2,14 @@
 
 **See what changed across a processing chain — while the measurement path stays transparent.**
 
+Developers / Codex / Claude: start with the [build-to-HP workflow](docs/hypha_release_entry.md).
+One entry, `node scripts/build_hypha.mjs --release --help`, explains signing, qualification and HP publication;
+[`--help`](docs/hypha_build_entry.md) explains unsigned native builds. Neither help command needs SDKs, credentials or iLok.
+Project instructions live in [AGENTS.md](AGENTS.md), shared with Claude through [CLAUDE.md](CLAUDE.md).
+For a quick unsigned GUI/DSP test build, run `node scripts/build_hypha.mjs --without-aax`
+(Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok).
+The default still builds all formats; this shortcut is not a full-format/release gate.
+
 Kirin Hypha is a free, open-source pass-through measurement plug-in for macOS and Windows. Place
 **PRE** before the processors you want to inspect and **POST** after them. POST then shows the measured
 difference between those two exact points. Normal measurement does not generate, modify, attenuate,
@@ -549,23 +557,52 @@ remain visible when media is unavailable. Hypha does not substitute its own Fact
 
 A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
 Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
-available at every size. Blind opens at 300% (900×600).
+available at every size. A fresh instance receives Kirin OS's default Preset; saved session choices
+remain independent. C always names its source, including when a Check has only one candidate.
+Preset and C's Cue remain reachable before audition and while the Version display is open.
+
+The **A / B / C** buttons change sound; **VIEW A/C / VIEW A/B** changes only the display. The initial
+A/C view uses the Preset's configured visuals at detailed sizes; compact sizes retain the existing
+summary presentation. Choosing or auditioning B does not replace the selected visual view.
+A/C uses cyan for A and gold for C; Spectrum compares live A with C's whole-track
+distribution, not a time-aligned pair. Missing evidence stays missing. Verified OS-prepared display
+evidence can be inspected before approving audio sample-rate conversion; that approval is still
+required before audition. A pending C does not block a ready B. Select the A/B view for Version
+Blind, which opens at 300% (900×600).
+
+While the DAW is stopped, a prepared B or C can be queued with its button. The waiting button and
+reason are distinct from the source currently playing; A cancels the queue. On playback, Hypha
+keeps A until the same source, position, conversion permission and required level are verified.
+Both immediate and queued selections require the configured MATCH; neither silently falls back
+to original volume. A changed source,
+unsafe playback, or failed safe switch leaves A with a reason. The intent is one-shot: it is not
+saved or restored with the Song, and stopping an audition does not queue it again. Visual navigation
+does not cancel it; changing source, Preset or Cue does, including an OS-side change to that Cue's
+loop policy. Label-only updates do not cancel it. Required conversion approval remains directly
+available for the queued source even while the other visual pane is displayed.
 For Version comparison, play the DAW input to establish the same song and position against B's
 verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
 playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
 passages wait for distinguishing content. Ordinary B preserves A at 0 dB; if full matching exceeds
-the allowed peak ceiling, B remains available at its original level and Blind requires explicit
+the allowed peak ceiling, ordinary B does not start, and Blind requires explicit
 approval before lowering A. The approved gain stays fixed through switches, seeks and pauses.
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
 Unlike the live PRE/POST compare, a stop, an unknown position or an unready B returns Reference to
 A and asks you to select B again.
+The processor reads the live A meter for each new manual or queued C selection. Frozen display
+values from a previous B/C comparison never feed the next MATCH. Missing measurements or an
+unsafe gain leave A with a reason; an OS Preset explicitly set to original mode still plays C
+at its original level without claiming a match.
 
-Until B or C can be heard, the page says why instead of showing empty comparisons: the next step
+Until B or C can be heard, the page says why instead of showing empty comparisons (already prepared
+Preset visuals stay visible): the next step
 (open Kirin OS, play the song in the DAW, choose a Version for B, enable a Check in Kirin OS) and
 where A, B and C each stand. A B or C that cannot be heard yet is drawn dimmed but stays
-clickable: a click or hover gives its reason instead of doing nothing.
+clickable: a click opens that source's display and recovery controls without changing audio;
+hover gives its reason. Conversion approval is scoped to that displayed source and cannot grant
+playback authority: a separate audition click (including an explicitly queued B/C) is required.
 
 The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
 Only observed A regions are drawn; older passes are dimmed. Select a region for the shared
@@ -860,6 +897,31 @@ v1.1.49 release uses an Authenticode-signed installer containing both PRE and PO
 **Not currently supported:** Linux · CLAP
 
 ## Building from source
+
+For all supported formats in one local build, use
+[`node scripts/build_hypha.mjs`](docs/hypha_build_entry.md): macOS produces PRE/POST × AAX/AU/VST3
+as Intel + Apple Silicon Universal bundles; Windows produces PRE/POST × AAX/VST3 for x64.
+An external licensed AAX SDK is required. The same command runs natively on each OS:
+
+```bash
+node scripts/build_hypha.mjs --sdk /absolute/external/aax-sdk-root --license-confirmed
+```
+
+This is an unsigned diagnostic build, with no iLok, CI, installation or publication step.
+Use `--dry-run` to inspect the plan and `--verify-only` to recheck saved binaries without rebuilding.
+Signing and release qualification retain their independent mandatory gates.
+
+For the complete workflow **through HP upload**, use the same entry's
+[`--release` mode](docs/hypha_release_entry.md). It coordinates the approved signing/notarization
+producers, same-commit Windows installer, A3/A4/A5, LS verification, immutable GitHub Release,
+EN/JA homepage links, standard staged production deployment and public download hash checks.
+Human host/LS checkpoints and explicit candidate publication authorization remain mandatory.
+
+```bash
+node scripts/build_hypha.mjs --release --help
+```
+
+The AAX-free route:
 
 ```bash
 git clone https://github.com/heyalohaloha/kirin_hypha.git

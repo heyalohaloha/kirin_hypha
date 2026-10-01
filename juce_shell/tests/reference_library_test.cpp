@@ -6,6 +6,7 @@
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
+#include "ReferenceVisualSourceEvidenceTest.h"
 
 namespace
 {
@@ -48,8 +49,18 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     candidate->setProperty ("source_artifact", juce::var());
     candidate->setProperty ("preparation_status", "pending");
     auto manifest = libraryManifest (root, preset, 1);
+    auto otherPreset = preset.clone();
+    otherPreset["source_template_artifact"].getDynamicObject()->setProperty (
+        "preset_id", "abababab-abab-4bab-8bab-abababababab");
+    otherPreset["source_template_artifact"].getDynamicObject()->setProperty (
+        "relative_path", "reference/presets/abababab-abab-4bab-8bab-abababababab/"
+                         + runtimeTemplateRevisionId + ".v1.json");
+    otherPreset.getDynamicObject()->setProperty ("name", "Not the OS default");
+    const auto otherManifest = libraryManifest (root, otherPreset, 1);
+    manifest["presets"].getArray()->insert (0, otherManifest["presets"][0]);
     const auto file = root.getChildFile ("library/manifest.json");
-    require (writeJson (file, manifest), "library manifest publication");
+    require (writeJson (file, manifest)
+        && writeJson (root.getChildFile ("library/manifests/1.json"), manifest), "library manifest publication");
     const auto now = juce::Time::currentTimeMillis();
     auto* presenceObject = new juce::DynamicObject();
     presenceObject->setProperty ("format", "kirin_hypha_reference_library_presence");
@@ -68,6 +79,8 @@ void testReferenceLibraryContract (const juce::File& sandbox)
         controller.configure (identity, 48000, 2);
         require (waitFor (controller, [] (const auto& s) { return s.libraryReceived && s.osOnline && s.candidates.size() == 1; }),
                  "Work-less startup must receive selectors even when every candidate is unprepared");
+        require (controller.snapshot().presetId == "88888888-8888-4888-8888-888888888888",
+                 "startup follows the OS default, not the first listed Preset");
         require (controller.requestRecovery(), "Balance Check can explicitly open in Kirin OS");
         const auto requests = root.getChildFile ("library/open").findChildFiles (
             juce::File::findFiles, false, "*.json");
@@ -194,16 +207,30 @@ void testReferenceComparisons (const juce::File& sandbox)
     };
     wait ([] (const auto& state) { return state.libraryReceived && state.checkReady; });
     const auto initial = controller.snapshot();
+    require (initial.checkSelection->presetId == presetId && initial.comparisonSlot == 2,
+             "first receipt uses the OS default Preset and A/C visuals without choosing sound");
+    require (initial.checkSelection->checkTargets.back().label.contains (
+        cCheck["candidates"].getArray()->getReference (0)["display_name"].toString()),
+        "even one C candidate exposes its source name beside the Check");
     require (initial.versions.size() == 1 && ! initial.versionReady && ! initial.bSelected,
              "only registered Versions appear in B; initial receipt stays A");
     const auto bId = initial.versions[0].id;
+    verifyReferenceVisualSourceEvidence (root, bId, bFile, bHash, waitFor);
     require (controller.selectVersion (bId), "choose B independently");
     wait ([] (const auto& state) { return state.versionReady; });
+    require (controller.snapshot().comparisonSlot == 2 && !controller.snapshot().bSelected,
+             "choosing B keeps the default Preset visuals and never auditions");
+    require (controller.selectVisualSlot (1), "inspect A/B independently of audio");
     testReferenceVisualIntegration (controller, fixture.audio);
     const auto cId = initial.checkSelection->checkTargets.back().id;
     require (controller.selectCheck (cId), "choose C independently");
     wait ([] (const auto& state) { return state.checkReady && state.checkSelection->checkLabel == "Dynamics"; });
     require (controller.snapshot().selectedVersionId == bId, "changing C retains B Version");
+    const auto bCue = controller.snapshot().versionSelection->cueId;
+    require (controller.selectVisualSlot (1) && controller.selectCue (controller.snapshot().checkSelection->cueId)
+        && controller.savedSettings().version.cueId == bCue,
+        "C Cue remains owned by C even while A/B is displayed");
+    require (controller.selectVisualSlot (2), "return to configured A/C visuals");
     juce::AudioBuffer<float> buffer (2, 128);
     const auto block = [&]
     {
@@ -226,6 +253,19 @@ void testReferenceComparisons (const juce::File& sandbox)
              "first B sample begins a 5 ms fade from live A");
     block(); block();
     require (std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f, "B output is the sample-aligned Version");
+    require (controller.snapshot().comparisonSlot == 2 && controller.snapshot().bSelected
+        && controller.snapshot().audibleComparisonSlot == 1,
+        "B is correctly reported audible while the configured A/C visuals remain selected");
+    const auto frozenGain = controller.snapshot().versionSelection->appliedGainDb;
+    require (controller.selectVisualSlot (1) && block() && controller.selectVisualSlot (2) && block(),
+        "both visual destinations remain accessible during B output");
+    const auto displayedGain = controller.snapshot().versionSelection->appliedGainDb;
+    require (controller.snapshot().audibleComparisonSlot == 1
+        && std::memcmp (&displayedGain, &frozenGain, sizeof (double)) == 0
+        && std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f,
+        "display navigation does not switch sound, gain, output owner or source samples");
+    require (!controller.selectVisualSlot (0) && !controller.selectVisualSlot (3),
+        "invalid display targets cannot alter a comparison");
     auto observed = fixture.source.clone();
     addRuntimeV2MeasurementSummary (observed, -18, -6);
     const auto observedReceipt = stageWholeSongArtifact (root, "sources", observed);
@@ -244,6 +284,9 @@ void testReferenceComparisons (const juce::File& sandbox)
     require (controller.selectC (-14, -2) && block(), "one C click auditions Check");
     block(); block();
     require (std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f, "C output is the Check source, not B or A");
+    require (controller.selectVisualSlot (1) && block()
+        && controller.snapshot().audibleComparisonSlot == 2 && controller.snapshot().bSelected,
+        "C output remains selected while inspecting A/B");
     require (controller.selectB (-14, -2) && block(), "B choice survives C audition");
     block(); block();
     require (maximumOwners == 1 && owners == 1, "three buttons never require three analysis slots");

@@ -64,6 +64,7 @@ run node --test scripts/check_aax_sdk_absence.test.mjs
 run node scripts/check_aax_sdk_absence.mjs
 run node --test scripts/ls_release/aax_distribution.test.mjs
 run node --test scripts/ls_release/aax_submission_archive.test.mjs
+run node --test scripts/ls_release/aax_notarization_flow.test.mjs
 run node scripts/test_build_aax_universal.mjs
 run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
@@ -73,6 +74,7 @@ run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run node --test scripts/ls_release/release_metadata.test.mjs
 run node --test scripts/windows/windows_installer.test.mjs
+run node --test scripts/windows/inno_signing.test.mjs
 
 # Pure C++ contract used by the common AU/VST3 editor. This deliberately runs before any JUCE
 # bundle build and blocks mismatched dimensions, bounds, ABI contracts, fonts, colours, or shared
@@ -106,6 +108,9 @@ PRE_DISPLAY_CMAKE_ARGS=(
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
+  # Evidence for clock-proof loss on the ARM64 runner. Test executable only: shipping
+  # processor flags, the 60-second deadline, PCM oracle and safety criteria stay unchanged.
+  PRE_DISPLAY_CMAKE_ARGS+=("-DKIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC=ON")
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 JUCE_TEST_TARGETS=(
@@ -128,6 +133,8 @@ JUCE_TEST_TARGETS=(
   KirinLocalBlindProductTests
   KirinEditorSurfaceProductTests
   KirinLiveCompareCorrespondenceTests
+  KirinLiveCompareTimingTests
+  KirinLiveTimingProductTests
   KirinLiveCompareLoopTests
   KirinLiveCompareLoopFeasibilityTests
   Kirin_live_blind_session_Tests
@@ -142,10 +149,10 @@ JUCE_TEST_TARGETS=(
   KirinLiveCompareOffsetProductTests
   KirinLiveCompareAaxGroupProductTests
 )
-JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_local_blind_product_aax|kirin_local_blind_product_aax_track|kirin_editor_surface_product|kirin_pair_preview_lifetime|kirin_reference_capture_memory|kirin_live_compare_correspondence|kirin_live_compare_session|kirin_live_compare_match|kirin_live_compare_pin_product|kirin_live_compare_offset_product|kirin_live_compare_aax_group_product|kirin_live_compare_loop|kirin_live_compare_loop_feasibility|kirin_live_blind_session|kirin_live_compare_completion|kirin_live_compare_authority|kirin_live_recovery_product|kirin_live_blind_product|kirin_live_blind_reuse_product|kirin_live_blind_loop_product|kirin_live_blind_fault_product|kirin_live_blind_fault_gap_product|kirin_live_blind_fault_content_product|kirin_live_blind_fault_stop_product|kirin_live_blind_approval_product|kirin_live_lifecycle_restore-active|kirin_live_lifecycle_restore-invalid|kirin_live_lifecycle_restore-preparing|kirin_live_lifecycle_restore-approval|kirin_live_lifecycle_held|kirin_live_lifecycle_finishing|kirin_live_lifecycle_out-of-range|kirin_live_lifecycle_reuse-held|kirin_live_lifecycle_restore-matched-listen)$'
+JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_local_blind_product_aax|kirin_local_blind_product_aax_track|kirin_editor_surface_product|kirin_pair_preview_lifetime|kirin_reference_capture_memory|kirin_live_compare_correspondence|kirin_live_compare_timing|kirin_live_timing_product|kirin_live_compare_session|kirin_live_compare_match|kirin_live_compare_pin_product|kirin_live_compare_offset_product|kirin_live_compare_aax_group_product|kirin_live_compare_loop|kirin_live_compare_loop_feasibility|kirin_live_blind_session|kirin_live_compare_completion|kirin_live_compare_authority|kirin_live_recovery_product|kirin_live_blind_product|kirin_live_blind_reuse_product|kirin_live_blind_loop_product|kirin_live_blind_fault_product|kirin_live_blind_fault_gap_product|kirin_live_blind_fault_content_product|kirin_live_blind_fault_stop_product|kirin_live_blind_approval_product|kirin_live_lifecycle_restore-active|kirin_live_lifecycle_restore-invalid|kirin_live_lifecycle_restore-preparing|kirin_live_lifecycle_restore-approval|kirin_live_lifecycle_held|kirin_live_lifecycle_finishing|kirin_live_lifecycle_out-of-range|kirin_live_lifecycle_reuse-held|kirin_live_lifecycle_restore-matched-listen)$'
 # Include every live comparison contract, including LOOP and invalidation/recovery, not only
 # the original named-listen fixtures. Inventory is asserted rather than silently skipping one.
-JUCE_TEST_COUNT=53
+JUCE_TEST_COUNT=55
 run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
 assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "$JUCE_TEST_COUNT"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \

@@ -1,6 +1,8 @@
 #include "HyphaReferenceVisuals.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceLegend.h"
+#include "HyphaReferenceVisualLayout.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -38,11 +40,9 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
                           typography::Composition::visualization));
     text_style::drawEllipsized (g, heading, headingArea,
                                 juce::Justification::centredLeft);
-    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
     g.setFont (labelFont (presentation, typography::TextRole::legend,
                           typography::Composition::visualization));
-    text_style::drawEllipsized (g, detail, headerText,
-                                juce::Justification::centredRight);
+    paintReferenceLegend (g, detail, headerText);
     auto chart = area.reduced (10.0f, 8.0f);
     g.setColour (COL_MUTED.withAlpha (0.10f));
     for (int line = 1; line < 4; ++line)
@@ -132,7 +132,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
-                           state.separateComparisons && state.comparisonSlot == 2 ? "A / C" : "A / B", presentation);
+                           state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C TRACK" : "A / B", presentation);
     bool drew = false;
     for (const auto& profile : state.profiles)
     {
@@ -183,7 +183,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
             if (! started) { live.startNewSubPath (point); started = true; }
             else live.lineTo (point);
         }
-        g.setColour (COL_SPECTRUM_POST.withAlpha (0.92f));
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
         g.strokePath (live, juce::PathStrokeType (1.25f));
         drew = true;
     }
@@ -259,7 +259,7 @@ bool drawTonalBalance (juce::Graphics& g, juce::Rectangle<float> bounds,
     }
     if (aReady)
     {
-        g.setColour (COL_SPECTRUM_POST.withAlpha (0.94f));
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.94f));
         g.strokePath (tonalPath (centers, timeline->tonal.values_db,
                                  timeline->tonal.valid_bits, area),
                       juce::PathStrokeType (1.55f));
@@ -422,54 +422,9 @@ bool paintConfiguredReferenceViews (juce::Graphics& g, juce::Rectangle<float> ar
     if (state.viewBindings.empty() || area.getWidth() < 120.0f || area.getHeight() < 70.0f)
         return false;
     const auto count = std::min<size_t> (3, state.viewBindings.size());
-    constexpr float gap = 6.0f;
-    if (count == 1)
-        paintOne (g, area, state, state.viewBindings[0], presentation);
-    else if (area.getWidth() < 620.0f)
-    {
-        const auto height = (area.getHeight() - gap * static_cast<float> (count - 1))
-                          / static_cast<float> (count);
-        for (size_t index = 0; index < count; ++index)
-        {
-            paintOne (g, area.removeFromTop (height), state, state.viewBindings[index],
-                      presentation);
-            area.removeFromTop (gap);
-        }
-    }
-    else if (count == 2 && state.presentationLayout == "main")
-    {
-        auto primary = area.removeFromLeft (area.getWidth() * 0.62f);
-        area.removeFromLeft (gap);
-        paintOne (g, primary, state, state.viewBindings[0], presentation);
-        paintOne (g, area, state, state.viewBindings[1], presentation);
-    }
-    else if (count == 2)
-    {
-        const auto width = (area.getWidth() - gap) * 0.5f;
-        paintOne (g, area.removeFromLeft (width), state, state.viewBindings[0], presentation);
-        area.removeFromLeft (gap);
-        paintOne (g, area, state, state.viewBindings[1], presentation);
-    }
-    else if (state.presentationLayout == "equal")
-    {
-        const auto width = (area.getWidth() - gap * 2.0f) / 3.0f;
-        for (size_t index = 0; index < count; ++index)
-        {
-            paintOne (g, area.removeFromLeft (width), state, state.viewBindings[index],
-                      presentation);
-            area.removeFromLeft (gap);
-        }
-    }
-    else
-    {
-        auto primary = area.removeFromLeft (area.getWidth() * 0.62f);
-        area.removeFromLeft (gap);
-        paintOne (g, primary, state, state.viewBindings[0], presentation);
-        const auto height = (area.getHeight() - gap) * 0.5f;
-        paintOne (g, area.removeFromTop (height), state, state.viewBindings[1], presentation);
-        area.removeFromTop (gap);
-        paintOne (g, area, state, state.viewBindings[2], presentation);
-    }
+    const auto cells = referenceVisualCells (area, static_cast<int> (count), state.presentationLayout);
+    for (size_t index = 0; index < count; ++index)
+        paintOne (g, cells[index], state, state.viewBindings[index], presentation);
     return true;
 }
 }

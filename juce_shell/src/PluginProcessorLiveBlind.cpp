@@ -9,6 +9,8 @@ using namespace hypha::live_compare;
 void KirinHyphaProcessorBase::finishLiveCompare()
 {
     if (role != Role::Post) return;
+    // End logical ownership now. The published mapping remains leased for the RT fade/ramp.
+    liveCompare.sessionActive.store (false, std::memory_order_release);
     ++liveCompare.blindPreparation;
     liveCompare.blind.end();
     liveCompare.blindStage = BlindStage::finishing;
@@ -22,8 +24,9 @@ void KirinHyphaProcessorBase::finishLiveCompare()
 bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
 {
     return liveCompare.sessionActive.load (std::memory_order_acquire)
+        || (role == Role::Post && writesEnabled.load (std::memory_order_acquire) && liveCompareSupported())
         || liveCompare.authority.restoring() || liveCompare.authority.generation() != liveCompare.restoreServiced
-        || liveCompare.completion.pending() || liveCompare.blindScope != 0;
+        || liveCompare.completion.command() != liveCompare.finishServiced || liveCompare.blindScope != 0;
 }
 
 StartResult KirinHyphaProcessorBase::beginLiveBlind()

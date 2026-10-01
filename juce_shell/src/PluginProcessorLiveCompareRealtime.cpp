@@ -37,8 +37,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     {
         liveCompare.ring.withRealtime ([&] (SharedRingMapping& mapping)
         {
-            if (auto* ring = mapping.ring(); ring != nullptr && usable)
-                liveCompare.feeder.feed (*ring, block, buffer.getArrayOfReadPointers(), channels);
+            if (auto* ring = mapping.ring(); ring != nullptr)
+            {
+                auto observed = block;
+                if (! usable) observed.clockValid = false;
+                liveCompare.feeder.feed (*ring, observed, usable ? buffer.getArrayOfReadPointers() : nullptr, channels);
+            }
         });
         return;
     }
@@ -58,6 +62,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         block.afterGap = true;
         liveCompare.compensationWasOff = compensationOff;
     }
+    const auto timing = liveCompare.preparation.observe (block,
+        static_cast<std::uint32_t> (preparedFormat.sampleRate), liveCompare.authority.ticket(),
+        usable && ! outputTaken && ! compensationOff && ! contentHeld && ! liveCompare.authority.restoring());
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
     const bool permitted = liveCompare.authority.permitted();
@@ -129,6 +136,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             return;
         }
         rendered = true;
+        if (permitted && liveCompare.preparation.initialRequested.load (std::memory_order_acquire)
+            && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
+            liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
         const auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
                                                          buffer.getArrayOfWritePointers(), channels,
                                                          preSelected && ! contentHeld && ! compensationOff,

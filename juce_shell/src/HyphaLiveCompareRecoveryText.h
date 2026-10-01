@@ -16,7 +16,7 @@ inline const char* cause (Reason reason) noexcept
         case Reason::projectClockMissing: return "DAW position unavailable";
         case Reason::clockMissing: return "Audio clock unavailable";
         case Reason::calibrating: return "PRE timing is not confirmed";
-        case Reason::loopUnproven: return "PRE timing must be confirmed before LOOP";
+        case Reason::loopUnproven: return "The PRE loop occurrence is not verified";
         case Reason::loopWaiting: return "Loop boundary timing is not confirmed";
         case Reason::writing: return "PRE data is being written";
         case Reason::beforeRun: return "PRE continuity changed";
@@ -62,8 +62,7 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
         return { reason, RecoveryAction::compensation, stopped ? "Enable compensation; END, then BLIND"
                                                               : "Enable DAW delay compensation" };
     if (state.observation == Reason::loopUnproven)
-        return { reason, RecoveryAction::stopPlay, stopped ? "Turn LOOP off; END, then BLIND"
-                                                           : "Turn LOOP off and play; then enable LOOP" };
+        return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
     if (! stopped)
     {
         if (reason == Reason::notWritten) return { reason, RecoveryAction::checkPre, "Play the DAW and check PRE is enabled" };
@@ -84,12 +83,12 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
 {
     const auto result = [&] (RecoveryAction action, const char* text)
     { return RecoveryPresentation { state.reason, action, text }; };
-    if (state.finishing) return {};
+    if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
     if (state.active && state.observation == Reason::loopUnproven)
-        return result (RecoveryAction::stopPlay, "LOOP off, play to confirm PRE; then LOOP on");
+        return result (RecoveryAction::none, "Loop unverified; POST plays; END to close");
     if (state.active && state.observation == Reason::loopWaiting)
         return result (RecoveryAction::automatic, state.matched || state.matchHeld
             ? "Loop timing pending; MATCH held; POST plays" : "Checking PRE: auto-resume; POST plays");

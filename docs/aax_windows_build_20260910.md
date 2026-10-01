@@ -25,6 +25,12 @@ PACE and Authenticode verification through the combined signing path described b
 
 ## Reproducible build
 
+For a shared x64 build of PRE/POST × AAX/VST3, use the [unified build entry](hypha_build_entry.md):
+`node scripts/build_hypha.mjs --sdk PATH --license-confirmed` on Windows.
+It builds the MSVC x64 Rust FFI once and all four wrapper targets in one native graph, under
+`target/hypha-build/windows-x64/`. This unsigned diagnostic build does not need iLok or signing
+secrets; it is not a Universal/ARM64 claim or an approved input to the signing factory below.
+
 Run from a Visual Studio x64 developer shell with the SDK outside the GPL repository:
 
 ```powershell

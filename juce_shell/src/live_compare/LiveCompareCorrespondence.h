@@ -7,14 +7,6 @@
 
 namespace hypha::live_compare
 {
-// Host-profile values. They were first measured in Studio Pro 8.1.2 and Pro Tools 2026.4 and are
-// qualified per host and buffer setting, never hard-coded as invariants.
-struct CalibrationProfile
-{
-    std::int32_t streak = 8;               // equal join candidates needed before K is trusted
-    bool invalidateOnDisagreement = true;  // M1: one disagreeing candidate invalidates K
-};
-
 enum class Verdict : std::uint8_t
 {
     accepted,
@@ -64,17 +56,42 @@ public:
             decision.verdict = Verdict::foreignRing;
             return decision;
         }
+        // An entry may wait for PRE's first demanded PCM, even if POST is scheduled first.
+        // Previous sessions' samples cannot make a new clock-only preparation audible.
+        if (initialAdmission && block.playing && block.clockValid && block.projectValid && ! initialPcmReady (ring))
+        {
+            decision.verdict = Verdict::notWritten;
+            return fill (decision);
+        }
+        if (preparedGeneration != 0)
+        {
+            // After admission the ordinary PCM seqlock is authoritative. Clock-only writer
+            // overlap is not a new reason to interrupt an otherwise proven block. Only an
+            // actual PRE generation/lifetime change fences this prepared origin.
+            if (! preparedTimingCurrent (ring.header))
+            {
+                invalidate(); initialAdmission = false;
+                preparedGeneration = 0;
+                decision.timelineChanged = true;
+                decision.verdict = ! block.playing ? Verdict::stopped
+                    : ! block.clockValid ? Verdict::noClock : Verdict::calibrating;
+                return fill (decision);
+            }
+        }
         const auto run = ring.header.run.load (std::memory_order_acquire);
         const auto runStart = ring.header.runStart.load (std::memory_order_acquire);
         const auto writeEnd = ring.header.writeEnd.load (std::memory_order_acquire);
         const auto age = kValid ? writeEnd - (block.clock - k) : 0;
-        const auto timelineStep = timeline.observe (block, sampleRate,
+        auto verifiedBlock = block;
+        const bool loopVerified = kValid && block.loop.active
+            && loopJoin (ring.header, block, block.clock - k, sampleRate, verifiedBlock);
+        const auto timelineStep = timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,
             age > 0 && age < ringCapacityFrames ? age : 0);
         decision.run = run;
         decision.timelineChanged = timelineStep.broken || (haveRun && run != previousRun);
         previousRun = run; haveRun = true;
         if (decision.timelineChanged)
-            invalidate();
+        { invalidate(); initialAdmission = false; }
         if (! block.clockValid || block.frames <= 0)
         {
             havePrevious = false;
@@ -114,7 +131,7 @@ public:
             return fill (decision);
         }
         decision.preStart = block.clock - k;
-        if (block.loop.active && ! loopJoin (ring.header, block, decision.preStart, sampleRate))
+        if (block.loop.active && ! loopVerified)
         {
             // No PRE copy or fade from an unproven boundary. A finite clamped interval may
             // recover on the same K; a broken timeline/run already invalidated it above.
@@ -122,9 +139,15 @@ public:
             return fill (decision);
         }
         decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels);
-        if (ring.header.run.load (std::memory_order_acquire) != run)
+        // PCM seq protects the samples/run, not the separate clock-only generation. A PRE
+        // stop/seek/close during this copy must not leave a completed proof audible.
+        if (ring.header.run.load (std::memory_order_acquire) != run
+            || ring.header.ownerClosed.load (std::memory_order_acquire) != 0
+            || ! preparedTimingCurrent (ring.header))
         {
             invalidate();
+            initialAdmission = false;
+            preparedGeneration = 0;
             decision.timelineChanged = true;
             decision.verdict = Verdict::torn;
         }
@@ -136,14 +159,65 @@ public:
         invalidate();
         havePrevious = false;
         haveRun = false;
+        initialAdmission = true;
+        preparedGeneration = 0;
         timeline.reset();
     }
 
     bool calibrated() const noexcept { return kValid; }
     std::int64_t offset() const noexcept { return k; }
 
+    // Audio Thread, only while a new explicit session is still unproven. An unavailable first
+    // snapshot may wait, but a completed or broken proof never reopens this admission. It must prove a
+    // linear origin in this PRE generation and corroborated THIS POST callback. PCM availability
+    // and the separate output permission are still checked normally; this cannot resume a trial.
+    bool adoptInitialTiming (const Ring& ring, const BlockClock& block,
+                             const TimingEvidence& evidence) noexcept
+    {
+        if (kValid) return true;
+        if (! initialAdmission || ! evidence.valid || evidence.postClock != block.clock
+            || ! initialPcmReady (ring)) return false;
+        TimingSnapshot current;
+        if (! readTiming (ring.header.timing, current) || ! current.active || ! current.anchor.linearKnown
+            || current.generation != evidence.preGeneration
+            || current.ownerA != evidence.ownerA || current.ownerB != evidence.ownerB
+            || ring.header.ownerClosed.load (std::memory_order_acquire) != 0) return false;
+        k = evidence.k;
+        kValid = true;
+        initialAdmission = false;
+        preparedGeneration = evidence.preGeneration;
+        preparedOwnerA = evidence.ownerA;
+        preparedOwnerB = evidence.ownerB;
+        return true;
+    }
+
 private:
     static constexpr std::int64_t noCandidate = std::numeric_limits<std::int64_t>::min();
+
+    bool preparedTimingCurrent (const RingHeader& h) const noexcept
+    {
+        if (preparedGeneration == 0) return true;
+        const auto& timing = h.timing;
+        return timing.generation.load (std::memory_order_acquire) == preparedGeneration
+            && timing.ownerA.load (std::memory_order_acquire) == preparedOwnerA
+            && timing.ownerB.load (std::memory_order_acquire) == preparedOwnerB;
+    }
+
+    static bool initialPcmReady (const Ring& ring) noexcept
+    {
+        const auto& h = ring.header;
+        if (h.run.load (std::memory_order_acquire) == 0) return false;
+        if (h.timing.sequence.load (std::memory_order_acquire) == 0) return true; // raw PCM fixtures
+        TimingSnapshot current;
+        if (! readTiming (h.timing, current) || ! current.active) return false;
+        const auto seq = h.seq.load (std::memory_order_acquire);
+        if ((seq & 1u) != 0) return false;
+        const bool fresh = h.published.load (std::memory_order_relaxed) != 0
+            && h.timingGeneration.load (std::memory_order_relaxed) == current.generation
+            && h.writeEnd.load (std::memory_order_relaxed) == current.block.clock + current.block.frames;
+        std::atomic_thread_fence (std::memory_order_acquire);
+        return fresh && h.seq.load (std::memory_order_relaxed) == seq;
+    }
 
     Decision fill (Decision decision) const noexcept
     {
@@ -161,12 +235,14 @@ private:
 
     void feed (std::int64_t candidate) noexcept
     {
-        streak = candidate == last ? streak + 1 : 1;
+        if (candidate != last) streak = 1;
+        else if (streak < profile.streak) ++streak;
         last = candidate;
         if (streak >= profile.streak)
         {
             k = candidate;
             kValid = true;
+            initialAdmission = false;
         }
     }
 
@@ -192,7 +268,7 @@ private:
     // corroborate the address, never choose it. Publisher advances the run on any unexplained
     // position change, missing data, tempo/range edit, clock reset or callback gap.
     static bool loopJoin (const RingHeader& h, const BlockClock& block, std::int64_t start,
-                          double rate) noexcept
+                          double rate, BlockClock& verified) noexcept
     {
         if (! block.loop.usable (rate)) return false;
         const auto seq = h.seq.load (std::memory_order_acquire);
@@ -206,10 +282,9 @@ private:
             h.loopPpq.load (std::memory_order_relaxed), h.loopStart.load (std::memory_order_relaxed),
             h.loopEnd.load (std::memory_order_relaxed), h.loopBpm.load (std::memory_order_relaxed) };
         std::atomic_thread_fence (std::memory_order_acquire);
-        if (h.seq.load (std::memory_order_relaxed) != seq || ! context.sameRange (block.loop)) return false;
-        if (start < anchorClock)
-            return (flags & 1u) != 0 && start >= runStart && block.project == runProject + start - runStart;
-        return loopPositionMatches (context, project, start - anchorClock, block.loop, block.project, rate);
+        if (h.seq.load (std::memory_order_relaxed) != seq) return false;
+        return corroborateLoop ({ (flags & 1u) != 0, (flags & 2u) != 0,
+            runStart, runProject, anchorClock, project, context }, block, start, rate, verified);
     }
 
     static Verdict read (const Ring& ring, std::int64_t start, std::int32_t frames,
@@ -252,6 +327,9 @@ private:
     std::int32_t previousFrames = 0;
     LoopTimeline timeline;
     bool haveRun = false;
+    bool initialAdmission = true;
+    std::uint64_t preparedGeneration = 0;
+    std::uint64_t preparedOwnerA = 0, preparedOwnerB = 0;
     std::uint64_t previousRun = 0;
 };
 }
