@@ -168,9 +168,10 @@ public:
     std::int64_t offset() const noexcept { return k; }
 
     // Audio Thread, only while a new explicit session is still unproven. An unavailable first
-    // snapshot may wait, but a completed or broken proof never reopens this admission. It must prove a
-    // linear origin in this PRE generation and corroborated THIS POST callback. PCM availability
-    // and the separate output permission are still checked normally; this cannot resume a trial.
+    // snapshot may wait, but a completed or broken proof never reopens this admission. The evidence
+    // must still reproduce from the current generation: either a linear origin, a certified content
+    // clock, a positive presentation latency, or a bounded AAX engine clock. PCM availability and
+    // the separate output permission are still checked normally; this cannot resume a trial.
     bool adoptInitialTiming (const Ring& ring, const BlockClock& block,
                              const TimingEvidence& evidence) noexcept
     {
@@ -178,10 +179,21 @@ public:
         if (! initialAdmission || ! evidence.valid || evidence.postClock != block.clock
             || ! initialPcmReady (ring)) return false;
         TimingSnapshot current;
-        if (! readTiming (ring.header.timing, current) || ! current.active || ! current.anchor.linearKnown
+        if (! readTiming (ring.header.timing, current) || ! current.active
             || current.generation != evidence.preGeneration
             || current.ownerA != evidence.ownerA || current.ownerB != evidence.ownerB
             || ring.header.ownerClosed.load (std::memory_order_acquire) != 0) return false;
+        if (evidence.kind == LoopEntryKind::linear)
+        {
+            if (! current.anchor.linearKnown) return false;
+        }
+        else
+        {
+            const auto entry = initialLoopCandidate (current.anchor, current.block, block,
+                evidence.loopSamples, ring.header.sampleRate.load (std::memory_order_relaxed),
+                ringCapacityFrames);
+            if (! entry.valid || entry.kind != evidence.kind || entry.k != evidence.k) return false;
+        }
         k = evidence.k;
         kValid = true;
         initialAdmission = false;
@@ -284,7 +296,7 @@ private:
         std::atomic_thread_fence (std::memory_order_acquire);
         if (h.seq.load (std::memory_order_relaxed) != seq) return false;
         return corroborateLoop ({ (flags & 1u) != 0, (flags & 2u) != 0,
-            runStart, runProject, anchorClock, project, context }, block, start, rate, verified);
+            runStart, runProject, anchorClock, project, 0, context }, block, start, rate, verified);
     }
 
     static Verdict read (const Ring& ring, std::int64_t start, std::int32_t frames,

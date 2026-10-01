@@ -2,7 +2,7 @@ diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/mo
 --- a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
 +++ b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
 @@ -408,0 +409,6 @@
-+        // Raw auxiliary clock only: 1 VST3 continuous, 2 AU render, 3 AAX native.
++        // Raw auxiliary clock only: 1 VST3 continuous, 2 AU render, 3 AAX DAE AddClock.
 +        // Neither availability nor matching numbers certify PDC or a shared occurrence.
 +        int getKirinAuxiliaryClockSource() const { return kirinAuxiliaryClockSource; }
 +        void setKirinAuxiliaryClockSource (int value) { kirinAuxiliaryClockSource = value; }

@@ -905,3 +905,33 @@ VST3の[公式ProcessContext仕様](https://steinbergmedia.github.io/vst3_doc/vs
 初回からloopする場合の一意性、seek・PDC変更との区別は独立した未解決条件として残す。
 追加情報が必要なhost profileは既存の時計probeで実測する。全製品作業を実機配置待ちにするとの結論にはしない。
 実DAWへの配置は別途指示を得てから。Windows／AAXを勝手に対象外へ変更せず、実証前に対応完了としない。
+
+## 2026-10-02: 初回LOOPの製品候補
+
+前節までの反例を残したまま、反復project位置とは別の証明を追加した。万能なhost推定ではなく、
+証明を供給できるformat／hostだけをexact profileで認定する。証明が無い場合は従来どおりPOSTを出し、
+「LOOPを切る」「再MATCHする」とは案内しない。
+
+- Studio Pro 8.1.2 VST3は、周回ごとに異なる診断PCMを用いた隣接／4096-sample delayの実測で
+  continuous clockがcontent位置を示したexact versionだけK=0を認定する。別versionへ一般化しない。
+- AUはApple公式SDKのpresentation latency定義を使う。両側が有効でPRE側のoutput latencyが正に大きく、
+  native sample折返しから測ったLOOP長の中で候補が一意な場合だけ認める。0は「無遅延または不明」なので、
+  両側0や欠損からK=0を作らない。
+- Pro Tools 2026.4 AAXはpatch 0011のDAE AddClockと、SDKに記載されたsample rate別の最大delay-compensation値を
+  組み合わせる。実測LOOP長が上限より長く、modulo候補が上限内に一つだけある場合に限る。
+  48 kHzでは16,383 samples以下のLOOPを短すぎるとして拒否する。AddClock単独では認定しない。
+
+PREはproof種別、clock出所、presentation latency／delay bound、native sampleで測ったLOOP長を固定サイズmetadataへ公開する。
+POSTは両側のLOOP長とproofを照合し、既存の8回連続確認後に、利用者の最初のBLIND／LISTEN操作へ同じcallbackの証明を渡す。
+proof変更、LOOP長不一致、停止、seek、pair／format／領域lifetime変更は世代を切り、成立済みの試行を初回入口から復活させない。
+共有ringはversion 6へ上げ、旧版と混在させない。
+
+Audio Threadへの追加はblock単位の整数比較・固定サイズatomicだけである。PCM ring容量、PCMコピー回数、worker、timer、
+lock、allocation、I/O、相関処理を増やしていない。wall-clock callback間隔は補助時計が欠けるplugin-frame fallbackだけを切る。
+VST3／AU／AAXのqualified host clockが連続している場合、test runnerの一時停止を音声欠落と誤認しない。
+
+ローカル候補では、周回ごとに異なるPCMと独立delay lineに対し、VST3認定content clock、AU presentation latency、
+AAX bounded engine clockの初回LOOPが全frame一致した。短いAAX LOOP、presentation proof変更、独立counterだけの初回LOOPは拒否した。
+実Processor／editorでも、最初からLOOP、4096-sample delay、状態を持ち越すcompressor／dynamic band、直接BLIND、
+Source 1／2、開示、ENDを4クリックで通し、通常Aはbit同一、出力latency 0を維持した。
+これは実DAW／署名済み全format候補の受入証跡ではない。exact commitのMac VST3／AUとWindows AAXを別途実機確認する。

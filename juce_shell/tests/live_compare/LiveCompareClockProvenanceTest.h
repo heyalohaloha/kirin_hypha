@@ -17,11 +17,18 @@ static void rawClockOriginsNeverSilentlyShareAProof()
     require (reading.valid && reading.samples == 10256, "AU reacquires through the ordinary correspondence gate");
     require (! clock.next ({ 10384, AuxiliaryClockSource::audioUnitRender, false }, 128).valid,
              "a missing AU value is not silently replaced by a valid counter");
-    reading = clock.next ({ 10384, AuxiliaryClockSource::aaxNative, true }, 128);
-    require (! reading.valid && reading.basis == ClockBasis::pluginFrames && reading.samples == 0,
-             "folding AAX native time is not adopted as a continuous host clock");
-    reading = clock.next ({ -4096, AuxiliaryClockSource::aaxNative, false }, 128);
-    require (reading.valid && reading.samples == 128, "explicit per-instance fallback does not pretend native availability");
+    reading = clock.next ({ 10384, AuxiliaryClockSource::aaxEngine, true }, 128);
+    require (! reading.valid && reading.basis == ClockBasis::aaxEngine && reading.samples == 10384,
+             "changing to the subscribed DAE clock fences the previous origin");
+    reading = clock.next ({ 10512, AuxiliaryClockSource::aaxEngine, true }, 128);
+    require (reading.valid && reading.samples == 10512,
+             "the qualified AAX clock remains host-owned rather than a private counter");
+    require (! callbackGapBreaksContinuity (true, ClockBasis::vst3Continuous)
+        && ! callbackGapBreaksContinuity (true, ClockBasis::audioUnitRender)
+        && ! callbackGapBreaksContinuity (true, ClockBasis::aaxEngine)
+        && callbackGapBreaksContinuity (true, ClockBasis::pluginFrames)
+        && ! callbackGapBreaksContinuity (false, ClockBasis::pluginFrames),
+        "wall delay only fences an unqualified private counter");
     require (! clock.next ({ 256, AuxiliaryClockSource::vst3Continuous, true }, 128).valid,
              "a new VST3 origin also fences the counter proof");
     require (! clock.next ({ 384, AuxiliaryClockSource::vst3Continuous, true }, 0).valid,

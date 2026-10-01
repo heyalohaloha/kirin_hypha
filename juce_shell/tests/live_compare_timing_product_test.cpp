@@ -44,12 +44,18 @@ struct Clock final : juce::AudioPlayHead
         {
             value.setTimeInSamples (position);
             value.setTimeInSeconds (static_cast<double> (position) / 48000.0);
+            if (certifiedContent)
+            {
+                value.setKirinAuxiliaryClockSource (1);
+                value.setKirinAuxiliaryClockSamples (position);
+            }
             loop->decorate (value, position);
         }
         return value;
     }
     std::int64_t position = 0;
     bool playing = false;
+    bool certifiedContent = false;
     const LiveBlindLoopFixture* loop = nullptr;
 };
 
@@ -77,9 +83,12 @@ struct DynamicChain
 class Contract final : private juce::Timer
 {
 public:
-    explicit Contract (std::vector<float> signalIn) : signal (std::move (signalIn))
+    Contract (std::vector<float> signalIn, bool initialLoopIn)
+        : signal (std::move (signalIn)), initialLoop (initialLoopIn)
     {
         preClock.loop = postClock.loop = &loop;
+        preClock.certifiedContent = postClock.certifiedContent = initialLoop;
+        if (initialLoop) loop.requested.store (true);
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
@@ -92,6 +101,11 @@ public:
             instance->setPlayHead (role == Processor::Role::Pre ? &preClock : &postClock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
+#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
+            if (initialLoop)
+                instance->liveCompare.clockAuthority
+                    = static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedContent);
+#endif
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
         editor.reset (post->createEditorIfNeeded());
@@ -143,7 +157,8 @@ private:
             std::cerr << "stage=" << stage << " blind=" << static_cast<int> (post->liveBlindStatus().stage)
                       << " verdict=" << static_cast<int> (post->liveCompareStatus().verdict)
                       << " reason=" << static_cast<int> (post->liveCompareStatus().reason) << '\n';
-        require (now - started < std::chrono::seconds (60), "linear -> loop -> late Blind timed out");
+        require (now - started < std::chrono::seconds (60),
+                 initialLoop ? "initial LOOP -> Blind timed out" : "linear -> loop -> late Blind timed out");
         require (pcmErrors.load() == 0 && rawErrors.load() == 0 && preErrors.load() == 0, "independent full-frame PCM oracle");
         if (stage >= 5 && stage <= 8)
         {
@@ -175,6 +190,16 @@ private:
                 if (post->pairStatus() != KIRIN_PAIR_STATUS_PAIRED) break;
                 play.store (true); checkpoint = now; ++stage; break;
             case 2:
+                if (initialLoop)
+                {
+                    if (loop.laps.load() < 3) break;
+                    require (! post->liveCompareStatus().active && ! post->liveCompareStatus().matched,
+                             "initial LOOP prepares without starting an audition or MATCH");
+                    rawAudit.store (false);
+                    if (! click ("observatory-local-blind")) break;
+                    stage = 4;
+                    break;
+                }
                 if (now - checkpoint < std::chrono::seconds (2)) break;
                 require (! post->liveCompareStatus().active && ! post->liveCompareStatus().matched,
                          "ordinary playback prepares clocks without starting an audition or MATCH");
@@ -234,7 +259,9 @@ private:
                 if (blocks.load() <= observedBlock + 8) break;
                 require (clicks == 4 && minimumGain.load() + 0.1f < maximumGain.load(),
                          "four audition clicks; compressor gain truly changes with the input");
-                std::cout << "clock preparation product PASS: late loop BLIND, compressor/dynamic band, 20 audited laps, "
+                std::cout << "clock preparation product PASS: "
+                          << (initialLoop ? "initial loop" : "late loop")
+                          << " BLIND, compressor/dynamic band, 20 audited laps, "
                           << preFrames.load() + postFrames.load() << " full-frame samples/side, 4 clicks, bit-identical ordinary A\n";
                 passed = true; stopTimer(); juce::MessageManager::getInstance()->stopDispatchLoop(); break;
             default: break;
@@ -328,6 +355,7 @@ private:
     hypha::pair_preview::Ticket preview;
     int stage = 0, clicks = 0, observedBlock = 0;
     bool requested = false;
+    const bool initialLoop;
     float fixedGain = 1;
     std::int64_t checkpointLap = 0;
     std::uint64_t firstPre = 0, firstPost = 0;
@@ -342,7 +370,8 @@ private:
 
 int main (int argc, char** argv)
 {
-    require (argc == 2, "usage: timing product test S-1.wav");
+    require (argc == 2 || (argc == 3 && std::strcmp (argv[2], "--initial-loop") == 0),
+             "usage: timing product test S-1.wav [--initial-loop]");
     auto signal = readFixture (argv[1]);
     ValidationStorageSandbox sandbox;
    #if JUCE_MAC
@@ -350,7 +379,7 @@ int main (int argc, char** argv)
    #endif
     juce::ScopedJuceInitialiser_GUI gui;
     hypha::i18n::holdLanguage (true);
-    Contract contract (std::move (signal));
+    Contract contract (std::move (signal), argc == 3);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

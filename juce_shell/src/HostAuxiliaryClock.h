@@ -4,11 +4,12 @@
 
 namespace hypha
 {
-// An additional raw clock, deliberately separate from the content timeline. The three
-// format clocks have different semantics; none alone proves a common loop occurrence/PDC.
+// An additional raw clock, deliberately separate from the content timeline. A clock becomes
+// correspondence evidence only together with the explicit authority/bound recorded by the
+// live-compare policy; matching numbers alone never prove a common loop occurrence.
 enum class AuxiliaryClockSource : std::uint8_t
 {
-    unavailable = 0, vst3Continuous = 1, audioUnitRender = 2, aaxNative = 3
+    unavailable = 0, vst3Continuous = 1, audioUnitRender = 2, aaxEngine = 3
 };
 struct HostAuxiliaryClock
 {
@@ -32,7 +33,7 @@ inline const char* auxiliaryClockName (AuxiliaryClockSource source) noexcept
     {
         case AuxiliaryClockSource::vst3Continuous: return "VST3 continuous";
         case AuxiliaryClockSource::audioUnitRender: return "AU render";
-        case AuxiliaryClockSource::aaxNative: return "AAX native";
+        case AuxiliaryClockSource::aaxEngine: return "AAX DAE clock";
         case AuxiliaryClockSource::unavailable: return "unavailable";
     }
     return "unavailable";

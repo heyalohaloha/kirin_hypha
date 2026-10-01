@@ -58,7 +58,8 @@ working audio. Sample boundary bits are observations, not a content-alignment al
 | 13 | AAX algorithm-context `AddClock` present (separate from TOD/native) |
 | 14 | Full-frame stereo identity audit present (diagnostic-only) |
 
-Auxiliary sources: 1 = VST3 continuous, 2 = AU render, 3 = AAX native. This standalone build
+Auxiliary sources: 1 = VST3 continuous, 2 = AU render, 3 = AAX DAE AddClock in the current
+product patch stack (older diagnostic exports used AAX native). This standalone build
 exercises VST3 and, on macOS, AU. Missing flags are missing evidence, not zero. A reported latency
 of zero does not prove that the host implements meaningful per-node latency reporting.
 Use known WAV boundary samples to independently test the clock/content mapping with and without
@@ -97,7 +98,7 @@ peak bound, lifecycle, a whole-lap wrong-clock control, missing evidence, and co
 
 ## Optional AAX TOD observation
 
-The product's pinned JUCE patch stack is unchanged. Copy its verified source to a separate,
+Copy the product's verified JUCE source to a separate,
 new diagnostic directory outside any Git worktree, then apply `aax-tod-diagnostic.patch` there with
 `git apply --verbose --unidiff-zero --ignore-whitespace`. A copy inside an ignored worktree
 directory instead requires running from the repository root with `--directory=<copy-path>`;
@@ -108,7 +109,8 @@ it does not replace AAX native location, convert it to host nanoseconds, or supp
 
 Configure this project with that copy as `HYPHA_DIAGNOSTIC_JUCE_ROOT`, an external
 `HYPHA_DIAGNOSTIC_AAX_SDK`, and `HYPHA_DIAGNOSTIC_AAX_LICENSE_CONFIRMED=ON` only after license
-confirmation. The current AAX build also requires the separate AddClock patch below. Build
+confirmation. The current product patch stack already supplies AddClock; the historical patch
+below must not be applied a second time. Build
 `_AAX` targets for the read-only observer, identity source and validation
 delay. AudioSuite is disabled. These separately identified unsigned targets are for a Developer
 host only; they are not PRE/POST distribution candidates, signed installer inputs, or product
@@ -127,13 +129,15 @@ reuse this probe as a product clock source. The measured conditions and exclusio
 
 ## AAX algorithm-context AddClock probe
 
-Apply `aax-addclock-diagnostic.patch` AFTER the TOD patch to the same isolated copy, using the
+For a checkout before product patch 0011, apply `aax-addclock-diagnostic.patch` AFTER the TOD
+patch to the same isolated copy, using the
 same `git apply --unidiff-zero --ignore-whitespace` / repository-root directory rule above.
 Check both the PositionInfo getter and the actual `desc.AddClock` subscription in the wrapper;
 CMake rejects a header-only extension. Both macros are enabled for these diagnostic targets only.
 The callback copies the raw `AAX_CTimestamp` supplied by the host into a separate atomic field
 for its active processing scope, then clears validity. No query of TOD/native fills this field.
-Missing pointers remain unavailable. The patch never enters the approved shipping JUCE stack.
+Missing pointers remain unavailable. On current source the equivalent observation is already in
+shipping patch 0011; this file remains only for reproducing older diagnostic commits.
 
 New exports add `add_clock_samples` plus the five full-frame audit fields (27 columns total).
 The identity analyzer keeps separate AddClock/TOD/native offsets, continuity and within-block
@@ -154,6 +158,9 @@ The observed AddClock behavior fits a shared ENGINE counter, not a compensated C
 The model control in `../live_compare/LoopEntryEvidenceContract.h` verifies that equal engine,
 folded native and LOOP metadata can correspond to different audio for delay 0 versus one whole
 lap. That is a mathematical counterexample, not an unperformed AAX long-delay host test.
-AddClock alone therefore does not authorize initial LOOP playback. The same model correctly
-acquires K=4096 in a linear interval, so more waiting inside the LOOP is not the missing proof.
+AddClock alone therefore does not authorize initial LOOP playback. Product patch 0011 adds a
+separate admission rule: exact Pro Tools 2026.4 only, LOOP length strictly greater than the
+official maximum delay-compensation bound at that sample rate, and a unique modulo candidate
+inside that bound. Short or unsupported cases remain on POST. The same model correctly acquires
+K=4096 in a linear interval, so more waiting inside the LOOP is not the missing proof.
 The full plan records the qualifications and remaining host/format gates.

@@ -67,7 +67,7 @@ void verifyLiveCompareFooterContract()
         for (auto preset : observatory::sizePresets)
         {
             post.setSize (preset.width, preset.height);
-            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopWaiting); ++code)
+            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++code)
                 for (int phase = 0; phase < 4; ++phase)
                 {
                     live_compare::Status recovery;

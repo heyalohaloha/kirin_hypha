@@ -18,6 +18,8 @@ inline const char* cause (Reason reason) noexcept
         case Reason::calibrating: return "PRE timing is not confirmed";
         case Reason::loopUnproven: return "The PRE loop occurrence is not verified";
         case Reason::loopWaiting: return "Loop boundary timing is not confirmed";
+        case Reason::loopTooShort: return "The loop is shorter than the verified timing range";
+        case Reason::loopClockUnavailable: return "DAW timing cannot identify this loop occurrence";
         case Reason::writing: return "PRE data is being written";
         case Reason::beforeRun: return "PRE continuity changed";
         case Reason::notWritten: return "PRE data has not arrived";
@@ -61,7 +63,9 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
     if (state.compensationOff)
         return { reason, RecoveryAction::compensation, stopped ? "Enable compensation; END, then BLIND"
                                                               : "Enable DAW delay compensation" };
-    if (state.observation == Reason::loopUnproven)
+    if (state.observation == Reason::loopUnproven
+        || state.observation == Reason::loopTooShort
+        || state.observation == Reason::loopClockUnavailable)
         return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
     if (! stopped)
     {
@@ -87,8 +91,12 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
-    if (state.active && state.observation == Reason::loopUnproven)
-        return result (RecoveryAction::none, "Loop unverified; POST plays; END to close");
+    if (state.active && (state.observation == Reason::loopUnproven
+        || state.observation == Reason::loopTooShort
+        || state.observation == Reason::loopClockUnavailable))
+        return result (RecoveryAction::none, state.observation == Reason::loopTooShort
+            ? "Loop too short for verified timing; POST plays"
+            : "LOOP timing unverified; POST; END closes");
     if (state.active && state.observation == Reason::loopWaiting)
         return result (RecoveryAction::automatic, state.matched || state.matchHeld
             ? "Loop timing pending; MATCH held; POST plays" : "Checking PRE: auto-resume; POST plays");

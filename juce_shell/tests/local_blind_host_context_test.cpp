@@ -280,7 +280,7 @@ void coherentClockProbe()
             next.playing = next.hasPosition = next.inputPresentationValid = true;
             next.clockSource = next.presentationSource = 1;
             probe.publish (next, 48000 + i, i, i % 2 + 1,
-                           { i * 2, hypha::AuxiliaryClockSource::aaxNative, true });
+                           { i * 2, hypha::AuxiliaryClockSource::aaxEngine, true });
         }
         finished.store (true);
     });
@@ -295,7 +295,7 @@ void coherentClockProbe()
             REQUIRE (snapshot.playing && snapshot.hasPosition && snapshot.hasInputLatency);
             REQUIRE (snapshot.source == 1 && snapshot.presentationSource == 1);
             REQUIRE (snapshot.auxiliary.valid && snapshot.auxiliary.samples == value * 2);
-            REQUIRE (snapshot.auxiliary.source == hypha::AuxiliaryClockSource::aaxNative);
+            REQUIRE (snapshot.auxiliary.source == hypha::AuxiliaryClockSource::aaxEngine);
         }
     } while (! finished.load());
     producer.join();

@@ -29,7 +29,14 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     block.playing = clock.playing;
     block.frames = frames;
     block.loop = clock.loop;
-    block.afterGap = liveCompare.gaps.observe (steadyNanos(), frames, preparedFormat.sampleRate);
+    block.clockBasis = static_cast<std::uint8_t> (continuous.basis);
+    block.clockAuthority = liveCompare.clockAuthority;
+    block.maximumDelaySamples = liveCompare.maximumDelaySamples;
+    block.presentationSource = clock.presentationSource;
+    block.outputPresentationValid = clock.outputPresentationValid;
+    block.outputPresentationSamples = clock.outputPresentationSamples;
+    const bool wallGap = liveCompare.gaps.observe (steadyNanos(), frames, preparedFormat.sampleRate);
+    block.afterGap = hypha::live_compare::callbackGapBreaksContinuity (wallGap, continuous.basis);
     const int channels = buffer.getNumChannels();
     const bool usable = ! bypassed && ! nonRealtimeMode && channels > 0 && channels <= 2;
 
@@ -139,12 +146,14 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (permitted && liveCompare.preparation.initialRequested.load (std::memory_order_acquire)
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
-        const auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
-                                                         buffer.getArrayOfWritePointers(), channels,
-                                                         preSelected && ! contentHeld && ! compensationOff,
-                                                         gain,
-                                                         liveCompare.postLevel, postTarget,
-                                                         ceiling, blindCommand.active() && ! blindRejected);
+        auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
+                                                   buffer.getArrayOfWritePointers(), channels,
+                                                   preSelected && ! contentHeld && ! compensationOff,
+                                                   gain,
+                                                   liveCompare.postLevel, postTarget,
+                                                   ceiling, blindCommand.active() && ! blindRejected);
+        if (report.reason == Reason::loopUnproven)
+            report.reason = hypha::live_compare::recoveryReason (timing.failure);
         if (report.timelineChanged && ! discontinuity)
         {
             liveCompare.timelineGeneration.fetch_add (1, std::memory_order_acq_rel);

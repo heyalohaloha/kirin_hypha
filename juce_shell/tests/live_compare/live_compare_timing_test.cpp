@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -20,6 +21,7 @@ namespace
 constexpr std::uint64_t pair = 0x202610012222;
 constexpr std::uint32_t rate = 48000;
 constexpr int frames = 128;
+enum class ClockMode { independent, certifiedContent, presentationAu, boundedAax };
 
 struct Fixture
 {
@@ -28,6 +30,7 @@ struct Fixture
     TimingObserver observer;
     std::int64_t emitted = 0, loopStart = 0;
     int length = 24000, delay = 4096;
+    ClockMode clockMode = ClockMode::independent;
     bool looping = false;
     std::array<std::array<float, frames>, 2> input {}, expected {}, scratch {};
     std::array<std::vector<float>, 2> physicalDelay;
@@ -35,7 +38,9 @@ struct Fixture
     BlockClock pre, post;
     TimingEvidence evidence;
 
-    explicit Fixture (int loopLength = 24000, int physicalLatency = 4096) : length (loopLength), delay (physicalLatency)
+    explicit Fixture (int loopLength = 24000, int physicalLatency = 4096,
+                      ClockMode mode = ClockMode::independent)
+        : length (loopLength), delay (physicalLatency), clockMode (mode)
     {
         ring->initialise (pair, rate);
         for (auto& channel : physicalDelay) channel.resize (static_cast<std::size_t> (delay));
@@ -66,6 +71,30 @@ struct Fixture
     {
         pre = block (emitted, 10000);
         post = block (emitted - delay, 777000);
+        if (clockMode == ClockMode::certifiedContent)
+        {
+            pre.clock = emitted;
+            post.clock = emitted - delay;
+            pre.clockBasis = post.clockBasis = static_cast<std::uint8_t> (ClockBasis::vst3Continuous);
+            pre.clockAuthority = post.clockAuthority
+                = static_cast<std::uint8_t> (ClockAuthority::certifiedContent);
+        }
+        else if (clockMode == ClockMode::boundedAax)
+        {
+            pre.clock = post.clock = emitted;
+            pre.clockBasis = post.clockBasis = static_cast<std::uint8_t> (ClockBasis::aaxEngine);
+            pre.clockAuthority = post.clockAuthority
+                = static_cast<std::uint8_t> (ClockAuthority::boundedAaxEngine);
+            pre.maximumDelaySamples = post.maximumDelaySamples = 16383;
+        }
+        else if (clockMode == ClockMode::presentationAu)
+        {
+            pre.clockBasis = post.clockBasis = static_cast<std::uint8_t> (ClockBasis::audioUnitRender);
+            pre.presentationSource = post.presentationSource = 2;
+            pre.outputPresentationValid = post.outputPresentationValid = true;
+            pre.outputPresentationSamples = static_cast<std::uint32_t> (delay);
+            post.outputPresentationSamples = 0;
+        }
         for (int f = 0; f < frames; ++f)
         {
             for (int c = 0; c < 2; ++c)
@@ -148,6 +177,60 @@ void initialLoopDoesNotInventAnOrigin()
         fixture.step();
         require (! fixture.evidence.valid, "initial LOOP alone never manufactures a linear-origin proof");
     }
+}
+
+void certifiedInitialLoopStartsWithoutAnotherGesture()
+{
+    for (const auto mode : { ClockMode::certifiedContent, ClockMode::presentationAu,
+                             ClockMode::boundedAax })
+    {
+        Fixture fixture (24000, 4096, mode);
+        fixture.enableLoop();
+        fixture.ring->header.demand.store (1);
+        Consumer consumer;
+        unsigned accepted = 0;
+        for (int n = 0; n < 800; ++n)
+        {
+            fixture.step();
+            if (! consumer.calibrated())
+                consumer.adoptInitialTiming (*fixture.ring, fixture.post, fixture.evidence);
+            const auto decision = fixture.read (consumer);
+            if (decision.verdict == Verdict::accepted)
+            {
+                fixture.checkPcm();
+                ++accepted;
+            }
+        }
+        require (accepted > 500, "certified initial LOOP automatically reaches verified PRE");
+        const auto expected = mode == ClockMode::certifiedContent ? 0
+                            : mode == ClockMode::presentationAu ? 771096 : 4096;
+        require (consumer.offset() == expected,
+                 "the certified clock model derives the independent physical delay");
+    }
+
+    Fixture shortLoop (6000, 4096, ClockMode::boundedAax);
+    shortLoop.enableLoop();
+    for (int n = 0; n < 400; ++n) shortLoop.step();
+    require (! shortLoop.evidence.valid
+        && shortLoop.evidence.failure == LoopEntryFailure::loopTooShort,
+        "AAX rejects a loop shorter than the host's documented delay bound");
+
+    Fixture changedProof (24000, 4096, ClockMode::presentationAu);
+    changedProof.enableLoop();
+    changedProof.ring->header.demand.store (1);
+    Consumer admitted;
+    for (int n = 0; n < 400; ++n)
+    {
+        changedProof.step();
+        if (! admitted.calibrated())
+            admitted.adoptInitialTiming (*changedProof.ring, changedProof.post, changedProof.evidence);
+        changedProof.read (admitted);
+    }
+    require (admitted.calibrated(), "presentation proof admits the initial AU loop");
+    changedProof.delay = 2048;
+    changedProof.step();
+    require (! changedProof.evidence.valid,
+             "a presentation-latency change fences the old initial-loop proof");
 }
 
 void faultsFenceEvidence()
@@ -294,7 +377,10 @@ void publisherFencesChangedPreTimelines()
         [] (BlockClock& b) { b.project += 123; },
         [] (BlockClock& b) { b.loop.end += 1; },
         [] (BlockClock& b) { b.loop.bpm += 1; },
-        [] (BlockClock& b) { b.loop.valid = false; }
+        [] (BlockClock& b) { b.loop.valid = false; },
+        [] (BlockClock& b) { ++b.clockAuthority; },
+        [] (BlockClock& b) { ++b.maximumDelaySamples; },
+        [] (BlockClock& b) { b.outputPresentationValid = true; ++b.outputPresentationSamples; }
     };
     for (auto mutate : cases)
     {
@@ -314,6 +400,44 @@ void publisherFencesChangedPreTimelines()
                  "every PRE discontinuity fences the old linear origin even without PCM demand");
     }
 }
+
+void extremeHostClocksFailClosed()
+{
+    constexpr auto minimum = std::numeric_limits<std::int64_t>::min();
+    constexpr auto maximum = std::numeric_limits<std::int64_t>::max();
+    LoopAnchor anchor;
+    anchor.loopKnown = true;
+    anchor.runStart = 0;
+    anchor.clock = 0;
+    anchor.project = 0;
+    anchor.loopSamples = 24000;
+    anchor.loop = { true, true, 0.0, 0.0, 1.0, 120.0 };
+    BlockClock pre, post;
+    for (auto* block : { &pre, &post })
+    {
+        block->clockValid = block->projectValid = block->playing = true;
+        block->frames = frames;
+        block->loop = anchor.loop;
+        block->clockBasis = static_cast<std::uint8_t> (ClockBasis::aaxEngine);
+        block->clockAuthority = static_cast<std::uint8_t> (ClockAuthority::boundedAaxEngine);
+        block->maximumDelaySamples = 16383;
+    }
+    pre.clock = maximum;
+    pre.project = minimum;
+    post.clock = minimum;
+    post.project = maximum;
+    require (! initialLoopCandidate (anchor, pre, post, 24000, rate, ringCapacityFrames).valid,
+             "overflowing host clock origins fail closed");
+
+    LoopCycleMeter cycle;
+    pre.clock = maximum - 64;
+    pre.project = maximum - 64;
+    cycle.observe (pre, rate);
+    pre.clock = maximum;
+    pre.project = maximum;
+    require (cycle.observe (pre, rate).changed,
+             "a native clock that cannot advance one block fences the measured loop cycle");
+}
 }
 
 int main (int argc, char** argv)
@@ -321,16 +445,18 @@ int main (int argc, char** argv)
     if (argc == 3 && std::strcmp (argv[1], "--abandon-pre") == 0)
         return abandonPreOwner (std::strtoull (argv[2], nullptr, 16));
     require (argc == 1, "standalone timing contract arguments");
-    static_assert (sizeof (TimingHeader) <= 160 && sizeof (TimingEvidence) <= 64,
+    static_assert (sizeof (TimingHeader) <= 192 && sizeof (TimingEvidence) <= 72,
                    "preparation must remain fixed-size metadata, not an audio history");
     prepareWithoutCopyingPcm();
     initialLoopDoesNotInventAnOrigin();
+    certifiedInitialLoopStartsWithoutAnotherGesture();
     faultsFenceEvidence();
     timingMappingDoesNotOwnAuditionDemand();
     livePreMappingHasOneWriter();
     crashedPreCannotRestampOldReaders();
     entryWaitsButNeverResurrectsAProof();
     publisherFencesChangedPreTimelines();
+    extremeHostClocksFailClosed();
     std::printf ("clock preparation PASS: metadata=%zu bytes, PCM capacity unchanged=%u frames\n",
                  sizeof (TimingHeader), ringCapacityFrames);
 }

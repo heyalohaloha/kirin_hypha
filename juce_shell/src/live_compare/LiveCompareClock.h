@@ -8,13 +8,13 @@
 namespace hypha::live_compare
 {
 // Which continuous clock a side uses as the ring index. VST3 continuous time and AU render time
-// are NOT the same origin or a content/PDC proof. The current AAX adapter has no qualified
-// loop-free host clock (native location folds); it counts this instance's callbacks instead.
-// The non-shipping AddClock feasibility probe does not change that product policy.
+// are NOT by themselves a shared origin or content/PDC proof. The AAX wrapper publishes the DAE
+// AddClock counter; policy still requires an exact-host certificate and a documented delay bound.
 enum class ClockBasis : std::uint8_t
 {
     vst3Continuous,
     audioUnitRender,
+    aaxEngine,
     pluginFrames
 };
 
@@ -22,6 +22,7 @@ constexpr ClockBasis clockBasisFor (AuxiliaryClockSource source) noexcept
 {
     return source == AuxiliaryClockSource::vst3Continuous ? ClockBasis::vst3Continuous
          : source == AuxiliaryClockSource::audioUnitRender ? ClockBasis::audioUnitRender
+         : source == AuxiliaryClockSource::aaxEngine ? ClockBasis::aaxEngine
          : ClockBasis::pluginFrames;
 }
 
@@ -107,4 +108,11 @@ private:
     std::uint64_t previousNanos = 0;
     std::int32_t previousFrames = 0;
 };
+
+// A delayed callback is not a missing audio interval when the host clock itself proves the next
+// sample address. Project/loop continuity still fences seeks and edits in LoopTimeline.
+inline bool callbackGapBreaksContinuity (bool wallGap, ClockBasis basis) noexcept
+{
+    return wallGap && basis == ClockBasis::pluginFrames;
+}
 }

@@ -2,6 +2,7 @@
 #include "ChannelRoles.h"
 #include "PluginEditor.h"
 #include "HyphaChainClockPolicy.h"
+#include "HyphaLiveCompareClockPolicy.h"
 
 // Format binding: which audio format the Rust engine is built for, and what happens when the host
 // negotiates a different one. Split out of PluginProcessor.cpp in B-961, when an incompatible
@@ -38,6 +39,9 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
     scratchCapacitySamples = interleaveScratch.size();
     const auto roles = kirin::channelRoles (getChannelLayoutOfBus (true, 0));
+    const auto liveClock = hypha::live_compare_clock_policy::current (wrapperType, sampleRate);
+    liveCompare.clockAuthority = static_cast<std::uint8_t> (liveClock.authority);
+    liveCompare.maximumDelaySamples = liveClock.maximumDelaySamples;
     stopLocalBlindCaptureForFormatChange (sampleRate, roles);
     const juce::ScopedLock sl (handleLock);
     normalizeSpectrumSelectionForInputChannels (numCh);

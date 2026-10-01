@@ -81,6 +81,8 @@ struct ProcessorState
     PostRenderer renderer;
     ContinuousClock clock;
     GapDetector gaps;
+    std::uint8_t clockAuthority = 0;       // prepareToPlay, host suspends Audio Thread
+    std::uint32_t maximumDelaySamples = 0; // certified host bound, never a measured guess
     TimingPreparation preparation;
     std::atomic<bool> sessionActive { false }; // user session, independent of the ring's fade/ramp lease
     std::atomic<bool> preAudible { false };

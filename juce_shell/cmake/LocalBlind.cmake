@@ -105,6 +105,11 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_live_timing_product COMMAND KirinLiveTimingProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
     set_tests_properties(kirin_live_timing_product PROPERTIES TIMEOUT 90)
+    if(KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
+        add_test(NAME kirin_live_initial_loop_product COMMAND KirinLiveTimingProductTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --initial-loop)
+        set_tests_properties(kirin_live_initial_loop_product PROPERTIES TIMEOUT 90)
+    endif()
     add_executable(KirinLiveRecoveryProductTests tests/live_compare_recovery_product_test.cpp)
     if(APPLE)
         target_sources(KirinLiveRecoveryProductTests PRIVATE tests/BlindProductMacRunLoop.mm)

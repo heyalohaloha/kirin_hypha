@@ -24,7 +24,7 @@ inline void verifyLiveBlindUiContract()
     {
         i18n::ScopedLanguage scoped (language);
         for (auto preset : observatory::sizePresets)
-            for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::loopWaiting); ++phase)
+            for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++phase)
             {
                 live_compare::LiveBlindStatus state;
                 state.stage = phase == 0 ? Stage::preparing : phase == 1 ? Stage::approval
@@ -44,8 +44,11 @@ inline void verifyLiveBlindUiContract()
                 view.setSize (preset.width, preset.height);
                 view.setState (state, phase != 8, phase >= 7 ? 0.0631f : 1.0f);
                 if (phase == 0)
-                    require (dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-text-2"))->getText()
-                                 == "Loop comparison is unavailable",
+                    require (i18n::tr (dynamic_cast<juce::Label*> (
+                                           view.findChildWithID ("live-blind-text-2"))->getText())
+                                 == (language == i18n::Language::japanese
+                                     ? juce::String::fromUTF8 (u8"このLOOPではDAWの時刻対応を確認できません")
+                                     : juce::String ("DAW timing is unavailable for this loop")),
                              "unproven initial loop is unavailable, not a promise of progress");
                 if (state.observation == live_compare::RecoveryReason::loopUnproven)
                     require (live_compare_ui::blindRecovery (state, phase != 0).action
