@@ -1,5 +1,6 @@
 #include "HyphaReferenceComponent.h"
 
+#include "HyphaMainFrame.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceVisuals.h"
@@ -248,6 +249,14 @@ bool Component::detailedLayout() const noexcept
 void Component::paint (juce::Graphics& g)
 {
     lastGuideFit = {};
+    const key_light::Scope light (*this);
+    for (const auto* window : { static_cast<const juce::Component*> (&comparisonView),
+                                static_cast<const juce::Component*> (&tonalView) })
+        if (window->isVisible())
+        {
+            main_frame::paint (g, window->getBounds().toFloat()); // the page's main window
+            break;
+        }
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     const bool blindActive = current.blindPhase == BlindPhase::active;

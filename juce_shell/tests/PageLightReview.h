@@ -3,12 +3,12 @@
 #include "CompactReviewShowcase.h"
 #include "FreqHistoryReview.h"
 
-#include <array>
 #include <cstdlib>
 
-// Look review of the editor's light (2026-09-29): the VU, then LEVEL, TIME HISTORY, DRUM, FREQ and
-// SPACE, where only each page's main window is lit at its edge as on the VU chassis, and cards and
-// lanes stay quiet. Written only when KIRIN_HYPHA_LIGHTING_REVIEW_DIR names a directory.
+// Look review of the editor's light (2026-09-29; stage 2, 2026-10-01): the VU, then every page at
+// the five editor sizes, where each page's main window stands in the VU chassis's bronze frame lit
+// by the editor's one key light, and cards and lanes stay quiet. Written only when
+// KIRIN_HYPHA_LIGHTING_REVIEW_DIR names a directory.
 namespace hypha::tests
 {
 inline bool writeLightingReview()
@@ -21,45 +21,60 @@ inline bool writeLightingReview()
         return false;
     using namespace compact_review;
     bool written = true;
+    material_cache::Lifetime editorMaterial;
+    for (const auto& preset : observatory::sizePresets)
     {
-        material_cache::Lifetime editorMaterial;
-        for (const auto size : { std::array<int, 2> { 900, 600 }, std::array<int, 2> { 400, 266 } })
+        const auto width = preset.width, height = preset.height;
+        const auto name = [&directory, width] (const char* page) {
+            return directory.getChildFile (juce::String (width) + "_" + page + ".png"); };
+        observatory::View shell (observatory::Role::post);
+        shell.setSize (width, height);
+        shell.setObservatoryFrame (frame(), true);
+        shell.setWatchDisplay (watch(), true);
+        shell.setHistory (history());
+        shell.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
+        shell.setMeterContext (meter_context::MeterContext::trackStem);
+        shell.setDomain (observatory::Domain::level);
+        written = written && freq_showcase::writePng (name ("level"), renderShell (shell));
+        shell.setMeterContext (meter_context::MeterContext::twoMix);
+        written = written && freq_showcase::writePng (name ("level_2mix"), renderShell (shell));
+        shell.setMeterContext (meter_context::MeterContext::trackStem);
+        shell.setManualHybridVuVisible (true);
+        written = written && freq_showcase::writePng (name ("vu"), renderShell (shell));
+        shell.setManualHybridVuVisible (false);
+        shell.setDomain (observatory::Domain::time);
+        written = written && freq_showcase::writePng (name ("time_history"), renderShell (shell));
         {
-            const auto width = size[0], height = size[1];
-            const auto name = [&directory, width] (const char* page) {
-                return directory.getChildFile (juce::String (width) + "_" + page + ".png"); };
-            observatory::View shell (observatory::Role::post);
-            shell.setSize (width, height);
-            shell.setObservatoryFrame (frame(), true);
-            shell.setWatchDisplay (watch(), true);
-            shell.setHistory (history());
-            shell.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
-            shell.setMeterContext (meter_context::MeterContext::trackStem);
-            shell.setDomain (observatory::Domain::level);
-            written = written && freq_showcase::writePng (name ("level"), renderShell (shell));
-            shell.setManualHybridVuVisible (true);
-            written = written && freq_showcase::writePng (name ("vu"), renderShell (shell));
-            shell.setManualHybridVuVisible (false);
-            shell.setDomain (observatory::Domain::time);
-            written = written && freq_showcase::writePng (name ("time_history"), renderShell (shell));
-            {
-                auto attack = drum();
-                written = written && freq_showcase::writePng (name ("drum"),
-                    compose (shell, *attack, analysis_navigation::Page::attack));
-            }
-            shell.setDomain (observatory::Domain::frequency);
-            {
-                SpectrumComponent absolute;
-                absolute.setAbsoluteObservation (true);
-                absolute.setSignalActive (true);
-                for (int index = 0; index < 240; ++index)
-                    absolute.setSnapshot (freq_history_review::frame (index, freq_history_review::mixDbfs));
-                written = written && freq_showcase::writePng (name ("freq"),
-                    compose (shell, absolute, analysis_navigation::Page::spectrum));
-            }
-            shell.setDomain (observatory::Domain::space);
-            written = written && freq_showcase::writePng (name ("space"), renderShell (shell));
+            PerceptualComponent sharp;
+            sharp.setSignalActive (true);
+            sharp.setBatch (sharpness());
+            sharp.presentationTickAt (60'000.0);
+            written = written && freq_showcase::writePng (name ("time_sharp"),
+                compose (shell, sharp, analysis_navigation::Page::perceptual));
+            AbsoluteComponent timeline;
+            timeline.setSignalActive (true);
+            timeline.setBatchAt (live(), 60'000.0);
+            written = written && freq_showcase::writePng (name ("time_live"),
+                compose (shell, timeline, analysis_navigation::Page::absolute));
+            auto attack = drum();
+            attack->presentationTickAt (60'000.0);
+            written = written && freq_showcase::writePng (name ("time_drum"),
+                compose (shell, *attack, analysis_navigation::Page::attack));
         }
+        shell.setDomain (observatory::Domain::frequency);
+        {
+            SpectrumComponent absolute;
+            absolute.setAbsoluteObservation (true);
+            absolute.setSignalActive (true);
+            for (int index = 0; index < 240; ++index)
+                absolute.setSnapshot (freq_history_review::frame (index, freq_history_review::mixDbfs));
+            written = written && freq_showcase::writePng (name ("freq"),
+                compose (shell, absolute, analysis_navigation::Page::spectrum));
+        }
+        shell.setDomain (observatory::Domain::space);
+        written = written && freq_showcase::writePng (name ("space"), renderShell (shell));
+        shell.setDomain (observatory::Domain::reference);
+        written = written && freq_showcase::writePng (name ("ref"), renderShell (shell));
     }
     return written;
 }

@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaDepthMaterial.h"
+#include "HyphaMainFrame.h"
 #include "HyphaMaterialCache.h"
 #include "HyphaTheme.h"
 
@@ -19,7 +20,8 @@ inline void paintPanel (juce::Graphics& g,
                         juce::Rectangle<float> area,
                         float fillAlpha,
                         float corner,
-                        bool raised)
+                        bool raised,
+                        float landing = 0.0f)
 {
     const auto outer = area.reduced (0.5f);
     const auto radius = juce::jlimit (1.0f, juce::jmin (outer.getWidth(), outer.getHeight()) * 0.5f,
@@ -62,7 +64,7 @@ inline void paintPanel (juce::Graphics& g,
     }
     if (raised)
     {
-        depth_material::paintRaisedPlate (g, outer, radius, fillAlpha);
+        depth_material::paintRaisedPlate (g, outer, radius, fillAlpha, landing);
         return;
     }
     depth_material::paintCastShadowAbove (g, outer, radius, 0.36f * fillAlpha);
@@ -83,8 +85,7 @@ inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area
     g.setColour (BG.darker (0.82f).withAlpha (0.88f));
     g.drawLine (inner.getX() + 1.0f, inner.getBottom() - 0.35f,
                 inner.getRight() - 1.0f, inner.getBottom() - 0.35f, 0.65f);
-    // Observation windows are recessed glass under the same key light as DRUM.
-    depth_material::paintCastShadowAbove (g, area, 2.0f, 0.42f);
+    // Observation windows are recessed glass; their frame catches the key light (paintObservationWell).
     depth_material::paintRecessedWell (g, area, 2.0f, depth_material::observationWellLight());
 }
 }
@@ -99,11 +100,15 @@ inline void paintPanel (juce::Graphics& g,
 {
     if (area.isEmpty())
         return;
+    // A raised plate's upper bevel catches the key light where it comes nearest; outside a light
+    // scope, at its left end as before.
+    const auto landing = raised && key_light::active() ? key_light::landingOn (area, key_light::current()).fraction
+                                                       : 0.0f;
     // A cast shadow sits above a recessed panel, a contact shadow below a raised plate.
-    material_cache::draw (g, area, { 1, { fillAlpha, corner, raised ? 1.0f : 0.0f, 0.0f } },
+    material_cache::draw (g, area, { 1, { fillAlpha, corner, raised ? 1.0f : 0.0f, landing } },
                           { raised ? 0.0f : 1.0f, raised ? 3.0f : 0.0f },
                           [&] (juce::Graphics& target, juce::Rectangle<float> local) {
-                              uncached::paintPanel (target, local, fillAlpha, corner, raised); });
+                              uncached::paintPanel (target, local, fillAlpha, corner, raised, landing); });
 }
 
 inline void paintControl (juce::Graphics& g,
@@ -175,12 +180,16 @@ inline void paintInstrumentFrame (juce::Graphics& g,
                 capture ? 0.8f : 0.6f);
 }
 
-inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area)
+// A page's main observation window: its glass, and the bronze frame around it that catches the
+// editor's key light. A window that fills its own component leaves the frame to its page.
+inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area, bool framed = true)
 {
     if (area.isEmpty())
         return;
-    material_cache::draw (g, area, { 2 }, { 1.0f, 0.0f },
+    material_cache::draw (g, area, { 2 }, {},
                           [] (juce::Graphics& target, juce::Rectangle<float> local) {
                               uncached::paintObservationWell (target, local); });
+    if (framed)
+        main_frame::paint (g, area);
 }
 }

@@ -1,4 +1,5 @@
 #include "HyphaSpectrumComponent.h"
+#include "HyphaKeyLight.h"
 #include "HyphaPsbPainter.h"
 #include "HyphaSpectrumChromePainter.h"
 
@@ -85,6 +86,7 @@ void SpectrumComponent::setSignalActive (bool active)
 
 void SpectrumComponent::paint (juce::Graphics& g)
 {
+    const key_light::Scope light (*this);
     if (psbObservation)
     {
         const auto& values = absoluteObservation ? absolutePsb : deltaPsb;

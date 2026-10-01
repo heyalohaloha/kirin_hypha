@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaKeyLight.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
@@ -32,6 +33,7 @@ Button::Button (juce::String text, bool tabIn, Mark markIn)
 
 void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
+    const key_light::Scope light (*this);
     const auto area = getLocalBounds().toFloat().reduced (1.0f);
     const bool selected = getToggleState();
     if (! tab && ! statusOnly)

@@ -129,6 +129,7 @@ namespace hypha
             bool bandDelta = false;
             attack_band::PreBand preBand = attack_band::PreBand::off;
             bool summary = false;
+            juce::Point<float> light; // the key light, which moves with the view in the editor
             bool operator== (const ChromeKey&) const noexcept;
         };
         static constexpr std::size_t chromeByteBudget = 8 * 1024 * 1024;

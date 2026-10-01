@@ -11,6 +11,7 @@
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackSnapshotEquality.h"
 #include "HyphaAttackStage.h"
+#include "HyphaKeyLight.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -370,6 +371,7 @@ void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout
 
 void AttackComponent::paint (juce::Graphics& g)
 {
+    const key_light::Scope light (*this);
     const auto shape = layout();
     const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
                       && runtimeStats.worker_running != 0;
