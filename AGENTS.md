@@ -1,5 +1,22 @@
 # Kirin Hypha — 計測プラグイン開発
 
+## 最初に確認するビルド・HPアップ入口（Codex / Claude共通）
+
+ビルド・署名・配布・HP反映を行う前に、`docs/hypha_release_entry.md`を読む。
+入口は`node scripts/build_hypha.mjs`一つ。まず採用commitと作業checkoutを確認し、以下のhelpから目的を選ぶ。
+
+|目的|入口|手順書|
+|---|---|---|
+|全formatの未署名診断build|`node scripts/build_hypha.mjs --help`|`docs/hypha_build_entry.md`|
+|正規build・署名・公証からHPアップまで|`node scripts/build_hypha.mjs --release --help`|`docs/hypha_release_entry.md`|
+
+MacはPRE/POST × AAX/AU/VST3 Universal、WindowsはPRE/POST × AAX/VST3 x64。AUはApple専用。
+helpはSDK・認証・USB不要。未署名buildにもiLok不要。既存の成果物・CI・private stateは照合して再利用し、
+この案内のためにbuild / CI / 署名を起動しない。実機受入、LS担当者工程、公開承認、3チャネル条件は維持する。
+途中再開のprivate profile・証跡は作業checkoutのignored `release_state/`で確認し、管理URLや秘密値を転載しない。
+入口が無い古いworktreeには必要差分の統合が必要。別checkoutのscriptを絶対pathで実行して代用しない。
+Claudeは`CLAUDE.md`の`@AGENTS.md`で本正本を読む。詳細手順・安全契約を別コピーへ分岐させない。
+
 ## Notion操作 全面禁止
 Codexセッションは Notion へのいかなる書き込みも行わない。
 - 📍現在地 SECTION:DEV 更新 → 禁止
@@ -66,7 +83,7 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 - ebur128 クレート（LUFS/TP）
 - 出荷processor / GUI: JUCE共通shell（macOS AU / VST3、Windows VST3、追加AAX）
 - nih-plug: 旧VST3 identityとstate互換性を検証するlegacy経路。出荷GUIの選定待ちではない
-- 全formatの統合入口: `node scripts/build_hypha.mjs`。build-onlyは`docs/hypha_build_entry.md`、ビルドからHPアップまでは同scriptの`--release`（`docs/hypha_release_entry.md`）。MacはPRE/POST × AAX/AU/VST3 Universal、WindowsはPRE/POST × AAX/VST3 x64。未署名診断buildはiLok不要。release modeは正規署名・公証・受入・3チャネル配布・英日HP反映・公開物再取得までをつなぐ。実host gate、LS operator工程、candidateの公開承認は省略しない
+- 全formatの統合入口: 本書冒頭の「最初に確認するビルド・HPアップ入口」。詳細は`docs/hypha_build_entry.md` / `docs/hypha_release_entry.md`を正本とする
 - AAX不要のmacOS通常build: `scripts/build_juce_universal.sh`。署名は`docs/aax_build_signing_entry.md`、Windows配布は対応手順書を正本とする
 - 対象DAWと受入状況: `README.md`と各hostの検証記録を参照し、formatの生成成功をhost対応完了としない
 

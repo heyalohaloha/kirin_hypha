@@ -6,6 +6,34 @@ Mac PRE/POST × AU/VST3/AAX Universal、Windows PRE/POST × VST3/AAX x64を一�
 署名・公証、受入、配布物、LS確認、GitHub Release、英日HP更新、本番反映と公開物再取得までを扱う。
 診断だけの場合は[build-only入口](hypha_build_entry.md)を使う。
 
+## 他のセッションが最初に確認すること
+
+Codex / Claude共通。開始・再開時に、作業checkoutの[AGENTS.md](../AGENTS.md)と本書を読む。
+README冒頭、AGENTS冒頭、CLAUDEから本書へ辿れる。詳細手順を個別の指示fileへ複製しない。
+
+```bash
+# 作業checkoutで実行。SDK・署名認証・USBなしで入口だけ確認できる。
+node scripts/build_hypha.mjs --help
+node scripts/build_hypha.mjs --release --help
+```
+
+|依頼の目的|選ぶmode|実行前に確認するもの|
+|---|---|---|
+|全formatを未署名でbuild / 既存buildを再確認|build-only|native OS、採用source、外部SDK / license、既存output / lock|
+|署名・公証・3チャネル・HP反映まで進める|`--release`|clean exact candidate、必要CI / Windows factory、private profile、受入証跡、公開権限|
+|所在・使い方だけ確認|どちらの`--help`も可|build / CI / 署名 / uploadを起動しない|
+
+途中再開は、**作業checkout内**のignored `release_state/`のprofile・receipt・Handoffを先に照合する。
+古いworktreeに入口が無い場合は未統合であり、利用者の変更を消さず必要差分を統合する。
+別checkoutのscriptを絶対pathで呼ぶと、その別sourceをbuildする。古いcheckoutの代用として実行しない。
+個別機器の所在は存在する場合だけ`release_state/aax_signing_local_handoff.md`を参照し、秘密値を転載しない。
+
+このMacの共通案内は`~/.codex/AGENTS.md` / `~/.claude/CLAUDE.md`にも同じ内容で置く。
+起動済みセッションの強制再読、古いcheckoutや別PCへの自動配布を完了したとは扱わない。
+両ツールの読み込み規則に合わせた構成:
+[OpenAI Docs](https://learn.chatgpt.com/docs/agent-configuration/agents-md)、
+[Claude Code Docs](https://code.claude.com/docs/en/memory#share-one-file-with-other-coding-tools)。
+
 ## 完了の範囲
 
 `--until hp`が既定。HPアップはファイルのuploadだけではなく、次を含む。
