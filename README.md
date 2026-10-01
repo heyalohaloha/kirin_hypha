@@ -890,6 +890,31 @@ v1.1.49 release uses an Authenticode-signed installer containing both PRE and PO
 
 ## Building from source
 
+For all supported formats in one local build, use
+[`node scripts/build_hypha.mjs`](docs/hypha_build_entry.md): macOS produces PRE/POST × AAX/AU/VST3
+as Intel + Apple Silicon Universal bundles; Windows produces PRE/POST × AAX/VST3 for x64.
+An external licensed AAX SDK is required. The same command runs natively on each OS:
+
+```bash
+node scripts/build_hypha.mjs --sdk /absolute/external/aax-sdk-root --license-confirmed
+```
+
+This is an unsigned diagnostic build, with no iLok, CI, installation or publication step.
+Use `--dry-run` to inspect the plan and `--verify-only` to recheck saved binaries without rebuilding.
+Signing and release qualification retain their independent mandatory gates.
+
+For the complete workflow **through HP upload**, use the same entry's
+[`--release` mode](docs/hypha_release_entry.md). It coordinates the approved signing/notarization
+producers, same-commit Windows installer, A3/A4/A5, LS verification, immutable GitHub Release,
+EN/JA homepage links, standard staged production deployment and public download hash checks.
+Human host/LS checkpoints and explicit candidate publication authorization remain mandatory.
+
+```bash
+node scripts/build_hypha.mjs --release --help
+```
+
+The AAX-free route:
+
 ```bash
 git clone https://github.com/heyalohaloha/kirin_hypha.git
 cd kirin_hypha

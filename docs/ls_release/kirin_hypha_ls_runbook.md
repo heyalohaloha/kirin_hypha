@@ -96,6 +96,13 @@ Do not rename, regenerate, or re-upload an existing artifact merely to make its 
 
 ## One Script Release Set
 
+For the end-to-end workflow through HP upload, start with
+[`node scripts/build_hypha.mjs --release`](../hypha_release_entry.md).
+It reuses the approved producers below and adds candidate-bound acceptance checkpoints,
+LS verification, immutable GitHub Release publication, EN/JA HP updates, the HP repository's
+standard staged production deployment, and download read-back. It does not skip host gates,
+automate an unavailable LS upload interface, or infer publication approval from a build request.
+
 After the macOS source bundles are built/notarized and the latest green CI artifact
 `KirinHypha-Windows-signed-full` has been downloaded, run:
 
@@ -283,8 +290,13 @@ The Lemon Squeezy check verifies:
 
 ## HP Free Download Channel (GitHub Release + Vercel)
 
+The current HP uses the signed `.pkg` as the primary macOS download and retains the `.zip`
+on the release page for manual recovery. Update the actual EN/JA PKG and Windows EXE links,
+version/date/format labels and their tests together; do not regress that established installer
+entry to ZIP-only.
+
 The homepage `kirinmastering.com/hypha` has a "Download for macOS — Free" button that links to a GitHub Release asset:
-`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.zip`
+`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`
 
 This is a SEPARATE channel from Lemon Squeezy and MUST be updated on every release. Run these AFTER Phase 1 (the bundles are already signed+notarized — the `.zip` reuses them).
 
@@ -306,37 +318,41 @@ the Lemon Squeezy dry run also checks the pkg payload listing.
 
 ### HP-2: Create the GitHub Release (the URL the HP links to)
 
+Use the candidate-bound release coordinator after A4/A5 and LS verification, with separate
+authorization for that exact candidate:
+
 ```bash
-RELEASE_COMMIT=<exact-40-character-release-commit>
-test "$(git rev-parse "$RELEASE_COMMIT^{commit}")" = "$RELEASE_COMMIT"
-
-gh release create vX.Y.Z --repo heyalohaloha/kirin_hypha --target "$RELEASE_COMMIT" \
-  --title "Kirin Hypha X.Y.Z" \
-  --notes "..." \
-  dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip \
-  dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip.sha256
-
-# A new tag must resolve to the immutable release commit, never merely to the
-# branch that happened to be current when this command ran.
-test "$(git ls-remote origin refs/tags/vX.Y.Z | cut -f1)" = "$RELEASE_COMMIT"
-
-# verify the asset URL resolves (must be HTTP 200 before the HP goes live):
-curl -sIL -o /dev/null -w '%{http_code}\n' \
-  "https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.zip"
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --execute --publish-approved EXACT_CANDIDATE_ID
 ```
+
+The coordinator uploads the PKG, ZIP, Windows EXE and required metadata/checksum sidecars into
+an exact-commit draft. It downloads and hashes actual bytes before publishing the draft and
+checks the final tag's commit. It does not replace mismatched existing assets or rebuild them.
+HTTP 200 alone is not an artifact qualification gate. The public-user-path downloads are also
+hashed before the HP update. See [the complete entry](../hypha_release_entry.md) for initialization.
 
 ### HP-3: Bump the website download links
 
-Update BOTH files (EN + JA) from the old `vN/...N...zip` to the new `vX.Y.Z/...X.Y.Z...zip`:
+Update BOTH files (EN + JA) to the same current Mac PKG and Windows EXE URLs:
 
 - `hypha.html` (EN, the `Download for macOS — Free` link)
 - `ja/hypha.html` (JA, the `macOS版を無料ダウンロード` link)
+
+Update the version, release date, platform/format copy and
+`scripts/__tests__/hypha-entry-links.test.mjs` together. The coordinator handles these three files
+as one planned change, refuses unrelated dirty changes, and runs the HP tests before commit/push.
 
 The website repository and deployment credentials are maintained separately from this public source repository. Update both language variants through that repository's documented release workflow.
 
 ### HP-4: Deploy the website
 
-Use the website repository's authorized production deployment workflow.
+Use the website repository's authorized `scripts/deploy-production-clean.sh` workflow: clean
+staged deployment, route/source verification, then production promotion and public verification.
+The coordinator invokes that standard entry, never a direct repo-root `vercel --prod`.
+
+HP publication reaches `RELEASED`; A7's public-installer/host smoke report is still required for
+`RELEASE_COMPLETE`. A confirmed public acceptance failure enters `RELEASE_INCIDENT`, not a PASS.
 
 **Order matters:** create the GitHub Release (HP-2) BEFORE deploying (HP-4) so the live page's link is not a 404.
 

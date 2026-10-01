@@ -42,6 +42,12 @@ built, signed, installed, and retested from its exact commit before release.
 
 ## Reproducible build
 
+To build PRE/POST × AAX/AU/VST3 in one shared native build graph, use the
+[unified build entry](hypha_build_entry.md): `node scripts/build_hypha.mjs --sdk PATH --license-confirmed`.
+It produces six unsigned Universal diagnostic bundles under `target/hypha-build/macos-universal/`,
+without PACE authorization, installation or notarization. The existing signing/distribution paths
+below remain separate and unchanged.
+
 Keep the SDK outside this GPL repository, then run the explicit diagnostic build:
 
 ```bash

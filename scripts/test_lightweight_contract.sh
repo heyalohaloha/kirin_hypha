@@ -13,6 +13,8 @@ run() {
 # full release-source gate. Keep it independent of JUCE builds, signing material, and hardware.
 run cargo fmt --all -- --check
 run node --test scripts/structural_repair_detection.test.mjs
+run node --test scripts/build_hypha.test.mjs
+run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_hp.test.mjs
 run bash scripts/test_source_line_budget.sh
 run bash scripts/check_source_line_budget.sh
 

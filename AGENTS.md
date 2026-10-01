@@ -66,7 +66,8 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 - ebur128 クレート（LUFS/TP）
 - 出荷processor / GUI: JUCE共通shell（macOS AU / VST3、Windows VST3、追加AAX）
 - nih-plug: 旧VST3 identityとstate互換性を検証するlegacy経路。出荷GUIの選定待ちではない
-- macOS通常build: `scripts/build_juce_universal.sh`。AAXは`docs/aax_build_signing_entry.md`、Windowsは対応手順書を正本とする
+- 全formatの統合入口: `node scripts/build_hypha.mjs`。build-onlyは`docs/hypha_build_entry.md`、ビルドからHPアップまでは同scriptの`--release`（`docs/hypha_release_entry.md`）。MacはPRE/POST × AAX/AU/VST3 Universal、WindowsはPRE/POST × AAX/VST3 x64。未署名診断buildはiLok不要。release modeは正規署名・公証・受入・3チャネル配布・英日HP反映・公開物再取得までをつなぐ。実host gate、LS operator工程、candidateの公開承認は省略しない
+- AAX不要のmacOS通常build: `scripts/build_juce_universal.sh`。署名は`docs/aax_build_signing_entry.md`、Windows配布は対応手順書を正本とする
 - 対象DAWと受入状況: `README.md`と各hostの検証記録を参照し、formatの生成成功をhost対応完了としない
 
 ## 絶対原則
