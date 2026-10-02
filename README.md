@@ -212,7 +212,7 @@ conformance and does not use the EBU logo.
 | Watch mode | ✓ | ✓ |
 | POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Local PRE/POST Blind Compare | ✓ | ✓ |
-| Live PRE/POST compare (Windows: Pro Tools check pending) | ✓ | ✓ |
+| Live PRE/POST compare | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -639,7 +639,7 @@ It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Too
 on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
 multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
 multi-mono plug-in in parallel. On Windows it passes the same automated end-to-end tests as macOS
-and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checked.
+and was checked in Studio Pro (VST3) and Pro Tools (AAX).
 
 1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
    300%) in the footer.
