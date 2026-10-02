@@ -75,7 +75,7 @@ pub(super) fn remove_attack_snapshot(instance_dir: &Path) {
 }
 
 /// `band` is the band POST asked for; `results` what this side's worker published. Version 4 is
-/// written whenever a band is asked for, with no hits while the results are still another band's.
+/// written whenever a band is asked for, with no hits while the results are another band's/run's.
 pub(super) fn encode_attack_snapshot(
     request_id: Uuid,
     history: &AttackHistory,
@@ -134,7 +134,17 @@ pub(super) fn encode_attack_snapshot(
         encode_detail(&mut bytes, detail);
     }
     if let Some(band) = band {
-        band::encode_band_section(&mut bytes, band, results);
+        band::encode_band_section(
+            &mut bytes,
+            band,
+            results,
+            &band::BandIdentity {
+                generation: identity.generation,
+                sample_rate: identity.sample_rate,
+                channels: identity.channels,
+                definition_hash: identity.definition_hash,
+            },
+        );
     }
     bytes
 }

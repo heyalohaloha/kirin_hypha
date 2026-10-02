@@ -23,6 +23,21 @@ pub struct AttackBandDetail {
 }
 
 impl AttackBandDetail {
+    /// The same run and definition as the hit/header being presented. Onsets may repeat after
+    /// a seek; a valid record of another run must never supply this run's values or tail.
+    pub fn matches_run(
+        &self,
+        generation: u64,
+        sample_rate: u32,
+        channels: u8,
+        definition_hash: &[u8; 32],
+    ) -> bool {
+        self.event.generation == generation
+            && self.event.sample_rate == sample_rate
+            && self.event.channels == channels
+            && &self.event.definition_hash == definition_hash
+    }
+
     pub fn has_valid_layout(&self) -> bool {
         self.event.has_valid_layout()
             && self.span_end_sample > self.event.event_sample

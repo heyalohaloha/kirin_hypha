@@ -2,6 +2,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
+#include "LiveTimingFixtureAccess.h"
 #include "LiveBlindLoopFixture.h"
 
 #include <atomic>

@@ -12,6 +12,9 @@
 #include "LiveBlindSession.h"
 #include "LiveCompareAuthority.h"
 #include "LiveCompareTimingPreparation.h"
+#include "LiveCompareReentry.h"
+#include "LiveCompareGainApproval.h"
+#include "LiveBlindPreparation.h"
 
 #include <atomic>
 #include <cstdint>
@@ -41,6 +44,7 @@ struct Status
     bool preAudible = false;
     bool preWaiting = false;  // PRE selected, POST sounding because correspondence is not proven
     bool interrupted = false; // offline render or bypass ended the session; select PRE again
+    bool timingReentryPending = false;
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
@@ -58,10 +62,24 @@ struct ProcessorState
 {
     Authority authority;
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
+    std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
     BlindSession blind;
+    BlindPreparation blindTiming;
     NamedSelection selection;
+    NamedReentry reentry; // Audio Thread only; no output/Blind authority
+    GainApproval gainApproval; // all fields covered by gainRevision
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
+    std::atomic<std::uint64_t> blindGainRevision { 0 }; // trial's approved tuple, not a UI inference
+    std::atomic<std::uint64_t> blindTimingRequest { 0 }, blindTimingAuthority { 0 };
+    std::atomic<std::uint64_t> blindTimingReceipt { 0 };
+    std::uint64_t blindTimingSeen = 0; // Audio Thread only
+    void cancelTimingAdmission() noexcept // message thread; old pending requests cannot be adopted
+    {
+        blindTimingAuthority.store (UINT64_MAX, std::memory_order_relaxed); // never a permitted ticket
+        blindTimingRequest.fetch_add (1, std::memory_order_release);
+    }
+    std::atomic<bool> timingReentryPending { false };
     std::atomic<bool> matched { false }, matchLimited { false };
     std::atomic<bool> matchRetained { false }; // fixed gains remain, independently of current proof
     std::atomic<std::uint32_t> matchRun { 0 };

@@ -180,7 +180,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     livePostButton.setDescription (postHelp);
     livePostButton.setTooltip (postHelp);
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
-    const juce::String matchHelp = state.matchHeld ? "MATCH held; rematch to confirm levels" : state.following
+    const juce::String matchHelp = state.matchHeld ? "MATCH held; select PRE to check timing" : state.following
         ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO"
         : state.matchLimited
         ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
