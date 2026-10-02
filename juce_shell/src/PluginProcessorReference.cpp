@@ -1,5 +1,9 @@
 #include "kirin_hypha_reference_capture_ffi.h"
 #include "PluginProcessor.h"
+#include "reference_audition/ReferenceLiveWindowLoudness.h"
+
+#include <cmath>
+#include <limits>
 
 
 hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSnapshot() const
@@ -22,11 +26,28 @@ void KirinHyphaProcessorBase::setReferenceViewPresented (bool active)
    #endif
 }
 
-hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALevel() const
+hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALevel (bool windowOnly) const
 {
+    namespace ref = hypha::reference_audition;
     KirinObservatoryFrame frame {};
     const bool received = pollObservatoryFrame (frame);
-    return hypha::reference_audition::liveALevel (frame, received, heartbeatLive(), isPlaying());
+    auto level = ref::liveALevel (frame, received, heartbeatLive(), isPlaying());
+    if (! std::isfinite (level.loudness)) return level;
+    // H2: A の音量は直近 10 秒のゲートつき音量（積算の Integrated は使わない）。Peak と上限はセッションの
+    // max TP のまま。窓が 3 秒に満たないあいだ（再生を始めた直後・シークの後）は、選ぶときは積算の値を
+    // 使い、追従（windowOnly）では値なしにして直前の gain を保たせる。
+   #if ! KIRIN_HYPHA_PRE_DISPLAY  // Reference の試聴は POST だけ（PRE は窓の計算を持たない）
+    std::vector<KirinMeterHistoryEntry> history;
+    const auto window = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, ref::liveWindowBlocks, ref::liveWindowBlocks)
+        ? ref::liveWindowLoudness (history) : ref::LiveWindowLoudness {};
+    if (window.gatedBlocks >= ref::liveWindowMinimumGatedBlocks && std::isfinite (window.lufs))
+        level.loudness = window.lufs;
+    else if (windowOnly)
+        level.loudness = std::numeric_limits<double>::quiet_NaN();
+   #else
+    juce::ignoreUnused (windowOnly);
+   #endif
+    return level;
 }
 
 bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAudition (1); }

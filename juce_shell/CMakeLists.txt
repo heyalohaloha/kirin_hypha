@@ -181,6 +181,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceLibraryRepository.cpp
     src/reference_audition/ReferenceLibrarySets.cpp
     src/reference_audition/ReferenceSourceRanges.cpp
+    src/reference_audition/ReferenceLiveWindowLoudness.cpp
     src/reference_audition/ReferenceLibraryRecovery.cpp
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
@@ -899,6 +900,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
         tests/reference_library_sets_test.cpp
+        tests/reference_live_window_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
