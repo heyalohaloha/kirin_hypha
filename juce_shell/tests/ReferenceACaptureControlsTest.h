@@ -2,6 +2,7 @@
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaObservatoryContract.h"
 #include "../src/HyphaReferenceComparisonView.h"
+#include "../src/HyphaLanguage.h"
 #include <iostream>
 namespace hypha::tests
 {
@@ -9,6 +10,48 @@ inline void verifyCaptureControls()
 {
     const auto check=[](bool v,const char* why){if(!v){std::cerr<<"Capture UI: "<<why<<'\n';std::exit(1);}};
     auto access=std::make_shared<reference_audition::ACaptureAccess>();
+    for(auto language:{i18n::Language::english,i18n::Language::japanese})
+    {
+        const i18n::ScopedLanguage scope(language);
+        for(int width:{300,375,450,600,900})
+        {
+            const auto context=presentation::forEditor(width,width*2/3);
+            reference_ui::CaptureControls row; row.setSize(width-30,24);
+            const auto font=labelFont(context,typography::TextRole::captureMetadata,typography::Composition::information);
+            auto translatedAccess=std::make_shared<reference_audition::ACaptureAccess>();
+            const auto verify=[&](int phase) {
+                row.update(translatedAccess,false,context);
+                juce::Rectangle<int> previous;
+                for(const char* id:{"capture-a-action","capture-a-cancel","capture-a-view"}) {
+                    auto* button=dynamic_cast<juce::Button*>(row.findChildWithID(id));
+                    check(button!=nullptr,"capture button exists");
+                    if(!button->isVisible()) continue;
+                    check(text_style::shownWidth(font,button->getButtonText())<=button->getWidth()-6,
+                          "every translated capture command fits without ellipsis");
+                    check(row.getLocalBounds().contains(button->getBounds()) && !previous.intersects(button->getBounds()),
+                          "translated commands remain reachable and do not overlap");
+                    previous=button->getBounds();
+                }
+                const auto output=juce::SystemStats::getEnvironmentVariable("KIRIN_REFERENCE_VISUAL_OUTPUT",{});
+                if(output.isNotEmpty() && language==i18n::Language::japanese) {
+                    juce::File root(output); check(root.createDirectory(),"translated capture image directory");
+                    juce::Image image(juce::Image::ARGB,row.getWidth(),row.getHeight(),true); juce::Graphics g(image); row.paintEntireComponent(g,true);
+                    juce::FileOutputStream out(root.getChildFile("capture-ja-row-"+juce::String(width)+"-"+juce::String(phase)+".png"));
+                    check(juce::PNGImageFormat().writeImageToStream(image,out),"translated capture row rendered");
+                }
+            };
+            verify(0);
+            check(translatedAccess->request(reference_audition::ACaptureAccess::start),"translated capture starts");
+            verify(1);
+            translatedAccess->advance(translatedAccess->operationView().id,reference_audition::CaptureOperationPhase::capturing);
+            verify(2);
+            translatedAccess->advance(translatedAccess->operationView().id,reference_audition::CaptureOperationPhase::finalizing);
+            verify(3);
+            translatedAccess->complete(translatedAccess->operationView().id);
+            reference_audition::ACaptureState saved; saved.held=std::make_shared<reference_audition::ACaptureData>();
+            translatedAccess->publish(saved); verify(4);
+        }
+    }
     auto captured=std::make_shared<reference_audition::ACaptureData>(); captured->rate=48000; captured->channels=2;
     captured->id="held-a"; captured->created=juce::Time::currentTimeMillis(); captured->frames=48000*120; captured->complete=true;
     auto timeline=std::make_shared<reference_audition::VisualTimeline>(); timeline->capture=captured;

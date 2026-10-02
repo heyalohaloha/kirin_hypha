@@ -3,11 +3,14 @@
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
 #include "../../src/live_compare/LiveBlindSession.h"
+#include "../ExactPcmOracle.h"
+#include "../../src/live_compare/LiveCompareIdle.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <new>
 #include <vector>
@@ -144,8 +147,12 @@ static void userSwitchFadesBothWays()
     pair.step (true, true, 1.0f);
     const auto out = pair.step (true, false, 1.0f);
     require (out.verdict == Verdict::accepted && ! out.preAudible, "selecting POST fades PRE out within the block");
+    require (! out.stableSource, "a transition block is never reported as a stable POST receipt");
     require (pair.post[0][frames - 1] == postValue, "the fade ends exactly at POST");
-    pair.step (true, false, 1.0f);
+    const auto settled = pair.step (true, false, 1.0f);
+    require (settled.stableSource && settled.gainSettled
+             && settled.audibleSource == RenderReport::AudibleSource::post,
+             "the first direct POST block earns a typed receipt");
     require (pair.postUntouched(), "POST selected leaves POST bit-identical");
 }
 
@@ -155,7 +162,14 @@ static void approvedGainAppliesToPre()
     Pair pair;
     pair.calibrate (true, 0.5f);
     pair.step (true, true, 0.5f);
-    require (pair.post[0][7] == preValue (pair.clock - frames + 7, 0) * 0.5f, "PRE is played at the approved gain");
+    const auto direct = pair.step (true, true, 0.5f);
+    require (direct.stableSource && direct.gainSettled
+             && direct.audibleSource == RenderReport::AudibleSource::pre,
+             "only the direct PRE path earns a typed receipt");
+    for (int c = 0; c < 2; ++c)
+        for (int i = 0; i < frames; ++i)
+            require (pair.post[c][i] == preValue (pair.clock - frames + i, c) * 0.5f,
+                     "direct PRE is exact at every frame with the approved gain");
 }
 
 // More than two channels never render PRE; without demand PRE publishes nothing.
@@ -297,7 +311,7 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc3-", 0) == 0, "versioned name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc6-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");
@@ -372,6 +386,16 @@ static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
 
 int main()
 {
+    require (hypha::test::exactPcmControls(), "exact PCM oracle positive and negative controls");
+    for (const bool lease : { false, true })
+        for (const bool finishing : { false, true })
+            for (const bool anonymous : { false, true })
+                require (unchangedPostOnly (lease, finishing, anonymous, 1.0f, 1.0f)
+                    == (! lease && ! finishing && ! anonymous), "idle routing never bypasses comparison ownership");
+    for (const auto level : { 0.0f, 0.5f, std::nextafter (1.0f, 0.0f), std::nextafter (1.0f, 2.0f),
+                             std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity() })
+        require (! unchangedPostOnly (false, false, false, level, 1.0f)
+                 && ! unchangedPostOnly (false, false, false, 1.0f, level), "held, unsettled or invalid levels never use idle routing");
     BlindSession trial;
     NamedSelection selection;
     for (int i = 0; i < 1000; ++i)
@@ -389,7 +413,11 @@ int main()
         Pair pair;
         pair.calibrate (false, 1.0f);
         auto report = pair.step (true, choosePre, 1.0f, false, 2, false, true);
-        require (report.stableSource && report.gainSettled, "proven Blind source earns an output receipt");
+        require (report.stableSource == ! choosePre && report.gainSettled,
+                 "only a wholly stable Blind block earns an output receipt");
+        report = pair.step (true, choosePre, 1.0f, false, 2, false, true);
+        require (report.stableSource && report.gainSettled,
+                 "the first whole block of either Blind source earns its receipt");
         report = pair.step (true, choosePre, 1.0f, false, 2, true, true);
         require (report.guardTripped && ! report.stableSource && pair.postUntouched(),
                  "invalid PRE ends Blind even when anonymous POST is selected");

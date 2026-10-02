@@ -37,6 +37,8 @@ static void print (const char* name, const Tally& t)
                  t.overwritten, t.writingOrTorn, t.gapsPre, t.gapsPost, t.disagreementInvalidations);
 }
 
+#include "LiveCompareClockProvenanceTest.h"
+
 // The G1 protocol: loops, seeks, stop and play, a backward seek within one pass, a forward seek into
 // silence, a PRE-only sleep during playback and a POST-only sleep of about 5 s during a stop.
 static Tally protocol (HostModel model, CalibrationProfile calibration = {})
@@ -244,6 +246,7 @@ static void concurrentReadersNeverSeeTornBlocks()
 
 int main()
 {
+    rawClockOriginsNeverSilentlyShareAProof();
     measuredHostsNeverAcceptWrongPre();
     postOnlySleepIsCaughtByTheGapRule();
     latencyChangesAreBoundedByM1();

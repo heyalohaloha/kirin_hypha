@@ -1,6 +1,7 @@
 #include "HyphaReferenceGuide.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaTextStyle.h"
 
@@ -70,7 +71,7 @@ juce::String detailFor (SourceStep step)
         case SourceStep::attention: return "The source changed or could not be opened.";
         case SourceStep::waitingForKirinOs:
             return "Versions and References registered in Kirin OS arrive here automatically.";
-        case SourceStep::playDaw: return "B and C play at the same place in the song as A.";
+        case SourceStep::playDaw: return "B follows the song; C uses its Cue.";
         case SourceStep::ready: break;
     }
     return {};
@@ -152,17 +153,34 @@ Guide guide (const State& state)
     result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned
         && ! state.bSelected && ! isBlindSession (state.blindPhase) && ! workflowActive
         && ! (state.captureAccess && state.captureAccess->capturedView)
-        && result.version != SourceStep::ready && result.check != SourceStep::ready;
+        && result.version != SourceStep::ready && result.check != SourceStep::ready
+        && ! (state.comparisonSlot == 2 && !state.viewBindings.empty()
+            && (state.detailedMeasurement || !state.profiles.empty()
+                || (state.visualTimeline && state.visualTimeline->tonalAvailable)));
     const bool versionApproval = result.version == SourceStep::approveSampleRate;
     const bool checkApproval = result.check == SourceStep::approveSampleRate;
+    if (state.pendingAudition.stage != reference_audition::PendingAuditionView::Stage::none)
+    {
+        result.heading = pendingAuditionHeading (state);
+        result.detail = state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::approval
+            ? juce::String ("Approve below. A stays live; press A to cancel.")
+            : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable
+            ? juce::String ("Prepare this source in Kirin OS. A stays live.")
+            : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::ceilingExceeded
+            ? juce::String ("MATCH exceeds the safe level. A stays live.")
+            : pendingAuditionReason (state) + " / "
+            + (state.pendingAudition.waiting() ? "A stays live until ready. Press A to cancel."
+                                              : "A stays live. Choose the source again.");
+        return result;
+    }
     if (! state.libraryReceived && ! versionApproval && ! checkApproval)
     {
         result.heading = state.osOnline ? "Receiving from Kirin OS" : "Open Kirin OS";
         result.detail = detailFor (SourceStep::waitingForKirinOs);
         return result;
     }
-    const auto first = versionApproval ? result.version : checkApproval ? result.check
-        : ! state.aAvailable ? SourceStep::playDaw
+    const auto first = !state.aAvailable ? SourceStep::playDaw
+        : versionApproval ? result.version : checkApproval ? result.check
         : result.version != SourceStep::ready ? result.version : result.check;
     const bool version = versionApproval || (! checkApproval && state.aAvailable && result.version != SourceStep::ready);
     result.heading = headingFor (first, version);
@@ -175,12 +193,20 @@ void Component::syncSourceButtons()
     // Side by side, B and C stay clickable while they cannot be heard; the one-slot page keeps B
     // disabled until it is ready.
     const bool versionAudible = canHearVersion (current), checkAudible = canHearCheck (current);
+    const bool bQueue = canQueueSource (current, true), cQueue = canQueueSource (current, false);
+    const bool waiting = current.pendingAudition.waiting();
+    bButton.setButtonText (waiting && current.pendingAudition.slot == 1 ? "B..." : "B");
+    cButton.setButtonText (waiting && current.pendingAudition.slot == 2 ? "C..." : "C");
+    bButton.setAttention (waiting && current.pendingAudition.slot == 1);
+    cButton.setAttention (waiting && current.pendingAudition.slot == 2);
     bButton.setEnabled (current.separateComparisons || versionAudible);
-    bButton.setReady (! current.separateComparisons || versionAudible);
-    bButton.setTooltip (! current.separateComparisons || versionAudible
+    bButton.setReady (! current.separateComparisons || versionAudible || bQueue);
+    bButton.setTooltip (bQueue ? "Queue B for DAW playback. A stays live until ready; press A to cancel."
+        : ! current.separateComparisons || versionAudible
         ? "Audition the Kirin OS prepared Reference (B)." : unavailableText (current, true));
-    cButton.setReady (checkAudible);
-    cButton.setTooltip (checkAudible ? juce::String() : unavailableText (current, false));
+    cButton.setReady (checkAudible || cQueue);
+    cButton.setTooltip (cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
+        : checkAudible ? juce::String() : unavailableText (current, false));
     guideShown = guide (current).shown;
 }
 
@@ -188,7 +214,8 @@ bool Component::explainUnavailable (bool version)
 {
     const bool audible = version ? ! current.separateComparisons || canHearVersion (current)
                                  : canHearCheck (current);
-    if (audible) return false;
+    if (audible || canQueueSource (current, version)) return false;
+    if (onSelectVisualSlot) onSelectVisualSlot (version ? 1 : 2);
     if (onExplain) onExplain (unavailableText (current, version));
     return true;
 }
@@ -206,7 +233,7 @@ void Component::paintSourceHints (juce::Graphics& g) const
                                             std::tuple { &checkBox, shown.check, "C / CHECK" } })
     {
         // An empty B / VERSION already reads "Choose Version".
-        if (step == SourceStep::ready || step == SourceStep::chooseVersion || ! box->isVisible())
+        if (step == SourceStep::ready || step == SourceStep::chooseVersion || ! selectionVisible (*box))
             continue;
         auto row = box->getBounds().withY (box->getY() - 17).withHeight (15).withTrimmedRight (4);
         row.removeFromLeft (juce::roundToInt (text_style::shownWidth (font, label)) + 12);
@@ -301,8 +328,8 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
         fit.rows = paintRow (g, content.removeFromTop (rowHeight), rows[index], context) && fit.rows;
 
     // How to use them, at the full sizes.
-    const auto footnote = juce::String ("While the DAW plays, press A, B or C to switch what you "
-                                        "hear. B and C are matched to A's loudness.");
+    const auto footnote = juce::String ("Press A, B or C to switch audio. VIEW changes only the visuals. "
+                                      "The audition level is shown while listening.");
     const auto footnoteHeight = wrappedHeight (footnote, bodyFont, content.getWidth());
     if (! full || content.getHeight() < footnoteHeight + 12)
         return fit;

@@ -1,0 +1,23 @@
+#include <winver.h>
+// Real native resource reproduces Studio Pro's fixed/string version disparity.
+1 VERSIONINFO
+ FILEVERSION 8,1,2,0
+ PRODUCTVERSION 8,1,2,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0x0L
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904b0"
+  BEGIN
+   VALUE "FileVersion", "8.1.2.113407\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END

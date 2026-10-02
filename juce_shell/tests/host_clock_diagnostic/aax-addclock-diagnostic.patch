@@ -1,0 +1,65 @@
+diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+--- a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
++++ b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+@@ -414,1 +414,5 @@
+         void setKirinAuxiliaryClockSamples (Optional<int64_t> value) { setOptional (flagKirinAuxiliaryClock, kirinAuxiliaryClockSamples, value); }
++       #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++        Optional<int64_t> getKirinDiagnosticAddClockSamples() const { return kirinDiagnosticAddClockSamples; }
++        void setKirinDiagnosticAddClockSamples (Optional<int64_t> value) { kirinDiagnosticAddClockSamples = value; }
++       #endif
+@@ -458,1 +462,4 @@
+                                         i.getKirinAuxiliaryClockSamples(),
++                                       #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++                                        i.getKirinDiagnosticAddClockSamples(),
++                                       #endif
+@@ -541,1 +548,4 @@
+         int64_t kirinAuxiliaryClockSamples = 0;
++       #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++        Optional<int64_t> kirinDiagnosticAddClockSamples;
++       #endif
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+@@ -505,1 +505,4 @@
+         int32_t* sideChainBuffers;
++       #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++        AAX_CTimestamp* diagnosticAddClock;
++       #endif
+@@ -532,1 +535,4 @@
+             sideChainBuffers  = AAX_FIELD_INDEX (JUCEAlgorithmContext, sideChainBuffers)
++           #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++            , diagnosticAddClock = AAX_FIELD_INDEX (JUCEAlgorithmContext, diagnosticAddClock)
++           #endif
+@@ -1181,1 +1187,7 @@
+             info.setKirinAuxiliaryClockSamples (info.getIsPlaying() ? optionalTimeInSamples : nullopt);
++           #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++            // Diagnostic-only, raw context value while the algorithm callback is active.
++            // Do NOT call GetTODLocation or substitute native/project time for this field.
++            if (diagnosticAddClockValid.load (std::memory_order_acquire))
++                info.setKirinDiagnosticAddClockSamples (diagnosticAddClockValue.load (std::memory_order_relaxed));
++           #endif
+@@ -2019,1 +2031,8 @@
++               #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++                auto& parameters = i.pluginInstance->parameters;
++                parameters.diagnosticAddClockValid.store (false, std::memory_order_release);
++                if (i.diagnosticAddClock != nullptr)
++                    parameters.diagnosticAddClockValue.store (*i.diagnosticAddClock, std::memory_order_relaxed);
++                parameters.diagnosticAddClockValid.store (i.diagnosticAddClock != nullptr, std::memory_order_release);
++               #endif
+                 i.pluginInstance->parameters.process (i.inputChannels, i.outputChannels, sideChainBufferIdx,
+@@ -2022,1 +2041,4 @@
+                                                       meterTapBuffers);
++               #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++                parameters.diagnosticAddClockValid.store (false, std::memory_order_release);
++               #endif
+@@ -2266,1 +2288,5 @@
+         AAX_CSampleRate sampleRate = 0;
++       #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++        std::atomic<int64_t> diagnosticAddClockValue { 0 };
++        std::atomic<bool> diagnosticAddClockValid { false };
++       #endif
+@@ -2450,1 +2476,4 @@
+         check (desc.AddDataInPort (JUCEAlgorithmIDs::bypass, sizeof (int32_t)));
++       #if KIRIN_CLOCK_DIAGNOSTIC_ADD_CLOCK
++        check (desc.AddClock (JUCEAlgorithmIDs::diagnosticAddClock));
++       #endif

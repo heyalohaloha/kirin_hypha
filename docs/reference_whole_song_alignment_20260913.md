@@ -130,7 +130,7 @@ Use the existing ITU-R BS.1770 aligned-active-block policy: 400 ms windows at a
 100 ms hop, at least 27 consecutive paired active blocks, and the median A−B
 loudness difference. A stays at 0 dB and B receives the full fixed gain.
 The ceiling is max(-1 dBTP, A observation TP, B measured whole-source TP).
-If the full B gain exceeds that ceiling, normal B stays at original level; Blind
+If the full B gain exceeds that ceiling, normal B does not start and reports the reason; Blind
 requires explicit approval of the displayed full attenuation for A, with B at
 0 dB. END authorizes the return to normal A, including while the host is paused.
 Partial gain, split gain, dynamic leveling, EQ and limiting are excluded.

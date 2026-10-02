@@ -89,6 +89,24 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         button->setVisible (false);
     if (captureFrame)
         return false;
+    if (liveCompareState.finishing)
+    {
+        // The comparison is closed. Keep the pending rise and MENU, not disabled trial controls.
+        for (auto* button : { &hybridVuButton, &stopButton, &noteButton, &localBlindButton, &liveCompareButton })
+            button->setVisible (false);
+        const auto pending = liveCompareState.postHeldTenthsDb < 0
+            ? "RETURNING " + signedGain (-liveCompareState.postHeldTenthsDb) : juce::String ("RETURNING");
+        liveReturnButton.setButtonText (pending);
+        liveReturnButton.setTitle (pending);
+        liveReturnButton.setDescription ("Ended; normal level returns with audio");
+        liveReturnButton.setTooltip (liveReturnButton.getDescription());
+        liveReturnButton.setStatusOnly (true);
+        liveReturnButton.setVisible (true);
+        operationsButton.setVisible (true);
+        placeFooterButtons ({ &liveReturnButton, &operationsButton },
+            { footerButtonWidth (pending), footerButtonWidth (operationsButton.getButtonText()) }, actions);
+        return true;
+    }
     if (! liveCompareState.active)
         return liveCompareState.postHeldTenthsDb < 0 && layoutHeldAttenuation (actions);
     for (auto* button : { &hybridVuButton, &stopButton, &noteButton, &localBlindButton, &liveCompareButton })
@@ -185,6 +203,9 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 bool View::layoutHeldAttenuation (juce::Rectangle<int> actions)
 {
     localBlindButton.setVisible (false);
+    liveReturnButton.setStatusOnly (false);
+    liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
+    liveReturnButton.setTooltip (liveReturnButton.getDescription());
     const juce::String named = "RETURN " + signedGain (-liveCompareState.postHeldTenthsDb);
     juce::Array<juce::Button*> everything;
     for (auto* button : { static_cast<juce::Button*> (&hybridVuButton), static_cast<juce::Button*> (&stopButton),

@@ -19,16 +19,19 @@ class PreFeeder
 public:
     bool feed (Ring& ring, const BlockClock& block, const float* const* input, int channels) noexcept
     {
+        if (ring.header.timing.sequence.load (std::memory_order_relaxed) == 0) publisher.reset();
+        const auto continuity = timing.observe (ring.header.timing, block, ring.header.sampleRate.load (std::memory_order_relaxed));
         if (ring.header.demand.load (std::memory_order_acquire) == 0)
         {
             publisher.reset();
             return false;
         }
-        publisher.publish (ring, block, input, channels);
+        publisher.publishAfterClock (ring, block, input, channels, continuity);
         return true;
     }
 
 private:
+    TimingPublisher timing;
     Publisher publisher;
 };
 
@@ -116,6 +119,12 @@ public:
     // The largest gain the next block reaches: a rising ramp is checked at its end.
     float peak (float wanted) const noexcept { return std::max (current, wanted); }
 
+    bool settledAt (float wanted) const noexcept
+    {
+        return position >= rampFrames && current >= wanted && current <= wanted
+            && target >= wanted && target <= wanted;
+    }
+
 private:
     float start = 1.0f, current = 1.0f, target = 1.0f; // Audio Thread only
     int rampFrames = 2400, position = 2400;
@@ -123,14 +132,17 @@ private:
 
 struct RenderReport
 {
+    enum class AudibleSource : std::uint8_t { none, post, pre };
+
     Verdict verdict = Verdict::noClock;
     RecoveryReason reason = RecoveryReason::none;
     bool preAudible = false;   // PRE weight above zero at the end of the block
     bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
     bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
-    bool stableSource = false; // at least one frame entirely from the requested side
-    bool gainSettled = false;  // PRE gain and POST level reached the command targets
+    bool stableSource = false; // every frame used one direct, exact source path
+    bool gainSettled = false;  // every frame used the command's PRE and POST gain targets
     bool timelineChanged = false;
+    AudibleSource audibleSource = AudibleSource::none;
 };
 
 // POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
@@ -164,6 +176,10 @@ public:
         consumer.reset();
         weight = 0.0f;
     }
+
+    bool adoptInitialTiming (const Ring& ring, const BlockClock& block,
+                             const TimingEvidence& evidence) noexcept
+    { return consumer.adoptInitialTiming (ring, block, evidence); }
 
     // MATCH (non-RT) reads the POST input history, contiguous over [start, end) of POST's clock,
     // and the K that mapped the latest block, then verifies the history was not overwritten.
@@ -282,19 +298,38 @@ public:
         const float target = preSelected ? 1.0f : 0.0f;
         if (weight <= 0.0f && target <= 0.0f)
         {
+            const bool settled = post.value() >= postTarget && post.value() <= postTarget;
             post.apply (io, channels, block.frames, postTarget);
+            report.stableSource = settled;
+            report.gainSettled = settled;
+            report.audibleSource = settled ? RenderReport::AudibleSource::post
+                                           : RenderReport::AudibleSource::none;
+            return report;
+        }
+        // Once both ramps are already settled, bypass the crossfade arithmetic entirely. The
+        // Blind receipt therefore describes the exact path that produced this whole block, not
+        // an inference from ramp state after a multiply/add loop. This is also the cheap steady
+        // state: one PRE gain multiply, or the bit-identical POST fast path above.
+        if (weight >= 1.0f && target >= 1.0f && preLevel.settledAt (preGain)
+            && post.value() >= postTarget && post.value() <= postTarget)
+        {
+            for (int channel = 0; channel < channels; ++channel)
+                for (std::int32_t i = 0; i < block.frames; ++i)
+                    io[channel][i] = scratch[std::min (channel, 1)][i] * preGain;
+            report.preAudible = true;
             report.stableSource = true;
-            report.gainSettled = post.value() >= postTarget && post.value() <= postTarget;
+            report.gainSettled = true;
+            report.audibleSource = RenderReport::AudibleSource::pre;
             return report;
         }
         const float step = 1.0f / static_cast<float> (fadeFrames);
+        bool gainSettled = true;
         for (std::int32_t i = 0; i < block.frames; ++i)
         {
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
             const float postGain = post.next (postTarget) * (1.0f - weight);
             const float gain = preLevel.next (preGain);
-            report.stableSource = report.stableSource || (weight >= target && weight <= target);
-            report.gainSettled = gain >= preGain && gain <= preGain
+            gainSettled = gainSettled && gain >= preGain && gain <= preGain
                 && post.value() >= postTarget && post.value() <= postTarget;
             for (int channel = 0; channel < channels; ++channel)
             {
@@ -302,6 +337,10 @@ public:
                 io[channel][i] = io[channel][i] * postGain + pre * weight;
             }
         }
+        // Even if a ramp reaches its target during this block, its samples came through the
+        // transition equation. The next direct-path block earns the audible receipt.
+        report.stableSource = false;
+        report.gainSettled = gainSettled;
         report.preAudible = weight > 0.0f;
         return report;
     }

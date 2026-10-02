@@ -7,6 +7,7 @@
 #include "PairPreviewUiContractTest.h"
 #include "ReferenceTonalViewContractTest.h"
 #include "ReferenceGuideContractTest.h"
+#include "ReferenceVisualNavigationTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -90,6 +91,7 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    verifyReferenceVisualNavigation();
     verifyReferenceVisualComparison(); verifyCaptureControls();
     KIRIN_REF_REQUIRE (verifyReferenceTonalViewContract());
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
@@ -436,7 +438,7 @@ void verifyReferenceAuditionComponentContract()
     abc.blindPhase = reference_ui::BlindPhase::available;
     abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
     component.setState (abc);
-    KIRIN_REF_REQUIRE (!cue->isVisible() && startBlind->isEnabled());
+    KIRIN_REF_REQUIRE (cue->isVisible() && startBlind->isEnabled());
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
     abc.blindPhase = reference_ui::BlindPhase::active;
     abc.activeBlindStimulus = 1;

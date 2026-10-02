@@ -50,7 +50,8 @@ void recoveryPreview (observatory::View& view, const juce::String& name)
     const auto dir = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     if (dir.isEmpty()) return;
     auto stream = juce::File (dir).getChildFile (name + ".png").createOutputStream();
-    require (stream != nullptr && juce::PNGImageFormat().writeImageToStream (
+    require (stream != nullptr && stream->setPosition (0) && stream->truncate().wasOk()
+        && juce::PNGImageFormat().writeImageToStream (
         view.createComponentSnapshot (view.getLocalBounds()), *stream), "recovery preview renders");
 }
 }
@@ -66,7 +67,7 @@ void verifyLiveCompareFooterContract()
         for (auto preset : observatory::sizePresets)
         {
             post.setSize (preset.width, preset.height);
-            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopWaiting); ++code)
+            for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++code)
                 for (int phase = 0; phase < 4; ++phase)
                 {
                     live_compare::Status recovery;
@@ -80,6 +81,11 @@ void verifyLiveCompareFooterContract()
                     recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
                     recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
                     const auto* notice = live_compare_ui::namedRecovery (recovery);
+                    if (recovery.active && (recovery.observation == live_compare::RecoveryReason::loopUnproven
+                        || recovery.observation == live_compare::RecoveryReason::loopClockUnavailable))
+                        require (live_compare_ui::namedPresentation (recovery).action
+                            == live_compare_ui::RecoveryAction::none && juce::String (notice).contains ("POST"),
+                            "unprovable initial loop is explicit, not an instruction to wait, turn LOOP off or rematch");
                     observatory::LiveCompareFooter footer;
                     footer.active = recovery.active;
                     footer.preSelected = recovery.preSelected;
@@ -90,7 +96,8 @@ void verifyLiveCompareFooterContract()
                     post.setLiveCompareFooter (footer);
                     post.setFeedback (notice);
                     if (phase == 0 && (recovery.reason == live_compare::RecoveryReason::loopWaiting
-                        || recovery.reason == live_compare::RecoveryReason::loopUnproven))
+                        || recovery.reason == live_compare::RecoveryReason::loopUnproven
+                        || recovery.reason == live_compare::RecoveryReason::loopClockUnavailable))
                         recoveryPreview (post, "loop-" + juce::String (code) + "-"
                             + juce::String (static_cast<int> (language)) + "-" + juce::String (preset.width));
                     if (juce::String (notice).contains ("RETURN"))
@@ -374,6 +381,45 @@ void verifyLiveCompareFooterContract()
     }
     returnButton->onClick();
     require (returned == 1, "RETURN reaches the editor");
+    for (auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const auto preset : observatory::sizePresets)
+            for (const int rise : { 0, 70, 240 })
+            {
+                state = {};
+                state.finishing = true;
+                state.postHeldTenthsDb = -rise;
+                post.setSize (preset.width, preset.height);
+                post.setLiveCompareFooter (state);
+                live_compare::Status pending;
+                pending.finishing = true;
+                const auto* notice = live_compare_ui::namedRecovery (pending);
+                post.setFeedback (notice);
+                require (returnButton->isVisible() && ! returnButton->isEnabled() && readable (post, *returnButton),
+                         "ended session has a readable non-action audio-return indicator");
+                require (static_cast<observatory::Button*> (returnButton)->isStatusOnly(),
+                         "pending rise is status text, not an unavailable action");
+                const auto statusImage = returnButton->createComponentSnapshot (returnButton->getLocalBounds());
+                int bright = 0;
+                for (int y = 0; y < statusImage.getHeight(); ++y)
+                    for (int x = 0; x < statusImage.getWidth(); ++x)
+                        if (statusImage.getPixelAt (x, y).getPerceivedBrightness() > 0.6f) ++bright;
+                require (bright > 10, "pending rise remains visibly legible without hover");
+                require (! preButton->isVisible() && ! postButton->isVisible() && ! match->isVisible()
+                    && ! end->isVisible() && ! blind->isVisible(), "no trial controls after END acceptance");
+                require (menu->isVisible() && ! menu->getBounds().intersects (returnButton->getBounds()),
+                         "MENU is reachable while stopped END waits for audio");
+                const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
+                    ? typography::TextRole::status : typography::TextRole::action);
+                require (text_style::shownWidth (font, notice) <= post.statusStripBounds().getWidth() - 12,
+                         "pending return notice reads whole in both languages at every size");
+                recoveryPreview (post, "ended-return-" + juce::String (static_cast<int> (language))
+                    + "-" + juce::String (rise) + "-" + juce::String (preset.width));
+            }
+    }
+    post.setFeedback ({});
+    state = {};
     state.postHeldTenthsDb = 0;
     post.setLiveCompareFooter (state);
     require (! returnButton->isVisible(), "without a held attenuation there is no RETURN");
@@ -391,14 +437,8 @@ void verifyLiveCompareFooterContract()
                 auto* action = active ? end : returnButton;
                 require (action->isVisible() && readable (post, *action)
                     && action->getTitle().contains ("+24.0 dB"), "maximum rise is visible and accessible in both languages");
-                const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
-                if (preview.isNotEmpty())
-                {
-                    auto stream = juce::File (preview).getChildFile ("live-return-" + juce::String (static_cast<int> (language))
-                        + "-" + juce::String (active ? 1 : 0) + "-" + juce::String (preset.width) + ".png").createOutputStream();
-                    require (stream != nullptr && juce::PNGImageFormat().writeImageToStream (
-                        post.createComponentSnapshot (post.getLocalBounds()), *stream), "END preview renders");
-                }
+                recoveryPreview (post, "live-return-" + juce::String (static_cast<int> (language))
+                    + "-" + juce::String (active ? 1 : 0) + "-" + juce::String (preset.width));
             }
     }
     post.setSize (900, 600);

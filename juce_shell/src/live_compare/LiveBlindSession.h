@@ -70,7 +70,17 @@ public:
     // Audio Thread only. A stable sample, not a mixed crossfade or a safety POST fallback.
     void observe (BlindCommand cmd, bool stable) noexcept
     {
-        if (! stable || ! valid (cmd) || command().word != cmd.word) return;
+        if (! valid (cmd) || command().word != cmd.word) return;
+        if (! stable)
+        {
+            // A receipt describes the block that is audible now, not merely a source heard
+            // earlier in the trial. LOOP revalidation and a same-command crossfade may
+            // temporarily return to POST; retaining the old word would make the UI and audit
+            // claim that the requested anonymous source still sounds.
+            auto heard = cmd.word;
+            audible.compare_exchange_strong (heard, 0, std::memory_order_acq_rel);
+            return;
+        }
         const auto prior = played.load (std::memory_order_relaxed);
         const auto mask = (prior >> 32) == cmd.epoch() ? (prior & 3u) : 0u;
         played.store ((static_cast<std::uint64_t> (cmd.epoch()) << 32)

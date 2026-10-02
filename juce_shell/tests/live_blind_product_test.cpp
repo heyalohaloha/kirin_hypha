@@ -5,6 +5,7 @@
 #include "LiveBlindLoopFixture.h"
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -31,21 +32,7 @@ namespace
 using Processor = KirinHyphaProcessorBase;
 using Phase = hypha::local_blind::ProductSessionPhase;
 
-juce::Component* find (juce::Component& parent, const juce::String& id)
-{
-    if (parent.getComponentID() == id) return &parent;
-    for (int i = 0; i < parent.getNumChildComponents(); ++i)
-        if (auto* child = find (*parent.getChildComponent (i), id)) return child;
-    return nullptr;
-}
-
-const hypha::observatory::View* findView (juce::Component& parent)
-{
-    if (auto* view = dynamic_cast<const hypha::observatory::View*> (&parent)) return view;
-    for (int i = 0; i < parent.getNumChildComponents(); ++i)
-        if (auto* view = findView (*parent.getChildComponent (i))) return view;
-    return nullptr;
-}
+#include "LiveBlindEndContractTest.h"
 
 struct Clock final : juce::AudioPlayHead
 {
@@ -57,13 +44,14 @@ struct Clock final : juce::AudioPlayHead
         {
             info.setTimeInSamples (position);
             info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
-            loop.decorate (info, position);
+            (sharedLoop != nullptr ? *sharedLoop : loop).decorate (info, position);
         }
         return info;
     }
     std::int64_t position = 0;
     bool playing = false;
     LiveBlindLoopFixture loop;
+    const LiveBlindLoopFixture* sharedLoop = nullptr;
 };
 
 class BlindContract final : private juce::Timer
@@ -74,6 +62,7 @@ public:
         : signal (std::move (signalIn)), reuse (reuseIn), fault (faultIn != hypha::live_compare::RecoveryReason::none),
           approval (approvalIn), loopMode (loopIn), faultReason (faultIn)
     {
+        postClock.sharedLoop = &clock.loop;
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
@@ -83,7 +72,7 @@ public:
             layout.outputBuses.set (0, juce::AudioChannelSet::stereo());
             require (instance->setBusesLayout (layout), "host negotiates stereo");
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
-            instance->setPlayHead (&clock);
+            instance->setPlayHead (role == Processor::Role::Pre ? &clock : &postClock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
@@ -128,7 +117,7 @@ private:
 
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (loopMode ? 110 : 60), "Blind round trip timed out");
+        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (loopMode ? 145 : 60), "Blind round trip timed out");
         switch (stage)
         {
             case 0:
@@ -198,7 +187,7 @@ private:
                     require (post->applyLiveCompareMatch (plan, hypha::live_compare::MatchChoice::basis),
                              "manual MATCH accepted");
                     reusedGain = post->liveCompareStatus().gain;
-                    if (loopMode) clock.loop.requested.store (true);
+                    if (loopMode) { post->selectLiveComparePre (true); loopPcmAuditActive.store (true); clock.loop.requested.store (true); }
                     reused = true;
                     break;
                 }
@@ -207,7 +196,9 @@ private:
                     if (! post->liveCompareStatus().matchReady) break;
                     if (loopMode)
                     {
-                        if (clock.loop.laps.load() < 8) break;
+                        if (clock.loop.laps.load() < 100) break;
+                        require (loopPcmErrors.load() == 0 && loopPreFrames.load() >= 95 * LiveBlindLoopFixture::length,
+                                 "100 named PRE laps output the correct delayed occurrence in every frame");
                         const auto loopMatch = post->measureLiveCompare();
                         require (loopMatch.ok() && loopMatch.seconds >= 3.0
                             && std::abs (loopMatch.measuredDb + 6.0206) < 0.002,
@@ -229,11 +220,11 @@ private:
                 ++stage;
                 break;
             case 4:
-                if (loopMode && clock.loop.laps.load() < 100)
+                if (loopMode && clock.loop.laps.load() < 200)
                 {
                     require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active
                         && post->liveCompareStatus().matched && std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f,
-                        "100 loop laps preserve the fixed MATCH and Blind trial");
+                        "another 100 loop laps preserve the fixed MATCH and Blind trial");
                     break;
                 }
                 if (post->liveBlindStatus().trial.played != 1 || audioBlocks.load() <= observedBlock + 1) break;
@@ -261,6 +252,7 @@ private:
                     break;
                 }
                 // The 20 ms fixture can precede the editor's 100 ms presentation tick.
+                if (! stoppedEnd.ready (suspendAudio, suspended)) break;
                 if (! revealReady) { revealReady = true; revealReadyAt = std::chrono::steady_clock::now(); }
                 if (! click ("live-blind-reveal"))
                 {
@@ -273,7 +265,9 @@ private:
                 require (! post->revealLiveBlind(), "reveal cannot be repeated");
                 require (post->requestLocalBlindProductCapture (hypha::meter_context::MeterContext::twoMix)
                          != hypha::local_blind::CaptureAdmission::ready, "Exact capture cannot overlap Blind");
+                loopPcmAuditActive.store (false);
                 require (click ("live-blind-end"), "END requests normal output");
+                stoppedEnd.accepted (*post, *editor);
                 require (post->liveCompareStatus().finishing, "END waits for actual audio receipt");
                 ++stage;
                 break;
@@ -314,6 +308,8 @@ private:
                 stage = 6;
                 break;
             case 6:
+                if (! stoppedEnd.resume (*post, *editor, suspendAudio)) break;
+                post->serviceLiveCompare(); // consume the RT receipt before asserting non-RT cleanup
                 if (post->liveCompareStatus().active || post->liveCompareStatus().finishing) break;
                 if (find (*editor, "live-blind-screen")->isVisible()) break;
                 require (post->liveCompareStatus().postActual == 1.0f, "END completed at actual unity");
@@ -374,6 +370,8 @@ private:
                 if (post->liveCompareStatus().finishing) break;
                 require (post->liveCompareStatus().postActual == 1.0f, "held POST returns to exact unity");
                 require (rawPostErrors.load() == 0, "ordinary A output is bit identical");
+                require (! loopMode || (loopPcmErrors.load() == 0 && loopPreFrames.load() >= 95 * LiveBlindLoopFixture::length
+                    && loopPostFrames.load() > 0), "full-frame delayed occurrence oracle passes for named PRE and both Blind sources");
                 std::cout << "Live Blind product: PASS entry=" << (reuse ? "MATCH reuse" : "direct")
                           << " one continuous playback, both receipts, reveal, END, hold and resume\n";
                 passed = true;
@@ -390,67 +388,13 @@ private:
         return approval ? -std::max (-0.8f, std::min (0.8f, input * 8.0f)) : input * -0.5f;
     }
 
-    void processAudio()
-    {
-        juce::AudioBuffer<float> buffer (2, blockFrames);
-        juce::MidiBuffer midi;
-        auto next = std::chrono::steady_clock::now();
-        while (running.load())
-        {
-            if (suspendAudio.load())
-            {
-                suspended.store (true);
-                std::this_thread::sleep_for (std::chrono::milliseconds (5));
-                next = std::chrono::steady_clock::now();
-                continue;
-            }
-            suspended.store (false);
-            if (injectGap.exchange (false))
-            {
-                std::this_thread::sleep_for (std::chrono::milliseconds (600));
-                next = std::chrono::steady_clock::now();
-            }
-            clock.playing = play.load();
-            clock.loop.advance (clock.position);
-            for (int c = 0; c < 2; ++c)
-                for (int f = 0; f < blockFrames; ++f)
-                    buffer.setSample (c, f, signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
-            pre->processBlock (buffer, midi);
-            for (int c = 0; c < 2; ++c)
-                for (int f = 0; f < blockFrames; ++f)
-                    buffer.setSample (c, f, processedInput (buffer.getSample (c, f)));
-            const auto before = post->liveCompareStatus();
-            const bool renderedOffline = offline.load();
-            post->setNonRealtime (renderedOffline);
-            post->processBlock (buffer, midi);
-            lastOutputRatio.store (buffer.getSample (0, blockFrames - 1)
-                / signal[static_cast<std::size_t> (clock.position + blockFrames - 1) % signal.size()]);
-            const float inputEnd = signal[static_cast<std::size_t> (clock.position + blockFrames - 1) % signal.size()];
-            const float outputEnd = buffer.getSample (0, blockFrames - 1);
-            lastPcmError.store (std::min (std::abs (outputEnd - inputEnd * before.gain),
-                                        std::abs (outputEnd - processedInput (inputEnd) * before.postActual)));
-            audioBlocks.fetch_add (1);
-            if (renderedOffline || (! before.active && ! before.finishing && before.postActual >= 1.0f
-                && ! post->liveCompareStatus().active && post->liveCompareStatus().postTarget >= 1.0f))
-                for (int c = 0; c < 2; ++c)
-                    for (int f = 0; f < blockFrames; ++f)
-                    {
-                        const float expected = processedInput (signal[static_cast<std::size_t> (clock.position + f) % signal.size()]);
-                        const float actual = buffer.getSample (c, f);
-                        if (std::memcmp (&actual, &expected, sizeof (float)) != 0)
-                            rawPostErrors.fetch_add (1);
-                    }
-            if (clock.playing) clock.position += blockFrames;
-            next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
-            std::this_thread::sleep_until (next);
-        }
-    }
+   #include "LiveBlindAudioFixture.h"
 
     // A host block of 8192 frames (171 ms): the callback-gap rule then tolerates test-machine stalls
     // up to 427 ms. This product test checks the flow, not DAW scheduling or a low-buffer load
     // budget; those require the separate real-host matrix.
     static constexpr int blockFrames = 8192;
-    Clock clock;
+    Clock clock, postClock;
     std::vector<float> signal;
     std::unique_ptr<Processor> pre, post;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
@@ -470,6 +414,7 @@ private:
     std::atomic<float> lastPcmError { 0.0f };
     std::atomic<int> audioBlocks { 0 };
     std::atomic<bool> offline { false };
+    SuspendedBlindEndProbe stoppedEnd;
     std::atomic<bool> suspendAudio { false }, suspended { false };
     std::atomic<int> rawPostErrors { 0 };
     bool demanded = false;

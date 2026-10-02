@@ -186,7 +186,7 @@ release gate.
   `juce_audio_plugin_client_AU_1.mm`, `juce_audio_plugin_client_AAX.cpp`
 - **Patch:** `patches/0008-raw-auxiliary-sample-clock.patch`
 - **Why:** The live PRE/POST compare keys its correspondence on a continuous clock per
-  format (VST3 continuous time, AU render time, AAX native sample location), which JUCE's
+  format (VST3 continuous time, AU render time, and an AAX source supplied by patch 0011), which JUCE's
   `PositionInfo` does not carry (B-1046).
 - **Change:** Surface the raw value and its source in `PositionInfo`. Neither availability nor
   matching numbers certify delay compensation or a shared occurrence; the product proves the
@@ -226,3 +226,19 @@ release gate.
 - **Scope / impact:** Observation only, AAX only, off the audio thread. Audio, parameters and
   clocks are untouched; other formats never call it.
 
+---
+
+## 0011 — AAX DAE engine clock
+
+- **Files:** `juce_audio_plugin_client_AAX.cpp`
+- **Patch:** `patches/0011-aax-engine-clock.patch`
+- **Why:** AAX native selection time folds with the project LOOP and cannot distinguish an
+  occurrence. `AAX_IComponentDescriptor::AddClock` supplies the DAE sample-quantum counter for
+  the current algorithm callback. Hypha combines it with the documented Pro Tools maximum delay
+  compensation bound; the counter alone is never a content-clock certificate.
+- **Change:** Subscribe one clock field, copy it into the existing raw auxiliary-clock slot only
+  for the active process callback, and clear validity immediately afterward. Missing pointers
+  remain unavailable.
+- **Scope / impact:** Observation only, AAX only, fixed-size atomics. It adds no audio copy,
+  allocation, lock, I/O, latency, or background work. Product admission remains exact-host and
+  sample-rate gated; loops not longer than the applicable delay bound stay on POST.

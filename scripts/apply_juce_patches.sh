@@ -96,3 +96,9 @@ apply_patch_idempotent \
   "0010-aax-instance-group.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0011" \
+  "0011-aax-engine-clock.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

@@ -46,7 +46,7 @@ int main()
                             {
                                 const auto result = entryAdmission (reuse, active, restoring, finishing, owned, actual, target);
                                 const auto expected = restoring ? StartResult::notReady
-                                    : finishing ? StartResult::comparisonBusy
+                                    : finishing ? StartResult::returnPending
                                     : ((! reuse || ! active) && (actual != 1.0f || target != 1.0f)) ? StartResult::returnRequired
                                     : owned ? StartResult::comparisonBusy : StartResult::started;
                                 require (result == expected, "admission matrix disagrees");

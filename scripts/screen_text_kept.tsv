@@ -58,7 +58,8 @@ CHAIN ACTION / PRE TO POST M	Debug-only CHAIN ACTION legend; a release build nev
 Studio Pro	host executable name compared by the chain clock policy; never drawn
 VST3 continuous	host clock source name in validation diagnostics
 AU render	host clock source name in validation diagnostics
-AAX native	host clock source name in validation diagnostics
+AAX DAE clock	host clock source name in validation diagnostics
+8.1.2 Build 113407	exact host version compared by the live clock policy; never drawn
 dBTP | host project/render clock; measured 100 ms endpoint, not exact peak or guaranteed project time	LEVEL history COPY text; copied, never drawn
 dBTP | delta M	LEVEL history COPY text; copied, never drawn
 LU delta TP	LEVEL history COPY text; copied, never drawn

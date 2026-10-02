@@ -38,6 +38,58 @@ The admitted gain remains frozen; a changed audio identity or cue still returns 
 
 ## Display and admission
 
+The initial C selection uses the OS default Preset, not the first receipt. Restored choices keep
+their own identity. C's Check menu names the source even for one candidate; Preset and Cue stay
+reachable while either visual view is selected and while audition is unavailable.
+
+Visual focus and audible output are independent. `VIEW A/C` displays the Preset's configured
+views; `VIEW A/B` displays the aligned Version and its Blind entry. Changing visual focus neither
+selects A/B/C nor changes gain, source, cue, or admission. An unavailable audio button reveals that
+source's explanation and controls without starting or interrupting audio. Ready audio buttons do
+not move visual focus. The audible badge and gain always come from the audible owner, not the
+viewed source. Capture's historical display is identified separately and is not silently discarded
+by selecting audio.
+Configured plots reserve height for their curves before choosing a stacked layout. At 600x400,
+the default two views sit side by side when vertical stacking would collapse the plotting area;
+the Preset's view order and data are unchanged. A/C line labels use the same cyan/gold as the curves.
+
+Display evidence is verified on the existing non-RT worker before SRC approval. The approval-only
+visual binding carries the immutable source and exact Cue bounds, but never `ready` or an aligned
+audio mapping; no new decoder, analysis thread, queue or RT work is added. Sound still requires
+explicit conversion approval and a separate audition click (which may be a queued B/C). Spectrum labels live A versus the
+whole-track C distribution; the existing Tonal curve retains its own Cue aggregation contract.
+The visual binding's Cue bounds are explicitly **source-rate samples**, independent of the
+host-rate playback mapping. Both live and captured-A tonal readers consume that same source range,
+including before SRC consent and after conversion. A transport-only output revocation does not
+erase the verified display identity; invalid or replaced publications do.
+
+Stopped B/C presses create a transient, identity-pinned next-play intent, not an output selection.
+The existing processor control timer services it only while pending, including with the editor
+closed; there is no new worker or decoder. Audio callbacks publish bounded safety transitions only.
+View/capture and queued-B observation own separate demand bits on the existing observer, so closing
+the editor cannot cancel the queued alignment. Completion/cancellation releases the queue's bit;
+the audio callback reads the same bounded atomic demand instead of adding another observer.
+The source/Cue/format identity, explicit conversion permission, callback/clock and prepared pages
+must still match before the one-shot intent is claimed. The runtime selection generation spans
+gain preparation and activation; an intervening A command or reconfiguration invalidates it.
+Loudness/peak-matched immediate and queued starts require a valid match and never silently fall back to original
+volume. A Preset explicitly set to original mode keeps that mode. Cancellation/failure reasons
+remain visible. A cancels; B/C replaces the intent; source controls, restore, configuration and
+Blind admission clear it. It is never serialized as playback authority or rearmed after stopping.
+
+The worker publishes the same length-prefixed playback identity that revokes ordinary audio,
+including the complete Cue clock/loop policy and host rate/channel format. The pending intent
+stores that identity, not a separate reconstruction from the visual binding. Gain preparation
+checks it again under the state lock, then the existing generation/epoch guards span activation.
+Names, chart settings and unrelated options are not audio dependencies. No identity work runs
+on the audio callback. Required SRC approval targets the pending source regardless of VIEW;
+without a pending intent, the inspected source owns that action.
+
+Manual B/C processor commands accept no meter values from the editor. Both manual commands and
+the pending timer sample the existing active, live A meter through `ReferenceLiveALevel.h`.
+Frozen comparison facts remain display-only. `MatchFailure` separates absent live evidence,
+absent source evidence and exceeded headroom; none grants an original-volume fallback.
+
 A is fixed to the live DAW input. B selects a registered Version from its dropdown; C selects a
 Check (and its candidate when several are registered) from the independently retained preset.
 A/B/C buttons and both dropdowns remain available at every editor size. Changing a dropdown

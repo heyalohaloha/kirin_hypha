@@ -69,9 +69,10 @@ jobs:
     name: release source contract (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: macos-14
-    # A cold macOS runner needs more than 30 minutes for the complete source
-    # contract, including the realtime ignored suites and final clippy pass.
-    timeout-minutes: 45
+    # Run 36959880727 passed all then-required native and 26 ignored tests but reached
+    # 45 minutes in final clippy. Keep the complete gate and bounded cold-build
+    # headroom; this changes no test deadline or acceptance criterion.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v6
         with:
@@ -186,7 +187,10 @@ jobs:
     name: windows VST3 preflight
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: windows-latest
-    timeout-minutes: 45
+    # A cold hosted runner completed every validation/build/package step in 45m03s before the
+    # former 45-minute job cap terminated post-job cleanup. Preserve the complete gate and leave
+    # bounded headroom for runner variance instead of weakening or duplicating the preflight.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v6
         with:
@@ -230,8 +234,8 @@ jobs:
 
       - name: Validate Windows UI render contract
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_ui_render_contract$'
+          cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests KirinHostIdentityTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^(kirin_ui_render_contract|kirin_host_identity)$'
 
       # The DRUM (TIME > ATTACK) surface is rendered by the Windows JUCE graphics stack as well, and
       # its previews are kept so the Windows screen can be inspected for every change.
@@ -273,14 +277,14 @@ jobs:
 
       - name: Validate live PRE/POST compare correspondence
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLiveCompareCorrespondenceTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests KirinLiveCompareLoopFeasibilityTests Kirin_live_blind_session_Tests Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'
+          cmake --build juce_shell/build-windows --config Release --target KirinLiveCompareCorrespondenceTests KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests KirinLiveCompareLoopFeasibilityTests Kirin_live_blind_session_Tests Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'
 
       # The Windows live ring end to end: the real PRE and POST processors, pair discovery, the
       # named section, the product editor, PIN to Blind and the offset warning.
       - name: Validate live PRE/POST compare product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests
+          cmake --build juce_shell/build-windows --config Release --target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'
 
       - name: Validate Work attachment transport

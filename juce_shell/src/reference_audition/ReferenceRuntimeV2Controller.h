@@ -64,13 +64,16 @@ namespace hypha::reference_audition
         void observeTransport (std::int64_t hostPosition, bool positionValid,
                                bool playing) noexcept;
         void setContentObservationEnabled (bool enabled) noexcept;
+        void setQueuedContentObservationEnabled (bool enabled) noexcept;
         void observeAInput (const juce::AudioBuffer<float>&,
                             std::int64_t hostPosition,
                             bool positionValid,
                             bool playing,
                             bool auditionAllowed, bool confirmAudible = true) noexcept;
         void confirmAOutput() noexcept { aAudibleConfirmations.fetch_add (1, std::memory_order_release); }
-        bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept;
+        bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp,
+                      std::uint64_t queuedGeneration = 0, const juce::String& expectedPlaybackIdentity = {}) noexcept;
+        std::uint64_t normalSelectionTicket() const noexcept { return normalSelectionGeneration.load (std::memory_order_acquire); }
         void selectA (bool allowFade = true) noexcept;
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
         bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
@@ -160,14 +163,15 @@ namespace hypha::reference_audition
         void serviceBlindPreparation (const Configuration&, const RuntimeCandidate&, const RuntimeCue&,
                                       const std::shared_ptr<const RuntimeSource>&, Snapshot&);
         void publish (Snapshot);
-        void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>);
-        void publishApprovalRequired (Snapshot, const juce::String& approvalKey);
+        void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>, const RuntimeCue&);
+        void publishApprovalRequired (Snapshot, const juce::String& approvalKey,
+            std::shared_ptr<const RuntimeSource>, const RuntimeCue&);
         void publishLocked (Snapshot);
         bool requestSelection (const juce::String& kind, const juce::String& id);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
-                                   std::uint64_t selectionGeneration) noexcept;
+                                   std::uint64_t selectionGeneration, const juce::String& expectedPlaybackIdentity) noexcept;
         bool activatePreparedB (std::uint64_t selectionGeneration) noexcept;
         bool startBlindWithApproval (double aIntegratedLoudness,
                                      bool approveLowerA) noexcept;
@@ -228,6 +232,9 @@ namespace hypha::reference_audition
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
         std::shared_ptr<const RuntimeSource> publishedSource;
+        // Non-RT visual evidence only. This never grants ready/playback authority.
+        std::shared_ptr<const RuntimeSource> approvalVisualSource;
+        std::int64_t visualSourceCueStart = 0, visualSourceCueEnd = 0;
         juce::String activeSourceKey;
         juce::String activeMappingKey;
         juce::String activeContentMappingKey;
@@ -271,7 +278,9 @@ namespace hypha::reference_audition
         std::array<std::array<float, 8192>, 2> normalLiveA {};
         std::uint64_t rtNormalEpoch = 0;
         float rtNormalBlend = 0.0f; // Audio-thread owned.
-        std::atomic<bool> contentObservationEnabled { false }, contentRefreshRequested { false };
+        void setContentObservationDemand (unsigned bit, bool enabled) noexcept;
+        std::atomic<unsigned> contentObservationDemands { 0 }; // 1: view/capture, 2: queued B.
+        std::atomic<bool> contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
         std::atomic<std::uint64_t> auditionEpoch { 1 };
         std::atomic<std::uint64_t> activeAuditionEpoch { 0 };

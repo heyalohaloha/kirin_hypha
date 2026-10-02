@@ -31,6 +31,9 @@
  #include "pre_display/PreDisplayController.h"
 #endif
 #include "reference_audition/ReferenceComparisonController.h"
+#include "reference_audition/ReferenceLiveALevel.h"
+
+class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt fixture only
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
@@ -114,9 +117,9 @@ public:
 #endif
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     void setReferenceViewPresented (bool);
-    bool selectReferenceC (double, double);
+    bool selectReferenceC();
     bool selectReferenceVersion (const juce::String&);
-    bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
+    bool selectReferenceB();
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
     bool retryReferencePresetSelection();
@@ -124,6 +127,7 @@ public:
     bool selectReferenceCandidate (const juce::String&);
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
+    bool selectReferenceVisualSlot (int);
     bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
     bool startLatestReferenceReview();
@@ -354,6 +358,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    friend class LiveTimingFixtureAccess; // no runtime method or product policy override
     hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
     std::atomic<bool> liveInputPresent { false }; // Display only; follows Watch's musical rests.
@@ -365,6 +370,10 @@ private:
     // the Timer publishes Inactive PRE/POST presence after either setStateInformation arrives or the
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
+    void serviceReferencePendingAudition();
+    bool referencePendingAuditionNeedsService() const;
+    hypha::reference_audition::LiveALevel referenceLiveALevel() const;
+    bool requestReferenceAudition (int slot);
     void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
     void restorePersistedPairUnderHandleLock();

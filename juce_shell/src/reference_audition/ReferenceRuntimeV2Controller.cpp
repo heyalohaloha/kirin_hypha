@@ -147,24 +147,33 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (stateLock);
         pendingApprovalKey.clear();
+        approvalVisualSource.reset();
+        publishedSource.reset();
         publishLocked (std::move (next));
     }
 
     void RuntimeV2Controller::publishReady (
-        Snapshot next, std::shared_ptr<const RuntimeSource> source)
+        Snapshot next, std::shared_ptr<const RuntimeSource> source, const RuntimeCue& cue)
     {
         const juce::ScopedLock lock (stateLock);
         pendingApprovalKey.clear();
+        approvalVisualSource.reset();
+        visualSourceCueStart = cue.startSample;
+        visualSourceCueEnd = cue.endSample;
         publishedSource = std::move (source);
         publishLocked (std::move (next));
         ready.store (true, std::memory_order_release);
     }
 
     void RuntimeV2Controller::publishApprovalRequired (
-        Snapshot next, const juce::String& approvalKey)
+        Snapshot next, const juce::String& approvalKey, std::shared_ptr<const RuntimeSource> source,
+        const RuntimeCue& cue)
     {
         const juce::ScopedLock lock (stateLock);
         pendingApprovalKey = approvalKey;
+        approvalVisualSource = std::move (source);
+        visualSourceCueStart = cue.startSample;
+        visualSourceCueEnd = cue.endSample;
         publishedSource.reset();
         revokeAuditionPublication();
         publishLocked (std::move (next));
@@ -211,6 +220,8 @@ namespace hypha::reference_audition
     void RuntimeV2Controller::publishLocked (Snapshot next)
     {
         next.workflowCatalog = workflowCatalog;
+        if (next.playbackIdentity.isNotEmpty() && next.playbackIdentity == currentSnapshot.playbackIdentity)
+            next.matchFailure = currentSnapshot.matchFailure;
         next.migratedVersionChoice = legacyVersionChoice;
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())

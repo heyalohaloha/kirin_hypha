@@ -2766,7 +2766,6 @@ dependencies = [
 [[package]]
 name = "vst3-com"
 version = "0.1.0"
-source = "git+https://github.com/robbert-vdh/vst3-sys.git?branch=fix%2Fdrop-box-from-raw#b3ff4d775940f5b476b9d1cca02a90e07e1922a2"
 dependencies = [
  "vst3-com-macros",
 ]

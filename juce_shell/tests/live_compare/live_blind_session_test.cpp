@@ -69,6 +69,12 @@ int main()
         require (! trial.reveal(), "a crossfade alone is not a played source");
         trial.observe (first, true);
         require (! trial.reveal(), "one source is not enough");
+        trial.observe (first, false);
+        require (trial.view().audible == 0 && trial.view().played == 1,
+                 "temporary POST fallback withdraws only the current audible receipt");
+        trial.observe (first, true);
+        require (trial.view().audible == 1 && trial.view().played == 1,
+                 "the next wholly stable block restores the same source receipt");
         require (trial.select (2), "select second");
         const auto second = trial.command();
         require (second.pre() != firstPre, "second is the other source");

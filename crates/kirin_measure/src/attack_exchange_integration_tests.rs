@@ -306,9 +306,28 @@ fn a_chosen_band_rides_the_request_and_post_measures_each_pre_onset_once() {
                     .as_ref()?
                     .own_at(pair.pre_event_sample?)?;
                 let measure = pre_detail.measure?;
-                let post_detail = *post_attack
-                    .band_results()
-                    .anchored_at(pair.pre_event_sample?, measure.span_end_sample)?;
+                let post_results = post_attack.band_results();
+                if post_results.band != Some(band)
+                    || post_results.generation != pair.post_generation
+                {
+                    return None;
+                }
+                // The pair chooses a candidate; the own worker measures its emitted event.
+                let own_event = {
+                    let mut own_events = view.post.as_ref()?.events();
+                    let event = *own_events.next()?;
+                    if own_events.next().is_some() {
+                        return None;
+                    }
+                    event
+                };
+                if own_event.generation != pair.post_generation {
+                    return None;
+                }
+                // Both kinds share the counter; an anchor can be published before the own hit.
+                post_results.own_at(own_event.event_sample)?.measure?;
+                let post_detail =
+                    *post_results.anchored_at(pair.pre_event_sample?, measure.span_end_sample)?;
                 Some((view, pair, pre_detail, post_detail))
             });
         if found.is_some() {
@@ -340,6 +359,7 @@ fn a_chosen_band_rides_the_request_and_post_measures_each_pre_onset_once() {
 
     // Every further tick asks for the same onsets again; none is measured twice.
     let measured = post_attack.stats().band_measurements;
+    assert_eq!(measured, 2, "one own hit and one PRE-anchored hit");
     for _ in 0..30 {
         assert!(pre.pre_tick("pre", &pre_dir));
         assert!(post.post_tick("post", Some(target.clone())));

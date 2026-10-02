@@ -107,6 +107,13 @@ void Component::refresh()
         instruction = current.trial.played == 3 ? "Reveal the sources when ready" : "Try both sources while playing";
     else if (! playing)
         instruction = "Play the DAW to begin";
+    else if (waiting && (current.observation == live_compare::RecoveryReason::loopUnproven
+        || current.observation == live_compare::RecoveryReason::loopTooShort
+        || current.observation == live_compare::RecoveryReason::loopClockUnavailable))
+        instruction = current.observation == live_compare::RecoveryReason::loopTooShort
+            ? "Loop is too short for verified timing" : "DAW timing is unavailable for this loop";
+    else if (waiting)
+        instruction = "Waiting for comparison; POST plays";
     else if (current.waiting == live_compare::MatchFailure::outOfRange)
         instruction = "MATCH over 24 dB";
     else if (current.waiting == live_compare::MatchFailure::notEnoughSignal)

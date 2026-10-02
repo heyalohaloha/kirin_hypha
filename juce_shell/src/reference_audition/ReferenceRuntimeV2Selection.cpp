@@ -60,9 +60,17 @@ namespace hypha::reference_audition
     }
 
     void RuntimeV2Controller::setContentObservationEnabled (bool enabled) noexcept
+    { setContentObservationDemand (1, enabled); }
+
+    void RuntimeV2Controller::setQueuedContentObservationEnabled (bool enabled) noexcept
+    { setContentObservationDemand (2, enabled); }
+
+    void RuntimeV2Controller::setContentObservationDemand (unsigned bit, bool enabled) noexcept
     {
-        if (contentObservationEnabled.exchange (enabled, std::memory_order_acq_rel) == enabled) return;
-        if (enabled) contentRefreshRequested.store (true, std::memory_order_release);
+        const auto before = enabled ? contentObservationDemands.fetch_or (bit, std::memory_order_acq_rel)
+                                    : contentObservationDemands.fetch_and (~bit, std::memory_order_acq_rel);
+        if (((before & bit) != 0) == enabled) return;
+        if (enabled && before == 0) contentRefreshRequested.store (true, std::memory_order_release);
         notify();
     }
 
@@ -73,7 +81,7 @@ namespace hypha::reference_audition
                                              bool auditionAllowed, bool confirmAudible) noexcept
     {
         aCapture.observe (input, hostPosition, positionValid, playing,
-                          auditionAllowed && (!versionComparison || contentObservationEnabled.load (std::memory_order_acquire)
+                          auditionAllowed && (!versionComparison || contentObservationDemands.load (std::memory_order_acquire) != 0
                               || bSelected.load (std::memory_order_acquire) || blind.ongoing()) && (versionComparison
                               || (! bSelected.load (std::memory_order_acquire) && ! blind.ongoing())));
         if (confirmAudible && auditionAllowed && playing && positionValid && input.getNumSamples() > 0

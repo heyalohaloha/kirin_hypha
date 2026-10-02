@@ -35,13 +35,28 @@ hypha::capture::WorkAttachmentDescriptor descriptor()
     return { 1'200, 630, "level", "absolute", 1'788'256'800'000 };
 }
 
+juce::File publishedRequest (const juce::File& requests)
+{
+    juce::File result;
+    for (const auto& file : requests.findChildFiles (juce::File::findFiles, false, "*.json"))
+    {
+        const auto id = file.getFileNameWithoutExtension();
+        // JUCE's atomic-write sibling also ends in .json, but is named
+        // <UUID>_temp<random>.json. submit() uses JUCE's compact 32-hex UUID,
+        // not its dashed representation. Only that committed path is a request.
+        if (id.length() != 32 || juce::Uuid (id).toString() != id) continue;
+        if (result != juce::File()) return {}; // more than one final request is invalid
+        result = file;
+    }
+    return result;
+}
+
 juce::File waitForRequest (const juce::File& requests)
 {
     for (int attempt = 0; attempt < 200; ++attempt)
     {
-        const auto files = requests.findChildFiles (juce::File::findFiles, false, "*.json");
-        if (files.size() == 1)
-            return files[0];
+        const auto file = publishedRequest (requests);
+        if (file != juce::File()) return file;
         juce::Thread::sleep (10);
     }
     return {};
@@ -85,6 +100,20 @@ int main()
     const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-capture-attachment", {}, false);
     require (root.createDirectory().wasOk(), "create isolated transport root");
+
+    {
+        const auto requests = root.getChildFile ("atomic-publication-control");
+        require (requests.createDirectory().wasOk(), "create atomic publication control");
+        const auto target = requests.getChildFile (juce::Uuid().toString() + ".json");
+        juce::TemporaryFile pending (target);
+        require (pending.getFile().replaceWithText ("{}"), "create actual atomic-write sibling");
+        require (requests.findChildFiles (juce::File::findFiles, false, "*.json").size() == 1
+                 && publishedRequest (requests) == juce::File(),
+                 "one temporary JSON is not a committed request");
+        require (pending.overwriteTargetFileWithTemporary()
+                 && publishedRequest (requests) == target,
+                 "only atomic commit publishes the final request path");
+    }
 
     {
         hypha::capture::WorkAttachmentController controller (root);

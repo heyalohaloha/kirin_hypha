@@ -3,6 +3,7 @@
 #include "HyphaPresentationContext.h"
 #include "HyphaTextStyle.h"
 #include "HyphaReferenceCapturePresentation.h"
+#include <cmath>
 namespace hypha::reference_ui
 {
 class CaptureControls final : public juce::Component, public juce::SettableTooltipClient
@@ -46,9 +47,13 @@ public:
     {
         auto area=getLocalBounds();
         if(statusOnly) { action.setBounds(area); cancel.setVisible(false); view.setVisible(false); return; }
-        action.setBounds(area.removeFromRight(80));
-        if(cancel.isVisible()) { area.removeFromRight(3); cancel.setBounds(area.removeFromRight(58)); }
-        if(view.isVisible()) { area.removeFromRight(3); view.setBounds(area.removeFromRight(52)); }
+        const auto width=[this](const juce::Button& button,int minimum) {
+            const auto font=labelFont(context,typography::TextRole::captureMetadata,typography::Composition::information);
+            return juce::jmax(minimum,static_cast<int>(std::ceil(text_style::shownWidth(font,button.getButtonText())))+12);
+        };
+        action.setBounds(area.removeFromRight(width(action,80)));
+        if(cancel.isVisible()) { area.removeFromRight(3); cancel.setBounds(area.removeFromRight(width(cancel,58))); }
+        if(view.isVisible()) { area.removeFromRight(3); view.setBounds(area.removeFromRight(width(view,52))); }
         label=area.reduced(3,0); secondary={};
         if(presentation.secondary.isNotEmpty()) secondary=label.removeFromBottom(getHeight()/2);
     }

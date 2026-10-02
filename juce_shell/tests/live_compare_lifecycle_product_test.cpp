@@ -64,9 +64,9 @@ public:
     bool passed = false;
 
 private:
-    template <typename Predicate> void waitWithoutMessageService (Predicate&& ready)
+    template <typename Predicate> void waitWithoutMessageService (Predicate&& ready, int timeoutMs = 350)
     {
-        const auto deadline = Steady::now() + std::chrono::milliseconds (350);
+        const auto deadline = Steady::now() + std::chrono::milliseconds (timeoutMs);
         while (! ready())
         {
             require (Steady::now() < deadline, "audio handoff deadline");
@@ -121,6 +121,23 @@ private:
         MatchPlan oldBasis;
         require (post->applyLiveCompareMatch (oldBasis, MatchChoice::basis).failure == MatchFailure::stale,
                  "an older unity-basis plan cannot raise the newly approved POST level");
+    }
+    void endWithoutMessageService()
+    {
+        post->finishLiveCompare();
+        require (! post->liveCompareStatus().active, "END immediately closes the logical session");
+        // Do not pump messages: audio receipt must not revive the old session before retirement.
+        waitWithoutMessageService ([this] { return ! post->liveCompareStatus().finishing; }, 1500);
+        require (! post->liveCompareStatus().active, "audio receipt cannot reopen the closed session");
+        post->selectLiveComparePre (true);
+        require (! post->liveCompareStatus().preSelected, "stale PRE selection rejected before message cleanup");
+        require (post->liveCompareNeedsService(), "completed audio still schedules ring retirement");
+        expectedPost.store (1.0f);
+        verifyPost.store (true);
+        const auto before = blocks.load();
+        waitWithoutMessageService ([&] { return blocks.load() > before + 1; }, 700);
+        require (postErrors.load() == 0, "closed session stays unity POST before message cleanup");
+        verifyPost.store (false);
     }
     void timerCallback() override
     {
@@ -236,7 +253,7 @@ private:
                     require (std::abs (post->liveCompareStatus().gain - matchedGain) <= 0.0f
                         && std::abs (post->liveCompareStatus().postActual - held) <= 0.0f,
                              "same-session gains reused unchanged");
-                    post->finishLiveCompare(); stage = 8; break;
+                    endWithoutMessageService(); stage = 8; break;
                 }
                 if (status.trial.played == 1) require (post->selectLiveBlind (2), "second source selected");
                 if (status.trial.played != 3) break;

@@ -13,7 +13,7 @@ enum class RecoveryReason : std::uint8_t
     calibrating, writing, beforeRun, notWritten, overwritten, torn, foreignRing,
     pairChanged, preUnavailable, formatChanged, restored, compensationOff, contentChanged,
     bypassed, offline, outputTaken, gainChanged, nonFinite, ceiling, blockTooLarge,
-    randomUnavailable, unknown, loopUnproven, loopWaiting
+    randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable
 };
 
 inline RecoveryReason recoveryReason (Verdict verdict) noexcept
@@ -35,6 +35,18 @@ inline RecoveryReason recoveryReason (Verdict verdict) noexcept
         case Verdict::loopWaiting: return R::loopWaiting;
     }
     return R::unknown;
+}
+
+inline RecoveryReason recoveryReason (LoopEntryFailure failure) noexcept
+{
+    switch (failure)
+    {
+        case LoopEntryFailure::none: return RecoveryReason::loopUnproven;
+        case LoopEntryFailure::observingCycle: return RecoveryReason::loopWaiting;
+        case LoopEntryFailure::clockUnavailable: return RecoveryReason::loopClockUnavailable;
+        case LoopEntryFailure::loopTooShort: return RecoveryReason::loopTooShort;
+    }
+    return RecoveryReason::loopUnproven;
 }
 
 struct SelectionCommand

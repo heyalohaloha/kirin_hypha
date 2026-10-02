@@ -11,8 +11,13 @@ struct Row
     std::int64_t project = 0, auxiliary = 0;
     double rate = 0;
     std::int64_t inputLatency = 0, outputLatency = 0;
+    std::uint64_t hostNanoseconds = 0;
+    std::int64_t todSamples = 0; // AAX engine observation, separate from native/content time
+    std::int64_t addClockSamples = 0; // AAX algorithm-context counter, NOT TOD/native time
+    double ppq = 0, bpm = 0, loopStart = 0, loopEnd = 0;
     std::uint32_t frames = 0, channels = 0, flags = 0;
     std::uint32_t firstLeft = 0, lastLeft = 0, firstRight = 0, lastRight = 0;
+    std::uint32_t identityFirst = 0, identityLast = 0, identityFrames = 0, silentPrefix = 0, identityErrors = 0;
     std::uint8_t auxiliarySource = 0, presentationSource = 0;
 };
 

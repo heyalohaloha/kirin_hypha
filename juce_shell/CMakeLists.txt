@@ -183,6 +183,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceComparisonController.cpp
+    src/reference_audition/ReferenceComparisonPending.cpp
     src/reference_audition/ReferenceComparisonWorkflow.cpp
     src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
@@ -275,6 +276,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     endif()
 
     target_sources(${TARGET} PRIVATE
+        src/HostExecutableIdentity.cpp
         src/PluginProcessor.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorLiveCompare.cpp
@@ -605,6 +607,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
+        src/HostExecutableIdentity.cpp
         tests/SpectrumRenderTest.cpp
         tests/AbsoluteTimelineContractTest.cpp
         tests/AbsoluteSpectrumContractTest.cpp
@@ -893,6 +896,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
+        tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
         tests/reference_content_alignment_test.cpp
         tests/reference_real_content_alignment_test.cpp

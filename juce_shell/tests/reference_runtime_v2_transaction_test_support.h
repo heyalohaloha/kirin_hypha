@@ -48,7 +48,7 @@ namespace
                 juce::Thread::sleep (10);
             }
         };
-        require (! controller.selectB (-11.0, -2.0),
+        require (! controller.selectB (-15.0, -2.0),
                  "a B activation must fail when its approved publication changes inside the output gate");
         beforeGateActivation = {};
         auto runtime = controller.snapshot();

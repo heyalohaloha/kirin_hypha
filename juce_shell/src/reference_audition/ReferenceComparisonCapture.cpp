@@ -47,6 +47,7 @@ bool ReferenceComparisonController::admitCapture(bool active)
 }
 bool ReferenceComparisonController::beginBlindGuard()
 {
+    clearPendingAudition();
     const juce::ScopedLock lock(gateLock);
     if(captureOwned || !capture.access->reserveBlind(CaptureBlindOwner::version)) return false;
     capture.pauseObservation(); captureProjection.setPresented(false);
@@ -62,6 +63,7 @@ void ReferenceComparisonController::endBlindGuard()
 }
 bool ReferenceComparisonController::reserveLocalBlind()
 {
+    clearPendingAudition();
     const juce::ScopedLock lock(gateLock);
     if(closing || !capture.access->reserveBlind(CaptureBlindOwner::local)) return false;
     localBlindOwned=true; localBlindEpoch=0;

@@ -15,8 +15,8 @@ namespace loop_feasibility
 using namespace hypha::live_compare;
 constexpr std::uint64_t key = 0x4c4f4f50;
 constexpr int rate = 48000, maximumBlock = 2048;
-enum class Clock { vst3, renderCounter };
-enum class Position { content, clamp };
+enum class Clock { vst3, renderCounter, engineCounter };
+enum class Position { content, clamp, nativeBeforeLoop };
 
 inline std::int64_t folded (std::int64_t sample, std::int64_t length)
 {
@@ -43,11 +43,17 @@ struct Observation
     bool looping = true, presentationValid = false;
 };
 
-inline bool sameClock (const BlockClock& a, const BlockClock& b)
+inline bool sameSampleClock (const BlockClock& a, const BlockClock& b)
 {
     return a.clock == b.clock && a.project == b.project && a.frames == b.frames
         && a.clockValid == b.clockValid && a.projectValid == b.projectValid
         && a.playing == b.playing && a.afterGap == b.afterGap;
+}
+
+inline bool sameClock (const BlockClock& a, const BlockClock& b)
+{
+    return sameSampleClock (a, b) && a.loop.sameRange (b.loop)
+        && LoopContext::identical (a.loop.ppq, b.loop.ppq);
 }
 
 inline bool sameObservation (const Observation& a, const Observation& b)
@@ -98,17 +104,28 @@ public:
         o.post.project = ! looping ? emitted - delay
             : position == Position::content || (enabledDuringRun && emitted < loopStart + loopLength)
                 ? projectAt (emitted - delay)
+            : position == Position::nativeBeforeLoop ? o.pre.project - delay
             : std::max (loopStart, o.pre.project - delay);
-        // Two explicit synthetic clock assumptions, not universal format guarantees. The
-        // counter origins do not encode latency. The VST3-like clock includes compensation.
+        // Explicit synthetic assumptions, not format/host certificates. The VST3-like clock
+        // includes compensation. The shared engine clock does not; it models the observed
+        // AddClock offset of 0 adjacent / 4096 after the physical 4096-sample delay.
         o.pre.clock = emitted + 777000;
-        o.post.clock = clock == Clock::vst3 ? o.pre.clock - delay : emitted + 1147688;
+        o.post.clock = clock == Clock::vst3 ? o.pre.clock - delay
+                     : clock == Clock::engineCounter ? o.pre.clock : emitted + 1147688;
         o.ppq = static_cast<double> (o.post.project) / 24000.0; // constant 120 BPM fixture only
         o.loopStartPpq = looping ? static_cast<double> (loopStart) / 24000.0 : 0.0;
         o.loopEndPpq = looping ? static_cast<double> (loopStart + loopLength) / 24000.0 : 0.0;
         o.pre.loop = { looping, looping, static_cast<double> (o.pre.project) / 24000.0,
                        o.loopStartPpq, o.loopEndPpq, 120.0 };
         o.post.loop = { looping, looping, o.ppq, o.loopStartPpq, o.loopEndPpq, 120.0 };
+        if (position == Position::nativeBeforeLoop && looping
+            && (! enabledDuringRun || emitted >= loopStart + loopLength))
+        {
+            // Studio Pro AU observation: PPQ is clamped, native samples are not. JUCE's
+            // negative sample conversion rounds toward zero after adding 0.5 (one sample).
+            o.post.loop.ppq = std::max (o.loopStartPpq, o.ppq);
+            if (o.post.project < 0) ++o.post.project;
+        }
         return o;
     }
 
