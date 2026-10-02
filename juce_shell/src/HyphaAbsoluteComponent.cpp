@@ -1,4 +1,5 @@
 #include "HyphaAbsoluteComponent.h"
+#include "HyphaKeyLight.h"
 
 #include "HyphaAnalysisUiText.h"
 #include "HyphaAbsolutePainter.h"
@@ -184,6 +185,7 @@ void AbsoluteComponent::mouseExit (const juce::MouseEvent&)
 
 void AbsoluteComponent::paint (juce::Graphics& g)
 {
+    const key_light::Scope light (*this);
     absolute_painter::paint (g, getLocalBounds().toFloat(), {
         batch, numericSnapshot, analysisOwnerNames, haveBatch,
         haveNumericSnapshot && signalActive, signalActive, sharpnessOnly, presentationContext

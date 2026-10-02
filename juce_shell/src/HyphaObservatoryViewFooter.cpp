@@ -179,6 +179,8 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     area.removeFromTop (timeControlsHeight());
+    area.reduce (main_frame::inset(), main_frame::inset()); // the page's main window, in its frame
+    main_frame::paint (g, area.toFloat());
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
                             frameAvailable ? observatoryFrame.meter.sample_rate : 0.0,

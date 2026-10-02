@@ -226,7 +226,7 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
 void ComparisonView::paint (juce::Graphics& g)
 {
     if (hidden) return;
-    surface_material::paintObservationWell (g, getLocalBounds().toFloat());
+    surface_material::paintObservationWell (g, getLocalBounds().toFloat(), false); // framed by the page
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY);
     const bool detail = !graph.isEmpty();

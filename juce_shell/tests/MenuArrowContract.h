@@ -96,11 +96,14 @@ inline void verifyMenuArrowContract()
             KIRIN_MENU_ARROW_REQUIRE (menu->getTitle() == "Choose history time range");
             KIRIN_MENU_ARROW_REQUIRE (menu->getTooltip() == menu->getTitle());
 
+            // The same plate at the same place in the view, under the same key light.
             observatory::Button bare ({}, false);
             bare.setPresentationContext (view.presentationContext());
+            view.addChildComponent (bare);
             bare.setBounds (menu->getBounds());
             const auto drawn = render (*menu);
             const auto ink = inkOf (drawn, render (bare));
+            view.removeChildComponent (&bare);
             const auto centre = drawn.getBounds().getCentre();
             std::cout << "Menu arrow " << preset.label << ": " << ink.bounds.getWidth() << " x "
                       << ink.bounds.getHeight() << " px at DPI 2, top " << ink.topWidth

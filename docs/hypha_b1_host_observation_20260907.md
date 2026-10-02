@@ -233,6 +233,31 @@ trackのrecord armは有効にせず、音声eventは作成していない。
 B-757のWindows証拠とB-765のmacOS画面、比較値、候補binary、要求artifact、復旧結果は、ローカルの`Downloads/Hypha_PDC_Evidence_20260908/`へ保存した。
 OneDriveの容量100%通知も表示されたが、アカウントや同期設定は変更していない。
 
+## Windows版Pro ToolsのAAX（2026-09-29、B-1094）
+
+B-1092（`1085c52c`）からWindows検証機でbuildしたDebugのPRE／POST AAXと、同じsourceの非出荷`Kirin Hypha PDC Validation Delay 4096`のAAXを、
+未署名のままPro Tools Developer 2026.4.0（Windows 11、x64）で使った。
+PRE → PDC Validation Delay 4096 → POSTの順に同じstereo trackへ挿入し、POSTから明示選択したPRE instance `0fe89268`と同じnative範囲を取得した。
+
+| 観測項目 | 結果 |
+| --- | --- |
+| 形式 / host | AAX Native / Pro Tools Developer 2026.4.0、Windows 11 |
+| 音声 | Windows Audio Device（共有モード）、48 kHz、H/W buffer 256、pluginへのcallbackは1024 frames、session 32-bit float |
+| binary SHA-256 | PRE `372042d30de3f7d4362ec8b50f0093928d5f4c38ba93cd6ed61cdd7ac151209b`、POST `872a39bbd0a59a29384a9be84aada7b6e38eee4b68c92848273590fc45419e46`、validation delay `0d6abc5f795434455d077bceb38f07bd81c8190841f1ccafada769de515a5b0d` |
+| 取得範囲 | start 2,766,727 / 192,000 frames / 48,000 Hz / stereo |
+| capture | paired / failure none / lane none |
+| callback | all 3,867 / owned 449 |
+| bit一致 | yes |
+| 推定残差 | 0 samples |
+| 相関 | zero 1.00000000 / best 1.00000000 / margin 0.00000000 |
+| 正規化zero RMS誤差 | 0.00000000 |
+
+この結果は、Windows版Pro Toolsでも、hostへ4096 samplesを報告する別identityのvalidation delayを挟んだ同一の将来native範囲が、PDC後に完全一致することを示す。
+AAXはhost context providerを持たず、host identity、document hash、channel hashは`unavailable`／`absent`だった。対応区間は内部事実だけで証明した。
+macOSのPro Tools、製品版（PACE署名）、他のbufferとrateへは一般化しない。
+確認後はPro Toolsを保存せずに終え、確認用のAAXをplug-inのfolderから退避のfolderへ移した。
+画面と比較値は作業者の手元（`~/KirinValidation/ProToolsWin/b1092/`、`SHA256SUMS.txt`）に保存した。
+
 ## 次に閉じる条件
 
 1. B-743とB-744で、明示選択したPREのinstance ID、locator、pair generation、owner claimを一つの不変な取得要求へ束ねた。
@@ -256,6 +281,7 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    B-765のDebug VST3はmacOS Studio Pro 8、96 kHzで同一4秒範囲のbit一致と残差0 sampleを実証した。
    B-773候補のmacOS AUも同条件でbit一致、残差0 sampleを実証した。
    三形式の実証が揃ったため、製品開始gateを開く。
+   B-1094の記録で、Windows版Pro Tools Developer 2026.4のAAXも同条件でbit一致、残差0 sampleを実証した。macOSと製品版のAAXは未実証である。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
 4. Windows VST3、macOS VST3、macOS AUの確認済み条件をB1の正本とし、後続の製品UI操作一巡と性能検証で保持する。

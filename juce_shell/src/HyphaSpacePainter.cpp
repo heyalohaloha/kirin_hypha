@@ -186,7 +186,10 @@ void paintGlance (juce::Graphics& g, juce::Rectangle<int> area, const KirinMeter
     auto balance = area.removeFromLeft (column);
     auto correlation = area.removeFromRight (column);
     const int side = juce::jmin (area.getWidth(), area.getHeight());
-    const auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
+    // The page's main window, in its frame.
+    const auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre())
+                           .reduced (main_frame::inset());
+    main_frame::paint (g, field.toFloat());
     drawPanel (g, field, true);
     const auto plot = field.reduced (8).toFloat();
     drawFieldAxes (g, plot);
@@ -291,6 +294,8 @@ void paint (juce::Graphics& g,
         metrics.removeFromTop (gap);
         correlationBox = metrics;
     }
+    field.reduce (main_frame::inset(), main_frame::inset()); // the page's main window, in its frame
+    main_frame::paint (g, field.toFloat());
     drawPanel (g, field, compact);
     auto plot = field.reduced (fieldInset).toFloat();
     drawFieldAxes (g, plot);

@@ -1,5 +1,7 @@
 #include "HyphaReferenceComponent.h"
 
+#include "HyphaMainFrame.h"
+
 namespace hypha::reference_ui
 {
 void Component::resized()
@@ -103,6 +105,8 @@ void Component::resized()
     }
     if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
     auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
+    // The page's main window, in the frame the page draws around it (paint).
+    area.reduce (main_frame::insetFor (presentationContext), main_frame::insetFor (presentationContext));
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
     if (blindSession)

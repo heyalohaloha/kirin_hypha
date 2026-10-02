@@ -46,7 +46,7 @@ normal return. Capture/PDC proof and playback-boundary proof remain separate.
 | Source and range transitions; real-audio Gain Match | Targeted tests pass | Five-millisecond transition is partition-invariant; maximum constant-signal step is 0.00208336 (normal) or 0.00104171 (approved attenuation). S-1 matched gain tolerance is 0.002 dB. Complete processor/editor flow passes for stereo 2MIX and mono TRACK/STEM |
 | macOS VST3 and AU host acceptance | Pending | Current candidate product round trip, stopped/reopened editor and mix synchronization |
 | Windows VST3 host acceptance | Pending | Same candidate and conditions on the validation machine |
-| AAX native clock/PDC | Pending; entry enabled for validation | Known 4096-sample delay, exact PRE/POST capture, native hashes and residual zero on each supported host |
+| AAX native clock/PDC | Pending on macOS and retail Pro Tools; Windows Pro Tools Developer 2026.4 passed (B-1094) | Known 4096-sample delay, exact PRE/POST capture, native hashes and residual zero on each supported host |
 | Final source gate / Clippy / CI | Rust libraries and Clippy pass; native/CI running | 1,638 library tests pass, nine existing slow tests remain ignored in this command; full Clippy has no owned-source diagnostics. Required PR gates remain authoritative |
 
 ## Host coordination

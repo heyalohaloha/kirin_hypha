@@ -43,6 +43,16 @@ struct Bleed
     float bottom = 0.0f;
 };
 
+// A part of the material that holds one opaque colour and nothing else (the middle of a glass
+// beyond its shadows), in the same coordinates as its area. A kept image is composited only
+// around it and the part is filled directly: blending an image costs more per pixel than a flat
+// fill, on the software renderer more than painting the whole material.
+struct Flat
+{
+    juce::Rectangle<float> area;
+    juce::Colour colour;
+};
+
 class Store
 {
 public:
@@ -217,7 +227,7 @@ juce::Image image (Key key, int pixelWidth, int pixelHeight, Build&& build)
 // Draws `paint (graphics, area)` through the cache. `paint` must depend only on the key and the
 // area's size, never on its position.
 template <typename Paint>
-void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed, Paint&& paint)
+void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed, Paint&& paint, Flat flat = {})
 {
     const auto store = juce::SharedResourcePointer<Store>::getSharedObjectWithoutCreating();
     const auto scale = g.getInternalContext().getPhysicalPixelScaleFactor();
@@ -252,6 +262,19 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
         found.image = image;
     }
     const juce::Graphics::ScopedSaveState saved (g);
+    // The flat part, a point inside its edge, is left out of the composite in whole points; the
+    // fill reaches a point further, so no pixel the clip cuts through is left without the colour.
+    const auto left = (int) std::ceil (flat.area.getX() + 1.0f);
+    const auto top = (int) std::ceil (flat.area.getY() + 1.0f);
+    const auto right = (int) std::floor (flat.area.getRight() - 1.0f);
+    const auto bottom = (int) std::floor (flat.area.getBottom() - 1.0f);
+    if (right > left && bottom > top)
+    {
+        const juce::Rectangle<int> hole { left, top, right - left, bottom - top };
+        g.setColour (flat.colour);
+        g.fillRect (hole.toFloat().expanded (1.0f));
+        g.excludeClipRegion (hole);
+    }
     g.setOpacity (1.0f);
     // Already device resolution: one image pixel per device pixel, never smoothed.
     g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);

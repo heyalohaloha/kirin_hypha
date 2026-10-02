@@ -254,7 +254,8 @@ stampまたはWindows signed provenanceを要求する。Kimeraフォントは�
 Windows installerはprovenance sidecarと
 PRE/POST hashを同じrelease commitへ結び、別commitの署名済みAAXを受理しない。
 AAXのローカルPRE/POST Blindの入口は2026-09-13の利用者指示により有効。
-exact capture、clock/PDC連続性、開始排他の検証は維持する。実AAX hostのPDC実証は未完了であり、
+exact capture、clock/PDC連続性、開始排他の検証は維持する。実AAX hostのPDC実証は、Windows版の
+Pro Tools Developer 2026.4の1条件（B-1094）だけが成立し、macOSと製品版では未完了であり、
 入口の有効化を実機検証・公開リリースの完了根拠にしない。
 macOSの正本は`docs/aax_macos_universal_build_20260910.md`、Windowsは
 `docs/aax_windows_build_20260910.md`、Phase A境界は`docs/aax_phase_a_readiness_20260907.md`とする。
