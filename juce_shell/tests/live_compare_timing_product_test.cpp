@@ -49,8 +49,25 @@ struct Clock final : juce::AudioPlayHead
             {
                 value.setKirinAuxiliaryClockSource (1);
                 if (! omitAuxiliary) value.setKirinAuxiliaryClockSamples (position);
+                value.setKirinPresentationLatencySource (1);
+                value.setKirinOutputPresentationLatencySamples (outputPresentation);
             }
             loop->decorate (value, position);
+            if (const auto points = value.getLoopPoints(); points && inputDelay > 0)
+            {
+                // Measured VST3 convention: the upstream node wraps first. POST native
+                // position clamps to the start while musical position retains its negative
+                // delayed tail. The auxiliary content clock and physical delay do NOT fold.
+                const auto start = static_cast<std::int64_t> (std::llround (points->ppqStart * 24000));
+                const auto length = static_cast<std::int64_t> (std::llround ((points->ppqEnd - points->ppqStart) * 24000));
+                const auto raw = start + (position + inputDelay - start) % length - inputDelay;
+                if (raw < start && position + inputDelay >= start + length)
+                {
+                    value.setTimeInSamples (start);
+                    value.setPpqPosition (static_cast<double> (raw) / 24000);
+                    clampObserved.store (true);
+                }
+            }
         }
         return value;
     }
@@ -58,6 +75,8 @@ struct Clock final : juce::AudioPlayHead
     bool playing = false;
     bool certifiedContent = false;
     bool omitAuxiliary = false; // fixture audio thread only; one missing startup observation
+    std::int64_t inputDelay = 0, outputPresentation = 0;
+    mutable std::atomic<bool> clampObserved { false };
     const LiveBlindLoopFixture* loop = nullptr;
 };
 
@@ -94,6 +113,7 @@ public:
         // content clock that the shipping VST3 wrapper supplies. Scheduler stalls on a shared
         // CI runner are not missing host samples and must not manufacture a transport gap.
         preClock.certifiedContent = postClock.certifiedContent = true;
+        preClock.outputPresentation = postClock.inputDelay = 4096;
         if (initialLoop) loop.requested.store (true);
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
@@ -306,6 +326,7 @@ private:
                          "four audition clicks; compressor gain truly changes with the input");
                 require (! initialLoop || startupClockHoleInjected.load(),
                          "initial LOOP exercised an unavailable first callback of the new entry");
+                require (postClock.clampObserved.load(), "actual processor boundary exercised native clamp / negative PPQ");
                 std::cout << "clock preparation product PASS: "
                           << (initialLoop ? "initial loop" : "late loop")
                           << " BLIND, compressor/dynamic band, 20 audited laps, "

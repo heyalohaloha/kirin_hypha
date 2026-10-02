@@ -9,7 +9,6 @@
 
 namespace hypha::live_compare
 {
-enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine };
 enum class LoopEntryKind : std::uint8_t { none, linear, contentClock, presentationLatency, boundedEngine };
 enum class LoopEntryFailure : std::uint8_t { none, observingCycle, clockUnavailable, loopTooShort };
 
@@ -59,7 +58,7 @@ inline bool loopAddressIsCurrent (const LoopAnchor& anchor, const BlockClock& pr
         || start + post.frames > end || end - start > capacity)
         return false;
     auto verified = post;
-    return corroborateLoop (anchor, post, start, rate, verified);
+    return corroborateLoop (anchor, post, start, rate, verified, &pre);
 }
 
 inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,

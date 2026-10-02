@@ -19,6 +19,10 @@ class LiveTimingProductDiagnostic
         std::uint64_t run = 0, sessionGeneration = 0;
         std::int64_t preClock = 0, postClock = 0, origin = 0, runStart = 0, writeEnd = 0;
         std::int64_t observerK = 0, consumerK = 0;
+        std::int64_t nativePost = 0, pcmAnchorClock = 0, pcmAnchorProject = 0, measuredCycle = 0;
+        double postPpq = 0, pcmAnchorPpq = 0;
+        unsigned prePresentation = 0, postPresentation = 0, preAuthority = 0;
+        bool boundaryJoined = false;
         std::uint64_t preInterval = 0, postInterval = 0, maximumPreInterval = 0, maximumPostInterval = 0;
         unsigned verdict = 0, observation = 0;
         bool preGap = false, postGap = false;
@@ -35,6 +39,7 @@ public:
         const auto count = published.load (std::memory_order_relaxed);
         if (count >= rows->size()) return;
         Row row;
+        hypha::live_compare::BlockClock postBlock;
         row.phase = phase.load (std::memory_order_relaxed);
         row.block = block;
         const auto interval = [] (std::uint64_t now, std::uint64_t before)
@@ -67,6 +72,9 @@ public:
             row.preGeneration = snapshot.generation;
             row.preClock = snapshot.block.clock; row.origin = snapshot.origin;
             row.runStart = snapshot.anchor.runStart;
+            row.measuredCycle = snapshot.anchor.loopSamples;
+            row.prePresentation = snapshot.block.outputPresentationSamples;
+            row.preAuthority = snapshot.block.clockAuthority;
         });
         post.liveCompare.preparation.peers.withRealtime ([&] (auto& peer)
         {
@@ -77,6 +85,9 @@ public:
             row.observerGeneration = peer.observer.generation;
             row.observerK = peer.observer.k;
             row.postClock = peer.observer.timeline.clock;
+            postBlock = peer.observer.previousPost;
+            row.nativePost = postBlock.project; row.postPpq = postBlock.loop.ppq;
+            row.postPresentation = postBlock.outputPresentationSamples;
         });
         const auto& consumer = post.liveCompare.renderer.consumer;
         bit (10, consumer.kValid); bit (11, consumer.initialAdmission);
@@ -96,6 +107,12 @@ public:
             bit (19, true);
             row.run = mapping.ring()->header.run.load (std::memory_order_acquire);
             row.writeEnd = mapping.ring()->header.writeEnd.load (std::memory_order_acquire);
+            row.pcmAnchorClock = mapping.ring()->header.loopClock.load (std::memory_order_relaxed);
+            row.pcmAnchorProject = mapping.ring()->header.loopProject.load (std::memory_order_relaxed);
+            row.pcmAnchorPpq = mapping.ring()->header.loopPpq.load (std::memory_order_relaxed);
+            auto verified = postBlock;
+            row.boundaryJoined = hypha::live_compare::Consumer::loopJoin (mapping.ring()->header,
+                postBlock, postBlock.clock - consumer.k, 48000, verified);
             bit (20, mapping.ring()->header.timingGeneration.load (std::memory_order_acquire) == row.preGeneration);
         });
         (*rows)[count] = row;
@@ -127,6 +144,11 @@ public:
                       << " observation=" << row.observation << " preGap=" << row.preGap << " postGap=" << row.postGap
                       << " preIntervalUs=" << row.preInterval / 1000 << " postIntervalUs=" << row.postInterval / 1000
                       << " maxPreUs=" << row.maximumPreInterval / 1000 << " maxPostUs=" << row.maximumPostInterval / 1000
+                      << " nativePost=" << row.nativePost << " postPpq=" << row.postPpq
+                      << " pcmAnchorClock=" << row.pcmAnchorClock << " pcmAnchorProject=" << row.pcmAnchorProject
+                      << " pcmAnchorPpq=" << row.pcmAnchorPpq << " measuredCycle=" << row.measuredCycle
+                      << " prePresentation=" << row.prePresentation << " postPresentation=" << row.postPresentation
+                      << " preAuthority=" << row.preAuthority << " boundaryJoined=" << row.boundaryJoined
                       << '\n';
             previous = row; havePrinted = true;
         }

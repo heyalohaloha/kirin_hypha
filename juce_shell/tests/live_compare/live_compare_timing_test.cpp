@@ -16,6 +16,7 @@ void require (bool ok, const char* why)
 }
 }
 #include "LiveCompareOwnerLifetimeTest.h"
+#include "LiveCompareVst3NativeClampTest.h"
 namespace
 {
 constexpr std::uint64_t pair = 0x202610012222;
@@ -480,6 +481,7 @@ int main (int argc, char** argv)
     initialLoopDoesNotInventAnOrigin();
     certifiedInitialLoopStartsWithoutAnotherGesture();
     pendingInitialLoopWaitsForFirstUsableClock();
+    vst3_native_clamp_test::run();
     faultsFenceEvidence();
     timingMappingDoesNotOwnAuditionDemand();
     livePreMappingHasOneWriter();

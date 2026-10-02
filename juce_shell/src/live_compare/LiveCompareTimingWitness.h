@@ -175,7 +175,6 @@ public:
     {
         const bool active = pre.active && post.playing && post.clockValid && post.projectValid
             && post.frames > 0 && ! post.afterGap;
-        const auto cycle = postCycles.observe (post, rate);
         const bool sourceChanged = haveSource && (generation != pre.generation
             || previous.ownerA != pre.ownerA || previous.ownerB != pre.ownerB);
         const bool postProofChanged = havePostProof && ! sameClockProof (previousPost, post);
@@ -188,7 +187,10 @@ public:
         if (! addressValid) invalidate();
         auto verified = post;
         const bool corroborated = valid && post.loop.active
-            && corroborateLoop (pre.anchor, post, start, rate, verified);
+            && corroborateLoop (pre.anchor, post, start, rate, verified, &pre.block);
+        // Cycle and timeline observers must consume the SAME corroborated coordinates.
+        // Feeding the raw clamp into the cycle meter would revoke a proven K every wrap.
+        const auto cycle = postCycles.observe (corroborated ? verified : post, rate);
         const auto movement = timeline.observe (corroborated ? verified : post, rate,
                                                 coherent ? (age > 0 && age < capacity ? age : 0) : lastAge);
         if (! active || sourceChanged || postProofChanged || movement.broken || cycle.changed)

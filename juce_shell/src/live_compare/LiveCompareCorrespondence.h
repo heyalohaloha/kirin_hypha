@@ -320,13 +320,25 @@ private:
         const auto project = h.loopProject.load (std::memory_order_relaxed);
         const auto runStart = h.runStart.load (std::memory_order_relaxed);
         const auto runProject = h.runProject.load (std::memory_order_relaxed);
+        const auto generation = h.timingGeneration.load (std::memory_order_relaxed);
         const LoopContext context { true, (flags & 2u) != 0,
             h.loopPpq.load (std::memory_order_relaxed), h.loopStart.load (std::memory_order_relaxed),
             h.loopEnd.load (std::memory_order_relaxed), h.loopBpm.load (std::memory_order_relaxed) };
         std::atomic_thread_fence (std::memory_order_acquire);
         if (h.seq.load (std::memory_order_relaxed) != seq) return false;
-        return corroborateLoop ({ (flags & 1u) != 0, (flags & 2u) != 0,
-            runStart, runProject, anchorClock, project, 0, context }, block, start, rate, verified);
+        LoopAnchor anchor { (flags & 1u) != 0, (flags & 2u) != 0,
+            runStart, runProject, anchorClock, project, 0, context };
+        if (corroborateLoop (anchor, block, start, rate, verified)) return true;
+        // Only the exceptional boundary needs the separate clock snapshot. Normal blocks
+        // keep the cheap PCM-anchor path; the snapshot must belong to this exact PCM run.
+        TimingSnapshot timing;
+        if (! readTiming (h.timing, timing) || ! timing.active || timing.generation != generation
+            || ! timing.anchor.loopKnown || ! timing.anchor.loop.sameRange (context)) return false;
+        // Clock observation may predate the first demanded PCM. Its earlier same-generation
+        // anchor can corroborate a delayed tail without claiming those samples were written;
+        // read() still rejects every frame before the independently checked PCM runStart.
+        const bool matches = corroborateLoop (timing.anchor, block, start, rate, verified, &timing.block);
+        return matches && h.seq.load (std::memory_order_acquire) == seq;
     }
 
     static Verdict read (const Ring& ring, std::int64_t start, std::int32_t frames,

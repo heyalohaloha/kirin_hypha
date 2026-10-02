@@ -17,6 +17,7 @@ enum class ClockBasis : std::uint8_t
     aaxEngine,
     pluginFrames
 };
+enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine };
 
 constexpr ClockBasis clockBasisFor (AuxiliaryClockSource source) noexcept
 {

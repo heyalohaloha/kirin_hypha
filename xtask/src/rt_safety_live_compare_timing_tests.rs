@@ -47,7 +47,8 @@ fn clock_preparation_and_shared_projection_stay_realtime_safe() {
     // AU's measured clamp may normalize corroboration coordinates, NEVER the PCM address/K.
     let projection = function_body(BLOCK_H, "inline bool corroborateLoop (");
     for required in [
-        "if (! LoopContext::identical (block.loop.ppq, block.loop.start)) return false;",
+        "if (! LoopContext::identical (block.loop.ppq, block.loop.start)",
+        "|| static_cast<double> (block.project) >= loopStart",
         "std::abs (static_cast<double> (block.project) - (expected - length)) > 1.01",
         "std::abs (expected) >= 9007199254740992.0",
     ] {
@@ -56,6 +57,44 @@ fn clock_preparation_and_shared_projection_stay_realtime_safe() {
             "AU projection lost {required}"
         );
     }
+    // VST3's opposite clamp can ONLY corroborate an independently certified K=0 address.
+    for required in [
+        "preProof != nullptr && block.loop.ppq < block.loop.start",
+        "ClockBasis::vst3Continuous",
+        "ClockAuthority::certifiedContent",
+        "start != block.clock",
+        "preProof->clockAuthority != certified || block.clockAuthority != certified",
+        "preProof->presentationSource != 1 || block.presentationSource != 1",
+        "preProof->outputPresentationSamples <= block.outputPresentationSamples",
+        "anchor.loopSamples <= 0",
+        "std::abs (length - static_cast<double> (anchor.loopSamples)) > 1.01",
+        "std::abs (static_cast<double> (block.project) - loopStart) > 1.01",
+        "tail > static_cast<double> (delay) + 1.01",
+        "std::abs (block.loop.ppq + block.loop.end - block.loop.start - ppq) > tolerance",
+    ] {
+        assert!(
+            projection.contains(required),
+            "VST3 projection lost {required}"
+        );
+    }
+    let loop_join = function_body(CORRESPONDENCE_H, "static bool loopJoin (");
+    for required in [
+        "timing.generation != generation",
+        "! timing.anchor.loop.sameRange (context)",
+        "corroborateLoop (timing.anchor, block, start, rate, verified, &timing.block)",
+        "h.seq.load (std::memory_order_acquire) == seq",
+    ] {
+        assert!(
+            loop_join.contains(required),
+            "PCM generation fence lost {required}"
+        );
+    }
+    assert!(
+        function_body(CORRESPONDENCE_H, "static Verdict read (").contains("if (start < runStart)")
+    );
+    let observe = function_body(TIMING_H, "TimingEvidence observe (");
+    assert!(observe.contains("postCycles.observe (corroborated ? verified : post, rate)"));
+    assert!(observe.contains("timeline.observe (corroborated ? verified : post, rate"));
 }
 
 #[test]
