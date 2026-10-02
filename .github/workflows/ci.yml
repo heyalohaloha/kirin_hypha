@@ -69,7 +69,7 @@ jobs:
     name: release source contract (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: macos-14
-    # Run 36959880727 passed all 56 native and 26 ignored tests but reached
+    # Run 36959880727 passed all then-required native and 26 ignored tests but reached
     # 45 minutes in final clippy. Keep the complete gate and bounded cold-build
     # headroom; this changes no test deadline or acceptance criterion.
     timeout-minutes: 55
@@ -234,8 +234,8 @@ jobs:
 
       - name: Validate Windows UI render contract
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_ui_render_contract$'
+          cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests KirinHostIdentityTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^(kirin_ui_render_contract|kirin_host_identity)$'
 
       # The DRUM (TIME > ATTACK) surface is rendered by the Windows JUCE graphics stack as well, and
       # its previews are kept so the Windows screen can be inspected for every change.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "live_compare/LiveCompareLoopEntry.h"
+#include "HostExecutableIdentity.h"
 
 #include <cmath>
 #include <cstdint>
@@ -32,8 +33,7 @@ inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
         && (executableVersion == "8.1.2 Build 113407" || executableVersion == "8.1.2.113407");
     if (wrapper == juce::AudioProcessor::wrapperType_VST3 && studioPro812)
         return { live_compare::ClockAuthority::certifiedContent, 0 };
-    // File::getVersion() exposes the executable's fixed/file bundle version, not Pro Tools'
-    // marketing year. The measured Developer host reports 26.4.0.5 on both macOS and Windows.
+    // The measured Developer host reports 26.4.0.5, not Pro Tools' marketing year.
     // Keep this exact: AddClock is useful only after the corresponding host build has qualified
     // the bounded-engine proof, so a nearby patch or the marketing string must fail closed.
     const bool proToolsDeveloper26405
@@ -44,9 +44,15 @@ inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
     return {};
 }
 
+inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
+                             const host_identity::Identity& host, double rate) noexcept
+{
+    return classify (wrapper, host.name,
+        wrapper == juce::AudioProcessor::wrapperType_AAX ? host.fileVersion : host.version, rate);
+}
+
 inline Certificate current (juce::AudioProcessor::WrapperType wrapper, double rate)
 {
-    const auto executable = juce::File::getSpecialLocation (juce::File::hostApplicationPath);
-    return classify (wrapper, executable.getFileNameWithoutExtension(), executable.getVersion(), rate);
+    return classify (wrapper, host_identity::current(), rate);
 }
 }

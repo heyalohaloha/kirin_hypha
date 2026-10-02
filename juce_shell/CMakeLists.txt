@@ -276,6 +276,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     endif()
 
     target_sources(${TARGET} PRIVATE
+        src/HostExecutableIdentity.cpp
         src/PluginProcessor.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorLiveCompare.cpp
@@ -606,6 +607,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
+        src/HostExecutableIdentity.cpp
         tests/SpectrumRenderTest.cpp
         tests/AbsoluteTimelineContractTest.cpp
         tests/AbsoluteSpectrumContractTest.cpp

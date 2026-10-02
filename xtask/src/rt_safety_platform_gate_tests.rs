@@ -1,4 +1,33 @@
 #[test]
+fn certified_hosts_use_native_complete_identity_before_audio_callbacks() {
+    let reader = include_str!("../../juce_shell/src/HostExecutableIdentity.cpp");
+    let live = include_str!("../../juce_shell/src/HyphaLiveCompareClockPolicy.h");
+    let chain = include_str!("../../juce_shell/src/HyphaChainClockPolicy.h");
+    let format = include_str!("../../juce_shell/src/PluginProcessorFormat.cpp");
+    let rt = include_str!("../../juce_shell/src/PluginProcessorLiveCompareRealtime.cpp");
+    let cmake = include_str!("../../juce_shell/cmake/LiveCompare.cmake");
+    let ci = include_str!("../../.github/workflows/ci.yml");
+    let gate = include_str!("../../scripts/test_release_source.sh");
+    assert!(reader.contains("juce::File::hostApplicationPath"));
+    assert!(reader.contains("identity.version = app.getVersion()"));
+    assert!(reader.contains("GetFileVersionInfoW") && reader.contains("FileVersion"));
+    assert!(reader.contains("identity.version = fileVersionString (executable)"));
+    assert!(reader.contains("identity.fileVersion = executable.getVersion()"));
+    assert!(live.contains("wrapperType_AAX ? host.fileVersion : host.version"));
+    for policy in [live, chain] {
+        assert!(policy.contains("host_identity::current()"));
+        assert!(!policy.contains("executable.getVersion()"));
+    }
+    assert!(format.contains("live_compare_clock_policy::current (wrapperType, sampleRate)"));
+    assert!(!rt.contains("host_identity") && !rt.contains("clock_policy::current"));
+    for source in [cmake, ci, gate] {
+        assert!(
+            source.contains("KirinHostIdentityTests") && source.contains("kirin_host_identity")
+        );
+    }
+}
+
+#[test]
 fn product_runtime_contracts_are_registered_in_platform_gates() {
     let ci = include_str!("../../.github/workflows/ci.yml");
     let source_gate = include_str!("../../scripts/test_release_source.sh");

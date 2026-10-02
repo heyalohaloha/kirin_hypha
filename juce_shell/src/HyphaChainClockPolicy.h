@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kirin_hypha_chain_observation.h"
+#include "HostExecutableIdentity.h"
 #include <cstdint>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -28,9 +29,8 @@ inline std::uint8_t current (juce::AudioProcessor::WrapperType wrapper)
    #if JUCE_WINDOWS && JUCE_DEBUG
     // currentExecutableFile resolves the plugin DLL in JUCE on Windows. Only the main
     // process executable identifies the DAW whose clock semantics were measured.
-    const auto executable = juce::File::getSpecialLocation (juce::File::hostApplicationPath);
-    return classify (true, wrapper, executable.getFileNameWithoutExtension(),
-                     executable.getVersion());
+    const auto host = host_identity::current();
+    return classify (true, wrapper, host.name, host.version);
    #else
     juce::ignoreUnused (wrapper);
     return KIRIN_CHAIN_CLOCK_POLICY_UNKNOWN;

@@ -35,6 +35,29 @@ inline void verifyChainClockPolicy()
         "Studio Pro", "8.1.2.113407", 48000.0);
     require (windowsVst.authority == ClockAuthority::certifiedContent,
              "measured Windows VST3 content clock is exact-host certified");
+    require (live_compare_clock_policy::classify (Wrapper::wrapperType_VST3,
+        host_identity::Identity { "Studio Pro", "8.1.2.113407", "8.1.2.0" }, 48000.0)
+            .authority == ClockAuthority::certifiedContent,
+        "native Windows text, not its truncated fixed version, selects the VST3 certificate");
+    require (live_compare_clock_policy::classify (Wrapper::wrapperType_VST3,
+        host_identity::Identity { "Studio Pro", "", "8.1.2.0" }, 48000.0)
+            .authority == ClockAuthority::none,
+        "a missing native text must not fall back to the fixed Studio Pro version");
+    require (live_compare_clock_policy::classify (Wrapper::wrapperType_AAX,
+        host_identity::Identity { "ProTools", "26.4.0.5\"", "26.4.0.5" }, 48000.0)
+            .authority == ClockAuthority::boundedAaxEngine,
+        "AAX retains the measured fixed-version identity without trimming its quoted text");
+    require (live_compare_clock_policy::classify (Wrapper::wrapperType_AAX,
+        host_identity::Identity { "ProTools", "26.4.0.5", "26.4.1.179" }, 48000.0)
+            .authority == ClockAuthority::none,
+        "an unmeasured fixed AAX version must not fall back to a certified-looking text");
+    for (const auto& version : { "", "8.1.2.0", "8.1.2.113408", "8.1.2 Build 113408" })
+        require (live_compare_clock_policy::classify (Wrapper::wrapperType_VST3,
+            "Studio Pro", version, 48000.0).authority == ClockAuthority::none,
+            "missing, fixed-only or unmeasured build identity must fail closed");
+    require (live_compare_clock_policy::classify (Wrapper::wrapperType_VST3,
+        "Studio Pro 8", "8.1.2 Build 113407", 48000.0).authority == ClockAuthority::none,
+        "an app folder name is not an executable identity");
     const auto aax = live_compare_clock_policy::classify (Wrapper::wrapperType_AAX,
         "ProTools", "26.4.0.5", 48000.0);
     require (aax.authority == ClockAuthority::boundedAaxEngine && aax.maximumDelaySamples == 16383,
