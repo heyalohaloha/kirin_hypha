@@ -3,6 +3,7 @@
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
 #include "../../src/live_compare/LiveBlindSession.h"
+#include "../ExactPcmOracle.h"
 
 #include <cmath>
 #include <cstdio>
@@ -383,6 +384,7 @@ static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
 
 int main()
 {
+    require (hypha::test::exactPcmControls(), "exact PCM oracle positive and negative controls");
     BlindSession trial;
     NamedSelection selection;
     for (int i = 0; i < 1000; ++i)

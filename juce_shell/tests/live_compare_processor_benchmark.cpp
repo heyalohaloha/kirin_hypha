@@ -15,6 +15,7 @@
 #include <vector>
 #if JUCE_MAC
  #include <dlfcn.h>
+ #include <pthread/qos.h>
  #include <time.h>
 #endif
 
@@ -46,6 +47,28 @@ std::uint64_t threadCpuNanos()
     return static_cast<std::uint64_t> (time.tv_sec) * 1'000'000'000 + static_cast<std::uint64_t> (time.tv_nsec);
    #else
     return 0;
+   #endif
+}
+
+void configureBenchmarkThread (bool audioQos)
+{
+   #if JUCE_MAC
+    qos_class_t before = QOS_CLASS_UNSPECIFIED, after = QOS_CLASS_UNSPECIFIED;
+    int beforePriority = 0, afterPriority = 0;
+    require (pthread_get_qos_class_np (pthread_self(), &before, &beforePriority) == 0,
+             "benchmark thread QoS is observable");
+    if (audioQos)
+        require (pthread_set_qos_class_self_np (QOS_CLASS_USER_INTERACTIVE, 0) == 0,
+                 "benchmark-only audio QoS request succeeds");
+    require (pthread_get_qos_class_np (pthread_self(), &after, &afterPriority) == 0,
+             "benchmark thread QoS is verified after configuration");
+    require (! audioQos || (after == QOS_CLASS_USER_INTERACTIVE && afterPriority == 0),
+             "explicit benchmark QoS is actually active");
+    std::cout << "benchmark_audio_qos=" << int (audioQos)
+              << " qos_before=" << before << " relative_before=" << beforePriority
+              << " qos_after=" << after << " relative_after=" << afterPriority << '\n';
+   #else
+    require (! audioQos, "explicit audio QoS is a macOS-only fixture option");
    #endif
 }
 
@@ -104,7 +127,8 @@ struct Measurements
 class Benchmark final : private juce::Timer
 {
 public:
-    explicit Benchmark (int framesIn, bool splitCpuIn) : frames (framesIn), splitCpu (splitCpuIn)
+    explicit Benchmark (int framesIn, bool splitCpuIn, bool audioQosIn)
+        : frames (framesIn), splitCpu (splitCpuIn), audioQos (audioQosIn)
     {
         for (auto& result : measurements) result.prepare();
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
@@ -236,6 +260,9 @@ private:
     }
     void process()
     {
+        // Fixture scheduling, before callbacks/probes. Changes this test thread only, not a
+        // product thread, DAW, device or global scheduler. Default remains separately auditable.
+        configureBenchmarkThread (audioQos);
         juce::AudioBuffer<float> buffer (2, frames);
         juce::MidiBuffer midi;
         // Initialise the diagnostic counter's own C++ TLS before callback instrumentation.
@@ -326,7 +353,7 @@ private:
     }
 
     int frames, stage = 0;
-    bool splitCpu = false;
+    bool splitCpu = false, audioQos = false;
     Host host;
     std::unique_ptr<Processor> pre, post;
     hypha::pair_preview::Ticket preview;
@@ -342,8 +369,15 @@ private:
 
 int main (int argc, char** argv)
 {
-    require (argc == 2 || (argc == 3 && std::strcmp (argv[2], "--cpu-split") == 0),
-             "usage: full processor benchmark 64|128|256|512 [--cpu-split]");
+    require (argc >= 2 && argc <= 4,
+             "usage: full processor benchmark 64|128|256|512 [--cpu-split] [--audio-qos]");
+    bool splitCpu = false, audioQos = false;
+    for (int i = 2; i < argc; ++i)
+    {
+        if (std::strcmp (argv[i], "--cpu-split") == 0 && ! splitCpu) splitCpu = true;
+        else if (std::strcmp (argv[i], "--audio-qos") == 0 && ! audioQos) audioQos = true;
+        else require (false, "unknown or duplicated fixture option");
+    }
     const int frames = std::atoi (argv[1]);
     require (frames == 64 || frames == 128 || frames == 256 || frames == 512, "specified buffer size is in the gate");
    #if ! JUCE_MAC
@@ -366,7 +400,7 @@ int main (int argc, char** argv)
              "positive control must observe real Rust FFI allocation and destruction");
     std::cout << "Rust System positive control allocations=" << positive.allocations << " frees=" << positive.frees << '\n';
    #endif
-    Benchmark benchmark (frames, argc == 3);
+    Benchmark benchmark (frames, splitCpu, audioQos);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return benchmark.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

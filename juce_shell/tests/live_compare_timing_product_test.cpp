@@ -4,6 +4,7 @@
 #include "ValidationStorageSandbox.h"
 #include "LiveBlindLoopFixture.h"
 #include "LiveTimingProductDiagnostic.h"
+#include "ExactPcmOracle.h"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -372,8 +373,8 @@ private:
                     const float actual = buffer.getSample (c, f);
                     const float expectedPost = processed[channel][frame];
                     if (ordinary && rawAudit.load() && std::memcmp (&actual, &expectedPost, sizeof (float)) != 0) rawErrors.fetch_add (1);
-                    preMatch = preMatch && std::fabs (actual - delayed[channel][frame] * gain) <= 0.0f;
-                    postMatch = postMatch && std::fabs (actual - expectedPost) <= 0.0f;
+                    preMatch = preMatch && hypha::test::exactScaledPcm (actual, delayed[channel][frame], gain);
+                    postMatch = postMatch && hypha::test::exactPcm (actual, expectedPost);
                 }
             const auto commandAfter = auditedBlindCommand();
             const auto heardAfter = post->liveBlindStatus().trial;
@@ -420,6 +421,7 @@ private:
 
 int main (int argc, char** argv)
 {
+    require (hypha::test::exactPcmControls(), "PCM oracle rejects one ULP, wrong source/gain and non-finite samples");
     require (argc == 2 || (argc == 3 && std::strcmp (argv[2], "--initial-loop") == 0),
              "usage: timing product test S-1.wav [--initial-loop]");
     auto signal = readFixture (argv[1]);

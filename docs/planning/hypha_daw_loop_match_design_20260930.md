@@ -938,3 +938,37 @@ AAX bounded engine clockの初回LOOPが全frame一致した。短いAAX LOOP、
 実Processor／editorでも、最初からLOOP、4096-sample delay、状態を持ち越すcompressor／dynamic band、直接BLIND、
 Source 1／2、開示、ENDを4クリックで通し、通常Aはbit同一、出力latency 0を維持した。
 これは実DAW／署名済み全format候補の受入証跡ではない。exact commitのMac VST3／AUとWindows AAXを別途実機確認する。
+
+### 2026-10-02: ARM64の全frame PCM監査
+
+B-1135のmacOS CIで残った2件のPCM不一致は、監査式`abs(actual - source * gain) <= 0`の
+FMA contractionで再現した。保存済みfloatの積は丸められる一方、FMAは積を丸めずに差まで計算するため、
+bit同一の実PCMに対しても非zeroの残差が出る。[Clang公式仕様](https://clang.llvm.org/docs/UsersManual.html)。
+ARM64の生成assemblyで`fmsub`を確認し、Intel検証機でもfixtureだけに`-mfma`を付けると、
+後からLOOP／初回LOOPの両製品試験が同じ全frame oracleで失敗した。
+
+監査は独立delay lineの期待値をfloat PCMへ丸めてから、実PCMとbit単位で照合する共通helperへ移した。
+許容誤差は設けず、1 ULP、異なるgain／音源、zeroの符号差、NaN／Infを拒否する対照試験を同じ
+最適化済みtranslation unitで実行する。製品のrenderer、時計根拠、receipt、出力、安全条件は変更しない。
+対照試験はvolatile入力から実行し、コンパイラの定数畳込みだけで合格させない。
+同じFMA条件で修正後の2製品試験とsession試験は3/3 pass（35.70秒）。再現用の`-mfma`は通常設定に残さない。
+この対照試験をCI／実DAWの現候補受入へ読み替えず、通常source gateとexact commit CI、実host検証へ進む。
+
+### 2026-10-02: 追加負荷の対照診断（受入は保留）
+
+B-1135製品処理と上記oracle修正だけのtreeを、B-1121と同一の測定器／Rust archive／x86_64 Releaseで
+静かな直列実行により比較した。追加時間の事前上限は変えず、12条件中4条件がfailした。
+64 PREのp99、128 Aの中央値／p99、128 PREのp99、256 Aの中央値が未達である。
+以前の512-frameのfailも消さず、deadline内／heap操作0／別runのpassで相殺しない。
+
+非出荷測定器へ、現在threadのQoS読取りと明示的な`--audio-qos`診断を追加した。
+Apple公開pthread APIで試験threadだけをuser-interactiveへ設定し、設定後の実値を確認する。
+既定のCTest、製品thread、DAW、device、global設定は変更しない。
+64／128 framesの旧版／候補比較でも128の3経路で未達が残り、優先度だけを原因とは認定しなかった。
+
+さらに実行fileのSHAが同じ候補同士を128 framesで比較すると、PRE LOOPのp99追加19.151 µsが
+上限6.117 µsを超えた。製品変更がなくても同じ判定器でfailが出る対照であり、先の製品比較をPASSへ
+変更する根拠ではない。時計公開／snapshot読取り／判定だけの別diagnosticは各20000 blocksを受理し、
+中央値の合計は通常0.164 µs、LOOP 0.304 µsだったが、workerや実DAWを含む負荷gateの代わりにはしない。
+測定の再現性と製品差の分離、実DAW低buffer／dropout検査、追加負荷の最終受入を残す。
+機能のexact-commit CIと実host検証は進めるが、軽量性の認定・公開リリース完了は主張しない。
