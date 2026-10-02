@@ -179,6 +179,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2Repository.cpp
     src/reference_audition/ReferenceRuntimeRepositoryParsing.cpp
     src/reference_audition/ReferenceLibraryRepository.cpp
+    src/reference_audition/ReferenceLibrarySets.cpp
+    src/reference_audition/ReferenceSourceRanges.cpp
     src/reference_audition/ReferenceLibraryRecovery.cpp
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
@@ -896,6 +898,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
+        tests/reference_library_sets_test.cpp
+        tests/reference_abcv_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
         tests/reference_content_alignment_test.cpp
@@ -916,7 +920,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
         JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0)
+        JUCE_USE_CURL=0
+        KIRIN_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     target_compile_options(KirinReferenceAuditionRuntimeTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
     target_include_directories(KirinReferenceAuditionRuntimeTests PRIVATE
