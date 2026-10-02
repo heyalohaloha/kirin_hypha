@@ -2,6 +2,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
+#include "ExactPcmOracle.h"
 
 #include <atomic>
 #include <chrono>
@@ -176,13 +177,28 @@ private:
             case 3:
                 if (! post->liveCompareStatus().preSelected && ! click ("observatory-live-pre")) break;
                 if (! post->liveCompareStatus().preAudible) break;
+                suspendAudio.store (true);
+                if (! suspended.load()) break; // known callback boundary, not a status/END race
                 std::cout << "mono track: PRE plays" << std::endl;
-                require (click ("observatory-live-end") && post->liveCompareStatus().finishing,
+                require (click ("observatory-live-end") && ! post->liveCompareStatus().active
+                    && post->liveCompareStatus().finishing,
                          "END waits for the audio return receipt");
-                ++stage;
+                endRequestedAt = std::chrono::steady_clock::now();
+                stage = 7;
+                break;
+            case 7:
+                if (std::chrono::steady_clock::now() - endRequestedAt < std::chrono::milliseconds (250)) break;
+                require (! post->liveCompareStatus().active && post->liveCompareStatus().finishing,
+                         "message ticks without callbacks cannot manufacture an END receipt");
+                suspendAudio.store (false);
+                stage = 4;
                 break;
             case 4:
                 if (post->liveCompareStatus().active || post->liveCompareStatus().finishing) break;
+                verifyReturn.store (true); // only after the message thread sees the real receipt
+                if (returnBlocks.load() == 0) break;
+                require (post->liveCompareStatus().postActual == 1.0f
+                    && returnErrors.load() == 0, "audio receipt confirms actual unity POST output");
                 // One channel of a multi-mono PRE set: its ring says so.
                 require (preLeft->aaxMultiMonoMember() && preRight->aaxMultiMonoMember(), "the PRE set shares a group");
                 if (! pairWith (*preLeft)) break;
@@ -219,6 +235,14 @@ private:
         auto next = std::chrono::steady_clock::now();
         while (running.load())
         {
+            if (suspendAudio.load())
+            {
+                suspended.store (true);
+                std::this_thread::sleep_for (std::chrono::milliseconds (5));
+                next = std::chrono::steady_clock::now();
+                continue;
+            }
+            suspended.store (false);
             clock.playing = play.load();
             for (int f = 0; f < blockFrames; ++f)
                 buffer.setSample (0, f, noise (clock.position + f));
@@ -228,7 +252,16 @@ private:
                 channel->processBlock (spare, midi);
             }
             preTrack->processBlock (buffer, midi);
+            // The message thread enables this only after END's real receipt. Sample before the
+            // callback so the legitimate transition/receipt block is never audited as unity.
+            const bool verifyUnityReturn = verifyReturn.load();
             post->processBlock (buffer, midi);
+            if (verifyUnityReturn)
+            {
+                for (int f = 0; f < blockFrames; ++f)
+                    if (! hypha::test::exactPcm (buffer.getSample (0, f), noise (clock.position + f))) returnErrors.fetch_add (1);
+                returnBlocks.fetch_add (1);
+            }
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
             std::this_thread::sleep_until (next);
@@ -243,7 +276,9 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
-    std::chrono::steady_clock::time_point started, requestedAt;
+    std::atomic<bool> suspendAudio { false }, suspended { false }, verifyReturn { false };
+    std::atomic<unsigned> returnBlocks { 0 }, returnErrors { 0 };
+    std::chrono::steady_clock::time_point started, requestedAt, endRequestedAt;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
 };

@@ -972,3 +972,35 @@ Apple公開pthread APIで試験threadだけをuser-interactiveへ設定し、設
 中央値の合計は通常0.164 µs、LOOP 0.304 µsだったが、workerや実DAWを含む負荷gateの代わりにはしない。
 測定の再現性と製品差の分離、実DAW低buffer／dropout検査、追加負荷の最終受入を残す。
 機能のexact-commit CIと実host検証は進めるが、軽量性の認定・公開リリース完了は主張しない。
+
+### 2026-10-02: 通常POSTの境界と、同期した実時間スレッド比較
+
+通常POSTは、比較用の公開leaseなし、END待ちなし、匿名commandなし、実gain／目標gainがともに
+正確に1の場合だけ、比較の出力処理を省略する。時計準備、周回観測、MATCH失効判定はその前に
+継続する。fade／ramp lease、保持中の減衰、END、Blindは従来のfull pathを使い、同時に始まった
+明示比較は次のcallbackから受ける。省略経路からPREやgainのreceiptは発行しない。
+全boolean組合せ、1 ULP差、非finite gain、初回／後からのLOOPを対象試験で確認した。
+
+同時刻の1200-block比較でも同一実行fileのp99がfailしたため、その測定で製品差を認定しなかった。
+message threadのphase barrierで開始を揃え、実測windowの重なり90%以上を独立に要求する。
+標本数は製品結果を読む前に6000へ固定し、全標本を保持する。既定CTestは1200のまま。
+QoSだけの6000-block対照には締切超過があり、失敗証跡を保持して受入から外した。
+
+[Apple公式のMach scheduling仕様](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/KernelProgramming/scheduler/scheduler.html)
+に従い、診断threadだけを音声に近いtime-constraint schedulingへ設定し、各window前後に
+実policyを読み戻す。降格はfailとし、製品thread、DAW、機器、task／global設定は変更しない。
+64／128 framesの同一実行file対照6条件がpassした後、B-1121と変更候補を各6000 callbacksで一度比較した。
+64／128／256／512 frames × 通常A／記名PRE LOOP／匿名PRE LOOPの12条件が、元の数値基準
+（中央値max(1 µs, baseline10%)、p99 max(2 µs, baseline20%)）のままpassした。
+追加中央値の最大は0.984 µs、追加p99の最大は3.472 µs、実測windowの重なりは99.6%以上。
+両版の通常音声はbit同一、比較音声は丸めたfloat PCMと全frame bit照合し、RTのC++／System
+確保・解放と締切超過はいずれも0だった。過去のfailを消さず、この結果の範囲をfull processorの
+同条件fixture比較に限定する。実DAW低bufferや全formatの受入は引き続き別に必要である。
+
+B-1136のARM64 CIでは初回／後からのLOOP PCM試験、REF runtimeとoffset製品試験がpassした。
+残ったAAX mono group試験は、END直後のstatusを読む前に音声側が終了できる競合だった。
+fixtureのcallback境界で停止を確認してからENDを押し、250 msのmessage tickだけでは音声完了を
+捏造しないこと、再開後の実receiptとunity POSTのbit同一を検証する。待ち時間や合格基準は緩めない。
+statusはmessage threadだけで読み、実receipt後にatomic flagを公開する。音声側はcallback前に
+flagを読み、fade／receipt blockを除いた次の完全なblockからunityを照合する。
+Blindの同種assertionは既にcallback停止を使い、他のlifecycle試験も実receiptを待つ構造である。

@@ -143,11 +143,17 @@ fn preparation_uses_the_existing_low_rate_service_timer() {
 #[test]
 fn full_processor_probe_keeps_display_queries_off_the_audio_thread() {
     let probe = include_str!("../../juce_shell/tests/live_compare_processor_benchmark.cpp");
+    let group = include_str!("../../juce_shell/tests/live_compare_aax_group_product_test.cpp");
+    for (source, signature) in [(probe, "void process()"), (group, "void processAudio()")] {
+        let audio = without_line_comments(function_body(source, signature));
+        assert!(!audio.contains("->liveCompareStatus()"));
+        assert!(!audio.contains("->liveBlindStatus()"));
+    }
     let audio = function_body(probe, "void process()");
-    assert!(!audio.contains("->liveCompareStatus()"));
-    assert!(!audio.contains("->liveBlindStatus()"));
     assert!(audio.contains("const bool preOutput = mode > 0;"));
-    assert!(audio.contains("every compared frame has the right source and gain"));
+    // Audit the actual oracle, not its user-facing failure text or a float tolerance.
+    assert!(audio.contains("hypha::test::exactScaledPcm (actual, input, matchedGain)"));
+    assert!(probe.contains("require (hypha::test::exactPcmControls()"));
 }
 
 #[test]

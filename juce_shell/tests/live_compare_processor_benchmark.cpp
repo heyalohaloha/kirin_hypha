@@ -3,6 +3,10 @@
 #include "LiveBlindLoopFixture.h"
 #include "reference_rt_probe.h"
 #include "ProcessorHeapProbe.h"
+#include "BenchmarkPhaseBarrier.h"
+#include "BenchmarkSampleCount.h"
+#include "BenchmarkRealtimePolicy.h"
+#include "ExactPcmOracle.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -32,7 +36,8 @@ namespace
 using Processor = KirinHyphaProcessorBase;
 using Steady = std::chrono::steady_clock;
 using namespace hypha::live_compare;
-constexpr int measuredBlocks = 1200, warmBlocks = 128;
+const auto measuredBlocks = static_cast<std::size_t> (hypha::test::benchmarkSampleCount());
+constexpr int warmBlocks = 128;
 
 void require (bool ok, const char* message)
 {
@@ -94,6 +99,7 @@ struct Measurements
 {
     std::vector<double> pre, post, pair, cpuPair;
     unsigned heapOperations = 0, deadlineOverruns = 0;
+    std::uint64_t windowBegin = 0, windowEnd = 0;
     ProcessorHeapCounts heap;
     void prepare()
     {
@@ -112,6 +118,7 @@ struct Measurements
                   << " pre_median_us=" << percentile (pre, 50) << " pre_p99_us=" << percentile (pre, 99)
                   << " post_median_us=" << percentile (post, 50) << " post_p99_us=" << percentile (post, 99)
                   << " pair_median_us=" << percentile (pair, 50) << " pair_p99_us=" << percentile (pair, 99)
+                  << " window_begin_ns=" << windowBegin << " window_end_ns=" << windowEnd
                   << " deadline_overruns=" << deadlineOverruns << " cpp_heap_operations=" << heapOperations
                   << " system_heap_covered=" << int (initialiseProcessorHeapProbe())
                   << " system_allocations=" << heap.allocations << " system_frees=" << heap.frees;
@@ -152,10 +159,16 @@ public:
     bool passed = false;
 
 private:
-    void collect (int mode) { done.store (false); requested.store (mode); }
+    bool collect (int mode)
+    {
+        if (! barrier.ready (mode)) return false;
+        done.store (false); requested.store (mode);
+        return true;
+    }
     void timerCallback() override
     {
-        require (Steady::now() - began < std::chrono::seconds (85), "fixture timed out");
+        const auto limit = std::max (85.0, 20.0 + 3.0 * static_cast<double> (measuredBlocks + warmBlocks) * frames / 48000.0);
+        require (Steady::now() - began < std::chrono::duration<double> (limit), "fixture timed out");
         if (stage == 5 || stage == 8)
         {
             // Status includes message-thread trial state. Never read it from the audio thread;
@@ -186,7 +199,7 @@ private:
             case 1:
                 if (post->pairStatus() != KIRIN_PAIR_STATUS_PAIRED) break;
                 play.store (true);
-                collect (0);
+                if (! collect (0)) break;
                 stage = 2;
                 break;
             case 2:
@@ -211,7 +224,7 @@ private:
             }
             case 4:
                 if (! post->liveCompareStatus().preAudible || host.loop.laps.load() < 2) break;
-                collect (1);
+                if (! collect (1)) break;
                 stage = 5;
                 break;
             case 5:
@@ -237,7 +250,7 @@ private:
                 }
                 // Diagnostic oracle, not identity-bearing UI: baseline/candidate always time
                 // the actual PRE renderer, never different random source mappings.
-                collect (2);
+                if (! collect (2)) break;
                 stage = 8;
                 break;
             case 8:
@@ -263,6 +276,8 @@ private:
         // Fixture scheduling, before callbacks/probes. Changes this test thread only, not a
         // product thread, DAW, device or global scheduler. Default remains separately auditable.
         configureBenchmarkThread (audioQos);
+        hypha::test::BenchmarkRealtimePolicy realtimePolicy;
+        realtimePolicy.configure (frames);
         juce::AudioBuffer<float> buffer (2, frames);
         juce::MidiBuffer midi;
         // Initialise the diagnostic counter's own C++ TLS before callback instrumentation.
@@ -334,17 +349,27 @@ private:
                         const auto expected = preOutput ? input * matchedGain : input * -0.5f;
                         const auto actual = buffer.getSample (c, f);
                         if (mode == 0) require (std::memcmp (&actual, &expected, sizeof (float)) == 0, "normal POST remains bit identical");
-                        else require (std::abs (actual - expected) <= 0.0000001f, "every compared frame has the right source and gain");
+                        else require (hypha::test::exactScaledPcm (actual, input, matchedGain), "every compared frame has the exact source and gain");
                     }
                 const auto preUs = std::chrono::duration<double, std::micro> (preEnd - preStart).count();
                 const auto postUs = std::chrono::duration<double, std::micro> (postEnd - postStart).count();
                 auto& result = measurements[static_cast<std::size_t> (mode)];
+                if (result.pair.empty())
+                {
+                    realtimePolicy.verify();
+                    result.windowBegin = static_cast<std::uint64_t> (std::chrono::duration_cast<std::chrono::nanoseconds> (preStart.time_since_epoch()).count());
+                }
+                result.windowEnd = static_cast<std::uint64_t> (std::chrono::duration_cast<std::chrono::nanoseconds> (postEnd.time_since_epoch()).count());
                 result.pre.push_back (preUs); result.post.push_back (postUs); result.pair.push_back (preUs + postUs);
                 if (splitCpu) result.cpuPair.push_back (static_cast<double> (preCpuEnd - preCpuStart + postCpuEnd - postCpuStart) / 1000);
                 result.heapOperations += heap;
                 result.heap.allocations += heapCounts.allocations; result.heap.frees += heapCounts.frees;
                 result.deadlineOverruns += preUs + postUs >= static_cast<double> (frames) * 1e6 / 48000;
-                if (result.pair.size() == measuredBlocks) { mode = -1; done.store (true); }
+                if (result.pair.size() == measuredBlocks)
+                {
+                    realtimePolicy.verify();
+                    mode = -1; done.store (true);
+                }
             }
             if (host.playing) host.position += frames;
             next += std::chrono::nanoseconds (static_cast<long long> (frames) * 1'000'000'000 / 48000);
@@ -361,6 +386,7 @@ private:
     std::atomic<bool> running { true }, play { false }, done { false };
     std::atomic<int> requested { -1 };
     std::array<Measurements, 3> measurements;
+    hypha::test::BenchmarkPhaseBarrier barrier;
     Steady::time_point began = Steady::now(), requestedAt, sourceSelectedAt;
     bool demanded = false, triedOtherSource = false;
     float matchedGain = 1.0f; // published before collect's release store
@@ -369,6 +395,7 @@ private:
 
 int main (int argc, char** argv)
 {
+    require (hypha::test::exactPcmControls(), "runtime exact PCM oracle controls");
     require (argc >= 2 && argc <= 4,
              "usage: full processor benchmark 64|128|256|512 [--cpu-split] [--audio-qos]");
     bool splitCpu = false, audioQos = false;

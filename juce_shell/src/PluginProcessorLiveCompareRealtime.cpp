@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "live_compare/LiveCompareIdle.h"
 #include <chrono>
 
 namespace
@@ -74,15 +75,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         usable && ! outputTaken && ! compensationOff && ! contentHeld && ! liveCompare.authority.restoring());
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
-    const bool permitted = liveCompare.authority.permitted();
     const auto blindCommand = liveCompare.blind.command();
-    const auto selection = liveCompare.selection.command();
-    const auto revision = liveCompare.gainRevision.load (std::memory_order_acquire);
-    const float gain = liveCompare.gain.load (std::memory_order_acquire);
-    const float ceiling = liveCompare.ceilingLinear.load (std::memory_order_acquire);
     float postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
-    const bool coherent = (revision & 1u) == 0
-        && revision == liveCompare.gainRevision.load (std::memory_order_acquire);
     const bool discontinuity = ! block.playing || ! block.projectValid || ! block.clockValid || block.afterGap;
     if (discontinuity)
     {
@@ -96,6 +90,24 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     {
         liveCompare.matched.store (false, std::memory_order_release);
     }
+    // Normal unity POST has no audition work. Preparation above remains continuous, including
+    // the first LOOP; discontinuities still revoke MATCH before this branch. Never bypass a
+    // published fade/ramp lease, a pending END, Blind or held/non-unity POST level.
+    if (hypha::live_compare::unchangedPostOnly (liveCompare.ring.hasPublishedRealtime(),
+            finishing, blindCommand.active(), postTarget, liveCompare.postLevel.value()))
+    {
+        liveCompare.preAudible.store (false, std::memory_order_release);
+        liveCompare.preWaiting.store (false, std::memory_order_release);
+        liveCompare.postActual.store (1.0f, std::memory_order_release);
+        return;
+    }
+    const bool permitted = liveCompare.authority.permitted();
+    const auto selection = liveCompare.selection.command();
+    const auto revision = liveCompare.gainRevision.load (std::memory_order_acquire);
+    const float gain = liveCompare.gain.load (std::memory_order_acquire);
+    const float ceiling = liveCompare.ceilingLinear.load (std::memory_order_acquire);
+    const bool coherent = (revision & 1u) == 0
+        && revision == liveCompare.gainRevision.load (std::memory_order_acquire);
     const bool blindRejected = blindCommand.active()
         && (! permitted || ! liveCompare.blind.valid (blindCommand) || discontinuity || ! coherent
             || contentHeld || compensationOff || ! usable || outputTaken

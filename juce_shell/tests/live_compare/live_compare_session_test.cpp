@@ -4,11 +4,13 @@
 #include "../../src/live_compare/LiveCompareSharedRing.h"
 #include "../../src/live_compare/LiveBlindSession.h"
 #include "../ExactPcmOracle.h"
+#include "../../src/live_compare/LiveCompareIdle.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <new>
 #include <vector>
@@ -385,6 +387,15 @@ static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
 int main()
 {
     require (hypha::test::exactPcmControls(), "exact PCM oracle positive and negative controls");
+    for (const bool lease : { false, true })
+        for (const bool finishing : { false, true })
+            for (const bool anonymous : { false, true })
+                require (unchangedPostOnly (lease, finishing, anonymous, 1.0f, 1.0f)
+                    == (! lease && ! finishing && ! anonymous), "idle routing never bypasses comparison ownership");
+    for (const auto level : { 0.0f, 0.5f, std::nextafter (1.0f, 0.0f), std::nextafter (1.0f, 2.0f),
+                             std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity() })
+        require (! unchangedPostOnly (false, false, false, level, 1.0f)
+                 && ! unchangedPostOnly (false, false, false, 1.0f, level), "held, unsettled or invalid levels never use idle routing");
     BlindSession trial;
     NamedSelection selection;
     for (int i = 0; i < 1000; ++i)
