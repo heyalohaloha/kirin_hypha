@@ -163,6 +163,7 @@ run cargo test -p kirin_hypha_ffi --locked
 # Keep legacy VST3 identity and Record styling covered without using these editors as shipping
 # AU/VST3 bundles. Their compatibility modules remain separate from the JUCE product surface.
 run cargo test -p hypha_pre -p hypha_post --locked
+run cargo test -p vst3-com --locked --test vtable_expression
 # Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
 # quantify both allowed LIVE slots in the same optimized configuration that ships.
 run cargo test -p kirin_measure --release --locked \

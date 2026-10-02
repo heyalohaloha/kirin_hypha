@@ -1004,3 +1004,21 @@ fixtureのcallback境界で停止を確認してからENDを押し、250 msのme
 statusはmessage threadだけで読み、実receipt後にatomic flagを公開する。音声側はcallback前に
 flagを読み、fade／receipt blockを除いた次の完全なblockからunityを照合する。
 Blindの同種assertionは既にcallback停止を使い、他のlifecycle試験も実receiptを待つ構造である。
+
+### 2026-10-02: Rust 1.99の互換wrapperとcold CI gate
+
+B-1137のrun `36959880727`はARM64 native 56/56、ignored parity 20/20、pairing 6/6、
+通常Rust／xtask試験を通過した。最後のlegacy wrapper clippyで、更新されたRust 1.99が
+依存`vst3-com::vtable!`のexpression末尾のセミコロンを検出し、同時に45分のjob上限へ達した。
+Rust 1.98ではpass、同じ1.99を明示したローカル検査では同じエラーを再現した。
+
+依存のMIT snapshotを既存Cargo.lockのrevisionから保全し、macroの返すexpression末尾の
+セミコロンだけを除く。警告のallow、toolchain downgrade、製品側のwarning基準変更はしない。
+別crateから実macroをwarnings deniedで使い、直接trait callと同じ型／layout／3つのfunction
+pointerを返す回帰試験を追加した。legacy PRE/POST clippyは1.99でもpassする。
+出荷JUCE processor／Rust計測core／LOOP admission／PCM／gain／receiptには変更を加えない。
+
+cold runnerの全gateを完走させるためjob上限だけ55分へ変更する。全56 native試験、26 ignored
+試験、clippyを維持し、各製品試験のdeadlineや合格値は変えない。新commitの必須CIは別途必要で、
+旧runの個別passを新候補のgreenへ読み替えない。WindowsのDeveloper実機検証も継続中であり、
+unsigned AAXのloadや診断probeだけで通常Pro Tools／配布完了を主張しない。
