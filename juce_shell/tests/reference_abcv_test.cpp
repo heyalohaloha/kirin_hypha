@@ -2,9 +2,11 @@
 #include <juce_core/juce_core.h>
 
 void testReferenceLibrarySets (const juce::File&);
+void testReferenceLiveWindow();
 void testReferenceAbcv (const juce::File&);
 
 void testReferenceAbcv (const juce::File& sandbox)
 {
     testReferenceLibrarySets (sandbox);  // H1
+    testReferenceLiveWindow();           // H2
 }
