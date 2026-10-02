@@ -2,11 +2,30 @@
 #include "ReferenceRuntimeRepositoryParsing.h"
 #include <set>
 #include "ReferenceLibraryVersions.h"
+#include "ReferenceLibrarySets.h"
 #include <juce_cryptography/juce_cryptography.h>
 
 namespace hypha::reference_audition
 {
 using namespace runtime_repository_parsing;
+
+namespace
+{
+// H1: manifest が同じでも、Kirin OS で順位だけを変えると sets.json だけが書き換わる。
+// 読めないときや書き換えの途中（別の manifest の sets）のときは、今の sets をそのまま保つ。
+RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shared_ptr<const RuntimeWorkspace> current)
+{
+    juce::String rejection;
+    auto sets = readReferenceLibrarySets (root, *current, rejection);
+    const auto unchanged = RuntimeWorkspaceLoadResult { RuntimeWorkspaceLoadState::unchanged, current, {} };
+    if (! sets && rejection.isNotEmpty()) return unchanged;
+    if (sets.has_value() == current->librarySets.has_value() && (! sets || sets->hash == current->librarySets->hash))
+        return unchanged;
+    auto updated = std::make_shared<RuntimeWorkspace> (*current);
+    updated->librarySets = std::move (sets);
+    return { RuntimeWorkspaceLoadState::updated, updated, {} };
+}
+}
 
 RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
     std::shared_ptr<const RuntimeWorkspace> previous) const
@@ -38,7 +57,7 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
             return failure ("reference_library_rollback", previous);
         if (next->manifest.revision == previous->manifest.revision)
             return next->publicationHash == previous->publicationHash
-                ? RuntimeWorkspaceLoadResult { RuntimeWorkspaceLoadState::unchanged, previous, {} }
+                ? refreshLibrarySets (root, previous)
                 : failure ("reference_library_revision_conflict", previous);
     }
     const auto* presets = json["presets"].getArray();
@@ -79,6 +98,8 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
         return failure ("reference_library_default_missing", previous);
     if (json["version"] == "1.1" && !readReferenceLibraryVersions (root, json["versions"], *next))
         return failure ("reference_library_versions_rejected", previous);
+    juce::String setsRejection;
+    next->librarySets = readReferenceLibrarySets (root, *next, setsRejection);
     return { RuntimeWorkspaceLoadState::updated, next, {} };
 }
 

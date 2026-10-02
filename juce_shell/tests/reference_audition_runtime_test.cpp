@@ -19,6 +19,7 @@ int main (int argc, char** argv)
     testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; } testReferenceWorkflow (sandbox);
     testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
+    testReferenceAbcv (sandbox);
     testReferenceComparisons (sandbox);
     testReferencePendingAudition (sandbox);
     testReferenceCalibrationRegressions (sandbox);

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <juce_core/juce_core.h>
@@ -110,6 +111,39 @@ namespace hypha::reference_audition
         std::vector<RuntimePendingPreset> pendingPresets;
     };
 
+    // H1: library/sets.json（Kirin OS の K2・K3）。Kirin OS で「Hypha に出す」順位を付けた B セット
+    // （参照曲の並び）と CHECK セット（Preset）、それらの曲の Cue の値のファイル（ranges/<sha256>.json）の索引。
+    struct RuntimeSongSet
+    {
+        juce::String songSetId;
+        juce::String revisionId;
+        juce::String name;
+        int rank = 0;
+        std::vector<RuntimeCandidate> songs;
+    };
+
+    struct RuntimeCheckSetRank
+    {
+        juce::String presetId;
+        juce::String revisionId;
+        int rank = 0;
+    };
+
+    struct RuntimeSourceRangesReceipt
+    {
+        juce::String sourceArtifactSha256;
+        RuntimeContentReceipt rangesArtifact;
+    };
+
+    struct RuntimeLibrarySets
+    {
+        std::int64_t revision = 0;
+        juce::String hash;
+        std::vector<RuntimeSongSet> songSets;
+        std::vector<RuntimeCheckSetRank> checkSets;
+        std::vector<RuntimeSourceRangesReceipt> sourceRanges;
+    };
+
     struct RuntimeWorkspace
     {
         bool library = false;
@@ -118,6 +152,8 @@ namespace hypha::reference_audition
         RuntimeManifest manifest;
         RuntimeGlobalPresetCatalog globalPresetCatalog;
         std::vector<RuntimePreset> presets;
+        // sets.json が無い・まだ別の manifest のもの・読めないときは空（manifest だけで今までどおり動く）。
+        std::optional<RuntimeLibrarySets> librarySets;
     };
 
     enum class RuntimeWorkspaceLoadState
