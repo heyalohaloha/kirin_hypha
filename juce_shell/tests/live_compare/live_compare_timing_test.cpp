@@ -179,6 +179,8 @@ void initialLoopDoesNotInventAnOrigin()
     }
 }
 
+#include "LiveComparePendingEntryTest.h"
+
 void certifiedInitialLoopStartsWithoutAnotherGesture()
 {
     LoopAnchor noCycleYet;
@@ -477,6 +479,7 @@ int main (int argc, char** argv)
     prepareWithoutCopyingPcm();
     initialLoopDoesNotInventAnOrigin();
     certifiedInitialLoopStartsWithoutAnotherGesture();
+    pendingInitialLoopWaitsForFirstUsableClock();
     faultsFenceEvidence();
     timingMappingDoesNotOwnAuditionDemand();
     livePreMappingHasOneWriter();

@@ -48,7 +48,7 @@ struct Clock final : juce::AudioPlayHead
             if (certifiedContent)
             {
                 value.setKirinAuxiliaryClockSource (1);
-                value.setKirinAuxiliaryClockSamples (position);
+                if (! omitAuxiliary) value.setKirinAuxiliaryClockSamples (position);
             }
             loop->decorate (value, position);
         }
@@ -57,6 +57,7 @@ struct Clock final : juce::AudioPlayHead
     std::int64_t position = 0;
     bool playing = false;
     bool certifiedContent = false;
+    bool omitAuxiliary = false; // fixture audio thread only; one missing startup observation
     const LiveBlindLoopFixture* loop = nullptr;
 };
 
@@ -227,6 +228,7 @@ private:
                     require (! post->liveCompareStatus().active && ! post->liveCompareStatus().matched,
                              "initial LOOP prepares without starting an audition or MATCH");
                     rawAudit.store (false);
+                    startupClockHoleRequested.store (true);
                     if (! click ("observatory-local-blind")) break;
                     stage = 4;
                     break;
@@ -302,6 +304,8 @@ private:
                 if (blocks.load() <= observedBlock + 8) break;
                 require (clicks == 4 && minimumGain.load() + 0.1f < maximumGain.load(),
                          "four audition clicks; compressor gain truly changes with the input");
+                require (! initialLoop || startupClockHoleInjected.load(),
+                         "initial LOOP exercised an unavailable first callback of the new entry");
                 std::cout << "clock preparation product PASS: "
                           << (initialLoop ? "initial loop" : "late loop")
                           << " BLIND, compressor/dynamic band, 20 audited laps, "
@@ -363,6 +367,19 @@ private:
             const auto expectedCommand = auditCommand.load (std::memory_order_acquire);
             const auto commandBefore = auditedBlindCommand();
             const float gain = expectedGain.load();
+            postClock.omitAuxiliary = false;
+#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
+            if (startupClockHoleRequested.load() && ! startupClockHoleInjected.load()
+                && post->liveCompare.ring.hasPublishedRealtime()
+                && post->liveCompare.preparation.initialRequested.load (std::memory_order_acquire))
+            {
+                // Reproduce the failed real initial-entry boundary deterministically, not
+                // by sleeping a CI runner or weakening the PCM/admission oracle. This callback
+                // has no authoritative continuous-clock sample, so it must remain POST.
+                postClock.omitAuxiliary = true;
+                startupClockHoleInjected.store (true);
+            }
+#endif
             post->processBlock (buffer, midi);
             diagnostic.observe (*pre, *post, blocks.load());
             bool preMatch = true, postMatch = true;
@@ -372,7 +389,8 @@ private:
                     const auto channel = static_cast<std::size_t> (c), frame = static_cast<std::size_t> (f);
                     const float actual = buffer.getSample (c, f);
                     const float expectedPost = processed[channel][frame];
-                    if (ordinary && rawAudit.load() && std::memcmp (&actual, &expectedPost, sizeof (float)) != 0) rawErrors.fetch_add (1);
+                    if (((ordinary && rawAudit.load()) || postClock.omitAuxiliary)
+                        && std::memcmp (&actual, &expectedPost, sizeof (float)) != 0) rawErrors.fetch_add (1);
                     preMatch = preMatch && hypha::test::exactScaledPcm (actual, delayed[channel][frame], gain);
                     postMatch = postMatch && hypha::test::exactPcm (actual, expectedPost);
                 }
@@ -411,6 +429,7 @@ private:
     std::uint64_t firstPre = 0, firstPost = 0;
     std::chrono::steady_clock::time_point started, checkpoint;
     std::atomic<bool> running { true }, play { false }, audit { false }, rawAudit { true };
+    std::atomic<bool> startupClockHoleRequested { false }, startupClockHoleInjected { false };
     std::atomic<unsigned> auditReaders { 0 };
     std::atomic<std::uint64_t> auditCommand { 0 };
     std::atomic<int> blocks { 0 }, preErrors { 0 }, rawErrors { 0 }, pcmErrors { 0 };

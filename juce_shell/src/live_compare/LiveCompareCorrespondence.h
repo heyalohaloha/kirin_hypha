@@ -56,6 +56,24 @@ public:
             decision.verdict = Verdict::foreignRing;
             return decision;
         }
+        // A fresh entry has never authorised PRE. A startup stop/clock hole must withhold
+        // output, not consume its one admission through LoopTimeline's invalid first block.
+        // Preparation independently fences that observation and must supply a complete,
+        // current generation/owner proof before adoption. After any successful admission,
+        // initialAdmission is false: this cannot reopen a revoked comparison or Blind.
+        if (initialAdmission && ! kValid
+            && (! block.playing || ! block.clockValid || ! block.projectValid
+                || block.frames <= 0 || block.afterGap))
+        {
+            invalidate(); // discard partial linear streaks as well as the observed timeline
+            havePrevious = false;
+            haveRun = false;
+            timeline.reset();
+            decision.verdict = ! block.playing ? Verdict::stopped
+                : ! block.clockValid || ! block.projectValid || block.frames <= 0
+                    ? Verdict::noClock : Verdict::calibrating;
+            return fill (decision);
+        }
         // An entry may wait for PRE's first demanded PCM, even if POST is scheduled first.
         // Previous sessions' samples cannot make a new clock-only preparation audible.
         if (initialAdmission && block.playing && block.clockValid && block.projectValid && ! initialPcmReady (ring))
