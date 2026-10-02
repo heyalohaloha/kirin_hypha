@@ -63,6 +63,18 @@ public:
             decision.verdict = Verdict::notWritten;
             return fill (decision);
         }
+        // An initial LOOP wrap is the expected transport shape, not a broken proof. The timing
+        // preparation observed before this renderer owns the only admission decision; until its
+        // generation-bound evidence is adopted, keep POST and leave this one-shot admission open.
+        // Otherwise the ordinary timeline observer can race the preparation at the first wrap and
+        // permanently close an otherwise valid initial-loop entry merely because one thread ran
+        // first. Non-LOOP entries retain the ordinary linear calibration path below.
+        if (initialAdmission && ! kValid && block.playing && block.clockValid
+            && block.projectValid && block.loop.active)
+        {
+            decision.verdict = Verdict::loopUnproven;
+            return fill (decision);
+        }
         if (preparedGeneration != 0)
         {
             // After admission the ordinary PCM seqlock is authoritative. Clock-only writer

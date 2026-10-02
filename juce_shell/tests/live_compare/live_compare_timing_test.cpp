@@ -189,6 +189,25 @@ void certifiedInitialLoopStartsWithoutAnotherGesture()
     require (! mixed.valid && mixed.failure == LoopEntryFailure::clockUnavailable,
              "different explicit wrapper clocks fail immediately instead of waiting another lap");
 
+    Fixture delayedAdoption (24000, 4096, ClockMode::certifiedContent);
+    delayedAdoption.enableLoop();
+    delayedAdoption.ring->header.demand.store (1);
+    Consumer waiting;
+    for (int n = 0; n < 160; ++n)
+    {
+        delayedAdoption.step();
+        require (delayedAdoption.read (waiting).verdict != Verdict::accepted,
+                 "initial LOOP remains on POST until its certified evidence is adopted");
+    }
+    require (delayedAdoption.evidence.valid
+             && waiting.adoptInitialTiming (*delayedAdoption.ring, delayedAdoption.post,
+                                            delayedAdoption.evidence),
+             "expected initial LOOP wraps cannot race and close the pending admission");
+    delayedAdoption.step();
+    require (delayedAdoption.read (waiting).verdict == Verdict::accepted,
+             "the same pending entry starts after delayed certified adoption without another gesture");
+    delayedAdoption.checkPcm();
+
     for (const auto mode : { ClockMode::certifiedContent, ClockMode::presentationAu,
                              ClockMode::boundedAax })
     {
