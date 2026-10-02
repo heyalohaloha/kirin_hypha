@@ -15,6 +15,9 @@ use kirin_measure::{
 use super::map::sources;
 use super::*;
 
+#[path = "attack_ffi_band_identity_tests.rs"]
+mod identity_tests;
+
 #[test]
 fn band_c_layout_is_fixed() {
     assert_eq!(size_of::<KirinAttackBandSide>(), 24);
@@ -324,7 +327,36 @@ fn without_a_pair_the_band_hits_are_posts_details_with_the_envelope_behind_them(
         .is_none());
     // ALL: the batch empties and stays valid.
     assert!(engine.set_attack_band(0));
-    let cleared = engine.poll_attack_band().unwrap();
+    assert_eq!(engine.attack_band(), 0);
+    assert_eq!(engine.spectrum.post_attack_band(), None);
+    // The public read closure holds the view's publication lock. A contended poll means
+    // "keep the previous display", not a malformed empty batch or a missing measurement.
+    loop {
+        if engine
+            .spectrum
+            .with_attack_view(|_| {
+                assert!(engine.poll_attack_band().is_none());
+            })
+            .is_some()
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no view read within four seconds"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    let cleared = loop {
+        if let Some(batch) = engine.poll_attack_band() {
+            break batch; // The first available batch must be correct; do not skip wrong data.
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no ALL batch within four seconds"
+        );
+        thread::sleep(Duration::from_millis(5));
+    };
     assert_eq!((cleared.band, cleared.count), (0, 0));
 }
 

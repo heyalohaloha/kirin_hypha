@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "live_compare/LiveCompareIdle.h"
+#include "live_compare/LiveCompareInterruption.h"
 #include <chrono>
 
 namespace
@@ -20,6 +21,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                   bool outputTaken) noexcept
 {
     using Reason = hypha::live_compare::RecoveryReason;
+    const auto preparationCommand = liveCompare.blindTiming.command(); // fixed at callback opening
     const int frames = buffer.getNumSamples();
     const auto continuous = liveCompare.clock.next (clock.auxiliary, frames);
     hypha::live_compare::BlockClock block;
@@ -65,7 +67,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
     const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
     const bool callbackGap = block.afterGap;
-    if (compensationOff != liveCompare.compensationWasOff)
+    const bool compensationChanged = compensationOff != liveCompare.compensationWasOff;
+    if (compensationChanged)
     {
         block.afterGap = true;
         liveCompare.compensationWasOff = compensationOff;
@@ -76,7 +79,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
     const auto blindCommand = liveCompare.blind.command();
-    float postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
     const bool discontinuity = ! block.playing || ! block.projectValid || ! block.clockValid || block.afterGap;
     if (discontinuity)
     {
@@ -93,34 +95,35 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     // Normal unity POST has no audition work. Preparation above remains continuous, including
     // the first LOOP; discontinuities still revoke MATCH before this branch. Never bypass a
     // published fade/ramp lease, a pending END, Blind or held/non-unity POST level.
-    if (hypha::live_compare::unchangedPostOnly (liveCompare.ring.hasPublishedRealtime(),
-            finishing, blindCommand.active(), postTarget, liveCompare.postLevel.value()))
+    if (hypha::live_compare::unchangedUnityPostOnly (liveCompare, liveCompare.ring.hasPublishedRealtime(),
+            finishing, blindCommand.active(), liveCompare.postLevel.value()))
     {
         liveCompare.preAudible.store (false, std::memory_order_release);
         liveCompare.preWaiting.store (false, std::memory_order_release);
         liveCompare.postActual.store (1.0f, std::memory_order_release);
         return;
     }
+    // The idle subset grants no comparison permission; output always uses a new full snapshot.
+    const auto gains = hypha::live_compare::readGainSnapshot (liveCompare);
+    float postTarget = gains.post;
     const bool permitted = liveCompare.authority.permitted();
+    const hypha::live_compare::Interruption interruption {
+        permitted ? Reason::none : (liveCompare.pairRevocationGeneration.load (std::memory_order_acquire)
+            == liveCompare.authority.generation() ? Reason::pairChanged : Reason::restored),
+        bypassed, nonRealtimeMode, usable, outputTaken, block.playing, block.projectValid,
+        block.clockValid, callbackGap, compensationOff, contentHeld };
     const auto selection = liveCompare.selection.command();
-    const auto revision = liveCompare.gainRevision.load (std::memory_order_acquire);
-    const float gain = liveCompare.gain.load (std::memory_order_acquire);
-    const float ceiling = liveCompare.ceilingLinear.load (std::memory_order_acquire);
-    const bool coherent = (revision & 1u) == 0
-        && revision == liveCompare.gainRevision.load (std::memory_order_acquire);
+    const auto revision = gains.revision;
+    const float gain = gains.pre, ceiling = gains.ceiling;
+    const bool coherent = gains.coherent;
     const bool blindRejected = blindCommand.active()
         && (! permitted || ! liveCompare.blind.valid (blindCommand) || discontinuity || ! coherent
+            || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision
             || contentHeld || compensationOff || ! usable || outputTaken
             || ! liveCompare.matched.load (std::memory_order_acquire));
     if (blindRejected)
     {
-        const auto reason = ! permitted ? Reason::restored
-            : bypassed ? Reason::bypassed : nonRealtimeMode ? Reason::offline
-            : ! usable ? Reason::formatChanged : outputTaken ? Reason::outputTaken
-            : compensationOff ? Reason::compensationOff : contentHeld ? Reason::contentChanged
-            : ! block.playing ? Reason::stopped : ! block.projectValid ? Reason::projectClockMissing
-            : callbackGap ? Reason::callbackGap
-            : ! block.clockValid ? Reason::clockMissing : Reason::gainChanged;
+        const auto reason = interruption.reason (Reason::gainChanged);
         if (! finishing) liveCompare.blind.invalidate (blindCommand, reason);
     }
     const bool preSelected = permitted && ! finishing && coherent && ! blindRejected
@@ -144,17 +147,52 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         {
             // Offline render, bypass, a layout change or another audition keeps POST; PRE needs
             // selecting again.
-            liveCompare.renderer.silenceTransition();
-            if (preSelected)
-            {
-                liveCompare.selection.fail (selection, bypassed ? Reason::bypassed
-                    : nonRealtimeMode ? Reason::offline : outputTaken ? Reason::outputTaken : Reason::formatChanged);
-            }
+            liveCompare.renderer.revokeTiming();
+            liveCompare.reentry.lost (hypha::live_compare::TimelineBreak::unknown, false);
+            const auto loss = bypassed ? Reason::bypassed : nonRealtimeMode ? Reason::offline
+                : outputTaken ? Reason::outputTaken : Reason::formatChanged;
+            liveCompare.blindTiming.observe (preparationCommand, false, interruption.reason (loss),
+                liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
+            liveCompare.selection.fail (selection, loss);
             liveCompare.preAudible.store (false, std::memory_order_release);
             liveCompare.preWaiting.store (false, std::memory_order_release);
             return;
         }
         rendered = true;
+        const bool namedEligible = permitted && liveCompare.sessionActive.load (std::memory_order_acquire)
+            && ! finishing && ! blindCommand.active() && ! contentHeld && ! compensationOff
+            && ! liveCompare.blindTiming.failedAndOpen();
+        const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
+        if (freshBlind != liveCompare.blindTimingSeen)
+        {
+            if (namedEligible && liveCompare.blindTimingAuthority.load (std::memory_order_acquire)
+                == liveCompare.authority.ticket())
+            {
+                liveCompare.blindTimingSeen = freshBlind;
+                liveCompare.renderer.renewNamedTiming();
+                liveCompare.reentry.explicitlyRenew();
+                liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
+                liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
+                liveCompare.matched.store (false, std::memory_order_release);
+                liveCompare.blindTimingReceipt.store (freshBlind, std::memory_order_release);
+            }
+            else if (! permitted || ! liveCompare.sessionActive.load (std::memory_order_acquire)
+                || finishing || blindCommand.active()) liveCompare.blindTimingSeen = freshBlind;
+        }
+        if (compensationChanged)
+        {
+            // The explicit host notification is known, unlike an unexplained callback hole.
+            // OFF holds the selection; ON discards every old timing/measurement origin and
+            // permits a new named admission. It grants neither PCM nor Blind permission.
+            liveCompare.renderer.revokeTiming();
+            liveCompare.reentry.lost (hypha::live_compare::TimelineBreak::compensationChanged,
+                namedEligible && ! callbackGap && block.playing && block.clockValid && block.projectValid);
+        }
+        if (liveCompare.reentry.request (selection, namedEligible, liveCompare.renderer.needsNewAdmission()))
+        {
+            liveCompare.renderer.renewNamedTiming();
+            liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
+        }
         if (permitted && liveCompare.preparation.initialRequested.load (std::memory_order_acquire)
             && liveCompare.renderer.adoptInitialTiming (*ring, block, timing))
             liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
@@ -166,16 +204,45 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    ceiling, blindCommand.active() && ! blindRejected);
         if (report.reason == Reason::loopUnproven)
             report.reason = hypha::live_compare::recoveryReason (timing.failure);
+        liveCompare.blindTiming.observe (preparationCommand,
+            report.verdict == hypha::live_compare::Verdict::accepted,
+            report.guardTripped || (report.timelineChanged && report.loss != hypha::live_compare::TimelineBreak::metadataPending)
+                ? interruption.reason (report.reason) : interruption.reason(),
+            liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
         if (report.timelineChanged && ! discontinuity)
         {
             liveCompare.timelineGeneration.fetch_add (1, std::memory_order_acq_rel);
             liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
             liveCompare.matched.store (false, std::memory_order_release);
         }
+        if (report.timelineChanged)
+        {
+            liveCompare.reentry.lost (report.loss, namedEligible);
+            if (namedEligible && report.loss != hypha::live_compare::TimelineBreak::metadataPending
+                && ! hypha::live_compare::namedTransportRestart (report.loss))
+                liveCompare.selection.fail (selection, report.reason);
+        }
+        const bool renewed = report.verdict == hypha::live_compare::Verdict::accepted
+            && liveCompare.reentry.accepted (coherent
+                && liveCompare.gainRevision.load (std::memory_order_acquire) == revision);
+        if (renewed && namedEligible && gains.retained && liveCompare.matchRetained.load (std::memory_order_acquire)
+            && gains.identity.same (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket()))
+            && liveCompare.authority.permitted() && liveCompare.sessionActive.load (std::memory_order_acquire)
+            && ! liveCompare.completion.pending() && ! liveCompare.blind.command().active()
+            && liveCompare.gainRevision.load (std::memory_order_acquire) == revision)
+        {
+            liveCompare.matchRun.store (liveCompare.playbackRun.load (std::memory_order_acquire), std::memory_order_release);
+            liveCompare.matchGeneration.store (liveCompare.sessionGeneration.load (std::memory_order_acquire), std::memory_order_release);
+            liveCompare.matched.store (true, std::memory_order_release);
+        }
+        liveCompare.timingReentryPending.store (liveCompare.reentry.waiting(), std::memory_order_release);
+        const bool gainCurrent = coherent && liveCompare.gainRevision.load (std::memory_order_acquire) == revision;
         preRemaining = liveCompare.renderer.hasPre();
         if (blindCommand.active() && ! blindRejected)
         {
-            if (report.verdict != hypha::live_compare::Verdict::accepted || report.guardTripped)
+            if (! gainCurrent || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision)
+                liveCompare.blind.invalidate (blindCommand, Reason::gainChanged);
+            else if (report.verdict != hypha::live_compare::Verdict::accepted || report.guardTripped)
             {
                 liveCompare.blind.invalidate (blindCommand, report.reason);
             }
@@ -187,7 +254,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                     && report.audibleSource == requested);
             }
         }
-        if (coherent && report.gainSettled && ! report.guardTripped)
+        if (gainCurrent && report.gainSettled && ! report.guardTripped)
             liveCompare.gainReceipt.store (revision, std::memory_order_release);
         if (report.guardTripped)
         {
@@ -217,7 +284,11 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     liveCompare.postActual.store (liveCompare.postLevel.value(), std::memory_order_release);
     if (finishing && usable && ! outputTaken && frames > 0)
     {
-        if (postTarget == 1.0f) liveCompare.postTarget.store (1.0f, std::memory_order_release);
+        if (postTarget == 1.0f)
+        {
+            hypha::live_compare::GainUpdate update (liveCompare.gainRevision);
+            if (update) liveCompare.postTarget.store (1.0f, std::memory_order_release);
+        }
         liveCompare.completion.observe (finishToken, true, preRemaining,
                                        liveCompare.postLevel.value());
     }

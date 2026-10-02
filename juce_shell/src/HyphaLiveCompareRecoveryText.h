@@ -91,10 +91,24 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
+    if (state.active && state.interrupted)
+    {
+        if (state.reason == Reason::ceiling) return result (RecoveryAction::checkLevels, "Level limit: rematch, select PRE (POST)");
+        if (state.reason == Reason::nonFinite) return result (RecoveryAction::checkLevels, "Invalid audio: check chain (POST)");
+        if (state.reason == Reason::bypassed) return result (RecoveryAction::selectPre, "Bypassed: enable, select PRE (POST)");
+        if (state.reason == Reason::offline) return result (RecoveryAction::selectPre, "Offline: play, select PRE (POST)");
+        if (state.reason == Reason::outputTaken) return result (RecoveryAction::selectPre, "Other audition: end it, select PRE");
+        if (state.reason == Reason::callbackGap) return result (RecoveryAction::selectPre, "Audio gap: select PRE again (POST)");
+        if (state.reason == Reason::clockMissing || state.reason == Reason::projectClockMissing)
+            return result (RecoveryAction::selectPre, "Clock missing: select PRE again (POST)");
+        return result (RecoveryAction::selectPre, "Select PRE again");
+    }
     if (state.active && (state.observation == Reason::loopUnproven
         || state.observation == Reason::loopTooShort
         || state.observation == Reason::loopClockUnavailable))
-        return result (RecoveryAction::none, state.observation == Reason::loopTooShort
+        return state.timingReentryPending && state.observation == Reason::loopUnproven
+            ? result (RecoveryAction::automatic, "Checking PRE: auto-resume; POST plays")
+            : result (RecoveryAction::none, state.observation == Reason::loopTooShort
             ? "Loop too short for verified timing; POST plays"
             : "LOOP timing unverified; POST; END closes");
     if (state.active && state.observation == Reason::loopWaiting)
@@ -125,14 +139,8 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         return result (RecoveryAction::automatic, "Checking PRE: auto-resume; POST plays");
     }
     if (state.active && state.matchHeld && ! state.interrupted)
-        return result (RecoveryAction::selectPre, "MATCH held; rematch to confirm levels");
-    if (! state.interrupted || ! state.active) return {};
-    if (state.reason == Reason::ceiling) return result (RecoveryAction::checkLevels, "Level limit: rematch, select PRE (POST)");
-    if (state.reason == Reason::nonFinite) return result (RecoveryAction::checkLevels, "Invalid audio: check chain (POST)");
-    if (state.reason == Reason::bypassed) return result (RecoveryAction::selectPre, "Bypassed: enable, select PRE (POST)");
-    if (state.reason == Reason::offline) return result (RecoveryAction::selectPre, "Offline: play, select PRE (POST)");
-    if (state.reason == Reason::outputTaken) return result (RecoveryAction::selectPre, "Other audition: end it, select PRE");
-    return result (RecoveryAction::selectPre, "Select PRE again");
+        return result (RecoveryAction::selectPre, "MATCH held; select PRE to check timing");
+    return {};
 }
 inline const char* namedRecovery (const live_compare::Status& state) noexcept
 { return namedPresentation (state).instruction; }

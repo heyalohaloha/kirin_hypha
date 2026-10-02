@@ -638,8 +638,11 @@ briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never c
 It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Tools it is offered
 on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
 multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
-multi-mono plug-in in parallel. On Windows it passes the same automated end-to-end tests as macOS
-and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checked.
+multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.2.113407;
+Windows unsigned AAX has been checked separately in Pro Tools Developer 26.4.0.5. Developer
+testing is not acceptance of a signed plug-in in regular Pro Tools. Avid documents that its
+[debuggable Developer builds cannot save or export sessions](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html).
+Saving and reopening therefore remain separate regular-host acceptance requirements.
 
 1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
    300%) in the footer.
@@ -671,21 +674,36 @@ and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checke
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
    the DAW reports, and another audition are never attenuated. Measurements remain before this path.
 
-For a DAW loop, start **LISTEN → MATCH** during ordinary playback, then enable the DAW's loop.
-No Hypha LOOP button or per-lap approval is needed. With a confirmed, constant-tempo loop and
-continuous PRE/POST timing, the fixed gain and selection stay unchanged at each wrap. Short loops
-can accumulate real playback time for **MATCH again**; Hypha does not duplicate recorded samples.
-If timing becomes uncertain, POST plays at the approved level and PRE WAIT explains the next step.
-**HELD** means the previous gain remains, but MATCH needs reconfirmation—not that the current
-levels are verified equal. A failed or cancelled rematch never discards the previous gain.
+For a DAW loop, press **LISTEN** or **BLIND** during loop playback. No Hypha LOOP button,
+LOOP-off step or per-lap approval is needed. Initial comparison needs independent timing proof:
 
-Starting LISTEN or BLIND for the first time while already looping cannot establish a unique PRE
-occurrence from repeated timeline positions. The screen asks you to turn LOOP off and play to
-confirm PRE, then turn LOOP back on. Missing loop timing, a tempo/range change or a callback gap
-also requires reconfirmation. Some hosts hold POST's reported position at the loop start while
-delayed audio is still arriving: that interval stays on POST, not unverified PRE. Long-delay
-clamped loops may not support continuous comparison. These conditions have local fixture coverage;
-this implementation has not yet been qualified in a real DAW on macOS or Windows.
+- VST3: the measured common content clock in the exact Studio Pro 8.1.2.113407 host.
+- AU: valid presentation-latency information on both sides, with a positive PRE-to-POST
+  difference and a unique occurrence within the observed loop. Equal, zero or missing values
+  do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified.
+- AAX: the measured AddClock profile of Pro Tools Developer 26.4.0.5, plus the official
+  sample-rate-specific maximum compensation bound. The loop must be longer than that bound;
+  at 48 kHz this means more than 16,383 samples. Other Pro Tools builds are not inferred from it.
+
+If proof is unavailable or the loop is too short, Hypha explains the condition, keeps POST
+playing and leaves **END** available. It does not present LOOP-off or re-MATCH as the normal
+workflow. The rules also allow ordinary **LISTEN → MATCH** playback followed by LOOP, while
+retaining the fixed gain and selection at confirmed wraps. Short loops can accumulate real
+playback time for **MATCH again**; Hypha does not duplicate recorded samples.
+
+**HELD** means the approved gain and ceiling remain, not that current levels have been measured
+equal again. In named comparison, an identified stop, position move or re-enabled delay
+compensation renews the timing proof before PRE returns, without an automatic re-MATCH.
+An unexplained gap, missing clock or changed
+source requires an explicit PRE selection; state restore, pair or format changes cannot inherit
+the old approval. Interrupted BLIND trials never resume automatically. A failed or cancelled
+rematch never discards the previous gain.
+
+Some hosts hold POST's reported position at the loop start while delayed audio is still arriving.
+That interval stays on POST until the occurrence is proven, not on unverified PRE. Native
+full-frame tests cover initial entry, dynamic processing, clamped wraps and failure paths.
+Real-host evidence belongs to its exact commit, host, format and configuration; it does not
+certify every host, all transitions or signed retail AAX merely because a bundle builds.
 
 In **MENU**, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
 PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
@@ -712,13 +730,17 @@ same channel; in Pro Tools, turn off its **Target** button.
   and the status line says so.
 - Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
   blocks while Hypha confirms the line-up.
-- If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back
-  shortly after the sound returns.
+- Silence does not require a new MATCH. PRE returns automatically when independent timing
+  evidence still establishes continuity. If the DAW leaves an unexplained clock or callback gap,
+  Hypha keeps POST playing, shows the interruption reason and asks you to select PRE again.
+  An inactive meter alone cannot distinguish silence from host suspension or bypass.
 - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear
   phase) while comparing, PRE can be misaligned for a moment right after the change. In our
   measurements this lasted up to four blocks in Studio Pro 8.1.2 (171 ms at 2048 samples); the
   clocks recorded in Pro Tools 2026.4 bound it to two blocks (43 ms at 1024 samples).
-- With a loop shorter than the chain's latency, PRE can come from the previous pass of the loop.
+- PRE follows the exact occurrence of audio currently reaching POST, not just the displayed
+  playhead or the newest PRE block. A previous-pass occurrence is valid only when the delayed
+  POST audio actually belongs to that pass and the timing proof uniquely identifies it.
 - Unlike Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
 
 ## Local PRE/POST Blind Compare

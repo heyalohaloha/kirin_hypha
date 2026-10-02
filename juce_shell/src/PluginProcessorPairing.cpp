@@ -403,6 +403,7 @@ juce::String KirinHyphaProcessorBase::pairDisplayName() const
 bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
                                                 const juce::String& name)
 {
+    invalidateLiveComparePair();
     {
         const juce::ScopedLock lock (handleLock);
         if (hyphaHandle == nullptr
@@ -428,6 +429,7 @@ bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
 
 void KirinHyphaProcessorBase::clearPairCandidate()
 {
+    invalidateLiveComparePair();
     {
         const juce::ScopedLock lock (handleLock);
         if (hyphaHandle != nullptr)

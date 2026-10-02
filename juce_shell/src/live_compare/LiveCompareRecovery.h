@@ -15,6 +15,26 @@ enum class RecoveryReason : std::uint8_t
     bypassed, offline, outputTaken, gainChanged, nonFinite, ceiling, blockTooLarge,
     randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable
 };
+inline RecoveryReason recoveryReason (TimelineBreak cause) noexcept
+{
+    using R = RecoveryReason;
+    switch (cause)
+    {
+        case TimelineBreak::none: return R::none;
+        case TimelineBreak::stopped: return R::stopped;
+        case TimelineBreak::projectMoved: case TimelineBreak::loopEdited: return R::positionChanged;
+        case TimelineBreak::callbackGap: return R::callbackGap;
+        case TimelineBreak::clockMissing: case TimelineBreak::clockMoved:
+        case TimelineBreak::clockProofChanged: return R::clockMissing;
+        case TimelineBreak::projectMissing: return R::projectClockMissing;
+        case TimelineBreak::sourceChanged: return R::foreignRing;
+        case TimelineBreak::pcmRunChanged: return R::beforeRun;
+        case TimelineBreak::compensationChanged: return R::calibrating;
+        case TimelineBreak::metadataPending: return R::writing; // transient, never a terminal cause
+        case TimelineBreak::unknown: return R::unknown;
+    }
+    return R::unknown;
+}
 
 inline RecoveryReason recoveryReason (Verdict verdict) noexcept
 {

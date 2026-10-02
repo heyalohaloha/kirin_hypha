@@ -143,15 +143,15 @@ private:
     void openLiveBlind();
     void refreshLiveBlind();
     void configureLiveCompare();
-    void refreshLiveCompare();
+    bool refreshLiveCompare(); // true only when this refresh published a new fault notification
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
     bool liveCompareHoldBlocksAudition();
     void pinLiveCompareForBlind();
-    void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
-    void matchLiveCompare();
+    bool monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
+    void matchLiveCompare (std::uint64_t menuGeneration = UINT64_MAX);
     void chooseLiveCompareFollow();
-    void followLiveCompare (const hypha::live_compare::Status&, double now);
+    bool followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,

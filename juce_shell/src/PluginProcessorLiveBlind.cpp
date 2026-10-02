@@ -11,6 +11,8 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     if (role != Role::Post) return;
     // End logical ownership now. The published mapping remains leased for the RT fade/ramp.
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.blindTiming.end();
+    liveCompare.cancelTimingAdmission();
     ++liveCompare.blindPreparation;
     liveCompare.blind.end();
     liveCompare.blindStage = BlindStage::finishing;
@@ -84,6 +86,14 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
     liveCompare.blindMeasuredEnd = 0;
     liveCompare.blindWaiting = MatchFailure::notProven;
     liveCompare.blindStage = BlindStage::preparing;
+    // Every explicit trial owns a new timing admission. A current named MATCH tuple is kept,
+    // then re-certified by the first fresh RT proof; old renderer/UI proof never seeds this epoch.
+    liveCompare.matched.store (false, std::memory_order_release);
+    liveCompare.sessionGeneration.fetch_add (1, std::memory_order_acq_rel);
+    const auto requiredAdmission = liveCompare.blindTimingRequest.load (std::memory_order_relaxed) + 1;
+    liveCompare.blindTiming.begin (requiredAdmission);
+    liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
+    liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
     // The only sound during preparation is POST. The match itself can be reused unchanged.
     liveCompare.selection.select (false);
     startTimer (50);
@@ -93,6 +103,16 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
 void KirinHyphaProcessorBase::serviceLiveBlind()
 {
     serviceLiveCompare();
+    const auto preparingLoss = liveCompare.blindTiming.failure();
+    if (preparingLoss != RecoveryReason::none
+        && (liveCompare.blindStage == BlindStage::preparing || liveCompare.blindStage == BlindStage::settling
+            || liveCompare.blindStage == BlindStage::approval))
+    {
+        liveCompare.blindPreparationReason = preparingLoss;
+        liveCompare.blindStage = BlindStage::invalidated;
+        stopLiveCompare (preparingLoss);
+        return;
+    }
     if (liveCompare.blindStage == BlindStage::active)
     {
         if (liveCompare.blind.view().invalidated)
@@ -106,6 +126,8 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
         return;
     const auto status = liveCompareStatus();
     if (! status.active || status.finishing) return;
+    if (liveCompare.blindTimingReceipt.load (std::memory_order_acquire)
+        != liveCompare.blindTimingRequest.load (std::memory_order_acquire)) return;
     if (status.compensationOff || status.contentHeld || status.verdict != Verdict::accepted)
     {
         liveCompare.blindWaiting = MatchFailure::notProven;
@@ -113,12 +135,19 @@ void KirinHyphaProcessorBase::serviceLiveBlind()
     }
     if (status.matchReady)
     {
+        const auto gains = readGainSnapshot (liveCompare);
+        if (! currentGainReceipt (liveCompare, gains)) return;
+        liveCompare.blindGainRevision.store (gains.revision, std::memory_order_release);
         if (! liveCompare.blind.startWith (hypha::reference_audition::secureRandomBit))
         {
             liveCompare.blindStage = BlindStage::invalidated;
             stopLiveCompare (RecoveryReason::randomUnavailable);
             return;
         }
+        if (! liveCompare.authority.permitted() || ! currentGainReceipt (liveCompare, gains)
+            || liveCompare.blindTiming.failure() != RecoveryReason::none)
+        { liveCompare.blind.end(); return; }
+        liveCompare.blindTiming.end();
         liveCompare.blindStage = BlindStage::active;
         return;
     }
@@ -194,11 +223,26 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
     status.compensationOff = state.compensationOff;
+    if ((status.stage == BlindStage::preparing || status.stage == BlindStage::settling || status.stage == BlindStage::approval)
+        && liveCompare.blindTiming.failure() != RecoveryReason::none)
+    {
+        status.stage = BlindStage::invalidated;
+        status.reason = liveCompare.blindTiming.failure();
+        status.trial = {};
+    }
     if (! liveCompare.authority.permitted() && status.stage != BlindStage::idle)
     {
         status.trial = {}; // no stale assignment, played receipts or answer while service is pending
         if (status.reason == RecoveryReason::none) status.reason = RecoveryReason::restored;
         if (status.stage != BlindStage::finishing) status.stage = BlindStage::invalidated;
+    }
+    else if (status.stage == BlindStage::active
+        && ! currentBlindReceipt (liveCompare))
+    {
+        status.trial = {};
+        status.stage = BlindStage::invalidated;
+        if (status.reason == RecoveryReason::none) status.reason = state.observation != RecoveryReason::none
+            ? state.observation : RecoveryReason::gainChanged;
     }
     return status;
 }
@@ -206,12 +250,14 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
 bool KirinHyphaProcessorBase::selectLiveBlind (int stimulus)
 {
     return liveCompare.authority.permitted() && liveCompare.blindStage == BlindStage::active
+        && currentBlindReceipt (liveCompare)
         && liveCompare.blind.select (stimulus);
 }
 
 bool KirinHyphaProcessorBase::revealLiveBlind()
 {
     return liveCompare.authority.permitted() && liveCompare.blindStage == BlindStage::active
+        && currentBlindReceipt (liveCompare)
         && liveCompare.blind.reveal();
 }
 

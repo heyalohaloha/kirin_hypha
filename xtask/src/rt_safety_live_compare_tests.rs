@@ -25,6 +25,8 @@ const MATCH_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveComp
 
 #[path = "rt_safety_live_blind_tests.rs"]
 mod live_blind_tests;
+#[path = "rt_safety_live_compare_reentry_tests.rs"]
+mod live_compare_reentry_tests;
 #[path = "rt_safety_live_compare_timing_tests.rs"]
 mod live_compare_timing_tests;
 
@@ -209,7 +211,7 @@ fn live_compare_sessions_end_where_the_user_cannot_see_them() {
     assert!(blind.contains("processorRef.stopLiveCompare();"));
     let refresh = function_body(
         EDITOR_LIVE_COMPARE_CPP,
-        "void KirinHyphaEditor::refreshLiveCompare",
+        "bool KirinHyphaEditor::refreshLiveCompare",
     );
     assert!(refresh.contains("processorRef.serviceLiveCompare();"));
     assert!(refresh.contains("processorRef.takeLiveComparePreWait()"));
@@ -302,7 +304,7 @@ fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() 
     assert!(!rt.contains("measureOffset") && !rt.contains("estimateOffset"));
     let monitor = function_body(
         EDITOR_LIVE_COMPARE_CPP,
-        "void KirinHyphaEditor::monitorLiveCompareOffset",
+        "bool KirinHyphaEditor::monitorLiveCompareOffset",
     );
     assert!(monitor.contains("if (step.jumped)"));
     assert!(monitor.contains("processorRef.holdLiveCompareForContentJump (step.lagFrames);"));
@@ -347,7 +349,7 @@ fn live_compare_pin_hands_one_range_to_blind_through_its_own_admission() {
 // last explicit MATCH), ramps it on the Audio Thread, and stops wherever the session or Blind starts.
 #[test]
 fn live_compare_auto_follows_pre_only_within_the_approved_point() {
-    let follow = function_body(EDITOR_AUTO_CPP, "void KirinHyphaEditor::followLiveCompare");
+    let follow = function_body(EDITOR_AUTO_CPP, "bool KirinHyphaEditor::followLiveCompare");
     assert!(follow.contains("hypha::live_compare::followStep ("));
     assert!(follow.contains("a.ceilingDbtp"));
     assert!(follow.contains("processorRef.followLiveCompareGain (step.preGainDb);"));
@@ -364,7 +366,7 @@ fn live_compare_auto_follows_pre_only_within_the_approved_point() {
         "bool KirinHyphaProcessorBase::followLiveCompareGain",
     );
     assert!(gain.contains("liveCompare.gain.store ("));
-    assert!(gain.contains("liveCompare.gainRevision.fetch_add"));
+    assert!(gain.contains("GainUpdate update (liveCompare.gainRevision)"));
     assert!(!gain.contains("postTarget") && !gain.contains("ceilingLinear"));
     let step = function_body(MATCH_CPP, "FollowStep followStep (");
     assert!(
@@ -428,7 +430,7 @@ fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
     assert!(rt.contains("(contentHeld || compensationOff)"));
     let monitor = function_body(
         EDITOR_LIVE_COMPARE_CPP,
-        "void KirinHyphaEditor::monitorLiveCompareOffset",
+        "bool KirinHyphaEditor::monitorLiveCompareOffset",
     );
     assert!(monitor.contains("|| status.compensationOff)"));
     assert!(monitor.contains("\"Delay compensation is off in Pro Tools\""));

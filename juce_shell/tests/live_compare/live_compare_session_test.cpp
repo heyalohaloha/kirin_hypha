@@ -65,7 +65,8 @@ struct Pair
     }
 
     RenderReport step (bool demand, bool preSelected, float gain, bool afterGap = false, int channels = 2,
-                       bool poison = false, bool blind = false, bool poisonPost = false)
+                       bool poison = false, bool blind = false, bool poisonPost = false,
+                       const float* samples = nullptr)
     {
         ring->header.demand.store (demand ? 1u : 0u);
         BlockClock b;
@@ -77,8 +78,8 @@ struct Pair
         for (int c = 0; c < 2; ++c)
             for (int i = 0; i < frames; ++i)
             {
-                pre[c][size_t (i)] = preValue (clock + i, c);
-                post[c][size_t (i)] = postValue;
+                pre[c][size_t (i)] = samples != nullptr ? samples[0] : preValue (clock + i, c);
+                post[c][size_t (i)] = samples != nullptr ? samples[1] : postValue;
             }
         if (poison)
             pre[0][5] = std::nanf ("");
@@ -235,6 +236,59 @@ static void guardKeepsPreUnderTheCeiling()
     const auto nan = poisoned.step (true, true, 1.0f, false, 2, true);
     require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
     require (nan.reason == RecoveryReason::nonFinite, "invalid audio is not misreported as a level limit");
+}
+
+// Finite input is not sufficient: approvals, gain ramps and float threshold rounding stay finite.
+static void finiteGainAndCeilingBoundaries()
+{
+    const float maximum = std::numeric_limits<float>::max(), infinity = std::numeric_limits<float>::infinity();
+    const auto exercise = [maximum] (float gain, float ceiling, float sample, RecoveryReason reason,
+                                    int transition = -1, float postSample = postValue)
+    {
+        Pair pair;
+        pair.ceiling = maximum;
+        const float initialGain = std::isfinite (gain) && gain > 0.0f ? gain : 1.0f;
+        pair.calibrate (transition != 1, initialGain);
+        pair.step (true, transition != 1, initialGain);
+        pair.ceiling = ceiling;
+        const float samples[] = { sample, postSample };
+        const auto r = pair.step (true, transition != 0, gain, false, 2, false, false, false, samples);
+        require (r.verdict == Verdict::accepted && r.reason == reason, "finite boundary retains its exact cause");
+        require (r.guardTripped == (reason != RecoveryReason::none)
+                 && (reason == RecoveryReason::none || (! r.preAudible && ! r.stableSource && ! r.gainSettled)),
+                 "unsafe tuple/sample rejects the whole block without a heard receipt");
+        for (int c = 0; c < 2; ++c)
+            for (const float value : pair.post[c])
+                require (std::isfinite (value) && (reason == RecoveryReason::none || value == postSample)
+                         && (reason != RecoveryReason::none || transition != -1 || value == sample * gain),
+                         "rejection retains POST from frame zero; valid direct/transition output stays finite");
+        if (reason == RecoveryReason::none && transition == -1)
+            require (r.stableSource && r.gainSettled && pair.post[0][0] == sample * gain,
+                     "exact finite ceiling equality preserves the direct PRE path");
+    };
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (const float invalid : { 0.0f, -1.0f, nan, infinity })
+    {
+        exercise (invalid, 1.0f, 0.1f, RecoveryReason::nonFinite);
+        exercise (1.0f, invalid, 0.1f, RecoveryReason::nonFinite);
+    }
+    exercise (2.0f, infinity, 3.0e38f, RecoveryReason::nonFinite);
+    for (const float ceiling : { 1.0f, maximum })
+    {
+        exercise (2.0f, ceiling, ceiling / 2.0f, RecoveryReason::none);
+        exercise (2.0f, ceiling, std::nextafter (ceiling / 2.0f, infinity), RecoveryReason::ceiling);
+    }
+    const double exact = static_cast<double> (maximum) / static_cast<double> (1.2f);
+    const float rounded = static_cast<float> (exact);
+    require (static_cast<double> (rounded) > exact, "control exercises an upward-rounded float threshold");
+    exercise (1.2f, maximum, rounded, RecoveryReason::ceiling);
+    exercise (1.2f, maximum, std::nextafter (rounded, 0.0f), RecoveryReason::none);
+    for (const float gain : { 0.5f, 1.0f, 2.0f })
+        for (const int transition : { 0, 1 })
+            for (const float preSign : { -1.0f, 1.0f })
+                for (const float postSign : { -1.0f, 1.0f })
+                    exercise (gain, maximum, preSign * (gain > 1.0f ? maximum / gain : maximum),
+                              RecoveryReason::none, transition, postSign * maximum);
 }
 
 // A gain that changes while PRE sounds (a new MATCH, AUTO) moves linearly over 50 ms, never in a
@@ -435,6 +489,7 @@ int main()
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
     guardKeepsPreUnderTheCeiling();
+    finiteGainAndCeilingBoundaries();
     preGainRampsOverFiftyMilliseconds();
     pinFixesOneProjectRange();
     require (rtAllocations == 0 && rtDeletions == 0, "PRE feed / POST render never new/delete in named or Blind mode");

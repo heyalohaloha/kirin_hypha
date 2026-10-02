@@ -3,6 +3,7 @@
 hypha::live_compare::StartResult startLiveCompare();
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 void stopLiveCompare (hypha::live_compare::RecoveryReason reason = hypha::live_compare::RecoveryReason::none);
+void invalidateLiveComparePair() noexcept;
 void selectLiveComparePre (bool pre) noexcept;
 void setLiveCompareGain (float linear) noexcept;
 hypha::live_compare::MatchResult measureLiveCompare();

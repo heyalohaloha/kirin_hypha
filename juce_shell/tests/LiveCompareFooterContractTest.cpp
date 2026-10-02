@@ -1,5 +1,5 @@
 #include "LiveCompareFooterContractTest.h"
-
+#include "LiveCompareActionNoticeContractTest.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -58,6 +58,7 @@ void recoveryPreview (observatory::View& view, const juce::String& name)
 
 void verifyLiveCompareFooterContract()
 {
+    verifyLiveCompareActionNotices();
     observatory::View post (observatory::Role::post);
     observatory::View pre (observatory::Role::pre);
     bool recoveryFits = true;
@@ -67,6 +68,43 @@ void verifyLiveCompareFooterContract()
         for (auto preset : observatory::sizePresets)
         {
             post.setSize (preset.width, preset.height);
+            live_compare::Status renewed;
+            renewed.active = renewed.matchHeld = renewed.preSelected = renewed.preWaiting = true;
+            renewed.timingReentryPending = true;
+            renewed.observation = live_compare::RecoveryReason::loopUnproven;
+            const auto renewing = live_compare_ui::namedPresentation (renewed);
+            require (renewing.action == live_compare_ui::RecoveryAction::automatic
+                && ! juce::String (renewing.instruction).containsIgnoreCase ("rematch"),
+                "identified named transport recovery has no LOOP-off or rematch requirement");
+            const auto readableRecovery = [&] (const char* instruction)
+            {
+                post.setFeedback (instruction);
+                const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
+                    ? typography::TextRole::status : typography::TextRole::action);
+                require (text_style::shownWidth (font, instruction) <= post.statusStripBounds().getWidth() - 12,
+                         "fresh-proof and retained-MATCH instructions fit at every size in both languages");
+            };
+            readableRecovery (renewing.instruction);
+            recoveryPreview (post, "named-renew-" + juce::String (static_cast<int> (language))
+                + "-" + juce::String (preset.width));
+            renewed.timingReentryPending = false;
+            renewed.preSelected = renewed.preWaiting = false;
+            renewed.observation = live_compare::RecoveryReason::none;
+            const auto retained = live_compare_ui::namedPresentation (renewed);
+            require (retained.action == live_compare_ui::RecoveryAction::selectPre
+                && ! juce::String (retained.instruction).containsIgnoreCase ("rematch"),
+                "fixed approved gain may check timing without remeasurement");
+            readableRecovery (retained.instruction);
+            for (auto reason : { live_compare::RecoveryReason::callbackGap, live_compare::RecoveryReason::clockMissing,
+                                 live_compare::RecoveryReason::offline, live_compare::RecoveryReason::bypassed })
+            {
+                renewed.reason = reason; renewed.interrupted = true;
+                renewed.observation = live_compare::RecoveryReason::loopUnproven;
+                const auto interrupted = live_compare_ui::namedPresentation (renewed);
+                require (interrupted.reason == reason && interrupted.action == live_compare_ui::RecoveryAction::selectPre,
+                         "retained actual interruption outranks generic LOOP-unproven and keeps its recovery action");
+                readableRecovery (interrupted.instruction);
+            }
             for (int code = 0; code <= static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++code)
                 for (int phase = 0; phase < 4; ++phase)
                 {
@@ -81,7 +119,7 @@ void verifyLiveCompareFooterContract()
                     recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
                     recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
                     const auto* notice = live_compare_ui::namedRecovery (recovery);
-                    if (recovery.active && (recovery.observation == live_compare::RecoveryReason::loopUnproven
+                    if (recovery.active && ! recovery.interrupted && (recovery.observation == live_compare::RecoveryReason::loopUnproven
                         || recovery.observation == live_compare::RecoveryReason::loopClockUnavailable))
                         require (live_compare_ui::namedPresentation (recovery).action
                             == live_compare_ui::RecoveryAction::none && juce::String (notice).contains ("POST"),

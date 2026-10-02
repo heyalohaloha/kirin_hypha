@@ -14,7 +14,7 @@ struct TimingHeader
 {
     std::atomic<std::uint64_t> sequence { 0 }, generation { 0 };
     std::atomic<std::uint64_t> ownerA { 0 }, ownerB { 0 }; // immutable, one PRE mapping lifetime
-    std::atomic<std::uint32_t> flags { 0 }; // 1: active clock; 2: linear origin; 4: loop anchor
+    std::atomic<std::uint32_t> flags { 0 }; // bits0..2: active/linear/loop; bits8..15: generation cause
     std::atomic<std::uint32_t> proof { 0 }, outputPresentation { 0 }, maximumDelay { 0 };
     std::atomic<std::int64_t> clock { 0 }, project { 0 }, origin { 0 }, start { 0 };
     std::atomic<std::int32_t> frames { 0 };
@@ -27,6 +27,7 @@ struct TimingSnapshot
     std::uint64_t generation = 0;
     std::uint64_t ownerA = 0, ownerB = 0;
     bool active = false;
+    TimelineBreak cause = TimelineBreak::unknown; // belongs to this whole PRE generation
     std::int64_t origin = 0;
     BlockClock block;
     LoopAnchor anchor;
@@ -44,6 +45,9 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
     next.active = (flags & 1u) != 0;
     next.anchor.linearKnown = (flags & 2u) != 0;
     next.anchor.loopKnown = (flags & 4u) != 0;
+    const auto cause = (flags >> 8u) & 0xffu;
+    next.cause = cause > 0 && cause <= static_cast<std::uint32_t> (TimelineBreak::compensationChanged)
+        ? static_cast<TimelineBreak> (cause) : TimelineBreak::unknown;
     const auto proof = h.proof.load (std::memory_order_relaxed);
     next.block.clockBasis = static_cast<std::uint8_t> (proof & 0xffu);
     next.block.clockAuthority = static_cast<std::uint8_t> ((proof >> 8u) & 0xffu);
@@ -92,6 +96,9 @@ public:
         if (! havePrevious || movement.broken || cycle.changed || proofChanged)
         {
             ++generation;
+            generationCause = ! active && movement.cause != TimelineBreak::none ? movement.cause
+                : proofChanged ? TimelineBreak::clockProofChanged
+                : movement.cause != TimelineBreak::none ? movement.cause : TimelineBreak::unknown;
             linearKnown = loopKnown = false;
             start = block.clock;
         }
@@ -113,7 +120,8 @@ public:
         h.sequence.store (seq + 1, std::memory_order_relaxed);
         std::atomic_thread_fence (std::memory_order_release);
         h.generation.store (generation, std::memory_order_release); // individual fence for an already-seeded PCM consumer
-        h.flags.store (active ? (1u | (linearKnown ? 2u : 0u) | (loopKnown ? 4u : 0u)) : 0u,
+        h.flags.store ((active ? (1u | (linearKnown ? 2u : 0u) | (loopKnown ? 4u : 0u)) : 0u)
+                           | (static_cast<std::uint32_t> (generationCause) << 8u),
                        std::memory_order_relaxed);
         h.clock.store (block.clock, std::memory_order_relaxed);
         h.project.store (block.project, std::memory_order_relaxed);
@@ -148,6 +156,7 @@ private:
     std::uint64_t generation = 0;
     bool havePrevious = false, linearKnown = false, loopKnown = false;
     BlockClock previousBlock;
+    TimelineBreak generationCause = TimelineBreak::unknown;
     std::int64_t origin = 0, start = 0, loopClock = 0, loopProject = 0;
     LoopContext loop;
 };

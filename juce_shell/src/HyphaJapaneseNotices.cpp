@@ -122,6 +122,8 @@ const Entry entries[] = {
     { "PIN failed; try again", u8"PINをやり直してください" },
     { "AUTO on: within 0.5 dB", u8"AUTO：0.5 dB以内で追従" },
     { "AUTO off", u8"AUTOを止めました" },
+    { "AUTO not started: MATCH pending", u8"AUTO未開始：MATCH確認待ち" },
+    { "AUTO not started: PRE timing pending", u8"AUTO未開始：PREの時刻確認待ち" },
     { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
     { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
     { "Delay compensation is off in Pro Tools", u8"Pro Toolsの遅延補償がOFFです" },

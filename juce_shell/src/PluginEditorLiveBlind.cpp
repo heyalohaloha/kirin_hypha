@@ -38,6 +38,7 @@ void KirinHyphaEditor::openLiveBlind()
     const auto result = processorRef.beginLiveBlind();
     if (result != StartResult::started)
     {
+        refreshLiveCompare(); // acknowledge older transitions before this direct refusal
         if (result == StartResult::noPair) showCandidateMenu();
         else showToast (result == StartResult::returnPending ? "Ended; normal level returns with audio"
                       : result == StartResult::returnRequired ? "Press RETURN first"

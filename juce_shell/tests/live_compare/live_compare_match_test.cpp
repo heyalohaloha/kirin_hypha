@@ -159,6 +159,22 @@ static void validatesFinalGainsBeforeAdmission()
              "a plan cannot be applied through the wrong approval choice");
     require (planMatch (measured, std::numeric_limits<double>::quiet_NaN()).failure == MatchFailure::invalidPlan,
              "NaN held level cannot be normalised to unity");
+    for (const double db : { 0.0, -1.0, 3.0, -800.0 })
+    {
+        auto representable = boundary;
+        representable.ceilingDbtp = db;
+        require (validateMatchPlan (representable, MatchChoice::basis) == MatchFailure::none,
+                 "finite positive float ceiling accepts unity, usual -1, observed above-zero and small levels");
+    }
+    for (const double db : { 1000.0, -1000.0, std::numeric_limits<double>::max(),
+                            -std::numeric_limits<double>::max() })
+    {
+        auto unrepresentable = boundary;
+        unrepresentable.ceilingDbtp = db;
+        require (std::isfinite (db)
+                 && validateMatchPlan (unrepresentable, MatchChoice::basis) == MatchFailure::invalidPlan,
+                 "finite dB cannot approve a float ceiling that overflows or underflows to zero");
+    }
     measured.failure = MatchFailure::notEnoughSignal;
     require (planMatch (measured, 0.0).failure == MatchFailure::notEnoughSignal, "analysis failure survives planning");
 }

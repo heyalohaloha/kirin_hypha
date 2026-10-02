@@ -53,11 +53,11 @@ void processAudio()
             }
             delayHead = (delayHead + 1) % 4096;
         }
-        const auto before = post->liveCompareStatus();
+        const auto before = LiveTimingFixtureAccess::audioView (*post);
         const bool renderedOffline = offline.load();
         post->setNonRealtime (renderedOffline);
         post->processBlock (buffer, midi);
-        const auto after = post->liveCompareStatus();
+        const auto after = LiveTimingFixtureAccess::audioView (*post);
         const float inputEnd = sourceSample (0, delayedPosition + blockFrames - 1);
         const float outputEnd = buffer.getSample (0, blockFrames - 1);
         lastOutputRatio.store (outputEnd / inputEnd);
