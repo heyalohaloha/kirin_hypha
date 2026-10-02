@@ -193,6 +193,40 @@ fn full_processor_probe_keeps_display_queries_off_the_audio_thread() {
     // Audit the actual oracle, not its user-facing failure text or a float tolerance.
     assert!(audio.contains("hypha::test::exactScaledPcm (actual, input, matchedGain)"));
     assert!(probe.contains("require (hypha::test::exactPcmControls()"));
+    let timing = include_str!("../../juce_shell/tests/live_compare_timing_product_test.cpp");
+    for signature in [
+        "void processAudio()",
+        "AuditedBlindCommand auditedBlindCommand()",
+    ] {
+        let audio = without_line_comments(function_body(timing, signature));
+        assert!(!audio.contains("->liveCompareStatus()"));
+        assert!(!audio.contains("->liveBlindStatus()"));
+    }
+}
+
+#[test]
+fn synthetic_clock_policy_and_first_loop_are_portable_not_diagnostic_side_effects() {
+    let timing = include_str!("../../juce_shell/tests/live_compare_timing_product_test.cpp");
+    let fixture = include_str!("../../juce_shell/tests/LiveTimingFixtureAccess.h");
+    let cmake = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
+    assert!(timing.contains("LiveTimingFixtureAccess::configureStudioProClock (*instance)"));
+    assert!(timing.contains("LiveTimingFixtureAccess::initialObservationRequested (*post)"));
+    assert!(!timing.contains("#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)"));
+    assert!(fixture.contains("hypha::live_compare_clock_policy::classify ("));
+    assert!(fixture.contains("\"Studio Pro\", \"8.1.2.113407\", 48000"));
+    assert!(fixture.contains(
+        "certificate.authority != hypha::live_compare::ClockAuthority::certifiedContent"
+    ));
+    assert!(fixture.contains("processor.liveCompare.blind.command()"));
+    assert!(cmake.contains("add_test(NAME kirin_live_initial_loop_product"));
+    let start = cmake
+        .find("add_test(NAME kirin_live_initial_loop_product")
+        .unwrap();
+    let preceding = &cmake[..start];
+    assert!(!preceding[preceding
+        .rfind("set_tests_properties(kirin_live_timing_product")
+        .unwrap()..]
+        .contains("if(KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)"));
 }
 
 #[test]

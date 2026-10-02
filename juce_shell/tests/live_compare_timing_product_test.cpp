@@ -4,6 +4,7 @@
 #include "ValidationStorageSandbox.h"
 #include "LiveBlindLoopFixture.h"
 #include "LiveTimingProductDiagnostic.h"
+#include "LiveTimingFixtureAccess.h"
 #include "ExactPcmOracle.h"
 #include <array>
 #include <atomic>
@@ -127,10 +128,8 @@ public:
             instance->setPlayHead (role == Processor::Role::Pre ? &preClock : &postClock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
-#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
-            instance->liveCompare.clockAuthority
-                = static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedContent);
-#endif
+            require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
+                     "portable synthetic host carries the exact qualified VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
         editor.reset (post->createEditorIfNeeded());
@@ -159,18 +158,8 @@ private:
 
     AuditedBlindCommand auditedBlindCommand() const noexcept
     {
-#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
-        const auto command = post->liveCompare.blind.command();
+        const auto command = LiveTimingFixtureAccess::command (*post);
         return { command.word, command.stimulus(), command.active() };
-#else
-        // The portable product fixture stays behind the shipping public boundary. An audible
-        // receipt is valid only for the current epoch and requested stimulus; the exact atomic
-        // command word is reserved for the opt-in macOS timing diagnostic.
-        const auto view = post->liveBlindStatus().trial;
-        const auto token = (static_cast<std::uint64_t> (view.epoch) << 32)
-            | static_cast<std::uint32_t> (view.audible);
-        return { token, view.audible, view.active && view.audible != 0 };
-#endif
     }
 
     bool click (const char* id)
@@ -389,10 +378,8 @@ private:
             const auto commandBefore = auditedBlindCommand();
             const float gain = expectedGain.load();
             postClock.omitAuxiliary = false;
-#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)
             if (startupClockHoleRequested.load() && ! startupClockHoleInjected.load()
-                && post->liveCompare.ring.hasPublishedRealtime()
-                && post->liveCompare.preparation.initialRequested.load (std::memory_order_acquire))
+                && LiveTimingFixtureAccess::initialObservationRequested (*post))
             {
                 // Reproduce the failed real initial-entry boundary deterministically, not
                 // by sleeping a CI runner or weakening the PCM/admission oracle. This callback
@@ -400,7 +387,6 @@ private:
                 postClock.omitAuxiliary = true;
                 startupClockHoleInjected.store (true);
             }
-#endif
             post->processBlock (buffer, midi);
             diagnostic.observe (*pre, *post, blocks.load());
             bool preMatch = true, postMatch = true;
@@ -416,10 +402,10 @@ private:
                     postMatch = postMatch && hypha::test::exactPcm (actual, expectedPost);
                 }
             const auto commandAfter = auditedBlindCommand();
-            const auto heardAfter = post->liveBlindStatus().trial;
+            const auto audibleAfter = LiveTimingFixtureAccess::audible (*post);
             const bool stableAuditedCommand = comparing && audit.load()
                 && expectedCommand != 0 && commandBefore.token == expectedCommand
-                && commandAfter.token == expectedCommand && heardAfter.audible == commandAfter.stimulus;
+                && commandAfter.token == expectedCommand && audibleAfter == commandAfter.stimulus;
             if (stableAuditedCommand)
             {
                 if (! preMatch && ! postMatch) pcmErrors.fetch_add (1);

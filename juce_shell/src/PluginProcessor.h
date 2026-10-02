@@ -33,6 +33,8 @@
 #include "reference_audition/ReferenceComparisonController.h"
 #include "reference_audition/ReferenceLiveALevel.h"
 
+class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt fixture only
+
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
 // chunk, the deferred enable (B-126: lock-free flag + non-RT Timer), and the R-12 read-only
@@ -356,6 +358,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    friend class LiveTimingFixtureAccess; // no runtime method or product policy override
     hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
     std::atomic<bool> liveInputPresent { false }; // Display only; follows Watch's musical rests.
