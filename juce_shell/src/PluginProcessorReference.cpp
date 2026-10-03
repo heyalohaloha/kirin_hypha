@@ -83,6 +83,15 @@ hypha::reference_audition::RematchResult KirinHyphaProcessorBase::rematchReferen
    #endif
 }
 
+// H7: V の自動特定。A の直近 30 秒の Kirin 指紋を Version の指紋（ranges）と照合する。
+hypha::reference_audition::VersionIdentity KirinHyphaProcessorBase::identifyReferenceVersion()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr) return referenceAuditionController->identifyVersions();
+   #endif
+    return {};
+}
+
 bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAudition (1); }
 bool KirinHyphaProcessorBase::selectReferenceC() { return requestReferenceAudition (2); }
 bool KirinHyphaProcessorBase::selectReferenceRef() { return requestReferenceAudition (3); }  // H8: B（REF）

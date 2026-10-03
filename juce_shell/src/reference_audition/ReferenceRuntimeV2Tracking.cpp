@@ -103,6 +103,20 @@ void RuntimeV2Controller::applyMatchedGainLocked (double gainDb, double aLoudnes
     holdCurrentGainLocked();
 }
 
+// H7: V の自動特定。Version の指紋を ranges から読み（library が変わったときだけ）、A の直近と照合する。
+VersionIdentity RuntimeV2Controller::identifyVersions (const KirinFingerprint& slice, std::int64_t endTick)
+{
+    if (! versionComparison) return {};
+    std::shared_ptr<const RuntimeWorkspace> current;
+    {
+        const juce::ScopedLock lock (stateLock);
+        current = workspace;
+    }
+    if (current == nullptr) return {};
+    versionIdentifier.prepare (root, *current);
+    return versionIdentifier.identify (slice, endTick);
+}
+
 // H12: C の MATCH をもう一度（方向設計 §4 の C の画面、右上の MATCH）。鳴っている C の gain を
 // 「A の直近（Cue と同じ長さ）− Cue の Kirin OS の値（無ければ曲全体）」に決め直して固定する。追従は
 // しない（H4）。上限（True Peak）を超えるなら今の gain を保って理由を返す（R-28）。A は動かさない。

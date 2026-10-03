@@ -56,6 +56,8 @@ private:
     KirinReferenceTonalMeter* tonalMeter = nullptr;
     KirinSpectrumMeter kirinMeter;        // H12: A を Kirin OS の Cue と同じ定義で
     KirinSpectrumMeter pairAMeter, pairVMeter; // H13: 位置合わせで対応した A と V（同じフレーム）
+    KirinFingerprintMeter printMeter;     // H7: A の Kirin 指紋（直近 30 秒）
+    std::int64_t printEndSample = -1;
     std::int64_t pairKirinExpected = -1;
     std::int64_t kirinExpected = -1;
     std::uint64_t kirinDiscontinuity = 0;

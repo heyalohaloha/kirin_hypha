@@ -185,6 +185,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceLiveWindowLoudness.cpp
     src/reference_audition/ReferenceTrackingGain.cpp
     src/reference_audition/ReferenceKirinSpectrum.cpp
+    src/reference_audition/ReferenceKirinFingerprint.cpp
+    src/reference_audition/ReferenceVersionIdentify.cpp
     src/reference_audition/ReferenceCueMatch.cpp
     src/reference_audition/ReferenceRuntimeV2Tracking.cpp
     src/reference_audition/ReferenceComparisonTracking.cpp
@@ -943,6 +945,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_abcv_roles_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_kirin_spectrum_test.cpp
+        tests/reference_kirin_fingerprint_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
         tests/reference_content_alignment_test.cpp

@@ -135,6 +135,7 @@ private:
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void openReferenceLarge (int slot);
     hypha::reference_ui::PreparationWatch referencePreparationWatch; // H6
+    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; juce::String referenceAutoSelected; // H7
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();

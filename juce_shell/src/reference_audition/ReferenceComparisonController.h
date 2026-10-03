@@ -75,6 +75,7 @@ public:
     bool trackingNeedsService() const noexcept;
     TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
     RematchResult rematch (int slot, double aLoudness, double aSessionPeakDbtp); // H12: C の MATCH をもう一度
+    VersionIdentity identifyVersions(); // H7: A の直近の指紋で V を特定する（メッセージスレッド）
 
 private:
     struct PendingWorkflowTransition

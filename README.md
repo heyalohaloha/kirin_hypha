@@ -589,8 +589,11 @@ explicit approval. Offline render, a missing or changed source, or a failed chec
 and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
 level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
 unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). A role that
-cannot be heard yet is drawn dimmed but stays clickable and explains itself. Blind keeps its own
-line and never says which source plays or how it is matched.
+cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
+silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
+alignment, 30 s of play; A's level for MATCH, 10 s of play) it turns unavailable with its reason and
+fix, and returns to ready once the source is. Blind keeps its own line and never says which source
+plays or how it is matched.
 
 **Pages.** Each role has its page at 300% (900×600). Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
@@ -609,7 +612,10 @@ shows the song and the status; songs are switched from 125%.
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
   position; these controls never seek the DAW or switch audio. Each Check tab compares A and V over
   the same aligned section. VERSION BLIND opens from this page; Blind hides these graphs and their
-  accessibility content.
+  accessibility content. The Version list marks one **AUTO** with its agreement: Hypha measures A's
+  Kirin fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each
+  Version's fingerprint within ±30 s of the DAW position. When no Version is chosen, the AUTO one is
+  chosen; a manual choice is never replaced.
 
 A is gold and the compared role is cyan on every page; colour never scores a result.
 
