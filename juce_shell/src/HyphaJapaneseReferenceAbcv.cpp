@@ -51,6 +51,18 @@ const Entry entries[] = {
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
     { "A %1 / %2 S", u8"A %1 / %2秒" },
+    // K13b：Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
+    { "NOT FOUND", u8"見つからない" },
+    { "CHECKING", u8"確認中" },
+    { "%1 AHEAD", u8"前に%1曲" },
+    { "KIRIN OS CANNOT FIND THE FILE / IT RETRIES ONCE SOON", u8"Kirin OSがファイルを確かめられません / まもなく再試行" },
+    { "KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS", u8"Kirin OSがファイルを確かめられません / Kirin OSで再試行" },
+    { "KIRIN OS IS CHECKING THE FILE", u8"Kirin OSがファイルを確かめています" },
+    { "KIRIN OS IS MEASURING THE SONG", u8"Kirin OSが曲を測っています" },
+    { "KIRIN OS WAITS FOR ANOTHER MEASUREMENT", u8"Kirin OSはほかの測定を待っています" },
+    { "KIRIN OS PREPARES THIS SONG NEXT", u8"Kirin OSが次にこの曲を準備します" },
+    { "KIRIN OS PREPARES 1 SONG FIRST", u8"Kirin OSが先に1曲を準備しています" },
+    { "KIRIN OS PREPARES %1 SONGS FIRST", u8"Kirin OSが先に%1曲を準備しています" },
 };
 }
 

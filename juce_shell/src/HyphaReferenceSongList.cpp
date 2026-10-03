@@ -78,9 +78,11 @@ void SongList::paint (juce::Graphics& g)
         text_style::drawEllipsized (g, number (row.lufsI, false), cells[2], juce::Justification::centredRight);
         g.setColour (COL_SPECTRUM_DELTA);
         if (row.playing) text_style::drawEllipsized (g, number (row.gainDb, true), cells[3], juce::Justification::centredRight);
-        g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.preparing ? COL_FLORA : COL_MUTED);
-        text_style::drawEllipsized (g, row.playing ? "PLAYING" : row.preparing ? "PREPARING" : "READY", cells[4],
-                                    juce::Justification::centredRight);
+        const bool missing = row.preparation == "NOT FOUND";  // Kirin OS がファイルを確かめられない（待っても進まない）
+        g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.preparing && ! missing ? COL_FLORA : COL_MUTED);
+        text_style::drawEllipsized (g, row.playing ? "PLAYING" : ! row.preparing ? "READY"
+                                       : row.preparation.isNotEmpty() ? row.preparation : "PREPARING",
+                                    cells[4], juce::Justification::centredRight);
     }
 }
 

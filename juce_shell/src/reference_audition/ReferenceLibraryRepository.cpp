@@ -1,5 +1,6 @@
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeRepositoryParsing.h"
+#include <algorithm>
 #include <set>
 #include "ReferenceLibraryVersions.h"
 #include "ReferenceLibrarySets.h"
@@ -124,6 +125,53 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
     next->librarySetsIssue = setsIssue (setsRejection);
     applyLibrarySongEntries (root, *next);
     return { RuntimeWorkspaceLoadState::updated, next, {} };
+}
+
+std::shared_ptr<const RuntimeLibraryPreparation> RuntimeV2Repository::libraryPreparation (std::int64_t nowMs) const
+{
+    juce::MemoryBlock bytes;
+    juce::var json;
+    std::int64_t updated = 0, expires = 0;
+    const auto* object = readJson (root.getChildFile ("library/preparation.json"), 64 * 1024, bytes, json) ? json.getDynamicObject() : nullptr;
+    const auto phase = json["phase"].toString();
+    const auto* songs = json["songs"].getArray();
+    if (object == nullptr
+        || ! exactProperties (*object, { "format", "version", "session_id", "updated_at_ms", "expires_at_ms", "phase", "songs" })
+        || json["format"] != "kirin_hypha_reference_library_preparation" || json["version"] != "1.0"
+        || ! uuidV4 (json["session_id"].toString())
+        || ! exactInteger (json["updated_at_ms"], 0, 9'007'199'254'740'991, updated)
+        || ! exactInteger (json["expires_at_ms"], 0, 9'007'199'254'740'991, expires)
+        || updated > nowMs + 2000 || nowMs >= expires || expires - updated != 5000
+        || (phase != "idle" && phase != "working" && phase != "waiting") || songs == nullptr || songs->size() > 256)
+        return nullptr;
+    // 値は決まった言葉か null（空にする）だけ。
+    const auto word = [] (const juce::var& value, std::initializer_list<const char*> allowed, bool nullable, juce::String& out) {
+        out = {};
+        if (value.isVoid()) return nullable;
+        if (! value.isString()) return false;
+        out = value.toString();
+        return std::any_of (allowed.begin(), allowed.end(), [&out] (const char* item) { return out == item; });
+    };
+    auto result = std::make_shared<RuntimeLibraryPreparation>();
+    result->phase = phase;
+    for (const auto& value : *songs)
+    {
+        const auto* item = value.getDynamicObject();
+        RuntimeSongPreparation song;
+        std::int64_t ahead = 0;
+        if (item == nullptr || ! exactProperties (*item, { "candidate_id", "state", "step", "reason", "retry", "ahead" })
+            || ! uuidV4 (value["candidate_id"].toString())
+            || ! word (value["state"], { "ready", "playable", "pending" }, false, song.state)
+            || ! word (value["step"], { "queued", "resolving", "measuring" }, true, song.step)
+            || ! word (value["reason"], { "source_unavailable", "analysis_failed" }, true, song.reason)
+            || ! word (value["retry"], { "automatic", "manual" }, true, song.retry)
+            || ! exactInteger (value["ahead"], 0, 4096, ahead))
+            continue;  // 読めない曲は飛ばす（その曲は今までどおり「準備中」）
+        song.ahead = static_cast<int> (ahead);
+        song.phase = phase;
+        result->songs[value["candidate_id"].toString()] = std::move (song);
+    }
+    return result;
 }
 
 bool RuntimeV2Repository::libraryOnline (std::int64_t nowMs) const

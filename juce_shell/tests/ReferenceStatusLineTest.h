@@ -92,6 +92,35 @@ inline void verifyReferenceStatusLine()
                  && i18n::translate (line.text, i18n::Language::japanese) != line.text,
              "a B set Hypha could not read is not mistaken for a missing one");
 
+    // K13b: 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合。確かめられない
+    // 曲は「できない」と直し方。聴ける曲・Kirin OS から届いていない曲は今までどおり。
+    {
+        auto preparing = noSet;
+        preparing.songSetsIssue.clear();
+        preparing.songSets = { { "set-1", "Mastering refs   1 / 1" } };
+        preparing.referenceStep = Step::preparing;
+        preparing.rolePreparation = { "pending", "queued", {}, {}, "working", 2 };
+        line = reference_ui::referenceStatusLine (preparing);
+        require (line.kind == StatusKind::waiting && line.text == "B: KIRIN OS PREPARES 2 SONGS FIRST"
+                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+                 "a song Kirin OS is preparing says how many come first");
+        preparing.rolePreparation = { "pending", {}, "source_unavailable", "manual", "idle", 0 };
+        line = reference_ui::referenceStatusLine (preparing);
+        require (line.kind == StatusKind::unable && line.text == "B: KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS"
+                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+                 "a song Kirin OS cannot find says so with its fix");
+        preparing.referenceStep = Step::ready;
+        require (reference_ui::referenceStatusLine (preparing).text == preparing.status, "a ready song keeps its own line");
+        using P = reference_audition::RuntimeSongPreparation;
+        require (reference_ui::preparationWord (P { "pending", "queued", {}, {}, "working", 3 }) == "3 AHEAD"
+                     && reference_ui::preparationWord (P { "pending", "resolving", {}, {}, "working", 0 }) == "CHECKING"
+                     && reference_ui::preparationWord (P { "pending", {}, "source_unavailable", "automatic", "idle", 0 }) == "NOT FOUND"
+                     && reference_ui::preparationWord (P { "playable", "queued", {}, {}, "working", 0 }).isEmpty()
+                     && reference_ui::preparationWord (P {}).isEmpty()
+                     && i18n::translate ("3 AHEAD", i18n::Language::japanese) != "3 AHEAD",
+                 "the B list says what Kirin OS is doing for a song that cannot play yet");
+    }
+
     // Kirin OS を待つ段階は、Kirin OS が閉じていればできない（開くのが直し方）。
     auto closed = named ("ready");
     closed.separateComparisons = true;

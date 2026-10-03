@@ -147,6 +147,27 @@ namespace hypha::reference_audition
         std::vector<float> spectrumMedianDb;
     };
 
+    // K13b: Kirin OS の準備の状態（library/preparation.json）。Hypha に出したセットの曲ごと。値は Kirin OS の
+    // 言葉のまま（state：ready / playable / pending、step：queued / resolving / measuring、reason：
+    // source_unavailable / analysis_failed、retry：automatic / manual。無ければ空）。phase は全体の動き。
+    struct RuntimeSongPreparation
+    {
+        juce::String state, step, reason, retry, phase;
+        int ahead = 0;  // この曲より先に準備する、まだ済んでいない曲の数
+        bool known() const noexcept { return state.isNotEmpty(); }
+    };
+
+    struct RuntimeLibraryPreparation
+    {
+        juce::String phase;
+        std::map<juce::String, RuntimeSongPreparation> songs;  // candidate_id ごと
+        RuntimeSongPreparation find (const juce::String& candidateId) const
+        {
+            const auto found = songs.find (candidateId);
+            return found != songs.end() ? found->second : RuntimeSongPreparation {};
+        }
+    };
+
     struct RuntimeLibrarySets
     {
         std::int64_t revision = 0;

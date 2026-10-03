@@ -72,6 +72,11 @@ namespace hypha::reference_audition
         if (! configuration.identity.library) writeCapability (root, configuration.identity, nowMs);
         libraryOnline.store (configuration.identity.library && repository.libraryOnline (nowMs),
                              std::memory_order_release);
+        {
+            auto preparation = configuration.identity.library ? repository.libraryPreparation (nowMs) : nullptr;  // K13b
+            const juce::ScopedLock lock (stateLock);
+            libraryPreparation = std::move (preparation);
+        }
         activeABinding = aBindingRepository.load (configuration.identity, nowMs);
         RequestedSelection selection;
         { const juce::ScopedLock lock (stateLock); selection = requestedSelection; }

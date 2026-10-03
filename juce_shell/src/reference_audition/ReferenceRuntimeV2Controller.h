@@ -256,6 +256,7 @@ namespace hypha::reference_audition
         std::uint64_t appliedConfigurationGeneration = 0;
         std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // stateLock：K13b、Kirin OS の準備の状態
         VersionIdentifier versionIdentifier; // H7: Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::shared_ptr<const WorkflowCatalog> workflowCatalog;
         std::deque<WorkflowEventRequest> workflowEvents;

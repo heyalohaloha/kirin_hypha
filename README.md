@@ -601,15 +601,20 @@ unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin 
 cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
 alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
-its reason and fix, shown even under the start guide, and returns to ready once the source is. Blind
-keeps its own line and never says which source plays or how it is matched.
+its reason and fix, shown even under the start guide, and returns to ready once the source is. While
+Kirin OS prepares the song of a B set or CHECK set, the line says what Kirin OS is doing in its own
+terms — how many songs it prepares first, checking the file, waiting for another measurement — and a
+file Kirin OS cannot find turns the line unavailable with the retry as its fix (Kirin OS publishes
+this beside its heartbeat; nothing is shown once Kirin OS closes). Blind keeps its own line and never
+says which source plays or how it is matched.
 
 **Pages.** Each role has its page at 300% (900×600). Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
 shows the song and the status; songs are switched from 125%.
 
 - **B**: the songs of the chosen B set on the left (number, title, Cue LUFS-I from Kirin OS, the
-  current MATCH gain of the playing song, and PLAYING / READY / PREPARING) and **Balance** on the
+  current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
+  OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
   right: A over the last 10 seconds (gold), the chosen song (cyan) and the set's p10–p90 range, each
   song shifted to the level B plays it at. No genre curves are supplied.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab

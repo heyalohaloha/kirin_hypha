@@ -222,6 +222,52 @@ void keepsSetsUntilTheyCatchUp (const juce::File& sandbox)
                  && caught.workspace->librarySets->hash != loaded.workspace->librarySets->hash,
              "the caught-up sets are read");
 }
+
+// K13b: Kirin OS の準備の状態（library/preparation.json、presence と同じ回・同じ期限）。期限の内だけ使い、
+// 決まった言葉でない曲は飛ばす。無い（古い Kirin OS）・期限切れ（Kirin OS が閉じている）は無し。
+void readsKirinOsPreparation (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("library-preparation");
+    require (root.getChildFile ("library").createDirectory().wasOk(), "a library folder");
+    ref::RuntimeV2Repository repository (root);
+    const auto now = juce::Time::currentTimeMillis();
+    const auto song = [] (const char* id, const char* state, juce::var step, juce::var reason, juce::var retry, int ahead) {
+        auto* item = new juce::DynamicObject();
+        item->setProperty ("candidate_id", id); item->setProperty ("state", state); item->setProperty ("step", step);
+        item->setProperty ("reason", reason); item->setProperty ("retry", retry); item->setProperty ("ahead", ahead);
+        return juce::var (item);
+    };
+    const auto write = [&] (std::int64_t updated, juce::Array<juce::var> songs) {
+        auto* object = new juce::DynamicObject();
+        object->setProperty ("format", "kirin_hypha_reference_library_preparation");
+        object->setProperty ("version", "1.0");
+        object->setProperty ("session_id", "0d77fc48-767c-4c4b-9940-4d640e46c8e6");
+        object->setProperty ("updated_at_ms", updated);
+        object->setProperty ("expires_at_ms", updated + 5000);
+        object->setProperty ("phase", "working");
+        object->setProperty ("songs", songs);
+        require (writeJson (root.getChildFile ("library/preparation.json"), juce::var (object)), "a preparation file");
+    };
+    const auto queuedId = "5c9a4c2e-1f0b-4d7a-9e21-3b8f6a0d4c11", missingId = "7e1d2c3b-4a5f-4e6d-8c7b-9a0f1e2d3c4b";
+    write (now, { song (queuedId, "pending", "queued", {}, {}, 2),
+                  song (missingId, "pending", {}, "source_unavailable", "manual", 0),
+                  song ("not-a-uuid", "pending", "queued", {}, {}, 0),
+                  song ("9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "pending", "decoding", {}, {}, 0) });
+    const auto read = repository.libraryPreparation (now);
+    require (read != nullptr && read->phase == "working" && read->songs.size() == 2, "the songs Kirin OS reports are read, others skipped");
+    const auto queued = read->find (queuedId), missing = read->find (missingId);
+    require (queued.state == "pending" && queued.step == "queued" && queued.reason.isEmpty() && queued.retry.isEmpty()
+                 && queued.ahead == 2 && queued.phase == "working",
+             "a queued song with the songs ahead of it");
+    require (missing.reason == "source_unavailable" && missing.retry == "manual" && missing.step.isEmpty(),
+             "a song Kirin OS cannot find, waiting for a retry");
+    require (! read->find ("00000000-0000-4000-8000-000000000000").known(), "a song Kirin OS does not report is unknown");
+    require (repository.libraryPreparation (now + 6000) == nullptr, "an expired state (Kirin OS closed) is not used");
+    write (now + 10'000, {});
+    require (repository.libraryPreparation (now) == nullptr, "a state from the future is not used");
+    require (root.getChildFile ("library/preparation.json").deleteFile() && repository.libraryPreparation (now) == nullptr,
+             "an older Kirin OS writes no state");
+}
 }
 
 void testReferenceLibrarySets (const juce::File& sandbox)
@@ -230,4 +276,5 @@ void testReferenceLibrarySets (const juce::File& sandbox)
     followsRankChangesAndPublication (sandbox);
     refusesWhatItCannotTrust (sandbox);
     keepsSetsUntilTheyCatchUp (sandbox);
+    readsKirinOsPreparation (sandbox);
 }

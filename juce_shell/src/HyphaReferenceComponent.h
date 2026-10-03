@@ -81,6 +81,7 @@ struct SongFact
 {
     double lufsI = std::numeric_limits<double>::quiet_NaN();
     bool prepared = false;
+    reference_audition::RuntimeSongPreparation preparation; // K13b：Kirin OS がこの曲を準備している状態
     std::vector<double> centersHz;
     std::vector<float> medianDb;
 };
@@ -175,6 +176,7 @@ struct State
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;
     juce::String preparationOverdue; // H6: 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
+    reference_audition::RuntimeSongPreparation rolePreparation; // K13b：見ている役の曲を Kirin OS が準備している状態
 };
 
 inline bool canSelectB (const State& state) noexcept
