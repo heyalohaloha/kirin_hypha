@@ -64,6 +64,7 @@ namespace hypha::reference_audition
                     item.name + " / WORK", item.sourceTemplateArtifact.revisionId, pending });
         };
         for (const auto& item : workspace.presets) if (!item.versionEntry && !item.songEntry) appendWork (item, false);
+        if (workspace.library && workspace.librarySets) snapshot.checkSetRanks = workspace.librarySets->checkSets;
         if (workspace.library && workspace.librarySets)
             for (const auto& set : workspace.librarySets->songSets)
             {

@@ -95,6 +95,7 @@ namespace hypha::reference_audition
         void loseAudibleConfirmation() noexcept;
         // H3: 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
         // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
+        RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // H12: C の MATCH をもう一度
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
         void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
@@ -277,6 +278,9 @@ namespace hypha::reference_audition
             bool valid = false;
         } heldSelection; // stateLock
         void holdCurrentGainLocked() noexcept;
+        // H3・H12：決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
+        void applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
+                                     double sourceLoudness, double sourcePeakDbtp) noexcept;
         RuntimeEventContext activeEventContext;
         RuntimeCandidate activeEventCandidate;
         RuntimeCue activeEventCue;

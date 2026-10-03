@@ -213,6 +213,7 @@ Snapshot ReferenceComparisonController::snapshot()
     if (viewedMap.aligned && !viewedMap.hidden && viewedMap.hostPositionValid && viewedMap.hostRate > 0
         && viewedMap.mapPosition (viewedMap.hostPosition, visualPosition))
         result.visualPositionSeconds = double (visualPosition) / viewedMap.hostRate;
+    result.cuePlayheadSeconds = viewedMap.cuePlayheadSeconds;  // H12: C の画面の Cue の時間軸
     if (viewedMap.hidden || (result.visualTimeline && result.visualTimeline->binding.key != viewedMap.key))
     {
         if (result.visualTimeline && result.visualTimeline->tonalAvailable)

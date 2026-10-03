@@ -74,6 +74,7 @@ public:
     // H3：聴いている役が追従するなら、1 秒ごとに A の直近の履歴で gain を求め直す（メッセージスレッド）。
     bool trackingNeedsService() const noexcept;
     TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
+    RematchResult rematch (int slot, double aLoudness, double aSessionPeakDbtp); // H12: C の MATCH をもう一度
 
 private:
     struct PendingWorkflowTransition

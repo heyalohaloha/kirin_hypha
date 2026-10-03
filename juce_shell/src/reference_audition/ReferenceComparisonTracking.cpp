@@ -34,4 +34,11 @@ TrackingAction ReferenceComparisonController::followAudition (const std::vector<
     if (reference.trackingAudible()) return reference.followSelection (history, aSessionPeakDbtp);
     return TrackingAction::keep;
 }
+
+RematchResult ReferenceComparisonController::rematch (int slot, double aLoudness, double aSessionPeakDbtp)
+{
+    // 固定で合わせるのは C だけ（B・V は追従する）。鳴っている役だけを決め直す。
+    if (slot != 2 || normalOutputSlot.load (std::memory_order_acquire) != 2) return RematchResult::notPlaying;
+    return check.rematch (aLoudness, aSessionPeakDbtp);
+}
 }

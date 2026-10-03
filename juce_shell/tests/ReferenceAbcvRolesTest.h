@@ -4,6 +4,7 @@
 // B の画面には V・C の選択を出さない。B が鳴らせないときは押すと理由を言う。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceStatusLineTest.h"
+#include "ReferenceCheckPageTest.h"
 
 namespace hypha::tests
 {
@@ -11,6 +12,7 @@ inline void verifyReferenceAbcvRoles()
 {
     using namespace reference_guide_contract;
     verifyReferenceStatusLine();
+    verifyReferenceCheckPage();
     for (const auto& size : observatory::sizePresets)
     {
         observatory::View shell (observatory::Role::post);

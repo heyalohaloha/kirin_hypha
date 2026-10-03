@@ -11,6 +11,8 @@
 // H11: B（REF）の画面の右の Balance（「Tonal Balance」とは呼ばない、方向設計 §4）。A（金）に、選んでいる
 // B の曲（水色）と、B SET の曲全体の分布（p10〜p90 の薄い帯）を重ねる。曲の値は Kirin OS が残した
 // 既定の Cue の 64 帯域のスペクトル（ranges の中央値）。既製のジャンル曲線は出さない。
+// H12: A は同じ定義で測った直近 10 秒の中央値（ReferenceKirinSpectrum。FREQ の画面のスペクトルとは
+// 定義が違うので使わない）。曲は B が鳴る音量にそろえる（A の 10 秒の音量 − その曲の Cue の Integrated）。
 namespace hypha::reference_ui
 {
 namespace
@@ -67,7 +69,9 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     for (const auto hz : { 100.0, 1'000.0, 10'000.0 })
         g.drawVerticalLine (juce::roundToInt (xFor (hz, chart)), chart.getY(), chart.getBottom());
 
-    // B SET の分布：同じ帯域の並びを持つ曲の中央値から、帯域ごとの p10〜p90。
+    // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
+    const auto shift = [&state] (const SongFact& fact)
+    { return std::isfinite (state.aWindowLoudness) && std::isfinite (fact.lufsI) ? state.aWindowLoudness - fact.lufsI : 0.0; };
     const SongFact* chosen = nullptr;
     std::vector<const SongFact*> set;
     for (size_t index = 0; index < state.songFacts.size() && index < state.songs.size(); ++index)
@@ -87,7 +91,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         for (size_t bin = 0; bin < centers.size(); ++bin)
         {
             std::vector<double> values;
-            for (const auto* fact : comparable) values.push_back (fact->medianDb[bin]);
+            for (const auto* fact : comparable) values.push_back (fact->medianDb[bin] + shift (*fact));
             const juce::Point<float> top { xFor (centers[bin], chart), yFor (percentile (values, 0.9), chart) };
             lower.push_back ({ top.x, yFor (percentile (values, 0.1), chart) });
             if (bin == 0) band.startNewSubPath (top); else band.lineTo (top);
@@ -99,24 +103,19 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     }
     if (chosen != nullptr)
     {
+        std::vector<float> shifted;
+        for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
-        g.strokePath (curve (chosen->centersHz, chosen->medianDb, chart), juce::PathStrokeType (1.6f));
+        g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.6f));
     }
-    // A（ライブの入力）。
-    if (! state.liveSpectrumDbfs.empty() && state.liveSpectrumMinimumHz > 0.0f
-        && state.liveSpectrumMaximumHz > state.liveSpectrumMinimumHz)
+    // A（直近 10 秒、Kirin OS の Cue と同じ定義）。曲と同じ帯域の並びのときだけ重ねる。
+    const bool aShown = state.aKirin && state.aKirin->frames >= 30 && ! centers.empty()
+        && state.aKirin->centersHz.size() == centers.size()
+        && std::abs (state.aKirin->centersHz.back() / centers.back() - 1.0) < 1.0e-3;
+    if (aShown)
     {
-        juce::Path live;
-        const auto count = state.liveSpectrumDbfs.size();
-        for (size_t index = 0; index < count; ++index)
-        {
-            const auto fraction = count > 1 ? static_cast<double> (index) / static_cast<double> (count - 1) : 0.0;
-            const auto hz = state.liveSpectrumMinimumHz * std::pow (state.liveSpectrumMaximumHz / state.liveSpectrumMinimumHz, fraction);
-            const juce::Point<float> point { xFor (hz, chart), yFor (state.liveSpectrumDbfs[index], chart) };
-            if (index == 0) live.startNewSubPath (point); else live.lineTo (point);
-        }
         g.setColour (COL_FLORA_BR.withAlpha (0.95f));
-        g.strokePath (live, juce::PathStrokeType (1.8f));
+        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (1.8f));
     }
     if (chosen == nullptr && comparable.empty())
     {
@@ -133,7 +132,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, text, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
     };
-    item ("A LIVE", COL_FLORA_BR);
+    item (aShown ? "A 10 S" : "A WAITING", COL_FLORA_BR);
     item ("B", COL_SPECTRUM_DELTA);
     item ("B SET", COL_NORMAL.withAlpha (0.35f));
 }

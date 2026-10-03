@@ -28,6 +28,7 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.channels = requestedConfiguration.channels;
     result.sourceCueStartSample = visualSourceCueStart;
     result.sourceCueEndSample = visualSourceCueEnd;
+    result.matchWindowBlocks = trackingEnabled.load (std::memory_order_acquire) ? liveWindowBlocks : currentSnapshot.cueWindowBlocks;
     const auto generation = mappingGeneration.load (std::memory_order_acquire);
     result.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
     result.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
@@ -36,6 +37,9 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.hostPositionValid = latestPositionValid.load (std::memory_order_acquire);
     result.hostPosition = result.hostPositionValid
         ? latestHostPosition.load (std::memory_order_acquire) : -1;
+    if (! versionComparison && bSelected.load (std::memory_order_acquire) && result.hostPositionValid && result.hostRate > 0)
+        if (const auto position = mappedSourcePosition (result.hostPosition); position >= 0)
+            result.cuePlayheadSeconds = static_cast<double> (position) / static_cast<double> (result.hostRate);
     if (result.source)
         result.key = result.source->sourceFileSha256 + ":" + juce::String (requestedConfiguration.generation)
             + ":" + juce::String (generation) + ":" + juce::String (calibration.pairedLoudnessDeltaDb, 9)

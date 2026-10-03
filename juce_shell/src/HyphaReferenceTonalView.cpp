@@ -192,12 +192,12 @@ void TonalView::paint (juce::Graphics& g)
         }
         if (c.values != nullptr)
         {
-            g.setColour (COL_FLORA.withAlpha (0.86f));
+            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.86f));
             g.strokePath (curvePath (c, graphArea), juce::PathStrokeType (1.45f));
         }
         if (a.values != nullptr)
         {
-            g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.94f));
+            g.setColour (COL_FLORA_BR.withAlpha (0.94f));
             g.strokePath (curvePath (a, graphArea), juce::PathStrokeType (1.55f));
         }
         const auto band = activeBand();

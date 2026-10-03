@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ReferenceKirinSpectrum.h"
 #include "ReferenceRuntimeV2Source.h"
 
 #include <limits>
@@ -15,6 +16,9 @@ struct CueLevel
 {
     double integratedLoudness = std::numeric_limits<double>::quiet_NaN();
     double maximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();  // 無音だけなら NaN
+    // H12: 同じ区間の見比べ。Cue の 64 帯域（p10・中央値・p90）と 4 帯域 Balance（dBFS、gain を掛ける前）。
+    // A 側は KirinSpectrumMeter で同じ定義に揃えて測る。ranges がスペクトルを持たなければ空。
+    std::shared_ptr<const KirinSpectrumWindow> spectrum;
 };
 
 // 選んだ曲の Cue の値を読む。library の sets.json がこの音源の ranges を持ち、その ranges がこの音源

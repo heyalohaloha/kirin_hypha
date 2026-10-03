@@ -121,6 +121,7 @@ public:
     bool selectReferenceVersion (const juce::String&);
     bool selectReferenceB();
     bool selectReferenceRef(); bool selectReferenceSong (const juce::String&); bool selectReferenceSongSet (const juce::String&); // H8
+    double referenceWindowLoudness (int slot) const; hypha::reference_audition::RematchResult rematchReferenceCheck(); // H12
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
     bool retryReferencePresetSelection();
@@ -376,6 +377,7 @@ private:
     void serviceReferenceTracking();            // H3: B・V の追従（1 秒ごと）
     bool referenceTrackingNeedsService() const;
     double referenceTrackingNextAtMs = 0.0;     // message thread only
+    mutable hypha::reference_audition::WindowLoudnessCache referenceWindowCache; // H12: message thread only
     hypha::reference_audition::LiveALevel referenceLiveALevel (bool windowOnly = false, int windowBlocks = 100) const;
     bool requestReferenceAudition (int slot);
     void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
