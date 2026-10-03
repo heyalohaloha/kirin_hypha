@@ -218,9 +218,13 @@ void testReferenceLowerA (const juce::File& sandbox)
                  && stopped.referenceSelection->matchFailure == ref::MatchFailure::ceilingExceeded
                  && closeTo (stopped.referenceSelection->neededAttenuationDb, -8.0),
              "a waiting role stopped by the ceiling still names how far A must be lowered");
-    require (controller.approveLowerAAndPlay (3, stopped.referenceSelection->neededAttenuationDb)
-                 && closeTo (controller.heldAttenuationDb(), -8.0),
-             "the waiting role can be approved without pressing it again");
+    // 承認の量が鳴らす時点の差より小さかった（再生を始めた直後の見積もり）ときは、その時点の差まで下げ直して鳴らす。
+    require (controller.approveLowerAAndPlay (3, -5.0) && closeTo (controller.heldAttenuationDb(), -5.0),
+             "the waiting role can be approved without pressing it again, first by the offered amount");
+    for (int attempt = 0; attempt < 400 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
+    { host(); controller.servicePendingAudition (-10.0, -12.0, true); juce::Thread::sleep (2); }
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -8.0),
+             "an approval smaller than the difference at play time lowers A to that difference and plays");
     controller.returnAToNormalLevel();
     std::cout << "Reference lowers A to match a quiet reference only after approval, and RETURN restores it PASS\n";
 }
