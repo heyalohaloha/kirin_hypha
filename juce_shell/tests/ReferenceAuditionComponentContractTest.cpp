@@ -444,7 +444,7 @@ void verifyReferenceAuditionComponentContract()
     abc.blindPhase = reference_ui::BlindPhase::available;
     abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
     component.setState (abc);
-    KIRIN_REF_REQUIRE (cue->isVisible() && startBlind->isEnabled());
+    KIRIN_REF_REQUIRE (! cue->isVisible() && startBlind->isEnabled());  // H13: 300% の V の画面に C の Cue は出さない
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
     abc.blindPhase = reference_ui::BlindPhase::active;
     abc.activeBlindStimulus = 1;

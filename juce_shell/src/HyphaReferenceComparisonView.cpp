@@ -1,4 +1,5 @@
 #include "HyphaReferenceComparisonView.h"
+#include "HyphaReferenceVersionPage.h"
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -125,14 +126,14 @@ void ComparisonView::resized()
     const bool detail = getHeight() >= 140 && getWidth() >= 380;
     auto toolbar = area.removeFromTop (getHeight() >= 65 ? 18.0f : 0.0f);
     follow.setBounds (toolbar.removeFromRight (60).toNearestInt());
-    follow.setVisible (getHeight() >= 65 && !hidden);
+    follow.setVisible (getHeight() >= 65 && !hidden && sameSection.isEmpty());
     waveform = area.removeFromTop (detail ? area.getHeight() * 0.46f : juce::jmax (8.0f, area.getHeight() - 17));
     waveform.removeFromLeft (15);
     auto tabs = area.removeFromTop (20);
     loudness.setBounds (tabs.removeFromLeft (84).toNearestInt());
     crest.setBounds (tabs.removeFromLeft (58).toNearestInt());
     tonal.setBounds(tabs.removeFromLeft(58).toNearestInt());
-    loudness.setVisible (detail && !hidden); crest.setVisible (detail && !hidden);
+    loudness.setVisible (detail && !hidden && sameSection.isEmpty()); crest.setVisible (detail && !hidden && sameSection.isEmpty());
     tonal.setVisible(detail&&!hidden&&data&&data->capture);
     graph = detail ? area.reduced (15, 3) : juce::Rectangle<float> {};
     if(getHeight()<42) waveform=getLocalBounds().toFloat().reduced(5,1);
@@ -224,15 +225,23 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
     return juce::String (endpoint, 1) + "s  A " + juce::String (a, 1) + "   V " + juce::String (b, 1)
         + "   V-A " + (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU");
 }
+void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb)
+{
+    const bool sameGain = (std::isnan (sameSectionGain) && std::isnan (gainDb)) || std::abs (sameSectionGain - gainDb) < 1.0e-9;
+    if (sameSection == checkLabel && sameGain) return;
+    sameSection = checkLabel; sameSectionGain = gainDb;
+    resized(); repaint();
+}
 void ComparisonView::paint (juce::Graphics& g)
 {
     if (hidden) return;
+    if (sameSection.isNotEmpty()) { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, context); return; }
     surface_material::paintObservationWell (g, getLocalBounds().toFloat());
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY);
     const bool detail = !graph.isEmpty();
     const auto heading = data && data->capture ? juce::String("CAPTURED A / ")+juce::Time(data->capture->created).formatted("%H:%M")
-        + (data->binding.aligned ? (data->binding.matched ? " / B " + juce::String(data->binding.gainDb,1) + " dB" : " / ORIGINAL LEVELS") : "") : data && data->binding.aligned
+        + (data->binding.aligned ? (data->binding.matched ? " / V " + juce::String(data->binding.gainDb,1) + " dB" : " / ORIGINAL LEVELS") : "") : data && data->binding.aligned
         ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "V OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
     if (!data || (!data->capture && (!data->binding.overview || !data->binding.overview->waveform)))
@@ -363,12 +372,12 @@ double ComparisonView::timeAt (float x) const
 { return data && waveform.getWidth() > 0 ? juce::jlimit (0.0, data->duration(), double ((x-waveform.getX())/waveform.getWidth())*data->duration()) : 0; }
 void ComparisonView::mouseDown (const juce::MouseEvent& event)
 {
-    if (!hidden && waveform.contains (event.position) && data)
+    if (!hidden && sameSection.isEmpty() && waveform.contains (event.position) && data)
     { grabKeyboardFocus(); fitCapture = false; following = false; dragAnchor = timeAt (event.position.x); setRange (dragAnchor-6, dragAnchor+6); saveView(); repaint(); }
 }
 void ComparisonView::mouseDrag (const juce::MouseEvent& event)
 {
-    if (!hidden && dragAnchor >= 0 && data && event.getDistanceFromDragStart() > 4)
+    if (!hidden && sameSection.isEmpty() && dragAnchor >= 0 && data && event.getDistanceFromDragStart() > 4)
     { const double t = timeAt (event.position.x); setRange (std::min (t, dragAnchor), std::max (t, dragAnchor)); saveView(); repaint(); }
 }
 void ComparisonView::mouseUp (const juce::MouseEvent&)
@@ -385,7 +394,7 @@ void ComparisonView::mouseMove (const juce::MouseEvent& event)
 void ComparisonView::mouseExit (const juce::MouseEvent&) { pointedTime = -1; repaint(); }
 bool ComparisonView::keyPressed (const juce::KeyPress& keypress)
 {
-    if (hidden || !data) return false;
+    if (hidden || !data || sameSection.isNotEmpty()) return false;
     if (keypress.getKeyCode() == juce::KeyPress::homeKey)
     {
         if(data->capture)

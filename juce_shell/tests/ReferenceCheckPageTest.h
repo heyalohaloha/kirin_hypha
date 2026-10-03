@@ -5,6 +5,7 @@
 #include "ReferenceGuideContractTest.h"
 #include "../src/HyphaReferenceCueSummary.h"
 #include "../src/HyphaReferenceRuntimeView.h"
+#include "../src/HyphaReferenceVersionPage.h"
 
 namespace hypha::tests
 {
@@ -75,18 +76,18 @@ inline void verifyReferenceCheckPage()
     require (heard == 1 && matched == 0, "MATCH while C is silent plays C matched");
 
     // 書き出し（見た目の確認用）：KIRIN_REFERENCE_UI_ABCV_OUTPUT=<dir>。
-    const auto write = [&panel] (const juce::String& name)
+    const auto write = [] (juce::Component& target, const juce::String& name)
     {
         const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_UI_ABCV_OUTPUT", {});
         if (directory.isEmpty()) return;
-        juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
+        juce::Image image (juce::Image::ARGB, target.getWidth(), target.getHeight(), true);
         juce::Graphics graphics (image);
         graphics.fillAll (juce::Colour (0xff16110d));
-        panel.paintEntireComponent (graphics, true);
+        target.paintEntireComponent (graphics, true);
         juce::FileOutputStream stream { juce::File (directory).getChildFile (name) };
         if (stream.openedOk()) { stream.setPosition (0); stream.truncate(); juce::PNGImageFormat().writeImageToStream (image, stream); }
     };
-    write ("abcv_c_900.png");
+    write (panel, "abcv_c_900.png");
 
     state.bSelected = true;
     state.audibleComparisonSlot = 2;
@@ -97,10 +98,10 @@ inline void verifyReferenceCheckPage()
              "while C plays, the page says its gain is matched and fixed");
     match->onClick();
     require (matched == 1 && heard == 1, "MATCH while C plays matches it again");
-    write ("abcv_c_900_playing.png");
+    write (panel, "abcv_c_900_playing.png");
     state.viewBindings = { "spectrum_full" };
     panel.setState (state);
-    write ("abcv_c_900_spectrum.png");
+    write (panel, "abcv_c_900_spectrum.png");
     state.viewBindings.clear();
 
     state.comparisonMode = "original";
@@ -116,6 +117,41 @@ inline void verifyReferenceCheckPage()
     panel.setState (state);
     require (! tabs->isVisible() && ! match->isVisible() && version->isVisible(), "200% keeps the selectors it had");
     panel.onSelectCheck = {}; panel.onSelectC = {}; panel.onMatch = {};
+
+    // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。タブは
+    // 見るものだけを替え、音も C の選択も変えない。Check のタブでは同じ区間の A と V を同じ定義で比べる。
+    auto vState = state;
+    vState.comparisonSlot = 1;
+    vState.bSelected = true;
+    vState.audibleComparisonSlot = 1;
+    vState.appliedGainDb = -0.9;
+    vState.versions = { { "v1", "Mix v7" }, { "v2", "Mix v6" } };
+    vState.versionId = "v1";
+    auto timeline = std::make_shared<reference_audition::VisualTimeline>();
+    timeline->aPairKirin = kirinWindow (0.0f, { -20.0, -14.0, -18.0, -30.0 }, 300);
+    timeline->vPairKirin = kirinWindow (3.0f, { -19.5, -13.0, -17.5, -29.0 }, 300);
+    vState.visualTimeline = timeline;
+    reference_ui::Component vPanel;
+    vPanel.setVisible (true);
+    vPanel.setPresentationContext (presentation::forEditor (900, 600));
+    vPanel.setSize (888, 470);
+    vPanel.setState (vState);
+    auto* vTabs = dynamic_cast<reference_ui::CheckTabs*> (vPanel.findChildWithID ("reference-check-tabs"));
+    auto* lanes = dynamic_cast<reference_ui::ComparisonView*> (vPanel.findChildWithID ("reference-comparison-view"));
+    require (vTabs && lanes && vTabs->isVisible() && vTabs->tabs().size() == 4 && vTabs->tabs()[0].label == "WHOLE"
+                 && vTabs->selected() == "whole" && lanes->isVisible() && lanes->sameSectionCheck().isEmpty()
+                 && vPanel.findChildWithID ("reference-version")->isVisible() && vPanel.findChildWithID ("reference-preset")->isVisible()
+                 && ! vPanel.findChildWithID ("reference-cue")->isVisible() && ! vPanel.findChildWithID ("reference-check-song")->isVisible(),
+             "300% V: VERSION, the shared CHECK SET and WHOLE first; C's song and Cue stay on the C page");
+    juce::String vChosen;
+    vPanel.onSelectCheck = [&] (const juce::String& id) { vChosen = id; };
+    vTabs->onChoose ("chk-low");
+    require (lanes->sameSectionCheck() == "Low End" && vChosen.isEmpty() && reference_ui::sameSectionReady (timeline.get()),
+             "a Check tab compares the same section without changing the sound or C's choice");
+    write (vPanel, "abcv_v_900_check.png");
+    vTabs->onChoose ("whole");
+    require (lanes->sameSectionCheck().isEmpty(), "WHOLE returns to the song timeline");
+    vPanel.onSelectCheck = {};
 
     // CHECK SET：Kirin OS で順位を付けたセットだけを順位の順に「1 / 2」を添えて出し、選んでいる Preset は残す。
     reference_ui::State sets;

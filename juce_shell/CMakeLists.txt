@@ -419,6 +419,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceCheckTabs.cpp
             src/HyphaReferenceCheckPage.cpp
             src/HyphaReferenceCueSummary.cpp
+            src/HyphaReferenceVersionPage.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
             src/HyphaReferenceTonalView.cpp
@@ -583,6 +584,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
         src/HyphaReferenceCueSummary.cpp
+        src/HyphaReferenceVersionPage.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp
@@ -724,6 +726,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
         src/HyphaReferenceCueSummary.cpp
+        src/HyphaReferenceVersionPage.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp
@@ -1022,6 +1025,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
         src/HyphaReferenceCueSummary.cpp
+        src/HyphaReferenceVersionPage.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp

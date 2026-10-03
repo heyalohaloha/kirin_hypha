@@ -261,7 +261,7 @@ void Component::paint (juce::Graphics& g)
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
     const bool blindSession = isBlindSession (current.blindPhase);
-    if (checkPage()) { area.removeFromTop (panelGap() + checkPageRows); paintCheckPageLabels (g); }
+    if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + (checkPage() ? checkPageRows : versionPageRows)); paintCheckPageLabels (g); }
     else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop ((selectionVisible (presetBox) || viewButton.isVisible() ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
