@@ -609,7 +609,11 @@ Kirin OS prepares the song of a B set or CHECK set, the line says what Kirin OS 
 terms — how many songs it prepares first, checking the file, waiting for another measurement — and a
 file Kirin OS cannot find turns the line unavailable with the retry as its fix (Kirin OS publishes
 this beside its heartbeat; nothing is shown once Kirin OS closes). Blind keeps its own line and never
-says which source plays or how it is matched.
+says which source plays or how it is matched. Pressing a role while it is still preparing
+(publishing a new choice, verifying, loading or aligning its source, or measuring A) waits for it
+and plays it as soon as it is ready, as when you press it while the DAW is stopped; a step only you
+can change (outside the Cue, no match in this passage) or a match that cannot be made is explained
+instead.
 
 **Pages.** Each role has its page at 300% (900×600). Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page

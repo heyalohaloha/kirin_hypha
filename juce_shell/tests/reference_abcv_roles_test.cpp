@@ -241,6 +241,19 @@ void testReferenceRoles (const juce::File& sandbox)
     require (! host (true) && controller.snapshot().audibleComparisonSlot == 0 && ! controller.pendingAuditionNeedsService(),
              "A ends B");
 
+    // 2026-10-03（X3）：再生中に曲を替えた直後（新しい曲がまだ公開されていない）に B を押すと、押したことを待たせ、
+    // 新しい曲が準備でき次第その MATCH で鳴らす（今までは「準備中」と言うだけで、押したことが消えていた）。
+    require (controller.selectSong (state.songSets[0].songs[0].id), "choose the first song while A plays");
+    require (controller.requestAudition (3, -14.0, -2.0), "pressing B while the new song is published waits for it");
+    for (int attempt = 0; attempt < 1500 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
+    { host (true); controller.servicePendingAudition (-14.0, -2.0, true); juce::Thread::sleep (5); }
+    host (true); host (true);
+    require (controller.snapshot().audibleComparisonSlot == 3 && controller.snapshot().selectedSongId == state.songSets[0].songs[0].id
+                 && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)),
+             "the waited B plays the new song with its own MATCH");
+    controller.selectA();
+    host (true); host (true);
+
     // 仕様 A：オフライン書き出しを見たら、停止前の B に自動で戻さない（保留を消す）。
     const auto unknown = std::numeric_limits<double>::quiet_NaN();
     require (controller.requestAudition (3, -14.0, -2.0) && host (true) && host (true), "B plays before an offline render");

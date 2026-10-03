@@ -48,7 +48,7 @@ public:
     bool selectRef (double, double) noexcept;              // H8: B（REF）を鳴らす
     bool selectSong (const juce::String& songId);          // H8: B の曲。B が鳴っていれば即切替
     bool selectSongSet (const juce::String& songSetId);    // H8: B SET（Hypha に届いた順位 1〜3）
-    bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues only.
+    bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues, playing waits while preparing.
     void servicePendingAudition (double, double, bool callbackLive);
     bool pendingAuditionNeedsService() const;
     int pendingSlot() const; // 押した後に待っている役（無ければ 0）
@@ -151,6 +151,7 @@ private:
     // その役のまま鳴らす（押せば即切替）。ほかの役は止めない。continues が false（新しい選択が Kirin OS の
     // 準備待ちで、まだ世代が進んでいない）なら、その役の保留と待ちを手放すだけ。
     void continueAfterSwitch (int slot, bool continues = true);
+    bool waitWhilePreparing (int slot);
     bool selectCheckRole (const std::function<bool()>& apply);
     RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }

@@ -13,6 +13,22 @@ inline void verifyReferenceAbcvRoles()
     using namespace reference_guide_contract;
     verifyReferenceStatusLine();
     verifyReferenceCheckPage();
+    // 2026-10-03（X3）：再生中でも、準備が自動で進む段階なら押した役を待たせる（押したことを捨てない）。
+    // 利用者が動かす段階（Cue の外・この区間で合わない）は待たせず、理由を言う。
+    {
+        auto playing = named ("ready");
+        playing.separateComparisons = playing.libraryReceived = playing.transportPlaying = true;
+        playing.osAccess = os_access::State::ready;
+        playing.referenceArmable = playing.versionArmable = false;
+        playing.referenceStep = reference_ui::SourceStep::loadingAudio;
+        playing.versionStep = reference_ui::SourceStep::aligning;
+        require (reference_ui::canQueueReference (playing) && reference_ui::canQueueSource (playing, true),
+                 "pressing B or V while it loads or aligns waits for it");
+        playing.referenceStep = reference_ui::SourceStep::outsideCue;
+        playing.versionStep = reference_ui::SourceStep::noMatchingPassage;
+        require (! reference_ui::canQueueReference (playing) && ! reference_ui::canQueueSource (playing, true),
+                 "a step the person must change is explained instead of waited for");
+    }
     for (const auto& size : observatory::sizePresets)
     {
         observatory::View shell (observatory::Role::post);
