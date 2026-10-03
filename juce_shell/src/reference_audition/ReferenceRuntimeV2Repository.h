@@ -15,6 +15,8 @@ namespace hypha::reference_audition
 
         RuntimeWorkspaceLoadResult refreshLibrary (std::shared_ptr<const RuntimeWorkspace> previous = {}) const;
         bool libraryOnline (std::int64_t nowMs) const;
+        // K13b: Kirin OS の準備の状態。期限の過ぎたもの（Kirin OS が閉じている）・形の違うものは無し。読めない曲は飛ばす。
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation (std::int64_t nowMs) const;
 
         static juce::File transportRoot();
 

@@ -66,6 +66,12 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.tracking = runtime.bSelected && runtime.blindPhase == hypha::reference_audition::BlindPhase::inactive
         ? audibleRole.tracking : hypha::reference_audition::TrackingState::none;
     state.referenceArmable = runtime.referenceArmable;
+    // K13b: Kirin OS の準備の状態（曲の選択の ID の最後が候補の ID）。
+    const auto preparationOf = [&runtime] (const juce::String& selectionId) {
+        return runtime.libraryPreparation != nullptr
+            ? runtime.libraryPreparation->find (selectionId.fromLastOccurrenceOf ("/", false, false))
+            : hypha::reference_audition::RuntimeSongPreparation {};
+    };
     const auto count = juce::String (static_cast<int> (runtime.songSets.size()));
     for (const auto& set : runtime.songSets)
     {
@@ -77,6 +83,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                 state.songs.push_back ({ song.id, song.label + (song.requiresPreparation ? "   PREPARING" : "") });
                 hypha::reference_ui::SongFact fact;
                 fact.prepared = ! song.requiresPreparation;
+                fact.preparation = preparationOf (song.id);
                 if (index < set.facts.size())
                 {
                     const auto& source = set.facts[index];
@@ -134,6 +141,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     const bool pendingWaiting = state.pendingAudition.waiting();
     const int watchedSlot = pendingWaiting ? state.pendingAudition.slot : runtime.comparisonSlot;
     const auto watchedStep = watchedSlot == 1 ? state.versionStep : watchedSlot == 3 ? state.referenceStep : state.checkStep;
+    state.rolePreparation = runtime.comparisonSlot == 3 ? preparationOf (runtime.selectedSongId)
+                          : runtime.comparisonSlot == 2 ? preparationOf (check.candidateId)
+                          : hypha::reference_audition::RuntimeSongPreparation {};
     const bool measuringA = pendingWaiting && state.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::level;
     state.preparationOverdue = referencePreparationWatch.observe (
         watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);

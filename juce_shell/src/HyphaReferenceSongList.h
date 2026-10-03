@@ -10,7 +10,8 @@
 #include "HyphaPresentationContext.h"
 
 // H11: B（REF）の画面の左の曲の一覧。行は 番号・曲名・LUFS-I（Kirin OS の Cue の値）・今の MATCH の gain
-// （鳴っている曲だけ）・状態（PLAYING／READY／PREPARING）。色で採点しない（状態は文字で出す）。
+// （鳴っている曲だけ）・状態（PLAYING／READY／PREPARING。準備中は Kirin OS の言う状態、K13b）。色で採点しない
+// （状態は文字で出す）。
 // 行を押すとその曲を選ぶ（B が鳴っていれば B のまま切り替わる）。
 namespace hypha::reference_ui
 {
@@ -23,6 +24,7 @@ public:
         double lufsI = std::numeric_limits<double>::quiet_NaN();
         double gainDb = std::numeric_limits<double>::quiet_NaN();
         bool selected = false, playing = false, preparing = false;
+        juce::String preparation;  // K13b：準備中の曲の Kirin OS の状態（2 AHEAD・CHECKING・NOT FOUND など、無ければ空）
     };
 
     SongList();

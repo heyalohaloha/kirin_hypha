@@ -68,11 +68,48 @@ StatusLine referenceStatusLine (const State& state)
                  : juce::String ("B: RANK A B SET FOR HYPHA IN KIRIN OS") };
     const auto step = state.comparisonSlot == 1 ? state.versionStep
                     : state.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
+    // K13b: 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
+    // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限（H6）より先に言う。
+    if (step != SourceStep::ready && step != SourceStep::playDaw)
+        if (const auto line = preparationLine (state.rolePreparation); line.isNotEmpty())
+            return { preparationFailed (state.rolePreparation) ? StatusKind::unable : StatusKind::waiting,
+                     juce::String (roleLetter (state.comparisonSlot)) + ": " + line };
     // Kirin OS を待っている段階は、Kirin OS が閉じていれば待っても進まない（開くのが直し方）。
     const auto kind = step == SourceStep::waitingForKirinOs && ! state.osOnline ? StatusKind::unable : kindOf (step);
     if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())  // H6
         return { StatusKind::unable, juce::String (roleLetter (state.comparisonSlot)) + ": " + state.preparationOverdue };
     return { kind, state.status };
+}
+
+bool preparationFailed (const reference_audition::RuntimeSongPreparation& preparation) noexcept
+{
+    return preparation.state == "pending" && preparation.reason == "source_unavailable";
+}
+
+juce::String preparationWord (const reference_audition::RuntimeSongPreparation& preparation)
+{
+    if (preparation.state != "pending") return {};
+    if (preparation.reason == "source_unavailable") return "NOT FOUND";
+    if (preparation.step == "resolving") return "CHECKING";
+    if (preparation.step == "measuring") return "MEASURING";
+    if (preparation.phase == "waiting") return "WAITING";
+    if (preparation.step == "queued") return preparation.ahead > 0 ? juce::String (preparation.ahead) + " AHEAD" : juce::String ("NEXT");
+    return {};
+}
+
+juce::String preparationLine (const reference_audition::RuntimeSongPreparation& preparation)
+{
+    if (preparation.state != "pending") return {};
+    if (preparation.reason == "source_unavailable")
+        return preparation.retry == "automatic" ? "KIRIN OS CANNOT FIND THE FILE / IT RETRIES ONCE SOON"
+                                                : "KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS";
+    if (preparation.step == "resolving") return "KIRIN OS IS CHECKING THE FILE";
+    if (preparation.step == "measuring") return "KIRIN OS IS MEASURING THE SONG";
+    if (preparation.phase == "waiting") return "KIRIN OS WAITS FOR ANOTHER MEASUREMENT";
+    if (preparation.step != "queued") return {};
+    return preparation.ahead == 0 ? juce::String ("KIRIN OS PREPARES THIS SONG NEXT")
+         : preparation.ahead == 1 ? juce::String ("KIRIN OS PREPARES 1 SONG FIRST")
+         : "KIRIN OS PREPARES " + juce::String (preparation.ahead) + " SONGS FIRST";
 }
 
 juce::String gainReadoutState (const State& state)

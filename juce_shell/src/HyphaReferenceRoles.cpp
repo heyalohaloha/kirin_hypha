@@ -1,5 +1,6 @@
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferencePendingUI.h"
+#include "HyphaReferenceStatusModel.h"
 #include "HyphaTheme.h"
 
 // H10: A／B／C／V の B（REF）。Kirin OS が「Hypha に出す」にした B セットの曲を鳴らす役のボタンと、
@@ -96,7 +97,7 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
         const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
         rows.push_back ({ song.id, song.label.upToFirstOccurrenceOf ("   PREPARING", false, false), fact.lufsI,
                           playing ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN(),
-                          selected, playing, ! fact.prepared });
+                          selected, playing, ! fact.prepared, preparationWord (fact.preparation) });
     }
     songList.setRows (std::move (rows), presentationContext);
     if (! referenceView) return;

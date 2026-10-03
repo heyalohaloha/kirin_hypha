@@ -40,6 +40,7 @@ inline void verifyReferenceAbcvRoles()
             }
             state.songFacts.push_back (fact);
         }
+        state.songFacts[1].preparation = { "pending", "queued", {}, {}, "working", 3 };  // K13b：Kirin OS が先に 3 曲を準備中
         state.referenceReady = state.referenceArmable = true;
         state.referenceStep = reference_ui::SourceStep::ready;
         state.comparisonSlot = 3;
@@ -84,7 +85,7 @@ inline void verifyReferenceAbcvRoles()
         if (list->isVisible())
         {
             require (list->rows().size() == 2 && list->rows()[0].selected && list->rows()[0].title == "Hello"
-                         && list->rows()[1].preparing && list->rows()[1].title == "MONTERO"
+                         && list->rows()[1].preparing && list->rows()[1].title == "MONTERO" && list->rows()[1].preparation == "3 AHEAD"
                          && std::abs (list->rows()[0].lufsI + 9.4) < 1.0e-9,
                      "the B page lists the songs with their Kirin OS loudness and state");
             juce::String listed;

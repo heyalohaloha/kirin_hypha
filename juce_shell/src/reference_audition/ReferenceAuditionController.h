@@ -121,6 +121,7 @@ namespace hypha::reference_audition
         std::map<juce::String, std::vector<juce::String>> checkViewBindings; // CHECK SET の Check ごとの表示（V のタブ）
         std::vector<RuntimeSongSetOption> songSets;
         juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // K13b：Kirin OS の準備の状態（無ければ null）
         std::vector<RuntimeCheckSetRank> checkSetRanks; // H12: Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
