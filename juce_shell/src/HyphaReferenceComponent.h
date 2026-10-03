@@ -334,6 +334,10 @@ private:
     void layoutCheckPage (juce::Rectangle<int>& area);
     void paintCheckPageLabels (juce::Graphics&) const;
     juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
+    // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
+    bool versionPage() const noexcept;
+    static constexpr int versionPageRows = 40 + 4 + 28;
+    juce::String versionTab { "whole" };
     void updateVisualNavigation (bool enabled);
 
     bool selectionVisible (const juce::ComboBox&) const;

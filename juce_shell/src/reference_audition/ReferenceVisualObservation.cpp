@@ -61,12 +61,15 @@ void VisualObservation::publish()
 {
     // H12: その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
     timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
+    timeline.aPairKirin = pairAMeter.window (300);
+    timeline.vPairKirin = pairVMeter.window (300);
     ++timeline.revision; dirty = false;
     auto next = std::make_shared<const VisualTimeline> (timeline);
     const juce::ScopedLock lock (snapshotLock); published = std::move (next);
 }
 void VisualObservation::clearMeters()
 {
+    pairAMeter.reset(); pairVMeter.reset(); pairKirinExpected = -1;
     kirin_reference_visual_drop (aMeter); kirin_reference_visual_drop (bMeter);
     aMeter = bMeter = nullptr; expected = -1; completeBin = false; measuring = false;
 }
@@ -128,6 +131,16 @@ void VisualObservation::consumePair (const Block& block)
     if (position < 0 || position >= end || block.channels != map.channels) { clearMeters(); return; }
     if (position != expected || block.discontinuity != previousDiscontinuity || !aMeter)
         if (!resetMeters()) return;
+    // H13: 同じ区間の A と V を同じフレームで測る（途切れたら両方とも新しい窓から）。
+    if ((pairAMeter.configuredFor (int (map.hostRate), block.channels) || pairAMeter.configure (int (map.hostRate), block.channels, 300))
+        && (pairVMeter.configuredFor (int (map.hostRate), block.channels) || pairVMeter.configure (int (map.hostRate), block.channels, 300)))
+    {
+        if (position != pairKirinExpected) { pairAMeter.reset(); pairVMeter.reset(); }
+        const auto pairFrames = int (juce::jmin<std::int64_t> (block.frames, end - position));
+        pairAMeter.push (block.pcm.data(), pairFrames);
+        pairVMeter.push (bPcm.data(), pairFrames);
+        pairKirinExpected = position + pairFrames;
+    }
     previousDiscontinuity = block.discontinuity;
     int offset = 0;
     const auto limit = int (juce::jmin<std::int64_t> (block.frames, end - position));

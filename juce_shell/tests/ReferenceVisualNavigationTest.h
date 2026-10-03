@@ -54,10 +54,14 @@ inline void verifyReferenceVisualNavigation()
         auto* cue = panel.findChildWithID ("reference-cue");
         auto* singleCheck = panel.findChildWithID ("reference-selection-value-2");
         require (view && preset && cue && singleCheck, "visual navigation controls exist");
+        // H13: 300% の V の画面は VERSION・CHECK SET（C と共用）・タブ。C の曲と Cue は C の画面で選ぶ（VIEW で移る）。
         for (const auto* control : { static_cast<juce::Component*> (view), preset, cue, singleCheck })
-            require (control->isVisible() && !control->getBounds().isEmpty()
-                && panel.getLocalBounds().contains (control->getBounds()),
+        {
+            const bool shown = size.width < 900 || control == view || control == preset;
+            require (control->isVisible() == shown && (! shown || (!control->getBounds().isEmpty()
+                && panel.getLocalBounds().contains (control->getBounds()))),
                 "C Preset, Cue and source stay reachable from A/B at " + juce::String (size.width));
+        }
         require (!view->getBounds().intersects (preset->getBounds())
             && !view->getBounds().intersects (cue->getBounds())
             && !preset->getBounds().intersects (cue->getBounds()), "navigation has distinct hit targets");

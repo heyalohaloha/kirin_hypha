@@ -53,6 +53,12 @@ const CheckGroup* currentGroup (const std::vector<CheckGroup>& groups, const juc
 }
 }
 
+bool Component::versionPage() const noexcept
+{
+    return current.separateComparisons && current.comparisonSlot == 1
+        && presentationContext.density == observatory::Density::inspection && ! isBlindSession (current.blindPhase);
+}
+
 bool Component::checkPage() const noexcept
 {
     return current.separateComparisons && current.comparisonSlot == 2
@@ -63,6 +69,8 @@ void Component::configureCheckPage()
 {
     checkTabs.onChoose = [this] (const juce::String& checkId)
     {
+        // V の画面のタブは見るものだけを替える（音も C の選択も変えない）。
+        if (versionPage()) { versionTab = checkId; setState (current); return; }
         // 同じ曲のまま Check を替える（その Check に同じ曲が無ければ最初の曲）。
         const auto song = current.checkId.fromFirstOccurrenceOf ("/", false, false);
         for (const auto& group : checkGroups (current.checks))
@@ -107,12 +115,19 @@ void Component::configureCheckPage()
 void Component::syncCheckPage (bool blindSession, bool workflowActive)
 {
     const bool page = checkPage() && ! workflowActive;
+    const bool vPage = versionPage() && ! workflowActive;  // H13
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
     std::vector<CheckTabs::Tab> tabs;
+    if (vPage) tabs.push_back ({ "whole", "WHOLE" });
     for (const auto& item : groups) tabs.push_back ({ item.checkId, item.label });
-    checkTabs.setTabs (std::move (tabs), group != nullptr ? group->checkId : juce::String {}, presentationContext);
-    checkTabs.setVisible (page && ! groups.empty());
+    juce::String sameSection;
+    for (const auto& tab : tabs) if (vPage && tab.id == versionTab && tab.id != "whole") sameSection = tab.label;
+    if (vPage && sameSection.isEmpty()) versionTab = "whole";
+    checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
+    checkTabs.setVisible ((page || vPage) && ! groups.empty());
+    comparisonView.setSameSection (sameSection, current.bSelected && current.audibleComparisonSlot == 1
+                                                    ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN());
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
     checkSongBox.setVisible (page && group != nullptr);
     const bool matching = current.comparisonMode == "loudness_match";
@@ -127,10 +142,32 @@ void Component::syncCheckPage (bool blindSession, bool workflowActive)
         versionBox.setVisible (false);
         checkBox.setVisible (false);
     }
+    if (vPage)
+    {
+        // V の画面では C の曲と Cue を出さない（C の画面で選ぶ）。CHECK SET は C と共用。
+        checkBox.setVisible (false);
+        cueBox.setVisible (false);
+    }
 }
 
 void Component::layoutCheckPage (juce::Rectangle<int>& area)
 {
+    if (versionPage())
+    {
+        // H13: VERSION（左）と CHECK SET（右）、その下にタブ（右端に VIEW）。
+        area.removeFromTop (panelGap());
+        auto top = area.removeFromTop (40);
+        auto left = top.removeFromLeft ((top.getWidth() - 5) / 2);
+        top.removeFromLeft (5);
+        versionBox.setBounds (left.removeFromBottom (25));
+        presetBox.setBounds (top.removeFromBottom (25));
+        area.removeFromTop (4);
+        auto row = area.removeFromTop (28);
+        viewButton.setBounds (row.removeFromRight (96).withSizeKeepingCentre (96, 22));
+        row.removeFromRight (8);
+        checkTabs.setBounds (row);
+        return;
+    }
     area.removeFromTop (panelGap());
     auto top = area.removeFromTop (40);
     auto left = top.removeFromLeft ((top.getWidth() - 5) / 2);
@@ -162,6 +199,7 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
                                         juce::Justification::centredLeft);
     };
     above (presetBox, "CHECK SET");
+    if (versionPage()) above (versionBox, "V / VERSION");
     above (checkSongBox, "C / SONG");
     above (cueBox, "CUE");
     // MATCH の左に、今の合わせ方（鳴っていればその gain と固定、鳴っていなければ鳴らすときの gain）。

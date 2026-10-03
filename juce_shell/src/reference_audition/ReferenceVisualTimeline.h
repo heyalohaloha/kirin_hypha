@@ -46,6 +46,8 @@ struct VisualTimeline
     std::shared_ptr<const ReferenceTonalCurve> tonalReference;
     std::shared_ptr<const ReferenceTonalCurve> tonalGenre;
     std::shared_ptr<const KirinSpectrumWindow> aKirin; // H12: A の直近の窓（Kirin OS の Cue と同じ定義）
+    // H13: V の画面の Check のタブ。位置合わせで対応した同じ区間の A と V（直近 30 秒、同じ定義）。
+    std::shared_ptr<const KirinSpectrumWindow> aPairKirin, vPairKirin;
     std::int64_t hop = 0;
     std::uint64_t pass = 0, revision = 0;
     bool observing = false, pairedObserving = false, tonalAvailable = false;

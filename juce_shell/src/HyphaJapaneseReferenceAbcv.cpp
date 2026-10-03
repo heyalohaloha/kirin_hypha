@@ -20,6 +20,9 @@ const Entry entries[] = {
     { "This Check plays at its original level.", u8"このCheckは元の音量で鳴らします。" },
     { "Play A for the length of the Cue, then MATCH again.", u8"Cueの長さだけAを再生してから、もう一度MATCHを押してください。" },
     { "MATCH exceeds the safe level. The current gain is kept.", u8"MATCHが安全上限を超えます。今のgainを保ちます。" },
+    { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
+    { "V is measured over the same section as A while they are aligned",
+      u8"位置合わせしているあいだ、VをAと同じ区間で測ります" },
 };
 }
 

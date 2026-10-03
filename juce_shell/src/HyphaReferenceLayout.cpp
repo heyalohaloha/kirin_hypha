@@ -27,7 +27,7 @@ void Component::resized()
         if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
         place (aButton, comparisonWidth);
     }
-    if (checkPage()) layoutCheckPage (area);  // H12: C の画面（HyphaReferenceCheckPage.cpp）
+    if (checkPage() || versionPage()) layoutCheckPage (area);  // H12・H13: C・V の画面（HyphaReferenceCheckPage.cpp）
     else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (panelGap());
