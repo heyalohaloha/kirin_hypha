@@ -75,6 +75,16 @@ FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Thread
 登録済みの不変なReferenceを試聴専用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。
 Referenceファイル、通常のA経路、正本のPRE/POST測定・Recordは変更しない。
 
+Reference比較試聴の役はA（LIVE）・B（REF、Bセットの曲）・C（CHECK）・V（VERSION）の4つとし
+（ABCV、2026-10-02 Daisukeと合意）、同時に鳴るのは1役とする。Gain MatchはB・Vでは追従、Cでは固定と
+する。B・VはAの直近10秒のゲート付き音量に1秒ごとに追従し、0.5 dB以内は動かさず、50 msのrampで動かし、
+上限（max(−1 dBTP, AのmaxTP, 音源のmaxTP)）を超える前に止めて今のgainを保ち、理由を示す。CはCueと同じ
+長さのAで1回合わせて固定し、利用者のMATCHで合わせ直す。どれも試聴コピーのgainだけを動かし、A経路、
+Referenceファイル、正本のPRE/POST測定・Recordは変更しない。停止・シークでは選択を保ち、確かめられた
+最初のblockから同じ音・同じgainで戻る。サンプルレート変換は試聴コピーだけで自動とする。比べる表示は
+Kirin OSのCueの値と同じ定義でAを測り、同じ区間・同じ音量で比べる（`docs/hypha_invariants.md`
+INV-S46〜S50）。
+
 B経路は接続、Reference読込、project復元だけでは有効化しない。offline render、Reference欠損、
 identity検証失敗時はA経路を維持する。Referenceのfile I/O、decode、検証、可変長準備は非RT側で行い、
 Audio Threadでは事前確保済みbufferのRT-safeな選択・出力だけを許可する。allocation、lock、
