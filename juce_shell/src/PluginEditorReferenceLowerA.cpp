@@ -42,6 +42,18 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
 {
     state.heldAttenuationDb = runtime.heldAttenuationDb;
     auto& offer = referenceLowerAOffer;
+    // 待たせた役（A がたまる前・準備中に押した役）が、合わせる時点で上限を超えて止まったときも、押し直させずに
+    // 一度だけ承認を出す（2026-10-04）。
+    using Stage = hypha::reference_audition::PendingAuditionView::Stage;
+    const auto& pending = runtime.pendingAudition;
+    if (pending.stage != Stage::ceilingExceeded) referenceLowerAPendingOffered = 0;
+    else if (offer.slot == 0 && referenceLowerAPendingOffered != pending.slot)
+    {
+        referenceLowerAPendingOffered = pending.slot;
+        const auto& role = pending.slot == 1 ? runtime.versionSelection
+                         : pending.slot == 3 ? runtime.referenceSelection : runtime.checkSelection;
+        if (role != nullptr) offerReferenceLowerA (pending.slot, *role);
+    }
     if (offer.slot != 0)
     {
         const auto& role = offer.slot == 1 ? runtime.versionSelection

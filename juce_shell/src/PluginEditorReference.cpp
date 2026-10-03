@@ -482,8 +482,9 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
                     != runtime.viewBindings.end())
         state.actionText = "EDIT GENRE";
     applyReferenceRoles (state, runtime);
-    if (const auto pending = hypha::reference_ui::pendingAuditionText (state); pending.isNotEmpty())
-        state.status = pending;
+    if (const auto pending = hypha::reference_ui::pendingAuditionText (state);
+        pending.isNotEmpty() && ! (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot))
+        state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
     referenceAccessView.setOwned (processorRef.licenseIsOs());
     layoutReferenceAudition();
