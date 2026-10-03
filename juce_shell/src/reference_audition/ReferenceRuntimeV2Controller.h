@@ -102,6 +102,8 @@ namespace hypha::reference_audition
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
         void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
+        // 承認して A を下げている量（0 以下）。MATCH・追従・やり直しの上限はこの量を足した後の音で見る。
+        void setHeldAttenuation (double db) noexcept { heldAttenuationDb.store (std::min (0.0, db), std::memory_order_release); }
         // H8: B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
         void setSongsOnly (bool enabled) noexcept { songsOnly.store (enabled, std::memory_order_release); notify(); }
         bool trackingAudible() const noexcept
@@ -332,6 +334,7 @@ namespace hypha::reference_audition
         std::atomic<bool> contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
         std::atomic<bool> trackingEnabled { false };
+        std::atomic<double> heldAttenuationDb { 0.0 };
         std::atomic<bool> songsOnly { false };
         std::atomic<int> trackingRampFrames { 2400 };
         TrackingGainRamp rtTrackingRamp; // Audio-thread owned.

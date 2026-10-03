@@ -66,6 +66,13 @@ const Entry entries[] = {
     // H15：Kirin OS の中の「Hypha ではこう見える」（描画の道具）。
     { "PREVIEW / DAW INPUT NOT AVAILABLE", u8"プレビュー / DAWの入力はありません" },
     { "KIRIN OS PREVIEW", u8"Kirin OSのプレビュー" },
+    // 2026-10-03（R-12）：上限超えの MATCH は、承認して A を下げて合わせる。
+    { "%1 NEEDS A %2 DB LOWER", u8"%1はAを%2 dB下げると合う" },
+    { "LOWER A TO MATCH", u8"Aを下げて合わせる" },
+    { "LOWER A %1 DB & PLAY %2", u8"Aを%1 dB下げて%2を鳴らす" },
+    { "A LOWERED %1 DB", u8"Aを%1 dB下げ中" },
+    { "%1 needs A %2 dB lower to match. Press LOWER A.", u8"%1はAを%2 dB下げると合います。「Aを下げて…」を押してください。" },
+    { "A was not lowered. Press the role again.", u8"Aは下げていません。もう一度押してください。" },
 };
 }
 

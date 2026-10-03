@@ -52,6 +52,33 @@ inline void verifyReferenceStatusLine()
         require (i18n::translate (line.text, i18n::Language::japanese) != line.text,
                  "the audible line reads in Japanese: " + line.text);
     }
+    // 2026-10-03（R-12）：承認して A を下げて鳴らしているあいだは、下げている量も言う。
+    playing.audibleComparisonSlot = 3;
+    playing.tracking = Tracking::following;
+    playing.originalAudition = false;
+    playing.heldAttenuationDb = -8.04;
+    const auto lowered = reference_ui::referenceStatusLine (playing);
+    require (lowered.kind == StatusKind::ready && lowered.text == "B FOLLOWING A (LAST 10 S)  /  A LOWERED 8.0 DB" + pre
+                 && i18n::translate (lowered.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "8.0 dB")),
+             "a held attenuation is named while a role plays, in both languages: " + lowered.text);
+    playing.heldAttenuationDb = 0.0;
+    // 上限超えの承認を出している役を見ているときは、「できない」と直し方（A を下げて合わせる）。
+    auto offered = named ("ready");
+    offered.separateComparisons = true;
+    offered.comparisonSlot = 3;
+    offered.lowerAOfferSlot = 3;
+    offered.lowerAOfferDb = -8.0;
+    offered.status = "B NEEDS A 8.0 DB LOWER / LOWER A TO MATCH";
+    const auto offerLine = reference_ui::referenceStatusLine (offered);
+    require (offerLine.kind == StatusKind::unable && offerLine.text == offered.status
+                 && i18n::translate (offerLine.text, i18n::Language::japanese) != offerLine.text
+                 && i18n::translate ("LOWER A 8.0 DB & PLAY B", i18n::Language::japanese) != "LOWER A 8.0 DB & PLAY B",
+             "an approval to lower A reads as unavailable with its fix, in both languages");
+    offered.comparisonSlot = 2;  // ほかの役を見ているとき（画面は承認の文を入れない）は、その役の行のまま
+    offered.status = "READY / A REMAINS LIVE";
+    require (reference_ui::referenceStatusLine (offered).kind != StatusKind::unable,
+             "the approval belongs to the role it was offered for");
+
     // gain の読みの後ろの語も合わせ方を言う（追従中を MATCHED と言わない）。
     playing.originalAudition = false;
     for (const auto& [tracking, expected] : { std::pair { Tracking::following, "FOLLOWING" }, std::pair { Tracking::fixed, "MATCHED" },

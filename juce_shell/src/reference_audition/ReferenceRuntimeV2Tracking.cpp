@@ -69,7 +69,8 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         aLoudness = window.lufs;
         required = aLoudness - sourceLoudness;
     }
-    const auto step = trackingStep (required, currentGain, sourcePeak, louder (aSessionPeakDbtp, selectionAPeak), anchorGain);
+    const auto step = trackingStep (required, currentGain, sourcePeak, louder (aSessionPeakDbtp, selectionAPeak), anchorGain,
+                                    heldAttenuationDb.load (std::memory_order_acquire));
     if (step.action == TrackingAction::keep) return TrackingAction::keep;
 
     const juce::ScopedLock lock (stateLock);
@@ -145,7 +146,13 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     const auto required = aLoudness - sourceLoudness;
     if (! std::isfinite (required) || required < -100.0 || required > 100.0) return RematchResult::levelUnavailable;
     const auto aPeak = louder (aSessionPeakDbtp, selectionAPeak);
-    if (required > 0.0 && referenceGainHeadroomDb (sourcePeak, aPeak) + 1.0e-9 < required) return RematchResult::ceilingExceeded;
+    if (referenceGainExceedsCeiling (required, sourcePeak, aPeak, heldAttenuationDb.load (std::memory_order_acquire)))
+    {
+        const juce::ScopedLock lock (stateLock);
+        currentSnapshot.matchFailure = MatchFailure::ceilingExceeded;
+        currentSnapshot.neededAttenuationDb = referenceAttenuationToMatch (required);  // 承認すれば合わせられる下げ幅
+        return RematchResult::ceilingExceeded;
+    }
 
     const juce::ScopedLock lock (stateLock);
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation || ! bSelected.load (std::memory_order_acquire))

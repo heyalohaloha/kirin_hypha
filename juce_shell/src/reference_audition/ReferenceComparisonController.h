@@ -3,6 +3,7 @@
 #include "ReferenceVisualObservation.h"
 #include "ReferenceACaptureSession.h"
 #include "ReferenceACaptureProjection.h"
+#include "ReferenceHeldAttenuation.h"
 
 #include <deque>
 #include <juce_events/juce_events.h>
@@ -80,6 +81,11 @@ public:
     TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
     RematchResult rematch (int slot, double aLoudness, double aSessionPeakDbtp); // H12: C の MATCH をもう一度
     VersionIdentity identifyVersions(); // H7: A の直近の指紋で V を特定する（メッセージスレッド）
+    // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認して A を下げて合わせる。下げ終わってから鳴らす。
+    bool approveLowerAAndPlay (int slot);
+    // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
+    void returnAToNormalLevel();
+    double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
 
 private:
     struct PendingWorkflowTransition
@@ -152,6 +158,7 @@ private:
     // 準備待ちで、まだ世代が進んでいない）なら、その役の保留と待ちを手放すだけ。
     void continueAfterSwitch (int slot, bool continues = true);
     bool waitWhilePreparing (int slot);
+    bool queueAudition (int slot, std::uint64_t safetyEpoch);
     bool selectCheckRole (const std::function<bool()>& apply);
     RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
@@ -171,6 +178,7 @@ private:
     bool versionAuto = false; // selectionLock：V の Version は AUTO が選んだ（利用者が選ぶと false）
     bool rtPlaying = false, rtInputAllowed = false, rtInputObserved = false;
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 }, rScratch { 2, 8192 };
+    HeldAttenuation heldA;  // 承認して A（POST の出力全体）を下げている量。RETURN まで保つ
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
     std::shared_ptr<WorkflowCommitInbox> workflowCommitInbox = std::make_shared<WorkflowCommitInbox>();
     juce::CriticalSection workflowServiceLock;

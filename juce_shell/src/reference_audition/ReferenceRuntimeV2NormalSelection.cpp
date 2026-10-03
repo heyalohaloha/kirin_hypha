@@ -58,11 +58,15 @@ namespace hypha::reference_audition
             : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable();
         const auto sourcePeak = cueLevel && ! versionComparison && std::isfinite (cuePeak) ? cuePeak
             : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable();
-        const auto rejectMatch = [&] (MatchFailure reason)
+        const auto rejectMatch = [&] (MatchFailure reason, double neededAttenuationDb = 0.0)
         {
             const juce::ScopedLock lock (stateLock);
             if (normalSelectionGeneration.load (std::memory_order_acquire) == selectionGeneration)
-            { currentSnapshot.matchFailure = reason; preparedNormalSelection.valid = false; }
+            {
+                currentSnapshot.matchFailure = reason;
+                currentSnapshot.neededAttenuationDb = neededAttenuationDb;
+                preparedNormalSelection.valid = false;
+            }
             return false;
         };
 
@@ -103,12 +107,14 @@ namespace hypha::reference_audition
             return false;
 
         const double appliedGain = requiredGain;
-        if (requiredGain > 0.0)
+        // 上限は、承認して A を下げている量を足した後の音で見る。超えるなら、承認すれば合わせられる下げ幅を添える。
+        const auto held = heldAttenuationDb.load (std::memory_order_acquire);
+        if (requiredGain + held > 0.0)
         {
             if (! std::isfinite (sourcePeak))
                 return rejectMatch (MatchFailure::sourceLevelUnavailable);
-            if (referenceGainHeadroomDb (sourcePeak, aMaximumTruePeakDbtp) + 1.0e-9 < requiredGain)
-                return rejectMatch (MatchFailure::ceilingExceeded);
+            if (referenceGainExceedsCeiling (requiredGain, sourcePeak, aMaximumTruePeakDbtp, held))
+                return rejectMatch (MatchFailure::ceilingExceeded, referenceAttenuationToMatch (requiredGain));
         }
 
         PreparedNormalSelection prepared;
@@ -243,7 +249,7 @@ namespace hypha::reference_audition
             : normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel) + 1;
         const bool alreadySelected = bSelected.load (std::memory_order_acquire);
         const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
-        { const juce::ScopedLock lock (stateLock); currentSnapshot.matchFailure = MatchFailure::none; }
+        { const juce::ScopedLock lock (stateLock); currentSnapshot.matchFailure = MatchFailure::none; currentSnapshot.neededAttenuationDb = 0.0; }
         if (!prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp, generation,
                                     expectedPlaybackIdentity)) return false;
         const bool selected = activatePreparedB (generation);

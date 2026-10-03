@@ -108,7 +108,10 @@ struct State
     double adjustedBMaximumTruePeakDbtp = unavailableValue();
     double loudnessDeltaBMinusA = unavailableValue();
     double truePeakDeltaBMinusA = unavailableValue();
-    double appliedGainDb = unavailableValue();
+    double appliedGainDb = unavailableValue();  // 下げる前の A の基準（グラフをそろえる）。読みは heldAttenuationDb を足す
+    double heldAttenuationDb = 0.0;              // 承認して A を下げている量（0 以下。2026-10-03、R-12）
+    int lowerAOfferSlot = 0;                     // 上限超えで A を下げる承認を出している役（0 は無し）
+    double lowerAOfferDb = 0.0;
     bool aAvailable = false;
     bool gainLimited = false;
     bool comparisonFallbackOriginal = false;

@@ -237,6 +237,7 @@ const Entry entries[] = {
       u8"取り込む前に、今のKeep／Recordを終えてください。" },
     { "Finish Reference Blind and return to Live first.",
       u8"先にReferenceのBlindを終えて、今の音に戻ってください。" },
+    { "Reference lowered A. Press RETURN first.", u8"ReferenceでAを下げています。先にRETURNを押してください。" },
     { "The previous audio capture is still in use.", u8"前の音声の取り込みがまだ使われています。" },
     { "DAW: start playback, then capture the section.",
       u8"DAW：再生を始めてから、その区間を取り込んでください。" },

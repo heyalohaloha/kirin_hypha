@@ -141,6 +141,9 @@ public:
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);
+    bool approveReferenceLowerA (int slot); // 2026-10-03（R-12）：上限超えの MATCH を、A を下げて合わせる
+    void returnReferenceLevelToNormal();     // RETURN：役を止めてから A を通常の音量へ
+    double referenceHeldAttenuationDb() const noexcept; // 承認して A を下げている量（0 以下）
     bool selectReferenceBlindStimulus (int stimulus);
     bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();

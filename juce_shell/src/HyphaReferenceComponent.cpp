@@ -473,7 +473,8 @@ void Component::paint (juce::Graphics& g)
         }
         if (current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage())  // C の画面は MATCH の横に出す
         {
-            const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
+            // 読みは鳴っている音の基準（承認して A を下げているなら、その量を足した後の gain）。
+            const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb + current.heldAttenuationDb) + " dB  /  "
                 + gainReadoutState (current);
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,

@@ -19,7 +19,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         referenceAccessView.setRecheckUnconfirmed (! processorRef.licenseIsOs());
     };
     scaleRoot.addChildComponent (referenceAccessView);
-    referenceView.onSelectA = [this] { processorRef.selectReferenceA(); };
+    referenceView.onSelectA = [this] { referenceLowerAOffer = {}; processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
     wireReferenceRoles();
@@ -31,6 +31,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.versionSelection ? *latest.versionSelection : latest;
+            if (offerReferenceLowerA (1, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
             const auto step = slotStep (slot, latest.transportPlaying);
             const auto failure = matchFailureText (slot.matchFailure);
             showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
@@ -46,6 +47,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.checkSelection ? *latest.checkSelection : latest;
+            if (offerReferenceLowerA (2, slot)) return;
             const auto step = slotStep (slot, latest.transportPlaying);
             const auto failure = matchFailureText (slot.matchFailure);
             showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
@@ -76,6 +78,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onAction = [this]
     {
+        if (approveOfferedLowerA()) return;  // 上限超えの承認：A を下げて合わせる
         const auto& state = referenceView.state();
         if (state.blindLowerAApprovalRequired && !state.blindLargeScreen) { setSize (900, 600); return; }
         const bool accepted = state.sampleRateApprovalRequired

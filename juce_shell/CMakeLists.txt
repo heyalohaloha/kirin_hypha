@@ -313,7 +313,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorValidation.cpp
         src/PluginProcessorDisplayState.cpp
-        src/PluginProcessorGuideTransport.cpp src/PluginProcessorReference.cpp
+        src/PluginProcessorGuideTransport.cpp src/PluginProcessorReference.cpp src/PluginProcessorReferenceLowerA.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
@@ -388,6 +388,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaLocalBlindPresentation.cpp
             src/PluginEditorReference.cpp
             src/PluginEditorReferenceRoles.cpp
+            src/PluginEditorReferenceLowerA.cpp
             src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
@@ -947,6 +948,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_tracking_gain_test.cpp
         tests/reference_abcv_roles_test.cpp
         tests/reference_cue_restart_test.cpp
+        tests/reference_lower_a_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_kirin_spectrum_test.cpp
         tests/reference_kirin_fingerprint_test.cpp

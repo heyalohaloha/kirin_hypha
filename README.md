@@ -587,8 +587,18 @@ loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue'
 loudness, and waits until A has played for the Cue's length (at most 30 s) so that a fixed gain is
 not set from a few seconds; pressing C earlier queues it and C starts once A is measured, and until
 then the C page shows how much of A it has (for example A 12 / 30 S) instead of a gain. **MATCH** on
-the C page matches again from the current A window. A match over the ceiling, or without enough A,
-keeps the current gain and says why. A Check set to original level in Kirin OS plays as is.
+the C page matches again from the current A window. A match without enough A keeps the current gain
+and says why. A Check set to original level in Kirin OS plays as is.
+
+**Lowering A to match.** A loud master and a quieter reference cannot be matched by raising the
+reference past the ceiling. Instead Hypha offers, on the page of that role, to lower A by the
+difference (LOWER A 8.0 DB & PLAY B): the reference then plays at its own level and A is lowered to
+it. Nothing is lowered without that approval. A stays lowered after the audition, through the other
+roles, until RETURN in the footer; RETURN stops the role and raises A over half a second. The roles'
+readouts then name the gain against the lowered A, and the status line says how far A is lowered.
+Offline renders and host bypass are never lowered, and the measurements and Record are taken before
+it. While A is lowered, the live PRE/POST compare and Blind wait for RETURN, so POST is never lowered
+twice.
 
 A stop or seek keeps the selection: the same source returns at the same gain once it is ready again,
 as in the live PRE/POST compare. An offline render, a local Blind or starting the live PRE/POST

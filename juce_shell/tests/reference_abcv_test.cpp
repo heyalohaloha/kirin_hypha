@@ -7,6 +7,7 @@ void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
 void testReferenceRoles (const juce::File&);
 void testReferenceCueRestart (const juce::File&);
+void testReferenceLowerA (const juce::File&);
 void testReferenceKirinSpectrum();
 void testReferenceKirinFingerprint();
 void testReferenceAbcv (const juce::File&);
@@ -20,6 +21,7 @@ void testReferenceAbcv (const juce::File& sandbox)
     testReferenceCueMatch (sandbox);     // H3・H4
     testReferenceRoles (sandbox);        // H8
     testReferenceCueRestart (sandbox);   // H8・H5（X3 の実機で見つけた起点）
+    testReferenceLowerA (sandbox);       // 2026-10-03：上限超えは承認して A を下げて合わせる（R-12）
     testReferenceKirinSpectrum();        // H12
     testReferenceKirinFingerprint();     // H7
 }

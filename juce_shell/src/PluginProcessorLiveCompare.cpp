@@ -119,13 +119,17 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
     return StartResult::started;
 }
 
-hypha::live_compare::StartResult KirinHyphaProcessorBase::liveCompareAdmission (bool reuseSession) const noexcept
+hypha::live_compare::StartResult KirinHyphaProcessorBase::liveCompareAdmission (bool reuseSession, bool countReferenceHold) const noexcept
 {
-    return hypha::live_compare::entryAdmission (reuseSession,
+    const auto admission = hypha::live_compare::entryAdmission (reuseSession,
         liveCompare.sessionActive.load (std::memory_order_acquire) && liveCompare.authority.permitted(),
         liveCompare.authority.restoring() || liveCompare.authority.generation() != liveCompare.restoreServiced,
         liveCompare.completion.pending(), liveCompare.blindScope != 0,
         liveCompare.postActual.load (std::memory_order_acquire), liveCompare.postTarget.load (std::memory_order_acquire));
+    // Reference が承認して A を下げているあいだは、live 比較・Blind を始めない（POST を二重に下げない）。RETURN が先。
+    if (countReferenceHold && admission == hypha::live_compare::StartResult::started && referenceHeldAttenuationDb() < 0.0)
+        return hypha::live_compare::StartResult::returnRequired;
+    return admission;
 }
 
 void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReason reason)

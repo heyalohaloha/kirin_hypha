@@ -39,6 +39,9 @@ StatusLine referenceStatusLine (const State& state)
                      : state.blindPhase == BlindPhase::starting || ! state.transportPlaying ? StatusKind::waiting
                      : StatusKind::ready,
                  state.status };
+    // 2026-10-03（R-12）：上限超えで、承認すれば A を下げて合わせられる（直し方はアクションの LOWER A）。
+    if (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot)
+        return { StatusKind::unable, state.status };
     if (state.bSelected)
     {
         // 聴いているあいだは、どう合わせているか（追従か固定か）を言う。PRE の Δ は止まっている。
@@ -48,7 +51,10 @@ StatusLine referenceStatusLine (const State& state)
             : state.tracking == Tracking::stoppedCeiling ? role + " FOLLOW STOPPED AT THE CEILING"
             : state.tracking == Tracking::stoppedRange ? role + " FOLLOW STOPPED 6 DB FROM MATCH"
             : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
-        return { StatusKind::ready, how + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
+        // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。
+        const auto lowered = state.heldAttenuationDb < -0.05
+            ? "  /  A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
+        return { StatusKind::ready, how + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {

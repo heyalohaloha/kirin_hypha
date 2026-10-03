@@ -138,6 +138,7 @@ void KirinHyphaEditor::configureLiveCompare()
     observatoryView.onLiveComparePin = [this] { pinLiveCompareForBlind(); };
     observatoryView.onLiveCompareReturn = [this]
     {
+        if (returnReferenceLevelIfHeld()) { refreshLiveCompare(); return; }  // Reference が下げた A を戻す
         processorRef.returnLiveComparePostToNormal();
         liveCompareFinishingSeen = true;
         refreshLiveCompare();
@@ -246,7 +247,7 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
 bool KirinHyphaEditor::liveCompareHoldBlocksAudition()
 {
-    const auto admission = processorRef.liveCompareAdmission (false);
+    const auto admission = processorRef.liveCompareAdmission (false, false);  // Reference 自身の下げでは止めない
     if (admission == StartResult::started) return false;
     showToast (startFailure (admission));
     return true;
@@ -334,7 +335,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
     const auto held = std::min (status.postActual, status.postTarget);
     footer.postHeldTenthsDb = held > 0.0f && held < 1.0f
-        ? juce::jmin (-1, juce::roundToInt (200.0f * std::log10 (held))) : 0;
+        ? juce::jmin (-1, juce::roundToInt (200.0f * std::log10 (held))) : referenceHeldTenthsDb();
     observatoryView.setLiveCompareFooter (footer);
 }
 
