@@ -109,6 +109,7 @@ namespace hypha::reference_audition
         if (nextContentMappingKey.isNotEmpty()
             && nextContentMappingKey != activeContentMappingKey)
         {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
             cueStart.store (mappedCueStart, std::memory_order_relaxed);
             cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
@@ -125,6 +126,7 @@ namespace hypha::reference_audition
         }
         else if (nextContentMappingKey.isEmpty() && activeContentMappingKey.isNotEmpty())
         {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
             cueStart.store (mappedCueStart, std::memory_order_relaxed);
             cueEnd.store (mappedCueEnd, std::memory_order_relaxed);

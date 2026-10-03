@@ -946,6 +946,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_live_window_test.cpp
         tests/reference_tracking_gain_test.cpp
         tests/reference_abcv_roles_test.cpp
+        tests/reference_cue_restart_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_kirin_spectrum_test.cpp
         tests/reference_kirin_fingerprint_test.cpp

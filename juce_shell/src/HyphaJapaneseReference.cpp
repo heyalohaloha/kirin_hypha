@@ -68,7 +68,7 @@ const Entry entries[] = {
     { "ALIGNING VERSION V", u8"Vを位置合わせ中" },
     { "NO VERIFIED MATCH", u8"一致を確認できません" },
     { "CHECK VERSION V", u8"VのVersionを確認" },
-    { "OUTSIDE C CUE", u8"CのCue範囲外" },
+    { "OUTSIDE %1 CUE", u8"%1のCue範囲外" },
     { "MOVE OR CHOOSE LONGER CUE", u8"移動するか長いCueを選択" },
     { "PLAY ANOTHER PASSAGE TO ALIGN V", u8"別の箇所を再生してVを合わせる" },
     { "CHOOSE A SOURCE IN KIRIN OS", u8"Kirin OSでソースを選択" },

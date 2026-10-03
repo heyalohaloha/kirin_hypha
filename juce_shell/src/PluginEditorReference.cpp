@@ -321,7 +321,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "WAITING FOR KIRIN OS REFERENCE";
     else if (runtime.state == Runtime::ready)
         state.status = state.auditionBuffered ? "READY / A REMAINS LIVE"
-            : runtime.auditionOutsideCue ? "OUTSIDE C CUE / MOVE OR CHOOSE LONGER CUE"
+            : runtime.auditionOutsideCue ? "OUTSIDE " + juce::String (hypha::reference_ui::roleLetter (runtime.comparisonSlot))
+                + " CUE / MOVE OR CHOOSE LONGER CUE"
             : state.aAvailable ? "LOADING " + juce::String (hypha::reference_ui::roleLetter (runtime.comparisonSlot))
                 + " AT PLAYHEAD / KEEP PLAYING" : "PLAY A TO AUDITION";
     else if (runtime.rejectionCode == "reference_selection_unavailable")
