@@ -108,7 +108,10 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
     state.cueLoops = checkRole.cueLoops;
     state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
-    state.aWindowLoudness = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
+    const auto aWindow = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
+    state.aWindowLoudness = aWindow.loudness;
+    state.aWindowBlocks = aWindow.blocks;
+    state.aWindowNeededBlocks = aWindow.neededBlocks;
     rankCheckSets (state, checkRole.checkSetRanks);
     // H7: V の自動特定（Reference を開いているあいだ、どの画面でも 3 秒ごと）。Kirin OS の「同じ曲」以上で一致率の
     // 最も高い Version に AUTO と一致率を添え、V を選んでいなければ（または AUTO の選んだものより明らかに合えば）

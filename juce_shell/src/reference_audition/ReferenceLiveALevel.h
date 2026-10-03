@@ -10,6 +10,7 @@ struct LiveALevel
 {
     double loudness = std::numeric_limits<double>::quiet_NaN();
     double peak = std::numeric_limits<double>::quiet_NaN();
+    int windowBlocks = 0;  // A の直近の窓に入った 10 Hz の点の数（窓で測ったときだけ）
 };
 
 inline LiveALevel liveALevel (const KirinObservatoryFrame& frame, bool received,

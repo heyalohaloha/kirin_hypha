@@ -42,6 +42,7 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
     std::vector<KirinMeterHistoryEntry> history;
     const auto window = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, blocks, blocks)
         ? ref::liveWindowLoudness (history, windowBlocks) : ref::LiveWindowLoudness {};
+    level.windowBlocks = window.blocks;
     if (window.gatedBlocks >= ref::liveWindowMinimumGatedBlocks && window.blocks >= minimumBlocks && std::isfinite (window.lufs))
         level.loudness = window.lufs;
     else if (windowOnly)
@@ -53,8 +54,9 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
 }
 
 // H12: 画面が「同じ音量」にそろえて比べるための A の窓の音量（その役の窓：B・V は 10 秒、C は Cue と
-// 同じ長さ）。メーター履歴は 250 ms に 1 回だけ読む（メッセージスレッド）。
-double KirinHyphaProcessorBase::referenceWindowLoudness (int slot) const
+// 同じ長さ）。C は MATCH と同じく、A の直近が Cue の長さ（最長 30 秒）たまるまで値なし（仕様 C。画面の
+// 「鳴らすときの gain」と実際の MATCH をそろえる）。メーター履歴は 250 ms に 1 回だけ読む（メッセージスレッド）。
+hypha::reference_audition::WindowLoudnessCache KirinHyphaProcessorBase::referenceWindowLoudness (int slot) const
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const auto now = juce::Time::getMillisecondCounterHiRes();
@@ -63,12 +65,14 @@ double KirinHyphaProcessorBase::referenceWindowLoudness (int slot) const
     {
         const auto blocks = referenceAuditionController != nullptr ? referenceAuditionController->liveWindowBlocks (slot)
                                                                    : hypha::reference_audition::liveWindowBlocks;
-        cache = { slot, referenceLiveALevel (true, blocks).loudness, now + 250.0 };
+        const auto needed = hypha::reference_audition::matchMinimumBlocks (slot, blocks);
+        const auto level = referenceLiveALevel (true, blocks, needed);
+        cache = { slot, level.loudness, now + 250.0, level.windowBlocks, needed };
     }
-    return cache.loudness;
+    return cache;
    #else
     juce::ignoreUnused (slot);
-    return std::numeric_limits<double>::quiet_NaN();
+    return {};
    #endif
 }
 

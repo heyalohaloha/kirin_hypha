@@ -582,7 +582,8 @@ from the gain of the MATCH you started (as AUTO in the live PRE/POST compare); a
 stops, keeps the current gain and says so. C matches once and stays fixed: it compares A's gated
 loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated
 loudness, and waits until A has played for the Cue's length (at most 30 s) so that a fixed gain is
-not set from a few seconds; pressing C earlier queues it and C starts once A is measured. **MATCH** on
+not set from a few seconds; pressing C earlier queues it and C starts once A is measured, and until
+then the C page shows how much of A it has (for example A 12 / 30 S) instead of a gain. **MATCH** on
 the C page matches again from the current A window. A match over the ceiling, or without enough A,
 keeps the current gain and says why. A Check set to original level in Kirin OS plays as is.
 
@@ -626,8 +627,12 @@ shows the song and the status; songs are switched from 125%.
   fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each Version's
   fingerprint, first within ±30 s of the DAW position, then anywhere in the song, so a song that
   starts later on the timeline (an album session) is found too. The best Version that Kirin OS would
-  call the same song is marked AUTO with its agreement — another mix of your song counts. Away from
-  the DAW position only a strong match (agreement 0.70 or more) counts. When no Version is chosen,
+  call the same song is marked AUTO with its agreement — another mix of your song counts. Because 30
+  seconds can resemble another song by chance, a match also needs A's loudness contour to follow the
+  Version (correlation 0.3 or more), and away from the DAW position only a strong match (agreement 0.70
+  or more) counts. On the owner's own mixdowns (16 songs, 47 versions) this chose the right song in
+  122 of 134 tries with no wrong choice when the song starts the timeline, and 113 with one wrong
+  choice when it sits later in an album session. When no Version is chosen,
   the AUTO one is chosen once it is the best twice in a row; AUTO changes only V's choice and never
   stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
   replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).

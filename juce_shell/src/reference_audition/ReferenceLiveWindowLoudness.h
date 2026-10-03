@@ -29,6 +29,7 @@ struct WindowLoudnessCache
     int slot = 0;
     double loudness = std::numeric_limits<double>::quiet_NaN();
     double validUntilMs = 0.0;
+    int blocks = 0, neededBlocks = 0;  // 窓に入った点の数と、その役の MATCH に要る数（C だけ。ほかは 0）
 };
 inline constexpr int liveWindowMinimumGatedBlocks = 30; // 3 秒に満たない窓は使わない
 // 仕様 C：C（固定）の MATCH は、A の直近が Cue の長さ（最長 30 秒）たまってから。固定する gain を短い窓の
