@@ -184,8 +184,25 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     }
     if (!target.selectB (loudness, peak, generation, intent.identity))
     {
+        const auto failed = target.snapshot();
+        // 承認は「A を差だけ下げて合わせる」。承認の後に A が大きくなって、鳴らす時点でまだ上限を超えるなら、その時点の
+        // 差まで下げ直して合わせ直す（下げる向きだけ、2 回まで。2026-10-04、再生を始めた直後の見積もりが小さかった）。
+        if (intent.approvedLowerA && intent.lowerRetries < 2 && failed.matchFailure == MatchFailure::ceilingExceeded
+            && failed.neededAttenuationDb < heldA.targetDb() - 0.05)
+        {
+            heldA.hold (failed.neededAttenuationDb);
+            for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
+            const juce::ScopedLock lock (selectionLock);
+            if (pendingAudition.intentId == intent.intentId)
+            {
+                ++pendingAudition.lowerRetries;
+                pendingAudition.view.stage = Stage::checking;
+                activePendingIntent.store (intent.intentId, std::memory_order_release);
+            }
+            return;
+        }
         if (intent.switching) dropResume();  // 新しい MATCH ができない：選択を手放して理由を出す（R-28）
-        const auto failure = target.snapshot().matchFailure;
+        const auto failure = failed.matchFailure;
         publish (failure == MatchFailure::ceilingExceeded ? Stage::ceilingExceeded
             : failure == MatchFailure::sourceLevelUnavailable ? Stage::sourceLevelUnavailable
             : Stage::startFailed, true);

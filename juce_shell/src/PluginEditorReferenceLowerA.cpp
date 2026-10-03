@@ -28,6 +28,7 @@ bool KirinHyphaEditor::approveOfferedLowerA()
     if (offer.slot == 0) return false;
     referenceLowerAOffer = {};
     const auto result = processorRef.approveReferenceLowerA (offer.slot, offer.db);
+    if (result == Approval::lowered) referenceLowerAApprovedDb = offer.db;
     if (result == Approval::postInUse)
         showToast ("PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.");
     else if (result != Approval::lowered)
@@ -41,6 +42,13 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
                                              const hypha::reference_audition::Snapshot& runtime)
 {
     state.heldAttenuationDb = runtime.heldAttenuationDb;
+    // 承認の後に A が大きくなり、鳴らす時点の差まで深く下げ直したら一度だけ知らせる（承認した量と違うので）。
+    if (referenceLowerAApprovedDb < 0.0 && (runtime.bSelected || runtime.heldAttenuationDb >= 0.0))
+    {
+        if (runtime.bSelected && runtime.heldAttenuationDb < referenceLowerAApprovedDb - 0.05)
+            showToast ("A lowered " + juce::String (-runtime.heldAttenuationDb, 1) + " dB to match: A got louder after the offer.");
+        referenceLowerAApprovedDb = 0.0;
+    }
     auto& offer = referenceLowerAOffer;
     // 待たせた役（A がたまる前・準備中に押した役）が、合わせる時点で上限を超えて止まったときも、押し直させずに
     // 一度だけ承認を出す（2026-10-04）。

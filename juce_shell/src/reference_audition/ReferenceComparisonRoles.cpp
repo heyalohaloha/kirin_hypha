@@ -46,7 +46,12 @@ bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double appro
     const auto before = heldA.targetDb();
     heldA.hold (approvedDb);
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
-    if (queueAudition (slot, pendingSafetyEpoch.load (std::memory_order_acquire))) return true;
+    if (queueAudition (slot, pendingSafetyEpoch.load (std::memory_order_acquire)))
+    {
+        const juce::ScopedLock lock (selectionLock);
+        pendingAudition.approvedLowerA = true;
+        return true;
+    }
     heldA.restore (before);
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
     return false;

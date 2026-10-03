@@ -149,6 +149,8 @@ private:
         bool sawPlayback = false;
         bool resume = false; // H5: 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
         bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）
+        bool approvedLowerA = false; // 承認して A を下げて鳴らす待ち（鳴らす時点の差まで下げ直せる）
+        int lowerRetries = 0;
     } pendingAudition; // selectionLock; control thread only.
     bool resumeWanted() const;
     bool armResume();
