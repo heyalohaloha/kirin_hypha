@@ -63,6 +63,9 @@ const Entry entries[] = {
     { "KIRIN OS PREPARES THIS SONG NEXT", u8"Kirin OSが次にこの曲を準備します" },
     { "KIRIN OS PREPARES 1 SONG FIRST", u8"Kirin OSが先に1曲を準備しています" },
     { "KIRIN OS PREPARES %1 SONGS FIRST", u8"Kirin OSが先に%1曲を準備しています" },
+    // H15：Kirin OS の中の「Hypha ではこう見える」（描画の道具）。
+    { "PREVIEW / DAW INPUT NOT AVAILABLE", u8"プレビュー / DAWの入力はありません" },
+    { "KIRIN OS PREVIEW", u8"Kirin OSのプレビュー" },
 };
 }
 

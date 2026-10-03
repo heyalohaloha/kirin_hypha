@@ -194,9 +194,10 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
 {
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
-    const auto above = [&g] (const juce::Component& item, const juce::String& text)
+    // 選択肢が 1 つの欄は読むだけの表示に替わる（selectionVisible）。そのときも見出しは出す。
+    const auto above = [this, &g] (const juce::ComboBox& item, const juce::String& text)
     {
-        if (item.isVisible())
+        if (item.isVisible() || selectionVisible (item))
             text_style::drawEllipsized (g, text, item.getBounds().withY (item.getY() - 17).withHeight (15),
                                         juce::Justification::centredLeft);
     };
