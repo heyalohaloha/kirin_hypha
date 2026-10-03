@@ -254,7 +254,10 @@ namespace hypha::reference_audition
     {
         next.workflowCatalog = workflowCatalog;
         if (next.playbackIdentity.isNotEmpty() && next.playbackIdentity == currentSnapshot.playbackIdentity)
+        {
             next.matchFailure = currentSnapshot.matchFailure;
+            next.neededAttenuationDb = currentSnapshot.neededAttenuationDb;  // 上限超えの承認の下げ幅も一緒に残す
+        }
         next.migratedVersionChoice = legacyVersionChoice;
         next.selectionGeneration = appliedSelectionGeneration.load (std::memory_order_acquire);
         next.bSelected = bSelected.load (std::memory_order_acquire);

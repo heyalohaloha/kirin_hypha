@@ -81,8 +81,8 @@ public:
     TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
     RematchResult rematch (int slot, double aLoudness, double aSessionPeakDbtp); // H12: C の MATCH をもう一度
     VersionIdentity identifyVersions(); // H7: A の直近の指紋で V を特定する（メッセージスレッド）
-    // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認して A を下げて合わせる。下げ終わってから鳴らす。
-    bool approveLowerAAndPlay (int slot);
+    // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認した量だけ A を下げて合わせる。下げ終わってから鳴らす。
+    bool approveLowerAAndPlay (int slot, double approvedDb);
     // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
     void returnAToNormalLevel();
     double heldAttenuationDb() const noexcept { return heldA.targetDb(); }

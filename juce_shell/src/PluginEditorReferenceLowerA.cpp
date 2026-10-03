@@ -20,13 +20,17 @@ bool KirinHyphaEditor::offerReferenceLowerA (int slot, const hypha::reference_au
     return true;
 }
 
-// REF のアクション。出している承認があれば承認する（A を下げ終わってから、押した役を鳴らす）。
+// REF のアクション。出している承認があれば、ボタンに出した量で承認する（A を下げ終わってから、押した役を鳴らす）。
 bool KirinHyphaEditor::approveOfferedLowerA()
 {
+    using Approval = hypha::reference_audition::LowerAApproval;
     const auto offer = referenceLowerAOffer;
     if (offer.slot == 0) return false;
     referenceLowerAOffer = {};
-    if (! processorRef.approveReferenceLowerA (offer.slot))
+    const auto result = processorRef.approveReferenceLowerA (offer.slot, offer.db);
+    if (result == Approval::postInUse)
+        showToast ("PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.");
+    else if (result != Approval::lowered)
         showToast ("A was not lowered. Press the role again.");
     return true;
 }
