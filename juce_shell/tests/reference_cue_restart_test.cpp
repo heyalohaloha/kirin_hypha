@@ -11,7 +11,7 @@ void testReferenceCueRestart (const juce::File&);
 
 namespace
 {
-constexpr int songFrames = 96'000;  // 2 秒
+constexpr int songFrames = 576'000;  // 12 秒（ページ 6 枚＝6 秒より長く、Cue の頭が追い出される）
 float rampAt (std::int64_t frame) { return 0.1f + 0.3f * static_cast<float> (frame) / static_cast<float> (songFrames); }
 
 juce::var restartSets (const juce::String& setId, const juce::File& song, const juce::String& hash, const juce::String& pcm,
@@ -76,6 +76,7 @@ void testReferenceCueRestart (const juce::File& sandbox)
     const auto hash = juce::SHA256 (file).toHexString();
     const auto pcm = juce::String::repeatedString ("7", 64);
     auto runtimeSource = makeRuntimeV2Source (file, hash, pcm);
+    runtimeSource["audio"].getDynamicObject()->setProperty ("total_sample_frames", static_cast<juce::int64> (songFrames));
     addRuntimeV2MeasurementSummary (runtimeSource, -14.0, -6.0);
     const auto source = stageRuntimeV2Artifact (root, "sources", runtimeSource);
     auto preset = bindRuntimeV2PresetToSource ("88888888-8888-4888-8888-888888888881", "99999999-9999-4999-8999-999999999991",
@@ -117,9 +118,13 @@ void testReferenceCueRestart (const juce::File& sandbox)
     require (controller.snapshot().referenceReady, "the B song prepares");
     const auto nearCueStart = [&] { const auto value = block.getSample (0, 479); return value > 0.1f && value < rampAt (4'800); };
 
-    // 選んでから曲の長さより先へ進んだ（Cue を過ぎた）。範囲外とは言わず、押せば今の位置から Cue の頭が鳴る。
-    position += 3 * songFrames;
-    host (true);
+    // 選んでから曲の終わりまで再生し（Cue の頭のページは追い出される）、Cue を過ぎた。範囲外とは言わず、Cue の頭を
+    // 先に読み直して「準備できた」になり、押せば今の位置から Cue の頭が鳴る。
+    while (position < songFrames + 48'000)
+    { host (true); if (position % 48'000 < 480) juce::Thread::sleep (20); }  // 1 秒ごとに読み込みを待つ（頭を追い出す）
+    for (int attempt = 0; attempt < 1500 && ! (controller.snapshot().referenceSelection != nullptr
+                                              && controller.snapshot().referenceSelection->auditionBuffered); ++attempt)
+    { host (true); juce::Thread::sleep (10); }
     const auto beyond = controller.snapshot();
     require (beyond.referenceSelection != nullptr && ! beyond.referenceSelection->auditionOutsideCue
                  && beyond.referenceSelection->auditionBuffered,
