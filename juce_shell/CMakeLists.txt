@@ -186,6 +186,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceCueMatch.cpp
     src/reference_audition/ReferenceRuntimeV2Tracking.cpp
     src/reference_audition/ReferenceComparisonTracking.cpp
+    src/reference_audition/ReferenceRuntimeV2Resume.cpp
+    src/reference_audition/ReferenceResumePolicy.cpp
     src/reference_audition/ReferenceLibraryRecovery.cpp
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp

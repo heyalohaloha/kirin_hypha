@@ -350,22 +350,10 @@ namespace hypha::reference_audition
             const auto profile = profileRepository.load (binding.profileArtifact);
             if (profile.accepted()) next.profiles.push_back (profile.profile);
         }
-        const auto approvalKey = mediaKey + ":"
-            + juce::String (selectedSource->audio.sampleRateHz) + ":"
-            + juce::String (next.hostSampleRateHz);
+        // H5: サンプルレートの変換は自動（試聴コピーだけを変換し、元のファイルは変えない）。承認を待たない。
         const bool rateDiffers = selectedSource->audio.sampleRateHz != next.hostSampleRateHz;
-        const bool rateApproved = ! rateDiffers || selection.sampleRateApprovalKey == approvalKey;
         const auto mappedCueStart = outputSample (cue->startSample, cue->sampleRateHz, next.hostSampleRateHz);
         const auto mappedCueEnd = outputSample (cue->endSample, cue->sampleRateHz, next.hostSampleRateHz);
-        if (! rateApproved)
-        {
-            failClosedToA();
-            next.state = RuntimeState::waiting;
-            next.sampleRateApprovalRequired = true;
-            next.rejectionCode = "reference_sample_rate_approval_required";
-            publishApprovalRequired (std::move (next), approvalKey, selectedSource, *cue);
-            return;
-        }
 
         const auto sourceKey = mediaKey + ":"
             + juce::String (next.hostSampleRateHz) + ":"
@@ -379,7 +367,7 @@ namespace hypha::reference_audition
                 selectA();
             pages.close();
             const auto openFailure = pages.open (*selectedSource, configuration.sampleRate,
-                                                 configuration.channels, rateApproved);
+                                                 configuration.channels, true);
             if (openFailure.isNotEmpty())
             {
                 next.state = RuntimeState::rejected;

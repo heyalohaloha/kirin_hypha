@@ -101,6 +101,12 @@ namespace hypha::reference_audition
         { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
         // H3／H4：MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
         int matchWindowBlocks() const;
+        // H5：停止・シークで A に戻った選択を、同じ音（playback identity）・同じ gain のまま戻す。
+        // 利用者が A を押す・別の音にする・試聴を止められたときは忘れる（forgetHeldSelection）。
+        bool resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept;
+        bool hasHeldSelection() const;
+        juce::String heldPlaybackIdentity() const;
+        void forgetHeldSelection();
 
     private:
         struct Configuration
@@ -261,6 +267,13 @@ namespace hypha::reference_audition
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
         PreparedNormalSelection preparedNormalSelection;
+        struct HeldSelection
+        {
+            juce::String playbackIdentity;
+            PreparedNormalSelection facts;  // 最後に掛けていた gain と、その時の値（追従で動いた後の値）
+            bool valid = false;
+        } heldSelection; // stateLock
+        void holdCurrentGainLocked() noexcept;
         RuntimeEventContext activeEventContext;
         RuntimeCandidate activeEventCandidate;
         RuntimeCue activeEventCue;
