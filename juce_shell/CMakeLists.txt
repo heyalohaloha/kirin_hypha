@@ -628,10 +628,13 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    # H15: ABCV の 4 つの要求の例（C の画面・MATCH のある C・VERSION BLIND の表示例・日本語）で PNG を出す。
     add_test(NAME kirin_hypha_reference_preview_renderer
-        COMMAND KirinHyphaReferencePreviewRenderer
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/reference_preview_request.v1.json
-            ${CMAKE_CURRENT_BINARY_DIR}/reference_preview_contract.png)
+        COMMAND ${CMAKE_COMMAND}
+            -DRENDERER=$<TARGET_FILE:KirinHyphaReferencePreviewRenderer>
+            -DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures
+            -DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReferencePreviewFixtures.cmake)
     set_tests_properties(kirin_hypha_reference_preview_renderer PROPERTIES
         PASS_REGULAR_EXPRESSION "renderer_version")
 endif()
