@@ -52,6 +52,34 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
     notify();
     return true;
 }
+// H8: B（REF）の曲を選ぶ。id は Hypha に届いた B セットの曲の選択の ID（ReferenceLibrarySongs.h）。
+bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
+{
+    const auto parts = juce::StringArray::fromTokens (id, "/", {});
+    if (parts.size() != 3 || blind.ongoing()) return false;
+    {
+        const juce::ScopedLock lock (stateLock);
+        const auto known = std::any_of (currentSnapshot.songSets.begin(), currentSnapshot.songSets.end(), [&] (const auto& set) {
+            return std::any_of (set.songs.begin(), set.songs.end(), [&] (const auto& song) { return song.id == id; });
+        });
+        if (! requestedConfiguration.identity.library || ! known) return false;
+        requestedSelection.presetId = parts[0];
+        requestedSelection.checkId = parts[1];
+        requestedSelection.candidateId = parts[2];
+        requestedSelection.cueId.clear();
+        requestedSelection.sampleRateApprovalKey.clear();
+        requestedSelection.workflowCondition.reset();
+        requestedSelection.workflowToken.clear();
+        ++requestedSelection.generation;
+        pendingApprovalKey.clear();
+        currentSnapshot.sampleRateApprovalRequired = false;
+        revokeAuditionPublication();
+    }
+    selectA();
+    notify();
+    return true;
+}
+
 ReferenceChoice RuntimeV2Controller::savedChoice() const
 {
     const juce::ScopedLock lock (stateLock);

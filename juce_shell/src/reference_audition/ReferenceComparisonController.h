@@ -9,8 +9,9 @@
 
 namespace hypha::reference_audition
 {
-// A is the original DAW input. B and C own separate prepared choices, while one
-// shared gate admits only the explicitly selected output path.
+// A is the original DAW input. V (slot 1, Version), C (slot 2, Check) and B (slot 3, REF: the
+// B set songs, H8) own separate prepared choices, while one shared gate admits only the explicitly
+// selected output path. Only one role sounds at a time.
 class ReferenceComparisonController final : private juce::AsyncUpdater
 {
 public:
@@ -44,6 +45,9 @@ public:
     void setCaptureTonalRange (double startSeconds, double endSeconds);
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
+    bool selectRef (double, double) noexcept;              // H8: B（REF）を鳴らす
+    bool selectSong (const juce::String& songId);          // H8: B の曲。B が鳴っていれば即切替
+    bool selectSongSet (const juce::String& songSetId);    // H8: B SET（Hypha に届いた順位 1〜3）
     bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues only.
     void servicePendingAudition (double, double, bool callbackLive);
     bool pendingAuditionNeedsService() const;
@@ -136,6 +140,11 @@ private:
     bool resumeWanted() const;
     bool armResume();
     void dropResume();
+    RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
+    const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
+    void ensureReferenceSong (const Snapshot& reference);
+    juce::String songSetId, songId; // H8: selectionLock
+    std::atomic<bool> songSwitchPending { false }; // H8: B のまま別の曲に替えた。公開されたら新しい MATCH で鳴らす
     std::uint64_t pendingSequence = 0;
     std::atomic<std::uint64_t> activePendingIntent { 0 };
     std::atomic<std::uint64_t> pendingSafetyEpoch { 0 };
@@ -145,11 +154,11 @@ private:
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
     std::atomic<bool> versionChosen { false };
     bool rtPlaying = false, rtInputAllowed = false, rtInputObserved = false;
-    juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
+    juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 }, rScratch { 2, 8192 };
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
     std::shared_ptr<WorkflowCommitInbox> workflowCommitInbox = std::make_shared<WorkflowCommitInbox>();
     juce::CriticalSection workflowServiceLock;
-    RuntimeV2Controller version, check;
+    RuntimeV2Controller version, check, reference;
     VisualObservation visual;
     ACaptureSession capture;
     ACaptureProjection captureProjection;

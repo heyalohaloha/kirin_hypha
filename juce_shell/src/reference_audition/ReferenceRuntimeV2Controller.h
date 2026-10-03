@@ -56,6 +56,7 @@ namespace hypha::reference_audition
         bool selectWorkflowCondition (const WorkflowCondition&, const juce::String& token);
         bool appendWorkflowEvent (WorkflowEventRequest);
         bool selectLibraryVersion (const juce::String&);
+        bool selectLibrarySong (const juce::String&);
         bool selectLibraryCheck (const juce::String&);
         bool retryPresetSelection();
         bool retryCandidatePreparation();
@@ -97,6 +98,8 @@ namespace hypha::reference_audition
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
         void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
+        // H8: B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
+        void setSongsOnly (bool enabled) noexcept { songsOnly.store (enabled, std::memory_order_release); notify(); }
         bool trackingAudible() const noexcept
         { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
         // H3／H4：MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
@@ -307,6 +310,7 @@ namespace hypha::reference_audition
         std::atomic<bool> contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
         std::atomic<bool> trackingEnabled { false };
+        std::atomic<bool> songsOnly { false };
         std::atomic<int> trackingRampFrames { 2400 };
         TrackingGainRamp rtTrackingRamp; // Audio-thread owned.
         std::atomic<std::uint64_t> auditionEpoch { 1 };

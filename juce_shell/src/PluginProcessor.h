@@ -120,6 +120,7 @@ public:
     bool selectReferenceC();
     bool selectReferenceVersion (const juce::String&);
     bool selectReferenceB();
+    bool selectReferenceRef(); bool selectReferenceSong (const juce::String&); bool selectReferenceSongSet (const juce::String&); // H8
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
     bool retryReferencePresetSelection();

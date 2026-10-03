@@ -264,7 +264,7 @@ void testReferenceComparisons (const juce::File& sandbox)
         && std::memcmp (&displayedGain, &frozenGain, sizeof (double)) == 0
         && std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f,
         "display navigation does not switch sound, gain, output owner or source samples");
-    require (!controller.selectVisualSlot (0) && !controller.selectVisualSlot (3),
+    require (!controller.selectVisualSlot (0) && !controller.selectVisualSlot (4),
         "invalid display targets cannot alter a comparison");
     auto observed = fixture.source.clone();
     addRuntimeV2MeasurementSummary (observed, -18, -6);

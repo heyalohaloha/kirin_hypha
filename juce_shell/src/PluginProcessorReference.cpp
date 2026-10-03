@@ -53,6 +53,32 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
 
 bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAudition (1); }
 bool KirinHyphaProcessorBase::selectReferenceC() { return requestReferenceAudition (2); }
+bool KirinHyphaProcessorBase::selectReferenceRef() { return requestReferenceAudition (3); }  // H8: B（REF）
+
+// H8: B の曲と B SET。B が鳴っていれば、新しい曲が準備でき次第 B のまま鳴る。
+bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const bool selected = licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectSong (id);
+    if (selected && referencePendingAuditionNeedsService()) startTimer (50);
+    return selected;
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceSongSet (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectSongSet (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
 
 bool KirinHyphaProcessorBase::requestReferenceAudition (int slot)
 {

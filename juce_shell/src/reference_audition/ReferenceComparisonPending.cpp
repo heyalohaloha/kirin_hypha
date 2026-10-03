@@ -36,14 +36,16 @@ void ReferenceComparisonController::appendPendingAudition (
 
 bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
 {
-    if (slot != 1 && slot != 2) return false;
+    if (slot != 1 && slot != 2 && slot != 3) return false;
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
     const auto state = snapshot();
-    if (state.transportPlaying) return slot == 1 ? selectB (loudness, peak) : selectC (loudness, peak);
+    if (state.transportPlaying)
+        return slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak);
     if (trialActive() || hasActiveWorkflow() || capture.access->busy()
-        || !(slot == 1 ? state.versionArmable : state.checkArmable)) return false;
+        || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
-    const auto identity = (slot == 1 ? *state.versionSelection : *state.checkSelection).playbackIdentity;
+    const auto identity = (slot == 1 ? *state.versionSelection : slot == 2 ? *state.checkSelection
+                                                               : *state.referenceSelection).playbackIdentity;
     if (identity.isEmpty()) return false;
     selectA();
     PendingIntent next;
@@ -75,7 +77,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
             }
         }
     };
-    auto& target = intent.view.slot == 1 ? version : check;
+    auto& target = slotController (intent.view.slot);
     const auto state = target.snapshot();
     const auto inputSafety = pendingInputSafety.load (std::memory_order_acquire);
     if (intent.safetyEpoch != pendingSafetyEpoch.load (std::memory_order_acquire)
@@ -107,7 +109,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         || !state.transportPositionValid || state.state != RuntimeState::ready
         || !state.auditionBuffered || !binding.source)
     { publish (Stage::checking, callbackLive); return; }
-    if (!intent.resume && intent.view.slot == 2 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
+    if (!intent.resume && intent.view.slot != 1 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
         || (state.comparisonMode == "peak_match" && !std::isfinite (peak))))
     { publish (Stage::level, true); return; }
     RuntimeV2SourceRepository verifier (juce::File {});

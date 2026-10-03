@@ -130,6 +130,8 @@ namespace hypha::reference_audition
         const RuntimePreset* preset = findPreset (*workspace, selection.presetId);
         if (workspace->library && selection.presetId.isNotEmpty() && preset == nullptr)
         { missingSelection(); return; }
+        if (songsOnly.load (std::memory_order_acquire) && (preset == nullptr || ! preset->songEntry))
+        { missingSelection(); return; }  // H8: B は曲を選ぶまで何も準備しない
         if (preset == nullptr)
             preset = findPreset (*workspace, workspace->manifest.activePresetId);
         if (preset == nullptr && ! workspace->presets.empty())

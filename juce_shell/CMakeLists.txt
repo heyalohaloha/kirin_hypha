@@ -180,6 +180,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeRepositoryParsing.cpp
     src/reference_audition/ReferenceLibraryRepository.cpp
     src/reference_audition/ReferenceLibrarySets.cpp
+    src/reference_audition/ReferenceLibrarySongs.cpp
     src/reference_audition/ReferenceSourceRanges.cpp
     src/reference_audition/ReferenceLiveWindowLoudness.cpp
     src/reference_audition/ReferenceTrackingGain.cpp
@@ -193,6 +194,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceComparisonController.cpp
     src/reference_audition/ReferenceComparisonPending.cpp
+    src/reference_audition/ReferenceComparisonRoles.cpp
+    src/reference_audition/ReferenceComparisonRealtime.cpp
     src/reference_audition/ReferenceComparisonWorkflow.cpp
     src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
@@ -908,6 +911,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_library_sets_test.cpp
         tests/reference_live_window_test.cpp
         tests/reference_tracking_gain_test.cpp
+        tests/reference_abcv_roles_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp

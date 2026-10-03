@@ -85,6 +85,7 @@ namespace hypha::reference_audition
     struct RuntimePreset
     {
         bool versionEntry = false;
+        bool songEntry = false;  // H8: B（REF）の曲。sets.json の B セットの曲 1 つを、1 Check・1 曲の Preset にしたもの
         juce::String workId;
         RuntimeSourcePresetReceipt sourceTemplateArtifact;
         RuntimeSourcePresetReceipt sourcePresetArtifact;
