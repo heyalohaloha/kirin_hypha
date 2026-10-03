@@ -19,6 +19,7 @@
 #include "ReferenceRuntimeABinding.h"
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
+#include "ReferenceTrackingGain.h"
 #include "ReferenceRuntimeV2SourceCache.h"
 #include "ReferenceCalibrationObservation.h"
 #include "ReferenceDeferredControl.h"
@@ -91,6 +92,15 @@ namespace hypha::reference_audition
                               bool positionValid, bool auditionAllowed,
                               bool normalReturnAllowed, bool normalTarget = true) noexcept;
         void loseAudibleConfirmation() noexcept;
+        // H3: 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
+        // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
+        TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
+                                        double aSessionPeakDbtp) noexcept;
+        void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
+        bool trackingAudible() const noexcept
+        { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
+        // H3／H4：MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
+        int matchWindowBlocks() const;
 
     private:
         struct Configuration
@@ -154,6 +164,7 @@ namespace hypha::reference_audition
             double truePeakDeltaBMinusA = 0.0;
             bool gainLimited = false;
             bool comparisonFallbackOriginal = false;
+            TrackingState tracking = TrackingState::none;
             bool valid = false;
         };
 
@@ -282,6 +293,9 @@ namespace hypha::reference_audition
         std::atomic<unsigned> contentObservationDemands { 0 }; // 1: view/capture, 2: queued B.
         std::atomic<bool> contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
+        std::atomic<bool> trackingEnabled { false };
+        std::atomic<int> trackingRampFrames { 2400 };
+        TrackingGainRamp rtTrackingRamp; // Audio-thread owned.
         std::atomic<std::uint64_t> auditionEpoch { 1 };
         std::atomic<std::uint64_t> activeAuditionEpoch { 0 };
         std::atomic<std::uint64_t> normalSelectionGeneration { 1 };

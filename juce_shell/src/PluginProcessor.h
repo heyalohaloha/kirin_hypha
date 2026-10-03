@@ -372,7 +372,10 @@ private:
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void serviceReferencePendingAudition();
     bool referencePendingAuditionNeedsService() const;
-    hypha::reference_audition::LiveALevel referenceLiveALevel (bool windowOnly = false) const;
+    void serviceReferenceTracking();            // H3: B・V の追従（1 秒ごと）
+    bool referenceTrackingNeedsService() const;
+    double referenceTrackingNextAtMs = 0.0;     // message thread only
+    hypha::reference_audition::LiveALevel referenceLiveALevel (bool windowOnly = false, int windowBlocks = 100) const;
     bool requestReferenceAudition (int slot);
     void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)

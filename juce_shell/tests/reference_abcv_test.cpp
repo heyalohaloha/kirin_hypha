@@ -3,10 +3,14 @@
 
 void testReferenceLibrarySets (const juce::File&);
 void testReferenceLiveWindow();
+void testReferenceTrackingRules();
+void testReferenceCueMatch (const juce::File&);
 void testReferenceAbcv (const juce::File&);
 
 void testReferenceAbcv (const juce::File& sandbox)
 {
     testReferenceLibrarySets (sandbox);  // H1
     testReferenceLiveWindow();           // H2
+    testReferenceTrackingRules();        // H3
+    testReferenceCueMatch (sandbox);     // H3・H4
 }

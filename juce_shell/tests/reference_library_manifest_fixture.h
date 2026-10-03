@@ -25,7 +25,7 @@ juce::var libraryManifest (const juce::File& root, juce::var preset, std::int64_
     require (writeJson (root.getChildFile ("library/manifests/" + juce::String (revision) + ".json"), value), "immutable library manifest fixture");
     return value;
 }
-juce::var independentLibraryManifest (const juce::File& root, juce::var preset, std::int64_t revision)
+[[maybe_unused]] juce::var independentLibraryManifest (const juce::File& root, juce::var preset, std::int64_t revision)
 {
     auto candidate = preset["checks"][0]["candidates"][0].clone();
     ref::RuntimeCandidate parsed;

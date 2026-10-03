@@ -47,6 +47,7 @@ namespace hypha::reference_audition
           presetAdoptionTransport (root),
           eventTransport (root)
     {
+        trackingEnabled.store (versionComparison, std::memory_order_release);  // H3: V は追従、C は固定
         outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
     }
@@ -69,6 +70,8 @@ namespace hypha::reference_audition
                                          int hostChannels)
     {
         normalFadeStep.store (static_cast<float> (1.0 / juce::jmax (1.0, hostSampleRate * 0.005)), std::memory_order_release);
+        trackingRampFrames.store (static_cast<int> (juce::jmax (1.0, std::round (hostSampleRate * trackingRampSeconds))),
+                                  std::memory_order_release);
         if (identity.hostProcessId == 0)
             identity.hostProcessId = currentProcessId();
         {
@@ -235,6 +238,7 @@ namespace hypha::reference_audition
             next.adjustedBMaximumTruePeakDbtp = currentSnapshot.adjustedBMaximumTruePeakDbtp;
             next.loudnessDeltaBMinusA = currentSnapshot.loudnessDeltaBMinusA;
             next.truePeakDeltaBMinusA = currentSnapshot.truePeakDeltaBMinusA;
+            next.tracking = currentSnapshot.tracking;
         }
         if (currentSnapshot.recoveryStatus.isNotEmpty())
             next.recoveryStatus = currentSnapshot.recoveryStatus;

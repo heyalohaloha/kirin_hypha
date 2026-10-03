@@ -170,6 +170,10 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const auto& audible = runtime.audibleComparisonSlot == 1
         || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive ? versionSelection : checkSelection;
     const bool callbackLive = processorRef.heartbeatLive();
+    // H3: 追従が上限（True Peak）で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
+    const bool trackingStopped = runtime.bSelected && audible.tracking == hypha::reference_audition::TrackingState::stoppedCeiling;
+    if (trackingStopped && ! referenceTrackingStopShown) showToast ("Level follow stopped at the safe ceiling. The current gain is kept.");
+    referenceTrackingStopShown = trackingStopped;
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
     const bool connected = runtime.libraryReceived;
