@@ -6,6 +6,7 @@
 
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaReferenceStatusModel.h"
+#include "../src/HyphaReferencePreparationWatch.h"
 
 namespace hypha::tests
 {
@@ -94,5 +95,42 @@ inline void verifyReferenceStatusLine()
     require (line.kind == StatusKind::ready && line.text == blind.status, "Blind keeps its own line");
     blind.blindPhase = reference_ui::BlindPhase::invalidated;
     require (reference_ui::referenceStatusLine (blind).kind == StatusKind::unable, "a stopped Blind cannot be heard");
+
+    // H6: 準備中を終わらない状態にしない。上限（Kirin OS の応答 5 秒、確認・読み込み・準備 10 秒、位置合わせは
+    // 再生 30 秒ぶん、A の音量は再生 10 秒ぶん）を超えたら「できない」と理由・直し方。段階・役が変われば数え直す。
+    reference_ui::PreparationWatch watch;
+    require (watch.observe (2, Step::preparing, false, true, true, 100.0).isEmpty()
+                 && watch.observe (2, Step::preparing, false, true, true, 109.0).isEmpty()
+                 && watch.observe (2, Step::preparing, false, true, true, 110.5) == "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
+             "preparing over 10 s becomes unavailable with its fix");
+    require (watch.observe (2, Step::loadingAudio, false, true, true, 111.0).isEmpty(), "a new step starts a new count");
+    require (watch.observe (3, Step::loadingAudio, false, true, true, 125.0).isEmpty(), "another role starts a new count");
+    for (double now = 200.0; now <= 260.0; now += 0.5)  // 位置合わせ：再生していない間は数えない
+        require (watch.observe (1, Step::aligning, false, true, now > 230.0, now).isEmpty(),
+                 "aligning counts only the time the DAW plays");
+    require (watch.observe (1, Step::aligning, false, true, true, 261.0) == "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+             "30 s of play without a match becomes unavailable");
+    require (watch.observe (2, Step::waitingForKirinOs, false, false, false, 300.0).isEmpty()
+                 && watch.observe (2, Step::waitingForKirinOs, false, false, false, 320.0).isEmpty()
+                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0) == "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS",
+             "a running Kirin OS that does not answer in 5 s is reported (a closed one already says open it)");
+    require (watch.observe (2, Step::playDaw, false, true, false, 400.0).isEmpty()
+                 && watch.observe (2, Step::playDaw, false, true, false, 900.0).isEmpty(),
+             "waiting for the user's own action has no time limit");
+    for (const auto* reason : { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+                                "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
+                                "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
+                                "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN" })
+        require (i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese) != juce::String ("V: ") + reason
+                     && ! i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese).containsIgnoreCase ("NOT"),
+                 "every overdue reason reads in Japanese with its fix");
+    auto overdue = named ("ready");
+    overdue.separateComparisons = true;
+    overdue.comparisonSlot = 1;
+    overdue.versionStep = Step::aligning;
+    overdue.preparationOverdue = "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN";
+    const auto overdueLine = reference_ui::referenceStatusLine (overdue);
+    require (overdueLine.kind == StatusKind::unable && overdueLine.text == "V: NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+             "an overdue wait turns the status line unavailable with the role's reason and fix");
 }
 }

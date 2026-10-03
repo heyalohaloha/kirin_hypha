@@ -21,6 +21,14 @@ const Entry entries[] = {
     { "Play A for the length of the Cue, then MATCH again.", u8"Cueの長さだけAを再生してから、もう一度MATCHを押してください。" },
     { "MATCH exceeds the safe level. The current gain is kept.", u8"MATCHが安全上限を超えます。今のgainを保ちます。" },
     { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
+    // H6：待ちが上限を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
+    { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+      u8"再生10秒でAを測れません / Aを長めに再生して選び直す" },
+    { "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", u8"Kirin OSが応答しません / Kirin OSを開く" },
+    { "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS", u8"10秒で音源を確認できません / Kirin OSで確認" },
+    { "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", u8"10秒で読み込めません / 別の位置から再生" },
+    { "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS", u8"10秒で準備できません / Kirin OSで開く" },
+    { "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN", u8"再生30秒で位置が合いません / Versionを選び直す" },
     { "V is measured over the same section as A while they are aligned",
       u8"位置合わせしているあいだ、VをAと同じ区間で測ります" },
 };
