@@ -157,8 +157,18 @@ void testReferenceLowerA (const juce::File& sandbox)
     require (refused.matchFailure == ref::MatchFailure::ceilingExceeded && closeTo (refused.neededAttenuationDb, -8.0),
              "the refusal names how far A must be lowered to match");
 
+    // 承認は承認のボタンに出した量で下げる（状態が作り直されても、利用者が見た量）。量の無い承認・鳴らす待ちを
+    // 立てられない承認（ローカル Blind の準備中）では A を下げない（下げたまま「下げていない」と言わない）。
+    require (! controller.approveLowerAAndPlay (3, 0.0) && controller.heldAttenuationDb() == 0.0,
+             "an approval without an amount lowers nothing");
+    require (controller.reserveLocalBlind(), "a local Blind takes the audition gate");
+    require (! controller.approveLowerAAndPlay (3, refused.neededAttenuationDb) && controller.heldAttenuationDb() == 0.0,
+             "an approval that cannot queue the role leaves A at its level");
+    controller.releaseLocalBlind (0);
+
     // 承認：A を 8 dB 下げ、下げ終わってから B を鳴らす。B は元の音量（0.1）、下がっているあいだ B は聴こえない。
-    require (controller.approveLowerAAndPlay (3) && closeTo (controller.heldAttenuationDb(), -8.0), "the approval holds A 8 dB lower");
+    require (controller.approveLowerAAndPlay (3, refused.neededAttenuationDb) && closeTo (controller.heldAttenuationDb(), -8.0),
+             "the approval holds A 8 dB lower");
     // 下げるのは 50 ms の直線（1 → 0.398 は約 1445 サンプル、480 のブロックで 4 つ目に着く）。B を選ぶのはその後。
     const auto lowered = static_cast<float> (aLevel * std::pow (10.0, -8.0 / 20.0));
     int blocks = 0;

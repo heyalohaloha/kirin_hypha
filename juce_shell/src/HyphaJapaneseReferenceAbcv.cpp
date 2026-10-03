@@ -73,6 +73,8 @@ const Entry entries[] = {
     { "A LOWERED %1 DB", u8"Aを%1 dB下げ中" },
     { "%1 needs A %2 dB lower to match. Press LOWER A.", u8"%1はAを%2 dB下げると合います。「Aを下げて…」を押してください。" },
     { "A was not lowered. Press the role again.", u8"Aは下げていません。もう一度押してください。" },
+    { "PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.",
+      u8"PRE / POST LISTENがPOSTを使っています。終了するかRETURNを押してから、もう一度押してください。" },
 };
 }
 

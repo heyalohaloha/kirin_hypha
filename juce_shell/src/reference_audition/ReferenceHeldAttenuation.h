@@ -8,6 +8,9 @@
 
 namespace hypha::reference_audition
 {
+// 上限超えの承認の結果。断ったときは理由を言う（R-28：押した利用者に「下げた」と思わせない）。
+enum class LowerAApproval { lowered, postInUse, refused };
+
 // 2026-10-03（Daisuke 承認、R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、利用者が承認すれば
 // A（POST の出力全体）を差だけ下げて合わせる。参照は元の音量のまま（上げない）。承認した量は試聴の後も、
 // 利用者が RETURN で戻すまで保ち、急に上げない（live PRE/POST 比較の POST の減衰と同じ）。オフライン書き出し・
@@ -27,6 +30,13 @@ public:
         if (wanted < target.load (std::memory_order_acquire)) target.store (wanted, std::memory_order_release);
     }
     void release() noexcept { target.store (1.0f, std::memory_order_release); }
+    // メッセージスレッド。鳴らせなかった承認を取り消すときだけ、承認の前の量に戻す（下げたままにしない）。
+    void restore (double attenuationDb) noexcept
+    {
+        target.store (std::isfinite (attenuationDb) && attenuationDb < 0.0
+                          ? static_cast<float> (std::pow (10.0, std::max (-60.0, attenuationDb) / 20.0)) : 1.0f,
+                      std::memory_order_release);
+    }
     double targetDb() const noexcept { return toDb (target.load (std::memory_order_acquire)); }
     bool held() const noexcept { return target.load (std::memory_order_acquire) < 1.0f; }
     // 掛けている量が目標に着いた（下げ終わる前に新しい役を鳴らさない。鳴らすと一瞬大きく聴こえる）。
