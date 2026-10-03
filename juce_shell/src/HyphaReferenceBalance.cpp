@@ -60,9 +60,6 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
     text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (header.getWidth() / 3), juce::Justification::centredLeft);
-    g.setColour (COL_TEXT_TERTIARY);
-    g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
-    text_style::drawEllipsized (g, "20 Hz - 20 kHz", header, juce::Justification::centredRight);
     auto legend = bounds.removeFromBottom (18.0f).reduced (9.0f, 0.0f).toNearestInt();
     auto chart = bounds.reduced (10.0f, 6.0f);
     g.setColour (COL_MUTED.withAlpha (0.10f));
@@ -70,8 +67,17 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.drawVerticalLine (juce::roundToInt (xFor (hz, chart)), chart.getY(), chart.getBottom());
 
     // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
-    const auto shift = [&state] (const SongFact& fact)
-    { return std::isfinite (state.aWindowLoudness) && std::isfinite (fact.lufsI) ? state.aWindowLoudness - fact.lufsI : 0.0; };
+    // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
+    // 曲の LUFS-I が無い）曲はそのままの高さで描き、見出しの右に「音量はそろっていない」と出す。
+    const bool bPlaying = state.bSelected && state.audibleComparisonSlot == 3;
+    bool unmatched = false;
+    const auto shift = [&state, &unmatched, bPlaying] (const SongFact& fact, bool chosenSong)
+    {
+        if (chosenSong && bPlaying && std::isfinite (state.appliedGainDb)) return state.appliedGainDb;
+        if (std::isfinite (state.aWindowLoudness) && std::isfinite (fact.lufsI)) return state.aWindowLoudness - fact.lufsI;
+        unmatched = true;
+        return 0.0;
+    };
     const SongFact* chosen = nullptr;
     std::vector<const SongFact*> set;
     for (size_t index = 0; index < state.songFacts.size() && index < state.songs.size(); ++index)
@@ -91,7 +97,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         for (size_t bin = 0; bin < centers.size(); ++bin)
         {
             std::vector<double> values;
-            for (const auto* fact : comparable) values.push_back (fact->medianDb[bin] + shift (*fact));
+            for (const auto* fact : comparable) values.push_back (fact->medianDb[bin] + shift (*fact, fact == chosen));
             const juce::Point<float> top { xFor (centers[bin], chart), yFor (percentile (values, 0.9), chart) };
             lower.push_back ({ top.x, yFor (percentile (values, 0.1), chart) });
             if (bin == 0) band.startNewSubPath (top); else band.lineTo (top);
@@ -104,7 +110,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     if (chosen != nullptr)
     {
         std::vector<float> shifted;
-        for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen)));
+        for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen, true)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
         g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.6f));
     }
@@ -117,6 +123,9 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.setColour (COL_FLORA_BR.withAlpha (0.95f));
         g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (1.8f));
     }
+    g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
+    g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
+    text_style::drawEllipsized (g, unmatched ? "LEVEL NOT MATCHED" : "20 Hz - 20 kHz", header, juce::Justification::centredRight);
     if (chosen == nullptr && comparable.empty())
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));

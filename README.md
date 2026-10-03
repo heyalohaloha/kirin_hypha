@@ -559,31 +559,39 @@ Reference has four roles, each with its own button in the same place at every si
 
 - **A — LIVE**: the DAW input. A is never processed; every other role is an audition copy.
 - **B — REF**: the songs of a B set. In Kirin OS you rank up to three B sets for Hypha; choose the
-  set and the song on the B page. Choosing another song while B plays keeps B, with the new song
-  once it is ready.
+  set and the song on the B page. A song plays its Cue as Kirin OS set it. If a chosen song leaves
+  the B set, Hypha says so instead of switching to another song. If Hypha cannot read a B set (for
+  example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
+  stay usable, and while Kirin OS is publishing new sets the current ones stay.
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
   to listen for; its song defaults to the first-ranked B set. The Cue is the section C plays.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
-Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages and their tabs change
-only the display. Receiving or restoring settings never starts a role.
+Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
+display. Choosing a different song, Check, Cue or Version changes only that role: if it was playing,
+it fades to A and plays the new choice with a new MATCH as soon as it is ready; the other roles keep
+playing. Receiving or restoring settings never starts a role.
 
 **Level matching.** B and V follow A: every second Hypha measures A's gated loudness over the last
 10 seconds (BS.1770 gating of the 100 ms momentary history) and moves the audition copy toward
 "A − the source's level" with a 50 ms ramp, ignoring changes within 0.5 dB. B uses its Cue's
 Integrated loudness from Kirin OS (the whole song when the Cue has no value); V pairs A with the
 aligned V content over the same window. Following never raises the copy above
-max(−1 dBTP, A's maximum true peak, the source's maximum true peak); at that ceiling it stops,
-keeps the current gain and says so. C matches once and stays fixed: on selection it compares A's
-gated loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated
-loudness, and **MATCH** on the C page matches again from the current A window. A match over the
-ceiling, or without enough A, keeps the current gain and says why. A Check set to original level
-in Kirin OS plays as is.
+max(−1 dBTP, A's maximum true peak, the source's maximum true peak) and never moves more than 6 dB
+from the gain of the MATCH you started (as AUTO in the live PRE/POST compare); at either limit it
+stops, keeps the current gain and says so. C matches once and stays fixed: it compares A's gated
+loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated
+loudness, and waits until A has played for the Cue's length (at most 30 s) so that a fixed gain is
+not set from a few seconds; pressing C earlier queues it and C starts once A is measured. **MATCH** on
+the C page matches again from the current A window. A match over the ceiling, or without enough A,
+keeps the current gain and says why. A Check set to original level in Kirin OS plays as is.
 
 A stop or seek keeps the selection: the same source returns at the same gain once it is ready again,
-as in the live PRE/POST compare. Sample-rate conversion of the audition copy is automatic (the
-source file is never changed). Lowering A for a Blind whose match exceeds the ceiling still requires
-explicit approval. Offline render, a missing or changed source, or a failed check leaves A playing.
+as in the live PRE/POST compare. An offline render, a local Blind or starting the live PRE/POST
+compare clears that held selection, so nothing returns on its own afterwards. Sample-rate conversion
+of the audition copy is automatic (the source file is never changed). Lowering A for a Blind whose
+match exceeds the ceiling still requires explicit approval. Offline render, a missing or changed
+source, or a failed check leaves A playing.
 
 **Status.** The line under each page says one of three things, with a dot: ready (cyan: what plays
 and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
@@ -591,9 +599,9 @@ level), waiting (gold: what it waits for and how it proceeds, such as playing th
 unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). A role that
 cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
-alignment, 30 s of play; A's level for MATCH, 10 s of play) it turns unavailable with its reason and
-fix, and returns to ready once the source is. Blind keeps its own line and never says which source
-plays or how it is matched.
+alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
+its reason and fix, shown even under the start guide, and returns to ready once the source is. Blind
+keeps its own line and never says which source plays or how it is matched.
 
 **Pages.** Each role has its page at 300% (900×600). Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
@@ -611,11 +619,18 @@ shows the song and the status; songs are switched from 125%.
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
   position; these controls never seek the DAW or switch audio. Each Check tab compares A and V over
-  the same aligned section. VERSION BLIND opens from this page; Blind hides these graphs and their
-  accessibility content. The Version list marks one **AUTO** with its agreement: Hypha measures A's
-  Kirin fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each
-  Version's fingerprint within ±30 s of the DAW position. When no Version is chosen, the AUTO one is
-  chosen; a manual choice is never replaced.
+  the same aligned section as that Check looks at it: a low-band Check shows 20–250 Hz, and a Check
+  that does not look at spectrum or balance (loudness, dynamics, stereo) says it is shown on C.
+  VERSION BLIND opens from this page; Blind hides these graphs and their accessibility content.
+  **AUTO** finds the Version you are working on: while Reference is open, Hypha measures A's Kirin
+  fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each Version's
+  fingerprint, first within ±30 s of the DAW position, then anywhere in the song, so a song that
+  starts later on the timeline (an album session) is found too. The best Version that Kirin OS would
+  call the same song is marked AUTO with its agreement — another mix of your song counts. Away from
+  the DAW position only a strong match (agreement 0.70 or more) counts. When no Version is chosen,
+  the AUTO one is chosen once it is the best twice in a row; AUTO changes only V's choice and never
+  stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
+  replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
 
 A is gold and the compared role is cyan on every page; colour never scores a result.
 

@@ -86,8 +86,12 @@ void SongList::paint (juce::Graphics& g)
 
 void SongList::mouseDown (const juce::MouseEvent& event)
 {
-    const auto index = (event.getPosition().getY() - 6 - 18) / rowHeight();
-    if (index < 0 || index >= static_cast<int> (items.size())) return;
+    // 見出し（上の 18 px）・余白・描いていない行（はみ出した行）を押しても選ばない（paint と同じ区切り）。
+    auto content = getLocalBounds().reduced (8, 6);
+    content.removeFromTop (18);
+    if (! content.contains (event.getPosition())) return;
+    const auto index = (event.getPosition().getY() - content.getY()) / rowHeight();
+    if (index >= content.getHeight() / rowHeight() || index >= static_cast<int> (items.size())) return;
     const auto& row = items[static_cast<size_t> (index)];
     if (! row.selected && onChoose) onChoose (row.id);
 }

@@ -1,4 +1,6 @@
 #pragma once
+
+#include <map>
 #include "HyphaReferenceCaptureControls.h"
 
 #include <array>
@@ -162,7 +164,8 @@ struct State
     SourceStep referenceStep = SourceStep::waitingForKirinOs;
     std::vector<SelectionOption> songSets, songs;
     std::vector<SongFact> songFacts; // H11: songs と同じ順
-    juce::String songSetId, songId;
+    std::map<juce::String, std::vector<juce::String>> checkViewBindings; // H13: V のタブの Check ごとの表示
+    juce::String songSetId, songId, songSetsIssue; // songSetsIssue：Kirin OS のセットを読めなかった理由（空なら無し）
     // H12: 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;

@@ -165,8 +165,10 @@ namespace hypha::reference_audition
         RuntimeManifest manifest;
         RuntimeGlobalPresetCatalog globalPresetCatalog;
         std::vector<RuntimePreset> presets;
-        // sets.json が無い・まだ別の manifest のもの・読めないときは空（manifest だけで今までどおり動く）。
+        // sets.json が無い・読めないときは空（manifest だけで今までどおり動く）。新しい manifest に sets.json が
+        // まだ追いついていない・読めないときは、前の sets を保つ（CHECK セットは今の manifest にある Preset だけ）。
         std::optional<RuntimeLibrarySets> librarySets;
+        juce::String librarySetsIssue; // sets.json を読めなかった・一部を飛ばした理由（B の画面が直し方を出す）
     };
 
     enum class RuntimeWorkspaceLoadState

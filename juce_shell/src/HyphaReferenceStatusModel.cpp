@@ -46,6 +46,7 @@ StatusLine referenceStatusLine (const State& state)
         const auto how = state.originalAudition ? role + " ORIGINAL LEVEL"
             : state.tracking == Tracking::following ? role + " FOLLOWING A (LAST 10 S)"
             : state.tracking == Tracking::stoppedCeiling ? role + " FOLLOW STOPPED AT THE CEILING"
+            : state.tracking == Tracking::stoppedRange ? role + " FOLLOW STOPPED 6 DB FROM MATCH"
             : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
         return { StatusKind::ready, how + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
@@ -62,7 +63,9 @@ StatusLine referenceStatusLine (const State& state)
         return { state.readiness == Readiness::ready && state.auditionBuffered ? StatusKind::ready : StatusKind::waiting,
                  state.status };
     if (state.comparisonSlot == 3 && state.songSets.empty())
-        return { StatusKind::unable, state.libraryReceived ? "B: RANK A B SET FOR HYPHA IN KIRIN OS" : state.status };
+        return { StatusKind::unable, ! state.libraryReceived ? state.status
+                 : state.songSetsIssue.isNotEmpty() ? juce::String ("B: B SET NOT READ / UPDATE KIRIN OS AND HYPHA")
+                 : juce::String ("B: RANK A B SET FOR HYPHA IN KIRIN OS") };
     const auto step = state.comparisonSlot == 1 ? state.versionStep
                     : state.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
     // Kirin OS を待っている段階は、Kirin OS が閉じていれば待っても進まない（開くのが直し方）。
@@ -72,6 +75,16 @@ StatusLine referenceStatusLine (const State& state)
     return { kind, state.status };
 }
 
+juce::String gainReadoutState (const State& state)
+{
+    using Tracking = reference_audition::TrackingState;
+    return state.originalAudition || state.comparisonFallbackOriginal ? "ORIGINAL"
+         : state.gainLimited ? "MATCH UNAVAILABLE"
+         : state.tracking == Tracking::following ? "FOLLOWING"
+         : state.tracking == Tracking::stoppedCeiling || state.tracking == Tracking::stoppedRange ? "FOLLOW STOPPED"
+         : "MATCHED";
+}
+
 juce::Colour statusColour (StatusKind kind) noexcept
 {
     return kind == StatusKind::ready ? COL_SPECTRUM_DELTA : kind == StatusKind::waiting ? COL_FLORA : COL_MUTED;
@@ -79,6 +92,7 @@ juce::Colour statusColour (StatusKind kind) noexcept
 
 void paintStatusDot (juce::Graphics& g, juce::Rectangle<int> line, StatusKind kind)
 {
+    const juce::Graphics::ScopedSaveState saved (g);  // 点の色を後に描く文字へ残さない
     const auto dot = juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ static_cast<float> (line.getX()) + 7.0f,
                                                                          static_cast<float> (line.getCentreY()) });
     g.setColour (statusColour (kind).withAlpha (0.25f));

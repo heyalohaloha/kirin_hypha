@@ -12,6 +12,12 @@ using namespace runtime_repository_parsing;
 
 namespace
 {
+// 書き換えの途中（別の manifest の sets）は理由にしない（すぐ追いつく）。
+juce::String setsIssue (const juce::String& rejection)
+{
+    return rejection == "reference_library_sets_stale" ? juce::String {} : rejection;
+}
+
 // H1: manifest が同じでも、Kirin OS で順位だけを変えると sets.json だけが書き換わる。
 // 読めないときや書き換えの途中（別の manifest の sets）のときは、今の sets をそのまま保つ。
 RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shared_ptr<const RuntimeWorkspace> current)
@@ -19,11 +25,20 @@ RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shar
     juce::String rejection;
     auto sets = readReferenceLibrarySets (root, *current, rejection);
     const auto unchanged = RuntimeWorkspaceLoadResult { RuntimeWorkspaceLoadState::unchanged, current, {} };
-    if (! sets && rejection.isNotEmpty()) return unchanged;
-    if (sets.has_value() == current->librarySets.has_value() && (! sets || sets->hash == current->librarySets->hash))
+    const auto issue = rejection == "reference_library_sets_stale" ? current->librarySetsIssue : rejection;
+    if (! sets && rejection.isNotEmpty())
+    {
+        if (issue == current->librarySetsIssue) return unchanged;
+        auto updated = std::make_shared<RuntimeWorkspace> (*current);
+        updated->librarySetsIssue = issue;
+        return { RuntimeWorkspaceLoadState::updated, updated, {} };
+    }
+    if (sets.has_value() == current->librarySets.has_value() && (! sets || sets->hash == current->librarySets->hash)
+        && issue == current->librarySetsIssue)
         return unchanged;
     auto updated = std::make_shared<RuntimeWorkspace> (*current);
     updated->librarySets = std::move (sets);
+    updated->librarySetsIssue = issue;
     applyLibrarySongEntries (root, *updated);
     return { RuntimeWorkspaceLoadState::updated, updated, {} };
 }
@@ -102,6 +117,11 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
         return failure ("reference_library_versions_rejected", previous);
     juce::String setsRejection;
     next->librarySets = readReferenceLibrarySets (root, *next, setsRejection);
+    // Kirin OS は manifest を先に書き、sets.json はその直後に続く。追いつくまで（読めないあいだも）前の sets を
+    // 保つ（B の曲が一瞬消えて選択や鳴っている B を失わない）。
+    if (! next->librarySets && setsRejection.isNotEmpty() && previous && previous->librarySets)
+        next->librarySets = carriedLibrarySets (*previous->librarySets, next->manifest);
+    next->librarySetsIssue = setsIssue (setsRejection);
     applyLibrarySongEntries (root, *next);
     return { RuntimeWorkspaceLoadState::updated, next, {} };
 }

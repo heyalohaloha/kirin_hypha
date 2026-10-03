@@ -12,14 +12,16 @@ double referenceGainHeadroomDb (double sourcePeakDbtp, double aPeakDbtp) noexcep
     return std::max (0.0, ceiling - sourcePeakDbtp);
 }
 
-TrackingStep trackingStep (double requiredGainDb, double currentGainDb,
-                           double sourcePeakDbtp, double aPeakDbtp) noexcept
+TrackingStep trackingStep (double requiredGainDb, double currentGainDb, double sourcePeakDbtp, double aPeakDbtp,
+                           double anchorGainDb) noexcept
 {
     if (! std::isfinite (requiredGainDb) || requiredGainDb < -100.0 || requiredGainDb > 100.0
         || ! std::isfinite (currentGainDb) || std::abs (requiredGainDb - currentGainDb) < trackingToleranceDb)
         return {};
     if (requiredGainDb > 0.0 && referenceGainHeadroomDb (sourcePeakDbtp, aPeakDbtp) + 1.0e-9 < requiredGainDb)
         return { TrackingAction::stopCeiling, requiredGainDb };
+    if (std::isfinite (anchorGainDb) && std::abs (requiredGainDb - anchorGainDb) > trackingRangeDb + 1.0e-9)
+        return { TrackingAction::stopRange, requiredGainDb };
     return { TrackingAction::move, requiredGainDb };
 }
 

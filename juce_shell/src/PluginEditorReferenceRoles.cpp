@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaReferencePendingUI.h"
 
 // H10: A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
@@ -34,7 +35,8 @@ void KirinHyphaEditor::wireReferenceRoles()
             case Result::matched: break;
             case Result::notPlaying: showToast ("C is not playing. Press C to play it matched."); break;
             case Result::original: showToast ("This Check plays at its original level."); break;
-            case Result::levelUnavailable: showToast ("Play A for the length of the Cue, then MATCH again."); break;
+            case Result::peakMatch: showToast ("This Check matches True Peak when C starts. Press A, then C."); break;
+            case Result::levelUnavailable: showToast ("Play A for the Cue length (up to 30 s), then MATCH again."); break;
             case Result::ceilingExceeded: showToast ("MATCH exceeds the safe level. The current gain is kept."); break;
         }
     };
@@ -43,8 +45,13 @@ void KirinHyphaEditor::wireReferenceRoles()
 void KirinHyphaEditor::openReferenceLarge (int slot)
 {
     // H10: 300% 未満で C・V を押したら 300% に広げてその役の画面を開く。鳴らすのはもう一度押したとき。
+    // まだ鳴らせない（準備中・選んでいない）ときは「押せば鳴る」と言わない（理由は開いた画面の状態の行）。
+    const auto& state = referenceView.state();
+    const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
+                                    : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
     setSize (900, 600);
-    showToast (slot == 1 ? "V opened at 300%. Press V to listen." : "C opened at 300%. Press C to listen.");
+    if (slot == 1) showToast (playable ? "V opened at 300%. Press V to listen." : "V opened at 300%.");
+    else showToast (playable ? "C opened at 300%. Press C to listen." : "C opened at 300%.");
 }
 
 void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
@@ -82,6 +89,12 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     }
     state.songSetId = runtime.selectedSongSetId;
     state.songId = runtime.selectedSongId;
+    state.songSetsIssue = runtime.songSetsIssue;
+    // Kirin OS のセットの一部を読めなかったら一度だけ知らせる（R-28：Kirin OS で選んだものが黙って消えない）。
+    // 全部を読めないときは B の画面の状態の行が言う。
+    if (runtime.songSetsIssue.isNotEmpty() && ! runtime.songSets.empty() && referenceSetsIssueShown != runtime.songSetsIssue)
+        showToast ("Some Kirin OS sets were not read. Update Kirin OS and Hypha.");
+    referenceSetsIssueShown = runtime.songSetsIssue;
     state.referenceStep = ! runtime.libraryReceived ? hypha::reference_ui::SourceStep::waitingForKirinOs
         : runtime.songSets.empty() ? hypha::reference_ui::SourceStep::chooseSource
         : slotStep (slot, state.aAvailable);
@@ -97,30 +110,30 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
     state.aWindowLoudness = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
     rankCheckSets (state, checkRole.checkSetRanks);
-    // H7: V の自動特定（V の画面を見ているあいだ 3 秒ごと）。AUTO の Version に一致率を添え、Version を
-    // 選んでいなければ一度だけ選ぶ。手動で選んだ Version は変えない。
+    // H7: V の自動特定（Reference を開いているあいだ、どの画面でも 3 秒ごと）。Kirin OS の「同じ曲」以上で一致率の
+    // 最も高い Version に AUTO と一致率を添え、V を選んでいなければ（または AUTO の選んだものより明らかに合えば）
+    // V の選択だけを替える（鳴っている B・C は止めない。V が鳴っている・待っているあいだは替えない）。
+    // 利用者が選んだ Version は替えない。
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
-    if (runtime.comparisonSlot == 1 && nowMs >= referenceIdentifyAtMs)
+    if (nowMs >= referenceIdentifyAtMs)
     {
         referenceVersionIdentity = processorRef.identifyReferenceVersion();
         referenceIdentifyAtMs = nowMs + 3000.0;
+        if (const auto next = referenceAutoChooser.next (referenceVersionIdentity, runtime.selectedVersionId, runtime.versionAuto);
+            next.isNotEmpty())
+            processorRef.selectReferenceVersion (next, true);
     }
     for (auto& option : state.versions)
         if (option.id == referenceVersionIdentity.autoId)
             option.label += "   AUTO " + juce::String (referenceVersionIdentity.autoAgreement, 2);
-    if (state.versionId.isEmpty() && referenceVersionIdentity.autoId.isNotEmpty()
-        && referenceAutoSelected != referenceVersionIdentity.autoId)
-    {
-        referenceAutoSelected = referenceVersionIdentity.autoId;
-        processorRef.selectReferenceVersion (referenceAutoSelected);
-    }
-    // H6: 見ている役の待ちが上限を超えたら、状態の行で「できない」と理由・直し方を出す。
-    const auto viewedStep = runtime.comparisonSlot == 1 ? state.versionStep
-                          : runtime.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
-    const bool measuringA = state.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::level;
+    // H6: 待っている役（押した後の待ちがあればその役、無ければ見ている役）の待ちが上限を超えたら、状態の行で
+    // 「できない」と理由・直し方を出す。
+    const bool pendingWaiting = state.pendingAudition.waiting();
+    const int watchedSlot = pendingWaiting ? state.pendingAudition.slot : runtime.comparisonSlot;
+    const auto watchedStep = watchedSlot == 1 ? state.versionStep : watchedSlot == 3 ? state.referenceStep : state.checkStep;
+    const bool measuringA = pendingWaiting && state.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::level;
     state.preparationOverdue = referencePreparationWatch.observe (
-        measuringA ? state.pendingAudition.slot : runtime.comparisonSlot, viewedStep, measuringA, state.osOnline,
-        state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);
+        watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
     // （直し方は曲の側から。H9）。
     if (runtime.comparisonSlot == 3) state.actionText.clear();

@@ -92,6 +92,14 @@ inline void verifyReferenceAbcvRoles()
             list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, 6.0f + 18.0f + 30.0f + 4.0f },
                 juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, 58.0f }, juce::Time(), 1, false));
             require (listed == "e2/e2/song-2", "a row press chooses that song");
+            // 見出し（上の 18 px）と、行の無い下の余白を押しても選ばない。
+            for (const auto y : { 6.0f + 9.0f, 6.0f + 18.0f + 2.0f * 34.0f + 5.0f })  // 見出しと、2 行の下
+            {
+                listed.clear();
+                list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, y },
+                    juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, y }, juce::Time(), 1, false));
+                require (listed.isEmpty(), "pressing the header or the empty space chooses no song");
+            }
             list->onChoose = [&panel] (const juce::String& id) { if (panel.onSelectSong) panel.onSelectSong (id); };
         }
         int auditions = 0;

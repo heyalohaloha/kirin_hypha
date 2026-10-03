@@ -161,7 +161,7 @@ namespace hypha::reference_audition
         double aIntegratedLoudness, bool approveLowerA) noexcept
     {
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
-        if (! ready.load (std::memory_order_acquire)
+        if (! ready.load (std::memory_order_acquire) || revokeAfterFade.load (std::memory_order_acquire)
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
             || bSelected.load (std::memory_order_acquire) || blind.ongoing())

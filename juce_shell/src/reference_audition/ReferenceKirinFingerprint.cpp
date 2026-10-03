@@ -23,10 +23,16 @@ int nextPowerOfTwo (int value) noexcept
     return result;
 }
 
+// JavaScript の Math.round と同じ丸め（0.5 は大きい方へ）。
+double jsRound (double value) noexcept { return std::floor (value + 0.5); }
+
 float quantizedLufs (double lufs) noexcept
 {
-    // Kirin OS の 1 バイト：round((LUFS + 70) × 2) を 0〜255 に。無しは 0（= −70）。
-    const auto byte = std::isfinite (lufs) ? std::clamp (std::round ((lufs + 70.0) * 2.0), 0.0, 255.0) : 0.0;
+    // Kirin OS と同じ 2 段：LUFS-M を millilu の整数にし（ranges の lufs_m_millilu）、その値から 1 バイトの
+    // round((millilu / 1000 + 70) × 2) を 0〜255 に。無しは 0（= −70）。1 段で丸めると境目の 0.0005 LU で違う。
+    if (! std::isfinite (lufs)) return -70.0f;
+    const auto millilu = jsRound (lufs * 1000.0);
+    const auto byte = std::clamp (jsRound ((millilu / 1000.0 + 70.0) * 2.0), 0.0, 255.0);
     return static_cast<float> (byte / 2.0 - 70.0);
 }
 
@@ -100,13 +106,18 @@ int voicedTicks (const KirinFingerprint& print)
 
 FingerprintMatch compareFingerprints (const KirinFingerprint& a, const KirinFingerprint& b)
 {
+    return compareFingerprints (a, b, -maximumOffsetTicks, maximumOffsetTicks);
+}
+
+FingerprintMatch compareFingerprints (const KirinFingerprint& a, const KirinFingerprint& b, int minimumOffset, int maximumOffset)
+{
     FingerprintMatch result;
     if (a.bits.size() != a.lufs.size() || b.bits.size() != b.lufs.size()) return result;
     const auto required = std::max (static_cast<double> (minimumOverlapTicks), std::min (voicedTicks (a), voicedTicks (b)) / 2.0);
     const auto range = voicedRange (a);
     struct Coarse { double agreement; int offset; };
     std::vector<Coarse> coarse;
-    for (int offset = -maximumOffsetTicks; offset <= maximumOffsetTicks; ++offset)
+    for (int offset = minimumOffset; offset <= maximumOffset; ++offset)
     {
         const auto found = agreementAt (a, b, offset, coarseStep, range);
         if (found.count * coarseStep >= required) coarse.push_back ({ found.agreement, offset });

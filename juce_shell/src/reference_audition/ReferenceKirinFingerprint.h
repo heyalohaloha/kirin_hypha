@@ -36,6 +36,9 @@ struct FingerprintMatch
 };
 
 FingerprintMatch compareFingerprints (const KirinFingerprint& a, const KirinFingerprint& b);
+// 同じ照合をずれの範囲を指定して（b の t + offset に a の t、offset は [minimumOffset, maximumOffset]）。
+// V の自動特定で、曲が DAW の時間軸のどこにあっても探すために使う（しきい値・刻み・同点の扱いは同じ）。
+FingerprintMatch compareFingerprints (const KirinFingerprint& a, const KirinFingerprint& b, int minimumOffset, int maximumOffset);
 // ranges の chroma_signs（区切りごとの 16 bit、リトルエンディアン）と loudness（1 バイト）から。
 KirinFingerprint decodeFingerprint (const juce::MemoryBlock& chromaSigns, const juce::MemoryBlock& loudness, std::int64_t ticks);
 // 区切りごとのクロマ（power）と LUFS-M から、Kirin OS と同じ並べ方の指紋を作る。

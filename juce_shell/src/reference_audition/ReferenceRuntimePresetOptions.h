@@ -26,6 +26,7 @@ namespace hypha::reference_audition
                 if (!preset.versionEntry && !preset.songEntry && preset.sourcePresetArtifact.presetId == snapshot.presetId)
                     for (const auto& check : preset.checks)
                     {
+                        snapshot.checkViewBindings[check.checkId] = check.viewBindings;
                         if (check.candidates.empty())
                             snapshot.checkTargets.push_back ({ check.checkId + "/",
                                 check.label + " / NO SOURCE IN KIRIN OS", {}, false });
@@ -65,6 +66,7 @@ namespace hypha::reference_audition
         };
         for (const auto& item : workspace.presets) if (!item.versionEntry && !item.songEntry) appendWork (item, false);
         if (workspace.library && workspace.librarySets) snapshot.checkSetRanks = workspace.librarySets->checkSets;
+        if (workspace.library) snapshot.songSetsIssue = workspace.librarySetsIssue;
         if (workspace.library && workspace.librarySets)
             for (const auto& set : workspace.librarySets->songSets)
             {

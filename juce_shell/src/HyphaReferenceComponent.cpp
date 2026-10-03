@@ -271,6 +271,7 @@ void Component::paint (juce::Graphics& g)
                               typography::Composition::information));
         const auto label = [&] (const juce::ComboBox& box, const juce::String& text)
         {
+            if (! box.isVisible()) return;  // 隠れた選択欄の見出しは描かない（前の配置の位置に残さない）
             auto bounds = box.getBounds();
             if (detailedLayout()) bounds = bounds.withY (bounds.getY() - 17).withHeight (15);
             else bounds = bounds.withX (bounds.getX() - 14).withWidth (12);
@@ -434,9 +435,9 @@ void Component::paint (juce::Graphics& g)
     if (detailedLayout() && current.bSelected)
         primaryStatusArea = gainStatusArea.removeFromLeft (
             juce::roundToInt (gainStatusArea.getWidth() * 0.42f));
-    // The guide already says the next step; the line stays for a rejection or an action.
+    // The guide already says the next step; the line stays for a rejection, an action or an overdue wait (H6).
     const bool statusShown = ! guideShown || current.readiness == Readiness::rejected
-                          || actionButton.isVisible();
+                          || actionButton.isVisible() || current.preparationOverdue.isNotEmpty();
     if (statusShown && ! blindRevealed) paintStatusDot (g, primaryStatusArea, line.kind);
     if (statusShown)
         text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0).withTrimmedLeft (blindRevealed ? 0 : 12),
@@ -473,8 +474,7 @@ void Component::paint (juce::Graphics& g)
         if (current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage())  // C の画面は MATCH の横に出す
         {
             const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
-                + (current.originalAudition || current.comparisonFallbackOriginal ? "ORIGINAL"
-                   : current.gainLimited ? "MATCH UNAVAILABLE" : "MATCHED");
+                + gainReadoutState (current);
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,
                                   typography::Composition::information));

@@ -21,7 +21,7 @@ bool RuntimeV2Controller::selectLibraryCheck (const juce::String& id)
         ++requestedSelection.generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;
-        revokeAuditionPublication();
+        revokeAfterFadeLocked();
     }
     selectA(); notify(); return true;
 }
@@ -46,7 +46,7 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
         ++requestedSelection.generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;
-        revokeAuditionPublication();
+        revokeAfterFadeLocked();
     }
     selectA();
     notify();
@@ -73,7 +73,7 @@ bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
         ++requestedSelection.generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;
-        revokeAuditionPublication();
+        revokeAfterFadeLocked();
     }
     selectA();
     notify();
@@ -103,7 +103,7 @@ void RuntimeV2Controller::restoreChoice (const ReferenceChoice& value)
         requestedSelection.generation = generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;
-        revokeAuditionPublication();
+        revokeAfterFadeLocked();
     }
     notify();
 }

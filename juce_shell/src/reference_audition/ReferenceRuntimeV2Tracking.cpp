@@ -32,7 +32,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     const auto generation = normalSelectionGeneration.load (std::memory_order_acquire);
     std::shared_ptr<const RuntimeSource> source;
     juce::String mode;
-    double currentGain = 0.0, selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable;
+    double currentGain = 0.0, anchorGain = unavailable, selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable;
     bool cueLevel = false;
     {
         const juce::ScopedLock lock (stateLock);
@@ -40,6 +40,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         source = publishedSource;
         mode = currentSnapshot.comparisonMode;
         currentGain = currentSnapshot.appliedGainDb;
+        anchorGain = trackingAnchorDb;
         selectionAPeak = currentSnapshot.aMaximumTruePeakDbtp;
         cueLevel = currentSnapshot.cueLevelAvailable && ! versionComparison;
         cueLoudness = currentSnapshot.cueIntegratedLoudness;
@@ -68,18 +69,19 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         aLoudness = window.lufs;
         required = aLoudness - sourceLoudness;
     }
-    const auto step = trackingStep (required, currentGain, sourcePeak, louder (aSessionPeakDbtp, selectionAPeak));
+    const auto step = trackingStep (required, currentGain, sourcePeak, louder (aSessionPeakDbtp, selectionAPeak), anchorGain);
     if (step.action == TrackingAction::keep) return TrackingAction::keep;
 
     const juce::ScopedLock lock (stateLock);
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation
         || ! bSelected.load (std::memory_order_acquire) || currentSnapshot.tracking != TrackingState::following)
         return TrackingAction::keep;
-    if (step.action == TrackingAction::stopCeiling)
+    if (step.action == TrackingAction::stopCeiling || step.action == TrackingAction::stopRange)
     {
-        currentSnapshot.tracking = TrackingState::stoppedCeiling;
+        currentSnapshot.tracking = step.action == TrackingAction::stopCeiling ? TrackingState::stoppedCeiling
+                                                                             : TrackingState::stoppedRange;
         holdCurrentGainLocked();
-        return TrackingAction::stopCeiling;
+        return step.action;
     }
     applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
                             louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
@@ -103,17 +105,11 @@ void RuntimeV2Controller::applyMatchedGainLocked (double gainDb, double aLoudnes
     holdCurrentGainLocked();
 }
 
-// H7: V の自動特定。Version の指紋を ranges から読み（library が変わったときだけ）、A の直近と照合する。
+// H7: V の自動特定。Version の指紋は作業スレッドが ranges から読んでおき（library が変わったとき・読めなかった
+// ものを読み直すとき）、ここでは A の直近と照合するだけ（メッセージスレッドでファイルを読まない）。
 VersionIdentity RuntimeV2Controller::identifyVersions (const KirinFingerprint& slice, std::int64_t endTick)
 {
     if (! versionComparison) return {};
-    std::shared_ptr<const RuntimeWorkspace> current;
-    {
-        const juce::ScopedLock lock (stateLock);
-        current = workspace;
-    }
-    if (current == nullptr) return {};
-    versionIdentifier.prepare (root, *current);
     return versionIdentifier.identify (slice, endTick);
 }
 
@@ -131,6 +127,7 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     bool cueLevel = false;
     {
         const juce::ScopedLock lock (stateLock);
+        if (currentSnapshot.comparisonMode == "peak_match") return RematchResult::peakMatch;
         if (currentSnapshot.tracking == TrackingState::none || currentSnapshot.comparisonMode != "loudness_match")
             return RematchResult::original;
         source = publishedSource;
@@ -155,6 +152,8 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
         return RematchResult::notPlaying;
     currentSnapshot.tracking = TrackingState::fixed;
     applyMatchedGainLocked (required, aLoudness, aPeak, sourceLoudness, sourcePeak);
+    trackingAnchorDb = required;
+    if (heldSelection.valid) heldSelection.facts.anchorGainDb = required;
     return RematchResult::matched;
 }
 }

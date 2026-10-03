@@ -22,6 +22,7 @@ struct ReferenceChoice
 struct ReferenceComparisonSettings
 {
     ReferenceChoice version, check, reference;  // reference: H8 の B（REF）の曲
+    bool versionAuto = false;                   // H7: V の Version は AUTO が選んだ（AUTO が選び直せる）
     juce::String songSetId;                     // H8: 選んでいる B SET
     VisualViewChoice visualView;
     int viewedSlot = 2;
@@ -44,6 +45,7 @@ struct ReferenceComparisonSettings
         { auto* captured=xml->createNewChildElement("ACapture"); captured->setAttribute("data",captureState); captured->setAttribute("shown",capturedView); }
         append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml);
         if (safeId (songSetId)) xml->getChildByName ("REF")->setAttribute ("set", songSetId);
+        if (versionAuto && version.candidateId.isNotEmpty()) xml->getChildByName ("B")->setAttribute ("auto", true);
         tonal.write (parent); workflow.write (parent);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
@@ -64,6 +66,8 @@ struct ReferenceComparisonSettings
         result.workflow = WorkflowResumeState::read (parent);
         result.version = readChoice ("B"); result.check = readChoice ("C"); result.reference = readChoice ("REF");
         if (result.version.candidateId.isEmpty()) result.version = {};
+        if (const auto* versionXml = xml->getChildByName ("B"))
+            result.versionAuto = result.version.candidateId.isNotEmpty() && versionXml->getBoolAttribute ("auto");
         if (result.reference.candidateId.isEmpty()) result.reference = {};
         if (const auto* songs = xml->getChildByName ("REF"))
             if (safeId (songs->getStringAttribute ("set"))) result.songSetId = songs->getStringAttribute ("set");

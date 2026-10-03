@@ -54,6 +54,10 @@ void rampsAndSteps()
                  && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5)
                  && over.action == r::TrackingAction::stopCeiling,
              "lowering always moves; raising moves only within the ceiling and otherwise stops");
+    require (r::trackingStep (-4.0, 2.0, -6.0, -2.0, 2.0).action == r::TrackingAction::move
+                 && r::trackingStep (-4.5, 2.0, -6.0, -2.0, 2.0).action == r::TrackingAction::stopRange
+                 && r::trackingStep (-4.5, 2.0, -6.0, -2.0).action == r::TrackingAction::move,
+             "following stays within 6 dB of the MATCH gain (as live compare AUTO) and stops beyond it");
 
     r::TrackingGainRamp ramp;
     ramp.settle (1.0f);
@@ -334,6 +338,12 @@ void matchesAndFollows (const juce::File& sandbox)
     controller.selectA();
     require (controller.selectB (-18.0, -2.0) && controller.snapshot().tracking == ref::TrackingState::following,
              "choosing B again follows again");
+    // 追従は MATCH の gain（−18 − −16 = −2 dB）から ±6 dB まで。−9 dB は超えるので止めて今の gain を保つ。
+    require (controller.followSelection (steady (-25.0), -2.0) == ref::TrackingAction::stopRange
+                 && controller.snapshot().tracking == ref::TrackingState::stoppedRange
+                 && closeTo (controller.snapshot().appliedGainDb, -2.0),
+             "a gain more than 6 dB from the MATCH stops following and keeps the current gain");
+    require (controller.followSelection (steady (-17.0), -2.0) == ref::TrackingAction::keep, "a stopped follow stays stopped");
     controller.selectA();
     render(); render();
 }

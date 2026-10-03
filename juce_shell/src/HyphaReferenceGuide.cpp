@@ -150,7 +150,8 @@ Guide guide (const State& state)
     result.check = shownStep (state.checkStep, canHearCheck (state), state.aAvailable);
     const bool workflowActive = state.workflow.mode != reference_audition::WorkflowView::Mode::normal
         && state.workflow.status != reference_audition::WorkflowView::Status::resumeAvailable;
-    result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned
+    // B（REF）の画面は B セットの曲を出す（V・C の始め方の案内は重ねない）。
+    result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned && state.comparisonSlot != 3
         && ! state.bSelected && ! isBlindSession (state.blindPhase) && ! workflowActive
         && ! (state.captureAccess && state.captureAccess->capturedView)
         && result.version != SourceStep::ready && result.check != SourceStep::ready
@@ -200,14 +201,14 @@ void Component::syncSourceButtons()
     bButton.setAttention (waiting && current.pendingAudition.slot == 1);
     cButton.setAttention (waiting && current.pendingAudition.slot == 2);
     // H10: 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
-    const bool small = current.separateComparisons && ! current.blindLargeScreen;
+    const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen;
     bButton.setEnabled (current.separateComparisons || versionAudible);
-    bButton.setReady (! small && (! current.separateComparisons || versionAudible || bQueue));
-    bButton.setTooltip (small ? "Open V at 300%" : bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
+    bButton.setReady (! opensLarge && (! current.separateComparisons || versionAudible || bQueue));
+    bButton.setTooltip (opensLarge ? "Open V at 300%" : bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
         : ! current.separateComparisons || versionAudible
         ? "Audition the Version from Kirin OS (V)." : unavailableText (current, true));
-    cButton.setReady (! small && (checkAudible || cQueue));
-    cButton.setTooltip (small ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
+    cButton.setReady (! opensLarge && (checkAudible || cQueue));
+    cButton.setTooltip (opensLarge ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
         : checkAudible ? juce::String() : unavailableText (current, false));
     guideShown = guide (current).shown;
 }

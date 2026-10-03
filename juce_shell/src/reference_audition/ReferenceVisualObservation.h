@@ -40,7 +40,8 @@ private:
     std::uint64_t rtDiscontinuity = 0;
     mutable juce::CriticalSection controlLock, snapshotLock;
     bool presented = false, paused = false;
-    int configuredRate = 0, configuredChannels = 0;
+    int configuredRate = 0, configuredChannels = 0;  // controlLock
+    int runRate = 0, runChannels = 0;  // 観測スレッドだけ：周期の頭で controlLock の中から写した値
     std::shared_ptr<ReferenceAnalysis> analysis;
     ReferenceAnalysis::Lease admission;
     ReferenceTonalRepository tonalRepository;

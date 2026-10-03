@@ -22,6 +22,8 @@ namespace hypha::reference_audition
            #endif
         }
 
+        // フェード（5 ms）は次の 1〜2 ブロックで終わる。8192 フレームのブロックでも足りる長さ。
+        constexpr std::uint32_t revokeFadeLimitMs = 500;
     }
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
@@ -184,9 +186,34 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::revokeAuditionPublication() noexcept
     {
+        revokeAfterFade.store (false, std::memory_order_release);
         ready.store (false, std::memory_order_release);
         auditionEpoch.fetch_add (1, std::memory_order_acq_rel);
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
+    }
+
+    void RuntimeV2Controller::revokeAfterFadeLocked() noexcept
+    {
+        if (! normalAudible.load (std::memory_order_acquire) || ! ready.load (std::memory_order_acquire)
+            || ! latestPlaying.load (std::memory_order_acquire) || blind.ongoing())
+        {
+            revokeAuditionPublication();
+            return;
+        }
+        // 待っているあいだに古い音を選び直させない（selectB・resumeHeld は待ちの間は断る）。
+        normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
+        revokeFadeStartedMs.store (juce::Time::getMillisecondCounter(), std::memory_order_release);
+        revokeAfterFade.store (true, std::memory_order_release);
+    }
+
+    bool RuntimeV2Controller::deferredRevokeWaiting() noexcept
+    {
+        if (! revokeAfterFade.load (std::memory_order_acquire)) return false;
+        const auto elapsed = juce::Time::getMillisecondCounter() - revokeFadeStartedMs.load (std::memory_order_acquire);
+        if (normalAudible.load (std::memory_order_acquire) && elapsed < revokeFadeLimitMs) return true;
+        const juce::ScopedLock lock (stateLock);
+        if (revokeAfterFade.load (std::memory_order_acquire)) revokeAuditionPublication();
+        return false;
     }
 
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
@@ -226,6 +253,7 @@ namespace hypha::reference_audition
         if (next.playbackIdentity.isNotEmpty() && next.playbackIdentity == currentSnapshot.playbackIdentity)
             next.matchFailure = currentSnapshot.matchFailure;
         next.migratedVersionChoice = legacyVersionChoice;
+        next.selectionGeneration = appliedSelectionGeneration.load (std::memory_order_acquire);
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())
         {

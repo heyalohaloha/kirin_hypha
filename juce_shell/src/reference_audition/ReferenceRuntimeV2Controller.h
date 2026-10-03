@@ -81,6 +81,7 @@ namespace hypha::reference_audition
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
         bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
         bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
+        bool outputSelected() const noexcept { return bSelected.load (std::memory_order_acquire); }
         bool startBlind (double, double) noexcept;
         bool approveBlindLowerAAndStart (double, double) noexcept;
         bool selectBlindStimulus (int) noexcept;
@@ -111,6 +112,7 @@ namespace hypha::reference_audition
         // 利用者が A を押す・別の音にする・試聴を止められたときは忘れる（forgetHeldSelection）。
         bool resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept;
         bool hasHeldSelection() const;
+        std::uint64_t requestedGeneration() const; // 今の選択の世代（状態の selectionGeneration と比べる）
         juce::String heldPlaybackIdentity() const;
         void forgetHeldSelection();
 
@@ -177,6 +179,7 @@ namespace hypha::reference_audition
             bool gainLimited = false;
             bool comparisonFallbackOriginal = false;
             TrackingState tracking = TrackingState::none;
+            double anchorGainDb = 0.0; // 利用者の MATCH の gain。追従はここから ±6 dB まで（戻すときも同じ値）
             bool valid = false;
         };
 
@@ -215,6 +218,11 @@ namespace hypha::reference_audition
         void serviceOutputRetirement();
         void serviceWorkflowEvents (std::int64_t nowMs);
         void revokeAuditionPublication() noexcept;
+        // 鳴っている（A へ戻るフェード中を含む）役の選択を替える。先に公開を取り消すと Audio Thread が
+        // フェードを掛けずに A を返す（ぷつっと切れる）ので、フェードが終わってから作業スレッドが取り消す。
+        // stateLock を持って呼ぶ。待つのは最長 revokeFadeLimitMs。
+        void revokeAfterFadeLocked() noexcept;
+        bool deferredRevokeWaiting() noexcept; // 作業スレッド：フェードの終わりを待っているあいだ true
         void failClosedToA() noexcept;
         void invalidateBlind() noexcept;
         void failClosedToAFromAudioThread() noexcept;
@@ -246,9 +254,9 @@ namespace hypha::reference_audition
         Configuration requestedConfiguration;
         RequestedSelection requestedSelection;
         std::uint64_t appliedConfigurationGeneration = 0;
-        std::uint64_t appliedSelectionGeneration = 0;
+        std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;
-        VersionIdentifier versionIdentifier; // H7: Version の指紋（メッセージスレッドだけ）
+        VersionIdentifier versionIdentifier; // H7: Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::shared_ptr<const WorkflowCatalog> workflowCatalog;
         std::deque<WorkflowEventRequest> workflowEvents;
         std::int64_t workflowRetryAtMs = 0;
@@ -280,6 +288,7 @@ namespace hypha::reference_audition
             PreparedNormalSelection facts;  // 最後に掛けていた gain と、その時の値（追従で動いた後の値）
             bool valid = false;
         } heldSelection; // stateLock
+        double trackingAnchorDb = 0.0; // stateLock：鳴っている選択の MATCH の gain（追従の幅の中心）
         void holdCurrentGainLocked() noexcept;
         // H3・H12：決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
         void applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
@@ -341,6 +350,8 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> normalGateReleasePendingToken { 0 };
         std::atomic<std::uint64_t> blindGateReleasePendingToken { 0 };
         std::atomic<bool> auditionReturnPending { false };
+        std::atomic<bool> revokeAfterFade { false };
+        std::atomic<std::uint32_t> revokeFadeStartedMs { 0 };
         DeferredControl outputRetirement;
     };
 }

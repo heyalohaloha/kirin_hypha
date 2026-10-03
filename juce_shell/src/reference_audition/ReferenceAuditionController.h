@@ -1,4 +1,6 @@
 #pragma once
+
+#include <map>
 #include "ReferencePendingAudition.h"
 #include "ReferenceTrackingState.h"
 
@@ -59,6 +61,7 @@ namespace hypha::reference_audition
         juce::String rejectionCode;
         MatchFailure matchFailure = MatchFailure::none;
         juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
+        std::uint64_t selectionGeneration = 0; // 作業スレッドがこの状態を出したときに反映していた選択の世代
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;
         double sourceIntegratedLoudness = 0.0;
         double sourceMaximumTruePeakDbtp = 0.0;
@@ -115,10 +118,13 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> cues;
         std::vector<RuntimeSelectionOption> versions;
         std::vector<RuntimeSelectionOption> checkTargets;
+        std::map<juce::String, std::vector<juce::String>> checkViewBindings; // CHECK SET の Check ごとの表示（V のタブ）
         std::vector<RuntimeSongSetOption> songSets;
+        juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
         std::vector<RuntimeCheckSetRank> checkSetRanks; // H12: Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
+        bool versionAuto = false; // H7: 選んでいる Version は AUTO が選んだ（AUTO が選び直せる）
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
         bool versionArmable = false, checkArmable = false;

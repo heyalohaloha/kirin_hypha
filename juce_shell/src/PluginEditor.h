@@ -135,7 +135,7 @@ private:
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void openReferenceLarge (int slot);
     hypha::reference_ui::PreparationWatch referencePreparationWatch; // H6
-    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; juce::String referenceAutoSelected; // H7
+    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser; // H7
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();
@@ -293,7 +293,8 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
-    bool referenceTrackingStopShown = false; // H3: 追従が上限で止まったことを一度だけ知らせる
+    bool referenceTrackingStopShown = false; // H3: 追従が上限・±6 dB で止まったことを一度だけ知らせる
+    juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif

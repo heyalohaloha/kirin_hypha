@@ -134,26 +134,93 @@ void refusesWhatItCannotTrust (const juce::File& sandbox)
     ref::RuntimeV2Repository repository (root);
     const auto loaded = repository.refreshLibrary();
     require (loaded.usable(), "the fixture library must be read");
-    const auto check = [&] (const juce::var& sets, const char* expected, const char* why) {
+    const auto write = [&] (const juce::var& sets) {
         require (writeJson (root.getChildFile ("library/sets.json"), sets), "a changed sets file");
+    };
+    // ファイルの形が違えば全体を読まない。
+    const auto check = [&] (const juce::var& sets, const char* expected, const char* why) {
+        write (sets);
         juce::String rejection;
         require (! ref::readReferenceLibrarySets (root, *loaded.workspace, rejection) && rejection == expected, why);
+    };
+    // 読めない項目は 1 つずつ飛ばし、残りを使って理由を残す（1 つの壊れた項目で B セット全体を失わない）。
+    const auto skips = [&] (const juce::var& sets, const char* expected, const char* why) {
+        write (sets);
+        juce::String rejection;
+        const auto read = ref::readReferenceLibrarySets (root, *loaded.workspace, rejection);
+        require (read.has_value() && rejection == expected, why);
+        return *read;
     };
     const auto original = readSets (root);
     auto ranks = original.clone();
     ranks["check_sets"].getArray()->getReference (0).getDynamicObject()->setProperty ("rank", 2);
-    check (ranks, "reference_library_check_set_rejected", "ranks must count 1, 2, 3 in order");
+    const auto rankRead = skips (ranks, "reference_library_check_set_rejected", "ranks must count 1, 2, 3 in order");
+    require (rankRead.checkSets.size() == 1 && rankRead.checkSets[0].rank == 2 && rankRead.songSets.size() == 1,
+             "only the misplaced rank is skipped");
     auto unknown = original.clone();
     unknown["check_sets"].getArray()->getReference (1).getDynamicObject()->setProperty (
         "revision_id", "00000000-0000-4000-8000-000000000000");
-    check (unknown, "reference_library_check_set_rejected", "a CHECK set must be a Preset revision in the same manifest");
+    const auto unknownRead = skips (unknown, "reference_library_check_set_rejected",
+                                    "a CHECK set must be a Preset revision in the same manifest");
+    require (unknownRead.checkSets.size() == 1 && unknownRead.checkSets[0].rank == 1, "the other CHECK set stays");
     auto path = original.clone();
     path["source_ranges"].getArray()->getReference (0)["ranges_artifact"].getDynamicObject()->setProperty (
         "relative_path", "plugin_data/reference/v2/sources/" + original["source_ranges"][0]["ranges_artifact"]["sha256"].toString() + ".json");
-    check (path, "reference_library_source_ranges_rejected", "a Cue values receipt must point into ranges/");
+    const auto pathRead = skips (path, "reference_library_source_ranges_rejected", "a Cue values receipt must point into ranges/");
+    require (pathRead.sourceRanges.size() == 2, "the other Cue values stay");
+    auto song = original.clone();
+    song["song_sets"].getArray()->getReference (0)["songs"].getArray()->getReference (1).getDynamicObject()->setProperty ("unexpected", 1);
+    const auto songRead = skips (song, "reference_library_song_rejected", "a song Hypha cannot read is skipped");
+    require (songRead.songSets.size() == 1 && songRead.songSets[0].songs.size() == 1, "the B set keeps its other song");
+
+    // 理由は workspace に残り（B の画面が直し方を出す）、読めるように戻れば消える。
+    const auto partial = repository.refreshLibrary (loaded.workspace);
+    require (partial.state == ref::RuntimeWorkspaceLoadState::updated
+                 && partial.workspace->librarySetsIssue == "reference_library_song_rejected"
+                 && partial.workspace->librarySets->songSets[0].songs.size() == 1,
+             "a skipped song is reported beside the songs that were read");
+    write (original);
+    const auto repaired = repository.refreshLibrary (partial.workspace);
+    require (repaired.state == ref::RuntimeWorkspaceLoadState::updated && repaired.workspace->librarySetsIssue.isEmpty()
+                 && repaired.workspace->librarySets->songSets[0].songs.size() == 2,
+             "the reason goes away once the sets are read whole");
+
     auto extra = original.clone();
     extra.getDynamicObject()->setProperty ("note", "unexpected");
     check (extra, "reference_library_sets_rejected", "unknown keys are refused");
+}
+
+// Kirin OS は manifest を先に書き、sets.json はその直後に続く。追いつくまで前の B セットを保つ（B の曲が一瞬
+// 消えて、選んでいる曲や鳴っている B を失わない）。CHECK セットの順位は新しい manifest にある Preset だけ。
+void keepsSetsUntilTheyCatchUp (const juce::File& sandbox)
+{
+    const auto root = copyFixture (sandbox, "library-sets-catch-up");
+    ref::RuntimeV2Repository repository (root);
+    const auto loaded = repository.refreshLibrary();
+    require (loaded.usable() && loaded.workspace->librarySets.has_value()
+                 && loaded.workspace->librarySets->songSets.size() == 1, "the first read has the B set");
+    auto manifest = juce::JSON::parse (root.getChildFile ("library/manifest.json"));
+    const auto revision = static_cast<juce::int64> (manifest["revision"]) + 1;
+    manifest.getDynamicObject()->setProperty ("revision", revision);
+    require (writeJson (root.getChildFile ("library/manifest.json"), manifest), "Kirin OS publishes a new manifest first");
+    const auto ahead = repository.refreshLibrary (loaded.workspace);
+    require (ahead.state == ref::RuntimeWorkspaceLoadState::updated && ahead.workspace->librarySets.has_value()
+                 && ahead.workspace->librarySets->songSets.size() == 1
+                 && ahead.workspace->librarySets->checkSets.size() == loaded.workspace->librarySets->checkSets.size()
+                 && ahead.workspace->librarySetsIssue.isEmpty(),
+             "the B set stays while sets.json still names the previous manifest");
+    require (std::any_of (ahead.workspace->presets.begin(), ahead.workspace->presets.end(),
+                          [] (const auto& preset) { return preset.songEntry; }),
+             "the B songs stay selectable");
+
+    auto sets = readSets (root);
+    sets.getDynamicObject()->setProperty ("manifest_revision", revision);
+    sets.getDynamicObject()->setProperty ("revision", static_cast<juce::int64> (sets["revision"]) + 1);
+    require (writeJson (root.getChildFile ("library/sets.json"), sets), "sets.json catches up");
+    const auto caught = repository.refreshLibrary (ahead.workspace);
+    require (caught.state == ref::RuntimeWorkspaceLoadState::updated && caught.workspace->librarySets.has_value()
+                 && caught.workspace->librarySets->hash != loaded.workspace->librarySets->hash,
+             "the caught-up sets are read");
 }
 }
 
@@ -162,4 +229,5 @@ void testReferenceLibrarySets (const juce::File& sandbox)
     readsWhatKirinOsWrote (sandbox);
     followsRankChangesAndPublication (sandbox);
     refusesWhatItCannotTrust (sandbox);
+    keepsSetsUntilTheyCatchUp (sandbox);
 }

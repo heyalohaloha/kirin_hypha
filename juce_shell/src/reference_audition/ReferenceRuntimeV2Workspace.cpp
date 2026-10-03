@@ -93,7 +93,7 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        workspace = loaded.workspace;
+        { const juce::ScopedLock lock (stateLock); workspace = loaded.workspace; }  // visualBinding がメッセージスレッドから読む
         if (versionComparison && workspace->independentVersions)
         {
             const ReferenceChoice original { selection.presetId, selection.checkId, selection.candidateId, selection.cueId };
@@ -115,7 +115,7 @@ namespace hypha::reference_audition
             }
         }
         libraryReceived.store (workspace->library, std::memory_order_release);
-        appliedSelectionGeneration = selection.generation;
+        appliedSelectionGeneration.store (selection.generation, std::memory_order_release);
         const auto missingSelection = [&] {
             failClosedToA();
             Snapshot next;
@@ -205,8 +205,10 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        const RuntimeCue* cue = findCue (*candidate, selection.cueId);
-        if (workspace->library && selection.cueId.isNotEmpty() && cue == nullptr)
+        // H8: B の曲（songEntry）は Kirin OS が決めた既定の Cue だけで鳴らす（B に Cue を選ぶ画面は無い）。
+        // 既定の Cue が Kirin OS で変わっても、前の Cue に縛られない（保存もしない）。
+        const RuntimeCue* cue = preset->songEntry ? nullptr : findCue (*candidate, selection.cueId);
+        if (workspace->library && ! preset->songEntry && selection.cueId.isNotEmpty() && cue == nullptr)
         { missingSelection(); return; }
         if (cue == nullptr) cue = findCue (*candidate, candidate->defaultCueId);
         if (cue == nullptr) cue = &candidate->cues.front();
@@ -438,7 +440,7 @@ namespace hypha::reference_audition
                 requestedSelection.presetId = next.presetId;
                 requestedSelection.checkId = next.checkId;
                 requestedSelection.candidateId = next.candidateId;
-                requestedSelection.cueId = next.cueId;
+                requestedSelection.cueId = preset->songEntry ? juce::String {} : next.cueId;
             }
             activeEventContext = {
                 configuration.identity,

@@ -121,6 +121,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     if (pendingSettings) return *pendingSettings;
     ReferenceComparisonSettings result;
     result.version = versionId.isEmpty() ? ReferenceChoice {} : version.savedChoice();
+    result.versionAuto = versionAuto && versionId.isNotEmpty();
     // A removed Version must not be replaced by a fallback selection on save.
     if (versionId.isNotEmpty() && b.migratedVersionChoice != versionId)
     {
@@ -130,6 +131,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     }
     result.check = activeWorkflow != nullptr ? normalCheckChoice : check.savedChoice();
     result.reference = songId.isEmpty() ? ReferenceChoice {} : reference.savedChoice();
+    result.reference.cueId.clear();  // B の曲は既定の Cue で鳴らす（H8）
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
     result.captureState = capture.access->store.value().encoded; result.capturedView = capture.access->capturedView;
@@ -170,6 +172,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     {
         const juce::ScopedLock lock (selectionLock);
         versionId = value.version.candidateId.isEmpty() ? juce::String {} : value.version.target();
+        versionAuto = value.versionAuto && versionId.isNotEmpty();
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
         viewedSlot.store (value.viewedSlot == 1 || value.viewedSlot == 3 ? value.viewedSlot : 2, std::memory_order_release);
         songId = value.reference.candidateId.isEmpty() ? juce::String {} : value.reference.target();
@@ -243,6 +246,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.checkSelection = std::make_shared<const Snapshot> (c);
     result.versionSelection = std::make_shared<const Snapshot> (b);
     result.versions = b.versions;
+    result.versionAuto = versionAuto;
     result.selectedVersionId = b.migratedVersionChoice == versionId && versionId.isNotEmpty()
         ? b.presetId + "/" + b.checkId + "/" + b.candidateId : versionId;
     result.versionReady = versionId.isNotEmpty() && b.sourceKind == "work_version"
@@ -252,6 +256,7 @@ Snapshot ReferenceComparisonController::snapshot()
     // H8: B（REF）。選んだ曲が公開され、音の準備ができていれば押してすぐ鳴る。
     result.referenceSelection = std::make_shared<const Snapshot> (r);
     result.songSets = r.songSets;
+    result.songSetsIssue = r.songSetsIssue;
     result.selectedSongId = songId;
     result.selectedSongSetId = std::any_of (r.songSets.begin(), r.songSets.end(), [this] (const auto& set) { return set.id == songSetId; })
         ? songSetId : r.songSets.empty() ? juce::String {} : r.songSets.front().id;
@@ -311,75 +316,66 @@ Snapshot ReferenceComparisonController::snapshot()
     return result;
 }
 
-bool ReferenceComparisonController::selectVersion (const juce::String& id)
+// V の Version を選ぶ。V が鳴っていた（戻る保留・押した後の待ちを含む）なら、新しい Version が公開され次第、
+// 新しい MATCH で V のまま鳴らす。ほかの役（B・C）は止めない。
+// automatic（H7 の AUTO）は、V を選んでいないときに V の選択だけを替える。V が鳴っている・戻る保留・
+// 押した後の待ちがあるときは何もしない（利用者の選択を崩さない）。
+bool ReferenceComparisonController::selectVersion (const juce::String& id, bool automatic)
 {
     serviceWorkflowCommits();
     if (trialActive()) return false;
-    if (hasActiveWorkflow())
+    if (automatic)
+    {
+        if (hasActiveWorkflow() || version.hasOutputPath() || normalOutputSlot.load (std::memory_order_acquire) == 1
+            || pendingSlot() == 1) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (versionId.isNotEmpty() && ! versionAuto) return false;  // 利用者が選んだ Version は替えない
+    }
+    else if (hasActiveWorkflow())
     {
         if (! finishWorkflow (false)) return false;
         const juce::ScopedLock lock (selectionLock);
         if (activeWorkflow != nullptr) return false;
     }
     if (! version.selectLibraryVersion (id)) return false;
-    selectA();
-    { const juce::ScopedLock lock (selectionLock); versionId = id; }
+    { const juce::ScopedLock lock (selectionLock); versionId = id; versionAuto = automatic; }
     versionChosen.store (id.isNotEmpty(), std::memory_order_release);
+    if (! automatic) continueAfterSwitch (1);
     setPresented (true);
     return true;
 }
 
+// C の選択（CHECK SET・Check・曲・Cue）。C だけを替える：C が鳴っていた（戻る保留・押した後の待ちを含む）
+// なら、新しい選択が公開され次第、新しい MATCH で C のまま鳴らす。ほかの役（B・V）は止めない。
+// V を見ているとき（V の画面の CHECK SET は C と共用）は V の画面のまま。ほかは C の画面にする。
+bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>& apply)
+{
+    serviceWorkflowCommits();
+    if (trialActive()) return false;
+    if (hasActiveWorkflow())
+    {
+        if (! finishWorkflow (false)) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (activeWorkflow != nullptr) return false;
+    }
+    const auto before = check.requestedGeneration();
+    if (! apply()) return false;
+    if (viewedSlot.load (std::memory_order_acquire) != 1)
+    { capture.access->capturedView = false; viewedSlot.store (2, std::memory_order_release); }
+    // 同じ選択（世代が進まない）は鳴らしたまま。Kirin OS の準備を待つ CHECK SET は C を止めて手放す。
+    const auto after = check.requestedGeneration();
+    if (after != before) continueAfterSwitch (2);
+    else if (check.snapshot().presetSelectionStatus == "pending") continueAfterSwitch (2, false);
+    return true;
+}
 bool ReferenceComparisonController::selectPreset (const juce::String& id)
-{
-    serviceWorkflowCommits();
-    if (trialActive()) return false;
-    if (hasActiveWorkflow())
-    {
-        if (! finishWorkflow (false)) return false;
-        const juce::ScopedLock lock (selectionLock);
-        if (activeWorkflow != nullptr) return false;
-    }
-    selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
-    return check.selectPreset (id);
-}
+{ return selectCheckRole ([&] { return check.selectPreset (id); }); }
 bool ReferenceComparisonController::selectCheck (const juce::String& id)
-{
-    serviceWorkflowCommits();
-    if (trialActive()) return false;
-    if (hasActiveWorkflow())
-    {
-        if (! finishWorkflow (false)) return false;
-        const juce::ScopedLock lock (selectionLock);
-        if (activeWorkflow != nullptr) return false;
-    }
-    selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
-    return id.containsChar ('/') ? check.selectLibraryCheck (id) : check.selectCheck (id);
-}
+{ return selectCheckRole ([&] { return id.containsChar ('/') ? check.selectLibraryCheck (id) : check.selectCheck (id); }); }
 bool ReferenceComparisonController::selectCandidate (const juce::String& id)
-{
-    serviceWorkflowCommits();
-    if (trialActive()) return false;
-    if (hasActiveWorkflow())
-    {
-        if (! finishWorkflow (false)) return false;
-        const juce::ScopedLock lock (selectionLock);
-        if (activeWorkflow != nullptr) return false;
-    }
-    selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
-    return check.selectCandidate (id);
-}
+{ return selectCheckRole ([&] { return check.selectCandidate (id); }); }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
-{
-    serviceWorkflowCommits();
-    if (trialActive()) return false;
-    if (hasActiveWorkflow())
-    {
-        if (! finishWorkflow (false)) return false;
-        const juce::ScopedLock lock (selectionLock);
-        if (activeWorkflow != nullptr) return false;
-    }
-    selectA(); return check.selectCue (id);
-}
+{ return selectCheckRole ([&] { return check.selectCue (id); }); }
 bool ReferenceComparisonController::selectVisualSlot (int slot)
 {
     if ((slot != 1 && slot != 2 && slot != 3) || trialActive() || hasActiveWorkflow()) return false;
