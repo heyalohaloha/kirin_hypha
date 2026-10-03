@@ -178,15 +178,35 @@ void testReferenceKirinFingerprint()
     identifier.setCandidates ({ { "preset/check/other", other } });
     check (identifier.identify (recent, 149).autoId.isEmpty() && identifier.identify (recent, 2'149).autoId.isEmpty(),
            "a different song is never AUTO");
-    // 音名の並びは合っても音量の流れが違う（同じ曲の別ミックス）は Kirin OS の「同じ曲」なので AUTO にする
+    // 同じ曲の別ミックス（音名が少し違い、音量の流れは似ている）は Kirin OS の「同じ曲」で AUTO にする
     // （作業中のミックスと前の書き出しを結ぶのが V の自動特定の役目）。
     auto remix = kirin["m48late"];
-    for (std::size_t tick = 0; tick < remix.lufs.size(); ++tick) remix.lufs[tick] = tick % 20 < 10 ? -20.0f : -30.0f;
+    for (std::size_t tick = 0; tick < remix.bits.size(); ++tick)
+    {
+        remix.bits[tick] = static_cast<std::uint16_t> (remix.bits[tick] ^ (1u << (tick % 12)) ^ (1u << ((tick + 5) % 12)));
+        remix.lufs[tick] = remix.lufs[tick] > -50.0f ? remix.lufs[tick] * 0.8f - 2.0f : remix.lufs[tick];
+    }
     identifier.setCandidates ({ { "preset/check/remix", remix } });
     const auto sameSong = identifier.identify (recent, 149);
     check (! sameSong.matches.empty() && sameSong.matches.front().relation == FingerprintMatch::Relation::sameSong
                && sameSong.autoId == "preset/check/remix",
            "another mix of the same song is AUTO");
+    // 音名の並びは合っても音量の流れがついてこない（別の曲の似た所）は AUTO にしない（相関の下限 0.3）。
+    auto lookalike = kirin["m48late"];
+    std::uint32_t seed = 12345;  // 元の音量の流れと関係のない流れ（決まった擬似乱数、−35〜−15 LUFS）
+    for (auto& lufs : lookalike.lufs)
+    {
+        seed = seed * 1664525u + 1013904223u;
+        lufs = -35.0f + 20.0f * static_cast<float> (seed >> 8) / static_cast<float> (1u << 24);
+    }
+    identifier.setCandidates ({ { "preset/check/lookalike", lookalike } });
+    const auto unrelated = identifier.identify (recent, 149);
+    check (! unrelated.matches.empty() && unrelated.matches.front().loudnessCorrelation < autoMinimumLoudnessCorrelation
+               && unrelated.autoId.isEmpty(),
+           "a passage whose harmony agrees but whose loudness does not follow is never AUTO ("
+               + (unrelated.matches.empty() ? juce::String ("none") : juce::String (unrelated.matches.front().agreement, 3) + " / "
+                  + juce::String (unrelated.matches.front().loudnessCorrelation, 3) + (unrelated.matches.front().anywhere ? " anywhere" : " near"))
+               + ")");
     // 位置の手がかりの無い照合では、弱い「同じ曲」（一致率 0.62〜0.70）は採らない（取り違えを防ぐ）。
     auto weak = kirin["m48late"];
     for (std::size_t tick = 0; tick < weak.bits.size(); ++tick)
@@ -202,8 +222,8 @@ void testReferenceKirinFingerprint()
     // ものは、別の Version が一致率で 0.02 以上上回り続けたときだけ選び直す。
     const auto best = [] (const juce::String& id, double agreement, const juce::String& otherId, double otherAgreement) {
         VersionIdentity result;
-        result.matches = { { id, agreement, FingerprintMatch::Relation::sameSong },
-                           { otherId, otherAgreement, FingerprintMatch::Relation::sameSong } };
+        result.matches = { { id, agreement, FingerprintMatch::Relation::sameSong, 0.8, false, true },
+                           { otherId, otherAgreement, FingerprintMatch::Relation::sameSong, 0.8, false, true } };
         result.autoId = id; result.autoAgreement = agreement;
         return result;
     };
@@ -225,6 +245,6 @@ void testReferenceKirinFingerprint()
     // 音量は Kirin OS と同じ 2 段で丸める（millilu の整数にしてから 0.5 LU）。−20.2504 は −20250 millilu を経て
     // −20.0（1 段なら −20.5）。
     const auto rounded = fingerprintFrom ({ std::array<double, 12> {} }, { -20.2504 });
-    check (rounded.lufs.size() == 1 && rounded.lufs[0] == -20.0f, "loudness is rounded in Kirin OS's two steps");
+    check (rounded.lufs.size() == 1 && std::abs (rounded.lufs[0] + 20.0f) < 1.0e-6f, "loudness is rounded in Kirin OS's two steps");
     std::cout << "Reference Kirin fingerprint: chroma, LUFS-M, bits, comparison and V identification follow Kirin OS PASS\n";
 }

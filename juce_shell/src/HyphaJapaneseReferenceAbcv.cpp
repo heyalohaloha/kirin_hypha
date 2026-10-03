@@ -50,6 +50,7 @@ const Entry entries[] = {
     { "ON PLAY / C %1 dB", u8"鳴らすとき / C %1 dB" },
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
+    { "A %1 / %2 S", u8"A %1 / %2秒" },
 };
 }
 

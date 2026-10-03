@@ -82,6 +82,12 @@ size_t VersionIdentifier::candidateCount() const
     return current()->size();
 }
 
+bool autoEligible (const FingerprintMatch& match, bool anywhere) noexcept
+{
+    if (match.agreement >= strongSameSongAgreement && match.loudnessCorrelation >= autoMinimumLoudnessCorrelation) return true;
+    return ! anywhere && match.agreement >= 0.62 && match.loudnessCorrelation >= 0.5;  // Kirin OS の弱い「同じ曲」
+}
+
 VersionIdentity VersionIdentifier::identify (const KirinFingerprint& slice, std::int64_t endTick) const
 {
     VersionIdentity result;
@@ -89,7 +95,6 @@ VersionIdentity VersionIdentifier::identify (const KirinFingerprint& slice, std:
     if (count == 0 || slice.lufs.size() != slice.bits.size()) return result;
     const auto prints = current();
     using Relation = FingerprintMatch::Relation;
-    const auto matched = [] (Relation relation) { return relation == Relation::sameSong || relation == Relation::nearIdentical; };
     // 1. DAW の位置で：曲の頭からの位置に置いた A（鳴っていない所は −70 LUFS）を、Kirin OS と同じ ±30 秒で照合する。
     if (endTick >= 0 && endTick < longestSongTicks)
     {
@@ -105,26 +110,28 @@ VersionIdentity VersionIdentifier::identify (const KirinFingerprint& slice, std:
         for (const auto& [id, print] : *prints)
         {
             const auto match = compareFingerprints (placed, print);
-            if (match.relation != Relation::unknown) result.matches.push_back ({ id, match.agreement, match.relation });
+            if (match.relation != Relation::unknown)
+                result.matches.push_back ({ id, match.agreement, match.relation, match.loudnessCorrelation, false, autoEligible (match, false) });
         }
     }
-    // 2. どれも同じ曲に届かなければ、曲が DAW の時間軸のどこにあっても（アルバムの 2 曲目など）探す。位置の手がかりが
+    // 2. どれも AUTO に届かなければ、曲が DAW の時間軸のどこにあっても（アルバムの 2 曲目など）探す。位置の手がかりが
     //    無いぶん、弱い「同じ曲」（一致率 0.62〜0.70）は採らず、一致率 0.70 以上だけを同じ曲とする。
-    if (std::none_of (result.matches.begin(), result.matches.end(), [&] (const auto& match) { return matched (match.relation); }))
+    if (std::none_of (result.matches.begin(), result.matches.end(), [] (const auto& match) { return match.eligible; }))
     {
         result.matches.clear();
         for (const auto& [id, print] : *prints)
         {
             auto match = compareFingerprints (slice, print, static_cast<int> (1 - count), static_cast<int> (print.bits.size()) - 1);
             if (match.relation == Relation::sameSong && match.agreement < strongSameSongAgreement) match.relation = Relation::different;
-            if (match.relation != Relation::unknown) result.matches.push_back ({ id, match.agreement, match.relation, true });
+            if (match.relation != Relation::unknown)
+                result.matches.push_back ({ id, match.agreement, match.relation, match.loudnessCorrelation, true, autoEligible (match, true) });
         }
     }
     std::stable_sort (result.matches.begin(), result.matches.end(),
                       [] (const auto& left, const auto& right) { return left.agreement > right.agreement; });
-    // AUTO は Kirin OS の「同じ曲」以上で一致率の最も高い Version（作業中のミックスと前の書き出しは同じ曲になる）。
+    // AUTO は AUTO にできるもので一致率の最も高い Version（作業中のミックスと前の書き出しは同じ曲になる）。
     for (const auto& match : result.matches)
-        if (matched (match.relation))
+        if (match.eligible)
         {
             result.autoId = match.versionId;
             result.autoAgreement = match.agreement;
@@ -139,9 +146,7 @@ juce::String AutoVersionChooser::next (const VersionIdentity& identity, const ju
     if (identity.autoId.isEmpty() || identity.autoId == currentId) return reset();
     if (currentId.isNotEmpty() && ! currentIsAuto) return reset();  // 利用者が選んだ Version は替えない
     for (const auto& match : identity.matches)  // AUTO の選んだものがまだ合っていて、差が小さければ替えない
-        if (match.versionId == currentId
-            && (match.relation == FingerprintMatch::Relation::sameSong || match.relation == FingerprintMatch::Relation::nearIdentical)
-            && identity.autoAgreement < match.agreement + switchMargin)
+        if (match.versionId == currentId && match.eligible && identity.autoAgreement < match.agreement + switchMargin)
             return reset();
     streak = candidate == identity.autoId ? streak + 1 : 1;
     candidate = identity.autoId;

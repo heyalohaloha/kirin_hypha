@@ -170,6 +170,7 @@ struct State
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
     double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
+    int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;

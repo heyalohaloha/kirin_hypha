@@ -121,7 +121,7 @@ public:
     bool selectReferenceVersion (const juce::String&, bool automatic = false);
     bool selectReferenceB();
     bool selectReferenceRef(); bool selectReferenceSong (const juce::String&); bool selectReferenceSongSet (const juce::String&); // H8
-    double referenceWindowLoudness (int slot) const; hypha::reference_audition::RematchResult rematchReferenceCheck(); // H12
+    hypha::reference_audition::WindowLoudnessCache referenceWindowLoudness (int slot) const; hypha::reference_audition::RematchResult rematchReferenceCheck(); // H12
     hypha::reference_audition::VersionIdentity identifyReferenceVersion(); // H7: V の自動特定（メッセージスレッド）
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
