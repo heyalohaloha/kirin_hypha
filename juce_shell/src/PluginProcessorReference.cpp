@@ -51,6 +51,38 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
     return level;
 }
 
+// H12: 画面が「同じ音量」にそろえて比べるための A の窓の音量（その役の窓：B・V は 10 秒、C は Cue と
+// 同じ長さ）。メーター履歴は 250 ms に 1 回だけ読む（メッセージスレッド）。
+double KirinHyphaProcessorBase::referenceWindowLoudness (int slot) const
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    auto& cache = referenceWindowCache;
+    if (cache.slot != slot || now >= cache.validUntilMs)
+    {
+        const auto blocks = referenceAuditionController != nullptr ? referenceAuditionController->liveWindowBlocks (slot)
+                                                                   : hypha::reference_audition::liveWindowBlocks;
+        cache = { slot, referenceLiveALevel (true, blocks).loudness, now + 250.0 };
+    }
+    return cache.loudness;
+   #else
+    juce::ignoreUnused (slot);
+    return std::numeric_limits<double>::quiet_NaN();
+   #endif
+}
+
+// H12: C の MATCH をもう一度。A の直近（Cue と同じ長さ）で鳴っている C の gain を決め直して固定する。
+hypha::reference_audition::RematchResult KirinHyphaProcessorBase::rematchReferenceCheck()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController == nullptr) return hypha::reference_audition::RematchResult::notPlaying;
+    const auto level = referenceLiveALevel (true, referenceAuditionController->liveWindowBlocks (2));
+    return referenceAuditionController->rematch (2, level.loudness, level.peak);
+   #else
+    return hypha::reference_audition::RematchResult::notPlaying;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAudition (1); }
 bool KirinHyphaProcessorBase::selectReferenceC() { return requestReferenceAudition (2); }
 bool KirinHyphaProcessorBase::selectReferenceRef() { return requestReferenceAudition (3); }  // H8: B（REF）

@@ -184,6 +184,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceSourceRanges.cpp
     src/reference_audition/ReferenceLiveWindowLoudness.cpp
     src/reference_audition/ReferenceTrackingGain.cpp
+    src/reference_audition/ReferenceKirinSpectrum.cpp
     src/reference_audition/ReferenceCueMatch.cpp
     src/reference_audition/ReferenceRuntimeV2Tracking.cpp
     src/reference_audition/ReferenceComparisonTracking.cpp
@@ -415,6 +416,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceSongList.cpp
             src/HyphaReferenceBalance.cpp
             src/HyphaReferenceStatusModel.cpp
+            src/HyphaReferenceCheckTabs.cpp
+            src/HyphaReferenceCheckPage.cpp
+            src/HyphaReferenceCueSummary.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
             src/HyphaReferenceTonalView.cpp
@@ -576,6 +580,9 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceSongList.cpp
         src/HyphaReferenceBalance.cpp
         src/HyphaReferenceStatusModel.cpp
+        src/HyphaReferenceCheckTabs.cpp
+        src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp
@@ -714,6 +721,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceSongList.cpp
         src/HyphaReferenceBalance.cpp
         src/HyphaReferenceStatusModel.cpp
+        src/HyphaReferenceCheckTabs.cpp
+        src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp
@@ -926,6 +936,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_tracking_gain_test.cpp
         tests/reference_abcv_roles_test.cpp
         tests/reference_abcv_test.cpp
+        tests/reference_kirin_spectrum_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
         tests/reference_content_alignment_test.cpp
@@ -1008,6 +1019,9 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceSongList.cpp
         src/HyphaReferenceBalance.cpp
         src/HyphaReferenceStatusModel.cpp
+        src/HyphaReferenceCheckTabs.cpp
+        src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp

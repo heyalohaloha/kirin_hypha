@@ -25,6 +25,19 @@ void KirinHyphaEditor::wireReferenceRoles()
     { if (! processorRef.selectReferenceSong (id)) showToast ("Song selection was not changed"); };
     referenceView.onSelectSongSet = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSongSet (id)) showToast ("B set selection was not changed"); };
+    // H12: C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
+    referenceView.onMatch = [this]
+    {
+        using Result = hypha::reference_audition::RematchResult;
+        switch (processorRef.rematchReferenceCheck())
+        {
+            case Result::matched: break;
+            case Result::notPlaying: showToast ("C is not playing. Press C to play it matched."); break;
+            case Result::original: showToast ("This Check plays at its original level."); break;
+            case Result::levelUnavailable: showToast ("Play A for the length of the Cue, then MATCH again."); break;
+            case Result::ceilingExceeded: showToast ("MATCH exceeds the safe level. The current gain is kept."); break;
+        }
+    };
 }
 
 void KirinHyphaEditor::openReferenceLarge (int slot)
@@ -72,6 +85,18 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.referenceStep = ! runtime.libraryReceived ? hypha::reference_ui::SourceStep::waitingForKirinOs
         : runtime.songSets.empty() ? hypha::reference_ui::SourceStep::chooseSource
         : slotStep (slot, state.aAvailable);
+    // H12: 同じ定義・同じ区間・同じ音量で比べる値（A の窓は観測スレッド、C の Cue の値は C の役から）。
+    const auto& checkRole = runtime.checkSelection ? *runtime.checkSelection : runtime;
+    if (runtime.visualTimeline) state.aKirin = runtime.visualTimeline->aKirin;
+    state.cueKirin = checkRole.cueSpectrum;
+    state.cueLoudness = checkRole.cueLevelAvailable ? checkRole.cueIntegratedLoudness : std::numeric_limits<double>::quiet_NaN();
+    state.cueStartSeconds = checkRole.cueStartSeconds;
+    state.cueEndSeconds = checkRole.cueEndSeconds;
+    state.sourceDurationSeconds = checkRole.sourceDurationSeconds;
+    state.cueLoops = checkRole.cueLoops;
+    state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
+    state.aWindowLoudness = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
+    rankCheckSets (state, checkRole.checkSetRanks);
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
     // （直し方は曲の側から。H9）。
     if (runtime.comparisonSlot == 3) state.actionText.clear();

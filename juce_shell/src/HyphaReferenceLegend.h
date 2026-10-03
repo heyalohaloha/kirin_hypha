@@ -32,8 +32,9 @@ inline void paintReferenceLegend (juce::Graphics& g, const juce::String& detail,
         const auto remaining = parts.size() - index;
         const auto available = fits ? desired : juce::jmax (0, (row.getWidth() - gap * (remaining - 1)) / remaining);
         auto cell = row.removeFromLeft (juce::jmin (desired, available));
-        g.setColour (index == 0 ? COL_SPECTRUM_DELTA_BR.withAlpha (0.92f)
-                    : index == 1 ? COL_FLORA.withAlpha (0.86f) : COL_TEXT_TERTIARY);
+        // A は金、比べる役（B・C・V）は水色（ABCV の画面案）。
+        g.setColour (index == 0 ? COL_FLORA_BR.withAlpha (0.92f)
+                    : index == 1 ? COL_SPECTRUM_DELTA_BR.withAlpha (0.92f) : COL_TEXT_TERTIARY);
         text_style::drawEllipsized (g, parts[index], cell, juce::Justification::centredLeft);
         row.removeFromLeft (gap);
     }

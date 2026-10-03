@@ -27,7 +27,8 @@ void Component::resized()
         if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
         place (aButton, comparisonWidth);
     }
-    if (current.separateComparisons && ! blindSession)
+    if (checkPage()) layoutCheckPage (area);  // H12: C の画面（HyphaReferenceCheckPage.cpp）
+    else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (panelGap());
         auto row = area.removeFromTop (detailedLayout() ? 40 : panelPickerHeight());
@@ -106,6 +107,7 @@ void Component::resized()
     }
     if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
     auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
+    if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f))); // H11

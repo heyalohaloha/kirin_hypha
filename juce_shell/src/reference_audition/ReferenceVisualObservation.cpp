@@ -59,6 +59,8 @@ std::shared_ptr<const VisualTimeline> VisualObservation::snapshot() const
 { const juce::ScopedLock lock (snapshotLock); return published; }
 void VisualObservation::publish()
 {
+    // H12: その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
+    timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
     ++timeline.revision; dirty = false;
     auto next = std::make_shared<const VisualTimeline> (timeline);
     const juce::ScopedLock lock (snapshotLock); published = std::move (next);
@@ -102,6 +104,18 @@ void VisualObservation::consumeTonal (const Block& block)
     { clearTonal(); dirty = true; return; }
     tonalExpected = block.position + block.frames;
     timeline.tonalAvailable = timeline.tonal.valid_bits != 0;
+    dirty = true;
+}
+// H12: A（この Block は DAW の入力）を、Kirin OS が参照曲の Cue に残す値と同じ定義で測る。
+// 途切れ（位置の飛び・discontinuity）では窓を捨てる（シークの後の窓は新しい位置から）。
+void VisualObservation::consumeKirin (const Block& block, int rate)
+{
+    if (! kirinMeter.configuredFor (rate, block.channels) && ! kirinMeter.configure (rate, block.channels, 6'000))
+        return;
+    if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity) kirinMeter.reset();
+    kirinDiscontinuity = block.discontinuity;
+    kirinMeter.push (block.pcm.data(), block.frames);
+    kirinExpected = block.position + block.frames;
     dirty = true;
 }
 void VisualObservation::consumePair (const Block& block)
@@ -159,7 +173,7 @@ void VisualObservation::run()
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); kirinMeter.reset(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             wait (100); continue;
@@ -245,7 +259,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); clearTonal(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); clearTonal(); kirinMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);
@@ -257,6 +271,7 @@ void VisualObservation::run()
             if (timeline.observing && analysis->current(job) && block.generation == epoch)
             {
                 consumeTonal (block);
+                consumeKirin (block, rate);
                 if (timeline.pairedObserving)
                 {
                     if (readerKey != next.key)

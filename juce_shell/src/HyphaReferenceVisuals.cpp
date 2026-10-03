@@ -2,6 +2,7 @@
 
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceLegend.h"
+#include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceVisualLayout.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -131,6 +132,14 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
 {
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
+    // H12: C の Cue の値があれば「Cue 対 A の同じ長さの直近」を同じ定義・同じ音量で比べる。
+    if (state.separateComparisons && state.comparisonSlot == 2 && state.cueKirin)
+    {
+        const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation);
+        if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz)) return true;
+        unavailable (g, cueArea, presentation);
+        return false;
+    }
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
                            state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C TRACK"
                                : state.separateComparisons && state.comparisonSlot == 3 ? "A / B" : "A / V", presentation);
@@ -157,10 +166,10 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
                                           minimumHz, maximumHz, area, 1000.0);
         const auto upper = spectrumPath (spectrum.bandCentersHz, spectrum.p90Millidbfs,
                                          minimumHz, maximumHz, area, 1000.0);
-        g.setColour (COL_FLORA.withAlpha (0.18f));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
         g.strokePath (lower, juce::PathStrokeType (0.8f));
         g.strokePath (upper, juce::PathStrokeType (0.8f));
-        g.setColour (COL_FLORA.withAlpha (0.82f));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.82f));
         g.strokePath (median, juce::PathStrokeType (1.5f));
         drew = true;
     }
@@ -184,7 +193,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
             if (! started) { live.startNewSubPath (point); started = true; }
             else live.lineTo (point);
         }
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
+        g.setColour (COL_FLORA_BR.withAlpha (0.92f));
         g.strokePath (live, juce::PathStrokeType (1.25f));
         drew = true;
     }
@@ -239,13 +248,13 @@ bool drawTonalBalance (juce::Graphics& g, juce::Rectangle<float> bounds,
         const auto& curve = *timeline->tonalReference;
         if (! genreReady)
         {
-            g.setColour (COL_FLORA.withAlpha (0.20f));
+            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.20f));
             g.strokePath (tonalPath (curve.centersHz, curve.p10, curve.validBits, area),
                           juce::PathStrokeType (0.8f));
             g.strokePath (tonalPath (curve.centersHz, curve.p90, curve.validBits, area),
                           juce::PathStrokeType (0.8f));
         }
-        g.setColour (COL_FLORA.withAlpha (0.86f));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.86f));
         g.strokePath (tonalPath (curve.centersHz, curve.median, curve.validBits, area),
                       juce::PathStrokeType (1.5f));
     }
@@ -260,7 +269,7 @@ bool drawTonalBalance (juce::Graphics& g, juce::Rectangle<float> bounds,
     }
     if (aReady)
     {
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.94f));
+        g.setColour (COL_FLORA_BR.withAlpha (0.94f));
         g.strokePath (tonalPath (centers, timeline->tonal.values_db,
                                  timeline->tonal.valid_bits, area),
                       juce::PathStrokeType (1.55f));
@@ -306,9 +315,9 @@ bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State
         peak.lineTo (x, area.getCentreY() + static_cast<float> (value) * area.getHeight() * 0.46f);
     }
     peak.closeSubPath();
-    g.setColour (COL_FLORA.withAlpha (0.24f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.24f));
     g.fillPath (peak);
-    g.setColour (COL_FLORA.withAlpha (0.74f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.74f));
     g.strokePath (peak, juce::PathStrokeType (0.8f));
     return true;
 }
@@ -372,7 +381,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
         if (! started) { path.startNewSubPath (point); started = true; }
         else path.lineTo (point);
     }
-    g.setColour (COL_FLORA.withAlpha (0.88f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.88f));
     g.strokePath (path, juce::PathStrokeType (1.35f));
     return true;
 }
@@ -399,7 +408,7 @@ bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const Stat
             * static_cast<float> (values[index]) / 32'767.0f;
         path.lineTo (x, y);
     }
-    g.setColour (COL_FLORA.withAlpha (0.86f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.86f));
     g.strokePath (path, juce::PathStrokeType (1.2f));
     return true;
 }

@@ -26,6 +26,16 @@ enum class TrackingAction : std::uint8_t
     stopCeiling  // gainDb にすると上限を超える。動かさず、追従を止める
 };
 
+// H12: C の MATCH をもう一度（鳴っている C の gain を今の A の窓で決め直して固定する）の結果。
+enum class RematchResult : std::uint8_t
+{
+    matched,           // 決め直した（gain は 50 ms の ramp で動く）
+    notPlaying,        // C が鳴っていない（押すと C を鳴らす。選ぶときに合わせる）
+    original,          // Kirin OS で「元の音量」にした Check（合わせない）
+    levelUnavailable,  // A の窓（Cue と同じ長さ）が足りない・Cue の値が無い
+    ceilingExceeded    // 上限（True Peak）を超える。今の gain を保つ
+};
+
 struct TrackingStep
 {
     TrackingAction action = TrackingAction::keep;

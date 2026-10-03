@@ -77,6 +77,12 @@ namespace hypha::reference_audition
         double cueIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
         double cueMaximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();
         int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
+        // H12: C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
+        std::shared_ptr<const KirinSpectrumWindow> cueSpectrum;
+        double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
+        double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN();
+        bool cueLoops = false;
+        double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
         bool bSelected = false;
         bool transportPlaying = false;
         bool transportPositionValid = false;
@@ -110,6 +116,7 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> versions;
         std::vector<RuntimeSelectionOption> checkTargets;
         std::vector<RuntimeSongSetOption> songSets;
+        std::vector<RuntimeCheckSetRank> checkSetRanks; // H12: Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
         bool separateComparisons = false, versionReady = false, checkReady = false;

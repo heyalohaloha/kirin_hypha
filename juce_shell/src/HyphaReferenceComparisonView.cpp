@@ -190,8 +190,9 @@ void ComparisonView::rebuild()
     scale=std::pow(2.0,std::ceil(std::log2(scale)));
     waveformCache=juce::Image(juce::Image::ARGB,columns,height,true);
     juce::Graphics drawing(waveformCache);
-    const std::array<juce::Colour,6> colours { COL_SPECTRUM_DELTA_BR.withAlpha(0.45f),COL_SPECTRUM_DELTA_BR.withAlpha(0.90f),
-        COL_FLORA.withAlpha(0.45f),COL_FLORA.withAlpha(0.90f),COL_SPECTRUM_DELTA_BR.withAlpha(0.14f),COL_SPECTRUM_DELTA_BR.withAlpha(0.28f) };
+    // A は金、V は水色（ABCV の画面案。B・C の画面と同じ）。4・5 は前の回の A（薄く）。
+    const std::array<juce::Colour,6> colours { COL_FLORA_BR.withAlpha(0.45f),COL_FLORA_BR.withAlpha(0.90f),
+        COL_SPECTRUM_DELTA_BR.withAlpha(0.45f),COL_SPECTRUM_DELTA_BR.withAlpha(0.90f),COL_FLORA_BR.withAlpha(0.14f),COL_FLORA_BR.withAlpha(0.28f) };
     for (size_t layer=0;layer<radii.size();++layer)
     {
         drawing.setColour(colours[layer]); const double center=height*((layer==2 || layer==3) ? 0.75 : 0.25);
@@ -309,7 +310,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
                 if (open && pass == pair.pass) path.lineTo (x,y); else path.startNewSubPath (x,y);
                 open = true; pass = pair.pass;
             }
-            g.setColour (side == 0 ? COL_SPECTRUM_DELTA_BR : COL_FLORA); g.strokePath (path, juce::PathStrokeType (1.2f));
+            g.setColour (side == 0 ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR); g.strokePath (path, juce::PathStrokeType (1.2f));
         }
     }
     g.setColour (COL_TEXT_SECONDARY);
@@ -329,11 +330,11 @@ void ComparisonView::paintTonalDetails(juce::Graphics& g)
         const auto& c=*data->tonalReference;
         if(!data->tonalGenre)
         {
-            g.setColour(COL_FLORA.withAlpha(0.20f));
+            g.setColour(COL_SPECTRUM_DELTA.withAlpha(0.20f));
             g.strokePath(tonalPath(c.p10,c.validBits,chart),juce::PathStrokeType(0.8f));
             g.strokePath(tonalPath(c.p90,c.validBits,chart),juce::PathStrokeType(0.8f));
         }
-        g.setColour(COL_FLORA.withAlpha(0.90f));
+        g.setColour(COL_SPECTRUM_DELTA.withAlpha(0.90f));
         g.strokePath(tonalPath(c.median,c.validBits,chart),juce::PathStrokeType(1.5f));
     }
     if(data&&data->tonalGenre)
@@ -346,10 +347,10 @@ void ComparisonView::paintTonalDetails(juce::Graphics& g)
     if(data&&data->tonalCaptureRange.valid())
     {
         const auto& a=data->tonalCaptureRange;
-        g.setColour(COL_SPECTRUM_DELTA_BR.withAlpha(0.20f));
+        g.setColour(COL_FLORA_BR.withAlpha(0.20f));
         g.strokePath(tonalPath(a.p10,a.validBits,chart),juce::PathStrokeType(0.8f));
         g.strokePath(tonalPath(a.p90,a.validBits,chart),juce::PathStrokeType(0.8f));
-        g.setColour(COL_SPECTRUM_DELTA_BR.withAlpha(0.95f));
+        g.setColour(COL_FLORA_BR.withAlpha(0.95f));
         g.strokePath(tonalPath(a.median,a.validBits,chart),juce::PathStrokeType(1.5f));
     }
     g.setColour(COL_TEXT_SECONDARY);

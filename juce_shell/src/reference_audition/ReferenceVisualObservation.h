@@ -54,6 +54,9 @@ private:
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
     KirinReferenceTonalMeter* tonalMeter = nullptr;
+    KirinSpectrumMeter kirinMeter;        // H12: A を Kirin OS の Cue と同じ定義で
+    std::int64_t kirinExpected = -1;
+    std::uint64_t kirinDiscontinuity = 0;
     std::int64_t expected = -1;
     std::int64_t tonalExpected = -1;
     std::uint64_t previousDiscontinuity = 0;
@@ -66,6 +69,7 @@ private:
     bool resetTonal();
     void consumePair (const Block&);
     void consumeTonal (const Block&);
+    void consumeKirin (const Block&, int rate);
     void publish();
 };
 }

@@ -157,15 +157,29 @@ juce::var cueRanges (const juce::String& fileHash, const juce::String& pcmHash)
     range->setProperty ("end_sample", 96'000);
     range->setProperty ("lufs_i_millilu", -16'000);
     range->setProperty ("max_true_peak_millidbtp", -4'000);
-    range->setProperty ("spectrum", juce::var());
-    range->setProperty ("balance_millidbfs", juce::var());
+    // H12: Cue の 64 帯域（中央値は帯域ごとに −20 − band dB、p10・p90 は ±3 dB）と 4 帯域 Balance。
+    juce::Array<juce::var> centers, p10, median, p90;
+    for (int band = 0; band < 64; ++band)
+    {
+        centers.add (20.0 * std::pow (1'000.0, band / 63.0));
+        median.add ((-20 - band) * 1'000);
+        p10.add ((-23 - band) * 1'000);
+        p90.add ((-17 - band) * 1'000);
+    }
+    auto* spectrum = new juce::DynamicObject();
+    spectrum->setProperty ("frame_count", 20);
+    spectrum->setProperty ("p10_millidbfs", p10);
+    spectrum->setProperty ("median_millidbfs", median);
+    spectrum->setProperty ("p90_millidbfs", p90);
+    range->setProperty ("spectrum", juce::var (spectrum));
+    range->setProperty ("balance_millidbfs", juce::Array<juce::var> { -21'000, -18'500, -24'250, -36'000 });
     auto* root = new juce::DynamicObject();
     root->setProperty ("format", "kirin_hypha_reference_ranges");
     root->setProperty ("version", "1.3");
     root->setProperty ("loudness_standard", "itu_r_bs_1770");
     root->setProperty ("source_content", juce::var (content));
     root->setProperty ("audio", juce::var (audio));
-    root->setProperty ("spectrum_band_centers_hz", juce::var());
+    root->setProperty ("spectrum_band_centers_hz", centers);
     root->setProperty ("balance_edges_hz", juce::Array<juce::var> { 20, 250, 2'000, 8'000, 20'000 });
     root->setProperty ("sections", juce::var());
     root->setProperty ("fingerprint", juce::var());
@@ -250,6 +264,12 @@ void matchesAndFollows (const juce::File& sandbox)
     require (ready.cueLevelAvailable && closeTo (ready.cueIntegratedLoudness, -16.0) && closeTo (ready.cueMaximumTruePeakDbtp, -4.0)
                  && ready.cueWindowBlocks == 100,
              "the selected Cue's Kirin OS values are available to MATCH");
+    require (ready.cueSpectrum && ready.cueSpectrum->centersHz.size() == 64 && ready.cueSpectrum->frames == 20
+                 && closeTo (ready.cueSpectrum->medianDb[5], -25.0) && closeTo (ready.cueSpectrum->p10Db[5], -28.0)
+                 && closeTo (ready.cueSpectrum->p90Db[63], -80.0) && closeTo (ready.cueSpectrum->balanceDb[2], -24.25)
+                 && closeTo (ready.cueStartSeconds, 0.0) && closeTo (ready.cueEndSeconds, 2.0)
+                 && closeTo (ready.sourceDurationSeconds, 2.0),
+             "the Cue's spectrum, Balance and place in the song reach the C page (H12)");
 
     // C：Cue の値で合わせ（曲全体の −18 なら +4 dB のところ +2 dB）、聴いているあいだ動かない。
     require (controller.selectB (-14.0, -2.0), "C matches with the Cue value");
@@ -262,8 +282,22 @@ void matchesAndFollows (const juce::File& sandbox)
     require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::keep
                  && closeTo (controller.snapshot().appliedGainDb, 2.0),
              "C never follows");
+    // H12：MATCH をもう一度。今の A の窓（−13.5）で +2.5 dB に決め直して固定する。上限を超える +6 dB には
+    // 動かさず理由を返し、A の窓が足りないときも今の gain を保つ。
+    require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched, "MATCH again re-fixes C");
+    state = controller.snapshot();
+    require (closeTo (state.appliedGainDb, 2.5) && closeTo (state.aIntegratedLoudness, -13.5)
+                 && closeTo (state.adjustedBMaximumTruePeakDbtp, -1.5) && state.tracking == ref::TrackingState::fixed,
+             "C's new gain comes from the current A window and stays fixed");
+    for (int block = 0; block < 6; ++block) render();  // 50 ms の ramp（2,400 サンプル）を越える
+    require (closeTo (buffer.getSample (0, 479), 0.1 * std::pow (10.0, 2.5 / 20.0), 1.0e-6), "C sounds at the new gain after the ramp");
+    require (controller.rematch (-10.0, -2.0) == ref::RematchResult::ceilingExceeded
+                 && controller.rematch (std::numeric_limits<double>::quiet_NaN(), -2.0) == ref::RematchResult::levelUnavailable
+                 && closeTo (controller.snapshot().appliedGainDb, 2.5),
+             "a MATCH over the ceiling or without an A window keeps the gain and says why");
     controller.selectA();
     render(); render();
+    require (controller.rematch (-13.5, -2.0) == ref::RematchResult::notPlaying, "MATCH again needs C to be playing");
 
     // B：同じ曲を追従で鳴らす。A の直近 10 秒が −20 LUFS になると −4 dB へ 50 ms で動く。
     controller.setTrackingEnabled (true);

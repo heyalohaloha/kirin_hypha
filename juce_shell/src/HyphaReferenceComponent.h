@@ -18,6 +18,8 @@
 #include "HyphaReferenceTonalView.h"
 #include "HyphaReferenceWorkflowControls.h"
 #include "HyphaReferenceSongList.h"
+#include "HyphaReferenceCheckTabs.h"
+#include "reference_audition/ReferenceKirinSpectrum.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 #include "reference_audition/ReferencePendingAudition.h"
@@ -161,6 +163,13 @@ struct State
     std::vector<SelectionOption> songSets, songs;
     std::vector<SongFact> songFacts; // H11: songs と同じ順
     juce::String songSetId, songId;
+    // H12: 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
+    // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
+    std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
+    double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
+    double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
+    double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
+    bool cueLoops = false;
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -231,6 +240,7 @@ public:
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
     std::function<void(int)> onOpenLarge; // H10: 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<void()> onMatch;        // H12: 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
     std::function<void()> onStartBlind;
     std::function<void(int)> onSelectBlindStimulus;
@@ -298,6 +308,9 @@ private:
     SideButton refButton { "B" }; // H10: B（REF、B セットの曲）
     juce::ComboBox songSetBox, songBox;
     SongList songList; // H11: B の画面の左の曲の一覧
+    CheckTabs checkTabs; // H12: C の画面の Check のタブ（CHECK セットの順）
+    juce::ComboBox checkSongBox; // H12: いまの Check の曲
+    SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
@@ -311,6 +324,16 @@ private:
     void configureRoles();
     void syncRoles (bool blindSession, bool workflowActive);
     bool explainReference();
+    // H12: C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
+    // （HyphaReferenceCheckPage.cpp）。
+    bool checkPage() const noexcept;
+    static constexpr int checkPageRows = 40 + 4 + 28 + 4 + 38; // CHECK SET と曲・タブ・Cue と MATCH
+    int checkFooterHeight() const noexcept;
+    void configureCheckPage();
+    void syncCheckPage (bool blindSession, bool workflowActive);
+    void layoutCheckPage (juce::Rectangle<int>& area);
+    void paintCheckPageLabels (juce::Graphics&) const;
+    juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
     void updateVisualNavigation (bool enabled);
 
     bool selectionVisible (const juce::ComboBox&) const;

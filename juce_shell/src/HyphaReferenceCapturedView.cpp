@@ -34,7 +34,7 @@ void ComparisonView::rebuildCaptured()
     waveformCache=juce::Image(juce::Image::ARGB,columns,height,true); juce::Graphics g(waveformCache);
     for(int layer=0;layer<4;++layer)
     {
-        g.setColour((layer<2 ? COL_SPECTRUM_DELTA_BR : COL_FLORA).withAlpha(layer%2 ? 0.85f : 0.35f));
+        g.setColour((layer<2 ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR).withAlpha(layer%2 ? 0.85f : 0.35f));
         const auto center=height*(layer<2 ? 0.25 : 0.75);
         for(int x=0;x<columns;++x) if(layer<2 || bKnown[size_t(x)])
         {

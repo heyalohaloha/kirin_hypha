@@ -148,6 +148,7 @@ Component::Component()
     addChildComponent (endBlindButton);
     addChildComponent (actionButton);
     configureRoles();
+    configureCheckPage();
 }
 
 void Component::setState (State next)
@@ -215,6 +216,7 @@ void Component::setState (State next)
     cueBox.setVisible ((showDetailedSelectors || (current.separateComparisons && !blindSession))
         && !workflowActive && !current.cues.empty());
     syncRoles (blindSession, workflowActive);
+    syncCheckPage (blindSession, workflowActive);
     updateVisualNavigation (!blindSession && !workflowActive);
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (current.sampleRateApprovalRequired);
@@ -259,7 +261,8 @@ void Component::paint (juce::Graphics& g)
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
     const bool blindSession = isBlindSession (current.blindPhase);
-    if (current.separateComparisons && ! blindSession)
+    if (checkPage()) { area.removeFromTop (panelGap() + checkPageRows); paintCheckPageLabels (g); }
+    else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop ((selectionVisible (presetBox) || viewButton.isVisible() ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
                             + panelGap() + (detailedLayout() ? 40 : panelPickerHeight()));
@@ -448,6 +451,7 @@ void Component::paint (juce::Graphics& g)
 
     if (detailedLayout())
     {
+        area = paintCheckFooter (g, area);  // H12: C の画面の 4 帯域と Cue の時間軸
         if (songList.isVisible()) paintReferenceBalance (g, area.withTrimmedLeft (songList.getWidth() + 6).toFloat(), current, presentationContext);
         else if (!comparisonView.isVisible() && !tonalView.isVisible()
             && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
@@ -466,7 +470,7 @@ void Component::paint (juce::Graphics& g)
                         current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp,
                         current.truePeakDeltaBMinusA, presentationContext, side);
         }
-        if (current.bSelected && std::isfinite (current.appliedGainDb))
+        if (current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage())  // C の画面は MATCH の横に出す
         {
             const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
                 + (current.originalAudition || current.comparisonFallbackOriginal ? "ORIGINAL"

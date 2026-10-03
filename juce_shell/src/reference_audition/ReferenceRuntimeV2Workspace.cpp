@@ -345,8 +345,16 @@ namespace hypha::reference_audition
                 next.cueLevelAvailable = true;
                 next.cueIntegratedLoudness = level->integratedLoudness;
                 next.cueMaximumTruePeakDbtp = level->maximumTruePeakDbtp;
+                next.cueSpectrum = level->spectrum;  // H12
             }
         next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
+        if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // H12: C の画面の Cue の時間軸
+        {
+            next.cueStartSeconds = static_cast<double> (cue->startSample) / static_cast<double> (cue->sampleRateHz);
+            next.cueEndSeconds = static_cast<double> (cue->endSample) / static_cast<double> (cue->sampleRateHz);
+            next.sourceDurationSeconds = static_cast<double> (selectedSource->audio.totalSampleFrames) / static_cast<double> (selectedSource->audio.sampleRateHz);
+            next.cueLoops = cue->loopEnabled;
+        }
         for (const auto& binding : check->profileBindings)
         {
             const auto profile = profileRepository.load (binding.profileArtifact);

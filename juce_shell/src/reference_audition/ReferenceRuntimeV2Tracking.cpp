@@ -81,18 +81,66 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         holdCurrentGainLocked();
         return TrackingAction::stopCeiling;
     }
-    bLinearGain.store (static_cast<float> (std::pow (10.0, step.gainDb / 20.0)), std::memory_order_release);
+    applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
+                            louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
+    return TrackingAction::move;
+}
+
+void RuntimeV2Controller::applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
+                                                  double sourceLoudness, double sourcePeakDbtp) noexcept
+{
+    bLinearGain.store (static_cast<float> (std::pow (10.0, gainDb / 20.0)), std::memory_order_release);
     auto& state = currentSnapshot;
-    state.appliedGainDb = step.gainDb;
-    if (! versionComparison) state.aIntegratedLoudness = aLoudness;
-    state.aMaximumTruePeakDbtp = louder (aSessionPeakDbtp, selectionAPeak);
-    state.adjustedBIntegratedLoudness = std::isfinite (sourceLoudness) ? sourceLoudness + step.gainDb : unavailable;
-    state.adjustedBMaximumTruePeakDbtp = std::isfinite (sourcePeak) ? sourcePeak + step.gainDb : unavailable;
+    state.appliedGainDb = gainDb;
+    state.aIntegratedLoudness = aLoudness;
+    state.aMaximumTruePeakDbtp = aPeakDbtp;
+    state.adjustedBIntegratedLoudness = std::isfinite (sourceLoudness) ? sourceLoudness + gainDb : unavailable;
+    state.adjustedBMaximumTruePeakDbtp = std::isfinite (sourcePeakDbtp) ? sourcePeakDbtp + gainDb : unavailable;
     state.loudnessDeltaBMinusA = std::isfinite (state.aIntegratedLoudness) && std::isfinite (state.adjustedBIntegratedLoudness)
         ? state.adjustedBIntegratedLoudness - state.aIntegratedLoudness : unavailable;
     state.truePeakDeltaBMinusA = std::isfinite (state.aMaximumTruePeakDbtp) && std::isfinite (state.adjustedBMaximumTruePeakDbtp)
         ? state.adjustedBMaximumTruePeakDbtp - state.aMaximumTruePeakDbtp : unavailable;
     holdCurrentGainLocked();
-    return TrackingAction::move;
+}
+
+// H12: C の MATCH をもう一度（方向設計 §4 の C の画面、右上の MATCH）。鳴っている C の gain を
+// 「A の直近（Cue と同じ長さ）− Cue の Kirin OS の値（無ければ曲全体）」に決め直して固定する。追従は
+// しない（H4）。上限（True Peak）を超えるなら今の gain を保って理由を返す（R-28）。A は動かさない。
+RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPeakDbtp) noexcept
+{
+    if (versionComparison || trackingEnabled.load (std::memory_order_acquire)
+        || ! ready.load (std::memory_order_acquire) || ! bSelected.load (std::memory_order_acquire))
+        return RematchResult::notPlaying;
+    const auto generation = normalSelectionGeneration.load (std::memory_order_acquire);
+    std::shared_ptr<const RuntimeSource> source;
+    double selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable;
+    bool cueLevel = false;
+    {
+        const juce::ScopedLock lock (stateLock);
+        if (currentSnapshot.tracking == TrackingState::none || currentSnapshot.comparisonMode != "loudness_match")
+            return RematchResult::original;
+        source = publishedSource;
+        selectionAPeak = currentSnapshot.aMaximumTruePeakDbtp;
+        cueLevel = currentSnapshot.cueLevelAvailable;
+        cueLoudness = currentSnapshot.cueIntegratedLoudness;
+        cuePeak = currentSnapshot.cueMaximumTruePeakDbtp;
+    }
+    if (source == nullptr) return RematchResult::notPlaying;
+    const auto& summary = source->measurementSummary;
+    const auto sourceLoudness = cueLevel ? cueLoudness
+        : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable;
+    const auto sourcePeak = cueLevel && std::isfinite (cuePeak) ? cuePeak
+        : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable;
+    const auto required = aLoudness - sourceLoudness;
+    if (! std::isfinite (required) || required < -100.0 || required > 100.0) return RematchResult::levelUnavailable;
+    const auto aPeak = louder (aSessionPeakDbtp, selectionAPeak);
+    if (required > 0.0 && referenceGainHeadroomDb (sourcePeak, aPeak) + 1.0e-9 < required) return RematchResult::ceilingExceeded;
+
+    const juce::ScopedLock lock (stateLock);
+    if (normalSelectionGeneration.load (std::memory_order_acquire) != generation || ! bSelected.load (std::memory_order_acquire))
+        return RematchResult::notPlaying;
+    currentSnapshot.tracking = TrackingState::fixed;
+    applyMatchedGainLocked (required, aLoudness, aPeak, sourceLoudness, sourcePeak);
+    return RematchResult::matched;
 }
 }

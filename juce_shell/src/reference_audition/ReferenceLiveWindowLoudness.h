@@ -22,6 +22,14 @@ struct LiveWindowLoudness
 };
 
 inline constexpr int liveWindowBlocks = 100;          // 10 秒
+
+// H12: 画面が A の窓の音量を読む間隔（メーター履歴を毎フレームは読まない）。メッセージスレッドだけで使う。
+struct WindowLoudnessCache
+{
+    int slot = 0;
+    double loudness = std::numeric_limits<double>::quiet_NaN();
+    double validUntilMs = 0.0;
+};
 inline constexpr int liveWindowMinimumGatedBlocks = 30; // 3 秒に満たない窓は使わない
 
 // LUFS-M の並び（古い順）をゲートつきで積算する。非有限の値は無音として扱う。
