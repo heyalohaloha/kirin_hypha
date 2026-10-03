@@ -41,12 +41,33 @@ juce::var restartSets (const juce::String& setId, const juce::File& song, const 
     candidate->setProperty ("cues", juce::Array<juce::var> { juce::var (cue) });
     candidate->setProperty ("default_cue_id", "45454545-4545-4545-8545-454545454545");
     candidate->setProperty ("preparation_status", "prepared");
+    // 2 曲目は Kirin OS がまだ確かめられていない曲（ファイルが見つからないなど）。
+    auto* pendingCue = new juce::DynamicObject();
+    pendingCue->setProperty ("cue_id", "46464646-4646-4646-8646-464646464646");
+    pendingCue->setProperty ("label", "Full track");
+    pendingCue->setProperty ("sample_rate_hz", 48'000);
+    pendingCue->setProperty ("start_sample", 0);
+    pendingCue->setProperty ("end_sample", songFrames);
+    pendingCue->setProperty ("loop_enabled", false);
+    auto* pendingIdentity = new juce::DynamicObject();
+    pendingIdentity->setProperty ("catalog_reference_id", "catalog:pending-song");
+    pendingIdentity->setProperty ("sha256_file", juce::String::repeatedString ("8", 64));
+    pendingIdentity->setProperty ("sha256_pcm", juce::String::repeatedString ("9", 64));
+    auto* pending = new juce::DynamicObject();
+    pending->setProperty ("candidate_id", "57575757-5757-4757-8757-575757575757");
+    pending->setProperty ("display_name", "Pending song");
+    pending->setProperty ("source_kind", "catalog_track");
+    pending->setProperty ("source_identity", juce::var (pendingIdentity));
+    pending->setProperty ("source_artifact", juce::var());
+    pending->setProperty ("cues", juce::Array<juce::var> { juce::var (pendingCue) });
+    pending->setProperty ("default_cue_id", "46464646-4646-4646-8646-464646464646");
+    pending->setProperty ("preparation_status", "pending");
     auto* set = new juce::DynamicObject();
     set->setProperty ("song_set_id", setId);
     set->setProperty ("revision_id", "67676767-6767-4767-8767-676767676767");
     set->setProperty ("rank", 1);
     set->setProperty ("name", "Refs");
-    set->setProperty ("songs", juce::Array<juce::var> { juce::var (candidate) });
+    set->setProperty ("songs", juce::Array<juce::var> { juce::var (candidate), juce::var (pending) });
     auto* root = new juce::DynamicObject();
     root->setProperty ("format", "kirin_hypha_reference_library_sets");
     root->setProperty ("version", "1.0");
@@ -146,5 +167,15 @@ void testReferenceCueRestart (const juce::File& sandbox)
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && nearCueStart(),
              "after returning before the start point, B comes back at the head of its Cue");
+
+    // 準備中（Kirin OS がまだ確かめられていない）の曲を選んでも、見出しは役の名前ではなくその曲の名前。
+    const auto songs = controller.snapshot().songSets[0].songs;
+    require (songs.size() == 2 && controller.selectSong (songs[1].id), "choose the song Kirin OS has not verified");
+    for (int attempt = 0; attempt < 1500 && ! (controller.snapshot().referenceSelection != nullptr
+            && controller.snapshot().referenceSelection->rejectionCode == "reference_source_unavailable"); ++attempt)
+    { host (true); juce::Thread::sleep (10); }
+    require (controller.snapshot().referenceSelection->rejectionCode == "reference_source_unavailable"
+                 && controller.snapshot().referenceSelection->title == "Pending song",
+             "a song still being prepared keeps its name as the B title");
     std::cout << "Reference B restarts its Cue at the playhead after seeks and past its end PASS\n";
 }

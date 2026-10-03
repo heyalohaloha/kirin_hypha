@@ -197,7 +197,8 @@ namespace hypha::reference_audition
             next.presetName = preset->name;
             next.checkId = check->checkId;
             next.checkLabel = check->label;
-            if (candidate != nullptr) { next.candidateId = candidate->candidateId; next.candidateName = candidate->displayName; }
+            // 準備中・見つからない曲も、見出しは選んだ曲の名前（役の名前「REF」にしない）。
+            if (candidate != nullptr) { next.candidateId = candidate->candidateId; next.candidateName = next.title = candidate->displayName; }
             next.manifestRevision = workspace->manifest.revision;
             next.hostSampleRateHz = static_cast<std::int64_t> (
                 std::llround (configuration.sampleRate));
