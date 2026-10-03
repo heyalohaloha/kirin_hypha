@@ -22,6 +22,8 @@ struct StatusLine
 // どれか。全ての段階がどれか 1 つに入る（テストで固定する）。
 StatusKind kindOf (SourceStep) noexcept;
 StatusLine referenceStatusLine (const State&);
+// 鳴っている役の gain の後ろに添える合わせ方（ORIGINAL・MATCH UNAVAILABLE・FOLLOWING・FOLLOW STOPPED・MATCHED）。
+juce::String gainReadoutState (const State&);
 juce::Colour statusColour (StatusKind) noexcept;
 void paintStatusDot (juce::Graphics&, juce::Rectangle<int> line, StatusKind);
 }

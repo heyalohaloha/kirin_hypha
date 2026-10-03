@@ -126,8 +126,10 @@ void Component::syncCheckPage (bool blindSession, bool workflowActive)
     if (vPage && sameSection.isEmpty()) versionTab = "whole";
     checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
     checkTabs.setVisible ((page || vPage) && ! groups.empty());
+    const auto views = current.checkViewBindings.find (versionTab);
     comparisonView.setSameSection (sameSection, current.bSelected && current.audibleComparisonSlot == 1
-                                                    ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN());
+                                                    ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN(),
+                                   views != current.checkViewBindings.end() ? views->second : std::vector<juce::String> {});
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
     checkSongBox.setVisible (page && group != nullptr);
     const bool matching = current.comparisonMode == "loudness_match";

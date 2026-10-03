@@ -40,6 +40,7 @@ inline void verifyReferenceStatusLine()
              std::tuple { 1, Tracking::following, false, "V FOLLOWING A (LAST 10 S)" },
              std::tuple { 2, Tracking::fixed, false, "C MATCHED AND FIXED" },
              std::tuple { 3, Tracking::stoppedCeiling, false, "B FOLLOW STOPPED AT THE CEILING" },
+             std::tuple { 1, Tracking::stoppedRange, false, "V FOLLOW STOPPED 6 DB FROM MATCH" },
              std::tuple { 2, Tracking::none, true, "C ORIGINAL LEVEL" } })
     {
         playing.audibleComparisonSlot = slot;
@@ -50,6 +51,15 @@ inline void verifyReferenceStatusLine()
                  "an audible role says how its level is held: " + line.text);
         require (i18n::translate (line.text, i18n::Language::japanese) != line.text,
                  "the audible line reads in Japanese: " + line.text);
+    }
+    // gain の読みの後ろの語も合わせ方を言う（追従中を MATCHED と言わない）。
+    playing.originalAudition = false;
+    for (const auto& [tracking, expected] : { std::pair { Tracking::following, "FOLLOWING" }, std::pair { Tracking::fixed, "MATCHED" },
+                                              std::pair { Tracking::stoppedRange, "FOLLOW STOPPED" },
+                                              std::pair { Tracking::stoppedCeiling, "FOLLOW STOPPED" } })
+    {
+        playing.tracking = tracking;
+        require (reference_ui::gainReadoutState (playing) == expected, juce::String ("the gain readout says ") + expected);
     }
 
     // 待っている切替は準備中、止まった切替はできない（選び直すのが直し方）。
@@ -75,6 +85,12 @@ inline void verifyReferenceStatusLine()
     require (line.kind == StatusKind::unable && line.text == "B: RANK A B SET FOR HYPHA IN KIRIN OS"
                  && i18n::translate (line.text, i18n::Language::japanese) != line.text,
              "a B page with no B set says how to make one");
+    // B SET を出しているのに読めない（sets.json の形が違う）ときは、出し方ではなく更新を言う。
+    noSet.songSetsIssue = "reference_library_song_set_rejected";
+    line = reference_ui::referenceStatusLine (noSet);
+    require (line.kind == StatusKind::unable && line.text == "B: B SET NOT READ / UPDATE KIRIN OS AND HYPHA"
+                 && i18n::translate (line.text, i18n::Language::japanese) != line.text,
+             "a B set Hypha could not read is not mistaken for a missing one");
 
     // Kirin OS を待つ段階は、Kirin OS が閉じていればできない（開くのが直し方）。
     auto closed = named ("ready");
@@ -112,12 +128,23 @@ inline void verifyReferenceStatusLine()
              "30 s of play without a match becomes unavailable");
     require (watch.observe (2, Step::waitingForKirinOs, false, false, false, 300.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, false, false, 320.0).isEmpty()
-                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0) == "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS",
-             "a running Kirin OS that does not answer in 5 s is reported (a closed one already says open it)");
+                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0).isEmpty()
+                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 331.5) == "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS",
+             "a Kirin OS that does not answer 5 s after it opens is reported (a closed one already says open it)");
+    // MATCH に使う A の音量：B・V は再生 10 秒ぶん、C は A の直近が Cue の長さ（最長 30 秒）たまるまで待つので 35 秒ぶん。
+    for (double now = 500.0; now <= 520.0; now += 0.5)
+        require (watch.observe (2, Step::ready, true, true, true, now).isEmpty(), "C waits for up to 30 s of A");
+    for (double now = 520.5; now < 535.5; now += 0.5) watch.observe (2, Step::ready, true, true, true, now);
+    require (watch.observe (2, Step::ready, true, true, true, 536.0) == "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+             "C's A level is overdue after 35 s of play");
+    for (double now = 600.0; now <= 610.0; now += 0.5) watch.observe (1, Step::ready, true, true, true, now);
+    require (watch.observe (1, Step::ready, true, true, true, 610.5) == "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+             "V's A level is overdue after 10 s of play");
     require (watch.observe (2, Step::playDaw, false, true, false, 400.0).isEmpty()
                  && watch.observe (2, Step::playDaw, false, true, false, 900.0).isEmpty(),
              "waiting for the user's own action has no time limit");
     for (const auto* reason : { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+                                "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
                                 "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
                                 "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
                                 "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN" })

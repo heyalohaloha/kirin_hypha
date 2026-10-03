@@ -18,7 +18,14 @@ void ReferenceComparisonController::clearPendingAudition()
 
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
 {
-    return activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted();
+    return activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted()
+        || offlineRenderSeen.load (std::memory_order_acquire);
+}
+
+int ReferenceComparisonController::pendingSlot() const
+{
+    const juce::ScopedLock lock (selectionLock);
+    return activePendingIntent.load (std::memory_order_acquire) != 0 ? pendingAudition.view.slot : 0;
 }
 
 void ReferenceComparisonController::appendPendingAudition (
@@ -39,7 +46,11 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     if (slot != 1 && slot != 2 && slot != 3) return false;
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
     const auto state = snapshot();
-    if (state.transportPlaying)
+    // 仕様 C：C は A の直近が Cue の長さ（最長 30 秒）たまってから合わせる。足りないあいだは押した選択を
+    // 待たせ、たまったら鳴らす（A のまま。待ちの上限を超えたら理由を出す）。
+    const bool waitForLevel = slot == 2 && state.checkSelection != nullptr && state.checkReady
+        && state.checkSelection->comparisonMode == "loudness_match" && ! std::isfinite (loudness);
+    if (state.transportPlaying && ! waitForLevel)
         return slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak);
     if (trialActive() || hasActiveWorkflow() || capture.access->busy()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
@@ -60,6 +71,7 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
 
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive)
 {
+    if (offlineRenderSeen.exchange (false, std::memory_order_acq_rel)) forgetHeldAudition();
     if (activePendingIntent.load (std::memory_order_acquire) == 0 && !armResume()) return;
     PendingIntent intent;
     { const juce::ScopedLock lock (selectionLock); intent = pendingAudition; }
@@ -85,8 +97,9 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         || (state.transportPlaying && inputSafety == 0)
         || trialActive() || hasActiveWorkflow())
     {
-        // H5: 戻す選択は、停止・オフライン書き出し・bypass のあいだ待つだけで、取り消さない（鳴らしはしない）。
-        if (intent.resume && !trialActive() && !hasActiveWorkflow())
+        // H5: 戻す選択と選択の替えは、停止・bypass のあいだ待つだけで、取り消さない（鳴らしはしない）。
+        // オフライン書き出しは forgetHeldAudition で忘れる（仕様 A）。
+        if ((intent.resume || intent.switching) && !trialActive() && !hasActiveWorkflow())
         {
             const juce::ScopedLock lock (selectionLock);
             if (pendingAudition.intentId == intent.intentId)
@@ -102,7 +115,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     const auto binding = target.visualBinding();
     if (state.state == RuntimeState::rejected || state.state == RuntimeState::disconnected
         || (state.playbackIdentity.isNotEmpty() && state.playbackIdentity != intent.identity))
-    { if (intent.resume) dropResume(); publish (Stage::sourceChanged); return; }
+    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged); return; }
     if (state.sampleRateApprovalRequired) { publish (Stage::approval, state.transportPlaying); return; }
     if (!state.transportPlaying) { publish (Stage::play); return; }
     if (!callbackLive || inputSafety != 1
@@ -114,7 +127,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     { publish (Stage::level, true); return; }
     RuntimeV2SourceRepository verifier (juce::File {});
     if (verifier.verifySourceRevision (*binding.source).isNotEmpty())
-    { if (intent.resume) dropResume(); publish (Stage::sourceChanged); return; }
+    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged); return; }
     // Claim once on the control thread, then use the runtime generation across gain preparation.
     // A, a source change or reconfiguration invalidates that generation before publication.
     // Bind preparation to the same condition even if a publication changes after this snapshot.
@@ -132,6 +145,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     }
     if (!target.selectB (loudness, peak, generation, intent.identity))
     {
+        if (intent.switching) dropResume();  // 新しい MATCH ができない：選択を手放して理由を出す（R-28）
         const auto failure = target.snapshot().matchFailure;
         publish (failure == MatchFailure::ceilingExceeded ? Stage::ceilingExceeded
             : failure == MatchFailure::sourceLevelUnavailable ? Stage::sourceLevelUnavailable

@@ -2,6 +2,7 @@
 #include "ReferenceRuntimeRepositoryParsing.h"
 
 #include <juce_cryptography/juce_cryptography.h>
+#include <algorithm>
 #include <set>
 
 namespace hypha::reference_audition
@@ -42,7 +43,7 @@ bool rangesReceipt (const juce::var& value, RuntimeContentReceipt& result)
         && exactInteger (value["bytes"], 1, maximumRangesBytes, result.bytes);
 }
 
-bool parseSongSet (const juce::var& value, int expectedRank, RuntimeSongSet& result)
+bool parseSongSet (const juce::var& value, int expectedRank, RuntimeSongSet& result, bool& songSkipped)
 {
     const auto* object = value.getDynamicObject();
     std::int64_t rank = 0;
@@ -63,10 +64,17 @@ bool parseSongSet (const juce::var& value, int expectedRank, RuntimeSongSet& res
     {
         RuntimeCandidate candidate;
         if (! parseLibraryVersionCandidate (song, candidate) || ! candidateIds.insert (candidate.candidateId).second)
-            return false;
+        { songSkipped = true; continue; }
         result.songs.push_back (std::move (candidate));
     }
     return true;
+}
+
+bool sameRevision (const RuntimeManifest& manifest, const RuntimeCheckSetRank& rank)
+{
+    return std::any_of (manifest.presetArtifacts.begin(), manifest.presetArtifacts.end(), [&] (const auto& receipt) {
+        return receipt.presetId == rank.presetId && receipt.revisionId == rank.revisionId;
+    });
 }
 
 bool parseCheckSet (const juce::var& value, int expectedRank, const RuntimeManifest& manifest,
@@ -82,10 +90,17 @@ bool parseCheckSet (const juce::var& value, int expectedRank, const RuntimeManif
     result.revisionId = value["revision_id"].toString();
     result.rank = static_cast<int> (rank);
     // 中身は同じ manifest の Preset を読む。manifest に無い Preset や別の revision は指せない。
-    return std::any_of (manifest.presetArtifacts.begin(), manifest.presetArtifacts.end(), [&] (const auto& receipt) {
-        return receipt.presetId == result.presetId && receipt.revisionId == result.revisionId;
-    });
+    return sameRevision (manifest, result);
 }
+}
+
+RuntimeLibrarySets carriedLibrarySets (const RuntimeLibrarySets& previous, const RuntimeManifest& manifest)
+{
+    auto result = previous;
+    result.checkSets.clear();
+    for (const auto& rank : previous.checkSets)
+        if (sameRevision (manifest, rank)) result.checkSets.push_back (rank);
+    return result;
 }
 
 std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& root,
@@ -122,12 +137,16 @@ std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& ro
         || checkSets == nullptr || checkSets->size() > maximumRankedSets
         || sourceRanges == nullptr || sourceRanges->size() > maximumSourceRanges)
         return reject ("reference_library_sets_rejected");
+    // 読めない項目は 1 つずつ飛ばして理由を残す（最初に見つけた理由。B の画面が直し方を出す）。
+    const auto skip = [&rejection] (const char* code) { if (rejection.isEmpty()) rejection = code; };
     std::set<juce::String> setIds, presetIds, sources;
     for (int index = 0; index < songSets->size(); ++index)
     {
         RuntimeSongSet set;
-        if (! parseSongSet (songSets->getReference (index), index + 1, set) || ! setIds.insert (set.songSetId).second)
-            return reject ("reference_library_song_set_rejected");
+        bool songSkipped = false;
+        if (! parseSongSet (songSets->getReference (index), index + 1, set, songSkipped) || ! setIds.insert (set.songSetId).second)
+        { skip ("reference_library_song_set_rejected"); continue; }
+        if (songSkipped) skip ("reference_library_song_rejected");
         sets.songSets.push_back (std::move (set));
     }
     for (int index = 0; index < checkSets->size(); ++index)
@@ -135,7 +154,7 @@ std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& ro
         RuntimeCheckSetRank rank;
         if (! parseCheckSet (checkSets->getReference (index), index + 1, workspace.manifest, rank)
             || ! presetIds.insert (rank.presetId).second)
-            return reject ("reference_library_check_set_rejected");
+        { skip ("reference_library_check_set_rejected"); continue; }
         sets.checkSets.push_back (std::move (rank));
     }
     for (const auto& value : *sourceRanges)
@@ -144,11 +163,11 @@ std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& ro
         RuntimeSourceRangesReceipt entry;
         if (item == nullptr || ! exactProperties (*item, { "source_artifact_sha256", "ranges_artifact" })
             || ! value["source_artifact_sha256"].isString())
-            return reject ("reference_library_source_ranges_rejected");
+        { skip ("reference_library_source_ranges_rejected"); continue; }
         entry.sourceArtifactSha256 = value["source_artifact_sha256"].toString();
         if (! sha256 (entry.sourceArtifactSha256) || ! sources.insert (entry.sourceArtifactSha256).second
             || ! rangesReceipt (value["ranges_artifact"], entry.rangesArtifact))
-            return reject ("reference_library_source_ranges_rejected");
+        { skip ("reference_library_source_ranges_rejected"); continue; }
         sets.sourceRanges.push_back (std::move (entry));
     }
     return sets;

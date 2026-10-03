@@ -125,8 +125,13 @@ void testReferencePendingAudition (const juce::File& sandbox)
         "already-forbidden input cannot masquerade as an unobserved first callback and switch later");
     host (false);
     require (controller.requestAudition (2, -14, -2), "queue before changing source controls");
+    // 同じ Cue を選び直しても何も変わらない（押した C は待ったまま）。別の Cue にすると新しい選択で鳴らす
+    // （ReferenceAbcvRoles の C の切替）。A を押すと待ちは消える。
     require (controller.selectCue (controller.snapshot().checkSelection->cueId)
-        && !controller.pendingAuditionNeedsService(), "changing Cue cancels the pending source");
+        && controller.pendingAuditionNeedsService() && controller.snapshot().pendingAudition.slot == 2,
+        "choosing the same Cue keeps the queued C");
+    controller.selectA();
+    require (!controller.pendingAuditionNeedsService(), "A cancels the queued C");
     require (controller.requestAudition (2, -14, -2), "queue before host restore");
     const auto saved = controller.savedSettings();
     controller.restoreSettings (saved);

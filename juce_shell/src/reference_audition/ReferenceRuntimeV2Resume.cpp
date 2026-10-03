@@ -7,7 +7,8 @@ namespace hypha::reference_audition
 // 掛けていた値（追従で動いた後の値）。MATCH は測り直さない（C の固定を崩さない・窓が空でも gain が飛ばない）。
 bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept
 {
-    if (blind.ongoing() || bSelected.load (std::memory_order_acquire)) return false;
+    if (blind.ongoing() || bSelected.load (std::memory_order_acquire) || revokeAfterFade.load (std::memory_order_acquire))
+        return false;
     {
         const juce::ScopedLock lock (stateLock);
         if (! heldSelection.valid || playbackIdentity.isEmpty() || heldSelection.playbackIdentity != playbackIdentity
@@ -24,6 +25,12 @@ bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const j
     if (! activatePreparedB (selectionGeneration)) return false;
     beginAuditionEventSession (bBaseline);
     return true;
+}
+
+std::uint64_t RuntimeV2Controller::requestedGeneration() const
+{
+    const juce::ScopedLock lock (stateLock);
+    return requestedSelection.generation;
 }
 
 bool RuntimeV2Controller::hasHeldSelection() const

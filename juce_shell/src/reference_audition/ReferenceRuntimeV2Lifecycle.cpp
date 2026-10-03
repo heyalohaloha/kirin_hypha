@@ -22,7 +22,7 @@ namespace hypha::reference_audition
         revokeAuditionPublication();
         pages.close();
         aCapture.disconnect();
-        workspace.reset();
+        { const juce::ScopedLock lock (stateLock); workspace.reset(); }  // visualBinding がメッセージスレッドから読む
         activeABinding.reset();
         activeSourceKey.clear();
         activeMappingKey.clear();
@@ -74,7 +74,7 @@ namespace hypha::reference_audition
         libraryReceived.store (false, std::memory_order_release);
         libraryOnline.store (false, std::memory_order_release);
         appliedConfigurationGeneration = configuration.generation;
-        appliedSelectionGeneration = 0;
+        appliedSelectionGeneration.store (0, std::memory_order_release);
         if (! configuration.identity.valid() || ! std::isfinite (configuration.sampleRate)
             || configuration.sampleRate <= 0.0
             || (configuration.channels != 1 && configuration.channels != 2))
@@ -162,7 +162,9 @@ namespace hypha::reference_audition
                 invalidateBlind();
                 missedTransportCallbacks = 0;
             }
-            if (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0)
+            // 選択を替えた役がまだ鳴っている（フェード中）あいだは、古い音の準備を崩さない。
+            const bool fading = deferredRevokeWaiting();
+            if (! fading && (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0))
             {
                 if (! versionComparison)
                 {
@@ -172,9 +174,11 @@ namespace hypha::reference_audition
                     currentSnapshot.workflowCatalog = workflowCatalog;
                 }
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
+                if (versionComparison && workspace != nullptr)
+                    versionIdentifier.prepare (root, *workspace, juce::Time::currentTimeMillis());  // H7
                 untilPoll = workspacePolls;
             }
-            wait (workerPollMs);
+            wait (fading ? 2 : workerPollMs);
         }
     }
 }

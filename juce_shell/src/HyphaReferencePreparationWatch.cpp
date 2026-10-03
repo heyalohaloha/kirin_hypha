@@ -7,11 +7,12 @@ namespace hypha::reference_ui
 juce::String PreparationWatch::observe (int slot, SourceStep step, bool measuringA, bool kirinOsOnline, bool playing,
                                         double nowSeconds)
 {
-    if (slot != watchedSlot || step != watchedStep || measuringA != watchedA)
+    if (slot != watchedSlot || step != watchedStep || measuringA != watchedA || kirinOsOnline != watchedOnline)
     {
         watchedSlot = slot;
         watchedStep = step;
         watchedA = measuringA;
+        watchedOnline = kirinOsOnline;
         since = last = nowSeconds;
         played = 0.0;
     }
@@ -20,6 +21,9 @@ juce::String PreparationWatch::observe (int slot, SourceStep step, bool measurin
     last = nowSeconds;
     const auto waited = nowSeconds - since;
     using Budget = PreparationBudget;
+    if (measuringA && slot == 2)
+        return played > Budget::checkALevelPlaySeconds
+            ? juce::String ("A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN") : juce::String();
     if (measuringA)
         return played > Budget::aLevelPlaySeconds ? juce::String ("A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN")
                                                   : juce::String();

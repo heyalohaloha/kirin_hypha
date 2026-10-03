@@ -111,6 +111,10 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
         return StartResult::notReady;
     }
     liveCompare.sessionActive.store (true, std::memory_order_release);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // 仕様 A：live 比較を始めたら、停止前の Reference の選択へ自動で戻さない。
+    if (referenceAuditionController != nullptr) referenceAuditionController->forgetHeldAudition();
+   #endif
     startTimer (50);
     return StartResult::started;
 }

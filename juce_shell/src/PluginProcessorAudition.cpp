@@ -48,6 +48,9 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         }
     }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // 仕様 A：オフライン書き出しを見たら、メッセージスレッドが停止前の選択の保留を消す（ここでは知らせるだけ）。
+    if (role == Role::Post && referenceAuditionController != nullptr && nonRealtimeMode)
+        referenceAuditionController->noteOfflineRender();
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->observeTransport (clock.positionSamples, clock.hasPosition, clock.playing);
     if (role == Role::Post && referenceAuditionController != nullptr)

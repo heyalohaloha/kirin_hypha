@@ -52,6 +52,7 @@ const Entry entries[] = {
     { "Open V at 300%", u8"Vを300%で開く" }, { "Open C at 300%", u8"Cを300%で開く" },
     { "V opened at 300%. Press V to listen.", u8"Vを300%で開きました。もう一度Vで試聴します。" },
     { "C opened at 300%. Press C to listen.", u8"Cを300%で開きました。もう一度Cで試聴します。" },
+    { "V opened at 300%.", u8"Vを300%で開きました。" }, { "C opened at 300%.", u8"Cを300%で開きました。" },
     { "B: RANK A B SET FOR HYPHA IN KIRIN OS", u8"B：Kirin OSでBセットをHyphaに出す" },
     { "PRE DELTA PAUSED", u8"PRE差分は停止中" },
     { u8"PRE Δ PAUSED", u8"PREのΔは停止中" },

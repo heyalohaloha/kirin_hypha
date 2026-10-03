@@ -53,8 +53,10 @@ void KirinHyphaProcessorBase::serviceReferencePendingAudition()
     if (!referencePendingAuditionNeedsService()) return;
     if (!licenseIsOs()) { referenceAuditionController->suspendAudition(); return; }
     const bool live = heartbeatLive();
+    const int slot = referenceAuditionController->pendingSlot();
+    const int blocks = referenceAuditionController->pendingLiveWindowBlocks();
     const auto level = referenceAuditionController->pendingAuditionNeedsLevel()
-        ? referenceLiveALevel (false, referenceAuditionController->pendingLiveWindowBlocks())
+        ? referenceLiveALevel (slot == 2, blocks, hypha::reference_audition::matchMinimumBlocks (slot, blocks))
         : hypha::reference_audition::LiveALevel {};
     referenceAuditionController->servicePendingAudition (level.loudness, level.peak, live);
    #endif

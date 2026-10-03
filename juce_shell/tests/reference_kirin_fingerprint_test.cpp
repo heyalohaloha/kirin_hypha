@@ -156,8 +156,8 @@ void testReferenceKirinFingerprint()
     silent.lufs.assign (150, -70.0f);
     check (compareFingerprints (hypha["m48"], silent).relation == FingerprintMatch::Relation::unknown,
            "too little sound in common gives no answer");
-    // V の自動特定：A の直近（曲の 3〜15 秒、曲の頭からの位置に置く）を Version の指紋と照合し、同じ曲以上で
-    // 一致率の最も高いものを AUTO にする。音名をずらした別の曲は選ばない。
+    // V の自動特定：A の直近（曲の 3〜15 秒、曲の頭からの位置に置く）を Version の指紋と照合し、Kirin OS の
+    // 「同じ曲」以上で一致率の最も高いものを AUTO にする。音名をずらした別の曲は選ばない。
     auto other = kirin["m48"];
     for (auto& bits : other.bits) bits = static_cast<std::uint16_t> (((bits << 6) | (bits >> 6)) & 0x0fff);
     VersionIdentifier identifier;
@@ -167,11 +167,64 @@ void testReferenceKirinFingerprint()
     recent.lufs.assign (hypha["m48"].lufs.begin() + 30, hypha["m48"].lufs.end());
     const auto identity = identifier.identify (recent, 149);
     check (identity.autoId == "preset/check/late" && identity.autoAgreement > 0.95 && ! identity.matches.empty()
-               && identity.matches.front().versionId == "preset/check/late",
-           "the Version whose fingerprint agrees is AUTO (" + identity.autoId + ")");
-    check (identifier.identify (recent, -1).autoId.isEmpty() && identifier.identify ({}, 149).autoId.isEmpty(),
-           "without A's place or sound nothing is chosen");
+               && identity.matches.front().versionId == "preset/check/late" && ! identity.matches.front().anywhere,
+           "the Version whose fingerprint agrees at the DAW position is AUTO (" + identity.autoId + ")");
+    check (identifier.identify ({}, 149).autoId.isEmpty(), "without A's sound nothing is chosen");
+    // 曲が DAW の時間軸のどこにあっても（アルバムの 2 曲目・位置が分からない）時間軸全体で探して見つける。
+    const auto far = identifier.identify (recent, 2'149);
+    const auto unplaced = identifier.identify (recent, -1);
+    check (far.autoId == "preset/check/late" && far.matches.front().anywhere && unplaced.autoId == "preset/check/late",
+           "a song placed later on the DAW timeline, or with no DAW position, is found anywhere");
     identifier.setCandidates ({ { "preset/check/other", other } });
-    check (identifier.identify (recent, 149).autoId.isEmpty(), "a different song is never AUTO");
+    check (identifier.identify (recent, 149).autoId.isEmpty() && identifier.identify (recent, 2'149).autoId.isEmpty(),
+           "a different song is never AUTO");
+    // 音名の並びは合っても音量の流れが違う（同じ曲の別ミックス）は Kirin OS の「同じ曲」なので AUTO にする
+    // （作業中のミックスと前の書き出しを結ぶのが V の自動特定の役目）。
+    auto remix = kirin["m48late"];
+    for (std::size_t tick = 0; tick < remix.lufs.size(); ++tick) remix.lufs[tick] = tick % 20 < 10 ? -20.0f : -30.0f;
+    identifier.setCandidates ({ { "preset/check/remix", remix } });
+    const auto sameSong = identifier.identify (recent, 149);
+    check (! sameSong.matches.empty() && sameSong.matches.front().relation == FingerprintMatch::Relation::sameSong
+               && sameSong.autoId == "preset/check/remix",
+           "another mix of the same song is AUTO");
+    // 位置の手がかりの無い照合では、弱い「同じ曲」（一致率 0.62〜0.70）は採らない（取り違えを防ぐ）。
+    auto weak = kirin["m48late"];
+    for (std::size_t tick = 0; tick < weak.bits.size(); ++tick)
+        weak.bits[tick] = static_cast<std::uint16_t> (weak.bits[tick] ^ (tick % 3 == 0 ? 0x00f : tick % 3 == 1 ? 0x0f0 : 0xf00));
+    identifier.setCandidates ({ { "preset/check/weak", weak } });
+    const auto weakNear = identifier.identify (recent, 149), weakFar = identifier.identify (recent, 2'149);
+    check (! weakNear.matches.empty() && weakNear.matches.front().agreement < strongSameSongAgreement
+               && (weakNear.autoId.isEmpty() || weakNear.matches.front().relation == FingerprintMatch::Relation::sameSong)
+               && weakFar.autoId.isEmpty(),
+           "a weak same-song match counts only at the DAW position, never anywhere on the timeline");
+
+    // 選び方：同じ Version が 2 回続けて最良になってから選ぶ。利用者が選んだ Version は替えない。AUTO の選んだ
+    // ものは、別の Version が一致率で 0.02 以上上回り続けたときだけ選び直す。
+    const auto best = [] (const juce::String& id, double agreement, const juce::String& otherId, double otherAgreement) {
+        VersionIdentity result;
+        result.matches = { { id, agreement, FingerprintMatch::Relation::sameSong },
+                           { otherId, otherAgreement, FingerprintMatch::Relation::sameSong } };
+        result.autoId = id; result.autoAgreement = agreement;
+        return result;
+    };
+    AutoVersionChooser chooser;
+    check (chooser.next (best ("v2", 0.90, "v1", 0.80), {}, false).isEmpty()
+               && chooser.next (best ("v2", 0.90, "v1", 0.80), {}, false) == "v2",
+           "AUTO chooses after the same best Version twice in a row");
+    check (chooser.next (best ("v2", 0.90, "v1", 0.80), "v1", false).isEmpty()
+               && chooser.next (best ("v2", 0.90, "v1", 0.80), "v1", false).isEmpty(),
+           "a Version the user chose is never replaced");
+    check (chooser.next (best ("v2", 0.81, "v1", 0.80), "v1", true).isEmpty()
+               && chooser.next (best ("v2", 0.81, "v1", 0.80), "v1", true).isEmpty(),
+           "AUTO keeps its choice while another Version is only slightly better");
+    check (chooser.next (best ("v2", 0.90, "v1", 0.80), "v1", true).isEmpty()
+               && chooser.next (best ("v2", 0.90, "v1", 0.80), "v1", true) == "v2",
+           "AUTO corrects its own choice when another Version stays clearly better");
+    check (chooser.next (best ("v2", 0.90, "v1", 0.80), "v2", true).isEmpty(), "nothing to do once chosen");
+
+    // 音量は Kirin OS と同じ 2 段で丸める（millilu の整数にしてから 0.5 LU）。−20.2504 は −20250 millilu を経て
+    // −20.0（1 段なら −20.5）。
+    const auto rounded = fingerprintFrom ({ std::array<double, 12> {} }, { -20.2504 });
+    check (rounded.lufs.size() == 1 && rounded.lufs[0] == -20.0f, "loudness is rounded in Kirin OS's two steps");
     std::cout << "Reference Kirin fingerprint: chroma, LUFS-M, bits, comparison and V identification follow Kirin OS PASS\n";
 }

@@ -116,6 +116,7 @@ namespace hypha::reference_audition
         prepared.selectionGeneration = selectionGeneration;
         prepared.linearGain = gainFromDecibels (appliedGain);
         prepared.appliedGainDb = appliedGain;
+        prepared.anchorGainDb = appliedGain;
         prepared.aIntegratedLoudness = aIntegratedLoudness;
         prepared.aMaximumTruePeakDbtp = aMaximumTruePeakDbtp;
         prepared.adjustedBIntegratedLoudness = std::isfinite (sourceLoudness)
@@ -202,6 +203,7 @@ namespace hypha::reference_audition
                 currentSnapshot.comparisonFallbackOriginal =
                     prepared.comparisonFallbackOriginal;
                 currentSnapshot.tracking = prepared.tracking;
+                trackingAnchorDb = prepared.anchorGainDb;
                 heldSelection = { currentSnapshot.playbackIdentity, prepared, true };  // H5
                 preparedNormalSelection.valid = false;
             }
@@ -231,7 +233,8 @@ namespace hypha::reference_audition
                                        double aMaximumTruePeakDbtp, std::uint64_t queuedGeneration,
                                        const juce::String& expectedPlaybackIdentity) noexcept
     {
-        if (blind.ongoing())
+        // 選択を替えた直後のフェード待ち（古い音がまだ公開されている）あいだは、古い音を選び直さない。
+        if (blind.ongoing() || revokeAfterFade.load (std::memory_order_acquire))
             return false;
         if (bSelected.load (std::memory_order_acquire)) return true;
         const auto generation = queuedGeneration != 0 ? queuedGeneration

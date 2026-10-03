@@ -73,6 +73,9 @@ inline void verifyGuideStates()
         hidden = named (name);
         hidden.osAccess = os_access::State::unowned;
         require (! guide (hidden).shown, "without Kirin OS the access panel explains");
+        hidden = named (name);
+        hidden.comparisonSlot = 3;
+        require (! guide (hidden).shown, "the B page shows its songs, never V's and C's start guide");
     }
     state = named ("ready");
     state.versionReady = false;

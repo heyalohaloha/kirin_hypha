@@ -118,7 +118,7 @@ public:
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     void setReferenceViewPresented (bool);
     bool selectReferenceC();
-    bool selectReferenceVersion (const juce::String&);
+    bool selectReferenceVersion (const juce::String&, bool automatic = false);
     bool selectReferenceB();
     bool selectReferenceRef(); bool selectReferenceSong (const juce::String&); bool selectReferenceSongSet (const juce::String&); // H8
     double referenceWindowLoudness (int slot) const; hypha::reference_audition::RematchResult rematchReferenceCheck(); // H12
@@ -379,7 +379,7 @@ private:
     bool referenceTrackingNeedsService() const;
     double referenceTrackingNextAtMs = 0.0;     // message thread only
     mutable hypha::reference_audition::WindowLoudnessCache referenceWindowCache; // H12: message thread only
-    hypha::reference_audition::LiveALevel referenceLiveALevel (bool windowOnly = false, int windowBlocks = 100) const;
+    hypha::reference_audition::LiveALevel referenceLiveALevel (bool windowOnly = false, int windowBlocks = 100, int minimumBlocks = 0) const;
     bool requestReferenceAudition (int slot);
     void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)

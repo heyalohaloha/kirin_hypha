@@ -174,9 +174,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const auto& audible = runtime.audibleComparisonSlot == 1 || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive
         ? versionSelection : runtime.audibleComparisonSlot == 3 ? referenceSelection : checkSelection;
     const bool callbackLive = processorRef.heartbeatLive();
-    // H3: 追従が上限（True Peak）で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
-    const bool trackingStopped = runtime.bSelected && audible.tracking == hypha::reference_audition::TrackingState::stoppedCeiling;
-    if (trackingStopped && ! referenceTrackingStopShown) showToast ("Level follow stopped at the safe ceiling. The current gain is kept.");
+    // H3: 追従が上限（True Peak）か MATCH から ±6 dB で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
+    using Tracking = hypha::reference_audition::TrackingState;
+    const bool trackingStopped = runtime.bSelected && (audible.tracking == Tracking::stoppedCeiling || audible.tracking == Tracking::stoppedRange);
+    if (trackingStopped && ! referenceTrackingStopShown)
+        showToast (audible.tracking == Tracking::stoppedCeiling ? "Level follow stopped at the safe ceiling. The current gain is kept."
+                                                                : "Level follow stopped 6 dB from the MATCH. The current gain is kept.");
     referenceTrackingStopShown = trackingStopped;
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
@@ -257,6 +260,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.checks = selectionOptions (runtime.separateComparisons ? checkSelection.checkTargets : runtime.checks);
     state.candidates = selectionOptions (runtime.candidates);
     state.cues = selectionOptions (checkSelection.cues);
+    state.checkViewBindings = checkSelection.checkViewBindings;
     state.detailedMeasurement = runtime.detailedMeasurement;
     state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
     state.visualPreferences = runtime.visualPreferences; state.captureAccess=runtime.captureAccess;

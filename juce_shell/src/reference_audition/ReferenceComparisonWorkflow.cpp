@@ -252,7 +252,7 @@ void ReferenceComparisonController::applyWorkflowFinish()
     }
     selectA();
     check.restoreChoice (restore);
-    viewedSlot.store (slot == 1 ? 1 : 2, std::memory_order_release);
+    viewedSlot.store (slot == 1 || slot == 3 ? slot : 2, std::memory_order_release);
     if (stateChanged) stateChanged();
 }
 

@@ -18,7 +18,8 @@ const Entry entries[] = {
     { "Play C matched to the latest A over the Cue's length.", u8"Cueと同じ長さの直近のAに合わせてCを鳴らします。" },
     { "C is not playing. Press C to play it matched.", u8"Cは鳴っていません。Cを押すと合わせて鳴らします。" },
     { "This Check plays at its original level.", u8"このCheckは元の音量で鳴らします。" },
-    { "Play A for the length of the Cue, then MATCH again.", u8"Cueの長さだけAを再生してから、もう一度MATCHを押してください。" },
+    { "Play A for the Cue length (up to 30 s), then MATCH again.", u8"Cueの長さ（最長30秒）だけAを再生してから、もう一度MATCHを押してください。" },
+    { "This Check matches True Peak when C starts. Press A, then C.", u8"このCheckはCを鳴らすときにTrue Peakで合わせます。Aを押してからCを押してください。" },
     { "MATCH exceeds the safe level. The current gain is kept.", u8"MATCHが安全上限を超えます。今のgainを保ちます。" },
     { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
     // H6：待ちが上限を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
@@ -31,6 +32,24 @@ const Entry entries[] = {
     { "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN", u8"再生30秒で位置が合いません / Versionを選び直す" },
     { "V is measured over the same section as A while they are aligned",
       u8"位置合わせしているあいだ、VをAと同じ区間で測ります" },
+    { "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+      u8"再生35秒でAを測れません / Aを長めに再生して選び直す" },
+    // 追従を MATCH から ±6 dB で止めたとき（live 比較の AUTO と同じ幅）。
+    { "%1 FOLLOW STOPPED 6 DB FROM MATCH", u8"%1の追従はMATCHから6 dBで停止" },
+    { "Level follow stopped 6 dB from the MATCH. The current gain is kept.",
+      u8"音量の追従はMATCHから6 dBで停止。今のgainを保ちます。" },
+    // Kirin OS のセット（sets.json）を読めなかったとき。
+    { "B SET NOT READ / UPDATE KIRIN OS AND HYPHA", u8"Bセットを読めません / Kirin OSとHyphaを更新" },
+    { "Some Kirin OS sets were not read. Update Kirin OS and Hypha.",
+      u8"Kirin OSのセットの一部を読めませんでした。Kirin OSとHyphaを更新してください。" },
+    // V のタブ（その Check の表示に合わせる）。
+    { "V compares spectrum and balance. This Check is shown on C.",
+      u8"Vはスペクトルとバランスを比べます。このCheckはCの画面で見ます。" },
+    // C の画面の MATCH の横と Cue の凡例。
+    { "MATCHED / C %1 dB / FIXED", u8"MATCH済み / C %1 dB / 固定" },
+    { "ON PLAY / C %1 dB", u8"鳴らすとき / C %1 dB" },
+    { "A WAITING", u8"A待ち" },
+    { "A LAST %1 S", u8"A直近%1秒" },
 };
 }
 

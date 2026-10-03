@@ -104,6 +104,11 @@ void testReferenceRoles (const juce::File& sandbox)
     object->setProperty ("version", "1.0");
     object->removeProperty ("work_id"); object->removeProperty ("source_preset_artifact");
     preset["checks"][0]["candidates"][0].getDynamicObject()->setProperty ("preparation_status", "prepared");
+    auto verse = preset["checks"][0]["candidates"][0]["cues"][0].clone();  // C の 2 つ目の Cue（C の選択の替え）
+    verse.getDynamicObject()->setProperty ("cue_id", "77777777-7777-4777-8777-777777777778");
+    verse.getDynamicObject()->setProperty ("label", "Verse");
+    verse.getDynamicObject()->setProperty ("end_sample", static_cast<juce::int64> (48'000));
+    preset["checks"][0]["candidates"][0]["cues"].getArray()->add (verse);
     require (writeJson (root.getChildFile ("library/sets.json"), songSets (setId, {
                  candidate (first, "Hello", "44444444-4444-4444-8444-444444444441"),
                  candidate (second, "MONTERO", "44444444-4444-4444-8444-444444444442") }))
@@ -160,8 +165,39 @@ void testReferenceRoles (const juce::File& sandbox)
     require (controller.requestAudition (3, -14.0, -2.0) && host (true) && host (true)
                  && controller.snapshot().audibleComparisonSlot == 3, "back to B");
 
+    // C の選択を替えても、鳴っている B は止めない（C だけを替える）。V を見ているときは V の画面のまま。
+    const auto checkState = *controller.snapshot().checkSelection;
+    require (checkState.cues.size() == 2, "C has two Cues");
+    const auto otherCue = checkState.cues[0].id == checkState.cueId ? checkState.cues[1].id : checkState.cues[0].id;
+    require (controller.selectVisualSlot (1) && controller.selectCue (otherCue) && controller.snapshot().comparisonSlot == 1,
+             "choosing C's Cue from the V page keeps the V page");
+    require (host (true) && host (true) && controller.snapshot().audibleComparisonSlot == 3, "changing C's Cue keeps B sounding");
+    wait ([&] (const auto& s) { return s.checkReady && s.checkSelection->cueId == otherCue; }, "C prepares its other Cue");
+    // C が鳴っているあいだに C の Cue を替えると、フェードで A に戻り、新しい Cue が公開され次第、新しい MATCH で
+    // C のまま鳴る（押せば即切替。ぷつっと切らない）。
+    require (controller.selectVisualSlot (2) && controller.requestAudition (2, -14.0, -2.0) && host (true) && host (true)
+                 && controller.snapshot().audibleComparisonSlot == 2, "C plays before its Cue changes");
+    require (controller.selectCue (checkState.cueId) && controller.snapshot().comparisonSlot == 2, "change C's Cue while C sounds");
+    host (true);
+    require (block.getSample (0, 0) < -0.2f && block.getSample (0, 479) == 0.0f, "the Cue change fades C to A instead of cutting it");
+    for (int attempt = 0; attempt < 1500 && controller.snapshot().audibleComparisonSlot != 2; ++attempt)
+    {
+        host (true);
+        if (controller.pendingAuditionNeedsService()) controller.servicePendingAudition (-14.0, -2.0, true);
+        juce::Thread::sleep (5);
+    }
+    host (true); host (true);
+    require (controller.snapshot().audibleComparisonSlot == 2 && controller.snapshot().checkSelection->cueId == checkState.cueId
+                 && closeTo (block.getSample (0, 479), -0.25 * gain (4.0)),
+             "C continues with the new Cue and its own MATCH");
+    require (controller.requestAudition (3, -14.0, -2.0) && host (true) && host (true)
+                 && controller.snapshot().audibleComparisonSlot == 3, "back to B again");
+
     // B のまま別の曲：新しい曲が準備でき次第、新しい MATCH（−14 − −16 = +2 dB）で B のまま鳴る。
     require (controller.selectSong (state.songSets[0].songs[1].id), "choose another song while B sounds");
+    host (true);
+    require (block.getSample (0, 0) > 0.1f && block.getSample (0, 479) == 0.0f,
+             "switching the song fades B to A instead of cutting it");
     for (int attempt = 0; attempt < 1500 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
     {
         host (true);
@@ -204,5 +240,27 @@ void testReferenceRoles (const juce::File& sandbox)
     host (true); host (true);
     require (! host (true) && controller.snapshot().audibleComparisonSlot == 0 && ! controller.pendingAuditionNeedsService(),
              "A ends B");
+
+    // 仕様 A：オフライン書き出しを見たら、停止前の B に自動で戻さない（保留を消す）。
+    const auto unknown = std::numeric_limits<double>::quiet_NaN();
+    require (controller.requestAudition (3, -14.0, -2.0) && host (true) && host (true), "B plays before an offline render");
+    require (! host (false) && controller.auditionHeld(), "stopping keeps the choice");
+    controller.noteOfflineRender();
+    controller.servicePendingAudition (unknown, unknown, false);
+    require (! controller.auditionHeld() && ! controller.pendingAuditionNeedsService(), "an offline render forgets the held B");
+    host (true); controller.servicePendingAudition (unknown, unknown, true); host (true);
+    require (! host (true) && controller.snapshot().audibleComparisonSlot == 0, "B does not come back after the render");
+
+    // 選んだ曲が B セットから外れても、黙って別の曲に替えない（B の画面が「保存した選択が無い / 選び直す」を出す）。
+    auto missing = saveAndRead();
+    missing.reference.candidateId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    controller.restoreSettings (missing);
+    wait ([] (const auto& s) { return s.referenceSelection != nullptr
+                                      && s.referenceSelection->rejectionCode == "reference_selection_unavailable"; },
+          "a saved song that left the B set is reported");
+    require (controller.snapshot().selectedSongId == missing.reference.target(), "the saved song is not silently replaced");
+    ref::WorkflowResumeState resumeState;
+    resumeState.returnSlot = 3;
+    require (resumeState.valid(), "a workflow started on the B page returns to the B page");
     std::cout << "Reference A/B/C/V roles: B songs, one role at a time, song switch, follow and resume PASS\n";
 }

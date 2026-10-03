@@ -28,7 +28,7 @@ public:
     bool captureObservationQueueDrained() const noexcept { return version.captureObservationQueueDrained(); }
     ReferenceComparisonSettings savedSettings();
     void restoreSettings (const ReferenceComparisonSettings&);
-    bool selectVersion (const juce::String&);
+    bool selectVersion (const juce::String&, bool automatic = false); // automatic：H7 の AUTO（V の選択だけを替える）
     bool selectPreset (const juce::String&);
     bool selectCheck (const juce::String&);
     bool selectCandidate (const juce::String&);
@@ -51,6 +51,10 @@ public:
     bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues only.
     void servicePendingAudition (double, double, bool callbackLive);
     bool pendingAuditionNeedsService() const;
+    int pendingSlot() const; // 押した後に待っている役（無ければ 0）
+    // 仕様 A：オフライン書き出し（Audio Thread が知らせる）・live 比較の開始では、停止前の選択へ自動で戻さない。
+    void noteOfflineRender() noexcept { offlineRenderSeen.store (true, std::memory_order_release); }
+    void forgetHeldAudition();
     void selectA() noexcept;
     bool reserveLocalBlind();
     void bindLocalBlind(std::uint64_t);
@@ -138,15 +142,23 @@ private:
         std::uint64_t intentId = 0;
         bool sawPlayback = false;
         bool resume = false; // H5: 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
+        bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）
     } pendingAudition; // selectionLock; control thread only.
     bool resumeWanted() const;
     bool armResume();
     void dropResume();
+    // 鳴っていた（戻る保留・押した後の待ちを含む）役の選択を替えた。新しい選択が公開されたら新しい MATCH で
+    // その役のまま鳴らす（押せば即切替）。ほかの役は止めない。continues が false（新しい選択が Kirin OS の
+    // 準備待ちで、まだ世代が進んでいない）なら、その役の保留と待ちを手放すだけ。
+    void continueAfterSwitch (int slot, bool continues = true);
+    bool selectCheckRole (const std::function<bool()>& apply);
     RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     void ensureReferenceSong (const Snapshot& reference);
     juce::String songSetId, songId; // H8: selectionLock
-    std::atomic<bool> songSwitchPending { false }; // H8: B のまま別の曲に替えた。公開されたら新しい MATCH で鳴らす
+    std::atomic<int> switchSlot { 0 };        // 選択を替えた役（1〜3）。公開されたら新しい MATCH で鳴らす
+    std::uint64_t switchGeneration = 0;        // selectionLock：その役の替えた後の選択の世代
+    std::atomic<bool> offlineRenderSeen { false };
     std::uint64_t pendingSequence = 0;
     std::atomic<std::uint64_t> activePendingIntent { 0 };
     std::atomic<std::uint64_t> pendingSafetyEpoch { 0 };
@@ -155,6 +167,7 @@ private:
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
     std::atomic<bool> versionChosen { false };
+    bool versionAuto = false; // selectionLock：V の Version は AUTO が選んだ（利用者が選ぶと false）
     bool rtPlaying = false, rtInputAllowed = false, rtInputObserved = false;
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 }, rScratch { 2, 8192 };
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();

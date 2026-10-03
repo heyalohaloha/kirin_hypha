@@ -82,7 +82,7 @@ namespace hypha::reference_audition
             candidatePreparationStatusExpiresAtMs = 0;
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
+            revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
         else selectA();
