@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <limits>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -136,11 +138,21 @@ namespace hypha::reference_audition
         RuntimeContentReceipt rangesArtifact;
     };
 
+    // H11: B の一覧と Balance に出す、曲の既定の Cue の Kirin OS の値（ranges）。無ければ NaN・空。
+    struct RuntimeSongFacts
+    {
+        double lufsI = std::numeric_limits<double>::quiet_NaN();
+        double maxTruePeak = std::numeric_limits<double>::quiet_NaN();
+        std::vector<double> spectrumCentersHz;
+        std::vector<float> spectrumMedianDb;
+    };
+
     struct RuntimeLibrarySets
     {
         std::int64_t revision = 0;
         juce::String hash;
         std::vector<RuntimeSongSet> songSets;
+        std::map<juce::String, RuntimeSongFacts> songFacts; // H11: 曲の Preset の ID ごと
         std::vector<RuntimeCheckSetRank> checkSets;
         std::vector<RuntimeSourceRangesReceipt> sourceRanges;
     };

@@ -107,6 +107,7 @@ void Component::resized()
     auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
+    songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f))); // H11
     if (blindSession)
     {
         const auto placeLeft = [&footer] (juce::Component& button, int width)

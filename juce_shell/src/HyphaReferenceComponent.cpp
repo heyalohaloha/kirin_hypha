@@ -3,6 +3,7 @@
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceVisuals.h"
+#include "HyphaReferenceBalance.h"
 #include "HyphaReferenceDisplayText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -446,7 +447,8 @@ void Component::paint (juce::Graphics& g)
 
     if (detailedLayout())
     {
-        if (!comparisonView.isVisible() && !tonalView.isVisible()
+        if (songList.isVisible()) paintReferenceBalance (g, area.withTrimmedLeft (songList.getWidth() + 6).toFloat(), current, presentationContext);
+        else if (!comparisonView.isVisible() && !tonalView.isVisible()
             && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
         {
             auto metrics = area;

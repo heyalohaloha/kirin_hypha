@@ -17,6 +17,7 @@
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceTonalView.h"
 #include "HyphaReferenceWorkflowControls.h"
+#include "HyphaReferenceSongList.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 #include "reference_audition/ReferencePendingAudition.h"
@@ -68,6 +69,15 @@ struct SelectionOption
 {
     juce::String id;
     juce::String label;
+};
+
+// H11: B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
+struct SongFact
+{
+    double lufsI = std::numeric_limits<double>::quiet_NaN();
+    bool prepared = false;
+    std::vector<double> centersHz;
+    std::vector<float> medianDb;
 };
 
 struct State
@@ -147,6 +157,7 @@ struct State
     bool referenceReady = false, referenceArmable = false;
     SourceStep referenceStep = SourceStep::waitingForKirinOs;
     std::vector<SelectionOption> songSets, songs;
+    std::vector<SongFact> songFacts; // H11: songs と同じ順
     juce::String songSetId, songId;
 };
 
@@ -283,6 +294,7 @@ private:
     SideButton cButton { "C" };
     SideButton refButton { "B" }; // H10: B（REF、B セットの曲）
     juce::ComboBox songSetBox, songBox;
+    SongList songList; // H11: B の画面の左の曲の一覧
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };

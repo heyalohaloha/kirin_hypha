@@ -67,11 +67,15 @@ namespace hypha::reference_audition
         if (workspace.library && workspace.librarySets)
             for (const auto& set : workspace.librarySets->songSets)
             {
-                RuntimeSongSetOption option { set.songSetId, set.name, set.rank, {} };
+                RuntimeSongSetOption option { set.songSetId, set.name, set.rank, {}, {} };
                 for (const auto& song : set.songs)
-                    option.songs.push_back ({ referenceSongSelectionId (referenceSongEntryId (set.songSetId, song.candidateId),
-                                                                        song.candidateId),
+                {
+                    const auto entry = referenceSongEntryId (set.songSetId, song.candidateId);
+                    option.songs.push_back ({ referenceSongSelectionId (entry, song.candidateId),
                                               song.displayName, set.songSetId, ! song.prepared });
+                    const auto facts = workspace.librarySets->songFacts.find (entry);
+                    option.facts.push_back (facts != workspace.librarySets->songFacts.end() ? facts->second : RuntimeSongFacts {});
+                }
                 snapshot.songSets.push_back (std::move (option));
             }
         for (const auto& item : workspace.manifest.pendingPresets) appendWork (item, true);
