@@ -50,7 +50,12 @@ StatusLine referenceStatusLine (const State& state)
         return { StatusKind::ready, how + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
+    {
+        // H6: 待ちが上限を超えたら「できない」にして理由と直し方を出す。
+        if (state.pendingAudition.waiting() && state.preparationOverdue.isNotEmpty())
+            return { StatusKind::unable, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
+    }
     if (state.readiness == Readiness::rejected) return { StatusKind::unable, state.status };
     if (state.osAccess == os_access::State::unowned) return { StatusKind::unable, state.status };
     if (! state.separateComparisons)
@@ -61,7 +66,10 @@ StatusLine referenceStatusLine (const State& state)
     const auto step = state.comparisonSlot == 1 ? state.versionStep
                     : state.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
     // Kirin OS を待っている段階は、Kirin OS が閉じていれば待っても進まない（開くのが直し方）。
-    return { step == SourceStep::waitingForKirinOs && ! state.osOnline ? StatusKind::unable : kindOf (step), state.status };
+    const auto kind = step == SourceStep::waitingForKirinOs && ! state.osOnline ? StatusKind::unable : kindOf (step);
+    if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())  // H6
+        return { StatusKind::unable, juce::String (roleLetter (state.comparisonSlot)) + ": " + state.preparationOverdue };
+    return { kind, state.status };
 }
 
 juce::Colour statusColour (StatusKind kind) noexcept

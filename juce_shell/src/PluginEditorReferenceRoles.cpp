@@ -97,6 +97,13 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
     state.aWindowLoudness = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
     rankCheckSets (state, checkRole.checkSetRanks);
+    // H6: 見ている役の待ちが上限を超えたら、状態の行で「できない」と理由・直し方を出す。
+    const auto viewedStep = runtime.comparisonSlot == 1 ? state.versionStep
+                          : runtime.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
+    const bool measuringA = state.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::level;
+    state.preparationOverdue = referencePreparationWatch.observe (
+        measuringA ? state.pendingAudition.slot : runtime.comparisonSlot, viewedStep, measuringA, state.osOnline,
+        state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
     // （直し方は曲の側から。H9）。
     if (runtime.comparisonSlot == 3) state.actionText.clear();

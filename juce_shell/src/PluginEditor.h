@@ -28,6 +28,7 @@
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
+ #include "HyphaReferencePreparationWatch.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
  #include "HyphaLiveBlindComponent.h"
@@ -133,6 +134,7 @@ private:
     void wireReferenceRoles();  // H10: B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void openReferenceLarge (int slot);
+    hypha::reference_ui::PreparationWatch referencePreparationWatch; // H6
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();

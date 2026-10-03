@@ -170,6 +170,7 @@ struct State
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;
+    juce::String preparationOverdue; // H6: 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
 };
 
 inline bool canSelectB (const State& state) noexcept
