@@ -87,6 +87,10 @@ namespace hypha::reference_audition
         if (rtNormalEpoch != epoch) { rtNormalBlend = 0.0f; rtNormalEpoch = epoch; }
         const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
         const bool selected = normalTarget && bSelected.load (std::memory_order_acquire);
+        // H3: gain が変わったら 50 ms の直線で動かす。まだ聴こえていない（入りのフェードの前）なら即座に合わせる。
+        const float targetGain = bLinearGain.load (std::memory_order_acquire);
+        const int rampFrames = trackingRampFrames.load (std::memory_order_acquire);
+        if (rtNormalBlend <= 0.0f) rtTrackingRamp.settle (targetGain);
         for (int c = 0; c < channels; ++c)
             std::copy_n (buffer.getReadPointer (c), frames, normalLiveA[static_cast<size_t> (c)].data());
         bool rendered = false;
@@ -102,9 +106,7 @@ namespace hypha::reference_audition
             if (sourcePosition < 0
                 || mappingGeneration.load (std::memory_order_acquire) != generation)
                 continue;
-            rendered = pages.renderCue (
-                buffer, sourcePosition, start, end, loops,
-                bLinearGain.load (std::memory_order_acquire));
+            rendered = pages.renderCue (buffer, sourcePosition, start, end, loops, 1.0f);
         }
         if (! rendered)
         {
@@ -114,11 +116,12 @@ namespace hypha::reference_audition
         const float step = normalFadeStep.load (std::memory_order_acquire);
         for (int f = 0; f < frames; ++f)
         {
+            const float gain = rtTrackingRamp.next (targetGain, rampFrames);
             rtNormalBlend = selected ? juce::jmin (1.0f, rtNormalBlend + step) : juce::jmax (0.0f, rtNormalBlend - step);
             for (int c = 0; c < channels; ++c)
             {
                 const auto a = normalLiveA[static_cast<size_t> (c)][static_cast<size_t> (f)];
-                const auto b = buffer.getSample (c, f);
+                const auto b = buffer.getSample (c, f) * gain;
                 buffer.setSample (c, f, rtNormalBlend == 0.0f ? a : rtNormalBlend == 1.0f ? b : a + (b - a) * rtNormalBlend);
             }
         }

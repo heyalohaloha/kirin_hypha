@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <functional>
+#include <limits>
 #include <memory>
 
 #include <juce_core/juce_core.h>
@@ -38,6 +39,9 @@ namespace hypha::reference_audition
     };
 
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
+    // H3／H4：音量合わせの動き。B・V は A の直近の窓に追従し、C は Match の後に固定する。
+    // stoppedCeiling は追従が上限（True Peak）に当たって止まり、直前の gain を保っている状態。
+    enum class TrackingState { none, following, fixed, stoppedCeiling };
 
     struct Snapshot
     {
@@ -59,6 +63,12 @@ namespace hypha::reference_audition
         double truePeakDeltaBMinusA = 0.0;
         bool gainLimited = false;
         bool comparisonFallbackOriginal = false;
+        TrackingState tracking = TrackingState::none;
+        // H4：選んだ Cue の Kirin OS の値（ranges）。無ければ曲全体の値で合わせている（Kirin OS で測り直すと使う）。
+        bool cueLevelAvailable = false;
+        double cueIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
+        double cueMaximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();
+        int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
         bool bSelected = false;
         bool transportPlaying = false;
         bool transportPositionValid = false;

@@ -61,6 +61,12 @@ public:
     void observeTransport (std::int64_t, bool, bool) noexcept;
     void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0, std::optional<bool> captureAllowed = {}, CaptureClockSignature = {}) noexcept;
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
+    // H3／H4：A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。
+    int liveWindowBlocks (int slot) const;
+    int pendingLiveWindowBlocks() const;
+    // H3：聴いている役が追従するなら、1 秒ごとに A の直近の履歴で gain を求め直す（メッセージスレッド）。
+    bool trackingNeedsService() const noexcept;
+    TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
 
 private:
     struct PendingWorkflowTransition

@@ -287,6 +287,7 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
+    bool referenceTrackingStopShown = false; // H3: 追従が上限で止まったことを一度だけ知らせる
     juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif

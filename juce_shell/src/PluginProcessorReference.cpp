@@ -26,26 +26,27 @@ void KirinHyphaProcessorBase::setReferenceViewPresented (bool active)
    #endif
 }
 
-hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALevel (bool windowOnly) const
+hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALevel (bool windowOnly, int windowBlocks) const
 {
     namespace ref = hypha::reference_audition;
     KirinObservatoryFrame frame {};
     const bool received = pollObservatoryFrame (frame);
     auto level = ref::liveALevel (frame, received, heartbeatLive(), isPlaying());
     if (! std::isfinite (level.loudness)) return level;
-    // H2: A の音量は直近 10 秒のゲートつき音量（積算の Integrated は使わない）。Peak と上限はセッションの
-    // max TP のまま。窓が 3 秒に満たないあいだ（再生を始めた直後・シークの後）は、選ぶときは積算の値を
-    // 使い、追従（windowOnly）では値なしにして直前の gain を保たせる。
+    // H2: A の音量は直近の窓（B・V は 10 秒、C は Cue と同じ長さ）のゲートつき音量（積算の Integrated は
+    // 使わない）。Peak と上限はセッションの max TP のまま。窓が 3 秒に満たないあいだ（再生を始めた直後・
+    // シークの後）は、選ぶときは積算の値を使い、追従（windowOnly）では値なしにして直前の gain を保たせる。
    #if ! KIRIN_HYPHA_PRE_DISPLAY  // Reference の試聴は POST だけ（PRE は窓の計算を持たない）
+    const auto blocks = static_cast<size_t> (juce::jmax (1, windowBlocks));
     std::vector<KirinMeterHistoryEntry> history;
-    const auto window = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, ref::liveWindowBlocks, ref::liveWindowBlocks)
-        ? ref::liveWindowLoudness (history) : ref::LiveWindowLoudness {};
+    const auto window = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, blocks, blocks)
+        ? ref::liveWindowLoudness (history, windowBlocks) : ref::LiveWindowLoudness {};
     if (window.gatedBlocks >= ref::liveWindowMinimumGatedBlocks && std::isfinite (window.lufs))
         level.loudness = window.lufs;
     else if (windowOnly)
         level.loudness = std::numeric_limits<double>::quiet_NaN();
    #else
-    juce::ignoreUnused (windowOnly);
+    juce::ignoreUnused (windowOnly, windowBlocks);
    #endif
     return level;
 }
@@ -63,10 +64,11 @@ bool KirinHyphaProcessorBase::requestReferenceAudition (int slot)
             referenceAuditionController->suspendAudition();
         return false;
     }
-    const auto level = referenceLiveALevel();
+    const auto level = referenceLiveALevel (false, referenceAuditionController != nullptr
+        ? referenceAuditionController->liveWindowBlocks (slot) : hypha::reference_audition::liveWindowBlocks);
     const bool accepted = referenceAuditionController != nullptr
         && referenceAuditionController->requestAudition (slot, level.loudness, level.peak);
-    if (accepted && referencePendingAuditionNeedsService()) startTimer (50);
+    if (accepted && (referencePendingAuditionNeedsService() || referenceTrackingNeedsService())) startTimer (50);
     return accepted;
    #else
     juce::ignoreUnused (slot);

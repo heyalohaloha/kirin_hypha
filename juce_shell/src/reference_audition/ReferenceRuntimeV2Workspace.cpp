@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceCueMatch.h"
 #include "ReferenceLibraryLegacyChoice.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceRuntimePresetOptions.h"
@@ -335,6 +336,15 @@ namespace hypha::reference_audition
             next.detailedMeasurement = measurement.measurement;
             next.measurementAvailable = true;
         }
+        // H4: Cue の Kirin OS の値（ranges）。C の Match と B の追従に使う。V は曲全体の位置合わせで合わせる。
+        if (! versionComparison)
+            if (const auto level = readCueLevel (root, *workspace, *candidate, *cue, *selectedSource))
+            {
+                next.cueLevelAvailable = true;
+                next.cueIntegratedLoudness = level->integratedLoudness;
+                next.cueMaximumTruePeakDbtp = level->maximumTruePeakDbtp;
+            }
+        next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
         for (const auto& binding : check->profileBindings)
         {
             const auto profile = profileRepository.load (binding.profileArtifact);

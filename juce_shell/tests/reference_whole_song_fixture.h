@@ -21,7 +21,7 @@ namespace
         juce::var source;
     };
 
-    WholeSongFixture makeWholeSongFixture (const juce::File& root, const juce::File& file,
+    [[maybe_unused]] WholeSongFixture makeWholeSongFixture (const juce::File& root, const juce::File& file,
                                             const juce::String& recording, const juce::String& version)
     {
         WholeSongFixture result;
