@@ -204,5 +204,23 @@ void testReferenceLowerA (const juce::File& sandbox)
     require (rising > lowered && rising < aLevel && closeTo (controller.heldAttenuationDb(), 0.0), "RETURN starts a gradual rise");
     for (int index = 0; index < 60; ++index) host();
     require (closeTo (block.getSample (0, 479), aLevel), "A is back at its normal level");
+
+    // 待たせた役：A の音量がまだ無いときに押した B は待ち、合わせる時点で上限を超えて止まる。そのときも
+    // 下げ幅が状態に残り、承認から鳴らせる（画面は押し直させずに承認を出す。2026-10-04）。
+    require (controller.requestAudition (3, std::numeric_limits<double>::quiet_NaN(), -12.0)
+                 && controller.snapshot().audibleComparisonSlot == 0,
+             "a role pressed before A has a level waits (A stays live)");
+    for (int attempt = 0; attempt < 400 && controller.snapshot().pendingAudition.stage
+                                              != ref::PendingAuditionView::Stage::ceilingExceeded; ++attempt)
+    { host(); controller.servicePendingAudition (-10.0, -12.0, true); juce::Thread::sleep (2); }
+    const auto stopped = controller.snapshot();
+    require (stopped.pendingAudition.stage == ref::PendingAuditionView::Stage::ceilingExceeded
+                 && stopped.referenceSelection->matchFailure == ref::MatchFailure::ceilingExceeded
+                 && closeTo (stopped.referenceSelection->neededAttenuationDb, -8.0),
+             "a waiting role stopped by the ceiling still names how far A must be lowered");
+    require (controller.approveLowerAAndPlay (3, stopped.referenceSelection->neededAttenuationDb)
+                 && closeTo (controller.heldAttenuationDb(), -8.0),
+             "the waiting role can be approved without pressing it again");
+    controller.returnAToNormalLevel();
     std::cout << "Reference lowers A to match a quiet reference only after approval, and RETURN restores it PASS\n";
 }
