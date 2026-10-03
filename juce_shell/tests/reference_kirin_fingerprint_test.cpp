@@ -171,9 +171,10 @@ void testReferenceKirinFingerprint()
            "the Version whose fingerprint agrees at the DAW position is AUTO (" + identity.autoId + ")");
     check (identifier.identify ({}, 149).autoId.isEmpty(), "without A's sound nothing is chosen");
     // 曲が DAW の時間軸のどこにあっても（アルバムの 2 曲目・位置が分からない）時間軸全体で探して見つける。
-    const auto far = identifier.identify (recent, 2'149);
+    // Windows の windef.h は near と far を空のマクロにするので、名前に使わない。
+    const auto elsewhere = identifier.identify (recent, 2'149);
     const auto unplaced = identifier.identify (recent, -1);
-    check (far.autoId == "preset/check/late" && far.matches.front().anywhere && unplaced.autoId == "preset/check/late",
+    check (elsewhere.autoId == "preset/check/late" && elsewhere.matches.front().anywhere && unplaced.autoId == "preset/check/late",
            "a song placed later on the DAW timeline, or with no DAW position, is found anywhere");
     identifier.setCandidates ({ { "preset/check/other", other } });
     check (identifier.identify (recent, 149).autoId.isEmpty() && identifier.identify (recent, 2'149).autoId.isEmpty(),
