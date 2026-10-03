@@ -143,6 +143,25 @@ namespace hypha::reference_audition
         return versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
     }
 
+    bool RuntimeV2Controller::restartsAtCueStart() const noexcept
+    {
+        return ! versionComparison && ! sampleLocked.load (std::memory_order_acquire)
+            && ! cueLoops.load (std::memory_order_acquire)
+            && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
+    }
+
+    bool RuntimeV2Controller::restartCueAtPlayhead (std::int64_t hostPosition) noexcept
+    {
+        const juce::ScopedLock lock (mappingWriteLock);
+        if (! restartsAtCueStart() || mappedSourcePosition (hostPosition) >= 0)
+            return false;
+        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
+        bHostAnchor.store (hostPosition, std::memory_order_relaxed);
+        bSourceAnchor.store (cueStart.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        mappingGeneration.fetch_add (1, std::memory_order_release);
+        return true;
+    }
+
     bool RuntimeV2Controller::startBlind (double aIntegratedLoudness,
                                           double aMaximumTruePeakDbtp) noexcept
     {

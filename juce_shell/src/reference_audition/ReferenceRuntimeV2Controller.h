@@ -195,6 +195,11 @@ namespace hypha::reference_audition
         void publishLocked (Snapshot);
         bool requestSelection (const juce::String& kind, const juce::String& id);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
+        // DAW の位置に合わせない曲（別の曲の B・C）は、選んだときの DAW の位置を起点に Cue の頭から進む。押したとき・
+        // 自動で戻すときに今の位置がその Cue の外（選んだ後に頭へ戻した・Cue を過ぎた）なら、今の位置を起点に Cue の
+        // 頭から鳴らし直す。DAW の位置に合わせる曲（同じ Work・V）は置き直さない（位置を動かすのは利用者）。
+        bool restartsAtCueStart() const noexcept;
+        bool restartCueAtPlayhead (std::int64_t hostPosition) noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
                                    std::uint64_t selectionGeneration, const juce::String& expectedPlaybackIdentity) noexcept;
@@ -346,6 +351,9 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> aAudibleConfirmations { 0 };
         std::atomic<std::int64_t> bHostAnchor { 0 };
         std::atomic<std::int64_t> bSourceAnchor { 0 };
+        // 対応づけ（cueStart・cueEnd・cueLoops・sampleLocked・起点）を書くのは作業スレッドとメッセージスレッド
+        // （restartCueAtPlayhead）。書き手どうしをこの鍵でそろえる。音声スレッドは鍵を取らず mappingGeneration で読む。
+        juce::CriticalSection mappingWriteLock;
         std::atomic<std::uint64_t> nextOutputGateToken { 1 };
         std::atomic<std::uint64_t> activeOutputGateToken { 0 };
         std::atomic<std::uint64_t> normalGateReleasePendingToken { 0 };

@@ -30,14 +30,17 @@ namespace hypha::reference_audition
         activePublishedSelectionKey.clear();
         workerSource.reset();
         sourceCache.clear();
-        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-        cueStart.store (0, std::memory_order_relaxed);
-        cueEnd.store (0, std::memory_order_relaxed);
-        cueLoops.store (false, std::memory_order_relaxed);
-        sampleLocked.store (false, std::memory_order_relaxed);
-        bHostAnchor.store (0, std::memory_order_relaxed);
-        bSourceAnchor.store (0, std::memory_order_relaxed);
-        mappingGeneration.fetch_add (1, std::memory_order_release);
+        {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
+            mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
+            cueStart.store (0, std::memory_order_relaxed);
+            cueEnd.store (0, std::memory_order_relaxed);
+            cueLoops.store (false, std::memory_order_relaxed);
+            sampleLocked.store (false, std::memory_order_relaxed);
+            bHostAnchor.store (0, std::memory_order_relaxed);
+            bSourceAnchor.store (0, std::memory_order_relaxed);
+            mappingGeneration.fetch_add (1, std::memory_order_release);
+        }
         blindContextKey.clear();
         blindPreparationKey.clear();
         calibrationObservation.clear();

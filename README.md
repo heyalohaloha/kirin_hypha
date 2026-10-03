@@ -559,7 +559,10 @@ Reference has four roles, each with its own button in the same place at every si
 
 - **A — LIVE**: the DAW input. A is never processed; every other role is an audition copy.
 - **B — REF**: the songs of a B set. In Kirin OS you rank up to three B sets for Hypha; choose the
-  set and the song on the B page. A song plays its Cue as Kirin OS set it. If a chosen song leaves
+  set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
+  head; when you press B, or B returns after a stop or seek, at a point outside that Cue (you moved
+  back before where you chose the song, or the song has run past its end), B starts the Cue again
+  from the current position instead of refusing. If a chosen song leaves
   the B set, Hypha says so instead of switching to another song. If Hypha cannot read a B set (for
   example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
   stay usable, and while Kirin OS is publishing new sets the current ones stay.

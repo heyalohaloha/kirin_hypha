@@ -166,7 +166,9 @@ namespace hypha::reference_audition
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire))
             return false;
-        const auto sourcePosition = mappedSourcePosition (latestHostPosition.load());
+        const auto hostPosition = latestHostPosition.load (std::memory_order_acquire);
+        restartCueAtPlayhead (hostPosition);
+        const auto sourcePosition = mappedSourcePosition (hostPosition);
         pages.request (sourcePosition);
         if (! pages.readyAt (sourcePosition, 1))
             return false;
