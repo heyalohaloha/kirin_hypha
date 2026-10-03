@@ -14,7 +14,7 @@ int main (int argc, char** argv)
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
-    if (runReferencePendingTests (argc, argv, sandbox)) return 0;
+    if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox)) return 0;
     if (runReferenceCaptureTests(argc,argv,sandbox)) return 0;
     testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; } testReferenceWorkflow (sandbox);
     testReferenceContentAlignment (sandbox);

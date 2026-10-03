@@ -38,6 +38,15 @@ namespace hypha::reference_audition
         bool requiresPreparation = false;
     };
 
+    // H8: Hypha に届いた B セット（順位順、最大 3）と、その曲（B の一覧）。曲の id は選択の ID。
+    struct RuntimeSongSetOption
+    {
+        juce::String id;
+        juce::String name;
+        int rank = 0;
+        std::vector<RuntimeSelectionOption> songs;
+    };
+
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
     // H3／H4：音量合わせの動き。B・V は A の直近の窓に追従し、C は Match の後に固定する。
     // stoppedCeiling は追従が上限（True Peak）に当たって止まり、直前の gain を保っている状態。
@@ -101,11 +110,16 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> cues;
         std::vector<RuntimeSelectionOption> versions;
         std::vector<RuntimeSelectionOption> checkTargets;
+        std::vector<RuntimeSongSetOption> songSets;
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
         bool versionArmable = false, checkArmable = false;
+        // H8: B（REF）。選んだ B SET と曲、その役の状態（referenceSelection）。
+        std::shared_ptr<const Snapshot> referenceSelection;
+        juce::String selectedSongSetId, selectedSongId;
+        bool referenceReady = false, referenceArmable = false;
         PendingAuditionView pendingAudition;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
         std::shared_ptr<const VisualTimeline> visualTimeline;

@@ -21,7 +21,8 @@ struct ReferenceChoice
 
 struct ReferenceComparisonSettings
 {
-    ReferenceChoice version, check;
+    ReferenceChoice version, check, reference;  // reference: H8 の B（REF）の曲
+    juce::String songSetId;                     // H8: 選んでいる B SET
     VisualViewChoice visualView;
     int viewedSlot = 2;
     juce::String captureState; bool capturedView=false;
@@ -41,7 +42,8 @@ struct ReferenceComparisonSettings
         };
         if(captureState.isNotEmpty() && captureState.getNumBytesAsUTF8() <= referenceCaptureMaximumEncodedBytes)
         { auto* captured=xml->createNewChildElement("ACapture"); captured->setAttribute("data",captureState); captured->setAttribute("shown",capturedView); }
-        append ("B", version); append ("C", check); visualView.write (*xml);
+        append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml);
+        if (safeId (songSetId)) xml->getChildByName ("REF")->setAttribute ("set", songSetId);
         tonal.write (parent); workflow.write (parent);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
@@ -60,9 +62,13 @@ struct ReferenceComparisonSettings
         result.visualView = VisualViewChoice::read (*xml);
         result.tonal = TonalDisplayState::read (parent);
         result.workflow = WorkflowResumeState::read (parent);
-        result.version = readChoice ("B"); result.check = readChoice ("C");
+        result.version = readChoice ("B"); result.check = readChoice ("C"); result.reference = readChoice ("REF");
         if (result.version.candidateId.isEmpty()) result.version = {};
-        result.viewedSlot = xml->getIntAttribute ("viewed_slot", 2) == 1 ? 1 : 2;
+        if (result.reference.candidateId.isEmpty()) result.reference = {};
+        if (const auto* songs = xml->getChildByName ("REF"))
+            if (safeId (songs->getStringAttribute ("set"))) result.songSetId = songs->getStringAttribute ("set");
+        const auto viewed = xml->getIntAttribute ("viewed_slot", 2);
+        result.viewedSlot = viewed == 1 || viewed == 3 ? viewed : 2;
         return result;
     }
 };

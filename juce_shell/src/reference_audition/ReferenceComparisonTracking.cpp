@@ -4,7 +4,7 @@ namespace hypha::reference_audition
 {
 int ReferenceComparisonController::liveWindowBlocks (int slot) const
 {
-    return slot == 1 ? version.matchWindowBlocks() : check.matchWindowBlocks();
+    return slotController (slot).matchWindowBlocks();
 }
 
 bool ReferenceComparisonController::pendingAuditionNeedsLevel() const
@@ -22,7 +22,7 @@ int ReferenceComparisonController::pendingLiveWindowBlocks() const
 
 bool ReferenceComparisonController::trackingNeedsService() const noexcept
 {
-    return version.trackingAudible() || check.trackingAudible();
+    return version.trackingAudible() || check.trackingAudible() || reference.trackingAudible();
 }
 
 TrackingAction ReferenceComparisonController::followAudition (const std::vector<KirinMeterHistoryEntry>& history,
@@ -31,6 +31,7 @@ TrackingAction ReferenceComparisonController::followAudition (const std::vector<
     // 鳴っている役だけを動かす。同時に鳴るのは 1 役（共有の gate）。
     if (version.trackingAudible()) return version.followSelection (history, aSessionPeakDbtp);
     if (check.trackingAudible()) return check.followSelection (history, aSessionPeakDbtp);
+    if (reference.trackingAudible()) return reference.followSelection (history, aSessionPeakDbtp);
     return TrackingAction::keep;
 }
 }

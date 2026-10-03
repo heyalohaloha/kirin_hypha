@@ -1,0 +1,101 @@
+#include "ReferenceComparisonController.h"
+#include <algorithm>
+
+namespace hypha::reference_audition
+{
+bool ReferenceComparisonController::selectB (double loudness, double peak) noexcept
+{
+    clearPendingAudition(); songSwitchPending.store (false, std::memory_order_release);
+    if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady) return false;
+    reference.selectA(); check.selectA();  // 切り替えの隙間（A が聴こえる時間）を広げない順
+    const bool selected = version.selectB (loudness, peak);
+    normalOutputSlot.store (selected ? 1 : 0, std::memory_order_release);
+    return selected;
+}
+bool ReferenceComparisonController::selectC (double loudness, double peak) noexcept
+{
+    clearPendingAudition(); songSwitchPending.store (false, std::memory_order_release);
+    if (trialActive() || ! snapshot().checkReady) return false;
+    reference.selectA(); version.selectA();
+    const bool selected = check.selectB (loudness, peak);
+    normalOutputSlot.store (selected ? 2 : 0, std::memory_order_release);
+    return selected;
+}
+// H8: B（REF）。B セットの曲を、A の直近 10 秒に追従する gain で鳴らす。
+bool ReferenceComparisonController::selectRef (double loudness, double peak) noexcept
+{
+    clearPendingAudition(); songSwitchPending.store (false, std::memory_order_release);
+    if (trialActive() || hasActiveWorkflow() || ! snapshot().referenceReady) return false;
+    version.selectA(); check.selectA();
+    const bool selected = reference.selectB (loudness, peak);
+    normalOutputSlot.store (selected ? 3 : 0, std::memory_order_release);
+    return selected;
+}
+void ReferenceComparisonController::selectA() noexcept
+{ clearPendingAudition(); dropResume(); version.selectA(); check.selectA(); reference.selectA(); }
+bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
+{
+    if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady || !beginBlindGuard()) return false;
+    dropResume(); check.suspendAudition(); reference.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
+    const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
+}
+bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
+{
+    if (trialActive() || hasActiveWorkflow() || !snapshot().versionReady || !beginBlindGuard()) return false;
+    dropResume(); check.suspendAudition(); reference.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
+    const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
+}
+bool ReferenceComparisonController::selectBlindStimulus (int value) noexcept { return version.selectBlindStimulus (value); }
+bool ReferenceComparisonController::answerBlind (int value) noexcept { return version.answerBlind (value); }
+bool ReferenceComparisonController::revealBlind() noexcept { return version.revealBlind(); }
+void ReferenceComparisonController::endBlind() noexcept { version.endBlind(); endBlindGuard(); }
+void ReferenceComparisonController::suspendAudition() noexcept
+{ clearPendingAudition(); dropResume(); version.suspendAudition(); check.suspendAudition(); reference.suspendAudition(); }
+
+}
+
+namespace hypha::reference_audition
+{
+// H8: B の曲を選ぶ。B が鳴っていた（または戻る保留がある）なら、新しい曲が公開され次第、新しい MATCH で
+// B のまま鳴らす（「押せば即切替」）。それまでのあいだは A。違う曲を前の gain で鳴らすことはしない。
+bool ReferenceComparisonController::selectSong (const juce::String& id)
+{
+    if (trialActive() || ! reference.selectLibrarySong (id)) return false;
+    { const juce::ScopedLock lock (selectionLock); songId = id; }
+    reference.forgetHeldSelection();
+    if (normalOutputSlot.load (std::memory_order_acquire) == 3)
+    { clearPendingAudition(); songSwitchPending.store (true, std::memory_order_release); }
+    if (stateChanged) stateChanged();
+    return true;
+}
+
+bool ReferenceComparisonController::selectSongSet (const juce::String& id)
+{
+    const auto state = reference.snapshot();
+    if (std::none_of (state.songSets.begin(), state.songSets.end(), [&] (const auto& set) { return set.id == id; }))
+        return false;
+    { const juce::ScopedLock lock (selectionLock); songSetId = id; }
+    if (stateChanged) stateChanged();
+    return true;
+}
+
+// H8: B の曲がまだ無い（初めて・選んだ曲が B セットから外れた）ときは、選んでいる B SET の最初の曲
+// （準備済みを先に）を選んでおく。B を押せばすぐ鳴るように、音の準備は前もって進める。
+void ReferenceComparisonController::ensureReferenceSong (const Snapshot& r)
+{
+    if (r.songSets.empty()) return;
+    juce::String setId, current;
+    { const juce::ScopedLock lock (selectionLock); setId = songSetId; current = songId; }
+    for (const auto& set : r.songSets)
+        for (const auto& song : set.songs)
+            if (song.id == current) return;
+    const auto found = std::find_if (r.songSets.begin(), r.songSets.end(), [&] (const auto& set) { return set.id == setId; });
+    const auto& set = found != r.songSets.end() ? *found : r.songSets.front();
+    const RuntimeSelectionOption* pick = nullptr;
+    for (const auto& song : set.songs) if (! song.requiresPreparation) { pick = &song; break; }
+    if (pick == nullptr && ! set.songs.empty()) pick = &set.songs.front();
+    if (pick == nullptr || ! reference.selectLibrarySong (pick->id)) return;
+    const juce::ScopedLock lock (selectionLock);
+    if (songId == current) songId = pick->id;
+}
+}

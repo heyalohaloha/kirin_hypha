@@ -3,6 +3,7 @@
 #include <set>
 #include "ReferenceLibraryVersions.h"
 #include "ReferenceLibrarySets.h"
+#include "ReferenceLibrarySongs.h"
 #include <juce_cryptography/juce_cryptography.h>
 
 namespace hypha::reference_audition
@@ -23,6 +24,7 @@ RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shar
         return unchanged;
     auto updated = std::make_shared<RuntimeWorkspace> (*current);
     updated->librarySets = std::move (sets);
+    applyLibrarySongEntries (*updated);
     return { RuntimeWorkspaceLoadState::updated, updated, {} };
 }
 }
@@ -100,6 +102,7 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
         return failure ("reference_library_versions_rejected", previous);
     juce::String setsRejection;
     next->librarySets = readReferenceLibrarySets (root, *next, setsRejection);
+    applyLibrarySongEntries (*next);
     return { RuntimeWorkspaceLoadState::updated, next, {} };
 }
 

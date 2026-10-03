@@ -7,20 +7,37 @@ namespace hypha::reference_audition
 bool ReferenceComparisonController::resumeWanted() const
 {
     const int slot = normalOutputSlot.load (std::memory_order_acquire);
-    if (slot != 1 && slot != 2) return false;
-    const auto& target = slot == 1 ? version : check;
-    return ! target.hasOutputPath() && target.hasHeldSelection();
+    if (slot < 1 || slot > 3) return false;
+    const auto& target = slotController (slot);
+    return ! target.hasOutputPath()
+        && (target.hasHeldSelection() || (slot == 3 && songSwitchPending.load (std::memory_order_acquire)));
 }
 
 bool ReferenceComparisonController::armResume()
 {
     if (! resumeWanted() || trialActive() || hasActiveWorkflow() || capture.access->busy()) return false;
     const int slot = normalOutputSlot.load (std::memory_order_acquire);
+    auto& target = slotController (slot);
     PendingIntent next;
-    next.identity = (slot == 1 ? version : check).heldPlaybackIdentity();
-    if (next.identity.isEmpty()) return false;
+    if (slot == 3 && songSwitchPending.load (std::memory_order_acquire))
+    {
+        // H8: B のまま曲を替えた。新しい曲が公開されたら、新しい MATCH で鳴らす（戻すのではない）。
+        const auto state = target.snapshot();
+        juce::String chosen;
+        { const juce::ScopedLock lock (selectionLock); chosen = songId; }
+        if (state.state == RuntimeState::rejected) { dropResume(); return false; }
+        if (state.playbackIdentity.isEmpty() || state.presetId + "/" + state.checkId + "/" + state.candidateId != chosen)
+            return true;  // まだ準備中。timer は回し続ける
+        songSwitchPending.store (false, std::memory_order_release);
+        next.identity = state.playbackIdentity;
+    }
+    else
+    {
+        next.identity = target.heldPlaybackIdentity();
+        if (next.identity.isEmpty()) return false;
+        next.resume = true;
+    }
     next.safetyEpoch = pendingSafetyEpoch.load (std::memory_order_acquire);
-    next.resume = true;
     next.view = { slot, PendingAuditionView::Stage::play };
     const juce::ScopedLock lock (selectionLock);
     if (activePendingIntent.load (std::memory_order_acquire) != 0) return true;
@@ -34,7 +51,9 @@ bool ReferenceComparisonController::armResume()
 void ReferenceComparisonController::dropResume()
 {
     normalOutputSlot.store (0, std::memory_order_release);
+    songSwitchPending.store (false, std::memory_order_release);
     version.forgetHeldSelection();
     check.forgetHeldSelection();
+    reference.forgetHeldSelection();
 }
 }
