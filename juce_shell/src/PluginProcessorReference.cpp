@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <limits>
+#include <thread>
 
 
 hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSnapshot() const
@@ -40,9 +41,19 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
    #if ! KIRIN_HYPHA_PRE_DISPLAY  // Reference の試聴は POST だけ（PRE は窓の計算を持たない）
     const auto blocks = static_cast<size_t> (juce::jmax (1, windowBlocks));
     std::vector<KirinMeterHistoryEntry> history;
-    const auto window = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, blocks, blocks)
-        ? ref::liveWindowLoudness (history, windowBlocks) : ref::LiveWindowLoudness {};
+    // 計測スレッドが A の履歴に書き足しているあいだは読めない（try_lock）。読めなかっただけで「A がたまって
+    // いない」（画面の A 0）・積算の値（B・V の MATCH が黙って窓と違う音量で合う）にしない。2 ms まで読み直す
+    // （メッセージスレッド。計測スレッドが持つのは 1 回の書き足しのあいだだけ）。
+    const auto giveUpMs = juce::Time::getMillisecondCounterHiRes() + 2.0;
+    bool read = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, blocks, blocks);
+    while (! read && juce::Time::getMillisecondCounterHiRes() < giveUpMs)
+    {
+        std::this_thread::yield();
+        read = pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history, blocks, blocks);
+    }
+    const auto window = read ? ref::liveWindowLoudness (history, windowBlocks) : ref::LiveWindowLoudness {};
     level.windowBlocks = window.blocks;
+    level.windowUnread = ! read;
     if (window.gatedBlocks >= ref::liveWindowMinimumGatedBlocks && window.blocks >= minimumBlocks && std::isfinite (window.lufs))
         level.loudness = window.lufs;
     else if (windowOnly)
@@ -67,7 +78,9 @@ hypha::reference_audition::WindowLoudnessCache KirinHyphaProcessorBase::referenc
                                                                    : hypha::reference_audition::liveWindowBlocks;
         const auto needed = hypha::reference_audition::matchMinimumBlocks (slot, blocks);
         const auto level = referenceLiveALevel (true, blocks, needed);
-        cache = { slot, level.loudness, now + 250.0, level.windowBlocks, needed };
+        // 読み直しても読めなかったら前の値のまま、次の描画で読み直す（A 0 と出さない）。
+        if (level.windowUnread && cache.slot == slot) cache.validUntilMs = now;
+        else cache = { slot, level.loudness, now + 250.0, level.windowBlocks, needed };
     }
     return cache;
    #else
