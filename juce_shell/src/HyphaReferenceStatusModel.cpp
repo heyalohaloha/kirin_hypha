@@ -30,7 +30,7 @@ StatusKind kindOf (SourceStep step) noexcept
     return StatusKind::unable;
 }
 
-StatusLine referenceStatusLine (const State& state)
+static StatusLine composeStatusLine (const State& state)
 {
     using Tracking = reference_audition::TrackingState;
     // Blind の間は今の文のまま（どれが鳴っているかを言わない。追従も持ち込まない）。
@@ -85,6 +85,15 @@ StatusLine referenceStatusLine (const State& state)
     if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())  // H6
         return { StatusKind::unable, juce::String (roleLetter (state.comparisonSlot)) + ": " + state.preparationOverdue };
     return { kind, state.status };
+}
+
+// 承認して A を下げているあいだは「A は今の音のまま」と言わず、下げた量を言う（足元の RETURN で戻すまで）。
+StatusLine referenceStatusLine (const State& state)
+{
+    auto line = composeStatusLine (state);
+    if (state.heldAttenuationDb < -0.05)
+        line.text = line.text.replace ("A REMAINS LIVE", "A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB");
+    return line;
 }
 
 bool preparationFailed (const reference_audition::RuntimeSongPreparation& preparation) noexcept

@@ -62,6 +62,17 @@ inline void verifyReferenceStatusLine()
                  && i18n::translate (lowered.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "8.0 dB")),
              "a held attenuation is named while a role plays, in both languages: " + lowered.text);
     playing.heldAttenuationDb = 0.0;
+    // A に戻しても A は下がったまま：「A は今の音のまま」と言わず、下げた量を言う（2026-10-04、Windows の実機）。
+    auto heldReady = named ("ready");
+    heldReady.separateComparisons = true;
+    heldReady.comparisonSlot = 2;
+    heldReady.checkStep = reference_ui::SourceStep::ready;
+    heldReady.status = "READY / A REMAINS LIVE";
+    heldReady.heldAttenuationDb = -7.24;
+    const auto heldLine = reference_ui::referenceStatusLine (heldReady);
+    require (heldLine.text == "READY / A LOWERED 7.2 DB"
+                 && i18n::translate (heldLine.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "7.2 dB")),
+             "A lowered after a role still says how far, in both languages: " + heldLine.text);
     // 上限超えの承認を出している役を見ているときは、「できない」と直し方（A を下げて合わせる）。
     auto offered = named ("ready");
     offered.separateComparisons = true;
