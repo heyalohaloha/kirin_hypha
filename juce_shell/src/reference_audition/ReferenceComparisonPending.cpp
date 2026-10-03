@@ -51,7 +51,11 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     const bool waitForLevel = slot == 2 && state.checkSelection != nullptr && state.checkReady
         && state.checkSelection->comparisonMode == "loudness_match" && ! std::isfinite (loudness);
     if (state.transportPlaying && ! waitForLevel)
-        return slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak);
+    {
+        if (slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak))
+            return true;
+        return waitWhilePreparing (slot);
+    }
     if (trialActive() || hasActiveWorkflow() || capture.access->busy()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
@@ -66,6 +70,32 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
       next.intentId = ++pendingSequence; pendingAudition = std::move (next);
       version.setQueuedContentObservationEnabled (slot == 1);
       activePendingIntent.store (pendingSequence, std::memory_order_release); }
+    return true;
+}
+
+// 再生中に押した役が今は切り替えられないが、準備が自動で進むとき（選択の公開待ち・音源の確認・読み込み・
+// 位置合わせ・A の音量待ち）は、押した役を待たせる。選択を替えた直後と同じ切替の続き（armResume が新しい公開を
+// 待って待ちを立てる）で、準備でき次第新しい MATCH で鳴らす。待ちの上限は画面（H6）が見張る。待っても変わらない
+// もの（MATCH の上限超え・音源の音量が無い・Cue の外・失敗）は断って理由を出す（2026-10-03、Windows の実機の
+// 通しで、V の版を替えた直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
+bool ReferenceComparisonController::waitWhilePreparing (int slot)
+{
+    if (trialActive() || hasActiveWorkflow() || capture.access->busy()) return false;
+    { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
+    auto& target = slotController (slot);
+    const auto now = target.snapshot();
+    const bool settles = now.matchFailure != MatchFailure::ceilingExceeded
+        && now.matchFailure != MatchFailure::sourceLevelUnavailable && ! now.auditionOutsideCue
+        && now.state != RuntimeState::rejected && now.state != RuntimeState::disconnected
+        && (target.requestedGeneration() != now.selectionGeneration || now.state == RuntimeState::verifying
+            || (now.state == RuntimeState::ready && ! now.auditionBuffered)
+            || (now.state == RuntimeState::waiting && now.rejectionCode == "reference_alignment_waiting_for_content")
+            || now.matchFailure == MatchFailure::liveLevelUnavailable);
+    if (! settles) return false;
+    selectA();
+    { const juce::ScopedLock lock (selectionLock); switchGeneration = target.requestedGeneration(); }
+    switchSlot.store (slot, std::memory_order_release);
+    normalOutputSlot.store (slot, std::memory_order_release);
     return true;
 }
 

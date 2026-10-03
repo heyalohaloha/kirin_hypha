@@ -3,21 +3,30 @@
 
 namespace hypha::reference_ui
 {
+// 再生中でも、準備が自動で進む段階（確認・読み込み・準備・位置合わせ）なら押した役を待たせ、準備でき次第鳴らす
+// （押したことを捨てない。待ちの上限は H6 が見張る）。
+inline bool settlesByItself (SourceStep step) noexcept
+{
+    return step == SourceStep::verifyingSource || step == SourceStep::loadingAudio
+        || step == SourceStep::preparing || step == SourceStep::aligning;
+}
+
 inline bool canQueueSource (const State& state, bool version)
 {
-    return state.separateComparisons && state.libraryReceived && !state.transportPlaying
+    const bool waits = state.transportPlaying ? settlesByItself (version ? state.versionStep : state.checkStep)
+                                              : (version ? state.versionArmable : state.checkArmable);
+    return state.separateComparisons && state.libraryReceived && waits
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase)
-        && (version ? state.versionArmable : state.checkArmable)
         && (state.workflow.mode == reference_audition::WorkflowView::Mode::normal
             || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
 }
 
-// H10: B（REF）も止まっているあいだに押せば、再生で鳴る。
+// H10: B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
 inline bool canQueueReference (const State& state)
 {
-    return state.separateComparisons && state.libraryReceived && !state.transportPlaying
+    const bool waits = state.transportPlaying ? settlesByItself (state.referenceStep) : state.referenceArmable;
+    return state.separateComparisons && state.libraryReceived && waits
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase)
-        && state.referenceArmable
         && (state.workflow.mode == reference_audition::WorkflowView::Mode::normal
             || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
 }
