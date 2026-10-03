@@ -57,6 +57,8 @@ namespace hypha::reference_audition
         const auto sourcePosition = mappedSourcePosition (hostPosition);
         if (sourcePosition >= 0)
             pages.request (sourcePosition);
+        else if (restartsAtCueStart())
+            pages.request (cueStart.load (std::memory_order_acquire));  // 押せば Cue の頭から鳴らし直すので先に読む
     }
 
     void RuntimeV2Controller::setContentObservationEnabled (bool enabled) noexcept
@@ -143,6 +145,25 @@ namespace hypha::reference_audition
         return versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
     }
 
+    bool RuntimeV2Controller::restartsAtCueStart() const noexcept
+    {
+        return ! versionComparison && ! sampleLocked.load (std::memory_order_acquire)
+            && ! cueLoops.load (std::memory_order_acquire)
+            && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
+    }
+
+    bool RuntimeV2Controller::restartCueAtPlayhead (std::int64_t hostPosition) noexcept
+    {
+        const juce::ScopedLock lock (mappingWriteLock);
+        if (! restartsAtCueStart() || mappedSourcePosition (hostPosition) >= 0)
+            return false;
+        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
+        bHostAnchor.store (hostPosition, std::memory_order_relaxed);
+        bSourceAnchor.store (cueStart.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        mappingGeneration.fetch_add (1, std::memory_order_release);
+        return true;
+    }
+
     bool RuntimeV2Controller::startBlind (double aIntegratedLoudness,
                                           double aMaximumTruePeakDbtp) noexcept
     {
@@ -161,7 +182,7 @@ namespace hypha::reference_audition
         double aIntegratedLoudness, bool approveLowerA) noexcept
     {
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
-        if (! ready.load (std::memory_order_acquire)
+        if (! ready.load (std::memory_order_acquire) || revokeAfterFade.load (std::memory_order_acquire)
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
             || bSelected.load (std::memory_order_acquire) || blind.ongoing())

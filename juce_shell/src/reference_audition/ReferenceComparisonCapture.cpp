@@ -63,12 +63,17 @@ void ReferenceComparisonController::endBlindGuard()
 }
 bool ReferenceComparisonController::reserveLocalBlind()
 {
+    if (heldA.held()) return false;  // 承認して A を下げているあいだは始めない（RETURN が先）
     clearPendingAudition();
-    const juce::ScopedLock lock(gateLock);
-    if(closing || !capture.access->reserveBlind(CaptureBlindOwner::local)) return false;
-    localBlindOwned=true; localBlindEpoch=0;
-    visual.pauseAdmission(); capture.pauseObservation(); captureProjection.setPresented(false);
-    refreshObservation(); return true;
+    {
+        const juce::ScopedLock lock(gateLock);
+        if(closing || !capture.access->reserveBlind(CaptureBlindOwner::local)) return false;
+        localBlindOwned=true; localBlindEpoch=0;
+        visual.pauseAdmission(); capture.pauseObservation(); captureProjection.setPresented(false);
+        refreshObservation();
+    }
+    forgetHeldAudition(); // 仕様 A：ローカル Blind の後に、停止前の B／C／V へ自動で戻さない
+    return true;
 }
 void ReferenceComparisonController::bindLocalBlind(std::uint64_t epoch)
 { const juce::ScopedLock lock(gateLock); if(localBlindOwned) localBlindEpoch=epoch; }

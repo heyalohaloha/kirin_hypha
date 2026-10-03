@@ -8,6 +8,7 @@
 #include "ReferenceTonalViewContractTest.h"
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceVisualNavigationTest.h"
+#include "ReferenceAbcvRolesTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -411,10 +412,15 @@ void verifyReferenceAuditionComponentContract()
         component.setState (abc);
         KIRIN_REF_REQUIRE (a->isVisible() && b->isVisible() && c->isVisible()
             && c->getToggleState() && ! b->getToggleState() && ! a->getToggleState());
-        KIRIN_REF_REQUIRE (version->isVisible() && check->isVisible() && preset->isVisible()
-            && ! version->getBounds().intersects (check->getBounds())
-            && component.getLocalBounds().contains (version->getBounds())
-            && component.getLocalBounds().contains (check->getBounds()));
+        // H12: 300% の C の画面は CHECK SET・Check のタブ・曲で選ぶ（V の選択は V の画面）。
+        auto* tabs = component.findChildWithID ("reference-check-tabs");
+        auto* song = component.findChildWithID ("reference-check-song");
+        KIRIN_REF_REQUIRE (preset->isVisible() && (width == 900
+            ? ! version->isVisible() && ! check->isVisible() && tabs != nullptr && tabs->isVisible() && song != nullptr
+                && song->isVisible() && component.getLocalBounds().contains (tabs->getBounds())
+            : version->isVisible() && check->isVisible() && ! version->getBounds().intersects (check->getBounds())
+                && component.getLocalBounds().contains (version->getBounds())
+                && component.getLocalBounds().contains (check->getBounds())));
         if (width == 300) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_COMPACT_OUTPUT");
         if (width == 900) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_OUTPUT");
     }
@@ -438,7 +444,7 @@ void verifyReferenceAuditionComponentContract()
     abc.blindPhase = reference_ui::BlindPhase::available;
     abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
     component.setState (abc);
-    KIRIN_REF_REQUIRE (cue->isVisible() && startBlind->isEnabled());
+    KIRIN_REF_REQUIRE (! cue->isVisible() && startBlind->isEnabled());  // H13: 300% の V の画面に C の Cue は出さない
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
     abc.blindPhase = reference_ui::BlindPhase::active;
     abc.activeBlindStimulus = 1;
@@ -453,7 +459,7 @@ void verifyReferenceAuditionComponentContract()
     verifyMetricPresentationWorkflow();
     verifyPairPreviewUiContract();
     verifyReferenceSelectionWorkflow (readyState());
-    verifyReferenceGuideContract();
+    verifyReferenceGuideContract(); verifyReferenceAbcvRoles();
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});

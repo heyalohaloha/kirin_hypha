@@ -127,6 +127,7 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::localBlindCaptureA
     if (session.phase != Phase::idle && session.phase != Phase::returned && session.phase != Phase::failed)
         return Admission::recovery;
     if (session.phase == Phase::failed && ! session.canRecapture) return Admission::releasePending;
+    if (referenceHeldAttenuationDb() < 0.0) return Admission::referenceLowered;  // RETURN が先（POST を二重に下げない）
     const auto reference=referenceAuditionSnapshot();
     if(reference.captureAccess && reference.captureAccess->busy()) return Admission::referenceBusy;
     if (reference.blindPhase != hypha::reference_audition::BlindPhase::inactive)

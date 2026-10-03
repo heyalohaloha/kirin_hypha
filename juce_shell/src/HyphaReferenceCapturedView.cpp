@@ -34,7 +34,7 @@ void ComparisonView::rebuildCaptured()
     waveformCache=juce::Image(juce::Image::ARGB,columns,height,true); juce::Graphics g(waveformCache);
     for(int layer=0;layer<4;++layer)
     {
-        g.setColour((layer<2 ? COL_SPECTRUM_DELTA_BR : COL_FLORA).withAlpha(layer%2 ? 0.85f : 0.35f));
+        g.setColour((layer<2 ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR).withAlpha(layer%2 ? 0.85f : 0.35f));
         const auto center=height*(layer<2 ? 0.25 : 0.75);
         for(int x=0;x<columns;++x) if(layer<2 || bKnown[size_t(x)])
         {
@@ -53,13 +53,13 @@ juce::String ComparisonView::capturedValuesAt(double seconds,bool compact) const
     if(seconds<0 || seconds>capture.duration()) seconds=std::min(end,capture.duration());
     const auto it=std::upper_bound(capture.bins.begin(),capture.bins.end(),std::uint64_t(seconds*capture.rate),
         [](auto v,const auto& b){return v<b.offset+b.value.frames;});
-    if(it==capture.bins.begin()) return "A  --    B  --";
+    if(it==capture.bins.begin()) return "A  --    V  --";
     const size_t index=size_t(it-capture.bins.begin()-1); const auto& pair=data->bins[index];
     const double a=showingCrest ? pair.a.crest_db : pair.a.short_lufs;
     const double b=pair.b.frames ? (showingCrest ? pair.b.crest_db : pair.b.short_lufs+data->binding.gainDb) : std::numeric_limits<double>::quiet_NaN();
     const auto number=[](double v){return std::isfinite(v) ? juce::String(v,1) : juce::String("--");};
-    auto result=juce::String("A ")+number(a)+"   B "+number(b)+(showingCrest ? " dB" : " LUFS-S");
-    if(!compact && std::isfinite(a) && std::isfinite(b)) result+="   B-A "+number(b-a)+(showingCrest ? " dB" : " LU");
+    auto result=juce::String("A ")+number(a)+"   V "+number(b)+(showingCrest ? " dB" : " LUFS-S");
+    if(!compact && std::isfinite(a) && std::isfinite(b)) result+="   V-A "+number(b-a)+(showingCrest ? " dB" : " LU");
     if(index<data->revisited.size() && data->revisited[index]==2) result+=" / A CHANGED";
     if(!compact && capture.complete)
         result+="   I "+number(capture.integrated)+" LUFS / TP "+number(capture.maximumTruePeak>0 ? 20*std::log10(capture.maximumTruePeak) : -INFINITY)+" dBTP";

@@ -19,6 +19,8 @@
 #include "ReferenceRuntimeABinding.h"
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
+#include "ReferenceTrackingGain.h"
+#include "ReferenceVersionIdentify.h"
 #include "ReferenceRuntimeV2SourceCache.h"
 #include "ReferenceCalibrationObservation.h"
 #include "ReferenceDeferredControl.h"
@@ -55,6 +57,7 @@ namespace hypha::reference_audition
         bool selectWorkflowCondition (const WorkflowCondition&, const juce::String& token);
         bool appendWorkflowEvent (WorkflowEventRequest);
         bool selectLibraryVersion (const juce::String&);
+        bool selectLibrarySong (const juce::String&);
         bool selectLibraryCheck (const juce::String&);
         bool retryPresetSelection();
         bool retryCandidatePreparation();
@@ -78,6 +81,7 @@ namespace hypha::reference_audition
         bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
         bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
         bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
+        bool outputSelected() const noexcept { return bSelected.load (std::memory_order_acquire); }
         bool startBlind (double, double) noexcept;
         bool approveBlindLowerAAndStart (double, double) noexcept;
         bool selectBlindStimulus (int) noexcept;
@@ -91,6 +95,28 @@ namespace hypha::reference_audition
                               bool positionValid, bool auditionAllowed,
                               bool normalReturnAllowed, bool normalTarget = true) noexcept;
         void loseAudibleConfirmation() noexcept;
+        // H3: 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
+        // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
+        RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // H12: C の MATCH をもう一度
+        VersionIdentity identifyVersions (const KirinFingerprint&, std::int64_t endTick); // H7（メッセージスレッド）
+        TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
+                                        double aSessionPeakDbtp) noexcept;
+        void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
+        // 承認して A を下げている量（0 以下）。MATCH・追従・やり直しの上限はこの量を足した後の音で見る。
+        void setHeldAttenuation (double db) noexcept { heldAttenuationDb.store (std::min (0.0, db), std::memory_order_release); }
+        // H8: B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
+        void setSongsOnly (bool enabled) noexcept { songsOnly.store (enabled, std::memory_order_release); notify(); }
+        bool trackingAudible() const noexcept
+        { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
+        // H3／H4：MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
+        int matchWindowBlocks() const;
+        // H5：停止・シークで A に戻った選択を、同じ音（playback identity）・同じ gain のまま戻す。
+        // 利用者が A を押す・別の音にする・試聴を止められたときは忘れる（forgetHeldSelection）。
+        bool resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept;
+        bool hasHeldSelection() const;
+        std::uint64_t requestedGeneration() const; // 今の選択の世代（状態の selectionGeneration と比べる）
+        juce::String heldPlaybackIdentity() const;
+        void forgetHeldSelection();
 
     private:
         struct Configuration
@@ -154,6 +180,8 @@ namespace hypha::reference_audition
             double truePeakDeltaBMinusA = 0.0;
             bool gainLimited = false;
             bool comparisonFallbackOriginal = false;
+            TrackingState tracking = TrackingState::none;
+            double anchorGainDb = 0.0; // 利用者の MATCH の gain。追従はここから ±6 dB まで（戻すときも同じ値）
             bool valid = false;
         };
 
@@ -169,6 +197,11 @@ namespace hypha::reference_audition
         void publishLocked (Snapshot);
         bool requestSelection (const juce::String& kind, const juce::String& id);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
+        // DAW の位置に合わせない曲（別の曲の B・C）は、選んだときの DAW の位置を起点に Cue の頭から進む。押したとき・
+        // 自動で戻すときに今の位置がその Cue の外（選んだ後に頭へ戻した・Cue を過ぎた）なら、今の位置を起点に Cue の
+        // 頭から鳴らし直す。DAW の位置に合わせる曲（同じ Work・V）は置き直さない（位置を動かすのは利用者）。
+        bool restartsAtCueStart() const noexcept;
+        bool restartCueAtPlayhead (std::int64_t hostPosition) noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
                                    std::uint64_t selectionGeneration, const juce::String& expectedPlaybackIdentity) noexcept;
@@ -192,6 +225,11 @@ namespace hypha::reference_audition
         void serviceOutputRetirement();
         void serviceWorkflowEvents (std::int64_t nowMs);
         void revokeAuditionPublication() noexcept;
+        // 鳴っている（A へ戻るフェード中を含む）役の選択を替える。先に公開を取り消すと Audio Thread が
+        // フェードを掛けずに A を返す（ぷつっと切れる）ので、フェードが終わってから作業スレッドが取り消す。
+        // stateLock を持って呼ぶ。待つのは最長 revokeFadeLimitMs。
+        void revokeAfterFadeLocked() noexcept;
+        bool deferredRevokeWaiting() noexcept; // 作業スレッド：フェードの終わりを待っているあいだ true
         void failClosedToA() noexcept;
         void invalidateBlind() noexcept;
         void failClosedToAFromAudioThread() noexcept;
@@ -223,8 +261,10 @@ namespace hypha::reference_audition
         Configuration requestedConfiguration;
         RequestedSelection requestedSelection;
         std::uint64_t appliedConfigurationGeneration = 0;
-        std::uint64_t appliedSelectionGeneration = 0;
+        std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // stateLock：K13b、Kirin OS の準備の状態
+        VersionIdentifier versionIdentifier; // H7: Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::shared_ptr<const WorkflowCatalog> workflowCatalog;
         std::deque<WorkflowEventRequest> workflowEvents;
         std::int64_t workflowRetryAtMs = 0;
@@ -250,6 +290,17 @@ namespace hypha::reference_audition
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
         PreparedNormalSelection preparedNormalSelection;
+        struct HeldSelection
+        {
+            juce::String playbackIdentity;
+            PreparedNormalSelection facts;  // 最後に掛けていた gain と、その時の値（追従で動いた後の値）
+            bool valid = false;
+        } heldSelection; // stateLock
+        double trackingAnchorDb = 0.0; // stateLock：鳴っている選択の MATCH の gain（追従の幅の中心）
+        void holdCurrentGainLocked() noexcept;
+        // H3・H12：決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
+        void applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
+                                     double sourceLoudness, double sourcePeakDbtp) noexcept;
         RuntimeEventContext activeEventContext;
         RuntimeCandidate activeEventCandidate;
         RuntimeCue activeEventCue;
@@ -282,6 +333,11 @@ namespace hypha::reference_audition
         std::atomic<unsigned> contentObservationDemands { 0 }; // 1: view/capture, 2: queued B.
         std::atomic<bool> contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
+        std::atomic<bool> trackingEnabled { false };
+        std::atomic<double> heldAttenuationDb { 0.0 };
+        std::atomic<bool> songsOnly { false };
+        std::atomic<int> trackingRampFrames { 2400 };
+        TrackingGainRamp rtTrackingRamp; // Audio-thread owned.
         std::atomic<std::uint64_t> auditionEpoch { 1 };
         std::atomic<std::uint64_t> activeAuditionEpoch { 0 };
         std::atomic<std::uint64_t> normalSelectionGeneration { 1 };
@@ -298,11 +354,16 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> aAudibleConfirmations { 0 };
         std::atomic<std::int64_t> bHostAnchor { 0 };
         std::atomic<std::int64_t> bSourceAnchor { 0 };
+        // 対応づけ（cueStart・cueEnd・cueLoops・sampleLocked・起点）を書くのは作業スレッドとメッセージスレッド
+        // （restartCueAtPlayhead）。書き手どうしをこの鍵でそろえる。音声スレッドは鍵を取らず mappingGeneration で読む。
+        juce::CriticalSection mappingWriteLock;
         std::atomic<std::uint64_t> nextOutputGateToken { 1 };
         std::atomic<std::uint64_t> activeOutputGateToken { 0 };
         std::atomic<std::uint64_t> normalGateReleasePendingToken { 0 };
         std::atomic<std::uint64_t> blindGateReleasePendingToken { 0 };
         std::atomic<bool> auditionReturnPending { false };
+        std::atomic<bool> revokeAfterFade { false };
+        std::atomic<std::uint32_t> revokeFadeStartedMs { 0 };
         DeferredControl outputRetirement;
     };
 }

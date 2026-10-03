@@ -125,8 +125,13 @@ void testReferencePendingAudition (const juce::File& sandbox)
         "already-forbidden input cannot masquerade as an unobserved first callback and switch later");
     host (false);
     require (controller.requestAudition (2, -14, -2), "queue before changing source controls");
+    // 同じ Cue を選び直しても何も変わらない（押した C は待ったまま）。別の Cue にすると新しい選択で鳴らす
+    // （ReferenceAbcvRoles の C の切替）。A を押すと待ちは消える。
     require (controller.selectCue (controller.snapshot().checkSelection->cueId)
-        && !controller.pendingAuditionNeedsService(), "changing Cue cancels the pending source");
+        && controller.pendingAuditionNeedsService() && controller.snapshot().pendingAudition.slot == 2,
+        "choosing the same Cue keeps the queued C");
+    controller.selectA();
+    require (!controller.pendingAuditionNeedsService(), "A cancels the queued C");
     require (controller.requestAudition (2, -14, -2), "queue before host restore");
     const auto saved = controller.savedSettings();
     controller.restoreSettings (saved);
@@ -147,20 +152,41 @@ void testReferencePendingAudition (const juce::File& sandbox)
     preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "original");
     require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 3)),
         "restore the fixture's explicit original mode");
+    // H5: 試聴コピーのサンプルレート変換は自動。承認を待たずに準備ができ、止まっていれば再生を待つ。
     controller.configure (identity, 44100, 2); host (false);
-    wait ([] (const auto& s) { return s.checkArmable && s.checkSelection->sampleRateApprovalRequired; });
-    require (controller.requestAudition (2, -14, -2), "C may wait for explicit SRC approval");
-    controller.servicePendingAudition (-14, -2, false);
-    require (controller.snapshot().pendingAudition.stage == Stage::approval && !host (false),
-        "queued C cannot bypass sample-rate consent");
-    require (controller.approveSampleRateConversion (2), "approve only the audition copy");
-    wait ([] (const auto& s) { return !s.checkSelection->sampleRateApprovalRequired && s.checkReady; });
+    wait ([] (const auto& s) { return s.checkArmable && !s.checkSelection->sampleRateApprovalRequired && s.checkReady; });
+    require (controller.requestAudition (2, -14, -2), "C queues on a converted audition copy");
     controller.servicePendingAudition (-14, -2, false);
     require (controller.snapshot().pendingAudition.waiting() && !controller.snapshot().bSelected,
-        "approval alone does not start stopped audio");
+        "conversion alone never starts stopped audio");
     host (true); controller.servicePendingAudition (-14, -2, true);
-    require (controller.snapshot().audibleComparisonSlot == 2, "approval retains the same explicit queued identity");
+    require (controller.snapshot().audibleComparisonSlot == 2, "the converted copy starts at the first safe play");
     controller.selectA(); host (false);
+    // H5: 止めても選んだまま。再生すると同じ音・同じ gain で戻り、MATCH は測り直さない。A を押すと戻らない。
+    preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "loudness_match");
+    require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 4)),
+        "publish a matched C for resume");
+    wait ([] (const auto& s) { return s.checkArmable && s.checkSelection->comparisonMode == "loudness_match"; });
+    host (true); wait ([] (const auto& s) { return s.checkReady; });
+    require (controller.requestAudition (2, -28, -12) && host (true), "matched C plays");
+    const auto matched = controller.snapshot().checkSelection->appliedGainDb;
+    require (std::abs (matched + 6.0) < 1.0e-9, "C matches A at -6 dB");
+    const auto unknown = std::numeric_limits<double>::quiet_NaN();
+    require (!host (false) && controller.snapshot().audibleComparisonSlot == 0 && controller.pendingAuditionNeedsService(),
+        "stopping returns to A and keeps the choice");
+    controller.servicePendingAudition (unknown, unknown, false);
+    require (controller.snapshot().pendingAudition.waiting() && controller.snapshot().pendingAudition.slot == 2
+        && !host (false), "the kept choice waits for playback without sounding");
+    host (true); wait ([] (const auto& s) { return s.checkReady; });
+    controller.servicePendingAudition (unknown, unknown, true);
+    require (controller.snapshot().audibleComparisonSlot == 2 && host (true)
+        && std::abs (controller.snapshot().checkSelection->appliedGainDb - matched) < 1.0e-12,
+        "play resumes the same C at the same gain without measuring A again");
+    controller.selectA(); host (true); host (false); host (true);
+    controller.servicePendingAudition (unknown, unknown, true);
+    require (!controller.pendingAuditionNeedsService() && controller.snapshot().audibleComparisonSlot == 0 && !host (true),
+        "after A the choice is not resumed");
+    host (false);
     require (juce::SHA256 (file).toHexString() == hash, "all auditions preserve the OS source file");
     require (controller.requestAudition (2, -14, -2), "queue before source removal");
     require (file.deleteFile(), "remove only the disposable fixture source");

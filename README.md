@@ -551,67 +551,124 @@ Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per proj
 ## Reference from Kirin OS
 
 Kirin OS automatically publishes its saved Reference library to POST. No Work connection,
-INSPECT screen, receiver choice, or connect button is required. Each POST chooses its preset,
-check, and source independently. A small OS indicator reports the connection; received settings
-remain visible when media is unavailable. Hypha does not substitute its own Factory library.
+INSPECT screen, receiver choice, or connect button is required. A small OS indicator reports the
+connection; received settings remain visible when media is unavailable. Hypha does not substitute
+its own Factory library.
 
-A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
-Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
-available at every size. A fresh instance receives Kirin OS's default Preset; saved session choices
-remain independent. C always names its source, including when a Check has only one candidate.
-Preset and C's Cue remain reachable before audition and while the Version display is open.
+Reference has four roles, each with its own button in the same place at every size: **A B C V**.
 
-The **A / B / C** buttons change sound; **VIEW A/C / VIEW A/B** changes only the display. The initial
-A/C view uses the Preset's configured visuals at detailed sizes; compact sizes retain the existing
-summary presentation. Choosing or auditioning B does not replace the selected visual view.
-A/C uses cyan for A and gold for C; Spectrum compares live A with C's whole-track
-distribution, not a time-aligned pair. Missing evidence stays missing. Verified OS-prepared display
-evidence can be inspected before approving audio sample-rate conversion; that approval is still
-required before audition. A pending C does not block a ready B. Select the A/B view for Version
-Blind, which opens at 300% (900×600).
+- **A — LIVE**: the DAW input. A is never processed; every other role is an audition copy.
+- **B — REF**: the songs of a B set. In Kirin OS you rank up to three B sets for Hypha; choose the
+  set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
+  head; when you press B, or B returns after a stop or seek, at a point outside that Cue (you moved
+  back before where you chose the song, or the song has run past its end), B starts the Cue again
+  from the current position instead of refusing. If a chosen song leaves
+  the B set, Hypha says so instead of switching to another song. If Hypha cannot read a B set (for
+  example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
+  stay usable, and while Kirin OS is publishing new sets the current ones stay.
+- **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
+  to listen for; its song defaults to the first-ranked B set. The Cue is the section C plays.
+- **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
-While the DAW is stopped, a prepared B or C can be queued with its button. The waiting button and
-reason are distinct from the source currently playing; A cancels the queue. On playback, Hypha
-keeps A until the same source, position, conversion permission and required level are verified.
-Both immediate and queued selections require the configured MATCH; neither silently falls back
-to original volume. A changed source,
-unsafe playback, or failed safe switch leaves A with a reason. The intent is one-shot: it is not
-saved or restored with the Song, and stopping an audition does not queue it again. Visual navigation
-does not cancel it; changing source, Preset or Cue does, including an OS-side change to that Cue's
-loop policy. Label-only updates do not cancel it. Required conversion approval remains directly
-available for the queued source even while the other visual pane is displayed.
-For Version comparison, play the DAW input to establish the same song and position against B's
-verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
-playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
-passages wait for distinguishing content. Ordinary B preserves A at 0 dB; if full matching exceeds
-the allowed peak ceiling, ordinary B does not start, and Blind requires explicit
-approval before lowering A. The approved gain stays fixed through switches, seeks and pauses.
-Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
-source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
-single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
-Unlike the live PRE/POST compare, a stop, an unknown position or an unready B returns Reference to
-A and asks you to select B again.
-The processor reads the live A meter for each new manual or queued C selection. Frozen display
-values from a previous B/C comparison never feed the next MATCH. Missing measurements or an
-unsafe gain leave A with a reason; an OS Preset explicitly set to original mode still plays C
-at its original level without claiming a match.
+Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
+display. Choosing a different song, Check, Cue or Version changes only that role: if it was playing,
+it fades to A and plays the new choice with a new MATCH as soon as it is ready; the other roles keep
+playing. Receiving or restoring settings never starts a role.
 
-Until B or C can be heard, the page says why instead of showing empty comparisons (already prepared
-Preset visuals stay visible): the next step
-(open Kirin OS, play the song in the DAW, choose a Version for B, enable a Check in Kirin OS) and
-where A, B and C each stand. A B or C that cannot be heard yet is drawn dimmed but stays
-clickable: a click opens that source's display and recovery controls without changing audio;
-hover gives its reason. Conversion approval is scoped to that displayed source and cannot grant
-playback authority: a separate audition click (including an explicitly queued B/C) is required.
+**Level matching.** B and V follow A: every second Hypha measures A's gated loudness over the last
+10 seconds (BS.1770 gating of the 100 ms momentary history) and moves the audition copy toward
+"A − the source's level" with a 50 ms ramp, ignoring changes within 0.5 dB. B uses its Cue's
+Integrated loudness from Kirin OS (the whole song when the Cue has no value); V pairs A with the
+aligned V content over the same window. Following never raises the copy above
+max(−1 dBTP, A's maximum true peak, the source's maximum true peak) and never moves more than 6 dB
+from the gain of the MATCH you started (as AUTO in the live PRE/POST compare); at either limit it
+stops, keeps the current gain and says so. C matches once and stays fixed: it compares A's gated
+loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated
+loudness, and waits until A has played for the Cue's length (at most 30 s) so that a fixed gain is
+not set from a few seconds; pressing C earlier queues it and C starts once A is measured, and until
+then the C page shows how much of A it has (for example A 12 / 30 S) instead of a gain. **MATCH** on
+the C page matches again from the current A window. A match without enough A keeps the current gain
+and says why. A Check set to original level in Kirin OS plays as is.
 
-The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
-Only observed A regions are drawn; older passes are dimmed. Select a region for the shared
-LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play position.
-These controls change the view only. They do not seek the DAW or switch audio. The source-qualified
-view choice survives editor/session restoration, while live A observations are never restored as
-current audio. Blind hides these graphs and their accessibility content.
+**Lowering A to match.** A loud master and a quieter reference cannot be matched by raising the
+reference past the ceiling. Instead Hypha offers, on the page of that role, to lower A by the
+difference (LOWER A 8.0 DB & PLAY B): the reference then plays at its own level and A is lowered to
+it. Nothing is lowered without that approval. A stays lowered after the audition, through the other
+roles, until RETURN in the footer; RETURN stops the role and raises A over half a second. The roles'
+readouts then name the gain against the lowered A, and the status line says how far A is lowered.
+Offline renders and host bypass are never lowered, and the measurements and Record are taken before
+it. While A is lowered, the live PRE/POST compare and Blind wait for RETURN, so POST is never lowered
+twice.
 
-**CAPTURE A** retains the original POST input's measured overview independently of B or a
+A stop or seek keeps the selection: the same source returns at the same gain once it is ready again,
+as in the live PRE/POST compare. An offline render, a local Blind or starting the live PRE/POST
+compare clears that held selection, so nothing returns on its own afterwards. Sample-rate conversion
+of the audition copy is automatic (the source file is never changed). Lowering A for a Blind whose
+match exceeds the ceiling still requires explicit approval. Offline render, a missing or changed
+source, or a failed check leaves A playing.
+
+**Status.** The line under each page says one of three things, with a dot: ready (cyan: what plays
+and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
+level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
+unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). A role that
+cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
+silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
+alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
+its reason and fix, shown even under the start guide, and returns to ready once the source is. While
+Kirin OS prepares the song of a B set or CHECK set, the line says what Kirin OS is doing in its own
+terms — how many songs it prepares first, checking the file, waiting for another measurement — and a
+file Kirin OS cannot find turns the line unavailable with the retry as its fix (Kirin OS publishes
+this beside its heartbeat; nothing is shown once Kirin OS closes). Blind keeps its own line and never
+says which source plays or how it is matched. Pressing a role while it is still preparing
+(publishing a new choice, verifying, loading or aligning its source, or measuring A) waits for it
+and plays it as soon as it is ready, as when you press it while the DAW is stopped; a step only you
+can change (outside the Cue, no match in this passage) or a match that cannot be made is explained
+instead.
+
+**Pages.** Each role has its page at 300% (900×600). Below 300%, C and V are drawn dimmed; pressing
+them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
+shows the song and the status; songs are switched from 125%.
+
+- **B**: the songs of the chosen B set on the left (number, title, Cue LUFS-I from Kirin OS, the
+  current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
+  OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
+  right: A over the last 10 seconds (gold), the chosen song (cyan) and the set's p10–p90 range, each
+  song shifted to the level B plays it at. No genre curves are supplied.
+- **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
+  keeps the song), the Cue, and MATCH. The comparison is the Cue against the same length of recent
+  A; below it, the four-band Balance difference C − A (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz)
+  as numbers only, and the Cue's place in the song with its loop and the playing position.
+- **V**: the Version and the shared CHECK SET, then tabs. WHOLE is the song timeline: A above V,
+  peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
+  for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
+  position; these controls never seek the DAW or switch audio. Each Check tab compares A and V over
+  the same aligned section as that Check looks at it: a low-band Check shows 20–250 Hz, and a Check
+  that does not look at spectrum or balance (loudness, dynamics, stereo) says it is shown on C.
+  VERSION BLIND opens from this page; Blind hides these graphs and their accessibility content.
+  **AUTO** finds the Version you are working on: while Reference is open, Hypha measures A's Kirin
+  fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each Version's
+  fingerprint, first within ±30 s of the DAW position, then anywhere in the song, so a song that
+  starts later on the timeline (an album session) is found too. The best Version that Kirin OS would
+  call the same song is marked AUTO with its agreement — another mix of your song counts. Because 30
+  seconds can resemble another song by chance, a match also needs A's loudness contour to follow the
+  Version (correlation 0.3 or more), and away from the DAW position only a strong match (agreement 0.70
+  or more) counts. On the owner's own mixdowns (16 songs, 47 versions) this chose the right song in
+  122 of 134 tries with no wrong choice when the song starts the timeline, and 113 with one wrong
+  choice when it sits later in an album session. When no Version is chosen,
+  the AUTO one is chosen once it is the best twice in a row; AUTO changes only V's choice and never
+  stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
+  replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
+
+A is gold and the compared role is cyan on every page; colour never scores a result.
+
+**Same definition, same section, same level.** For each Cue Kirin OS publishes values computed
+every 100 ms: the 64-band spectrum (the largest bin of each band of a periodic-Hann FFT, p10, median
+and p90 over the Cue) and the four-band Balance (band power sums). Hypha measures A with the same
+definition — not the FREQ page's spectrum, whose definition reads several dB differently on noise —
+over the same length, and compares at the level the role plays at. V is measured by Hypha the same
+way over the section aligned with A.
+
+**CAPTURE A** retains the original POST input's measured overview independently of V or a
 Kirin OS connection. Arm it, play the DAW from the desired start, then stop the DAW or use
 **FINISH A**. **CAPTURED / LIVE** changes the display; audio A always remains live at 0 dB.
 Capture continues without an editor. Its bounded summary is saved in the DAW session, and
@@ -622,8 +679,8 @@ integrated loudness/maximum true peak. A seek, missing clock/input, format chang
 closes a partial pass; a failed retry preserves the previous successful capture. The two-hour
 limit also closes as partial, never as proof of a complete song. Revisited input changes are
 marked without rewriting the capture; unvisited regions are never certified as current.
-B comparisons require the captured pass's same-Work evidence and a separately verified live
-map. A restored capture must be revalidated before using that map. B loss leaves A available.
+V comparisons require the captured pass's same-Work evidence and a separately verified live
+map. A restored capture must be revalidated before using that map. V loss leaves A available.
 Capture uses the existing two Analysis slots, shares its slot with ordinary audition, and
 excludes both kinds of Blind until the relevant capture or audible return has completed.
 
@@ -719,7 +776,7 @@ same channel; in Pro Tools, turn off its **Target** button.
   measurements this lasted up to four blocks in Studio Pro 8.1.2 (171 ms at 2048 samples); the
   clocks recorded in Pro Tools 2026.4 bound it to two blocks (43 ms at 1024 samples).
 - With a loop shorter than the chain's latency, PRE can come from the previous pass of the loop.
-- Unlike Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
+- As in Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
 
 ## Local PRE/POST Blind Compare
 
@@ -814,7 +871,7 @@ that branch before POST are not switched, so this is specifically a comparison b
 PRE and POST insertion points—not a claim about every route in the project.
 
 The local PRE/POST trial length is four seconds. Reference Version Blind is a separate whole-song
-comparison between live DAW A and a measured, acoustically matched Version B from Kirin OS.
+comparison between live DAW A and a measured, acoustically matched Version V from Kirin OS.
 Its four-second A observation proves calibration only; it neither replaces live A nor claims
 whole-song loudness or an immutable whole-song identity for the current DAW input.
 

@@ -78,7 +78,7 @@ bool WorkflowResumeState::valid() const noexcept
                               &conditionRevisionId, &bookmarkId })
         if (! optionalUuid (*value)) return false;
     if (! journalHeadSha256.isEmpty() && ! safeSha256 (journalHeadSha256)) return false;
-    if (returnSlot < 0 || returnSlot > 2) return false;
+    if (returnSlot < 0 || returnSlot > 3) return false;  // 0：無し、1：V、2：C、3：B（H8）
     if (mode == Mode::idle)
         return reviewId.isEmpty() && attemptId.isEmpty() && bookmarkId.isEmpty();
     if (mode == Mode::review)

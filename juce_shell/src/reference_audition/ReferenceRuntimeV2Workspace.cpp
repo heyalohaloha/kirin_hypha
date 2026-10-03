@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceCueMatch.h"
 #include "ReferenceLibraryLegacyChoice.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceRuntimePresetOptions.h"
@@ -71,6 +72,11 @@ namespace hypha::reference_audition
         if (! configuration.identity.library) writeCapability (root, configuration.identity, nowMs);
         libraryOnline.store (configuration.identity.library && repository.libraryOnline (nowMs),
                              std::memory_order_release);
+        {
+            auto preparation = configuration.identity.library ? repository.libraryPreparation (nowMs) : nullptr;  // K13b
+            const juce::ScopedLock lock (stateLock);
+            libraryPreparation = std::move (preparation);
+        }
         activeABinding = aBindingRepository.load (configuration.identity, nowMs);
         RequestedSelection selection;
         { const juce::ScopedLock lock (stateLock); selection = requestedSelection; }
@@ -92,7 +98,7 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        workspace = loaded.workspace;
+        { const juce::ScopedLock lock (stateLock); workspace = loaded.workspace; }  // visualBinding がメッセージスレッドから読む
         if (versionComparison && workspace->independentVersions)
         {
             const ReferenceChoice original { selection.presetId, selection.checkId, selection.candidateId, selection.cueId };
@@ -114,7 +120,7 @@ namespace hypha::reference_audition
             }
         }
         libraryReceived.store (workspace->library, std::memory_order_release);
-        appliedSelectionGeneration = selection.generation;
+        appliedSelectionGeneration.store (selection.generation, std::memory_order_release);
         const auto missingSelection = [&] {
             failClosedToA();
             Snapshot next;
@@ -129,6 +135,8 @@ namespace hypha::reference_audition
         const RuntimePreset* preset = findPreset (*workspace, selection.presetId);
         if (workspace->library && selection.presetId.isNotEmpty() && preset == nullptr)
         { missingSelection(); return; }
+        if (songsOnly.load (std::memory_order_acquire) && (preset == nullptr || ! preset->songEntry))
+        { missingSelection(); return; }  // H8: B は曲を選ぶまで何も準備しない
         if (preset == nullptr)
             preset = findPreset (*workspace, workspace->manifest.activePresetId);
         if (preset == nullptr && ! workspace->presets.empty())
@@ -189,7 +197,8 @@ namespace hypha::reference_audition
             next.presetName = preset->name;
             next.checkId = check->checkId;
             next.checkLabel = check->label;
-            if (candidate != nullptr) { next.candidateId = candidate->candidateId; next.candidateName = candidate->displayName; }
+            // 準備中・見つからない曲も、見出しは選んだ曲の名前（役の名前「REF」にしない）。
+            if (candidate != nullptr) { next.candidateId = candidate->candidateId; next.candidateName = next.title = candidate->displayName; }
             next.manifestRevision = workspace->manifest.revision;
             next.hostSampleRateHz = static_cast<std::int64_t> (
                 std::llround (configuration.sampleRate));
@@ -202,8 +211,10 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        const RuntimeCue* cue = findCue (*candidate, selection.cueId);
-        if (workspace->library && selection.cueId.isNotEmpty() && cue == nullptr)
+        // H8: B の曲（songEntry）は Kirin OS が決めた既定の Cue だけで鳴らす（B に Cue を選ぶ画面は無い）。
+        // 既定の Cue が Kirin OS で変わっても、前の Cue に縛られない（保存もしない）。
+        const RuntimeCue* cue = preset->songEntry ? nullptr : findCue (*candidate, selection.cueId);
+        if (workspace->library && ! preset->songEntry && selection.cueId.isNotEmpty() && cue == nullptr)
         { missingSelection(); return; }
         if (cue == nullptr) cue = findCue (*candidate, candidate->defaultCueId);
         if (cue == nullptr) cue = &candidate->cues.front();
@@ -335,27 +346,32 @@ namespace hypha::reference_audition
             next.detailedMeasurement = measurement.measurement;
             next.measurementAvailable = true;
         }
+        // H4: Cue の Kirin OS の値（ranges）。C の Match と B の追従に使う。V は曲全体の位置合わせで合わせる。
+        if (! versionComparison)
+            if (const auto level = readCueLevel (root, *workspace, *candidate, *cue, *selectedSource))
+            {
+                next.cueLevelAvailable = true;
+                next.cueIntegratedLoudness = level->integratedLoudness;
+                next.cueMaximumTruePeakDbtp = level->maximumTruePeakDbtp;
+                next.cueSpectrum = level->spectrum;  // H12
+            }
+        next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
+        if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // H12: C の画面の Cue の時間軸
+        {
+            next.cueStartSeconds = static_cast<double> (cue->startSample) / static_cast<double> (cue->sampleRateHz);
+            next.cueEndSeconds = static_cast<double> (cue->endSample) / static_cast<double> (cue->sampleRateHz);
+            next.sourceDurationSeconds = static_cast<double> (selectedSource->audio.totalSampleFrames) / static_cast<double> (selectedSource->audio.sampleRateHz);
+            next.cueLoops = cue->loopEnabled;
+        }
         for (const auto& binding : check->profileBindings)
         {
             const auto profile = profileRepository.load (binding.profileArtifact);
             if (profile.accepted()) next.profiles.push_back (profile.profile);
         }
-        const auto approvalKey = mediaKey + ":"
-            + juce::String (selectedSource->audio.sampleRateHz) + ":"
-            + juce::String (next.hostSampleRateHz);
+        // H5: サンプルレートの変換は自動（試聴コピーだけを変換し、元のファイルは変えない）。承認を待たない。
         const bool rateDiffers = selectedSource->audio.sampleRateHz != next.hostSampleRateHz;
-        const bool rateApproved = ! rateDiffers || selection.sampleRateApprovalKey == approvalKey;
         const auto mappedCueStart = outputSample (cue->startSample, cue->sampleRateHz, next.hostSampleRateHz);
         const auto mappedCueEnd = outputSample (cue->endSample, cue->sampleRateHz, next.hostSampleRateHz);
-        if (! rateApproved)
-        {
-            failClosedToA();
-            next.state = RuntimeState::waiting;
-            next.sampleRateApprovalRequired = true;
-            next.rejectionCode = "reference_sample_rate_approval_required";
-            publishApprovalRequired (std::move (next), approvalKey, selectedSource, *cue);
-            return;
-        }
 
         const auto sourceKey = mediaKey + ":"
             + juce::String (next.hostSampleRateHz) + ":"
@@ -369,7 +385,7 @@ namespace hypha::reference_audition
                 selectA();
             pages.close();
             const auto openFailure = pages.open (*selectedSource, configuration.sampleRate,
-                                                 configuration.channels, rateApproved);
+                                                 configuration.channels, true);
             if (openFailure.isNotEmpty())
             {
                 next.state = RuntimeState::rejected;
@@ -387,6 +403,7 @@ namespace hypha::reference_audition
         const auto mappingKey = activeSourceKey + ":" + cueKey;
         if (activeMappingKey != mappingKey)
         {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
             cueStart.store (mappedCueStart, std::memory_order_relaxed);
             cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
@@ -430,7 +447,7 @@ namespace hypha::reference_audition
                 requestedSelection.presetId = next.presetId;
                 requestedSelection.checkId = next.checkId;
                 requestedSelection.candidateId = next.candidateId;
-                requestedSelection.cueId = next.cueId;
+                requestedSelection.cueId = preset->songEntry ? juce::String {} : next.cueId;
             }
             activeEventContext = {
                 configuration.identity,

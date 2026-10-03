@@ -179,8 +179,10 @@ function allLiteralText(root) {
       else if (extensions.has(path.extname(entry.name))) texts.push(...read(fs.readFileSync(child, 'utf8')));
     }
   };
-  visit(path.join(root, 'juce_shell', 'src'), sourceExtensions,
-        source => literals(source).map(literal => literal.text));
+  // The preview renderer draws Hypha's screen inside Kirin OS, so its text is screen text too.
+  for (const folder of ['src', 'tools'])
+    visit(path.join(root, 'juce_shell', folder), sourceExtensions,
+          source => literals(source).map(literal => literal.text));
   for (const crate of ['kirin_hypha_ffi', 'kirin_measure'])
     visit(path.join(root, 'crates', crate, 'src'), new Set(['.rs']),
           source => [...source.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(match => unescape(match[1])));
@@ -230,6 +232,7 @@ export function findUntranslated(root) {
     }
   };
   visit(path.join(root, 'juce_shell', 'src'), 'juce_shell/src');
+  if (fs.existsSync(path.join(root, 'juce_shell', 'tools'))) visit(path.join(root, 'juce_shell', 'tools'), 'juce_shell/tools');
   return findings;
 }
 

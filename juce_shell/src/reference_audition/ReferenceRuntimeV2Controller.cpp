@@ -22,6 +22,8 @@ namespace hypha::reference_audition
            #endif
         }
 
+        // フェード（5 ms）は次の 1〜2 ブロックで終わる。8192 フレームのブロックでも足りる長さ。
+        constexpr std::uint32_t revokeFadeLimitMs = 500;
     }
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
@@ -47,6 +49,7 @@ namespace hypha::reference_audition
           presetAdoptionTransport (root),
           eventTransport (root)
     {
+        trackingEnabled.store (versionComparison, std::memory_order_release);  // H3: V は追従、C は固定
         outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
     }
@@ -69,6 +72,8 @@ namespace hypha::reference_audition
                                          int hostChannels)
     {
         normalFadeStep.store (static_cast<float> (1.0 / juce::jmax (1.0, hostSampleRate * 0.005)), std::memory_order_release);
+        trackingRampFrames.store (static_cast<int> (juce::jmax (1.0, std::round (hostSampleRate * trackingRampSeconds))),
+                                  std::memory_order_release);
         if (identity.hostProcessId == 0)
             identity.hostProcessId = currentProcessId();
         {
@@ -102,6 +107,7 @@ namespace hypha::reference_audition
         auto result = currentSnapshot;
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
         result.osOnline = libraryOnline.load (std::memory_order_acquire);
+        result.libraryPreparation = libraryPreparation;
         const auto blindState = blind.snapshot();
         result.bSelected = bSelected.load (std::memory_order_acquire);
         result.transportPlaying = latestPlaying.load (std::memory_order_acquire);
@@ -111,13 +117,15 @@ namespace hypha::reference_audition
         const auto sourcePosition = result.transportPositionValid
             ? mappedSourcePosition (latestHostPosition.load (std::memory_order_acquire)) : -1;
         const auto mappingAfter = mappingGeneration.load (std::memory_order_acquire);
+        // 押せば Cue の頭から鳴らし直す曲（restartCueAtPlayhead）は、今の位置が Cue の外でも「範囲外」にしない。
+        const bool restarts = sourcePosition < 0 && restartsAtCueStart();
         result.auditionOutsideCue = publishedReady && ! versionComparison
-            && result.transportPositionValid && sourcePosition < 0
+            && result.transportPositionValid && sourcePosition < 0 && ! restarts
             && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter
             && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
         result.auditionBuffered = publishedReady && (blindState.eligible
             || (result.transportPositionValid
-                && pages.readyAt (sourcePosition, 1)));
+                && pages.readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)));
         result.blindEligible = publishedReady && blindState.eligible;
         if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;
@@ -138,7 +146,7 @@ namespace hypha::reference_audition
             result.auditionBuffered = false;
         result.blindReveal = blindState.phase == BlindPhase::revealed
             ? (blindState.revealedStimulusOneSide == 1
-                ? "1 = B  /  2 = A" : "1 = A  /  2 = B")
+                ? "1 = V  /  2 = A" : "1 = A  /  2 = V")
             : juce::String {};
         return result;
     }
@@ -181,9 +189,34 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::revokeAuditionPublication() noexcept
     {
+        revokeAfterFade.store (false, std::memory_order_release);
         ready.store (false, std::memory_order_release);
         auditionEpoch.fetch_add (1, std::memory_order_acq_rel);
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
+    }
+
+    void RuntimeV2Controller::revokeAfterFadeLocked() noexcept
+    {
+        if (! normalAudible.load (std::memory_order_acquire) || ! ready.load (std::memory_order_acquire)
+            || ! latestPlaying.load (std::memory_order_acquire) || blind.ongoing())
+        {
+            revokeAuditionPublication();
+            return;
+        }
+        // 待っているあいだに古い音を選び直させない（selectB・resumeHeld は待ちの間は断る）。
+        normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
+        revokeFadeStartedMs.store (juce::Time::getMillisecondCounter(), std::memory_order_release);
+        revokeAfterFade.store (true, std::memory_order_release);
+    }
+
+    bool RuntimeV2Controller::deferredRevokeWaiting() noexcept
+    {
+        if (! revokeAfterFade.load (std::memory_order_acquire)) return false;
+        const auto elapsed = juce::Time::getMillisecondCounter() - revokeFadeStartedMs.load (std::memory_order_acquire);
+        if (normalAudible.load (std::memory_order_acquire) && elapsed < revokeFadeLimitMs) return true;
+        const juce::ScopedLock lock (stateLock);
+        if (revokeAfterFade.load (std::memory_order_acquire)) revokeAuditionPublication();
+        return false;
     }
 
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
@@ -221,8 +254,12 @@ namespace hypha::reference_audition
     {
         next.workflowCatalog = workflowCatalog;
         if (next.playbackIdentity.isNotEmpty() && next.playbackIdentity == currentSnapshot.playbackIdentity)
+        {
             next.matchFailure = currentSnapshot.matchFailure;
+            next.neededAttenuationDb = currentSnapshot.neededAttenuationDb;  // 上限超えの承認の下げ幅も一緒に残す
+        }
         next.migratedVersionChoice = legacyVersionChoice;
+        next.selectionGeneration = appliedSelectionGeneration.load (std::memory_order_acquire);
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())
         {
@@ -235,6 +272,7 @@ namespace hypha::reference_audition
             next.adjustedBMaximumTruePeakDbtp = currentSnapshot.adjustedBMaximumTruePeakDbtp;
             next.loudnessDeltaBMinusA = currentSnapshot.loudnessDeltaBMinusA;
             next.truePeakDeltaBMinusA = currentSnapshot.truePeakDeltaBMinusA;
+            next.tracking = currentSnapshot.tracking;
         }
         if (currentSnapshot.recoveryStatus.isNotEmpty())
             next.recoveryStatus = currentSnapshot.recoveryStatus;

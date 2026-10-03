@@ -1,4 +1,6 @@
 #pragma once
+
+#include <map>
 #include "HyphaReferenceCaptureControls.h"
 
 #include <array>
@@ -17,9 +19,13 @@
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceTonalView.h"
 #include "HyphaReferenceWorkflowControls.h"
+#include "HyphaReferenceSongList.h"
+#include "HyphaReferenceCheckTabs.h"
+#include "reference_audition/ReferenceKirinSpectrum.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 #include "reference_audition/ReferencePendingAudition.h"
+#include "reference_audition/ReferenceTrackingState.h"
 
 namespace hypha::reference_ui
 {
@@ -58,10 +64,26 @@ inline double unavailableValue() noexcept
     return std::numeric_limits<double>::quiet_NaN();
 }
 
+// H10: A／B／C／V の役の文字。slot 1 = V（Version）、2 = C（Check）、3 = B（REF、B セットの曲）。
+inline const char* roleLetter (int slot) noexcept
+{
+    return slot == 1 ? "V" : slot == 2 ? "C" : slot == 3 ? "B" : "A";
+}
+
 struct SelectionOption
 {
     juce::String id;
     juce::String label;
+};
+
+// H11: B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
+struct SongFact
+{
+    double lufsI = std::numeric_limits<double>::quiet_NaN();
+    bool prepared = false;
+    reference_audition::RuntimeSongPreparation preparation; // K13b：Kirin OS がこの曲を準備している状態
+    std::vector<double> centersHz;
+    std::vector<float> medianDb;
 };
 
 struct State
@@ -86,7 +108,10 @@ struct State
     double adjustedBMaximumTruePeakDbtp = unavailableValue();
     double loudnessDeltaBMinusA = unavailableValue();
     double truePeakDeltaBMinusA = unavailableValue();
-    double appliedGainDb = unavailableValue();
+    double appliedGainDb = unavailableValue();  // 下げる前の A の基準（グラフをそろえる）。読みは heldAttenuationDb を足す
+    double heldAttenuationDb = 0.0;              // 承認して A を下げている量（0 以下。2026-10-03、R-12）
+    int lowerAOfferSlot = 0;                     // 上限超えで A を下げる承認を出している役（0 は無し）
+    double lowerAOfferDb = 0.0;
     bool aAvailable = false;
     bool gainLimited = false;
     bool comparisonFallbackOriginal = false;
@@ -137,6 +162,24 @@ struct State
     bool candidatePreparationPending = false;
     juce::String actionText;
     reference_audition::WorkflowView workflow;
+    // H10: B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
+    bool referenceReady = false, referenceArmable = false;
+    reference_audition::TrackingState tracking = reference_audition::TrackingState::none; // H9: 聴いている役の合わせ方
+    SourceStep referenceStep = SourceStep::waitingForKirinOs;
+    std::vector<SelectionOption> songSets, songs;
+    std::vector<SongFact> songFacts; // H11: songs と同じ順
+    std::map<juce::String, std::vector<juce::String>> checkViewBindings; // H13: V のタブの Check ごとの表示
+    juce::String songSetId, songId, songSetsIssue; // songSetsIssue：Kirin OS のセットを読めなかった理由（空なら無し）
+    // H12: 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
+    // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
+    std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
+    double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
+    int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
+    double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
+    double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
+    bool cueLoops = false;
+    juce::String preparationOverdue; // H6: 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
+    reference_audition::RuntimeSongPreparation rolePreparation; // K13b：見ている役の曲を Kirin OS が準備している状態
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -169,6 +212,12 @@ inline bool canHearCheck (const State& state) noexcept
         && state.libraryReceived && state.aAvailable && state.checkReady;
 }
 
+inline bool canHearReference (const State& state) noexcept
+{
+    return state.separateComparisons && state.osAccess != os_access::State::unowned
+        && state.libraryReceived && state.aAvailable && state.referenceReady;
+}
+
 class Component final : public juce::Component
 {
 public:
@@ -180,7 +229,7 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
-        for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
+        for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &oneButton, &twoButton,
                               &revealButton, &endBlindButton, &actionButton, &viewButton })
             button->setPresentationContext (next);
         tonalView.update (current.visualTimeline, presentationContext,
@@ -192,12 +241,16 @@ public:
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
     std::function<void()> onSelectC;
+    std::function<void()> onSelectRef;                                    // H10: B（REF）
+    std::function<void(const juce::String&)> onSelectSong, onSelectSongSet; // H10: B の曲と B SET
     std::function<void(const juce::String&)> onSelectVersion;
     std::function<void(const juce::String&)> onSelectPreset;
     std::function<void(const juce::String&)> onSelectCheck;
     std::function<void(const juce::String&)> onSelectCandidate;
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
+    std::function<void(int)> onOpenLarge; // H10: 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<void()> onMatch;        // H12: 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
     std::function<void()> onStartBlind;
     std::function<void(int)> onSelectBlindStimulus;
@@ -260,8 +313,14 @@ private:
     juce::ComboBox cueBox;
     std::array<juce::Label, 5> selectionReadouts;
     SideButton aButton { "A" };
-    SideButton bButton { "B" };
+    SideButton bButton { "V" };   // V（Version）。ID は既存の契約のため "reference-b" のまま
     SideButton cButton { "C" };
+    SideButton refButton { "B" }; // H10: B（REF、B セットの曲）
+    juce::ComboBox songSetBox, songBox;
+    SongList songList; // H11: B の画面の左の曲の一覧
+    CheckTabs checkTabs; // H12: C の画面の Check のタブ（CHECK セットの順）
+    juce::ComboBox checkSongBox; // H12: いまの Check の曲
+    SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
@@ -271,6 +330,24 @@ private:
     SideButton viewButton { "VIEW A/C" };
 
     void configureVisualNavigation();
+    // H10: B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
+    void configureRoles();
+    void syncRoles (bool blindSession, bool workflowActive);
+    bool explainReference();
+    // H12: C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
+    // （HyphaReferenceCheckPage.cpp）。
+    bool checkPage() const noexcept;
+    static constexpr int checkPageRows = 40 + 4 + 28 + 4 + 38; // CHECK SET と曲・タブ・Cue と MATCH
+    int checkFooterHeight() const noexcept;
+    void configureCheckPage();
+    void syncCheckPage (bool blindSession, bool workflowActive);
+    void layoutCheckPage (juce::Rectangle<int>& area);
+    void paintCheckPageLabels (juce::Graphics&) const;
+    juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
+    // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
+    bool versionPage() const noexcept;
+    static constexpr int versionPageRows = 40 + 4 + 28;
+    juce::String versionTab { "whole" };
     void updateVisualNavigation (bool enabled);
 
     bool selectionVisible (const juce::ComboBox&) const;
@@ -278,6 +355,7 @@ private:
     // the guide in the comparison's place when neither can (HyphaReferenceGuide.cpp).
     void syncSourceButtons();
     bool explainUnavailable (bool version);
+    bool openLarge (int slot);
     void paintSourceHints (juce::Graphics&) const;
     void layoutSelectionReadouts();
     void syncSelectionControl (juce::ComboBox&, const std::vector<SelectionOption>&,

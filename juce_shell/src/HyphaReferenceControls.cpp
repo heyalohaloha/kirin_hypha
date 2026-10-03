@@ -22,11 +22,12 @@ void Component::updateVisualNavigation (bool enabled)
 {
     viewButton.setVisible (enabled && current.separateComparisons && current.libraryReceived);
     const bool captured = current.captureAccess && current.captureAccess->capturedView;
-    viewButton.setButtonText (captured ? "VIEW HELD" : current.comparisonSlot == 2 ? "VIEW A/C" : "VIEW A/B");
+    viewButton.setButtonText (captured ? "VIEW HELD" : current.comparisonSlot == 2 ? "VIEW A/C"
+                              : current.comparisonSlot == 3 ? "VIEW A/B" : "VIEW A/V");
     viewButton.setTooltip (captured ? "Showing captured A. Switch to live A/C without changing audio."
         : current.comparisonSlot == 2
-        ? "Showing the Preset's A/C visuals. Switch to A/B without changing audio."
-        : "Showing A/B. Switch to the Preset's A/C visuals without changing audio.");
+        ? "Showing the Preset's A/C visuals. Switch to A/V without changing audio."
+        : "Showing A/V. Switch to the Preset's A/C visuals without changing audio.");
 }
 
 Component::SideButton::SideButton (const juce::String& text) : juce::TextButton (text)

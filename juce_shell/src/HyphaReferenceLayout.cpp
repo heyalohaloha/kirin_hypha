@@ -5,7 +5,7 @@ namespace hypha::reference_ui
 void Component::resized()
 {
     const int comparisonWidth = comparisonButtonWidth();
-    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 3 : 2) - 39, 6, 24, 18);
+    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 4 : 2) - 42, 6, 24, 18);
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     const int buttonWidth = detailedLayout() ? 62 : 48;
@@ -22,11 +22,13 @@ void Component::resized()
     }
     else
     {
-        if (current.separateComparisons) place (cButton, comparisonWidth);
+        // A B C V（左から）。右から V・C・B・A の順に置く（H10）。
         place (bButton, comparisonWidth);
+        if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
         place (aButton, comparisonWidth);
     }
-    if (current.separateComparisons && ! blindSession)
+    if (checkPage() || versionPage()) layoutCheckPage (area);  // H12・H13: C・V の画面（HyphaReferenceCheckPage.cpp）
+    else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (panelGap());
         auto row = area.removeFromTop (detailedLayout() ? 40 : panelPickerHeight());
@@ -42,6 +44,8 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
+        songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに（H10）
+        songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
         auto top = area.removeFromTop (selectionVisible (presetBox) || viewButton.isVisible()
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
         if (viewButton.isVisible())
@@ -103,8 +107,10 @@ void Component::resized()
     }
     if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
     auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
+    if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
+    songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f))); // H11
     if (blindSession)
     {
         const auto placeLeft = [&footer] (juce::Component& button, int width)

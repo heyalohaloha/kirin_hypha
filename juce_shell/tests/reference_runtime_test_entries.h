@@ -14,6 +14,8 @@ inline bool runReferenceCaptureMemory(int argc,char** argv)
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
 void testReferenceLibraryContract (const juce::File&);
+void testReferenceAbcv (const juce::File&);
+bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
 void testReferenceComparisons (const juce::File&);
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);

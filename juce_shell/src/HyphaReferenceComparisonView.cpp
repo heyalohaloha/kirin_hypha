@@ -1,4 +1,5 @@
 #include "HyphaReferenceComparisonView.h"
+#include "HyphaReferenceVersionPage.h"
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -43,7 +44,7 @@ void ComparisonView::ViewButton::paintButton (juce::Graphics& g, bool highlighte
 ComparisonView::ComparisonView()
 {
     setComponentID ("reference-comparison-view"); setWantsKeyboardFocus (true);
-    setTitle ("A and B comparison. Arrows move the view; Shift and arrows resize it; Home follows playback.");
+    setTitle ("A and V comparison. Arrows move the view; Shift and arrows resize it; Home follows playback.");
     for (auto* button : { &follow, &loudness, &crest, &tonal }) addAndMakeVisible (*button);
     follow.setComponentID ("reference-follow"); loudness.setComponentID ("reference-loudness");
     crest.setComponentID ("reference-crest"); tonal.setComponentID ("reference-tonal");
@@ -99,7 +100,7 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
     if (data && following && position >= 0 && position <= data->duration())
         setRange (position - 6.0, position + 6.0);
     if (data && data->binding.aligned) lastVerifiedView = data->binding;
-    setTitle ("A and B comparison. Arrows move; Shift and arrows resize; Home follows playback.");
+    setTitle ("A and V comparison. Arrows move; Shift and arrows resize; Home follows playback.");
     resized(); repaint();
 }
 void ComparisonView::saveView()
@@ -125,14 +126,14 @@ void ComparisonView::resized()
     const bool detail = getHeight() >= 140 && getWidth() >= 380;
     auto toolbar = area.removeFromTop (getHeight() >= 65 ? 18.0f : 0.0f);
     follow.setBounds (toolbar.removeFromRight (60).toNearestInt());
-    follow.setVisible (getHeight() >= 65 && !hidden);
+    follow.setVisible (getHeight() >= 65 && !hidden && sameSection.isEmpty());
     waveform = area.removeFromTop (detail ? area.getHeight() * 0.46f : juce::jmax (8.0f, area.getHeight() - 17));
     waveform.removeFromLeft (15);
     auto tabs = area.removeFromTop (20);
     loudness.setBounds (tabs.removeFromLeft (84).toNearestInt());
     crest.setBounds (tabs.removeFromLeft (58).toNearestInt());
     tonal.setBounds(tabs.removeFromLeft(58).toNearestInt());
-    loudness.setVisible (detail && !hidden); crest.setVisible (detail && !hidden);
+    loudness.setVisible (detail && !hidden && sameSection.isEmpty()); crest.setVisible (detail && !hidden && sameSection.isEmpty());
     tonal.setVisible(detail&&!hidden&&data&&data->capture);
     graph = detail ? area.reduced (15, 3) : juce::Rectangle<float> {};
     if(getHeight()<42) waveform=getLocalBounds().toFloat().reduced(5,1);
@@ -190,8 +191,9 @@ void ComparisonView::rebuild()
     scale=std::pow(2.0,std::ceil(std::log2(scale)));
     waveformCache=juce::Image(juce::Image::ARGB,columns,height,true);
     juce::Graphics drawing(waveformCache);
-    const std::array<juce::Colour,6> colours { COL_SPECTRUM_DELTA_BR.withAlpha(0.45f),COL_SPECTRUM_DELTA_BR.withAlpha(0.90f),
-        COL_FLORA.withAlpha(0.45f),COL_FLORA.withAlpha(0.90f),COL_SPECTRUM_DELTA_BR.withAlpha(0.14f),COL_SPECTRUM_DELTA_BR.withAlpha(0.28f) };
+    // A は金、V は水色（ABCV の画面案。B・C の画面と同じ）。4・5 は前の回の A（薄く）。
+    const std::array<juce::Colour,6> colours { COL_FLORA_BR.withAlpha(0.45f),COL_FLORA_BR.withAlpha(0.90f),
+        COL_SPECTRUM_DELTA_BR.withAlpha(0.45f),COL_SPECTRUM_DELTA_BR.withAlpha(0.90f),COL_FLORA_BR.withAlpha(0.14f),COL_FLORA_BR.withAlpha(0.28f) };
     for (size_t layer=0;layer<radii.size();++layer)
     {
         drawing.setColour(colours[layer]); const double center=height*((layer==2 || layer==3) ? 0.75 : 0.25);
@@ -206,33 +208,42 @@ void ComparisonView::rebuild()
 juce::String ComparisonView::valuesAt (double seconds, bool compact) const
 {
     if(data && data->capture) return capturedValuesAt(seconds,compact);
-    if (!data || !data->binding.aligned || data->hop <= 0 || seconds < 0 || seconds > data->duration()) return "A  --    B  --";
+    if (!data || !data->binding.aligned || data->hop <= 0 || seconds < 0 || seconds > data->duration()) return "A  --    V  --";
     const auto& source = *data->binding.source;
     // Values belong to completed bin endpoints; no interpolation or mean LUFS.
     const auto raw = seconds >= data->duration() ? double (data->bins.size()) - 1.0
         : std::floor (seconds * source.audio.sampleRateHz / data->hop) - 1.0;
-    if (raw < 0 || raw >= double (data->bins.size())) return "A  --    B  --";
+    if (raw < 0 || raw >= double (data->bins.size())) return "A  --    V  --";
     const auto& bin = data->bins[size_t (raw)];
-    if (!bin.pass || bin.pass != data->pass) return "A  --    B  --";
+    if (!bin.pass || bin.pass != data->pass) return "A  --    V  --";
     const double a = showingCrest ? bin.a.crest_db : bin.a.short_lufs;
     const double b = showingCrest ? bin.b.crest_db : bin.b.short_lufs + data->binding.gainDb;
-    if (!std::isfinite (a) || !std::isfinite (b)) return "A  --    B  --";
-    if (compact) return "B-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
+    if (!std::isfinite (a) || !std::isfinite (b)) return "A  --    V  --";
+    if (compact) return "V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
         + (showingCrest ? " dB / CREST" : " LU / 3s");
     const auto endpoint = double (std::min (source.audio.totalSampleFrames, (std::int64_t (raw)+1)*data->hop)) / source.audio.sampleRateHz;
-    return juce::String (endpoint, 1) + "s  A " + juce::String (a, 1) + "   B " + juce::String (b, 1)
-        + "   B-A " + (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU");
+    return juce::String (endpoint, 1) + "s  A " + juce::String (a, 1) + "   V " + juce::String (b, 1)
+        + "   V-A " + (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU");
+}
+void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views)
+{
+    const bool sameGain = (std::isnan (sameSectionGain) && std::isnan (gainDb)) || std::abs (sameSectionGain - gainDb) < 1.0e-9;
+    if (sameSection == checkLabel && sameGain && sameSectionViews == views) return;
+    sameSection = checkLabel; sameSectionGain = gainDb; sameSectionViews = std::move (views);
+    resized(); repaint();
 }
 void ComparisonView::paint (juce::Graphics& g)
 {
     if (hidden) return;
+    if (sameSection.isNotEmpty())
+    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, context); return; }
     surface_material::paintObservationWell (g, getLocalBounds().toFloat());
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY);
     const bool detail = !graph.isEmpty();
     const auto heading = data && data->capture ? juce::String("CAPTURED A / ")+juce::Time(data->capture->created).formatted("%H:%M")
-        + (data->binding.aligned ? (data->binding.matched ? " / B " + juce::String(data->binding.gainDb,1) + " dB" : " / ORIGINAL LEVELS") : "") : data && data->binding.aligned
-        ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "B OVERVIEW";
+        + (data->binding.aligned ? (data->binding.matched ? " / V " + juce::String(data->binding.gainDb,1) + " dB" : " / ORIGINAL LEVELS") : "") : data && data->binding.aligned
+        ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "V OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
     if (!data || (!data->capture && (!data->binding.overview || !data->binding.overview->waveform)))
     { text_style::drawEllipsized (g, emptyMessage, getLocalBounds().reduced (20), juce::Justification::centred); return; }
@@ -240,7 +251,7 @@ void ComparisonView::paint (juce::Graphics& g)
     if (waveformCache.isValid()) g.drawImageAt (waveformCache, int(waveform.getX()), int(waveform.getY()));
     g.setColour (COL_TEXT_SECONDARY);
     if (waveform.getHeight() >= 24) text_style::drawText (g, "A", juce::Rectangle<float> (4, waveform.getY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
-    if (waveform.getHeight() >= 24) text_style::drawText (g, "B", juce::Rectangle<float> (4, waveform.getCentreY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
+    if (waveform.getHeight() >= 24) text_style::drawText (g, "V", juce::Rectangle<float> (4, waveform.getCentreY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
     const auto duration = data->duration();
     if (duration > 0)
     {
@@ -309,7 +320,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
                 if (open && pass == pair.pass) path.lineTo (x,y); else path.startNewSubPath (x,y);
                 open = true; pass = pair.pass;
             }
-            g.setColour (side == 0 ? COL_SPECTRUM_DELTA_BR : COL_FLORA); g.strokePath (path, juce::PathStrokeType (1.2f));
+            g.setColour (side == 0 ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR); g.strokePath (path, juce::PathStrokeType (1.2f));
         }
     }
     g.setColour (COL_TEXT_SECONDARY);
@@ -329,11 +340,11 @@ void ComparisonView::paintTonalDetails(juce::Graphics& g)
         const auto& c=*data->tonalReference;
         if(!data->tonalGenre)
         {
-            g.setColour(COL_FLORA.withAlpha(0.20f));
+            g.setColour(COL_SPECTRUM_DELTA.withAlpha(0.20f));
             g.strokePath(tonalPath(c.p10,c.validBits,chart),juce::PathStrokeType(0.8f));
             g.strokePath(tonalPath(c.p90,c.validBits,chart),juce::PathStrokeType(0.8f));
         }
-        g.setColour(COL_FLORA.withAlpha(0.90f));
+        g.setColour(COL_SPECTRUM_DELTA.withAlpha(0.90f));
         g.strokePath(tonalPath(c.median,c.validBits,chart),juce::PathStrokeType(1.5f));
     }
     if(data&&data->tonalGenre)
@@ -346,10 +357,10 @@ void ComparisonView::paintTonalDetails(juce::Graphics& g)
     if(data&&data->tonalCaptureRange.valid())
     {
         const auto& a=data->tonalCaptureRange;
-        g.setColour(COL_SPECTRUM_DELTA_BR.withAlpha(0.20f));
+        g.setColour(COL_FLORA_BR.withAlpha(0.20f));
         g.strokePath(tonalPath(a.p10,a.validBits,chart),juce::PathStrokeType(0.8f));
         g.strokePath(tonalPath(a.p90,a.validBits,chart),juce::PathStrokeType(0.8f));
-        g.setColour(COL_SPECTRUM_DELTA_BR.withAlpha(0.95f));
+        g.setColour(COL_FLORA_BR.withAlpha(0.95f));
         g.strokePath(tonalPath(a.median,a.validBits,chart),juce::PathStrokeType(1.5f));
     }
     g.setColour(COL_TEXT_SECONDARY);
@@ -362,12 +373,12 @@ double ComparisonView::timeAt (float x) const
 { return data && waveform.getWidth() > 0 ? juce::jlimit (0.0, data->duration(), double ((x-waveform.getX())/waveform.getWidth())*data->duration()) : 0; }
 void ComparisonView::mouseDown (const juce::MouseEvent& event)
 {
-    if (!hidden && waveform.contains (event.position) && data)
+    if (!hidden && sameSection.isEmpty() && waveform.contains (event.position) && data)
     { grabKeyboardFocus(); fitCapture = false; following = false; dragAnchor = timeAt (event.position.x); setRange (dragAnchor-6, dragAnchor+6); saveView(); repaint(); }
 }
 void ComparisonView::mouseDrag (const juce::MouseEvent& event)
 {
-    if (!hidden && dragAnchor >= 0 && data && event.getDistanceFromDragStart() > 4)
+    if (!hidden && sameSection.isEmpty() && dragAnchor >= 0 && data && event.getDistanceFromDragStart() > 4)
     { const double t = timeAt (event.position.x); setRange (std::min (t, dragAnchor), std::max (t, dragAnchor)); saveView(); repaint(); }
 }
 void ComparisonView::mouseUp (const juce::MouseEvent&)
@@ -384,7 +395,7 @@ void ComparisonView::mouseMove (const juce::MouseEvent& event)
 void ComparisonView::mouseExit (const juce::MouseEvent&) { pointedTime = -1; repaint(); }
 bool ComparisonView::keyPressed (const juce::KeyPress& keypress)
 {
-    if (hidden || !data) return false;
+    if (hidden || !data || sameSection.isNotEmpty()) return false;
     if (keypress.getKeyCode() == juce::KeyPress::homeKey)
     {
         if(data->capture)

@@ -40,7 +40,8 @@ private:
     std::uint64_t rtDiscontinuity = 0;
     mutable juce::CriticalSection controlLock, snapshotLock;
     bool presented = false, paused = false;
-    int configuredRate = 0, configuredChannels = 0;
+    int configuredRate = 0, configuredChannels = 0;  // controlLock
+    int runRate = 0, runChannels = 0;  // 観測スレッドだけ：周期の頭で controlLock の中から写した値
     std::shared_ptr<ReferenceAnalysis> analysis;
     ReferenceAnalysis::Lease admission;
     ReferenceTonalRepository tonalRepository;
@@ -54,6 +55,13 @@ private:
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
     KirinReferenceTonalMeter* tonalMeter = nullptr;
+    KirinSpectrumMeter kirinMeter;        // H12: A を Kirin OS の Cue と同じ定義で
+    KirinSpectrumMeter pairAMeter, pairVMeter; // H13: 位置合わせで対応した A と V（同じフレーム）
+    KirinFingerprintMeter printMeter;     // H7: A の Kirin 指紋（直近 30 秒）
+    std::int64_t printEndSample = -1;
+    std::int64_t pairKirinExpected = -1;
+    std::int64_t kirinExpected = -1;
+    std::uint64_t kirinDiscontinuity = 0;
     std::int64_t expected = -1;
     std::int64_t tonalExpected = -1;
     std::uint64_t previousDiscontinuity = 0;
@@ -66,6 +74,7 @@ private:
     bool resetTonal();
     void consumePair (const Block&);
     void consumeTonal (const Block&);
+    void consumeKirin (const Block&, int rate);
     void publish();
 };
 }

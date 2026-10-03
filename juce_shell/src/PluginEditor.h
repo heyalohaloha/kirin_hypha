@@ -28,6 +28,7 @@
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
+ #include "HyphaReferencePreparationWatch.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
  #include "HyphaLiveBlindComponent.h"
@@ -130,6 +131,20 @@ private:
     hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition();
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    void wireReferenceRoles();  // H10: B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
+    void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
+    void openReferenceLarge (int slot);
+    // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
+    struct ReferenceLowerAOffer { int slot = 0; double db = 0.0; } referenceLowerAOffer;
+    int referenceLowerAPendingOffered = 0;  // 待たせた役の上限超えに一度だけ承認を出した役（1〜3）
+    double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）
+    bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);
+    bool approveOfferedLowerA();
+    void applyReferenceLowerA (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
+    bool returnReferenceLevelIfHeld();
+    int referenceHeldTenthsDb() const;
+    hypha::reference_ui::PreparationWatch referencePreparationWatch; // H6
+    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser; // H7
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();
@@ -287,6 +302,8 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
+    bool referenceTrackingStopShown = false; // H3: 追従が上限・±6 dB で止まったことを一度だけ知らせる
+    juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif

@@ -75,6 +75,20 @@ FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Thread
 登録済みの不変なReferenceを試聴専用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。
 Referenceファイル、通常のA経路、正本のPRE/POST測定・Recordは変更しない。
 
+Reference比較試聴の役はA（LIVE）・B（REF、Bセットの曲）・C（CHECK）・V（VERSION）の4つとし
+（ABCV、2026-10-02 Daisukeと合意）、同時に鳴るのは1役とする。Gain MatchはB・Vでは追従、Cでは固定と
+する。B・VはAの直近10秒のゲート付き音量に1秒ごとに追従し、0.5 dB以内は動かさず、50 msのrampで動かし、
+上限（max(−1 dBTP, AのmaxTP, 音源のmaxTP)）と、利用者のMATCHのgainから±6 dB（live比較のAUTOと同じ幅）を
+超える前に止めて今のgainを保ち、理由を示す。MATCHが上限を超えるときは、利用者が承認すればAを差だけ下げて
+合わせ（参照は元の音量。足元のRETURNまで保ち、戻すときは役を止めてから0.5秒で上げる。offline render・bypassには
+掛けない。2026-10-03、R-12）、承認しなければ鳴らさずに理由を示す。CはCueと同じ長さのA（たまるまで最長30秒待つ）で1回合わせて
+固定し、利用者のMATCHで合わせ直す。どれも試聴コピーのgainだけを動かし、A経路、Referenceファイル、正本の
+PRE/POST測定・Recordは変更しない。鳴っている役の選択を替えるときは、フェードでAへ戻してからその役だけを
+替える。停止・シークでは選択を保ち、確かめられた最初のblockから同じ音・同じgainで戻る。offline render、
+ローカルBlind、live比較の開始では戻す保留を消す。サンプルレート変換は試聴コピーだけで自動とする。比べる
+表示はKirin OSのCueの値と同じ定義でAを測り、同じ区間・同じ音量で比べる。VのAUTOはVの選択だけを替え、
+音は替えない（`docs/hypha_invariants.md` INV-S46〜S51）。
+
 B経路は接続、Reference読込、project復元だけでは有効化しない。offline render、Reference欠損、
 identity検証失敗時はA経路を維持する。Referenceのfile I/O、decode、検証、可変長準備は非RT側で行い、
 Audio Threadでは事前確保済みbufferのRT-safeな選択・出力だけを許可する。allocation、lock、

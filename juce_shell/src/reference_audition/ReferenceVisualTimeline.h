@@ -1,6 +1,8 @@
 #pragma once
 #include <cmath>
 #include "ReferenceACaptureModel.h"
+#include "ReferenceKirinSpectrum.h"
+#include "ReferenceKirinFingerprint.h"
 #include <limits>
 #include "ReferenceRuntimeV2Measurement.h"
 #include "ReferenceTonalRepository.h"
@@ -26,6 +28,8 @@ struct VisualBinding
     std::shared_ptr<const ACaptureReceipt> captureEvidence;
     // OS tonal artifacts aggregate source-rate samples, never host-rate playback positions.
     std::int64_t sourceCueStartSample = 0, sourceCueEndSample = 0;
+    int matchWindowBlocks = 100; // H12: その役の A 側の窓（100 ms のブロック数。C は Cue と同じ長さ）
+    double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN(); // H12: 鳴っている Cue の位置（ループは折り返す）
 };
 struct VisualPairBin
 {
@@ -42,6 +46,12 @@ struct VisualTimeline
     CaptureTonalSummary tonalCaptureRange;
     std::shared_ptr<const ReferenceTonalCurve> tonalReference;
     std::shared_ptr<const ReferenceTonalCurve> tonalGenre;
+    std::shared_ptr<const KirinSpectrumWindow> aKirin; // H12: A の直近の窓（Kirin OS の Cue と同じ定義）
+    // H13: V の画面の Check のタブ。位置合わせで対応した同じ区間の A と V（直近 30 秒、同じ定義）。
+    std::shared_ptr<const KirinSpectrumWindow> aPairKirin, vPairKirin;
+    // H7: A の直近 30 秒の Kirin 指紋と、その最後の区切りの位置（曲の頭から 100 ms 単位）。V の自動特定に使う。
+    std::shared_ptr<const KirinFingerprint> aFingerprint;
+    std::int64_t aFingerprintEndTick = -1;
     std::int64_t hop = 0;
     std::uint64_t pass = 0, revision = 0;
     bool observing = false, pairedObserving = false, tonalAvailable = false;

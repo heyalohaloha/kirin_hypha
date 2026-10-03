@@ -33,7 +33,7 @@ namespace hypha::reference_audition
             requestedSelection.sampleRateApprovalKey.clear();
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
+            revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
         else selectA();
@@ -128,7 +128,7 @@ namespace hypha::reference_audition
             presetSelectionStatusExpiresAtMs = 0;
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
+            revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
         else selectA();
@@ -214,7 +214,7 @@ namespace hypha::reference_audition
             ++requestedSelection.generation;
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
+            revokeAfterFadeLocked();
         }
         selectA();
         notify();

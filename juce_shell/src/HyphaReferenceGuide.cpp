@@ -27,17 +27,17 @@ juce::String headingFor (SourceStep step, bool version)
     switch (step)
     {
         case SourceStep::registerVersion: return "Register a Version of this song in Kirin OS";
-        case SourceStep::chooseVersion: return "Choose a Version for B";
+        case SourceStep::chooseVersion: return "Choose a Version for V";
         case SourceStep::enableCheck: return "No Check is enabled in Kirin OS";
         case SourceStep::chooseSource: return "Choose a source for C in Kirin OS";
-        case SourceStep::aligning: return "Aligning B with A";
-        case SourceStep::noMatchingPassage: return "B did not match this passage";
-        case SourceStep::playAnotherPassage: return "Play another passage to align B";
-        case SourceStep::approveSampleRate: return version ? "Approve B conversion" : "Approve C conversion";
-        case SourceStep::verifyingSource: return version ? "Verifying B source" : "Verifying C source";
-        case SourceStep::loadingAudio: return version ? "Loading B at the playhead" : "Loading C at the playhead";
+        case SourceStep::aligning: return "Aligning V with A";
+        case SourceStep::noMatchingPassage: return "V did not match this passage";
+        case SourceStep::playAnotherPassage: return "Play another passage to align V";
+        case SourceStep::approveSampleRate: return version ? "Approve V conversion" : "Approve C conversion";
+        case SourceStep::verifyingSource: return version ? "Verifying V source" : "Verifying C source";
+        case SourceStep::loadingAudio: return version ? "Loading V at the playhead" : "Loading C at the playhead";
         case SourceStep::outsideCue: return "This playhead is outside C's Cue";
-        case SourceStep::preparing: return version ? "Preparing B" : "Preparing C";
+        case SourceStep::preparing: return version ? "Preparing V" : "Preparing C";
         case SourceStep::attention: return "Open Kirin OS to check the source";
         case SourceStep::waitingForKirinOs: return "Open Kirin OS";
         case SourceStep::playDaw: return "Play the song in your DAW";
@@ -51,16 +51,16 @@ juce::String detailFor (SourceStep step)
     switch (step)
     {
         case SourceStep::registerVersion:
-            return "B plays another Version of the song you are playing, registered in Kirin OS.";
+            return "V plays another Version of the song you are playing, registered in Kirin OS.";
         case SourceStep::chooseVersion:
-            return "Choose it in B / VERSION above. B plays another Version of the song you are playing.";
+            return "Choose it in V / VERSION above. V plays another Version of the song you are playing.";
         case SourceStep::enableCheck:
         case SourceStep::chooseSource: return "C plays the source a Check compares your mix with.";
-        case SourceStep::aligning: return "Keep playing. B must be a Version of the song you are playing.";
+        case SourceStep::aligning: return "Keep playing. V must be a Version of the song you are playing.";
         case SourceStep::noMatchingPassage:
-            return "Check that B is a Version of A at this POST, or play a different matching passage.";
+            return "Check that V is a Version of A at this POST, or play a different matching passage.";
         case SourceStep::playAnotherPassage:
-            return "This passage repeats in B. Play a part that occurs only once.";
+            return "This passage repeats in V. Play a part that occurs only once.";
         case SourceStep::approveSampleRate:
             return "Only the audition copy changes. A stays unchanged.";
         case SourceStep::verifyingSource: return "The source is being checked. A stays live.";
@@ -71,7 +71,7 @@ juce::String detailFor (SourceStep step)
         case SourceStep::attention: return "The source changed or could not be opened.";
         case SourceStep::waitingForKirinOs:
             return "Versions and References registered in Kirin OS arrive here automatically.";
-        case SourceStep::playDaw: return "B follows the song; C uses its Cue.";
+        case SourceStep::playDaw: return "V follows the song; C uses its Cue.";
         case SourceStep::ready: break;
     }
     return {};
@@ -150,7 +150,8 @@ Guide guide (const State& state)
     result.check = shownStep (state.checkStep, canHearCheck (state), state.aAvailable);
     const bool workflowActive = state.workflow.mode != reference_audition::WorkflowView::Mode::normal
         && state.workflow.status != reference_audition::WorkflowView::Status::resumeAvailable;
-    result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned
+    // B（REF）の画面は B セットの曲を出す（V・C の始め方の案内は重ねない）。
+    result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned && state.comparisonSlot != 3
         && ! state.bSelected && ! isBlindSession (state.blindPhase) && ! workflowActive
         && ! (state.captureAccess && state.captureAccess->capturedView)
         && result.version != SourceStep::ready && result.check != SourceStep::ready
@@ -195,17 +196,19 @@ void Component::syncSourceButtons()
     const bool versionAudible = canHearVersion (current), checkAudible = canHearCheck (current);
     const bool bQueue = canQueueSource (current, true), cQueue = canQueueSource (current, false);
     const bool waiting = current.pendingAudition.waiting();
-    bButton.setButtonText (waiting && current.pendingAudition.slot == 1 ? "B..." : "B");
+    bButton.setButtonText (waiting && current.pendingAudition.slot == 1 ? "V..." : "V");
     cButton.setButtonText (waiting && current.pendingAudition.slot == 2 ? "C..." : "C");
     bButton.setAttention (waiting && current.pendingAudition.slot == 1);
     cButton.setAttention (waiting && current.pendingAudition.slot == 2);
+    // H10: 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
+    const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen;
     bButton.setEnabled (current.separateComparisons || versionAudible);
-    bButton.setReady (! current.separateComparisons || versionAudible || bQueue);
-    bButton.setTooltip (bQueue ? "Queue B for DAW playback. A stays live until ready; press A to cancel."
+    bButton.setReady (! opensLarge && (! current.separateComparisons || versionAudible || bQueue));
+    bButton.setTooltip (opensLarge ? "Open V at 300%" : bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
         : ! current.separateComparisons || versionAudible
-        ? "Audition the Kirin OS prepared Reference (B)." : unavailableText (current, true));
-    cButton.setReady (checkAudible || cQueue);
-    cButton.setTooltip (cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
+        ? "Audition the Version from Kirin OS (V)." : unavailableText (current, true));
+    cButton.setReady (! opensLarge && (checkAudible || cQueue));
+    cButton.setTooltip (opensLarge ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
         : checkAudible ? juce::String() : unavailableText (current, false));
     guideShown = guide (current).shown;
 }
@@ -229,7 +232,7 @@ void Component::paintSourceHints (juce::Graphics& g) const
                                  typography::Composition::information);
     g.setFont (labelFont (presentationContext, typography::TextRole::unit,
                           typography::Composition::information));
-    for (const auto& [box, step, label] : { std::tuple { &versionBox, shown.version, "B / VERSION" },
+    for (const auto& [box, step, label] : { std::tuple { &versionBox, shown.version, "V / VERSION" },
                                             std::tuple { &checkBox, shown.check, "C / CHECK" } })
     {
         // An empty B / VERSION already reads "Choose Version".
@@ -271,7 +274,7 @@ juce::String unavailableText (const State& state, bool version)
     const auto shown = guide (state);
     const auto step = ! state.libraryReceived ? SourceStep::waitingForKirinOs
         : version ? shown.version : shown.check;
-    return juce::String (version ? "B: " : "C: ")
+    return juce::String (version ? "V: " : "C: ")
         + (step == SourceStep::waitingForKirinOs && ! state.osOnline ? juce::String ("Open Kirin OS")
                                                                       : stepText (step));
 }
@@ -315,7 +318,7 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
     const Row rows[] {
         { "A", "Your mix, live from the DAW", shown.playing ? "Playing" : "Stopped",
           shown.playing ? Mark::ready : Mark::action },
-        { "B", "A Version of this song, from Kirin OS", stepText (shown.version),
+        { "V", "A Version of this song, from Kirin OS", stepText (shown.version),
           markFor (shown.version) },
         { "C", "The source of a Check, from Kirin OS", stepText (shown.check),
           markFor (shown.check) },
@@ -328,7 +331,7 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
         fit.rows = paintRow (g, content.removeFromTop (rowHeight), rows[index], context) && fit.rows;
 
     // How to use them, at the full sizes.
-    const auto footnote = juce::String ("Press A, B or C to switch audio. VIEW changes only the visuals. "
+    const auto footnote = juce::String ("Press A, B, C or V to switch audio. VIEW changes only the visuals. "
                                       "The audition level is shown while listening.");
     const auto footnoteHeight = wrappedHeight (footnote, bodyFont, content.getWidth());
     if (! full || content.getHeight() < footnoteHeight + 12)

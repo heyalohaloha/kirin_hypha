@@ -22,7 +22,7 @@ namespace hypha::reference_audition
         revokeAuditionPublication();
         pages.close();
         aCapture.disconnect();
-        workspace.reset();
+        { const juce::ScopedLock lock (stateLock); workspace.reset(); }  // visualBinding がメッセージスレッドから読む
         activeABinding.reset();
         activeSourceKey.clear();
         activeMappingKey.clear();
@@ -30,14 +30,17 @@ namespace hypha::reference_audition
         activePublishedSelectionKey.clear();
         workerSource.reset();
         sourceCache.clear();
-        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-        cueStart.store (0, std::memory_order_relaxed);
-        cueEnd.store (0, std::memory_order_relaxed);
-        cueLoops.store (false, std::memory_order_relaxed);
-        sampleLocked.store (false, std::memory_order_relaxed);
-        bHostAnchor.store (0, std::memory_order_relaxed);
-        bSourceAnchor.store (0, std::memory_order_relaxed);
-        mappingGeneration.fetch_add (1, std::memory_order_release);
+        {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
+            mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
+            cueStart.store (0, std::memory_order_relaxed);
+            cueEnd.store (0, std::memory_order_relaxed);
+            cueLoops.store (false, std::memory_order_relaxed);
+            sampleLocked.store (false, std::memory_order_relaxed);
+            bHostAnchor.store (0, std::memory_order_relaxed);
+            bSourceAnchor.store (0, std::memory_order_relaxed);
+            mappingGeneration.fetch_add (1, std::memory_order_release);
+        }
         blindContextKey.clear();
         blindPreparationKey.clear();
         calibrationObservation.clear();
@@ -46,6 +49,7 @@ namespace hypha::reference_audition
         {
             const juce::ScopedLock lock (stateLock);
             publishedSource.reset();
+            libraryPreparation.reset();
             pendingApprovalKey.clear();
             // Audible receipts own their original immutable context across reprepare.
             // The worker completes their journal after the confirmed A return.
@@ -74,7 +78,7 @@ namespace hypha::reference_audition
         libraryReceived.store (false, std::memory_order_release);
         libraryOnline.store (false, std::memory_order_release);
         appliedConfigurationGeneration = configuration.generation;
-        appliedSelectionGeneration = 0;
+        appliedSelectionGeneration.store (0, std::memory_order_release);
         if (! configuration.identity.valid() || ! std::isfinite (configuration.sampleRate)
             || configuration.sampleRate <= 0.0
             || (configuration.channels != 1 && configuration.channels != 2))
@@ -162,7 +166,9 @@ namespace hypha::reference_audition
                 invalidateBlind();
                 missedTransportCallbacks = 0;
             }
-            if (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0)
+            // 選択を替えた役がまだ鳴っている（フェード中）あいだは、古い音の準備を崩さない。
+            const bool fading = deferredRevokeWaiting();
+            if (! fading && (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0))
             {
                 if (! versionComparison)
                 {
@@ -172,9 +178,11 @@ namespace hypha::reference_audition
                     currentSnapshot.workflowCatalog = workflowCatalog;
                 }
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
+                if (versionComparison && workspace != nullptr)
+                    versionIdentifier.prepare (root, *workspace, juce::Time::currentTimeMillis());  // H7
                 untilPoll = workspacePolls;
             }
-            wait (workerPollMs);
+            wait (fading ? 2 : workerPollMs);
         }
     }
 }

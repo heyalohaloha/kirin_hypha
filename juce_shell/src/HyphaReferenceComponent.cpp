@@ -3,6 +3,8 @@
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceVisuals.h"
+#include "HyphaReferenceBalance.h"
+#include "HyphaReferenceStatusModel.h"
 #include "HyphaReferenceDisplayText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -57,8 +59,8 @@ Component::Component()
     cueBox.setLookAndFeel (&selectorLookAndFeel);
     configureSelector (presetBox, "reference-preset", "Check Preset",
                        "Temporarily call a Check Preset received from Kirin OS.");
-    configureSelector (versionBox, "reference-version", "B Version",
-                       "Choose the registered Version for B. A stays the current DAW input.");
+    configureSelector (versionBox, "reference-version", "V Version",
+                       "Choose the registered Version for V. A stays the current DAW input.");
     versionBox.setTextWhenNothingSelected ("Choose Version");
     configureSelector (checkBox, "reference-check", "Check",
                        "Temporarily call a Check received from Kirin OS.");
@@ -76,7 +78,7 @@ Component::Component()
     endBlindButton.setComponentID ("reference-blind-end");
     actionButton.setComponentID ("reference-action");
     aButton.setTitle ("Audition A");
-    bButton.setTitle ("Audition B");
+    bButton.setTitle ("Audition V");
     cButton.setTitle ("Audition C Check");
     blindButton.setTitle ("Start Version Blind");
     oneButton.setTitle ("Audition blind source 1");
@@ -84,12 +86,12 @@ Component::Component()
     revealButton.setTitle ("Reveal blind sources");
     endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
-    bButton.setTooltip ("Audition the Kirin OS prepared Reference (B).");
+    bButton.setTooltip ("Audition the Version from Kirin OS (V).");
     blindButton.setTooltip (
         "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
     oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
     twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
-    revealButton.setTooltip ("Reveal which source is A and which source is B.");
+    revealButton.setTooltip ("Reveal which source is A and which source is V.");
     endBlindButton.setTooltip ("End Blind Compare and return to live A.");
     actionButton.setTooltip ("Continue with the safe next action.");
     presetBox.onChange = [this]
@@ -113,14 +115,14 @@ Component::Component()
         if (id.isNotEmpty() && id != current.cueId && onSelectCue) onSelectCue (id);
     };
     aButton.onClick = [this] { if (onSelectA) onSelectA(); };
-    bButton.onClick = [this] { if (! explainUnavailable (true) && onSelectB) onSelectB(); };
+    bButton.onClick = [this] { if (! openLarge (1) && ! explainUnavailable (true) && onSelectB) onSelectB(); };
     blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
     oneButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (1); };
     twoButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (2); };
     revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
     endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
-    cButton.onClick = [this] { if (! explainUnavailable (false) && onSelectC) onSelectC(); };
+    cButton.onClick = [this] { if (! openLarge (2) && ! explainUnavailable (false) && onSelectC) onSelectC(); };
     versionBox.onChange = [this]
     { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
     for (size_t i = 0; i < selectionReadouts.size(); ++i)
@@ -145,6 +147,8 @@ Component::Component()
     addChildComponent (revealButton);
     addChildComponent (endBlindButton);
     addChildComponent (actionButton);
+    configureRoles();
+    configureCheckPage();
 }
 
 void Component::setState (State next)
@@ -211,11 +215,13 @@ void Component::setState (State next)
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
     cueBox.setVisible ((showDetailedSelectors || (current.separateComparisons && !blindSession))
         && !workflowActive && !current.cues.empty());
+    syncRoles (blindSession, workflowActive);
+    syncCheckPage (blindSession, workflowActive);
     updateVisualNavigation (!blindSession && !workflowActive);
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (current.sampleRateApprovalRequired);
     actionButton.setTooltip (current.sampleRateApprovalRequired
-        ? "Approve " + juce::String (current.sampleRateApprovalSlot == 1 ? "B " : "C ") + juce::String (current.sourceSampleRateHz / 1000.0, 1) + " to " + juce::String (current.hostSampleRateHz / 1000.0, 1) + " kHz for the audition copy only. A stays unchanged."
+        ? "Approve " + juce::String (current.sampleRateApprovalSlot == 1 ? "V " : "C ") + juce::String (current.sourceSampleRateHz / 1000.0, 1) + " to " + juce::String (current.hostSampleRateHz / 1000.0, 1) + " kHz for the audition copy only. A stays unchanged."
         : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
         : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
@@ -226,7 +232,7 @@ void Component::setState (State next)
         ||current.workflow.mode!=reference_audition::WorkflowView::Mode::normal));
     comparisonView.setVisible (! guideShown && current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")
-        : current.versionStep == SourceStep::ready ? juce::String ("Preparing B overview")
+        : current.versionStep == SourceStep::ready ? juce::String ("Preparing V overview")
         : stepText (current.versionStep);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext,
                            blindSession, current.visualPreferences, emptyB);
@@ -255,7 +261,8 @@ void Component::paint (juce::Graphics& g)
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
     const bool blindSession = isBlindSession (current.blindPhase);
-    if (current.separateComparisons && ! blindSession)
+    if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + (checkPage() ? checkPageRows : versionPageRows)); paintCheckPageLabels (g); }
+    else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop ((selectionVisible (presetBox) || viewButton.isVisible() ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
                             + panelGap() + (detailedLayout() ? 40 : panelPickerHeight()));
@@ -264,14 +271,16 @@ void Component::paint (juce::Graphics& g)
                               typography::Composition::information));
         const auto label = [&] (const juce::ComboBox& box, const juce::String& text)
         {
+            if (! box.isVisible()) return;  // 隠れた選択欄の見出しは描かない（前の配置の位置に残さない）
             auto bounds = box.getBounds();
             if (detailedLayout()) bounds = bounds.withY (bounds.getY() - 17).withHeight (15);
             else bounds = bounds.withX (bounds.getX() - 14).withWidth (12);
             text_style::drawEllipsized (g, text, bounds, juce::Justification::centredLeft);
         };
-        label (versionBox, detailedLayout() ? "B / VERSION" : "B");
-        label (checkBox, detailedLayout() ? "C / CHECK" : "C");
-        if (detailedLayout() && ! guideShown) paintSourceHints (g);
+        const bool referenceView = current.comparisonSlot == 3;
+        if (referenceView) { label (songSetBox, detailedLayout() ? "B SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        else { label (versionBox, detailedLayout() ? "V / VERSION" : "V"); label (checkBox, detailedLayout() ? "C / CHECK" : "C"); }
+        if (detailedLayout() && ! guideShown && ! referenceView) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
@@ -321,8 +330,8 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredLeft);
         }
     }
-    int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 3 : 2)
-        + (current.separateComparisons ? 6 : 3);
+    int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 4 : 2)
+        + (current.separateComparisons ? 9 : 3);
     if (isBlindSession (current.blindPhase))
         controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
                                          : (detailedLayout() ? 62 : 48);
@@ -398,8 +407,8 @@ void Component::paint (juce::Graphics& g)
     if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
     if(captureControls.isVisible()) area.removeFromTop(captureControls.preferredHeight(area.getWidth()));
     auto statusArea = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
-    const auto statusColour = current.readiness == Readiness::rejected
-        ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;
+    const auto line = referenceStatusLine (current); // H9: 聴ける／準備中／できない
+    const auto statusColour = line.kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : line.kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
     g.setColour (statusColour.withAlpha (0.92f));
     g.setFont (labelFont (presentationContext, typography::TextRole::readout,
                           typography::Composition::information));
@@ -411,10 +420,9 @@ void Component::paint (juce::Graphics& g)
     }
     auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
         ? "REVEALED / " + current.blindReveal : current.status;
-    const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
-    const auto audibleSide = current.separateComparisons && current.audibleComparisonSlot == 2 ? "C" : "B";
-    if (current.bSelected && ! blindRevealed)
-        statusText = juce::String { audibleSide } + juce::String (juce::CharPointer_UTF8 ("  /  PRE Δ PAUSED"));
+    const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
+    const auto audibleSide = current.separateComparisons ? roleLetter (current.audibleComparisonSlot) : "B";
+    if (! blindRevealed) statusText = line.text;
     auto availableStatusArea = statusArea;
     if (blindRevealed)
         availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);
@@ -427,11 +435,12 @@ void Component::paint (juce::Graphics& g)
     if (detailedLayout() && current.bSelected)
         primaryStatusArea = gainStatusArea.removeFromLeft (
             juce::roundToInt (gainStatusArea.getWidth() * 0.42f));
-    // The guide already says the next step; the line stays for a rejection or an action.
+    // The guide already says the next step; the line stays for a rejection, an action or an overdue wait (H6).
     const bool statusShown = ! guideShown || current.readiness == Readiness::rejected
-                          || actionButton.isVisible();
+                          || actionButton.isVisible() || current.preparationOverdue.isNotEmpty();
+    if (statusShown && ! blindRevealed) paintStatusDot (g, primaryStatusArea, line.kind);
     if (statusShown)
-        text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0),
+        text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0).withTrimmedLeft (blindRevealed ? 0 : 12),
                                     juce::Justification::centredLeft);
     if (guideShown)
     {
@@ -443,7 +452,9 @@ void Component::paint (juce::Graphics& g)
 
     if (detailedLayout())
     {
-        if (!comparisonView.isVisible() && !tonalView.isVisible()
+        area = paintCheckFooter (g, area);  // H12: C の画面の 4 帯域と Cue の時間軸
+        if (songList.isVisible()) paintReferenceBalance (g, area.withTrimmedLeft (songList.getWidth() + 6).toFloat(), current, presentationContext);
+        else if (!comparisonView.isVisible() && !tonalView.isVisible()
             && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
         {
             auto metrics = area;
@@ -460,11 +471,11 @@ void Component::paint (juce::Graphics& g)
                         current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp,
                         current.truePeakDeltaBMinusA, presentationContext, side);
         }
-        if (current.bSelected && std::isfinite (current.appliedGainDb))
+        if (current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage())  // C の画面は MATCH の横に出す
         {
-            const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
-                + (current.originalAudition || current.comparisonFallbackOriginal ? "ORIGINAL"
-                   : current.gainLimited ? "MATCH UNAVAILABLE" : "MATCHED");
+            // 読みは鳴っている音の基準（承認して A を下げているなら、その量を足した後の gain）。
+            const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb + current.heldAttenuationDb) + " dB  /  "
+                + gainReadoutState (current);
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,
                                   typography::Composition::information));
