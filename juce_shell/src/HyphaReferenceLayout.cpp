@@ -43,7 +43,8 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
-        songSetBox.setBounds (versionBox.getBounds()); songBox.setBounds (checkBox.getBounds()); // B の画面では同じ場所
+        songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに（H10）
+        songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
         auto top = area.removeFromTop (selectionVisible (presetBox) || viewButton.isVisible()
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
         if (viewButton.isVisible())

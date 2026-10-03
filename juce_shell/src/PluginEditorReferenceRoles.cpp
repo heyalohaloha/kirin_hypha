@@ -7,6 +7,7 @@ using namespace hypha::reference_ui::runtime_view;
 
 void KirinHyphaEditor::wireReferenceRoles()
 {
+    referenceView.onOpenLarge = [this] (int slot) { openReferenceLarge (slot); };
     referenceView.onSelectRef = [this]
     {
         if (liveCompareHoldBlocksAudition()) return;
@@ -26,11 +27,24 @@ void KirinHyphaEditor::wireReferenceRoles()
     { if (! processorRef.selectReferenceSongSet (id)) showToast ("B set selection was not changed"); };
 }
 
+void KirinHyphaEditor::openReferenceLarge (int slot)
+{
+    // H10: 300% 未満で C・V を押したら 300% に広げてその役の画面を開く。鳴らすのはもう一度押したとき。
+    setSize (900, 600);
+    showToast (slot == 1 ? "V opened at 300%. Press V to listen." : "C opened at 300%. Press C to listen.");
+}
+
 void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                                             const hypha::reference_audition::Snapshot& runtime)
 {
     const auto& slot = runtime.referenceSelection ? *runtime.referenceSelection : runtime;
     state.referenceReady = processorRef.heartbeatLive() && runtime.referenceReady;
+    const auto& version = runtime.versionSelection ? *runtime.versionSelection : runtime;
+    const auto& check = runtime.checkSelection ? *runtime.checkSelection : runtime;
+    const auto& audibleRole = runtime.audibleComparisonSlot == 1 ? version : runtime.audibleComparisonSlot == 3 ? slot : check;
+    // H9: 聴いている役の合わせ方（追従か固定か）。Blind には追従を持ち込まない。
+    state.tracking = runtime.bSelected && runtime.blindPhase == hypha::reference_audition::BlindPhase::inactive
+        ? audibleRole.tracking : hypha::reference_audition::TrackingState::none;
     state.referenceArmable = runtime.referenceArmable;
     const auto count = juce::String (static_cast<int> (runtime.songSets.size()));
     for (const auto& set : runtime.songSets)

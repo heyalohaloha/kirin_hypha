@@ -21,6 +21,7 @@
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 #include "reference_audition/ReferencePendingAudition.h"
+#include "reference_audition/ReferenceTrackingState.h"
 
 namespace hypha::reference_ui
 {
@@ -155,6 +156,7 @@ struct State
     reference_audition::WorkflowView workflow;
     // H10: B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
     bool referenceReady = false, referenceArmable = false;
+    reference_audition::TrackingState tracking = reference_audition::TrackingState::none; // H9: 聴いている役の合わせ方
     SourceStep referenceStep = SourceStep::waitingForKirinOs;
     std::vector<SelectionOption> songSets, songs;
     std::vector<SongFact> songFacts; // H11: songs と同じ順
@@ -228,6 +230,7 @@ public:
     std::function<void(const juce::String&)> onSelectCandidate;
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
+    std::function<void(int)> onOpenLarge; // H10: 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
     std::function<void()> onAction;
     std::function<void()> onStartBlind;
     std::function<void(int)> onSelectBlindStimulus;
@@ -315,6 +318,7 @@ private:
     // the guide in the comparison's place when neither can (HyphaReferenceGuide.cpp).
     void syncSourceButtons();
     bool explainUnavailable (bool version);
+    bool openLarge (int slot);
     void paintSourceHints (juce::Graphics&) const;
     void layoutSelectionReadouts();
     void syncSelectionControl (juce::ComboBox&, const std::vector<SelectionOption>&,

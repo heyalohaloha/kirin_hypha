@@ -3,12 +3,14 @@
 // H10: A／B／C／V の 4 つのボタン（左から A B C V）と、B（REF）の画面の B SET・曲の選択。
 // B の画面には V・C の選択を出さない。B が鳴らせないときは押すと理由を言う。
 #include "ReferenceGuideContractTest.h"
+#include "ReferenceStatusLineTest.h"
 
 namespace hypha::tests
 {
 inline void verifyReferenceAbcvRoles()
 {
     using namespace reference_guide_contract;
+    verifyReferenceStatusLine();
     for (const auto& size : observatory::sizePresets)
     {
         observatory::View shell (observatory::Role::post);
@@ -57,9 +59,12 @@ inline void verifyReferenceAbcvRoles()
         auto* version = panel.findChildWithID ("reference-version");
         auto* check = panel.findChildWithID ("reference-check");
         require (set && song && version && check, "the B and V/C selectors exist");
-        require (set->isVisible() && song->isVisible() && ! version->isVisible() && ! check->isVisible()
-                     && song->getText() == "Hello" && set->getText() == "Mastering refs   1 / 2",
-                 "the B page shows only the B set and its songs");
+        // 100%（300×200）は曲名だけ。B SET は出さず、曲は 125% 以上で選ぶ（H10）。
+        const bool glance = presentation::forEditor (size.width, size.height).density == observatory::Density::compact;
+        require (set->isVisible() == ! glance && song->isVisible() && ! version->isVisible() && ! check->isVisible()
+                     && song->getText() == "Hello" && set->getText() == "Mastering refs   1 / 2"
+                     && song->isEnabled() == ! glance,
+                 "the B page shows only the B set and its songs, and only the song at 100%");
         // KIRIN_REFERENCE_UI_ABCV_OUTPUT=<dir>：寸法ごとの B の画面を PNG に書き出す（見た目の確認用）。
         if (const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_UI_ABCV_OUTPUT", {});
             directory.isNotEmpty())
@@ -111,6 +116,29 @@ inline void verifyReferenceAbcvRoles()
         panel.setState (state);
         require (! set->isVisible() && ! song->isVisible() && version->isVisible(),
                  "the V page keeps its own selectors");
+
+        // H10: 300% 未満の C と V は薄く（理由の代わりに「300% で開く」）、押すと 300% に広げてその役の画面を
+        // 開くだけで、音は変えない。300% では今までどおり鳴らす。
+        auto sized = state;
+        sized.blindLargeScreen = size.width >= 900;
+        panel.setState (sized);
+        int opened = 0, visual = 0;
+        bool heard = false;
+        panel.onOpenLarge = [&] (int slot) { opened = slot; };
+        panel.onSelectVisualSlot = [&] (int slot) { visual = slot; };
+        panel.onSelectB = [&] { heard = true; };
+        panel.onSelectC = [&] { heard = true; };
+        c->onClick();
+        const auto openedC = opened, visualC = visual;
+        opened = visual = 0;
+        v->onClick();
+        if (sized.blindLargeScreen)
+            require (opened == 0 && v->getTooltip() != "Open V at 300%", "at 300% V and C play as before");
+        else
+            require (openedC == 2 && visualC == 2 && opened == 1 && visual == 1 && ! heard
+                         && c->getTooltip() == "Open C at 300%" && v->getTooltip() == "Open V at 300%",
+                     "below 300% V and C open their page at 300% without changing the sound");
+        panel.onOpenLarge = {}; panel.onSelectVisualSlot = {}; panel.onSelectB = {}; panel.onSelectC = {};
         panel.onSelectRef = {}; panel.onSelectSong = {}; panel.onSelectSongSet = {}; panel.onExplain = {};
     }
 }

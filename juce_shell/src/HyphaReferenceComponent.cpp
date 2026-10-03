@@ -4,6 +4,7 @@
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceVisuals.h"
 #include "HyphaReferenceBalance.h"
+#include "HyphaReferenceStatusModel.h"
 #include "HyphaReferenceDisplayText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -114,14 +115,14 @@ Component::Component()
         if (id.isNotEmpty() && id != current.cueId && onSelectCue) onSelectCue (id);
     };
     aButton.onClick = [this] { if (onSelectA) onSelectA(); };
-    bButton.onClick = [this] { if (! explainUnavailable (true) && onSelectB) onSelectB(); };
+    bButton.onClick = [this] { if (! openLarge (1) && ! explainUnavailable (true) && onSelectB) onSelectB(); };
     blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
     oneButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (1); };
     twoButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (2); };
     revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
     endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
-    cButton.onClick = [this] { if (! explainUnavailable (false) && onSelectC) onSelectC(); };
+    cButton.onClick = [this] { if (! openLarge (2) && ! explainUnavailable (false) && onSelectC) onSelectC(); };
     versionBox.onChange = [this]
     { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
     for (size_t i = 0; i < selectionReadouts.size(); ++i)
@@ -402,8 +403,8 @@ void Component::paint (juce::Graphics& g)
     if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
     if(captureControls.isVisible()) area.removeFromTop(captureControls.preferredHeight(area.getWidth()));
     auto statusArea = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
-    const auto statusColour = current.readiness == Readiness::rejected
-        ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;
+    const auto line = referenceStatusLine (current); // H9: 聴ける／準備中／できない
+    const auto statusColour = line.kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : line.kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
     g.setColour (statusColour.withAlpha (0.92f));
     g.setFont (labelFont (presentationContext, typography::TextRole::readout,
                           typography::Composition::information));
@@ -417,8 +418,7 @@ void Component::paint (juce::Graphics& g)
         ? "REVEALED / " + current.blindReveal : current.status;
     const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
     const auto audibleSide = current.separateComparisons ? roleLetter (current.audibleComparisonSlot) : "B";
-    if (current.bSelected && ! blindRevealed)
-        statusText = juce::String { audibleSide } + juce::String (juce::CharPointer_UTF8 ("  /  PRE Δ PAUSED"));
+    if (! blindRevealed) statusText = line.text;
     auto availableStatusArea = statusArea;
     if (blindRevealed)
         availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);
@@ -434,8 +434,9 @@ void Component::paint (juce::Graphics& g)
     // The guide already says the next step; the line stays for a rejection or an action.
     const bool statusShown = ! guideShown || current.readiness == Readiness::rejected
                           || actionButton.isVisible();
+    if (statusShown && ! blindRevealed) paintStatusDot (g, primaryStatusArea, line.kind);
     if (statusShown)
-        text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0),
+        text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0).withTrimmedLeft (blindRevealed ? 0 : 12),
                                     juce::Justification::centredLeft);
     if (guideShown)
     {
