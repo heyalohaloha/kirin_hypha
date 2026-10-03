@@ -136,7 +136,7 @@ void testReferenceRoles (const juce::File& sandbox)
         std::cerr << "roles: " << what << " / B " << (s.referenceSelection ? s.referenceSelection->rejectionCode : "-") << '\n';
         require (false, what);
     };
-    const auto near = [] (float value, double expected) { return std::abs (value - expected) < 1.0e-4; };
+    const auto closeTo = [] (float value, double expected) { return std::abs (value - expected) < 1.0e-4; };
     const auto gain = [] (double db) { return std::pow (10.0, db / 20.0); };
 
     // B の曲は B の一覧にだけ出て、C の一覧と V の一覧には出ない。最初の曲が選ばれ、前もって準備される。
@@ -151,11 +151,11 @@ void testReferenceRoles (const juce::File& sandbox)
     // B を押すとすぐ鳴る（MATCH：A −14 − 曲 −18 = +4 dB）。C を押すと B は止まり C だけが鳴る。
     require (controller.requestAudition (3, -14.0, -2.0), "B plays");
     host (true); host (true);
-    require (controller.snapshot().audibleComparisonSlot == 3 && near (block.getSample (0, 479), 0.1 * gain (4.0)),
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)),
              "B sounds at the matched gain");
     require (controller.requestAudition (2, -14.0, -2.0), "C plays");
     host (true); host (true);
-    require (controller.snapshot().audibleComparisonSlot == 2 && near (block.getSample (0, 479), -0.25 * gain (4.0)),
+    require (controller.snapshot().audibleComparisonSlot == 2 && closeTo (block.getSample (0, 479), -0.25 * gain (4.0)),
              "only C sounds after C");
     require (controller.requestAudition (3, -14.0, -2.0) && host (true) && host (true)
                  && controller.snapshot().audibleComparisonSlot == 3, "back to B");
@@ -169,14 +169,14 @@ void testReferenceRoles (const juce::File& sandbox)
         juce::Thread::sleep (5);
     }
     host (true); host (true);
-    require (controller.snapshot().audibleComparisonSlot == 3 && near (block.getSample (0, 479), 0.2 * gain (2.0)),
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), 0.2 * gain (2.0)),
              "the new song sounds as B with its own MATCH");
 
     // B は A の直近 10 秒に追従する（−20 − −16 = −4 dB）。
     require (controller.followAudition (std::vector<KirinMeterHistoryEntry> (100, window (-20.0)), -2.0)
                  == ref::TrackingAction::move, "B follows A");
     for (int index = 0; index < 8; ++index) host (true);
-    require (near (block.getSample (0, 479), 0.2 * gain (-4.0)), "B reaches the followed gain");
+    require (closeTo (block.getSample (0, 479), 0.2 * gain (-4.0)), "B reaches the followed gain");
 
     // 止めても B のまま。再生すると同じ曲・同じ gain で戻る。
     require (! host (false) && controller.snapshot().audibleComparisonSlot == 0, "stopping returns to A");
@@ -184,7 +184,7 @@ void testReferenceRoles (const juce::File& sandbox)
     wait ([] (const auto& s) { return s.referenceReady; }, "B prepares again");
     controller.servicePendingAudition (std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), true);
     host (true); host (true);
-    require (controller.snapshot().audibleComparisonSlot == 3 && near (block.getSample (0, 479), 0.2 * gain (-4.0)),
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), 0.2 * gain (-4.0)),
              "B resumes with the same song and the same gain");
 
     // DAW の状態に B の曲が残る。B SET は選んだときだけ残す（選ぶまでは Kirin OS の 1 位に従う）。

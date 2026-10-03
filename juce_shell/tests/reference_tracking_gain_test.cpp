@@ -34,13 +34,14 @@ std::vector<KirinMeterHistoryEntry> steady (double lufs, int count = 100, std::u
     return std::vector<KirinMeterHistoryEntry> (static_cast<std::size_t> (count), block (lufs, unknownTimeline, run));
 }
 
-bool near (double value, double expected, double tolerance = 1.0e-9) { return std::abs (value - expected) <= tolerance; }
+// Windows の windef.h は near と far を空のマクロにするので、名前に使わない。
+bool closeTo (double value, double expected, double tolerance = 1.0e-9) { return std::abs (value - expected) <= tolerance; }
 
 void rampsAndSteps()
 {
     namespace r = ref;
-    require (near (r::referenceGainHeadroomDb (-6.0, -2.0), 5.0) && near (r::referenceGainHeadroomDb (-6.0, -0.5), 5.5)
-                 && near (r::referenceGainHeadroomDb (-0.5, -3.0), 0.0) && near (r::referenceGainHeadroomDb (NAN, -3.0), 0.0),
+    require (closeTo (r::referenceGainHeadroomDb (-6.0, -2.0), 5.0) && closeTo (r::referenceGainHeadroomDb (-6.0, -0.5), 5.5)
+                 && closeTo (r::referenceGainHeadroomDb (-0.5, -3.0), 0.0) && closeTo (r::referenceGainHeadroomDb (NAN, -3.0), 0.0),
              "the ceiling is the louder of -1 dBTP, A's peak and the reference's own peak");
     require (r::trackingStep (2.3, 2.0, -6.0, -2.0).action == r::TrackingAction::keep
                  && r::trackingStep (NAN, 2.0, -6.0, -2.0).action == r::TrackingAction::keep
@@ -49,8 +50,8 @@ void rampsAndSteps()
     const auto down = r::trackingStep (-10.0, 2.0, -6.0, -2.0);
     const auto up = r::trackingStep (4.5, 2.0, -6.0, -2.0);
     const auto over = r::trackingStep (5.5, 2.0, -6.0, -2.0);
-    require (down.action == r::TrackingAction::move && near (down.gainDb, -10.0)
-                 && up.action == r::TrackingAction::move && near (up.gainDb, 4.5)
+    require (down.action == r::TrackingAction::move && closeTo (down.gainDb, -10.0)
+                 && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5)
                  && over.action == r::TrackingAction::stopCeiling,
              "lowering always moves; raising moves only within the ceiling and otherwise stops");
 
@@ -58,12 +59,12 @@ void rampsAndSteps()
     ramp.settle (1.0f);
     float first = ramp.next (2.0f, 2400), middle = 0.0f, last = 0.0f;
     for (int frame = 2; frame <= 2400; ++frame) (frame == 1200 ? middle : last) = ramp.next (2.0f, 2400);
-    require (near (first, 1.0 + 1.0 / 2400.0, 1.0e-6) && near (middle, 1.5, 1.0e-6) && near (last, 2.0, 0.0)
-                 && near (ramp.next (2.0f, 2400), 2.0, 0.0),
+    require (closeTo (first, 1.0 + 1.0 / 2400.0, 1.0e-6) && closeTo (middle, 1.5, 1.0e-6) && closeTo (last, 2.0, 0.0)
+                 && closeTo (ramp.next (2.0f, 2400), 2.0, 0.0),
              "a new gain arrives on a straight 50 ms line and then stays");
     ramp.next (1.0f, 2400);
     ramp.settle (0.5f);
-    require (near (ramp.next (0.5f, 2400), 0.5, 0.0), "while nothing is heard the gain is set at once");
+    require (closeTo (ramp.next (0.5f, 2400), 0.5, 0.0), "while nothing is heard the gain is set at once");
 }
 
 void pairsVersionContent()
@@ -94,7 +95,7 @@ void pairsVersionContent()
         history.push_back (block (vValue + 3.0, index == 50 ? unknownTimeline : end));
     }
     const auto paired = ref::pairedWindowLoudness (history, binding);
-    require (paired.pairs == 99 && near (paired.a.lufs - paired.reference.lufs, 3.0, 1.0e-9),
+    require (paired.pairs == 99 && closeTo (paired.a.lufs - paired.reference.lufs, 3.0, 1.0e-9),
              "A and V are compared on the same content, and an unknown position is left out");
     binding.aligned = false;
     require (ref::pairedWindowLoudness (history, binding).pairs == 0, "without alignment V keeps its gain");
@@ -125,7 +126,7 @@ void readsKirinOsCueLevel (const juce::File& sandbox)
     source.sourcePcmSha256 = juce::String::repeatedString ("f", 64);
     source.audio = { 48'000, 2, 96'000 };
     const auto level = ref::readCueLevel (root, *loaded.workspace, song, song.cues[0], source);
-    require (level && near (level->integratedLoudness, -14.06) && near (level->maximumTruePeakDbtp, -1.002),
+    require (level && closeTo (level->integratedLoudness, -14.06) && closeTo (level->maximumTruePeakDbtp, -1.002),
              "the chorus Cue's Integrated and True Peak come from Kirin OS");
     auto other = song.cues[0];
     other.endSample -= 4'800;
@@ -246,20 +247,20 @@ void matchesAndFollows (const juce::File& sandbox)
         juce::Thread::sleep (10);
     }
     const auto ready = controller.snapshot();
-    require (ready.cueLevelAvailable && near (ready.cueIntegratedLoudness, -16.0) && near (ready.cueMaximumTruePeakDbtp, -4.0)
+    require (ready.cueLevelAvailable && closeTo (ready.cueIntegratedLoudness, -16.0) && closeTo (ready.cueMaximumTruePeakDbtp, -4.0)
                  && ready.cueWindowBlocks == 100,
              "the selected Cue's Kirin OS values are available to MATCH");
 
     // C：Cue の値で合わせ（曲全体の −18 なら +4 dB のところ +2 dB）、聴いているあいだ動かない。
     require (controller.selectB (-14.0, -2.0), "C matches with the Cue value");
     auto state = controller.snapshot();
-    require (near (state.appliedGainDb, 2.0) && near (state.adjustedBIntegratedLoudness, -14.0)
-                 && near (state.adjustedBMaximumTruePeakDbtp, -2.0) && state.tracking == ref::TrackingState::fixed,
+    require (closeTo (state.appliedGainDb, 2.0) && closeTo (state.adjustedBIntegratedLoudness, -14.0)
+                 && closeTo (state.adjustedBMaximumTruePeakDbtp, -2.0) && state.tracking == ref::TrackingState::fixed,
              "C uses the Cue's Integrated and True Peak, and its gain is fixed");
     render(); render();
-    require (near (buffer.getSample (0, 479), 0.1 * std::pow (10.0, 2.0 / 20.0), 1.0e-6), "C sounds at the matched gain");
+    require (closeTo (buffer.getSample (0, 479), 0.1 * std::pow (10.0, 2.0 / 20.0), 1.0e-6), "C sounds at the matched gain");
     require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::keep
-                 && near (controller.snapshot().appliedGainDb, 2.0),
+                 && closeTo (controller.snapshot().appliedGainDb, 2.0),
              "C never follows");
     controller.selectA();
     render(); render();
@@ -276,8 +277,8 @@ void matchesAndFollows (const juce::File& sandbox)
              "within 0.5 dB the gain stays");
     require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::move, "B follows a quieter A");
     state = controller.snapshot();
-    require (near (state.appliedGainDb, -4.0) && near (state.aIntegratedLoudness, -20.0)
-                 && near (state.loudnessDeltaBMinusA, 0.0),
+    require (closeTo (state.appliedGainDb, -4.0) && closeTo (state.aIntegratedLoudness, -20.0)
+                 && closeTo (state.loudnessDeltaBMinusA, 0.0),
              "the snapshot shows the followed gain and A's window");
     std::vector<float> heard;
     for (int index = 0; index < 6; ++index) { render(); for (int n = 0; n < 480; ++n) heard.push_back (buffer.getSample (0, n)); }
@@ -291,7 +292,7 @@ void matchesAndFollows (const juce::File& sandbox)
     // 上げると上限（max(−1, A の −2, Cue の −4) = −1 dBTP）を超える：動かさず止めて、知らせる状態にする。
     require (controller.followSelection (steady (-8.0), -2.0) == ref::TrackingAction::stopCeiling
                  && controller.snapshot().tracking == ref::TrackingState::stoppedCeiling
-                 && near (controller.snapshot().appliedGainDb, -4.0),
+                 && closeTo (controller.snapshot().appliedGainDb, -4.0),
              "a gain over the ceiling stops following and keeps the current gain");
     require (controller.followSelection (steady (-18.0), -2.0) == ref::TrackingAction::keep, "a stopped follow stays stopped");
     render();
