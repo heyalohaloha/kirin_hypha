@@ -24,6 +24,18 @@ inline void verifyReferenceAbcvRoles()
         state.songSetId = "set-1";
         state.songs = { { "e1/e1/song-1", "Hello" }, { "e2/e2/song-2", "MONTERO   PREPARING" } };
         state.songId = "e1/e1/song-1";
+        // H11: 曲の Kirin OS の値（Cue の LUFS-I と 12 帯域のスペクトル）。
+        for (const auto& [lufs, tilt, prepared] : { std::tuple { -9.4, 0.0f, true }, std::tuple { -12.1, -6.0f, false } })
+        {
+            reference_ui::SongFact fact;
+            fact.lufsI = lufs; fact.prepared = prepared;
+            for (int band = 0; band < 12; ++band)
+            {
+                fact.centersHz.push_back (25.0 * std::pow (1.8, band));
+                fact.medianDb.push_back (-30.0f - 2.5f * static_cast<float> (band) + tilt * static_cast<float> (band) / 11.0f);
+            }
+            state.songFacts.push_back (fact);
+        }
         state.referenceReady = state.referenceArmable = true;
         state.referenceStep = reference_ui::SourceStep::ready;
         state.comparisonSlot = 3;
@@ -60,6 +72,21 @@ inline void verifyReferenceAbcvRoles()
             if (stream.openedOk()) { stream.setPosition (0); stream.truncate(); juce::PNGImageFormat().writeImageToStream (image, stream); }
         }
 
+        auto* list = dynamic_cast<reference_ui::SongList*> (panel.findChildWithID ("reference-song-list"));
+        require (list != nullptr, "the B song list exists");
+        if (list->isVisible())
+        {
+            require (list->rows().size() == 2 && list->rows()[0].selected && list->rows()[0].title == "Hello"
+                         && list->rows()[1].preparing && list->rows()[1].title == "MONTERO"
+                         && std::abs (list->rows()[0].lufsI + 9.4) < 1.0e-9,
+                     "the B page lists the songs with their Kirin OS loudness and state");
+            juce::String listed;
+            list->onChoose = [&] (const juce::String& id) { listed = id; };
+            list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, 6.0f + 18.0f + 30.0f + 4.0f },
+                juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, 58.0f }, juce::Time(), 1, false));
+            require (listed == "e2/e2/song-2", "a row press chooses that song");
+            list->onChoose = [&panel] (const juce::String& id) { if (panel.onSelectSong) panel.onSelectSong (id); };
+        }
         int auditions = 0;
         juce::String chosenSong, chosenSet, explained;
         panel.onSelectRef = [&] { ++auditions; };

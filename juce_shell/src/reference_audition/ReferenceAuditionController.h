@@ -45,6 +45,7 @@ namespace hypha::reference_audition
         juce::String name;
         int rank = 0;
         std::vector<RuntimeSelectionOption> songs;
+        std::vector<RuntimeSongFacts> facts; // H11: songs と同じ順。既定の Cue の Kirin OS の値
     };
 
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };

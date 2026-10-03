@@ -37,8 +37,21 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     {
         state.songSets.push_back ({ set.id, set.name + "   " + juce::String (set.rank) + " / " + count });
         if (set.id == runtime.selectedSongSetId)
-            for (const auto& song : set.songs)
+            for (size_t index = 0; index < set.songs.size(); ++index)
+            {
+                const auto& song = set.songs[index];
                 state.songs.push_back ({ song.id, song.label + (song.requiresPreparation ? "   PREPARING" : "") });
+                hypha::reference_ui::SongFact fact;
+                fact.prepared = ! song.requiresPreparation;
+                if (index < set.facts.size())
+                {
+                    const auto& source = set.facts[index];
+                    fact.lufsI = source.lufsI;
+                    fact.centersHz = source.spectrumCentersHz;
+                    fact.medianDb = source.spectrumMedianDb;
+                }
+                state.songFacts.push_back (std::move (fact));
+            }
     }
     state.songSetId = runtime.selectedSongSetId;
     state.songId = runtime.selectedSongId;

@@ -24,7 +24,7 @@ RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shar
         return unchanged;
     auto updated = std::make_shared<RuntimeWorkspace> (*current);
     updated->librarySets = std::move (sets);
-    applyLibrarySongEntries (*updated);
+    applyLibrarySongEntries (root, *updated);
     return { RuntimeWorkspaceLoadState::updated, updated, {} };
 }
 }
@@ -102,7 +102,7 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
         return failure ("reference_library_versions_rejected", previous);
     juce::String setsRejection;
     next->librarySets = readReferenceLibrarySets (root, *next, setsRejection);
-    applyLibrarySongEntries (*next);
+    applyLibrarySongEntries (root, *next);
     return { RuntimeWorkspaceLoadState::updated, next, {} };
 }
 

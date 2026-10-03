@@ -52,6 +52,8 @@ void Component::configureRoles()
     };
     addChildComponent (songSetBox);
     addChildComponent (songBox);
+    songList.onChoose = [this] (const juce::String& id) { if (id != current.songId && onSelectSong) onSelectSong (id); };
+    addChildComponent (songList);
 }
 
 void Component::syncRoles (bool blindSession, bool workflowActive)
@@ -70,6 +72,20 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
     songSetBox.setVisible (referenceView && ! workflowActive && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! workflowActive && ! current.songs.empty());
+    // H11: 300% 以上の B の画面は、左に曲の一覧、右に Balance。
+    songList.setVisible (referenceView && detailedLayout() && ! workflowActive && ! current.songs.empty());
+    std::vector<SongList::Row> rows;
+    for (size_t index = 0; index < current.songs.size(); ++index)
+    {
+        const auto& song = current.songs[index];
+        const auto fact = index < current.songFacts.size() ? current.songFacts[index] : SongFact {};
+        const bool selected = song.id == current.songId;
+        const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
+        rows.push_back ({ song.id, song.label.upToFirstOccurrenceOf ("   PREPARING", false, false), fact.lufsI,
+                          playing ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN(),
+                          selected, playing, ! fact.prepared });
+    }
+    songList.setRows (std::move (rows), presentationContext);
     if (! referenceView) return;
     // B の画面には V・C の選択を出さない（B SET と曲だけ）。
     for (auto* box : { &versionBox, &checkBox, &presetBox, &cueBox }) box->setVisible (false);

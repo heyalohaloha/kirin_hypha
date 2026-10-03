@@ -412,6 +412,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceGuide.cpp
             src/HyphaReferenceControls.cpp
             src/HyphaReferenceRoles.cpp
+            src/HyphaReferenceSongList.cpp
+            src/HyphaReferenceBalance.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
             src/HyphaReferenceTonalView.cpp
@@ -570,6 +572,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceGuide.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceRoles.cpp
+        src/HyphaReferenceSongList.cpp
+        src/HyphaReferenceBalance.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp
@@ -705,6 +709,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceGuide.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceRoles.cpp
+        src/HyphaReferenceSongList.cpp
+        src/HyphaReferenceBalance.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp
@@ -996,6 +1002,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceGuide.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceRoles.cpp
+        src/HyphaReferenceSongList.cpp
+        src/HyphaReferenceBalance.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceTonalView.cpp

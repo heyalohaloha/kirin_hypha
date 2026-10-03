@@ -7,6 +7,7 @@
 #include "../src/reference_audition/ReferenceLibrarySets.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceSourceRanges.h"
+#include "../src/reference_audition/ReferenceLibrarySongs.h"
 
 #include <algorithm>
 
@@ -64,6 +65,15 @@ void readsWhatKirinOsWrote (const juce::File& sandbox)
     require (ranges.fingerprintTicks == 20 && ranges.fingerprintChromaSigns.getSize() == 40
                  && ranges.fingerprintLoudness.getSize() == 20,
              "the Kirin fingerprint of 20 ticks");
+
+    // H11: B の一覧と Balance に出す、曲の既定の Cue の値（曲の Preset ごと）。準備前の曲は値なし。
+    const auto& facts = sets.songFacts;
+    const auto preparedFacts = facts.find (ref::referenceSongEntryId (sets.songSets[0].songSetId, song.candidateId));
+    const auto pendingFacts = facts.find (ref::referenceSongEntryId (sets.songSets[0].songSetId, songs[1].candidateId));
+    require (preparedFacts != facts.end() && std::abs (preparedFacts->second.lufsI - static_cast<double> (*cue->lufsIMilliLu) / 1000.0) < 1.0e-9
+                 && preparedFacts->second.spectrumMedianDb.size() == 12 && pendingFacts != facts.end()
+                 && ! std::isfinite (pendingFacts->second.lufsI) && pendingFacts->second.spectrumMedianDb.empty(),
+             "each B song carries its Cue loudness and spectrum for the B page");
 
     // 受け取りと違うファイル（書き換えられた・壊れた）は読まない。
     const auto file = root.getChildFile ("ranges/" + entry->rangesArtifact.sha256 + ".json");

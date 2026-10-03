@@ -10,7 +10,8 @@ namespace hypha::reference_audition
 juce::String referenceSongEntryId (const juce::String& songSetId, const juce::String& candidateId);
 
 // 今の workspace.librarySets から、曲の Preset を作り直す（前の曲の Preset は除く）。
-void applyLibrarySongEntries (RuntimeWorkspace&);
+// H11: あわせて、曲の既定の Cue の Kirin OS の値（ranges）を読んで librarySets->songFacts に置く。
+void applyLibrarySongEntries (const juce::File& root, RuntimeWorkspace&);
 
 // B の曲の選択の ID（Preset／Check／候補）。曲の Preset の ID と Check の ID は同じ。
 inline juce::String referenceSongSelectionId (const juce::String& entryId, const juce::String& candidateId)
