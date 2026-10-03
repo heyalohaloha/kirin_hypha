@@ -22,9 +22,11 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectA = [this] { processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
+    wireReferenceRoles();
     referenceView.onSelectB = [this]
     {
         if (liveCompareHoldBlocksAudition()) return;
+        processorRef.selectReferenceVisualSlot (1);  // H10: 押した役の画面にする
         if (! processorRef.selectReferenceB())
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
@@ -32,13 +34,14 @@ void KirinHyphaEditor::configureReferenceAudition()
             const auto step = slotStep (slot, latest.transportPlaying);
             const auto failure = matchFailureText (slot.matchFailure);
             showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
-                ? "B could not switch at this playhead. A remains live; retry when B is ready."
-                : "B: " + hypha::reference_ui::stepText (step));
+                ? "V could not switch at this playhead. A remains live; retry when V is ready."
+                : "V: " + hypha::reference_ui::stepText (step));
         }
     };
     referenceView.onSelectC = [this]
     {
         if (liveCompareHoldBlocksAudition()) return;
+        processorRef.selectReferenceVisualSlot (2);
         if (! processorRef.selectReferenceC())
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
@@ -86,7 +89,7 @@ void KirinHyphaEditor::configureReferenceAudition()
                         ? processorRef.retryReferenceCandidatePreparation()
                     : processorRef.requestReferenceRecovery();
         if (! accepted) showToast (state.sampleRateApprovalRequired
-            ? "This source is no longer awaiting sample-rate approval; check B or C again"
+            ? "This source is no longer awaiting sample-rate approval; check V or C again"
             : "Kirin OS could not receive the request");
     };
     referenceView.onStartBlind = [this]
@@ -167,8 +170,9 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     auto runtime = processorRef.referenceAuditionSnapshot();
     const auto& checkSelection = runtime.checkSelection ? *runtime.checkSelection : runtime;
     const auto& versionSelection = runtime.versionSelection ? *runtime.versionSelection : runtime;
-    const auto& audible = runtime.audibleComparisonSlot == 1
-        || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive ? versionSelection : checkSelection;
+    const auto& referenceSelection = runtime.referenceSelection ? *runtime.referenceSelection : runtime;
+    const auto& audible = runtime.audibleComparisonSlot == 1 || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive
+        ? versionSelection : runtime.audibleComparisonSlot == 3 ? referenceSelection : checkSelection;
     const bool callbackLive = processorRef.heartbeatLive();
     // H3: 追従が上限（True Peak）で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
     const bool trackingStopped = runtime.bSelected && audible.tracking == hypha::reference_audition::TrackingState::stoppedCeiling;
@@ -306,7 +310,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::revealed)
         state.status = "BLIND / REVEALED";
     else if (runtime.bSelected)
-        state.status = juce::String (runtime.audibleComparisonSlot == 2 ? "C" : "B") + " AUDITION / PRE DELTA PAUSED";
+        state.status = juce::String (hypha::reference_ui::roleLetter (runtime.audibleComparisonSlot)) + " AUDITION / PRE DELTA PAUSED";
     else if (state.osAccess == Access::unowned)
         state.status = "REF REQUIRES KIRIN OS";
     else if (state.osAccess == Access::ownedDisconnected)
@@ -314,7 +318,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.state == Runtime::ready)
         state.status = state.auditionBuffered ? "READY / A REMAINS LIVE"
             : runtime.auditionOutsideCue ? "OUTSIDE C CUE / MOVE OR CHOOSE LONGER CUE"
-            : state.aAvailable ? "LOADING " + juce::String (runtime.comparisonSlot == 1 ? "B" : "C")
+            : state.aAvailable ? "LOADING " + juce::String (hypha::reference_ui::roleLetter (runtime.comparisonSlot))
                 + " AT PLAYHEAD / KEEP PLAYING" : "PLAY A TO AUDITION";
     else if (runtime.rejectionCode == "reference_selection_unavailable")
         state.status = "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN";
@@ -323,10 +327,10 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.state == Runtime::rejected)
         state.status = rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
-        state.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION B"
-            : runtime.rejectionCode == "reference_alignment_waiting_for_content" ? "PLAY A / ALIGNING VERSION B"
-            : runtime.rejectionCode == "reference_alignment_no_match" ? "NO VERIFIED MATCH / CHECK VERSION B"
-            : runtime.rejectionCode == "reference_alignment_ambiguous" ? "PLAY ANOTHER PASSAGE TO ALIGN B"
+        state.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION V"
+            : runtime.rejectionCode == "reference_alignment_waiting_for_content" ? "PLAY A / ALIGNING VERSION V"
+            : runtime.rejectionCode == "reference_alignment_no_match" ? "NO VERIFIED MATCH / CHECK VERSION V"
+            : runtime.rejectionCode == "reference_alignment_ambiguous" ? "PLAY ANOTHER PASSAGE TO ALIGN V"
             : runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
             : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"
             : runtime.rejectionCode == "reference_source_unavailable" ? "SOURCE UNAVAILABLE / OPEN KIRIN OS"
@@ -337,7 +341,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     {
         const auto sourceRate = juce::String (state.sourceSampleRateHz / 1000.0, 1);
         const auto hostRate = juce::String (state.hostSampleRateHz / 1000.0, 1);
-        const juce::String target = state.sampleRateApprovalSlot == 1 ? "B" : "C";
+        const juce::String target = state.sampleRateApprovalSlot == 1 ? "V" : "C";
         if (!runtime.bSelected) state.status = target + " SAMPLE RATE " + sourceRate + " TO " + hostRate
             + " kHz / A REMAINS LIVE";
         state.actionText = getWidth() < 600 ? "APPROVE " + target + " RATE"
@@ -469,6 +473,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
              && std::find (runtime.viewBindings.begin(), runtime.viewBindings.end(), "balance")
                     != runtime.viewBindings.end())
         state.actionText = "EDIT GENRE";
+    applyReferenceRoles (state, runtime);
     if (const auto pending = hypha::reference_ui::pendingAuditionText (state); pending.isNotEmpty())
         state.status = pending;
     referenceView.setState (std::move (state));

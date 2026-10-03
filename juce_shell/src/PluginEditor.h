@@ -130,6 +130,8 @@ private:
     hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition();
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    void wireReferenceRoles();  // H10: B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
+    void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();
