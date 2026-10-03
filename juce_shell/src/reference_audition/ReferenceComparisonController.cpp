@@ -97,6 +97,7 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
     }
     capture.configure(identity.runtimeInstanceId,rate,channels);
     visual.configure(rate,channels);
+    heldA.prepare (rate);
     auto bIdentity = identity;
     bIdentity.runtimeInstanceId += ".version";
     version.configure (bIdentity, rate, channels);
@@ -208,6 +209,7 @@ Snapshot ReferenceComparisonController::snapshot()
     const juce::ScopedLock lock (selectionLock);
     const auto slot = viewedSlot.load (std::memory_order_acquire);
     auto result = slot == 1 ? b : slot == 3 ? r : c;
+    result.heldAttenuationDb = heldA.targetDb();
     result.visualTimeline = visual.snapshot();
     result.visualPreferences = visualPreferences;
     const auto viewedMap = slotController (slot).visualBinding();

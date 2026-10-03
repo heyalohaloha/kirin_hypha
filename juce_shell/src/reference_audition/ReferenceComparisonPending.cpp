@@ -50,12 +50,20 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     // 待たせ、たまったら鳴らす（A のまま。待ちの上限を超えたら理由を出す）。
     const bool waitForLevel = slot == 2 && state.checkSelection != nullptr && state.checkReady
         && state.checkSelection->comparisonMode == "loudness_match" && ! std::isfinite (loudness);
-    if (state.transportPlaying && ! waitForLevel)
+    // A を下げている途中（承認・bypass の後）は鳴らし始めない（下げ終わる前に鳴ると一瞬大きく聴こえる）。待たせる。
+    if (state.transportPlaying && ! waitForLevel && heldA.settled())
     {
         if (slot == 1 ? selectB (loudness, peak) : slot == 2 ? selectC (loudness, peak) : selectRef (loudness, peak))
             return true;
         return waitWhilePreparing (slot);
     }
+    return queueAudition (slot, safety);
+}
+
+// 押した役を待たせる（止まっている・A の音量を待つ・A を下げている途中）。再生で、準備でき次第鳴らす。
+bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety)
+{
+    const auto state = snapshot();
     if (trialActive() || hasActiveWorkflow() || capture.access->busy()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
@@ -155,6 +163,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     if (!intent.resume && intent.view.slot != 1 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
         || (state.comparisonMode == "peak_match" && !std::isfinite (peak))))
     { publish (Stage::level, true); return; }
+    if (! heldA.settled()) { publish (Stage::checking, true); return; }  // A を下げ終わってから鳴らす
     RuntimeV2SourceRepository verifier (juce::File {});
     if (verifier.verifySourceRevision (*binding.source).isNotEmpty())
     { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged); return; }

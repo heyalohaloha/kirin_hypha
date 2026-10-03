@@ -134,6 +134,13 @@ private:
     void wireReferenceRoles();  // H10: B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void openReferenceLarge (int slot);
+    // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
+    struct ReferenceLowerAOffer { int slot = 0; double db = 0.0; } referenceLowerAOffer;
+    bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);
+    bool approveOfferedLowerA();
+    void applyReferenceLowerA (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
+    bool returnReferenceLevelIfHeld();
+    int referenceHeldTenthsDb() const;
     hypha::reference_ui::PreparationWatch referencePreparationWatch; // H6
     hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser; // H7
     void configureLocalBlindProduct();

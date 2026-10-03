@@ -12,13 +12,28 @@ double referenceGainHeadroomDb (double sourcePeakDbtp, double aPeakDbtp) noexcep
     return std::max (0.0, ceiling - sourcePeakDbtp);
 }
 
+bool referenceGainExceedsCeiling (double requiredGainDb, double sourcePeakDbtp, double aPeakDbtp,
+                                  double heldAttenuationDb) noexcept
+{
+    const auto held = std::isfinite (heldAttenuationDb) ? std::min (0.0, heldAttenuationDb) : 0.0;
+    const auto effective = requiredGainDb + held;
+    if (! (effective > 0.0)) return false;
+    return referenceGainHeadroomDb (sourcePeakDbtp, std::isfinite (aPeakDbtp) ? aPeakDbtp + held : aPeakDbtp)
+        + 1.0e-9 < effective;
+}
+
+double referenceAttenuationToMatch (double requiredGainDb) noexcept
+{
+    return std::isfinite (requiredGainDb) && requiredGainDb > 0.0 ? -requiredGainDb : 0.0;
+}
+
 TrackingStep trackingStep (double requiredGainDb, double currentGainDb, double sourcePeakDbtp, double aPeakDbtp,
-                           double anchorGainDb) noexcept
+                           double anchorGainDb, double heldAttenuationDb) noexcept
 {
     if (! std::isfinite (requiredGainDb) || requiredGainDb < -100.0 || requiredGainDb > 100.0
         || ! std::isfinite (currentGainDb) || std::abs (requiredGainDb - currentGainDb) < trackingToleranceDb)
         return {};
-    if (requiredGainDb > 0.0 && referenceGainHeadroomDb (sourcePeakDbtp, aPeakDbtp) + 1.0e-9 < requiredGainDb)
+    if (referenceGainExceedsCeiling (requiredGainDb, sourcePeakDbtp, aPeakDbtp, heldAttenuationDb))
         return { TrackingAction::stopCeiling, requiredGainDb };
     if (std::isfinite (anchorGainDb) && std::abs (requiredGainDb - anchorGainDb) > trackingRangeDb + 1.0e-9)
         return { TrackingAction::stopRange, requiredGainDb };

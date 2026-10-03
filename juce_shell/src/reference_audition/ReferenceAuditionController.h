@@ -60,6 +60,10 @@ namespace hypha::reference_audition
         juce::String sourceKind;
         juce::String rejectionCode;
         MatchFailure matchFailure = MatchFailure::none;
+        // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。
+        double neededAttenuationDb = 0.0;
+        // 承認して A（POST の出力全体）を下げている量（0 以下）。比較の制御が出す（役の値ではない）。
+        double heldAttenuationDb = 0.0;
         juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
         std::uint64_t selectionGeneration = 0; // 作業スレッドがこの状態を出したときに反映していた選択の世代
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;

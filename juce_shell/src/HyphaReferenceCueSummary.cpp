@@ -119,7 +119,7 @@ juce::String matchReadout (const State& state)
         && state.aWindowBlocks < state.aWindowNeededBlocks)
         return "A " + juce::String (state.aWindowBlocks / 10) + " / " + juce::String (state.aWindowNeededBlocks / 10) + " S";
     if (! std::isfinite (gain)) return {};
-    const auto value = "C " + signedDb (gain) + " dB";
+    const auto value = "C " + signedDb (gain + state.heldAttenuationDb) + " dB";  // 下げた A の基準で読む
     return state.bSelected && state.audibleComparisonSlot == 2 ? "MATCHED / " + value + " / FIXED" : "ON PLAY / " + value;
 }
 

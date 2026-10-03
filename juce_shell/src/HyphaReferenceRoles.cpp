@@ -96,7 +96,7 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
         const bool selected = song.id == current.songId;
         const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
         rows.push_back ({ song.id, song.label.upToFirstOccurrenceOf ("   PREPARING", false, false), fact.lufsI,
-                          playing ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN(),
+                          playing ? current.appliedGainDb + current.heldAttenuationDb : std::numeric_limits<double>::quiet_NaN(),
                           selected, playing, ! fact.prepared, preparationWord (fact.preparation) });
     }
     songList.setRows (std::move (rows), presentationContext);

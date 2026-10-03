@@ -16,6 +16,7 @@ void KirinHyphaEditor::wireReferenceRoles()
         if (processorRef.selectReferenceRef()) return;
         const auto latest = processorRef.referenceAuditionSnapshot();
         const auto& slot = latest.referenceSelection ? *latest.referenceSelection : latest;
+        if (offerReferenceLowerA (3, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
         const auto failure = matchFailureText (slot.matchFailure);
         const auto step = slotStep (slot, latest.transportPlaying);
         showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
@@ -37,7 +38,13 @@ void KirinHyphaEditor::wireReferenceRoles()
             case Result::original: showToast ("This Check plays at its original level."); break;
             case Result::peakMatch: showToast ("This Check matches True Peak when C starts. Press A, then C."); break;
             case Result::levelUnavailable: showToast ("Play A for the Cue length (up to 30 s), then MATCH again."); break;
-            case Result::ceilingExceeded: showToast ("MATCH exceeds the safe level. The current gain is kept."); break;
+            case Result::ceilingExceeded:  // 承認すれば A を下げて合わせ直す（C は今の gain のまま鳴っている）
+            {
+                const auto latest = processorRef.referenceAuditionSnapshot();
+                if (! offerReferenceLowerA (2, latest.checkSelection ? *latest.checkSelection : latest))
+                    showToast ("MATCH exceeds the safe level. The current gain is kept.");
+                break;
+            }
         }
     };
 }
@@ -150,5 +157,6 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
     // （直し方は曲の側から。H9）。
     if (runtime.comparisonSlot == 3) state.actionText.clear();
+    applyReferenceLowerA (state, runtime);  // 上限超えの承認（B の画面でも出す）と、下げている量
 }
 #endif

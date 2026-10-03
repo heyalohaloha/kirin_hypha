@@ -63,6 +63,7 @@ void ReferenceComparisonController::endBlindGuard()
 }
 bool ReferenceComparisonController::reserveLocalBlind()
 {
+    if (heldA.held()) return false;  // 承認して A を下げているあいだは始めない（RETURN が先）
     clearPendingAudition();
     {
         const juce::ScopedLock lock(gateLock);

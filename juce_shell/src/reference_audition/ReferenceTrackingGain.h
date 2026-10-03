@@ -51,10 +51,22 @@ struct TrackingStep
 // 上げられる幅（0 以上）を返す。参照の peak が分からなければ 0（上げない）。
 double referenceGainHeadroomDb (double sourcePeakDbtp, double aPeakDbtp) noexcept;
 
+// 2026-10-03（Daisuke 承認）：上限を超える MATCH は、利用者が承認すれば A（POST の出力全体）を下げて合わせる。
+// heldAttenuationDb は承認して下げている量（0 以下）。参照の gain は今までどおり「A − 参照の値」で、出力では
+// 下げた量が足される。上限は下げた後の音で見る：参照の peak ＋ gain ＋ 下げた量が max(−1 dBTP, 下げた A の
+// max TP, 参照の max TP) を超えるなら超える。
+bool referenceGainExceedsCeiling (double requiredGainDb, double sourcePeakDbtp, double aPeakDbtp,
+                                  double heldAttenuationDb = 0.0) noexcept;
+// 超えるときに承認を求める下げ幅（0 以下）：差の全部（参照は元の音量のまま、A を差だけ下げる。live 比較・
+// ローカル Blind と同じ）。上げなくてよい（requiredGainDb が 0 以下）なら 0。
+double referenceAttenuationToMatch (double requiredGainDb) noexcept;
+
 // 1 回の追従。requiredGainDb は今の窓から求めた gain、currentGainDb は掛けている gain、anchorGainDb は
 // 利用者の MATCH の gain（NaN なら幅を見ない）。値が無い（NaN）・±100 dB を超えるときは動かさない。
+// heldAttenuationDb は承認して A を下げている量（上限は下げた後の音で見る）。
 TrackingStep trackingStep (double requiredGainDb, double currentGainDb, double sourcePeakDbtp, double aPeakDbtp,
-                           double anchorGainDb = std::numeric_limits<double>::quiet_NaN()) noexcept;
+                           double anchorGainDb = std::numeric_limits<double>::quiet_NaN(),
+                           double heldAttenuationDb = 0.0) noexcept;
 
 // Audio Thread のみ。gain を rampFrames の直線で目標へ動かす。各フレームを ramp の始点からの直線上に
 // 置くので丸めが積もらない。聴こえていないあいだは settle で即座に合わせる（誰にも聴こえない）。
