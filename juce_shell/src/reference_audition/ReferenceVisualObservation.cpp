@@ -62,6 +62,12 @@ void VisualObservation::publish()
     // H12: その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
     timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
     timeline.aPairKirin = pairAMeter.window (300);
+    if (printMeter.ticksHeld() >= 30 && printEndSample >= 0)  // H7：3 秒から（照合は 10 秒ぶん鳴ってから答える）
+    {
+        timeline.aFingerprint = std::make_shared<const KirinFingerprint> (printMeter.fingerprint (300));
+        timeline.aFingerprintEndTick = (printEndSample - printMeter.pendingSamples()) / std::max (1, configuredRate / 10) - 1;
+    }
+    else { timeline.aFingerprint.reset(); timeline.aFingerprintEndTick = -1; }
     timeline.vPairKirin = pairVMeter.window (300);
     ++timeline.revision; dirty = false;
     auto next = std::make_shared<const VisualTimeline> (timeline);
@@ -115,9 +121,12 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
 {
     if (! kirinMeter.configuredFor (rate, block.channels) && ! kirinMeter.configure (rate, block.channels, 6'000))
         return;
-    if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity) kirinMeter.reset();
+    if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
+    if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity) { kirinMeter.reset(); printMeter.reset(); }
     kirinDiscontinuity = block.discontinuity;
     kirinMeter.push (block.pcm.data(), block.frames);
+    printMeter.push (block.pcm.data(), block.frames);
+    printEndSample = block.position + block.frames;
     kirinExpected = block.position + block.frames;
     dirty = true;
 }
@@ -186,7 +195,7 @@ void VisualObservation::run()
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); kirinMeter.reset(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); kirinMeter.reset(); printMeter.reset(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             wait (100); continue;
@@ -272,7 +281,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); clearTonal(); kirinMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); clearTonal(); kirinMeter.reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);

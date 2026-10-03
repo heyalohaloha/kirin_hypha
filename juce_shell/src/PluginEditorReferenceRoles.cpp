@@ -97,6 +97,23 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cuePlayheadSeconds = runtime.comparisonSlot == 2 ? runtime.cuePlayheadSeconds : std::numeric_limits<double>::quiet_NaN();
     state.aWindowLoudness = processorRef.referenceWindowLoudness (runtime.comparisonSlot);
     rankCheckSets (state, checkRole.checkSetRanks);
+    // H7: V の自動特定（V の画面を見ているあいだ 3 秒ごと）。AUTO の Version に一致率を添え、Version を
+    // 選んでいなければ一度だけ選ぶ。手動で選んだ Version は変えない。
+    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    if (runtime.comparisonSlot == 1 && nowMs >= referenceIdentifyAtMs)
+    {
+        referenceVersionIdentity = processorRef.identifyReferenceVersion();
+        referenceIdentifyAtMs = nowMs + 3000.0;
+    }
+    for (auto& option : state.versions)
+        if (option.id == referenceVersionIdentity.autoId)
+            option.label += "   AUTO " + juce::String (referenceVersionIdentity.autoAgreement, 2);
+    if (state.versionId.isEmpty() && referenceVersionIdentity.autoId.isNotEmpty()
+        && referenceAutoSelected != referenceVersionIdentity.autoId)
+    {
+        referenceAutoSelected = referenceVersionIdentity.autoId;
+        processorRef.selectReferenceVersion (referenceAutoSelected);
+    }
     // H6: 見ている役の待ちが上限を超えたら、状態の行で「できない」と理由・直し方を出す。
     const auto viewedStep = runtime.comparisonSlot == 1 ? state.versionStep
                           : runtime.comparisonSlot == 3 ? state.referenceStep : state.checkStep;

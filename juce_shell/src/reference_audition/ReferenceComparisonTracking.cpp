@@ -35,6 +35,13 @@ TrackingAction ReferenceComparisonController::followAudition (const std::vector<
     return TrackingAction::keep;
 }
 
+VersionIdentity ReferenceComparisonController::identifyVersions()
+{
+    const auto timeline = visual.snapshot();
+    if (timeline == nullptr || timeline->aFingerprint == nullptr) return {};
+    return version.identifyVersions (*timeline->aFingerprint, timeline->aFingerprintEndTick);
+}
+
 RematchResult ReferenceComparisonController::rematch (int slot, double aLoudness, double aSessionPeakDbtp)
 {
     // 固定で合わせるのは C だけ（B・V は追従する）。鳴っている役だけを決め直す。

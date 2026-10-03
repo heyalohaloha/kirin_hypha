@@ -1,0 +1,177 @@
+// H7: A を Kirin 指紋と同じ定義で測り、Version の指紋と照合する（ReferenceKirinFingerprint）。Kirin OS の
+// 解析と指紋（tests/fixtures/kirin_fingerprint/kirin_os_fingerprints.json）と、同じ信号を Hypha で測った値を
+// 比べる：100 ms ごとのクロマ、LUFS-M、指紋のビット。照合は Kirin OS の照合と同じ一致率・ずれ・関係になる。
+// Kirin OS は 100 ms の窓の一部を 1 サンプル早く読む（Kirin OS 側の不具合として別に直す）ので、クロマは
+// その差の分だけ許す。
+#include "reference_runtime_test_support.h"
+#include "../src/reference_audition/ReferenceKirinFingerprint.h"
+#include "../src/reference_audition/ReferenceVersionIdentify.h"
+
+#include <cmath>
+#include <map>
+
+void testReferenceKirinFingerprint();
+
+namespace
+{
+using namespace hypha::reference_audition;
+
+void check (bool condition, const juce::String& message) { require (condition, message.toRawUTF8()); }
+
+// fixture の説明どおりの信号（float32、interleaved の 2 ch）。lead 秒の無音を前に置ける。
+std::vector<float> melody (int rate, double seconds, double lead = 0.0)
+{
+    constexpr double tau = 6.283185307179586476925286766559;
+    const double notes[] { 261.63, 329.63, 392.0, 440.0, 523.25, 293.66, 349.23, 493.88, 220.0, 587.33, 659.25, 246.94 };
+    const auto frames = static_cast<int> (rate * seconds), silent = static_cast<int> (rate * lead), half = rate / 2;
+    std::uint32_t state = 4242;
+    double phase = 0.0;
+    std::vector<float> pcm (static_cast<size_t> (frames) * 2, 0.0f);
+    for (int n = 0; n < frames - silent; ++n)
+    {
+        const auto step = n / half;
+        phase += tau * notes[step % 12] / rate;
+        state = state * 1664525u + 1013904223u;
+        const auto noise = static_cast<double> (state) / 2147483648.0 - 1.0;
+        const auto value = (0.15 + 0.1 * (step % 4)) * std::sin (phase);
+        pcm[static_cast<size_t> (silent + n) * 2] = static_cast<float> (value);
+        pcm[static_cast<size_t> (silent + n) * 2 + 1] = static_cast<float> (value + 0.03 * noise);
+    }
+    return pcm;
+}
+
+KirinFingerprint measured (int rate, const std::vector<float>& pcm, int ticks)
+{
+    KirinFingerprintMeter meter;
+    check (meter.configure (rate, 2, ticks), "the fingerprint meter accepts " + juce::String (rate) + " Hz stereo");
+    const auto frames = static_cast<int> (pcm.size() / 2);
+    for (int offset = 0; offset < frames; offset += 256)
+        meter.push (pcm.data() + static_cast<size_t> (offset) * 2, std::min (256, frames - offset));
+    return meter.fingerprint (ticks);
+}
+
+KirinFingerprint fromFixture (const juce::var& signal)
+{
+    juce::MemoryOutputStream signs, loudness;
+    juce::Base64::convertFromBase64 (signs, signal["chroma_signs_b64"].toString());
+    juce::Base64::convertFromBase64 (loudness, signal["loudness_b64"].toString());
+    return decodeFingerprint (signs.getMemoryBlock(), loudness.getMemoryBlock(), static_cast<int> (signal["ticks"]));
+}
+}
+
+void testReferenceKirinFingerprint()
+{
+    const auto fixture = juce::JSON::parse (juce::File (KIRIN_REFERENCE_FIXTURE_DIR)
+                                                .getChildFile ("kirin_fingerprint/kirin_os_fingerprints.json"));
+    const auto* signals = fixture["signals"].getArray();
+    require (signals != nullptr && signals->size() == 3, "the Kirin OS fingerprint fixture is readable");
+    std::map<juce::String, KirinFingerprint> kirin, hypha;
+    for (const auto& signal : *signals)
+    {
+        const auto name = signal["name"].toString();
+        const int rate = static_cast<int> (signal["sample_rate"]);
+        const int ticks = static_cast<int> (signal["ticks"]);
+        kirin[name] = fromFixture (signal);
+        const auto pcm = melody (rate, 15.0, name == "m48late" ? 1.0 : 0.0);
+        hypha[name] = measured (rate, pcm, ticks);
+        check (static_cast<int> (hypha[name].bits.size()) == ticks && kirin[name].bits.size() == hypha[name].bits.size(),
+               "Hypha and Kirin OS hold the same ticks for " + name);
+
+        // クロマと LUFS-M（区切りごと）。Kirin OS の読み込みは区切りの一部で 1 サンプル早い（その区切りは 1 サンプル
+        // 重なって最後の 1 サンプルが抜ける）。区切りごとに「そのまま」と「1 サンプル早い」の両方を測り、Kirin OS
+        // の値に近い方で進めて、Kirin OS が読んだ音の並びを再現する。どちらかで 0.01 dB 以内なら定義が同じ。
+        KirinFingerprintMeter meter;
+        meter.configure (rate, 2, ticks);
+        const auto* chroma = signal["chroma_millidb"].getArray();
+        const auto* lufs = signal["lufs_millilu"].getArray();
+        const auto chromaTicks = static_cast<int> (chroma->size()) / 12;
+        const auto tick = rate / 10;
+        double worstChroma = 0.0, worstLufs = 0.0;
+        int early = 0;
+        for (int index = 0; index < chromaTicks; ++index)
+        {
+            const auto distance = [&] (const KirinFingerprintMeter& candidate)
+            {
+                std::array<double, 12> levels {};
+                double loudness = 0.0;
+                candidate.lastTick (levels, loudness);
+                double worst = 0.0;
+                for (int pitch = 0; pitch < 12; ++pitch)
+                    worst = std::max (worst, std::abs (levels[static_cast<size_t> (pitch)] - static_cast<double> ((*chroma)[index * 12 + pitch]) / 1000.0));
+                return std::pair { worst, loudness };
+            };
+            auto normal = meter, shifted = meter;
+            normal.push (pcm.data() + static_cast<size_t> (index * tick) * 2, tick);
+            if (index > 0) shifted.push (pcm.data() + static_cast<size_t> (index * tick - 1) * 2, tick);
+            const auto a = distance (normal);
+            const auto b = index > 0 ? distance (shifted) : std::pair { 1.0e9, 0.0 };
+            const bool useShifted = b.first < a.first;
+            meter = useShifted ? shifted : normal;
+            early += useShifted ? 1 : 0;
+            const auto& chosen = useShifted ? b : a;
+            worstChroma = std::max (worstChroma, chosen.first);
+            const auto& expected = (*lufs)[index];
+            // 400 ms に満たない区切りと、デジタルの無音（Kirin OS は値なし、Hypha は −300 LUFS。指紋ではどちらも −70）。
+            check (expected.isVoid() == (! std::isfinite (chosen.second) || chosen.second < -70.0),
+                   "LUFS-M is missing for the same ticks (" + name + ")");
+            if (! expected.isVoid()) worstLufs = std::max (worstLufs, std::abs (chosen.second - static_cast<double> (expected) / 1000.0));
+        }
+        check (worstLufs < 0.02, "LUFS-M follows Kirin OS within 0.02 LU (" + name + ", worst " + juce::String (worstLufs, 4) + ")");
+        check (worstChroma < 0.01, "the chroma is Kirin OS's definition (" + name + ": worst " + juce::String (worstChroma, 4)
+                                       + " dB, " + juce::String (early) + " ticks read one sample early by Kirin OS)");
+        int same = 0;
+        for (size_t index = 0; index < hypha[name].bits.size(); ++index)
+            same += 12 - [] (std::uint16_t value) { int count = 0; for (; value != 0; value &= static_cast<std::uint16_t> (value - 1)) ++count; return count; }
+                             (static_cast<std::uint16_t> (hypha[name].bits[index] ^ kirin[name].bits[index]));
+        check (same >= static_cast<int> (hypha[name].bits.size()) * 12 * 97 / 100,
+               "the fingerprint bits are Kirin OS's (" + name + ": " + juce::String (same) + " of "
+                   + juce::String (static_cast<int> (hypha[name].bits.size()) * 12) + ")");
+    }
+
+    // 照合は Kirin OS の照合と同じ答え（一致率・相関・ずれ・関係）。
+    for (const auto& item : *fixture["comparisons"].getArray())
+    {
+        const auto match = compareFingerprints (kirin[item["a"].toString()], kirin[item["b"].toString()]);
+        check (std::lround (match.agreement * 1000.0) == static_cast<int> (item["agreement_milli"])
+                   && std::lround (match.loudnessCorrelation * 1000.0) == static_cast<int> (item["loudness_correlation_milli"])
+                   && std::abs (match.offsetTicks / 10.0 - static_cast<double> (item["offset_seconds"])) < 1.0e-9
+                   && match.relation == FingerprintMatch::Relation::nearIdentical,
+               "comparison matches Kirin OS for " + item["a"].toString() + " and " + item["b"].toString());
+    }
+    // Hypha が測った A と Kirin OS の Version の指紋：同じ音源、ずれ 0（1 秒遅れなら +1 秒）。
+    const auto own = compareFingerprints (hypha["m48"], kirin["m48"]);
+    const auto late = compareFingerprints (hypha["m48"], kirin["m48late"]);
+    check (own.relation == FingerprintMatch::Relation::nearIdentical && own.offsetTicks == 0 && own.agreement > 0.98
+               && late.relation == FingerprintMatch::Relation::nearIdentical && late.offsetTicks == 10,
+           "A measured by Hypha finds the Kirin OS Version and its offset");
+    // 曲の途中の 11 秒だけでも見つかる（曲の頭からの位置に置いた疎な並び）。
+    auto slice = hypha["m48"];
+    for (size_t index = 0; index < 40; ++index) slice.lufs[index] = -70.0f;
+    const auto partial = compareFingerprints (slice, kirin["m48"]);
+    check (partial.relation == FingerprintMatch::Relation::nearIdentical && partial.offsetTicks == 0,
+           "a part of the song found at its place");
+    // 違う曲（音名の並びを逆にした信号ではないが、音の無い指紋）とは照合できない。
+    KirinFingerprint silent;
+    silent.bits.assign (150, 0);
+    silent.lufs.assign (150, -70.0f);
+    check (compareFingerprints (hypha["m48"], silent).relation == FingerprintMatch::Relation::unknown,
+           "too little sound in common gives no answer");
+    // V の自動特定：A の直近（曲の 3〜15 秒、曲の頭からの位置に置く）を Version の指紋と照合し、同じ曲以上で
+    // 一致率の最も高いものを AUTO にする。音名をずらした別の曲は選ばない。
+    auto other = kirin["m48"];
+    for (auto& bits : other.bits) bits = static_cast<std::uint16_t> (((bits << 6) | (bits >> 6)) & 0x0fff);
+    VersionIdentifier identifier;
+    identifier.setCandidates ({ { "preset/check/other", other }, { "preset/check/late", kirin["m48late"] } });
+    KirinFingerprint recent;
+    recent.bits.assign (hypha["m48"].bits.begin() + 30, hypha["m48"].bits.end());
+    recent.lufs.assign (hypha["m48"].lufs.begin() + 30, hypha["m48"].lufs.end());
+    const auto identity = identifier.identify (recent, 149);
+    check (identity.autoId == "preset/check/late" && identity.autoAgreement > 0.95 && ! identity.matches.empty()
+               && identity.matches.front().versionId == "preset/check/late",
+           "the Version whose fingerprint agrees is AUTO (" + identity.autoId + ")");
+    check (identifier.identify (recent, -1).autoId.isEmpty() && identifier.identify ({}, 149).autoId.isEmpty(),
+           "without A's place or sound nothing is chosen");
+    identifier.setCandidates ({ { "preset/check/other", other } });
+    check (identifier.identify (recent, 149).autoId.isEmpty(), "a different song is never AUTO");
+    std::cout << "Reference Kirin fingerprint: chroma, LUFS-M, bits, comparison and V identification follow Kirin OS PASS\n";
+}

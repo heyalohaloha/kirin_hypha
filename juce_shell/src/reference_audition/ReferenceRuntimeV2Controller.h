@@ -20,6 +20,7 @@
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
 #include "ReferenceTrackingGain.h"
+#include "ReferenceVersionIdentify.h"
 #include "ReferenceRuntimeV2SourceCache.h"
 #include "ReferenceCalibrationObservation.h"
 #include "ReferenceDeferredControl.h"
@@ -96,6 +97,7 @@ namespace hypha::reference_audition
         // H3: 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
         // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
         RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // H12: C の MATCH をもう一度
+        VersionIdentity identifyVersions (const KirinFingerprint&, std::int64_t endTick); // H7（メッセージスレッド）
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
         void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
@@ -246,6 +248,7 @@ namespace hypha::reference_audition
         std::uint64_t appliedConfigurationGeneration = 0;
         std::uint64_t appliedSelectionGeneration = 0;
         std::shared_ptr<const RuntimeWorkspace> workspace;
+        VersionIdentifier versionIdentifier; // H7: Version の指紋（メッセージスレッドだけ）
         std::shared_ptr<const WorkflowCatalog> workflowCatalog;
         std::deque<WorkflowEventRequest> workflowEvents;
         std::int64_t workflowRetryAtMs = 0;
