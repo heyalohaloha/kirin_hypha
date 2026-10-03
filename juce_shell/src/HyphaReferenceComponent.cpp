@@ -35,9 +35,8 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
-    configureVisualNavigation();
     addChildComponent (comparisonView); addChildComponent (tonalView);
-    addChildComponent(captureControls); addChildComponent(workflowControls);
+    addChildComponent(workflowControls);
     workflowControls.onStart=[this]{if(onStartReview)onStartReview();};
     workflowControls.onBookmark=[this]{if(onStartBookmark)onStartBookmark();};
     workflowControls.onBack=[this]{if(onWorkflowBack)onWorkflowBack();};
@@ -217,7 +216,6 @@ void Component::setState (State next)
         && !workflowActive && !current.cues.empty());
     syncRoles (blindSession, workflowActive);
     syncCheckPage (blindSession, workflowActive);
-    updateVisualNavigation (!blindSession && !workflowActive);
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (current.sampleRateApprovalRequired);
     actionButton.setTooltip (current.sampleRateApprovalRequired
@@ -225,7 +223,6 @@ void Component::setState (State next)
         : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
         : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
-    captureControls.update(current.captureAccess,blindSession||workflowActive,presentationContext);
     workflowControls.update(current.workflow,blindSession,!detailedLayout());
     workflowControls.setVisible(!blindSession&&(current.workflow.reviewAvailable
         ||current.workflow.bookmarkAvailable
@@ -264,7 +261,7 @@ void Component::paint (juce::Graphics& g)
     if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + (checkPage() ? checkPageRows : versionPageRows)); paintCheckPageLabels (g); }
     else if (current.separateComparisons && ! blindSession)
     {
-        area.removeFromTop ((selectionVisible (presetBox) || viewButton.isVisible() ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
+        area.removeFromTop ((selectionVisible (presetBox) || selectionVisible (cueBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
                             + panelGap() + (detailedLayout() ? 40 : panelPickerHeight()));
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentationContext, typography::TextRole::unit,
@@ -405,7 +402,6 @@ void Component::paint (juce::Graphics& g)
 
     area.removeFromTop (panelGap());
     if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
-    if(captureControls.isVisible()) area.removeFromTop(captureControls.preferredHeight(area.getWidth()));
     auto statusArea = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
     const auto line = referenceStatusLine (current); // H9: 聴ける／準備中／できない
     const auto statusColour = line.kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : line.kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;

@@ -46,14 +46,8 @@ void Component::resized()
         }
         songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに（H10）
         songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
-        auto top = area.removeFromTop (selectionVisible (presetBox) || viewButton.isVisible()
+        auto top = area.removeFromTop (selectionVisible (presetBox) || selectionVisible (cueBox)
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
-        if (viewButton.isVisible())
-        {
-            viewButton.setBounds (top.removeFromRight (detailedLayout() ? 96 : 72)
-                .removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
-            top.removeFromRight (5);
-        }
         const auto width = selectionVisible (cueBox) ? (top.getWidth() - 5) * 3 / 5 : top.getWidth();
         presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
         top.removeFromLeft (5);
@@ -105,7 +99,6 @@ void Component::resized()
         workflowControls.setBounds (area.removeFromTop (workflowControls.preferredHeight()));
         area.removeFromTop (panelGap());
     }
-    if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
     auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);

@@ -127,8 +127,6 @@ private:
     void updateSpectrumSizeControl();
     void configureReferenceAudition();
     void showReferenceInformationMenu();
-    void refreshCaptureControls();
-    hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition();
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void wireReferenceRoles();  // H10: B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）

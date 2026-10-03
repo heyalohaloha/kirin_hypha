@@ -49,33 +49,24 @@ inline void verifyReferenceVisualNavigation()
         state.checks = { { "low/ref-a", "Low end  /  The actual C song" } };
         state.checkId = "low/ref-a";
         panel.setState (state);
-        auto* view = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-visual-slot"));
+        // 2026-10-04：VIEW（音を変えずに見せる比較だけを替える）の行は無い。見せる比較は開いている役の画面が決める。
+        require (panel.findChildWithID ("reference-visual-slot") == nullptr, "no VIEW row takes chart height");
         auto* preset = panel.findChildWithID ("reference-preset");
         auto* cue = panel.findChildWithID ("reference-cue");
         auto* singleCheck = panel.findChildWithID ("reference-selection-value-2");
-        require (view && preset && cue && singleCheck, "visual navigation controls exist");
-        // H13: 300% の V の画面は VERSION・CHECK SET（C と共用）・タブ。C の曲と Cue は C の画面で選ぶ（VIEW で移る）。
-        for (const auto* control : { static_cast<juce::Component*> (view), preset, cue, singleCheck })
+        require (preset && cue && singleCheck, "visual navigation controls exist");
+        // H13: 300% の V の画面は VERSION・CHECK SET（C と共用）・タブ。C の曲と Cue は C の画面で選ぶ。
+        for (const auto* control : { preset, cue, singleCheck })
         {
-            const bool shown = size.width < 900 || control == view || control == preset;
+            const bool shown = size.width < 900 || control == preset;
             require (control->isVisible() == shown && (! shown || (!control->getBounds().isEmpty()
                 && panel.getLocalBounds().contains (control->getBounds()))),
                 "C Preset, Cue and source stay reachable from A/B at " + juce::String (size.width));
         }
-        require (!view->getBounds().intersects (preset->getBounds())
-            && !view->getBounds().intersects (cue->getBounds())
-            && !preset->getBounds().intersects (cue->getBounds()), "navigation has distinct hit targets");
-        require (panel.getComponentAt (view->getBounds().getCentre()) == view,
-            "the visual switch is not covered by a readout at " + juce::String (size.width));
-        const auto font = labelFont (presentation::forEditor (size.width, size.height),
-            typography::TextRole::action, typography::Composition::information);
-        require (text_style::shownWidth (font, view->getButtonText()) <= view->getWidth(),
-            "VIEW label fits without shrinking at " + juce::String (size.width));
+        require (! cue->isVisible() || !preset->getBounds().intersects (cue->getBounds()), "navigation has distinct hit targets");
         int audioChanges = 0, displayed = 0;
         panel.onSelectA = panel.onSelectB = panel.onSelectC = [&] { ++audioChanges; };
         panel.onSelectVisualSlot = [&] (int slot) { displayed = slot; };
-        view->onClick();
-        require (displayed == 2 && audioChanges == 0, "VIEW A/B opens A/C without an audio command");
         state.comparisonSlot = 2;
         state.bSelected = true;
         state.audibleComparisonSlot = 1;
@@ -88,8 +79,6 @@ inline void verifyReferenceVisualNavigation()
             && panel.getComponentAt (b->getBounds().getCentre()) == b
             && panel.getComponentAt (c->getBounds().getCentre()) == c,
             "A/B/C keep separate unobstructed primary hit targets");
-        view->onClick();
-        require (displayed == 1 && audioChanges == 0, "inspecting A/B leaves B playing");
         state.checkReady = false;
         state.checkStep = reference_ui::SourceStep::approveSampleRate;
         state.comparisonSlot = 1;
@@ -114,7 +103,7 @@ inline void verifyReferenceVisualNavigation()
             && c->getButtonText() == "C", "a cancelled switch cannot appear to be still waiting");
         state.blindPhase = reference_ui::BlindPhase::active;
         panel.setState (state);
-        require (!view->isVisible() && !singleCheck->isVisible() && !preset->isVisible()
+        require (!singleCheck->isVisible() && !preset->isVisible()
             && !cue->isVisible(), "Blind conceals the display switch and all source selectors");
     }
     auto stopped = named ("approve_c_rate");

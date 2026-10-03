@@ -1,7 +1,6 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "ReferenceDisplayRegressionTest.h"
 #include "ReferenceVisualComparisonTest.h"
-#include "ReferenceACaptureControlsTest.h"
 #include "ReferenceSelectionWorkflowTest.h"
 #include "MetricPresentationWorkflowTest.h"
 #include "PairPreviewUiContractTest.h"
@@ -93,7 +92,7 @@ reference_ui::State readyState()
 void verifyReferenceAuditionComponentContract()
 {
     verifyReferenceVisualNavigation();
-    verifyReferenceVisualComparison(); verifyCaptureControls();
+    verifyReferenceVisualComparison();
     KIRIN_REF_REQUIRE (verifyReferenceTonalViewContract());
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();

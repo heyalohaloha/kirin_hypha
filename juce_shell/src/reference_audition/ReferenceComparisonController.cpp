@@ -187,8 +187,9 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
-    if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); reference.restoreChoice (value.reference);
-                 capture.restore(value.captureState,value.capturedView); }
+    // 2026-10-04（Daisuke 決定）：A の取り込みはやめた（見比べは生の表示だけ）。DAW の曲に保存された取り込みは
+    // 読み込まずに飛ばす（取り込んだ A の表示に替えない・A の変化の照合に解析を使わない）。次の保存で消える。
+    if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); reference.restoreChoice (value.reference); }
 }
 
 bool ReferenceComparisonController::trialActive() const

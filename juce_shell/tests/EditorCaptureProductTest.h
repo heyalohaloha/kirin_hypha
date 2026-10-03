@@ -25,7 +25,7 @@ private:
     std::shared_ptr<hypha::reference_audition::ACaptureAccess> access;
     juce::AudioBuffer<float> buffer{2,4800};juce::MidiBuffer midi;juce::MemoryBlock saved;
     std::function<void()> done;
-    int phase=0,blocks=0,dirty=0;double started=0;
+    int phase=0,blocks=0,dirty=0,restoredTicks=0;double started=0;
     void require(bool value,const char* why) {if(!value){std::cerr<<"Capture processor: "<<why<<std::endl;std::exit(1);}}
     void prepareHost()
     {
@@ -51,7 +51,9 @@ private:
             // Production identity/IO startup is asynchronous and can take longer on a loaded CI
             // runner. Poll the product fact until the contract's existing bounded timeout.
             access=processor->referenceAuditionSnapshot().captureAccess;if(!access)return;
-            require(access->request(hypha::reference_audition::ACaptureAccess::start),"shipping Capture start");++phase;return;
+            // 2026-10-04：製品は A を取り込まない。古い版が取り込んで DAW の曲に保存した状態を、残っている取り込みの
+            // 仕組みに直接命じて作る（製品の画面・処理からは命じない）。
+            require(access->request(hypha::reference_audition::ACaptureAccess::start),"an older version's Capture starts");++phase;return;
         }
         if(phase==1) {if(!access->active)return;clock.playing=true;++phase;}
         if(phase==2)
@@ -72,8 +74,12 @@ private:
             prepareHost();++phase;return;
         }
         const auto snapshot=processor->referenceAuditionSnapshot();if(!snapshot.captureAccess)return;
-        const auto restored=snapshot.captureAccess->snapshot();if(!restored.held)return;
-        require(restored.held->restored && restored.held->frames==192000 && !snapshot.captureAccess->active && !snapshot.bSelected,"shipping state restoration remains historical and silent");
-        close();stopTimer();std::cout<<"PASS Capture processor: free/unconnected POST, hidden editor, unchanged A, host dirty state, save/reopen"<<std::endl;done();
+        // 古い版が保存した取り込みは読み込まない（取り込んだ A の表示に替えない・照合に解析を使わない）。復元が
+        // 走るなら走る時間（1 秒）を待ってから確かめる。
+        if(++restoredTicks<10)return;
+        const auto restored=snapshot.captureAccess->snapshot();
+        require(!restored.held && !snapshot.captureAccess->capturedView && !snapshot.captureAccess->active && !snapshot.bSelected,
+                "an older version's saved Capture is skipped on reopen");
+        close();stopTimer();std::cout<<"PASS Capture processor: unchanged A while an older Capture runs, its saved Capture is skipped on reopen"<<std::endl;done();
     }
 };

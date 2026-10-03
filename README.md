@@ -668,21 +668,13 @@ definition — not the FREQ page's spectrum, whose definition reads several dB d
 over the same length, and compares at the level the role plays at. V is measured by Hypha the same
 way over the section aligned with A.
 
-**CAPTURE A** retains the original POST input's measured overview independently of V or a
-Kirin OS connection. Arm it, play the DAW from the desired start, then stop the DAW or use
-**FINISH A**. **CAPTURED / LIVE** changes the display; audio A always remains live at 0 dB.
-Capture continues without an editor. Its bounded summary is saved in the DAW session, and
-restores as historical data without starting capture, calibration, or audition.
-
-The captured range includes peak/RMS, 3-second loudness endpoints, Crest, and continuous-range
-integrated loudness/maximum true peak. A seek, missing clock/input, format change, or queue gap
-closes a partial pass; a failed retry preserves the previous successful capture. The two-hour
-limit also closes as partial, never as proof of a complete song. Revisited input changes are
-marked without rewriting the capture; unvisited regions are never certified as current.
-V comparisons require the captured pass's same-Work evidence and a separately verified live
-map. A restored capture must be revalidated before using that map. V loss leaves A available.
-Capture uses the existing two Analysis slots, shares its slot with ordinary audition, and
-excludes both kinds of Blind until the relevant capture or audible return has completed.
+A is compared live: while REF is open and the song plays, Hypha measures A for the role you
+are looking at (B, C or V) and fills V's WHOLE timeline as you play. There is no separate step
+to capture A and no VIEW switch; the page of the role you open decides what is compared, and the
+space goes to the charts. The former **CAPTURE A** was removed on 2026-10-04: it added a second
+analysis of A only to keep the overview in the DAW session. A capture saved in a session by an
+older version is skipped on reopen (it neither changes the display nor uses analysis) and is
+dropped at the next save.
 
 ## Live PRE/POST compare
 

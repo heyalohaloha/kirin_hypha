@@ -175,12 +175,6 @@ const Entry entries[] = {
 
     // Selectors and buttons.
     { "Visual comparison", u8"表示の比較対象" },
-    { "Showing captured A. Switch to live A/C without changing audio.",
-      u8"保存したAを表示中。音を変えず、今のA/C表示へ切り替えます。" },
-    { "Showing the Preset's A/C visuals. Switch to A/V without changing audio.",
-      u8"PresetのA/C比較を表示中。音を変えず、A/V表示へ切り替えます。" },
-    { "Showing A/V. Switch to the Preset's A/C visuals without changing audio.",
-      u8"A/V比較を表示中。音を変えず、PresetのA/C表示へ切り替えます。" },
     { "Temporarily call a Check Preset received from Kirin OS.",
       u8"Kirin OSから受け取ったCheck Presetを一時的に呼び出します。" },
     { "Choose the registered Version for V. A stays the current DAW input.",

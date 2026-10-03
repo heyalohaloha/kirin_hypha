@@ -408,8 +408,6 @@ void KirinHyphaEditor::layoutBodyAndFeedback()
    #endif
     feedbackStrip.setBounds (observatoryView.statusStripBounds());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (captureStatus.getBounds() != observatoryView.statusStripBounds())
-        captureStatus.setBounds (observatoryView.statusStripBounds());
    #endif
     feedbackStrip.setVisible (shown);
     // Only repair ordering when another visible body actually overtook the strip. Do not disturb

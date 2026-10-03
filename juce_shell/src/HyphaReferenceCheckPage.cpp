@@ -165,8 +165,6 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area)
         presetBox.setBounds (top.removeFromBottom (25));
         area.removeFromTop (4);
         auto row = area.removeFromTop (28);
-        viewButton.setBounds (row.removeFromRight (96).withSizeKeepingCentre (96, 22));
-        row.removeFromRight (8);
         checkTabs.setBounds (row);
         return;
     }
@@ -180,8 +178,6 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area)
     checkTabs.setBounds (area.removeFromTop (28));
     area.removeFromTop (4);
     auto row = area.removeFromTop (38).withTrimmedTop (16);
-    viewButton.setBounds (row.removeFromRight (96));
-    row.removeFromRight (6);
     if (matchButton.isVisible())
     {
         matchButton.setBounds (row.removeFromRight (96));

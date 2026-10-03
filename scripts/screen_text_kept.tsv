@@ -34,6 +34,7 @@ POST Kirin Hypha	plug-in name the host shows
 PRE Kirin Hypha	plug-in name the host shows
 Format unconfirmed	plug-in format name
 Captured A	accessibility description only
+Live A	accessibility description only
 , cue 	accessibility description only
 , selected 	accessibility description only
 KIRIN_HYPHA_OPEN_ATTACK	environment variable name

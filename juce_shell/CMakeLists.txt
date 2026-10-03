@@ -389,7 +389,6 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/PluginEditorReference.cpp
             src/PluginEditorReferenceRoles.cpp
             src/PluginEditorReferenceLowerA.cpp
-            src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
             src/HyphaAttackChrome.cpp

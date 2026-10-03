@@ -59,43 +59,10 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
     selection.captureState=controller.savedSettings().captureState; selection.capturedView=true;
     controller.restoreSettings(selection);
     require(controller.savedSettings().captureState==selection.captureState,"configured controller immediately saves pending restoration");
-    require(wait([&]{const auto s=access->snapshot();return s.held && s.held->restored;}),"Capture restored independently of B");
-    // The source worker may start observing after the first synthetic four-second window. Keep
-    // advancing the host clock instead of waiting at that boundary for audio not yet supplied.
-    for(int pass=0;pass<12 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
-    if (! wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}))
-    {
-        const auto runtime = controller.snapshot();
-        const auto b = runtime.versionSelection ? *runtime.versionSelection : runtime;
-        const auto held = access->snapshot();
-        std::cerr << "late B evidence: state=" << static_cast<int> (b.state)
-                  << " reason=" << b.rejectionCode << " selected=" << runtime.selectedVersionId
-                  << " A=" << b.aBindingAvailable << " capture=" << b.aCaptureAvailable
-                  << " alignment=" << b.alignmentPrepared << " units=" << held.unitStatus.size()
-                  << " exact=" << std::count (held.unitStatus.begin(), held.unitStatus.end(), std::uint8_t (1))
-                  << " timing=" << held.timingVerified
-                  << " everA=" << observedVersionReceipt
-                  << " bindings=" << (held.held ? held.held->bindings.size() : 0u) << '\n';
-        require (false, "later B gains a receipt only through matching four-unit A evidence");
-    }
-    const auto bound=access->snapshot().held; const auto proof=bound->bindings.front();
-    require(proof.valid() && std::abs(proof.displayGainDb+6.0205999)<0.01,"captured B uses fixed paired-block gain, not whole-song integrated difference");
-    require(proof.hostAnchor==proof.sourceAnchor && proof.probeEnd-proof.probeStart==192000,"historical source position error is zero samples");
-    ref::RuntimeACaptureAudio probe; probe.startSample=0; probe.sampleRateHz=48000; probe.channels=2; probe.frameCount=192000;
-    for(int i=0;i<192000;++i) for(int c=0;c<2;++c) probe.interleaved.push_back(fixture.audio.getSample(c,i)*0.5f);
-    require(ref::captureProbeMatches(initial->units,0,48000,2,probe),"four exact complete units prove captured probe identity");
-    probe.startSample=1; require(!ref::captureProbeMatches(initial->units,0,48000,2,probe),"one-sample moved probe is not padded to unit boundaries");
-    probe.startSample=48000; require(!ref::captureProbeMatches(initial->units,0,48000,2,probe),"identical PCM moved one second cannot reuse another captured range");
-    probe.startSample=0; probe.sampleRateHz=44100; require(!ref::captureProbeMatches(initial->units,0,48000,2,probe),"sample rate mismatch cannot create identity");
-    auto repeated=initial->units; repeated.insert(repeated.end(),initial->units.begin(),initial->units.begin()+4);
-    require(!ref::captureUniqueSequence(repeated,0),"repeated four-second sequence cannot anchor a restored timeline");
-    const auto encoded=controller.savedSettings().captureState;
-    const auto decoded=ref::decodeACapture(encoded);
-    require(decoded && decoded->bindings.size()==1 && std::abs(decoded->bindings.front().displayGainDb-proof.displayGainDb)<1e-9,"position and fixed gain persist together");
-    for(int pass=0;pass<2;++pass) feed(1.0f);
-    const auto after=access->snapshot();
-    require(after.held->bindings.front().displayGainDb<=proof.displayGainDb && after.held->bindings.front().displayGainDb>=proof.displayGainDb,"current A edits cannot rewrite historical gain");
-    require(std::find(after.unitStatus.begin(),after.unitStatus.end(),std::uint8_t(2))!=after.unitStatus.end(),"changed A notifies after restore timing confirmation");
-    require(after.held->id==initial->id && after.held->units.size()==initial->units.size(),"current edits never alter captured A");
-    std::cout<<"Capture evidence: B-free capture, later B, exact replay, fixed "<<proof.displayGainDb<<" dB, persistence, current A edits PASS\n";
+    // 2026-10-04：製品は A を取り込まない。設定（DAW の曲）に入っている取り込みは復元しない（ここで取った A のまま）。
+    juce::Thread::sleep(200);
+    require(access->snapshot().held && !access->snapshot().held->restored,"a saved Capture in the settings is not restored");
+    // 取り込みは製品で使わない（2026-10-04）。保存した取り込みとの照合・V の根拠はここまで。
+    std::cout<<"Capture evidence: B-free capture, a saved Capture is not restored PASS\n";
+
 }

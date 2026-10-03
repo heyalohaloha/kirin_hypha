@@ -124,7 +124,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onWorkflowEnd=[this]{processorRef.endReferenceWorkflow();};
     referenceView.onCapturedTonalRange=[this](double start,double end)
     {processorRef.setReferenceCaptureTonalRange(start,end);};
-    scaleRoot.addChildComponent (referenceView); scaleRoot.addChildComponent(captureStatus);
+    scaleRoot.addChildComponent (referenceView);
 }
 void KirinHyphaEditor::layoutReferenceAudition()
 {
@@ -139,7 +139,7 @@ void KirinHyphaEditor::layoutReferenceAudition()
     if (referenceView.isVisible() && ! referenceWasVisible) referenceView.toFront (false);
     referenceAccessView.setVisible (reference && access);
     if (referenceAccessView.isVisible() && ! accessWasVisible) referenceAccessView.toFront (false);
-    layoutLocalBlindProduct(); refreshCaptureControls();
+    layoutLocalBlindProduct();
     layoutBodyAndFeedback();
 }
 void KirinHyphaEditor::showReferenceInformationMenu()

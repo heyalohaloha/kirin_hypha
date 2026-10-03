@@ -134,42 +134,9 @@ static void captureLiveSharing(const juce::File& sandbox) {
     selection.captureState=controller.savedSettings().captureState; selection.capturedView=true;
     controller.restoreSettings(selection);
     require(controller.savedSettings().captureState==selection.captureState,"configured controller immediately saves pending restoration");
-    require(wait([&]{const auto s=access->snapshot();return s.held && s.held->restored;}),"Capture restored independently of B");
-    for(int pass=0;pass<8 && access->snapshot().held->bindings.empty();++pass) feed(0.5f);
-    if (! wait([&]{const auto s=access->snapshot();return s.held && !s.held->bindings.empty();}))
-    {
-        const auto runtime = controller.snapshot();
-        const auto b = runtime.versionSelection ? *runtime.versionSelection : runtime;
-        const auto held = access->snapshot();
-        std::cerr << "late B evidence: state=" << static_cast<int> (b.state)
-                  << " reason=" << b.rejectionCode << " selected=" << runtime.selectedVersionId
-                  << " A=" << b.aBindingAvailable << " capture=" << b.aCaptureAvailable
-                  << " alignment=" << b.alignmentPrepared << " units=" << held.unitStatus.size()
-                  << " bindings=" << (held.held ? held.held->bindings.size() : 0u) << '\n';
-        require (false, "later B gains a receipt only through matching four-unit A evidence");
-    }
-    const auto bound=access->snapshot().held; const auto proof=bound->bindings.front();
-    require(proof.valid() && std::abs(proof.displayGainDb+6.0205999)<0.01,"captured B uses fixed paired-block gain, not whole-song integrated difference");
-    require(proof.hostAnchor==proof.sourceAnchor && proof.probeEnd-proof.probeStart==192000,"historical source position error is zero samples");
+    // 2026-10-04：製品は A を取り込まない。設定（DAW の曲）に入っている取り込みは復元しない（ここで取った A のまま）。
+    juce::Thread::sleep(200);
+    require(access->snapshot().held && !access->snapshot().held->restored,"a saved Capture in the settings is not restored");
+    // 取り込みは製品で使わない（2026-10-04）。保存した取り込みとの照合・V の根拠はここまで。
 
-    access->capturedView=false; controller.setPresented(true);
-    for(int pass=0;pass<3;++pass) feed(0.5f,true);
-    const auto count=[](const auto& s){size_t n=0;if(s.visualTimeline)for(const auto& b:s.visualTimeline->bins) if(b.a.frames && b.pass)++n;return n;};
-    auto before=controller.snapshot();
-    std::cout << "LIVE with held A: timeline=" << bool(before.visualTimeline) << " captured=" << (before.visualTimeline && bool(before.visualTimeline->capture)) << " observing=" << (before.visualTimeline && before.visualTimeline->observing) << " measured_bins=" << count(before) << " revisit_units=" << access->snapshot().unitStatus.size() << std::endl;
-    require(count(before)==80,"LIVE receives every fixture bin while captured A is retained");
-    auto* spare=kirin_reference_visual_admission_create();
-    const bool slotWithHeld=kirin_reference_visual_admission_set(spare,true);
-    std::cout << "second POST admission while held A + LIVE=" << slotWithHeld << std::endl;
-    require(slotWithHeld,"held A plus LIVE leave the second POST analysis slot free");
-    kirin_reference_visual_admission_drop(spare);
-    selection.captureState={}; selection.capturedView=false; controller.restoreSettings(selection);
-    require(wait([&]{return !access->snapshot().held;}),"capture cleared for control");
-    controller.setPresented(true);
-    for(int pass=0;pass<3;++pass) feed(0.5f,true);
-    const auto after=controller.snapshot();
-    std::cout << "LIVE without held A: timeline=" << bool(after.visualTimeline) << " observing=" << (after.visualTimeline && after.visualTimeline->observing) << " measured_bins=" << count(after) << std::endl;
-    spare=kirin_reference_visual_admission_create();
-    std::cout << "second POST admission without held A=" << kirin_reference_visual_admission_set(spare,true) << std::endl;
-    kirin_reference_visual_admission_drop(spare);
 }

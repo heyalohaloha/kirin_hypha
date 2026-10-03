@@ -1,7 +1,6 @@
 #pragma once
 
 #include <map>
-#include "HyphaReferenceCaptureControls.h"
 
 #include <array>
 #include <cmath>
@@ -230,7 +229,7 @@ public:
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
         for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &oneButton, &twoButton,
-                              &revealButton, &endBlindButton, &actionButton, &viewButton })
+                              &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);
         tonalView.update (current.visualTimeline, presentationContext,
                           isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
@@ -301,7 +300,6 @@ private:
     GuideFit lastGuideFit;
     ComparisonView comparisonView;
     TonalView tonalView;
-    CaptureControls captureControls;
     WorkflowControls workflowControls;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
@@ -327,9 +325,7 @@ private:
     SideButton revealButton { "REVEAL" };
     SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };
-    SideButton viewButton { "VIEW A/C" };
 
-    void configureVisualNavigation();
     // H10: B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
     void configureRoles();
     void syncRoles (bool blindSession, bool workflowActive);
@@ -348,7 +344,6 @@ private:
     bool versionPage() const noexcept;
     static constexpr int versionPageRows = 40 + 4 + 28;
     juce::String versionTab { "whole" };
-    void updateVisualNavigation (bool enabled);
 
     bool selectionVisible (const juce::ComboBox&) const;
     // B and C while they cannot be heard: dimmed, with the reason on hover and after a click, and
