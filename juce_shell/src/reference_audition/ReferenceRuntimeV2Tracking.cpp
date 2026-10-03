@@ -78,6 +78,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     if (step.action == TrackingAction::stopCeiling)
     {
         currentSnapshot.tracking = TrackingState::stoppedCeiling;
+        holdCurrentGainLocked();
         return TrackingAction::stopCeiling;
     }
     bLinearGain.store (static_cast<float> (std::pow (10.0, step.gainDb / 20.0)), std::memory_order_release);
@@ -91,6 +92,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         ? state.adjustedBIntegratedLoudness - state.aIntegratedLoudness : unavailable;
     state.truePeakDeltaBMinusA = std::isfinite (state.aMaximumTruePeakDbtp) && std::isfinite (state.adjustedBMaximumTruePeakDbtp)
         ? state.adjustedBMaximumTruePeakDbtp - state.aMaximumTruePeakDbtp : unavailable;
+    holdCurrentGainLocked();
     return TrackingAction::move;
 }
 }

@@ -7,6 +7,12 @@ int ReferenceComparisonController::liveWindowBlocks (int slot) const
     return slot == 1 ? version.matchWindowBlocks() : check.matchWindowBlocks();
 }
 
+bool ReferenceComparisonController::pendingAuditionNeedsLevel() const
+{
+    const juce::ScopedLock lock (selectionLock);
+    return activePendingIntent.load (std::memory_order_acquire) != 0 && ! pendingAudition.resume;
+}
+
 int ReferenceComparisonController::pendingLiveWindowBlocks() const
 {
     int slot = 0;

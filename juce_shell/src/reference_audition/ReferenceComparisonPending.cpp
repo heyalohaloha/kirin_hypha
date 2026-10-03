@@ -18,7 +18,7 @@ void ReferenceComparisonController::clearPendingAudition()
 
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
 {
-    return activePendingIntent.load (std::memory_order_acquire) != 0;
+    return activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted();
 }
 
 void ReferenceComparisonController::appendPendingAudition (
@@ -58,6 +58,7 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
 
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive)
 {
+    if (activePendingIntent.load (std::memory_order_acquire) == 0 && !armResume()) return;
     PendingIntent intent;
     { const juce::ScopedLock lock (selectionLock); intent = pendingAudition; }
     if (!intent.view.waiting() || activePendingIntent.load (std::memory_order_acquire) != intent.intentId) return;
@@ -81,23 +82,37 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         || (intent.sawPlayback && (!state.transportPlaying || !callbackLive))
         || (state.transportPlaying && inputSafety == 0)
         || trialActive() || hasActiveWorkflow())
-    { publish (Stage::safetyChanged); return; }
+    {
+        // H5: 戻す選択は、停止・オフライン書き出し・bypass のあいだ待つだけで、取り消さない（鳴らしはしない）。
+        if (intent.resume && !trialActive() && !hasActiveWorkflow())
+        {
+            const juce::ScopedLock lock (selectionLock);
+            if (pendingAudition.intentId == intent.intentId)
+            {
+                pendingAudition.safetyEpoch = pendingSafetyEpoch.load (std::memory_order_acquire);
+                pendingAudition.sawPlayback = false;
+                pendingAudition.view.stage = Stage::play;
+            }
+            return;
+        }
+        publish (Stage::safetyChanged); return;
+    }
     const auto binding = target.visualBinding();
     if (state.state == RuntimeState::rejected || state.state == RuntimeState::disconnected
         || (state.playbackIdentity.isNotEmpty() && state.playbackIdentity != intent.identity))
-    { publish (Stage::sourceChanged); return; }
+    { if (intent.resume) dropResume(); publish (Stage::sourceChanged); return; }
     if (state.sampleRateApprovalRequired) { publish (Stage::approval, state.transportPlaying); return; }
     if (!state.transportPlaying) { publish (Stage::play); return; }
     if (!callbackLive || inputSafety != 1
         || !state.transportPositionValid || state.state != RuntimeState::ready
         || !state.auditionBuffered || !binding.source)
     { publish (Stage::checking, callbackLive); return; }
-    if (intent.view.slot == 2 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
+    if (!intent.resume && intent.view.slot == 2 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
         || (state.comparisonMode == "peak_match" && !std::isfinite (peak))))
     { publish (Stage::level, true); return; }
     RuntimeV2SourceRepository verifier (juce::File {});
     if (verifier.verifySourceRevision (*binding.source).isNotEmpty())
-    { publish (Stage::sourceChanged); return; }
+    { if (intent.resume) dropResume(); publish (Stage::sourceChanged); return; }
     // Claim once on the control thread, then use the runtime generation across gain preparation.
     // A, a source change or reconfiguration invalidates that generation before publication.
     // Bind preparation to the same condition even if a publication changes after this snapshot.
@@ -105,6 +120,14 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     const auto generation = target.normalSelectionTicket();
     auto expected = intent.intentId;
     if (!activePendingIntent.compare_exchange_strong (expected, 0, std::memory_order_acq_rel)) return;
+    if (intent.resume)
+    {
+        // 戻せなかった（ページの読み込み待ちなど）ときは、次の周期にもう一度戻そうとする。
+        if (!target.resumeHeld (generation, intent.identity)) { publish (Stage::checking, true); return; }
+        normalOutputSlot.store (intent.view.slot, std::memory_order_release);
+        publish (Stage::none, true);
+        return;
+    }
     if (!target.selectB (loudness, peak, generation, intent.identity))
     {
         const auto failure = target.snapshot().matchFailure;

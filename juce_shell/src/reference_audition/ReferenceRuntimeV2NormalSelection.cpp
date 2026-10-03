@@ -202,6 +202,7 @@ namespace hypha::reference_audition
                 currentSnapshot.comparisonFallbackOriginal =
                     prepared.comparisonFallbackOriginal;
                 currentSnapshot.tracking = prepared.tracking;
+                heldSelection = { currentSnapshot.playbackIdentity, prepared, true };  // H5
                 preparedNormalSelection.valid = false;
             }
         }

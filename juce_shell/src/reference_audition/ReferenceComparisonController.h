@@ -64,6 +64,9 @@ public:
     // H3／H4：A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。
     int liveWindowBlocks (int slot) const;
     int pendingLiveWindowBlocks() const;
+    // H5：利用者が B／C を選んだまま（停止のあいだも）。戻す保留を立てるために timer を回し続ける。
+    bool auditionHeld() const noexcept { return normalOutputSlot.load (std::memory_order_acquire) != 0; }
+    bool pendingAuditionNeedsLevel() const; // 新しい MATCH をする保留だけが A の音量を要る（戻すときは要らない）
     // H3：聴いている役が追従するなら、1 秒ごとに A の直近の履歴で gain を求め直す（メッセージスレッド）。
     bool trackingNeedsService() const noexcept;
     TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
@@ -128,7 +131,11 @@ private:
         std::uint64_t safetyEpoch = 0;
         std::uint64_t intentId = 0;
         bool sawPlayback = false;
+        bool resume = false; // H5: 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
     } pendingAudition; // selectionLock; control thread only.
+    bool resumeWanted() const;
+    bool armResume();
+    void dropResume();
     std::uint64_t pendingSequence = 0;
     std::atomic<std::uint64_t> activePendingIntent { 0 };
     std::atomic<std::uint64_t> pendingSafetyEpoch { 0 };

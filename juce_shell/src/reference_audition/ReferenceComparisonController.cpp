@@ -395,17 +395,17 @@ bool ReferenceComparisonController::selectC (double loudness, double peak) noexc
     return selected;
 }
 void ReferenceComparisonController::selectA() noexcept
-{ clearPendingAudition(); normalOutputSlot.store (0, std::memory_order_release); version.selectA(); check.selectA(); }
+{ clearPendingAudition(); dropResume(); version.selectA(); check.selectA(); }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
 {
     if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady || !beginBlindGuard()) return false;
-    check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
+    dropResume(); check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
     if (trialActive() || hasActiveWorkflow() || !snapshot().versionReady || !beginBlindGuard()) return false;
-    check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
+    dropResume(); check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::selectBlindStimulus (int value) noexcept { return version.selectBlindStimulus (value); }
@@ -413,7 +413,7 @@ bool ReferenceComparisonController::answerBlind (int value) noexcept { return ve
 bool ReferenceComparisonController::revealBlind() noexcept { return version.revealBlind(); }
 void ReferenceComparisonController::endBlind() noexcept { version.endBlind(); endBlindGuard(); }
 void ReferenceComparisonController::suspendAudition() noexcept
-{ clearPendingAudition(); version.suspendAudition(); check.suspendAudition(); }
+{ clearPendingAudition(); dropResume(); version.suspendAudition(); check.suspendAudition(); }
 
 void ReferenceComparisonController::observeTransport (std::int64_t position, bool valid, bool playing) noexcept
 {

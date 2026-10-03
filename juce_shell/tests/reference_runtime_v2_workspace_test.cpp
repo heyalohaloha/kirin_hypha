@@ -315,18 +315,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      "background workspace polling must not move the established B anchor");
             controller.selectA();
 
+            // H5: サンプルレートが違っても承認を待たず、試聴コピーだけを変換する（元のファイルは変えない）。
             controller.configure (v2Identity, 44'100.0, 2);
-            for (int attempt = 0; attempt < 400
-                 && ! controller.snapshot().sampleRateApprovalRequired; ++attempt)
-                juce::Thread::sleep (10);
-            runtime = controller.snapshot();
-            require (runtime.sampleRateApprovalRequired
-                     && runtime.sourceSampleRateHz == 48'000
-                     && runtime.hostSampleRateHz == 44'100
-                     && ! runtime.bSelected,
-                     "sample-rate mismatch must hold live A and expose one bounded approval");
-            require (controller.approveSampleRateConversion(),
-                     "one approval must authorize the exact source-rate and host-rate pair");
             for (int attempt = 0; attempt < 400; ++attempt)
             {
                 const auto state = controller.snapshot();
@@ -337,8 +327,11 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             runtime = controller.snapshot();
             require (runtime.state == ref::RuntimeState::ready
                      && runtime.auditionBuffered
-                     && ! runtime.sampleRateApprovalRequired,
-                     "approved sample-rate conversion must prepare B without changing the source file");
+                     && ! runtime.sampleRateApprovalRequired
+                     && runtime.sourceSampleRateHz == 48'000
+                     && runtime.hostSampleRateHz == 44'100
+                     && ! runtime.bSelected,
+                     "a sample-rate mismatch converts only the audition copy, without asking and without starting B");
 
             auto measuredSourceValue = makeRuntimeV2Source (source, exactFileHash, pcmHash);
             addRuntimeV2MeasurementSummary (measuredSourceValue, -14.0, -3.0);

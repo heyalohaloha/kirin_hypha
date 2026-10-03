@@ -130,6 +130,7 @@ bool ReferenceComparisonController::startWorkflow (
     std::shared_ptr<const WorkflowDefinition> definition, int itemIndex)
 {
     if (definition == nullptr || definition->items.empty() || trialActive()) return false;
+    dropResume();  // H5: ワークフローのあとに前の選択へ勝手に戻らない
     const auto normal = check.savedChoice();
     {
         const juce::ScopedLock lock (selectionLock);
