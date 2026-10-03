@@ -13,7 +13,7 @@ inline void paintReferenceLegend (juce::Graphics& g, const juce::String& detail,
     auto parts = juce::StringArray::fromTokens (detail, "/", "");
     parts.trim();
     const bool sourceLegend = parts.size() >= 2 && parts[0].startsWith ("A")
-        && (parts[1].startsWith ("B") || parts[1].startsWith ("C"));
+        && (parts[1].startsWith ("B") || parts[1].startsWith ("C") || parts[1].startsWith ("V"));
     if (!sourceLegend)
     {
         g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));

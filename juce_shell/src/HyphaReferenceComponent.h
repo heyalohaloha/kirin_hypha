@@ -58,6 +58,12 @@ inline double unavailableValue() noexcept
     return std::numeric_limits<double>::quiet_NaN();
 }
 
+// H10: A／B／C／V の役の文字。slot 1 = V（Version）、2 = C（Check）、3 = B（REF、B セットの曲）。
+inline const char* roleLetter (int slot) noexcept
+{
+    return slot == 1 ? "V" : slot == 2 ? "C" : slot == 3 ? "B" : "A";
+}
+
 struct SelectionOption
 {
     juce::String id;
@@ -137,6 +143,11 @@ struct State
     bool candidatePreparationPending = false;
     juce::String actionText;
     reference_audition::WorkflowView workflow;
+    // H10: B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
+    bool referenceReady = false, referenceArmable = false;
+    SourceStep referenceStep = SourceStep::waitingForKirinOs;
+    std::vector<SelectionOption> songSets, songs;
+    juce::String songSetId, songId;
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -169,6 +180,12 @@ inline bool canHearCheck (const State& state) noexcept
         && state.libraryReceived && state.aAvailable && state.checkReady;
 }
 
+inline bool canHearReference (const State& state) noexcept
+{
+    return state.separateComparisons && state.osAccess != os_access::State::unowned
+        && state.libraryReceived && state.aAvailable && state.referenceReady;
+}
+
 class Component final : public juce::Component
 {
 public:
@@ -180,7 +197,7 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
-        for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
+        for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &oneButton, &twoButton,
                               &revealButton, &endBlindButton, &actionButton, &viewButton })
             button->setPresentationContext (next);
         tonalView.update (current.visualTimeline, presentationContext,
@@ -192,6 +209,8 @@ public:
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
     std::function<void()> onSelectC;
+    std::function<void()> onSelectRef;                                    // H10: B（REF）
+    std::function<void(const juce::String&)> onSelectSong, onSelectSongSet; // H10: B の曲と B SET
     std::function<void(const juce::String&)> onSelectVersion;
     std::function<void(const juce::String&)> onSelectPreset;
     std::function<void(const juce::String&)> onSelectCheck;
@@ -260,8 +279,10 @@ private:
     juce::ComboBox cueBox;
     std::array<juce::Label, 5> selectionReadouts;
     SideButton aButton { "A" };
-    SideButton bButton { "B" };
+    SideButton bButton { "V" };   // V（Version）。ID は既存の契約のため "reference-b" のまま
     SideButton cButton { "C" };
+    SideButton refButton { "B" }; // H10: B（REF、B セットの曲）
+    juce::ComboBox songSetBox, songBox;
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
@@ -271,6 +292,10 @@ private:
     SideButton viewButton { "VIEW A/C" };
 
     void configureVisualNavigation();
+    // H10: B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
+    void configureRoles();
+    void syncRoles (bool blindSession, bool workflowActive);
+    bool explainReference();
     void updateVisualNavigation (bool enabled);
 
     bool selectionVisible (const juce::ComboBox&) const;

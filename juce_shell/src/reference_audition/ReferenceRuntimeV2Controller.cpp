@@ -141,7 +141,7 @@ namespace hypha::reference_audition
             result.auditionBuffered = false;
         result.blindReveal = blindState.phase == BlindPhase::revealed
             ? (blindState.revealedStimulusOneSide == 1
-                ? "1 = B  /  2 = A" : "1 = A  /  2 = B")
+                ? "1 = V  /  2 = A" : "1 = A  /  2 = V")
             : juce::String {};
         return result;
     }

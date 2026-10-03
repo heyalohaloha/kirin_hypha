@@ -57,8 +57,8 @@ Component::Component()
     cueBox.setLookAndFeel (&selectorLookAndFeel);
     configureSelector (presetBox, "reference-preset", "Check Preset",
                        "Temporarily call a Check Preset received from Kirin OS.");
-    configureSelector (versionBox, "reference-version", "B Version",
-                       "Choose the registered Version for B. A stays the current DAW input.");
+    configureSelector (versionBox, "reference-version", "V Version",
+                       "Choose the registered Version for V. A stays the current DAW input.");
     versionBox.setTextWhenNothingSelected ("Choose Version");
     configureSelector (checkBox, "reference-check", "Check",
                        "Temporarily call a Check received from Kirin OS.");
@@ -76,7 +76,7 @@ Component::Component()
     endBlindButton.setComponentID ("reference-blind-end");
     actionButton.setComponentID ("reference-action");
     aButton.setTitle ("Audition A");
-    bButton.setTitle ("Audition B");
+    bButton.setTitle ("Audition V");
     cButton.setTitle ("Audition C Check");
     blindButton.setTitle ("Start Version Blind");
     oneButton.setTitle ("Audition blind source 1");
@@ -84,12 +84,12 @@ Component::Component()
     revealButton.setTitle ("Reveal blind sources");
     endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
-    bButton.setTooltip ("Audition the Kirin OS prepared Reference (B).");
+    bButton.setTooltip ("Audition the Version from Kirin OS (V).");
     blindButton.setTooltip (
         "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
     oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
     twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
-    revealButton.setTooltip ("Reveal which source is A and which source is B.");
+    revealButton.setTooltip ("Reveal which source is A and which source is V.");
     endBlindButton.setTooltip ("End Blind Compare and return to live A.");
     actionButton.setTooltip ("Continue with the safe next action.");
     presetBox.onChange = [this]
@@ -145,6 +145,7 @@ Component::Component()
     addChildComponent (revealButton);
     addChildComponent (endBlindButton);
     addChildComponent (actionButton);
+    configureRoles();
 }
 
 void Component::setState (State next)
@@ -211,11 +212,12 @@ void Component::setState (State next)
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
     cueBox.setVisible ((showDetailedSelectors || (current.separateComparisons && !blindSession))
         && !workflowActive && !current.cues.empty());
+    syncRoles (blindSession, workflowActive);
     updateVisualNavigation (!blindSession && !workflowActive);
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (current.sampleRateApprovalRequired);
     actionButton.setTooltip (current.sampleRateApprovalRequired
-        ? "Approve " + juce::String (current.sampleRateApprovalSlot == 1 ? "B " : "C ") + juce::String (current.sourceSampleRateHz / 1000.0, 1) + " to " + juce::String (current.hostSampleRateHz / 1000.0, 1) + " kHz for the audition copy only. A stays unchanged."
+        ? "Approve " + juce::String (current.sampleRateApprovalSlot == 1 ? "V " : "C ") + juce::String (current.sourceSampleRateHz / 1000.0, 1) + " to " + juce::String (current.hostSampleRateHz / 1000.0, 1) + " kHz for the audition copy only. A stays unchanged."
         : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
         : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
@@ -226,7 +228,7 @@ void Component::setState (State next)
         ||current.workflow.mode!=reference_audition::WorkflowView::Mode::normal));
     comparisonView.setVisible (! guideShown && current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")
-        : current.versionStep == SourceStep::ready ? juce::String ("Preparing B overview")
+        : current.versionStep == SourceStep::ready ? juce::String ("Preparing V overview")
         : stepText (current.versionStep);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext,
                            blindSession, current.visualPreferences, emptyB);
@@ -269,9 +271,10 @@ void Component::paint (juce::Graphics& g)
             else bounds = bounds.withX (bounds.getX() - 14).withWidth (12);
             text_style::drawEllipsized (g, text, bounds, juce::Justification::centredLeft);
         };
-        label (versionBox, detailedLayout() ? "B / VERSION" : "B");
-        label (checkBox, detailedLayout() ? "C / CHECK" : "C");
-        if (detailedLayout() && ! guideShown) paintSourceHints (g);
+        const bool referenceView = current.comparisonSlot == 3;
+        if (referenceView) { label (songSetBox, detailedLayout() ? "B SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        else { label (versionBox, detailedLayout() ? "V / VERSION" : "V"); label (checkBox, detailedLayout() ? "C / CHECK" : "C"); }
+        if (detailedLayout() && ! guideShown && ! referenceView) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
@@ -321,8 +324,8 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredLeft);
         }
     }
-    int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 3 : 2)
-        + (current.separateComparisons ? 6 : 3);
+    int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 4 : 2)
+        + (current.separateComparisons ? 9 : 3);
     if (isBlindSession (current.blindPhase))
         controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
                                          : (detailedLayout() ? 62 : 48);
@@ -411,8 +414,8 @@ void Component::paint (juce::Graphics& g)
     }
     auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
         ? "REVEALED / " + current.blindReveal : current.status;
-    const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
-    const auto audibleSide = current.separateComparisons && current.audibleComparisonSlot == 2 ? "C" : "B";
+    const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
+    const auto audibleSide = current.separateComparisons ? roleLetter (current.audibleComparisonSlot) : "B";
     if (current.bSelected && ! blindRevealed)
         statusText = juce::String { audibleSide } + juce::String (juce::CharPointer_UTF8 ("  /  PRE Δ PAUSED"));
     auto availableStatusArea = statusArea;

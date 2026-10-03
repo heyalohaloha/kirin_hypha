@@ -50,11 +50,11 @@ inline void verifyGuideStates()
     require (! shown.shown && shown.version == Step::chooseVersion && shown.check == Step::ready,
              "one of B and C audible: the comparison stays and only the other explains itself");
     shown = guide (named ("no_check"));
-    require (shown.shown && shown.heading == "Choose a Version for B"
+    require (shown.shown && shown.heading == "Choose a Version for V"
                  && shown.check == Step::enableCheck,
              "neither audible while playing: B's step first, C's step in its row");
     shown = guide (named ("approve_b_rate"));
-    require (shown.shown && shown.heading == "Approve B conversion"
+    require (shown.shown && shown.heading == "Approve V conversion"
                  && shown.version == Step::approveSampleRate,
              "B's explicit conversion approval is a next step, not Preparing");
     shown = guide (named ("approve_c_rate"));
@@ -78,14 +78,14 @@ inline void verifyGuideStates()
     state.versionReady = false;
     require (guide (state).version == Step::loadingAudio,
              "a B whose runtime is ready but whose buffer is not yet confirmed names buffering");
-    require (reference_ui::unavailableText (named ("no_library"), true) == "B: Open Kirin OS"
+    require (reference_ui::unavailableText (named ("no_library"), true) == "V: Open Kirin OS"
                  && reference_ui::unavailableText (named ("receiving"), false)
                         == "C: Waiting for Kirin OS"
-                 && reference_ui::unavailableText (named ("stopped"), true) == "B: Choose a Version"
+                 && reference_ui::unavailableText (named ("stopped"), true) == "V: Choose a Version"
                  && reference_ui::unavailableText (named ("stopped"), false)
                         == "C: Ready when the DAW plays"
                  && reference_ui::unavailableText (named ("approve_b_rate"), true)
-                        == "B: Approve rate conversion",
+                        == "V: Approve rate conversion",
              "the reasons on hover and after a click name the source and its step");
 }
 
@@ -171,7 +171,7 @@ inline void verifyIndependentRateApproval()
     reference_ui::runtime_view::setSourceSteps (state, comparison);
     require (state.versionStep == reference_ui::SourceStep::noMatchingPassage
                  && reference_ui::unavailableText (state, true)
-                        == "B: No verified match here; check Version",
+                        == "V: No verified match here; check Version",
              "a completed non-match must explain the selected Version instead of asking to wait");
 }
 
@@ -189,11 +189,11 @@ inline void verifyUnavailableButtons()
     auto* c = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-c"));
     require (b != nullptr && c != nullptr, "B and C buttons");
     component.setState (named ("no_version"));
-    require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "B: Choose a Version"
+    require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "V: Choose a Version"
                  && c->getTooltip().isEmpty(),
              "an unready B stays clickable and names its step on hover; a ready C needs no reason");
     b->onClick();
-    require (explained == "B: Choose a Version" && ! selectedB,
+    require (explained == "V: Choose a Version" && ! selectedB,
              "a click on an unready B explains instead of selecting");
     c->onClick();
     require (selectedC, "a ready C is selected as before");

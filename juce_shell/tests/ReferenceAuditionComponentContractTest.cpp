@@ -8,6 +8,7 @@
 #include "ReferenceTonalViewContractTest.h"
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceVisualNavigationTest.h"
+#include "ReferenceAbcvRolesTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -453,7 +454,7 @@ void verifyReferenceAuditionComponentContract()
     verifyMetricPresentationWorkflow();
     verifyPairPreviewUiContract();
     verifyReferenceSelectionWorkflow (readyState());
-    verifyReferenceGuideContract();
+    verifyReferenceGuideContract(); verifyReferenceAbcvRoles();
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});

@@ -43,7 +43,7 @@ void ComparisonView::ViewButton::paintButton (juce::Graphics& g, bool highlighte
 ComparisonView::ComparisonView()
 {
     setComponentID ("reference-comparison-view"); setWantsKeyboardFocus (true);
-    setTitle ("A and B comparison. Arrows move the view; Shift and arrows resize it; Home follows playback.");
+    setTitle ("A and V comparison. Arrows move the view; Shift and arrows resize it; Home follows playback.");
     for (auto* button : { &follow, &loudness, &crest, &tonal }) addAndMakeVisible (*button);
     follow.setComponentID ("reference-follow"); loudness.setComponentID ("reference-loudness");
     crest.setComponentID ("reference-crest"); tonal.setComponentID ("reference-tonal");
@@ -99,7 +99,7 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
     if (data && following && position >= 0 && position <= data->duration())
         setRange (position - 6.0, position + 6.0);
     if (data && data->binding.aligned) lastVerifiedView = data->binding;
-    setTitle ("A and B comparison. Arrows move; Shift and arrows resize; Home follows playback.");
+    setTitle ("A and V comparison. Arrows move; Shift and arrows resize; Home follows playback.");
     resized(); repaint();
 }
 void ComparisonView::saveView()
@@ -206,22 +206,22 @@ void ComparisonView::rebuild()
 juce::String ComparisonView::valuesAt (double seconds, bool compact) const
 {
     if(data && data->capture) return capturedValuesAt(seconds,compact);
-    if (!data || !data->binding.aligned || data->hop <= 0 || seconds < 0 || seconds > data->duration()) return "A  --    B  --";
+    if (!data || !data->binding.aligned || data->hop <= 0 || seconds < 0 || seconds > data->duration()) return "A  --    V  --";
     const auto& source = *data->binding.source;
     // Values belong to completed bin endpoints; no interpolation or mean LUFS.
     const auto raw = seconds >= data->duration() ? double (data->bins.size()) - 1.0
         : std::floor (seconds * source.audio.sampleRateHz / data->hop) - 1.0;
-    if (raw < 0 || raw >= double (data->bins.size())) return "A  --    B  --";
+    if (raw < 0 || raw >= double (data->bins.size())) return "A  --    V  --";
     const auto& bin = data->bins[size_t (raw)];
-    if (!bin.pass || bin.pass != data->pass) return "A  --    B  --";
+    if (!bin.pass || bin.pass != data->pass) return "A  --    V  --";
     const double a = showingCrest ? bin.a.crest_db : bin.a.short_lufs;
     const double b = showingCrest ? bin.b.crest_db : bin.b.short_lufs + data->binding.gainDb;
-    if (!std::isfinite (a) || !std::isfinite (b)) return "A  --    B  --";
-    if (compact) return "B-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
+    if (!std::isfinite (a) || !std::isfinite (b)) return "A  --    V  --";
+    if (compact) return "V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
         + (showingCrest ? " dB / CREST" : " LU / 3s");
     const auto endpoint = double (std::min (source.audio.totalSampleFrames, (std::int64_t (raw)+1)*data->hop)) / source.audio.sampleRateHz;
-    return juce::String (endpoint, 1) + "s  A " + juce::String (a, 1) + "   B " + juce::String (b, 1)
-        + "   B-A " + (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU");
+    return juce::String (endpoint, 1) + "s  A " + juce::String (a, 1) + "   V " + juce::String (b, 1)
+        + "   V-A " + (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU");
 }
 void ComparisonView::paint (juce::Graphics& g)
 {
@@ -232,7 +232,7 @@ void ComparisonView::paint (juce::Graphics& g)
     const bool detail = !graph.isEmpty();
     const auto heading = data && data->capture ? juce::String("CAPTURED A / ")+juce::Time(data->capture->created).formatted("%H:%M")
         + (data->binding.aligned ? (data->binding.matched ? " / B " + juce::String(data->binding.gainDb,1) + " dB" : " / ORIGINAL LEVELS") : "") : data && data->binding.aligned
-        ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "B OVERVIEW";
+        ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "V OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
     if (!data || (!data->capture && (!data->binding.overview || !data->binding.overview->waveform)))
     { text_style::drawEllipsized (g, emptyMessage, getLocalBounds().reduced (20), juce::Justification::centred); return; }
@@ -240,7 +240,7 @@ void ComparisonView::paint (juce::Graphics& g)
     if (waveformCache.isValid()) g.drawImageAt (waveformCache, int(waveform.getX()), int(waveform.getY()));
     g.setColour (COL_TEXT_SECONDARY);
     if (waveform.getHeight() >= 24) text_style::drawText (g, "A", juce::Rectangle<float> (4, waveform.getY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
-    if (waveform.getHeight() >= 24) text_style::drawText (g, "B", juce::Rectangle<float> (4, waveform.getCentreY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
+    if (waveform.getHeight() >= 24) text_style::drawText (g, "V", juce::Rectangle<float> (4, waveform.getCentreY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
     const auto duration = data->duration();
     if (duration > 0)
     {

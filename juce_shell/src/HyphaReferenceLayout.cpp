@@ -5,7 +5,7 @@ namespace hypha::reference_ui
 void Component::resized()
 {
     const int comparisonWidth = comparisonButtonWidth();
-    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 3 : 2) - 39, 6, 24, 18);
+    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 4 : 2) - 42, 6, 24, 18);
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     const int buttonWidth = detailedLayout() ? 62 : 48;
@@ -22,8 +22,9 @@ void Component::resized()
     }
     else
     {
-        if (current.separateComparisons) place (cButton, comparisonWidth);
+        // A B C V（左から）。右から V・C・B・A の順に置く（H10）。
         place (bButton, comparisonWidth);
+        if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
         place (aButton, comparisonWidth);
     }
     if (current.separateComparisons && ! blindSession)
@@ -42,6 +43,7 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
+        songSetBox.setBounds (versionBox.getBounds()); songBox.setBounds (checkBox.getBounds()); // B の画面では同じ場所
         auto top = area.removeFromTop (selectionVisible (presetBox) || viewButton.isVisible()
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
         if (viewButton.isVisible())

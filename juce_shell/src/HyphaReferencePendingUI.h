@@ -12,6 +12,16 @@ inline bool canQueueSource (const State& state, bool version)
             || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
 }
 
+// H10: B（REF）も止まっているあいだに押せば、再生で鳴る。
+inline bool canQueueReference (const State& state)
+{
+    return state.separateComparisons && state.libraryReceived && !state.transportPlaying
+        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase)
+        && state.referenceArmable
+        && (state.workflow.mode == reference_audition::WorkflowView::Mode::normal
+            || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
+}
+
 inline juce::String pendingAuditionReason (const State& state)
 {
     using Stage = reference_audition::PendingAuditionView::Stage;
@@ -20,7 +30,8 @@ inline juce::String pendingAuditionReason (const State& state)
         case Stage::play: return "PLAY DAW";
         case Stage::checking:
         {
-            const auto step = state.pendingAudition.slot == 1 ? state.versionStep : state.checkStep;
+            const auto step = state.pendingAudition.slot == 1 ? state.versionStep
+                            : state.pendingAudition.slot == 3 ? state.referenceStep : state.checkStep;
             return step == SourceStep::ready ? "VERIFYING PLAYBACK" : stepText (step);
         }
         case Stage::approval: return "APPROVE CONVERSION";
@@ -37,9 +48,8 @@ inline juce::String pendingAuditionReason (const State& state)
 
 inline juce::String pendingAuditionHeading (const State& state)
 {
-    return state.pendingAudition.waiting()
-        ? (state.pendingAudition.slot == 1 ? "B WAIT" : "C WAIT")
-        : (state.pendingAudition.slot == 1 ? "B STOPPED" : "C STOPPED");
+    return juce::String (roleLetter (state.pendingAudition.slot))
+        + (state.pendingAudition.waiting() ? " WAIT" : " STOPPED");
 }
 
 inline juce::String pendingAuditionText (const State& state)
