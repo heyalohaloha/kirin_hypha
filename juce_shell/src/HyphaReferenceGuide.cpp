@@ -199,13 +199,15 @@ void Component::syncSourceButtons()
     cButton.setButtonText (waiting && current.pendingAudition.slot == 2 ? "C..." : "C");
     bButton.setAttention (waiting && current.pendingAudition.slot == 1);
     cButton.setAttention (waiting && current.pendingAudition.slot == 2);
+    // H10: 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
+    const bool small = current.separateComparisons && ! current.blindLargeScreen;
     bButton.setEnabled (current.separateComparisons || versionAudible);
-    bButton.setReady (! current.separateComparisons || versionAudible || bQueue);
-    bButton.setTooltip (bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
+    bButton.setReady (! small && (! current.separateComparisons || versionAudible || bQueue));
+    bButton.setTooltip (small ? "Open V at 300%" : bQueue ? "Queue V for DAW playback. A stays live until ready; press A to cancel."
         : ! current.separateComparisons || versionAudible
         ? "Audition the Version from Kirin OS (V)." : unavailableText (current, true));
-    cButton.setReady (checkAudible || cQueue);
-    cButton.setTooltip (cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
+    cButton.setReady (! small && (checkAudible || cQueue));
+    cButton.setTooltip (small ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
         : checkAudible ? juce::String() : unavailableText (current, false));
     guideShown = guide (current).shown;
 }

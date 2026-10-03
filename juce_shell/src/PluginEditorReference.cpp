@@ -276,7 +276,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
             state.liveSpectrumMaximumHz = spectrum.max_hz;
         }
     }
-    const auto& viewed = runtime.comparisonSlot == 1 ? versionSelection : checkSelection;
+    const auto& viewed = runtime.comparisonSlot == 1 ? versionSelection : runtime.comparisonSlot == 3 ? referenceSelection : checkSelection;
     if (viewed.bSelected
         || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive)
     {

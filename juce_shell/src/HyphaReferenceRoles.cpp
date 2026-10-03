@@ -56,6 +56,16 @@ void Component::configureRoles()
     addChildComponent (songList);
 }
 
+// H10: 300% 未満の C と V は薄く描き、押すと 300% に広げてその役の画面を開く（Blind と同じ動き）。
+// 鳴らすのは 300% でもう一度押したとき。広げる前に音は変えない。
+bool Component::openLarge (int slot)
+{
+    if (! current.separateComparisons || current.blindLargeScreen || isBlindSession (current.blindPhase)) return false;
+    if (onSelectVisualSlot) onSelectVisualSlot (slot);
+    if (onOpenLarge) onOpenLarge (slot);
+    return true;
+}
+
 void Component::syncRoles (bool blindSession, bool workflowActive)
 {
     const bool waiting = current.pendingAudition.waiting() && current.pendingAudition.slot == 3;
@@ -70,8 +80,11 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
     syncSelectionControl (songSetBox, current.songSets, current.songSetId);
     syncSelectionControl (songBox, current.songs, current.songId);
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
-    songSetBox.setVisible (referenceView && ! workflowActive && ! current.songSets.empty());
+    // H10: 100% の B は曲名・gain・状態だけ。B SET は出さず、曲の切替は 125% 以上。
+    const bool glance = presentationContext.density == observatory::Density::compact;
+    songSetBox.setVisible (referenceView && ! glance && ! workflowActive && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! workflowActive && ! current.songs.empty());
+    songBox.setEnabled (songBox.isEnabled() && ! glance);
     // H11: 300% 以上の B の画面は、左に曲の一覧、右に Balance。
     songList.setVisible (referenceView && detailedLayout() && ! workflowActive && ! current.songs.empty());
     std::vector<SongList::Row> rows;

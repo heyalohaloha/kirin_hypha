@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferencePendingAudition.h"
+#include "ReferenceTrackingState.h"
 
 #include <atomic>
 #include <functional>
@@ -49,9 +50,6 @@ namespace hypha::reference_audition
     };
 
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
-    // H3／H4：音量合わせの動き。B・V は A の直近の窓に追従し、C は Match の後に固定する。
-    // stoppedCeiling は追従が上限（True Peak）に当たって止まり、直前の gain を保っている状態。
-    enum class TrackingState { none, following, fixed, stoppedCeiling };
 
     struct Snapshot
     {
