@@ -178,7 +178,7 @@ void verifyReferenceAuditionComponentContract()
     auto* a = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-a"));
     auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-b"));
     auto* startBlind = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind"));
+        findReferenceControl (component, "reference-blind"));
     auto* compactCandidate = dynamic_cast<juce::ComboBox*> (
         component.findChildWithID ("reference-candidate"));
     auto* compactCheck = dynamic_cast<juce::ComboBox*> (
@@ -197,8 +197,9 @@ void verifyReferenceAuditionComponentContract()
                        && reveal != nullptr
                        && endBlind != nullptr
                        && component.findChildWithID ("reference-blind-answer") == nullptr);
+    const auto blindBounds = boundsWithin (component, *startBlind);
     KIRIN_REF_REQUIRE (startBlind->getButtonText() == "BLIND 300%"
-                       && startBlind->getY() > b->getBottom());
+                       && blindBounds.getY() > b->getBottom());
     KIRIN_REF_REQUIRE (compactCheck != nullptr && compactCheck->isVisible()
                        && compactCandidate != nullptr && compactCandidate->isVisible()
                        && compactCheck->getTitle() == "Check"
@@ -206,7 +207,7 @@ void verifyReferenceAuditionComponentContract()
                        && compactCheck->getY() == compactCandidate->getY()
                        && compactCheck->getRight() < compactCandidate->getX()
                        && compactCandidate->getY() > b->getBottom()
-                       && compactCandidate->getBottom() < startBlind->getY());
+                       && compactCandidate->getBottom() < blindBounds.getY());
     auto* compactPreset = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-preset"));
     KIRIN_REF_REQUIRE (compactPreset != nullptr && compactPreset->isVisible()
                        && compactPreset->getBottom() <= compactCheck->getY());
@@ -369,7 +370,7 @@ void verifyReferenceAuditionComponentContract()
     approval.actionText = "USE 44.1 TO 48.0 kHz";
     component.setState (approval);
     auto* action = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-action"));
+        findReferenceControl (component, "reference-action"));
     KIRIN_REF_REQUIRE (action != nullptr && action->isVisible());
     action->onClick();
     KIRIN_REF_REQUIRE (requestedAction);

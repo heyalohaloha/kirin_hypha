@@ -207,6 +207,9 @@ private:
 #endif
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     void layoutBodyAndFeedback();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    void placeReferenceStatus();  // 300% の B・C・V の状態の行を足元の段へ
+   #endif
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);

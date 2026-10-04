@@ -28,8 +28,9 @@ StatusLine referenceStatusLine (const State&);
 juce::String preparationWord (const reference_audition::RuntimeSongPreparation&);
 juce::String preparationLine (const reference_audition::RuntimeSongPreparation&);
 bool preparationFailed (const reference_audition::RuntimeSongPreparation&) noexcept;
-// 鳴っている役の gain の後ろに添える合わせ方（ORIGINAL・MATCH UNAVAILABLE・FOLLOWING・FOLLOW STOPPED・MATCHED）。
-juce::String gainReadoutState (const State&);
+// 鳴っている役の gain の読み（「V +1.5 dB」。承認して A を下げているなら、その量を足した後の gain）。追従・固定・
+// 元の音量は状態の文が言うので添えない。合わせられないときだけ MATCH UNAVAILABLE を添える。
+juce::String gainReadout (const State&);
 juce::Colour statusColour (StatusKind) noexcept;
 void paintStatusDot (juce::Graphics&, juce::Rectangle<int> line, StatusKind);
 }

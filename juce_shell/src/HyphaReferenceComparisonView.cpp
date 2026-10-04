@@ -5,6 +5,8 @@
 #include "HyphaTextStyle.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <utility>
 namespace hypha::reference_ui
 {
 namespace
@@ -214,16 +216,33 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
     const auto raw = seconds >= data->duration() ? double (data->bins.size()) - 1.0
         : std::floor (seconds * source.audio.sampleRateHz / data->hop) - 1.0;
     if (raw < 0 || raw >= double (data->bins.size())) return "A  --    V  --";
-    const auto& bin = data->bins[size_t (raw)];
-    if (!bin.pass || bin.pass != data->pass) return "A  --    V  --";
-    const double a = showingCrest ? bin.a.crest_db : bin.a.short_lufs;
-    const double b = showingCrest ? bin.b.crest_db : bin.b.short_lufs + data->binding.gainDb;
-    if (!std::isfinite (a) || !std::isfinite (b)) return "A  --    V  --";
-    if (compact) return "V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
-        + (showingCrest ? " dB / CREST" : " LU / 3s");
-    const auto endpoint = double (std::min (source.audio.totalSampleFrames, (std::int64_t (raw)+1)*data->hop)) / source.audio.sampleRateHz;
-    return juce::String (endpoint, 1) + "s  A " + juce::String (a, 1) + "   V " + juce::String (b, 1)
-        + "   V-A " + (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU");
+    const auto valuesOf = [this] (size_t index)
+    {
+        const auto& bin = data->bins[index];
+        const auto none = std::numeric_limits<double>::quiet_NaN();
+        if (!bin.pass || bin.pass != data->pass) return std::pair { none, none };
+        return std::pair { bin.a.frames ? (showingCrest ? bin.a.crest_db : bin.a.short_lufs) : none,
+                           bin.b.frames ? (showingCrest ? bin.b.crest_db : bin.b.short_lufs + data->binding.gainDb) : none };
+    };
+    // 2026-10-04（Daisuke「A と V が両方表示された方が便利」）：その点に A か V が無ければ、見ている範囲の中の直前の
+    // 両方そろう点を出す（時刻を添えるので、どの点かは分かる）。それも無ければ、ある方だけを出す。
+    auto index = size_t (raw);
+    auto [a, b] = valuesOf (index);
+    if (!std::isfinite (a) || !std::isfinite (b))
+    {
+        const auto first = std::max (0.0, std::floor (start * source.audio.sampleRateHz / data->hop) - 1.0);
+        for (auto i = double (index) - 1.0; i >= first; i -= 1.0)
+            if (const auto [pa, pb] = valuesOf (size_t (i)); std::isfinite (pa) && std::isfinite (pb))
+            { index = size_t (i); a = pa; b = pb; break; }
+    }
+    const bool both = std::isfinite (a) && std::isfinite (b);
+    if (!std::isfinite (a) && !std::isfinite (b)) return "A  --    V  --";
+    if (compact) return both ? "V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
+        + (showingCrest ? " dB / CREST" : " LU / 3s") : juce::String ("A  --    V  --");
+    const auto endpoint = double (std::min (source.audio.totalSampleFrames, (std::int64_t (index)+1)*data->hop)) / source.audio.sampleRateHz;
+    const auto value = [] (double v) { return std::isfinite (v) ? juce::String (v, 1) : juce::String ("--"); };
+    return juce::String (endpoint, 1) + "s  A " + value (a) + "   V " + value (b)
+        + (both ? "   V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU") : juce::String());
 }
 void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views)
 {
@@ -280,6 +299,14 @@ void ComparisonView::paintDetails (juce::Graphics& g)
     g.setColour (COL_TEXT_SECONDARY);
     const auto rangeText = timeText (start) + " - " + timeText (end);
     text_style::drawText (g, rangeText, juce::Rectangle<float> (float (getWidth()-110), graph.getY()-23, 102, 18), juce::Justification::centredRight);
+    // 凡例（A は金、V は水色）。同じ値でも 2 本とも見えるよう、A は太く下に、V は細く上に描く。
+    auto legend = juce::Rectangle<float> (float (getWidth()-110-96), graph.getY()-23, 92, 18);
+    for (const auto& [name, colour] : { std::pair { "A", COL_FLORA_BR }, std::pair { "V", COL_SPECTRUM_DELTA_BR } })
+    {
+        auto cell = legend.removeFromLeft (46);
+        g.setColour (colour); g.fillRect (cell.removeFromLeft (16).withSizeKeepingCentre (16, name[0] == 'A' ? 2.6f : 1.4f));
+        g.setColour (COL_TEXT_SECONDARY); text_style::drawText (g, name, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
+    }
     auto chart = graph; chart.removeFromBottom (18);
     double minimum = showingCrest ? 0.0 : -24.0, maximum = showingCrest ? 18.0 : -6.0;
     double low = std::numeric_limits<double>::infinity(), high = -low;
@@ -320,7 +347,8 @@ void ComparisonView::paintDetails (juce::Graphics& g)
                 if (open && pass == pair.pass) path.lineTo (x,y); else path.startNewSubPath (x,y);
                 open = true; pass = pair.pass;
             }
-            g.setColour (side == 0 ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR); g.strokePath (path, juce::PathStrokeType (1.2f));
+            g.setColour (side == 0 ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR);
+            g.strokePath (path, juce::PathStrokeType (side == 0 ? 2.6f : 1.2f));  // A を太く下に（重なっても両方見える）
         }
     }
     g.setColour (COL_TEXT_SECONDARY);

@@ -4,6 +4,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaTextStyle.h"
+#include "ReferenceControlLookup.h"
 #include "ReferenceGuideStates.h"
 
 #include <cstdlib>
@@ -227,9 +228,9 @@ inline void verifyApprovalAction()
         auto state = named ("approve_b_rate");
         if (preset.width < 600) state.actionText = "APPROVE B RATE";
         component.setState (state);
-        auto* action = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-action"));
+        auto* action = dynamic_cast<juce::TextButton*> (findReferenceControl (component, "reference-action"));
         require (action != nullptr && action->isVisible() && action->getBounds().getWidth() > 0
-                     && component.getLocalBounds().contains (action->getBounds())
+                     && component.getLocalBounds().contains (boundsWithin (component, *action))
                      && action->getTooltip().contains ("44.1")
                      && action->getTooltip().contains ("48.0")
                      && action->getTooltip().contains ("A stays unchanged"),

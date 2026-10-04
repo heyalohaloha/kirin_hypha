@@ -127,14 +127,12 @@ juce::String preparationLine (const reference_audition::RuntimeSongPreparation& 
          : "KIRIN OS PREPARES " + juce::String (preparation.ahead) + " SONGS FIRST";
 }
 
-juce::String gainReadoutState (const State& state)
+// 2026-10-04：状態の行を足元へ移すと、合わせ方を 2 度言う読み（「V +0.0 dB / FOLLOWING」）が状態の文を切っていた。
+juce::String gainReadout (const State& state)
 {
-    using Tracking = reference_audition::TrackingState;
-    return state.originalAudition || state.comparisonFallbackOriginal ? "ORIGINAL"
-         : state.gainLimited ? "MATCH UNAVAILABLE"
-         : state.tracking == Tracking::following ? "FOLLOWING"
-         : state.tracking == Tracking::stoppedCeiling || state.tracking == Tracking::stoppedRange ? "FOLLOW STOPPED"
-         : "MATCHED";
+    const auto side = state.separateComparisons ? juce::String (roleLetter (state.audibleComparisonSlot)) : juce::String ("B");
+    return side + " " + fmtDelta (state.appliedGainDb + state.heldAttenuationDb) + " dB"
+         + (state.gainLimited ? "  /  MATCH UNAVAILABLE" : "");
 }
 
 juce::Colour statusColour (StatusKind kind) noexcept

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 namespace hypha::reference_ui
 {
@@ -80,18 +81,31 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     text_style::drawEllipsized (g, checkLabel, header.removeFromLeft (header.getWidth() * 2 / 5), juce::Justification::centredLeft);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
     g.setColour (COL_TEXT_TERTIARY);
-    const auto legend = ready ? "A / V / SAME SECTION " + juce::String (juce::roundToInt (timeline->aPairKirin->frames / 10.0)) + " S"
+    const auto legend = ready ? "SAME SECTION " + juce::String (juce::roundToInt (timeline->aPairKirin->frames / 10.0)) + " S"
                                     + (lowOnly ? juce::String (" / 20-250 HZ") : juce::String {})
                                     + (std::isfinite (gainDb) ? juce::String {} : juce::String (" / LEVEL NOT MATCHED"))
                               : juce::String ("PLAY A WITH V ALIGNED");
     text_style::drawEllipsized (g, legend, header, juce::Justification::centredRight);
+    if (ready && spectral)  // 凡例の色（A は金の太い線、V は水色の細い線。図と同じ）
+    {
+        auto keys = header.withTrimmedRight (juce::roundToInt (std::ceil (text_style::shownWidth (g.getCurrentFont(), legend))) + 14);
+        for (const auto& [name, colour, thickness] : { std::tuple { "V", COL_SPECTRUM_DELTA, 1.4f }, std::tuple { "A", COL_FLORA_BR, 2.8f } })
+        {
+            auto key = keys.removeFromRight (44);
+            g.setColour (COL_TEXT_TERTIARY);
+            text_style::drawEllipsized (g, name, key.removeFromRight (14), juce::Justification::centredLeft);
+            g.setColour (colour);
+            g.fillRect (key.removeFromRight (22).toFloat().withSizeKeepingCentre (18.0f, thickness));
+        }
+    }
     auto chart = area.toFloat().reduced (10.0f, 8.0f);
     if (ready && spectral)
     {
+        // 2026-10-04（Daisuke「A と V が両方表示された方が便利」）：A を太く下に、V を細く上に。同じ値でも両方見える。
+        g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+        g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (2.8f));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
-        g.strokePath (medianPath (*timeline->vPairKirin, shift, chart, maximumHz), juce::PathStrokeType (1.6f));
-        g.setColour (COL_FLORA_BR.withAlpha (0.95f));
-        g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (1.8f));
+        g.strokePath (medianPath (*timeline->vPairKirin, shift, chart, maximumHz), juce::PathStrokeType (1.4f));
     }
     else
     {

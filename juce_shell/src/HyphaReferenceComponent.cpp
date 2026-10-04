@@ -140,12 +140,16 @@ Component::Component()
     addAndMakeVisible (cueBox);
     addAndMakeVisible (aButton);
     addAndMakeVisible (bButton);
-    addChildComponent (blindButton);
+    statusStrip.addChildComponent (blindButton);
     addChildComponent (oneButton);
     addChildComponent (twoButton);
     addChildComponent (revealButton);
     addChildComponent (endBlindButton);
-    addChildComponent (actionButton);
+    statusStrip.addChildComponent (actionButton);
+    statusStrip.paintRow = [this] (juce::Graphics& g, juce::Rectangle<int> row, bool) { paintStatusRow (g, row); };
+    statusStrip.layoutRow = [this] (juce::Rectangle<int> row) { layoutStatusRow (row); };
+    statusStrip.footerFill = BG;
+    addChildComponent (statusStrip);
     configureRoles();
     configureCheckPage();
 }
@@ -240,6 +244,7 @@ void Component::setState (State next)
                       current.candidateName, current.cueLabel);
     resized();
     repaint();
+    statusStrip.repaint();  // 足元の段にあるときは REF の子ではないので、別に描き直す
 }
 
 bool Component::detailedLayout() const noexcept
@@ -259,6 +264,15 @@ void Component::paint (juce::Graphics& g)
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
     const bool blindSession = isBlindSession (current.blindPhase);
     if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + (checkPage() ? checkPageRows : versionPageRows)); paintCheckPageLabels (g); }
+    else if (rolePage() && current.comparisonSlot == 3)
+    {
+        area.removeFromTop (panelGap());  // B SET と曲はボタンの段
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
+        for (const auto& [box, text] : { std::pair<const juce::ComboBox*, const char*> { &songSetBox, "B SET" }, { &songBox, "B / REF" } })
+            if (box->isVisible() || selectionVisible (*box))
+                text_style::drawEllipsized (g, text, box->getBounds().withY (box->getY() - 17).withHeight (15), juce::Justification::centredLeft);
+    }
     else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop ((selectionVisible (presetBox) || selectionVisible (cueBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
@@ -384,63 +398,36 @@ void Component::paint (juce::Graphics& g)
                           1, typography::Composition::information);
         return;
     }
-    g.setColour (COL_FLORA.withAlpha (0.86f));
-    g.setFont (labelFont (presentationContext, typography::TextRole::navigation,
-                          typography::Composition::information));
-    text_style::draw (g, "REFERENCE",
-                      header.removeFromTop (navigationHeight), presentationContext,
-                      typography::TextRole::navigation, juce::Justification::centredLeft,
-                      1, typography::Composition::information);
-    g.setColour (COL_OBSERVATORY_VALUE);
-    const auto title = current.title.isNotEmpty() ? current.title
-        : current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
-        : current.checkLabel;
-    g.setFont (displayTextFont (title, presentationContext,
-                                typography::TextRole::body,
-                                typography::Composition::information));
-    if(!shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
+    if (! rolePage())  // 300% の B・C・V では、ボタンの段の選択欄が見出しを兼ねる（同じ曲名を 2 度出さない）
+    {
+        g.setColour (COL_FLORA.withAlpha (0.86f));
+        g.setFont (labelFont (presentationContext, typography::TextRole::navigation, typography::Composition::information));
+        text_style::draw (g, "REFERENCE", header.removeFromTop (navigationHeight), presentationContext,
+                          typography::TextRole::navigation, juce::Justification::centredLeft,
+                          1, typography::Composition::information);
+        g.setColour (COL_OBSERVATORY_VALUE);
+        const auto title = current.title.isNotEmpty() ? current.title
+            : current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
+            : current.checkLabel;
+        g.setFont (displayTextFont (title, presentationContext, typography::TextRole::body, typography::Composition::information));
+        if (! shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
+    }
 
     area.removeFromTop (panelGap());
     if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
-    auto statusArea = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
-    const auto line = referenceStatusLine (current); // H9: 聴ける／準備中／できない
-    const auto statusColour = line.kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : line.kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
-    g.setColour (statusColour.withAlpha (0.92f));
-    g.setFont (labelFont (presentationContext, typography::TextRole::readout,
-                          typography::Composition::information));
+    // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
+    const bool rowInPanel = ! statusInFooter();
+    auto statusArea = rowInPanel || blindSession ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (! blindSession)
     {
         g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
         g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
-        g.setColour (statusColour.withAlpha (0.92f));
     }
-    auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
-        ? "REVEALED / " + current.blindReveal : current.status;
     const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
-    const auto audibleSide = current.separateComparisons ? roleLetter (current.audibleComparisonSlot) : "B";
-    if (! blindRevealed) statusText = line.text;
-    auto availableStatusArea = statusArea;
-    if (blindRevealed)
-        availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);
-    if (blindButton.isVisible())
-        availableStatusArea.removeFromRight (detailedLayout() ? 120 : 90);
-    if (actionButton.isVisible())
-        availableStatusArea.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 244 : detailedLayout() ? 194 : 122);
-    auto primaryStatusArea = availableStatusArea;
-    auto gainStatusArea = availableStatusArea;
-    if (detailedLayout() && current.bSelected)
-        primaryStatusArea = gainStatusArea.removeFromLeft (
-            juce::roundToInt (gainStatusArea.getWidth() * 0.42f));
-    // The guide already says the next step; the line stays for a rejection, an action or an overdue wait (H6).
-    const bool statusShown = ! guideShown || current.readiness == Readiness::rejected
-                          || actionButton.isVisible() || current.preparationOverdue.isNotEmpty();
-    if (statusShown && ! blindRevealed) paintStatusDot (g, primaryStatusArea, line.kind);
-    if (statusShown)
-        text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0).withTrimmedLeft (blindRevealed ? 0 : 12),
-                                    juce::Justification::centredLeft);
+    const bool statusShown = statusLineShown();
     if (guideShown)
     {
-        const bool footerFree = ! statusShown && ! blindButton.isVisible();
+        const bool footerFree = rowInPanel && ! statusShown && ! blindButton.isVisible();
         lastGuideFit = paintGuide (g, footerFree ? area.getUnion (statusArea) : area, guide (current),
                                    presentationContext);
         return;
@@ -466,17 +453,6 @@ void Component::paint (juce::Graphics& g)
                         g, metrics.toFloat(), "MAXIMUM TRUE PEAK", "dBTP",
                         current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp,
                         current.truePeakDeltaBMinusA, presentationContext, side);
-        }
-        if (current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage())  // C の画面は MATCH の横に出す
-        {
-            // 読みは鳴っている音の基準（承認して A を下げているなら、その量を足した後の gain）。
-            const auto gain = juce::String { audibleSide } + " " + fmtDelta (current.appliedGainDb + current.heldAttenuationDb) + " dB  /  "
-                + gainReadoutState (current);
-            g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
-            g.setFont (labelFont (presentationContext, typography::TextRole::status,
-                                  typography::Composition::information));
-            text_style::drawEllipsized (g, gain, gainStatusArea.reduced (4, 0),
-                                        juce::Justification::centredRight);
         }
     }
     else if (!comparisonView.isVisible() && !tonalView.isVisible())

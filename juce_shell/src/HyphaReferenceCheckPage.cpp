@@ -152,38 +152,45 @@ void Component::syncCheckPage (bool blindSession, bool workflowActive)
     }
 }
 
-void Component::layoutCheckPage (juce::Rectangle<int>& area)
+void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors)
 {
+    // 選択欄は A・B・C・V のボタンと同じ段（V：V / VERSION と CHECK SET。C：CHECK SET と C / SONG）。
+    const auto first = selectors.removeFromLeft ((selectors.getWidth() - 8) / 2).removeFromBottom (25);
+    selectors.removeFromLeft (8);
+    const auto second = selectors.removeFromBottom (25);
+    area.removeFromTop (panelGap());
+    auto row = area.removeFromTop (checkPageRows);
     if (versionPage())
     {
-        // H13: VERSION（左）と CHECK SET（右）、その下にタブ（右端に VIEW）。
-        area.removeFromTop (panelGap());
-        auto top = area.removeFromTop (40);
-        auto left = top.removeFromLeft ((top.getWidth() - 5) / 2);
-        top.removeFromLeft (5);
-        versionBox.setBounds (left.removeFromBottom (25));
-        presetBox.setBounds (top.removeFromBottom (25));
-        area.removeFromTop (4);
-        auto row = area.removeFromTop (28);
+        versionBox.setBounds (first);
+        presetBox.setBounds (second);
+        if (blindButton.isVisible())  // VERSION BLIND は V の見比べの操作なので、V のタブの段の右に置く
+        {
+            if (blindButton.getParentComponent() != this) addChildComponent (blindButton);
+            blindButton.setBounds (row.removeFromRight (120).withSizeKeepingCentre (120, 24));
+            row.removeFromRight (8);
+        }
         checkTabs.setBounds (row);
         return;
     }
-    area.removeFromTop (panelGap());
-    auto top = area.removeFromTop (40);
-    auto left = top.removeFromLeft ((top.getWidth() - 5) / 2);
-    top.removeFromLeft (5);
-    presetBox.setBounds (left.removeFromBottom (25));
-    checkSongBox.setBounds (top.removeFromBottom (25));
-    area.removeFromTop (4);
-    checkTabs.setBounds (area.removeFromTop (28));
-    area.removeFromTop (4);
-    auto row = area.removeFromTop (38).withTrimmedTop (16);
+    presetBox.setBounds (first);
+    checkSongBox.setBounds (second);
+    // タブの段の右に、今の合わせ方の読み（paintCheckPageLabels）と MATCH。
     if (matchButton.isVisible())
     {
-        matchButton.setBounds (row.removeFromRight (96));
-        row.removeFromRight (8);
+        matchButton.setBounds (row.removeFromRight (80).withSizeKeepingCentre (80, 24));
+        row.removeFromRight (156);
     }
-    cueBox.setBounds (row.removeFromLeft (juce::jmin (row.getWidth() / 2, 260)));
+    checkTabs.setBounds (row);
+    cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
+}
+
+// C の画面の一番下の段（CUE の選択と Cue の時間軸）。状態の行は 300% では足元の段にある。
+juce::Rectangle<int> Component::cueRowBounds() const noexcept
+{
+    auto area = panelArea();
+    if (! statusInFooter()) area.removeFromBottom (statusRowHeight());
+    return area.removeFromBottom (checkFooterRow);
 }
 
 void Component::paintCheckPageLabels (juce::Graphics& g) const
@@ -200,13 +207,11 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
     above (presetBox, "CHECK SET");
     if (versionPage()) above (versionBox, "V / VERSION");
     above (checkSongBox, "C / SONG");
-    above (cueBox, "CUE");
     // MATCH の左に、今の合わせ方（鳴っていればその gain と固定、鳴っていなければ鳴らすときの gain）。
     if (matchButton.isVisible())
     {
         const auto readout = matchReadout (current);
-        auto space = matchButton.getBounds().withX (cueBox.getRight() + 8);
-        space.setRight (matchButton.getX() - 8);
+        const auto space = matchButton.getBounds().withX (matchButton.getX() - 156).withWidth (150);
         g.setColour (current.bSelected && current.audibleComparisonSlot == 2 ? COL_SPECTRUM_DELTA_BR : COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
         text_style::drawEllipsized (g, readout, space, juce::Justification::centredRight);
@@ -215,22 +220,24 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
 
 int Component::checkFooterHeight() const noexcept
 {
-    return (std::isfinite (current.sourceDurationSeconds) ? 26 + 6 : 0)
-         + (current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size() ? 40 + 6 : 0);
+    const bool cueRow = std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox);
+    const bool bands = current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size();
+    return (cueRow ? checkFooterRow : 0) + (bands ? checkFooterRow + 4 : 0);
 }
 
 juce::Rectangle<int> Component::paintCheckFooter (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     if (! checkPage()) return area;
-    if (std::isfinite (current.sourceDurationSeconds))
+    if (std::isfinite (current.sourceDurationSeconds) || selectionVisible (cueBox))
     {
-        paintCueBar (g, area.removeFromBottom (26), current, presentationContext);
-        area.removeFromBottom (6);
+        auto row = area.removeFromBottom (checkFooterRow);
+        if (selectionVisible (cueBox) || cueBox.isVisible()) row.removeFromLeft (cueBox.getWidth() + 8);  // CUE の選択
+        if (std::isfinite (current.sourceDurationSeconds)) paintCueBar (g, row, current, presentationContext);
     }
     if (current.cueKirin && current.cueKirin->medianDb.size() == current.cueKirin->centersHz.size())
     {
-        paintBandSummary (g, area.removeFromBottom (40), current, presentationContext);
-        area.removeFromBottom (6);
+        area.removeFromBottom (4);
+        paintBandSummary (g, area.removeFromBottom (checkFooterRow), current, presentationContext);
     }
     return area;
 }

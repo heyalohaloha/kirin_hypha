@@ -332,6 +332,22 @@ private:
                 require (access->getBounds() == view->analysisBodyBounds(), "Reference returns to its body bounds");
         }
         require (processor->getLatencySamples() == 0, "display transitions retain zero latency");
+        // 2026-10-04：足元の段がある大きさでは、REF の状態の行は足元の左（ほかの画面の LIVE／HOLD と同じ場所）。
+        // 知らせと承認のボタンが重なるときだけ REF の一番下へ戻す。足元の段が無い大きさでは REF の一番下。
+        if (! pre && ! vu && view->domain() == Domain::reference)
+            if (auto* panel = component<hypha::reference_ui::Component> (*editor))
+            {
+                auto& strip = panel->footerStatusStrip();
+                const bool footer = ! view->statusStripFolded() && ! view->statusStripBounds().isEmpty()
+                    && ! (view->feedback().isNotEmpty() && panel->statusRowHasControls());
+                require (strip.inFooter() == footer && panel->statusInFooter() == footer
+                             && (strip.getParentComponent() == panel) != footer,
+                         "the Reference status row sits in the footer wherever the footer exists");
+                if (footer)
+                    require (editor->getLocalArea (strip.getParentComponent(), strip.getBounds())
+                                 == editor->getLocalArea (view, view->statusStripBounds()),
+                             "the Reference status row takes the footer's session place");
+            }
         if (! vu)
         {
             // A connection may arrive after the editor has laid out an empty guide rail.

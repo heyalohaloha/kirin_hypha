@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ReferenceControlLookup.h"
 #include "ReferenceGuideContractTest.h"
 #include "../src/HyphaReferencePendingUI.h"
 #include "../src/HyphaReferenceVisualLayout.h"
@@ -36,9 +37,9 @@ inline void verifyReferenceVisualNavigation()
         for (const auto* name : { "queued_b_rate_c_view", "queued_c_rate_b_view" })
         {
             panel.setState (named (name));
-            auto* action = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-action"));
+            auto* action = dynamic_cast<juce::TextButton*> (findReferenceControl (panel, "reference-action"));
             require (action && action->isVisible() && !action->getBounds().isEmpty()
-                && panel.getComponentAt (action->getBounds().getCentre()) == action,
+                && panel.getComponentAt (boundsWithin (panel, *action).getCentre()) == action,
                 "pending approval has a directly reachable action in the other visual pane at every size");
             int approvals = 0; panel.onAction = [&] { ++approvals; };
             action->onClick(); require (approvals == 1, "one click reaches the pending approval");

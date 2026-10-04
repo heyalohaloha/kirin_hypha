@@ -84,8 +84,7 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     band.closeSubPath();
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.10f));
     g.fillPath (band);
-    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
-    g.strokePath (median, juce::PathStrokeType (1.6f));
+    // A を太く下に、C を細く上に（同じ値でも両方見える。2026-10-04）。
     if (kirinComparable (state) && state.aKirin->frames >= minimumAFrames)
     {
         juce::Path live;
@@ -97,9 +96,11 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
             const juce::Point<float> point { logX (hz, minimumHz, maximumHz, area), dbY (state.aKirin->medianDb[index], area) };
             if (! started) { live.startNewSubPath (point); started = true; } else live.lineTo (point);
         }
-        g.setColour (COL_FLORA_BR.withAlpha (0.95f));
-        g.strokePath (live, juce::PathStrokeType (1.8f));
+        g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+        g.strokePath (live, juce::PathStrokeType (2.8f));
     }
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
+    g.strokePath (median, juce::PathStrokeType (1.4f));
     return true;
 }
 
@@ -125,9 +126,13 @@ juce::String matchReadout (const State& state)
 
 void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
 {
+    // 2026-10-04：1 段（図を大きくする）。左に単位（dB C-A）を 1 度だけ、4 帯域は名前と差を 1 行に。
     static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };
     const auto gain = comparisonGainDb (state);
     const bool ready = kirinComparable (state) && state.aKirin->frames >= minimumAFrames && std::isfinite (gain);
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
+    text_style::drawEllipsized (g, "dB C-A", area.removeFromLeft (52), juce::Justification::centredLeft);
     constexpr int gap = 6;
     const auto width = (area.getWidth() - gap * 3) / 4;
     for (size_t band = 0; band < 4; ++band)
@@ -135,20 +140,17 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
         auto cell = area.removeFromLeft (width);
         area.removeFromLeft (gap);
         surface_material::paintPanel (g, cell.toFloat(), 0.6f);
-        auto inner = cell.reduced (8, 3);
+        auto inner = cell.reduced (8, 0);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, names[band], inner.removeFromTop (inner.getHeight() / 2), juce::Justification::centredLeft);
+        text_style::drawEllipsized (g, names[band], inner.removeFromLeft (inner.getWidth() * 3 / 5), juce::Justification::centredLeft);
         const auto c = ready ? state.cueKirin->balanceDb[band] + gain : std::numeric_limits<double>::quiet_NaN();
         const auto a = ready ? state.aKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
         const bool shown = std::isfinite (c) && std::isfinite (a) && a > -200.0;
         g.setColour (shown ? COL_OBSERVATORY_VALUE : COL_MUTED);
         g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
         text_style::drawEllipsized (g, shown ? signedDb (c - a) : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")),
-                                    inner.removeFromLeft (inner.getWidth() * 3 / 5), juce::Justification::centredLeft);
-        g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, "dB C-A", inner, juce::Justification::centredRight);
+                                    inner, juce::Justification::centredRight);
     }
 }
 

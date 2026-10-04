@@ -607,10 +607,14 @@ of the audition copy is automatic (the source file is never changed). Lowering A
 match exceeds the ceiling still requires explicit approval. Offline render, a missing or changed
 source, or a failed check leaves A playing.
 
-**Status.** The line under each page says one of three things, with a dot: ready (cyan: what plays
+**Status.** The status line says one of three things, with a dot: ready (cyan: what plays
 and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
 level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
-unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). A role that
+unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). At 150% and
+above it sits at the bottom left of the footer on every Reference page, where the other pages show
+LIVE or HOLD, so the charts keep that row; at 100% and 125% it is the bottom row of the page. A
+notice in the footer takes its place while it shows; when the line carries an approval or VERSION
+BLIND, the line moves back to the bottom of the page instead, so neither is hidden. A role that
 cannot be heard yet is drawn dimmed but stays clickable and explains itself. A wait never runs on
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
 alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
@@ -659,7 +663,8 @@ shows the song and the status; songs are switched from 125%.
   stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
   replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
 
-A is gold and the compared role is cyan on every page; colour never scores a result.
+A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
+the thicker line underneath, so both lines stay visible where they agree.
 
 **Same definition, same section, same level.** For each Cue Kirin OS publishes values computed
 every 100 ms: the 64-band spectrum (the largest bin of each band of a periodic-Hann FFT, p10, median

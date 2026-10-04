@@ -27,7 +27,18 @@ void Component::resized()
         if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
         place (aButton, comparisonWidth);
     }
-    if (checkPage() || versionPage()) layoutCheckPage (area);  // H12・H13: C・V の画面（HyphaReferenceCheckPage.cpp）
+    if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
+    // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
+    auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
+    if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // H12・H13: C・V の画面（HyphaReferenceCheckPage.cpp）
+    else if (rolePage() && current.comparisonSlot == 3)
+    {
+        // B の画面：B SET と曲。V・C の選択欄と Preset・Cue は B では出さない。
+        songSetBox.setBounds (selectors.removeFromLeft ((selectors.getWidth() - 8) / 2).removeFromBottom (25));
+        selectors.removeFromLeft (8);
+        songBox.setBounds (selectors.removeFromBottom (25));
+        versionBox.setBounds (songSetBox.getBounds()); checkBox.setBounds (songBox.getBounds());
+    }
     else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (panelGap());
@@ -99,7 +110,9 @@ void Component::resized()
         workflowControls.setBounds (area.removeFromTop (workflowControls.preferredHeight()));
         area.removeFromTop (panelGap());
     }
-    auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
+    const bool rowInPanel = ! statusInFooter();
+    // Blind の 1・2・REVEAL は操作なので、状態の行が足元にあっても REF の一番下に置く。
+    auto footer = rowInPanel || blindSession ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
@@ -120,13 +133,14 @@ void Component::resized()
         if (twoButton.isVisible()) placeLeft (twoButton, buttonWidth);
         if (revealButton.isVisible()) placeRight (revealButton, detailedLayout() ? 78 : 62);
     }
-    else if (blindButton.isVisible())
+    // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
+    if (statusStrip.getParentComponent() == this)
     {
-        blindButton.setBounds (footer.removeFromRight (detailedLayout() ? 112 : 84));
-        footer.removeFromRight (detailedLayout() ? 8 : 6);
+        statusStrip.setInFooter (false);
+        statusStrip.setVisible (rowInPanel && ! statusRowConcealed());
+        if (rowInPanel) statusStrip.setBounds (footer);
     }
-    if (actionButton.isVisible())
-        actionButton.setBounds (footer.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116));
+    statusStrip.resized();
     layoutSelectionReadouts();
 }
 

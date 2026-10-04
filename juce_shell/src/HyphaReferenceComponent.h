@@ -15,6 +15,7 @@
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceGuide.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
+#include "HyphaReferenceStatusStrip.h"
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceTonalView.h"
 #include "HyphaReferenceWorkflowControls.h"
@@ -262,6 +263,16 @@ public:
     std::function<void(const juce::String&)> onExplain;
 
     void setState (State);
+    // 状態の行は、足元の段があるとき（150% 以上）はどの画面でも足元の左に出す（エディターが決めて置く。
+    // 2026-10-04 Daisuke「全画面で左下」）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
+    bool statusInFooter() const noexcept { return statusFooterMode; }
+    // 状態の行に押せるボタン（承認・VERSION BLIND）があるか。知らせと重なるときは行を REF の中へ戻す。
+    bool statusRowHasControls() const noexcept;
+    // Blind の開始・比較中・中断のあいだは状態の行を出さない（Blind の画面が自分の段に出す。状態の文や gain は
+    // どちらが鳴っているかの手がかりになる）。REVEAL の後は出す。
+    bool statusRowConcealed() const noexcept;
+    void setStatusInFooter (bool value) { if (statusFooterMode != value) { statusFooterMode = value; resized(); repaint(); } }
+    StatusStrip& footerStatusStrip() noexcept { return statusStrip; }
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
     int comparisonButtonWidth() const noexcept { return detailedLayout() ? 80 : current.separateComparisons ? 36 : 48; }
@@ -325,6 +336,12 @@ private:
     SideButton revealButton { "REVEAL" };
     SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };
+    StatusStrip statusStrip;  // 状態の行と、VERSION BLIND・アクションのボタン（HyphaReferenceStatusRow.cpp）
+    bool statusFooterMode = false;
+    int statusRowHeight() const noexcept;
+    bool statusLineShown() const noexcept;
+    void layoutStatusRow (juce::Rectangle<int>);
+    void paintStatusRow (juce::Graphics&, juce::Rectangle<int>) const;
 
     // H10: B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
     void configureRoles();
@@ -333,16 +350,20 @@ private:
     // H12: C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
     // （HyphaReferenceCheckPage.cpp）。
     bool checkPage() const noexcept;
-    static constexpr int checkPageRows = 40 + 4 + 28 + 4 + 38; // CHECK SET と曲・タブ・Cue と MATCH
+    // 2026-10-04：選択欄は A・B・C・V のボタンの段、MATCH はタブの段、CUE は Cue の時間軸の段に置く（図を大きく）。
+    static constexpr int checkPageRows = 28; // タブ（右に A の読みと MATCH）
+    static constexpr int checkFooterRow = 24; // 4 帯域の 1 段・CUE と時間軸の 1 段
+    bool rolePage() const noexcept;  // 300% の B・C・V（Blind の外）
+    juce::Rectangle<int> cueRowBounds() const noexcept;
     int checkFooterHeight() const noexcept;
     void configureCheckPage();
     void syncCheckPage (bool blindSession, bool workflowActive);
-    void layoutCheckPage (juce::Rectangle<int>& area);
+    void layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors);
     void paintCheckPageLabels (juce::Graphics&) const;
     juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
     // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
     bool versionPage() const noexcept;
-    static constexpr int versionPageRows = 40 + 4 + 28;
+    static constexpr int versionPageRows = 28;  // タブ（選択欄はボタンの段）
     juce::String versionTab { "whole" };
 
     bool selectionVisible (const juce::ComboBox&) const;

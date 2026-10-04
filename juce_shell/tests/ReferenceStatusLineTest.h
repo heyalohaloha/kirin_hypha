@@ -90,15 +90,22 @@ inline void verifyReferenceStatusLine()
     require (reference_ui::referenceStatusLine (offered).kind != StatusKind::unable,
              "the approval belongs to the role it was offered for");
 
-    // gain の読みの後ろの語も合わせ方を言う（追従中を MATCHED と言わない）。
+    // gain の読みは鳴っている役の値だけ（合わせ方は状態の文が言う。2 度言うと状態の文が切れる）。下げた A は足す。
     playing.originalAudition = false;
-    for (const auto& [tracking, expected] : { std::pair { Tracking::following, "FOLLOWING" }, std::pair { Tracking::fixed, "MATCHED" },
-                                              std::pair { Tracking::stoppedRange, "FOLLOW STOPPED" },
-                                              std::pair { Tracking::stoppedCeiling, "FOLLOW STOPPED" } })
+    playing.audibleComparisonSlot = 1;
+    playing.appliedGainDb = 4.0;
+    playing.heldAttenuationDb = -2.5;
+    for (const auto tracking : { Tracking::following, Tracking::fixed, Tracking::stoppedRange, Tracking::stoppedCeiling })
     {
         playing.tracking = tracking;
-        require (reference_ui::gainReadoutState (playing) == expected, juce::String ("the gain readout says ") + expected);
+        require (reference_ui::gainReadout (playing) == "V +1.5 dB", "the gain readout is the playing role's gain only");
     }
+    playing.gainLimited = true;
+    require (reference_ui::gainReadout (playing) == "V +1.5 dB  /  MATCH UNAVAILABLE"
+                 && i18n::translate (reference_ui::gainReadout (playing), i18n::Language::japanese).contains ("Gain Match"),
+             "a gain that cannot match says so");
+    playing.gainLimited = false;
+    playing.heldAttenuationDb = 0.0;
 
     // 待っている切替は準備中、止まった切替はできない（選び直すのが直し方）。
     using Stage = reference_audition::PendingAuditionView::Stage;

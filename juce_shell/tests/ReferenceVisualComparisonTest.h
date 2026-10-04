@@ -49,7 +49,14 @@ inline void verifyReferenceVisualComparison()
         auto* view = dynamic_cast<reference_ui::ComparisonView*> (component.findChildWithID ("reference-comparison-view"));
         check (view && view->isVisible() && component.getLocalBounds().contains (view->getBounds()), "comparison fits every size");
         for (const auto* id : {"reference-version","reference-check","reference-a","reference-b","reference-c"})
-            check (!view->getBounds().intersects (component.findChildWithID (id)->getBounds()), "graphs never cover selectors or A/B/C");
+        {
+            auto* control = component.findChildWithID (id);
+            if (control->isVisible() && view->getBounds().intersects (control->getBounds()))
+                std::cerr << "Visual UI: " << id << " at " << control->getBounds().toString() << " / chart "
+                          << view->getBounds().toString() << " at " << width << '\n';
+            // 隠れている欄（300% の V の画面の C の選択など）は押せないので、位置が残っていても重なりとしない。
+            check (! control->isVisible() || !view->getBounds().intersects (control->getBounds()), "graphs never cover selectors or A/B/C");
+        }
         view->keyPressed (juce::KeyPress (juce::KeyPress::rightKey)); const auto range = view->selectedRange();
         state.bSelected = true; state.audibleComparisonSlot = 1; component.setState (state);
         check (view->selectedRange() == range && audioActions == 0, "view navigation never switches audio and A/B preserves selection");

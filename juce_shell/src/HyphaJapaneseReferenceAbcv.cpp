@@ -51,6 +51,7 @@ const Entry entries[] = {
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
     { "A %1 / %2 S", u8"A %1 / %2秒" },
+    { "SAME SECTION %1 S", u8"同じ区間 %1秒" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
     // K13b：Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
     { "NOT FOUND", u8"見つからない" },
     { "CHECKING", u8"確認中" },

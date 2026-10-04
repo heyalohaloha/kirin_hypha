@@ -107,21 +107,22 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.setColour (COL_NORMAL.withAlpha (0.09f));
         g.fillPath (band);
     }
-    if (chosen != nullptr)
-    {
-        std::vector<float> shifted;
-        for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen, true)));
-        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
-        g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.6f));
-    }
-    // A（直近 10 秒、Kirin OS の Cue と同じ定義）。曲と同じ帯域の並びのときだけ重ねる。
+    // A（直近 10 秒、Kirin OS の Cue と同じ定義）。曲と同じ帯域の並びのときだけ重ねる。A を太く下に、B を細く上に
+    // 描く（同じ値でも両方見える。2026-10-04）。
     const bool aShown = state.aKirin && state.aKirin->frames >= 30 && ! centers.empty()
         && state.aKirin->centersHz.size() == centers.size()
         && std::abs (state.aKirin->centersHz.back() / centers.back() - 1.0) < 1.0e-3;
     if (aShown)
     {
-        g.setColour (COL_FLORA_BR.withAlpha (0.95f));
-        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (1.8f));
+        g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+        g.strokePath (curve (state.aKirin->centersHz, state.aKirin->medianDb, chart), juce::PathStrokeType (2.8f));
+    }
+    if (chosen != nullptr)
+    {
+        std::vector<float> shifted;
+        for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen, true)));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
+        g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.4f));
     }
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
@@ -137,7 +138,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     const auto item = [&] (const juce::String& text, juce::Colour colour) {
         auto cell = legend.removeFromLeft (legend.getWidth() / 3);
         g.setColour (colour);
-        g.fillRect (cell.removeFromLeft (14).withSizeKeepingCentre (14, 2).toFloat());
+        g.fillRect (cell.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, colour == COL_FLORA_BR ? 2.8f : 1.6f));
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, text, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
     };

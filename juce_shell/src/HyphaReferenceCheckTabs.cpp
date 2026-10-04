@@ -7,7 +7,6 @@ namespace hypha::reference_ui
 {
 namespace
 {
-constexpr int positionWidth = 54;
 }
 
 CheckTabs::CheckTabs()
@@ -28,7 +27,7 @@ void CheckTabs::setTabs (std::vector<Tab> next, const juce::String& selected, pr
 std::vector<juce::Rectangle<int>> CheckTabs::layoutTabs() const
 {
     // 各タブは文字の幅に合わせ、入りきらなければ等分に縮める（あふれる名前は省略記号で示す）。
-    auto area = getLocalBounds().withTrimmedRight (positionWidth);
+    auto area = getLocalBounds();  // 2026-10-04：「1 / 5」は出さない（どのタブかは下線で分かる）
     const auto font = labelFont (context, typography::TextRole::body, typography::Composition::information);
     std::vector<int> widths;
     int total = 0;
@@ -73,14 +72,6 @@ void CheckTabs::paint (juce::Graphics& g)
             g.setColour (COL_FLORA_BR.withAlpha (0.92f));
             g.fillRect (cell.removeFromBottom (2).reduced (6, 0));
         }
-    }
-    if (! items.empty() && selectedIndex < items.size())
-    {
-        g.setColour (COL_FLORA.withAlpha (0.86f));
-        g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, juce::String (static_cast<int> (selectedIndex) + 1) + " / " + juce::String (static_cast<int> (items.size())),
-                                    getLocalBounds().removeFromRight (positionWidth).withTrimmedBottom (3),
-                                    juce::Justification::centredRight);
     }
 }
 
