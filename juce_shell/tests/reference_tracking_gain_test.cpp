@@ -367,6 +367,24 @@ void matchesAndFollows (const juce::File& sandbox)
     require (controller.followSelection (steady (-18.0), -2.0) == ref::TrackingAction::keep, "a stopped follow stays stopped");
     render();
     require (std::abs (buffer.getSample (0, 0) - target) < 1.0e-6f, "the kept gain keeps sounding");
+    // 2026-10-05 Daisuke「下げる向き追従」：上限で止めた後でも、A が静かになって下げる向きなら追従を再開する。
+    // （上の B は MATCH の +2 dB から −6 dB の端にいるので、MATCH し直して下げる余地のある所で確かめる。）
+    controller.selectA();
+    require (controller.selectB (-16.0, -2.0) && closeTo (controller.snapshot().appliedGainDb, 0.0), "B matches again at 0 dB");
+    render(); render();
+    require (controller.followSelection (steady (-9.0), -2.0) == ref::TrackingAction::stopCeiling
+                 && controller.snapshot().tracking == ref::TrackingState::stoppedCeiling,
+             "a louder A stops the follow at the ceiling");
+    require (controller.followSelection (steady (-16.3), -2.0) == ref::TrackingAction::keep
+                 && controller.snapshot().tracking == ref::TrackingState::stoppedCeiling,
+             "an A asking for a higher gain keeps the follow stopped at the ceiling");
+    require (controller.followSelection (steady (-17.0), -2.0) == ref::TrackingAction::move
+                 && controller.snapshot().tracking == ref::TrackingState::following
+                 && closeTo (controller.snapshot().appliedGainDb, -1.0),
+             "a quieter A resumes the follow downwards after a ceiling stop");
+    require (controller.followSelection (steady (-9.0), -2.0) == ref::TrackingAction::stopCeiling
+                 && closeTo (controller.snapshot().appliedGainDb, -1.0),
+             "the resumed follow stops at the ceiling again");
     controller.selectA();
     require (controller.selectB (-18.0, -2.0) && controller.snapshot().tracking == ref::TrackingState::following,
              "choosing B again follows again");

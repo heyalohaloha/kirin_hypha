@@ -25,6 +25,8 @@ int RuntimeV2Controller::matchWindowBlocks() const
 // H3: 選んでいるあいだ 1 秒ごとに、A の直近の窓から gain を求め直す（メッセージスレッド）。
 // B は「A の直近 10 秒 − 鳴らしている Cue の値（無ければ曲全体）」、V は「A の直近 10 秒 − 位置合わせで
 // 対応する V の同じ内容」。窓が足りない（再生直後・シークの後・無音）ときは今の gain を保つ。
+// 2026-10-05 Daisuke「下げる向き追従」：上限で止めた後も、A が静かになって gain を下げる向きなら追従を再開する
+// （下げても上限は越えない。上げる向きは止めたまま。±6 dB で止めたものは今までどおり再開しない）。
 TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                                      double aSessionPeakDbtp) noexcept
 {
@@ -33,10 +35,11 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     std::shared_ptr<const RuntimeSource> source;
     juce::String mode;
     double currentGain = 0.0, anchorGain = unavailable, selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable;
-    bool cueLevel = false;
+    bool cueLevel = false, resuming = false;
     {
         const juce::ScopedLock lock (stateLock);
-        if (currentSnapshot.tracking != TrackingState::following) return TrackingAction::keep;
+        resuming = currentSnapshot.tracking == TrackingState::stoppedCeiling;
+        if (currentSnapshot.tracking != TrackingState::following && ! resuming) return TrackingAction::keep;
         source = publishedSource;
         mode = currentSnapshot.comparisonMode;
         currentGain = currentSnapshot.appliedGainDb;
@@ -69,13 +72,15 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         aLoudness = window.lufs;
         required = aLoudness - sourceLoudness;
     }
+    if (resuming && ! (required < currentGain - trackingToleranceDb)) return TrackingAction::keep;
     const auto step = trackingStep (required, currentGain, sourcePeak, louder (aSessionPeakDbtp, selectionAPeak), anchorGain,
                                     heldAttenuationDb.load (std::memory_order_acquire));
     if (step.action == TrackingAction::keep) return TrackingAction::keep;
 
     const juce::ScopedLock lock (stateLock);
+    const auto expected = resuming ? TrackingState::stoppedCeiling : TrackingState::following;
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation
-        || ! bSelected.load (std::memory_order_acquire) || currentSnapshot.tracking != TrackingState::following)
+        || ! bSelected.load (std::memory_order_acquire) || currentSnapshot.tracking != expected)
         return TrackingAction::keep;
     if (step.action == TrackingAction::stopCeiling || step.action == TrackingAction::stopRange)
     {
@@ -84,6 +89,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         holdCurrentGainLocked();
         return step.action;
     }
+    currentSnapshot.tracking = TrackingState::following;
     applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
                             louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
     currentSnapshot.peakShortfallDb = step.shortfallDb;

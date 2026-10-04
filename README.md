@@ -587,7 +587,9 @@ Integrated loudness from Kirin OS (the whole song when the Cue has no value); V 
 aligned V content over the same window. Following never raises the copy above
 max(−1 dBTP, A's maximum true peak, the source's maximum true peak) and never moves more than 6 dB
 from the gain of the MATCH you started (as AUTO in the live PRE/POST compare); at either limit it
-stops, keeps the current gain and says so. C matches once and stays fixed: it compares A's gated
+stops, keeps the current gain and says so. After stopping at the ceiling, following resumes as soon
+as A gets quieter and the copy needs to come down, because lowering never crosses the ceiling; it
+stops again if A gets louder, and the notice is shown once while you listen to the same role. C matches once and stays fixed: it compares A's gated
 loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated
 loudness, and waits until A has played for the Cue's length (at most 30 s) so that a fixed gain is
 not set from a few seconds; pressing C earlier queues it and C starts once A is measured, and until

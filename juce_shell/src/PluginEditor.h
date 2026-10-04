@@ -320,6 +320,7 @@ private:
     };
     LiveCompareAuto liveCompareAuto;
     bool referenceTrackingStopShown = false; // H3: 追従が上限・±6 dB で止まったことを一度だけ知らせる
+    int referenceTrackingStopSlot = 0;       // 知らせた役（同じ役を聴いているあいだは止まり直しても知らせない）
     juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;
