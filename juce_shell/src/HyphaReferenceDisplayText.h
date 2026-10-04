@@ -9,11 +9,15 @@ namespace hypha::reference_ui
 // 2026-10-04（Daisuke「共通項目に日本語が混じっていないか」）：表を Kirin OS の訳（ja.json）で全部埋め、名前の
 // 後ろに曲名・順位が付いた形（「名前  /  曲名」「名前   1 / 3」）にも当てる。ID・利用者が付けた名前・音源は変えない。
 inline constexpr const char* standardDisplayNames[][2] {
+    { u8"Mastering｜ステレオ・低域・全体の流れ", u8"Mastering · stereo, low end, and context" },
     { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" },
-    { u8"MIX｜バランス・定位・空間", u8"MIX · balance, position, and space" },
-    { u8"録音｜音色・演奏・収録状態", u8"Recording · tone, performance, and capture" },
+    { u8"編曲｜グルーヴ・展開・Hook", u8"Arrangement · groove, energy, and hooks" },
+    { u8"録音｜部屋・ノイズ・かぶり", u8"Recording · room, noise, and bleed" },
+    { u8"MIX｜パンチ・幅・奥行き", u8"MIX · punch, width, and depth" },
+    { u8"MIX｜バランス・音色", u8"MIX · balance and tone" },
+    { u8"録音｜音色・演奏", u8"Recording · tone and performance" },
     { u8"Album 全体との関係", "Album context" },
-    { u8"編曲｜役割・密度・展開", u8"Arrangement · roles, density, and development" },
+    { u8"編曲｜役割・密度", u8"Arrangement · roles and density" },
     { u8"曲中のエネルギー変化", "Energy curve" },
     { u8"演奏のダイナミクス", "Performance dynamics" },
     { u8"周波数帯域の使い方", "Frequency space" },

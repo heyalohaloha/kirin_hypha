@@ -6,6 +6,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox);
 
 void testRuntimeV2Workspace (const juce::File& sandbox)
 {
+    verifyGlobalPresetCatalogOrder();
     const auto source = sandbox.getChildFile ("version-a.wav");
     const auto v2Root = sandbox.getChildFile ("plugin_data").getChildFile ("reference").getChildFile ("v2");
     const auto aBindingFile = ref::RuntimeABindingRepository (v2Root).bindingFile (runtimeId);

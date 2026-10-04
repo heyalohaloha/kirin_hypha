@@ -26,6 +26,62 @@ inline std::shared_ptr<reference_audition::KirinSpectrumWindow> kirinWindow (flo
     return window;
 }
 
+// 2026-10-05（Daisuke「項目を5か6を上限とした方が良いかも」→「6 にして大きいセットは分ける」）：Kirin OS の工場
+// 出荷のセットは 6 項目までの 9 つ（W-3295）。300% で、どのセットも名前を順位まで CHECK SET の欄に出し、Check の
+// タブは 1 段に収まる（両言語）。工場出荷の名前は英語のまま出す（簡単な英語は訳さない）。
+inline void verifyFactoryCheckSetsFit()
+{
+    using namespace reference_guide_contract;
+    const std::vector<std::pair<const char*, std::vector<const char*>>> sets {
+        { "Quick Reference", { "Low end", "Dynamics", "Vocal balance", "Tone", "Stereo" } },
+        { "Recording", { "Tone", "Performance dynamics", "Transient", "Pitch and timing" } },
+        { "Recording Room", { "Room", "Noise", "Bleed" } },
+        { "Arrangement", { "Instrumentation and roles", "Frequency space", "Density", "Layering" } },
+        { "Arrangement Flow", { "Groove", "Space", "Energy curve", "Hook" } },
+        { "MIX", { "Balance", "Kick and bass", "Vocal balance", "Midrange", "High end" } },
+        { "MIX Space", { "Punch", "Width", "Depth", "Effects", "Compression", "Mono" } },
+        { "Mastering", { "Tonal balance", "Loudness", "True Peak", "Dynamics" } },
+        { "Mastering Context", { "Stereo and phase", "Low-end consistency", "Section difference", "Album context" } },
+    };
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        for (const auto& [name, labels] : sets)
+        {
+            auto state = named ("ready");
+            state.separateComparisons = true;
+            state.comparisonSlot = 2;
+            state.comparisonMode = "loudness_match";
+            state.checks.clear();
+            for (const auto* label : labels)
+                state.checks.push_back ({ juce::String (label) + "/cand-1", juce::String (label) + "  /  Hello" });
+            state.checkId = state.checks.front().id;
+            // 選べるセットが 1 つなら欄ではなく読むだけの文字になるので、順位つきで 3 つ並べる（「1 / 3」）。
+            state.presets = { { "set", juce::String (name) + "   1 / 3" }, { "two", "Quick Reference   2 / 3" },
+                              { "three", "MIX   3 / 3" } };
+            state.presetId = "set";
+            reference_ui::Component panel;
+            panel.setVisible (true);
+            panel.setPresentationContext (presentation::forEditor (900, 600));
+            panel.setSize (888, 470);
+            panel.setState (state);
+            auto* box = dynamic_cast<juce::ComboBox*> (panel.findChildWithID ("reference-preset"));
+            auto* tabs = dynamic_cast<reference_ui::CheckTabs*> (panel.findChildWithID ("reference-check-tabs"));
+            require (box != nullptr && tabs != nullptr, "the C page owns the CHECK SET and the tabs");
+            require (box->isVisible(), "the C page shows the CHECK SET for " + juce::String (name));
+            require (tabs->tabs().size() == labels.size(),
+                     "the C page shows every Check of " + juce::String (name) + " (" + juce::String ((int) tabs->tabs().size()) + ")");
+            const auto shown = box->getText();
+            require (shown.endsWith ("1 / 3")
+                         && text_style::shownWidth (box->getLookAndFeel().getComboBoxFont (*box), shown) + 26.0f
+                                <= static_cast<float> (box->getWidth()),
+                     "300%: the CHECK SET name fits with its rank: " + shown);
+            require (tabs->rowsFor (tabs->getWidth()) == 1,
+                     "300%: the Checks of " + juce::String (name) + " fit on one row of tabs");
+        }
+    }
+}
+
 inline void verifyReferenceCheckPage()
 {
     using namespace reference_guide_contract;
@@ -418,5 +474,6 @@ inline void verifyReferenceCheckPage()
     require (sets.presets.size() == 3 && sets.presets[0].label == "Mastering   1 / 2" && sets.presets[1].label == "Basic 5   2 / 2"
                  && sets.presets[2].id == "old",
              "CHECK SET lists the ranked sets in rank order, and keeps the chosen one");
+    verifyFactoryCheckSetsFit();
 }
 }

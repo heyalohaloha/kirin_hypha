@@ -659,7 +659,8 @@ shows the song and the status; songs are switched from 125%.
   playing song shows the gain applied. The legend's B SET RANGE is the band between the set's songs
   (p10 to p90 per band, each at the level B plays it at).
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
-  keeps the song; when the names do not fit one row, the tabs take two rows rather than cut them), the Cue, and MATCH. The comparison is the Cue against the same length of recent
+  keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
+  set with more Checks takes two rows rather than cut the names), the Cue, and MATCH. The comparison is the Cue against the same length of recent
   A; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
   the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
   and the Cue's place in the song with its loop and the playing position. A Check

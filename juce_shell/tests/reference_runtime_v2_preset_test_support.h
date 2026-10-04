@@ -1,7 +1,47 @@
 #pragma once
 
+#include "../src/reference_audition/ReferenceRuntimeV2PresetParsing.h"
+
 namespace
 {
+// 2026-10-05：Kirin OS の工場出荷の Preset は 6 項目までに分けて 5 → 9 になった。作品ごとのカタログは「工場出荷が
+// 先、そのあとが利用者」の並びだけを見て、工場出荷の数を決め打ちしない。
+[[maybe_unused]] void verifyGlobalPresetCatalogOrder()
+{
+    const auto catalog = [] (std::initializer_list<const char*> origins)
+    {
+        auto root = new juce::DynamicObject();
+        root->setProperty ("format", "kirin_hypha_reference_global_preset_catalog");
+        root->setProperty ("version", "1.0");
+        juce::Array<juce::var> presets;
+        int index = 0;
+        for (const auto* origin : origins)
+        {
+            auto entry = new juce::DynamicObject();
+            entry->setProperty ("preset_id", "00000000-0000-4000-8000-" + juce::String (100 + index).paddedLeft ('0', 12));
+            entry->setProperty ("revision_id", "00000000-0000-4000-8000-" + juce::String (200 + index).paddedLeft ('0', 12));
+            entry->setProperty ("name_snapshot", "Preset " + juce::String (++index));
+            entry->setProperty ("origin", juce::String (origin));
+            presets.add (juce::var (entry));
+        }
+        root->setProperty ("presets", juce::var (presets));
+        return juce::var (root);
+    };
+    const auto parses = [] (const juce::var& value)
+    {
+        ref::RuntimeGlobalPresetCatalog parsed;
+        return ref::runtime_v2_parsing::parseGlobalPresetCatalog (value, parsed);
+    };
+    require (parses (catalog ({ "factory", "factory", "factory", "factory", "factory", "factory", "factory", "factory",
+                                "factory", "user", "user" })),
+             "nine Factory Presets followed by User Presets are a valid catalog");
+    require (parses (catalog ({ "factory", "factory", "factory", "factory", "factory", "user" })),
+             "a catalog does not hard-code how many Factory Presets Kirin OS ships");
+    require (! parses (catalog ({ "user", "factory" })) && ! parses (catalog ({ "factory", "user", "factory" }))
+                 && ! parses (catalog ({ "factory", "other" })),
+             "Factory Presets come first, then User Presets, and nothing else");
+}
+
 [[maybe_unused]] void verifyRuntimeV2PresetSelection (
     ref::RuntimeV2Controller& controller,
     const juce::File& transportRoot,
