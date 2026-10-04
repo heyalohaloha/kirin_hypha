@@ -7,7 +7,7 @@ namespace hypha::reference_audition
 bool ReferenceComparisonController::selectB (double loudness, double peak) noexcept
 {
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
-    if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady) return false;
+    if (trialActive() || ! snapshot().versionReady) return false;
     reference.selectA(); check.selectA();  // 切り替えの隙間（A が聴こえる時間）を広げない順
     const bool selected = version.selectB (loudness, peak);
     normalOutputSlot.store (selected ? 1 : 0, std::memory_order_release);
@@ -26,7 +26,7 @@ bool ReferenceComparisonController::selectC (double loudness, double peak) noexc
 bool ReferenceComparisonController::selectRef (double loudness, double peak) noexcept
 {
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
-    if (trialActive() || hasActiveWorkflow() || ! snapshot().referenceReady) return false;
+    if (trialActive() || ! snapshot().referenceReady) return false;
     version.selectA(); check.selectA();
     const bool selected = reference.selectB (loudness, peak);
     normalOutputSlot.store (selected ? 3 : 0, std::memory_order_release);
@@ -40,7 +40,7 @@ void ReferenceComparisonController::selectA() noexcept
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
 bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double approvedDb)
 {
-    if ((slot != 1 && slot != 2 && slot != 3) || trialActive() || hasActiveWorkflow()) return false;
+    if ((slot != 1 && slot != 2 && slot != 3) || trialActive()) return false;
     if (! std::isfinite (approvedDb) || approvedDb >= 0.0
         || slotController (slot).snapshot().matchFailure != MatchFailure::ceilingExceeded) return false;
     const auto before = heldA.targetDb();
@@ -68,13 +68,13 @@ void ReferenceComparisonController::returnAToNormalLevel()
 }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
 {
-    if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady || !beginBlindGuard()) return false;
+    if (trialActive() || ! snapshot().versionReady || !beginBlindGuard()) return false;
     dropResume(); check.suspendAudition(); reference.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
-    if (trialActive() || hasActiveWorkflow() || !snapshot().versionReady || !beginBlindGuard()) return false;
+    if (trialActive() || !snapshot().versionReady || !beginBlindGuard()) return false;
     dropResume(); check.suspendAudition(); reference.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
 }

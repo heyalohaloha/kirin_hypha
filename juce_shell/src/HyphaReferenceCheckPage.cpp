@@ -114,10 +114,10 @@ void Component::configureCheckPage()
     addChildComponent (matchButton);
 }
 
-void Component::syncCheckPage (bool blindSession, bool workflowActive)
+void Component::syncCheckPage (bool blindSession)
 {
-    const bool page = checkPage() && ! workflowActive;
-    const bool vPage = versionPage() && ! workflowActive;  // H13
+    const bool page = checkPage();
+    const bool vPage = versionPage();  // H13
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
     std::vector<CheckTabs::Tab> tabs;

@@ -36,20 +36,13 @@ Component::Component()
 {
     setOpaque (false);
     addChildComponent (comparisonView); addChildComponent (tonalView);
-    addChildComponent(workflowControls);
-    workflowControls.onStart=[this]{if(onStartReview)onStartReview();};
-    workflowControls.onBookmark=[this]{if(onStartBookmark)onStartBookmark();};
-    workflowControls.onBack=[this]{if(onWorkflowBack)onWorkflowBack();};
-    workflowControls.onConfirmed=[this]{if(onWorkflowConfirmed)onWorkflowConfirmed();};
-    workflowControls.onDeferred=[this]{if(onWorkflowDeferred)onWorkflowDeferred();};
-    workflowControls.onEnd=[this]{if(onWorkflowEnd)onWorkflowEnd();};
     comparisonView.onCapturedRange=[this](double start,double end)
     {if(onCapturedTonalRange)onCapturedTonalRange(start,end);};
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (connectionStatus);
-    // Labels and the review workflow's buttons show their text in the current language (INV-S40).
+    // Labels and buttons show their text in the current language (INV-S40).
     setLookAndFeel (&selectorLookAndFeel);
     presetBox.setLookAndFeel (&selectorLookAndFeel);
     versionBox.setLookAndFeel (&selectorLookAndFeel);
@@ -145,8 +138,6 @@ void Component::setState (State next)
     connectionStatus.setTitle (connectionStatus.getTooltip());
     connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_LED_BLUE : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
-    const bool workflowActive = current.workflow.mode != reference_audition::WorkflowView::Mode::normal
-        && current.workflow.status != reference_audition::WorkflowView::Status::resumeAvailable;
     connectionStatus.setVisible (! blindSession);
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected && (! current.separateComparisons
@@ -159,7 +150,7 @@ void Component::setState (State next)
     versionBox.setVisible (! blindSession && current.separateComparisons);
     const bool versionChosen = current.separateComparisons && current.versionId.isNotEmpty()
         && current.libraryReceived && current.osAccess != os_access::State::unowned;
-    blindButton.setVisible (! blindSession && ! workflowActive
+    blindButton.setVisible (! blindSession
         && (!current.separateComparisons || current.comparisonSlot == 1)
         && (versionChosen || canStartBlind (current)));
     blindButton.setEnabled (!current.blindLargeScreen || canStartBlind (current));
@@ -172,13 +163,13 @@ void Component::setState (State next)
     syncSelectionControl (cueBox, current.cues, current.cueId);
     cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
-    presetBox.setVisible (!blindSession && !workflowActive && !current.presets.empty());
-    checkBox.setVisible (! blindSession && ! workflowActive && ! current.checks.empty());
+    presetBox.setVisible (!blindSession && !current.presets.empty());
+    checkBox.setVisible (! blindSession && ! current.checks.empty());
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
     cueBox.setVisible ((showDetailedSelectors || (current.separateComparisons && !blindSession))
-        && !workflowActive && !current.cues.empty());
-    syncRoles (blindSession, workflowActive);
-    syncCheckPage (blindSession, workflowActive);
+        && !current.cues.empty());
+    syncRoles (blindSession);
+    syncCheckPage (blindSession);
     actionButton.setButtonText (current.actionText);
     actionButton.setAttention (current.sampleRateApprovalRequired);
     actionButton.setTooltip (current.sampleRateApprovalRequired
@@ -186,10 +177,6 @@ void Component::setState (State next)
         : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
         : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
-    workflowControls.update(current.workflow,blindSession,!detailedLayout());
-    workflowControls.setVisible(!blindSession&&(current.workflow.reviewAvailable
-        ||current.workflow.bookmarkAvailable
-        ||current.workflow.mode!=reference_audition::WorkflowView::Mode::normal));
     comparisonView.setVisible (! guideShown && current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")
         : current.versionStep == SourceStep::ready ? juce::String ("Preparing V overview")
@@ -320,7 +307,6 @@ void Component::paint (juce::Graphics& g)
     }
 
     area.removeFromTop (panelGap());
-    if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
     // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
     const bool rowInPanel = ! statusInFooter();
     auto statusArea = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};

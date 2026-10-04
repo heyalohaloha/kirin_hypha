@@ -160,7 +160,6 @@ target_compile_definitions(KirinHyphaData INTERFACE
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferencePersistedState.cpp
-    src/reference_audition/ReferenceWorkflowRepository.cpp
     src/reference_audition/ReferenceWorkflowStorage.cpp
     src/reference_audition/ReferenceAudioPages.cpp
     src/reference_audition/ReferenceAudioPageRender.cpp
@@ -201,7 +200,6 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceComparisonPending.cpp
     src/reference_audition/ReferenceComparisonRoles.cpp
     src/reference_audition/ReferenceComparisonRealtime.cpp
-    src/reference_audition/ReferenceComparisonWorkflow.cpp
     src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
@@ -974,7 +972,6 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_rt_probe.cpp
         tests/reference_visual_test.cpp
         tests/reference_tonal_repository_test.cpp
-        tests/reference_workflow_test.cpp
         tests/reference_a_capture_test.cpp
         tests/reference_a_capture_projection_test.cpp
         tests/reference_a_capture_long_test.cpp

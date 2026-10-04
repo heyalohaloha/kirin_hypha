@@ -133,10 +133,6 @@ public:
     bool selectReferenceVisualSlot (int);
     bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
-    bool startLatestReferenceReview();
-    bool startLatestReferenceBookmark();
-    bool moveReferenceWorkflow (int direction, bool confirmed, bool deferred);
-    void endReferenceWorkflow();
     void setReferenceCaptureTonalRange (double startSeconds, double endSeconds);
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,

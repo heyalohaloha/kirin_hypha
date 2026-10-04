@@ -246,16 +246,6 @@ bool KirinHyphaProcessorBase::selectReferenceCue (const juce::String& id)
    #endif
 }
 
-bool KirinHyphaProcessorBase::startLatestReferenceReview()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->startLatestReview();
-   #else
-    return false;
-   #endif
-}
-
 bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -264,35 +254,6 @@ bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
    #else
     juce::ignoreUnused (slot);
     return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::startLatestReferenceBookmark()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->startLatestBookmark();
-   #else
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::moveReferenceWorkflow (
-    int direction, bool confirmed, bool deferred)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->moveWorkflow (direction, confirmed, deferred);
-   #else
-    juce::ignoreUnused (direction, confirmed, deferred);
-    return false;
-   #endif
-}
-
-void KirinHyphaProcessorBase::endReferenceWorkflow()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr) referenceAuditionController->endWorkflow();
    #endif
 }
 

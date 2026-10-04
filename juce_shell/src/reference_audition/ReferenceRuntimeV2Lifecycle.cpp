@@ -137,7 +137,6 @@ namespace hypha::reference_audition
             serviceLibraryRecovery();
             servicePresetSelectionAcknowledgement();
             serviceCandidatePreparationAcknowledgement();
-            serviceWorkflowEvents (juce::Time::currentTimeMillis());
             const auto currentTransportHeartbeat = transportHeartbeat.load (
                 std::memory_order_acquire);
             if (! blind.auditioning())
@@ -170,13 +169,6 @@ namespace hypha::reference_audition
             const bool fading = deferredRevokeWaiting();
             if (! fading && (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0))
             {
-                if (! versionComparison)
-                {
-                    auto nextCatalog = workflowRepository.refresh (workflowCatalog);
-                    const juce::ScopedLock lock (stateLock);
-                    workflowCatalog = std::move (nextCatalog);
-                    currentSnapshot.workflowCatalog = workflowCatalog;
-                }
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 if (versionComparison && workspace != nullptr)
                     versionIdentifier.prepare (root, *workspace, juce::Time::currentTimeMillis());  // H7

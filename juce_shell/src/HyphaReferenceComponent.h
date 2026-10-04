@@ -19,7 +19,6 @@
 #include "HyphaReferenceStatusStrip.h"
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceTonalView.h"
-#include "HyphaReferenceWorkflowControls.h"
 #include "HyphaReferenceSongList.h"
 #include "HyphaReferenceCheckTabs.h"
 #include "reference_audition/ReferenceCuePart.h"
@@ -169,7 +168,6 @@ struct State
     juce::String candidatePreparationAction;
     bool candidatePreparationPending = false;
     juce::String actionText;
-    reference_audition::WorkflowView workflow;
     // H10: B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
     bool referenceReady = false, referenceArmable = false;
     reference_audition::TrackingState tracking = reference_audition::TrackingState::none; // H9: 聴いている役の合わせ方
@@ -263,8 +261,6 @@ public:
     std::function<void()> onMatch;        // H12: 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
-    std::function<void()> onStartReview, onStartBookmark, onWorkflowBack;
-    std::function<void()> onWorkflowConfirmed, onWorkflowDeferred, onWorkflowEnd;
     std::function<void(double,double)> onCapturedTonalRange;
     // A B or C that cannot be heard yet says why when it is clicked.
     std::function<void(const juce::String&)> onExplain;
@@ -319,7 +315,6 @@ private:
     GuideFit lastGuideFit;
     ComparisonView comparisonView;
     TonalView tonalView;
-    WorkflowControls workflowControls;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;
@@ -349,7 +344,7 @@ private:
 
     // H10: B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
     void configureRoles();
-    void syncRoles (bool blindSession, bool workflowActive);
+    void syncRoles (bool blindSession);
     bool explainReference();
     // H12: C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
     // （HyphaReferenceCheckPage.cpp）。
@@ -361,7 +356,7 @@ private:
     juce::Rectangle<int> cueRowBounds() const noexcept;
     int checkFooterHeight() const noexcept;
     void configureCheckPage();
-    void syncCheckPage (bool blindSession, bool workflowActive);
+    void syncCheckPage (bool blindSession);
     void layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors);
     void paintCheckPageLabels (juce::Graphics&) const;
     // 耳で聴き比べる Check（Kirin OS の audition_only）。C の画面は図の代わりに案内を出す。

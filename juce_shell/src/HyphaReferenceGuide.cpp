@@ -148,11 +148,9 @@ Guide guide (const State& state)
     result.playing = state.aAvailable;
     result.version = shownStep (state.versionStep, canHearVersion (state), state.aAvailable);
     result.check = shownStep (state.checkStep, canHearCheck (state), state.aAvailable);
-    const bool workflowActive = state.workflow.mode != reference_audition::WorkflowView::Mode::normal
-        && state.workflow.status != reference_audition::WorkflowView::Status::resumeAvailable;
     // B（REF）の画面は B セットの曲を出す（V・C の始め方の案内は重ねない）。
     result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned && state.comparisonSlot != 3
-        && ! state.bSelected && ! isBlindSession (state.blindPhase) && ! workflowActive
+        && ! state.bSelected && ! isBlindSession (state.blindPhase)
         && ! (state.captureAccess && state.captureAccess->capturedView)
         && result.version != SourceStep::ready && result.check != SourceStep::ready
         && ! (state.comparisonSlot == 2 && !state.viewBindings.empty()

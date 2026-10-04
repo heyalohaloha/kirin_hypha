@@ -25,7 +25,6 @@
 #include "ReferenceCalibrationObservation.h"
 #include "ReferenceDeferredControl.h"
 #include "ReferenceVisualTimeline.h"
-#include "ReferenceWorkflowRepository.h"
 
 namespace hypha::reference_audition
 {
@@ -33,11 +32,9 @@ namespace hypha::reference_audition
     {
     public:
         using SelectionGate = std::function<bool(bool)>;
-        using WorkflowCommitCallback = std::function<void(const WorkflowEventCommit&)>;
 
         explicit RuntimeV2Controller (juce::File transportRootIn = RuntimeV2Repository::transportRoot(),
-                                      SelectionGate = {}, bool wholeVersionComparison = false,
-                                      WorkflowCommitCallback = {});
+                                      SelectionGate = {}, bool wholeVersionComparison = false);
         ~RuntimeV2Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
@@ -54,8 +51,6 @@ namespace hypha::reference_audition
         bool selectCheck (const juce::String&);
         bool selectCandidate (const juce::String&);
         bool selectCue (const juce::String&);
-        bool selectWorkflowCondition (const WorkflowCondition&, const juce::String& token);
-        bool appendWorkflowEvent (WorkflowEventRequest);
         bool selectLibraryVersion (const juce::String&);
         bool selectLibrarySong (const juce::String&);
         bool selectLibraryCheck (const juce::String&);
@@ -134,8 +129,6 @@ namespace hypha::reference_audition
             juce::String candidateId;
             juce::String cueId;
             juce::String sampleRateApprovalKey;
-            std::optional<WorkflowCondition> workflowCondition;
-            juce::String workflowToken;
             std::uint64_t generation = 0;
         };
 
@@ -224,7 +217,6 @@ namespace hypha::reference_audition
         void serviceCandidatePreparationAcknowledgement();
         void serviceDeferredAudioThreadActions();
         void serviceOutputRetirement();
-        void serviceWorkflowEvents (std::int64_t nowMs);
         void revokeAuditionPublication() noexcept;
         // 鳴っている（A へ戻るフェード中を含む）役の選択を替える。先に公開を取り消すと Audio Thread が
         // フェードを掛けずに A を返す（ぷつっと切れる）ので、フェードが終わってから作業スレッドが取り消す。
@@ -239,9 +231,7 @@ namespace hypha::reference_audition
         const juce::File root;
         const bool versionComparison;
         const SelectionGate selectionGate;
-        const WorkflowCommitCallback workflowCommitCallback;
         RuntimeV2Repository repository;
-        ReferenceWorkflowRepository workflowRepository;
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;
         RuntimeV2SourceRepository sourceRepository;
@@ -266,9 +256,6 @@ namespace hypha::reference_audition
         std::shared_ptr<const RuntimeWorkspace> workspace;
         std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // stateLock：K13b、Kirin OS の準備の状態
         VersionIdentifier versionIdentifier; // H7: Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
-        std::shared_ptr<const WorkflowCatalog> workflowCatalog;
-        std::deque<WorkflowEventRequest> workflowEvents;
-        std::int64_t workflowRetryAtMs = 0;
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;

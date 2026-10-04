@@ -67,7 +67,7 @@ bool Component::openLarge (int slot)
     return true;
 }
 
-void Component::syncRoles (bool blindSession, bool workflowActive)
+void Component::syncRoles (bool blindSession)
 {
     const bool waiting = current.pendingAudition.waiting() && current.pendingAudition.slot == 3;
     const bool audible = canHearReference (current), queue = canQueueReference (current);
@@ -84,11 +84,11 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
     // H10: 100% の B は曲名・gain・状態だけ。B SET は出さず、曲の切替は 125% 以上。
     const bool glance = presentationContext.density == observatory::Density::compact;
-    songSetBox.setVisible (referenceView && ! glance && ! workflowActive && ! current.songSets.empty());
-    songBox.setVisible (referenceView && ! workflowActive && ! current.songs.empty());
+    songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
+    songBox.setVisible (referenceView && ! current.songs.empty());
     songBox.setEnabled (songBox.isEnabled() && ! glance);
     // H11: 300% 以上の B の画面は、左に曲の一覧、右に Balance。
-    songList.setVisible (referenceView && detailedLayout() && ! workflowActive && ! current.songs.empty());
+    songList.setVisible (referenceView && detailedLayout() && ! current.songs.empty());
     std::vector<SongList::Row> rows;
     for (size_t index = 0; index < current.songs.size(); ++index)
     {

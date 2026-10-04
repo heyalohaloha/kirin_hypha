@@ -272,8 +272,5 @@ void testReferenceRoles (const juce::File& sandbox)
                                       && s.referenceSelection->rejectionCode == "reference_selection_unavailable"; },
           "a saved song that left the B set is reported");
     require (controller.snapshot().selectedSongId == missing.reference.target(), "the saved song is not silently replaced");
-    ref::WorkflowResumeState resumeState;
-    resumeState.returnSlot = 3;
-    require (resumeState.valid(), "a workflow started on the B page returns to the B page");
     std::cout << "Reference A/B/C/V roles: B songs, one role at a time, song switch, follow and resume PASS\n";
 }

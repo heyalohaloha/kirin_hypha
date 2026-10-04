@@ -8,21 +8,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
     : gate (std::move (callback)), captureGate(std::move(captureCallback)), blindCaptureGate(std::move(blindCallback)),
       stateChanged(std::move(stateChangedIn)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
-      check (root, [this] (bool active) { return admit (2, active); }, false,
-          [inbox = std::weak_ptr<WorkflowCommitInbox> (workflowCommitInbox)] (const WorkflowEventCommit& commit)
-          {
-              const auto target = inbox.lock();
-              if (target == nullptr) return;
-              const juce::ScopedLock lock (target->lock);
-              if (! target->accepting) return;
-              for (const auto& queued : target->commits)
-                  if (queued.operationId == commit.operationId) return;
-              if (target->commits.size() < 32)
-              {
-                  target->commits.push_back (commit);
-                  if (target->updater != nullptr) target->updater->triggerAsyncUpdate();
-              }
-          }),
+      check (root, [this] (bool active) { return admit (2, active); }, false),
       reference (root, [this] (bool active) { return admit (3, active); }, false),
       visual ([this] {
           return slotController (viewedSlot.load (std::memory_order_acquire)).visualBinding();
@@ -34,20 +20,10 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
 {
     reference.setTrackingEnabled (true);  // H8・H3: B は A の直近 10 秒に追従する
     reference.setSongsOnly (true);        // B は B セットの曲だけを鳴らす（C の Preset に落ちない）
-    const juce::ScopedLock inboxLock (workflowCommitInbox->lock);
-    workflowCommitInbox->updater = this;
 }
 
 ReferenceComparisonController::~ReferenceComparisonController()
 {
-    {
-        const juce::ScopedLock inboxLock (workflowCommitInbox->lock);
-        workflowCommitInbox->accepting = false;
-        workflowCommitInbox->updater = nullptr;
-        workflowCommitInbox->commits.clear();
-    }
-    cancelPendingUpdate();
-    const juce::ScopedLock serviceLock (workflowServiceLock);
     setPresented (false); capture.shutdown(); suspendAudition();
     const juce::ScopedLock lock (gateLock); closing = true;
     visual.pauseAdmission(); if (gateOwners && gate) gate (false); gateOwners = 0;
@@ -116,7 +92,6 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
 
 ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
 {
-    serviceWorkflowCommits();
     const auto b = version.snapshot();
     const juce::ScopedLock lock (selectionLock);
     if (pendingSettings) return *pendingSettings;
@@ -130,14 +105,13 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
         if (ids.size() == 3)
         { result.version.presetId = ids[0]; result.version.checkId = ids[1]; result.version.candidateId = ids[2]; }
     }
-    result.check = activeWorkflow != nullptr ? normalCheckChoice : check.savedChoice();
+    result.check = check.savedChoice();
     result.reference = songId.isEmpty() ? ReferenceChoice {} : reference.savedChoice();
     result.reference.cueId.clear();  // B の曲は既定の Cue で鳴らす（H8）
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
     result.captureState = capture.access->store.value().encoded; result.capturedView = capture.access->capturedView;
     result.tonal = tonalState;
-    result.workflow = workflowState;
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
 }
@@ -179,11 +153,6 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         songId = value.reference.candidateId.isEmpty() ? juce::String {} : value.reference.target();
         songSetId = value.songSetId;
         tonalState = value.tonal;
-        workflowState = value.workflow;
-        normalCheckChoice = value.check;
-        activeWorkflow.reset();
-        pendingWorkflowTransition.reset();
-        workflowItemIndex = 0;
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
@@ -204,7 +173,6 @@ RuntimeV2Controller& ReferenceComparisonController::viewed() noexcept
 
 Snapshot ReferenceComparisonController::snapshot()
 {
-    serviceWorkflowCommits();
     const auto b = version.snapshot(), c = check.snapshot(), r = reference.snapshot();
     ensureReferenceSong (r);
     const juce::ScopedLock lock (selectionLock);
@@ -268,48 +236,6 @@ Snapshot ReferenceComparisonController::snapshot()
     result.referenceReady = songPublished && r.state == RuntimeState::ready && r.auditionBuffered;
     result.referenceArmable = songPublished && r.playbackIdentity.isNotEmpty() && r.blindPhase == BlindPhase::inactive;
     appendPendingAudition (result, versionMap, slot == 2 ? viewedMap : check.visualBinding());
-    const auto catalog = c.workflowCatalog;
-    result.workflow.reviewAvailable = catalog != nullptr && catalog->latestReview != nullptr;
-    result.workflow.bookmarkAvailable = catalog != nullptr && catalog->latestBookmark != nullptr;
-    if (activeWorkflow != nullptr && workflowItemIndex >= 0
-        && workflowItemIndex < static_cast<int> (activeWorkflow->items.size()))
-    {
-        const auto& item = activeWorkflow->items[static_cast<size_t> (workflowItemIndex)];
-        result.workflow.mode = activeWorkflow->kind == WorkflowDefinition::Kind::review
-            ? WorkflowView::Mode::review : WorkflowView::Mode::bookmark;
-        result.workflow.definitionId = activeWorkflow->id;
-        result.workflow.definitionTitle = activeWorkflow->title;
-        result.workflow.itemId = item.itemId;
-        result.workflow.itemTitle = item.title;
-        result.workflow.purpose = item.purpose;
-        result.workflow.itemIndex = workflowItemIndex;
-        result.workflow.itemCount = static_cast<int> (activeWorkflow->items.size());
-        result.workflow.canMoveBack = workflowItemIndex > 0;
-        result.workflow.canAdvance = true;
-        result.workflow.canEnd = true;
-        const auto token = activeWorkflow->revisionId + ":" + item.itemId;
-        if (pendingWorkflowTransition.has_value())
-            result.workflow.status = WorkflowView::Status::saving;
-        else if (c.workflowToken == token && c.state == RuntimeState::ready)
-            result.workflow.status = WorkflowView::Status::ready;
-        else if (c.state == RuntimeState::rejected && c.rejectionCode == "reference_workflow_condition_changed")
-        {
-            result.workflow.status = WorkflowView::Status::rejected;
-            result.workflow.message = "SOURCE OR CUE CHANGED";
-        }
-        else result.workflow.status = WorkflowView::Status::preparing;
-    }
-    else if (workflowState.mode != WorkflowResumeState::Mode::idle)
-    {
-        result.workflow.status = WorkflowView::Status::resumeAvailable;
-        result.workflow.mode = workflowState.mode == WorkflowResumeState::Mode::review
-            ? WorkflowView::Mode::review : WorkflowView::Mode::bookmark;
-        result.workflow.definitionId = workflowState.mode == WorkflowResumeState::Mode::review
-            ? workflowState.reviewId : workflowState.bookmarkId;
-        result.workflow.message = "CONTINUE WHEN READY";
-    }
-    else result.workflow.status = result.workflow.reviewAvailable || result.workflow.bookmarkAvailable
-        ? WorkflowView::Status::available : WorkflowView::Status::unavailable;
     result.blindEligible = slot == 1 && result.versionReady && b.blindEligible && !capture.access->busy();
     if (slot == 1 && versionId.isEmpty())
     {
@@ -326,20 +252,13 @@ Snapshot ReferenceComparisonController::snapshot()
 // 押した後の待ちがあるときは何もしない（利用者の選択を崩さない）。
 bool ReferenceComparisonController::selectVersion (const juce::String& id, bool automatic)
 {
-    serviceWorkflowCommits();
     if (trialActive()) return false;
     if (automatic)
     {
-        if (hasActiveWorkflow() || version.hasOutputPath() || normalOutputSlot.load (std::memory_order_acquire) == 1
+        if (version.hasOutputPath() || normalOutputSlot.load (std::memory_order_acquire) == 1
             || pendingSlot() == 1) return false;
         const juce::ScopedLock lock (selectionLock);
         if (versionId.isNotEmpty() && ! versionAuto) return false;  // 利用者が選んだ Version は替えない
-    }
-    else if (hasActiveWorkflow())
-    {
-        if (! finishWorkflow (false)) return false;
-        const juce::ScopedLock lock (selectionLock);
-        if (activeWorkflow != nullptr) return false;
     }
     if (! version.selectLibraryVersion (id)) return false;
     { const juce::ScopedLock lock (selectionLock); versionId = id; versionAuto = automatic; }
@@ -354,14 +273,7 @@ bool ReferenceComparisonController::selectVersion (const juce::String& id, bool 
 // V を見ているとき（V の画面の CHECK SET は C と共用）は V の画面のまま。ほかは C の画面にする。
 bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>& apply)
 {
-    serviceWorkflowCommits();
     if (trialActive()) return false;
-    if (hasActiveWorkflow())
-    {
-        if (! finishWorkflow (false)) return false;
-        const juce::ScopedLock lock (selectionLock);
-        if (activeWorkflow != nullptr) return false;
-    }
     const auto before = check.requestedGeneration();
     if (! apply()) return false;
     if (viewedSlot.load (std::memory_order_acquire) != 1)
@@ -382,7 +294,7 @@ bool ReferenceComparisonController::selectCue (const juce::String& id)
 { return selectCheckRole ([&] { return check.selectCue (id); }); }
 bool ReferenceComparisonController::selectVisualSlot (int slot)
 {
-    if ((slot != 1 && slot != 2 && slot != 3) || trialActive() || hasActiveWorkflow()) return false;
+    if ((slot != 1 && slot != 2 && slot != 3) || trialActive()) return false;
     viewedSlot.store (slot, std::memory_order_release);
     capture.access->capturedView = false;
     if (stateChanged) stateChanged();

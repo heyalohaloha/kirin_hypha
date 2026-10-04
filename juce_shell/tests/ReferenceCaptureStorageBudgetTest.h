@@ -28,22 +28,14 @@ inline void testCaptureStorageBudget(const ref::ACaptureData& base)
         settings.tonal.genreId=juce::String::repeatedString("g",160); settings.tonal.captureId=data.id;
         settings.tonal.artifactSha256=juce::String::repeatedString("a",64);
         settings.tonal.publicationRevision=juce::String::repeatedString("r",160);
-        settings.workflow.mode=ref::WorkflowResumeState::Mode::review;
-        settings.workflow.reviewId="11111111-1111-4111-8111-111111111111";
-        settings.workflow.reviewRevisionId="22222222-2222-4222-8222-222222222222";
-        settings.workflow.attemptId="33333333-3333-4333-8333-333333333333";
-        settings.workflow.checkpointId="44444444-4444-4444-8444-444444444444";
-        settings.workflow.conditionRevisionId="55555555-5555-4555-8555-555555555555";
-        settings.workflow.journalHeadSha256=juce::String::repeatedString("b",64);
-        settings.workflow.returnSlot=2;
         require(settings.captureState.isNotEmpty(),"max-duration max-bins max-receipts capture fits encoding");
         juce::XmlElement xml("Settings"); settings.write(xml);
         const auto encodedBytes=xml.toString().getNumBytesAsUTF8();
         require(encodedBytes<=ref::referenceStateMaximumEncodedBytes
             && ref::referenceStateHardLimitBytes-encodedBytes>=ref::referenceStateMinimumMarginBytes,
-            "combined Capture, Tonal and workflow state retains the fixed 16 KiB margin");
+            "combined Capture and Tonal state retains the fixed 16 KiB margin");
         const auto state=ref::ReferenceComparisonSettings::read(xml);
-        require(state.tonal.valid() && state.workflow.valid(),"bounded Tonal and workflow state round trip");
+        require(state.tonal.valid(),"bounded Tonal state round trip");
         const auto restored=ref::decodeACapture(state.captureState);
         require(restored != nullptr,"maximum storage fixture decodes");
         require(restored->units.size()==7200,"maximum storage round trip retains all units");

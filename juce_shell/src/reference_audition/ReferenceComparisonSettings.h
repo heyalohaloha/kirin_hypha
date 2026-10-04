@@ -28,7 +28,6 @@ struct ReferenceComparisonSettings
     int viewedSlot = 2;
     juce::String captureState; bool capturedView=false;
     TonalDisplayState tonal;
-    WorkflowResumeState workflow;
     void write (juce::XmlElement& parent) const
     {
         auto* xml = parent.createNewChildElement ("ReferenceChoices");
@@ -46,7 +45,7 @@ struct ReferenceComparisonSettings
         append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml);
         if (safeId (songSetId)) xml->getChildByName ("REF")->setAttribute ("set", songSetId);
         if (versionAuto && version.candidateId.isNotEmpty()) xml->getChildByName ("B")->setAttribute ("auto", true);
-        tonal.write (parent); workflow.write (parent);
+        tonal.write (parent);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
     {
@@ -63,7 +62,6 @@ struct ReferenceComparisonSettings
         if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.getNumBytesAsUTF8()<=referenceCaptureMaximumEncodedBytes) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
         result.visualView = VisualViewChoice::read (*xml);
         result.tonal = TonalDisplayState::read (parent);
-        result.workflow = WorkflowResumeState::read (parent);
         result.version = readChoice ("B"); result.check = readChoice ("C"); result.reference = readChoice ("REF");
         if (result.version.candidateId.isEmpty()) result.version = {};
         if (const auto* versionXml = xml->getChildByName ("B"))

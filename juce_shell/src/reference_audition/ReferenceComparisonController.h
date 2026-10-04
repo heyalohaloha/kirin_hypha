@@ -13,14 +13,14 @@ namespace hypha::reference_audition
 // A is the original DAW input. V (slot 1, Version), C (slot 2, Check) and B (slot 3, REF: the
 // B set songs, H8) own separate prepared choices, while one shared gate admits only the explicitly
 // selected output path. Only one role sounds at a time.
-class ReferenceComparisonController final : private juce::AsyncUpdater
+class ReferenceComparisonController final
 {
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
     using StateChanged = std::function<void()>;
     explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {},
                                             SelectionGate = {}, StateChanged = {});
-    ~ReferenceComparisonController() override;
+    ~ReferenceComparisonController();
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
@@ -39,10 +39,6 @@ public:
     bool retryCandidatePreparation();
     bool approveSampleRateConversion(int slot);
     bool requestRecovery();
-    bool startLatestReview();
-    bool startLatestBookmark();
-    bool moveWorkflow (int direction, bool confirmed, bool deferred);
-    void endWorkflow();
     void setCaptureTonalRange (double startSeconds, double endSeconds);
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
@@ -88,21 +84,6 @@ public:
     double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
 
 private:
-    struct PendingWorkflowTransition
-    {
-        enum class Action { checkpointOnly, move, finish };
-        Action action = Action::checkpointOnly;
-        juce::String operationId;
-        std::shared_ptr<const WorkflowDefinition> definition;
-        int nextIndex = 0;
-    };
-    struct WorkflowCommitInbox
-    {
-        juce::CriticalSection lock;
-        std::deque<WorkflowEventCommit> commits;
-        juce::AsyncUpdater* updater = nullptr;
-        bool accepting = true;
-    };
     bool admit (int, bool);
     bool admitCapture(bool);
     bool beginBlindGuard();
@@ -111,19 +92,8 @@ private:
     ACaptureReceipt captureReceipt() const;
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
-    bool startWorkflow (std::shared_ptr<const WorkflowDefinition>, int itemIndex = 0);
-    bool prepareWorkflowItem (const std::shared_ptr<const WorkflowDefinition>&, int);
-    bool appendWorkflowEvent (const juce::String&, const WorkflowItem&,
-                              const std::shared_ptr<const WorkflowDefinition>&,
-                              PendingWorkflowTransition::Action, int nextIndex = 0);
-    void workflowCommitted (const WorkflowEventCommit&);
-    void serviceWorkflowCommits();
-    void handleAsyncUpdate() override;
-    bool hasActiveWorkflow() const;
     void clearPendingAudition();
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
-    bool finishWorkflow (bool completed);
-    void applyWorkflowFinish();
     SelectionGate gate, captureGate, blindCaptureGate;
     bool captureOwned=false,blindGuardOwned=false,localBlindOwned=false;
     std::uint64_t localBlindEpoch=0;
@@ -134,11 +104,6 @@ private:
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
     TonalDisplayState tonalState;
-    WorkflowResumeState workflowState;
-    std::shared_ptr<const WorkflowDefinition> activeWorkflow;
-    std::optional<PendingWorkflowTransition> pendingWorkflowTransition;
-    ReferenceChoice normalCheckChoice;
-    int workflowItemIndex = 0;
     StateChanged stateChanged;
     struct PendingIntent
     {
@@ -182,8 +147,6 @@ private:
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 }, rScratch { 2, 8192 };
     HeldAttenuation heldA;  // 承認して A（POST の出力全体）を下げている量。RETURN まで保つ
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
-    std::shared_ptr<WorkflowCommitInbox> workflowCommitInbox = std::make_shared<WorkflowCommitInbox>();
-    juce::CriticalSection workflowServiceLock;
     RuntimeV2Controller version, check, reference;
     VisualObservation visual;
     ACaptureSession capture;

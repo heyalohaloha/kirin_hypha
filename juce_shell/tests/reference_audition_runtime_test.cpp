@@ -16,7 +16,7 @@ int main (int argc, char** argv)
     require (sandbox.createDirectory(), "sandbox directory must be created");
     if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox)) return 0;
     if (runReferenceCaptureTests(argc,argv,sandbox)) return 0;
-    testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; } testReferenceWorkflow (sandbox);
+    testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
     testReferenceAbcv (sandbox);

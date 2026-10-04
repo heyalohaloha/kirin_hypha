@@ -22,7 +22,6 @@
 #include "ReferenceAuditionRepository.h"
 #include "ReferenceRuntimeV2Measurement.h"
 #include "ReferenceRuntimeV2Profile.h"
-#include "ReferenceWorkflowModel.h"
 
 namespace hypha::reference_audition
 {
@@ -168,9 +167,6 @@ namespace hypha::reference_audition
         bool libraryReceived = false;
         bool osOnline = false;
         std::int64_t manifestRevision = 0;
-        std::shared_ptr<const WorkflowCatalog> workflowCatalog;
-        juce::String workflowToken;
-        WorkflowView workflow;
     };
 
     class Controller final : private juce::Thread

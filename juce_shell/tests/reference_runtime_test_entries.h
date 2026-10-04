@@ -41,7 +41,6 @@ inline bool finishReferenceAbcMode (int argc, char** argv, const juce::File& san
 }
 
 void testReferenceVisual (const juce::File&);
-void testReferenceWorkflow (const juce::File&);
 
 void testReferenceACapture(const juce::File&);
 

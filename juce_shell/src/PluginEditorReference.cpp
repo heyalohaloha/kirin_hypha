@@ -119,12 +119,6 @@ void KirinHyphaEditor::configureReferenceAudition()
     versionBlindView.onReveal = [this] { if (! processorRef.revealReferenceBlind()) showToast ("Listen to both sources before revealing"); };
     versionBlindView.onEnd = [this] { processorRef.endReferenceBlind(); };
     scaleRoot.addChildComponent (versionBlindView);
-    referenceView.onStartReview=[this]{if(!processorRef.startLatestReferenceReview())showToast("Today's review is unavailable");};
-    referenceView.onStartBookmark=[this]{if(!processorRef.startLatestReferenceBookmark())showToast("Bookmark is unavailable");};
-    referenceView.onWorkflowBack=[this]{if(!processorRef.moveReferenceWorkflow(-1,false,false))showToast("Previous item is unavailable");};
-    referenceView.onWorkflowConfirmed=[this]{if(!processorRef.moveReferenceWorkflow(1,true,false))showToast("Next item is unavailable");};
-    referenceView.onWorkflowDeferred=[this]{if(!processorRef.moveReferenceWorkflow(1,false,true))showToast("Next item is unavailable");};
-    referenceView.onWorkflowEnd=[this]{processorRef.endReferenceWorkflow();};
     referenceView.onCapturedTonalRange=[this](double start,double end)
     {processorRef.setReferenceCaptureTonalRange(start,end);};
     scaleRoot.addChildComponent (referenceView);
@@ -276,7 +270,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.presetSelectionAction = runtime.presetSelectionAction;
     state.candidatePreparationAction = runtime.candidatePreparationAction;
     state.candidatePreparationPending = checkSelection.candidatePreparationStatus == "pending";
-    state.workflow = runtime.workflow;
     if (observatoryDomain == hypha::observatory::Domain::reference)
     {
         KirinSpectrumView spectrum {};

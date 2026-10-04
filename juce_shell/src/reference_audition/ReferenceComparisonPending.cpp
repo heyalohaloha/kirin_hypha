@@ -64,7 +64,7 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
 bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety)
 {
     const auto state = snapshot();
-    if (trialActive() || hasActiveWorkflow() || capture.access->busy()
+    if (trialActive() || capture.access->busy()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
     const auto identity = (slot == 1 ? *state.versionSelection : slot == 2 ? *state.checkSelection
@@ -88,7 +88,7 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
 // 通しで、V の版を替えた直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
 bool ReferenceComparisonController::waitWhilePreparing (int slot)
 {
-    if (trialActive() || hasActiveWorkflow() || capture.access->busy()) return false;
+    if (trialActive() || capture.access->busy()) return false;
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
     auto& target = slotController (slot);
     const auto now = target.snapshot();
@@ -133,11 +133,11 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     if (intent.safetyEpoch != pendingSafetyEpoch.load (std::memory_order_acquire)
         || (intent.sawPlayback && (!state.transportPlaying || !callbackLive))
         || (state.transportPlaying && inputSafety == 0)
-        || trialActive() || hasActiveWorkflow())
+        || trialActive())
     {
         // H5: 戻す選択と選択の替えは、停止・bypass のあいだ待つだけで、取り消さない（鳴らしはしない）。
         // オフライン書き出しは forgetHeldAudition で忘れる（仕様 A）。
-        if ((intent.resume || intent.switching) && !trialActive() && !hasActiveWorkflow())
+        if ((intent.resume || intent.switching) && !trialActive())
         {
             const juce::ScopedLock lock (selectionLock);
             if (pendingAudition.intentId == intent.intentId)

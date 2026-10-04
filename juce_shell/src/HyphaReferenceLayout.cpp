@@ -97,11 +97,6 @@ void Component::resized()
         }
     }
     area.removeFromTop (panelGap());
-    if (workflowControls.isVisible())
-    {
-        workflowControls.setBounds (area.removeFromTop (workflowControls.preferredHeight()));
-        area.removeFromTop (panelGap());
-    }
     const bool rowInPanel = ! statusInFooter();
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (checkPage()) area.removeFromBottom (checkFooterHeight());

@@ -16,8 +16,6 @@ bool RuntimeV2Controller::selectLibraryCheck (const juce::String& id)
         requestedSelection.candidateId = id.substring (split + 1);
         requestedSelection.cueId.clear();
         requestedSelection.sampleRateApprovalKey.clear();
-        requestedSelection.workflowCondition.reset();
-        requestedSelection.workflowToken.clear();
         ++requestedSelection.generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;
@@ -41,8 +39,6 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
         requestedSelection.candidateId = parts[2];
         requestedSelection.cueId.clear();
         requestedSelection.sampleRateApprovalKey.clear();
-        requestedSelection.workflowCondition.reset();
-        requestedSelection.workflowToken.clear();
         ++requestedSelection.generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;
@@ -68,8 +64,6 @@ bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
         requestedSelection.candidateId = parts[2];
         requestedSelection.cueId.clear();
         requestedSelection.sampleRateApprovalKey.clear();
-        requestedSelection.workflowCondition.reset();
-        requestedSelection.workflowToken.clear();
         ++requestedSelection.generation;
         pendingApprovalKey.clear();
         currentSnapshot.sampleRateApprovalRequired = false;

@@ -16,9 +16,7 @@ inline bool canQueueSource (const State& state, bool version)
     const bool waits = state.transportPlaying ? settlesByItself (version ? state.versionStep : state.checkStep)
                                               : (version ? state.versionArmable : state.checkArmable);
     return state.separateComparisons && state.libraryReceived && waits
-        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase)
-        && (state.workflow.mode == reference_audition::WorkflowView::Mode::normal
-            || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
+        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }
 
 // H10: B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
@@ -26,9 +24,7 @@ inline bool canQueueReference (const State& state)
 {
     const bool waits = state.transportPlaying ? settlesByItself (state.referenceStep) : state.referenceArmable;
     return state.separateComparisons && state.libraryReceived && waits
-        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase)
-        && (state.workflow.mode == reference_audition::WorkflowView::Mode::normal
-            || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
+        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }
 
 inline juce::String pendingAuditionReason (const State& state)
