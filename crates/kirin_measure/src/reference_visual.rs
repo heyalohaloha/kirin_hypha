@@ -284,7 +284,7 @@ mod hop_fact_tests {
                         [l, r]
                     })
                     .collect();
-                for frame in pcm.chunks_exact(2) {
+                for frame in pcm.as_chunks::<2>().0 {
                     let (l, r) = (f64::from(frame[0]), f64::from(frame[1]));
                     cross += l * r;
                     mid += ((l + r) * 0.5).powi(2);
