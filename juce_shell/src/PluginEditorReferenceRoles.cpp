@@ -97,6 +97,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                     fact.lufsI = source.lufsI;
                     fact.centersHz = source.spectrumCentersHz;
                     fact.medianDb = source.spectrumMedianDb;
+                    fact.part = source.part;
+                    fact.partStartSeconds = source.partStartSeconds;
+                    fact.partEndSeconds = source.partEndSeconds;
                 }
                 state.songFacts.push_back (std::move (fact));
             }
@@ -116,6 +119,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     const auto& checkRole = runtime.checkSelection ? *runtime.checkSelection : runtime;
     if (runtime.visualTimeline) state.aKirin = runtime.visualTimeline->aKirin;
     state.cueKirin = checkRole.cueSpectrum;
+    state.cuePart = checkRole.cuePart;
     state.cueLoudness = checkRole.cueLevelAvailable ? checkRole.cueIntegratedLoudness : std::numeric_limits<double>::quiet_NaN();
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;

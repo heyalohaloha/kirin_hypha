@@ -53,6 +53,29 @@ inline void verifyReferenceCheckPage()
                      && i18n::translate (reference_ui::matchReadout (waiting), i18n::Language::japanese) != "A 12 / 30 S",
                  "while A fills the Cue's window, the page says how far it has come");
     }
+    // 2026-10-04（Daisuke「A直近10秒 / Bサビ」）：凡例は比べる側が曲のどの部分かを言う。B は時刻も添える。
+    {
+        using reference_audition::CuePart;
+        const auto nan = std::numeric_limits<double>::quiet_NaN();
+        require (reference_ui::cuePartLegend ("B", CuePart::chorus, 62.0, 84.0, true) == "B CHORUS 1:02-1:24"
+                     && reference_ui::cuePartLegend ("B", CuePart::loudest, 45.0, 75.0, true) == "B LOUDEST 30 S 0:45-1:15"
+                     && reference_ui::cuePartLegend ("B", CuePart::cue, 5.0, 15.0, true) == "B CUE 0:05-0:15"
+                     && reference_ui::cuePartLegend ("B", CuePart::whole, 0.0, 259.0, true) == "B WHOLE"
+                     && reference_ui::cuePartLegend ("C", CuePart::chorus, 62.0, 84.0, false) == "C CHORUS"
+                     && reference_ui::cuePartLegend ("C", CuePart::unknown, nan, nan, false) == "C CUE",
+                 "the legend names the part each side plays");
+        const auto japanese = [] (const juce::String& english) { return i18n::translate (english, i18n::Language::japanese); };
+        require (japanese ("B CHORUS 1:02-1:24") == juce::String (juce::CharPointer_UTF8 ("B\xe3\x82\xb5\xe3\x83\x93 1:02-1:24"))
+                     && japanese ("B WHOLE") == juce::String (juce::CharPointer_UTF8 ("B\xe6\x9b\xb2\xe5\x85\xa8\xe4\xbd\x93"))
+                     && japanese ("A LAST 18 S / C CHORUS")
+                            == juce::String (juce::CharPointer_UTF8 ("A\xe7\x9b\xb4\xe8\xbf\x91" "18\xe7\xa7\x92 / C\xe3\x82\xb5\xe3\x83\x93"))
+                     && japanese ("B LOUDEST 30 S 0:45-1:15") != "B LOUDEST 30 S 0:45-1:15"
+                     && japanese ("C LOUDEST 30 S") != "C LOUDEST 30 S" && japanese ("C WHOLE") != "C WHOLE",
+                 "the parts read in Japanese (A\u76f4\u8fd110\u79d2 / B\u30b5\u30d3)");
+        auto chorusCheck = state;
+        chorusCheck.cuePart = CuePart::chorus;
+        require (reference_ui::cueSpectrumLegend (chorusCheck).contains (" / C CHORUS"), "the C legend names the chorus");
+    }
     reference_ui::Component panel;
     panel.setVisible (true);
     panel.setPresentationContext (presentation::forEditor (900, 600));

@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaPresentationContext.h"
+#include "reference_audition/ReferenceCuePart.h"
 
 // H12: C の画面の下段（方向設計 §4）。同じ区間・同じ音量で比べる値。
 //  - 比べる gain：C が鳴っていればその gain、鳴っていなければ「A の窓 − Cue の Integrated」（選べば
@@ -26,4 +27,7 @@ juce::String matchReadout (const State&);
 // 見比べの凡例：「A LAST 30 S / C CUE」（A の窓が 3 秒に満たなければ A WAITING、音量をそろえられなければ
 // LEVEL NOT MATCHED を足す）。
 juce::String cueSpectrumLegend (const State&);
+// 凡例の比べる側の名前（2026-10-04、Daisuke「A直近10秒 / Bサビ」）：「B CHORUS 1:02-1:24」「C WHOLE」など。
+// range は区間の時刻を添えるか（B の画面には Cue の時間軸が無いので添える。C は時間軸が言う）。
+juce::String cuePartLegend (const char* side, reference_audition::CuePart, double startSeconds, double endSeconds, bool range);
 }

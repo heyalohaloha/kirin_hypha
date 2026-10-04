@@ -1,6 +1,7 @@
 #include "HyphaReferenceBalance.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceCueSummary.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -133,17 +134,21 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
         text_style::drawEllipsized (g, "B SET VALUES ARRIVE FROM KIRIN OS", chart.toNearestInt(), juce::Justification::centred);
     }
-    // 凡例：A LIVE（金）・B（水色）・B SET（p10〜p90 の薄い帯）。
+    // 凡例：A の直近の窓（金）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・B SET（p10〜p90 の薄い帯）。
+    // 2026-10-04（Daisuke「A直近10秒 / Bサビ」）。文字の長さに合わせて左から並べる（均等に割ると B が切れる）。
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
+    const auto font = g.getCurrentFont();
     const auto item = [&] (const juce::String& text, juce::Colour colour) {
-        auto cell = legend.removeFromLeft (legend.getWidth() / 3);
+        auto cell = legend.removeFromLeft (juce::jmin (legend.getWidth(), 22 + juce::roundToInt (std::ceil (text_style::shownWidth (font, text)))));
+        legend.removeFromLeft (14);
         g.setColour (colour);
         g.fillRect (cell.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, colour == COL_FLORA_BR ? 2.8f : 1.6f));
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, text, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
     };
-    item (aShown ? "A 10 S" : "A WAITING", COL_FLORA_BR);
-    item ("B", COL_SPECTRUM_DELTA);
+    item (aShown ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING"), COL_FLORA_BR);
+    item (chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true)
+                            : juce::String ("B"), COL_SPECTRUM_DELTA);
     item ("B SET", COL_NORMAL.withAlpha (0.35f));
 }
 }

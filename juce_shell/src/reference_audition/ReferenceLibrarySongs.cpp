@@ -29,6 +29,10 @@ RuntimeSongFacts readSongFacts (const juce::File& root, const RuntimeLibrarySets
     if (receipt == sets.sourceRanges.end() || cue == song.cues.end()
         || ! readReferenceSourceRanges (root, receipt->rangesArtifact, ranges) || cue->sampleRateHz != ranges.sampleRateHz)
         return facts;
+    // どの部分か（凡例）は、Cue の値の行がまだ無くても Cue の範囲と自動区間から決まる。
+    facts.part = cuePartOf (ranges, cue->startSample, cue->endSample, cue->label);
+    facts.partStartSeconds = static_cast<double> (cue->startSample) / static_cast<double> (ranges.sampleRateHz);
+    facts.partEndSeconds = static_cast<double> (cue->endSample) / static_cast<double> (ranges.sampleRateHz);
     const auto* range = ranges.find (cue->startSample, cue->endSample);
     if (range == nullptr) return facts;
     if (range->lufsIMilliLu) facts.lufsI = static_cast<double> (*range->lufsIMilliLu) / 1000.0;

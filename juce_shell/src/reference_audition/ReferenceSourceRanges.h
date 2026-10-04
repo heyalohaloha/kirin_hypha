@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ReferenceCuePart.h"
 #include "ReferenceRuntimeV2Model.h"
 
 #include <array>
@@ -56,6 +57,20 @@ struct RuntimeSourceRanges
         return nullptr;
     }
 };
+
+// Cue の範囲が曲のどの部分か。サビ候補は自動区間の回と同じ範囲かで見分ける（Cue の名前は利用者の言語に
+// 訳されていることがあるので頼らない）。最も大きい 30 秒は Kirin OS が付ける名前でだけ見分ける。
+inline CuePart cuePartOf (const RuntimeSourceRanges& ranges, std::int64_t start, std::int64_t end,
+                          const juce::String& label)
+{
+    if (end <= start) return CuePart::unknown;
+    if (start == 0 && end >= ranges.totalSampleFrames) return CuePart::whole;
+    for (const auto& family : ranges.sectionFamilies)
+        if (family.chorusCandidate)
+            for (const auto& occurrence : family.occurrences)
+                if (occurrence.first == start && occurrence.second == end) return CuePart::chorus;
+    return label == "Loudest 30 s" ? CuePart::loudest : CuePart::cue;
+}
 
 // 受け取り（relative_path・sha256・bytes）どおりのファイルかを確かめてから読む。
 bool readReferenceSourceRanges (const juce::File& root, const RuntimeContentReceipt& receipt,

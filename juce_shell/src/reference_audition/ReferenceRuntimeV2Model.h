@@ -9,6 +9,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "ReferenceCuePart.h"
+
 namespace hypha::reference_audition
 {
     struct RuntimeContentReceipt
@@ -145,6 +147,10 @@ namespace hypha::reference_audition
         double maxTruePeak = std::numeric_limits<double>::quiet_NaN();
         std::vector<double> spectrumCentersHz;
         std::vector<float> spectrumMedianDb;
+        // 既定の Cue が曲のどの部分か（図の凡例「Bサビ 1:02-1:24」）と、その時刻（秒）。
+        CuePart part = CuePart::unknown;
+        double partStartSeconds = std::numeric_limits<double>::quiet_NaN();
+        double partEndSeconds = std::numeric_limits<double>::quiet_NaN();
     };
 
     // K13b: Kirin OS の準備の状態（library/preparation.json）。Hypha に出したセットの曲ごと。値は Kirin OS の

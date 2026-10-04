@@ -51,6 +51,18 @@ const Entry entries[] = {
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
     { "A %1 / %2 S", u8"A %1 / %2秒" },
+    // 2026-10-04：図の凡例の比べる側（Daisuke「A直近10秒 / Bサビ」）。B は鳴らす部分の時刻を添える。
+    { "B CHORUS %1", u8"Bサビ %1" },
+    { "B LOUDEST 30 S %1", u8"B最も大きい30秒 %1" },
+    { "B CUE %1", u8"BのCue %1" },
+    { "B CHORUS", u8"Bサビ" },
+    { "B LOUDEST 30 S", u8"B最も大きい30秒" },
+    { "B CUE", u8"BのCue" },
+    { "B WHOLE", u8"B曲全体" },
+    { "C CHORUS", u8"Cサビ" },
+    { "C LOUDEST 30 S", u8"C最も大きい30秒" },
+    { "C CUE", u8"CのCue" },
+    { "C WHOLE", u8"C曲全体" },
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
     // K13b：Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
     { "NOT FOUND", u8"見つからない" },

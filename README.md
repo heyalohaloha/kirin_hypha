@@ -637,7 +637,10 @@ shows the song and the status; songs are switched from 125%.
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
   OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
   right: A over the last 10 seconds (gold), the chosen song (cyan) and the set's p10–p90 range, each
-  song shifted to the level B plays it at. No genre curves are supplied.
+  song shifted to the level B plays it at. No genre curves are supplied. B plays and is measured over
+  its default Cue: for a song left on the whole track in Kirin OS, that is the chorus candidate, or the
+  loudest 30 seconds when no chorus is found; the legend names the part and its times
+  (B CHORUS 1:02-1:24), and the C page legend names C's part the same way.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song), the Cue, and MATCH. The comparison is the Cue against the same length of recent
   A; below it, the four-band Balance difference C − A (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz)

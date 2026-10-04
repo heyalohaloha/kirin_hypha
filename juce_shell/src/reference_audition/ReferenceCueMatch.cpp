@@ -24,6 +24,7 @@ std::optional<CueLevel> readCueLevel (const juce::File& root, const RuntimeWorks
     const auto* range = ranges.find (cue.startSample, cue.endSample);
     if (range == nullptr || ! range->lufsIMilliLu) return std::nullopt;
     CueLevel level;
+    level.part = cuePartOf (ranges, cue.startSample, cue.endSample, cue.label);
     level.integratedLoudness = static_cast<double> (*range->lufsIMilliLu) / 1000.0;
     if (range->maxTruePeakMilliDbtp) level.maximumTruePeakDbtp = static_cast<double> (*range->maxTruePeakMilliDbtp) / 1000.0;
     const auto bands = ranges.spectrumBandCentersHz.size();

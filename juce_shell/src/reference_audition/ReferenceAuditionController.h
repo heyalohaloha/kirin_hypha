@@ -12,6 +12,7 @@
 #include <juce_core/juce_core.h>
 
 #include "ReferenceAudioPages.h"
+#include "ReferenceCuePart.h"
 #include "ReferenceDeferredControl.h"
 #include "ReferenceVisualTimeline.h"
 #include "ReferenceVisualPreferences.h"
@@ -86,6 +87,7 @@ namespace hypha::reference_audition
         int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
         // H12: C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
         std::shared_ptr<const KirinSpectrumWindow> cueSpectrum;
+        CuePart cuePart = CuePart::unknown;  // Cue が曲のどの部分か（C の図の凡例）
         double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
         double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN();
         bool cueLoops = false;

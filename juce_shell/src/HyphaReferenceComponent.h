@@ -21,6 +21,7 @@
 #include "HyphaReferenceWorkflowControls.h"
 #include "HyphaReferenceSongList.h"
 #include "HyphaReferenceCheckTabs.h"
+#include "reference_audition/ReferenceCuePart.h"
 #include "reference_audition/ReferenceKirinSpectrum.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
@@ -84,6 +85,9 @@ struct SongFact
     reference_audition::RuntimeSongPreparation preparation; // K13b：Kirin OS がこの曲を準備している状態
     std::vector<double> centersHz;
     std::vector<float> medianDb;
+    // 既定の Cue が曲のどの部分か（凡例「Bサビ 1:02-1:24」。Kirin OS は Cue を決めていない曲にサビ候補を渡す）。
+    reference_audition::CuePart part = reference_audition::CuePart::unknown;
+    double partStartSeconds = std::numeric_limits<double>::quiet_NaN(), partEndSeconds = std::numeric_limits<double>::quiet_NaN();
 };
 
 struct State
@@ -173,6 +177,7 @@ struct State
     // H12: 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
+    reference_audition::CuePart cuePart = reference_audition::CuePart::unknown;  // C の Cue が曲のどの部分か（凡例）
     double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();

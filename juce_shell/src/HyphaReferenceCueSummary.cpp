@@ -108,7 +108,30 @@ juce::String cueSpectrumLegend (const State& state)
 {
     const bool aReady = kirinComparable (state) && state.aKirin->frames >= minimumAFrames;
     const auto a = aReady ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING");
-    return a + " / C CUE" + (std::isfinite (comparisonGainDb (state)) ? "" : " / LEVEL NOT MATCHED");
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+    return a + " / " + cuePartLegend ("C", state.cuePart, nan, nan, false)
+        + (std::isfinite (comparisonGainDb (state)) ? "" : " / LEVEL NOT MATCHED");
+}
+
+juce::String cuePartLegend (const char* side, reference_audition::CuePart part, double startSeconds, double endSeconds, bool range)
+{
+    using reference_audition::CuePart;
+    const auto clock = [] (double seconds)
+    {
+        const auto whole = juce::roundToInt (seconds);
+        return juce::String (whole / 60) + ":" + juce::String (whole % 60).paddedLeft ('0', 2);
+    };
+    const auto times = range && std::isfinite (startSeconds) && std::isfinite (endSeconds) && endSeconds > startSeconds
+        ? " " + clock (startSeconds) + "-" + clock (endSeconds) : juce::String();
+    const juce::String name { side };
+    switch (part)
+    {
+        case CuePart::whole: return name + " WHOLE";
+        case CuePart::chorus: return name + " CHORUS" + times;
+        case CuePart::loudest: return name + " LOUDEST 30 S" + times;
+        case CuePart::cue: case CuePart::unknown: break;
+    }
+    return name + " CUE" + times;
 }
 
 juce::String matchReadout (const State& state)

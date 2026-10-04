@@ -6,6 +6,7 @@
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
 #include "../src/reference_audition/ReferenceCueMatch.h"
+#include "../src/reference_audition/ReferenceSourceRanges.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceTrackingGain.h"
 
@@ -132,6 +133,25 @@ void readsKirinOsCueLevel (const juce::File& sandbox)
     const auto level = ref::readCueLevel (root, *loaded.workspace, song, song.cues[0], source);
     require (level && closeTo (level->integratedLoudness, -14.06) && closeTo (level->maximumTruePeakDbtp, -1.002),
              "the chorus Cue's Integrated and True Peak come from Kirin OS");
+    // 2026-10-04：Cue が曲のどの部分か。名前は「サビ候補」（訳された名前）でも、自動区間の回と同じ範囲ならサビ。
+    require (level->part == ref::CuePart::chorus, "a Cue on a chorus occurrence is the chorus, whatever its name");
+    int chorusSongs = 0, unknownSongs = 0;
+    for (const auto& [entry, facts] : loaded.workspace->librarySets->songFacts)
+    {
+        chorusSongs += facts.part == ref::CuePart::chorus && closeTo (facts.partStartSeconds, 0.2) && closeTo (facts.partEndSeconds, 0.8);
+        unknownSongs += facts.part == ref::CuePart::unknown;
+    }
+    require (chorusSongs == 1 && unknownSongs == 1,
+             "a prepared B song says which part its default Cue is, with its times; a song still being prepared says nothing");
+    ref::RuntimeSourceRanges sections;
+    sections.totalSampleFrames = 96'000;
+    sections.sectionFamilies.push_back ({ true, 0, 1'500, 640, { { 9'600, 38'400 } } });
+    require (ref::cuePartOf (sections, 0, 96'000, "Mine") == ref::CuePart::whole
+                 && ref::cuePartOf (sections, 9'600, 38'400, "Verse") == ref::CuePart::chorus
+                 && ref::cuePartOf (sections, 4'800, 52'800, "Loudest 30 s") == ref::CuePart::loudest
+                 && ref::cuePartOf (sections, 4'800, 52'800, "Verse") == ref::CuePart::cue
+                 && ref::cuePartOf (sections, 9'600, 9'600, "Chorus candidate") == ref::CuePart::unknown,
+             "the part comes from the range; only Kirin OS's own loudest 30 s is known by its name");
     auto other = song.cues[0];
     other.endSample -= 4'800;
     auto foreign = source;

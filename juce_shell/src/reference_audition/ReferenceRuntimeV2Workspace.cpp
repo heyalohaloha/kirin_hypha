@@ -354,6 +354,7 @@ namespace hypha::reference_audition
                 next.cueIntegratedLoudness = level->integratedLoudness;
                 next.cueMaximumTruePeakDbtp = level->maximumTruePeakDbtp;
                 next.cueSpectrum = level->spectrum;  // H12
+                next.cuePart = level->part;
             }
         next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
         if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // H12: C の画面の Cue の時間軸
