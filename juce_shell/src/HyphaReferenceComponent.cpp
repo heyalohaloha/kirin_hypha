@@ -8,6 +8,7 @@
 #include "HyphaReferenceDisplayText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaReferenceHelpText.h"
 
 #include <algorithm>
 #include <utility>
@@ -35,6 +36,7 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
+    addMouseListener (this, true);  // 子の上でも、指している項目の説明を下の行に出す（HyphaReferenceHoverHelp.cpp）
     addChildComponent (comparisonView); addChildComponent (tonalView);
     comparisonView.onCapturedRange=[this](double start,double end)
     {if(onCapturedTonalRange)onCapturedTonalRange(start,end);};
@@ -202,6 +204,8 @@ bool Component::detailedLayout() const noexcept
 void Component::paint (juce::Graphics& g)
 {
     lastGuideFit = {};
+    const help::Collector collect (helpRegions);  // 描く図が添える説明の場所（HyphaReferenceHelp.h）
+    getProperties().set (help::shownInLineProperty, helpInLine());  // 部品の説明も吹き出しでなく下の行に
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
@@ -334,6 +338,8 @@ void Component::paint (juce::Graphics& g)
             auto metrics = area;
             const float gap = 6.0f;
             const float width = (metrics.getWidth() - gap) * 0.5f;
+            help::note (metrics.withWidth (juce::roundToInt (width)), help_text::integrated);
+            help::note (metrics.withTrimmedLeft (juce::roundToInt (width + gap)), help_text::truePeak);
             reference_metric_painter::paintMetric (
                         g, metrics.removeFromLeft (juce::roundToInt (width)).toFloat(),
                         "INTEGRATED LOUDNESS", "LUFS", current.aIntegratedLoudness,

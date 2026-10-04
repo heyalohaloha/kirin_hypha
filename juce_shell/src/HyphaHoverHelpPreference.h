@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaLanguage.h"
+#include "HyphaReferenceHelp.h"
 
 namespace hypha
 {
@@ -47,9 +48,10 @@ public:
     {
     }
 
+    // REF の 300% の B・C・V の中は、吹き出しでなく下の状態の行が説明を出す（HyphaReferenceHelp.h）。
     juce::String getTipFor (juce::Component& component) override
     {
-        return HoverHelpPreference::shared().isEnabled()
+        return HoverHelpPreference::shared().isEnabled() && ! reference_ui::help::shownInLine (component)
                  ? i18n::tr (juce::TooltipWindow::getTipFor (component))
                  : juce::String();
     }

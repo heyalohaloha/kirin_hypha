@@ -693,6 +693,12 @@ shows the song and the status; songs are switched from 125%.
   stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
   replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
 
+At 300 % on B, C and V, pointing at an item turns the status line at the bottom into one line on
+what the item measures and what it is for (CREST, the four bands, Blauert's bands, WHOLE and so on),
+as a loudness meter's help bar does; it returns to the status when the pointer leaves. The controls'
+own help goes to the same line instead of a popup there. **Show hover help** turns both off; below
+300 % the popups stay as they were.
+
 A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
 frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Full-range spectrum charts

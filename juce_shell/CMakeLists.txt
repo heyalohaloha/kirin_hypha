@@ -413,7 +413,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaPerceptualPainter.cpp
             src/HyphaPsbPainter.cpp
             src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
-            src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp
+            src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp src/HyphaReferenceHelp.cpp src/HyphaReferenceHoverHelp.cpp
             src/HyphaReferenceGuide.cpp
             src/HyphaReferenceControls.cpp
             src/HyphaReferenceRoles.cpp
@@ -584,7 +584,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
-        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp src/HyphaReferenceHelp.cpp src/HyphaReferenceHoverHelp.cpp
         src/HyphaReferenceGuide.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceRoles.cpp
@@ -735,7 +735,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
-        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp src/HyphaReferenceHelp.cpp src/HyphaReferenceHoverHelp.cpp
         src/HyphaReferenceGuide.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceRoles.cpp
@@ -1043,7 +1043,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
-        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp src/HyphaReferenceStatusRow.cpp src/HyphaReferenceHelp.cpp src/HyphaReferenceHoverHelp.cpp
         src/HyphaReferenceGuide.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceRoles.cpp

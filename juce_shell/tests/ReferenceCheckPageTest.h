@@ -3,6 +3,7 @@
 // H12: C（CHECK）の画面（300%）。CHECK SET・Check のタブ（CHECK セットの順）・曲・Cue・MATCH、
 // 見比べ（Cue 対 A の同じ長さの直近、同じ音量）、4 帯域の要約、Cue の時間軸。200% は今までの選択欄。
 #include "ReferenceGuideContractTest.h"
+#include "ReferenceHoverHelpTest.h"
 #include "../src/HyphaReferenceCueSummary.h"
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaReferenceVersionPage.h"
@@ -138,6 +139,22 @@ inline void verifyReferenceCheckPage()
     state.viewBindings = { "spectrum_full" };
     panel.setState (state);
     write (panel, "abcv_c_900_spectrum.png");
+    // 2026-10-04（下の行の説明）：指した項目の説明。部品は今の説明（ツールチップ）、図は描いたときに添えた説明。
+    namespace text = reference_ui::help_text;
+    std::set<juce::String> helpSeen;
+    {
+        const auto texts = helpTextsOf (panel);
+        for (const auto* expected : { text::cueSpectrum, text::blauert, text::cueBands, text::cueBar, text::checkTabs, text::match })
+            require (texts.count (expected) == 1, juce::String ("pointing at the C page explains it: ") + expected);
+        require (texts.count (match->getTooltip()) == 1 && reference_ui::help::shownInLine (*match),
+                 "a control's own help goes to the line too, not to a popup");
+        for (const auto* id : { "reference-a", "reference-b", "reference-c", "reference-ref" })
+            if (auto* button = dynamic_cast<juce::Button*> (panel.findChildWithID (id)); button != nullptr && button->isVisible())
+                require (panel.helpAt (button->getBounds().getCentre()) == button->getTooltip(),
+                         juce::String ("pointing at a role button puts its help in the line: ") + id + " -> \""
+                             + panel.helpAt (button->getBounds().getCentre()) + "\" vs \"" + button->getTooltip() + "\"");
+        helpSeen.insert (texts.begin(), texts.end());
+    }
     // 2026-10-04（範囲の帯）：Dynamics・Loudness・Stereo・Waveform・Transient は A と C の帯。A がたまる前は C だけ。
     {
         auto strips = state;
@@ -222,6 +239,17 @@ inline void verifyReferenceCheckPage()
         panel.setState (strips);
         require (differentPixels (waitingImage, panel.createComponentSnapshot (panel.getLocalBounds())) > 200,
                  "until A has 3 seconds, only C's strips are drawn");
+        for (const auto* binding : { "dynamics", "loudness", "stereo", "waveform", "transient" })
+        {
+            strips.viewBindings = { binding };
+            panel.setState (strips);
+            const auto texts = helpTextsOf (panel);
+            require (texts.count (text::strips) == 1 && texts.size() >= 6, juce::String ("pointing at the strips explains them: ") + binding);
+            helpSeen.insert (texts.begin(), texts.end());
+        }
+        for (const auto* expected : { text::crest, text::movement, text::momentary, text::width, text::correlation, text::peak,
+                                      text::rms, text::onset })
+            require (helpSeen.count (expected) == 1, juce::String ("every strip explains itself: ") + expected);
     }
     state.viewBindings.clear();
 
@@ -237,6 +265,8 @@ inline void verifyReferenceCheckPage()
     panel.setSize (588, 300);
     panel.setState (state);
     require (! tabs->isVisible() && ! match->isVisible() && version->isVisible(), "200% keeps the selectors it had");
+    require (helpTextsOf (panel).empty() && ! reference_ui::help::shownInLine (*version),
+             "below 300% the help stays in the popups it had");
     panel.onSelectCheck = {}; panel.onSelectC = {}; panel.onMatch = {};
 
     // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。タブは
@@ -303,6 +333,12 @@ inline void verifyReferenceCheckPage()
         const auto dynamicsImage = vPanel.createComponentSnapshot (vPanel.getLocalBounds());
         vTabs->onChoose ("chk-air");
         write (vPanel, "abcv_v_900_stereo.png");
+        {
+            const auto texts = helpTextsOf (vPanel);
+            for (const auto* expected : { text::width, text::correlation, text::timeLines, text::versionBands, text::versionTabs })
+                require (texts.count (expected) == 1, juce::String ("pointing at the V page explains it: ") + expected);
+            helpSeen.insert (texts.begin(), texts.end());
+        }
         int changed = 0;
         const auto stereoImage = vPanel.createComponentSnapshot (vPanel.getLocalBounds());
         for (int y = 0; y < stereoImage.getHeight(); ++y)
@@ -313,6 +349,12 @@ inline void verifyReferenceCheckPage()
     }
     vTabs->onChoose ("whole");
     require (lanes->sameSectionCheck().isEmpty(), "WHOLE returns to the song timeline");
+    {
+        const auto texts = helpTextsOf (vPanel);
+        require (texts.count (text::whole) == 1 && texts.count (text::versionTabs) == 1, "pointing at WHOLE explains it");
+        helpSeen.insert (texts.begin(), texts.end());
+    }
+    verifyReferenceHelpFits (helpSeen);
     vPanel.onSelectCheck = {};
 
     // CHECK SET：Kirin OS で順位を付けたセットだけを順位の順に「1 / 2」を添えて出し、選んでいる Preset は残す。

@@ -62,6 +62,14 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
     if (blindButton.isVisible() && blindButton.getParentComponent() == &statusStrip) available.removeFromRight (detailedLayout() ? 120 : 90);
     if (actionButton.isVisible())
         available.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 244 : detailedLayout() ? 194 : 122);
+    // 300% の B・C・V で項目を指しているあいだは、その説明の一行（離すと状態に戻る。HyphaReferenceHoverHelp.cpp）。
+    if (hoverHelp.isNotEmpty() && helpInLine())
+    {
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
+        text_style::drawEllipsized (g, hoverHelp, available.reduced (4, 0), juce::Justification::centredLeft);
+        return;
+    }
     // 鳴っている役の gain の読みは要るだけの幅（右）。残りを状態の文に渡す（C は MATCH の横に出す）。案内が出ている
     // あいだと Blind の間は出さない（Blind では gain がどちらが鳴っているかの手がかりになる）。
     const bool gainShown = detailedLayout() && current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage()

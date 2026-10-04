@@ -3,6 +3,8 @@
 #include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceHelp.h"
+#include "HyphaReferenceHelpText.h"
 #include "HyphaReferenceLegend.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -31,22 +33,25 @@ struct Row
     bool asHeard;  // C を鳴らす gain で合わせる（軸は値から決める）
     double minimum, maximum, step;
     Unit unit;
-    AWords words;  // 差を A を主語に言う言葉（HyphaReferenceAComparison.h）
+    AWords words;      // 差を A を主語に言う言葉（HyphaReferenceAComparison.h）
+    const char* help;  // 指したときに下の行に出す説明（HyphaReferenceHelpText.h）
 };
 
 std::vector<Row> rowsFor (const juce::String& binding)
 {
-    const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu, AWords::size };
+    namespace text = help_text;
+    const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu, AWords::size, text::movement };
     if (binding == "dynamics")
-        return { { "CREST (TP/RMS)", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size }, movement };
+        return { { "CREST (TP/RMS)", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size, text::crest }, movement };
     if (binding == "loudness")
-        return { { "MOMENTARY (LUFS-M)", DynamicsFact::lufsM, false, true, 0.0, 0.0, 6.0, Unit::lufs, AWords::loudness }, movement };
-    if (binding == "stereo") return { { "WIDTH (S/M)", DynamicsFact::width, false, false, 0.0, 150.0, 50.0, Unit::percent, AWords::width },
-                                      { "CORRELATION", DynamicsFact::correlation, false, false, -1.0, 1.0, 0.5, Unit::ratio, AWords::level } };
-    if (binding == "waveform") return { { "PEAK", DynamicsFact::peak, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level },
-                                        { "RMS", DynamicsFact::rms, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level } };
+        return { { "MOMENTARY (LUFS-M)", DynamicsFact::lufsM, false, true, 0.0, 0.0, 6.0, Unit::lufs, AWords::loudness, text::momentary }, movement };
+    if (binding == "stereo")
+        return { { "WIDTH (S/M)", DynamicsFact::width, false, false, 0.0, 150.0, 50.0, Unit::percent, AWords::width, text::width },
+                 { "CORRELATION", DynamicsFact::correlation, false, false, -1.0, 1.0, 0.5, Unit::ratio, AWords::level, text::correlation } };
+    if (binding == "waveform") return { { "PEAK", DynamicsFact::peak, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level, text::peak },
+                                        { "RMS", DynamicsFact::rms, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level, text::rms } };
     if (binding == "transient")
-        return { { "ONSET (RISE PER HOP)", DynamicsFact::onset, false, false, 0.0, 1.0, 0.25, Unit::onset, AWords::size } };
+        return { { "ONSET (RISE PER HOP)", DynamicsFact::onset, false, false, 0.0, 1.0, 0.25, Unit::onset, AWords::size, text::onset } };
     return {};
 }
 
@@ -198,6 +203,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
     for (const auto& item : prepared)
     {
         auto block = area.removeFromTop (rowHeight);
+        help::note (block, item.row.help);
         auto title = block.removeFromTop (std::min (18.0f, block.getHeight() / 4.0f));
         const auto lineHeight = std::min (24.0f, (block.getHeight() - 20.0f) / 2.0f);
         auto aLine = block.removeFromTop (lineHeight);
@@ -249,6 +255,7 @@ void paintTimeLines (juce::Graphics& g, juce::Rectangle<float> area, const Prepa
     const auto& v = sides.other[item.row.fact];
     const auto count = std::min (a.size(), v.size());
     if (count < 2 || area.getHeight() < 30.0f) return;
+    help::note (area, help_text::timeLines);
     const auto shift = item.otherBar.shift;
     auto low = std::numeric_limits<double>::infinity(), high = -low;
     for (size_t index = 0; index < count; ++index)
@@ -342,6 +349,7 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
 
     surface_material::paintPanel (g, bounds, 0.72f);
     auto header = bounds.removeFromTop (28.0f).reduced (9.0f, 1.0f).toNearestInt();
+    help::note (header, help_text::strips);
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
     text_style::drawEllipsized (g, binding.toUpperCase(), header.removeFromLeft (juce::roundToInt (header.getWidth() * 0.36f)),

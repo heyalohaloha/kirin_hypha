@@ -208,7 +208,7 @@ void Component::syncSourceButtons()
         ? "Audition the Version from Kirin OS (V)." : unavailableText (current, true));
     cButton.setReady (! opensLarge && (checkAudible || cQueue));
     cButton.setTooltip (opensLarge ? "Open C at 300%" : cQueue ? "Queue C for DAW playback. A stays live until ready; press A to cancel."
-        : checkAudible ? juce::String() : unavailableText (current, false));
+        : checkAudible ? "Audition the Check's song from Kirin OS (C)." : unavailableText (current, false));
     guideShown = guide (current).shown;
 }
 

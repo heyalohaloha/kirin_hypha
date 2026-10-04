@@ -4,6 +4,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaReferenceHelpText.h"
 
 #include <algorithm>
 
@@ -239,6 +240,7 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
     {
         const auto readout = matchReadout (current);
         const auto space = matchButton.getBounds().withX (matchButton.getX() - 156).withWidth (150);
+        help::note (space, help_text::match);
         g.setColour (current.bSelected && current.audibleComparisonSlot == 2 ? COL_SPECTRUM_DELTA_BR : COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
         text_style::drawEllipsized (g, readout, space, juce::Justification::centredRight);

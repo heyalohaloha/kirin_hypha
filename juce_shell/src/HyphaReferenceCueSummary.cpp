@@ -3,6 +3,8 @@
 #include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceHelp.h"
+#include "HyphaReferenceHelpText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -65,6 +67,7 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
 {
     // C の Cue の値があるときだけ。A の窓がまだ足りなければ C だけを描き、A は「集めています」と出す。
     if (! state.separateComparisons || state.comparisonSlot != 2 || ! state.cueKirin) return false;
+    help::note (area, help_text::cueSpectrum);
     const auto& cue = *state.cueKirin;
     const auto gain = comparisonGainDb (state);
     const bool matched = std::isfinite (gain);
@@ -206,6 +209,7 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
     const auto gain = comparisonGainDb (state);
     const bool ready = kirinComparable (state) && state.aKirin->frames >= minimumAFrames && std::isfinite (gain);
     const auto layout = bandLayout (area.getWidth(), context);
+    help::note (area, help_text::cueBands);
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
     text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (layout.heading), juce::Justification::centredLeft);
@@ -237,6 +241,7 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
 
 void paintCueBar (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
 {
+    help::note (area, help_text::cueBar);
     surface_material::paintPanel (g, area.toFloat(), 0.6f);
     const auto duration = state.sourceDurationSeconds;
     if (! std::isfinite (duration) || duration <= 0.0 || ! std::isfinite (state.cueStartSeconds) || ! std::isfinite (state.cueEndSeconds))

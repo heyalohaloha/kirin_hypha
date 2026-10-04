@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "HyphaPresentationContext.h"
+#include "HyphaReferenceHelp.h"
 #include "reference_audition/ReferenceVisualTimeline.h"
 #include "reference_audition/ReferenceVisualPreferences.h"
 namespace hypha::reference_ui
@@ -27,7 +28,10 @@ public:
     // listening：耳で聴き比べる Check（図の代わりに聴き比べの案内）。
     void setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views = {}, bool listening = false);
     const juce::String& sameSectionCheck() const noexcept { return sameSection; }
+    // 指した場所の説明（HyphaReferenceHelp.h）。V の Check のタブは描いたときに添えた説明、WHOLE は曲全体の説明。
+    juce::String helpAt (juce::Point<int> local) const;
 private:
+    std::vector<help::Region> helpRegions;
     std::shared_ptr<const reference_audition::VisualTimeline> data;
     reference_audition::VisualBinding lastVerifiedView;
     presentation::Context context = presentation::defaultContext();

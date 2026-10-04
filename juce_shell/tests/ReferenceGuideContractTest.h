@@ -193,9 +193,10 @@ inline void verifyUnavailableButtons()
     auto* c = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-c"));
     require (b != nullptr && c != nullptr, "B and C buttons");
     component.setState (named ("no_version"));
+    // 聴ける C は理由でなく、V・B と同じく何を聴くかを言う（300% では下の行の説明にもなる。2026-10-04）。
     require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "V: Choose a Version"
-                 && c->getTooltip().isEmpty(),
-             "an unready B stays clickable and names its step on hover; a ready C needs no reason");
+                 && c->getTooltip() == "Audition the Check's song from Kirin OS (C).",
+             "an unready B stays clickable and names its step on hover; a ready C says what it plays");
     b->onClick();
     require (explained == "V: Choose a Version" && ! selectedB,
              "a click on an unready B explains instead of selecting");

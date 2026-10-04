@@ -7,6 +7,8 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaReferenceHelp.h"
+#include "HyphaReferenceHelpText.h"
 
 #include <algorithm>
 #include <cmath>
@@ -59,6 +61,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
                             presentation::Context context)
 {
     surface_material::paintPanel (g, bounds, 0.72f);
+    help::note (bounds, help_text::balance);
     auto header = bounds.removeFromTop (26.0f).reduced (9.0f, 2.0f).toNearestInt();
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));

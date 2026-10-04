@@ -2,6 +2,8 @@
 #include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
+#include "HyphaReferenceHelp.h"
+#include "HyphaReferenceHelpText.h"
 #include "HyphaReferenceRangeStrips.h"
 
 #include "HyphaSurfaceMaterial.h"
@@ -111,6 +113,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         }
     }
     auto chart = area.toFloat().reduced (10.0f, 8.0f);
+    if (ready && spectral) help::note (chart, help_text::versionSpectrum);
     if (ready && spectral) paintFrequencyTicks (g, chart, 20.0, maximumHz, context);  // どこが何 Hz か（2026-10-04）
     if (ready && spectral) paintBlauertZones (g, chart, 20.0, maximumHz);             // Blauert の帯（2026-10-04）
     if (ready && spectral)
@@ -151,6 +154,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     }
     // 4 帯域の差を、見出し「VよりA（dB）」を主語に言葉で（「3.7少ない」。C の帯の行と同じ。良し悪しの色は付けない）。
     static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };
+    help::note (bands, help_text::versionBands);
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
     const juce::String heading { "A VS V (dB)" };

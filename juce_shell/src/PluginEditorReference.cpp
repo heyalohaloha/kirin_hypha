@@ -23,6 +23,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectA = [this] { referenceLowerAOffer = {}; processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
+    referenceView.hoverHelpEnabled = [] { return hypha::HoverHelpPreference::shared().isEnabled(); };
     wireReferenceRoles();
     referenceView.onSelectB = [this]
     {

@@ -1,5 +1,6 @@
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceAComparison.h"
+#include "HyphaReferenceHelpText.h"
 #include "HyphaReferenceVersionPage.h"
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
@@ -254,8 +255,15 @@ void ComparisonView::setSameSection (const juce::String& checkLabel, double gain
     sameSection = checkLabel; sameSectionGain = gainDb; sameSectionViews = std::move (views); sameSectionListening = listening;
     resized(); repaint();
 }
+juce::String ComparisonView::helpAt (juce::Point<int> local) const
+{
+    const auto text = help::at (helpRegions, local);
+    return text.isNotEmpty() || sameSection.isNotEmpty() ? text : juce::String (help_text::whole);
+}
+
 void ComparisonView::paint (juce::Graphics& g)
 {
+    const help::Collector collect (helpRegions);  // V の Check のタブの図が添える説明の場所
     if (hidden) return;
     if (sameSection.isNotEmpty())
     { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context); return; }

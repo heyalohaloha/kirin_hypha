@@ -196,6 +196,7 @@ const Entry entries[] = {
     { "Return to the live DAW mix (A).", u8"DAWの今のミックス（A）に戻ります。" },
     { "Audition the Version from Kirin OS (V).",
       u8"Kirin OSのVersion（V）を試聴します。" },
+    { "Audition the Check's song from Kirin OS (C).", u8"Kirin OSのCheckの曲（C）を試聴します。" },
     { "Start a separate Version Blind trial. Check Preset settings and facts are hidden.",
       u8"別のVersion Blindを始めます。Check Presetの設定と計測値は隠れます。" },
     { "Approve %1 %2 to %3 kHz for the audition copy only. A stays unchanged.",

@@ -4,6 +4,8 @@
 
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceAComparison.h"
+#include "HyphaReferenceHelp.h"
+#include "HyphaReferenceHelpText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 #include "reference_audition/ReferenceBlauertBands.h"
@@ -51,6 +53,9 @@ inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart
     if (text.isEmpty() || ! blauertShown (minimumHz, maximumHz) || chart.getWidth() < 160.0f || chart.getHeight() < 40.0f) return;
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
-    text_style::drawEllipsized (g, text, chart.withHeight (14.0f).reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centredRight);
+    const auto line = chart.withHeight (14.0f).reduced (4.0f, 0.0f);
+    const auto textWidth = std::min (line.getWidth(), std::ceil (text_style::shownWidth (g.getCurrentFont(), text)) + 4.0f);
+    help::note (line.withLeft (line.getRight() - textWidth), help_text::blauert);
+    text_style::drawEllipsized (g, text, line.toNearestInt(), juce::Justification::centredRight);
 }
 }
