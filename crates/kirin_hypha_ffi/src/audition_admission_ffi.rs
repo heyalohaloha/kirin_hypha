@@ -17,7 +17,6 @@ pub(crate) struct AuditionState {
     kind: Arc<AtomicU8>,
     epoch: AtomicU64,
     version_blind: Mutex<Option<kirin_measure::reference_gain::visual::BlindCaptureExclusion>>,
-    capture: Mutex<Option<kirin_measure::reference_gain::visual::CaptureAdmission>>,
     reference_owner: kirin_measure::reference_gain::visual::ReferenceAnalysisOwner,
 }
 
@@ -28,7 +27,6 @@ impl AuditionState {
             admission: Mutex::new(None),
             kind: Arc::new(AtomicU8::new(AUDITION_NONE)),
             epoch: AtomicU64::new(0),
-            capture: Mutex::new(None),
             reference_owner: Default::default(),
             version_blind: Mutex::new(None),
         }
@@ -194,57 +192,6 @@ impl KirinHyphaEngine {
         *held = Some(guard);
         true
     }
-    fn set_reference_capture(&self, active: bool) -> bool {
-        let Some(project) = self.audition_project() else {
-            return false;
-        };
-        let Ok(mut audition) = self.audition.admission.lock() else {
-            return false;
-        };
-        let Ok(mut capture) = self.audition.capture.lock() else {
-            return false;
-        };
-        if !active {
-            if let Some(mut held) = capture.take() {
-                held.release(audition.as_mut());
-            }
-            return true;
-        }
-        if capture.is_some() {
-            return true;
-        }
-        if self.audition.kind.load(Ordering::Acquire) == AUDITION_LOCAL_BLIND {
-            return false;
-        }
-        let Ok(storage) = StoragePaths::default_platform() else {
-            return false;
-        };
-        let mut held = kirin_measure::reference_gain::visual::CaptureAdmission::for_current_project(
-            &storage.plugin_data_dir(),
-            &project,
-        );
-        if !held
-            .try_acquire_shared(&self.audition.reference_owner)
-            .unwrap_or(false)
-        {
-            return false;
-        }
-        *capture = Some(held);
-        true
-    }
-}
-
-/// # Safety
-/// Null or a live engine pointer; non-RT control thread only.
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_reference_capture_active(
-    handle: *mut KirinHyphaEngine,
-    active: bool,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        !handle.is_null() && unsafe { (*handle).set_reference_capture(active) }
-    }))
-    .unwrap_or(false)
 }
 
 /// # Safety
@@ -344,39 +291,26 @@ mod tests {
     }
 
     #[test]
-    fn capture_keeps_pre_delta_and_shares_two_slots_with_reference() {
+    fn version_blind_and_local_blind_exclude_each_other_across_the_project() {
         let _serial = ADMISSION_TEST.lock().unwrap();
-        let project = format!("ffi-capture-{}", Uuid::new_v4());
+        let project = format!("ffi-blind-exclusion-{}", Uuid::new_v4());
         let a = post_engine(&project);
         let b = post_engine(&project);
-        let c = post_engine(&project);
-        *a.delta_result.lock().unwrap() = DeltaResult {
-            lufs: Some(2.0),
-            mode: DeltaMode::Active,
-            ..Default::default()
-        };
-        assert!(a.set_reference_capture(true));
-        assert!(b.set_reference_capture(true));
-        assert!(!a.audition.is_active());
-        assert!(!a.audition.blocks_record());
-        assert_eq!(a.delta_result.lock().unwrap().lufs, Some(2.0));
-        assert!(!c.set_reference_capture(true));
-        assert_eq!(c.begin_local_blind(), None);
-        assert!(!c.set_version_blind_capture_exclusion(true));
         assert!(a.set_reference_audition_active(true));
-        assert!(a.set_reference_capture(false));
-        assert!(!c.set_reference_capture(true)); // B output retains the transferred slot.
-        assert!(a.set_reference_capture(true));
+        assert!(a.set_version_blind_capture_exclusion(true)); // VERSION BLIND inside the audition.
+        assert!(a.set_version_blind_capture_exclusion(true));
+        assert!(!b.set_version_blind_capture_exclusion(true));
         assert!(a.set_reference_audition_active(false));
-        assert!(!c.set_reference_capture(true)); // Return A does not release Capture's slot.
-        assert!(a.set_reference_capture(false));
-        assert!(b.set_reference_capture(false));
-        assert!(c.set_version_blind_capture_exclusion(true));
-        assert!(!a.set_reference_capture(true));
-        assert!(c.set_version_blind_capture_exclusion(false));
-        assert!(a.set_reference_capture(true));
-        assert!(a.set_reference_capture(false));
-        assert!(!unsafe { kirin_hypha_set_reference_capture_active(std::ptr::null_mut(), true) });
+        assert_eq!(b.begin_local_blind(), None); // The barrier, not the audition, refuses it.
+        assert!(a.set_version_blind_capture_exclusion(false));
+        let epoch = b.begin_local_blind().unwrap();
+        assert!(!a.set_version_blind_capture_exclusion(true));
+        assert!(b.end_local_blind(epoch));
+        assert!(a.set_version_blind_capture_exclusion(true));
+        assert!(a.set_version_blind_capture_exclusion(false));
+        assert!(!unsafe {
+            kirin_hypha_set_version_blind_capture_exclusion(std::ptr::null_mut(), true)
+        });
     }
     #[test]
     fn engine_owner_survives_shutdown_until_all_async_jobs_retire() {
@@ -393,21 +327,26 @@ mod tests {
             let live = kirin_reference_analysis_acquire(owner);
             let revisit = kirin_reference_analysis_acquire(owner);
             assert!(!live.is_null() && !revisit.is_null());
-            assert!(a.set_reference_capture(true));
-            assert!(a.set_reference_audition_active(true));
-            assert!(b.set_reference_capture(true));
-            assert!(!c.set_reference_capture(true));
+            assert!(a.set_reference_audition_active(true)); // Shares the owner's one slot.
+            let other_owner = kirin_hypha_reference_analysis_owner(&b);
+            let late_owner = kirin_hypha_reference_analysis_owner(&c);
+            let other = kirin_reference_analysis_acquire(other_owner);
+            assert!(!other.is_null());
+            assert!(kirin_reference_analysis_acquire(late_owner).is_null());
             assert!(a.set_reference_audition_active(false));
-            assert!(a.set_reference_capture(false));
             kirin_reference_analysis_owner_drop(same);
             kirin_reference_analysis_owner_drop(owner);
             drop(a);
-            assert!(!c.set_reference_capture(true));
+            assert!(kirin_reference_analysis_acquire(late_owner).is_null());
             kirin_reference_analysis_grant_drop(live);
-            assert!(!c.set_reference_capture(true));
+            assert!(kirin_reference_analysis_acquire(late_owner).is_null());
             kirin_reference_analysis_grant_drop(revisit);
-            assert!(c.set_reference_capture(true));
-            assert!(b.set_reference_capture(false) && c.set_reference_capture(false));
+            let late = kirin_reference_analysis_acquire(late_owner);
+            assert!(!late.is_null());
+            kirin_reference_analysis_grant_drop(late);
+            kirin_reference_analysis_grant_drop(other);
+            kirin_reference_analysis_owner_drop(late_owner);
+            kirin_reference_analysis_owner_drop(other_owner);
             assert!(kirin_hypha_reference_analysis_owner(std::ptr::null()).is_null());
             assert!(kirin_reference_analysis_acquire(std::ptr::null()).is_null());
         }

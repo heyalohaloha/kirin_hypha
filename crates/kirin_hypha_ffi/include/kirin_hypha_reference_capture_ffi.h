@@ -5,7 +5,6 @@ extern "C" {
 #endif
 typedef struct KirinHypha KirinHypha;
 bool kirin_hypha_set_version_blind_capture_exclusion(KirinHypha*, bool);
-bool kirin_hypha_set_reference_capture_active(KirinHypha*, bool);
 #ifdef __cplusplus
 }
 #endif
