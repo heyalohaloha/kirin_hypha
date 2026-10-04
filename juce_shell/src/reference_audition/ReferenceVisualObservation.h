@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "ReferenceVisualTimeline.h"
+#include "ReferenceDynamicsRange.h"
 #include "ReferenceAnalysis.h"
 #include <array>
 #include <functional>
@@ -58,6 +59,7 @@ private:
     KirinSpectrumMeter kirinMeter;        // H12: A を Kirin OS の Cue と同じ定義で
     KirinSpectrumMeter pairAMeter, pairVMeter; // H13: 位置合わせで対応した A と V（同じフレーム）
     KirinFingerprintMeter printMeter;     // H7: A の Kirin 指紋（直近 30 秒）
+    DynamicsTicks aTickMeter;              // 範囲の帯：A の 100 ms の bin（Kirin OS の区間の値と同じ定義）
     std::int64_t printEndSample = -1;
     std::int64_t pairKirinExpected = -1;
     std::int64_t kirinExpected = -1;

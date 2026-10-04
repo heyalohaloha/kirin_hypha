@@ -649,7 +649,16 @@ shows the song and the status; songs are switched from 125%.
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song), the Cue, and MATCH. The comparison is the Cue against the same length of recent
   A; below it, the four-band Balance difference C − A (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz)
-  as numbers only, and the Cue's place in the song with its loop and the playing position.
+  as numbers only, and the Cue's place in the song with its loop and the playing position. A Check
+  that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
+  fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
+  medians and C − A on the right — crest (TP/RMS) and loudness movement (LUFS-S around each median,
+  read as p90 − p10) for dynamics, LUFS-M for loudness, width (S/M) and correlation for stereo, peak
+  and RMS for waveform, and onset for transient. The facts are Kirin OS's per-hop definitions
+  (crest 20·log10(TP/RMS); width √(mean S²)/√(mean M²) × 100, up to 150 %; correlation
+  ΣLR/√(ΣL²·ΣR²); LUFS at the end of the hop), so A's 100 ms bins are regrouped into C's hop
+  (200 ms for a song longer than 204.8 s). Loudness facts (LUFS-M, peak, RMS) are shown at the level
+  C plays at. Until A has 3 seconds only C is drawn (A WAITING).
 - **V**: the Version and the shared CHECK SET, then tabs. WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play

@@ -12,6 +12,8 @@ typedef struct KirinReferenceTonalMeter KirinReferenceTonalMeter;
 typedef struct {
     uint64_t frames;
     double peak[2], rms[2], short_lufs, crest_db;
+    /* 2026-10-04: raw sums and end-of-bin values for Kirin OS's per-hop facts (reference_visual.rs). */
+    double true_peak, momentary_lufs, cross, mid, side;
 } KirinReferenceVisualBin;
 typedef struct {
     uint32_t sample_rate, channels;

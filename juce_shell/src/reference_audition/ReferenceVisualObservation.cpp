@@ -71,6 +71,8 @@ void VisualObservation::publish()
     // H12: その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
     timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
     timeline.aPairKirin = pairAMeter.window (300);
+    timeline.aTicks = aTickMeter.bins();
+    timeline.aTickChannels = aTickMeter.channels();
     if (printMeter.ticksHeld() >= 30 && printEndSample >= 0)  // H7：3 秒から（照合は 10 秒ぶん鳴ってから答える）
     {
         timeline.aFingerprint = std::make_shared<const KirinFingerprint> (printMeter.fingerprint (300));
@@ -133,11 +135,13 @@ void VisualObservation::consumeKirin (const Block& block, int rate)
         return;
     if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
     if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
-    { kirinMeter.reset(); printMeter.reset(); kirinExpected = -1; dirty = true; return; }
-    if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity) { kirinMeter.reset(); printMeter.reset(); }
+    { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); kirinExpected = -1; dirty = true; return; }
+    if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity)
+    { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); }
     kirinDiscontinuity = block.discontinuity;
     kirinMeter.push (block.pcm.data(), block.frames);
     printMeter.push (block.pcm.data(), block.frames);
+    aTickMeter.push (block.pcm.data(), block.frames, rate, block.channels);
     printEndSample = block.position + block.frames;
     kirinExpected = block.position + block.frames;
     dirty = true;

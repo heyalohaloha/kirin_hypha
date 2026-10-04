@@ -10,6 +10,7 @@ void testReferenceCueRestart (const juce::File&);
 void testReferenceLowerA (const juce::File&);
 void testReferenceKirinSpectrum();
 void testReferenceBlauertBands();
+void testReferenceDynamicsRange();
 void testReferenceKirinFingerprint();
 void testReferenceAbcv (const juce::File&);
 bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
@@ -25,6 +26,7 @@ void testReferenceAbcv (const juce::File& sandbox)
     testReferenceLowerA (sandbox);       // 2026-10-03：上限超えは承認して A を下げて合わせる（R-12）
     testReferenceKirinSpectrum();        // H12
     testReferenceBlauertBands();         // 2026-10-04：Blauert の帯の差
+    testReferenceDynamicsRange();        // 2026-10-04：範囲の帯（Kirin OS と同じ区間の値）
     testReferenceKirinFingerprint();     // H7
 }
 

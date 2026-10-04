@@ -151,6 +151,8 @@ struct State
     std::vector<SelectionOption> candidates;
     std::vector<SelectionOption> cues;
     std::shared_ptr<const reference_audition::RuntimeDetailedMeasurement> detailedMeasurement;
+    // 範囲の帯（HyphaReferenceRangeStrips.h）：C の曲の Kirin OS の詳しい値（Cue で切り出す）。
+    std::shared_ptr<const reference_audition::RuntimeDetailedMeasurement> cueMeasurement;
     std::shared_ptr<const reference_audition::VisualTimeline> visualTimeline;
     double visualPositionSeconds = -1.0;
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;

@@ -4,6 +4,7 @@
 #include "HyphaReferenceLegend.h"
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceFrequencyTicks.h"
+#include "HyphaReferenceRangeStrips.h"
 #include "HyphaReferenceVisualLayout.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -419,6 +420,10 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
                const State& state, const juce::String& binding,
                presentation::Context presentation)
 {
+    // C の画面の Dynamics・Loudness・Stereo・Waveform・Transient は A と C の範囲の帯（2026-10-04）。
+    if (state.separateComparisons && state.comparisonSlot == 2 && rangeStripBinding (binding)
+        && paintCueRangeStrips (g, area, state, binding, presentation))
+        return;
     if (binding == "balance") drawTonalBalance (g, area, state, presentation);
     else if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
     else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation);

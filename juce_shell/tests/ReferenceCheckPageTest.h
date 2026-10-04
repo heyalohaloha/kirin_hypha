@@ -138,6 +138,91 @@ inline void verifyReferenceCheckPage()
     state.viewBindings = { "spectrum_full" };
     panel.setState (state);
     write (panel, "abcv_c_900_spectrum.png");
+    // 2026-10-04（範囲の帯）：Dynamics・Loudness・Stereo・Waveform・Transient は A と C の帯。A がたまる前は C だけ。
+    {
+        auto strips = state;
+        auto measurement = std::make_shared<reference_audition::RuntimeDetailedMeasurement>();
+        measurement->audio = { 48'000, 2, 295 * 48'000 };
+        const std::int64_t hop = 9'600;  // 200 ms（Kirin OS の長い曲の区間）
+        const auto hops = 295 * 48'000 / hop;
+        reference_audition::RuntimeNullableIntegerSeries crest, lufsM, lufsS, correlation, width;
+        reference_audition::RuntimeMeasurementWaveform waveform { hop, { {}, {} }, { {}, {} } };
+        reference_audition::RuntimeMeasurementTransient transient { hop, {} };
+        for (std::int64_t index = 0; index < hops; ++index)
+        {
+            const auto wave = std::sin (static_cast<double> (index) * 0.37);
+            crest.push_back (std::llround ((12.0 + 1.5 * wave) * 1000.0));
+            lufsM.push_back (std::llround ((-9.0 + 3.0 * wave) * 1000.0));
+            lufsS.push_back (std::llround ((-9.5 + 2.0 * wave) * 1000.0));
+            correlation.push_back (std::llround ((0.6 + 0.1 * wave) * 1000.0));
+            width.push_back (std::llround ((50.0 + 8.0 * wave) * 100.0));
+            for (int c = 0; c < 2; ++c)
+            {
+                waveform.samplePeakMillidbfs[static_cast<size_t> (c)].push_back (std::llround ((-1.0 + 0.8 * wave) * 1000.0));
+                waveform.rmsMillidbfs[static_cast<size_t> (c)].push_back (std::llround ((-13.0 + 1.5 * wave) * 1000.0));
+            }
+            transient.onsetStrengthQ15.push_back (std::llround (std::max (0.0, wave) * 0.2 * 32'767.0));
+        }
+        measurement->dynamics = reference_audition::RuntimeMeasurementTimeline { hop, { { "crest_millidb", crest } } };
+        measurement->loudness = reference_audition::RuntimeMeasurementTimeline { hop, { { "lufs_m_millilu", lufsM }, { "lufs_s_millilu", lufsS } } };
+        measurement->stereo = reference_audition::RuntimeMeasurementTimeline { hop, { { "correlation_milli", correlation }, { "width_basis_points", width } } };
+        measurement->waveform = waveform;
+        measurement->transient = transient;
+        strips.cueMeasurement = measurement;
+        strips.cuePart = reference_audition::CuePart::chorus;
+        auto timeline = std::make_shared<reference_audition::VisualTimeline>();
+        timeline->binding.matchWindowBlocks = 300;
+        timeline->aTickChannels = 2;
+        auto ticks = std::make_shared<std::vector<KirinReferenceVisualBin>>();
+        for (int index = 0; index < 300; ++index)
+        {
+            const auto wave = std::sin (static_cast<double> (index) * 0.21);
+            KirinReferenceVisualBin bin {};
+            bin.frames = 4'800;
+            const auto mid = 48.0 * (1.0 + 0.3 * wave), side = mid * 0.16;
+            bin.mid = mid; bin.side = side; bin.cross = mid - side;
+            bin.rms[0] = bin.rms[1] = std::sqrt ((mid + side) / 4'800.0);
+            bin.peak[0] = bin.peak[1] = bin.rms[0] * 3.2;
+            bin.true_peak = bin.rms[0] * 3.4;
+            bin.momentary_lufs = -11.0 + 2.0 * wave;
+            bin.short_lufs = -11.5 + 1.0 * wave;
+            ticks->push_back (bin);
+        }
+        timeline->aTicks = ticks;
+        strips.visualTimeline = timeline;
+        strips.aKirin = state.aKirin;
+        const auto differentPixels = [] (const juce::Image& left, const juce::Image& right)
+        {
+            int count = 0;
+            for (int y = 0; y < std::min (left.getHeight(), right.getHeight()); ++y)
+                for (int x = 0; x < std::min (left.getWidth(), right.getWidth()); ++x)
+                    if (left.getPixelAt (x, y) != right.getPixelAt (x, y)) ++count;
+            return count;
+        };
+        juce::Image previous;
+        for (const auto* binding : { "dynamics", "loudness", "stereo", "waveform", "transient" })
+        {
+            strips.viewBindings = { binding };
+            panel.setState (strips);
+            write (panel, juce::String ("abcv_c_900_") + binding + ".png");
+            const auto image = panel.createComponentSnapshot (panel.getLocalBounds());
+            require (previous.isNull() || differentPixels (previous, image) > 500, "each Check draws its own strips");
+            previous = image;
+        }
+        strips.viewBindings = { "dynamics", "loudness" };  // Kirin OS の Dynamics の Check は 2 つの図を並べる（狭い枠）
+        panel.setState (strips);
+        write (panel, "abcv_c_900_dynamics_loudness.png");
+        auto waiting = strips;
+        waiting.viewBindings = { "dynamics" };
+        waiting.visualTimeline = std::make_shared<reference_audition::VisualTimeline>();
+        panel.setState (waiting);
+        write (panel, "abcv_c_900_dynamics_waiting.png");
+        const auto waitingImage = panel.createComponentSnapshot (panel.getLocalBounds());
+        strips.viewBindings = { "dynamics" };
+        panel.setState (strips);
+        require (differentPixels (waitingImage, panel.createComponentSnapshot (panel.getLocalBounds())) > 200,
+                 "until A has 3 seconds, only C's strips are drawn");
+    }
     state.viewBindings.clear();
 
     state.comparisonMode = "original";

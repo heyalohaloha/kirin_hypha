@@ -47,6 +47,9 @@ struct VisualTimeline
     std::shared_ptr<const ReferenceTonalCurve> tonalReference;
     std::shared_ptr<const ReferenceTonalCurve> tonalGenre;
     std::shared_ptr<const KirinSpectrumWindow> aKirin; // H12: A の直近の窓（Kirin OS の Cue と同じ定義）
+    // 2026-10-04：範囲の帯。A の直近 60 秒までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
+    std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aTicks;
+    int aTickChannels = 0;
     // H13: V の画面の Check のタブ。位置合わせで対応した同じ区間の A と V（直近 30 秒、同じ定義）。
     std::shared_ptr<const KirinSpectrumWindow> aPairKirin, vPairKirin;
     // H7: A の直近 30 秒の Kirin 指紋と、その最後の区切りの位置（曲の頭から 100 ms 単位）。V の自動特定に使う。

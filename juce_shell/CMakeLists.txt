@@ -185,6 +185,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceLiveWindowLoudness.cpp
     src/reference_audition/ReferenceTrackingGain.cpp
     src/reference_audition/ReferenceKirinSpectrum.cpp
+    src/reference_audition/ReferenceDynamicsRange.cpp
+    src/reference_audition/ReferenceDynamicsTicks.cpp
     src/reference_audition/ReferenceKirinFingerprint.cpp
     src/reference_audition/ReferenceVersionIdentify.cpp
     src/reference_audition/ReferenceCueMatch.cpp
@@ -427,6 +429,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferencePreparationWatch.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
+            src/HyphaReferenceRangeStrips.cpp
             src/HyphaReferenceTonalView.cpp
             src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
@@ -593,6 +596,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferencePreparationWatch.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceRangeStrips.cpp
+        src/reference_audition/ReferenceDynamicsRange.cpp
         src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
@@ -741,6 +746,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferencePreparationWatch.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceRangeStrips.cpp
+        src/reference_audition/ReferenceDynamicsRange.cpp
         src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
@@ -955,6 +962,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_abcv_test.cpp
         tests/reference_kirin_spectrum_test.cpp
         tests/reference_blauert_bands_test.cpp
+        tests/reference_dynamics_range_test.cpp
         tests/reference_kirin_fingerprint_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
@@ -1046,6 +1054,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferencePreparationWatch.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceRangeStrips.cpp
+        src/reference_audition/ReferenceDynamicsRange.cpp
         src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp

@@ -33,7 +33,19 @@ pub struct VisualBin {
     pub rms: [f64; 2],
     pub short_lufs: f64,
     pub crest_db: f64,
+    /// The bin's raw sums and end-of-bin values, so Hypha can recompute Kirin OS's per-hop facts
+    /// (native/src/reference_analysis.rs) for a hop made of whole bins (2026-10-04, range strips).
+    /// Linear true peak: the largest `prev_true_peak` over the bin's pushes.
+    pub true_peak: f64,
+    /// LUFS-M at the end of the bin (NaN until 0.4 s have been pushed).
+    pub momentary_lufs: f64,
+    /// Stereo only (0 for mono): sum of l*r, ((l + r) / 2)^2 and ((l - r) / 2)^2.
+    pub cross: f64,
+    pub mid: f64,
+    pub side: f64,
 }
+// The C header (kirin_hypha_reference_visual_ffi.h) mirrors this layout field by field.
+const _: () = assert!(std::mem::size_of::<VisualBin>() == 96);
 
 pub struct VisualMeter {
     meter: EbuR128,
@@ -44,15 +56,23 @@ pub struct VisualMeter {
     peak: [f64; 2],
     energy: [f64; 2],
     tp: f64,
+    cross: f64,
+    mid: f64,
+    side: f64,
     sealed: Option<(f64, f64)>,
     final_short: Option<f64>,
+    final_momentary: Option<f64>,
 }
 impl VisualMeter {
     pub fn new(rate: u32, channels: usize) -> Option<Self> {
-        Self::with_mode(rate, channels, Mode::S | Mode::TRUE_PEAK)
+        Self::with_mode(rate, channels, Mode::M | Mode::S | Mode::TRUE_PEAK)
     }
     pub fn capture(rate: u32, channels: usize) -> Option<Self> {
-        Self::with_mode(rate, channels, Mode::S | Mode::I | Mode::TRUE_PEAK)
+        Self::with_mode(
+            rate,
+            channels,
+            Mode::M | Mode::S | Mode::I | Mode::TRUE_PEAK,
+        )
     }
     fn with_mode(rate: u32, channels: usize, mode: Mode) -> Option<Self> {
         if !(8_000..=768_000).contains(&rate) || !(1..=2).contains(&channels) {
@@ -67,8 +87,12 @@ impl VisualMeter {
             peak: [0.0; 2],
             energy: [0.0; 2],
             tp: 0.0,
+            cross: 0.0,
+            mid: 0.0,
+            side: 0.0,
             sealed: None,
             final_short: None,
+            final_momentary: None,
         })
     }
     pub fn push(&mut self, samples: &[f32]) -> bool {
@@ -88,6 +112,12 @@ impl VisualMeter {
                 let v = f64::from(*value);
                 self.peak[c] = self.peak[c].max(v.abs());
                 self.energy[c] += v * v;
+            }
+            if self.channels == 2 {
+                let (l, r) = (f64::from(frame[0]), f64::from(frame[1]));
+                self.cross += l * r;
+                self.mid += ((l + r) * 0.5).powi(2);
+                self.side += ((l - r) * 0.5).powi(2);
             }
         }
         for c in 0..self.channels {
@@ -123,11 +153,23 @@ impl VisualMeter {
             } else {
                 f64::NAN
             },
+            true_peak: self.tp,
+            momentary_lufs: if let Some(value) = self.final_momentary {
+                value
+            } else {
+                self.momentary()
+            },
+            cross: self.cross,
+            mid: self.mid,
+            side: self.side,
         };
         self.frames = 0;
         self.peak = [0.0; 2];
         self.energy = [0.0; 2];
         self.tp = 0.0;
+        self.cross = 0.0;
+        self.mid = 0.0;
+        self.side = 0.0;
         Some(bin)
     }
     /// Close zero-extended TP FIR support without adding silence to accepted frames, RMS,
@@ -137,6 +179,7 @@ impl VisualMeter {
             return totals;
         }
         let integrated = self.integrated();
+        self.final_momentary = Some(self.momentary());
         self.final_short = Some(if self.total >= u64::from(self.rate) * 3 {
             self.meter.loudness_shortterm().unwrap_or(f64::NAN)
         } else {
@@ -156,6 +199,14 @@ impl VisualMeter {
     }
     pub fn pending_true_peak(&self) -> f64 {
         self.tp
+    }
+    // Kirin OS emits LUFS-M only once 0.4 s have been measured (`end >= sr * 4 / 10`).
+    fn momentary(&self) -> f64 {
+        if self.total >= u64::from(self.rate) * 4 / 10 {
+            self.meter.loudness_momentary().unwrap_or(f64::NAN)
+        } else {
+            f64::NAN
+        }
     }
     pub fn integrated(&self) -> f64 {
         self.meter.loudness_global().unwrap_or(f64::NAN)
@@ -204,6 +255,64 @@ mod tests {
         assert_eq!(bin.peak, [0.0; 2]);
         assert!(bin.crest_db.is_nan());
         assert!(VisualMeter::new(0, 2).is_none());
+    }
+}
+
+#[cfg(test)]
+mod hop_fact_tests {
+    use super::*;
+    #[test]
+    fn bins_carry_the_kirin_os_hop_sums_and_momentary() {
+        // L and R 60 degrees apart, rising level: the bin sums equal a direct sum of the same samples,
+        // LUFS-M equals an independent meter at the end of every bin, and a mono meter keeps them at 0.
+        let rate = 48_000u32;
+        let mut meter = VisualMeter::new(rate, 2).unwrap();
+        let mut oracle = EbuR128::new(2, rate, Mode::M).unwrap();
+        let mut index = 0usize;
+        for bin in 0..12 {
+            let (mut cross, mut mid, mut side) = (0.0_f64, 0.0_f64, 0.0_f64);
+            for _ in 0..8 {
+                let pcm: Vec<f32> = (0..600)
+                    .flat_map(|_| {
+                        let t = index as f64 / f64::from(rate);
+                        index += 1;
+                        let gain = 0.1 + 0.02 * bin as f64;
+                        let l = (gain * (std::f64::consts::TAU * 440.0 * t).sin()) as f32;
+                        let r = (gain
+                            * (std::f64::consts::TAU * 440.0 * t + std::f64::consts::FRAC_PI_3)
+                                .sin()) as f32;
+                        [l, r]
+                    })
+                    .collect();
+                for frame in pcm.chunks_exact(2) {
+                    let (l, r) = (f64::from(frame[0]), f64::from(frame[1]));
+                    cross += l * r;
+                    mid += ((l + r) * 0.5).powi(2);
+                    side += ((l - r) * 0.5).powi(2);
+                }
+                assert!(meter.push(&pcm));
+                oracle.add_frames_f32(&pcm).unwrap();
+            }
+            let value = meter.finish_bin().unwrap();
+            assert!(
+                (value.cross - cross).abs() < 1e-9
+                    && (value.mid - mid).abs() < 1e-9
+                    && (value.side - side).abs() < 1e-9
+            );
+            assert!(value.true_peak > 0.0 && value.true_peak >= value.peak[0].max(value.peak[1]));
+            if bin < 3 {
+                assert!(
+                    value.momentary_lufs.is_nan(),
+                    "bin {bin}: LUFS-M waits for 0.4 s"
+                );
+            } else {
+                assert!((value.momentary_lufs - oracle.loudness_momentary().unwrap()).abs() < 1e-9);
+            }
+        }
+        let mut mono = VisualMeter::new(rate, 1).unwrap();
+        assert!(mono.push(&[0.5; 4800]));
+        let value = mono.finish_bin().unwrap();
+        assert!(value.cross == 0.0 && value.mid == 0.0 && value.side == 0.0);
     }
 }
 

@@ -119,6 +119,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     const auto& checkRole = runtime.checkSelection ? *runtime.checkSelection : runtime;
     if (runtime.visualTimeline) state.aKirin = runtime.visualTimeline->aKirin;
     state.cueKirin = checkRole.cueSpectrum;
+    state.cueMeasurement = checkRole.detailedMeasurement;
     state.cuePart = checkRole.cuePart;
     state.cueLoudness = checkRole.cueLevelAvailable ? checkRole.cueIntegratedLoudness : std::numeric_limits<double>::quiet_NaN();
     // Cue の値がまだ無い（Kirin OS が区間をまだ測っていない）あいだは、MATCH と同じく C の曲全体の値で比べる。
