@@ -13,12 +13,25 @@ if scripts/verify_juce_patch_state.sh >/dev/null 2>&1; then
   exit 0
 fi
 
+# A checkout built before a patch was appended holds the start of the stack. The reverse-check
+# below cannot recognise an earlier patch whose lines a later one rewrote, so count the applied
+# start exactly (the verifier's comparison) and apply only the rest, in order.
+applied_prefix=0
+if count="$(scripts/verify_juce_patch_state.sh --applied-count 2>/dev/null)"; then
+  applied_prefix="$count"
+  echo "==> JUCE holds the first ${applied_prefix} tracked patches"
+fi
+
 apply_patch_idempotent() {
   local label="$1"
   local patch="$2"
   shift 2
   local -a flags=("$@")
 
+  if (( 10#${label} <= applied_prefix )); then
+    echo "==> juce_shell/patches/${label} already applied — skipping"
+    return 0
+  fi
   echo "==> apply juce_shell/patches/${label} (idempotent)"
   (
     cd juce_shell/JUCE

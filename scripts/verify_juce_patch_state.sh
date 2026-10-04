@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # Verify that the JUCE submodule working tree contains exactly Kirin Hypha's
 # tracked local patch stack and nothing else.
+#
+# --applied-count prints how many patches from the start of the stack the tree holds exactly
+# (0 for an unpatched tree) and fails when it matches no prefix. apply_juce_patches.sh uses it
+# to bring a checkout built before a patch was appended up to the whole stack.
 set -euo pipefail
+MODE="verify"
+case "${1:-}" in
+  "") ;;
+  --applied-count) MODE="count" ;;
+  *) echo "usage: $0 [--applied-count]" >&2; exit 2 ;;
+esac
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 JUCE_DIR="juce_shell/JUCE"
@@ -91,23 +101,48 @@ expected_tree="$tmp_dir/expected"
 mkdir -p "$expected_tree"
 git -C "$JUCE_DIR" checkout-index -a --prefix="$expected_tree/"
 
-for patch_spec in "${PATCHES[@]}"; do
-  patch="${patch_spec%%::*}"
-  flags="${patch_spec#*::}"
+apply_to_expected() {
+  local patch="${1%%::*}"
+  local flags="${1#*::}"
   if [[ -n "$flags" ]]; then
     # shellcheck disable=SC2086
     (cd "$expected_tree" && git apply $flags "$ROOT/juce_shell/patches/$patch")
   else
     (cd "$expected_tree" && git apply "$ROOT/juce_shell/patches/$patch")
   fi
+}
+
+# The pinned JUCE checkout is CRLF while git-apply additions are LF. Compare logical content
+# after removing CR so a harmless line-ending rewrite cannot masquerade as an untracked patch.
+first_mismatch() {
+  local expected
+  for expected in "${EXPECTED_FILES[@]}"; do
+    if ! cmp -s <(tr -d '\r' < "$expected_tree/$expected") <(tr -d '\r' < "$JUCE_DIR/$expected"); then
+      echo "$expected"
+      return
+    fi
+  done
+}
+
+if [[ "$MODE" == "count" ]]; then
+  applied=-1
+  if [[ -z "$(first_mismatch)" ]]; then applied=0; fi
+  index=0
+  for patch_spec in "${PATCHES[@]}"; do
+    index=$((index + 1))
+    apply_to_expected "$patch_spec"
+    if [[ -z "$(first_mismatch)" ]]; then applied=$index; fi
+  done
+  (( applied >= 0 )) || die "JUCE files match no prefix of the tracked patch stack"
+  echo "$applied"
+  exit 0
+fi
+
+for patch_spec in "${PATCHES[@]}"; do
+  apply_to_expected "$patch_spec"
 done
 
-for expected in "${EXPECTED_FILES[@]}"; do
-  # The pinned JUCE checkout is CRLF while git-apply additions are LF. Compare logical content
-  # after removing CR so a harmless line-ending rewrite cannot masquerade as an untracked patch.
-  if ! cmp -s <(tr -d '\r' < "$expected_tree/$expected") <(tr -d '\r' < "$JUCE_DIR/$expected"); then
-    die "JUCE file does not match tracked patch stack: ${expected}"
-  fi
-done
+mismatch="$(first_mismatch)"
+[[ -z "$mismatch" ]] || die "JUCE file does not match tracked patch stack: ${mismatch}"
 
 echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + ${#PATCHES[@]} tracked patches"

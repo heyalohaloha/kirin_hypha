@@ -19,6 +19,14 @@ bash scripts/verify_juce_patch_state.sh
 
 `scripts/build_juce_universal.sh` runs both commands before every universal build.
 
+A checkout built before a patch was appended holds only the start of the stack. A later
+patch may rewrite lines of an earlier one, so the per-patch reverse-check cannot tell that
+the earlier patch is present. The apply script first asks
+`bash scripts/verify_juce_patch_state.sh --applied-count` how many patches from the start
+the tree holds exactly (the same comparison as the full verifier), skips those, and applies
+only the rest in order. A tree that matches no prefix still falls back to the per-patch
+checks and fails without discarding any edit.
+
 To verify that a dirty `juce_shell/JUCE` checkout is **only** this tracked patch
 stack and nothing else:
 
