@@ -248,7 +248,7 @@ inline void verifyReferenceCheckPage()
             helpSeen.insert (texts.begin(), texts.end());
         }
         for (const auto* expected : { text::crest, text::movement, text::momentary, text::width, text::correlation, text::peak,
-                                      text::rms, text::onset })
+                                      text::rms, text::onset, text::attack })
             require (helpSeen.count (expected) == 1, juce::String ("every strip explains itself: ") + expected);
     }
     state.viewBindings.clear();

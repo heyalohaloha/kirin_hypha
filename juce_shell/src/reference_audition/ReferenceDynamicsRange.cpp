@@ -39,6 +39,12 @@ const RuntimeNullableIntegerSeries* find (const std::optional<RuntimeMeasurement
     const auto found = timeline->series.find (name);
     return found == timeline->series.end() ? nullptr : &found->second;
 }
+
+// アタック：同じ区間のピーク − LUFS-M（どちらか無ければ無い）。
+double attackOf (double peakDb, double momentaryLufs) noexcept
+{
+    return std::isfinite (peakDb) && std::isfinite (momentaryLufs) ? peakDb - momentaryLufs : nan;
+}
 }
 
 DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t count, int binsPerHop, int channels)
@@ -83,6 +89,7 @@ DynamicsHops aggregateHops (const KirinReferenceVisualBin* bins, std::size_t cou
         hops[DynamicsFact::peak].push_back (decibels (std::max (peak[0], peak[1])));
         hops[DynamicsFact::rms].push_back (decibels (rms));
         hops[DynamicsFact::onset].push_back (rms > 1e-15 ? (std::isfinite (previousRms) ? std::max (0.0, rms - previousRms) / rms : nan) : 0.0);
+        hops[DynamicsFact::attack].push_back (attackOf (hops[DynamicsFact::peak].back(), hops[DynamicsFact::lufsM].back()));
         previousRms = rms;
     }
     return hops;
@@ -141,6 +148,10 @@ DynamicsHops kirinHops (const RuntimeDetailedMeasurement& measurement, std::int6
         for (std::size_t index = first; index < last && index - first < count; ++index)
             hops[DynamicsFact::onset][index - first] = static_cast<double> (onset[index]) / 32'767.0;
     }
+    hops[DynamicsFact::attack].assign (count, nan);
+    for (std::size_t index = 0; index < count; ++index)
+        if (index < hops[DynamicsFact::peak].size() && index < hops[DynamicsFact::lufsM].size())
+            hops[DynamicsFact::attack][index] = attackOf (hops[DynamicsFact::peak][index], hops[DynamicsFact::lufsM][index]);
     return hops;
 }
 

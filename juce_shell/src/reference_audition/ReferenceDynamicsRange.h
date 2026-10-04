@@ -21,8 +21,10 @@ namespace hypha::reference_audition
 //  - 相関：Σlr / √(ΣL²·ΣR²)（−1〜1）。幅：√(S²の平均) / (√(M²の平均) + 1e−10) × 100（150 % まで）。M = (L+R)/2、S = (L−R)/2。
 //  - ピーク：区間の sample peak の大きい ch（dBFS）。RMS：全 ch の電力の平均（dBFS）。
 //  - 立ち上がり：max(0, RMS − 前の区間の RMS) / RMS（0〜1。Kirin OS の onset_strength_q15 / 32767）。
+//  - アタック：ピーク − LUFS-M（同じ区間の上の 2 つ。ピークが音量からどれだけ突き出ているか。2026-10-04 Daisuke が
+//    Transient の Check に選んだ。Kirin OS の値から作るので、Kirin OS 側に新しい値は要らない）。
 // 測れない区間は NaN（無音・mono の相関と幅・始めの LUFS）。
-enum class DynamicsFact : std::size_t { crest, lufsM, lufsS, width, correlation, peak, rms, onset, count };
+enum class DynamicsFact : std::size_t { crest, lufsM, lufsS, width, correlation, peak, rms, onset, attack, count };
 
 struct DynamicsHops
 {

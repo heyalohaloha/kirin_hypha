@@ -95,6 +95,7 @@ const Entry entries[] = {
     { "CREST (TP/RMS)", u8"クレスト (TP/RMS)" },
     { "LOUDNESS MOVEMENT (LUFS-S)", u8"音量の動き (LUFS-S)" },
     { "ONSET (RISE PER HOP)", u8"立ち上がり (区間ごと)" },
+    { "ATTACK (PEAK - LUFS-M)", u8"アタック (ピーク − LUFS-M)" },
     { "OVER TIME", u8"時間の動き" },
     // Kirin OS の標準の名前（HyphaReferenceDisplayText.h が英語の名前にそろえる）。日本語の画面では Kirin OS の日本語名で出す。
     { u8"Mastering · tone, level, and dynamics", u8"Mastering｜音色・音量・ダイナミクス" },
@@ -174,6 +175,8 @@ const Entry entries[] = {
       u8"瞬間ごとのRMS（dBFS）。音の芯の大きさ。比べる側は鳴らす音量で並べる。" },
     { "Onset: how sharply the level rises from the moment before. Shows the attacks.",
       u8"立ち上がり：前の瞬間からの音量の上がり方。アタックの強さを見る。" },
+    { "Attack: how far each moment's peak stands above its loudness (LUFS-M); limiting lowers it.",
+      u8"アタック：ピークがLUFS-Mからどれだけ突き出るか。詰めると小さくなる。" },
     { "The first fact over the last 30 seconds: A gold, V cyan, scaled to the lines.",
       u8"最初の項目の直近30秒の動き。Aは金、Vは水色。縦軸は線の値の範囲。" },
     { "Spectrum of C's Cue and the same length of recent A, with C at the level it plays at.",

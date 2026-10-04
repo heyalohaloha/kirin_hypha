@@ -138,7 +138,10 @@ void testReferenceDynamicsRange()
                                  && std::abs (exact[DynamicsFact::width][at] - std::sqrt (side / frames) / (std::sqrt (mid / frames) + 1e-10) * 100.0) < 1.0e-6
                                  && std::abs (exact[DynamicsFact::peak][at] - 20.0 * std::log10 (peak)) < 1.0e-9
                                  && std::abs (exact[DynamicsFact::rms][at] - 20.0 * std::log10 (rms)) < 1.0e-9
-                                 && (hop == 0 || std::abs (exact[DynamicsFact::onset][at] - std::max (0.0, rms - previous) / rms) < 1.0e-9),
+                                 && (hop == 0 || std::abs (exact[DynamicsFact::onset][at] - std::max (0.0, rms - previous) / rms) < 1.0e-9)
+                                 && (std::isfinite (exact[DynamicsFact::lufsM][at])
+                                         ? std::abs (exact[DynamicsFact::attack][at] - (20.0 * std::log10 (peak) - exact[DynamicsFact::lufsM][at])) < 1.0e-9
+                                         : std::isnan (exact[DynamicsFact::attack][at])),
                              "the definition holds on the same samples, hop " + juce::String (hop));
                 previous = rms;
             }
@@ -182,8 +185,29 @@ void testReferenceDynamicsRange()
                      && same (slice[DynamicsFact::width][8], (*signal["width"].getArray())[19], 0.006)
                      && same (slice[DynamicsFact::lufsM][3], (*signal["lufs_m"].getArray())[14], 0.0006),
                  "the slice starts at the first whole hop and reads Kirin OS's units");
-        require (std::isnan (slice[DynamicsFact::onset][0]) && std::isnan (slice[DynamicsFact::peak][0]),
+        require (std::isnan (slice[DynamicsFact::onset][0]) && std::isnan (slice[DynamicsFact::peak][0])
+                     && std::isnan (slice[DynamicsFact::attack][0]),
                  "facts Kirin OS did not send stay unknown");
+        // アタック（ピーク − LUFS-M）：Kirin OS が波形の値を送れば、同じ区間のピークと LUFS-M から作る。
+        RuntimeMeasurementWaveform waveform;
+        waveform.framesPerBin = hopSamples;
+        for (int c = 0; c < 2; ++c)
+        {
+            waveform.samplePeakMillidbfs.emplace_back();
+            waveform.rmsMillidbfs.emplace_back();
+            for (int hop = 0; hop < hops; ++hop)
+            {
+                waveform.samplePeakMillidbfs.back().push_back (std::llround (number ((*peaks)[c][hop])));
+                waveform.rmsMillidbfs.back().push_back (std::llround (number ((*rms)[c][hop])));
+            }
+        }
+        measurement.waveform = waveform;
+        const auto withPeaks = kirinHops (measurement, hopSamples * 10 + hopSamples / 2, hopSamples * 20);
+        for (std::size_t hop = 0; hop < withPeaks.size(); ++hop)
+            requireText (std::isfinite (withPeaks[DynamicsFact::peak][hop]) && std::isfinite (withPeaks[DynamicsFact::lufsM][hop])
+                             && std::abs (withPeaks[DynamicsFact::attack][hop]
+                                          - (withPeaks[DynamicsFact::peak][hop] - withPeaks[DynamicsFact::lufsM][hop])) < 1.0e-9,
+                         "the attack is the same hop's peak minus LUFS-M, hop " + juce::String ((int) hop));
         require (kirinHops (measurement, hopSamples / 4, hopSamples / 2).size() == 1, "a Cue shorter than a hop uses the hop it overlaps");
     }
     // A の 100 ms の bin を貯める部品：半端な大きさで push しても 100 ms ごとに閉じ、途切れで捨て、60 秒までを保つ。

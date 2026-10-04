@@ -15,6 +15,7 @@ inline constexpr const char* correlation = "Correlation: how alike left and righ
 inline constexpr const char* peak = "Peak of each moment (dBFS), with the compared side at the level it plays at.";
 inline constexpr const char* rms = "RMS of each moment (dBFS), the body of the sound, with the compared side at its playing level.";
 inline constexpr const char* onset = "Onset: how sharply the level rises from the moment before. Shows the attacks.";
+inline constexpr const char* attack = "Attack: how far each moment's peak stands above its loudness (LUFS-M); limiting lowers it.";
 inline constexpr const char* timeLines = "The first fact over the last 30 seconds: A gold, V cyan, scaled to the lines.";
 
 // スペクトルと 4 帯域（HyphaReferenceCueSummary.cpp・HyphaReferenceVersionPage.cpp・HyphaReferenceBalance.cpp）。

@@ -23,7 +23,7 @@ inline std::set<juce::String> helpTextsOf (reference_ui::Component& panel)
 inline const std::vector<const char*>& referenceHelpTexts()
 {
     using namespace reference_ui::help_text;
-    static const std::vector<const char*> texts { strips, crest, movement, momentary, width, correlation, peak, rms, onset,
+    static const std::vector<const char*> texts { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
                                                   timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands,
                                                   versionBands, integrated, truePeak, cueBar, match, checkTabs, versionTabs,
                                                   whole, songs };
