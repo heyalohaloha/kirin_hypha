@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -56,7 +57,7 @@ class DynamicsTicks
 {
 public:
     static constexpr int capacity = 600;
-    DynamicsTicks() = default;
+    explicit DynamicsTicks (int limitTicks = capacity) : limit (std::clamp (limitTicks, 1, capacity)) {}
     ~DynamicsTicks();
     DynamicsTicks (const DynamicsTicks&) = delete;
     DynamicsTicks& operator= (const DynamicsTicks&) = delete;
@@ -69,7 +70,7 @@ public:
 
 private:
     KirinReferenceVisualMeter* meter = nullptr;
-    int meterRate = 0, meterChannels = 0, fill = 0;
+    int limit = capacity, meterRate = 0, meterChannels = 0, fill = 0;
     std::vector<KirinReferenceVisualBin> held;
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> published;
 };

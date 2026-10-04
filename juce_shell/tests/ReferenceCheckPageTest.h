@@ -270,6 +270,47 @@ inline void verifyReferenceCheckPage()
     require (lanes->sameSectionCheck() == "Low End" && vChosen.isEmpty() && reference_ui::sameSectionReady (timeline.get()),
              "a Check tab compares the same section without changing the sound or C's choice");
     write (vPanel, "abcv_v_900_check.png");
+    // 2026-10-04（範囲の帯）：Dynamics・Stereo などの Check は、同じ区間の A と V の時間の線と帯。
+    {
+        auto pairs = std::make_shared<reference_audition::VisualTimeline> (*timeline);
+        auto a = std::make_shared<std::vector<KirinReferenceVisualBin>>(), v = std::make_shared<std::vector<KirinReferenceVisualBin>>();
+        for (int index = 0; index < 240; ++index)
+        {
+            for (auto [ticks, level, spread] : { std::tuple { a.get(), 1.0, 0.16 }, std::tuple { v.get(), 0.8, 0.25 } })
+            {
+                const auto wave = std::sin (static_cast<double> (index) * 0.17 + (level < 1.0 ? 0.6 : 0.0));
+                KirinReferenceVisualBin bin {};
+                bin.frames = 4'800;
+                const auto mid = 48.0 * level * (1.0 + 0.4 * wave), side = mid * spread;
+                bin.mid = mid; bin.side = side; bin.cross = mid - side;
+                bin.rms[0] = bin.rms[1] = std::sqrt ((mid + side) / 4'800.0);
+                bin.peak[0] = bin.peak[1] = bin.rms[0] * (3.0 + 0.4 * wave);
+                bin.true_peak = bin.peak[0] * 1.05;
+                bin.momentary_lufs = -11.0 + 20.0 * std::log10 (level) + 2.5 * wave;
+                bin.short_lufs = -11.5 + 20.0 * std::log10 (level) + 1.2 * wave;
+                ticks->push_back (bin);
+            }
+        }
+        pairs->aPairTicks = a;
+        pairs->vPairTicks = v;
+        pairs->pairTickChannels = 2;
+        auto stripsState = vState;
+        stripsState.visualTimeline = pairs;
+        stripsState.checkViewBindings = { { "chk-vocal", { "dynamics", "loudness" } }, { "chk-air", { "stereo" } } };
+        vPanel.setState (stripsState);
+        vTabs->onChoose ("chk-vocal");
+        write (vPanel, "abcv_v_900_dynamics.png");
+        const auto dynamicsImage = vPanel.createComponentSnapshot (vPanel.getLocalBounds());
+        vTabs->onChoose ("chk-air");
+        write (vPanel, "abcv_v_900_stereo.png");
+        int changed = 0;
+        const auto stereoImage = vPanel.createComponentSnapshot (vPanel.getLocalBounds());
+        for (int y = 0; y < stereoImage.getHeight(); ++y)
+            for (int x = 0; x < stereoImage.getWidth(); ++x)
+                if (stereoImage.getPixelAt (x, y) != dynamicsImage.getPixelAt (x, y)) ++changed;
+        require (changed > 500, "V's Dynamics and Stereo Checks draw their own strips");
+        vPanel.setState (vState);
+    }
     vTabs->onChoose ("whole");
     require (lanes->sameSectionCheck().isEmpty(), "WHOLE returns to the song timeline");
     vPanel.onSelectCheck = {};

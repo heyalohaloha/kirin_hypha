@@ -664,7 +664,9 @@ shows the song and the status; songs are switched from 125%.
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
   position; these controls never seek the DAW or switch audio. Each Check tab compares A and V over
   the same aligned section as that Check looks at it: a low-band Check shows 20–250 Hz, and a Check
-  that does not look at spectrum or balance (loudness, dynamics, stereo) says it is shown on C.
+  that looks at dynamics, loudness, stereo, waveform or transient shows the same range strips as C
+  for A and V over the last 30 seconds of that section (both measured by Hypha on the same frames),
+  with the first fact over time above them (A gold, V cyan, scaled to the lines).
   VERSION BLIND opens from this page and runs on the same screen as the PRE/POST **BLIND**, over the
   whole window: switch **SOURCE 1 / SOURCE 2** while the DAW plays, **REVEAL SOURCES** once both
   have sounded, and BLIND RESULT names them (1: A / 2: V) while you keep switching. **END** returns

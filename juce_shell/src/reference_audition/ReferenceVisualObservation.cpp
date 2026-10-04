@@ -73,6 +73,9 @@ void VisualObservation::publish()
     timeline.aPairKirin = pairAMeter.window (300);
     timeline.aTicks = aTickMeter.bins();
     timeline.aTickChannels = aTickMeter.channels();
+    timeline.aPairTicks = pairATicks.bins();
+    timeline.vPairTicks = pairVTicks.bins();
+    timeline.pairTickChannels = pairATicks.channels();
     if (printMeter.ticksHeld() >= 30 && printEndSample >= 0)  // H7：3 秒から（照合は 10 秒ぶん鳴ってから答える）
     {
         timeline.aFingerprint = std::make_shared<const KirinFingerprint> (printMeter.fingerprint (300));
@@ -87,6 +90,7 @@ void VisualObservation::publish()
 void VisualObservation::clearMeters()
 {
     pairAMeter.reset(); pairVMeter.reset(); pairKirinExpected = -1;
+    pairATicks.reset(); pairVTicks.reset();
     kirin_reference_visual_drop (aMeter); kirin_reference_visual_drop (bMeter);
     aMeter = bMeter = nullptr; expected = -1; completeBin = false; measuring = false;
 }
@@ -163,12 +167,17 @@ void VisualObservation::consumePair (const Block& block)
         const auto pairFrames = int (juce::jmin<std::int64_t> (block.frames, end - position));
         const auto samples = size_t (pairFrames * block.channels);
         if (! finiteSamples (block.pcm.data(), samples) || ! finiteSamples (bPcm.data(), samples))
-        { pairAMeter.reset(); pairVMeter.reset(); pairKirinExpected = -1; }  // 壊れた値は測らず、窓を新しくする
+        { pairAMeter.reset(); pairVMeter.reset(); pairATicks.reset(); pairVTicks.reset(); pairKirinExpected = -1; }  // 壊れた値は測らず、窓を新しくする
         else
         {
-            if (position != pairKirinExpected) { pairAMeter.reset(); pairVMeter.reset(); }
+            if (position != pairKirinExpected) { pairAMeter.reset(); pairVMeter.reset(); pairATicks.reset(); pairVTicks.reset(); }
             pairAMeter.push (block.pcm.data(), pairFrames);
             pairVMeter.push (bPcm.data(), pairFrames);
+            pairATicks.push (block.pcm.data(), pairFrames, int (map.hostRate), block.channels);
+            pairVTicks.push (bPcm.data(), pairFrames, int (map.hostRate), block.channels);
+            // A と V の bin はいつも同じ区切り（片方だけ捨てたら両方とも新しく）。
+            const auto a = pairATicks.bins(), v = pairVTicks.bins();
+            if ((a == nullptr) != (v == nullptr) || (a && a->size() != v->size())) { pairATicks.reset(); pairVTicks.reset(); }
             pairKirinExpected = position + pairFrames;
         }
     }

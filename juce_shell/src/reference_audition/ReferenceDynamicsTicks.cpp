@@ -40,7 +40,7 @@ void DynamicsTicks::push (const float* interleaved, int frames, int rate, int ch
         KirinReferenceVisualBin bin {};
         if (! kirin_reference_visual_finish (meter, &bin)) { reset(); return; }
         fill = 0;
-        if (static_cast<int> (held.size()) >= capacity) held.erase (held.begin());
+        if (static_cast<int> (held.size()) >= limit) held.erase (held.begin());
         held.push_back (bin);
         published = std::make_shared<const std::vector<KirinReferenceVisualBin>> (held);
     }

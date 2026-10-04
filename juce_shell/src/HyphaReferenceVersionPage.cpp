@@ -1,6 +1,7 @@
 #include "HyphaReferenceVersionPage.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
+#include "HyphaReferenceRangeStrips.h"
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -78,6 +79,12 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     // Check（古い Kirin OS が表示を送らない）は今までどおり全帯域のスペクトル。
     const bool spectral = ! listening && (views.empty() || has (views, "spectrum_full") || has (views, "spectrum_low") || has (views, "balance"));
     const bool lowOnly = has (views, "spectrum_low") && ! has (views, "spectrum_full");
+    // Dynamics・Loudness・Stereo・Waveform・Transient の Check：同じ区間の A と V の範囲の帯と時間の線（2026-10-04）。
+    std::vector<juce::String> stripViews;
+    if (! listening && ! spectral)
+        for (const auto& view : views)
+            if (rangeStripBinding (view) && stripViews.size() < 2) stripViews.push_back (view);
+    const bool strips = ! stripViews.empty();
     const double maximumHz = lowOnly ? 250.0 : 20'000.0;
     const bool ready = sameSectionReady (timeline);
     const auto shift = std::isfinite (gainDb) ? gainDb : 0.0;
@@ -95,7 +102,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
                                     + (std::isfinite (gainDb) ? juce::String {} : juce::String (" / LEVEL NOT MATCHED"))
                               : juce::String ("PLAY A WITH V ALIGNED");
     text_style::drawEllipsized (g, legend, header, juce::Justification::centredRight);
-    if (ready && spectral)  // 凡例の色（A は金の太い線、V は水色の細い線。図と同じ）
+    if (ready && (spectral || strips))  // 凡例の色（A は金の太い線、V は水色の細い線。図と同じ）
     {
         auto keys = header.withTrimmedRight (juce::roundToInt (std::ceil (text_style::shownWidth (g.getCurrentFont(), legend))) + 14);
         for (const auto& [name, colour, thickness] : { std::tuple { "V", COL_SPECTRUM_DELTA, 1.4f }, std::tuple { "A", COL_FLORA_BR, 2.8f } })
@@ -123,14 +130,28 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     }
     else
     {
-        g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
-        g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
-        if (listening)
-            text_style::drawLines (g, listeningGuide ('V'), chart.toNearestInt().reduced (24, 0), juce::Justification::centred, 3);
-        else
-            text_style::drawEllipsized (g, ! spectral ? "V compares spectrum and balance. This Check is shown on C."
-                                                      : "V is measured over the same section as A while they are aligned",
-                                        chart.toNearestInt(), juce::Justification::centred);
+        bool drew = false;
+        if (strips)  // 2 つまでを横に並べる（C の画面と同じ）
+        {
+            auto cells = chart;
+            const auto width = (cells.getWidth() - 12.0f * static_cast<float> (stripViews.size() - 1)) / static_cast<float> (stripViews.size());
+            for (const auto& view : stripViews)
+            {
+                drew = paintVersionRangeStrips (g, cells.removeFromLeft (width), timeline, view, gainDb, context) || drew;
+                cells.removeFromLeft (12.0f);
+            }
+        }
+        if (! drew)
+        {
+            g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
+            g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
+            if (listening)
+                text_style::drawLines (g, listeningGuide ('V'), chart.toNearestInt().reduced (24, 0), juce::Justification::centred, 3);
+            else
+                text_style::drawEllipsized (g, ! spectral && ! strips ? "V compares spectrum and balance. This Check is shown on C."
+                                                                      : "V is measured over the same section as A while they are aligned",
+                                            chart.toNearestInt(), juce::Justification::centred);
+        }
     }
     // 4 帯域の V−A（数字だけ、良し悪しの色は付けない）。
     static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };

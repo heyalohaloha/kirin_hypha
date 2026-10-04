@@ -234,6 +234,62 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
     }
 }
 
+// V：上の段の項目の時間の線（古い → 新しい）。縦軸は線の値の範囲（動きが見えるように）で、上と下の値を添える。
+// A は金の太い線を下に、V は水色の細い線を上に（同じ値でも両方見える）。
+void paintTimeLines (juce::Graphics& g, juce::Rectangle<float> area, const Prepared& item, const Sides& sides,
+                     presentation::Context context)
+{
+    const auto& a = sides.a[item.row.fact];
+    const auto& v = sides.other[item.row.fact];
+    const auto count = std::min (a.size(), v.size());
+    if (count < 2 || area.getHeight() < 30.0f) return;
+    const auto shift = item.otherBar.shift;
+    auto low = std::numeric_limits<double>::infinity(), high = -low;
+    for (size_t index = 0; index < count; ++index)
+        for (const auto value : { a[a.size() - count + index], v[v.size() - count + index] + shift })
+            if (std::isfinite (value)) { low = std::min (low, value); high = std::max (high, value); }
+    if (! std::isfinite (low)) return;
+    const auto pad = std::max (high - low, item.row.step * 0.5) * 0.12;
+    low -= pad;
+    high += pad;
+    const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (unitFont);
+    text_style::drawEllipsized (g, juce::String (item.row.name) + " OVER TIME", area.removeFromTop (16.0f).toNearestInt(),
+                                juce::Justification::centredLeft);
+    // 上と下の値は線の右の余白に（線と重ねない）。
+    const auto highText = valueText (item.row.unit, high), lowText = valueText (item.row.unit, low);
+    const auto labelWidth = std::ceil (std::max (text_style::shownWidth (unitFont, highText), text_style::shownWidth (unitFont, lowText))) + 8.0f;
+    auto chart = area.withTrimmedLeft (20.0f).withTrimmedBottom (2.0f);
+    const auto labels = chart.removeFromRight (labelWidth);
+    const auto y = [&chart, low, high] (double value)
+    { return chart.getBottom() - static_cast<float> (juce::jlimit (0.0, 1.0, (value - low) / (high - low))) * chart.getHeight(); };
+    g.setColour (COL_MUTED.withAlpha (0.12f));
+    for (const auto edge : { chart.getY(), chart.getBottom() - 1.0f })
+        g.fillRect (juce::Rectangle<float> (chart.getX(), edge, chart.getWidth(), 1.0f));
+    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
+    text_style::drawText (g, highText, labels.withHeight (13.0f), juce::Justification::centredRight, false);
+    text_style::drawText (g, lowText, labels.withTop (labels.getBottom() - 13.0f), juce::Justification::centredRight, false);
+    const auto path = [&] (const std::vector<double>& values, double offset)
+    {
+        juce::Path line;
+        bool started = false;
+        for (size_t index = 0; index < count; ++index)
+        {
+            const auto value = values[values.size() - count + index];
+            if (! std::isfinite (value)) { started = false; continue; }
+            const juce::Point<float> point { chart.getX() + chart.getWidth() * static_cast<float> (index) / static_cast<float> (count - 1),
+                                             y (value + offset) };
+            if (! started) { line.startNewSubPath (point); started = true; } else line.lineTo (point);
+        }
+        return line;
+    };
+    g.setColour (COL_FLORA_BR.withAlpha (0.9f));
+    g.strokePath (path (a, 0.0), juce::PathStrokeType (2.4f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
+    g.strokePath (path (v, shift), juce::PathStrokeType (1.3f));
+}
+
 const reference_audition::RuntimeDetailedMeasurement* cueMeasurement (const State& state)
 {
     return state.cueMeasurement && state.cueMeasurement->audio.sampleRateHz > 0 ? state.cueMeasurement.get() : nullptr;
@@ -285,6 +341,29 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
     paintReferenceLegend (g, aLegend + " / " + cuePartLegend ("C", state.cuePart, nan, nan, false)
                                  + (anyHeard && ! matched ? " / LEVEL NOT MATCHED" : ""), header);
     paintRows (g, bounds.reduced (14.0f, 8.0f), prepared, sides, context);
+    return true;
+}
+
+bool paintVersionRangeStrips (juce::Graphics& g, juce::Rectangle<float> area, const reference_audition::VisualTimeline* timeline,
+                              const juce::String& binding, double gainDb, presentation::Context context)
+{
+    const auto rows = rowsFor (binding);
+    if (rows.empty() || timeline == nullptr || ! timeline->aPairTicks || ! timeline->vPairTicks) return false;
+    const auto count = std::min (timeline->aPairTicks->size(), timeline->vPairTicks->size());
+    if (static_cast<int> (count) < minimumATicks) return false;
+    Sides sides;
+    sides.a = reference_audition::aggregateHops (timeline->aPairTicks->data() + (timeline->aPairTicks->size() - count), count, 1,
+                                                 timeline->pairTickChannels);
+    sides.other = reference_audition::aggregateHops (timeline->vPairTicks->data() + (timeline->vPairTicks->size() - count), count, 1,
+                                                     timeline->pairTickChannels);
+    sides.aReady = sides.a.size() > 0;
+    sides.letter = "V";
+    sides.shift = std::isfinite (gainDb) ? gainDb : 0.0;
+    const auto prepared = prepare (rows, sides);
+    auto overlay = area.removeFromTop (std::round (area.getHeight() * 0.32f));
+    area.removeFromTop (6.0f);
+    paintTimeLines (g, overlay.reduced (6.0f, 0.0f), prepared.front(), sides, context);
+    paintRows (g, area.reduced (6.0f, 0.0f), prepared, sides, context);
     return true;
 }
 }
