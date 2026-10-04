@@ -1,4 +1,5 @@
 #include "HyphaReferenceComparisonView.h"
+#include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceVersionPage.h"
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
@@ -237,12 +238,14 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
     }
     const bool both = std::isfinite (a) && std::isfinite (b);
     if (!std::isfinite (a) && !std::isfinite (b)) return "A  --    V  --";
-    if (compact) return both ? "V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1)
-        + (showingCrest ? " dB / CREST" : " LU / 3s") : juce::String ("A  --    V  --");
+    // 差は A を主語に言葉で（「Aが1.1 LU小さい」。HyphaReferenceAComparison.h）。
+    const auto difference = both ? compareA (a - b, 1, showingCrest ? " dB" : " LU", showingCrest ? AWords::size : AWords::loudness, 'V').text
+                                 : juce::String();
+    if (compact) return both ? difference + (showingCrest ? " / CREST" : " / 3s") : juce::String ("A  --    V  --");
     const auto endpoint = double (std::min (source.audio.totalSampleFrames, (std::int64_t (index)+1)*data->hop)) / source.audio.sampleRateHz;
     const auto value = [] (double v) { return std::isfinite (v) ? juce::String (v, 1) : juce::String ("--"); };
     return juce::String (endpoint, 1) + "s  A " + value (a) + "   V " + value (b)
-        + (both ? "   V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU") : juce::String());
+        + (both ? " / " + difference : juce::String());
 }
 void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views, bool listening)
 {

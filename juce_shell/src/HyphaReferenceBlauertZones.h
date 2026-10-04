@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaPresentationContext.h"
+#include "HyphaReferenceAComparison.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 #include "reference_audition/ReferenceBlauertBands.h"
@@ -12,7 +13,8 @@
 
 // 2026-10-04（Daisuke が「帯を敷き、差を1つ出す」を選んだ）：Blauert の帯（ReferenceBlauertBands.h）を Reference
 // のスペクトルの図（B の Balance、C の SPECTRUM、V の Check のタブ）に薄く敷き、図の右上に
-// 「1k vs 300-400·3-4k C-A +1.2 dB」（比べる側 − A）を出す。横軸はどの図も minimumHz〜maximumHz の対数。
+// 「1k vs 300-400·3-4k / A 1.2 dB LOWER」（300-400 Hz・3-4 kHz に対する 1 kHz の高さを、A を主語に。日本語は
+// 「300-400·3-4kに対する1k / Aが1.2 dB低い」。HyphaReferenceAComparison.h）を出す。横軸はどの図も minimumHz〜maximumHz の対数。
 // 3–4 kHz まで描かない図（LOW FREQUENCY）には出さない。差が出せないあいだは数字を出さない（R-26）。
 namespace hypha::reference_ui
 {
@@ -34,15 +36,12 @@ inline void paintBlauertZones (juce::Graphics& g, juce::Rectangle<float> chart, 
                                                                 std::max (x (zone.highHz), x (zone.lowHz) + 2.0f), chart.getBottom() - 14.0f));
 }
 
-// 「1k vs 300-400·3-4k C-A +1.2 dB」。差が有限でなければ空。
+// 「1k vs 300-400·3-4k / A 1.2 dB LOWER」。`differenceDb` は比べる側 − A（blauertDifferenceDb）。差が有限でなければ空。
 inline juce::String blauertReadout (char role, double differenceDb)
 {
-    if (! std::isfinite (differenceDb)) return {};
-    const auto rounded = std::round (differenceDb * 10.0) / 10.0;
-    const auto value = (rounded >= 0.0 ? juce::String ("+") : juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92")))
-        + juce::String (std::abs (rounded), 1);
-    return juce::String::fromUTF8 (u8"1k vs 300-400·3-4k ") + juce::String::charToString (static_cast<juce::juce_wchar> (role))
-        + "-A " + value + " dB";
+    const auto comparison = compareA (-differenceDb, 1, " dB", AWords::level, role);
+    if (! comparison.shown()) return {};
+    return juce::String::fromUTF8 (u8"1k vs 300-400·3-4k") + " / " + comparison.text;
 }
 
 inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart, char role, double differenceDb,

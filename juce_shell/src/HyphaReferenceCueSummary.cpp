@@ -1,11 +1,13 @@
 #include "HyphaReferenceCueSummary.h"
 
+#include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
+#include <array>
 #include <cmath>
 
 namespace hypha::reference_ui
@@ -156,33 +158,80 @@ juce::String matchReadout (const State& state)
     return state.bSelected && state.audibleComparisonSlot == 2 ? "MATCHED / " + value : "ON PLAY / " + value;
 }
 
+namespace
+{
+// 2026-10-04：1 段（図を大きくする）。左に見出し（CよりA（dB））を 1 度だけ、4 帯域は名前と差を 1 行に。
+// 差は見出しの A を主語に言葉で（「3.7少ない」。HyphaReferenceAComparison.h）。
+constexpr const char* bandNames[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };
+constexpr const char* bandHeading = "A VS C (dB)";
+constexpr int bandGap = 6, bandPadding = 8, bandNameGap = 6;
+
+struct BandLayout
+{
+    int heading = 0;
+    std::array<int, 4> cells {};
+    bool fits = false;
+};
+
+// 欄の幅は名前と大きな差の文（24.5）の幅に余白を足し、残りを等分する（値が変わっても欄は動かない）。
+// 足りなければ等分にして名前を省略する（差の文は省略しない）。
+BandLayout bandLayout (int width, const presentation::Context& context)
+{
+    BandLayout layout;
+    const auto words = labelFont (context, typography::TextRole::unit, typography::Composition::information);
+    layout.heading = juce::roundToInt (std::ceil (text_style::shownWidth (words, bandHeading))) + 10;
+    const auto reserve = std::ceil (std::max (aComparisonWidth (compareBand (-24.5), context), aComparisonWidth (compareBand (24.5), context)));
+    const auto available = width - layout.heading - bandGap * 3;
+    std::array<int, 4> need {};
+    int total = 0;
+    for (size_t band = 0; band < need.size(); ++band)
+    {
+        need[band] = juce::roundToInt (std::ceil (text_style::shownWidth (words, bandNames[band]) + bandNameGap + reserve)) + bandPadding * 2;
+        total += need[band];
+    }
+    layout.fits = total <= available;
+    for (size_t band = 0; band < need.size(); ++band)
+        layout.cells[band] = layout.fits ? need[band] + (available - total) / 4 : available / 4;
+    return layout;
+}
+}
+
+bool bandSummaryFits (int width, const presentation::Context& context)
+{
+    return bandLayout (width, context).fits;
+}
+
 void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
 {
-    // 2026-10-04：1 段（図を大きくする）。左に単位（dB C-A）を 1 度だけ、4 帯域は名前と差を 1 行に。
-    static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };
     const auto gain = comparisonGainDb (state);
     const bool ready = kirinComparable (state) && state.aKirin->frames >= minimumAFrames && std::isfinite (gain);
+    const auto layout = bandLayout (area.getWidth(), context);
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-    text_style::drawEllipsized (g, "dB C-A", area.removeFromLeft (52), juce::Justification::centredLeft);
-    constexpr int gap = 6;
-    const auto width = (area.getWidth() - gap * 3) / 4;
-    for (size_t band = 0; band < 4; ++band)
+    text_style::drawEllipsized (g, bandHeading, area.removeFromLeft (layout.heading), juce::Justification::centredLeft);
+    for (size_t band = 0; band < layout.cells.size(); ++band)
     {
-        auto cell = area.removeFromLeft (width);
-        area.removeFromLeft (gap);
+        auto cell = area.removeFromLeft (layout.cells[band]);
+        area.removeFromLeft (bandGap);
         surface_material::paintPanel (g, cell.toFloat(), 0.6f);
-        auto inner = cell.reduced (8, 0);
-        g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, names[band], inner.removeFromLeft (inner.getWidth() * 3 / 5), juce::Justification::centredLeft);
+        auto inner = cell.reduced (bandPadding, 0);
         const auto c = ready ? state.cueKirin->balanceDb[band] + gain : std::numeric_limits<double>::quiet_NaN();
         const auto a = ready ? state.aKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
-        const bool shown = std::isfinite (c) && std::isfinite (a) && a > -200.0;
-        g.setColour (shown ? COL_OBSERVATORY_VALUE : COL_MUTED);
-        g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
-        text_style::drawEllipsized (g, shown ? signedDb (c - a) : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")),
-                                    inner, juce::Justification::centredRight);
+        const auto comparison = std::isfinite (c) && a > -200.0 ? compareBand (a - c) : AComparison {};
+        const auto phraseWidth = comparison.shown() ? std::ceil (aComparisonWidth (comparison, context)) : 16.0f;
+        auto phrase = inner.removeFromRight (std::min (inner.getWidth(), juce::roundToInt (phraseWidth)));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
+        text_style::drawEllipsized (g, bandNames[band], inner.withTrimmedRight (bandNameGap), juce::Justification::centredLeft);
+        if (comparison.shown())
+            paintAComparison (g, comparison, phrase.toFloat(), juce::Justification::centredRight, context, COL_TEXT_SECONDARY,
+                              COL_OBSERVATORY_VALUE);
+        else
+        {
+            g.setColour (COL_MUTED);
+            g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
+            text_style::drawEllipsized (g, juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")), phrase, juce::Justification::centredRight);
+        }
     }
 }
 

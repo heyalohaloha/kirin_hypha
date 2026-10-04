@@ -648,17 +648,24 @@ shows the song and the status; songs are switched from 125%.
   (p10 to p90 per band, each at the level B plays it at).
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song), the Cue, and MATCH. The comparison is the Cue against the same length of recent
-  A; below it, the four-band Balance difference C − A (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz)
-  as numbers only, and the Cue's place in the song with its loop and the playing position. A Check
+  A; below it, the four-band Balance difference (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz) under
+  the heading A VS C (dB) (CよりA（dB） in Japanese), read as 3.7 LESS or 0.5 MORE (3.7少ない, 0.5多い),
+  and the Cue's place in the song with its loop and the playing position. A Check
   that looks at dynamics, loudness, stereo, waveform or transient compares range strips: for each
   fact, A (gold) and C (cyan) bars from p10 to p90 of the window with a mark at the median, and the
-  medians and C − A on the right — crest (TP/RMS) and loudness movement (LUFS-S around each median,
+  medians on the right, with the difference on A's line — crest (TP/RMS) and loudness movement (LUFS-S around each median,
   read as p90 − p10) for dynamics, LUFS-M for loudness, width (S/M) and correlation for stereo, peak
   and RMS for waveform, and onset for transient. The facts are Kirin OS's per-hop definitions
   (crest 20·log10(TP/RMS); width √(mean S²)/√(mean M²) × 100, up to 150 %; correlation
   ΣLR/√(ΣL²·ΣR²); LUFS at the end of the hop), so A's 100 ms bins are regrouped into C's hop
   (200 ms for a song longer than 204.8 s). Loudness facts (LUFS-M, peak, RMS) are shown at the level
   C plays at. Until A has 3 seconds only C is drawn (A WAITING).
+  Every difference on B, C and V is said with A as the subject and a word instead of a sign (chosen
+  by the owner on 2026-10-04 after "is A more or less than C?" was hard to read): A 0.12 LOWER,
+  A 10 pt NARROWER, A 1.2 LU QUIETER (Aが0.12低い, Aが10 pt狭い, Aが1.2 LU小さい), and A SAME AS C
+  (AはCと同じ) when it rounds to zero. The metric cards read A, C and A VS C (CよりA) with the size of
+  the difference and its unit and word under it (1.2 / LU QUIETER); at 200 % and below each card is one
+  line, LUFS-I A 1.2 LU QUIETER.
 - **V**: the Version and the shared CHECK SET, then tabs. WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
@@ -690,8 +697,9 @@ A is gold and the compared role is cyan on every page; colour never scores a res
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
 frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Full-range spectrum charts
 (B's Balance, C, and V's Check tabs) also shade Blauert's directional bands — 300–400 Hz, around 1 kHz
-(891–1122 Hz) and 3–4 kHz — and read at the top right how much stronger around 1 kHz is than the mean
-of the other two, as the compared role minus A (1k vs 300-400·3-4k C-A +1.2 dB). In loudspeaker
+(891–1122 Hz) and 3–4 kHz — and read at the top right how A's 1 kHz sits against the mean of the
+other two compared with the other role (1k vs 300-400·3-4k / A 1.2 dB LOWER;
+300-400·3-4kに対する1k / Aが1.2 dB低い). In loudspeaker
 stereo, more at 300–400 Hz and 3–4 kHz tends to sound present and near, more around 1 kHz diffuse and
 far, mostly on familiar sounds; Hypha shows the decibels only, never near or far. It is a difference
 within each song, so it needs no level matching; it reads the 64-band medians of both sides, and is not

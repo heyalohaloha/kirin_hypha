@@ -1,4 +1,5 @@
 #include "HyphaReferenceVersionPage.h"
+#include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
 #include "HyphaReferenceRangeStrips.h"
@@ -16,11 +17,6 @@ namespace hypha::reference_ui
 namespace
 {
 constexpr int minimumPairFrames = 30;  // 位置合わせで対応した A・V が 3 秒に満たないあいだは比べない
-
-juce::String signedDb (double value)
-{
-    return (value >= 0.0 ? "+" : juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92"))) + juce::String (std::abs (value), 1);
-}
 
 float dbY (double db, juce::Rectangle<float> area)
 {
@@ -153,8 +149,13 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
                                             chart.toNearestInt(), juce::Justification::centred);
         }
     }
-    // 4 帯域の V−A（数字だけ、良し悪しの色は付けない）。
+    // 4 帯域の差を、見出し「VよりA（dB）」を主語に言葉で（「3.7少ない」。C の帯の行と同じ。良し悪しの色は付けない）。
     static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
+    const juce::String heading { "A VS V (dB)" };
+    const auto headingWidth = juce::roundToInt (std::ceil (text_style::shownWidth (g.getCurrentFont(), heading))) + 10;
+    text_style::drawEllipsized (g, heading, bands.removeFromLeft (headingWidth), juce::Justification::centredLeft);
     constexpr int gap = 6;
     const auto width = (bands.getWidth() - gap * 3) / 4;
     for (size_t band = 0; band < 4; ++band)
@@ -168,14 +169,17 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         text_style::drawEllipsized (g, names[band], inner.removeFromTop (inner.getHeight() / 2), juce::Justification::centredLeft);
         const auto a = ready ? timeline->aPairKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
         const auto v = ready ? timeline->vPairKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
-        const bool shown = std::isfinite (a) && std::isfinite (v) && a > -200.0 && std::isfinite (gainDb);
-        g.setColour (shown ? COL_OBSERVATORY_VALUE : COL_MUTED);
-        g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
-        text_style::drawEllipsized (g, shown ? signedDb (v + shift - a) : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")),
-                                    inner.removeFromLeft (inner.getWidth() * 3 / 5), juce::Justification::centredLeft);
-        g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, "dB V-A", inner, juce::Justification::centredRight);
+        const bool shown = std::isfinite (v) && a > -200.0 && std::isfinite (gainDb);
+        const auto comparison = shown ? compareBand (a - (v + shift)) : AComparison {};
+        if (comparison.shown())
+            paintAComparison (g, comparison, inner.toFloat(), juce::Justification::centredLeft, context, COL_TEXT_SECONDARY,
+                              COL_OBSERVATORY_VALUE);
+        else
+        {
+            g.setColour (COL_MUTED);
+            g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
+            text_style::drawEllipsized (g, juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")), inner, juce::Justification::centredLeft);
+        }
     }
 }
 }

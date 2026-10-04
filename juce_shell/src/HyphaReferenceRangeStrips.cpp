@@ -1,5 +1,6 @@
 #include "HyphaReferenceRangeStrips.h"
 
+#include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceLegend.h"
@@ -30,18 +31,22 @@ struct Row
     bool asHeard;  // C を鳴らす gain で合わせる（軸は値から決める）
     double minimum, maximum, step;
     Unit unit;
+    AWords words;  // 差を A を主語に言う言葉（HyphaReferenceAComparison.h）
 };
 
 std::vector<Row> rowsFor (const juce::String& binding)
 {
-    const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu };
-    if (binding == "dynamics") return { { "CREST (TP/RMS)", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db }, movement };
-    if (binding == "loudness") return { { "MOMENTARY (LUFS-M)", DynamicsFact::lufsM, false, true, 0.0, 0.0, 6.0, Unit::lufs }, movement };
-    if (binding == "stereo") return { { "WIDTH (S/M)", DynamicsFact::width, false, false, 0.0, 150.0, 50.0, Unit::percent },
-                                      { "CORRELATION", DynamicsFact::correlation, false, false, -1.0, 1.0, 0.5, Unit::ratio } };
-    if (binding == "waveform") return { { "PEAK", DynamicsFact::peak, false, true, 0.0, 0.0, 6.0, Unit::dbfs },
-                                        { "RMS", DynamicsFact::rms, false, true, 0.0, 0.0, 6.0, Unit::dbfs } };
-    if (binding == "transient") return { { "ONSET (RISE PER HOP)", DynamicsFact::onset, false, false, 0.0, 1.0, 0.25, Unit::onset } };
+    const Row movement { "LOUDNESS MOVEMENT (LUFS-S)", DynamicsFact::lufsS, true, false, -8.0, 8.0, 4.0, Unit::lu, AWords::size };
+    if (binding == "dynamics")
+        return { { "CREST (TP/RMS)", DynamicsFact::crest, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size }, movement };
+    if (binding == "loudness")
+        return { { "MOMENTARY (LUFS-M)", DynamicsFact::lufsM, false, true, 0.0, 0.0, 6.0, Unit::lufs, AWords::loudness }, movement };
+    if (binding == "stereo") return { { "WIDTH (S/M)", DynamicsFact::width, false, false, 0.0, 150.0, 50.0, Unit::percent, AWords::width },
+                                      { "CORRELATION", DynamicsFact::correlation, false, false, -1.0, 1.0, 0.5, Unit::ratio, AWords::level } };
+    if (binding == "waveform") return { { "PEAK", DynamicsFact::peak, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level },
+                                        { "RMS", DynamicsFact::rms, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level } };
+    if (binding == "transient")
+        return { { "ONSET (RISE PER HOP)", DynamicsFact::onset, false, false, 0.0, 1.0, 0.25, Unit::onset, AWords::size } };
     return {};
 }
 
@@ -72,15 +77,16 @@ juce::String valueText (Unit unit, double value)
     return {};
 }
 
-juce::String differenceText (Unit unit, double value)
+// A − 比べる側を、A を主語に言葉で（「A 0.12 LOWER」、日本語は「Aが0.12低い」）。
+juce::String differenceText (const Row& row, double aMinusOther, char other)
 {
-    switch (unit)
+    switch (row.unit)
     {
-        case Unit::db: case Unit::dbfs: return signedText (value, 1) + " dB";
-        case Unit::lu: case Unit::lufs: return signedText (value, 1) + " LU";
-        case Unit::percent: return signedText (value, 0) + " pt";
-        case Unit::ratio: return signedText (value, 2);
-        case Unit::onset: return signedText (value * 100.0, 0) + " pt";
+        case Unit::db: case Unit::dbfs: return compareA (aMinusOther, 1, " dB", row.words, other).text;
+        case Unit::lu: case Unit::lufs: return compareA (aMinusOther, 1, " LU", row.words, other).text;
+        case Unit::percent: return compareA (aMinusOther, 0, " pt", row.words, other).text;
+        case Unit::ratio: return compareA (aMinusOther, 2, "", row.words, other).text;
+        case Unit::onset: return compareA (aMinusOther * 100.0, 0, " pt", row.words, other).text;
     }
     return {};
 }
@@ -162,7 +168,7 @@ std::vector<Prepared> prepare (const std::vector<Row>& rows, const Sides& sides)
         item.aText = item.aBar.shown ? valueText (row.unit, value (item.aBar)) : dash;  // 測れていない側は「—」（凡例が A WAITING と言う）
         item.otherText = item.otherBar.shown ? valueText (row.unit, value (item.otherBar)) : dash;
         if (item.aBar.shown && item.otherBar.shown)
-            item.difference = juce::String (sides.letter) + "-A " + differenceText (row.unit, value (item.otherBar) - value (item.aBar));
+            item.difference = differenceText (row, value (item.aBar) - value (item.otherBar), sides.letter[0]);
         prepared.push_back (std::move (item));
     }
     return prepared;
@@ -222,7 +228,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
             g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
             g.setColour (bar.shown ? valueColour : COL_MUTED);
             text_style::drawEllipsized (g, text, number.toNearestInt(), juce::Justification::centredRight);
-            if (letter != "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())
+            if (letter == "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())  // 差は A の行に（A が主語）
             {
                 g.setColour (COL_TEXT_SECONDARY);
                 g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));

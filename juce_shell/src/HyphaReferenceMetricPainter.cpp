@@ -4,19 +4,16 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
+#include <cmath>
+#include <limits>
+
 namespace hypha::reference_metric_painter
 {
 namespace
 {
-juce::String valueText (double value, bool delta)
-{
-    return delta ? fmtDelta (value) : fmtVal (value);
-}
-
 void paintValue (juce::Graphics& g, juce::Rectangle<float> area,
                  const juce::String& heading, double value, const juce::String& unit,
-                 juce::Colour colour, bool delta, float scale,
-                 presentation::Context presentation)
+                 juce::Colour colour, float scale, presentation::Context presentation)
 {
     auto label = area.removeFromTop (14.0f * scale);
     g.setColour (COL_TEXT_TERTIARY);
@@ -33,7 +30,26 @@ void paintValue (juce::Graphics& g, juce::Rectangle<float> area,
     g.setColour (std::isfinite (value) ? colour : COL_MUTED);
     drawTabularText (g, monoFont (presentation, typography::TextRole::primaryValue,
                                   typography::Composition::information),
-                     valueText (value, delta), area, juce::Justification::centred);
+                     fmtVal (value), area, juce::Justification::centred);
+}
+
+// 差の列の数字（符号なし。表示の桁で 0 なら 0.0）と、下の段（単位と言葉「LU QUIETER」、0 なら「SAME」）。
+struct Difference
+{
+    reference_ui::AComparison comparison;
+    double value = std::numeric_limits<double>::quiet_NaN();
+    juce::String bottom;
+};
+
+Difference differenceOf (double otherMinusA, const juce::String& unit, reference_ui::AWords words, const juce::String& side)
+{
+    Difference result;
+    result.comparison = reference_ui::compareA (-otherMinusA, 1, " " + unit, words, static_cast<char> (side[0]));
+    result.value = ! result.comparison.shown() ? std::numeric_limits<double>::quiet_NaN()
+                 : result.comparison.same() ? 0.0 : result.comparison.number.getDoubleValue();
+    result.bottom = ! result.comparison.shown() ? unit : result.comparison.same() ? juce::String ("SAME")
+                                                                                  : unit + " " + result.comparison.word;
+    return result;
 }
 }
 
@@ -63,7 +79,8 @@ void paintComparisonRoots (juce::Graphics& g, juce::Rectangle<float> area)
 
 void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
                   const juce::String& name, const juce::String& unit,
-                  double a, double b, double delta, presentation::Context presentation, const juce::String& side)
+                  double a, double b, double otherMinusA, reference_ui::AWords words, presentation::Context presentation,
+                  const juce::String& side)
 {
     paintPanel (g, area);
     paintComparisonRoots (g, area);
@@ -76,34 +93,42 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
     area.reduce (5.0f, 3.0f);
     const float columnWidth = area.getWidth() / 3.0f;
     paintValue (g, area.removeFromLeft (columnWidth), "A", a, unit,
-                COL_OBSERVATORY_VALUE, false, scale, presentation);
+                COL_OBSERVATORY_VALUE, scale, presentation);
     paintValue (g, area.removeFromLeft (columnWidth), side, b, unit,
-                COL_OBSERVATORY_VALUE, false, scale, presentation);
-    paintValue (g, area, side + "-A", delta, unit == "LUFS" ? "LU" : "dB",
-                COL_SPECTRUM_DELTA_BR, true, scale * 1.12f, presentation);
+                COL_OBSERVATORY_VALUE, scale, presentation);
+    const auto difference = differenceOf (otherMinusA, unit == "LUFS" ? "LU" : "dB", words, side);
+    paintValue (g, area, "A VS " + side, difference.value, difference.bottom,
+                COL_SPECTRUM_DELTA_BR, scale * 1.12f, presentation);
 }
 
 void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
-                        const juce::String& name, double value, const juce::String& unit,
-                        presentation::Context presentation, const juce::String& side)
+                        const juce::String& name, double otherMinusA, const juce::String& unit,
+                        reference_ui::AWords words, presentation::Context presentation, const juce::String& side)
 {
     paintPanel (g, area, 0.72f);
+    const auto difference = differenceOf (otherMinusA, unit, words, side);
     if (area.getHeight() < 52.0f)
     {
         area.reduce (4.0f, 0.0f);
-        auto label = area.removeFromLeft (area.getWidth() * 0.54f);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::information));
-        text_style::drawText (g, side + "-A " + name, label, juce::Justification::centredLeft);
-        g.setColour (std::isfinite (value) ? COL_SPECTRUM_DELTA_BR : COL_MUTED);
-        g.setFont (monoFont (presentation, typography::TextRole::readout,
-                             typography::Composition::information));
-        text_style::drawText (g, valueText (value, true), area, juce::Justification::centredRight);
+        const auto labelWidth = std::ceil (text_style::shownWidth (g.getCurrentFont(), name)) + 8.0f;
+        text_style::drawText (g, name, area.removeFromLeft (labelWidth), juce::Justification::centredLeft);
+        if (difference.comparison.shown())
+            reference_ui::paintAComparison (g, difference.comparison, area, juce::Justification::centredRight, presentation,
+                                            COL_TEXT_SECONDARY, COL_SPECTRUM_DELTA_BR);
+        else
+        {
+            g.setColour (COL_MUTED);
+            g.setFont (monoFont (presentation, typography::TextRole::readout,
+                                 typography::Composition::information));
+            text_style::drawText (g, fmtVal (difference.value), area, juce::Justification::centredRight);
+        }
         return;
     }
     area.reduce (4.0f, 3.0f);
-    paintValue (g, area, side + "-A  " + name, value, unit,
-                COL_SPECTRUM_DELTA_BR, true, 1.0f, presentation);
+    paintValue (g, area, "A VS " + side + "  " + name, difference.value, difference.bottom,
+                COL_SPECTRUM_DELTA_BR, 1.0f, presentation);
 }
 }

@@ -337,13 +337,13 @@ void Component::paint (juce::Graphics& g)
             reference_metric_painter::paintMetric (
                         g, metrics.removeFromLeft (juce::roundToInt (width)).toFloat(),
                         "INTEGRATED LOUDNESS", "LUFS", current.aIntegratedLoudness,
-                        current.adjustedBIntegratedLoudness, current.loudnessDeltaBMinusA,
+                        current.adjustedBIntegratedLoudness, current.loudnessDeltaBMinusA, AWords::loudness,
                         presentationContext, side);
             metrics.removeFromLeft (juce::roundToInt (gap));
             reference_metric_painter::paintMetric (
                         g, metrics.toFloat(), "MAXIMUM TRUE PEAK", "dBTP",
                         current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp,
-                        current.truePeakDeltaBMinusA, presentationContext, side);
+                        current.truePeakDeltaBMinusA, AWords::level, presentationContext, side);
         }
     }
     else if (!comparisonView.isVisible() && !tonalView.isVisible())
@@ -352,10 +352,10 @@ void Component::paint (juce::Graphics& g)
         auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);
         area.removeFromLeft (gap);
         reference_metric_painter::paintCompactDelta (
-            g, left.toFloat(), "LUFS-I", current.loudnessDeltaBMinusA, "LU",
+            g, left.toFloat(), "LUFS-I", current.loudnessDeltaBMinusA, "LU", AWords::loudness,
             presentationContext, side);
         reference_metric_painter::paintCompactDelta (
-            g, area.toFloat(), "MAX TP", current.truePeakDeltaBMinusA, "dB",
+            g, area.toFloat(), "MAX TP", current.truePeakDeltaBMinusA, "dB", AWords::level,
             presentationContext, side);
     }
 }

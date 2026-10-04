@@ -422,6 +422,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceStatusModel.cpp
             src/HyphaReferenceCheckTabs.cpp
             src/HyphaReferenceCheckPage.cpp
+            src/HyphaReferenceAComparison.cpp
             src/HyphaReferenceCueSummary.cpp
             src/HyphaReferenceVersionPage.cpp
             src/HyphaReferencePreparationWatch.cpp
@@ -592,6 +593,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceStatusModel.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceAComparison.cpp
         src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceVersionPage.cpp
         src/HyphaReferencePreparationWatch.cpp
@@ -742,6 +744,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceStatusModel.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceAComparison.cpp
         src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceVersionPage.cpp
         src/HyphaReferencePreparationWatch.cpp
@@ -1049,6 +1052,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceStatusModel.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
+        src/HyphaReferenceAComparison.cpp
         src/HyphaReferenceCueSummary.cpp
         src/HyphaReferenceVersionPage.cpp
         src/HyphaReferencePreparationWatch.cpp

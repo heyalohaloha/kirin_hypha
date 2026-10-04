@@ -64,8 +64,32 @@ const Entry entries[] = {
     { "C CUE", u8"CのCue" },
     { "C WHOLE", u8"C曲全体" },
     { "B SET RANGE", u8"Bセットの範囲" },  // B セットの曲の p10〜p90 の帯
-    // Blauert の帯（HyphaReferenceBlauertZones.h）：1 kHz 付近と 300-400 Hz・3-4 kHz の差の、比べる側 − A。
-    { u8"1k vs 300-400·3-4k %1-A %2 dB", u8"1kと300-400·3-4kの差 %1-A %2 dB" },
+    // Blauert の帯（HyphaReferenceBlauertZones.h）：300-400 Hz・3-4 kHz に対する 1 kHz 付近の高さを、A を主語に。
+    { u8"1k vs 300-400·3-4k", u8"300-400·3-4kに対する1k" },
+    // 比べる側との差は A を主語に言葉で（HyphaReferenceAComparison.h。2026-10-04 Daisuke が選んだ）。
+    { "A %1 MORE", u8"Aが%1多い" },
+    { "A %1 LESS", u8"Aが%1少ない" },
+    { "A %1 HIGHER", u8"Aが%1高い" },
+    { "A %1 LOWER", u8"Aが%1低い" },
+    { "A %1 LARGER", u8"Aが%1大きい" },
+    { "A %1 SMALLER", u8"Aが%1小さい" },
+    { "A %1 LOUDER", u8"Aが%1大きい" },
+    { "A %1 QUIETER", u8"Aが%1小さい" },
+    { "A %1 WIDER", u8"Aが%1広い" },
+    { "A %1 NARROWER", u8"Aが%1狭い" },
+    { "A SAME AS %1", u8"Aは%1と同じ" },
+    // 4 帯域の欄は見出し（CよりA（dB））が主語を言う（「SAME」は解析の画面と同じ「差なし」）。
+    { "%1 MORE", u8"%1多い" },
+    { "%1 LESS", u8"%1少ない" },
+    { "A VS C (dB)", u8"CよりA（dB）" },
+    { "A VS V (dB)", u8"VよりA（dB）" },
+    // 指標の欄（INTEGRATED LOUDNESS・MAXIMUM TRUE PEAK、200% 以下の LUFS-I・MAX TP）の差の列。
+    { "A VS %1  %2", u8"%1よりA %2" },
+    { "A VS %1", u8"%1よりA" },
+    { "LU LOUDER", u8"LU大きい" },
+    { "LU QUIETER", u8"LU小さい" },
+    { "dB HIGHER", u8"dB高い" },
+    { "dB LOWER", u8"dB低い" },
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
     // 範囲の帯（HyphaReferenceRangeStrips.cpp）の項目名と、V の時間の線の見出し（「CREST (TP/RMS) / OVER TIME」）。
     { "CREST (TP/RMS)", u8"クレスト (TP/RMS)" },
