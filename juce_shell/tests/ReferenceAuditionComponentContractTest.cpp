@@ -11,6 +11,7 @@
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaVersionBlindScreen.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -146,10 +147,7 @@ void verifyReferenceAuditionComponentContract()
     bool requestedA = false;
     bool requestedB = false;
     bool requestedBlind = false;
-    bool requestedReveal = false;
-    bool requestedEnd = false;
     bool requestedAction = false;
-    int requestedStimulus = 0;
     juce::String requestedPreset;
     juce::String requestedCheck;
     juce::String requestedCandidate;
@@ -157,11 +155,6 @@ void verifyReferenceAuditionComponentContract()
     component.onSelectA = [&requestedA] { requestedA = true; };
     component.onSelectB = [&requestedB] { requestedB = true; };
     component.onStartBlind = [&requestedBlind] { requestedBlind = true; };
-    component.onSelectBlindStimulus = [&requestedStimulus] (int value) {
-        requestedStimulus = value;
-    };
-    component.onRevealBlind = [&requestedReveal] { requestedReveal = true; };
-    component.onEndBlind = [&requestedEnd] { requestedEnd = true; };
     component.onSelectPreset = [&requestedPreset] (const juce::String& id) {
         requestedPreset = id;
     };
@@ -183,19 +176,14 @@ void verifyReferenceAuditionComponentContract()
         component.findChildWithID ("reference-candidate"));
     auto* compactCheck = dynamic_cast<juce::ComboBox*> (
         component.findChildWithID ("reference-check"));
-    auto* one = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-1"));
-    auto* two = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-2"));
-    auto* reveal = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-reveal"));
-    auto* endBlind = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-end"));
+    // 2026-10-04：始めた VERSION BLIND の 1・2・開示・終了は、エディターが窓全体に出す PRE/POST Blind と同じ画面
+    // （HyphaVersionBlindScreen.h、verifyVersionBlindScreen）。REF には始めるボタンだけが残る。
     KIRIN_REF_REQUIRE (a != nullptr && b != nullptr && b->isEnabled()
                        && startBlind != nullptr && startBlind->isVisible()
-                       && one != nullptr && two != nullptr
-                       && reveal != nullptr
-                       && endBlind != nullptr
+                       && component.findChildWithID ("reference-blind-1") == nullptr
+                       && component.findChildWithID ("reference-blind-2") == nullptr
+                       && component.findChildWithID ("reference-blind-reveal") == nullptr
+                       && component.findChildWithID ("reference-blind-end") == nullptr
                        && component.findChildWithID ("reference-blind-answer") == nullptr);
     const auto blindBounds = boundsWithin (component, *startBlind);
     KIRIN_REF_REQUIRE (startBlind->getButtonText() == "BLIND 300%"
@@ -233,33 +221,19 @@ void verifyReferenceAuditionComponentContract()
     startingState.blindPhase = reference_ui::BlindPhase::starting;
     startingState.status = "BLIND / WAITING FOR FIRST AUDIBLE BLOCK";
     component.setState (startingState);
-    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
-                       && ! one->isVisible() && ! two->isVisible()
-                       && ! reveal->isVisible()
-                       && endBlind->isVisible());
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible());
 
     auto blindState = readyState();
     blindState.blindPhase = reference_ui::BlindPhase::active;
     blindState.activeBlindStimulus = 1;
     blindState.pendingBlindStimulus = 2;
     component.setState (blindState);
-    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
-                       && one->isVisible() && two->isVisible() && reveal->isVisible()
-                       && ! reveal->isEnabled()
-                       && endBlind->isVisible() && one->isEnabled() && ! two->isEnabled());
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible());
     blindState.pendingBlindStimulus = 0;
-    component.setState (blindState);
-    one->onClick();
-    two->onClick();
-    KIRIN_REF_REQUIRE (reveal->isVisible() && ! reveal->isEnabled());
     blindState.activeBlindStimulus = 2;
     blindState.blindStimulusOneHeard = true;
     blindState.blindStimulusTwoHeard = true;
     component.setState (blindState);
-    KIRIN_REF_REQUIRE (reveal->isVisible() && reveal->isEnabled());
-    reveal->onClick();
-    endBlind->onClick();
-    KIRIN_REF_REQUIRE (requestedStimulus == 2 && requestedReveal && requestedEnd);
     const auto concealedA = render (component);
     writeImageIfRequested (concealedA, "KIRIN_REFERENCE_UI_BLIND_OUTPUT");
     blindState.title = "Identity must not affect blind pixels";
@@ -290,9 +264,6 @@ void verifyReferenceAuditionComponentContract()
     component.setState (invalidated);
     const auto invalidatedB = render (component);
     KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible()
-                       && ! one->isVisible() && ! two->isVisible()
-                       && endBlind->isVisible()
-                       && endBlind->getButtonText().contains ("+4.2 dB")
                        && differentPixels (invalidatedA, invalidatedB) == 0);
 
     blindState.blindPhase = reference_ui::BlindPhase::revealed;
@@ -300,8 +271,8 @@ void verifyReferenceAuditionComponentContract()
     component.setState (blindState);
     const auto revealed = render (component);
     writeImageIfRequested (revealed, "KIRIN_REFERENCE_UI_REVEALED_OUTPUT");
-    KIRIN_REF_REQUIRE (! reveal->isVisible()
-                       && differentPixels (concealedB, revealed) > 100);
+    // 開示の結果（1: B／2: A）は Blind の画面が言う。終了まで REF は何も出さない（図も曲名も Blind の画面の下）。
+    KIRIN_REF_REQUIRE (differentPixels (concealedB, revealed) == 0);
 
     auto selected = readyState();
     selected.blindLargeScreen = false;
@@ -453,7 +424,10 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (!version->isVisible() && !check->isVisible() && !preset->isVisible());
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_WHOLE_BLIND_OUTPUT");
     abc.blindPaused = true; component.setState (abc);
-    KIRIN_REF_REQUIRE (!one->isEnabled() && !two->isEnabled() && endBlind->isEnabled());
+    // 一時停止中は 1・2 を押せず、終了はできる（PRE/POST Blind と同じ画面。verifyVersionBlindScreen）。
+    const auto paused = reference_ui::versionBlindScreen (component.state());
+    KIRIN_REF_REQUIRE (! paused.sourceOneEnabled && ! paused.sourceTwoEnabled && paused.endEnabled
+                       && paused.instruction == "Play the DAW to continue");
     component.setState (visual);
 
     verifyMetricPresentationWorkflow();

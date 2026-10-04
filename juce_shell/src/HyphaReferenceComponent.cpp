@@ -71,27 +71,15 @@ Component::Component()
     bButton.setComponentID ("reference-b");
     cButton.setComponentID ("reference-c");
     blindButton.setComponentID ("reference-blind");
-    oneButton.setComponentID ("reference-blind-1");
-    twoButton.setComponentID ("reference-blind-2");
-    revealButton.setComponentID ("reference-blind-reveal");
-    endBlindButton.setComponentID ("reference-blind-end");
     actionButton.setComponentID ("reference-action");
     aButton.setTitle ("Audition A");
     bButton.setTitle ("Audition V");
     cButton.setTitle ("Audition C Check");
     blindButton.setTitle ("Start Version Blind");
-    oneButton.setTitle ("Audition blind source 1");
-    twoButton.setTitle ("Audition blind source 2");
-    revealButton.setTitle ("Reveal blind sources");
-    endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
     bButton.setTooltip ("Audition the Version from Kirin OS (V).");
     blindButton.setTooltip (
         "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
-    oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
-    twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
-    revealButton.setTooltip ("Reveal which source is A and which source is V.");
-    endBlindButton.setTooltip ("End Blind Compare and return to live A.");
     actionButton.setTooltip ("Continue with the safe next action.");
     presetBox.onChange = [this]
     {
@@ -116,10 +104,6 @@ Component::Component()
     aButton.onClick = [this] { if (onSelectA) onSelectA(); };
     bButton.onClick = [this] { if (! openLarge (1) && ! explainUnavailable (true) && onSelectB) onSelectB(); };
     blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
-    oneButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (1); };
-    twoButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (2); };
-    revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
-    endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
     cButton.onClick = [this] { if (! openLarge (2) && ! explainUnavailable (false) && onSelectC) onSelectC(); };
     versionBox.onChange = [this]
@@ -141,10 +125,6 @@ Component::Component()
     addAndMakeVisible (aButton);
     addAndMakeVisible (bButton);
     statusStrip.addChildComponent (blindButton);
-    addChildComponent (oneButton);
-    addChildComponent (twoButton);
-    addChildComponent (revealButton);
-    addChildComponent (endBlindButton);
     statusStrip.addChildComponent (actionButton);
     statusStrip.paintRow = [this] (juce::Graphics& g, juce::Rectangle<int> row, bool) { paintStatusRow (g, row); };
     statusStrip.layoutRow = [this] (juce::Rectangle<int> row) { layoutStatusRow (row); };
@@ -168,7 +148,6 @@ void Component::setState (State next)
     const bool workflowActive = current.workflow.mode != reference_audition::WorkflowView::Mode::normal
         && current.workflow.status != reference_audition::WorkflowView::Status::resumeAvailable;
     connectionStatus.setVisible (! blindSession);
-    const bool blindAudition = isBlindAudition (current.blindPhase);
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected && (! current.separateComparisons
         || current.audibleComparisonSlot == 1), juce::dontSendNotification);
@@ -186,26 +165,6 @@ void Component::setState (State next)
     blindButton.setEnabled (!current.blindLargeScreen || canStartBlind (current));
     blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
     blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
-    oneButton.setVisible (blindAudition);
-    twoButton.setVisible (blindAudition);
-    const bool bothHeard = current.blindStimulusOneHeard && current.blindStimulusTwoHeard;
-    revealButton.setVisible (current.blindPhase == BlindPhase::active);
-    revealButton.setEnabled (bothHeard);
-    revealButton.setTooltip (bothHeard ? "Reveal both sources without recording a preference."
-        : "Listen to both sources before revealing them.");
-    const bool heldA = current.blindPhase == BlindPhase::invalidated
-                    && current.blindRequiredAAttenuationDb > 0.0;
-    endBlindButton.setButtonText (heldA
-        ? "RETURN A +" + juce::String (current.blindRequiredAAttenuationDb, 1) + " dB"
-        : "END");
-    endBlindButton.setTooltip (heldA
-        ? "Return the live A level after the interrupted Blind Compare."
-        : "End Blind Compare and return to live A.");
-    endBlindButton.setVisible (blindSession);
-    oneButton.setToggleState (current.activeBlindStimulus == 1, juce::dontSendNotification);
-    twoButton.setToggleState (current.activeBlindStimulus == 2, juce::dontSendNotification);
-    oneButton.setEnabled (!current.blindPaused && current.pendingBlindStimulus != 1);
-    twoButton.setEnabled (!current.blindPaused && current.pendingBlindStimulus != 2);
     syncSelectionControl (presetBox, current.presets, current.presetId);
     syncSelectionControl (versionBox, current.versions, current.versionId);
     syncSelectionControl (checkBox, current.checks, current.checkId);
@@ -258,11 +217,9 @@ void Component::paint (juce::Graphics& g)
     lastGuideFit = {};
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
-    const bool blindActive = current.blindPhase == BlindPhase::active;
-    const bool blindStarting = current.blindPhase == BlindPhase::starting;
-    const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
-    const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
-    const bool blindSession = isBlindSession (current.blindPhase);
+    // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
+    // （HyphaVersionBlindScreen.h）。その間 REF は何も描かない（曲名・図・状態の文は手がかりになる。R-28）。
+    if (isBlindSession (current.blindPhase)) return;
     if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + (checkPage() ? checkPageRows : versionPageRows)); paintCheckPageLabels (g); }
     else if (rolePage() && current.comparisonSlot == 3)
     {
@@ -273,7 +230,7 @@ void Component::paint (juce::Graphics& g)
             if (box->isVisible() || selectionVisible (*box))
                 text_style::drawEllipsized (g, text, box->getBounds().withY (box->getY() - 17).withHeight (15), juce::Justification::centredLeft);
     }
-    else if (current.separateComparisons && ! blindSession)
+    else if (current.separateComparisons)
     {
         area.removeFromTop ((selectionVisible (presetBox) || selectionVisible (cueBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
                             + panelGap() + (detailedLayout() ? 40 : panelPickerHeight()));
@@ -294,7 +251,7 @@ void Component::paint (juce::Graphics& g)
         if (detailedLayout() && ! guideShown && ! referenceView) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
     }
-    else if (detailedLayout() && ! blindSession)
+    else if (detailedLayout())
     {
         auto selectors = area.removeFromTop (50);
         const int gap = 5;
@@ -315,7 +272,7 @@ void Component::paint (juce::Graphics& g)
         selectors.removeFromLeft (gap);
         drawSelectorLabel (selectors, "CUE");
     }
-    else if (! detailedLayout() && ! blindSession
+    else if (! detailedLayout()
              && (selectionVisible (presetBox) || selectionVisible (checkBox) || selectionVisible (candidateBox)))
     {
         if (selectionVisible (presetBox)) area.removeFromTop (panelPickerHeight());
@@ -341,63 +298,12 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredLeft);
         }
     }
-    int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 4 : 2)
+    const int controlsWidth = comparisonButtonWidth() * (current.separateComparisons ? 4 : 2)
         + (current.separateComparisons ? 9 : 3);
-    if (isBlindSession (current.blindPhase))
-        controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
-                                         : (detailedLayout() ? 62 : 48);
-    header.removeFromRight (controlsWidth + (blindSession ? 0 : 32));
+    header.removeFromRight (controlsWidth + 32);
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
-    if (blindStarting || blindActive || blindInvalidated)
-    {
-        g.setColour (COL_FLORA.withAlpha (0.86f));
-        g.setFont (labelFont (presentationContext, typography::TextRole::navigation,
-                              typography::Composition::information));
-        text_style::draw (g, "REFERENCE / VERSION BLIND",
-                          header.removeFromTop (navigationHeight), presentationContext,
-                          typography::TextRole::navigation, juce::Justification::centredLeft,
-                          1, typography::Composition::information);
-        g.setColour (COL_OBSERVATORY_VALUE);
-        g.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
-                              typography::Composition::information));
-        text_style::drawEllipsized (g, "SOURCE IDENTITY HIDDEN", header,
-                                    juce::Justification::centredLeft);
-
-        area.removeFromTop (panelGap());
-        const auto footerHeight = detailedLayout() ? 24 : 18;
-        if (blindActive) area.removeFromBottom (footerHeight);
-        auto statusArea = area.removeFromTop (footerHeight);
-        area.removeFromTop (2);
-        juce::String status = blindInvalidated || blindStarting
-            ? current.status : "SELECT 1 OR 2";
-        if (! blindInvalidated && current.pendingBlindStimulus != 0)
-            status = "SWITCHING TO " + juce::String (current.pendingBlindStimulus);
-        else if (! blindInvalidated && current.activeBlindStimulus != 0)
-            status = "AUDIBLE SOURCE " + juce::String (current.activeBlindStimulus)
-                   + " / CONFIRMED";
-        if (! blindInvalidated && current.blindStimulusOneHeard && current.blindStimulusTwoHeard)
-            status = "BOTH HEARD / REVEAL WHEN READY";
-        if (current.blindPaused) status = "PAUSED / PLAY TO RESUME BLIND";
-        else if (current.blindOutsideSong) status = "PLAY WITHIN THE SONG";
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
-        g.setFont (labelFont (presentationContext, typography::TextRole::status,
-                              typography::Composition::information));
-        text_style::drawEllipsized (g, status, statusArea.reduced (4, 0),
-                                    juce::Justification::centredLeft);
-        reference_metric_painter::paintPanel (g, area.toFloat(), 0.72f);
-        reference_metric_painter::paintComparisonRoots (g, area.toFloat());
-        g.setColour (COL_NORMAL.withAlpha (0.9f));
-        g.setFont (monoFont (presentationContext, typography::TextRole::primaryValue,
-                             typography::Composition::information));
-        text_style::draw (g, blindInvalidated || blindStarting
-                              ? "NO COMPARISON SHOWN" : "1      2",
-                          area.toNearestInt(), presentationContext,
-                          typography::TextRole::primaryValue, juce::Justification::centred,
-                          1, typography::Composition::information);
-        return;
-    }
     if (! rolePage())  // 300% の B・C・V では、ボタンの段の選択欄が見出しを兼ねる（同じ曲名を 2 度出さない）
     {
         g.setColour (COL_FLORA.withAlpha (0.86f));
@@ -417,12 +323,9 @@ void Component::paint (juce::Graphics& g)
     if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
     // 状態の行は StatusStrip が描く（300% の B・C・V では足元の段、ほかは REF の一番下。HyphaReferenceStatusRow.cpp）。
     const bool rowInPanel = ! statusInFooter();
-    auto statusArea = rowInPanel || blindSession ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
-    if (! blindSession)
-    {
-        g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
-        g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
-    }
+    auto statusArea = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
+    g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
+    g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
     const auto side = current.separateComparisons ? roleLetter (current.comparisonSlot) : "B";
     const bool statusShown = statusLineShown();
     if (guideShown)

@@ -7,6 +7,7 @@
 #include "HyphaUpdateContract.h"
 #include "reference_audition/ReferenceRuntimePresetOptions.h"
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaVersionBlindScreen.h"
 using namespace hypha::reference_ui::runtime_view;
 void KirinHyphaEditor::configureReferenceAudition()
 {
@@ -109,13 +110,15 @@ void KirinHyphaEditor::configureReferenceAudition()
                                                  state.aMaximumTruePeakDbtp))
             showToast ("Blind Compare could not start");
     };
-    referenceView.onSelectBlindStimulus = [this] (int stimulus)
+    // 2026-10-04：始めた VERSION BLIND は PRE/POST Blind と同じ画面（versionBlindView）が窓全体に出して操作を受ける。
+    versionBlindView.onSelect = [this] (int stimulus)
     {
         if (! processorRef.selectReferenceBlindStimulus (stimulus))
             showToast ("Blind source could not be confirmed");
     };
-    referenceView.onRevealBlind = [this] { if (! processorRef.revealReferenceBlind()) showToast ("Listen to both sources before revealing"); };
-    referenceView.onEndBlind = [this] { processorRef.endReferenceBlind(); };
+    versionBlindView.onReveal = [this] { if (! processorRef.revealReferenceBlind()) showToast ("Listen to both sources before revealing"); };
+    versionBlindView.onEnd = [this] { processorRef.endReferenceBlind(); };
+    scaleRoot.addChildComponent (versionBlindView);
     referenceView.onStartReview=[this]{if(!processorRef.startLatestReferenceReview())showToast("Today's review is unavailable");};
     referenceView.onStartBookmark=[this]{if(!processorRef.startLatestReferenceBookmark())showToast("Bookmark is unavailable");};
     referenceView.onWorkflowBack=[this]{if(!processorRef.moveReferenceWorkflow(-1,false,false))showToast("Previous item is unavailable");};
@@ -224,6 +227,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.blindLowerAApprovalRequired = runtime.blindLowerAApprovalRequired;
     state.blindRequiredAAttenuationDb = runtime.blindRequiredAAttenuationDb;
     state.blindReveal = runtime.blindReveal;
+    state.blindOneIsComparison = runtime.blindStimulusOneIsComparison;
     state.blindPaused = runtime.blindPhase == hypha::reference_audition::BlindPhase::active && !runtime.transportPlaying;
     state.blindOutsideSong = runtime.blindPhase == hypha::reference_audition::BlindPhase::active && runtime.transportPlaying && runtime.activeBlindStimulus == 0;
     const bool liveA = frameAvailable
@@ -483,6 +487,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         pending.isNotEmpty() && ! (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
+    versionBlindView.setScreen (hypha::reference_ui::versionBlindScreen (referenceView.state()));
     referenceAccessView.setOwned (processorRef.licenseIsOs());
     layoutReferenceAudition();
 }

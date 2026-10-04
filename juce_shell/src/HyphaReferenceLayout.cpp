@@ -8,25 +8,17 @@ void Component::resized()
     connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 4 : 2) - 42, 6, 24, 18);
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
-    const int buttonWidth = detailedLayout() ? 62 : 48;
     const auto place = [this,&header] (juce::Component& button, int width)
     {
         button.setBounds (header.removeFromRight (width).reduced (0, shortPanel() ? 1 : 4));
         header.removeFromRight (3);
     };
     const bool blindSession = isBlindSession (current.blindPhase);
-    if (blindSession)
-    {
-        place (endBlindButton, current.blindPhase == BlindPhase::invalidated
-            ? (detailedLayout() ? 132 : 94) : buttonWidth);
-    }
-    else
-    {
-        // A B C V（左から）。右から V・C・B・A の順に置く（H10）。
-        place (bButton, comparisonWidth);
-        if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
-        place (aButton, comparisonWidth);
-    }
+    // A B C V（左から）。右から V・C・B・A の順に置く（H10）。始めた VERSION BLIND の操作は、エディターが窓全体に出す
+    // PRE/POST Blind と同じ画面にある（HyphaVersionBlindScreen.h）。
+    place (bButton, comparisonWidth);
+    if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
+    place (aButton, comparisonWidth);
     if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
     // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
     auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
@@ -111,28 +103,11 @@ void Component::resized()
         area.removeFromTop (panelGap());
     }
     const bool rowInPanel = ! statusInFooter();
-    // Blind の 1・2・REVEAL は操作なので、状態の行が足元にあっても REF の一番下に置く。
-    auto footer = rowInPanel || blindSession ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
+    auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);
     tonalView.setBounds (area);
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f))); // H11
-    if (blindSession)
-    {
-        const auto placeLeft = [&footer] (juce::Component& button, int width)
-        {
-            button.setBounds (footer.removeFromLeft (width));
-            footer.removeFromLeft (3);
-        };
-        const auto placeRight = [&footer] (juce::Component& button, int width)
-        {
-            button.setBounds (footer.removeFromRight (width));
-            footer.removeFromRight (3);
-        };
-        if (oneButton.isVisible()) placeLeft (oneButton, buttonWidth);
-        if (twoButton.isVisible()) placeLeft (twoButton, buttonWidth);
-        if (revealButton.isVisible()) placeRight (revealButton, detailedLayout() ? 78 : 62);
-    }
     // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
     if (statusStrip.getParentComponent() == this)
     {

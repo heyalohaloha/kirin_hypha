@@ -107,6 +107,7 @@ namespace hypha::reference_audition
         bool blindStimulusOneHeard = false;
         bool blindStimulusTwoHeard = false;
         juce::String blindReveal;
+        bool blindStimulusOneIsComparison = false;  // 開示の後：1 が比べる側（V、1 曲だけの B）
         bool blindLowerAApprovalRequired = false;
         double blindRequiredAAttenuationDb = 0.0;
         juce::String presetId;

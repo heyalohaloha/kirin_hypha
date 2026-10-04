@@ -134,6 +134,7 @@ struct State
     bool blindLowerAApprovalRequired = false;
     double blindRequiredAAttenuationDb = 0.0;
     juce::String blindReveal;
+    bool blindOneIsComparison = false;  // 開示の後：1 が比べる側（VERSION BLIND の画面の「1: V」）
     juce::String presetId;
     juce::String checkId;
     juce::String candidateId;
@@ -237,8 +238,7 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
-        for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &oneButton, &twoButton,
-                              &revealButton, &endBlindButton, &actionButton })
+        for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &actionButton })
             button->setPresentationContext (next);
         tonalView.update (current.visualTimeline, presentationContext,
                           isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
@@ -260,10 +260,7 @@ public:
     std::function<void(int)> onOpenLarge; // H10: 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
     std::function<void()> onMatch;        // H12: 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
-    std::function<void()> onStartBlind;
-    std::function<void(int)> onSelectBlindStimulus;
-    std::function<void()> onRevealBlind;
-    std::function<void()> onEndBlind;
+    std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
     std::function<void()> onStartReview, onStartBookmark, onWorkflowBack;
     std::function<void()> onWorkflowConfirmed, onWorkflowDeferred, onWorkflowEnd;
     std::function<void(double,double)> onCapturedTonalRange;
@@ -340,10 +337,6 @@ private:
     juce::ComboBox checkSongBox; // H12: いまの Check の曲
     SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
-    SideButton oneButton { "1" };
-    SideButton twoButton { "2" };
-    SideButton revealButton { "REVEAL" };
-    SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };
     StatusStrip statusStrip;  // 状態の行と、VERSION BLIND・アクションのボタン（HyphaReferenceStatusRow.cpp）
     bool statusFooterMode = false;

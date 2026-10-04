@@ -247,6 +247,7 @@ private:
     hypha::reference_ui::AccessPanel referenceAccessView;
     hypha::local_blind_ui::Component localBlindView;
     hypha::live_blind_ui::Component liveBlindView;
+    hypha::blind_ui::ScreenComponent versionBlindView { "version-blind" };  // REF の VERSION BLIND（LIVE BLIND と同じ画面）
     bool liveBlindOpen = false;
     bool liveCompareFinishingSeen = false;
 #endif

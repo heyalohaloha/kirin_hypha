@@ -656,7 +656,11 @@ shows the song and the status; songs are switched from 125%.
   position; these controls never seek the DAW or switch audio. Each Check tab compares A and V over
   the same aligned section as that Check looks at it: a low-band Check shows 20–250 Hz, and a Check
   that does not look at spectrum or balance (loudness, dynamics, stereo) says it is shown on C.
-  VERSION BLIND opens from this page; Blind hides these graphs and their accessibility content.
+  VERSION BLIND opens from this page and runs on the same screen as the PRE/POST **BLIND**, over the
+  whole window: switch **SOURCE 1 / SOURCE 2** while the DAW plays, **REVEAL SOURCES** once both
+  have sounded, and BLIND RESULT names them (1: A / 2: V) while you keep switching. **END** returns
+  to A, and says by how much A rises when Blind started with A lowered. The graphs and their
+  accessibility content stay hidden until END; they are on the V page afterwards.
   **AUTO** finds the Version you are working on: while Reference is open, Hypha measures A's Kirin
   fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each Version's
   fingerprint, first within ±30 s of the DAW position, then anywhere in the song, so a song that
@@ -891,7 +895,8 @@ that branch before POST are not switched, so this is specifically a comparison b
 PRE and POST insertion points—not a claim about every route in the project.
 
 The local PRE/POST trial length is four seconds. Reference Version Blind is a separate whole-song
-comparison between live DAW A and a measured, acoustically matched Version V from Kirin OS.
+comparison between live DAW A and a measured, acoustically matched Version V from Kirin OS, shown on
+the same screen as BLIND.
 Its four-second A observation proves calibration only; it neither replaces live A nor claims
 whole-song loudness or an immutable whole-song identity for the current DAW input.
 

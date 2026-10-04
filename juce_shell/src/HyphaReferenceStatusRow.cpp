@@ -23,7 +23,8 @@ bool Component::rolePage() const noexcept
 
 bool Component::statusRowConcealed() const noexcept
 {
-    return isBlindSession (current.blindPhase) && current.blindPhase != BlindPhase::revealed;
+    // 始めた VERSION BLIND は、開示の後も終了まで PRE/POST Blind と同じ画面が窓全体を覆い、結果もそこで言う（2026-10-04）。
+    return isBlindSession (current.blindPhase);
 }
 
 bool Component::statusRowHasControls() const noexcept
@@ -52,13 +53,11 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
 void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusArea) const
 {
     if (statusRowConcealed()) return;
-    const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
     const auto line = referenceStatusLine (current);
     const auto statusColour = line.kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : line.kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
     g.setColour (statusColour.withAlpha (0.92f));
     g.setFont (labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information));
-    const auto statusText = blindRevealed && current.blindReveal.isNotEmpty() ? "REVEALED / " + current.blindReveal
-                          : blindRevealed ? current.status : line.text;
+    const auto& statusText = line.text;
     auto available = statusArea;  // REF の中では 1・2・REVEAL を置いた残り（レイアウトが入れ物の大きさで決める）
     if (blindButton.isVisible() && blindButton.getParentComponent() == &statusStrip) available.removeFromRight (detailedLayout() ? 120 : 90);
     if (actionButton.isVisible())
@@ -74,9 +73,9 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
                               juce::roundToInt (std::ceil (text_style::shownWidth (gainFont, gain))) + 12))
                                     : juce::Rectangle<int>();
     const bool shown = statusLineShown();
-    if (shown && ! blindRevealed) paintStatusDot (g, primary, line.kind);
+    if (shown) paintStatusDot (g, primary, line.kind);
     if (shown)
-        text_style::drawEllipsized (g, statusText, primary.reduced (4, 0).withTrimmedLeft (blindRevealed ? 0 : 12),
+        text_style::drawEllipsized (g, statusText, primary.reduced (4, 0).withTrimmedLeft (12),
                                     juce::Justification::centredLeft);
     if (gainShown)
     {

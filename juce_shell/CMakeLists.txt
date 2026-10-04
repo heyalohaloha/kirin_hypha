@@ -380,7 +380,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
             src/PluginEditorLiveBlind.cpp
+            src/HyphaBlindScreen.cpp
             src/HyphaLiveBlindComponent.cpp
+            src/HyphaVersionBlindScreen.cpp
             src/PluginEditorLiveCompare.cpp
             src/PluginEditorLiveCompareAuto.cpp
             src/HyphaLocalBlindComponent.cpp
@@ -672,7 +674,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
         tests/ReferenceTonalViewContractTest.cpp
+        src/HyphaBlindScreen.cpp
         src/HyphaLiveBlindComponent.cpp
+        src/HyphaVersionBlindScreen.cpp
         src/HyphaLocalBlindComponent.cpp
         src/HyphaLocalBlindSteps.cpp
         src/HyphaLocalBlindPresentation.cpp
@@ -1021,6 +1025,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     target_sources(KirinReferenceAuditionComponentTests PRIVATE
         tests/reference_audition_component_test_main.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        src/HyphaVersionBlindScreen.cpp
         tests/ReferenceTonalViewContractTest.cpp
         src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaCaptureHistoryAnalysis.cpp

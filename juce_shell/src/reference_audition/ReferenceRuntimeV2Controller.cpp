@@ -148,6 +148,8 @@ namespace hypha::reference_audition
             ? (blindState.revealedStimulusOneSide == 1
                 ? "1 = V  /  2 = A" : "1 = A  /  2 = V")
             : juce::String {};
+        result.blindStimulusOneIsComparison = blindState.phase == BlindPhase::revealed
+            && blindState.revealedStimulusOneSide == 1;
         return result;
     }
 

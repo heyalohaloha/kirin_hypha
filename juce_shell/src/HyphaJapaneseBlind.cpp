@@ -86,6 +86,12 @@ const Entry entries[] = {
     { "PREFER SOURCE 2", u8"2が好み" },
     { "END restores normal level", u8"終了すると通常の音量に戻ります" },
     { "END returns +%1 dB", u8"終了すると音量が%1 dB上がります" },
+    // VERSION BLIND（REF）を同じ画面で出す文（HyphaVersionBlindScreen.cpp）。A は Kirin OS と同じ役の名前。
+    { "END returns to A", u8"終了するとAに戻ります" },
+    { "Blind stopped; A plays", u8"Blindを中止しました。Aが鳴っています" },
+    { "Preparing the sources; A plays", u8"準備しています。Aが鳴っています" },
+    { "Play the DAW to continue", u8"DAWを再生すると続けられます" },
+    { "Play within the song; A plays", u8"曲の中で再生してください。Aが鳴っています" },
     { "Blind stopped; POST output", u8"比較を中断しました。出力はPOSTです" },
     { "Blind stopped; output released", u8"比較を中断し、試聴出力を解放しました" },
     { "Returning to normal level", u8"通常の音量に戻しています" },
