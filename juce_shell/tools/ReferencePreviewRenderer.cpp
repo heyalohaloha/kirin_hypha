@@ -1,6 +1,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaVersionBlindScreen.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -213,8 +214,22 @@ juce::Image render (hypha::reference_ui::State state, bool japanese)
                          hypha::observatory::ConnectionState::paired);
     surface.addAndMakeVisible (shell);
     reference.setBounds (shell.bodyBounds());
+    const bool blind = hypha::reference_ui::isBlindSession (state.blindPhase);
+    // 2026-10-04（B-1181）：始めた VERSION BLIND は、Hypha 本体と同じく PRE/POST Blind と同じ画面が窓全体を覆う
+    // （REF は Blind の間は何も描かない）。Kirin OS の表示の例も同じ画面で描く。
+    hypha::blind_ui::ScreenComponent screen ("version-blind");
+    screen.setBounds (surface.getLocalBounds());
+    screen.setScreen (hypha::reference_ui::versionBlindScreen (state));
     reference.setState (std::move (state));
     surface.addAndMakeVisible (reference);
+    if (blind)
+    {
+        surface.addAndMakeVisible (screen);
+        const auto* source = screen.findChildWithID ("version-blind-source-1");
+        const auto* end = screen.findChildWithID ("version-blind-end");
+        if (source == nullptr || end == nullptr || ! source->isVisible() || ! end->isVisible())
+            fail ("reference-preview-render-failed");  // Blind の例が空の絵にならない
+    }
     juce::Image image (juce::Image::ARGB, surface.getWidth(), surface.getHeight(), true);
     juce::Graphics graphics (image);
     surface.paintEntireComponent (graphics, true);

@@ -305,19 +305,24 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
                           presentation::Context context)
 {
     const auto rows = rowsFor (binding);
+    if (rows.empty()) return false;
+    // C：Cue（無ければ曲全体）に丸ごと入る区間。A：直近の C の窓の長さを、C の区間の長さにまとめ直す。C の値がまだ無い
+    // （Kirin OS が測っていない・Kirin OS のプレビュー）ときも帯の形は描き、値は「—」（Hypha 本体と同じ見た目）。
     const auto* measurement = cueMeasurement (state);
-    if (rows.empty() || measurement == nullptr) return false;
-    // C：Cue（無ければ曲全体）に丸ごと入る区間。A：直近の C の窓の長さを、C の区間の長さにまとめ直す。
-    const auto rate = static_cast<double> (measurement->audio.sampleRateHz);
-    const auto start = std::isfinite (state.cueStartSeconds) ? std::llround (state.cueStartSeconds * rate) : 0;
-    const auto end = std::isfinite (state.cueEndSeconds) ? std::llround (state.cueEndSeconds * rate) : measurement->audio.totalSampleFrames;
+    const auto rate = measurement != nullptr ? static_cast<double> (measurement->audio.sampleRateHz) : 48'000.0;
     Sides sides;
-    sides.other = reference_audition::kirinHops (*measurement, start, end);
+    if (measurement != nullptr)
+    {
+        const auto start = std::isfinite (state.cueStartSeconds) ? std::llround (state.cueStartSeconds * rate) : 0;
+        const auto end = std::isfinite (state.cueEndSeconds) ? std::llround (state.cueEndSeconds * rate) : measurement->audio.totalSampleFrames;
+        sides.other = reference_audition::kirinHops (*measurement, start, end);
+    }
     const auto timeline = state.visualTimeline;
     const auto& ticks = timeline ? timeline->aTicks : nullptr;
     const auto window = timeline ? std::clamp (timeline->binding.matchWindowBlocks, minimumATicks, reference_audition::DynamicsTicks::capacity) : 0;
     const auto used = ticks ? std::min (static_cast<int> (ticks->size()), window) : 0;
-    const auto binsPerHop = std::max (1, static_cast<int> (std::llround (static_cast<double> (sides.other.hopSamples) * 10.0 / rate)));
+    const auto binsPerHop = sides.other.hopSamples > 0
+        ? std::max (1, static_cast<int> (std::llround (static_cast<double> (sides.other.hopSamples) * 10.0 / rate))) : 1;
     if (used >= minimumATicks)
         sides.a = reference_audition::aggregateHops (ticks->data() + (ticks->size() - static_cast<size_t> (used)), static_cast<size_t> (used),
                                                      binsPerHop, timeline->aTickChannels);
@@ -326,9 +331,8 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
     const bool matched = std::isfinite (gain);
     sides.shift = matched ? gain : 0.0;
     const auto prepared = prepare (rows, sides);
-    bool anyCue = false, anyHeard = false;
-    for (const auto& item : prepared) { anyCue = anyCue || item.otherBar.shown; anyHeard = anyHeard || item.row.asHeard; }
-    if (! anyCue) return false;
+    bool anyHeard = false;
+    for (const auto& item : prepared) anyHeard = anyHeard || item.row.asHeard;
 
     surface_material::paintPanel (g, bounds, 0.72f);
     auto header = bounds.removeFromTop (28.0f).reduced (9.0f, 1.0f).toNearestInt();

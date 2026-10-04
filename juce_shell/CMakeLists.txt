@@ -578,6 +578,9 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         PRODUCT_NAME "Kirin Hypha Reference Preview Renderer")
     target_sources(KirinHyphaReferencePreviewRenderer PRIVATE
         tools/ReferencePreviewRenderer.cpp
+        src/HyphaBlindScreen.cpp
+        src/HyphaVersionBlindScreen.cpp
+        src/HyphaTextButton.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaCaptureHistoryTruePeak.cpp
