@@ -57,9 +57,9 @@ const Entry entries[] = {
     { "Play another passage", u8"別の箇所を再生" },
     { "Preparing", u8"準備中" },
     { "Check the source in Kirin OS", u8"Kirin OSで音源を確認" },
-    { "Press A, B, C or V to switch audio. VIEW changes only the visuals. "
+    { "Press A, B, C or V to switch audio and open its page. "
       "The audition level is shown while listening.",
-      u8"A・B・C・Vで音を切り替えます。VIEWは表示だけを切り替えます。試聴中の音量は下に表示します。" },
+      u8"A・B・C・Vで音を切り替え、その役の画面を開きます。試聴中の音量は下に表示します。" },
 
     // A B, C or V not ready yet, on hover and after a click.
     { "B: %1", u8"B：%1" },

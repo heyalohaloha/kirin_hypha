@@ -244,18 +244,18 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
     return juce::String (endpoint, 1) + "s  A " + value (a) + "   V " + value (b)
         + (both ? "   V-A " + juce::String (b >= a ? "+" : "") + juce::String (b-a, 1) + (showingCrest ? " dB" : " LU") : juce::String());
 }
-void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views)
+void ComparisonView::setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views, bool listening)
 {
     const bool sameGain = (std::isnan (sameSectionGain) && std::isnan (gainDb)) || std::abs (sameSectionGain - gainDb) < 1.0e-9;
-    if (sameSection == checkLabel && sameGain && sameSectionViews == views) return;
-    sameSection = checkLabel; sameSectionGain = gainDb; sameSectionViews = std::move (views);
+    if (sameSection == checkLabel && sameGain && sameSectionViews == views && sameSectionListening == listening) return;
+    sameSection = checkLabel; sameSectionGain = gainDb; sameSectionViews = std::move (views); sameSectionListening = listening;
     resized(); repaint();
 }
 void ComparisonView::paint (juce::Graphics& g)
 {
     if (hidden) return;
     if (sameSection.isNotEmpty())
-    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, context); return; }
+    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context); return; }
     surface_material::paintObservationWell (g, getLocalBounds().toFloat());
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY);

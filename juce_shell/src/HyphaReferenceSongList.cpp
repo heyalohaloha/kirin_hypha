@@ -36,6 +36,15 @@ int SongList::rowHeight() const noexcept
     return context.density == observatory::Density::inspection ? 34 : 26;
 }
 
+void SongList::setLive (double loudness, int seconds)
+{
+    const bool same = (std::isnan (loudness) && std::isnan (liveLoudness)) || std::abs (loudness - liveLoudness) < 0.05;
+    if (same && seconds == liveSeconds) return;
+    liveLoudness = loudness;
+    liveSeconds = seconds;
+    repaint();
+}
+
 void SongList::paint (juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
@@ -55,6 +64,22 @@ void SongList::paint (juce::Graphics& g)
     text_style::drawEllipsized (g, "SONG", header[1], juce::Justification::centredLeft);
     text_style::drawEllipsized (g, "LUFS-I", header[2], juce::Justification::centredRight);
     text_style::drawEllipsized (g, "MATCH", header[3], juce::Justification::centredRight);
+    // 列ごとに見出しを付ける（状態の列に見出しが無く、MATCH が READY の見出しに見えていた。2026-10-04）。
+    text_style::drawEllipsized (g, "STATE", header[4], juce::Justification::centredRight);
+    if (liveShown())
+    {
+        // A の行（金）：B の曲の LUFS-I と並べて読む。押せない（選ぶのは B の曲だけ）。
+        const auto cells = columns (content.removeFromTop (rowHeight()));
+        g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
+        g.setColour (COL_FLORA_BR);
+        text_style::drawEllipsized (g, "A", cells[0], juce::Justification::centred);
+        g.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
+        text_style::drawEllipsized (g, "A LAST " + juce::String (liveSeconds) + " S", cells[1], juce::Justification::centredLeft);
+        g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
+        text_style::drawEllipsized (g, number (liveLoudness, false), cells[2], juce::Justification::centredRight);
+        g.setColour (COL_FLORA_BR.withAlpha (0.25f));
+        g.drawHorizontalLine (content.getY() - 1, static_cast<float> (content.getX()), static_cast<float> (content.getRight()));
+    }
     for (size_t index = 0; index < items.size() && content.getHeight() >= rowHeight(); ++index)
     {
         const auto& row = items[index];
@@ -76,8 +101,9 @@ void SongList::paint (juce::Graphics& g)
         g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, number (row.lufsI, false), cells[2], juce::Justification::centredRight);
-        g.setColour (COL_SPECTRUM_DELTA);
-        if (row.playing) text_style::drawEllipsized (g, number (row.gainDb, true), cells[3], juce::Justification::centredRight);
+        // 鳴っている曲は実際の gain、ほかは押したときの gain（薄く）。
+        g.setColour (row.playing ? COL_SPECTRUM_DELTA : COL_MUTED);
+        if (std::isfinite (row.gainDb)) text_style::drawEllipsized (g, number (row.gainDb, true), cells[3], juce::Justification::centredRight);
         const bool missing = row.preparation == "NOT FOUND";  // Kirin OS がファイルを確かめられない（待っても進まない）
         g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.preparing && ! missing ? COL_FLORA : COL_MUTED);
         text_style::drawEllipsized (g, row.playing ? "PLAYING" : ! row.preparing ? "READY"
@@ -91,6 +117,7 @@ void SongList::mouseDown (const juce::MouseEvent& event)
     // 見出し（上の 18 px）・余白・描いていない行（はみ出した行）を押しても選ばない（paint と同じ区切り）。
     auto content = getLocalBounds().reduced (8, 6);
     content.removeFromTop (18);
+    if (liveShown()) content.removeFromTop (rowHeight());  // A の行は押せない
     if (! content.contains (event.getPosition())) return;
     const auto index = (event.getPosition().getY() - content.getY()) / rowHeight();
     if (index >= content.getHeight() / rowHeight() || index >= static_cast<int> (items.size())) return;

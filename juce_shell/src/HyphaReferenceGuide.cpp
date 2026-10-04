@@ -196,8 +196,9 @@ void Component::syncSourceButtons()
     const bool versionAudible = canHearVersion (current), checkAudible = canHearCheck (current);
     const bool bQueue = canQueueSource (current, true), cQueue = canQueueSource (current, false);
     const bool waiting = current.pendingAudition.waiting();
-    bButton.setButtonText (waiting && current.pendingAudition.slot == 1 ? "V..." : "V");
-    cButton.setButtonText (waiting && current.pendingAudition.slot == 2 ? "C..." : "C");
+    // 予約（DAW の再生を待つ）は色で示し、何を待つかは状態の行が言う（「V...」は文字が切れたように見えた。2026-10-04）。
+    bButton.setButtonText ("V");
+    cButton.setButtonText ("C");
     bButton.setAttention (waiting && current.pendingAudition.slot == 1);
     cButton.setAttention (waiting && current.pendingAudition.slot == 2);
     // H10: 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
@@ -331,7 +332,8 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
         fit.rows = paintRow (g, content.removeFromTop (rowHeight), rows[index], context) && fit.rows;
 
     // How to use them, at the full sizes.
-    const auto footnote = juce::String ("Press A, B, C or V to switch audio. VIEW changes only the visuals. "
+    // 2026-10-04：VIEW の行は B-1174 で外した（見せる比較は開いている役の画面が決める）。
+    const auto footnote = juce::String ("Press A, B, C or V to switch audio and open its page. "
                                       "The audition level is shown while listening.");
     const auto footnoteHeight = wrappedHeight (footnote, bodyFont, content.getWidth());
     if (! full || content.getHeight() < footnoteHeight + 12)

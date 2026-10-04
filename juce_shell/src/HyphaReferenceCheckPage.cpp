@@ -1,5 +1,7 @@
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceVersionPage.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -127,9 +129,15 @@ void Component::syncCheckPage (bool blindSession, bool workflowActive)
     checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
     checkTabs.setVisible ((page || vPage) && ! groups.empty());
     const auto views = current.checkViewBindings.find (versionTab);
-    comparisonView.setSameSection (sameSection, current.bSelected && current.audibleComparisonSlot == 1
-                                                    ? current.appliedGainDb : std::numeric_limits<double>::quiet_NaN(),
-                                   views != current.checkViewBindings.end() ? views->second : std::vector<juce::String> {});
+    // V を鳴らしていなくても、WHOLE と同じ位置合わせの gain（同じ区間の音量差）で合わせて比べる（鳴らしていれば実際の
+    // gain）。2026-10-04 まで V を鳴らさないと「音量未調整」で 4 帯域が「—」だった。
+    const auto* timeline = current.visualTimeline.get();
+    const auto sameSectionGain = current.bSelected && current.audibleComparisonSlot == 1 ? current.appliedGainDb
+        : timeline != nullptr && timeline->binding.aligned && timeline->binding.matched ? timeline->binding.gainDb
+        : std::numeric_limits<double>::quiet_NaN();
+    comparisonView.setSameSection (sameSection, sameSectionGain,
+                                   views != current.checkViewBindings.end() ? views->second : std::vector<juce::String> {},
+                                   current.listeningChecks.count (versionTab) > 0);
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
     checkSongBox.setVisible (page && group != nullptr);
     const bool matching = current.comparisonMode == "loudness_match";
@@ -191,6 +199,25 @@ juce::Rectangle<int> Component::cueRowBounds() const noexcept
     auto area = panelArea();
     if (! statusInFooter()) area.removeFromBottom (statusRowHeight());
     return area.removeFromBottom (checkFooterRow);
+}
+
+bool Component::listeningCheck() const
+{
+    return current.listeningChecks.count (current.checkId.upToFirstOccurrenceOf ("/", false, false)) > 0;
+}
+
+// 2026-10-04（Daisuke「箱だけ作って中身が伴っていない」）：耳で聴き比べる Check は Kirin OS も測っていない
+// （「この項目は耳で聴き比べます」）。測っていない結果の箱（鳴らすと C−A がいつも 0.0）を出さず、案内だけ。
+void Component::paintListeningPanel (juce::Graphics& g, juce::Rectangle<int> area) const
+{
+    surface_material::paintPanel (g, area.toFloat(), 0.72f);
+    auto inner = area.reduced (12, 8);
+    g.setColour (COL_NORMAL.withAlpha (0.92f));
+    g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel, typography::Composition::visualization));
+    text_style::drawEllipsized (g, current.checkLabel, inner.removeFromTop (22), juce::Justification::centredLeft);
+    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
+    g.setFont (labelFont (presentationContext, typography::TextRole::status, typography::Composition::visualization));
+    text_style::drawLines (g, listeningGuide ('C'), inner.reduced (24, 0), juce::Justification::centred, 3);
 }
 
 void Component::paintCheckPageLabels (juce::Graphics& g) const

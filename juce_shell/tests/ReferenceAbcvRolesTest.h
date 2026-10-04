@@ -109,6 +109,24 @@ inline void verifyReferenceAbcvRoles()
             list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, 6.0f + 18.0f + 30.0f + 4.0f },
                 juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, 58.0f }, juce::Time(), 1, false));
             require (listed == "e2/e2/song-2", "a row press chooses that song");
+            // 2026-10-04：見出しの下の A の行（直近の窓、押せない）と、鳴っていない曲の押したときの gain（A の窓 − Cue の値）。
+            {
+                auto live = state;
+                live.aWindowLoudness = -11.0;
+                live.aWindowBlocks = 100;
+                panel.setState (live);
+                require (std::abs (list->rows()[0].gainDb + 1.6) < 1.0e-9 && ! std::isfinite (list->rows()[1].gainDb),
+                         "every prepared B song shows the gain it would play at");
+                listed.clear();
+                list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, 96.0f },
+                    juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, 96.0f }, juce::Time(), 1, false));
+                require (listed == "e2/e2/song-2", "with A's row on top, a press still chooses the song under it");
+                listed.clear();
+                list->mouseDown (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), { 20.0f, 30.0f },
+                    juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, list, list, juce::Time(), { 20.0f, 30.0f }, juce::Time(), 1, false));
+                require (listed.isEmpty(), "A's row is not a song to choose");
+                panel.setState (state);
+            }
             // 見出し（上の 18 px）と、行の無い下の余白を押しても選ばない。
             for (const auto y : { 6.0f + 9.0f, 6.0f + 18.0f + 2.0f * 34.0f + 5.0f })  // 見出しと、2 行の下
             {

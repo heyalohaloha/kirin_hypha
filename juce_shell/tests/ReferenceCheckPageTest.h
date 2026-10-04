@@ -72,6 +72,10 @@ inline void verifyReferenceCheckPage()
                      && japanese ("B LOUDEST 30 S 0:45-1:15") != "B LOUDEST 30 S 0:45-1:15"
                      && japanese ("C LOUDEST 30 S") != "C LOUDEST 30 S" && japanese ("C WHOLE") != "C WHOLE",
                  "the parts read in Japanese (A\u76f4\u8fd110\u79d2 / B\u30b5\u30d3)");
+        require (japanese (reference_ui::listeningGuide ('V')).contains (juce::String (juce::CharPointer_UTF8 ("\xe8\x80\xb3")))  // 耳
+                     && japanese (reference_ui::listeningGuide ('C')).contains ("C")
+                     && japanese ("B SET RANGE") != "B SET RANGE",
+                 "the listening guide and the B set range read in Japanese");
         auto chorusCheck = state;
         chorusCheck.cuePart = CuePart::chorus;
         require (reference_ui::cueSpectrumLegend (chorusCheck).contains (" / C CHORUS"), "the C legend names the chorus");

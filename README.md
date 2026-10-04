@@ -640,7 +640,10 @@ shows the song and the status; songs are switched from 125%.
   song shifted to the level B plays it at. No genre curves are supplied. B plays and is measured over
   its default Cue: for a song left on the whole track in Kirin OS, that is the chorus candidate, or the
   loudest 30 seconds when no chorus is found; the legend names the part and its times
-  (B CHORUS 1:02-1:24), and the C page legend names C's part the same way.
+  (B CHORUS 1:02-1:24), and the C page legend names C's part the same way. The list starts with A's row
+  (its last 10 seconds, gold) and shows, for every prepared song, the gain MATCH would play it at; the
+  playing song shows the gain applied. The legend's B SET RANGE is the band between the set's songs
+  (p10 to p90 per band, each at the level B plays it at).
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song), the Cue, and MATCH. The comparison is the Cue against the same length of recent
   A; below it, the four-band Balance difference C − A (20–250 Hz, 250 Hz–2 kHz, 2–8 kHz, 8–20 kHz)
@@ -667,7 +670,14 @@ shows the song and the status; songs are switched from 125%.
   replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
 
 A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
-the thicker line underneath, so both lines stay visible where they agree.
+the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
+frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). A Check that Kirin OS
+compares by listening (no measured view, such as Vocal balance) says so on C and V instead of showing
+a chart. V's Check tabs are matched with the alignment's level even while V is not playing. Until
+Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is. Standard names from
+Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS's English
+screen names them, whatever language they were saved in; names you give stay as written. A role
+waiting for the DAW is marked on its button and named in the status line.
 
 **Same definition, same section, same level.** For each Cue Kirin OS publishes values computed
 every 100 ms: the 64-band spectrum (the largest bin of each band of a periodic-Hann FFT, p10, median

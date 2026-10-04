@@ -3,6 +3,7 @@
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceLegend.h"
 #include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceFrequencyTicks.h"
 #include "HyphaReferenceVisualLayout.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -136,6 +137,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.separateComparisons && state.comparisonSlot == 2 && state.cueKirin)
     {
         const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation);
+        paintFrequencyTicks (g, cueArea, minimumHz, maximumHz, presentation);  // どこが何 Hz か（2026-10-04）
         if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz)) return true;
         unavailable (g, cueArea, presentation);
         return false;

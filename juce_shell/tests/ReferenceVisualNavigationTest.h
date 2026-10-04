@@ -92,8 +92,9 @@ inline void verifyReferenceVisualNavigation()
         state.pendingAudition = { 2, reference_audition::PendingAuditionView::Stage::play };
         panel.setState (state);
         c->onClick();
-        require (audioChanges == 1 && !c->getToggleState() && c->getButtonText() == "C...",
-            "stopped C accepts an explicit queue action and is distinct from audible selection");
+        require (audioChanges == 1 && !c->getToggleState() && c->getButtonText() == "C"
+                     && static_cast<bool> (c->getProperties()["waiting"]),
+            "stopped C accepts an explicit queue action, marked as waiting without an ellipsis, distinct from audible selection");
         auto* a = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-a"));
         require (a && a->isEnabled(), "A remains reachable to cancel a stopped queue");
         a->onClick();

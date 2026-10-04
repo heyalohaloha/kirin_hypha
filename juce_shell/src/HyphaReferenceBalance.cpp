@@ -2,6 +2,7 @@
 
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceFrequencyTicks.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -63,9 +64,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (header.getWidth() / 3), juce::Justification::centredLeft);
     auto legend = bounds.removeFromBottom (18.0f).reduced (9.0f, 0.0f).toNearestInt();
     auto chart = bounds.reduced (10.0f, 6.0f);
-    g.setColour (COL_MUTED.withAlpha (0.10f));
-    for (const auto hz : { 100.0, 1'000.0, 10'000.0 })
-        g.drawVerticalLine (juce::roundToInt (xFor (hz, chart)), chart.getY(), chart.getBottom());
+    paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);  // どこが何 Hz か（2026-10-04）
 
     // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
     // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
@@ -149,6 +148,6 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     item (aShown ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING"), COL_FLORA_BR);
     item (chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true)
                             : juce::String ("B"), COL_SPECTRUM_DELTA);
-    item ("B SET", COL_NORMAL.withAlpha (0.35f));
+    item ("B SET RANGE", COL_NORMAL.withAlpha (0.35f));  // B セットの曲の p10〜p90（2026-10-04「B SET の意味」）
 }
 }

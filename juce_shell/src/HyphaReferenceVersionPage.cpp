@@ -1,4 +1,5 @@
 #include "HyphaReferenceVersionPage.h"
+#include "HyphaReferenceFrequencyTicks.h"
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -62,12 +63,19 @@ bool sameSectionReady (const reference_audition::VisualTimeline* timeline) noexc
     return a.frames >= minimumPairFrames && v.frames == a.frames && a.centersHz.size() == v.centersHz.size() && ! a.centersHz.empty();
 }
 
+juce::String listeningGuide (char role)
+{
+    return "Compared by listening. Hypha shows no result it has not measured. Press A and "
+        + juce::String::charToString (static_cast<juce::juce_wchar> (role)) + " to switch at the same level.";
+}
+
 void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, const reference_audition::VisualTimeline* timeline,
                               const juce::String& checkLabel, double gainDb, const std::vector<juce::String>& views,
-                              presentation::Context context)
+                              bool listening, presentation::Context context)
 {
-    // 表示の分からない Check（古い Kirin OS）は今までどおり全帯域のスペクトル。
-    const bool spectral = views.empty() || has (views, "spectrum_full") || has (views, "spectrum_low") || has (views, "balance");
+    // 耳で聴き比べる Check（Kirin OS の audition_only）は図を出さず案内（Tone と同じ図を出していた）。表示の分からない
+    // Check（古い Kirin OS が表示を送らない）は今までどおり全帯域のスペクトル。
+    const bool spectral = ! listening && (views.empty() || has (views, "spectrum_full") || has (views, "spectrum_low") || has (views, "balance"));
     const bool lowOnly = has (views, "spectrum_low") && ! has (views, "spectrum_full");
     const double maximumHz = lowOnly ? 250.0 : 20'000.0;
     const bool ready = sameSectionReady (timeline);
@@ -99,6 +107,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         }
     }
     auto chart = area.toFloat().reduced (10.0f, 8.0f);
+    if (ready && spectral) paintFrequencyTicks (g, chart, 20.0, maximumHz, context);  // どこが何 Hz か（2026-10-04）
     if (ready && spectral)
     {
         // 2026-10-04（Daisuke「A と V が両方表示された方が便利」）：A を太く下に、V を細く上に。同じ値でも両方見える。
@@ -111,9 +120,12 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
-        text_style::drawEllipsized (g, ! spectral ? "V compares spectrum and balance. This Check is shown on C."
-                                                  : "V is measured over the same section as A while they are aligned",
-                                    chart.toNearestInt(), juce::Justification::centred);
+        if (listening)
+            text_style::drawLines (g, listeningGuide ('V'), chart.toNearestInt().reduced (24, 0), juce::Justification::centred, 3);
+        else
+            text_style::drawEllipsized (g, ! spectral ? "V compares spectrum and balance. This Check is shown on C."
+                                                      : "V is measured over the same section as A while they are aligned",
+                                        chart.toNearestInt(), juce::Justification::centred);
     }
     // 4 帯域の V−A（数字だけ、良し悪しの色は付けない）。
     static constexpr const char* names[] { "LOW 20-250", "LOW-MID 250-2k", "MID 2k-8k", "HIGH 8k-20k" };

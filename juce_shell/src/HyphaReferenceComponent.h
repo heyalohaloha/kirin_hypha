@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 
 #include <array>
 #include <cmath>
@@ -178,6 +179,7 @@ struct State
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
     reference_audition::CuePart cuePart = reference_audition::CuePart::unknown;  // C の Cue が曲のどの部分か（凡例）
+    std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（図の代わりに聴き比べの案内を出す）
     double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
@@ -303,7 +305,8 @@ private:
         }
         // Not ready yet: drawn like a disabled button, but a click still reaches onClick to explain.
         void setReady (bool next) { if (ready != next) { ready = next; repaint(); } }
-        void setAttention (bool next) { if (attention != next) { attention = next; repaint(); } }
+        // 予約（DAW の再生を待つ）の印。部品の性質 "waiting" にも置く（試験・読み上げが文字に頼らない）。
+        void setAttention (bool next) { if (attention != next) { attention = next; getProperties().set ("waiting", next); repaint(); } }
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
 
     private:
@@ -365,6 +368,9 @@ private:
     void syncCheckPage (bool blindSession, bool workflowActive);
     void layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors);
     void paintCheckPageLabels (juce::Graphics&) const;
+    // 耳で聴き比べる Check（Kirin OS の audition_only）。C の画面は図の代わりに案内を出す。
+    bool listeningCheck() const;
+    void paintListeningPanel (juce::Graphics&, juce::Rectangle<int>) const;
     juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
     // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
     bool versionPage() const noexcept;

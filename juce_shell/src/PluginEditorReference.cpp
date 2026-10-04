@@ -264,6 +264,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.candidates = selectionOptions (runtime.candidates);
     state.cues = selectionOptions (checkSelection.cues);
     state.checkViewBindings = checkSelection.checkViewBindings;
+    state.listeningChecks = checkSelection.listeningChecks;
     state.detailedMeasurement = runtime.detailedMeasurement;
     state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
     state.visualPreferences = runtime.visualPreferences; state.captureAccess=runtime.captureAccess;
@@ -474,13 +475,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (connected && (runtime.state == Runtime::rejected
                            || runtime.state == Runtime::waiting))
         state.actionText = "OPEN REFERENCE";
-    else if (connected && runtime.state == Runtime::ready
-             && ! runtime.measurementAvailable && ! runtime.viewBindings.empty())
-        state.actionText = "PREPARE VISUALS";
-    else if (connected && runtime.state == Runtime::ready
-             && std::find (runtime.viewBindings.begin(), runtime.viewBindings.end(), "balance")
-                    != runtime.viewBindings.end())
-        state.actionText = "EDIT GENRE";
+    // 2026-10-04：PREPARE VISUALS（Kirin OS を開くだけ。Kirin OS は自分で測る。進み具合は状態の行が言う）と
+    // EDIT GENRE（Kirin OS が受け付けない "balance" の表示にしか出ない）は外した。
     applyReferenceRoles (state, runtime);
     if (const auto pending = hypha::reference_ui::pendingAuditionText (state);
         pending.isNotEmpty() && ! (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot))

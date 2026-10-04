@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include "ReferencePendingAudition.h"
 #include "ReferenceTrackingState.h"
 
@@ -125,6 +126,7 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> versions;
         std::vector<RuntimeSelectionOption> checkTargets;
         std::map<juce::String, std::vector<juce::String>> checkViewBindings; // CHECK SET の Check ごとの表示（V のタブ）
+        std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（Kirin OS の audition_only）。図の代わりに案内を出す
         std::vector<RuntimeSongSetOption> songSets;
         juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
         std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // K13b：Kirin OS の準備の状態（無ければ null）

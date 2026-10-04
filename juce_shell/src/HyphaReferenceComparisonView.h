@@ -24,7 +24,8 @@ public:
     std::function<void(double,double)> onCapturedRange;
     // H13: V の画面の Check のタブ。空ならタイムライン（WHOLE）。gainDb は V の追従の gain（鳴っていなければ NaN）。
     // views はその Check の表示（Kirin OS の view_bindings）。帯域の幅と、V で比べられない Check の断りに使う。
-    void setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views = {});
+    // listening：耳で聴き比べる Check（図の代わりに聴き比べの案内）。
+    void setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views = {}, bool listening = false);
     const juce::String& sameSectionCheck() const noexcept { return sameSection; }
 private:
     std::shared_ptr<const reference_audition::VisualTimeline> data;
@@ -45,6 +46,7 @@ private:
     juce::String sameSection;
     double sameSectionGain = std::numeric_limits<double>::quiet_NaN();
     std::vector<juce::String> sameSectionViews;
+    bool sameSectionListening = false;
     bool fitCapture = true;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
     bool following = true, showingCrest = false, showingTonal = false, hidden = false;

@@ -63,7 +63,11 @@ const Entry entries[] = {
     { "C LOUDEST 30 S", u8"C最も大きい30秒" },
     { "C CUE", u8"CのCue" },
     { "C WHOLE", u8"C曲全体" },
-    { "SAME SECTION %1 S", u8"同じ区間 %1秒" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
+    { "B SET RANGE", u8"Bセットの範囲" },  // B セットの曲の p10〜p90 の帯
+    { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
+    // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
+    { "Compared by listening. Hypha shows no result it has not measured. Press A and %1 to switch at the same level.",
+      u8"この項目は耳で聴き比べます。Hyphaは測っていない結果を出しません。Aと%1を押して、同じ音量で切り替えてください。" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
     // K13b：Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
     { "NOT FOUND", u8"見つからない" },
     { "CHECKING", u8"確認中" },

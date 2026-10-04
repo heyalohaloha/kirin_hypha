@@ -73,7 +73,8 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
     const bool audible = canHearReference (current), queue = canQueueReference (current);
     refButton.setToggleState (current.bSelected && current.audibleComparisonSlot == 3, juce::dontSendNotification);
     refButton.setVisible (! blindSession && current.separateComparisons);
-    refButton.setButtonText (waiting ? "B..." : "B");
+    // 予約（DAW の再生を待つ）は色で示し、何を待つかは状態の行が言う（「B...」は文字が切れたように見えた。2026-10-04）。
+    refButton.setButtonText ("B");
     refButton.setAttention (waiting);
     refButton.setReady (audible || queue);
     refButton.setTooltip (queue ? "Queue B for DAW playback. A stays live until ready; press A to cancel."
@@ -95,11 +96,15 @@ void Component::syncRoles (bool blindSession, bool workflowActive)
         const auto fact = index < current.songFacts.size() ? current.songFacts[index] : SongFact {};
         const bool selected = song.id == current.songId;
         const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
+        // MATCH：鳴っている曲は実際の gain（下げた A を足す）、ほかは押したときの gain（A の窓 − その曲の Cue の値）。
+        const auto would = fact.prepared && std::isfinite (current.aWindowLoudness) && std::isfinite (fact.lufsI)
+            ? current.aWindowLoudness - fact.lufsI : std::numeric_limits<double>::quiet_NaN();
         rows.push_back ({ song.id, song.label.upToFirstOccurrenceOf ("   PREPARING", false, false), fact.lufsI,
-                          playing ? current.appliedGainDb + current.heldAttenuationDb : std::numeric_limits<double>::quiet_NaN(),
+                          playing ? current.appliedGainDb + current.heldAttenuationDb : would,
                           selected, playing, ! fact.prepared, preparationWord (fact.preparation) });
     }
     songList.setRows (std::move (rows), presentationContext);
+    songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));
     if (! referenceView) return;
     // B の画面には V・C の選択を出さない（B SET と曲だけ）。
     for (auto* box : { &versionBox, &checkBox, &presetBox, &cueBox }) box->setVisible (false);

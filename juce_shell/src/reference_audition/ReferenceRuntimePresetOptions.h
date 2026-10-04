@@ -27,6 +27,7 @@ namespace hypha::reference_audition
                     for (const auto& check : preset.checks)
                     {
                         snapshot.checkViewBindings[check.checkId] = check.viewBindings;
+                        if (check.mode == "audition_only") snapshot.listeningChecks.insert (check.checkId);
                         if (check.candidates.empty())
                             snapshot.checkTargets.push_back ({ check.checkId + "/",
                                 check.label + " / NO SOURCE IN KIRIN OS", {}, false });
