@@ -134,7 +134,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
 {
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
-    // H12: C の Cue の値があれば「Cue 対 A の同じ長さの直近」を同じ定義・同じ音量で比べる。
+    // C の Cue の値があれば「Cue 対 A の同じ長さの直近」を同じ定義・同じ音量で比べる。
     if (state.separateComparisons && state.comparisonSlot == 2 && state.cueKirin)
     {
         const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation);

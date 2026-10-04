@@ -25,8 +25,8 @@ struct VisualBinding
     bool matched = false;
     // Cue の範囲（元の音の rate の sample）。選択と同じく key に入り、替われば A と V の窓を作り直す。
     std::int64_t sourceCueStartSample = 0, sourceCueEndSample = 0;
-    int matchWindowBlocks = 100; // H12: その役の A 側の窓（100 ms のブロック数。C は Cue と同じ長さ）
-    double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN(); // H12: 鳴っている Cue の位置（ループは折り返す）
+    int matchWindowBlocks = 100; // その役の A 側の窓（100 ms のブロック数。C は Cue と同じ長さ）
+    double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN(); // 鳴っている Cue の位置（ループは折り返す）
 };
 struct VisualPairBin
 {
@@ -37,16 +37,16 @@ struct VisualTimeline
 {
     VisualBinding binding;
     std::vector<VisualPairBin> bins;
-    std::shared_ptr<const KirinSpectrumWindow> aKirin; // H12: A の直近の窓（Kirin OS の Cue と同じ定義）
+    std::shared_ptr<const KirinSpectrumWindow> aKirin; // A の直近の窓（Kirin OS の Cue と同じ定義）
     // 2026-10-04：範囲の帯。A の直近 60 秒までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aTicks;
     int aTickChannels = 0;
     // V の画面の範囲の帯：位置合わせで対応した同じ区間の A と V の 100 ms の bin（直近 30 秒、同じフレーム）。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aPairTicks, vPairTicks;
     int pairTickChannels = 0;
-    // H13: V の画面の Check のタブ。位置合わせで対応した同じ区間の A と V（直近 30 秒、同じ定義）。
+    // V の画面の Check のタブ。位置合わせで対応した同じ区間の A と V（直近 30 秒、同じ定義）。
     std::shared_ptr<const KirinSpectrumWindow> aPairKirin, vPairKirin;
-    // H7: A の直近 30 秒の Kirin 指紋と、その最後の区切りの位置（曲の頭から 100 ms 単位）。V の自動特定に使う。
+    // A の直近 30 秒の Kirin 指紋と、その最後の区切りの位置（曲の頭から 100 ms 単位）。V の自動特定に使う。
     std::shared_ptr<const KirinFingerprint> aFingerprint;
     std::int64_t aFingerprintEndTick = -1;
     std::int64_t hop = 0;

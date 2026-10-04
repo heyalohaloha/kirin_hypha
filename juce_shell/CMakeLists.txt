@@ -639,7 +639,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
-    # H15: ABCV の 4 つの要求の例（C の画面・MATCH のある C・VERSION BLIND の表示例・日本語）で PNG を出す。
+    # ABCV の 4 つの要求の例（C の画面・MATCH のある C・VERSION BLIND の表示例・日本語）で PNG を出す。
     add_test(NAME kirin_hypha_reference_preview_renderer
         COMMAND ${CMAKE_COMMAND}
             -DRENDERER=$<TARGET_FILE:KirinHyphaReferencePreviewRenderer>

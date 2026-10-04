@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-// H12: C（CHECK）の画面（方向設計 §4、300%。300% 未満の C は押すと 300% に広がる、H10）。上から CHECK SET（順位つき）と曲、Check のタブ
+// C（CHECK）の画面（300%。300% 未満の C は押すと 300% に広がる）。上から CHECK SET（順位つき）と曲、Check のタブ
 // （CHECK セットの順）、Cue と MATCH（右上に 1 つ）、見比べの窓（Cue 対 A の同じ長さの直近）、4 帯域の
 // 要約、Cue の時間軸。V の選択は V の画面にだけ出す。
 namespace hypha::reference_ui
@@ -118,7 +118,7 @@ void Component::configureCheckPage()
 void Component::syncCheckPage (bool blindSession)
 {
     const bool page = checkPage();
-    const bool vPage = versionPage();  // H13
+    const bool vPage = versionPage();
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
     // V のタブは C の CHECK SET と切り離した決まった項目（versionTabs、2026-10-04）。C のタブは CHECK セットの順。
@@ -195,7 +195,7 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
 }
 
-// 2026-10-05（Daisuke「入りきらないときは 2 段にする」）：C の Check のタブが MATCH の読みとボタンの左に 1 段で
+// 2026-10-05：C の Check のタブが MATCH の読みとボタンの左に 1 段で
 // 入りきらなければ、タブの段を 2 段ぶんにする（名前を切らない）。V のタブは決まった 5 つで 1 段。
 int Component::checkTabsHeight() const
 {
@@ -217,7 +217,7 @@ bool Component::listeningCheck() const
     return current.listeningChecks.count (current.checkId.upToFirstOccurrenceOf ("/", false, false)) > 0;
 }
 
-// 2026-10-04（Daisuke「箱だけ作って中身が伴っていない」）：耳で聴き比べる Check は Kirin OS も測っていない
+// 2026-10-04（中身の伴わない表示を置かない）：耳で聴き比べる Check は Kirin OS も測っていない
 // （「この項目は耳で聴き比べます」）。測っていない結果の箱（鳴らすと C−A がいつも 0.0）を出さず、案内だけ。
 void Component::paintListeningPanel (juce::Graphics& g, juce::Rectangle<int> area) const
 {

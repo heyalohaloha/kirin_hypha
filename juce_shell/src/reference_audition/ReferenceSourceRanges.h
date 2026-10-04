@@ -7,7 +7,7 @@
 
 namespace hypha::reference_audition
 {
-// H1: Kirin OS の Cue の値のファイル（ranges/<sha256>.json、kirin_hypha_reference_ranges 1.3）。
+// Kirin OS の Cue の値のファイル（ranges/<sha256>.json、kirin_hypha_reference_ranges 1.3）。
 // Kirin OS が解析のときに残す 100 ms ごとの値から計算した、Cue ごとの Integrated（BS.1770 のゲートつき）・
 // 最大 True Peak・スペクトル・4 帯域 Balance と、曲の自動区間（サビ候補つき）と Kirin 指紋。
 struct RuntimeRangeValues

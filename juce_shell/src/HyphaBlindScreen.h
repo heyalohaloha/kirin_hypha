@@ -5,8 +5,8 @@
 #include "HyphaTextButton.h"
 #include "HyphaTextLookAndFeel.h"
 
-// PRE/POST の LIVE BLIND と REF の VERSION BLIND が同じ画面で出す（2026-10-04 Daisuke「PRE POST Blind に形式や
-// 見た目をあわせた方が認知負荷が下がる」）。窓全体に、上から題・指示・大きな SOURCE 1｜SOURCE 2・開示｜終了・説明。
+// PRE/POST の LIVE BLIND と REF の VERSION BLIND が同じ画面で出す（2026-10-04。形式と見た目を
+// そろえて、覚えることを減らす）。窓全体に、上から題・指示・大きな SOURCE 1｜SOURCE 2・開示｜終了・説明。
 // 開示すると題が BLIND RESULT になり、ボタンが「1: PRE」「2: POST」（VERSION は「1: A」「2: V」）に変わって、
 // そのまま切り替えられる。中身（Screen）はそれぞれの Blind が作り、見た目と置き方はここだけが決める。
 namespace hypha::blind_ui

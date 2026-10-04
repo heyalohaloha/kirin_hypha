@@ -6,15 +6,15 @@
 
 #include <cmath>
 
-// REF の状態の行（H9：聴ける／準備中／できない）。2026-10-04 から、足元の段があるときはどの画面でも足元の左に出す
+// REF の状態の行（聴ける／準備中／できない）。2026-10-04 から、足元の段があるときはどの画面でも足元の左に出す
 // （StatusStrip、エディターが置く）。足元の段が無い 100%・125% は REF の中の一番下。描き方はどちらも同じ。
 namespace hypha::reference_ui
 {
 namespace
 {
 // 状態の文は「 / 」の区切りごとに、入るところまで出す（途中で「…」にしない）。区切りは大事な順に並んでいる
-// （HyphaReferenceStatusModel.cpp）。最初の区切りも入らなければ省略記号（drawEllipsized）。2026-10-05、Mac の
-// 実機の 300% で「BはAに追従中（直近10…」「…/ Aを下…」と、言いかけで切れていた。
+// （HyphaReferenceStatusModel.cpp）。最初の区切りも入らなければ省略記号（drawEllipsized）。2026-10-05、
+// 300% で「BはAに追従中（直近10…」「…/ Aを下…」と、言いかけで切れていた。
 juce::String fittedSegments (const juce::String& shown, const juce::Font& font, float width)
 {
     if (text_style::shownWidth (font, shown) <= width) return shown;
@@ -53,7 +53,7 @@ bool Component::statusRowHasControls() const noexcept
     return actionButton.isVisible() || (blindButton.isVisible() && blindButton.getParentComponent() == &statusStrip);
 }
 
-// 案内が次の一手を言っているあいだは行を出さない。断り・アクション・待ちの超過のときは出す（H6）。
+// 案内が次の一手を言っているあいだは行を出さない。断り・アクション・待ちの超過のときは出す。
 bool Component::statusLineShown() const noexcept
 {
     return ! guideShown || current.readiness == Readiness::rejected
@@ -69,7 +69,7 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
     }
     if (actionButton.isVisible())
     {
-        // 承認のボタンは文字の幅に合わせる（量と鳴らす役まで言う。2026-10-05、Mac の実機の 300% で「Aを0.8 dB下げて
+        // 承認のボタンは文字の幅に合わせる（量と鳴らす役まで言う。2026-10-05、300% で「Aを0.8 dB下げて
         // Bを…」と切れた。英語の「LOWER A 0.8 DB & PLAY B」も 188 に入らなかった）。最小は今までの幅、最大は行の半分。
         const int minimum = detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116;
         const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);

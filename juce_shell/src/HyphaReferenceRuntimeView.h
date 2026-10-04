@@ -112,7 +112,7 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
                                               : slotStep (check, state.aAvailable);
 }
 
-// H12: CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、
+// CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、
 // 「1 / 3」を添える。順位が無い（sets.json が無い・古い Kirin OS）ときは今までどおりすべての Preset。
 // 選んでいる Preset は順位が無くても残す（選び直すまで消さない）。
 inline void rankCheckSets (State& state, const std::vector<reference_audition::RuntimeCheckSetRank>& ranks)

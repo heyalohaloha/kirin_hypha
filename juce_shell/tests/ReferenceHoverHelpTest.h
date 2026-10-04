@@ -1,6 +1,6 @@
 #pragma once
 
-// 2026-10-04 Daisuke「Youlean は細かく下部に説明が入る」→「下の行に出す」。300% の B・C・V で項目を指すと、下の状態の
+// 2026-10-04：300% の B・C・V で項目を指すと、下の状態の
 // 行がその説明の一行になる（HyphaReferenceHelp.h）。説明はどれも 300% の足元の行に両言語で省略せずに収まる。
 #include "ReferenceGuideContractTest.h"
 #include "../src/HyphaReferenceHelpText.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-// H10: A／B／C／V の 4 つのボタン（左から A B C V）と、B（REF）の画面の B SET・曲の選択。
+// A／B／C／V の 4 つのボタン（左から A B C V）と、B（REF）の画面の B SET・曲の選択。
 // B の画面には V・C の選択を出さない。B が鳴らせないときは押すと理由を言う。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceStatusLineTest.h"
@@ -19,7 +19,7 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceCheckPage();
     verifyReferenceBlauertReadout();
     verifyReferenceAComparison();
-    // 2026-10-03（X3）：再生中でも、準備が自動で進む段階なら押した役を待たせる（押したことを捨てない）。
+    // 2026-10-03：再生中でも、準備が自動で進む段階なら押した役を待たせる（押したことを捨てない）。
     // 利用者が動かす段階（Cue の外・この区間で合わない）は待たせず、理由を言う。
     {
         auto playing = named ("ready");
@@ -48,9 +48,9 @@ inline void verifyReferenceAbcvRoles()
         auto state = named ("ready");
         state.songSets = { { "set-1", "Mastering refs   1 / 2" }, { "set-2", "Loud   2 / 2" } };
         state.songSetId = "set-1";
-        state.songs = { { "e1/e1/song-1", "Hello" }, { "e2/e2/song-2", "MONTERO   PREPARING" } };
+        state.songs = { { "e1/e1/song-1", "Song 1" }, { "e2/e2/song-2", "Song 2   PREPARING" } };
         state.songId = "e1/e1/song-1";
-        // H11: 曲の Kirin OS の値（Cue の LUFS-I と 12 帯域のスペクトル）。
+        // 曲の Kirin OS の値（Cue の LUFS-I と 12 帯域のスペクトル）。
         for (const auto& [lufs, tilt, prepared] : { std::tuple { -9.4, 0.0f, true }, std::tuple { -12.1, -6.0f, false } })
         {
             reference_ui::SongFact fact;
@@ -62,7 +62,7 @@ inline void verifyReferenceAbcvRoles()
             }
             state.songFacts.push_back (fact);
         }
-        state.songFacts[1].preparation = { "pending", "queued", {}, {}, "working", 3 };  // K13b：Kirin OS が先に 3 曲を準備中
+        state.songFacts[1].preparation = { "pending", "queued", {}, {}, "working", 3 };  // Kirin OS が先に 3 曲を準備中
         state.referenceReady = state.referenceArmable = true;
         state.referenceStep = reference_ui::SourceStep::ready;
         state.comparisonSlot = 3;
@@ -84,10 +84,10 @@ inline void verifyReferenceAbcvRoles()
         auto* version = panel.findChildWithID ("reference-version");
         auto* check = panel.findChildWithID ("reference-check");
         require (set && song && version && check, "the B and V/C selectors exist");
-        // 100%（300×200）は曲名だけ。B SET は出さず、曲は 125% 以上で選ぶ（H10）。
+        // 100%（300×200）は曲名だけ。B SET は出さず、曲は 125% 以上で選ぶ。
         const bool glance = presentation::forEditor (size.width, size.height).density == observatory::Density::compact;
         require (set->isVisible() == ! glance && song->isVisible() && ! version->isVisible() && ! check->isVisible()
-                     && song->getText() == "Hello" && set->getText() == "Mastering refs   1 / 2"
+                     && song->getText() == "Song 1" && set->getText() == "Mastering refs   1 / 2"
                      && song->isEnabled() == ! glance,
                  "the B page shows only the B set and its songs, and only the song at 100%");
         // KIRIN_REFERENCE_UI_ABCV_OUTPUT=<dir>：寸法ごとの B の画面を PNG に書き出す（見た目の確認用）。
@@ -106,8 +106,8 @@ inline void verifyReferenceAbcvRoles()
         require (list != nullptr, "the B song list exists");
         if (list->isVisible())
         {
-            require (list->rows().size() == 2 && list->rows()[0].selected && list->rows()[0].title == "Hello"
-                         && list->rows()[1].preparing && list->rows()[1].title == "MONTERO" && list->rows()[1].preparation == "3 AHEAD"
+            require (list->rows().size() == 2 && list->rows()[0].selected && list->rows()[0].title == "Song 1"
+                         && list->rows()[1].preparing && list->rows()[1].title == "Song 2" && list->rows()[1].preparation == "3 AHEAD"
                          && std::abs (list->rows()[0].lufsI + 9.4) < 1.0e-9,
                      "the B page lists the songs with their Kirin OS loudness and state");
             juce::String listed;
@@ -168,7 +168,7 @@ inline void verifyReferenceAbcvRoles()
         require (! set->isVisible() && ! song->isVisible() && version->isVisible(),
                  "the V page keeps its own selectors");
 
-        // H10: 300% 未満の C と V は薄く（理由の代わりに「300% で開く」）、押すと 300% に広げてその役の画面を
+        // 300% 未満の C と V は薄く（理由の代わりに「300% で開く」）、押すと 300% に広げてその役の画面を
         // 開くだけで、音は変えない。300% では今までどおり鳴らす。
         auto sized = state;
         sized.blindLargeScreen = size.width >= 900;

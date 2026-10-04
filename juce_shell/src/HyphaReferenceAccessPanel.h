@@ -8,7 +8,7 @@ namespace hypha::reference_ui
 {
 // Discovery is not audition permission. Never cover an outstanding return-level control.
 // 2026-10-04：A の取り込みの部品があるあいだは出していなかった（ステレオの POST では常にあり、Kirin OS の無い人に
-// 案内が出なかった）。取り込みをやめ、Daisuke が「Kirin OS の案内の画面を出す」を選んだ（INV-L4）。
+// 案内が出なかった）。取り込みをやめ、Kirin OS の案内の画面を出す（INV-L4）。
 inline bool needsAccessPanel (const State& state) noexcept
 {
     return (state.osAccess == os_access::State::unowned)

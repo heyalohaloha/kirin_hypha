@@ -9,7 +9,7 @@
 
 namespace hypha::reference_audition
 {
-// H7: Kirin 指紋（kirin_hypha_reference_ranges の fingerprint、K6 の kirin_chroma_sign_v1）と同じ定義で A を
+// Kirin 指紋（kirin_hypha_reference_ranges の fingerprint、Kirin OS の kirin_chroma_sign_v1）と同じ定義で A を
 // 測り、Version の指紋と照合する。Kirin OS のコードは使わず、公開されている式だけを揃えて独立に計算する。
 //  - 100 ms ごと（sr/10 サンプル）に、直近 N = nextpow2(sr/6)（最小 2048）サンプルの左右の平均に periodic
 //    Hann を掛けた FFT。55 Hz〜5 kHz の bin の power を、最も近い 2 つの音名（C = 0、A4 = 440 Hz）へ半音の

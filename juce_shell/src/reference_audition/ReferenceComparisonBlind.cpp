@@ -34,7 +34,7 @@ bool ReferenceComparisonController::beginBlindGuard()
 }
 
 // 終了を押したら試験は終わり：A はすぐ観測へ戻す（V の画面・B と C の A の値・AUTO）。ほかの Blind との排他だけは、
-// V がまだ出力を持っていれば（A へ戻す途中）、出力を返し終えたとき（admit）に解く（2026-10-04、Mac の実機で
+// V がまだ出力を持っていれば（A へ戻す途中）、出力を返し終えたとき（admit）に解く（2026-10-04。以前は
 // 終了の後に A が観測へ戻らず、V の画面が空・B の MATCH が「再生10秒でAを測れません」になった）。
 void ReferenceComparisonController::endBlindGuard()
 {

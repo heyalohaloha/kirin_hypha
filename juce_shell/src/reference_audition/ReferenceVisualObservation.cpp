@@ -66,7 +66,7 @@ std::shared_ptr<const VisualTimeline> VisualObservation::snapshot() const
 { const juce::ScopedLock lock (snapshotLock); return published; }
 void VisualObservation::publish()
 {
-    // H12: その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
+    // その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
     timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
     timeline.aPairKirin = pairAMeter.window (300);
     timeline.aTicks = aTickMeter.bins();
@@ -74,7 +74,7 @@ void VisualObservation::publish()
     timeline.aPairTicks = pairATicks.bins();
     timeline.vPairTicks = pairVTicks.bins();
     timeline.pairTickChannels = pairATicks.channels();
-    if (printMeter.ticksHeld() >= 30 && printEndSample >= 0)  // H7：3 秒から（照合は 10 秒ぶん鳴ってから答える）
+    if (printMeter.ticksHeld() >= 30 && printEndSample >= 0)  // 3 秒から（照合は 10 秒ぶん鳴ってから答える）
     {
         timeline.aFingerprint = std::make_shared<const KirinFingerprint> (printMeter.fingerprint (300));
         timeline.aFingerprintEndTick = (printEndSample - printMeter.pendingSamples()) / std::max (1, runRate / 10) - 1;
@@ -99,7 +99,7 @@ bool VisualObservation::resetMeters()
     bMeter = kirin_reference_visual_create (uint32_t (timeline.binding.hostRate), uint32_t (timeline.binding.channels));
     return aMeter && bMeter;
 }
-// H12: A（この Block は DAW の入力）を、Kirin OS が参照曲の Cue に残す値と同じ定義で測る。
+// A（この Block は DAW の入力）を、Kirin OS が参照曲の Cue に残す値と同じ定義で測る。
 // 途切れ（位置の飛び・discontinuity）では窓を捨てる（シークの後の窓は新しい位置から）。有限でない値（壊れた
 // 入力）は測らずに窓を捨てる（K 特性のフィルタの状態や FFT に NaN を残さない）。
 void VisualObservation::consumeKirin (const Block& block, int rate)
@@ -129,7 +129,7 @@ void VisualObservation::consumePair (const Block& block)
     if (position < 0 || position >= end || block.channels != map.channels) { clearMeters(); return; }
     if (position != expected || block.discontinuity != previousDiscontinuity || !aMeter)
         if (!resetMeters()) return;
-    // H13: 同じ区間の A と V を同じフレームで測る（途切れたら両方とも新しい窓から）。
+    // 同じ区間の A と V を同じフレームで測る（途切れたら両方とも新しい窓から）。
     if ((pairAMeter.configuredFor (int (map.hostRate), block.channels) || pairAMeter.configure (int (map.hostRate), block.channels, 300))
         && (pairVMeter.configuredFor (int (map.hostRate), block.channels) || pairVMeter.configure (int (map.hostRate), block.channels, 300)))
     {

@@ -1,7 +1,7 @@
 #pragma once
 
-// 2026-10-04（Daisuke「PRE POST Blind に形式や見た目をあわせた方が認知負荷が下がる」「答えを表示が分かりにくい」→
-// 「PRE/POST Blind と同じ画面」）：REF の VERSION BLIND は LIVE BLIND と同じ部品・同じ置き方で窓全体に出る。
+// 2026-10-04（形式と見た目を PRE/POST Blind にそろえる。「答えを表示」は分かりにくかった）：
+// REF の VERSION BLIND は LIVE BLIND と同じ部品・同じ置き方で窓全体に出る。
 // 指示の文は LIVE BLIND と同じ（再生したまま 1 と 2 を切り替える → 聴き比べたら開示 → 開示した）で、「答え」とは
 // 言わない。開示の前のボタンと読み上げは対応を言わず、開示の後は「1: V」「2: A」のようにそのまま切り替えられる。
 #include "../src/HyphaLiveBlindComponent.h"

@@ -7,9 +7,9 @@
 
 #include "HyphaPresentationContext.h"
 
-// H12: C の画面の上段の Check のタブ（方向設計 §4）。順番は CHECK セットのまま。タブを押すとその Check を選ぶ
+// C の画面の上段の Check のタブ。順番は CHECK セットのまま。タブを押すとその Check を選ぶ
 // （曲はできるだけ同じ曲のまま）。色で採点しない。1 段に入りきらなければ、高さが 2 段ぶんあれば 2 段に分ける
-// （2026-10-05 Daisuke「入りきらないときは 2 段にする」。300% で 8 項目の名前が「音色…」「セク…」と切れていた）。
+// （2026-10-05。300% で 8 項目の名前が「音色…」「セク…」と切れていた）。
 namespace hypha::reference_ui
 {
 class CheckTabs final : public juce::Component

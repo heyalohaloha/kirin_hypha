@@ -27,7 +27,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectB = [this]
     {
         if (liveCompareHoldBlocksAudition()) return;
-        processorRef.selectReferenceVisualSlot (1);  // H10: 押した役の画面にする
+        processorRef.selectReferenceVisualSlot (1);  // 押した役の画面にする
         if (! processorRef.selectReferenceB())
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
@@ -172,7 +172,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const auto& audible = runtime.audibleComparisonSlot == 1 || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive
         ? versionSelection : runtime.audibleComparisonSlot == 3 ? referenceSelection : checkSelection;
     const bool callbackLive = processorRef.heartbeatLive();
-    // H3: 追従が上限（True Peak）か MATCH から ±6 dB で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
+    // 追従が上限（True Peak）か MATCH から ±6 dB で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
     // 上限で止めた追従は A が静かになると下げる向きで戻るので、同じ役を聴いているあいだは止まり直しても知らせない
     // （止まっているかは状態の行が言う）。
     using Tracking = hypha::reference_audition::TrackingState;

@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <cmath>
 
-// 2026-10-04（Daisuke が「帯を敷き、差を1つ出す」を選んだ）：Blauert の帯（ReferenceBlauertBands.h）を Reference
+// 2026-10-04：Blauert の帯（ReferenceBlauertBands.h）を Reference
 // のスペクトルの図（B の Balance、C の SPECTRUM、V の Check のタブ）に薄く敷き、図の右上に
 // 「1k vs 300-400·3-4k / A 1.2 dB LOWER」（300-400 Hz・3-4 kHz に対する 1 kHz の高さを、A を主語に。日本語は
 // 「300-400·3-4kに対する1k / Aが1.2 dB低い」。HyphaReferenceAComparison.h）を出す。横軸はどの図も minimumHz〜maximumHz の対数。

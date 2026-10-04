@@ -20,9 +20,9 @@ struct ReferenceChoice
 
 struct ReferenceComparisonSettings
 {
-    ReferenceChoice version, check, reference;  // reference: H8 の B（REF）の曲
-    bool versionAuto = false;                   // H7: V の Version は AUTO が選んだ（AUTO が選び直せる）
-    juce::String songSetId;                     // H8: 選んでいる B SET
+    ReferenceChoice version, check, reference;  // reference: B（REF）の曲
+    bool versionAuto = false;                   // V の Version は AUTO が選んだ（AUTO が選び直せる）
+    juce::String songSetId;                     // 選んでいる B SET
     VisualViewChoice visualView;
     int viewedSlot = 2;
     // 2026-10-04：A の取り込み（ACapture）と Tonal の表示（ReferenceTonal）は書かず、古い版が残したものは読み飛ばす。

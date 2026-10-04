@@ -9,7 +9,7 @@
 #include <cmath>
 #include <vector>
 
-// 2026-10-04（Daisuke「どこが何 Hz なのか多少表示した方が親切」）：Reference のスペクトルの図（B の Balance、
+// 2026-10-04（どこが何 Hz かを読めるように）：Reference のスペクトルの図（B の Balance、
 // C の SPECTRUM／LOW FREQUENCY、V の Check のタブ）の周波数の目盛り（薄い縦線と数字）。横軸はどの図も
 // minimumHz〜maximumHz の対数。曲線より先に描く（線の下に敷く）。
 namespace hypha::reference_ui

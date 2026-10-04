@@ -76,7 +76,7 @@ FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Thread
 Referenceファイル、通常のA経路、正本のPRE/POST測定・Recordは変更しない。
 
 Reference比較試聴の役はA（LIVE）・B（REF、Bセットの曲）・C（CHECK）・V（VERSION）の4つとし
-（ABCV、2026-10-02 Daisukeと合意）、同時に鳴るのは1役とする。Gain MatchはB・Vでは追従、Cでは固定と
+（ABCV、2026-10-02）、同時に鳴るのは1役とする。Gain MatchはB・Vでは追従、Cでは固定と
 する。B・VはAの直近10秒のゲート付き音量に1秒ごとに追従し、0.5 dB以内は動かさず、50 msのrampで動かし、
 上限（max(−1 dBTP, AのmaxTP, 音源のmaxTP)）と、利用者のMATCHのgainから±6 dB（live比較のAUTOと同じ幅）を
 超える前に止めて今のgainを保ち、理由を示す。MATCHが上限を超えるときは、利用者が承認すればAを差だけ下げて

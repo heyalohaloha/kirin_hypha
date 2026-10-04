@@ -39,7 +39,7 @@ void KirinHyphaProcessorBase::timerCallback()
 bool KirinHyphaProcessorBase::referencePendingAuditionNeedsService() const
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    // H5: B／C を選んでいるあいだは、停止・シークで A に戻ったら戻せるよう回し続ける。
+    // B／C を選んでいるあいだは、停止・シークで A に戻ったら戻せるよう回し続ける。
     return referenceAuditionController && (referenceAuditionController->pendingAuditionNeedsService()
                                            || referenceAuditionController->auditionHeld());
    #else
@@ -71,7 +71,7 @@ bool KirinHyphaProcessorBase::referenceTrackingNeedsService() const
    #endif
 }
 
-// H3: B・V を聴いているあいだ、1 秒ごとに A の直近 10 秒で gain を求め直す（Audio Thread で 50 ms の ramp）。
+// B・V を聴いているあいだ、1 秒ごとに A の直近 10 秒で gain を求め直す（Audio Thread で 50 ms の ramp）。
 void KirinHyphaProcessorBase::serviceReferenceTracking()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY

@@ -7,7 +7,7 @@
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 
-// The help line at 300% and above (PluginEditorHelpLine.cpp). 2026-10-04 Daisuke chose to give it
+// The help line at 300% and above (PluginEditorHelpLine.cpp). Since 2026-10-04 it is given
 // the whole footer row: pointing at a graph, a value or a tab, the line covers the footer row and
 // has room for what the item is and how it is used; pointing at a control in the footer, it covers
 // only the status at the left, so the controls stay in view. It paints the footer's own panel under

@@ -89,7 +89,7 @@ namespace hypha::reference_audition
     struct RuntimePreset
     {
         bool versionEntry = false;
-        bool songEntry = false;  // H8: B（REF）の曲。sets.json の B セットの曲 1 つを、1 Check・1 曲の Preset にしたもの
+        bool songEntry = false;  // B（REF）の曲。sets.json の B セットの曲 1 つを、1 Check・1 曲の Preset にしたもの
         juce::String workId;
         RuntimeSourcePresetReceipt sourceTemplateArtifact;
         RuntimeSourcePresetReceipt sourcePresetArtifact;
@@ -116,7 +116,7 @@ namespace hypha::reference_audition
         std::vector<RuntimePendingPreset> pendingPresets;
     };
 
-    // H1: library/sets.json（Kirin OS の K2・K3）。Kirin OS で「Hypha に出す」順位を付けた B セット
+    // library/sets.json（Kirin OS が書く）。Kirin OS で「Hypha に出す」順位を付けた B セット
     // （参照曲の並び）と CHECK セット（Preset）、それらの曲の Cue の値のファイル（ranges/<sha256>.json）の索引。
     struct RuntimeSongSet
     {
@@ -140,7 +140,7 @@ namespace hypha::reference_audition
         RuntimeContentReceipt rangesArtifact;
     };
 
-    // H11: B の一覧と Balance に出す、曲の既定の Cue の Kirin OS の値（ranges）。無ければ NaN・空。
+    // B の一覧と Balance に出す、曲の既定の Cue の Kirin OS の値（ranges）。無ければ NaN・空。
     struct RuntimeSongFacts
     {
         double lufsI = std::numeric_limits<double>::quiet_NaN();
@@ -153,7 +153,7 @@ namespace hypha::reference_audition
         double partEndSeconds = std::numeric_limits<double>::quiet_NaN();
     };
 
-    // K13b: Kirin OS の準備の状態（library/preparation.json）。Hypha に出したセットの曲ごと。値は Kirin OS の
+    // Kirin OS の準備の状態（library/preparation.json）。Hypha に出したセットの曲ごと。値は Kirin OS の
     // 言葉のまま（state：ready / playable / pending、step：queued / resolving / measuring、reason：
     // source_unavailable / analysis_failed、retry：automatic / manual。無ければ空）。phase は全体の動き。
     struct RuntimeSongPreparation
@@ -179,7 +179,7 @@ namespace hypha::reference_audition
         std::int64_t revision = 0;
         juce::String hash;
         std::vector<RuntimeSongSet> songSets;
-        std::map<juce::String, RuntimeSongFacts> songFacts; // H11: 曲の Preset の ID ごと
+        std::map<juce::String, RuntimeSongFacts> songFacts; // 曲の Preset の ID ごと
         std::vector<RuntimeCheckSetRank> checkSets;
         std::vector<RuntimeSourceRangesReceipt> sourceRanges;
     };

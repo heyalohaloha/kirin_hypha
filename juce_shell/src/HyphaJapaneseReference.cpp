@@ -176,7 +176,7 @@ const Entry entries[] = {
       u8"この試聴で使う、準備済みの聴く位置を選びます。" },
     { "Audition A", u8"Aを試聴" },
     { "Audition V", u8"Vを試聴" },
-    // H10: B（REF、Kirin OS が Hypha に出した B セットの曲）。
+    // B（REF、Kirin OS が Hypha に出した B セットの曲）。
     { "Audition B Reference", u8"B（REF）を試聴" },
     { "Audition a song of the B set from Kirin OS (B).", u8"Kirin OSのBセットの曲（B）を試聴します。" },
     { "Queue B for DAW playback. A stays live until ready; press A to cancel.",

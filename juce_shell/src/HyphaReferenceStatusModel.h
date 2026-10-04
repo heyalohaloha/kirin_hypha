@@ -5,7 +5,7 @@
 #include "HyphaReferenceGuide.h"
 #include "reference_audition/ReferenceRuntimeV2Model.h"
 
-// H9: 状態の帯（方向設計 §3.3）。今の役の状態を 3 つに分ける：聴ける（水色）／準備中（金、何を待って
+// 状態の帯。今の役の状態を 3 つに分ける：聴ける（水色）／準備中（金、何を待って
 // いるか・進めるために何をするか）／できない（灰、理由と直し方）。無言にしない（R-28）。色で採点しない。
 namespace hypha::reference_ui
 {
@@ -24,7 +24,7 @@ struct StatusLine
 StatusKind kindOf (SourceStep) noexcept;
 // returnInFooter：A を下げた量を足元の RETURN（+x dB）が出している（300% 以上）。状態の文ではもう言わない。
 StatusLine referenceStatusLine (const State&, bool returnInFooter = false);
-// K13b: Kirin OS の準備の状態（まだ聴けない曲）の言い方。B の一覧の短い語と、状態の行の「理由 / 直し方」。
+// Kirin OS の準備の状態（まだ聴けない曲）の言い方。B の一覧の短い語と、状態の行の「理由 / 直し方」。
 // 聴ける曲・Kirin OS から届いていない曲は空。確かめられない曲（preparationFailed）は「できない」。
 juce::String preparationWord (const reference_audition::RuntimeSongPreparation&);
 juce::String preparationLine (const reference_audition::RuntimeSongPreparation&);

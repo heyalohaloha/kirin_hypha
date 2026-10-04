@@ -1,6 +1,6 @@
 #pragma once
 
-// 2026-10-04: the editor's own corner grip (Daisuke chose it for Mac and Windows). Studio on
+// 2026-10-04: the editor's own corner grip (on Mac and Windows). Studio on
 // Windows and Pro Tools give a plug-in window no frame to drag, so this is the corner a user holds.
 #include "EditorProductChecks.h"
 #include "../src/HyphaEditorResizeGrip.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-// H9: 状態の帯。全ての段階が 聴ける／準備中／できない のどれか 1 つに入り、準備中とできないには進め方か
+// 状態の帯。全ての段階が 聴ける／準備中／できない のどれか 1 つに入り、準備中とできないには進め方か
 // 直し方が 1 つ書いてある。聴いているあいだは合わせ方（追従・固定・上限で停止・原音量）を言う。
 #include "ReferenceGuideContractTest.h"
 
@@ -61,7 +61,7 @@ inline void verifyReferenceStatusLine()
     require (lowered.kind == StatusKind::ready && lowered.text == "B FOLLOWING A (LAST 10 S)  /  A LOWERED 8.0 DB" + pre
                  && i18n::translate (lowered.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "8.0 dB")),
              "a held attenuation is named while a role plays, in both languages: " + lowered.text);
-    // 2026-10-05（Mac の実機の 300%）：足元の RETURN（+x dB）が下げた量を言っているときは、状態の文では言わない。
+    // 2026-10-05（300%）：足元の RETURN（+x dB）が下げた量を言っているときは、状態の文では言わない。
     require (reference_ui::referenceStatusLine (playing, true).text == "B FOLLOWING A (LAST 10 S)" + pre,
              "with RETURN in the footer the line does not say the held attenuation twice");
     // A との差（上限で届かない量）は下げた量より先（入りきらなければ後ろの区切りから省く）。
@@ -73,7 +73,7 @@ inline void verifyReferenceStatusLine()
                  "the line keeps its parts in order of importance");
     }
     playing.heldAttenuationDb = 0.0;
-    // A に戻しても A は下がったまま：「A は今の音のまま」と言わず、下げた量を言う（2026-10-04、Windows の実機）。
+    // A に戻しても A は下がったまま：「A は今の音のまま」と言わず、下げた量を言う（2026-10-04）。
     auto heldReady = named ("ready");
     heldReady.separateComparisons = true;
     heldReady.comparisonSlot = 2;
@@ -164,7 +164,7 @@ inline void verifyReferenceStatusLine()
                  && i18n::translate (line.text, i18n::Language::japanese) != line.text,
              "a B set Hypha could not read is not mistaken for a missing one");
 
-    // K13b: 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合。確かめられない
+    // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合。確かめられない
     // 曲は「できない」と直し方。聴ける曲・Kirin OS から届いていない曲は今までどおり。
     {
         auto preparing = noSet;
@@ -213,7 +213,7 @@ inline void verifyReferenceStatusLine()
     blind.blindPhase = reference_ui::BlindPhase::invalidated;
     require (reference_ui::referenceStatusLine (blind).kind == StatusKind::unable, "a stopped Blind cannot be heard");
 
-    // H6: 準備中を終わらない状態にしない。上限（Kirin OS の応答 5 秒、確認・読み込み・準備 10 秒、位置合わせは
+    // 準備中を終わらない状態にしない。上限（Kirin OS の応答 5 秒、確認・読み込み・準備 10 秒、位置合わせは
     // 再生 30 秒ぶん、A の音量は再生 10 秒ぶん）を超えたら「できない」と理由・直し方。段階・役が変われば数え直す。
     reference_ui::PreparationWatch watch;
     require (watch.observe (2, Step::preparing, false, true, true, 100.0).isEmpty()

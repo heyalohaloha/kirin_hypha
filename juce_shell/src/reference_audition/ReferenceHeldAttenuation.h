@@ -11,7 +11,7 @@ namespace hypha::reference_audition
 // 上限超えの承認の結果。断ったときは理由を言う（R-28：押した利用者に「下げた」と思わせない）。
 enum class LowerAApproval { lowered, postInUse, refused };
 
-// 2026-10-03（Daisuke 承認、R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、利用者が承認すれば
+// 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、利用者が承認すれば
 // A（POST の出力全体）を差だけ下げて合わせる。参照は元の音量のまま（上げない）。承認した量は試聴の後も、
 // 利用者が RETURN で戻すまで保ち、急に上げない（live PRE/POST 比較の POST の減衰と同じ）。オフライン書き出し・
 // bypass には掛けない。測定と Record は下げる前の A で取る（Reference の段は測定の後にある）。

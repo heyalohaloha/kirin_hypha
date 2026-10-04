@@ -1,4 +1,4 @@
-# H15: Kirin OS の「Hypha ではこう見える」の描画の道具を、ABCV の 4 つの要求の例で動かす。
+# Kirin OS の「Hypha ではこう見える」の描画の道具を、ABCV の 4 つの要求の例で動かす。
 #   reference_preview_request.v1.json        C の画面（元の音量の Check、選択肢が 1 つずつ）
 #   reference_preview_request_match.v1.json  C の画面（MATCH のある Check、CHECK SET・Check・曲・Cue が 2 つずつ）
 #   reference_preview_request_blind.v1.json  VERSION BLIND の表示の例（始めも記録もしない）

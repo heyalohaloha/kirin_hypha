@@ -262,7 +262,7 @@ release gate.
   width and the new area at its right stayed black (2026-10-04, Studio Pro 8.1.2 on macOS, the
   POST AU at 300% → 450%; the VST3 path, which asks the host through `resizeView`, was correct).
   A dump of the window showed the host's views autoresized to the new size while the host's own
-  layout stayed at the old width. A plug-in drawn with iPlug (Youlean Loudness Meter 2) resizes
+  layout stayed at the old width. A plug-in drawn with iPlug resizes
   the window itself and does not show the black band.
 - **Change:** After the usual resize, and only when the size changed and the host executable path
   contains "Studio One" or "Studio Pro", resize the host window by one point and back

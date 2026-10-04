@@ -48,7 +48,7 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
     notify();
     return true;
 }
-// H8: B（REF）の曲を選ぶ。id は Hypha に届いた B セットの曲の選択の ID（ReferenceLibrarySongs.h）。
+// B（REF）の曲を選ぶ。id は Hypha に届いた B セットの曲の選択の ID（ReferenceLibrarySongs.h）。
 bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
 {
     const auto parts = juce::StringArray::fromTokens (id, "/", {});

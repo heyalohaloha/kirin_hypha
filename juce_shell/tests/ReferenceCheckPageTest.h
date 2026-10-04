@@ -1,6 +1,6 @@
 #pragma once
 
-// H12: C（CHECK）の画面（300%）。CHECK SET・Check のタブ（CHECK セットの順）・曲・Cue・MATCH、
+// C（CHECK）の画面（300%）。CHECK SET・Check のタブ（CHECK セットの順）・曲・Cue・MATCH、
 // 見比べ（Cue 対 A の同じ長さの直近、同じ音量）、4 帯域の要約、Cue の時間軸。200% は今までの選択欄。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceHoverHelpTest.h"
@@ -26,8 +26,8 @@ inline std::shared_ptr<reference_audition::KirinSpectrumWindow> kirinWindow (flo
     return window;
 }
 
-// 2026-10-05（Daisuke「項目を5か6を上限とした方が良いかも」→「6 にして大きいセットは分ける」）：Kirin OS の工場
-// 出荷のセットは 6 項目までの 9 つ（W-3295）。300% で、どのセットも名前を順位まで CHECK SET の欄に出し、Check の
+// 2026-10-05：Kirin OS の工場
+// 出荷のセットは 6 項目までの 9 つ。300% で、どのセットも名前を順位まで CHECK SET の欄に出し、Check の
 // タブは 1 段に収まる（両言語）。工場出荷の名前は英語のまま出す（簡単な英語は訳さない）。
 inline void verifyFactoryCheckSetsFit()
 {
@@ -54,7 +54,7 @@ inline void verifyFactoryCheckSetsFit()
             state.comparisonMode = "loudness_match";
             state.checks.clear();
             for (const auto* label : labels)
-                state.checks.push_back ({ juce::String (label) + "/cand-1", juce::String (label) + "  /  Hello" });
+                state.checks.push_back ({ juce::String (label) + "/cand-1", juce::String (label) + "  /  Song 1" });
             state.checkId = state.checks.front().id;
             // 選べるセットが 1 つなら欄ではなく読むだけの文字になるので、順位つきで 3 つ並べる（「1 / 3」）。
             state.presets = { { "set", juce::String (name) + "   1 / 3" }, { "two", "Quick Reference   2 / 3" },
@@ -89,8 +89,8 @@ inline void verifyReferenceCheckPage()
     state.separateComparisons = true;
     state.comparisonSlot = 2;
     state.comparisonMode = "loudness_match";
-    state.checks = { { "chk-low/cand-1", "Low End  /  Hello" }, { "chk-low/cand-2", "Low End  /  MONTERO" },
-                     { "chk-vocal/cand-1", "Vocal  /  Hello" }, { "chk-air/", "Air / NO SOURCE IN KIRIN OS" } };
+    state.checks = { { "chk-low/cand-1", "Low End  /  Song 1" }, { "chk-low/cand-2", "Low End  /  Song 2" },
+                     { "chk-vocal/cand-1", "Vocal  /  Song 1" }, { "chk-air/", "Air / NO SOURCE IN KIRIN OS" } };
     state.checkId = "chk-low/cand-1";
     state.aKirin = kirinWindow (0.0f, { -20.0, -14.0, -18.0, -30.0 }, 300);
     state.cueKirin = kirinWindow (-6.0f, { -16.5, -11.5, -15.0, -28.5 }, 300);
@@ -110,7 +110,7 @@ inline void verifyReferenceCheckPage()
                      && i18n::translate (reference_ui::matchReadout (waiting), i18n::Language::japanese) != "A 12 / 30 S",
                  "while A fills the Cue's window, the page says how far it has come");
     }
-    // 2026-10-04（Daisuke「A直近10秒 / Bサビ」）：凡例は比べる側が曲のどの部分かを言う。B は時刻も添える。
+    // 2026-10-04：凡例は比べる側が曲のどの部分かを言う。B は時刻も添える。
     {
         using reference_audition::CuePart;
         const auto nan = std::numeric_limits<double>::quiet_NaN();
@@ -150,20 +150,20 @@ inline void verifyReferenceCheckPage()
     require (tabs && song && match && version && check, "the C page owns its tabs, song and MATCH");
     require (tabs->isVisible() && tabs->tabs().size() == 3 && tabs->tabs()[0].label == "Low End"
                  && tabs->tabs()[2].label == "Air" && tabs->selected() == "chk-low"
-                 && song->isVisible() && song->getNumItems() == 2 && song->getText() == "Hello"
+                 && song->isVisible() && song->getNumItems() == 2 && song->getText() == "Song 1"
                  && match->isVisible() && ! version->isVisible() && ! check->isVisible(),
              "300%: the Checks are tabs in the set's order, the song is chosen within the Check, V stays on its page");
     for (size_t index = 0; index < tabs->tabs().size(); ++index)
         require (panel.getLocalBounds().contains (tabs->getBounds()) && ! tabs->tabBounds (index).isEmpty(), "every tab is reachable");
-    // 2026-10-05（Daisuke「入りきらないときは 2 段にする」）：Check が多くて 1 段に入らなければ 2 段に分け、どの名前も
-    // 切らない（Mac の実機の 300% で Mastering の 8 項目が「音色…」「セク…」と切れていた）。
+    // 2026-10-05：Check が多くて 1 段に入らなければ 2 段に分け、どの名前も
+    // 切らない（300% で Mastering の 8 項目が「音色…」「セク…」と切れていた）。
     {
         auto many = state;
         many.checks.clear();
         for (const auto* label : { "Tonal balance", "Loudness", "True Peak", "Dynamics", "Stereo and phase",
                                    "Low-end consistency", "Section difference", "Album context" })
             many.checks.push_back ({ juce::String ("chk-") + juce::String (label).removeCharacters (" ") + "/ref-a",
-                                     juce::String (label) + "  /  Hello" });
+                                     juce::String (label) + "  /  Song 1" });
         many.checkId = many.checks.front().id;
         const auto font = labelFont (presentation::forEditor (900, 600), typography::TextRole::body, typography::Composition::information);
         for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -212,8 +212,8 @@ inline void verifyReferenceCheckPage()
     state.appliedGainDb = -2.5;
     state.cuePlayheadSeconds = 70.0;
     panel.setState (state);
-    // 鳴っていれば gain だけ（合わせて固定したことは状態の行が言い、色で鳴っていると分かる。2026-10-05、Mac の実機で
-    // 「MATCH済み / C −1.2…」と切れた）。
+    // 鳴っていれば gain だけ（合わせて固定したことは状態の行が言い、色で鳴っていると分かる。2026-10-05。
+    // 「MATCH済み / C −1.2…」と切れていた）。
     require (reference_ui::matchReadout (state) == juce::String (juce::CharPointer_UTF8 ("C \xe2\x88\x92" "2.5 dB")),
              "while C plays, the page reads the gain it plays at (the status line says it is matched and fixed)");
     match->onClick();
@@ -352,8 +352,8 @@ inline void verifyReferenceCheckPage()
              "below 300% the help stays in the popups it had");
     panel.onSelectCheck = {}; panel.onSelectC = {}; panel.onMatch = {};
 
-    // H13: V の画面（300%）。VERSION（全幅）と、WHOLE（タイムライン）の後に決まった 4 つのタブ（音色・ダイナミクス・
-    // ステレオ・低域、2026-10-04 Daisuke。C の CHECK SET と切り離す）。タブは見るものだけを替え、音も C の選択も
+    // V の画面（300%）。VERSION（全幅）と、WHOLE（タイムライン）の後に決まった 4 つのタブ（音色・ダイナミクス・
+    // ステレオ・低域、2026-10-04。C の CHECK SET と切り離す）。タブは見るものだけを替え、音も C の選択も
     // 変えない。項目のタブでは同じ区間の A と V を同じ定義で比べる。
     auto vState = state;
     vState.comparisonSlot = 1;

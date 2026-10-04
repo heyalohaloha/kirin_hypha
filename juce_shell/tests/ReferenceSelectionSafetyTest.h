@@ -64,7 +64,7 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     };
     host (false);
     wait ([] (const auto& s) { return s.checkArmable && !s.versions.empty(); });
-    // H7 の AUTO は V の選択だけを替える：押して待っている C を消さない。V を選んだ後は AUTO が上書きしない。
+    // V の自動特定の AUTO は V の選択だけを替える：押して待っている C を消さない。V を選んだ後は AUTO が上書きしない。
     require (controller.requestAudition (2, level.loudness, level.peak), "queue C before AUTO");
     const auto autoId = controller.snapshot().versions.front().id;
     require (controller.selectVersion (autoId, true) && controller.pendingSlot() == 2

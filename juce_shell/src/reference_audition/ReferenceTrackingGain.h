@@ -12,11 +12,11 @@ namespace hypha::reference_audition
 {
 struct VisualBinding;
 
-// H3: B・V の追従 gain。live PRE/POST 比較の AUTO（INV-LC16）と同じ値で動かす：1 秒ごとに測り直し、
+// B・V の追従 gain。live PRE/POST 比較の AUTO（INV-LC16）と同じ値で動かす：1 秒ごとに測り直し、
 // 0.5 dB 以内は動かさず、動かすときは Audio Thread で 50 ms の直線の ramp。上限（True Peak）を超える
 // gain と、利用者の MATCH の gain から ±6 dB を超える gain には動かさず、追従を止めて理由を出す
 // （R-28：利用者が選んだ試聴のことは黙らない）。
-// 動かすのは参照の試聴コピーだけで、A は動かさない。C は Match の後に固定（H4）で、追従しない。
+// 動かすのは参照の試聴コピーだけで、A は動かさない。C は Match の後に固定で、追従しない。
 inline constexpr double trackingIntervalSeconds = 1.0;
 inline constexpr double trackingToleranceDb = 0.5;
 inline constexpr double trackingRampSeconds = 0.05;
@@ -30,7 +30,7 @@ enum class TrackingAction : std::uint8_t
     stopRange    // gainDb が MATCH の gain から ±6 dB を超える。動かさず、追従を止める
 };
 
-// H12: C の MATCH をもう一度（鳴っている C の gain を今の A の窓で決め直して固定する）の結果。
+// C の MATCH をもう一度（鳴っている C の gain を今の A の窓で決め直して固定する）の結果。
 enum class RematchResult : std::uint8_t
 {
     matched,           // 決め直した（gain は 50 ms の ramp で動く）
@@ -52,7 +52,7 @@ struct TrackingStep
 // 上げられる幅（0 以上）を返す。参照の peak が分からなければ 0（上げない）。
 double referenceGainHeadroomDb (double sourcePeakDbtp, double aPeakDbtp) noexcept;
 
-// 2026-10-03（Daisuke 承認）：上限を超える MATCH は、利用者が承認すれば A（POST の出力全体）を下げて合わせる。
+// 2026-10-03：上限を超える MATCH は、利用者が承認すれば A（POST の出力全体）を下げて合わせる。
 // heldAttenuationDb は承認して下げている量（0 以下）。参照の gain は今までどおり「A − 参照の値」で、出力では
 // 下げた量が足される。上限は下げた後の音で見る：参照の peak ＋ gain ＋ 下げた量が max(−1 dBTP, 下げた A の
 // max TP, 参照の max TP) を超えるなら超える。
@@ -62,7 +62,7 @@ bool referenceGainExceedsCeiling (double requiredGainDb, double sourcePeakDbtp, 
 // ローカル Blind と同じ）。上げなくてよい（requiredGainDb が 0 以下）なら 0。
 double referenceAttenuationToMatch (double requiredGainDb) noexcept;
 
-// 2026-10-04（Daisuke「基本は C が A に合わせた方が良い」）：上限で届かない量が 0.5 dB 以下（聞いて分からない差）
+// 2026-10-04（なるべく参照の側を A に合わせる）：上限で届かない量が 0.5 dB 以下（聞いて分からない差）
 // なら、承認を求めず上限まで上げて鳴らし、足りない量を状態の行で言う。それより大きいときは今どおり A を下げる
 // 承認を出す（大きく小さい参照曲を、音量差のまま比べさせない）。押したときの MATCH・追従・C の MATCH のやり直しで同じ。
 inline constexpr double peakShortfallToleranceDb = 0.5;

@@ -66,7 +66,7 @@ inline double unavailableValue() noexcept
     return std::numeric_limits<double>::quiet_NaN();
 }
 
-// H10: A／B／C／V の役の文字。slot 1 = V（Version）、2 = C（Check）、3 = B（REF、B セットの曲）。
+// A／B／C／V の役の文字。slot 1 = V（Version）、2 = C（Check）、3 = B（REF、B セットの曲）。
 inline const char* roleLetter (int slot) noexcept
 {
     return slot == 1 ? "V" : slot == 2 ? "C" : slot == 3 ? "B" : "A";
@@ -78,12 +78,12 @@ struct SelectionOption
     juce::String label;
 };
 
-// H11: B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
+// B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
 struct SongFact
 {
     double lufsI = std::numeric_limits<double>::quiet_NaN();
     bool prepared = false;
-    reference_audition::RuntimeSongPreparation preparation; // K13b：Kirin OS がこの曲を準備している状態
+    reference_audition::RuntimeSongPreparation preparation; // Kirin OS がこの曲を準備している状態
     std::vector<double> centersHz;
     std::vector<float> medianDb;
     // 既定の Cue が曲のどの部分か（凡例「Bサビ 1:02-1:24」。Kirin OS は Cue を決めていない曲にサビ候補を渡す）。
@@ -168,15 +168,15 @@ struct State
     juce::String candidatePreparationAction;
     bool candidatePreparationPending = false;
     juce::String actionText;
-    // H10: B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
+    // B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
     bool referenceReady = false, referenceArmable = false;
-    reference_audition::TrackingState tracking = reference_audition::TrackingState::none; // H9: 聴いている役の合わせ方
+    reference_audition::TrackingState tracking = reference_audition::TrackingState::none; // 聴いている役の合わせ方
     SourceStep referenceStep = SourceStep::waitingForKirinOs;
     std::vector<SelectionOption> songSets, songs;
-    std::vector<SongFact> songFacts; // H11: songs と同じ順
-    std::map<juce::String, std::vector<juce::String>> checkViewBindings; // H13: V のタブの Check ごとの表示
+    std::vector<SongFact> songFacts; // songs と同じ順
+    std::map<juce::String, std::vector<juce::String>> checkViewBindings; // V のタブの Check ごとの表示
     juce::String songSetId, songId, songSetsIssue; // songSetsIssue：Kirin OS のセットを読めなかった理由（空なら無し）
-    // H12: 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
+    // 同じ定義・同じ区間・同じ音量で比べる値。A の直近の窓（Kirin OS の Cue と同じ定義）と C の Cue の
     // 値（gain の前）、gain をそろえる基準（A の窓の音量・Cue の Integrated）、C の画面の Cue の時間軸。
     std::shared_ptr<const reference_audition::KirinSpectrumWindow> aKirin, cueKirin;
     reference_audition::CuePart cuePart = reference_audition::CuePart::unknown;  // C の Cue が曲のどの部分か（凡例）
@@ -187,8 +187,8 @@ struct State
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
     bool cueLoops = false;
-    juce::String preparationOverdue; // H6: 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
-    reference_audition::RuntimeSongPreparation rolePreparation; // K13b：見ている役の曲を Kirin OS が準備している状態
+    juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
+    reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -247,16 +247,16 @@ public:
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
     std::function<void()> onSelectC;
-    std::function<void()> onSelectRef;                                    // H10: B（REF）
-    std::function<void(const juce::String&)> onSelectSong, onSelectSongSet; // H10: B の曲と B SET
+    std::function<void()> onSelectRef;                                    // B（REF）
+    std::function<void(const juce::String&)> onSelectSong, onSelectSongSet; // B の曲と B SET
     std::function<void(const juce::String&)> onSelectVersion;
     std::function<void(const juce::String&)> onSelectPreset;
     std::function<void(const juce::String&)> onSelectCheck;
     std::function<void(const juce::String&)> onSelectCandidate;
     std::function<void(const juce::String&)> onSelectCue;
     std::function<void(int)> onSelectVisualSlot;
-    std::function<void(int)> onOpenLarge; // H10: 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
-    std::function<void()> onMatch;        // H12: 鳴っている C の MATCH をもう一度
+    std::function<void(int)> onOpenLarge; // 300% 未満の C・V を押したとき（広げるだけ、音は変えない）
+    std::function<void()> onMatch;        // 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
     // A B or C that cannot be heard yet says why when it is clicked.
@@ -264,7 +264,7 @@ public:
 
     void setState (State);
     // 状態の行は、足元の段があるとき（150% 以上）はどの画面でも足元の左に出す（エディターが決めて置く。
-    // 2026-10-04 Daisuke「全画面で左下」）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
+    // 2026-10-04）。足元の段が無い 100%・125% は REF の一番下（同じ左下）。
     bool statusInFooter() const noexcept { return statusFooterMode; }
     // 状態の行に押せるボタン（承認・VERSION BLIND）があるか。知らせと重なるときは行を REF の中へ戻す。
     bool statusRowHasControls() const noexcept;
@@ -338,11 +338,11 @@ private:
     SideButton aButton { "A" };
     SideButton bButton { "V" };   // V（Version）。ID は既存の契約のため "reference-b" のまま
     SideButton cButton { "C" };
-    SideButton refButton { "B" }; // H10: B（REF、B セットの曲）
+    SideButton refButton { "B" }; // B（REF、B セットの曲）
     juce::ComboBox songSetBox, songBox;
-    SongList songList; // H11: B の画面の左の曲の一覧
-    CheckTabs checkTabs; // H12: C の画面の Check のタブ（CHECK セットの順）
-    juce::ComboBox checkSongBox; // H12: いまの Check の曲
+    SongList songList; // B の画面の左の曲の一覧
+    CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
+    juce::ComboBox checkSongBox; // いまの Check の曲
     SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton actionButton { "OPEN KIRIN OS" };
@@ -354,11 +354,11 @@ private:
     void layoutStatusRow (juce::Rectangle<int>);
     void paintStatusRow (juce::Graphics&, juce::Rectangle<int>) const;
 
-    // H10: B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
+    // B（REF）の役のボタンと B SET・曲の選択（HyphaReferenceRoles.cpp）。
     void configureRoles();
     void syncRoles (bool blindSession);
     bool explainReference();
-    // H12: C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
+    // C の画面（300%）。CHECK SET・Check のタブ・曲・Cue・MATCH、4 帯域と Cue の時間軸
     // （HyphaReferenceCheckPage.cpp）。
     bool checkPage() const noexcept;
     // 2026-10-04：選択欄は A・B・C・V のボタンの段、MATCH はタブの段、CUE は Cue の時間軸の段に置く（図を大きく）。
@@ -376,7 +376,7 @@ private:
     bool listeningCheck() const;
     void paintListeningPanel (juce::Graphics&, juce::Rectangle<int>) const;
     juce::Rectangle<int> paintCheckFooter (juce::Graphics&, juce::Rectangle<int> area) const;
-    // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
+    // V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。
     bool versionPage() const noexcept;
     static constexpr int versionPageRows = 28;  // タブ（選択欄はボタンの段）
     juce::String versionTab { "whole" };

@@ -52,7 +52,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             : state.tracking == Tracking::stoppedRange ? role + " FOLLOW STOPPED 6 DB FROM MATCH"
             : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
         // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。足元に RETURN（+x dB）が
-        // 出ていれば言わない（2 度言うと 300% の足元で切れた。2026-10-05、Mac の実機）。
+        // 出ていれば言わない（2 度言うと 300% の足元で切れた。2026-10-05）。
         const auto lowered = state.heldAttenuationDb < -0.05 && ! returnInFooter
             ? "  /  A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
         // ピークの上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしている（2026-10-04、承認を求めない）。
@@ -64,7 +64,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     }
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {
-        // H6: 待ちが上限を超えたら「できない」にして理由と直し方を出す。
+        // 待ちが上限を超えたら「できない」にして理由と直し方を出す。
         if (state.pendingAudition.waiting() && state.preparationOverdue.isNotEmpty())
             return { StatusKind::unable, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
@@ -80,15 +80,15 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
                  : juce::String ("B: RANK A B SET FOR HYPHA IN KIRIN OS") };
     const auto step = state.comparisonSlot == 1 ? state.versionStep
                     : state.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
-    // K13b: 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
-    // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限（H6）より先に言う。
+    // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
+    // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限より先に言う。
     if (step != SourceStep::ready && step != SourceStep::playDaw)
         if (const auto line = preparationLine (state.rolePreparation); line.isNotEmpty())
             return { preparationFailed (state.rolePreparation) ? StatusKind::unable : StatusKind::waiting,
                      juce::String (roleLetter (state.comparisonSlot)) + ": " + line };
     // Kirin OS を待っている段階は、Kirin OS が閉じていれば待っても進まない（開くのが直し方）。
     const auto kind = step == SourceStep::waitingForKirinOs && ! state.osOnline ? StatusKind::unable : kindOf (step);
-    if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())  // H6
+    if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())
         return { StatusKind::unable, juce::String (roleLetter (state.comparisonSlot)) + ": " + state.preparationOverdue };
     return { kind, state.status };
 }

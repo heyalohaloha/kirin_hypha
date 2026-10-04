@@ -1,4 +1,4 @@
-// H12: A を Kirin OS の Cue の値と同じ定義で測る（ReferenceKirinSpectrum）。Kirin OS の解析
+// A を Kirin OS の Cue の値と同じ定義で測る（ReferenceKirinSpectrum）。Kirin OS の解析
 // （kirin-audio-engine の measureReferenceSource）が合成信号に出した 100 ms ごとの 64 帯域と 4 帯域
 // Balance（tests/fixtures/kirin_spectrum/kirin_os_ticks.json、0.001 dB 単位）と、同じ信号を Hypha で
 // 測った値が丸めの幅（0.002 dB 以内）で一致すること（48 kHz と 44.1 kHz）。

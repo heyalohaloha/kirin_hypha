@@ -17,17 +17,17 @@ bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
 
 void testReferenceAbcv (const juce::File& sandbox)
 {
-    testReferenceLibrarySets (sandbox);  // H1
-    testReferenceLiveWindow();           // H2
-    testReferenceTrackingRules();        // H3
-    testReferenceCueMatch (sandbox);     // H3・H4
-    testReferenceRoles (sandbox);        // H8
-    testReferenceCueRestart (sandbox);   // H8・H5（X3 の実機で見つけた起点）
+    testReferenceLibrarySets (sandbox);
+    testReferenceLiveWindow();
+    testReferenceTrackingRules();
+    testReferenceCueMatch (sandbox);
+    testReferenceRoles (sandbox);
+    testReferenceCueRestart (sandbox);
     testReferenceLowerA (sandbox);       // 2026-10-03：上限超えは承認して A を下げて合わせる（R-12）
-    testReferenceKirinSpectrum();        // H12
+    testReferenceKirinSpectrum();
     testReferenceBlauertBands();         // 2026-10-04：Blauert の帯の差
     testReferenceDynamicsRange();        // 2026-10-04：範囲の帯（Kirin OS と同じ区間の値）
-    testReferenceKirinFingerprint();     // H7
+    testReferenceKirinFingerprint();
 }
 
 // `--abcv-only`：ABCV のテストだけを流す（手元で直すときに全体の 4 分を待たない）。

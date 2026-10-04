@@ -137,7 +137,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     if (ready && spectral) paintBlauertZones (g, chart, 20.0, maximumHz);             // Blauert の帯（2026-10-04）
     if (ready && spectral)
     {
-        // 2026-10-04（Daisuke「A と V が両方表示された方が便利」）：A を太く下に、V を細く上に。同じ値でも両方見える。
+        // 2026-10-04（A と V を両方読めるように）：A を太く下に、V を細く上に。同じ値でも両方見える。
         g.setColour (COL_FLORA_BR.withAlpha (0.9f));
         g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (2.8f));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));

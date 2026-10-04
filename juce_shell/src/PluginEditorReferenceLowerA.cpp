@@ -2,7 +2,7 @@
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
 
-// 2026-10-03（Daisuke 承認、R-12）：B・C・V の MATCH が上限（True Peak）を超える（大きな A に静かな参照曲）とき、
+// 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超える（大きな A に静かな参照曲）とき、
 // 断るだけでなく「A を差だけ下げて合わせる」承認を出す。参照は元の音量のまま。承認した量は足元の RETURN で戻す
 // まで保つ（live PRE/POST 比較の POST の減衰と同じ見せ方）。承認のボタンは 300% の REF のアクション。
 
@@ -54,7 +54,7 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
     // 一度だけ承認を出す（2026-10-04）。
     using Stage = hypha::reference_audition::PendingAuditionView::Stage;
     const auto& pending = runtime.pendingAudition;
-    // 別の役を押して待たせたら、前の役の承認は引っ込める（押した役が優先）。2026-10-04 の実機：B の承認が残って
+    // 別の役を押して待たせたら、前の役の承認は引っ込める（押した役が優先）。2026-10-04：B の承認が残って
     // いて、あとで押して待たせた C が上限を超えても承認が出ず「C STOPPED / MATCH EXCEEDS SAFE LEVEL」で止まった。
     if (offer.slot != 0 && pending.stage != Stage::none && pending.slot != 0 && pending.slot != offer.slot) offer = {};
     if (pending.stage != Stage::ceilingExceeded) referenceLowerAPendingOffered = 0;
@@ -80,7 +80,7 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
     if (offer.slot == 0 || offer.slot != state.comparisonSlot) return;
     const auto letter = juce::String (hypha::reference_ui::roleLetter (offer.slot));
     const auto amount = juce::String (-offer.db, 1);
-    // 直し方はボタンが言う（量も）。2 度言うと 300% の足元で状態の文とボタンの文が両方切れた（2026-10-05、Mac の実機）。
+    // 直し方はボタンが言う（量も）。2 度言うと 300% の足元で状態の文とボタンの文が両方切れた（2026-10-05）。
     state.status = letter + " NEEDS A " + amount + " DB LOWER";
     state.actionText = "LOWER A " + amount + " DB & PLAY " + letter;
 }

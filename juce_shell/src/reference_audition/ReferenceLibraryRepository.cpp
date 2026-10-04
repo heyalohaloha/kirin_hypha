@@ -19,7 +19,7 @@ juce::String setsIssue (const juce::String& rejection)
     return rejection == "reference_library_sets_stale" ? juce::String {} : rejection;
 }
 
-// H1: manifest が同じでも、Kirin OS で順位だけを変えると sets.json だけが書き換わる。
+// manifest が同じでも、Kirin OS で順位だけを変えると sets.json だけが書き換わる。
 // 読めないときや書き換えの途中（別の manifest の sets）のときは、今の sets をそのまま保つ。
 RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shared_ptr<const RuntimeWorkspace> current)
 {

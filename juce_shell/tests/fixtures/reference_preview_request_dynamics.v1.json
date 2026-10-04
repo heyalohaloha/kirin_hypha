@@ -39,15 +39,15 @@
   },
   "candidate": {
     "id": "candidate-2",
-    "label": "MONTERO",
+    "label": "Song 2",
     "options": [
       {
         "id": "candidate-1",
-        "label": "Hello"
+        "label": "Song 1"
       },
       {
         "id": "candidate-2",
-        "label": "MONTERO"
+        "label": "Song 2"
       }
     ]
   },

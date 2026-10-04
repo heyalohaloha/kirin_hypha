@@ -22,7 +22,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     juce::Range<double> selectedRange() const noexcept { return { start, end }; }
-    // H13: V の画面の Check のタブ。空ならタイムライン（WHOLE）。gainDb は V の追従の gain（鳴っていなければ NaN）。
+    // V の画面の Check のタブ。空ならタイムライン（WHOLE）。gainDb は V の追従の gain（鳴っていなければ NaN）。
     // views はその Check の表示（Kirin OS の view_bindings）。帯域の幅と、V で比べられない Check の断りに使う。
     // listening：耳で聴き比べる Check（図の代わりに聴き比べの案内）。
     void setSameSection (const juce::String& checkLabel, double gainDb, std::vector<juce::String> views = {}, bool listening = false);

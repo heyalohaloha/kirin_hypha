@@ -198,7 +198,7 @@ void Component::syncSourceButtons()
     cButton.setButtonText ("C");
     bButton.setAttention (waiting && current.pendingAudition.slot == 1);
     cButton.setAttention (waiting && current.pendingAudition.slot == 2);
-    // H10: 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
+    // 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
     const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen;
     bButton.setEnabled (current.separateComparisons || versionAudible);
     bButton.setReady (! opensLarge && (! current.separateComparisons || versionAudible || bQueue));

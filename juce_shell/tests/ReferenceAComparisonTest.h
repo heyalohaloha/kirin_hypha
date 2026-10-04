@@ -1,6 +1,6 @@
 #pragma once
 
-// 2026-10-04 Daisuke「Cに対してAが多いのか少ないのか、どっちの数字なのか分かりにくい」→「A を主語に言葉で」。
+// 2026-10-04：符号つきの差では、A が多いのか少ないのかが分かりにくかった。
 // 比べる側との差は A を主語にして言葉で言う（「A 3.7 LESS」、日本語は「Aが3.7少ない」）。符号は付けず、表示の桁で 0 なら
 // 「A SAME AS C」。300% の C と V の 4 帯域の欄は、見出し（CよりA（dB））が主語を言い、名前と差の文を省略せずに
 // 収める（両言語）。
@@ -71,7 +71,7 @@ inline void verifyReferenceAComparison()
     state.separateComparisons = true;
     state.comparisonSlot = 2;
     state.comparisonMode = "loudness_match";
-    state.checks = { { "chk-low/cand-1", "Low End  /  Hello" } };
+    state.checks = { { "chk-low/cand-1", "Low End  /  Song 1" } };
     state.checkId = "chk-low/cand-1";
     state.aKirin = kirinWindow (0.0f, { -20.0, -14.0, -18.0, -30.0 }, 300);
     state.cueKirin = kirinWindow (-6.0f, { -16.5, -11.5, -15.0, -28.5 }, 300);

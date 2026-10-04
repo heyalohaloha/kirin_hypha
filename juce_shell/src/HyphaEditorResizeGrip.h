@@ -5,7 +5,7 @@
 #include "HyphaObservatoryResizeContract.h"
 #include "HyphaTheme.h"
 
-// The editor's own bottom-right grip (2026-10-04, Daisuke chose it for both platforms). Studio on
+// The editor's own bottom-right grip (2026-10-04, on both platforms). Studio on
 // Windows and Pro Tools give a plug-in window no frame to drag: Studio's frame corner lies under
 // the plug-in's window, so only a grip the plug-in draws can be held there. Dragging it goes
 // through the editor's size rule (EditorSizeConstrainer: 3:2, then the magnified steps), and the

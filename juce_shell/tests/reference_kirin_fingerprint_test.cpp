@@ -1,4 +1,4 @@
-// H7: A を Kirin 指紋と同じ定義で測り、Version の指紋と照合する（ReferenceKirinFingerprint）。Kirin OS の
+// A を Kirin 指紋と同じ定義で測り、Version の指紋と照合する（ReferenceKirinFingerprint）。Kirin OS の
 // 解析と指紋（tests/fixtures/kirin_fingerprint/kirin_os_fingerprints.json）と、同じ信号を Hypha で測った値を
 // 比べる：100 ms ごとのクロマ、LUFS-M、指紋のビット。照合は Kirin OS の照合と同じ一致率・ずれ・関係になる。
 // Kirin OS は 100 ms の窓の一部を 1 サンプル早く読む（Kirin OS 側の不具合として別に直す）ので、クロマは

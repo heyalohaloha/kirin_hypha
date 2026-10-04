@@ -4,7 +4,7 @@
 
 #include "HyphaPresentationContext.h"
 
-// 2026-10-04（Daisuke「この 2 個は視覚的にどういう活用をしたら良いのか分からない」→「範囲の帯で比べる」）：C の画面の
+// 2026-10-04（2 つの値を並べるだけでは、どう使えばよいかが分からなかった）：C の画面の
 // Dynamics・Loudness・Stereo・Waveform・Transient の Check は、項目ごとに A（金）と C（水色）の帯を上下に並べる。帯は
 // 区間の中の p10〜p90、縦線は中央値、右に中央値、A の行に差（A を主語に言葉で。HyphaReferenceAComparison.h）。
 // 値は Kirin OS と同じ定義（ReferenceDynamicsRange.h）で、A は直近（C の窓の長さ）、C は Cue。音量に関わる値（LUFS-M・ピーク・RMS）は C を鳴らす gain で合わせて（聞こえる

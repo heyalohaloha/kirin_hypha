@@ -316,7 +316,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      "background workspace polling must not move the established B anchor");
             controller.selectA();
 
-            // H5: サンプルレートが違っても承認を待たず、試聴コピーだけを変換する（元のファイルは変えない）。
+            // サンプルレートが違っても承認を待たず、試聴コピーだけを変換する（元のファイルは変えない）。
             controller.configure (v2Identity, 44'100.0, 2);
             for (int attempt = 0; attempt < 400; ++attempt)
             {

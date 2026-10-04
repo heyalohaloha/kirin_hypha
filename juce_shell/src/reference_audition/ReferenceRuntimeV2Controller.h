@@ -86,22 +86,22 @@ namespace hypha::reference_audition
                               bool positionValid, bool auditionAllowed,
                               bool normalReturnAllowed, bool normalTarget = true) noexcept;
         void loseAudibleConfirmation() noexcept;
-        // H3: 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
+        // 選んでいるあいだの追従（メッセージスレッドから 1 秒ごと）。history は 10 Hz のメーター履歴、
         // aSessionPeakDbtp は A のセッションの max TP。V と、追従にした役（B）だけが動き、C は固定。
-        RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // H12: C の MATCH をもう一度
-        VersionIdentity identifyVersions (const KirinFingerprint&, std::int64_t endTick); // H7（メッセージスレッド）
+        RematchResult rematch (double aLoudness, double aSessionPeakDbtp) noexcept; // C の MATCH をもう一度
+        VersionIdentity identifyVersions (const KirinFingerprint&, std::int64_t endTick); // （メッセージスレッド）
         TrackingAction followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                         double aSessionPeakDbtp) noexcept;
         void setTrackingEnabled (bool enabled) noexcept { trackingEnabled.store (enabled, std::memory_order_release); }
         // 承認して A を下げている量（0 以下）。MATCH・追従・やり直しの上限はこの量を足した後の音で見る。
         void setHeldAttenuation (double db) noexcept { heldAttenuationDb.store (std::min (0.0, db), std::memory_order_release); }
-        // H8: B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
+        // B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
         void setSongsOnly (bool enabled) noexcept { songsOnly.store (enabled, std::memory_order_release); notify(); }
         bool trackingAudible() const noexcept
         { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
-        // H3／H4：MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
+        // MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
         int matchWindowBlocks() const;
-        // H5：停止・シークで A に戻った選択を、同じ音（playback identity）・同じ gain のまま戻す。
+        // 停止・シークで A に戻った選択を、同じ音（playback identity）・同じ gain のまま戻す。
         // 利用者が A を押す・別の音にする・試聴を止められたときは忘れる（forgetHeldSelection）。
         bool resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept;
         bool hasHeldSelection() const;
@@ -250,8 +250,8 @@ namespace hypha::reference_audition
         std::uint64_t appliedConfigurationGeneration = 0;
         std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;
-        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // stateLock：K13b、Kirin OS の準備の状態
-        VersionIdentifier versionIdentifier; // H7: Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // stateLock：Kirin OS の準備の状態
+        VersionIdentifier versionIdentifier; // Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
@@ -279,7 +279,7 @@ namespace hypha::reference_audition
         } heldSelection; // stateLock
         double trackingAnchorDb = 0.0; // stateLock：鳴っている選択の MATCH の gain（追従の幅の中心）
         void holdCurrentGainLocked() noexcept;
-        // H3・H12：決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
+        // 決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
         void applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
                                      double sourceLoudness, double sourcePeakDbtp) noexcept;
         RuntimeEventContext activeEventContext;

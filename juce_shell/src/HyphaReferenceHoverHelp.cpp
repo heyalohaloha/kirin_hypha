@@ -4,7 +4,7 @@
 
 // 300% の B・C・V で指している項目の説明（HyphaReferenceHelp.h）。部品は今の説明（ツールチップ）、説明の無い部品
 // （タブ・曲の一覧・WHOLE）はここで決めた一行、図は描いたときに添えた一行。足元に出すのはエディターの説明の行
-// （PluginEditorHelpLine.cpp。2026-10-04 Daisuke「足元の段の全幅を使う」）。
+// （PluginEditorHelpLine.cpp。2026-10-04 から足元の段の全幅を使う）。
 namespace hypha::reference_ui
 {
 // 300% だけ（200% 以下の足元の行は説明の一行に足りないので、今までどおり吹き出し）。

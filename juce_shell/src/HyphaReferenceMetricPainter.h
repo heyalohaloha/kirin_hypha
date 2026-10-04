@@ -5,8 +5,8 @@
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceAComparison.h"
 
-// 比べる側との差は A を主語に言葉で（2026-10-04 Daisuke「Cに対してAが多いのか少ないのか分かりにくい」→「A を主語に
-// 言葉で」。HyphaReferenceAComparison.h）。`otherMinusA` は比べる側 − A。
+// 比べる側との差は A を主語に言葉で（2026-10-04、
+// HyphaReferenceAComparison.h）。`otherMinusA` は比べる側 − A。
 namespace hypha::reference_metric_painter
 {
 void paintPanel (juce::Graphics&, juce::Rectangle<float>, float alpha = 0.66f);

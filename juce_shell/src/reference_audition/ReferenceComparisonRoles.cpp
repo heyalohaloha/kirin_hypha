@@ -22,7 +22,7 @@ bool ReferenceComparisonController::selectC (double loudness, double peak) noexc
     normalOutputSlot.store (selected ? 2 : 0, std::memory_order_release);
     return selected;
 }
-// H8: B（REF）。B セットの曲を、A の直近 10 秒に追従する gain で鳴らす。
+// B（REF）。B セットの曲を、A の直近 10 秒に追従する gain で鳴らす。
 bool ReferenceComparisonController::selectRef (double loudness, double peak) noexcept
 {
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
@@ -35,7 +35,7 @@ bool ReferenceComparisonController::selectRef (double loudness, double peak) noe
 void ReferenceComparisonController::selectA() noexcept
 { clearPendingAudition(); dropResume(); version.selectA(); check.selectA(); reference.selectA(); }
 
-// 2026-10-03（Daisuke 承認、R-12）：上限を超えた MATCH の役を、承認して A を差だけ下げて合わせる（参照は元の音量）。
+// 2026-10-03（R-12）：上限を超えた MATCH の役を、承認して A を差だけ下げて合わせる（参照は元の音量）。
 // 下げ終わってから、押したのと同じ待ちで鳴らす（再生中でも止まっていても）。深くするだけで、浅くするのは RETURN。
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
 bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double approvedDb)
@@ -89,7 +89,7 @@ void ReferenceComparisonController::suspendAudition() noexcept
 
 namespace hypha::reference_audition
 {
-// H8: B の曲を選ぶ。B が鳴っていた（または戻る保留・押した後の待ちがある）なら、新しい曲が公開され次第、
+// B の曲を選ぶ。B が鳴っていた（または戻る保留・押した後の待ちがある）なら、新しい曲が公開され次第、
 // 新しい MATCH で B のまま鳴らす（「押せば即切替」）。それまでのあいだは A（フェードで戻す）。違う曲を前の
 // gain で鳴らすことはしない。ほかの役（C・V）は止めない。
 bool ReferenceComparisonController::selectSong (const juce::String& id)
@@ -111,7 +111,7 @@ bool ReferenceComparisonController::selectSongSet (const juce::String& id)
     return true;
 }
 
-// H8: B の曲をまだ選んでいない（初めて）ときは、選んでいる B SET の最初の曲（準備済みを先に）を選んでおく。
+// B の曲をまだ選んでいない（初めて）ときは、選んでいる B SET の最初の曲（準備済みを先に）を選んでおく。
 // B を押せばすぐ鳴るように、音の準備は前もって進める。選んだ曲が B セットから外れたときは黙って替えない
 // （B の画面が「保存した選択が無い / 選び直す」を出す。R-28）。
 void ReferenceComparisonController::ensureReferenceSong (const Snapshot& r)

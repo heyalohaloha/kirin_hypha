@@ -1,6 +1,6 @@
 {
  "schema": "kirin_dynamics_cross_check.v1",
- "about": "Kirin OS（kirin-audio-engine の measureReferenceSource、W-3282 時点）が下の合成信号に出した区間ごとの値（先頭 hops 区間）。信号：float32・2 ch。gain = 0.1 + 0.25·(0.5 + 0.5 sin(2π·0.5 t))、0.7 秒ごとに 20 ms の 1500 Hz（0.3）、L = gain·sin(2π·220 t) + burst + 0.05·雑音(seed 12345)、R = gain·sin(2π·220 t + π/3) + 0.05·雑音(seed 67890)。雑音は x = x·1664525 + 1013904223 (mod 2^32) を x / 2^31 − 1 にした値。48 kHz・6 秒は hop 100 ms、8 kHz・210 秒は hop 200 ms。",
+ "about": "Kirin OS（kirin-audio-engine の measureReferenceSource）が下の合成信号に出した区間ごとの値（先頭 hops 区間）。信号：float32・2 ch。gain = 0.1 + 0.25·(0.5 + 0.5 sin(2π·0.5 t))、0.7 秒ごとに 20 ms の 1500 Hz（0.3）、L = gain·sin(2π·220 t) + burst + 0.05·雑音(seed 12345)、R = gain·sin(2π·220 t + π/3) + 0.05·雑音(seed 67890)。雑音は x = x·1664525 + 1013904223 (mod 2^32) を x / 2^31 − 1 にした値。48 kHz・6 秒は hop 100 ms、8 kHz・210 秒は hop 200 ms。",
  "signals": [
   {
    "sample_rate": 48000,

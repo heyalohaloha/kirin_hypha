@@ -53,9 +53,9 @@ private:
     std::array<float, 512> bPcm {};
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
-    KirinSpectrumMeter kirinMeter;        // H12: A を Kirin OS の Cue と同じ定義で
-    KirinSpectrumMeter pairAMeter, pairVMeter; // H13: 位置合わせで対応した A と V（同じフレーム）
-    KirinFingerprintMeter printMeter;     // H7: A の Kirin 指紋（直近 30 秒）
+    KirinSpectrumMeter kirinMeter;        // A を Kirin OS の Cue と同じ定義で
+    KirinSpectrumMeter pairAMeter, pairVMeter; // 位置合わせで対応した A と V（同じフレーム）
+    KirinFingerprintMeter printMeter;     // A の Kirin 指紋（直近 30 秒）
     DynamicsTicks aTickMeter;              // 範囲の帯：A の 100 ms の bin（Kirin OS の区間の値と同じ定義）
     DynamicsTicks pairATicks { 300 }, pairVTicks { 300 }; // V の画面：同じ区間の A と V（直近 30 秒）
     std::int64_t printEndSample = -1;

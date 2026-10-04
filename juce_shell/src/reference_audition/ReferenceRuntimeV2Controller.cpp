@@ -46,7 +46,7 @@ namespace hypha::reference_audition
           presetAdoptionTransport (root),
           eventTransport (root)
     {
-        trackingEnabled.store (versionComparison, std::memory_order_release);  // H3: V は追従、C は固定
+        trackingEnabled.store (versionComparison, std::memory_order_release);  // V は追従、C は固定
         outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
     }

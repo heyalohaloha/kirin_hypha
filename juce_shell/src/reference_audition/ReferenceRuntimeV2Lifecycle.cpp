@@ -170,7 +170,7 @@ namespace hypha::reference_audition
             {
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 if (versionComparison && workspace != nullptr)
-                    versionIdentifier.prepare (root, *workspace, juce::Time::currentTimeMillis());  // H7
+                    versionIdentifier.prepare (root, *workspace, juce::Time::currentTimeMillis());
                 untilPoll = workspacePolls;
             }
             wait (fading ? 2 : workerPollMs);

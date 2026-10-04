@@ -3,7 +3,7 @@
 #include "HyphaReferenceStatusModel.h"
 #include "HyphaTheme.h"
 
-// H10: A／B／C／V の B（REF）。Kirin OS が「Hypha に出す」にした B セットの曲を鳴らす役のボタンと、
+// A／B／C／V の B（REF）。Kirin OS が「Hypha に出す」にした B セットの曲を鳴らす役のボタンと、
 // B SET（順位つき、最大 3）と曲の選択。B を押すと B の画面になり、B のまま曲を選ぶとすぐ切り替わる。
 namespace hypha::reference_ui
 {
@@ -57,7 +57,7 @@ void Component::configureRoles()
     addChildComponent (songList);
 }
 
-// H10: 300% 未満の C と V は薄く描き、押すと 300% に広げてその役の画面を開く（Blind と同じ動き）。
+// 300% 未満の C と V は薄く描き、押すと 300% に広げてその役の画面を開く（Blind と同じ動き）。
 // 鳴らすのは 300% でもう一度押したとき。広げる前に音は変えない。
 bool Component::openLarge (int slot)
 {
@@ -82,12 +82,12 @@ void Component::syncRoles (bool blindSession)
     syncSelectionControl (songSetBox, current.songSets, current.songSetId);
     syncSelectionControl (songBox, current.songs, current.songId);
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
-    // H10: 100% の B は曲名・gain・状態だけ。B SET は出さず、曲の切替は 125% 以上。
+    // 100% の B は曲名・gain・状態だけ。B SET は出さず、曲の切替は 125% 以上。
     const bool glance = presentationContext.density == observatory::Density::compact;
     songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
     songBox.setEnabled (songBox.isEnabled() && ! glance);
-    // H11: 300% 以上の B の画面は、左に曲の一覧、右に Balance。
+    // 300% 以上の B の画面は、左に曲の一覧、右に Balance。
     songList.setVisible (referenceView && detailedLayout() && ! current.songs.empty());
     std::vector<SongList::Row> rows;
     for (size_t index = 0; index < current.songs.size(); ++index)

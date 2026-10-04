@@ -2,7 +2,7 @@
 
 namespace hypha::reference_audition
 {
-// H5: 停止・シーク後の自動復帰。利用者が B／C／V を選んだまま（normalOutputSlot）で、その音が A に戻って
+// 停止・シーク後の自動復帰。利用者が B／C／V を選んだまま（normalOutputSlot）で、その音が A に戻って
 // いれば、同じ音・同じ gain で戻す保留を立てる。A を押す・試聴が止められる・音が変わると戻さない。
 // 選択を替えた役（switchSlot）は、新しい選択が公開されたら新しい MATCH で鳴らす（戻すのではない）。
 bool ReferenceComparisonController::resumeWanted() const

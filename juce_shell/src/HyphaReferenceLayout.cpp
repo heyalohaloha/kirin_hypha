@@ -14,7 +14,7 @@ void Component::resized()
         header.removeFromRight (3);
     };
     const bool blindSession = isBlindSession (current.blindPhase);
-    // A B C V（左から）。右から V・C・B・A の順に置く（H10）。始めた VERSION BLIND の操作は、エディターが窓全体に出す
+    // A B C V（左から）。右から V・C・B・A の順に置く。始めた VERSION BLIND の操作は、エディターが窓全体に出す
     // PRE/POST Blind と同じ画面にある（HyphaVersionBlindScreen.h）。
     place (bButton, comparisonWidth);
     if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
@@ -22,7 +22,7 @@ void Component::resized()
     if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
     // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
     auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
-    if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // H12・H13: C・V の画面（HyphaReferenceCheckPage.cpp）
+    if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // C・V の画面（HyphaReferenceCheckPage.cpp）
     else if (rolePage() && current.comparisonSlot == 3)
     {
         // B の画面：B SET と曲。V・C の選択欄と Preset・Cue は B では出さない。
@@ -47,7 +47,7 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
-        songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに（H10）
+        songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに
         songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
         auto top = area.removeFromTop (selectionVisible (presetBox) || selectionVisible (cueBox)
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
@@ -101,7 +101,7 @@ void Component::resized()
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);
-    songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f))); // H11
+    songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
     // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
     if (statusStrip.getParentComponent() == this)
     {

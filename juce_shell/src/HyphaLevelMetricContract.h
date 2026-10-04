@@ -56,7 +56,7 @@ constexpr const char* label (Metric metric) noexcept
     return "";
 }
 
-// What the value is and what it is used for (2026-10-04 Daisuke「PLRはダイナミクスの平均とか分かるように…活用方法も含めて」).
+// What the value is and what it is used for (2026-10-04).
 // Facts and uses only, no judgement of the value (R-22). Shown after "POST. ", "PRE. " or "POST minus PRE. ".
 constexpr const char* scopeHelp (Metric metric) noexcept
 {

@@ -1,6 +1,6 @@
 // B（別の曲）は、選んだときの DAW の位置を起点に Cue の頭から進む。選んだ後に DAW を頭へ戻す・Cue を過ぎてから
 // 押す・鳴らしている B を止めて起点より前へ戻す、のどれでも「Cue範囲外」にせず、今の位置から Cue の頭を鳴らす
-// （2026-10-03、Windows 実機の通しで、選んだ後に頭へ戻すと B が鳴らせなくなっていた）。
+// （2026-10-03。選んだ後に頭へ戻すと B が鳴らせなくなっていた）。
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"

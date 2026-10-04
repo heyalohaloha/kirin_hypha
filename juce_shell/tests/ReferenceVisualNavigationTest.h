@@ -56,7 +56,7 @@ inline void verifyReferenceVisualNavigation()
         auto* cue = panel.findChildWithID ("reference-cue");
         auto* singleCheck = panel.findChildWithID ("reference-selection-value-2");
         require (preset && cue && singleCheck, "visual navigation controls exist");
-        // H13: 300% 以上の V の画面は VERSION と決まった項目のタブ（2026-10-04）。C の CHECK SET・曲・Cue は C の画面で選ぶ。
+        // 300% 以上の V の画面は VERSION と決まった項目のタブ（2026-10-04）。C の CHECK SET・曲・Cue は C の画面で選ぶ。
         for (const auto* control : { preset, cue, singleCheck })
         {
             const bool shown = size.width < 900;

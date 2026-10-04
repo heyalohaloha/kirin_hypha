@@ -152,7 +152,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
     preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "original");
     require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 3)),
         "restore the fixture's explicit original mode");
-    // H5: 試聴コピーのサンプルレート変換は自動。承認を待たずに準備ができ、止まっていれば再生を待つ。
+    // 試聴コピーのサンプルレート変換は自動。承認を待たずに準備ができ、止まっていれば再生を待つ。
     controller.configure (identity, 44100, 2); host (false);
     wait ([] (const auto& s) { return s.checkArmable && !s.checkSelection->sampleRateApprovalRequired && s.checkReady; });
     require (controller.requestAudition (2, -14, -2), "C queues on a converted audition copy");
@@ -162,7 +162,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
     host (true); controller.servicePendingAudition (-14, -2, true);
     require (controller.snapshot().audibleComparisonSlot == 2, "the converted copy starts at the first safe play");
     controller.selectA(); host (false);
-    // H5: 止めても選んだまま。再生すると同じ音・同じ gain で戻り、MATCH は測り直さない。A を押すと戻らない。
+    // 止めても選んだまま。再生すると同じ音・同じ gain で戻り、MATCH は測り直さない。A を押すと戻らない。
     preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "loudness_match");
     require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 4)),
         "publish a matched C for resume");

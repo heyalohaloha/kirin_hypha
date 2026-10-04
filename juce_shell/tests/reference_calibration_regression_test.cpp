@@ -31,7 +31,7 @@ juce::var calibrationReceipt (ref::ReferenceComparisonController& controller, co
     require (!trial.isVoid(), "read immutable accepted calibration");
     require (! controller.aInputFeeding(), "A is not handed to the observation while the Version Blind runs");
     controller.observeTransport (0, false, false); controller.endBlind();
-    // 2026-10-04（Mac の実機）：終了の時点では V がまだ出力を持つ（A へ戻す途中）。そのあいだも、戻し終えた後も、
+    // 2026-10-04：終了の時点では V がまだ出力を持つ（A へ戻す途中）。そのあいだも、戻し終えた後も、
     // A は観測へ戻る（戻らないと V の画面が空、B・C の A の値が止まる）。
     require (controller.aInputFeeding(), "A goes back to the observation as soon as the Version Blind is ended");
     juce::Thread::sleep (100);

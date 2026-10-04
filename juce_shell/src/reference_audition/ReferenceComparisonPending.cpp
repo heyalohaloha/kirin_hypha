@@ -83,9 +83,9 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
 
 // 再生中に押した役が今は切り替えられないが、準備が自動で進むとき（選択の公開待ち・音源の確認・読み込み・
 // 位置合わせ・A の音量待ち）は、押した役を待たせる。選択を替えた直後と同じ切替の続き（armResume が新しい公開を
-// 待って待ちを立てる）で、準備でき次第新しい MATCH で鳴らす。待ちの上限は画面（H6）が見張る。待っても変わらない
-// もの（MATCH の上限超え・音源の音量が無い・Cue の外・失敗）は断って理由を出す（2026-10-03、Windows の実機の
-// 通しで、V の版を替えた直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
+// 待って待ちを立てる）で、準備でき次第新しい MATCH で鳴らす。待ちの上限は画面が見張る。待っても変わらない
+// もの（MATCH の上限超え・音源の音量が無い・Cue の外・失敗）は断って理由を出す（2026-10-03。V の版を替えた
+// 直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
 bool ReferenceComparisonController::waitWhilePreparing (int slot)
 {
     if (trialActive()) return false;
@@ -135,7 +135,7 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         || (state.transportPlaying && inputSafety == 0)
         || trialActive())
     {
-        // H5: 戻す選択と選択の替えは、停止・bypass のあいだ待つだけで、取り消さない（鳴らしはしない）。
+        // 戻す選択と選択の替えは、停止・bypass のあいだ待つだけで、取り消さない（鳴らしはしない）。
         // オフライン書き出しは forgetHeldAudition で忘れる（仕様 A）。
         if ((intent.resume || intent.switching) && !trialActive())
         {

@@ -51,7 +51,7 @@ namespace hypha::reference_audition
         }
         if (source == nullptr)
             return false;
-        // H4: B・C で鳴らすのは Cue なので、Kirin OS の Cue の値（ranges）があればそれで合わせる。無ければ
+        // B・C で鳴らすのは Cue なので、Kirin OS の Cue の値（ranges）があればそれで合わせる。無ければ
         // 曲全体の値（Kirin OS で測り直すと Cue の値になる）。V は曲全体の位置合わせの観測差で合わせる。
         const auto& summary = source->measurementSummary;
         const auto sourceLoudness = cueLevel && ! versionComparison ? cueLoudness
@@ -142,7 +142,7 @@ namespace hypha::reference_audition
         prepared.gainLimited = false;
         prepared.peakShortfallDb = shortfall;
         prepared.comparisonFallbackOriginal = false;
-        // H3: V と、追従にした役（B）の知覚音量の MATCH は窓に追従する。Peak の MATCH と C は固定。
+        // V と、追従にした役（B）の知覚音量の MATCH は窓に追従する。Peak の MATCH と C は固定。
         prepared.tracking = ! versionComparison && comparisonMode == "original" ? TrackingState::none
             : versionComparison || (trackingEnabled.load (std::memory_order_acquire) && comparisonMode == "loudness_match")
                 ? TrackingState::following : TrackingState::fixed;
@@ -217,7 +217,7 @@ namespace hypha::reference_audition
                     prepared.comparisonFallbackOriginal;
                 currentSnapshot.tracking = prepared.tracking;
                 trackingAnchorDb = prepared.anchorGainDb;
-                heldSelection = { currentSnapshot.playbackIdentity, prepared, true };  // H5
+                heldSelection = { currentSnapshot.playbackIdentity, prepared, true };
                 preparedNormalSelection.valid = false;
             }
         }

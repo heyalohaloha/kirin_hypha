@@ -191,7 +191,7 @@ juce::String ComparisonView::valuesAt (double seconds, bool compact) const
         return std::pair { bin.a.frames ? (showingCrest ? bin.a.crest_db : bin.a.short_lufs) : none,
                            bin.b.frames ? (showingCrest ? bin.b.crest_db : bin.b.short_lufs + data->binding.gainDb) : none };
     };
-    // 2026-10-04（Daisuke「A と V が両方表示された方が便利」）：その点に A か V が無ければ、見ている範囲の中の直前の
+    // 2026-10-04（A と V を両方読めるように）：その点に A か V が無ければ、見ている範囲の中の直前の
     // 両方そろう点を出す（時刻を添えるので、どの点かは分かる）。それも無ければ、ある方だけを出す。
     auto index = size_t (raw);
     auto [a, b] = valuesOf (index);

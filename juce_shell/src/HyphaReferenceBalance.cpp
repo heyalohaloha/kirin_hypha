@@ -13,10 +13,10 @@
 #include <algorithm>
 #include <cmath>
 
-// H11: B（REF）の画面の右の Balance（「Tonal Balance」とは呼ばない、方向設計 §4）。A（金）に、選んでいる
+// B（REF）の画面の右の Balance（「Tonal Balance」とは呼ばない）。A（金）に、選んでいる
 // B の曲（水色）と、B SET の曲全体の分布（p10〜p90 の薄い帯）を重ねる。曲の値は Kirin OS が残した
 // 既定の Cue の 64 帯域のスペクトル（ranges の中央値）。既製のジャンル曲線は出さない。
-// H12: A は同じ定義で測った直近 10 秒の中央値（ReferenceKirinSpectrum。FREQ の画面のスペクトルとは
+// A は同じ定義で測った直近 10 秒の中央値（ReferenceKirinSpectrum。FREQ の画面のスペクトルとは
 // 定義が違うので使わない）。曲は B が鳴る音量にそろえる（A の 10 秒の音量 − その曲の Cue の Integrated）。
 namespace hypha::reference_ui
 {
@@ -143,7 +143,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         text_style::drawEllipsized (g, "B SET VALUES ARRIVE FROM KIRIN OS", chart.toNearestInt(), juce::Justification::centred);
     }
     // 凡例：A の直近の窓（金）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・B SET（p10〜p90 の薄い帯）。
-    // 2026-10-04（Daisuke「A直近10秒 / Bサビ」）。文字の長さに合わせて左から並べる（均等に割ると B が切れる）。
+    // 2026-10-04。文字の長さに合わせて左から並べる（均等に割ると B が切れる）。
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
     const auto font = g.getCurrentFont();
     const auto item = [&] (const juce::String& text, juce::Colour colour) {

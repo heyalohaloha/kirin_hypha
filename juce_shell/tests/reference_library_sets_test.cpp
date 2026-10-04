@@ -1,4 +1,4 @@
-// H1: Hypha が Kirin OS の library/sets.json（Hypha に出した B セット・CHECK セットの順位）と、
+// Hypha が Kirin OS の library/sets.json（Hypha に出した B セット・CHECK セットの順位）と、
 // Cue の値のファイル（ranges/<sha256>.json）を読む。
 // tests/fixtures/kirin_os_library_abcv は、Kirin OS の本物の書き出し処理（kirin_sense_lens の
 // publishReferenceLibrary、2026-10-03 の本流）で作ったデータ一式。組み込み Preset ＋保存した Preset 1 つ、
@@ -66,7 +66,7 @@ void readsWhatKirinOsWrote (const juce::File& sandbox)
                  && ranges.fingerprintLoudness.getSize() == 20,
              "the Kirin fingerprint of 20 ticks");
 
-    // H11: B の一覧と Balance に出す、曲の既定の Cue の値（曲の Preset ごと）。準備前の曲は値なし。
+    // B の一覧と Balance に出す、曲の既定の Cue の値（曲の Preset ごと）。準備前の曲は値なし。
     const auto& facts = sets.songFacts;
     const auto preparedFacts = facts.find (ref::referenceSongEntryId (sets.songSets[0].songSetId, song.candidateId));
     const auto pendingFacts = facts.find (ref::referenceSongEntryId (sets.songSets[0].songSetId, songs[1].candidateId));
@@ -107,7 +107,7 @@ void followsRankChangesAndPublication (const juce::File& sandbox)
     require (pending.state == ref::RuntimeWorkspaceLoadState::unchanged && pending.workspace->librarySets.has_value(),
              "sets written for another manifest keep the current ones");
 
-    // sets.json の無い Kirin OS（K2 より前）でも、manifest の library は今までどおり読める。
+    // sets.json の無い古い Kirin OS でも、manifest の library は今までどおり読める。
     require (root.getChildFile ("library/sets.json").deleteFile(), "an older Kirin OS writes no sets");
     ref::RuntimeV2Repository fresh (root);
     const auto older = fresh.refreshLibrary();
@@ -223,7 +223,7 @@ void keepsSetsUntilTheyCatchUp (const juce::File& sandbox)
              "the caught-up sets are read");
 }
 
-// K13b: Kirin OS の準備の状態（library/preparation.json、presence と同じ回・同じ期限）。期限の内だけ使い、
+// Kirin OS の準備の状態（library/preparation.json、presence と同じ回・同じ期限）。期限の内だけ使い、
 // 決まった言葉でない曲は飛ばす。無い（古い Kirin OS）・期限切れ（Kirin OS が閉じている）は無し。
 void readsKirinOsPreparation (const juce::File& sandbox)
 {

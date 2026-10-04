@@ -9,15 +9,15 @@
 
 namespace hypha::reference_audition
 {
-// H4: Cue の音量。Kirin OS が解析のときに残した 100 ms ごとの値から計算した、Cue 区間の
-// BS.1770 のゲートつき Integrated と最大 True Peak（ranges/<sha256>.json、H1 で読む）。
+// Cue の音量。Kirin OS が解析のときに残した 100 ms ごとの値から計算した、Cue 区間の
+// BS.1770 のゲートつき Integrated と最大 True Peak（ranges/<sha256>.json から読む）。
 // C はこの値と「A の同じ長さの直近」で Match して固定する。B も鳴らすのは Cue なので、同じ値で追従する。
-// 片側だけ直すと悪くなる（方向設計 §7）ので、A 側の窓と組で使う。
+// 片側だけ直すと悪くなるので、A 側の窓と組で使う。
 struct CueLevel
 {
     double integratedLoudness = std::numeric_limits<double>::quiet_NaN();
     double maximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();  // 無音だけなら NaN
-    // H12: 同じ区間の見比べ。Cue の 64 帯域（p10・中央値・p90）と 4 帯域 Balance（dBFS、gain を掛ける前）。
+    // 同じ区間の見比べ。Cue の 64 帯域（p10・中央値・p90）と 4 帯域 Balance（dBFS、gain を掛ける前）。
     // A 側は KirinSpectrumMeter で同じ定義に揃えて測る。ranges がスペクトルを持たなければ空。
     std::shared_ptr<const KirinSpectrumWindow> spectrum;
     CuePart part = CuePart::unknown;  // Cue が曲のどの部分か（C の図の凡例）

@@ -381,7 +381,7 @@ void verifyReferenceAuditionComponentContract()
         component.setState (abc);
         KIRIN_REF_REQUIRE (a->isVisible() && b->isVisible() && c->isVisible()
             && c->getToggleState() && ! b->getToggleState() && ! a->getToggleState());
-        // H12: 300% の C の画面は CHECK SET・Check のタブ・曲で選ぶ（V の選択は V の画面）。
+        // 300% の C の画面は CHECK SET・Check のタブ・曲で選ぶ（V の選択は V の画面）。
         auto* tabs = component.findChildWithID ("reference-check-tabs");
         auto* song = component.findChildWithID ("reference-check-song");
         KIRIN_REF_REQUIRE (preset->isVisible() && (width == 900
@@ -413,7 +413,7 @@ void verifyReferenceAuditionComponentContract()
     abc.blindPhase = reference_ui::BlindPhase::available;
     abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
     component.setState (abc);
-    KIRIN_REF_REQUIRE (! cue->isVisible() && startBlind->isEnabled());  // H13: 300% の V の画面に C の Cue は出さない
+    KIRIN_REF_REQUIRE (! cue->isVisible() && startBlind->isEnabled());  // 300% の V の画面に C の Cue は出さない
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
     abc.blindPhase = reference_ui::BlindPhase::active;
     abc.activeBlindStimulus = 1;

@@ -22,10 +22,10 @@ int RuntimeV2Controller::matchWindowBlocks() const
     return currentSnapshot.cueWindowBlocks;
 }
 
-// H3: 選んでいるあいだ 1 秒ごとに、A の直近の窓から gain を求め直す（メッセージスレッド）。
+// 選んでいるあいだ 1 秒ごとに、A の直近の窓から gain を求め直す（メッセージスレッド）。
 // B は「A の直近 10 秒 − 鳴らしている Cue の値（無ければ曲全体）」、V は「A の直近 10 秒 − 位置合わせで
 // 対応する V の同じ内容」。窓が足りない（再生直後・シークの後・無音）ときは今の gain を保つ。
-// 2026-10-05 Daisuke「下げる向き追従」：上限で止めた後も、A が静かになって gain を下げる向きなら追従を再開する
+// 2026-10-05：上限で止めた後も、A が静かになって gain を下げる向きなら追従を再開する
 // （下げても上限は越えない。上げる向きは止めたまま。±6 dB で止めたものは今までどおり再開しない）。
 TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                                      double aSessionPeakDbtp) noexcept
@@ -113,7 +113,7 @@ void RuntimeV2Controller::applyMatchedGainLocked (double gainDb, double aLoudnes
     holdCurrentGainLocked();
 }
 
-// H7: V の自動特定。Version の指紋は作業スレッドが ranges から読んでおき（library が変わったとき・読めなかった
+// V の自動特定。Version の指紋は作業スレッドが ranges から読んでおき（library が変わったとき・読めなかった
 // ものを読み直すとき）、ここでは A の直近と照合するだけ（メッセージスレッドでファイルを読まない）。
 VersionIdentity RuntimeV2Controller::identifyVersions (const KirinFingerprint& slice, std::int64_t endTick)
 {
@@ -121,9 +121,9 @@ VersionIdentity RuntimeV2Controller::identifyVersions (const KirinFingerprint& s
     return versionIdentifier.identify (slice, endTick);
 }
 
-// H12: C の MATCH をもう一度（方向設計 §4 の C の画面、右上の MATCH）。鳴っている C の gain を
+// C の MATCH をもう一度（C の画面の右上の MATCH）。鳴っている C の gain を
 // 「A の直近（Cue と同じ長さ）− Cue の Kirin OS の値（無ければ曲全体）」に決め直して固定する。追従は
-// しない（H4）。上限（True Peak）を超えるなら今の gain を保って理由を返す（R-28）。A は動かさない。
+// しない。上限（True Peak）を超えるなら今の gain を保って理由を返す（R-28）。A は動かさない。
 RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPeakDbtp) noexcept
 {
     if (versionComparison || trackingEnabled.load (std::memory_order_acquire)

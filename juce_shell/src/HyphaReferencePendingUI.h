@@ -4,7 +4,7 @@
 namespace hypha::reference_ui
 {
 // 再生中でも、準備が自動で進む段階（確認・読み込み・準備・位置合わせ）なら押した役を待たせ、準備でき次第鳴らす
-// （押したことを捨てない。待ちの上限は H6 が見張る）。
+// （押したことを捨てない。待ちの上限は HyphaReferencePreparationWatch.h が見張る）。
 inline bool settlesByItself (SourceStep step) noexcept
 {
     return step == SourceStep::verifyingSource || step == SourceStep::loadingAudio
@@ -19,7 +19,7 @@ inline bool canQueueSource (const State& state, bool version)
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }
 
-// H10: B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
+// B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
 inline bool canQueueReference (const State& state)
 {
     const bool waits = state.transportPlaying ? settlesByItself (state.referenceStep) : state.referenceArmable;

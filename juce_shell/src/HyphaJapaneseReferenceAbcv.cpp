@@ -1,6 +1,6 @@
 #include "HyphaJapaneseCatalog.h"
 
-// REF の A／B／C／V（ABCV）で足した文。C の画面（H12）の曲・MATCH・同じ区間の見比べと、MATCH を
+// REF の A／B／C／V（ABCV）で足した文。C の画面の曲・MATCH・同じ区間の見比べと、MATCH を
 // やり直せなかったときの理由。CHECK SET・LOW 20-250 などの見出しと単位は英語のまま。
 namespace hypha::i18n::catalog
 {
@@ -22,7 +22,7 @@ const Entry entries[] = {
     { "This Check matches True Peak when C starts. Press A, then C.", u8"このCheckはCを鳴らすときにTrue Peakで合わせます。Aを押してからCを押してください。" },
     { "MATCH exceeds the safe level. The current gain is kept.", u8"MATCHが安全上限を超えます。今のgainを保ちます。" },
     { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
-    // H6：待ちが上限を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
+    // 待ちが上限を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
     { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
       u8"再生10秒でAを測れません / Aを長めに再生して選び直す" },
     { "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", u8"Kirin OSが応答しません / Kirin OSを開く" },
@@ -50,7 +50,7 @@ const Entry entries[] = {
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
     { "A %1 / %2 S", u8"A %1 / %2秒" },
-    // 2026-10-04：図の凡例の比べる側（Daisuke「A直近10秒 / Bサビ」）。B は鳴らす部分の時刻を添える。
+    // 2026-10-04：図の凡例の比べる側（「A直近10秒 / Bサビ」の形）。B は鳴らす部分の時刻を添える。
     { "B CHORUS %1", u8"Bサビ %1" },
     { "B LOUDEST 30 S %1", u8"B最も大きい30秒 %1" },
     { "B CUE %1", u8"BのCue %1" },
@@ -65,7 +65,7 @@ const Entry entries[] = {
     { "B SET RANGE", u8"Bセットの範囲" },  // B セットの曲の p10〜p90 の帯
     // Blauert の帯（HyphaReferenceBlauertZones.h）：300-400 Hz・3-4 kHz に対する 1 kHz 付近の高さを、A を主語に。
     { u8"1k vs 300-400·3-4k", u8"300-400·3-4kに対する1k" },
-    // 比べる側との差は A を主語に言葉で（HyphaReferenceAComparison.h。2026-10-04 Daisuke が選んだ）。
+    // 比べる側との差は A を主語に言葉で（HyphaReferenceAComparison.h。2026-10-04）。
     { "A %1 MORE", u8"Aが%1多い" },
     { "A %1 LESS", u8"Aが%1少ない" },
     { "A %1 HIGHER", u8"Aが%1高い" },
@@ -133,7 +133,7 @@ const Entry entries[] = {
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
     { "Compared by listening. Hypha shows no result it has not measured. Press A and %1 to switch at the same level.",
       u8"この項目は耳で聴き比べます。Hyphaは測っていない結果を出しません。Aと%1を押して、同じ音量で切り替えてください。" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
-    // K13b：Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
+    // Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
     { "NOT FOUND", u8"見つからない" },
     { "CHECKING", u8"確認中" },
     { "%1 AHEAD", u8"前に%1曲" },
@@ -145,7 +145,7 @@ const Entry entries[] = {
     { "KIRIN OS PREPARES THIS SONG NEXT", u8"Kirin OSが次にこの曲を準備します" },
     { "KIRIN OS PREPARES 1 SONG FIRST", u8"Kirin OSが先に1曲を準備しています" },
     { "KIRIN OS PREPARES %1 SONGS FIRST", u8"Kirin OSが先に%1曲を準備しています" },
-    // H15：Kirin OS の中の「Hypha ではこう見える」（描画の道具）。
+    // Kirin OS の中の「Hypha ではこう見える」（描画の道具）。
     { "PREVIEW / DAW INPUT NOT AVAILABLE", u8"プレビュー / DAWの入力はありません" },
     { "KIRIN OS PREVIEW", u8"Kirin OSのプレビュー" },
     // 2026-10-03（R-12）：上限超えの MATCH は、承認して A を下げて合わせる。
@@ -158,7 +158,7 @@ const Entry entries[] = {
     { "PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.",
       u8"PRE / POST LISTENがPOSTを使っています。終了するかRETURNを押してから、もう一度押してください。" },
 
-    // 300% の B・C・V で項目を指したときの下の行の説明（HyphaReferenceHelpText.h。2026-10-04 Daisuke「下の行に出す」）。
+    // 300% の B・C・V で項目を指したときの下の行の説明（HyphaReferenceHelpText.h。2026-10-04）。
     { "Bars: p10 to p90 of each window, the mark is the median. A gold, the compared side cyan.",
       u8"帯は各窓のp10〜p90、縦線は中央値。Aは金、比べる側は水色。" },
     { "Crest: how far peaks rise above the average (true peak over RMS), moment by moment.",

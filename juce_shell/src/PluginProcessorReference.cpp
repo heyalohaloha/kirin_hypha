@@ -34,7 +34,7 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
     const bool received = pollObservatoryFrame (frame);
     auto level = ref::liveALevel (frame, received, heartbeatLive(), isPlaying());
     if (! std::isfinite (level.loudness)) return level;
-    // H2: A の音量は直近の窓（B・V は 10 秒、C は Cue と同じ長さ）のゲートつき音量（積算の Integrated は
+    // A の音量は直近の窓（B・V は 10 秒、C は Cue と同じ長さ）のゲートつき音量（積算の Integrated は
     // 使わない）。Peak と上限はセッションの max TP のまま。窓が 3 秒に満たないあいだ（再生を始めた直後・
     // シークの後）は、選ぶときは積算の値を使い、追従と C（windowOnly）では値なしにして待たせる・直前の gain を
     // 保たせる。C は窓に minimumBlocks（Cue の長さ、最長 30 秒）たまるまで値なし（仕様 C）。
@@ -64,7 +64,7 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
     return level;
 }
 
-// H12: 画面が「同じ音量」にそろえて比べるための A の窓の音量（その役の窓：B・V は 10 秒、C は Cue と
+// 画面が「同じ音量」にそろえて比べるための A の窓の音量（その役の窓：B・V は 10 秒、C は Cue と
 // 同じ長さ）。C は MATCH と同じく、A の直近が Cue の長さ（最長 30 秒）たまるまで値なし（仕様 C。画面の
 // 「鳴らすときの gain」と実際の MATCH をそろえる）。メーター履歴は 250 ms に 1 回だけ読む（メッセージスレッド）。
 hypha::reference_audition::WindowLoudnessCache KirinHyphaProcessorBase::referenceWindowLoudness (int slot) const
@@ -89,7 +89,7 @@ hypha::reference_audition::WindowLoudnessCache KirinHyphaProcessorBase::referenc
    #endif
 }
 
-// H12: C の MATCH をもう一度。A の直近（Cue と同じ長さ）で鳴っている C の gain を決め直して固定する。
+// C の MATCH をもう一度。A の直近（Cue と同じ長さ）で鳴っている C の gain を決め直して固定する。
 hypha::reference_audition::RematchResult KirinHyphaProcessorBase::rematchReferenceCheck()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -102,7 +102,7 @@ hypha::reference_audition::RematchResult KirinHyphaProcessorBase::rematchReferen
    #endif
 }
 
-// H7: V の自動特定。A の直近 30 秒の Kirin 指紋を Version の指紋（ranges）と照合する。
+// V の自動特定。A の直近 30 秒の Kirin 指紋を Version の指紋（ranges）と照合する。
 hypha::reference_audition::VersionIdentity KirinHyphaProcessorBase::identifyReferenceVersion()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -113,9 +113,9 @@ hypha::reference_audition::VersionIdentity KirinHyphaProcessorBase::identifyRefe
 
 bool KirinHyphaProcessorBase::selectReferenceB() { return requestReferenceAudition (1); }
 bool KirinHyphaProcessorBase::selectReferenceC() { return requestReferenceAudition (2); }
-bool KirinHyphaProcessorBase::selectReferenceRef() { return requestReferenceAudition (3); }  // H8: B（REF）
+bool KirinHyphaProcessorBase::selectReferenceRef() { return requestReferenceAudition (3); }  // B（REF）
 
-// H8: B の曲と B SET。B が鳴っていれば、新しい曲が準備でき次第 B のまま鳴る。
+// B の曲と B SET。B が鳴っていれば、新しい曲が準備でき次第 B のまま鳴る。
 bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY

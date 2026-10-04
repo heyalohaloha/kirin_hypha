@@ -50,7 +50,7 @@ std::vector<Row> rowsFor (const juce::String& binding)
                  { "CORRELATION", DynamicsFact::correlation, false, false, -1.0, 1.0, 0.5, Unit::ratio, AWords::level, text::correlation } };
     if (binding == "waveform") return { { "PEAK", DynamicsFact::peak, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level, text::peak },
                                         { "RMS", DynamicsFact::rms, false, true, 0.0, 0.0, 6.0, Unit::dbfs, AWords::level, text::rms } };
-    if (binding == "transient")  // 2026-10-04 Daisuke：アタック（ピーク − LUFS-M）を足し、立ち上がりは 2 行目に
+    if (binding == "transient")  // 2026-10-04：アタック（ピーク − LUFS-M）を足し、立ち上がりは 2 行目に
         return { { "ATTACK (PEAK - LUFS-M)", DynamicsFact::attack, false, false, 0.0, 24.0, 6.0, Unit::db, AWords::size, text::attack },
                  { "ONSET (RISE PER HOP)", DynamicsFact::onset, false, false, 0.0, 1.0, 0.25, Unit::onset, AWords::size, text::onset } };
     return {};

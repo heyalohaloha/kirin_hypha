@@ -87,7 +87,7 @@ namespace hypha::reference_audition
         if (rtNormalEpoch != epoch) { rtNormalBlend = 0.0f; rtNormalEpoch = epoch; }
         const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
         const bool selected = normalTarget && bSelected.load (std::memory_order_acquire);
-        // H3: gain が変わったら 50 ms の直線で動かす。まだ聴こえていない（入りのフェードの前）なら即座に合わせる。
+        // gain が変わったら 50 ms の直線で動かす。まだ聴こえていない（入りのフェードの前）なら即座に合わせる。
         const float targetGain = bLinearGain.load (std::memory_order_acquire);
         const int rampFrames = trackingRampFrames.load (std::memory_order_acquire);
         if (rtNormalBlend <= 0.0f) rtTrackingRamp.settle (targetGain);

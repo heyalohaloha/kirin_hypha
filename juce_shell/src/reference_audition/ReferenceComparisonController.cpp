@@ -14,7 +14,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           return slotController (viewedSlot.load (std::memory_order_acquire)).visualBinding();
       },analysis)
 {
-    reference.setTrackingEnabled (true);  // H8・H3: B は A の直近 10 秒に追従する
+    reference.setTrackingEnabled (true);  // B は A の直近 10 秒に追従する
     reference.setSongsOnly (true);        // B は B セットの曲だけを鳴らす（C の Preset に落ちない）
 }
 
@@ -105,7 +105,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     }
     result.check = check.savedChoice();
     result.reference = songId.isEmpty() ? ReferenceChoice {} : reference.savedChoice();
-    result.reference.cueId.clear();  // B の曲は既定の Cue で鳴らす（H8）
+    result.reference.cueId.clear();  // B の曲は既定の Cue で鳴らす
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
@@ -132,7 +132,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
-    // 2026-10-04（Daisuke 決定）：A の取り込みはやめた（見比べは生の表示だけ）。古い版が DAW の曲に保存した取り込みと
+    // 2026-10-04：A の取り込みはやめた（見比べは生の表示だけ）。古い版が DAW の曲に保存した取り込みと
     // Tonal の表示の状態は読まない（ReferenceComparisonSettings が読み飛ばす）。次の保存で消える。
     if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); reference.restoreChoice (value.reference); }
 }
@@ -163,7 +163,7 @@ Snapshot ReferenceComparisonController::snapshot()
     if (viewedMap.aligned && !viewedMap.hidden && viewedMap.hostPositionValid && viewedMap.hostRate > 0
         && viewedMap.mapPosition (viewedMap.hostPosition, visualPosition))
         result.visualPositionSeconds = double (visualPosition) / viewedMap.hostRate;
-    result.cuePlayheadSeconds = viewedMap.cuePlayheadSeconds;  // H12: C の画面の Cue の時間軸
+    result.cuePlayheadSeconds = viewedMap.cuePlayheadSeconds;  // C の画面の Cue の時間軸
     if (viewedMap.hidden || (result.visualTimeline && result.visualTimeline->binding.key != viewedMap.key))
     {
         // 見ている役の図（V の時間軸）は外し、A の値（C・B の画面のスペクトルと範囲の帯、V の AUTO の指紋）は残す。
@@ -191,7 +191,7 @@ Snapshot ReferenceComparisonController::snapshot()
         && result.selectedVersionId == b.presetId + "/" + b.checkId + "/" + b.candidateId
         && b.state == RuntimeState::ready && b.auditionBuffered;
     result.checkReady = c.state == RuntimeState::ready && c.auditionBuffered;
-    // H8: B（REF）。選んだ曲が公開され、音の準備ができていれば押してすぐ鳴る。
+    // B（REF）。選んだ曲が公開され、音の準備ができていれば押してすぐ鳴る。
     result.referenceSelection = std::make_shared<const Snapshot> (r);
     result.songSets = r.songSets;
     result.songSetsIssue = r.songSetsIssue;
@@ -215,7 +215,7 @@ Snapshot ReferenceComparisonController::snapshot()
 
 // V の Version を選ぶ。V が鳴っていた（戻る保留・押した後の待ちを含む）なら、新しい Version が公開され次第、
 // 新しい MATCH で V のまま鳴らす。ほかの役（B・C）は止めない。
-// automatic（H7 の AUTO）は、V を選んでいないときに V の選択だけを替える。V が鳴っている・戻る保留・
+// automatic（V の自動特定の AUTO）は、V を選んでいないときに V の選択だけを替える。V が鳴っている・戻る保留・
 // 押した後の待ちがあるときは何もしない（利用者の選択を崩さない）。
 bool ReferenceComparisonController::selectVersion (const juce::String& id, bool automatic)
 {

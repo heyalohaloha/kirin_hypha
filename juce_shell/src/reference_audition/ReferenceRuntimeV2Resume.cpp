@@ -2,7 +2,7 @@
 
 namespace hypha::reference_audition
 {
-// H5: 停止・シーク・ページの読み込み待ちで A に戻った選択を、準備でき次第そのまま戻す（live PRE/POST 比較と
+// 停止・シーク・ページの読み込み待ちで A に戻った選択を、準備でき次第そのまま戻す（live PRE/POST 比較と
 // 同じ「選択を保ち、確かめられたら戻る」）。戻すのは同じ音（playback identity）だけで、gain は止まる前に
 // 掛けていた値（追従で動いた後の値）。MATCH は測り直さない（C の固定を崩さない・窓が空でも gain が飛ばない）。
 bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept

@@ -1,5 +1,5 @@
-// H3: B・V の追従 gain（1 秒ごと・0.5 dB 以内は動かさない・50 ms の ramp・上限で止めて知らせる）と、
-// H4: C の固定 Match（Kirin OS の Cue の値 × A の同じ長さ）。
+// B・V の追従 gain（1 秒ごと・0.5 dB 以内は動かさない・50 ms の ramp・上限で止めて知らせる）と、
+// C の固定 Match（Kirin OS の Cue の値 × A の同じ長さ）。
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
@@ -187,7 +187,7 @@ juce::var cueRanges (const juce::String& fileHash, const juce::String& pcmHash)
     range->setProperty ("end_sample", 96'000);
     range->setProperty ("lufs_i_millilu", -16'000);
     range->setProperty ("max_true_peak_millidbtp", -4'000);
-    // H12: Cue の 64 帯域（中央値は帯域ごとに −20 − band dB、p10・p90 は ±3 dB）と 4 帯域 Balance。
+    // Cue の 64 帯域（中央値は帯域ごとに −20 − band dB、p10・p90 は ±3 dB）と 4 帯域 Balance。
     juce::Array<juce::var> centers, p10, median, p90;
     for (int band = 0; band < 64; ++band)
     {
@@ -299,7 +299,7 @@ void matchesAndFollows (const juce::File& sandbox)
                  && closeTo (ready.cueSpectrum->p90Db[63], -80.0) && closeTo (ready.cueSpectrum->balanceDb[2], -24.25)
                  && closeTo (ready.cueStartSeconds, 0.0) && closeTo (ready.cueEndSeconds, 2.0)
                  && closeTo (ready.sourceDurationSeconds, 2.0),
-             "the Cue's spectrum, Balance and place in the song reach the C page (H12)");
+             "the Cue's spectrum, Balance and place in the song reach the C page");
 
     // C：Cue の値で合わせ（曲全体の −18 なら +4 dB のところ +2 dB）、聴いているあいだ動かない。
     require (controller.selectB (-14.0, -2.0), "C matches with the Cue value");
@@ -312,7 +312,7 @@ void matchesAndFollows (const juce::File& sandbox)
     require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::keep
                  && closeTo (controller.snapshot().appliedGainDb, 2.0),
              "C never follows");
-    // H12：MATCH をもう一度。今の A の窓（−13.5）で +2.5 dB に決め直して固定する。上限を超える +6 dB には
+    // MATCH をもう一度。今の A の窓（−13.5）で +2.5 dB に決め直して固定する。上限を超える +6 dB には
     // 動かさず理由を返し、A の窓が足りないときも今の gain を保つ。
     require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched, "MATCH again re-fixes C");
     state = controller.snapshot();
@@ -367,7 +367,7 @@ void matchesAndFollows (const juce::File& sandbox)
     require (controller.followSelection (steady (-18.0), -2.0) == ref::TrackingAction::keep, "a stopped follow stays stopped");
     render();
     require (std::abs (buffer.getSample (0, 0) - target) < 1.0e-6f, "the kept gain keeps sounding");
-    // 2026-10-05 Daisuke「下げる向き追従」：上限で止めた後でも、A が静かになって下げる向きなら追従を再開する。
+    // 2026-10-05：上限で止めた後でも、A が静かになって下げる向きなら追従を再開する。
     // （上の B は MATCH の +2 dB から −6 dB の端にいるので、MATCH し直して下げる余地のある所で確かめる。）
     controller.selectA();
     require (controller.selectB (-16.0, -2.0) && closeTo (controller.snapshot().appliedGainDb, 0.0), "B matches again at 0 dB");

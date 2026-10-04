@@ -9,7 +9,7 @@
 
 namespace hypha::reference_audition
 {
-// H12: A（ライブの入力）を、Kirin OS が参照曲の Cue に残す値（kirin_hypha_reference_ranges の
+// A（ライブの入力）を、Kirin OS が参照曲の Cue に残す値（kirin_hypha_reference_ranges の
 // spectrum と balance_millidbfs）と同じ定義で測る。定義が違うまま重ねると見かけの差になる（白色雑音で
 // 高域が 4〜5 dB ずれる）ので、Kirin OS のコードは使わず、公開されている式だけを揃えて独立に計算する。
 //  - フレーム：重ならない 100 ms（sr/10 サンプル）。そのフレームの長さの periodic Hann を掛け、

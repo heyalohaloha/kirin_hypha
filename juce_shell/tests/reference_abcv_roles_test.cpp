@@ -1,4 +1,4 @@
-// H8: A／B／C／V の 4 役。B（REF）は Hypha に届いた B セットの曲を、A の直近 10 秒に追従する gain で
+// A／B／C／V の 4 役。B（REF）は Hypha に届いた B セットの曲を、A の直近 10 秒に追従する gain で
 // 鳴らす。同時に鳴るのは 1 役。B のまま曲を替えると、新しい曲が準備でき次第 B のまま鳴る。
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
@@ -110,8 +110,8 @@ void testReferenceRoles (const juce::File& sandbox)
     verse.getDynamicObject()->setProperty ("end_sample", static_cast<juce::int64> (48'000));
     preset["checks"][0]["candidates"][0]["cues"].getArray()->add (verse);
     require (writeJson (root.getChildFile ("library/sets.json"), songSets (setId, {
-                 candidate (first, "Hello", "44444444-4444-4444-8444-444444444441"),
-                 candidate (second, "MONTERO", "44444444-4444-4444-8444-444444444442") }))
+                 candidate (first, "Song 1", "44444444-4444-4444-8444-444444444441"),
+                 candidate (second, "Song 2", "44444444-4444-4444-8444-444444444442") }))
              && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
              "a library with one B set");
 
@@ -150,7 +150,7 @@ void testReferenceRoles (const juce::File& sandbox)
     require (state.songSets.size() == 1 && state.songSets[0].songs.size() == 2 && state.selectedSongSetId == setId
                  && state.selectedSongId == state.songSets[0].songs[0].id && state.versions.empty()
                  && std::none_of (state.checkTargets.begin(), state.checkTargets.end(),
-                                  [] (const auto& option) { return option.label.contains ("MONTERO"); }),
+                                  [] (const auto& option) { return option.label.contains ("Song 2"); }),
              "the B set songs are listed for B only, and the first song is ready to play");
 
     // B を押すとすぐ鳴る（MATCH：A −14 − 曲 −18 = +4 dB）。C を押すと B は止まり C だけが鳴る。
@@ -241,7 +241,7 @@ void testReferenceRoles (const juce::File& sandbox)
     require (! host (true) && controller.snapshot().audibleComparisonSlot == 0 && ! controller.pendingAuditionNeedsService(),
              "A ends B");
 
-    // 2026-10-03（X3）：再生中に曲を替えた直後（新しい曲がまだ公開されていない）に B を押すと、押したことを待たせ、
+    // 2026-10-03：再生中に曲を替えた直後（新しい曲がまだ公開されていない）に B を押すと、押したことを待たせ、
     // 新しい曲が準備でき次第その MATCH で鳴らす（今までは「準備中」と言うだけで、押したことが消えていた）。
     require (controller.selectSong (state.songSets[0].songs[0].id), "choose the first song while A plays");
     require (controller.requestAudition (3, -14.0, -2.0), "pressing B while the new song is published waits for it");

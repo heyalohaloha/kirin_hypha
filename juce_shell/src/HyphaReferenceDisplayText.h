@@ -6,7 +6,7 @@ namespace hypha::reference_ui
 {
 // Kirin OS が日本語の画面で保存・公開した組み込みの名前（CHECK セット・Check・自動の Cue）を、Kirin OS の英語の
 // 画面と同じ英語にそろえる（Hypha は名前を言語にかかわらず英語で出す。HyphaJapaneseCatalog.h の方針）。
-// 2026-10-04（Daisuke「共通項目に日本語が混じっていないか」）：表を Kirin OS の訳（ja.json）で全部埋め、名前の
+// 2026-10-04（英語で出す名前に日本語が混じらないように）：表を Kirin OS の訳（ja.json）で全部埋め、名前の
 // 後ろに曲名・順位が付いた形（「名前  /  曲名」「名前   1 / 3」）にも当てる。ID・利用者が付けた名前・音源は変えない。
 inline constexpr const char* standardDisplayNames[][2] {
     { u8"Mastering｜ステレオ・低域・全体の流れ", u8"Mastering · stereo, low end, and context" },

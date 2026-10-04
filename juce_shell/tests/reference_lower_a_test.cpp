@@ -1,4 +1,4 @@
-// 2026-10-03（Daisuke 承認、R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、承認すれば A（POST の
+// 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、承認すれば A（POST の
 // 出力全体）を差だけ下げて合わせる。参照は元の音量のまま。下げ終わってから参照を鳴らし（一瞬大きく聴こえない）、
 // 試聴の後も RETURN まで下げたまま、RETURN は役を止めてから 0.5 秒で上げる。書き出し・bypass には掛けない。
 #include "reference_runtime_v2_analysis_test_support.h"

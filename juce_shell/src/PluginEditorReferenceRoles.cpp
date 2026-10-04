@@ -3,7 +3,7 @@
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferencePendingUI.h"
 
-// H10: A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
+// A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
 
 void KirinHyphaEditor::wireReferenceRoles()
@@ -27,7 +27,7 @@ void KirinHyphaEditor::wireReferenceRoles()
     { if (! processorRef.selectReferenceSong (id)) showToast ("Song selection was not changed"); };
     referenceView.onSelectSongSet = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSongSet (id)) showToast ("B set selection was not changed"); };
-    // H12: C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
+    // C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
     referenceView.onMatch = [this]
     {
         using Result = hypha::reference_audition::RematchResult;
@@ -51,7 +51,7 @@ void KirinHyphaEditor::wireReferenceRoles()
 
 void KirinHyphaEditor::openReferenceLarge (int slot)
 {
-    // H10: 300% 未満で C・V を押したら 300% に広げてその役の画面を開く。鳴らすのはもう一度押したとき。
+    // 300% 未満で C・V を押したら 300% に広げてその役の画面を開く。鳴らすのはもう一度押したとき。
     // まだ鳴らせない（準備中・選んでいない）ときは「押せば鳴る」と言わない（理由は開いた画面の状態の行）。
     const auto& state = referenceView.state();
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
@@ -69,11 +69,11 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     const auto& version = runtime.versionSelection ? *runtime.versionSelection : runtime;
     const auto& check = runtime.checkSelection ? *runtime.checkSelection : runtime;
     const auto& audibleRole = runtime.audibleComparisonSlot == 1 ? version : runtime.audibleComparisonSlot == 3 ? slot : check;
-    // H9: 聴いている役の合わせ方（追従か固定か）。Blind には追従を持ち込まない。
+    // 聴いている役の合わせ方（追従か固定か）。Blind には追従を持ち込まない。
     state.tracking = runtime.bSelected && runtime.blindPhase == hypha::reference_audition::BlindPhase::inactive
         ? audibleRole.tracking : hypha::reference_audition::TrackingState::none;
     state.referenceArmable = runtime.referenceArmable;
-    // K13b: Kirin OS の準備の状態（曲の選択の ID の最後が候補の ID）。
+    // Kirin OS の準備の状態（曲の選択の ID の最後が候補の ID）。
     const auto preparationOf = [&runtime] (const juce::String& selectionId) {
         return runtime.libraryPreparation != nullptr
             ? runtime.libraryPreparation->find (selectionId.fromLastOccurrenceOf ("/", false, false))
@@ -115,7 +115,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.referenceStep = ! runtime.libraryReceived ? hypha::reference_ui::SourceStep::waitingForKirinOs
         : runtime.songSets.empty() ? hypha::reference_ui::SourceStep::chooseSource
         : slotStep (slot, state.aAvailable);
-    // H12: 同じ定義・同じ区間・同じ音量で比べる値（A の窓は観測スレッド、C の Cue の値は C の役から）。
+    // 同じ定義・同じ区間・同じ音量で比べる値（A の窓は観測スレッド、C の Cue の値は C の役から）。
     const auto& checkRole = runtime.checkSelection ? *runtime.checkSelection : runtime;
     if (runtime.visualTimeline) state.aKirin = runtime.visualTimeline->aKirin;
     state.cueKirin = checkRole.cueSpectrum;
@@ -159,7 +159,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.aWindowBlocks = aWindow.blocks;
     state.aWindowNeededBlocks = aWindow.neededBlocks;
     rankCheckSets (state, checkRole.checkSetRanks);
-    // H7: V の自動特定（Reference を開いているあいだ、どの画面でも 3 秒ごと）。Kirin OS の「同じ曲」以上で一致率の
+    // V の自動特定（Reference を開いているあいだ、どの画面でも 3 秒ごと）。Kirin OS の「同じ曲」以上で一致率の
     // 最も高い Version に AUTO と一致率を添え、V を選んでいなければ（または AUTO の選んだものより明らかに合えば）
     // V の選択だけを替える（鳴っている B・C は止めない。V が鳴っている・待っているあいだは替えない）。
     // 利用者が選んだ Version は替えない。
@@ -175,7 +175,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     for (auto& option : state.versions)
         if (option.id == referenceVersionIdentity.autoId)
             option.label += "   AUTO " + juce::String (referenceVersionIdentity.autoAgreement, 2);
-    // H6: 待っている役（押した後の待ちがあればその役、無ければ見ている役）の待ちが上限を超えたら、状態の行で
+    // 待っている役（押した後の待ちがあればその役、無ければ見ている役）の待ちが上限を超えたら、状態の行で
     // 「できない」と理由・直し方を出す。
     const bool pendingWaiting = state.pendingAudition.waiting();
     const int watchedSlot = pendingWaiting ? state.pendingAudition.slot : runtime.comparisonSlot;
@@ -187,7 +187,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.preparationOverdue = referencePreparationWatch.observe (
         watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
-    // （直し方は曲の側から。H9）。
+    // （直し方は曲の側から）。
     if (runtime.comparisonSlot == 3) state.actionText.clear();
     applyReferenceLowerA (state, runtime);  // 上限超えの承認（B の画面でも出す）と、下げている量
 }

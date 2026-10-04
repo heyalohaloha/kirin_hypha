@@ -11,7 +11,7 @@ void verifyReferenceVisualSourceEvidence (const juce::File& root, const juce::St
             [&] (const auto& option) { return option.id == versionId; });
     }), "selection waits for the exact published option, not an earlier library receipt");
     require (controller.selectLibraryVersion (versionId), "select prepared visual-only source");
-    // H5: 試聴コピーのサンプルレート変換は自動。見た目は元の 48k の Cue の範囲のまま、音は出さない。
+    // 試聴コピーのサンプルレート変換は自動。見た目は元の 48k の Cue の範囲のまま、音は出さない。
     require (wait (controller, [&] (const auto& state) {
         return state.presetId + "/" + state.checkId + "/" + state.candidateId == versionId
             && state.state == ref::RuntimeState::ready && !state.sampleRateApprovalRequired;

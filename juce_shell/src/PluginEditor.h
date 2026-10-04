@@ -144,7 +144,7 @@ private:
     void showReferenceInformationMenu();
     void layoutReferenceAudition();
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
-    void wireReferenceRoles();  // H10: B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
+    void wireReferenceRoles();  // B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void openReferenceLarge (int slot);
     // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
@@ -156,8 +156,8 @@ private:
     void applyReferenceLowerA (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     bool returnReferenceLevelIfHeld();
     int referenceHeldTenthsDb() const;
-    hypha::reference_ui::PreparationWatch referencePreparationWatch; // H6
-    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser; // H7
+    hypha::reference_ui::PreparationWatch referencePreparationWatch;
+    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser;
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();
@@ -319,7 +319,7 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
-    bool referenceTrackingStopShown = false; // H3: 追従が上限・±6 dB で止まったことを一度だけ知らせる
+    bool referenceTrackingStopShown = false; // 追従が上限・±6 dB で止まったことを一度だけ知らせる
     int referenceTrackingStopSlot = 0;       // 知らせた役（同じ役を聴いているあいだは止まり直しても知らせない）
     juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;

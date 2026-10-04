@@ -170,7 +170,7 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
         || ! hasSelectedId (state.candidateId, state.candidates)
         || ! hasSelectedId (state.cueId, state.cues))
         fail ("reference-preview-request-invalid");
-    // H15: ABCV の C（CHECK）の画面（Kirin OS の CHECK の編集画面が「Hypha ではこう見える」を出す）。Check の
+    // ABCV の C（CHECK）の画面（Kirin OS の CHECK の編集画面が「Hypha ではこう見える」を出す）。Check の
     // タブは CHECK SET の Check、曲は選んでいる Check の曲（ほかの Check の曲は要求に無いので、今の曲で並べる）。
     for (const auto& option : checkOptions)
         if (option.id == checkId)

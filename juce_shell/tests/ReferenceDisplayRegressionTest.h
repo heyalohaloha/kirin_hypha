@@ -29,9 +29,9 @@ inline void verifyReferenceDisplayRegression()
     state.checkLabel = state.checks.front().label;
     state.viewBindings = { "dynamics", "loudness" };
     state.status = "PLAY TO AUDITION";
-    // 2026-10-04（Daisuke「共通項目に日本語が混じっていないか」）：Kirin OS の訳の名前は全部英語にそろえ、後ろに
+    // 2026-10-04：Kirin OS の訳の名前は全部英語にそろえ、後ろに
     // 曲名・順位が付いた形にも当てる。名前の途中や、利用者の名前には当てない。
-    for (const auto& [japanese, english] : { std::pair { u8"ボーカルのバランス  /  Peach", "Vocal balance  /  Peach" },
+    for (const auto& [japanese, english] : { std::pair { u8"ボーカルのバランス  /  Song 1", "Vocal balance  /  Song 1" },
                                              std::pair { u8"全工程｜基本5項目   1 / 1", u8"All stages · 5 essential checks   1 / 1" },
                                              std::pair { u8"サビ候補", "Chorus candidate" },
                                              std::pair { u8"セット 2   1 / 3", "Set 2   1 / 3" },
@@ -42,9 +42,9 @@ inline void verifyReferenceDisplayRegression()
                                              std::pair { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" } })
         check (reference_ui::standardDisplayName (juce::String::fromUTF8 (japanese)) == juce::String::fromUTF8 (english),
                "every standard name from Kirin OS displays in English, with what follows it");
-    // 2026-10-05（Mac の実機）：順位を添えた名前（CHECK SET・B SET の「   1 / 1」）は、名前に訳があれば名前だけを訳し
+    // 2026-10-05：順位を添えた名前（CHECK SET・B SET の「   1 / 1」）は、名前に訳があれば名前だけを訳し
     // 順位は残す（「Mastering · tone, level, and dynamics   1 / 1」が日本語の画面で英語のままだった）。訳の無い名前は
-    // 英語のまま（Daisuke「簡単な英語はそのままで問題ない。変換しすぎてカタカナになるパターンも避けたい」）。
+    // 英語のまま（簡単な英語は訳さない。カタカナにするだけの訳も足さない）。
     for (const auto& pair : reference_ui::standardDisplayNames)
     {
         const auto english = juce::String::fromUTF8 (pair[1]);

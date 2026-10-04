@@ -73,7 +73,7 @@ namespace hypha::reference_audition
         libraryOnline.store (configuration.identity.library && repository.libraryOnline (nowMs),
                              std::memory_order_release);
         {
-            auto preparation = configuration.identity.library ? repository.libraryPreparation (nowMs) : nullptr;  // K13b
+            auto preparation = configuration.identity.library ? repository.libraryPreparation (nowMs) : nullptr;
             const juce::ScopedLock lock (stateLock);
             libraryPreparation = std::move (preparation);
         }
@@ -136,7 +136,7 @@ namespace hypha::reference_audition
         if (workspace->library && selection.presetId.isNotEmpty() && preset == nullptr)
         { missingSelection(); return; }
         if (songsOnly.load (std::memory_order_acquire) && (preset == nullptr || ! preset->songEntry))
-        { missingSelection(); return; }  // H8: B は曲を選ぶまで何も準備しない
+        { missingSelection(); return; }  // B は曲を選ぶまで何も準備しない
         if (preset == nullptr)
             preset = findPreset (*workspace, workspace->manifest.activePresetId);
         if (preset == nullptr && ! workspace->presets.empty())
@@ -211,7 +211,7 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        // H8: B の曲（songEntry）は Kirin OS が決めた既定の Cue だけで鳴らす（B に Cue を選ぶ画面は無い）。
+        // B の曲（songEntry）は Kirin OS が決めた既定の Cue だけで鳴らす（B に Cue を選ぶ画面は無い）。
         // 既定の Cue が Kirin OS で変わっても、前の Cue に縛られない（保存もしない）。
         const RuntimeCue* cue = preset->songEntry ? nullptr : findCue (*candidate, selection.cueId);
         if (workspace->library && ! preset->songEntry && selection.cueId.isNotEmpty() && cue == nullptr)
@@ -314,18 +314,18 @@ namespace hypha::reference_audition
             next.detailedMeasurement = measurement.measurement;
             next.measurementAvailable = true;
         }
-        // H4: Cue の Kirin OS の値（ranges）。C の Match と B の追従に使う。V は曲全体の位置合わせで合わせる。
+        // Cue の Kirin OS の値（ranges）。C の Match と B の追従に使う。V は曲全体の位置合わせで合わせる。
         if (! versionComparison)
             if (const auto level = readCueLevel (root, *workspace, *candidate, *cue, *selectedSource))
             {
                 next.cueLevelAvailable = true;
                 next.cueIntegratedLoudness = level->integratedLoudness;
                 next.cueMaximumTruePeakDbtp = level->maximumTruePeakDbtp;
-                next.cueSpectrum = level->spectrum;  // H12
+                next.cueSpectrum = level->spectrum;
                 next.cuePart = level->part;
             }
         next.cueWindowBlocks = cueWindowBlocks (cue->startSample, cue->endSample, cue->sampleRateHz);
-        if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // H12: C の画面の Cue の時間軸
+        if (cue->sampleRateHz > 0 && selectedSource->audio.sampleRateHz > 0)  // C の画面の Cue の時間軸
         {
             next.cueStartSeconds = static_cast<double> (cue->startSample) / static_cast<double> (cue->sampleRateHz);
             next.cueEndSeconds = static_cast<double> (cue->endSample) / static_cast<double> (cue->sampleRateHz);
@@ -337,7 +337,7 @@ namespace hypha::reference_audition
             const auto profile = profileRepository.load (binding.profileArtifact);
             if (profile.accepted()) next.profiles.push_back (profile.profile);
         }
-        // H5: サンプルレートの変換は自動（試聴コピーだけを変換し、元のファイルは変えない）。承認を待たない。
+        // サンプルレートの変換は自動（試聴コピーだけを変換し、元のファイルは変えない）。承認を待たない。
         const bool rateDiffers = selectedSource->audio.sampleRateHz != next.hostSampleRateHz;
         const auto mappedCueStart = outputSample (cue->startSample, cue->sampleRateHz, next.hostSampleRateHz);
         const auto mappedCueEnd = outputSample (cue->endSample, cue->sampleRateHz, next.hostSampleRateHz);

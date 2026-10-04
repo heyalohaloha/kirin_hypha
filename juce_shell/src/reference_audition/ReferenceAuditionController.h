@@ -42,14 +42,14 @@ namespace hypha::reference_audition
         bool requiresPreparation = false;
     };
 
-    // H8: Hypha に届いた B セット（順位順、最大 3）と、その曲（B の一覧）。曲の id は選択の ID。
+    // Hypha に届いた B セット（順位順、最大 3）と、その曲（B の一覧）。曲の id は選択の ID。
     struct RuntimeSongSetOption
     {
         juce::String id;
         juce::String name;
         int rank = 0;
         std::vector<RuntimeSelectionOption> songs;
-        std::vector<RuntimeSongFacts> facts; // H11: songs と同じ順。既定の Cue の Kirin OS の値
+        std::vector<RuntimeSongFacts> facts; // songs と同じ順。既定の Cue の Kirin OS の値
     };
 
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
@@ -81,12 +81,12 @@ namespace hypha::reference_audition
         bool gainLimited = false;
         bool comparisonFallbackOriginal = false;
         TrackingState tracking = TrackingState::none;
-        // H4：選んだ Cue の Kirin OS の値（ranges）。無ければ曲全体の値で合わせている（Kirin OS で測り直すと使う）。
+        // 選んだ Cue の Kirin OS の値（ranges）。無ければ曲全体の値で合わせている（Kirin OS で測り直すと使う）。
         bool cueLevelAvailable = false;
         double cueIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
         double cueMaximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();
         int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
-        // H12: C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
+        // C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
         std::shared_ptr<const KirinSpectrumWindow> cueSpectrum;
         CuePart cuePart = CuePart::unknown;  // Cue が曲のどの部分か（C の図の凡例）
         double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
@@ -130,15 +130,15 @@ namespace hypha::reference_audition
         std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（Kirin OS の audition_only）。図の代わりに案内を出す
         std::vector<RuntimeSongSetOption> songSets;
         juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
-        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // K13b：Kirin OS の準備の状態（無ければ null）
-        std::vector<RuntimeCheckSetRank> checkSetRanks; // H12: Kirin OS で「Hypha に出す」順位を付けた CHECK セット
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // Kirin OS の準備の状態（無ければ null）
+        std::vector<RuntimeCheckSetRank> checkSetRanks; // Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
-        bool versionAuto = false; // H7: 選んでいる Version は AUTO が選んだ（AUTO が選び直せる）
+        bool versionAuto = false; // 選んでいる Version は AUTO が選んだ（AUTO が選び直せる）
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
         bool versionArmable = false, checkArmable = false;
-        // H8: B（REF）。選んだ B SET と曲、その役の状態（referenceSelection）。
+        // B（REF）。選んだ B SET と曲、その役の状態（referenceSelection）。
         std::shared_ptr<const Snapshot> referenceSelection;
         juce::String selectedSongSetId, selectedSongId;
         bool referenceReady = false, referenceArmable = false;
