@@ -130,8 +130,8 @@ inline void verifyReferenceCheckPage()
     state.appliedGainDb = -2.5;
     state.cuePlayheadSeconds = 70.0;
     panel.setState (state);
-    require (reference_ui::matchReadout (state) == juce::String (juce::CharPointer_UTF8 ("MATCHED / C \xe2\x88\x92" "2.5 dB / FIXED")),
-             "while C plays, the page says its gain is matched and fixed");
+    require (reference_ui::matchReadout (state) == juce::String (juce::CharPointer_UTF8 ("MATCHED / C \xe2\x88\x92" "2.5 dB")),
+             "while C plays, the page says its gain is matched (the status line says it is fixed)");
     match->onClick();
     require (matched == 1 && heard == 1, "MATCH while C plays matches it again");
     write (panel, "abcv_c_900_playing.png");

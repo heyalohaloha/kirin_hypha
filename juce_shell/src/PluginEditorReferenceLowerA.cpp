@@ -54,6 +54,9 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
     // 一度だけ承認を出す（2026-10-04）。
     using Stage = hypha::reference_audition::PendingAuditionView::Stage;
     const auto& pending = runtime.pendingAudition;
+    // 別の役を押して待たせたら、前の役の承認は引っ込める（押した役が優先）。2026-10-04 の実機：B の承認が残って
+    // いて、あとで押して待たせた C が上限を超えても承認が出ず「C STOPPED / MATCH EXCEEDS SAFE LEVEL」で止まった。
+    if (offer.slot != 0 && pending.stage != Stage::none && pending.slot != 0 && pending.slot != offer.slot) offer = {};
     if (pending.stage != Stage::ceilingExceeded) referenceLowerAPendingOffered = 0;
     else if (offer.slot == 0 && referenceLowerAPendingOffered != pending.slot)
     {

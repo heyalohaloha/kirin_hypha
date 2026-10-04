@@ -46,7 +46,7 @@ const Entry entries[] = {
     { "V compares spectrum and balance. This Check is shown on C.",
       u8"Vはスペクトルとバランスを比べます。このCheckはCの画面で見ます。" },
     // C の画面の MATCH の横と Cue の凡例。
-    { "MATCHED / C %1 dB / FIXED", u8"MATCH済み / C %1 dB / 固定" },
+    { "MATCHED / C %1 dB", u8"MATCH済み / C %1 dB" },
     { "ON PLAY / C %1 dB", u8"鳴らすとき / C %1 dB" },
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },

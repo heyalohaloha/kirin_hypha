@@ -144,7 +144,8 @@ juce::String matchReadout (const State& state)
         return "A " + juce::String (state.aWindowBlocks / 10) + " / " + juce::String (state.aWindowNeededBlocks / 10) + " S";
     if (! std::isfinite (gain)) return {};
     const auto value = "C " + signedDb (gain + state.heldAttenuationDb) + " dB";  // 下げた A の基準で読む
-    return state.bSelected && state.audibleComparisonSlot == 2 ? "MATCHED / " + value + " / FIXED" : "ON PLAY / " + value;
+    // 「固定」は状態の行（C MATCHED AND FIXED）が言う。2 度言うと読みが切れた（「MATCHED / C −4.9 dB /…」。2026-10-04）。
+    return state.bSelected && state.audibleComparisonSlot == 2 ? "MATCHED / " + value : "ON PLAY / " + value;
 }
 
 void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State& state, presentation::Context context)
