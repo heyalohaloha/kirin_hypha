@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/HyphaReferenceDisplayText.h"
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaReferenceVisuals.h"
 #include <cstdlib>
@@ -41,6 +42,27 @@ inline void verifyReferenceDisplayRegression()
                                              std::pair { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" } })
         check (reference_ui::standardDisplayName (juce::String::fromUTF8 (japanese)) == juce::String::fromUTF8 (english),
                "every standard name from Kirin OS displays in English, with what follows it");
+    // 2026-10-05（Mac の実機）：順位を添えた名前（CHECK SET・B SET の「   1 / 1」）は、名前に訳があれば名前だけを訳し
+    // 順位は残す（「Mastering · tone, level, and dynamics   1 / 1」が日本語の画面で英語のままだった）。訳の無い名前は
+    // 英語のまま（Daisuke「簡単な英語はそのままで問題ない。変換しすぎてカタカナになるパターンも避けたい」）。
+    for (const auto& pair : reference_ui::standardDisplayNames)
+    {
+        const auto english = juce::String::fromUTF8 (pair[1]);
+        const auto shown = i18n::translate (english, i18n::Language::japanese);
+        check (i18n::translate (english + "   1 / 3", i18n::Language::japanese) == shown + "   1 / 3",
+               "a standard name ranked for Hypha reads as the name alone does and keeps its rank");
+        check (i18n::translate (english + "   1 / 3", i18n::Language::english) == english + "   1 / 3", "English stays as it is");
+    }
+    check (i18n::translate (juce::String::fromUTF8 (u8"Mastering · tone, level, and dynamics   1 / 1"), i18n::Language::japanese)
+               == juce::String::fromUTF8 (u8"Mastering｜音色・音量・ダイナミクス   1 / 1"),
+           "the ranked CHECK SET reads as Kirin OS names it in Japanese");
+    check (i18n::translate ("Set 2   1 / 3", i18n::Language::japanese) == "Set 2   1 / 3"
+               && i18n::translate ("Dynamics", i18n::Language::japanese) == "Dynamics",
+           "simple English stays English (no katakana)");
+    check (i18n::translate (juce::String::fromUTF8 (u8"夜明けの音   2 / 3"), i18n::Language::japanese)
+               == juce::String::fromUTF8 (u8"夜明けの音   2 / 3")
+               && i18n::translate ("Custom set   2 / x", i18n::Language::japanese) == "Custom set   2 / x",
+           "a name you gave and a text that only looks ranked stay as written");
     reference_ui::Component component;
     for (const auto width : { 300, 375, 450, 600, 900 })
     {

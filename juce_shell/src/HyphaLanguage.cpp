@@ -165,6 +165,22 @@ juce::String translateParts (const Catalog& catalog, const juce::String& text)
     return translatedAny || found ? result : text;
 }
 
+// A name Kirin OS ranked for Hypha ("Mastering · tone, level, and dynamics   1 / 3", HyphaReferenceRuntimeView.h and
+// PluginEditorReferenceRoles.cpp) reads the name in the catalog and keeps the rank. Empty when the text is not one.
+juce::String translateRanked (const Catalog& catalog, const juce::String& text)
+{
+    const auto split = text.lastIndexOf ("   ");
+    if (split <= 0) return {};
+    const auto rank = text.substring (split + 3);
+    const auto slash = rank.indexOf (" / ");
+    const auto place = rank.substring (0, juce::jmax (0, slash)), count = rank.substring (slash + 3);
+    if (slash <= 0 || count.isEmpty() || ! place.containsOnly ("0123456789") || ! count.containsOnly ("0123456789"))
+        return {};
+    bool found = false;
+    const auto name = exactOrPattern (catalog, text.substring (0, split), found);
+    return found ? name + text.substring (split) : juce::String {};
+}
+
 juce::String translateLine (const Catalog& catalog, const juce::String& line)
 {
     bool found = false;
@@ -217,6 +233,8 @@ juce::String translate (const juce::String& english, Language language)
     const auto whole = exactOrPattern (catalog, english, found);
     if (found)
         return whole;
+    if (const auto ranked = translateRanked (catalog, english); ranked.isNotEmpty())
+        return ranked;
     // A detail built from several lines (a failure, then what was kept) translates line by line.
     if (! english.containsChar ('\n'))
     {
