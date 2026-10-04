@@ -48,6 +48,7 @@ void View::resized()
     connectionArea = toJuce (layout.connectionStatus);
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);
+    footerArea = toJuce (layout.footer);
     updateControls();
     if (hybridVuVisible())
     {
@@ -55,6 +56,7 @@ void View::resized()
         connectionArea = {};
         guideArea = {};
         sessionArea = {};
+        footerArea = {};
         for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                               &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                               &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,

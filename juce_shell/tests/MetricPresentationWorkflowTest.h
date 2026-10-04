@@ -26,8 +26,8 @@ inline void verifyMetricPresentationWorkflow()
             {
                 const auto help = view.metricHelpAt ({ x, y });
                 current |= help.contains (compact ? "over 3 seconds" : "400 ms");
-                integrated |= help.contains ("Integrated loudness since");
-                maximumPeak |= help.contains ("Highest true peak since");
+                integrated |= help.contains ("Integrated loudness (I)");
+                maximumPeak |= help.contains ("Highest true peak (MAX TP)");
             }
         require (current && integrated, "current window and cumulative values explain their ranges on hover at every size");
         require (! compact || maximumPeak, "the compact MAX TP explains its Session range on hover");

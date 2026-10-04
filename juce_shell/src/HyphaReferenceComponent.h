@@ -286,14 +286,10 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // 300% の B・C・V で指している項目の説明（英語。HyphaReferenceHelp.h・HyphaReferenceHoverHelp.cpp）。下の状態の
-    // 行が出す。`local` は REF の中の位置（試験も使う）。エディターが「Show hover help」を渡す（無ければ出す）。
+    // 300% の B・C・V で指している項目の説明（英語。HyphaReferenceHelp.h・HyphaReferenceHoverHelp.cpp）。エディターの
+    // 説明の行（PluginEditorHelpLine.cpp）が足元に出す。`local` は REF の中の位置（試験も使う）。
     juce::String helpAt (juce::Point<int> local);
-    const juce::String& hoverHelpText() const noexcept { return hoverHelp; }
-    std::function<bool()> hoverHelpEnabled;
-    void mouseMove (const juce::MouseEvent&) override;
-    void mouseEnter (const juce::MouseEvent&) override;
-    void mouseExit (const juce::MouseEvent&) override;
+    bool helpInLine() const noexcept;
 
 private:
     class SideButton final : public juce::TextButton
@@ -341,9 +337,6 @@ private:
     SideButton actionButton { "OPEN KIRIN OS" };
     StatusStrip statusStrip;  // 状態の行と、VERSION BLIND・アクションのボタン（HyphaReferenceStatusRow.cpp）
     std::vector<help::Region> helpRegions;  // 最後に描いた図に添えた説明の場所
-    juce::String hoverHelp;                 // 下の行に出している説明（英語）
-    bool helpInLine() const noexcept;
-    void updateHoverHelp();
     bool statusFooterMode = false;
     int statusRowHeight() const noexcept;
     bool statusLineShown() const noexcept;

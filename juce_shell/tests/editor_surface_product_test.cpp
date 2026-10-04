@@ -5,6 +5,7 @@
 #include "ValidationStorageSandbox.h"
 #include "EditorProductChecks.h"
 #include "EditorResizeGripCheck.h"
+#include "ObservatoryHelpLineCheck.h"
 
 #include <array>
 #include <chrono>
@@ -468,6 +469,7 @@ int main (int argc, char** argv)
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);
+    hypha::tests::editor_product::verifyObservatoryHelpLine (previews);
     auto contract = std::make_unique<SurfaceContract> (previews);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;

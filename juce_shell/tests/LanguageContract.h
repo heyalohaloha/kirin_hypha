@@ -53,10 +53,11 @@ inline void verifyLookup()
     KIRIN_LANGUAGE_REQUIRE (japanese ("20 to 250 Hz") == utf8 (u8"20〜250 Hz"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("Drum Attack. Click to switch view.")
                             == utf8 (u8"ドラムのアタック。クリックで表示を切り替えます。"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("POST. Short-term loudness over 3 seconds. Showing its maximum "
+    KIRIN_LANGUAGE_REQUIRE (japanese ("POST. Short-term loudness (S): the loudness over 3 seconds, phrase by phrase. "
+                                      "Compare sections such as verse and chorus. Showing its maximum "
                                       "since the last Meter Session reset.")
-                            == utf8 (u8"POST：3秒間のショートタームラウドネスです。最後にMeter Session"
-                                     u8"をリセットしてからの最大値を表示しています。"));
+                            == utf8 (u8"POSTのショートタームラウドネス（S）：3秒ごとの音量。Aメロとサビなど、場面ごとの"
+                                     u8"大きさを比べます。最後にMeter Sessionをリセットしてからの最大値を表示しています。"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 3 ready POSTs") == utf8 (u8"All Keep：準備済みのPOST 3"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 1 ready POST") == utf8 (u8"All Keep：準備済みのPOST 1"));
 

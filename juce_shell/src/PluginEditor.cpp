@@ -50,6 +50,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     configureMeterContext(); setResizable (true, false);
     setConstrainer (&sizeConstrainer);
     addAndMakeVisible (resizeGrip);
+    addMouseListener (this, true); // the help line follows the pointer over every child
     updateResizeLimits();
     const auto storedEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
@@ -212,6 +213,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     // Where the footer folds into the header, feedback is shown over the body's bottom edge.
     feedbackStrip.onClick = [this] { showFeedbackInformationMenu(); };
     scaleRoot.addChildComponent (feedbackStrip);
+    scaleRoot.addChildComponent (helpLineBar);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);

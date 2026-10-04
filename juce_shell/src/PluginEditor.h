@@ -12,6 +12,7 @@
 #include "HyphaEditorResizeGrip.h"
 #include "HyphaEditorSizeConstrainer.h"
 #include "HyphaFeedbackStrip.h"
+#include "HyphaHelpLineBar.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
@@ -52,8 +53,17 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void visibilityChanged() override;
+    // 300% 以上は、指している項目の説明を足元に出す（PluginEditorHelpLine.cpp）。`point` はエディターの座標。
+    // wholeRow：足元の段の全幅（図・値・タブ）か、左の状態の所だけ（足元のボタン）か。出さないときは空。
+    struct HelpLine { juce::String text; bool wholeRow = false; };
+    HelpLine helpLineAt (juce::Point<int> point);
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseEnter (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
+    bool helpLineActive() const;
+    void updateHelpLine();
     class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
     {
     public:
@@ -104,6 +114,7 @@ private:
     // The corner a user drags where the host has no window frame for it (HyphaEditorResizeGrip.h);
     // shown whenever the editor may be resized.
     hypha::EditorResizeGrip resizeGrip { this, &sizeConstrainer };
+    hypha::HelpLineBar helpLineBar; // the help line over the footer at 300% and above
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);

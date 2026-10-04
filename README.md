@@ -311,7 +311,12 @@ Hovering the plot shows frequency and the selected RAW/SHAPE value; larger views
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
 an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
-All Analysis hover help wraps and repositions inside the plug-in at every size. **Show hover help**
+All Analysis hover help wraps and repositions inside the plug-in at every size. At 300 % and above,
+pointing at an item on LEVEL, TIME, FREQ, SPACE or REF's B, C and V shows its help in one line over
+the footer instead of a popup: across the whole footer row for the graphs, values and tabs (what the
+item is and how it is used; PLR, for one, reads as the song's average dynamics, compared between PRE
+and POST to see how much limiting reduced it), and in the status at the left for the footer's own
+controls, which stay in view. The popup at 200 % and below keeps the full text. **Show hover help**
 in the POST arrow menu disables or restores explanatory popups for every PRE and POST; the user
 preference survives plug-in and DAW restarts. FREQ inspection, click lock, Focus Trail, and MARK stay
 available while help is hidden. A click in the plot
@@ -693,11 +698,11 @@ shows the song and the status; songs are switched from 125%.
   stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
   replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
 
-At 300 % on B, C and V, pointing at an item turns the status line at the bottom into one line on
-what the item measures and what it is for (CREST, the four bands, Blauert's bands, WHOLE and so on),
-as a loudness meter's help bar does; it returns to the status when the pointer leaves. The controls'
-own help goes to the same line instead of a popup there. **Show hover help** turns both off; below
-300 % the popups stay as they were.
+At 300 % on B, C and V, pointing at an item shows one line over the footer on what the item
+measures and what it is for (CREST, the four bands, Blauert's bands, WHOLE and so on), as a loudness
+meter's help bar does, across the whole footer row as on the other pages; it returns to the status
+when the pointer leaves. The controls' own help goes to the same line instead of a popup there.
+**Show hover help** turns both off; below 300 % the popups stay as they were.
 
 A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry

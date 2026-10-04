@@ -59,6 +59,7 @@ void KirinHyphaEditor::timerCallback()
     if (isPost) refreshLiveCompare();
    #endif
     refreshPairPreview (false);
+    updateHelpLine();
 }
 
 void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)

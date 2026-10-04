@@ -1,0 +1,80 @@
+#include "PluginEditor.h"
+
+#include "HyphaHelpLineText.h"
+
+// 2026-10-04 Daisuke「他の画面も統一した方が良い」→「300% 以上で揃える」、「PLRはダイナミクスの平均とか分かるように…
+// 活用方法も含めて」→「足元の段の全幅を使う」。300% 以上の LEVEL・TIME・FREQ・SPACE と REF の B・C・V で項目を指すと、
+// その説明を足元に一行で出し、離すと戻る（HyphaHelpLineBar.h）。図・値・タブを指しているあいだは足元の段の全幅
+// （何かと使い方まで書ける）、足元のボタンを指しているあいだはボタンを隠さないよう左の状態の所だけ。説明は部品の今の
+// 説明（吹き出しの文。LEVEL の値の欄と履歴は View の metricHelpAt、REF は helpAt）で、ここでは吹き出しを出さない
+// （HoverHelpTooltipWindow がエディターの印を見る）。長すぎる説明は HyphaHelpLineText.h の版。REF の A・Blind の
+// 画面と 200% 以下は今までどおり吹き出し。
+
+bool KirinHyphaEditor::helpLineActive() const
+{
+    using namespace hypha::observatory;
+    if (densityForWidth (displayViewport (getWidth(), getHeight()).width) != Density::inspection
+        || observatoryView.hybridVuVisible() || observatoryView.footerBounds().isEmpty())
+        return false;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen || liveBlindOpen) return false;
+    if (observatoryView.domain() == Domain::reference)
+        return isPost && referenceView.isVisible() && referenceView.helpInLine();
+   #endif
+    return observatoryView.domain() != Domain::reference;
+}
+
+KirinHyphaEditor::HelpLine KirinHyphaEditor::helpLineAt (juce::Point<int> point)
+{
+    if (! helpLineActive() || ! hypha::HoverHelpPreference::shared().isEnabled()) return {};
+    // In the footer row only the footer's own controls speak, and only in the status at its left.
+    const bool wholeRow = ! getLocalArea (&scaleRoot, observatoryView.footerBounds()).contains (point);
+    for (auto* under = getComponentAt (point); under != nullptr && under != this; under = under->getParentComponent())
+    {
+        // The status itself is not a help: its tooltip repeats the line it already shows.
+        if (under == &feedbackStrip || under == &observatoryView.feedbackDetailsAnchor()) return {};
+        juce::String text;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (under == &referenceView)
+            text = referenceView.helpAt (referenceView.getLocalPoint (this, point));
+        else
+       #endif
+        if (under == &observatoryView)
+            text = observatoryView.metricHelpAt (observatoryView.getLocalPoint (this, point));
+        else if (auto* client = dynamic_cast<juce::TooltipClient*> (under))
+            text = client->getTooltip();
+        if (text.isNotEmpty()) return { hypha::help_line::forLine (text, wholeRow), wholeRow };
+    }
+    return {};
+}
+
+void KirinHyphaEditor::updateHelpLine()
+{
+    const bool active = helpLineActive();
+    const auto& property = hypha::reference_ui::help::shownInLineProperty;
+    if (static_cast<bool> (getProperties().getWithDefault (property, false)) != active)
+        getProperties().set (property, active);
+    const auto line = active && isMouseOverOrDragging (true) ? helpLineAt (getMouseXYRelative()) : HelpLine {};
+    const auto footer = observatoryView.footerBounds();
+    auto area = footer;
+    if (line.text.isNotEmpty() && ! line.wholeRow)
+    {
+        // The status at the left: up to the first control in the footer row, so none is hidden.
+        std::vector<juce::Component*> owners { &observatoryView };
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (isPost && referenceView.footerStatusStrip().getParentComponent() == &scaleRoot)
+            owners.push_back (&referenceView.footerStatusStrip());
+       #endif
+        for (auto* owner : owners)
+            for (auto* child : owner->getChildren())
+                if (const auto bounds = scaleRoot.getLocalArea (owner, child->getBounds());
+                    child->isVisible() && child != &observatoryView.feedbackDetailsAnchor()
+                    && dynamic_cast<juce::Button*> (child) != nullptr && footer.contains (bounds.getCentre()))
+                    area.setRight (juce::jmin (area.getRight(), bounds.getX() - 4));
+    }
+    helpLineBar.show (line.text, area, footer, logicalPresentationContext());
+}
+
+void KirinHyphaEditor::mouseMove (const juce::MouseEvent&) { updateHelpLine(); }
+void KirinHyphaEditor::mouseEnter (const juce::MouseEvent&) { updateHelpLine(); }
+void KirinHyphaEditor::mouseExit (const juce::MouseEvent&) { updateHelpLine(); }
