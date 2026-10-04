@@ -3,10 +3,34 @@
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numeric>
+
 namespace hypha::reference_ui
 {
 namespace
 {
+// 1 段の中で入りきらなければ、短い名前は全部出し、残りを長い名前で等分する（等分だけだと短い名前まで切れた）。
+std::vector<int> fitRow (const std::vector<int>& natural, int available)
+{
+    std::vector<int> result (natural.size());
+    std::vector<size_t> order (natural.size());
+    std::iota (order.begin(), order.end(), size_t { 0 });
+    std::stable_sort (order.begin(), order.end(), [&natural] (size_t a, size_t b) { return natural[a] < natural[b]; });
+    auto remaining = available;
+    auto left = static_cast<int> (natural.size());
+    for (const auto index : order)
+    {
+        result[index] = std::min (natural[index], remaining / std::max (1, left));
+        remaining -= result[index];
+        --left;
+    }
+    return result;
+}
+
+constexpr int minimumRowHeight = 20;
 }
 
 CheckTabs::CheckTabs()
@@ -24,25 +48,49 @@ void CheckTabs::setTabs (std::vector<Tab> next, const juce::String& selected, pr
     repaint();
 }
 
-std::vector<juce::Rectangle<int>> CheckTabs::layoutTabs() const
+std::vector<int> CheckTabs::naturalWidths() const
 {
-    // 各タブは文字の幅に合わせ、入りきらなければ等分に縮める（あふれる名前は省略記号で示す）。
-    auto area = getLocalBounds();  // 2026-10-04：「1 / 5」は出さない（どのタブかは下線で分かる）
     const auto font = labelFont (context, typography::TextRole::body, typography::Composition::information);
     std::vector<int> widths;
-    int total = 0;
     for (const auto& tab : items)
+        widths.push_back (juce::roundToInt (std::ceil (text_style::shownWidth (font, tab.label))) + 22);
+    return widths;
+}
+
+int CheckTabs::rowsFor (int width) const
+{
+    const auto widths = naturalWidths();
+    return items.size() > 1 && std::accumulate (widths.begin(), widths.end(), 0) > width ? 2 : 1;
+}
+
+std::vector<juce::Rectangle<int>> CheckTabs::layoutTabs() const
+{
+    // 各タブは文字の幅に合わせる（2026-10-04：「1 / 5」は出さない。どのタブかは下線で分かる）。
+    auto area = getLocalBounds();
+    const auto widths = naturalWidths();
+    const auto total = std::accumulate (widths.begin(), widths.end(), 0);
+    std::vector<juce::Rectangle<int>> result (items.size());
+    const auto place = [&] (size_t from, size_t to, juce::Rectangle<int> row)
     {
-        widths.push_back (juce::roundToInt (text_style::shownWidth (font, tab.label)) + 22);
-        total += widths.back();
-    }
-    std::vector<juce::Rectangle<int>> result;
-    const auto available = area.getWidth();
-    for (size_t index = 0; index < items.size(); ++index)
+        const std::vector<int> natural (widths.begin() + static_cast<std::ptrdiff_t> (from), widths.begin() + static_cast<std::ptrdiff_t> (to));
+        const auto fitted = fitRow (natural, row.getWidth());
+        for (size_t index = from; index < to; ++index) result[index] = row.removeFromLeft (fitted[index - from]);
+    };
+    if (total <= area.getWidth() || items.size() < 2 || area.getHeight() < 2 * minimumRowHeight)
     {
-        const auto width = total <= available ? widths[index] : available / static_cast<int> (items.size());
-        result.push_back (area.removeFromLeft (width));
+        place (0, items.size(), area);
+        return result;
     }
+    // 2 段：セットの順のまま、2 段の幅がなるべくそろう所で分ける。
+    size_t split = 1;
+    auto best = std::numeric_limits<int>::max(), before = 0;
+    for (size_t index = 1; index < items.size(); ++index)
+    {
+        before += widths[index - 1];
+        if (const auto wider = std::max (before, total - before); wider < best) { best = wider; split = index; }
+    }
+    place (0, split, area.removeFromTop (area.getHeight() / 2));
+    place (split, items.size(), area);
     return result;
 }
 

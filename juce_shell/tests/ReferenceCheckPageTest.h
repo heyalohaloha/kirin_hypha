@@ -99,6 +99,31 @@ inline void verifyReferenceCheckPage()
              "300%: the Checks are tabs in the set's order, the song is chosen within the Check, V stays on its page");
     for (size_t index = 0; index < tabs->tabs().size(); ++index)
         require (panel.getLocalBounds().contains (tabs->getBounds()) && ! tabs->tabBounds (index).isEmpty(), "every tab is reachable");
+    // 2026-10-05（Daisuke「入りきらないときは 2 段にする」）：Check が多くて 1 段に入らなければ 2 段に分け、どの名前も
+    // 切らない（Mac の実機の 300% で Mastering の 8 項目が「音色…」「セク…」と切れていた）。
+    {
+        auto many = state;
+        many.checks.clear();
+        for (const auto* label : { "Tonal balance", "Loudness", "True Peak", "Dynamics", "Stereo and phase",
+                                   "Low-end consistency", "Section difference", "Album context" })
+            many.checks.push_back ({ juce::String ("chk-") + juce::String (label).removeCharacters (" ") + "/ref-a",
+                                     juce::String (label) + "  /  Hello" });
+        many.checkId = many.checks.front().id;
+        const auto font = labelFont (presentation::forEditor (900, 600), typography::TextRole::body, typography::Composition::information);
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const i18n::ScopedLanguage scoped (language);
+            panel.setState (many);
+            require (tabs->tabs().size() == 8 && tabs->getHeight() >= 48 && panel.getLocalBounds().contains (tabs->getBounds()),
+                     "eight Checks take two rows at 300%");
+            for (size_t index = 0; index < tabs->tabs().size(); ++index)
+                require (text_style::shownWidth (font, tabs->tabs()[index].label) + 20.0f
+                             <= static_cast<float> (tabs->tabBounds (index).getWidth()),
+                         "every Check's name shows whole on two rows: " + tabs->tabs()[index].label);
+        }
+        panel.setState (state);
+        require (tabs->getHeight() < 48, "three Checks stay on one row");
+    }
 
     juce::String chosen;
     int heard = 0, matched = 0;

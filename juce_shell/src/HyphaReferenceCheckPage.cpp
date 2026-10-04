@@ -170,7 +170,7 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     selectors.removeFromLeft (8);
     const auto second = selectors.removeFromBottom (25);
     area.removeFromTop (panelGap());
-    auto row = area.removeFromTop (checkPageRows);
+    auto row = area.removeFromTop (checkTabsHeight());
     if (versionPage())
     {
         versionBox.setBounds (first.getUnion (second));  // 長い版の名前と AUTO の印が切れないよう全幅
@@ -193,6 +193,15 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     }
     checkTabs.setBounds (row);
     cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
+}
+
+// 2026-10-05（Daisuke「入りきらないときは 2 段にする」）：C の Check のタブが MATCH の読みとボタンの左に 1 段で
+// 入りきらなければ、タブの段を 2 段ぶんにする（名前を切らない）。V のタブは決まった 5 つで 1 段。
+int Component::checkTabsHeight() const
+{
+    if (! checkPage()) return versionPageRows;
+    const auto width = panelArea().getWidth() - (matchButton.isVisible() ? 80 + 156 : 0);
+    return checkPageRows * checkTabs.rowsFor (width);
 }
 
 // C の画面の一番下の段（CUE の選択と Cue の時間軸）。状態の行は 300% では足元の段にある。

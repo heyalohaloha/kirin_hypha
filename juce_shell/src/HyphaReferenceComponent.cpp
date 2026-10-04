@@ -204,7 +204,7 @@ void Component::paint (juce::Graphics& g)
     // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
     // （HyphaVersionBlindScreen.h）。その間 REF は何も描かない（曲名・図・状態の文は手がかりになる。R-28）。
     if (isBlindSession (current.blindPhase)) return;
-    if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + (checkPage() ? checkPageRows : versionPageRows)); paintCheckPageLabels (g); }
+    if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + checkTabsHeight()); paintCheckPageLabels (g); }
     else if (rolePage() && current.comparisonSlot == 3)
     {
         area.removeFromTop (panelGap());  // B SET と曲はボタンの段

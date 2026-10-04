@@ -362,13 +362,14 @@ private:
     // （HyphaReferenceCheckPage.cpp）。
     bool checkPage() const noexcept;
     // 2026-10-04：選択欄は A・B・C・V のボタンの段、MATCH はタブの段、CUE は Cue の時間軸の段に置く（図を大きく）。
-    static constexpr int checkPageRows = 28; // タブ（右に A の読みと MATCH）
+    static constexpr int checkPageRows = 28; // タブ（右に A の読みと MATCH）。入りきらなければ 2 段（checkTabsHeight）
     static constexpr int checkFooterRow = 24; // 4 帯域の 1 段・CUE と時間軸の 1 段
     bool rolePage() const noexcept;  // 300% の B・C・V（Blind の外）
     juce::Rectangle<int> cueRowBounds() const noexcept;
     int checkFooterHeight() const noexcept;
     void configureCheckPage();
     void syncCheckPage (bool blindSession);
+    int checkTabsHeight() const;  // C は Check のタブが 1 段に入らなければ 2 段ぶん（2026-10-05）
     void layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors);
     void paintCheckPageLabels (juce::Graphics&) const;
     // 耳で聴き比べる Check（Kirin OS の audition_only）。C の画面は図の代わりに案内を出す。
