@@ -90,6 +90,17 @@ inline void verifyReferenceStatusLine()
     require (reference_ui::referenceStatusLine (offered).kind != StatusKind::unable,
              "the approval belongs to the role it was offered for");
 
+    // 2026-10-04：上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしているときは、その量を言う。
+    {
+        auto under = playing;
+        under.peakShortfallDb = 0.3;
+        const auto line = reference_ui::referenceStatusLine (under).text;
+        require (line.contains ("0.3 DB UNDER A (PEAK LIMIT)")
+                     && i18n::translate (line, i18n::Language::japanese).contains (juce::String (juce::CharPointer_UTF8 ("\xe3\x83\x94\xe3\x83\xbc\xe3\x82\xaf"))),
+                 "a role played at the ceiling short of A says by how much, in both languages");
+        under.peakShortfallDb = 0.0;
+        require (! reference_ui::referenceStatusLine (under).text.contains ("UNDER A"), "a full match says nothing about it");
+    }
     // gain の読みは鳴っている役の値だけ（合わせ方は状態の文が言う。2 度言うと状態の文が切れる）。下げた A は足す。
     playing.originalAudition = false;
     playing.audibleComparisonSlot = 1;

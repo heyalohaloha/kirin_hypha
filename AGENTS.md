@@ -123,6 +123,8 @@ Reference比較試聴（B・C・V）のMATCHが比較ceilingを超えるとき�
 明示して通常の音量へ戻す（RETURN）まで保持し、急に上げない。下げ終わるまで参照を鳴らさず、戻すときは鳴っている役を
 止めてから0.5秒で上げる。offline render、hostが知らせるbypassには適用せず、正本のPRE/POST測定・Recordは減衰の前で
 取る。減衰を保つあいだlive比較とBlindは始めない（POSTを二重に下げない）。（2026-10-03、利用者が承認）
+ただし上限で届かない量が0.5 dB以下（聞いて分からない差）なら、承認を求めず参照を上限まで上げて鳴らし、足りない量を
+状態の行で言う。押したときのMATCH・追従・CのMATCHのやり直しで同じ。（2026-10-04、利用者が決定）
 
 Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。Reference比較試聴では、
 非RT側で検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。

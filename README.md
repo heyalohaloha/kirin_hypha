@@ -591,9 +591,11 @@ the C page matches again from the current A window. A match without enough A kee
 and says why. A Check set to original level in Kirin OS plays as is.
 
 **Lowering A to match.** A loud master and a quieter reference cannot be matched by raising the
-reference past the ceiling. Instead Hypha offers, on the page of that role, to lower A by the
-difference (LOWER A 8.0 DB & PLAY B): the reference then plays at its own level and A is lowered to
-it. Nothing is lowered without that approval. A stays lowered after the audition, through the other
+reference past the ceiling. When the reference falls short by 0.5 dB or less, which the ear cannot
+tell, Hypha plays it at the ceiling without asking, and the status line says how far it is under A
+(0.1 DB UNDER A (PEAK LIMIT)); following and MATCH again do the same. Beyond that Hypha offers, on the
+page of that role, to lower A by the difference (LOWER A 8.0 DB & PLAY B): the reference then plays at
+its own level and A is lowered to it. Nothing is lowered without that approval. A stays lowered after the audition, through the other
 roles, until RETURN in the footer; RETURN stops the role and raises A over half a second. The roles'
 readouts then name the gain against the lowered A, and the status line says how far A is lowered.
 Offline renders and host bypass are never lowered, and the measurements and Record are taken before

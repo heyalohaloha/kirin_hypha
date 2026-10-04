@@ -54,7 +54,10 @@ static StatusLine composeStatusLine (const State& state)
         // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。
         const auto lowered = state.heldAttenuationDb < -0.05
             ? "  /  A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
-        return { StatusKind::ready, how + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
+        // ピークの上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしている（2026-10-04、承認を求めない）。
+        const auto under = state.peakShortfallDb > 0.05
+            ? "  /  " + juce::String (state.peakShortfallDb, 1) + " DB UNDER A (PEAK LIMIT)" : juce::String {};
+        return { StatusKind::ready, how + lowered + under + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {

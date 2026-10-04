@@ -45,6 +45,7 @@ struct TrackingStep
 {
     TrackingAction action = TrackingAction::keep;
     double gainDb = 0.0;
+    double shortfallDb = 0.0;  // 上限まで上げて止めた量（0.5 dB 以下）
 };
 
 // 選ぶときと同じ上限：gain を掛けた参照の peak は max(−1 dBTP, A の max TP, 参照の max TP) を超えない。
@@ -60,6 +61,14 @@ bool referenceGainExceedsCeiling (double requiredGainDb, double sourcePeakDbtp, 
 // 超えるときに承認を求める下げ幅（0 以下）：差の全部（参照は元の音量のまま、A を差だけ下げる。live 比較・
 // ローカル Blind と同じ）。上げなくてよい（requiredGainDb が 0 以下）なら 0。
 double referenceAttenuationToMatch (double requiredGainDb) noexcept;
+
+// 2026-10-04（Daisuke「基本は C が A に合わせた方が良い」）：上限で届かない量が 0.5 dB 以下（聞いて分からない差）
+// なら、承認を求めず上限まで上げて鳴らし、足りない量を状態の行で言う。それより大きいときは今どおり A を下げる
+// 承認を出す（大きく小さい参照曲を、音量差のまま比べさせない）。押したときの MATCH・追従・C の MATCH のやり直しで同じ。
+inline constexpr double peakShortfallToleranceDb = 0.5;
+// requiredGainDb を掛けると上限をどれだけ超えるか（0 以上。超えなければ 0）。heldAttenuationDb は承認して下げている量。
+double referencePeakShortfallDb (double requiredGainDb, double sourcePeakDbtp, double aPeakDbtp,
+                                 double heldAttenuationDb = 0.0) noexcept;
 
 // 1 回の追従。requiredGainDb は今の窓から求めた gain、currentGainDb は掛けている gain、anchorGainDb は
 // 利用者の MATCH の gain（NaN なら幅を見ない）。値が無い（NaN）・±100 dB を超えるときは動かさない。

@@ -50,11 +50,17 @@ void rampsAndSteps()
              "within 0.5 dB, or nothing measured, keeps the gain");
     const auto down = r::trackingStep (-10.0, 2.0, -6.0, -2.0);
     const auto up = r::trackingStep (4.5, 2.0, -6.0, -2.0);
-    const auto over = r::trackingStep (5.5, 2.0, -6.0, -2.0);
+    const auto near = r::trackingStep (5.5, 2.0, -6.0, -2.0);  // 上限（+5.0）に 0.5 dB 届かない
+    const auto over = r::trackingStep (5.6, 2.0, -6.0, -2.0);  // 0.6 dB 届かない
     require (down.action == r::TrackingAction::move && closeTo (down.gainDb, -10.0)
-                 && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5)
+                 && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5) && closeTo (up.shortfallDb, 0.0)
+                 && near.action == r::TrackingAction::move && closeTo (near.gainDb, 5.0, 1.0e-9) && closeTo (near.shortfallDb, 0.5, 1.0e-9)
                  && over.action == r::TrackingAction::stopCeiling,
-             "lowering always moves; raising moves only within the ceiling and otherwise stops");
+             "lowering always moves; raising moves within the ceiling, stops at the ceiling 0.5 dB short at most, "
+             "and otherwise stops following");
+    require (closeTo (r::referencePeakShortfallDb (5.5, -6.0, -2.0), 0.5, 1.0e-9) && r::referencePeakShortfallDb (4.0, -6.0, -2.0) == 0.0
+                 && closeTo (r::referencePeakShortfallDb (10.0, -2.0, -20.0, -8.0), 1.0, 1.0e-9),
+             "the shortfall is how far the gain would pass the ceiling, after any A lowering");
     require (r::trackingStep (-4.0, 2.0, -6.0, -2.0, 2.0).action == r::TrackingAction::move
                  && r::trackingStep (-4.5, 2.0, -6.0, -2.0, 2.0).action == r::TrackingAction::stopRange
                  && r::trackingStep (-4.5, 2.0, -6.0, -2.0).action == r::TrackingAction::move,
@@ -315,6 +321,12 @@ void matchesAndFollows (const juce::File& sandbox)
              "C's new gain comes from the current A window and stays fixed");
     for (int block = 0; block < 6; ++block) render();  // 50 ms の ramp（2,400 サンプル）を越える
     require (closeTo (buffer.getSample (0, 479), 0.1 * std::pow (10.0, 2.5 / 20.0), 1.0e-6), "C sounds at the new gain after the ramp");
+    // 2026-10-04：上限に 0.5 dB 以下だけ届かないなら、上限まで上げて合わせ、足りない量を持つ。
+    require (controller.rematch (-12.7, -2.0) == ref::RematchResult::matched
+                 && closeTo (controller.snapshot().appliedGainDb, 3.0, 1.0e-6) && closeTo (controller.snapshot().peakShortfallDb, 0.3, 1.0e-6),
+             "C matched again 0.3 dB short of the ceiling plays at the ceiling and says how far short");
+    require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched && closeTo (controller.snapshot().peakShortfallDb, 0.0),
+             "a full match again clears the shortfall");
     require (controller.rematch (-10.0, -2.0) == ref::RematchResult::ceilingExceeded
                  && controller.rematch (std::numeric_limits<double>::quiet_NaN(), -2.0) == ref::RematchResult::levelUnavailable
                  && closeTo (controller.snapshot().appliedGainDb, 2.5),

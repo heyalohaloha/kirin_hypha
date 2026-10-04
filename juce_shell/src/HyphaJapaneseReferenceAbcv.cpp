@@ -65,6 +65,7 @@ const Entry entries[] = {
     { "C WHOLE", u8"C曲全体" },
     { "B SET RANGE", u8"Bセットの範囲" },  // B セットの曲の p10〜p90 の帯
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
+    { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（ピーク上限）" },
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
     { "Compared by listening. Hypha shows no result it has not measured. Press A and %1 to switch at the same level.",
       u8"この項目は耳で聴き比べます。Hyphaは測っていない結果を出しません。Aと%1を押して、同じ音量で切り替えてください。" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）

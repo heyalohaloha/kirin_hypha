@@ -22,6 +22,15 @@ bool referenceGainExceedsCeiling (double requiredGainDb, double sourcePeakDbtp, 
         + 1.0e-9 < effective;
 }
 
+double referencePeakShortfallDb (double requiredGainDb, double sourcePeakDbtp, double aPeakDbtp,
+                                 double heldAttenuationDb) noexcept
+{
+    if (! referenceGainExceedsCeiling (requiredGainDb, sourcePeakDbtp, aPeakDbtp, heldAttenuationDb)) return 0.0;
+    const auto held = std::isfinite (heldAttenuationDb) ? std::min (0.0, heldAttenuationDb) : 0.0;
+    return requiredGainDb + held
+        - referenceGainHeadroomDb (sourcePeakDbtp, std::isfinite (aPeakDbtp) ? aPeakDbtp + held : aPeakDbtp);
+}
+
 double referenceAttenuationToMatch (double requiredGainDb) noexcept
 {
     return std::isfinite (requiredGainDb) && requiredGainDb > 0.0 ? -requiredGainDb : 0.0;
@@ -33,11 +42,14 @@ TrackingStep trackingStep (double requiredGainDb, double currentGainDb, double s
     if (! std::isfinite (requiredGainDb) || requiredGainDb < -100.0 || requiredGainDb > 100.0
         || ! std::isfinite (currentGainDb) || std::abs (requiredGainDb - currentGainDb) < trackingToleranceDb)
         return {};
-    if (referenceGainExceedsCeiling (requiredGainDb, sourcePeakDbtp, aPeakDbtp, heldAttenuationDb))
+    // 上限で届かない量が 0.5 dB 以下なら上限まで上げて追従を続ける（止めない）。
+    const auto shortfall = referencePeakShortfallDb (requiredGainDb, sourcePeakDbtp, aPeakDbtp, heldAttenuationDb);
+    if (shortfall > peakShortfallToleranceDb + 1.0e-9)
         return { TrackingAction::stopCeiling, requiredGainDb };
-    if (std::isfinite (anchorGainDb) && std::abs (requiredGainDb - anchorGainDb) > trackingRangeDb + 1.0e-9)
-        return { TrackingAction::stopRange, requiredGainDb };
-    return { TrackingAction::move, requiredGainDb };
+    const auto target = requiredGainDb - shortfall;
+    if (std::isfinite (anchorGainDb) && std::abs (target - anchorGainDb) > trackingRangeDb + 1.0e-9)
+        return { TrackingAction::stopRange, target };
+    return { TrackingAction::move, target, shortfall };
 }
 
 PairedWindowLoudness pairedWindowLoudness (const std::vector<KirinMeterHistoryEntry>& history,

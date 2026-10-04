@@ -86,6 +86,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     }
     applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
                             louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
+    currentSnapshot.peakShortfallDb = step.shortfallDb;
     return TrackingAction::move;
 }
 
@@ -146,7 +147,8 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     const auto required = aLoudness - sourceLoudness;
     if (! std::isfinite (required) || required < -100.0 || required > 100.0) return RematchResult::levelUnavailable;
     const auto aPeak = louder (aSessionPeakDbtp, selectionAPeak);
-    if (referenceGainExceedsCeiling (required, sourcePeak, aPeak, heldAttenuationDb.load (std::memory_order_acquire)))
+    const auto shortfall = referencePeakShortfallDb (required, sourcePeak, aPeak, heldAttenuationDb.load (std::memory_order_acquire));
+    if (shortfall > peakShortfallToleranceDb + 1.0e-9)
     {
         const juce::ScopedLock lock (stateLock);
         currentSnapshot.matchFailure = MatchFailure::ceilingExceeded;
@@ -158,9 +160,10 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation || ! bSelected.load (std::memory_order_acquire))
         return RematchResult::notPlaying;
     currentSnapshot.tracking = TrackingState::fixed;
-    applyMatchedGainLocked (required, aLoudness, aPeak, sourceLoudness, sourcePeak);
-    trackingAnchorDb = required;
-    if (heldSelection.valid) heldSelection.facts.anchorGainDb = required;
+    applyMatchedGainLocked (required - shortfall, aLoudness, aPeak, sourceLoudness, sourcePeak);  // 0.5 dB 以下は上限まで
+    currentSnapshot.peakShortfallDb = shortfall;
+    trackingAnchorDb = required - shortfall;
+    if (heldSelection.valid) heldSelection.facts.anchorGainDb = required - shortfall;
     return RematchResult::matched;
 }
 }

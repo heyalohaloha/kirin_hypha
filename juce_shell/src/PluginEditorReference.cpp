@@ -294,6 +294,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.truePeakDeltaBMinusA = runtime.truePeakDeltaBMinusA;
     }
     state.appliedGainDb = runtime.bSelected ? audible.appliedGainDb : runtime.appliedGainDb;
+    state.peakShortfallDb = runtime.bSelected ? audible.peakShortfallDb : 0.0;
     using Runtime = hypha::reference_audition::RuntimeState;
     using Access = hypha::os_access::State;
     if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
