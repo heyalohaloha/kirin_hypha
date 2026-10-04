@@ -9,6 +9,7 @@
 
 #include "PluginProcessor.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaEditorResizeGrip.h"
 #include "HyphaEditorSizeConstrainer.h"
 #include "HyphaFeedbackStrip.h"
 #include "HyphaHoverHelpPreference.h"
@@ -100,6 +101,9 @@ private:
     // on whole device pixels that fit the display (HyphaEditorSizeConstrainer.h).
     void updateResizeLimits();
     hypha::EditorSizeConstrainer sizeConstrainer;
+    // The corner a user drags where the host has no window frame for it (HyphaEditorResizeGrip.h);
+    // shown whenever the editor may be resized.
+    hypha::EditorResizeGrip resizeGrip { this, &sizeConstrainer };
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);

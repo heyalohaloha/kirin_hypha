@@ -49,6 +49,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         processorRef.observatoryTimeRangePreference()));
     configureMeterContext(); setResizable (true, false);
     setConstrainer (&sizeConstrainer);
+    addAndMakeVisible (resizeGrip);
     updateResizeLimits();
     const auto storedEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
@@ -313,6 +314,8 @@ void KirinHyphaEditor::resized()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost) layoutLocalBlindProduct();
    #endif
+    resizeGrip.setVisible (isResizable());
+    resizeGrip.place (getLocalBounds());
 }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaEditor::cycleSpectrumSize()

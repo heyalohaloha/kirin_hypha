@@ -210,6 +210,7 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
         setSize (900, 600);
     }
     setResizable (! localBlindOpen && ! referenceBlind, false);
+    resizeGrip.setVisible (isResizable());
     localBlindView.setBounds (scaleRoot.getLocalBounds());
     localBlindView.setVisible (localBlindOpen);
     liveBlindView.setBounds (scaleRoot.getLocalBounds());

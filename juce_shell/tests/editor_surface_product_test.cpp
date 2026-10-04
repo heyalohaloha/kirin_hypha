@@ -4,6 +4,7 @@
 #include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
 #include "EditorProductChecks.h"
+#include "EditorResizeGripCheck.h"
 
 #include <array>
 #include <chrono>
@@ -462,6 +463,7 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
     hypha::tests::editor_product::verifyMagnifiedEditor();
+    hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();

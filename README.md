@@ -268,7 +268,7 @@ output-presentation sample endpoint.
 | RAW / SHAPE | Switches the same exact-pair curve between gain-inclusive difference and energy-normalized shape; clears a mode-specific MARK and Focus Trail |
 | Hover / click | Reads frequency and the selected RAW/SHAPE value; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only reference in the selected mode; × clears it |
-| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%) |
+| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Drag the editor's own bottom-right grip in any host (Studio One on Windows and Pro Tools have no window frame to drag) or choose a size from the size menu. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%; none fits a 1920×1080 display at 125%) |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
