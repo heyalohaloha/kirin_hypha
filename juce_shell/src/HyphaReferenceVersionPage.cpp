@@ -55,6 +55,25 @@ bool has (const std::vector<juce::String>& views, const char* name)
 }
 }
 
+const std::vector<VersionTab>& versionTabs()
+{
+    static const std::vector<VersionTab> tabs {
+        { "whole", "WHOLE", {} },
+        { "v-tone", "TONE", { "spectrum_full" } },
+        { "v-dynamics", "DYNAMICS", { "dynamics", "transient" } },  // クレストと音量の動き・アタックと立ち上がり
+        { "v-stereo", "STEREO", { "stereo" } },
+        { "v-low", "LOW END", { "spectrum_low" } },
+    };
+    return tabs;
+}
+
+const VersionTab* findVersionTab (const juce::String& id)
+{
+    for (const auto& tab : versionTabs())
+        if (tab.id == id) return &tab;
+    return nullptr;
+}
+
 bool sameSectionReady (const reference_audition::VisualTimeline* timeline) noexcept
 {
     if (timeline == nullptr || ! timeline->aPairKirin || ! timeline->vPairKirin) return false;

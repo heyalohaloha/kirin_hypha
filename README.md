@@ -672,12 +672,15 @@ shows the song and the status; songs are switched from 125%.
   (AはCと同じ) when it rounds to zero. The metric cards read A, C and A VS C (CよりA) with the size of
   the difference and its unit and word under it (1.2 / LU QUIETER); at 200 % and below each card is one
   line, LUFS-I A 1.2 LU QUIETER.
-- **V**: the Version and the shared CHECK SET, then tabs. WHOLE is the song timeline: A above V,
+- **V**: the Version (across the whole row), then the tabs WHOLE, TONE, DYNAMICS, STEREO and LOW END
+  (全体・音色・ダイナミクス・ステレオ・低域). V's items are fixed and separate from C's CHECK SET, whose
+  Checks each come with their own reference songs (owner, 2026-10-04: comparing Versions of the same
+  song needs no CHECK SET; section and album Checks do not compare one section). WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
-  position; these controls never seek the DAW or switch audio. Each Check tab compares A and V over
-  the same aligned section as that Check looks at it: a low-band Check shows 20–250 Hz, and a Check
-  that looks at dynamics, loudness, stereo, waveform or transient shows the same range strips as C
+  position; these controls never seek the DAW or switch audio. The other tabs compare A and V over
+  the same aligned section: TONE the full-range spectrum, LOW END 20–250 Hz, DYNAMICS the crest and
+  loudness movement beside the attack and onset, and STEREO the width and correlation, as range strips
   for A and V over the last 30 seconds of that section (both measured by Hypha on the same frames),
   with the first fact over time above them (A gold, V cyan, scaled to the lines).
   VERSION BLIND opens from this page and runs on the same screen as the PRE/POST **BLIND**, over the
@@ -708,7 +711,7 @@ when the pointer leaves. The controls' own help goes to the same line instead of
 A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
 frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Full-range spectrum charts
-(B's Balance, C, and V's Check tabs) also shade Blauert's directional bands — 300–400 Hz, around 1 kHz
+(B's Balance, C, and V's TONE) also shade Blauert's directional bands — 300–400 Hz, around 1 kHz
 (891–1122 Hz) and 3–4 kHz — and read at the top right how A's 1 kHz sits against the mean of the
 other two compared with the other role (1k vs 300-400·3-4k / A 1.2 dB LOWER;
 300-400·3-4kに対する1k / Aが1.2 dB低い). In loudspeaker
@@ -717,8 +720,8 @@ far, mostly on familiar sounds; Hypha shows the decibels only, never near or far
 within each song, so it needs no level matching; it reads the 64-band medians of both sides, and is not
 shown when a band is near silence (−100 dBFS or below). The four-band Balance cannot show it: its
 250 Hz–2 kHz band holds both 300–400 Hz and 1 kHz. A Check that Kirin OS
-compares by listening (no measured view, such as Vocal balance) says so on C and V instead of showing
-a chart. V's Check tabs are matched with the alignment's level even while V is not playing. Until
+compares by listening (no measured view, such as Vocal balance) says so on C instead of showing
+a chart. V's tabs are matched with the alignment's level even while V is not playing. Until
 Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is. Standard names from
 Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS names them
 in the screen's language — its English names in English and its Japanese names in Japanese —

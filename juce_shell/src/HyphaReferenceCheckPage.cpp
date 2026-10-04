@@ -121,15 +121,17 @@ void Component::syncCheckPage (bool blindSession)
     const bool vPage = versionPage();  // H13
     const auto groups = checkGroups (current.checks);
     const auto* group = currentGroup (groups, current.checkId);
+    // V のタブは C の CHECK SET と切り離した決まった項目（versionTabs、2026-10-04）。C のタブは CHECK セットの順。
     std::vector<CheckTabs::Tab> tabs;
-    if (vPage) tabs.push_back ({ "whole", "WHOLE" });
-    for (const auto& item : groups) tabs.push_back ({ item.checkId, item.label });
-    juce::String sameSection;
-    for (const auto& tab : tabs) if (vPage && tab.id == versionTab && tab.id != "whole") sameSection = tab.label;
-    if (vPage && sameSection.isEmpty()) versionTab = "whole";
+    if (vPage)
+        for (const auto& tab : versionTabs()) tabs.push_back ({ tab.id, tab.label });
+    else
+        for (const auto& item : groups) tabs.push_back ({ item.checkId, item.label });
+    if (vPage && findVersionTab (versionTab) == nullptr) versionTab = "whole";
+    const auto* versionChoice = vPage ? findVersionTab (versionTab) : nullptr;
+    const auto sameSection = versionChoice != nullptr && versionChoice->id != "whole" ? versionChoice->label : juce::String {};
     checkTabs.setTabs (std::move (tabs), vPage ? versionTab : group != nullptr ? group->checkId : juce::String {}, presentationContext);
-    checkTabs.setVisible ((page || vPage) && ! groups.empty());
-    const auto views = current.checkViewBindings.find (versionTab);
+    checkTabs.setVisible (vPage || (page && ! groups.empty()));
     // V を鳴らしていなくても、WHOLE と同じ位置合わせの gain（同じ区間の音量差）で合わせて比べる（鳴らしていれば実際の
     // gain）。2026-10-04 まで V を鳴らさないと「音量未調整」で 4 帯域が「—」だった。
     const auto* timeline = current.visualTimeline.get();
@@ -137,8 +139,7 @@ void Component::syncCheckPage (bool blindSession)
         : timeline != nullptr && timeline->binding.aligned && timeline->binding.matched ? timeline->binding.gainDb
         : std::numeric_limits<double>::quiet_NaN();
     comparisonView.setSameSection (sameSection, sameSectionGain,
-                                   views != current.checkViewBindings.end() ? views->second : std::vector<juce::String> {},
-                                   current.listeningChecks.count (versionTab) > 0);
+                                   versionChoice != nullptr ? versionChoice->views : std::vector<juce::String> {}, false);
     syncSelectionControl (checkSongBox, group != nullptr ? group->songs : std::vector<SelectionOption> {}, current.checkId);
     checkSongBox.setVisible (page && group != nullptr);
     const bool matching = current.comparisonMode == "loudness_match";
@@ -155,7 +156,8 @@ void Component::syncCheckPage (bool blindSession)
     }
     if (vPage)
     {
-        // V の画面では C の曲と Cue を出さない（C の画面で選ぶ）。CHECK SET は C と共用。
+        // V の画面では C の CHECK SET・曲・Cue を出さない（C の画面で選ぶ。V の項目は決まっている）。
+        presetBox.setVisible (false);
         checkBox.setVisible (false);
         cueBox.setVisible (false);
     }
@@ -163,7 +165,7 @@ void Component::syncCheckPage (bool blindSession)
 
 void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int> selectors)
 {
-    // 選択欄は A・B・C・V のボタンと同じ段（V：V / VERSION と CHECK SET。C：CHECK SET と C / SONG）。
+    // 選択欄は A・B・C・V のボタンと同じ段（V：V / VERSION を全幅に。C：CHECK SET と C / SONG）。
     const auto first = selectors.removeFromLeft ((selectors.getWidth() - 8) / 2).removeFromBottom (25);
     selectors.removeFromLeft (8);
     const auto second = selectors.removeFromBottom (25);
@@ -171,8 +173,7 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     auto row = area.removeFromTop (checkPageRows);
     if (versionPage())
     {
-        versionBox.setBounds (first);
-        presetBox.setBounds (second);
+        versionBox.setBounds (first.getUnion (second));  // 長い版の名前と AUTO の印が切れないよう全幅
         if (blindButton.isVisible())  // VERSION BLIND は V の見比べの操作なので、V のタブの段の右に置く
         {
             if (blindButton.getParentComponent() != this) addChildComponent (blindButton);

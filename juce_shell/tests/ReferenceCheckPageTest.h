@@ -269,8 +269,9 @@ inline void verifyReferenceCheckPage()
              "below 300% the help stays in the popups it had");
     panel.onSelectCheck = {}; panel.onSelectC = {}; panel.onMatch = {};
 
-    // H13: V の画面（300%）。VERSION と CHECK SET（C と共用）、WHOLE（タイムライン）と Check のタブ。タブは
-    // 見るものだけを替え、音も C の選択も変えない。Check のタブでは同じ区間の A と V を同じ定義で比べる。
+    // H13: V の画面（300%）。VERSION（全幅）と、WHOLE（タイムライン）の後に決まった 4 つのタブ（音色・ダイナミクス・
+    // ステレオ・低域、2026-10-04 Daisuke。C の CHECK SET と切り離す）。タブは見るものだけを替え、音も C の選択も
+    // 変えない。項目のタブでは同じ区間の A と V を同じ定義で比べる。
     auto vState = state;
     vState.comparisonSlot = 1;
     vState.bSelected = true;
@@ -289,16 +290,33 @@ inline void verifyReferenceCheckPage()
     vPanel.setState (vState);
     auto* vTabs = dynamic_cast<reference_ui::CheckTabs*> (vPanel.findChildWithID ("reference-check-tabs"));
     auto* lanes = dynamic_cast<reference_ui::ComparisonView*> (vPanel.findChildWithID ("reference-comparison-view"));
-    require (vTabs && lanes && vTabs->isVisible() && vTabs->tabs().size() == 4 && vTabs->tabs()[0].label == "WHOLE"
+    const auto labelsOf = [] (const reference_ui::CheckTabs& strip)
+    {
+        juce::StringArray labels;
+        for (const auto& tab : strip.tabs()) labels.add (tab.label);
+        return labels.joinIntoString (",");
+    };
+    require (vTabs && lanes && vTabs->isVisible() && labelsOf (*vTabs) == "WHOLE,TONE,DYNAMICS,STEREO,LOW END"
                  && vTabs->selected() == "whole" && lanes->isVisible() && lanes->sameSectionCheck().isEmpty()
-                 && vPanel.findChildWithID ("reference-version")->isVisible() && vPanel.findChildWithID ("reference-preset")->isVisible()
+                 && vPanel.findChildWithID ("reference-version")->isVisible() && ! vPanel.findChildWithID ("reference-preset")->isVisible()
                  && ! vPanel.findChildWithID ("reference-cue")->isVisible() && ! vPanel.findChildWithID ("reference-check-song")->isVisible(),
-             "300% V: VERSION, the shared CHECK SET and WHOLE first; C's song and Cue stay on the C page");
+             "300% V: VERSION, WHOLE and the fixed TONE / DYNAMICS / STEREO / LOW END; C's CHECK SET, song and Cue stay on C");
+    {
+        auto* versionField = vPanel.findChildWithID ("reference-version");
+        auto* cButton = vPanel.findChildWithID ("reference-c");
+        require (versionField != nullptr && cButton != nullptr && versionField->getWidth() > 400,
+                 "without the CHECK SET, VERSION takes the whole selector row (the AUTO mark is not cut)");
+        auto noChecks = vState;
+        noChecks.checks.clear();
+        vPanel.setState (noChecks);
+        require (vTabs->isVisible() && vTabs->tabs().size() == 5, "V's tabs do not depend on C's Checks");
+        vPanel.setState (vState);
+    }
     juce::String vChosen;
     vPanel.onSelectCheck = [&] (const juce::String& id) { vChosen = id; };
-    vTabs->onChoose ("chk-low");
-    require (lanes->sameSectionCheck() == "Low End" && vChosen.isEmpty() && reference_ui::sameSectionReady (timeline.get()),
-             "a Check tab compares the same section without changing the sound or C's choice");
+    vTabs->onChoose ("v-low");
+    require (lanes->sameSectionCheck() == "LOW END" && vChosen.isEmpty() && reference_ui::sameSectionReady (timeline.get()),
+             "a V tab compares the same section without changing the sound or C's choice");
     write (vPanel, "abcv_v_900_check.png");
     // 2026-10-04（範囲の帯）：Dynamics・Stereo などの Check は、同じ区間の A と V の時間の線と帯。
     {
@@ -326,12 +344,18 @@ inline void verifyReferenceCheckPage()
         pairs->pairTickChannels = 2;
         auto stripsState = vState;
         stripsState.visualTimeline = pairs;
-        stripsState.checkViewBindings = { { "chk-vocal", { "dynamics", "loudness" } }, { "chk-air", { "stereo" } } };
+        stripsState.checkViewBindings.clear();  // V の項目の表示は決まっていて、C の Check の表示を見ない
         vPanel.setState (stripsState);
-        vTabs->onChoose ("chk-vocal");
+        vTabs->onChoose ("v-dynamics");
         write (vPanel, "abcv_v_900_dynamics.png");
+        {
+            const auto texts = helpTextsOf (vPanel);
+            for (const auto* expected : { text::crest, text::movement, text::attack, text::onset })
+                require (texts.count (expected) == 1, juce::String ("V's DYNAMICS shows crest, movement, attack and onset: ") + expected);
+            helpSeen.insert (texts.begin(), texts.end());
+        }
         const auto dynamicsImage = vPanel.createComponentSnapshot (vPanel.getLocalBounds());
-        vTabs->onChoose ("chk-air");
+        vTabs->onChoose ("v-stereo");
         write (vPanel, "abcv_v_900_stereo.png");
         {
             const auto texts = helpTextsOf (vPanel);
@@ -344,7 +368,7 @@ inline void verifyReferenceCheckPage()
         for (int y = 0; y < stereoImage.getHeight(); ++y)
             for (int x = 0; x < stereoImage.getWidth(); ++x)
                 if (stereoImage.getPixelAt (x, y) != dynamicsImage.getPixelAt (x, y)) ++changed;
-        require (changed > 500, "V's Dynamics and Stereo Checks draw their own strips");
+        require (changed > 500, "V's DYNAMICS and STEREO draw their own strips");
         vPanel.setState (vState);
     }
     vTabs->onChoose ("whole");
