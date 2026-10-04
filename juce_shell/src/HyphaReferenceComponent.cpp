@@ -37,9 +37,7 @@ Component::Component()
 {
     setOpaque (false);
     addMouseListener (this, true);  // 子の上でも、指している項目の説明を下の行に出す（HyphaReferenceHoverHelp.cpp）
-    addChildComponent (comparisonView); addChildComponent (tonalView);
-    comparisonView.onCapturedRange=[this](double start,double end)
-    {if(onCapturedTonalRange)onCapturedTonalRange(start,end);};
+    addChildComponent (comparisonView);
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
@@ -179,17 +177,12 @@ void Component::setState (State next)
         : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
         : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
-    comparisonView.setVisible (! guideShown && current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
+    comparisonView.setVisible (! guideShown && current.separateComparisons && current.comparisonSlot == 1 && ! blindSession);
     const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")
         : current.versionStep == SourceStep::ready ? juce::String ("Preparing V overview")
         : stepText (current.versionStep);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext,
                            blindSession, current.visualPreferences, emptyB);
-    const bool tonalSelected = std::find (current.viewBindings.begin(), current.viewBindings.end(),
-                                          "balance") != current.viewBindings.end();
-    tonalView.setVisible (! guideShown && ! blindSession && ! comparisonView.isVisible() && tonalSelected);
-    tonalView.update (current.visualTimeline, presentationContext, blindSession,
-                      current.candidateName, current.cueLabel);
     resized();
     repaint();
     statusStrip.repaint();  // 足元の段にあるときは REF の子ではないので、別に描き直す
@@ -330,9 +323,9 @@ void Component::paint (juce::Graphics& g)
     {
         area = paintCheckFooter (g, area);  // H12: C の画面の 4 帯域と Cue の時間軸
         if (songList.isVisible()) paintReferenceBalance (g, area.withTrimmedLeft (songList.getWidth() + 6).toFloat(), current, presentationContext);
-        else if (!comparisonView.isVisible() && !tonalView.isVisible() && checkPage() && listeningCheck())
+        else if (!comparisonView.isVisible() && checkPage() && listeningCheck())
             paintListeningPanel (g, area);  // 耳で聴き比べる Check（C−A がいつも 0.0 の箱を出していた）
-        else if (!comparisonView.isVisible() && !tonalView.isVisible()
+        else if (!comparisonView.isVisible()
             && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
         {
             auto metrics = area;
@@ -352,7 +345,7 @@ void Component::paint (juce::Graphics& g)
                         current.truePeakDeltaBMinusA, AWords::level, presentationContext, side);
         }
     }
-    else if (!comparisonView.isVisible() && !tonalView.isVisible())
+    else if (!comparisonView.isVisible())
     {
         const int gap = 4;
         auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);

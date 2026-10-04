@@ -11,7 +11,7 @@ void ReferenceComparisonController::observeTransport (std::int64_t position, boo
     reference.observeTransport (position, valid, playing);
 }
 void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float>& buffer,
-    std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> captureAllowed, CaptureClockSignature signature) noexcept
+    std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> inputAllowed, AInputClockSignature signature) noexcept
 {
     if (!rtInputObserved || rtInputAllowed != allowed)
     {
@@ -20,7 +20,9 @@ void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float
     }
     rtInputAllowed = allowed;
     rtInputObserved = true;
-    capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock,signature,allowed);
+    aWriters.fetch_add (1);
+    aInput.observe (visual, buffer, position, valid, playing, inputAllowed.value_or (allowed), clock, signature, allowed, aFeed.load());
+    aWriters.fetch_sub (1);
     version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);
     reference.observeAInput (buffer, position, valid, playing, allowed, false);

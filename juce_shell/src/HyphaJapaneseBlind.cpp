@@ -8,6 +8,11 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // ローカル Blind の取り込みと live 比較の段階（2026-10-04 まで Reference の A の取り込みの区分にあった）。
+    { "PLAY", u8"再生して" },
+    { "CAPTURING", u8"取り込み中" },
+    { "WAIT", u8"待機中" },
+    { "CAPTURE A", u8"Aを取り込む" },
     { "Ended; normal level returns with audio", u8"比較終了・音声処理の再開で通常音量へ" },
     { "RETURNING +%1 dB", u8"復帰待ち +%1 dB" },
     { "Waiting for comparison; POST plays", u8"比較の準備を待っています（POST出力）" },

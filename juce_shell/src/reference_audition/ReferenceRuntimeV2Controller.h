@@ -42,11 +42,7 @@ namespace hypha::reference_audition
         ReferenceChoice savedChoice() const;
         void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
-        bool captureObservationReady() const noexcept { return aCapture.observationReady(); }
-        bool captureObservationQueueDrained() const noexcept { return aCapture.observationQueueDrained(); }
         VisualBinding visualBinding() const;
-        void setCaptureObservation(const juce::String&,std::int64_t);
-        void serviceCaptureEvidence(const RuntimeACaptureAudio&,const RuntimeSource&,const RuntimeContentAlignment&);
         bool selectPreset (const juce::String&);
         bool selectCheck (const juce::String&);
         bool selectCandidate (const juce::String&);
@@ -272,9 +268,6 @@ namespace hypha::reference_audition
         juce::String blindPreparationKey;
         juce::String legacyVersionLookupKey, legacyVersionChoice;
         CalibrationObservation calibrationObservation;
-        juce::String captureTargetId,captureProbeKey;
-        std::int64_t captureGridAnchor=0;
-        std::shared_ptr<const ACaptureReceipt> publishedCaptureEvidence;
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
         PreparedNormalSelection preparedNormalSelection;

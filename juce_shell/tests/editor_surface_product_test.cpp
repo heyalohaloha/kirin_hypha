@@ -3,7 +3,6 @@
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
-#include "EditorCaptureProductTest.h"
 #include "EditorProductChecks.h"
 
 #include <array>
@@ -467,8 +466,7 @@ int main (int argc, char** argv)
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);
-    std::unique_ptr<SurfaceContract> contract;
-    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(previews); });
+    auto contract = std::make_unique<SurfaceContract> (previews);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

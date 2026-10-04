@@ -22,7 +22,6 @@ public:
     void mouseExit (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     juce::Range<double> selectedRange() const noexcept { return { start, end }; }
-    std::function<void(double,double)> onCapturedRange;
     // H13: V の画面の Check のタブ。空ならタイムライン（WHOLE）。gainDb は V の追従の gain（鳴っていなければ NaN）。
     // views はその Check の表示（Kirin OS の view_bindings）。帯域の幅と、V で比べられない Check の断りに使う。
     // listening：耳で聴き比べる Check（図の代わりに聴き比べの案内）。
@@ -41,29 +40,24 @@ private:
         using juce::TextButton::TextButton;
         void paintButton (juce::Graphics&, bool, bool) override;
     };
-    ViewButton follow { "FOLLOW" }, loudness { "LOUDNESS" }, crest { "CREST" }, tonal { "BALANCE" };
+    ViewButton follow { "FOLLOW" }, loudness { "LOUDNESS" }, crest { "CREST" };
     juce::Image waveformCache;
     juce::Rectangle<float> waveform, graph;
     std::uint64_t cacheRevision = 0;
-    juce::String key, captureId;
+    juce::String key;
     juce::String emptyMessage { "Choose Version" };
     juce::String sameSection;
     double sameSectionGain = std::numeric_limits<double>::quiet_NaN();
     std::vector<juce::String> sameSectionViews;
     bool sameSectionListening = false;
-    bool fitCapture = true;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
-    bool following = true, showingCrest = false, showingTonal = false, hidden = false;
+    bool following = true, showingCrest = false, hidden = false;
     std::shared_ptr<reference_audition::VisualPreferences> preferences;
     void saveView();
     void rebuild();
-    void rebuildCaptured();
-    juce::String capturedValuesAt(double,bool) const;
     void setRange (double, double);
-    void publishCapturedRange (bool whole);
     double timeAt (float x) const;
     void paintDetails (juce::Graphics&);
-    void paintTonalDetails (juce::Graphics&);
     juce::String valuesAt (double, bool compact = false) const;
 };
 }

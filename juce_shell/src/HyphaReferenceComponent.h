@@ -19,7 +19,6 @@
 #include "HyphaReferenceHelp.h"
 #include "HyphaReferenceStatusStrip.h"
 #include "HyphaReferenceComparisonView.h"
-#include "HyphaReferenceTonalView.h"
 #include "HyphaReferenceSongList.h"
 #include "HyphaReferenceCheckTabs.h"
 #include "reference_audition/ReferenceCuePart.h"
@@ -156,7 +155,6 @@ struct State
     std::shared_ptr<const reference_audition::VisualTimeline> visualTimeline;
     double visualPositionSeconds = -1.0;
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
-    std::shared_ptr<reference_audition::ACaptureAccess> captureAccess;
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     std::vector<float> liveSpectrumDbfs;
     float liveSpectrumMinimumHz = 0.0f;
@@ -241,8 +239,6 @@ public:
         selectorLookAndFeel.setPresentationContext (next);
         for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &actionButton })
             button->setPresentationContext (next);
-        tonalView.update (current.visualTimeline, presentationContext,
-                          isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
         resized();
         repaint();
     }
@@ -262,7 +258,6 @@ public:
     std::function<void()> onMatch;        // H12: 鳴っている C の MATCH をもう一度
     std::function<void()> onAction;
     std::function<void()> onStartBlind;  // 始めた後の 1・2・開示・終了は PRE/POST Blind と同じ画面（HyphaVersionBlindScreen.h）
-    std::function<void(double,double)> onCapturedTonalRange;
     // A B or C that cannot be heard yet says why when it is clicked.
     std::function<void(const juce::String&)> onExplain;
 
@@ -324,7 +319,6 @@ private:
     bool guideShown = false;
     GuideFit lastGuideFit;
     ComparisonView comparisonView;
-    TonalView tonalView;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;

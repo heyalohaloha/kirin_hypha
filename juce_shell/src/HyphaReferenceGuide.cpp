@@ -151,11 +151,10 @@ Guide guide (const State& state)
     // B（REF）の画面は B セットの曲を出す（V・C の始め方の案内は重ねない）。
     result.shown = state.separateComparisons && state.osAccess != os_access::State::unowned && state.comparisonSlot != 3
         && ! state.bSelected && ! isBlindSession (state.blindPhase)
-        && ! (state.captureAccess && state.captureAccess->capturedView)
         && result.version != SourceStep::ready && result.check != SourceStep::ready
         && ! (state.comparisonSlot == 2 && !state.viewBindings.empty()
             && (state.detailedMeasurement || !state.profiles.empty()
-                || (state.visualTimeline && state.visualTimeline->tonalAvailable)));
+                || (state.visualTimeline && (state.visualTimeline->aKirin || state.visualTimeline->aTicks))));
     const bool versionApproval = result.version == SourceStep::approveSampleRate;
     const bool checkApproval = result.check == SourceStep::approveSampleRate;
     if (state.pendingAudition.stage != reference_audition::PendingAuditionView::Stage::none)

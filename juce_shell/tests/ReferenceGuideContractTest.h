@@ -206,11 +206,10 @@ inline void verifyUnavailableButtons()
     component.setState (named ("ready"));
     b->onClick();
     require (selectedB && explained.isEmpty(), "a ready B is selected without a reason");
-    auto balance = named ("stopped");
-    balance.viewBindings = { "balance" };
-    component.setState (balance);
-    const auto* tonal = component.findChildWithID ("reference-tonal-view");
-    require (tonal != nullptr && ! tonal->isVisible(), "the guide takes the configured views' place");
+    auto viewed = named ("stopped");
+    viewed.viewBindings = { "spectrum_full" };
+    component.setState (viewed);
+    require (reference_ui::guide (viewed).shown, "the guide takes the configured views' place");
 }
 
 inline void verifyApprovalAction()

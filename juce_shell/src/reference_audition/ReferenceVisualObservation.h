@@ -11,8 +11,7 @@ class VisualObservation final : private juce::Thread
 {
 public:
     using Binding = std::function<VisualBinding()>;
-    explicit VisualObservation (Binding, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(),
-                                juce::File runtimeRoot = {});
+    explicit VisualObservation (Binding, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>());
     ~VisualObservation() override;
     void configure (double sampleRate, int channels);
     void setPresented (bool);
@@ -45,7 +44,6 @@ private:
     int runRate = 0, runChannels = 0;  // 観測スレッドだけ：周期の頭で controlLock の中から写した値
     std::shared_ptr<ReferenceAnalysis> analysis;
     ReferenceAnalysis::Lease admission;
-    ReferenceTonalRepository tonalRepository;
     Binding binding;
     VisualTimeline timeline;
     std::shared_ptr<const VisualTimeline> published;
@@ -55,7 +53,6 @@ private:
     std::array<float, 512> bPcm {};
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
-    KirinReferenceTonalMeter* tonalMeter = nullptr;
     KirinSpectrumMeter kirinMeter;        // H12: A を Kirin OS の Cue と同じ定義で
     KirinSpectrumMeter pairAMeter, pairVMeter; // H13: 位置合わせで対応した A と V（同じフレーム）
     KirinFingerprintMeter printMeter;     // H7: A の Kirin 指紋（直近 30 秒）
@@ -66,17 +63,12 @@ private:
     std::int64_t kirinExpected = -1;
     std::uint64_t kirinDiscontinuity = 0;
     std::int64_t expected = -1;
-    std::int64_t tonalExpected = -1;
     std::uint64_t previousDiscontinuity = 0;
-    std::uint64_t tonalDiscontinuity = 0;
     bool completeBin = false, measuring = false, dirty = true;
     void run() override;
     void clearMeters();
-    void clearTonal();
     bool resetMeters();
-    bool resetTonal();
     void consumePair (const Block&);
-    void consumeTonal (const Block&);
     void consumeKirin (const Block&, int rate);
     void publish();
 };

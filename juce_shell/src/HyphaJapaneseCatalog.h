@@ -30,7 +30,6 @@ Section observatorySection() noexcept;
 Section analysisSection() noexcept;
 Section menuSection() noexcept;
 Section referenceSection() noexcept;
-Section referenceCaptureSection() noexcept;
 Section referenceGuideSection() noexcept;
 Section referenceAbcvSection() noexcept;
 Section blindSection() noexcept;
@@ -40,7 +39,7 @@ Section noticeSection() noexcept;
 inline std::vector<Section> sections()
 {
     return { observatorySection(), analysisSection(), menuSection(), referenceSection(),
-             referenceCaptureSection(), referenceGuideSection(), referenceAbcvSection(), blindSection(), informationSection(),
+             referenceGuideSection(), referenceAbcvSection(), blindSection(), informationSection(),
              noticeSection() };
 }
 }

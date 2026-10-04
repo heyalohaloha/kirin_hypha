@@ -1,16 +1,15 @@
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
 #include "../src/reference_audition/ReferenceVisualObservation.h"
+#include "../src/reference_audition/ReferenceAInputRelay.h"
 #include "../src/reference_audition/ReferenceVisualAudio.h"
 #include "reference_rt_probe.h"
 #include <thread>
 #include <ctime>
 
 void testReferenceVisual (const juce::File&);
-void testReferenceTonalRepository (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
 {
-    testReferenceTonalRepository (sandbox);
     const auto root = sandbox.getChildFile ("visual"); require (root.createDirectory().wasOk(), "visual fixture directory");
     const auto file = root.getChildFile ("same-song.wav");
     const auto fixture = makeWholeSongFixture (root, file, "recording-visual", "version-visual");
@@ -103,41 +102,24 @@ void testReferenceVisual (const juce::File& sandbox)
         routing.push_back(juce::Time::getMillisecondCounterHiRes()-start);
     }
     std::sort(routing.begin(),routing.end());
-    std::cout<<"Shared routing p95 per 100ms="<<routing[38]<<" ms; queues="
-        <<ref::ACaptureSession::inputQueueBytes()+ref::VisualObservation::inputQueueBytes()<<" bytes; ingress capacity="<<ref::ACaptureSession::inputQueueFrames()<<" frames\n";
-    require(routing[38]<0.1,"non-RT routing stays below 0.1 ms per 100 ms of stereo input");
-    require(ref::ACaptureSession::inputQueueBytes()+ref::VisualObservation::inputQueueBytes()<=2*1024*1024,"both bounded queues fit 2 MiB");
+    std::cout<<"Shared routing p95 per 100ms="<<routing[38]<<" ms; queue="
+        <<ref::VisualObservation::inputQueueBytes()<<" bytes\n";
+    require(routing[38]<0.1,"routing stays below 0.1 ms per 100 ms of stereo input");
+    require(ref::VisualObservation::inputQueueBytes()<=1024*1024,"the bounded display queue fits 1 MiB");
     blockBinding = true;
     for (int i=0; i<200 && !entered; ++i) juce::Thread::sleep (5);
     require (entered, "simulate stalled non-RT source preparation");
     {
-        ref::ACaptureSession capture([](bool){return true;},{},sharedOwner,&observation);
-        capture.configure("blocked-b-capture",48000,2); require(capture.access->request(ref::ACaptureAccess::start),"Capture admitted while B worker is stalled");
-        for(int i=0;i<600 && !capture.access->active;++i) juce::Thread::sleep(5);
-        require(capture.access->active,"Capture uses its own finite worker");
-        for(int i=0;i<40;++i) {
-            for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,i*4800,4800);
-            const auto processedBefore=capture.access->framesProcessed.load(std::memory_order_acquire);
-            beginReferenceRtProbe(); capture.observe(input,24000+i*4800,true,true,true,1);
-            require(endReferenceRtProbe()==0,"stalled B never introduces RT allocation");
-            bool consumed=false; for(int attempt=0;attempt<800 && !consumed;++attempt) {
-                consumed=!capture.access->active.load(std::memory_order_acquire)
-                    || capture.access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;
-                if(!consumed) juce::Thread::sleep(5);
-            }
-            require(consumed,"synthetic host waits for the independent Capture worker");
+        // A の受け渡し（AInputRelay、2026-10-04 に取り込みの部品から移した）：B の準備が止まっていても、Audio Thread で
+        // 確保せずに観測の受け口へ渡す。受け口が満ちても止まらない（満ちた分は不連続として数える）。
+        ref::AInputRelay relay;
+        for (int i = 0; i < 40; ++i)
+        {
+            for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, i * 4800, 4800);
+            beginReferenceRtProbe();
+            relay.observe (observation, input, 24000 + i * 4800, true, true, true, 1, {}, true, true);
+            require (endReferenceRtProbe() == 0, "stalled B never introduces RT allocation in A's relay");
         }
-        capture.observe(input,216000,true,false,true,1);
-        for(int i=0;i<600 && capture.access->busy();++i) juce::Thread::sleep(5);
-        require(capture.access->snapshot().held && capture.access->snapshot().held->frames==192000,"stalled B and overflowing LIVE queue lose zero Capture frames");
-        capture.setPresented(true);
-        for(int i=0;i<600 && !capture.access->analysisAvailable;++i) juce::Thread::sleep(5);
-        for(int i=0;i<12;++i) {
-            for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,i*4800,4800); input.applyGain(0.5f);
-            capture.observe(input,24000+i*4800,true,true,true,1); juce::Thread::sleep(10);
-        }
-        bool changed=false; for(int i=0;i<600 && !changed;++i) { const auto state=capture.access->snapshot(); changed=!state.unitStatus.empty() && state.unitStatus.front()==2; if(!changed) juce::Thread::sleep(5); }
-        require(changed,"stalled B cannot stop same-position A change detection");
     }
     beginReferenceRtProbe();
     for (int i=0; i<100; ++i) enqueueInput (input, 24000 + i*4800, true);
@@ -169,7 +151,7 @@ void testReferenceVisual (const juce::File& sandbox)
     require (file.setLastModificationTime (juce::Time::getCurrentTime()+juce::RelativeTime::seconds (5)), "source revision change fixture");
     require (wait ([] (const auto& state) {
         return !state.binding.aligned && state.observing && !state.pairedObserving;
-    }), "changed B disables paired observation while the independent live A Tonal view continues");
+    }), "changed B disables paired observation while A keeps being observed");
     std::int64_t mapped = 0;
     auto preroll = map; preroll.hostAnchor = -24000;
     require (preroll.mapPosition (-24000,mapped) && mapped == 0, "negative host preroll can map to source frame zero");

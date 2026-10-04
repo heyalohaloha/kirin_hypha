@@ -1,11 +1,9 @@
 #pragma once
 #include <cmath>
-#include "ReferenceACaptureModel.h"
 #include "ReferenceKirinSpectrum.h"
 #include "ReferenceKirinFingerprint.h"
 #include <limits>
 #include "ReferenceRuntimeV2Measurement.h"
-#include "ReferenceTonalRepository.h"
 #include "kirin_hypha_reference_visual_ffi.h"
 namespace hypha::reference_audition
 {
@@ -25,8 +23,7 @@ struct VisualBinding
     }
     double gainDb = 0.0;
     bool matched = false;
-    std::shared_ptr<const ACaptureReceipt> captureEvidence;
-    // OS tonal artifacts aggregate source-rate samples, never host-rate playback positions.
+    // Cue の範囲（元の音の rate の sample）。選択と同じく key に入り、替われば A と V の窓を作り直す。
     std::int64_t sourceCueStartSample = 0, sourceCueEndSample = 0;
     int matchWindowBlocks = 100; // H12: その役の A 側の窓（100 ms のブロック数。C は Cue と同じ長さ）
     double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN(); // H12: 鳴っている Cue の位置（ループは折り返す）
@@ -39,13 +36,7 @@ struct VisualPairBin
 struct VisualTimeline
 {
     VisualBinding binding;
-    std::shared_ptr<const ACaptureData> capture;
-    std::vector<std::uint8_t> revisited;
     std::vector<VisualPairBin> bins;
-    KirinReferenceTonalSnapshot tonal {};
-    CaptureTonalSummary tonalCaptureRange;
-    std::shared_ptr<const ReferenceTonalCurve> tonalReference;
-    std::shared_ptr<const ReferenceTonalCurve> tonalGenre;
     std::shared_ptr<const KirinSpectrumWindow> aKirin; // H12: A の直近の窓（Kirin OS の Cue と同じ定義）
     // 2026-10-04：範囲の帯。A の直近 60 秒までの 100 ms の bin（古い順）。比べる側の hop にまとめ直して使う。
     std::shared_ptr<const std::vector<KirinReferenceVisualBin>> aTicks;
@@ -60,7 +51,10 @@ struct VisualTimeline
     std::int64_t aFingerprintEndTick = -1;
     std::int64_t hop = 0;
     std::uint64_t pass = 0, revision = 0;
-    bool observing = false, pairedObserving = false, tonalAvailable = false;
+    bool observing = false, pairedObserving = false;
+    // A の値（スペクトル・範囲の帯・位置合わせした区間・指紋）があるか。見ている役が替わっても A の値は残す。
+    bool hasAData() const noexcept
+    { return aKirin || aTicks || aPairTicks || vPairTicks || aPairKirin || vPairKirin || aFingerprint; }
     static std::int64_t outputSample (std::int64_t source, std::int64_t sourceRate, std::int64_t hostRate) noexcept
     {
         if (source < 0 || sourceRate < 8000 || sourceRate > 768000 || hostRate < 8000 || hostRate > 768000) return -1;
@@ -75,9 +69,8 @@ struct VisualTimeline
         return outputSample (std::int64_t(index)*hop, binding.source->audio.sampleRateHz, binding.hostRate);
     }
     double endpoint(size_t i) const noexcept
-    { return capture ? double(capture->bins[i].offset+capture->bins[i].value.frames)/capture->rate
-        : binding.source ? double(std::min(std::int64_t(i+1)*hop,binding.source->audio.totalSampleFrames))/binding.source->audio.sampleRateHz : 0; }
+    { return binding.source ? double(std::min(std::int64_t(i+1)*hop,binding.source->audio.totalSampleFrames))/binding.source->audio.sampleRateHz : 0; }
     double duration() const noexcept
-    { return capture ? capture->duration() : binding.source ? double (binding.source->audio.totalSampleFrames) / binding.source->audio.sampleRateHz : 0.0; }
+    { return binding.source ? double (binding.source->audio.totalSampleFrames) / binding.source->audio.sampleRateHz : 0.0; }
 };
 }

@@ -133,7 +133,6 @@ public:
     bool selectReferenceVisualSlot (int);
     bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
-    void setReferenceCaptureTonalRange (double startSeconds, double endSeconds);
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);

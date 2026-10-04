@@ -1,8 +1,9 @@
 #pragma once
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceVisualObservation.h"
-#include "ReferenceACaptureSession.h"
-#include "ReferenceACaptureProjection.h"
+#include "ReferenceAInputRelay.h"
+#include "ReferenceBlindSlot.h"
+#include "ReferenceComparisonSettings.h"
 #include "ReferenceHeldAttenuation.h"
 
 #include <deque>
@@ -18,15 +19,15 @@ class ReferenceComparisonController final
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
     using StateChanged = std::function<void()>;
-    explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {},
-                                            SelectionGate = {}, StateChanged = {});
+    // gate：出力の経路（Rust の試聴の排他）。versionBlindGate：VERSION BLIND のあいだのほかの Blind との排他（同じ project・
+    // 同じ process の別の Hypha も含む。Rust の kirin_hypha_set_version_blind_capture_exclusion）。
+    explicit ReferenceComparisonController (juce::File, SelectionGate gate = {}, SelectionGate versionBlindGate = {},
+                                            StateChanged = {});
     ~ReferenceComparisonController();
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
     Snapshot snapshot();
-    bool captureObservationReady() const noexcept { return version.captureObservationReady(); }
-    bool captureObservationQueueDrained() const noexcept { return version.captureObservationQueueDrained(); }
     ReferenceComparisonSettings savedSettings();
     void restoreSettings (const ReferenceComparisonSettings&);
     bool selectVersion (const juce::String&, bool automatic = false); // automatic：H7 の AUTO（V の選択だけを替える）
@@ -39,7 +40,6 @@ public:
     bool retryCandidatePreparation();
     bool approveSampleRateConversion(int slot);
     bool requestRecovery();
-    void setCaptureTonalRange (double startSeconds, double endSeconds);
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
     bool selectRef (double, double) noexcept;              // H8: B（REF）を鳴らす
@@ -64,7 +64,9 @@ public:
     void endBlind() noexcept;
     void suspendAudition() noexcept;
     void observeTransport (std::int64_t, bool, bool) noexcept;
-    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0, std::optional<bool> captureAllowed = {}, CaptureClockSignature = {}) noexcept;
+    // allowed：ライセンスを含めて A を聞く・測る。inputAllowed：バイパス・書き出しでない（無ければ allowed）。
+    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0,
+                        std::optional<bool> inputAllowed = {}, AInputClockSignature = {}) noexcept;
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
     // H3／H4：A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。
     int liveWindowBlocks (int slot) const;
@@ -85,17 +87,16 @@ public:
 
 private:
     bool admit (int, bool);
-    bool admitCapture(bool);
     bool beginBlindGuard();
     void endBlindGuard();
     void refreshObservation();
-    ACaptureReceipt captureReceipt() const;
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
     void clearPendingAudition();
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
-    SelectionGate gate, captureGate, blindCaptureGate;
-    bool captureOwned=false,blindGuardOwned=false,localBlindOwned=false;
+    SelectionGate gate, versionBlindGate;
+    bool blindGuardOwned=false,localBlindOwned=false;
+    bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終えるまで、A を観測スレッドへ渡さない
     std::uint64_t localBlindEpoch=0;
     std::atomic<bool> presented{false};
     juce::CriticalSection gateLock;
@@ -103,7 +104,6 @@ private:
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
-    TonalDisplayState tonalState;
     StateChanged stateChanged;
     struct PendingIntent
     {
@@ -149,8 +149,12 @@ private:
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
     RuntimeV2Controller version, check, reference;
     VisualObservation visual;
-    ACaptureSession capture;
-    ACaptureProjection captureProjection;
+    // A を観測スレッドへ渡す（Audio Thread）。aFeed：見せていて Blind の外のときだけ渡す。aWriters：片付けで、Audio Thread が
+    // 渡し終えるのを待つ（2026-10-04、A の取り込みの部品をやめたときにそこから移した守り）。
+    AInputRelay aInput;
+    std::atomic<bool> aFeed { false };
+    std::atomic<int> aWriters { 0 };
+    BlindSlot blindSlot;  // VERSION BLIND とローカル Blind は 1 つだけ
     std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();
 };
 }

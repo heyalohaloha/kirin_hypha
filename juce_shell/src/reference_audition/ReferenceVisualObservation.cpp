@@ -4,15 +4,13 @@
 #include <cmath>
 namespace hypha::reference_audition
 {
-VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner,
-                                      juce::File runtimeRoot)
-    : juce::Thread ("Reference view"), analysis(std::move(owner)),
-      tonalRepository (std::move (runtimeRoot)), binding (std::move (callback))
+VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner)
+    : juce::Thread ("Reference view"), analysis(std::move(owner)), binding (std::move (callback))
 { formats.registerBasicFormats(); startThread (juce::Thread::Priority::low); }
 VisualObservation::~VisualObservation()
 {
     setPresented (false); signalThreadShouldExit(); notify(); stopThread (-1);
-    clearMeters(); clearTonal(); admission.reset();
+    clearMeters(); admission.reset();
 }
 namespace
 {
@@ -94,41 +92,12 @@ void VisualObservation::clearMeters()
     kirin_reference_visual_drop (aMeter); kirin_reference_visual_drop (bMeter);
     aMeter = bMeter = nullptr; expected = -1; completeBin = false; measuring = false;
 }
-void VisualObservation::clearTonal()
-{
-    kirin_reference_tonal_drop (tonalMeter); tonalMeter = nullptr;
-    tonalExpected = -1; tonalDiscontinuity = 0;
-    timeline.tonal = {}; timeline.tonalAvailable = false;
-}
 bool VisualObservation::resetMeters()
 {
     clearMeters(); ++timeline.pass; dirty = true;
     aMeter = kirin_reference_visual_create (uint32_t (timeline.binding.hostRate), uint32_t (timeline.binding.channels));
     bMeter = kirin_reference_visual_create (uint32_t (timeline.binding.hostRate), uint32_t (timeline.binding.channels));
     return aMeter && bMeter;
-}
-bool VisualObservation::resetTonal()
-{
-    if (! tonalMeter)
-        tonalMeter = kirin_reference_tonal_create (uint32_t (runRate), uint32_t (runChannels));
-    else if (! kirin_reference_tonal_reset (tonalMeter))
-    { clearTonal(); return false; }
-    timeline.tonal = {}; timeline.tonalAvailable = false; dirty = true;
-    return tonalMeter != nullptr;
-}
-void VisualObservation::consumeTonal (const Block& block)
-{
-    if (block.channels != runChannels)
-    { clearTonal(); dirty = true; return; }
-    if (! tonalMeter || block.position != tonalExpected || block.discontinuity != tonalDiscontinuity)
-        if (! resetTonal()) return;
-    tonalDiscontinuity = block.discontinuity;
-    if (! kirin_reference_tonal_push (tonalMeter, block.pcm.data(), size_t (block.frames * block.channels))
-        || ! kirin_reference_tonal_snapshot (tonalMeter, &timeline.tonal))
-    { clearTonal(); dirty = true; return; }
-    tonalExpected = block.position + block.frames;
-    timeline.tonalAvailable = timeline.tonal.valid_bits != 0;
-    dirty = true;
 }
 // H12: A（この Block は DAW の入力）を、Kirin OS が参照曲の Cue に残す値と同じ定義で測る。
 // 途切れ（位置の飛び・discontinuity）では窓を捨てる（シークの後の窓は新しい位置から）。有限でない値（壊れた
@@ -218,8 +187,6 @@ void VisualObservation::run()
     juce::String readerKey;
     std::uint64_t workerGeneration = 0;
     double nextRevisionCheck = 0.0; bool sourceUnchanged = false; juce::String checkedKey;
-    double nextTonalCheck = 0.0; juce::String tonalPublicationKey;
-    double nextTonalRetry = 0.0, tonalRetryDelay = 1000.0;
     while (!threadShouldExit())
     {
         bool visible = false; int rate = 0, channels = 0;
@@ -228,7 +195,7 @@ void VisualObservation::run()
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); kirinMeter.reset(); printMeter.reset(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); printMeter.reset(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             wait (100); continue;
@@ -245,37 +212,8 @@ void VisualObservation::run()
             checkedKey = next.key; nextRevisionCheck = checkedAt + 100.0;
         }
         next.aligned = next.aligned && sourceUnchanged;
-        juce::String observedTonalKey = tonalPublicationKey;
-        bool tonalPublicationChanged = false;
-        if (checkedAt >= nextTonalCheck)
-        {
-            observedTonalKey = tonalRepository.publicationKey();
-            tonalPublicationChanged = observedTonalKey != tonalPublicationKey;
-            nextTonalCheck = checkedAt + 1000.0;
-        }
         const bool bindingChanged = timeline.binding.key != next.key
             || timeline.binding.aligned != next.aligned;
-        const bool tonalRetryDue = nextTonalRetry > 0.0 && checkedAt >= nextTonalRetry;
-        auto nextTonalReference = timeline.tonalReference;
-        auto nextTonalGenre = timeline.tonalGenre;
-        bool retrySource = false, retryGenre = false;
-        if (bindingChanged || tonalPublicationChanged || tonalRetryDue)
-        {
-            if (bindingChanged || tonalPublicationChanged || nextTonalReference == nullptr)
-                nextTonalReference = !next.hidden && next.source
-                    ? tonalRepository.load (*next.source, next.sourceCueStartSample, next.sourceCueEndSample,
-                                            &retrySource) : nullptr;
-            if (bindingChanged || tonalPublicationChanged || nextTonalGenre == nullptr)
-                nextTonalGenre = !next.hidden
-                    ? tonalRepository.loadGenre (next.presetId, next.presetRevisionId, next.checkId,
-                                                 &retryGenre) : nullptr;
-            if (retrySource || retryGenre)
-            {
-                nextTonalRetry = checkedAt + tonalRetryDelay;
-                tonalRetryDelay = std::min (tonalRetryDelay * 2.0, 15'000.0);
-            }
-            else { nextTonalRetry = 0.0; tonalRetryDelay = 1000.0; }
-        }
         bool wanted = false, pairWanted = false;
         {
             const juce::ScopedLock lock (controlLock);
@@ -296,12 +234,6 @@ void VisualObservation::run()
                 }
             }
             else timeline.binding = next;
-            if (bindingChanged || tonalPublicationChanged || tonalRetryDue)
-            {
-                timeline.tonalReference = std::move (nextTonalReference);
-                timeline.tonalGenre = std::move (nextTonalGenre);
-                tonalPublicationKey = observedTonalKey; dirty = true;
-            }
             pairWanted = pairWanted && !timeline.bins.empty();
             if (!wanted) admission.reset();
             if(!analysis->current(admission)) admission.reset();
@@ -314,7 +246,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); clearTonal(); kirinMeter.reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); kirinMeter.reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);
@@ -325,7 +257,6 @@ void VisualObservation::run()
             bool decoded = false;
             if (timeline.observing && analysis->current(job) && block.generation == epoch)
             {
-                consumeTonal (block);
                 consumeKirin (block, rate);
                 if (timeline.pairedObserving)
                 {

@@ -4,19 +4,15 @@
 namespace hypha::reference_audition
 {
 ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback,
-    SelectionGate captureCallback, SelectionGate blindCallback, StateChanged stateChangedIn)
-    : gate (std::move (callback)), captureGate(std::move(captureCallback)), blindCaptureGate(std::move(blindCallback)),
+    SelectionGate blindCallback, StateChanged stateChangedIn)
+    : gate (std::move (callback)), versionBlindGate (std::move (blindCallback)),
       stateChanged(std::move(stateChangedIn)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
       check (root, [this] (bool active) { return admit (2, active); }, false),
       reference (root, [this] (bool active) { return admit (3, active); }, false),
       visual ([this] {
           return slotController (viewedSlot.load (std::memory_order_acquire)).visualBinding();
-      },analysis,root), capture([this](bool active){return admitCapture(active);},
-          [this]{return captureReceipt();},analysis,&visual,root),
-      captureProjection(capture.access,[this]{return version.visualBinding();},analysis,
-          [this]{const juce::ScopedLock lock(selectionLock);return tonalState;},root,
-          [this]{return check.visualBinding();})
+      },analysis)
 {
     reference.setTrackingEnabled (true);  // H8・H3: B は A の直近 10 秒に追従する
     reference.setSongsOnly (true);        // B は B セットの曲だけを鳴らす（C の Preset に落ちない）
@@ -24,10 +20,13 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
 
 ReferenceComparisonController::~ReferenceComparisonController()
 {
-    setPresented (false); capture.shutdown(); suspendAudition();
-    const juce::ScopedLock lock (gateLock); closing = true;
+    setPresented (false);
+    aFeed.store (false);
+    while (aWriters.load() != 0) juce::Thread::yield();  // Audio Thread が A を渡し終えるまで
+    suspendAudition();
+    const juce::ScopedLock lock (gateLock); closing = true; blindSlot.close();
     visual.pauseAdmission(); if (gateOwners && gate) gate (false); gateOwners = 0;
-    if(blindGuardOwned && blindCaptureGate) blindCaptureGate(false); blindGuardOwned=false;
+    if(blindGuardOwned && versionBlindGate) versionBlindGate(false); blindGuardOwned=false;
 }
 
 void ReferenceComparisonController::setPresented (bool active) noexcept
@@ -53,7 +52,7 @@ bool ReferenceComparisonController::admit (int slot, bool active)
     else if ((gateOwners & bit) != 0)
     {
         gateOwners &= ~bit;
-        if(slot==1 && blindGuardOwned) { if(blindCaptureGate) blindCaptureGate(false); blindGuardOwned=false; capture.access->releaseBlind(CaptureBlindOwner::version); }
+        if(slot==1 && blindGuardOwned) { if(versionBlindGate) versionBlindGate(false); blindGuardOwned=false; blindSlot.release(BlindOwner::version); }
         if (gateOwners == 0)
         {
             if (gate) gate (false);
@@ -71,7 +70,6 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
         receiverId = identity.runtimeInstanceId;
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
     }
-    capture.configure(identity.runtimeInstanceId,rate,channels);
     visual.configure(rate,channels);
     heldA.prepare (rate);
     auto bIdentity = identity;
@@ -110,29 +108,8 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
     result.reference.cueId.clear();  // B の曲は既定の Cue で鳴らす（H8）
     result.songSetId = songSetId;
     result.visualView = visualPreferences->get();
-    result.captureState = capture.access->store.value().encoded; result.capturedView = capture.access->capturedView;
-    result.tonal = tonalState;
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
-}
-
-void ReferenceComparisonController::setCaptureTonalRange(double startSeconds,double endSeconds)
-{
-    const auto state=capture.access->snapshot();
-    if(!state.shown||!state.shown->tonal.valid())return;
-    TonalDisplayState next;
-    next.source=TonalDisplayState::Source::captured;
-    next.captureId=state.shown->id;
-    next.artifactSha256=state.shown->tonal.artifactSha256;
-    const auto duration=state.shown->duration();
-    if(std::isfinite(startSeconds)&&std::isfinite(endSeconds)&&startSeconds>=0
-        &&endSeconds>startSeconds&&endSeconds<=duration)
-    {next.rangeStart=startSeconds;next.rangeEnd=endSeconds;}
-    {
-        const juce::ScopedLock lock(selectionLock);
-        tonalState=next;
-    }
-    if(stateChanged)stateChanged();
 }
 
 void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSettings& input)
@@ -152,12 +129,11 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         viewedSlot.store (value.viewedSlot == 1 || value.viewedSlot == 3 ? value.viewedSlot : 2, std::memory_order_release);
         songId = value.reference.candidateId.isEmpty() ? juce::String {} : value.reference.target();
         songSetId = value.songSetId;
-        tonalState = value.tonal;
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
-    // 2026-10-04（Daisuke 決定）：A の取り込みはやめた（見比べは生の表示だけ）。DAW の曲に保存された取り込みは
-    // 読み込まずに飛ばす（取り込んだ A の表示に替えない・A の変化の照合に解析を使わない）。次の保存で消える。
+    // 2026-10-04（Daisuke 決定）：A の取り込みはやめた（見比べは生の表示だけ）。古い版が DAW の曲に保存した取り込みと
+    // Tonal の表示の状態は読まない（ReferenceComparisonSettings が読み飛ばす）。次の保存で消える。
     if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); reference.restoreChoice (value.reference); }
 }
 
@@ -190,26 +166,17 @@ Snapshot ReferenceComparisonController::snapshot()
     result.cuePlayheadSeconds = viewedMap.cuePlayheadSeconds;  // H12: C の画面の Cue の時間軸
     if (viewedMap.hidden || (result.visualTimeline && result.visualTimeline->binding.key != viewedMap.key))
     {
-        if (result.visualTimeline && result.visualTimeline->tonalAvailable)
+        // 見ている役の図（V の時間軸）は外し、A の値（C・B の画面のスペクトルと範囲の帯、V の AUTO の指紋）は残す。
+        // 2026-10-04 までは Tonal の計測があるか（tonalAvailable、A が鳴っていれば真）で決めていた。
+        if (result.visualTimeline && result.visualTimeline->hasAData())
         {
-            auto tonalOnly = std::make_shared<VisualTimeline> (*result.visualTimeline);
-            tonalOnly->binding = {}; tonalOnly->bins.clear(); tonalOnly->hop = 0;
-            tonalOnly->pairedObserving = false;
-            result.visualTimeline = std::shared_ptr<const VisualTimeline> (std::move (tonalOnly));
+            auto aOnly = std::make_shared<VisualTimeline> (*result.visualTimeline);
+            aOnly->binding = {}; aOnly->bins.clear(); aOnly->hop = 0;
+            aOnly->pairedObserving = false;
+            result.visualTimeline = std::shared_ptr<const VisualTimeline> (std::move (aOnly));
         }
         else result.visualTimeline.reset();
     }
-    result.captureAccess=capture.access;
-    const auto captureState=capture.access->snapshot();
-    if(capture.access->capturedView && !trialActive())
-    { result.visualTimeline=captureProjection.snapshot();
-      if(result.visualTimeline && result.visualTimeline->capture
-          && (!captureState.shown || result.visualTimeline->capture->id!=captureState.shown->id
-              || (result.visualTimeline->binding.source && (!versionMap.source
-                  || result.visualTimeline->binding.source->sourceFileSha256!=versionMap.source->sourceFileSha256)))) result.visualTimeline.reset();
-      result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && versionMap.hostPositionValid && captureState.timingVerified
-            && captureState.confirmedTimingEpoch==capture.access->currentTimingEpoch.load()
-        ? double(versionMap.hostPosition-result.visualTimeline->capture->hostStart)/result.visualTimeline->capture->rate : -1; }
     result.separateComparisons = true;
     result.comparisonSlot = slot;
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : r.bSelected ? 3 : 0;
@@ -236,7 +203,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.referenceReady = songPublished && r.state == RuntimeState::ready && r.auditionBuffered;
     result.referenceArmable = songPublished && r.playbackIdentity.isNotEmpty() && r.blindPhase == BlindPhase::inactive;
     appendPendingAudition (result, versionMap, slot == 2 ? viewedMap : check.visualBinding());
-    result.blindEligible = slot == 1 && result.versionReady && b.blindEligible && !capture.access->busy();
+    result.blindEligible = slot == 1 && result.versionReady && b.blindEligible;
     if (slot == 1 && versionId.isEmpty())
     {
         result.state = RuntimeState::waiting;
@@ -276,8 +243,7 @@ bool ReferenceComparisonController::selectCheckRole (const std::function<bool()>
     if (trialActive()) return false;
     const auto before = check.requestedGeneration();
     if (! apply()) return false;
-    if (viewedSlot.load (std::memory_order_acquire) != 1)
-    { capture.access->capturedView = false; viewedSlot.store (2, std::memory_order_release); }
+    if (viewedSlot.load (std::memory_order_acquire) != 1) viewedSlot.store (2, std::memory_order_release);
     // 同じ選択（世代が進まない）は鳴らしたまま。Kirin OS の準備を待つ CHECK SET は C を止めて手放す。
     const auto after = check.requestedGeneration();
     if (after != before) continueAfterSwitch (2);
@@ -296,7 +262,6 @@ bool ReferenceComparisonController::selectVisualSlot (int slot)
 {
     if ((slot != 1 && slot != 2 && slot != 3) || trialActive()) return false;
     viewedSlot.store (slot, std::memory_order_release);
-    capture.access->capturedView = false;
     if (stateChanged) stateChanged();
     return true;
 }

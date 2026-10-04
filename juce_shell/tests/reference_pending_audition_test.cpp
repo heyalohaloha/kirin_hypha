@@ -89,7 +89,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
     const bool cQueued = controller.requestAudition (2, -14, -2);
     if (!cQueued) { const auto s = controller.snapshot(); std::cerr << "C queue: armable=" << s.checkArmable
         << " playing=" << s.transportPlaying << " state=" << int(s.checkSelection->state)
-        << " reason=" << s.checkSelection->rejectionCode << " capture=" << s.captureAccess->busy() << '\n'; }
+        << " reason=" << s.checkSelection->rejectionCode << '\n'; }
     require (cQueued, "stopped C can replace an ended audition");
     const bool bQueued = controller.requestAudition (1, -14, -2);
     if (!bQueued) { const auto s = controller.snapshot(); std::cerr << "B queue: armable=" << s.versionArmable

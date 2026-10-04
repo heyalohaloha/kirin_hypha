@@ -80,8 +80,8 @@ inline void verifyLookup()
 
     // A detail of several lines translates line by line.
     KIRIN_LANGUAGE_REQUIRE (
-        japanese ("Capture interrupted / previous kept\nCapture unavailable")
-        == utf8 (u8"取り込みが中断しました / 前の取り込みを保持\n取り込みを使えません"));
+        japanese ("ANALYSIS IN USE / POST Kirin\nWaiting for Kirin OS")
+        == utf8 (u8"解析を使用中 / POST Kirin\nKirin OSを待っています"));
 
     // The comparison states now reach the screen as the Unicode they are written in, so they meet
     // their catalog entries; they used to be read as ASCII and shown garbled.

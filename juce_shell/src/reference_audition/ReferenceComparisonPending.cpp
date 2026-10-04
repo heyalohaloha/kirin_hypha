@@ -64,9 +64,9 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
 bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safety)
 {
     const auto state = snapshot();
-    if (trialActive() || capture.access->busy()
+    if (trialActive()
         || !(slot == 1 ? state.versionArmable : slot == 2 ? state.checkArmable : state.referenceArmable)) return false;
-    { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
+    { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned) return false; }
     const auto identity = (slot == 1 ? *state.versionSelection : slot == 2 ? *state.checkSelection
                                                                : *state.referenceSelection).playbackIdentity;
     if (identity.isEmpty()) return false;
@@ -88,8 +88,8 @@ bool ReferenceComparisonController::queueAudition (int slot, std::uint64_t safet
 // 通しで、V の版を替えた直後や位置合わせ中に押すと「V：準備中」と出るだけで、押したことが消えていた）。
 bool ReferenceComparisonController::waitWhilePreparing (int slot)
 {
-    if (trialActive() || capture.access->busy()) return false;
-    { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned || captureOwned) return false; }
+    if (trialActive()) return false;
+    { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned) return false; }
     auto& target = slotController (slot);
     const auto now = target.snapshot();
     const bool settles = now.matchFailure != MatchFailure::ceilingExceeded

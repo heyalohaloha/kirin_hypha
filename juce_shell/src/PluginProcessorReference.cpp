@@ -257,17 +257,6 @@ bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
    #endif
 }
 
-void KirinHyphaProcessorBase::setReferenceCaptureTonalRange (
-    double startSeconds, double endSeconds)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-        referenceAuditionController->setCaptureTonalRange (startSeconds, endSeconds);
-   #else
-    juce::ignoreUnused (startSeconds, endSeconds);
-   #endif
-}
-
 bool KirinHyphaProcessorBase::approveReferenceSampleRateConversion(int slot)
 {
     refreshLicenseForUserAction();
@@ -401,11 +390,6 @@ void KirinHyphaProcessorBase::createReferenceAuditionController()
             const juce::ScopedLock gateLock (handleLock);
             return hyphaHandle != nullptr
                 && kirin_hypha_set_reference_audition_active (hyphaHandle, active);
-        }, [this](bool active) {
-            const juce::ScopedLock lock(handleLock);
-            const bool accepted=hyphaHandle && kirin_hypha_set_reference_capture_active(hyphaHandle,active);
-            if(accepted && !active) captureStateNotification.changed();
-            return accepted;
         }, [this](bool active) {
             const juce::ScopedLock lock(handleLock);
             return hyphaHandle && kirin_hypha_set_version_blind_capture_exclusion(hyphaHandle,active);

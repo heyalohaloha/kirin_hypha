@@ -16,7 +16,7 @@ bool ReferenceComparisonController::resumeWanted() const
 
 bool ReferenceComparisonController::armResume()
 {
-    if (! resumeWanted() || trialActive() || capture.access->busy()) return false;
+    if (! resumeWanted() || trialActive()) return false;
     const int slot = normalOutputSlot.load (std::memory_order_acquire);
     auto& target = slotController (slot);
     PendingIntent next;

@@ -120,8 +120,6 @@ void KirinHyphaEditor::configureReferenceAudition()
     versionBlindView.onReveal = [this] { if (! processorRef.revealReferenceBlind()) showToast ("Listen to both sources before revealing"); };
     versionBlindView.onEnd = [this] { processorRef.endReferenceBlind(); };
     scaleRoot.addChildComponent (versionBlindView);
-    referenceView.onCapturedTonalRange=[this](double start,double end)
-    {processorRef.setReferenceCaptureTonalRange(start,end);};
     scaleRoot.addChildComponent (referenceView);
 }
 void KirinHyphaEditor::layoutReferenceAudition()
@@ -266,7 +264,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.listeningChecks = checkSelection.listeningChecks;
     state.detailedMeasurement = runtime.detailedMeasurement;
     state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
-    state.visualPreferences = runtime.visualPreferences; state.captureAccess=runtime.captureAccess;
+    state.visualPreferences = runtime.visualPreferences;
     state.profiles = runtime.profiles;
     state.presetSelectionAction = runtime.presetSelectionAction;
     state.candidatePreparationAction = runtime.candidatePreparationAction;
