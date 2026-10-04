@@ -10,6 +10,27 @@
 // （StatusStrip、エディターが置く）。足元の段が無い 100%・125% は REF の中の一番下。描き方はどちらも同じ。
 namespace hypha::reference_ui
 {
+namespace
+{
+// 状態の文は「 / 」の区切りごとに、入るところまで出す（途中で「…」にしない）。区切りは大事な順に並んでいる
+// （HyphaReferenceStatusModel.cpp）。最初の区切りも入らなければ省略記号（drawEllipsized）。2026-10-05、Mac の
+// 実機の 300% で「BはAに追従中（直近10…」「…/ Aを下…」と、言いかけで切れていた。
+juce::String fittedSegments (const juce::String& shown, const juce::Font& font, float width)
+{
+    if (text_style::shownWidth (font, shown) <= width) return shown;
+    juce::String fitted;
+    for (int slash = shown.indexOf (" /"); slash > 0; slash = shown.indexOf (slash + 1, " /"))
+    {
+        if (slash + 2 >= shown.length() || shown[slash + 2] != ' ') continue;
+        const auto prefix = shown.substring (0, slash).trimEnd();
+        if (prefix.isEmpty()) continue;
+        if (text_style::shownWidth (font, prefix) > width) break;
+        fitted = prefix;
+    }
+    return fitted.isNotEmpty() ? fitted : shown;
+}
+}
+
 int Component::statusRowHeight() const noexcept
 {
     return detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18;
@@ -47,41 +68,71 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
         row.removeFromRight (detailedLayout() ? 8 : 6);
     }
     if (actionButton.isVisible())
-        actionButton.setBounds (row.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116));
+    {
+        // 承認のボタンは文字の幅に合わせる（量と鳴らす役まで言う。2026-10-05、Mac の実機の 300% で「Aを0.8 dB下げて
+        // Bを…」と切れた。英語の「LOWER A 0.8 DB & PLAY B」も 188 に入らなかった）。最小は今までの幅、最大は行の半分。
+        const int minimum = detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116;
+        const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
+        const int fitted = juce::roundToInt (std::ceil (text_style::shownWidth (font, actionButton.getButtonText()))) + 24;
+        actionButton.setBounds (row.removeFromRight (juce::jlimit (minimum, juce::jmax (minimum, row.getWidth() / 2), fitted)));
+    }
 }
 
-void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusArea) const
+Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> statusArea) const
 {
-    if (statusRowConcealed()) return;
-    const auto line = referenceStatusLine (current);
-    const auto statusColour = line.kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : line.kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
-    g.setColour (statusColour.withAlpha (0.92f));
-    g.setFont (labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information));
-    const auto& statusText = line.text;
+    StatusTextLayout layout;
+    const auto line = referenceStatusLine (current, statusInFooter() && current.heldAttenuationDb < -0.05);
+    layout.line = line;
     auto available = statusArea;  // REF の中では 1・2・REVEAL を置いた残り（レイアウトが入れ物の大きさで決める）
-    if (blindButton.isVisible() && blindButton.getParentComponent() == &statusStrip) available.removeFromRight (detailedLayout() ? 120 : 90);
-    if (actionButton.isVisible())
-        available.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 244 : detailedLayout() ? 194 : 122);
+    // 承認・VERSION BLIND のボタンの手前まで（ボタンの幅は文字に合わせて決まる、layoutStatusRow）。
+    if (blindButton.isVisible() && blindButton.getParentComponent() == &statusStrip)
+        available.setRight (juce::jmin (available.getRight(), blindButton.getX() - 8));
+    if (actionButton.isVisible() && actionButton.getParentComponent() == &statusStrip)
+        available.setRight (juce::jmin (available.getRight(), actionButton.getX() - 6));
     // 鳴っている役の gain の読みは要るだけの幅（右）。残りを状態の文に渡す（C は MATCH の横に出す）。案内が出ている
     // あいだと Blind の間は出さない（Blind では gain がどちらが鳴っているかの手がかりになる）。
     const bool gainShown = detailedLayout() && current.bSelected && std::isfinite (current.appliedGainDb) && ! checkPage()
                         && ! guideShown && ! isBlindSession (current.blindPhase);
     const auto gainFont = labelFont (presentationContext, typography::TextRole::status, typography::Composition::information);
-    const auto gain = gainShown ? gainReadout (current) : juce::String();
-    auto primary = available;
-    const auto gainArea = gainShown ? primary.removeFromRight (juce::jmin (available.getWidth() / 2,
-                              juce::roundToInt (std::ceil (text_style::shownWidth (gainFont, gain))) + 12))
-                                    : juce::Rectangle<int>();
-    const bool shown = statusLineShown();
-    if (shown) paintStatusDot (g, primary, line.kind);
-    if (shown)
-        text_style::drawEllipsized (g, statusText, primary.reduced (4, 0).withTrimmedLeft (12),
-                                    juce::Justification::centredLeft);
-    if (gainShown)
+    layout.gain = gainShown ? gainReadout (current) : juce::String();
+    layout.primary = available;
+    layout.gainArea = gainShown ? layout.primary.removeFromRight (juce::jmin (available.getWidth() / 2,
+                                      juce::roundToInt (std::ceil (text_style::shownWidth (gainFont, layout.gain))) + 12))
+                                : juce::Rectangle<int>();
+    layout.textArea = layout.primary.reduced (4, 0).withTrimmedLeft (12);
+    const auto font = labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information);
+    const auto shown = text_style::shownText (line.text);
+    layout.text = fittedSegments (shown, font, static_cast<float> (layout.textArea.getWidth()));
+    layout.cut = layout.text != shown || text_style::shownWidth (font, layout.text) > static_cast<float> (layout.textArea.getWidth());
+    return layout;
+}
+
+// 足元で状態の文が切れているときは、文を指すと全文を足元の段の全幅に出す（PluginEditorHelpLine.cpp）。
+juce::String Component::statusLineHelp (juce::Point<int> stripPoint) const
+{
+    if (statusRowConcealed() || ! statusLineShown() || ! statusStrip.isVisible()) return {};
+    const auto layout = statusTextLayout (statusStrip.getLocalBounds());
+    return layout.cut && layout.primary.contains (stripPoint) ? layout.line.text : juce::String {};
+}
+
+void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusArea) const
+{
+    if (statusRowConcealed()) return;
+    const auto layout = statusTextLayout (statusArea);
+    const auto kind = layout.line.kind;
+    const auto statusColour = kind == StatusKind::ready ? COL_SPECTRUM_DELTA_BR : kind == StatusKind::waiting ? COL_FLORA_BR : COL_TEXT_SECONDARY;
+    if (statusLineShown())
+    {
+        paintStatusDot (g, layout.primary, kind);
+        g.setColour (statusColour.withAlpha (0.92f));
+        g.setFont (labelFont (presentationContext, typography::TextRole::readout, typography::Composition::information));
+        text_style::drawEllipsized (g, layout.text, layout.textArea, juce::Justification::centredLeft);
+    }
+    if (layout.gain.isNotEmpty())
     {
         g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
         g.setFont (labelFont (presentationContext, typography::TextRole::status, typography::Composition::information));
-        text_style::drawEllipsized (g, gain, gainArea.reduced (4, 0), juce::Justification::centredRight);
+        text_style::drawEllipsized (g, layout.gain, layout.gainArea.reduced (4, 0), juce::Justification::centredRight);
     }
 }
 }

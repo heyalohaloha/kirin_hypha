@@ -61,6 +61,17 @@ inline void verifyReferenceStatusLine()
     require (lowered.kind == StatusKind::ready && lowered.text == "B FOLLOWING A (LAST 10 S)  /  A LOWERED 8.0 DB" + pre
                  && i18n::translate (lowered.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "8.0 dB")),
              "a held attenuation is named while a role plays, in both languages: " + lowered.text);
+    // 2026-10-05（Mac の実機の 300%）：足元の RETURN（+x dB）が下げた量を言っているときは、状態の文では言わない。
+    require (reference_ui::referenceStatusLine (playing, true).text == "B FOLLOWING A (LAST 10 S)" + pre,
+             "with RETURN in the footer the line does not say the held attenuation twice");
+    // A との差（上限で届かない量）は下げた量より先（入りきらなければ後ろの区切りから省く）。
+    {
+        auto both = playing;
+        both.peakShortfallDb = 0.3;
+        require (reference_ui::referenceStatusLine (both).text
+                     == "B FOLLOWING A (LAST 10 S)  /  0.3 DB UNDER A (PEAK LIMIT)  /  A LOWERED 8.0 DB" + pre,
+                 "the line keeps its parts in order of importance");
+    }
     playing.heldAttenuationDb = 0.0;
     // A に戻しても A は下がったまま：「A は今の音のまま」と言わず、下げた量を言う（2026-10-04、Windows の実機）。
     auto heldReady = named ("ready");
@@ -73,18 +84,23 @@ inline void verifyReferenceStatusLine()
     require (heldLine.text == "READY / A LOWERED 7.2 DB"
                  && i18n::translate (heldLine.text, i18n::Language::japanese).contains (juce::CharPointer_UTF8 ("A\xe3\x82\x92" "7.2 dB")),
              "A lowered after a role still says how far, in both languages: " + heldLine.text);
-    // 上限超えの承認を出している役を見ているときは、「できない」と直し方（A を下げて合わせる）。
+    require (reference_ui::referenceStatusLine (heldReady, true).text == "READY",
+             "with RETURN in the footer a held A is not said again");
+    // 上限超えの承認を出している役を見ているときは、「できない」と量。直し方はボタンが言う（2026-10-05、2 度言うと
+    // 300% の足元で両方切れた）。
     auto offered = named ("ready");
     offered.separateComparisons = true;
     offered.comparisonSlot = 3;
     offered.lowerAOfferSlot = 3;
     offered.lowerAOfferDb = -8.0;
-    offered.status = "B NEEDS A 8.0 DB LOWER / LOWER A TO MATCH";
+    offered.status = "B NEEDS A 8.0 DB LOWER";
     const auto offerLine = reference_ui::referenceStatusLine (offered);
     require (offerLine.kind == StatusKind::unable && offerLine.text == offered.status
-                 && i18n::translate (offerLine.text, i18n::Language::japanese) != offerLine.text
+                 && i18n::translate (offerLine.text, i18n::Language::japanese)
+                        == juce::String (juce::CharPointer_UTF8 ("B\xe3\x81\xaf" "A\xe3\x82\x92" "8.0 dB\xe4\xb8\x8b\xe3\x81\x92\xe3\x82\x8b\xe3\x81\xa8\xe5\x90\x88\xe3\x81\x86"))
                  && i18n::translate ("LOWER A 8.0 DB & PLAY B", i18n::Language::japanese) != "LOWER A 8.0 DB & PLAY B",
-             "an approval to lower A reads as unavailable with its fix, in both languages");
+             "an approval to lower A reads as unavailable with the amount, and its button says the fix, in both languages: "
+                 + i18n::translate (offerLine.text, i18n::Language::japanese));
     offered.comparisonSlot = 2;  // ほかの役を見ているとき（画面は承認の文を入れない）は、その役の行のまま
     offered.status = "READY / A REMAINS LIVE";
     require (reference_ui::referenceStatusLine (offered).kind != StatusKind::unable,

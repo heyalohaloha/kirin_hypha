@@ -22,7 +22,8 @@ struct StatusLine
 // 段階が「聴ける」「準備中（待てば進む・DAW の再生で進む）」「できない（利用者か Kirin OS の操作が要る）」の
 // どれか。全ての段階がどれか 1 つに入る（テストで固定する）。
 StatusKind kindOf (SourceStep) noexcept;
-StatusLine referenceStatusLine (const State&);
+// returnInFooter：A を下げた量を足元の RETURN（+x dB）が出している（300% 以上）。状態の文ではもう言わない。
+StatusLine referenceStatusLine (const State&, bool returnInFooter = false);
 // K13b: Kirin OS の準備の状態（まだ聴けない曲）の言い方。B の一覧の短い語と、状態の行の「理由 / 直し方」。
 // 聴ける曲・Kirin OS から届いていない曲は空。確かめられない曲（preparationFailed）は「できない」。
 juce::String preparationWord (const reference_audition::RuntimeSongPreparation&);

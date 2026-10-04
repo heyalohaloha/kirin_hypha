@@ -80,7 +80,8 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
     if (offer.slot == 0 || offer.slot != state.comparisonSlot) return;
     const auto letter = juce::String (hypha::reference_ui::roleLetter (offer.slot));
     const auto amount = juce::String (-offer.db, 1);
-    state.status = letter + " NEEDS A " + amount + " DB LOWER / LOWER A TO MATCH";
+    // 直し方はボタンが言う（量も）。2 度言うと 300% の足元で状態の文とボタンの文が両方切れた（2026-10-05、Mac の実機）。
+    state.status = letter + " NEEDS A " + amount + " DB LOWER";
     state.actionText = "LOWER A " + amount + " DB & PLAY " + letter;
 }
 

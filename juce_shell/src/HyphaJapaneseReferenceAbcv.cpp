@@ -46,7 +46,6 @@ const Entry entries[] = {
     { "V compares spectrum and balance. This Check is shown on C.",
       u8"Vはスペクトルとバランスを比べます。このCheckはCの画面で見ます。" },
     // C の画面の MATCH の横と Cue の凡例。
-    { "MATCHED / C %1 dB", u8"MATCH済み / C %1 dB" },
     { "ON PLAY / C %1 dB", u8"鳴らすとき / C %1 dB" },
     { "A WAITING", u8"A待ち" },
     { "A LAST %1 S", u8"A直近%1秒" },
@@ -147,7 +146,6 @@ const Entry entries[] = {
     { "KIRIN OS PREVIEW", u8"Kirin OSのプレビュー" },
     // 2026-10-03（R-12）：上限超えの MATCH は、承認して A を下げて合わせる。
     { "%1 NEEDS A %2 DB LOWER", u8"%1はAを%2 dB下げると合う" },
-    { "LOWER A TO MATCH", u8"Aを下げて合わせる" },
     { "LOWER A %1 DB & PLAY %2", u8"Aを%1 dB下げて%2を鳴らす" },
     { "A LOWERED %1 DB", u8"Aを%1 dB下げ中" },
     { "%1 needs A %2 dB lower to match. Press LOWER A.", u8"%1はAを%2 dB下げると合います。「Aを下げて…」を押してください。" },

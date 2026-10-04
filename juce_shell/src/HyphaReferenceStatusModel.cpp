@@ -30,7 +30,7 @@ StatusKind kindOf (SourceStep step) noexcept
     return StatusKind::unable;
 }
 
-static StatusLine composeStatusLine (const State& state)
+static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 {
     using Tracking = reference_audition::TrackingState;
     // Blind の間は今の文のまま（どれが鳴っているかを言わない。追従も持ち込まない）。
@@ -51,13 +51,16 @@ static StatusLine composeStatusLine (const State& state)
             : state.tracking == Tracking::stoppedCeiling ? role + " FOLLOW STOPPED AT THE CEILING"
             : state.tracking == Tracking::stoppedRange ? role + " FOLLOW STOPPED 6 DB FROM MATCH"
             : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
-        // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。
-        const auto lowered = state.heldAttenuationDb < -0.05
+        // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。足元に RETURN（+x dB）が
+        // 出ていれば言わない（2 度言うと 300% の足元で切れた。2026-10-05、Mac の実機）。
+        const auto lowered = state.heldAttenuationDb < -0.05 && ! returnInFooter
             ? "  /  A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
         // ピークの上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしている（2026-10-04、承認を求めない）。
         const auto under = state.peakShortfallDb > 0.05
             ? "  /  " + juce::String (state.peakShortfallDb, 1) + " DB UNDER A (PEAK LIMIT)" : juce::String {};
-        return { StatusKind::ready, how + lowered + under + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
+        // 大事な順（入りきらなければ後ろから区切りごとに省く、HyphaReferenceStatusRow.cpp）：合わせ方、A との差、
+        // 下げた A、PRE の Δ。
+        return { StatusKind::ready, how + under + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {
@@ -91,11 +94,16 @@ static StatusLine composeStatusLine (const State& state)
 }
 
 // 承認して A を下げているあいだは「A は今の音のまま」と言わず、下げた量を言う（足元の RETURN で戻すまで）。
-StatusLine referenceStatusLine (const State& state)
+StatusLine referenceStatusLine (const State& state, bool returnInFooter)
 {
-    auto line = composeStatusLine (state);
+    auto line = composeStatusLine (state, returnInFooter);
     if (state.heldAttenuationDb < -0.05)
+    {
+        if (returnInFooter)  // 足元の RETURN が下げた量を言う
+            for (const auto* live : { "  /  A REMAINS LIVE", " / A REMAINS LIVE" })
+                line.text = line.text.replace (live, "");
         line.text = line.text.replace ("A REMAINS LIVE", "A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB");
+    }
     return line;
 }
 

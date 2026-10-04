@@ -131,8 +131,10 @@ inline void verifyReferenceCheckPage()
     state.appliedGainDb = -2.5;
     state.cuePlayheadSeconds = 70.0;
     panel.setState (state);
-    require (reference_ui::matchReadout (state) == juce::String (juce::CharPointer_UTF8 ("MATCHED / C \xe2\x88\x92" "2.5 dB")),
-             "while C plays, the page says its gain is matched (the status line says it is fixed)");
+    // 鳴っていれば gain だけ（合わせて固定したことは状態の行が言い、色で鳴っていると分かる。2026-10-05、Mac の実機で
+    // 「MATCH済み / C −1.2…」と切れた）。
+    require (reference_ui::matchReadout (state) == juce::String (juce::CharPointer_UTF8 ("C \xe2\x88\x92" "2.5 dB")),
+             "while C plays, the page reads the gain it plays at (the status line says it is matched and fixed)");
     match->onClick();
     require (matched == 1 && heard == 1, "MATCH while C plays matches it again");
     write (panel, "abcv_c_900_playing.png");

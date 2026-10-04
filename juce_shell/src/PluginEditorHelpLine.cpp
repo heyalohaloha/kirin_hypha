@@ -27,6 +27,12 @@ bool KirinHyphaEditor::helpLineActive() const
 KirinHyphaEditor::HelpLine KirinHyphaEditor::helpLineAt (juce::Point<int> point)
 {
     if (! helpLineActive() || ! hypha::HoverHelpPreference::shared().isEnabled()) return {};
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // A REF status cut to fit the footer reads whole, across the footer row, while it is pointed at (2026-10-05).
+    if (auto& strip = referenceView.footerStatusStrip(); isPost && strip.isShowing() && strip.getParentComponent() == &scaleRoot)
+        if (const auto whole = referenceView.statusLineHelp (strip.getLocalPoint (this, point)); whole.isNotEmpty())
+            return { whole, true };
+   #endif
     // In the footer row only the footer's own controls speak, and only in the status at its left.
     const bool wholeRow = ! getLocalArea (&scaleRoot, observatoryView.footerBounds()).contains (point);
     for (auto* under = getComponentAt (point); under != nullptr && under != this; under = under->getParentComponent())

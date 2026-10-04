@@ -15,6 +15,7 @@
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceGuide.h"
+#include "HyphaReferenceStatusModel.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceHelp.h"
 #include "HyphaReferenceStatusStrip.h"
@@ -272,6 +273,16 @@ public:
     bool statusRowConcealed() const noexcept;
     void setStatusInFooter (bool value) { if (statusFooterMode != value) { statusFooterMode = value; resized(); repaint(); } }
     StatusStrip& footerStatusStrip() noexcept { return statusStrip; }
+    // 状態の文の出し方（区切りごとに入るところまで）。足元で切れているときに文を指すと、全文を足元の段に出す。
+    struct StatusTextLayout
+    {
+        StatusLine line;
+        juce::Rectangle<int> primary, textArea, gainArea;
+        juce::String text, gain;  // text：出す文（訳した後、区切りごとに入るところまで）
+        bool cut = false;
+    };
+    StatusTextLayout statusTextLayout (juce::Rectangle<int> statusArea) const;
+    juce::String statusLineHelp (juce::Point<int> stripPoint) const;
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
     int comparisonButtonWidth() const noexcept { return detailedLayout() ? 80 : current.separateComparisons ? 36 : 48; }

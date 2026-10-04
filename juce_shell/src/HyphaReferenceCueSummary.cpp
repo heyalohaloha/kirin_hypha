@@ -157,8 +157,9 @@ juce::String matchReadout (const State& state)
         return "A " + juce::String (state.aWindowBlocks / 10) + " / " + juce::String (state.aWindowNeededBlocks / 10) + " S";
     if (! std::isfinite (gain)) return {};
     const auto value = "C " + signedDb (gain + state.heldAttenuationDb) + " dB";  // 下げた A の基準で読む
-    // 「固定」は状態の行（C MATCHED AND FIXED）が言う。2 度言うと読みが切れた（「MATCHED / C −4.9 dB /…」。2026-10-04）。
-    return state.bSelected && state.audibleComparisonSlot == 2 ? "MATCHED / " + value : "ON PLAY / " + value;
+    // 合わせ方（MATCHED AND FIXED）は状態の行が言い、鳴っていることは色で分かる。2 度言うと読みが切れた（「MATCHED / C
+    // −4.9 dB /…」2026-10-04、「MATCH済み / C −1.2…」2026-10-05 Mac の実機）。鳴っていなければ鳴らすときの gain。
+    return state.bSelected && state.audibleComparisonSlot == 2 ? value : "ON PLAY / " + value;
 }
 
 namespace

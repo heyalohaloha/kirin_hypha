@@ -599,10 +599,12 @@ and says why. A Check set to original level in Kirin OS plays as is.
 reference past the ceiling. When the reference falls short by 0.5 dB or less, which the ear cannot
 tell, Hypha plays it at the ceiling without asking, and the status line says how far it is under A
 (0.1 DB UNDER A (PEAK LIMIT)); following and MATCH again do the same. Beyond that Hypha offers, on the
-page of that role, to lower A by the difference (LOWER A 8.0 DB & PLAY B): the reference then plays at
+page of that role, to lower A by the difference: the line says the amount (B NEEDS A 8.0 DB LOWER) and
+its button the fix (LOWER A 8.0 DB & PLAY B), sized to what it says. The reference then plays at
 its own level and A is lowered to it. Nothing is lowered without that approval. A stays lowered after the audition, through the other
 roles, until RETURN in the footer; RETURN stops the role and raises A over half a second. The roles'
-readouts then name the gain against the lowered A, and the status line says how far A is lowered.
+readouts then name the gain against the lowered A, and RETURN in the footer says how far A is lowered
+(the status line says it below 150 %, where the footer has no RETURN).
 Offline renders and host bypass are never lowered, and the measurements and Record are taken before
 it. While A is lowered, the live PRE/POST compare and Blind wait for RETURN, so POST is never lowered
 twice.
@@ -617,7 +619,10 @@ source, or a failed check leaves A playing.
 **Status.** The status line says one of three things, with a dot: ready (cyan: what plays
 and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
 level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
-unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). At 150% and
+unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). Its parts are in
+order of importance — how the role plays, how far it is under A, then the rest — and where the line is
+narrower than all of them it shows the parts that fit whole instead of cutting one; pointing at a
+shortened line shows it whole across the footer row. At 150% and
 above it sits at the bottom left of the footer on every Reference page, where the other pages show
 LIVE or HOLD, so the charts keep that row; at 100% and 125% it is the bottom row of the page. A
 notice in the footer takes its place while it shows; when the line carries an approval or VERSION

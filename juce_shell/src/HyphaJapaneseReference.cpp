@@ -45,7 +45,7 @@ const Entry entries[] = {
     { "SOURCE IDENTITY HIDDEN", u8"ソースは伏せています" },
     { "REVEALED", u8"答え表示中" },
     { "%1 AUDITION", u8"%1を試聴中" },
-    { "%1 FOLLOWING A (LAST 10 S)", u8"%1はAに追従中（直近10秒）" },
+    { "%1 FOLLOWING A (LAST 10 S)", u8"%1はA直近10秒に追従" },  // 凡例・B の一覧と同じ「A直近10秒」。300% の足元に入る
     { "%1 MATCHED AND FIXED", u8"%1はMATCH済み・固定" },
     { "%1 FOLLOW STOPPED AT THE CEILING", u8"%1の追従は上限で停止" },
     { "%1 ORIGINAL LEVEL", u8"%1は原音量" },

@@ -4,6 +4,7 @@
 // B の画面には V・C の選択を出さない。B が鳴らせないときは押すと理由を言う。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceStatusLineTest.h"
+#include "ReferenceStatusFitTest.h"
 #include "ReferenceCheckPageTest.h"
 #include "ReferenceBlauertTest.h"
 #include "ReferenceAComparisonTest.h"
@@ -14,6 +15,7 @@ inline void verifyReferenceAbcvRoles()
 {
     using namespace reference_guide_contract;
     verifyReferenceStatusLine();
+    verifyReferenceStatusFits();
     verifyReferenceCheckPage();
     verifyReferenceBlauertReadout();
     verifyReferenceAComparison();
