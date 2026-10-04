@@ -30,15 +30,15 @@ inline void verifyReferenceDisplayRegression()
     state.status = "PLAY TO AUDITION";
     // 2026-10-04（Daisuke「共通項目に日本語が混じっていないか」）：Kirin OS の訳の名前は全部英語にそろえ、後ろに
     // 曲名・順位が付いた形にも当てる。名前の途中や、利用者の名前には当てない。
-    for (const auto& [japanese, english] : { std::pair { "ボーカルのバランス  /  Peach", "Vocal balance  /  Peach" },
-                                             std::pair { "全工程｜基本5項目   1 / 1", "All stages · 5 essential checks   1 / 1" },
-                                             std::pair { "サビ候補", "Chorus candidate" },
-                                             std::pair { "セット 2   1 / 3", "Set 2   1 / 3" },
-                                             std::pair { "セット名", "セット名" },
-                                             std::pair { "低域の安定性", "Low-end consistency" },
-                                             std::pair { "低域", "Low end" },
-                                             std::pair { "低域ノイズ", "低域ノイズ" },
-                                             std::pair { "Mastering｜音色・音量・ダイナミクス", "Mastering · tone, level, and dynamics" } })
+    for (const auto& [japanese, english] : { std::pair { u8"ボーカルのバランス  /  Peach", "Vocal balance  /  Peach" },
+                                             std::pair { u8"全工程｜基本5項目   1 / 1", u8"All stages · 5 essential checks   1 / 1" },
+                                             std::pair { u8"サビ候補", "Chorus candidate" },
+                                             std::pair { u8"セット 2   1 / 3", "Set 2   1 / 3" },
+                                             std::pair { u8"セット名", u8"セット名" },
+                                             std::pair { u8"低域の安定性", "Low-end consistency" },
+                                             std::pair { u8"低域", "Low end" },
+                                             std::pair { u8"低域ノイズ", u8"低域ノイズ" },
+                                             std::pair { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" } })
         check (reference_ui::standardDisplayName (juce::String::fromUTF8 (japanese)) == juce::String::fromUTF8 (english),
                "every standard name from Kirin OS displays in English, with what follows it");
     reference_ui::Component component;
@@ -48,12 +48,12 @@ inline void verifyReferenceDisplayRegression()
         component.setSize (width - 12, width == 900 ? 470 : width * 2 / 3 - 64);
         component.setState (state);
         const auto& shown = component.state();
-        check (shown.presets.front().label == "All stages · 3 essential checks" && shown.checkLabel == "Dynamics"
+        check (shown.presets.front().label == juce::String::fromUTF8 (u8"All stages · 3 essential checks") && shown.checkLabel == "Dynamics"
             && shown.cues.front().label == "Full track", "standard names must display in English");
         check (shown.presets[1].label == state.presets[1].label && shown.title == state.title,
                "custom names and source metadata must be preserved");
         auto* preset = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-preset"));
-        check (preset && preset->getText() == "All stages · 3 essential checks", "selector must use display labels");
+        check (preset && preset->getText() == juce::String::fromUTF8 (u8"All stages · 3 essential checks"), "selector must use display labels");
         const auto font = preset->getLookAndFeel().getComboBoxFont (*preset);
         check (font.getHeight() <= preset->getHeight(), "selector font must fit its row");
         auto* b = component.findChildWithID ("reference-b");

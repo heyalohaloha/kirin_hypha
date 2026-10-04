@@ -80,7 +80,7 @@ void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusAr
     if (gainShown)
     {
         g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
-        g.setFont (gainFont);
+        g.setFont (labelFont (presentationContext, typography::TextRole::status, typography::Composition::information));
         text_style::drawEllipsized (g, gain, gainArea.reduced (4, 0), juce::Justification::centredRight);
     }
 }

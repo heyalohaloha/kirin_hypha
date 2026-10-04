@@ -12,14 +12,13 @@ inline void verifyReferenceBlauertReadout()
 {
     using namespace reference_guide_contract;
     using reference_ui::blauertReadout;
-    const auto english = [] (const char* utf8) { return juce::String (juce::CharPointer_UTF8 (utf8)); };
-    require (blauertReadout ('C', 1.24) == english ("1k vs 300-400\xc2\xb7" "3-4k C-A +1.2 dB")
-                 && blauertReadout ('B', -2.36) == english ("1k vs 300-400\xc2\xb7" "3-4k B-A \xe2\x88\x92" "2.4 dB")
-                 && blauertReadout ('V', -0.04) == english ("1k vs 300-400\xc2\xb7" "3-4k V-A +0.0 dB")
+    require (blauertReadout ('C', 1.24) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k C-A +1.2 dB"))
+                 && blauertReadout ('B', -2.36) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k B-A \xe2\x88\x92" "2.4 dB"))
+                 && blauertReadout ('V', -0.04) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k V-A +0.0 dB"))
                  && blauertReadout ('C', std::numeric_limits<double>::quiet_NaN()).isEmpty(),
              "the Blauert readout says the compared side minus A, and nothing when it cannot be read");
     require (i18n::translate (blauertReadout ('C', 1.24), i18n::Language::japanese)
-                 == english ("1k\xe3\x81\xa8" "300-400\xc2\xb7" "3-4k\xe3\x81\xae\xe5\xb7\xae C-A +1.2 dB"),
+                 == juce::String (juce::CharPointer_UTF8 ("1k\xe3\x81\xa8" "300-400\xc2\xb7" "3-4k\xe3\x81\xae\xe5\xb7\xae C-A +1.2 dB")),
              "the Blauert readout reads in Japanese");
     require (reference_ui::blauertShown (20.0, 20'000.0) && ! reference_ui::blauertShown (20.0, 300.0)
                  && ! reference_ui::blauertShown (20.0, 250.0),

@@ -16,10 +16,11 @@ foreach (example IN ITEMS "" "_match" "_blind" "_ja" "_dynamics")
         message (FATAL_ERROR "reference preview${example} failed (${result}): ${failed}")
     endif ()
     file (SIZE "${output}" bytes)
-    # Blind の例は PRE/POST Blind と同じ平らな画面で小さく縮む（中身は道具が自分で確かめる）。ほかは REF の画面。
+    # Blind の例は PRE/POST Blind と同じ平らな画面で小さく縮む（Windows の文字の描き方では 2 万バイトを切る）。中身は
+    # 道具が自分で確かめる（1・2・終了が出なければ道具が失敗する）。ほかは REF の画面。
     set (minimum 50000)
     if (example STREQUAL "_blind")
-        set (minimum 20000)
+        set (minimum 8000)
     endif ()
     if (bytes LESS minimum)
         message (FATAL_ERROR "reference preview${example} wrote an empty-looking image (${bytes} bytes)")

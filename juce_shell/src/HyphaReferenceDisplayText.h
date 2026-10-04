@@ -11,11 +11,11 @@ namespace hypha::reference_ui
 inline juce::String standardDisplayName (const juce::String& input)
 {
     static constexpr const char* names[][2] {
-        { u8"Mastering｜音色・音量・ダイナミクス", "Mastering · tone, level, and dynamics" },
-        { u8"MIX｜バランス・定位・空間", "MIX · balance, position, and space" },
-        { u8"録音｜音色・演奏・収録状態", "Recording · tone, performance, and capture" },
+        { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" },
+        { u8"MIX｜バランス・定位・空間", u8"MIX · balance, position, and space" },
+        { u8"録音｜音色・演奏・収録状態", u8"Recording · tone, performance, and capture" },
         { u8"Album 全体との関係", "Album context" },
-        { u8"編曲｜役割・密度・展開", "Arrangement · roles, density, and development" },
+        { u8"編曲｜役割・密度・展開", u8"Arrangement · roles, density, and development" },
         { u8"曲中のエネルギー変化", "Energy curve" },
         { u8"演奏のダイナミクス", "Performance dynamics" },
         { u8"周波数帯域の使い方", "Frequency space" },
@@ -24,8 +24,8 @@ inline juce::String standardDisplayName (const juce::String& input)
         { u8"小音量時のバランス", "Low-volume balance" },
         { u8"セクション間の違い", "Section difference" },
         { u8"再生環境による違い", "Translation" },
-        { u8"全工程｜基本5項目", "All stages · 5 essential checks" },
-        { u8"全工程｜基本3項目", "All stages · 3 essential checks" },
+        { u8"全工程｜基本5項目", u8"All stages · 5 essential checks" },
+        { u8"全工程｜基本3項目", u8"All stages · 3 essential checks" },
         { u8"音程とタイミング", "Pitch and timing" },
         { u8"コンプレッション", "Compression" },
         { u8"ジャンルとの関係", "Genre context" },

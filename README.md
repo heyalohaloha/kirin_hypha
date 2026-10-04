@@ -700,8 +700,9 @@ shown when a band is near silence (−100 dBFS or below). The four-band Balance 
 compares by listening (no measured view, such as Vocal balance) says so on C and V instead of showing
 a chart. V's Check tabs are matched with the alignment's level even while V is not playing. Until
 Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is. Standard names from
-Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS's English
-screen names them, whatever language they were saved in; names you give stay as written. A role
+Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS names them
+in the screen's language — its English names in English and its Japanese names in Japanese —
+whatever language they were saved in; names you give stay as written. A role
 waiting for the DAW is marked on its button and named in the status line.
 
 **Same definition, same section, same level.** For each Cue Kirin OS publishes values computed

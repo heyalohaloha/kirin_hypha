@@ -28,7 +28,7 @@ std::vector<float> levels (const std::vector<double>& centers, double base, doub
     return result;
 }
 
-bool near (double value, double expected) { return std::isfinite (value) && std::abs (value - expected) < 1.0e-6; }
+bool matches (double value, double expected) { return std::isfinite (value) && std::abs (value - expected) < 1.0e-6; }
 }
 
 void testReferenceBlauertBands()
@@ -40,11 +40,11 @@ void testReferenceBlauertBands()
             if (hz >= blauertZones[zone].lowHz && hz <= blauertZones[zone].highHz) ++counts[zone];
     require (counts[0] == 3 && counts[1] == 2 && counts[2] == 3,
              "the Kirin OS 64 bands put 3, 2 and 3 centres in 300-400 Hz, around 1 kHz and 3-4 kHz");
-    require (near (blauertContrastDb (centers, levels (centers, -40.0, 0.0, 0.0, 0.0)), 0.0), "a flat spectrum reads 0 dB");
-    require (near (blauertContrastDb (centers, levels (centers, -40.0, 0.0, 3.0, 0.0)), 3.0), "more around 1 kHz reads positive");
-    require (near (blauertContrastDb (centers, levels (centers, -40.0, 2.0, 0.0, 4.0)), -3.0),
+    require (matches (blauertContrastDb (centers, levels (centers, -40.0, 0.0, 0.0, 0.0)), 0.0), "a flat spectrum reads 0 dB");
+    require (matches (blauertContrastDb (centers, levels (centers, -40.0, 0.0, 3.0, 0.0)), 3.0), "more around 1 kHz reads positive");
+    require (matches (blauertContrastDb (centers, levels (centers, -40.0, 2.0, 0.0, 4.0)), -3.0),
              "more at 300-400 Hz and 3-4 kHz reads negative, by their mean");
-    require (near (blauertContrastDb (centers, levels (centers, -34.0, 2.0, 0.0, 4.0)), -3.0),
+    require (matches (blauertContrastDb (centers, levels (centers, -34.0, 2.0, 0.0, 4.0)), -3.0),
              "the same song at another level reads the same (independent of the matching gain)");
     // 範囲の外の帯域は値に入らない。
     auto outside = levels (centers, -40.0, 0.0, 3.0, 0.0);
@@ -54,7 +54,7 @@ void testReferenceBlauertBands()
         for (const auto& zone : blauertZones) inside = inside || (centers[band] >= zone.lowHz && centers[band] <= zone.highHz);
         if (! inside) outside[band] = -10.0f;
     }
-    require (near (blauertContrastDb (centers, outside), 3.0), "bands outside the three ranges do not count");
+    require (matches (blauertContrastDb (centers, outside), 3.0), "bands outside the three ranges do not count");
     // 出さないとき（NaN）。
     auto silent = levels (centers, -40.0, 0.0, 0.0, 0.0);
     for (size_t band = 0; band < centers.size(); ++band)
@@ -70,8 +70,8 @@ void testReferenceBlauertBands()
     // 比べる側 − A。
     const auto a = levels (centers, -30.0, 0.0, 0.0, 0.0);
     const auto c = levels (centers, -42.0, 0.0, 1.5, 0.0);
-    require (near (blauertDifferenceDb (centers, a, centers, c), 1.5), "the difference is the compared side minus A");
-    require (near (blauertDifferenceDb (centers, c, centers, a), -1.5), "and changes sign the other way round");
+    require (matches (blauertDifferenceDb (centers, a, centers, c), 1.5), "the difference is the compared side minus A");
+    require (matches (blauertDifferenceDb (centers, c, centers, a), -1.5), "and changes sign the other way round");
     require (std::isnan (blauertDifferenceDb (low, levels (low, -30.0, 0.0, 0.0, 0.0), centers, c)),
              "spectra on different bands are not compared");
     require (std::isnan (blauertDifferenceDb (centers, silent, centers, c)), "nothing is compared when A cannot be read");

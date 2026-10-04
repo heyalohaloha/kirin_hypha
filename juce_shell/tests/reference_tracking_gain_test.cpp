@@ -50,11 +50,11 @@ void rampsAndSteps()
              "within 0.5 dB, or nothing measured, keeps the gain");
     const auto down = r::trackingStep (-10.0, 2.0, -6.0, -2.0);
     const auto up = r::trackingStep (4.5, 2.0, -6.0, -2.0);
-    const auto near = r::trackingStep (5.5, 2.0, -6.0, -2.0);  // 上限（+5.0）に 0.5 dB 届かない
+    const auto withinShortfall = r::trackingStep (5.5, 2.0, -6.0, -2.0);  // 上限（+5.0）に 0.5 dB 届かない
     const auto over = r::trackingStep (5.6, 2.0, -6.0, -2.0);  // 0.6 dB 届かない
     require (down.action == r::TrackingAction::move && closeTo (down.gainDb, -10.0)
                  && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5) && closeTo (up.shortfallDb, 0.0)
-                 && near.action == r::TrackingAction::move && closeTo (near.gainDb, 5.0, 1.0e-9) && closeTo (near.shortfallDb, 0.5, 1.0e-9)
+                 && withinShortfall.action == r::TrackingAction::move && closeTo (withinShortfall.gainDb, 5.0, 1.0e-9) && closeTo (withinShortfall.shortfallDb, 0.5, 1.0e-9)
                  && over.action == r::TrackingAction::stopCeiling,
              "lowering always moves; raising moves within the ceiling, stops at the ceiling 0.5 dB short at most, "
              "and otherwise stops following");

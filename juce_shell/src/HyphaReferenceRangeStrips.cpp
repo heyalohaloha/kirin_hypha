@@ -198,7 +198,7 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         auto otherLine = block.removeFromTop (lineHeight);
         auto axis = block.removeFromTop (std::min (15.0f, block.getHeight()));
         g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (unitFont);
+        g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
         text_style::drawEllipsized (g, item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
         for (auto value = item.minimum; value <= item.maximum + 1.0e-9; value += item.row.step)
         {
@@ -214,18 +214,18 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
                std::tuple { otherLine, item.otherBar, juce::String (sides.letter), COL_SPECTRUM_DELTA, COL_SPECTRUM_DELTA_BR, item.otherText } })
         {
             g.setColour (COL_TEXT_SECONDARY);
-            g.setFont (unitFont);
+            g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
             text_style::drawEllipsized (g, letter, line.withWidth (letterWidth).toNearestInt(), juce::Justification::centredLeft);
             paintBar (g, juce::Rectangle<float>::leftTopRightBottom (barLeft, line.getY(), barRight, line.getBottom()), bar, item.row,
                       item.minimum, item.maximum, colour);
             const auto number = juce::Rectangle<float>::leftTopRightBottom (barRight + gap, line.getY(), barRight + gap + numberWidth, line.getBottom());
-            g.setFont (numberFont);
+            g.setFont (monoFont (context, typography::TextRole::readout, typography::Composition::information));
             g.setColour (bar.shown ? valueColour : COL_MUTED);
             text_style::drawEllipsized (g, text, number.toNearestInt(), juce::Justification::centredRight);
             if (letter != "A" && differenceWidth > 0.0f && item.difference.isNotEmpty())
             {
                 g.setColour (COL_TEXT_SECONDARY);
-                g.setFont (unitFont);
+                g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
                 text_style::drawEllipsized (g, item.difference, juce::Rectangle<float>::leftTopRightBottom (number.getRight() + 10.0f, line.getY(),
                                                                                                     area.getRight(), line.getBottom()).toNearestInt(),
                                             juce::Justification::centredLeft);
@@ -254,8 +254,8 @@ void paintTimeLines (juce::Graphics& g, juce::Rectangle<float> area, const Prepa
     high += pad;
     const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
     g.setColour (COL_TEXT_TERTIARY);
-    g.setFont (unitFont);
-    text_style::drawEllipsized (g, juce::String (item.row.name) + " OVER TIME", area.removeFromTop (16.0f).toNearestInt(),
+    g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
+    text_style::drawEllipsized (g, juce::String (item.row.name) + " / OVER TIME", area.removeFromTop (16.0f).toNearestInt(),
                                 juce::Justification::centredLeft);
     // 上と下の値は線の右の余白に（線と重ねない）。
     const auto highText = valueText (item.row.unit, high), lowText = valueText (item.row.unit, low);
