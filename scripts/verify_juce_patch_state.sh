@@ -29,6 +29,7 @@ PATCHES=(
   "0009-aax-delay-compensation-state.patch::--unidiff-zero --ignore-whitespace"
   "0010-aax-instance-group.patch::--unidiff-zero --ignore-whitespace"
   "0011-aax-engine-clock.patch::--unidiff-zero --ignore-whitespace"
+  "0012-au-studio-one-window-relayout.patch::--unidiff-zero --ignore-whitespace"
 )
 
 die() {

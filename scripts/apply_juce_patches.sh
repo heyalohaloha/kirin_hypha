@@ -102,3 +102,9 @@ apply_patch_idempotent \
   "0011-aax-engine-clock.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0012" \
+  "0012-au-studio-one-window-relayout.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

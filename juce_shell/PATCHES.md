@@ -242,3 +242,27 @@ release gate.
 - **Scope / impact:** Observation only, AAX only, fixed-size atomics. It adds no audio copy,
   allocation, lock, I/O, latency, or background work. Product admission remains exact-host and
   sample-rate gated; loops not longer than the applicable delay bound stay on POST.
+
+## 0012 — AU in Studio One / Studio Pro: lay the plug-in window out again after a resize
+
+- **Files:** `juce_audio_plugin_client_AU_1.mm` (`EditorCompHolder::resizeHostWindow`)
+- **Patch:** `patches/0012-au-studio-one-window-relayout.patch`
+- **Why:** When the AU editor changes size (the size menu or the corner grip), JUCE resizes the
+  AU view it handed to the host. Studio One / Studio Pro (macOS) follow that view and resize the
+  plug-in window to fit, but lay out the window's own header (insert tabs, preset row, pin and
+  close) only when the window itself is resized. After the editor grows, the header kept the old
+  width and the new area at its right stayed black (2026-10-04, Studio Pro 8.1.2 on macOS, the
+  POST AU at 300% → 450%; the VST3 path, which asks the host through `resizeView`, was correct).
+  A dump of the window showed the host's views autoresized to the new size while the host's own
+  layout stayed at the old width. A plug-in drawn with iPlug (Youlean Loudness Meter 2) resizes
+  the window itself and does not show the black band.
+- **Change:** After the usual resize, and only when the size changed and the host executable path
+  contains "Studio One" or "Studio Pro", resize the host window by one point and back
+  (`setFrame:display:animate:`), as a user resize would, so that the host lays the header out for
+  the new width. Resizing the window first instead was tried: the host then keeps the view's old
+  margins and grows the window too far (1575 instead of 1350 points). A static guard prevents
+  re-entry when the host moves the view during its layout.
+- **Scope / impact:** AU editor windows in Studio One / Studio Pro only; other hosts and formats
+  keep the original code path. UI thread only; no audio, measurement or state path is touched.
+  Confirmed on Studio Pro 8.1.2: 300% → 450% (menu and corner grip) and 450% → 300% give a
+  1350 × 974 / 900 × 674 window at the same top-left with the header laid out to the right edge.

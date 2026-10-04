@@ -1,0 +1,47 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -1814,16 +1814,43 @@
+             auto* view = (NSView*) getWindowHandle();
+ 
+             auto superRect = [[view superview] frame];
++            const auto previousSize = superRect.size;
+             superRect.size.width  = rect.size.width;
+             superRect.size.height = rect.size.height;
+ 
+             [[view superview] setFrame: superRect];
+             [view setFrame: rect];
+             [CATransaction commit];
++
++            if (! approximatelyEqual (previousSize.width, superRect.size.width)
++                || ! approximatelyEqual (previousSize.height, superRect.size.height))
++                relayoutStudioOneWindow ([view window]);
+ 
+             [view setNeedsDisplay: YES];
+         }
+ 
++        // Kirin Hypha (patch 0012): when this AU view changes size, Studio One / Studio Pro resize their plug-in window
++        // to fit, but lay out the window's own header only when the window itself is resized: after the editor grows,
++        // the header keeps the old width and the new area at its right stays black. Resize the window by one point and
++        // back, as a user resize would, so that the host lays the header out for the new width. (Resizing the window
++        // first instead makes the host keep the view's old margins and grow the window too far.)
++        static void relayoutStudioOneWindow (NSWindow* window)
++        {
++            static bool relayingOut = false;
++            const auto host = PluginHostType::getHostPath();
++
++            if (window == nil || relayingOut
++                || (! host.containsIgnoreCase ("Studio One") && ! host.containsIgnoreCase ("Studio Pro")))
++                return;
++
++            const ScopedValueSetter<bool> guard (relayingOut, true);
++            const auto frame = [window frame];
++            auto nudged = frame;
++            nudged.size.width += 1.0;
++            [window setFrame: nudged display: NO animate: NO];
++            [window setFrame: frame display: YES animate: NO];
++        }
++
+     private:
+         ScopedJuceInitialiser_GUI scopedInitialiser;
+         Rectangle<int> lastBounds;
