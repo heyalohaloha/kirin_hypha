@@ -9,6 +9,7 @@ void testReferenceRoles (const juce::File&);
 void testReferenceCueRestart (const juce::File&);
 void testReferenceLowerA (const juce::File&);
 void testReferenceKirinSpectrum();
+void testReferenceBlauertBands();
 void testReferenceKirinFingerprint();
 void testReferenceAbcv (const juce::File&);
 bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
@@ -23,6 +24,7 @@ void testReferenceAbcv (const juce::File& sandbox)
     testReferenceCueRestart (sandbox);   // H8・H5（X3 の実機で見つけた起点）
     testReferenceLowerA (sandbox);       // 2026-10-03：上限超えは承認して A を下げて合わせる（R-12）
     testReferenceKirinSpectrum();        // H12
+    testReferenceBlauertBands();         // 2026-10-04：Blauert の帯の差
     testReferenceKirinFingerprint();     // H7
 }
 

@@ -5,6 +5,7 @@
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceStatusLineTest.h"
 #include "ReferenceCheckPageTest.h"
+#include "ReferenceBlauertTest.h"
 
 namespace hypha::tests
 {
@@ -13,6 +14,7 @@ inline void verifyReferenceAbcvRoles()
     using namespace reference_guide_contract;
     verifyReferenceStatusLine();
     verifyReferenceCheckPage();
+    verifyReferenceBlauertReadout();
     // 2026-10-03（X3）：再生中でも、準備が自動で進む段階なら押した役を待たせる（押したことを捨てない）。
     // 利用者が動かす段階（Cue の外・この区間で合わない）は待たせず、理由を言う。
     {

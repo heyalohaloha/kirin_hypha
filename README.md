@@ -673,7 +673,15 @@ shows the song and the status; songs are switched from 125%.
 
 A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
-frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). A Check that Kirin OS
+frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Full-range spectrum charts
+(B's Balance, C, and V's Check tabs) also shade Blauert's directional bands — 300–400 Hz, around 1 kHz
+(891–1122 Hz) and 3–4 kHz — and read at the top right how much stronger around 1 kHz is than the mean
+of the other two, as the compared role minus A (1k vs 300-400·3-4k C-A +1.2 dB). In loudspeaker
+stereo, more at 300–400 Hz and 3–4 kHz tends to sound present and near, more around 1 kHz diffuse and
+far, mostly on familiar sounds; Hypha shows the decibels only, never near or far. It is a difference
+within each song, so it needs no level matching; it reads the 64-band medians of both sides, and is not
+shown when a band is near silence (−100 dBFS or below). The four-band Balance cannot show it: its
+250 Hz–2 kHz band holds both 300–400 Hz and 1 kHz. A Check that Kirin OS
 compares by listening (no measured view, such as Vocal balance) says so on C and V instead of showing
 a chart. V's Check tabs are matched with the alignment's level even while V is not playing. Until
 Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is. Standard names from

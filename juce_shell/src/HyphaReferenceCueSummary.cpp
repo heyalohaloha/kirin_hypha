@@ -1,5 +1,6 @@
 #include "HyphaReferenceCueSummary.h"
 
+#include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -57,7 +58,8 @@ bool kirinComparable (const State& state) noexcept
     return true;
 }
 
-bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const State& state, double minimumHz, double maximumHz)
+bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const State& state, double minimumHz, double maximumHz,
+                       presentation::Context context)
 {
     // C の Cue の値があるときだけ。A の窓がまだ足りなければ C だけを描き、A は「集めています」と出す。
     if (! state.separateComparisons || state.comparisonSlot != 2 || ! state.cueKirin) return false;
@@ -80,12 +82,14 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
         else { band.lineTo (top); median.lineTo (mid); }
     }
     if (! started) return false;
+    paintBlauertZones (g, area, minimumHz, maximumHz);  // Blauert の帯（2026-10-04）
     for (auto it = lower.rbegin(); it != lower.rend(); ++it) band.lineTo (*it);
     band.closeSubPath();
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.10f));
     g.fillPath (band);
     // A を太く下に、C を細く上に（同じ値でも両方見える。2026-10-04）。
-    if (kirinComparable (state) && state.aKirin->frames >= minimumAFrames)
+    const bool aReady = kirinComparable (state) && state.aKirin->frames >= minimumAFrames;
+    if (aReady)
     {
         juce::Path live;
         started = false;
@@ -101,6 +105,10 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     }
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
     g.strokePath (median, juce::PathStrokeType (1.4f));
+    if (aReady)  // 曲の中の帯どうしの差なので、音量を合わせていなくても出せる
+        paintBlauertReadout (g, area, 'C', reference_audition::blauertDifferenceDb (state.aKirin->centersHz, state.aKirin->medianDb,
+                                                                                     cue.centersHz, cue.medianDb),
+                             minimumHz, maximumHz, context);
     return true;
 }
 

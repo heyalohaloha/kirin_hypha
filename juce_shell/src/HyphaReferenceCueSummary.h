@@ -22,7 +22,8 @@ void paintBandSummary (juce::Graphics&, juce::Rectangle<int>, const State&, pres
 void paintCueBar (juce::Graphics&, juce::Rectangle<int>, const State&, presentation::Context);
 // C の画面の SPECTRUM／LOW FREQUENCY を「Cue 対 A の同じ長さの直近」で描く。描けなければ false（今までの
 // 曲全体の分布の表示に戻る）。
-bool paintCueSpectrum (juce::Graphics&, juce::Rectangle<float> area, const State&, double minimumHz, double maximumHz);
+bool paintCueSpectrum (juce::Graphics&, juce::Rectangle<float> area, const State&, double minimumHz, double maximumHz,
+                       presentation::Context);
 juce::String matchReadout (const State&);
 // 見比べの凡例：「A LAST 30 S / C CUE」（A の窓が 3 秒に満たなければ A WAITING、音量をそろえられなければ
 // LEVEL NOT MATCHED を足す）。

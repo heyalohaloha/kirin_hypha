@@ -2,6 +2,7 @@
 
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -65,6 +66,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     auto legend = bounds.removeFromBottom (18.0f).reduced (9.0f, 0.0f).toNearestInt();
     auto chart = bounds.reduced (10.0f, 6.0f);
     paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);  // どこが何 Hz か（2026-10-04）
+    paintBlauertZones (g, chart, minimumHz, maximumHz);             // Blauert の帯（2026-10-04）
 
     // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
     // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
@@ -123,6 +125,10 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         for (const auto value : chosen->medianDb) shifted.push_back (value + static_cast<float> (shift (*chosen, true)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
         g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.4f));
+        if (aShown)  // 曲の中の帯どうしの差なので、音量をそろえられない曲でも出せる
+            paintBlauertReadout (g, chart, 'B', reference_audition::blauertDifferenceDb (state.aKirin->centersHz, state.aKirin->medianDb,
+                                                                                          chosen->centersHz, chosen->medianDb),
+                                 minimumHz, maximumHz, context);
     }
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));

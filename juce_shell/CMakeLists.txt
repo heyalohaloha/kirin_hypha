@@ -950,6 +950,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_lower_a_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_kirin_spectrum_test.cpp
+        tests/reference_blauert_bands_test.cpp
         tests/reference_kirin_fingerprint_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp

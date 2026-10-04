@@ -1,4 +1,5 @@
 #include "HyphaReferenceVersionPage.h"
+#include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
 
 #include "HyphaSurfaceMaterial.h"
@@ -108,6 +109,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     }
     auto chart = area.toFloat().reduced (10.0f, 8.0f);
     if (ready && spectral) paintFrequencyTicks (g, chart, 20.0, maximumHz, context);  // どこが何 Hz か（2026-10-04）
+    if (ready && spectral) paintBlauertZones (g, chart, 20.0, maximumHz);             // Blauert の帯（2026-10-04）
     if (ready && spectral)
     {
         // 2026-10-04（Daisuke「A と V が両方表示された方が便利」）：A を太く下に、V を細く上に。同じ値でも両方見える。
@@ -115,6 +117,9 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (2.8f));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
         g.strokePath (medianPath (*timeline->vPairKirin, shift, chart, maximumHz), juce::PathStrokeType (1.4f));
+        paintBlauertReadout (g, chart, 'V', reference_audition::blauertDifferenceDb (timeline->aPairKirin->centersHz, timeline->aPairKirin->medianDb,
+                                                                                      timeline->vPairKirin->centersHz, timeline->vPairKirin->medianDb),
+                             20.0, maximumHz, context);
     }
     else
     {

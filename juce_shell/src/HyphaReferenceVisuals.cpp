@@ -138,7 +138,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     {
         const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation);
         paintFrequencyTicks (g, cueArea, minimumHz, maximumHz, presentation);  // どこが何 Hz か（2026-10-04）
-        if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz)) return true;
+        if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz, presentation)) return true;
         unavailable (g, cueArea, presentation);
         return false;
     }

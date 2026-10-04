@@ -64,6 +64,8 @@ const Entry entries[] = {
     { "C CUE", u8"CのCue" },
     { "C WHOLE", u8"C曲全体" },
     { "B SET RANGE", u8"Bセットの範囲" },  // B セットの曲の p10〜p90 の帯
+    // Blauert の帯（HyphaReferenceBlauertZones.h）：1 kHz 付近と 300-400 Hz・3-4 kHz の差の、比べる側 − A。
+    { u8"1k vs 300-400·3-4k %1-A %2 dB", u8"1kと300-400·3-4kの差 %1-A %2 dB" },
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
     { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（ピーク上限）" },
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
