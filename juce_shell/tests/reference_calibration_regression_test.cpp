@@ -29,7 +29,12 @@ juce::var calibrationReceipt (ref::ReferenceComparisonController& controller, co
             }
     }
     require (!trial.isVoid(), "read immutable accepted calibration");
-    controller.observeTransport (0, false, false); controller.endBlind(); juce::Thread::sleep (100);
+    require (! controller.aInputFeeding(), "A is not handed to the observation while the Version Blind runs");
+    controller.observeTransport (0, false, false); controller.endBlind();
+    // 2026-10-04（Mac の実機）：終了の時点では V がまだ出力を持つ（A へ戻す途中）。そのあいだも、戻し終えた後も、
+    // A は観測へ戻る（戻らないと V の画面が空、B・C の A の値が止まる）。
+    require (controller.aInputFeeding(), "A goes back to the observation as soon as the Version Blind is ended");
+    juce::Thread::sleep (100);
     controller.observeAInput (input, 0, false, false, true);
     bool drained = false;
     for (int i = 0; i < 500; ++i)
@@ -39,6 +44,7 @@ juce::var calibrationReceipt (ref::ReferenceComparisonController& controller, co
         if (!state.aCaptureAvailable && state.blindPhase == ref::BlindPhase::inactive) { drained = true; break; }
     }
     require (drained, "paused capture discontinuity is consumed before the next exact four-second observation");
+    require (controller.aInputFeeding(), "A stays with the observation after the Version Blind has returned its output");
     return trial;
 }
 
@@ -171,5 +177,6 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     controller.observeTransport (0, false, false); controller.endBlind();
     for (int i = 0; i < 500 && controller.snapshot().blindPhase != ref::BlindPhase::inactive; ++i) juce::Thread::sleep (10);
     require (controller.snapshot().blindPhase == ref::BlindPhase::inactive, "invalidated trial still has an END exit");
+    require (controller.aInputFeeding(), "A goes back to the observation after an invalidated trial is ended");
     std::cout << "calibration regressions: gain " << corrected << " dB; relocated identical PCM 48000 samples, mapping error 0 samples\n";
 }

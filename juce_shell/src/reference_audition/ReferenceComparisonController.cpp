@@ -52,7 +52,7 @@ bool ReferenceComparisonController::admit (int slot, bool active)
     else if ((gateOwners & bit) != 0)
     {
         gateOwners &= ~bit;
-        if(slot==1 && blindGuardOwned) { if(versionBlindGate) versionBlindGate(false); blindGuardOwned=false; blindSlot.release(BlindOwner::version); }
+        if (slot == 1 && blindGuardOwned) releaseVersionBlindGuard();  // A へ戻し終えた VERSION BLIND の排他
         if (gateOwners == 0)
         {
             if (gate) gate (false);

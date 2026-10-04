@@ -84,11 +84,14 @@ public:
     // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
     void returnAToNormalLevel();
     double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
+    // A を観測スレッドへ渡しているか（見せていて Blind の外）。VERSION BLIND の終了の後に戻ることを試験が確かめる。
+    bool aInputFeeding() const noexcept { return aFeed.load(); }
 
 private:
     bool admit (int, bool);
     bool beginBlindGuard();
     void endBlindGuard();
+    void releaseVersionBlindGuard();
     void refreshObservation();
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
@@ -96,7 +99,7 @@ private:
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
     SelectionGate gate, versionBlindGate;
     bool blindGuardOwned=false,localBlindOwned=false;
-    bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終えるまで、A を観測スレッドへ渡さない
+    bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終了を押すまで、A を観測スレッドへ渡さない
     std::uint64_t localBlindEpoch=0;
     std::atomic<bool> presented{false};
     juce::CriticalSection gateLock;
