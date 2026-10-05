@@ -8,6 +8,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#include "HyphaOutputOwnershipText.h"
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaEditorResizeGrip.h"
 #include "HyphaEditorSizeConstrainer.h"
@@ -175,7 +176,6 @@ private:
     void refreshLiveCompare();
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
-    bool liveCompareHoldBlocksAudition();
     void pinLiveCompareForBlind();
     void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     void matchLiveCompare();
@@ -216,6 +216,13 @@ private:
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
+    // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
+    bool outputRefused (hypha::output_owner::Activity activity)
+    {
+        const auto decision = processorRef.outputDecision (activity);
+        if (decision.refused()) showToast (hypha::output_owner::refusalText (decision.reason));
+        return decision.refused();
+    }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::String liveCompareWarningText() const { return liveCompareWarning; }
 #else

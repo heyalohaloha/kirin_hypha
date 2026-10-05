@@ -314,6 +314,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorValidation.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp src/PluginProcessorReference.cpp src/PluginProcessorReferenceLowerA.cpp
+        src/PluginProcessorOutputOwnership.cpp src/PluginProcessorKeep.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
@@ -950,6 +951,10 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/reference_audition/ReferenceContentCorrelation.cpp)
     target_compile_features(KirinReferenceContentCorrelationTests PRIVATE cxx_std_17)
     add_test(NAME kirin_reference_content_correlation COMMAND KirinReferenceContentCorrelationTests)
+    # The one table that decides which comparison may take POST (OutputOwnership.h).
+    add_executable(KirinOutputOwnershipTests tests/output_ownership_test.cpp)
+    target_compile_features(KirinOutputOwnershipTests PRIVATE cxx_std_17)
+    add_test(NAME kirin_output_ownership COMMAND KirinOutputOwnershipTests)
     juce_add_console_app(KirinReferenceAuditionRuntimeTests
         PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
     target_sources(KirinReferenceAuditionRuntimeTests PRIVATE

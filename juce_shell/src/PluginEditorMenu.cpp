@@ -418,6 +418,7 @@ void KirinHyphaEditor::showFeedbackInformationMenu()
 void KirinHyphaEditor::handleCandidateMenu (
     int result, const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates)
 {
+    if ((result == 1 || result == 4) && outputRefused (hypha::output_owner::Activity::recordKeep)) return;
     if (result == 1)
     {
         if (! processorRef.keepAll())

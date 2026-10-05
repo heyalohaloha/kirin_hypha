@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../OutputOwnership.h"
+
 #include <atomic>
 #include <cstdint>
 
@@ -52,17 +54,34 @@ private:
 };
 static_assert (std::atomic<std::uint64_t>::is_always_lock_free, "Restore authority must be RT safe");
 
-// One admission rule for the processor and every UI entry. Only a still-active session can
-// carry its own approved attenuation into Blind; neither a target nor a completed UI action
-// substitutes for actual unity. A new session never implicitly raises POST.
+// The live compare entries answer from the one output ownership table (OutputOwnership.h).
+inline StartResult startResultFor (const output_owner::Decision& decision) noexcept
+{
+    using output_owner::Reason;
+    if (! decision.refused()) return StartResult::started;
+    switch (decision.reason)
+    {
+        case Reason::layout:             return StartResult::unsupportedLayout;
+        case Reason::restoring:          return StartResult::notReady;
+        case Reason::liveReturning:
+        case Reason::referenceReturning: return StartResult::returnPending;
+        case Reason::returnFirst:        return StartResult::returnRequired;
+        case Reason::liveComparison:
+        case Reason::blindRunning:
+        case Reason::recordRunning:
+        case Reason::auditionRunning:
+        case Reason::none:               break;
+    }
+    return StartResult::comparisonBusy;
+}
+
+// Only a still-active session can carry its own approved attenuation into Blind; neither a target
+// nor a completed UI action substitutes for actual unity. A new session never implicitly raises POST.
 inline StartResult entryAdmission (bool reuseSession, bool active, bool restoring, bool finishing,
                                    bool blindOwned, float actual, float target) noexcept
 {
-    if (restoring) return StartResult::notReady;
-    if (finishing) return StartResult::returnPending;
-    if ((! reuseSession || ! active) && (actual != 1.0f || target != 1.0f))
-        return StartResult::returnRequired;
-    if (blindOwned) return StartResult::comparisonBusy;
-    return StartResult::started;
+    using namespace output_owner;
+    return startResultFor (decide (reuseSession ? Activity::liveBlind : Activity::liveCompare,
+                                   liveStates ({ active, restoring, finishing, blindOwned, actual, target })));
 }
 }

@@ -294,8 +294,8 @@ jobs:
 
       - name: Validate Reference audition session contract
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinReferenceAuditionRuntimeTests KirinReferenceAudioPagesTests KirinReferenceAudioStreamingTests KirinReferenceContentCorrelationTests KirinPairPreviewLifetimeTests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_pair_preview_lifetime)$'
+          cmake --build juce_shell/build-windows --config Release --target KirinReferenceAuditionRuntimeTests KirinReferenceAudioPagesTests KirinReferenceAudioStreamingTests KirinReferenceContentCorrelationTests KirinOutputOwnershipTests KirinPairPreviewLifetimeTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_pair_preview_lifetime)$'
 
       - name: Build JUCE VST3 shell (Windows)
         run: >

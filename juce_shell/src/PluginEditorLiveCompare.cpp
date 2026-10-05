@@ -221,7 +221,7 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
 // step. The live session ends; Blind owns the output from here, and its own RETURN brings back POST.
 void KirinHyphaEditor::pinLiveCompareForBlind()
 {
-    if (liveCompareHoldBlocksAudition())
+    if (outputRefused (hypha::output_owner::Activity::localBlind))
         return;
     const auto result = processorRef.pinLiveCompareForBlind (processorRef.meterContextPreference());
     if (! result.pinned)
@@ -245,14 +245,6 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
 }
 
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
-bool KirinHyphaEditor::liveCompareHoldBlocksAudition()
-{
-    const auto admission = processorRef.liveCompareAdmission (false, false);  // Reference 自身の下げでは止めない
-    if (admission == StartResult::started) return false;
-    showToast (startFailure (admission));
-    return true;
-}
-
 void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Status& status, double now)
 {
     auto& m = liveCompareOffset;

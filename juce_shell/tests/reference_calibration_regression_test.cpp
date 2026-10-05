@@ -169,6 +169,92 @@ void versionBlindReloadEnds (const juce::File& sandbox)
     require (controller.reserveLocalBlind(), "the Blind slot is free once V has returned its output");
     controller.releaseLocalBlind (0);
 }
+
+// 静かな B の曲（A を下げないと合わない）を、V の道具の B セットに置く（manifest の revision 2 に続く sets）。
+void writeQuietBSet (const juce::File& root)
+{
+    const auto file = root.getChildFile ("quiet-b.wav");
+    {
+        juce::WavAudioFormat format;
+        auto stream = file.createOutputStream();
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (stream.release(), 48'000, 2, 32, {}, 0));
+        juce::AudioBuffer<float> data (2, 96'000);
+        for (int channel = 0; channel < 2; ++channel) juce::FloatVectorOperations::fill (data.getWritePointer (channel), 0.1f, 96'000);
+        require (writer && writer->writeFromAudioSampleBuffer (data, 0, 96'000), "quiet B song samples");
+    }
+    const auto hash = juce::SHA256 (file).toHexString();
+    const auto pcm = juce::String::repeatedString ("5", 64);
+    auto runtimeSource = makeRuntimeV2Source (file, hash, pcm);
+    addRuntimeV2MeasurementSummary (runtimeSource, -18.0, -2.0);
+    const auto source = stageRuntimeV2Artifact (root, "sources", runtimeSource);
+    auto* identity = new juce::DynamicObject();
+    identity->setProperty ("catalog_reference_id", "catalog:source-test");
+    identity->setProperty ("sha256_file", hash); identity->setProperty ("sha256_pcm", pcm);
+    auto* artifact = new juce::DynamicObject();
+    artifact->setProperty ("relative_path", source.relativePath);
+    artifact->setProperty ("sha256", source.sha256); artifact->setProperty ("bytes", source.bytes);
+    auto* cue = new juce::DynamicObject();
+    cue->setProperty ("cue_id", "45454545-4545-4545-8545-454545454545"); cue->setProperty ("label", "Full track");
+    cue->setProperty ("sample_rate_hz", 48'000); cue->setProperty ("start_sample", 0);
+    cue->setProperty ("end_sample", 96'000); cue->setProperty ("loop_enabled", true);
+    auto* song = new juce::DynamicObject();
+    song->setProperty ("candidate_id", "56565656-5656-4656-8656-565656565656");
+    song->setProperty ("display_name", "Quiet ref"); song->setProperty ("source_kind", "catalog_track");
+    song->setProperty ("source_identity", juce::var (identity)); song->setProperty ("source_artifact", juce::var (artifact));
+    song->setProperty ("cues", juce::Array<juce::var> { juce::var (cue) });
+    song->setProperty ("default_cue_id", "45454545-4545-4545-8545-454545454545");
+    song->setProperty ("preparation_status", "prepared");
+    auto* set = new juce::DynamicObject();
+    set->setProperty ("song_set_id", "67676767-6767-4767-8767-676767676767");
+    set->setProperty ("revision_id", "78787878-7878-4878-8878-787878787878");
+    set->setProperty ("rank", 1); set->setProperty ("name", "Quiet refs");
+    set->setProperty ("songs", juce::Array<juce::var> { juce::var (song) });
+    auto* sets = new juce::DynamicObject();
+    sets->setProperty ("format", "kirin_hypha_reference_library_sets"); sets->setProperty ("version", "1.0");
+    sets->setProperty ("revision", 1); sets->setProperty ("manifest_revision", 2);
+    sets->setProperty ("song_sets", juce::Array<juce::var> { juce::var (set) });
+    sets->setProperty ("check_sets", juce::Array<juce::var>()); sets->setProperty ("source_ranges", juce::Array<juce::var>());
+    require (writeJson (root.getChildFile ("library/sets.json"), juce::var (sets)), "a B set with one quiet song");
+}
+
+// A を承認して下げたまま、VERSION BLIND は始めない（R-12・INV-S47：POST を二重に下げない）。断っても何も変えない。
+// RETURN の後は始められる。
+void versionBlindWaitsForReturn (const juce::File& sandbox)
+{
+    using hypha::output_owner::Activity;
+    const auto root = sandbox.getChildFile ("calibration-lowered");
+    require (root.getChildFile ("library").createDirectory().wasOk(), "lowered A fixture directory");
+    writeQuietBSet (root);
+    WholeSongFixture fixture;
+    auto owned = calibratedController (root, fixture);
+    auto& controller = *owned;
+    int position = 0;
+    juce::AudioBuffer<float> output (2, 1024);
+    const auto host = [&]
+    {
+        if (position + 1024 > fixture.audio.getNumSamples()) position = 0;
+        const auto at = position;
+        for (int c = 0; c < 2; ++c) output.copyFrom (c, 0, fixture.audio, c, at, 1024);
+        observeWholeSongFixture (controller, fixture, position);
+        controller.renderSelectedB (output, at, true, true, true);
+    };
+    for (int i = 0; i < 1500 && ! controller.snapshot().referenceReady; ++i) { host(); juce::Thread::sleep (10); }
+    require (controller.snapshot().referenceReady && controller.snapshot().versionReady, "the quiet B song prepares next to V");
+    require (! controller.requestAudition (3, -10.0, -12.0), "a B MATCH over the ceiling does not play B");
+    const auto needed = controller.snapshot().referenceSelection->neededAttenuationDb;
+    require (needed < 0.0 && controller.approveLowerAAndPlay (3, needed) && controller.heldAttenuationDb() < 0.0,
+             "the approval lowers A for B");
+    require (! controller.startBlind (-22, -6) && ! controller.approveBlindLowerAAndStart (-22, -6),
+             "VERSION BLIND does not start while A is lowered (POST is never lowered twice)");
+    const auto refused = controller.outputDecision (Activity::versionBlind);
+    require (refused.refused() && refused.reason == hypha::output_owner::Reason::returnFirst, "the refusal asks for RETURN first");
+    require (controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding()
+                 && controller.reserveLocalBlind() == false,
+             "a refused VERSION BLIND leaves A observed and keeps other Blinds waiting for RETURN too");
+    controller.returnAToNormalLevel();
+    for (int i = 0; i < 300 && controller.outputDecision (Activity::versionBlind).refused(); ++i) host();
+    require (! controller.outputDecision (Activity::versionBlind).refused(), "after RETURN, VERSION BLIND may start");
+}
 }
 
 void testReferenceCalibrationRegressions (const juce::File& sandbox);
@@ -242,5 +328,6 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     controller.releaseLocalBlind (0);
     owned.reset();
     versionBlindReloadEnds (sandbox);
+    versionBlindWaitsForReturn (sandbox);
     std::cout << "calibration regressions: gain " << corrected << " dB; relocated identical PCM 48000 samples, mapping error 0 samples\n";
 }

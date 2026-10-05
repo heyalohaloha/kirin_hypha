@@ -101,14 +101,17 @@ void KirinHyphaEditor::openLocalBlindProduct()
         refreshLocalBlindProduct();
         return;
     }
-    if (processorRef.referenceAuditionSnapshot().blindPhase
-        != hypha::reference_audition::BlindPhase::inactive)
+    // 動いている比較・Blind（開くと LISTEN を止める）は、開く前に言う。Keep・組・再生・Reference の下げと試聴は、
+    // 開いた画面が直し方と一緒に言う（localBlindCaptureAvailability）。
+    using hypha::output_owner::State;
+    const auto owner = processorRef.outputDecision (hypha::output_owner::Activity::localBlind);
+    if (owner.refused() && (owner.cause == State::versionBlind || owner.cause == State::liveRestoring
+                            || owner.cause == State::liveFinishing || owner.cause == State::liveSessionLowered
+                            || owner.cause == State::liveHeld || owner.cause == State::liveBlind))
     {
-        showToast ("End Reference Blind Compare before starting PRE / POST Blind");
+        showToast (hypha::output_owner::refusalText (owner.reason));
         return;
     }
-    if (liveCompareHoldBlocksAudition())
-        return;
     processorRef.stopLiveCompare(); // one comparison at a time; Blind starts from POST
     localBlindReturnIntent.clear();
     localBlindPreflight = true;

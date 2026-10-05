@@ -14,6 +14,8 @@
 class ValidationStorageSandbox
 {
 public:
+    // 試験用のフォルダ。ここへ書くものは、書く前にこの中かを確かめる。
+    const juce::File& directory() const noexcept { return root; }
     ValidationStorageSandbox()
     {
        #if JUCE_WINDOWS

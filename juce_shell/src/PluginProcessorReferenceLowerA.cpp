@@ -2,7 +2,8 @@
 
 // 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、利用者が承認すれば
 // A（POST の出力全体）を差だけ下げて合わせる。参照は元の音量のまま。承認した量は試聴の後も、利用者が RETURN で
-// 戻すまで保つ。live 比較・Blind が POST を取っている・下げているあいだは下げない（POST を二重に下げない）。
+// 戻すまで保つ。live 比較・Blind が POST を取っている・下げているあいだは下げない（POST を二重に下げない。出力の
+// 持ち主の表 OutputOwnership.h）。
 
 hypha::reference_audition::LowerAApproval KirinHyphaProcessorBase::approveReferenceLowerA (int slot, double approvedDb)
 {
@@ -10,9 +11,7 @@ hypha::reference_audition::LowerAApproval KirinHyphaProcessorBase::approveRefere
     refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (! licenseIsOs() || referenceAuditionController == nullptr || role != Role::Post) return Approval::refused;
-    if (liveCompare.sessionActive.load (std::memory_order_acquire)
-        || liveCompareAdmission (false, false) != hypha::live_compare::StartResult::started)
-        return Approval::postInUse;
+    if (outputDecision (hypha::output_owner::Activity::lowerA).refused()) return Approval::postInUse;
     if (! referenceAuditionController->approveLowerAAndPlay (slot, approvedDb)) return Approval::refused;
     startTimer (50);  // 下げ終わってから鳴らす待ちを回す
     return Approval::lowered;

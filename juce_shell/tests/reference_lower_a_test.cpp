@@ -82,19 +82,35 @@ void verifyCeilingRules()
     require (closeTo (held.targetDb(), -6.0) && ! held.settled(), "an approval only deepens the attenuation");
     juce::AudioBuffer<float> block (2, 480);
     for (int c = 0; c < 2; ++c) juce::FloatVectorOperations::fill (block.getWritePointer (c), 1.0f, 480);
-    held.apply (block, false);
+    held.apply (block, false, true);
     require (block.getSample (0, 479) == 1.0f, "an offline or bypassed block is never lowered");
-    for (int index = 0; index < 10; ++index)
+    const auto run = [&] (bool rolesSilent)
     {
         for (int c = 0; c < 2; ++c) juce::FloatVectorOperations::fill (block.getWritePointer (c), 1.0f, 480);
-        held.apply (block, true);
-    }
-    require (held.settled() && closeTo (block.getSample (1, 479), std::pow (10.0, -6.0 / 20.0)), "A settles 6 dB lower");
+        held.apply (block, true, rolesSilent);
+        return block.getSample (0, 479);
+    };
+    for (int index = 0; index < 10; ++index) run (true);
+    const auto settledLevel = static_cast<float> (std::pow (10.0, -6.0 / 20.0));
+    require (held.settled() && closeTo (block.getSample (1, 479), settledLevel), "A settles 6 dB lower");
+    // RETURN は、出力を持つ役が無いブロックで上げ始める（役は下げた A に合わせてあり、先に上げると自分の音量より大きく鳴る）。
+    held.requestReturn();
+    require (held.targetDb() == 0.0 && held.returning() && ! held.held() && ! held.settled(),
+             "after RETURN the held amount is gone, and new roles wait until A is back");
+    require (closeTo (run (false), settledLevel) && held.returning(), "A does not rise while a role still has the output");
+    const auto first = run (true);
+    require (first > settledLevel && first < settledLevel + 0.03f && held.returning(), "RETURN rises over half a second, never jumps");
+    for (int index = 0; index < 60; ++index) run (true);
+    require (held.settled() && ! held.returning() && closeTo (block.getSample (0, 479), 1.0f), "A is back at its normal level");
+    // RETURN を待つあいだに承認で深くしたら、上げない（承認が先）。
+    held.hold (-6.0);
+    for (int index = 0; index < 10; ++index) run (true);
+    held.requestReturn();
+    held.hold (-9.0);
+    run (true);
+    require (held.held() && closeTo (held.targetDb(), -9.0) && ! held.returning(), "an approval after RETURN keeps A lowered");
     held.release();
-    for (int c = 0; c < 2; ++c) juce::FloatVectorOperations::fill (block.getWritePointer (c), 1.0f, 480);
-    held.apply (block, true);
-    const auto first = block.getSample (0, 479);
-    require (first > 0.5f && first < 0.53f && ! held.settled(), "RETURN rises over half a second, never jumps");
+    for (int index = 0; index < 60; ++index) run (true);
 }
 }
 
@@ -136,12 +152,12 @@ void testReferenceLowerA (const juce::File& sandbox)
     juce::AudioBuffer<float> block (2, 480);
     std::int64_t position = 0;
     // A は一定の 0.5（大きなマスター）。usable は書き出し・bypass でないこと。
-    const auto host = [&] (bool usable = true)
+    const auto host = [&] (bool usable = true, bool playing = true)
     {
         for (int c = 0; c < 2; ++c) juce::FloatVectorOperations::fill (block.getWritePointer (c), aLevel, 480);
         beginReferenceRtProbe();
-        controller.observeTransport (position, true, true);
-        controller.observeAInput (block, position, true, true, true);
+        controller.observeTransport (position, true, playing);
+        controller.observeAInput (block, position, true, playing, true);
         const bool rendered = controller.renderSelectedB (block, position, true, usable, usable);
         require (endReferenceRtProbe() == 0, "lowering A adds no heap operations to the audio callback");
         position += block.getNumSamples();
@@ -192,6 +208,17 @@ void testReferenceLowerA (const juce::File& sandbox)
     host(); host();
     require (closeTo (block.getSample (0, 479), lowered), "after B, A stays lowered until RETURN");
     require (! controller.reserveLocalBlind(), "a local Blind waits for RETURN while A is lowered (POST is never lowered twice)");
+    // 出力の持ち主の表：下げているあいだ VERSION BLIND と live 比較は RETURN が先。B・C・V と、さらに深くする承認は通る。
+    {
+        using hypha::output_owner::Activity;
+        using hypha::output_owner::Reason;
+        const auto blind = controller.outputDecision (Activity::versionBlind);
+        const auto listen = controller.outputDecision (Activity::liveCompare);
+        require (blind.refused() && blind.reason == Reason::returnFirst && listen.refused() && listen.reason == Reason::returnFirst,
+                 "VERSION BLIND and LISTEN wait for RETURN while A is lowered");
+        require (! controller.outputDecision (Activity::audition).refused() && ! controller.outputDecision (Activity::lowerA).refused(),
+                 "B, C and V still play against the lowered A, and a deeper approval is allowed");
+    }
     host (false);
     require (closeTo (block.getSample (0, 479), aLevel), "an offline or bypassed block keeps A untouched");
     for (int index = 0; index < 12; ++index) host();
@@ -225,6 +252,35 @@ void testReferenceLowerA (const juce::File& sandbox)
     { host(); controller.servicePendingAudition (-10.0, -12.0, true); juce::Thread::sleep (2); }
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -8.0),
              "an approval smaller than the difference at play time lowers A to that difference and plays");
+
+    // RETURN を B が鳴っているときに押す：B を止めてから A を上げる。B が出力を持つあいだ、出力は下げた A と B の
+    // 音量を超えない（先に上げると B が自分の音量より大きく鳴る）。
+    for (int index = 0; index < 4; ++index) host();
+    require (closeTo (block.getSample (0, 479), songLevel), "B sounds at its own level before RETURN");
+    const auto loweredNow = static_cast<float> (aLevel * std::pow (10.0, controller.heldAttenuationDb() / 20.0));
     controller.returnAToNormalLevel();
+    require (controller.heldAttenuationDb() == 0.0 && ! controller.auditionHeld(), "RETURN gives up the held amount and the B selection");
+    float loudestWhileB = 0.0f;
+    int roleBlocks = 0;
+    while (host())
+    {
+        loudestWhileB = std::max (loudestWhileB, block.getMagnitude (0, block.getNumSamples()));
+        require (++roleBlocks < 100, "B fades out after RETURN");
+    }
+    require (roleBlocks > 0 && loudestWhileB <= std::max (loweredNow, songLevel) + 1.0e-4f,
+             "A does not rise while B still has the output");
+    float level = block.getSample (0, 479);
+    for (int attempt = 0; attempt < 400 && ! closeTo (block.getSample (0, 479), aLevel); ++attempt)
+    {
+        host();
+        controller.servicePendingAudition (-10.0, -12.0, true);
+        require (block.getSample (0, 479) + 1.0e-6f >= level, "after B has stopped, A only rises");
+        level = block.getSample (0, 479);
+    }
+    require (closeTo (block.getSample (0, 479), aLevel) && controller.snapshot().audibleComparisonSlot == 0,
+             "A is back at its normal level and B stays stopped");
+    for (int index = 0; index < 10; ++index) { host (true, false); controller.servicePendingAudition (-10.0, -12.0, true); }
+    for (int index = 0; index < 20; ++index) { host(); controller.servicePendingAudition (-10.0, -12.0, true); }
+    require (controller.snapshot().audibleComparisonSlot == 0 && ! controller.auditionHeld(), "after RETURN, stop and play keep A");
     std::cout << "Reference lowers A to match a quiet reference only after approval, and RETURN restores it PASS\n";
 }

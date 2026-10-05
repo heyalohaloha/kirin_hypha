@@ -43,7 +43,7 @@ void ReferenceComparisonController::appendPendingAudition (
 
 bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
 {
-    if (slot != 1 && slot != 2 && slot != 3) return false;
+    if ((slot != 1 && slot != 2 && slot != 3) || outputDecision (output_owner::Activity::audition).refused()) return false;
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
     const auto state = snapshot();
     // 仕様 C：C は A の直近が Cue の長さ（最長 30 秒）たまってから合わせる。足りないあいだは押した選択を
@@ -172,6 +172,9 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     // A, a source change or reconfiguration invalidates that generation before publication.
     // Bind preparation to the same condition even if a publication changes after this snapshot.
     // Manual and queued selection share the same no-fallback MATCH policy.
+    // 待つあいだに別の比較・Keep が始まった（表が断る）なら鳴らさず、理由を出す。戻す控えと選択の替えも手放す。
+    if (outputDecision (output_owner::Activity::audition).refused())
+    { if (intent.resume || intent.switching) dropResume(); publish (Stage::startFailed, true); return; }
     const auto generation = target.normalSelectionTicket();
     auto expected = intent.intentId;
     if (!activePendingIntent.compare_exchange_strong (expected, 0, std::memory_order_acq_rel)) return;

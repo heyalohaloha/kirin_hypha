@@ -393,7 +393,7 @@ void KirinHyphaProcessorBase::createReferenceAuditionController()
         }, [this](bool active) {
             const juce::ScopedLock lock(handleLock);
             return hyphaHandle && kirin_hypha_set_version_blind_capture_exclusion(hyphaHandle,active);
-        }, [this] { captureStateNotification.changed(); });
+        }, [this] { captureStateNotification.changed(); }, [this] { return externalOutputStates(); });
 }
 #endif
 

@@ -15,22 +15,28 @@ void ReferenceComparisonController::refreshObservation()
     aFeed.store (observing && ! aInputPaused);
 }
 
+// VERSION BLIND を始める：表で調べて（A を下げている・live 比較・ほかの Blind・Keep／Record なら断る）、gateLock の中で
+// Blind の枠と barrier を押さえる。通らなければ何も変えずに断る。通ったら B・C の試聴と待ちを譲らせる（呼ぶ側）。
 bool ReferenceComparisonController::beginBlindGuard()
 {
-    clearPendingAudition();
-    const juce::ScopedLock lock (gateLock);
-    if (closing || ! blindSlot.reserve (BlindOwner::version)) return false;
-    aInputPaused = true;
-    aFeed.store (false);
-    if (versionBlindGate && ! versionBlindGate (true))
+    const auto outside = external();
     {
-        blindSlot.release (BlindOwner::version);
-        aInputPaused = false;
-        refreshObservation();
-        return false;
+        const juce::ScopedLock lock (gateLock);
+        if (closing || output_owner::decide (output_owner::Activity::versionBlind, outside | ownStatesLocked()).refused()
+            || ! blindSlot.reserve (BlindOwner::version)) return false;
+        aInputPaused = true;
+        aFeed.store (false);
+        if (versionBlindGate && ! versionBlindGate (true))
+        {
+            blindSlot.release (BlindOwner::version);
+            aInputPaused = false;
+            refreshObservation();
+            return false;
+        }
+        blindGuardOwned = true;
+        blindSessionOpen.store (true, std::memory_order_release);
     }
-    blindGuardOwned = true;
-    blindSessionOpen.store (true, std::memory_order_release);
+    clearPendingAudition();
     return true;
 }
 
@@ -62,23 +68,25 @@ void ReferenceComparisonController::releaseVersionBlindGuard()
     blindSessionOpen.store (aInputPaused, std::memory_order_release);
 }
 
-bool ReferenceComparisonController::reserveLocalBlind()
+bool ReferenceComparisonController::reserveLocalBlind (output_owner::Activity activity)
 {
-    if (heldA.held()) return false;  // 承認して A を下げているあいだは始めない（RETURN が先）
-    clearPendingAudition();
-    {
-        const juce::ScopedLock lock (gateLock);
-        if (closing || ! blindSlot.reserve (BlindOwner::local)) return false;
-        localBlindOwned = true; localBlindEpoch = 0;
-        visual.pauseAdmission();
-        refreshObservation();
-    }
-    forgetHeldAudition(); // 仕様 A：ローカル Blind の後に、停止前の B／C／V へ自動で戻さない
+    const auto outside = external();
+    const juce::ScopedLock lock (gateLock);
+    if (closing || output_owner::decide (activity, outside | ownStatesLocked()).refused()
+        || ! blindSlot.reserve (BlindOwner::local)) return false;
+    localBlindOwned = true; localBlindEpoch = 0;
+    visual.pauseAdmission();
+    refreshObservation();
     return true;
 }
 
+// Rust の許可が通った（PRE/POST Blind・LIVE BLIND が始まる）。ここで初めて、停止前の B・C・V の戻す控えと押した後の
+// 待ちを譲らせる（仕様 A：Blind の後に自動で戻さない）。
 void ReferenceComparisonController::bindLocalBlind (std::uint64_t epoch)
-{ const juce::ScopedLock lock (gateLock); if (localBlindOwned) localBlindEpoch = epoch; }
+{
+    { const juce::ScopedLock lock (gateLock); if (! localBlindOwned) return; localBlindEpoch = epoch; }
+    forgetHeldAudition();
+}
 
 void ReferenceComparisonController::releaseLocalBlind (std::uint64_t epoch)
 {

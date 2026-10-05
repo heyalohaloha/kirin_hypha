@@ -167,6 +167,20 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_live_blind_approval_product COMMAND KirinLiveBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --approval)
     set_tests_properties(kirin_live_blind_approval_product PROPERTIES TIMEOUT 90)
+    # R-12 approved A lowering through the POST processor. macOS only: the sandbox moves HOME, which
+    # both the Rust storage and JUCE's home folder follow; on Windows JUCE's local app data does not.
+    if(APPLE)
+        add_executable(KirinReferenceLowerAProductTests tests/reference_lower_a_product_test.cpp
+            tests/BlindProductMacRunLoop.mm)
+        target_compile_features(KirinReferenceLowerAProductTests PRIVATE cxx_std_17)
+        target_compile_options(KirinReferenceLowerAProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+        target_compile_definitions(KirinReferenceLowerAProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+        target_include_directories(KirinReferenceLowerAProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+        target_link_libraries(KirinReferenceLowerAProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
+        add_test(NAME kirin_reference_lower_a_product COMMAND KirinReferenceLowerAProductTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
+        set_tests_properties(kirin_reference_lower_a_product PROPERTIES TIMEOUT 90)
+    endif()
     add_executable(KirinLiveCompareLifecycleTests tests/live_compare_lifecycle_product_test.cpp)
     if(APPLE)
         target_sources(KirinLiveCompareLifecycleTests PRIVATE tests/BlindProductMacRunLoop.mm)

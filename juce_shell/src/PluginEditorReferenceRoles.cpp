@@ -11,7 +11,7 @@ void KirinHyphaEditor::wireReferenceRoles()
     referenceView.onOpenLarge = [this] (int slot) { openReferenceLarge (slot); };
     referenceView.onSelectRef = [this]
     {
-        if (liveCompareHoldBlocksAudition()) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (3);
         if (processorRef.selectReferenceRef()) return;
         const auto latest = processorRef.referenceAuditionSnapshot();

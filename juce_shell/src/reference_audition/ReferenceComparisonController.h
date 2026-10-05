@@ -5,6 +5,7 @@
 #include "ReferenceBlindSlot.h"
 #include "ReferenceComparisonSettings.h"
 #include "ReferenceHeldAttenuation.h"
+#include "../OutputOwnership.h"
 
 #include <deque>
 #include <juce_events/juce_events.h>
@@ -19,10 +20,12 @@ class ReferenceComparisonController final
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
     using StateChanged = std::function<void()>;
+    using ExternalStates = std::function<output_owner::States()>;
     // gate：出力の経路（Rust の試聴の排他）。versionBlindGate：VERSION BLIND のあいだのほかの Blind との排他（同じ project・
-    // 同じ process の別の Hypha も含む。Rust の kirin_hypha_set_version_blind_capture_exclusion）。
+    // 同じ process の別の Hypha も含む。Rust の kirin_hypha_set_version_blind_capture_exclusion）。externalStates：Reference の
+    // 外の状態（live 比較・PRE/POST Blind・Keep／Record・形式・書き出し・bypass）。出力を取る入口は表（OutputOwnership.h）で決める。
     explicit ReferenceComparisonController (juce::File, SelectionGate gate = {}, SelectionGate versionBlindGate = {},
-                                            StateChanged = {});
+                                            StateChanged = {}, ExternalStates externalStates = {});
     ~ReferenceComparisonController();
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
@@ -53,7 +56,9 @@ public:
     void noteOfflineRender() noexcept { offlineRenderSeen.store (true, std::memory_order_release); }
     void forgetHeldAudition();
     void selectA() noexcept;
-    bool reserveLocalBlind();
+    // PRE/POST Blind・LIVE BLIND の Blind の枠を押さえる（表で調べて、gateLock の中で）。B・C・V の戻す控えを譲らせるのは
+    // Rust の許可が通った後（bindLocalBlind）。断られたときに利用者の選択を黙って失わない。
+    bool reserveLocalBlind (output_owner::Activity = output_owner::Activity::localBlind);
     void bindLocalBlind(std::uint64_t);
     void releaseLocalBlind(std::uint64_t);
     bool startBlind (double, double) noexcept;
@@ -84,11 +89,17 @@ public:
     // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
     void returnAToNormalLevel();
     double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
+    // 出力の持ち主の表のための、Reference の中の状態（Blind の枠・VERSION BLIND・下げた A・鳴っている役・控えと待ち）。
+    output_owner::States ownOutputStates() const;
+    // 表の答え（Reference の中と外の状態で）。入口は押さえる直前に、もう一度これで確かめる。
+    output_owner::Decision outputDecision (output_owner::Activity) const;
     // A を観測スレッドへ渡しているか（見せていて Blind の外）。VERSION BLIND の終了の後に戻ることを試験が確かめる。
     bool aInputFeeding() const noexcept { return aFeed.load(); }
 
 private:
     bool admit (int, bool);
+    output_owner::States ownStatesLocked() const;  // gateLock を持って呼ぶ（atomic と gateLock の値だけを読む）
+    output_owner::States external() const { return externalStates ? externalStates() : 0; }  // gateLock の外で呼ぶ
     // VERSION BLIND の持ち物。始まりで A を観測へ渡すのを止め、ほかの Blind を締め出す（Blind の枠と barrier）。終わりは
     // どの道でも finishVersionBlindSession だけを通る。A はすぐ観測へ戻し、締め出しは V が出力を返し終えたとき（admit）に、
     // 返すものが無ければすぐ放す。中の Blind が END 以外で終わったとき（取り消し・DAW の状態の読み込み・作り直し・失効）は
@@ -103,6 +114,7 @@ private:
     void clearPendingAudition();
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
     SelectionGate gate, versionBlindGate;
+    ExternalStates externalStates;
     bool blindGuardOwned=false,localBlindOwned=false;
     bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終わるまで、A を観測スレッドへ渡さない
     std::atomic<bool> blindSessionOpen { false };  // aInputPaused か blindGuardOwned が残っている（定期の処理で片付ける）

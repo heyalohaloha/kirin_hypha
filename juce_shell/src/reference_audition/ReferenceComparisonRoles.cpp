@@ -40,7 +40,8 @@ void ReferenceComparisonController::selectA() noexcept
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
 bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double approvedDb)
 {
-    if ((slot != 1 && slot != 2 && slot != 3) || trialActive()) return false;
+    if ((slot != 1 && slot != 2 && slot != 3) || trialActive()
+        || outputDecision (output_owner::Activity::lowerA).refused()) return false;
     if (! std::isfinite (approvedDb) || approvedDb >= 0.0
         || slotController (slot).snapshot().matchFailure != MatchFailure::ceilingExceeded) return false;
     const auto before = heldA.targetDb();
@@ -58,12 +59,13 @@ bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double appro
 }
 
 // RETURN：鳴っている役を止めてから A を通常の音量へ（0.5 秒で上げる）。役の gain は下げた A に合わせてあり、
-// そのまま上げると上限を超えるので、先に止める。下げた量で合わせた戻す保留も忘れる。
+// そのまま上げると上限を超えるので、先に止める。上げ始めるのは、役が出力を返した後（Audio Thread が決める）。
+// 下げた量で合わせた戻す保留も忘れる。
 void ReferenceComparisonController::returnAToNormalLevel()
 {
     selectA();
     forgetHeldAudition();
-    heldA.release();
+    heldA.requestReturn();
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (0.0);
 }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept

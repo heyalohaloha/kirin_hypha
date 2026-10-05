@@ -26,7 +26,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     wireReferenceRoles();
     referenceView.onSelectB = [this]
     {
-        if (liveCompareHoldBlocksAudition()) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (1);  // 押した役の画面にする
         if (! processorRef.selectReferenceB())
         {
@@ -42,7 +42,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onSelectC = [this]
     {
-        if (liveCompareHoldBlocksAudition()) return;
+        if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (2);
         if (! processorRef.selectReferenceC())
         {
@@ -98,7 +98,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onStartBlind = [this]
     {
-        if (liveCompareHoldBlocksAudition()) return;
+        if (outputRefused (hypha::output_owner::Activity::versionBlind)) return;  // A を下げている・ほかの比較のあいだは断る
         if (getWidth() < 900 || getHeight() < 600)
         {
             setSize (900, 600);

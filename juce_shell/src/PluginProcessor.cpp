@@ -429,15 +429,6 @@ bool KirinHyphaProcessorBase::pairedPreLocator (juce::String& projectHash,
     return true;
 }
 
-bool KirinHyphaProcessorBase::keepPair()
-{
-    refreshLicenseForUserAction();
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return false;
-    return kirin_hypha_keep (hyphaHandle);
-}
-
 int KirinHyphaProcessorBase::keepPhase() const
 {
     const juce::ScopedLock sl (handleLock);
@@ -601,15 +592,6 @@ bool KirinHyphaProcessorBase::addMark (const juce::String& tag)
 }
 
 // --- B-102: POST broadcast + candidate enumeration -----------------------------------------
-
-bool KirinHyphaProcessorBase::keepAll()
-{
-    refreshLicenseForUserAction();
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return false;
-    return kirin_hypha_keep_all (hyphaHandle);
-}
 
 void KirinHyphaProcessorBase::stopAll()
 {

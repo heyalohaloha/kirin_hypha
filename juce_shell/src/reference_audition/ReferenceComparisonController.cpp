@@ -4,8 +4,8 @@
 namespace hypha::reference_audition
 {
 ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback,
-    SelectionGate blindCallback, StateChanged stateChangedIn)
-    : gate (std::move (callback)), versionBlindGate (std::move (blindCallback)),
+    SelectionGate blindCallback, StateChanged stateChangedIn, ExternalStates externalIn)
+    : gate (std::move (callback)), versionBlindGate (std::move (blindCallback)), externalStates (std::move (externalIn)),
       stateChanged(std::move(stateChangedIn)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
       check (root, [this] (bool active) { return admit (2, active); }, false),
@@ -34,12 +34,18 @@ void ReferenceComparisonController::setPresented (bool active) noexcept
 
 bool ReferenceComparisonController::admit (int slot, bool active)
 {
+    const auto outside = active ? external() : 0;
     const juce::ScopedLock lock (gateLock);
     if (closing) return !active;
     const int bit = 1 << slot;
     if (active)
     {
         if ((gateOwners & bit) != 0) return false;
+        // B・C・V が出力を取る最後の段：表で調べてから押さえる（押した・待たせた・戻す・替えた選択のどれも、ここを通る）。
+        // VERSION BLIND の V は、始めるときに表を通っている。
+        if (! (slot == 1 && blindGuardOwned)
+            && output_owner::decide (output_owner::Activity::audition, outside | ownStatesLocked()).refused())
+            return false;
         if ((gateOwners & 2) != 0 && !version.canTransferOutputGate()) return false;
         if ((gateOwners & 4) != 0 && !check.canTransferOutputGate()) return false;
         if ((gateOwners & 8) != 0 && !reference.canTransferOutputGate()) return false;
@@ -61,6 +67,33 @@ bool ReferenceComparisonController::admit (int slot, bool active)
         }
     }
     return true;
+}
+
+output_owner::States ReferenceComparisonController::ownStatesLocked() const
+{
+    using namespace output_owner;
+    States states = 0;
+    if (blindGuardOwned || aInputPaused || blindSessionOpen.load (std::memory_order_acquire)) states |= bit (State::versionBlind);
+    if (localBlindOwned) states |= bit (State::localBlind);
+    if (heldA.returning()) states |= bit (State::referenceReturning);
+    else if (heldA.held()) states |= bit (State::referenceLowered);
+    if ((gateOwners & ~(blindGuardOwned ? 2 : 0)) != 0) states |= bit (State::audition);
+    if (normalOutputSlot.load (std::memory_order_acquire) != 0 || activePendingIntent.load (std::memory_order_acquire) != 0)
+        states |= bit (State::auditionHeld);
+    return states;
+}
+
+output_owner::States ReferenceComparisonController::ownOutputStates() const
+{
+    const juce::ScopedLock lock (gateLock);
+    return ownStatesLocked();
+}
+
+output_owner::Decision ReferenceComparisonController::outputDecision (output_owner::Activity activity) const
+{
+    const auto outside = external();
+    const juce::ScopedLock lock (gateLock);
+    return output_owner::decide (activity, outside | ownStatesLocked());
 }
 
 void ReferenceComparisonController::configure (RuntimeIdentity identity, double rate, int channels)

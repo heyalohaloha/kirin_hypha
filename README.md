@@ -611,6 +611,11 @@ Offline renders and host bypass are never lowered, and the measurements and Reco
 it. While A is lowered, the live PRE/POST compare and Blind wait for RETURN, so POST is never lowered
 twice.
 
+**One comparison takes POST at a time.** Every button and every internal start asks the same rule:
+a Blind or Keep waits while B, C or V plays (press A in REF first); nothing else starts while the live
+PRE/POST compare holds or returns POST; and B, C, V or a Blind takes over a running live compare
+session, whose PRE then needs selecting again. A refused start says why and changes nothing.
+
 A stop or seek keeps the selection: the same source returns at the same gain once it is ready again,
 as in the live PRE/POST compare. An offline render, a local Blind or starting the live PRE/POST
 compare clears that held selection, so nothing returns on its own afterwards. Sample-rate conversion

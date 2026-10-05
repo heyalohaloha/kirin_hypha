@@ -48,7 +48,7 @@ bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& b
         if (frames < 1 || frames > 8192 || channels < 1 || channels > 2)
         {
             for (int index = 0; index < count; ++index) paths[index]->renderSelectedB (buffer, position, valid, false, false);
-            heldA.apply (buffer, returnAllowed);
+            heldA.apply (buffer, returnAllowed, false);
             return false;
         }
         bool audible[3] {};
@@ -80,8 +80,9 @@ bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& b
         reference.confirmAOutput();
     }
     // 承認して A を下げているなら、出力全体（A・鳴っている役・Blind）に掛ける。役の gain は「下げる前の A」に合わせて
-    // あるので、掛けた後も A と合う。オフライン書き出し・bypass には掛けない（returnAllowed）。
-    heldA.apply (buffer, returnAllowed);
+    // あるので、掛けた後も A と合う。オフライン書き出し・bypass には掛けない（returnAllowed）。RETURN は、このブロックの
+    // 始めに出力を持つ役が無いときに上げ始める（役が自分の音量より大きく鳴らない）。
+    heldA.apply (buffer, returnAllowed, count == 0);
     return rendered;
 }
 }

@@ -94,8 +94,6 @@ const Entry entries[] = {
     { "LISTEN TO BOTH COMPLETE PASSES FIRST", u8"先に両方を最後まで聴いてください" },
     { "RESULT COULD NOT BE REVEALED", u8"答えを表示できませんでした" },
     { "CHOOSE AN ANSWER AFTER BOTH PASSES", u8"両方を聴いてから回答してください" },
-    { "End Reference Blind Compare before starting PRE / POST Blind",
-      u8"先にReferenceのBlindを終えてください" },
     // Live PRE / POST compare: short enough to read whole in the footer at 300%.
     { "Closing returns to POST", u8"閉じるとPOSTに戻ります" },
     { "LISTEN could not start", u8"試聴を開始できません" },
@@ -114,6 +112,12 @@ const Entry entries[] = {
     { "MATCH: POST %1", u8"MATCH：POST %1" },
     { "POST back to normal", u8"POSTを通常の音量に戻しました" },
     { "Press RETURN first", u8"先にRETURNを押してください" },
+    // 出力の持ち主の表が断った理由（HyphaOutputOwnershipText.h）。
+    { "LISTEN is restoring; try again in a moment", u8"LISTENの復元中です。少し待ってください" },
+    { "End Blind Compare first", u8"先にBlind Compareを終えてください" },
+    { "Finish Keep / Record first", u8"先にKeep／Recordを終えてください" },
+    { "A is returning to normal level", u8"Aを通常の音量へ戻しています" },
+    { "Press A in REF first", u8"先にREFでAを押してください" },
     { "PRE %1 ms early", u8"PREが%1 ms早く鳴っています" },
     { "PRE %1 ms late", u8"PREが%1 ms遅れて鳴っています" },
     { "PIN waits for PRE", u8"PINはPRE待ちです" },

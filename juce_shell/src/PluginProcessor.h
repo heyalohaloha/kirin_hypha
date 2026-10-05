@@ -159,6 +159,7 @@ public:
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
     #include "live_compare/LiveCompareProcessorApi.h"
+    #include "OutputOwnershipProcessorApi.h"
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
