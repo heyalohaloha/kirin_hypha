@@ -92,7 +92,7 @@ PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分け�
 日本語技術文書の規範に沿い、部品試験、本体への接続、DAW 実機での確認を分けて記録する。
 B-719〜B-721 では Windows 検証機を操作していない。
 B-722 では使用許可を受け、隔離した場所で Windows のビルドと試験を実施した。
-B-722 の時点ではインストール、公開リリース、Kirin OS への変更、Notion 書き込みも行っていない。
+B-722 の時点ではインストール、公開リリース、Kirin OSへの変更も行っていない。
 
 ## B-722 の本体接続と開始待ちの修正
 
@@ -229,7 +229,7 @@ mono 試験では同じ左右の片側を使用した。
 ```sh
 cmake -S juce_shell -B juce_shell/build \
   -DKIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS=ON \
-  -DKIRIN_FFI_LIB=/Users/nishiodaisuke/Dev/kirin_hypha/target/debug/libkirin_hypha_ffi.a
+  -DKIRIN_FFI_LIB="$PWD/target/debug/libkirin_hypha_ffi.a"
 cmake --build juce_shell/build --config Debug --target \
   KirinLocalBlindCaptureTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests
 ctest --test-dir juce_shell/build -C Debug --output-on-failure -R '^kirin_local_blind_'

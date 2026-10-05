@@ -4,14 +4,12 @@
 > 以下の進捗、未push、CI、配置状況は文書作成・更新時点の記録であり、現在の状態を示さない。
 > 現行の契約はREADMEと`docs/hypha_invariants.md`、B-836の修復と残る実機検証は`docs/hypha_structural_repair_plan_20260912.md`を参照する。
 
-**Handoff**
+**修復と検証の計画**
 
-- To: 次の独立したTRACE耐障害セッション
-- From: Codex 2026-08-06
-- What: Record inboxの退役フェンス、runtime再構成、起動時クラッシュ復旧を、安定版から隔離した別タスクとして完成させる。
+- What: Record inboxの退役フェンス、runtime再構成、起動時クラッシュ復旧を、安定版から隔離した開発・検証として完成させる。
 - Why: 完成すればTRACEのクラッシュ耐性と世代混在防止に有用だが、TRACE、通常測定、ペア、次回起動を直接壊し得る高リスク変更である。
-- Next: 現在の`origin/main`から専用ブランチを作り、退避stashを参照資料として使い、復旧状態機械と異常系テストから設計する。
-- Ref: 本書、`docs/hypha_invariants.md`、stash commit `0857949cc41c05538bfd19f9f47e60868db6ed3e`
+- Next: 公開mainから隔離した候補で、復旧状態機械と異常系テストから設計する。
+- Ref: 本書、`docs/hypha_invariants.md`
 
 ## 1. 結論
 
@@ -368,8 +366,8 @@ cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-thre
 5. 第11節のクラッシュ地点を再現するテストを先に作る。
 6. Admission Gate、退役フェンス、runtime transactionを現在のコードへ最小単位で再実装する。
 7. TRACE、Watch、pair、Audio Threadを個別に回帰検証する。
-8. 全ゲート通過後にDaisukeへ結果と残存リスクを報告する。
-9. Daisukeの承認前に安定版へマージ、インストール、リリースしない。
+8. 全ゲート通過後に設計担当へ結果と残存リスクを報告する。
+9. 設計担当の承認前に安定版へマージ、インストール、リリースしない。
 
 ## 17. 完了の定義
 
@@ -387,4 +385,3 @@ cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-thre
 - stashは適用していない。
 - 安定版コードは変更していない。
 - ビルド、インストール、リリースは行っていない。
-- Notionへの書き込みは行っていない。

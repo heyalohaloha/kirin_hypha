@@ -4,9 +4,9 @@ Date: 2026-09-14
 Status: 実装候補とローカル検証を作成済み。実DAWのPDC・長時間負荷・Windowsの実機検証は未完了。配布なし。
 実装と証跡: [implementation record](reference_visual_comparison_implementation_20260914.md)。
 追加計画: [Capture Aによる全曲取得・保持](reference_a_full_capture_plan_20260914.md)。明示取得をBの準備・表示寿命から独立させ、取得時点の要約を保持する設計。製品実装は未着手。
-Baseline: Hypha B-871 `3ccec450` / Kirin OS W-3080 `31fd330c`。
+Baseline: Hypha B-871 `3ccec450` / Kirin OS側の対応実装 `31fd330c`。
 
-Daisukeが承認した方向は、曲全体の波形を比較の入口とし、現在のDAW音Aと計測済みVersion Bを、同じ場所・共通の尺度で見比べることである。
+設計担当が承認した方向は、曲全体の波形を比較の入口とし、現在のDAW音Aと計測済みVersion Bを、同じ場所・共通の尺度で見比べることである。
 本計画の数値予算と操作の細部は実装時の検証対象であり、達成済みの製品仕様ではない。
 
 ## 1. 利用者に届ける結果
@@ -205,7 +205,7 @@ Kirin OSとHyphaはコードを共有せず、公開データ契約と独立実�
 ### 実機と使いやすさ
 
 - Studio OneとPro Toolsを含むmacOS実機、Windows対象hostで確認する。利用可能なformatと未確認formatをreceiptへ分けて残す。
-- 2MIXに常設 + TRACK観測、TRACK2個比較、非表示/小画面を複数追加、というDaisukeの使い方を含める。
+- 2MIXに常設 + TRACK観測、TRACK2個比較、非表示/小画面を複数追加、という検証する利用例を含める。
 - 実機のPDCを既知の遅延0および非0条件で検証し、DAW出力のcaptureとcallback/source証跡を同一commitへ結ぶ。画面の位置線だけでは合格にしない。
 - 基準実機で44.1/48/96/192 kHz、対応する64/128/512/1024 framesを対象とし、未対応条件は実測表へ明記する。
 - 最も負荷が高かった対応条件と通常使用条件で、それぞれ30分の再生・切替を行い、AAE/dropout/CPU spike/メモリ増加を確認する。重いprofiler同時実行を唯一の基準にしない。

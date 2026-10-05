@@ -81,17 +81,14 @@ Reference専用targetは今回のLive／Local Blind変更をリンクせず、Re
 実DAW、Windows、30分負荷matrix、Universal／release build、配布署名・公証・配置・公開は未実施。
 nativeの疑似AU／VST3／AAX hostを実DAW・Windowsの結果へ代用しない。
 
-### 未送信のセッション記録（順序: 現在地→日次→Handoff）
+### 修正と残る検証
 
-- 現在地: `codex/hypha-one-pass-blind` / B-1101。復元許可・再入場・最終MATCH検証を共通化し、
+- 修正: B-1101。復元許可・再入場・最終MATCH検証を共通化し、
   収録型Blindの自動進行と明示終了の競合も命令更新境界で解消。Reference／FREQのgateは未解決。
-- 日次ログ: `[Codex] 2026-09-30 00:54 — Blind／MATCH lifecycleの構造修正と回帰検証`。
   隔離したnative fixtureとmacOS x86_64 Debugで検証。実機・本番へ接続せず、PR／push／公開なし。
-- Handoff: To Hypha次セッション / From Codex 2026-09-30。
   What: Reference対応確認の全体試験失敗、FREQ性能gate、実DAW／Windows／長時間負荷matrix。
   Why: 今回のBlind lifecycle修正の合格と、公開に必要な全体gateは別であるため。
   Next: 上記Referenceの2地点をfixture供給／worker／証跡から切り分け、性能閾値を維持してFREQを確認。
   実機・配置・配布作業は承認範囲と所定runbookを確認してから実施する。Ref: 本書と上記log。
 
-Notionへの現在地・日次・Handoff書込みはリポジトリの禁止を優先して未実施。
 上記を未送信記録とする。LS／HP macOS／HP Windowsは全てskip（Debugのadhoc署名のみ、配布作業なし）。

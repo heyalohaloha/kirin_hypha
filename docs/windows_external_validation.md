@@ -53,7 +53,7 @@ tested here. The signed candidate and fallback ZIP are not normal user-facing do
 - Windows 10 or 11, 64-bit.
 - A DAW that can load VST3 plug-ins.
 - Ability to run the current-user installer and Windows Installed apps uninstaller.
-- Ability to send screenshots and exported WAV files back to Daisuke.
+- Ability to send screenshots and exported WAV files to the release maintainer.
 
 Record these facts in the report:
 
@@ -227,7 +227,7 @@ Preferred evidence:
 
 1. Export a short WAV with Hypha PRE/POST active.
 2. Export the same range with Hypha PRE/POST removed or bypassed.
-3. Send both WAV files to Daisuke for null/bit comparison.
+3. Send both WAV files to the release maintainer for null/bit comparison.
 
 Pass:
 

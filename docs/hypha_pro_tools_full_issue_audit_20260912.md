@@ -125,7 +125,7 @@ pre-host result, not a Pro Tools pass.
 - The later PT-32 presentation-only correction reran only the focused Release TIME test and five-size
   image output; it passed. The complete wrapper was not repeated, following the one-run policy.
 - Pro Tools Developer post-fix pass is still required. Native computer-control is not exposed in
-  the current Codex surface; do not replace a loaded signed bundle or modify a working session.
+  the current validation environment; do not replace a loaded signed bundle or modify a working session.
 
 ## B-835 review follow-up and candidate identity
 

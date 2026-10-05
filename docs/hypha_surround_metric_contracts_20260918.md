@@ -1,6 +1,6 @@
 # Hypha サラウンド化 — 全指標の契約表（P-0 §6 / rev.2）
 
-Status: 調査と分類。実装なし・仕様変更なし。Nch での扱いの確定は Daisuke の承認事項。
+Status: 調査と分類。実装なし・仕様変更なし。Nch での扱いの確定は 設計担当 の承認事項。
 
 Date: 2026-09-18 / rev.2
 
@@ -338,8 +338,8 @@ AGENTS.md:59 / 77-83 のとおり、**Reference B は登録済みのファイル
 
 **Hypha が係数を発明しない。** (ii) を採る場合、再現する対象を出典付きで固定する。
 
-出典は Daisuke が一次資料で確認した [B]。
-**本セッションの egress policy では再取得できないため、Claude Code 側では未検証である。**
+出典は 設計担当 が一次資料で確認した [B]。
+**一次資料を再取得できず、今回の調査では未検証である。**
 
 #### 10.6.1 確定できるもの — Dolby Atmos Renderer の Lo/Ro
 
@@ -410,8 +410,8 @@ Rs = Rss + Rrs
 | **renderer 由来 view** | renderer が mix から直接導く出力（Stereo Direct 等） | **できない。** 固定行列が存在しない |
 
 **Stereo Direct は「まだ見つかっていない係数」ではない。** Atmos mix から直接作られる render であり、
-**係数表として取得できる種類の対象ではない**（Daisuke が一次資料で確認 / [B]。
-本セッションの egress policy では再取得できないため Claude Code 側では未検証）。
+**係数表として取得できる種類の対象ではない**（設計担当 が一次資料で確認 / [B]。
+一次資料を再取得できず、今回の調査では未検証）。
 
 したがって:
 
@@ -420,7 +420,7 @@ Rs = Rss + Rrs
 
 **そして Lo/Ro 自体も「普遍的な正解」ではない。** Dolby には Lo/Ro のほかに
 Pro Logic IIx、Direct Render、Direct Render with room balance があり、stereo 側にも
-Lo/Ro、Lt/Rt、Stereo Direct がある（Daisuke 供給 / [B] / Claude Code 未検証）。
+Lo/Ro、Lt/Rt、Stereo Direct がある（設計担当 供給 / [B] / 一次資料の再取得は未検証）。
 特定 deliverable の仕様例が Lo/Ro を指定していることは、**Lo/Ro が既定であることを意味しない。**
 
 **`Dolby downmix` という profile 名を作らない。** method identity を保つ:
@@ -448,7 +448,7 @@ Dolby Atmos Renderer / Lo/Ro / 5.1 -> 2.0
 
 - **7.1.4 → 7.1** の段（天井チャンネルの扱い）。上記の一次資料確認には含まれていない。
   **これは固定係数として存在し得る対象であり、探す意味がある。**
-- Hypha がどの版・どの方式を再現対象にするか（**Daisuke の決定事項**）。
+- Hypha がどの版・どの方式を再現対象にするか（**設計担当 の決定事項**）。
 
 **ここから外したもの**: 「Stereo Direct の完全な定義」。§10.6.3.1 のとおり、
 Stereo Direct は固定係数行列を持つ対象ではない。**未取得の資料として並べない。**

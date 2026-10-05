@@ -11,9 +11,7 @@ Mode: reference-guided image generation
 1. `docs/media/kirin-hypha-pre-post.jpg`
 2. `crates/hypha_gui/assets/bg_mycelium.png`
 
-The generator used the copies at the original Hypha worktree path.
-
-The generated originals remain under the local Codex generated-images directory.
+The generator used copies of the two project references above.
 
 The three project copies below are the review artifacts.
 

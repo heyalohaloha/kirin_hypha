@@ -107,10 +107,10 @@ SPACEとATTACKの回答待ちを、他の実装の開始条件にはしない。
 
 | 入力 | 確認した内容 | 計画への反映 |
 | --- | --- | --- |
-| [B-730レビュー](/Users/nishiodaisuke/Downloads/Hypha_review_B730_20260907/review.md) | 直近45コミットを確認。P1が4件、P2が1件。無変更の製品コードによる挙動再現3件、割込み順を固定した再現1件、静的な競合確認1件 | Reference修正を最初の製品変更にする。修正後は5件を個別に閉じる |
-| [既存完成計画](/Users/nishiodaisuke/Dev/kirin_hypha/docs/hypha_completion_plan_20260907.md) | C0からC5の完成順序。Blind、軽量化、SPACE、2MIX ATTACK、両OS、配布3チャネルに未完了条件がある | 機能範囲と数値条件を維持し、C1の前にReference修正を挿入する |
-| [AAX Phase A引継ぎ](/Users/nishiodaisuke/Downloads/hypha_aax_phase_a_handoff.md) | B-701時点のSDK非依存準備。SDKとPACEの入手は文書時点で未完了 | A-1からA-5を準備工程として組み込む。SDK実ビルドとPro Tools試験はPhase Aの完了に含めない |
-| [作成済みHTML](/Users/nishiodaisuke/Downloads/Hypha_Listening_Review_01_20260907/index.html) | `hypha-pilot-20260907-01`、SPACE 3件とATTACK 3件。manifest記載のHTML hashと実ファイルが一致し、音声6ファイルが存在する | C0のHTML作成は完了扱い。回答JSONの取込みから再開する。今回ブラウザで再生試験をやり直したわけではない |
+| B-730レビュー（非公開の検証資料） | 直近45コミットを確認。P1が4件、P2が1件。無変更の製品コードによる挙動再現3件、割込み順を固定した再現1件、静的な競合確認1件 | Reference修正を最初の製品変更にする。修正後は5件を個別に閉じる |
+| [既存完成計画](hypha_completion_plan_20260907.md) | C0からC5の完成順序。Blind、軽量化、SPACE、2MIX ATTACK、両OS、配布3チャネルに未完了条件がある | 機能範囲と数値条件を維持し、C1の前にReference修正を挿入する |
+| AAX Phase A引継ぎ（非公開の検証資料） | B-701時点のSDK非依存準備。SDKとPACEの入手は文書時点で未完了 | A-1からA-5を準備工程として組み込む。SDK実ビルドとPro Tools試験はPhase Aの完了に含めない |
+| 作成済みHTML（非公開の検証資料） | `hypha-pilot-20260907-01`、SPACE 3件とATTACK 3件。manifest記載のHTML hashと実ファイルが一致し、音声6ファイルが存在する | C0のHTML作成は完了扱い。回答JSONの取込みから再開する。今回ブラウザで再生試験をやり直したわけではない |
 | 現在の作業ツリー | Referenceのプリセット連携、Gain Match、プレビュー、Spectrumなどに未コミット変更がある | 既存差分の所有範囲を確定してから統合する。B-730のレビュー結果を、そのまま未コミット版の再試験結果とはしない |
 
 HTMLの回答形式は`hypha.review.answers.v1`で、pack ID、manifest hash、protocol、判定者、候補閲覧の有無、整数sampleの印を持つ。
@@ -294,7 +294,7 @@ AAX文書にあるAvid回答は、依頼者から提供された設計前提と�
 SDKを公開リポジトリへ含めず、ローカルの外部パスから供給する構成を採る。
 引継ぎ文書のアカウント情報や私信を公開用の設定へ転記しない。
 
-固定JUCEの[CMake実装](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/JUCE/extras/Build/CMake/JUCEUtils.cmake:2255)では、`juce_set_aax_sdk_path()`はSDKの`Interfaces`と`Interfaces/ACF`を確認する。
+固定JUCEのCMake実装（非公開の検証資料）では、`juce_set_aax_sdk_path()`はSDKの`Interfaces`と`Interfaces/ACF`を確認する。
 呼出し位置はJUCEの追加後、`juce_add_plugin()`の前とする。
 SDKが実在することと、対応する完全なSDKをビルドに使えることは別に検証する。
 
@@ -305,7 +305,7 @@ SDKが実在することと、対応する完全なSDKをビルドに使える�
 | A-4 | PRE/POSTのidentifierは既存BUNDLE_IDを使い、manufacturer `Kirn`とproduct `Khpr` / `Khpo`を維持。カテゴリ候補は`ePlugInCategory_None` | PRE/POSTの識別が一意。SDK入手後にカテゴリを最終確認。AU/VST3の既存識別子を変えない |
 | A-5 | 手動実行用のAAX workflow骨格を用意。既存の公開runnerではSDKを取得しない。将来のSDK配備済み実行環境だけを対象にする | 未配備時はjobをqueueする前にskip。配備を明示した環境で設定が壊れていればfail。通常のPRと既存配布CIを停止させない |
 
-カテゴリは、固定JUCEの[変換テーブル](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/JUCE/extras/Build/CMake/JUCEUtils.cmake:1685)にAnalyzerがないことを確認した。
+カテゴリは、固定JUCEの変換テーブル（非公開の検証資料）にAnalyzerがないことを確認した。
 この版のCMakeが変換する名前は`ePlugInCategory_*`であり、文書中の`AAX_ePlugInCategory_*`をそのまま設定値にしない。
 `None`はこの非synthの既定値でもあるため、SDKがない段階の候補とする。
 AAX用の明示設定はAAX有効時だけに限定し、既存形式へ不要な差分を持ち込まない。
@@ -359,12 +359,12 @@ SDK実ビルド、PACE署名、Pro Tools、AAX配布は入手後の別工程と�
 | 実機 | 同一候補のmacOS AU/VST3とWindows VST3。PRE/POSTの読込みbuild IDとbinary hashを記録した実ホスト結果 |
 
 FFIのignored suiteは前回20件と5件だったが、実装後も同じ件数と決めつけず、テスト一覧から実測する。
-Windows操作前には[共通Runbook](/Users/nishiodaisuke/Dev/kirin_sense_lens/docs/windows_validation_remote_access.md)を読む。
+Windows操作前には共通Runbook（非公開の検証資料）を読む。
 既存完成計画の保存済み検証曲とStereo条件を使い、monoは別の試験として記録する。
 GUI経路が使えない場合は、その実機工程だけを未検証として残す。
 音付き動画は実候補から作り、HTMLには知覚と読み取りの判定に必要なものを追加する。
 
-配布へ進む場合は[LS Runbook](/Users/nishiodaisuke/Dev/kirin_hypha/docs/ls_release/kirin_hypha_ls_runbook.md)に従い、同版の3チャネルを揃える。
+配布へ進む場合は[LS Runbook](ls_release/kirin_hypha_ls_runbook.md)に従い、同版の3チャネルを揃える。
 LS用は署名とnotarize済みmacOS Universal PKG、HP用は署名とnotarize済みmacOS Universal ZIP、GitHub Releaseと英日リンク、Windows用は同一コミットのgreenなCI artifactから作る署名済みinstallerとする。
 Windowsはpayload、installer、uninstallerの署名と、install、同版再install、旧公開版からのupgrade、uninstallを検証する。
 release build、notarize、配置を行う実装セッションでは、AGENTS.mdに従ってLS用PKGまで準備し、証明書や外部検証の不足はblockerとして記録する。
@@ -376,7 +376,6 @@ commitは、必要な責務抽出、R1、R2、R3、R4と回帰、Blindのhost実
 修正と必要な試験を同じ変更単位に含め、合格したcommitを統合する。
 B番号は既存履歴との重複を検査して採番し、計画段階では予約しない。
 各完了報告にcommit hash、B番号、変更ファイル数と増減、Test、LS、HP macOS/Windows、未処理申し送りを残す。
-Notionへの書込みは行わない。
 
 人の回答が必要になるのは、SPACEの区間、ATTACKの立ち上がり、表示と切替音の知覚、二人目の独立注釈、未確定の測定条件である。
 SDKとPACEの入手、Pro Toolsの準備はAAXの実ビルド以降に必要になる。

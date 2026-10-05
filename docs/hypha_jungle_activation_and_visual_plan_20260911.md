@@ -1,8 +1,8 @@
 # Hypha通常版のCE 2226統一とJungle連動の実装計画
 
 更新日：2026-09-11。
-状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有service、P2の全5サイズ共通Jungle差分、Displayメニューの独立ON/OFFは実装済み。初回の連動ポップアップと由来表示は2026-09-11の判断で採用しない。
-調査基準：Hypha `2908d601`（B-812）、Kirin OS `0bd9db7a8`（W-3045）。
+状態：通常版の質感統一とJungleによる生命感の加速、連動方針は設計承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有service、P2の全5サイズ共通Jungle差分、Displayメニューの独立ON/OFFは実装済み。初回の連動ポップアップと由来表示は2026-09-11の判断で採用しない。
+調査基準：Hypha `2908d601`（B-812）、Kirin OS `0bd9db7a8`（OS側の対応実装）。
 改訂理由：通常版を現状固定する計画から、現在のVUの品位を全画面へ広げ、その完成した通常版をJungleで深める計画へ変更した。
 
 ### 2026-09-11 実装到達点
@@ -83,9 +83,9 @@ HyphaにJungle発動を受信する製品実装は、今回読んだsourceには
 画像の調査元は次のローカル保存先である。
 これらは一時保存物なので、実装前にP0で同一commitから再取得し、寸法、表示条件、hashとともに永続的な証跡へ保存する。
 
-- `/private/tmp/hypha-typography-review.mtl6sl/`の`post-hybrid-vu-manual-{300,900}.png`と`pre-hybrid-vu-manual-600.png`。
-- `/private/tmp/hypha-typography-final.6VBZkf/`の`post-domain-0-{300,375,450,600,900}.png`、`post-domain-{1,3}-900.png`、`post-{attack,sharp,live,freq}-900x600.png`、`capture-attack-1200x630.png`。
-- `/private/tmp/hypha-ms-final-solid-900.png`と`/private/tmp/hypha-reference-review-900-v2.png`。
+- 非公開の描画検証資料の`post-hybrid-vu-manual-{300,900}.png`と`pre-hybrid-vu-manual-600.png`。
+- 非公開の描画検証資料の`post-domain-0-{300,375,450,600,900}.png`、`post-domain-{1,3}-900.png`、`post-{attack,sharp,live,freq}-900x600.png`、`capture-attack-1200x630.png`。
+- 非公開の描画検証資料と非公開の描画検証資料。
 
 sourceでも仕上げの分散を確認した。
 `HyphaHybridVuPainter.cpp`は埋込chassisと専用描画を使い、`HyphaObservatoryView.cpp`と`HyphaObservatoryMetrics.cpp`はpanelをそれぞれ描く。
@@ -347,7 +347,7 @@ OS→Hyphaの外観状態を毎音声blockや既存PRE共有メモリへ載せ�
 
 | 工程 | 作業 | 出口 |
 | --- | --- | --- |
-| P0 | 現行commitの描画と性能baseline、保護maskを採取。VUを基準に新通常版のLEVEL 600、Compact 300、Reference 900とVUの比較を用意。保存契約と排他probeを先に確かめる | 通常版の具体的な仕上げをDaisukeが確認。5サイズの構図と保存境界が成立する |
+| P0 | 現行commitの描画と性能baseline、保護maskを採取。VUを基準に新通常版のLEVEL 600、Compact 300、Reference 900とVUの比較を用意。保存契約と排他probeを先に確かめる | 通常版の具体的な仕上げを設計担当が確認。5サイズの構図と保存境界が成立する |
 | P1 | 共通素材とframeを先行分離し、新通常版を全対象へ適用。OS publisher、MASKINGとのAND条件、既発動移行、Hypha共有serviceも分離実装 | 通常版だけで全画面の品位と機能が成立。二条件の順序逆転、OFF保持、破損、同時更新が対象試験でpass |
 | P2 | 仕上がった通常版と同じ構図からJungle差分を作り、VU、共通surface、Captureへ接続 | 新通常版とJungleを全5サイズで比較。同じ計器の生命感が増し、測定の読みやすさは維持 |
 | P3 | 連動表示を追加せず、既存Displayメニューの独立ON/OFF、保留条件、保存失敗表示を配線 | 即時切替、Blind保護、共有保存、再起動保持がpass |
@@ -381,7 +381,6 @@ Rustを変更しない限り、新たなFFI検証を増やさない。
 今回の到達点はHypha通常版の共通surface、Kirin OSの二条件publisher、Hyphaの共有外観service、全5サイズのJungle差分実装と対象native検証である。
 連動ポップアップは採用しない。実ホストと配布はまだ変更していない。
 既存のdirtyなJUCE submodule、別件handoff、既存build directoryの内容は変更対象に含めない。
-Notionへの書込みも行わない。
 
 実装完了には通常版全体の質感統一、両製品の互換契約、全5サイズの描画、独立切替、合算の性能予算、macOS/Windowsの実ホスト証跡を揃える。
 未実行を次工程へ送っただけでは完了扱いにしない。

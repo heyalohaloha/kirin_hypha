@@ -448,8 +448,6 @@ visual systemにはM/Sの色、線種、五サイズの配置規則を同期す�
 release build、公証、配置を行うセッションは既存Runbookに従ってLS PKGまで準備する。
 Windowsのpayload/installer/uninstaller署名とinstall/reinstall/upgrade/uninstallの検証を省略しない。
 
-Notionへの書込みは禁止に従い実施しない。
-SECTION:DEV/TASKSは接続がなく未取得で、ローカルの現行契約とhandoffを参照した。
 既存エラーログも確認したが、過去のnative passを現在の製品候補の検証結果へ読み替えていない。
 次の着手点はWindows native描画と正式書体の確認、続いてStudio Oneでの同一candidate実ホスト検証である。
 

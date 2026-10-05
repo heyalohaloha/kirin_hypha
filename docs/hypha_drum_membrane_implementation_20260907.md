@@ -151,11 +151,11 @@ vendorにはbaseviewの既知警告127件とnih_plugの3件が残る。
 ## 再現資料と残る検証
 
 - macOSの専用build：`/tmp/hypha-fan-macos-validation-20260906`
-- Windowsの専用build：`C:\Users\hello\Dev\hypha_membrane_validation_20260906\build`
+- Windowsの専用build：`非公開の検証資料`
 - 機能検査：`ctest --test-dir <build> -C RelWithDebInfo --output-on-failure`
 - 性能検査：同executableへ `KIRIN_ATTACK_FRAME_BUDGET=1` を付けて実行する。
 - Rust検査ログ：`/tmp/hypha-membrane-rust-test.log` と `/tmp/hypha-membrane-clippy.log`
-- Windows画像：`/Users/nishiodaisuke/.codex/visualizations/2026/09/05/01a073b9-60fb-7181-af35-018c2940a4eb/drum-membrane-native-windows-20260907.png`
+- Windows画像：`非公開の検証資料`
 
 次の検証では、DAW上で前回と同じPeachプロジェクトを使い、Stereo、PRE/POST、再生と停止、無音、LOCK、2枠、DPI変更、音との同期を確認する。
 動きの繊細さと四量の読み取りやすさは、合成データの画像だけで最終合格にしない。

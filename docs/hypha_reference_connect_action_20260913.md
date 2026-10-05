@@ -1,6 +1,6 @@
 # Reference connection action — 2026-09-13
 
-The diagnostic Kirin OS renderer, after the W-3049 saved Work identity repair,
+The diagnostic Kirin OS renderer, after the OS側の対応実装 saved Work identity repair,
 wrote a real v2 POST connection request. The already-open Pro Tools Developer
 POST editor displayed CONNECT, but clicking it did not change presence or
 create a binding. Reopening the editor did not resolve that failure.

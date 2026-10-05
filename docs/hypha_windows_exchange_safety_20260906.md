@@ -41,11 +41,9 @@ DAWの終了やプロジェクト変更を伴う試験ではない。
 
 ## 配置前に残る確認
 
-2026-09-06 20:23 JST、こちらの操作外でDAWの表示倍率、用途設定、挿入プラグイン構成が変わったため、画面操作と追加配置を止めた。
-WindowsにはB-726の検証用PRE/POSTが残り、このv3 transportはまだ配置していない。
-その後、Daisukeの操作停止と検証委任を確認し、同じ曲でDRUMの描画負荷を調査した。
-負荷を再現したため追加配置は行わず、曲を停止してeditorを閉じた状態にしている。
-[DRUM描画の検証](hypha_drum_render_diagnosis_20260906.md)後に残る配置確認は、同じ保存済みPeach_Hypha_Demo(13)でのPRE/POST同時更新、PSBのPOST／Δ、停止、再生再開、DAW再起動である。
+この記録の時点でWindowsにはB-726の検証用PRE/POSTがあり、v3 transportはまだ配置していない。
+DRUMの描画負荷を再現したため追加配置を行っていない。
+[DRUM描画の検証](hypha_drum_render_diagnosis_20260906.md)後に、PRE/POSTの同時更新、PSBのPOST／Δ、停止、再生再開、DAW再起動を確認する。
 旧v2と新v3が混在する場合は、Analysisの接続が成立しないことも確認する。
 
 ## API根拠

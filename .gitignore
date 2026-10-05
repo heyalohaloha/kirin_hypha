@@ -33,16 +33,14 @@ hypha_fork_debug*.log
 *~
 # Per-machine local tool settings
 .*/settings.local.json
-# Cargo local overrides (if Daisuke adds a local .cargo/config.toml,
-# uncomment the line below; leave tracked by default so toolchain
-# pinning stays reproducible)
-# .cargo/config.toml
-# Internal investigation reports & ad-hoc audits (must not be published to public repo)
+# Keep tracked toolchain configuration reproducible; machine overrides stay local.
+# Private investigations and temporary exports
 B-*.md
 hypha_first_click_repro*.md
 hypha_phase*_completeness_audit*.md
-# Notion stub cleanup artifact + 他の一時作業出力を除外
 tmp/
+/local_audits/
+/security_state/
 # Defensive: secret / credential patterns
 *.pem
 *.key
@@ -50,16 +48,25 @@ tmp/
 *.pfx
 *.cer
 *.crt
-.env
-.env.*
+.env*
 !.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
 secrets.toml
 *_secret.txt
 *_api_key.txt
-# G-107-03: Notion stub cleanup artifact + 他の一時作業出力を除外
-# B-021/B-022/B-024 投稿物 (Notion 用 / 開発時調査メモ)
-B-021_phase1a_acceptance8_NG_investigation.md
-B-022_phase1b_preliminary_investigation.md
-B-024_phase1_report.md
-B-024_phase2_install_verification_R9.md
-hypha_first_click_repro_v2.md
+# Local credentials/configuration, not public example templates
+credentials.local.*
+secrets.local.*
+*.private.json
+*.local.p12
+*.local.pfx
+*.mobileprovision
+# Crash dumps and temporary exports
+*.dmp
+*.core
+core.[0-9]*
+*.crash
+*.ips
+/export_tmp/

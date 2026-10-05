@@ -20,9 +20,9 @@ Meter再設計が古いHypha像を前提にしないよう、公開系と完了�
 
 | Baseline | Path | Commit | State |
 |---|---|---|---|
-| Public and release line | `/Users/nishiodaisuke/Dev/kirin_hypha` | `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb` | `[B-552] Bind PRE display to one Work and runtime` |
-| Meter design | `/Users/nishiodaisuke/Dev/kirin_hypha_meter` | merge in progress at this update | isolated integration branch |
-| ATTACK development | `/Users/nishiodaisuke/Dev/kirin_hypha_perceptual_continuous` | `d464f71c8426cb859a4076f3aa055fd60b21d553` | `[B-580] Make ATTACK UI contract Windows-safe` |
+| Public and release line | `非公開の検証資料` | `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb` | `[B-552] Bind PRE display to one Work and runtime` |
+| Meter design | `非公開の検証資料` | merge in progress at this update | isolated integration branch |
+| ATTACK development | `非公開の検証資料` | `d464f71c8426cb859a4076f3aa055fd60b21d553` | `[B-580] Make ATTACK UI contract Windows-safe` |
 
 公開系とATTACK系のmerge baseは`cf2acd59c796258454c817f788a2dc42e8ead61f`である。
 

@@ -568,7 +568,7 @@ Strength、Texture、Sharpnessの差分数値が必要なら、中央の形へ�
 
 ## 23. 採用実装の順序
 
-Daisukeの2026-09-09の指示によりTRACK / STEM表示へ採用した。
+2026-09-09の設計判断によりTRACK / STEM表示へ採用した。
 1–7はnative実装とrender契約まで完了し、8のDAW／Windows表示確認と9の実素材確認を残す。
 10のBODY / TAILは測定検証を終えるまで製品値へ接続しない。
 

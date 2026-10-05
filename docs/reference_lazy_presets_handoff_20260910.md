@@ -1,8 +1,8 @@
-# Reference Preset別準備 — B-800 / OS W-3025
+# Reference Preset別準備 — B-800
 
 ## 変更範囲
 
-OS worktree: `/Users/nishiodaisuke/.codex/worktrees/reference-check-version-blind-boundary`。
+OS側の検証環境は公開リポジトリ外に保持している。。
 
 起動時はactive Presetだけを準備する。別Presetを選んだときは要求されたWork snapshotを準備し、既存の準備済みPresetはimmutable archiveと依存graphが検証できれば維持する。未選択音源の欠損や未準備で、使うPresetの準備を止めない。
 

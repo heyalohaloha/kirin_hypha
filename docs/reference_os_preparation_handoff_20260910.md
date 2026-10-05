@@ -1,6 +1,6 @@
-# Reference OS preparation handoff — B-798 / W-3022
+# Reference OS preparation handoff — B-798
 
-Kirin OS worktree: `/Users/nishiodaisuke/.codex/worktrees/reference-check-version-blind-boundary`
+Kirin OS側の検証環境は公開リポジトリ外に保持している。
 
 ## 今回の到達点
 
@@ -19,4 +19,4 @@ OSの特徴artifact公開と、Hypha既存`blind.prepare`経路の自動照合�
 
 正本: OS `docs/reference_source_preparation_20260910.md` と `docs/reference_release_readiness_audit_20260910.md`。
 
-続き: B-799／W-3023–W-3024の更新境界と残項目は`reference_publication_refresh_handoff_20260910.md`。全Preset先行準備待ちを短縮する前に、試聴を不要に解除しないconsumerと、古い設定を公開しないproducerを実装した。
+続き: B-799／OS側の対応実装の更新境界と残項目は`reference_publication_refresh_handoff_20260910.md`。全Preset先行準備待ちを短縮する前に、試聴を不要に解除しないconsumerと、古い設定を公開しないproducerを実装した。

@@ -1,6 +1,6 @@
-# Kirin Hypha — 計測プラグイン開発
+# Kirin Hypha — Contributor contract
 
-## 最初に確認するビルド・HPアップ入口（Codex / Claude共通）
+## 最初に確認するビルド・公開入口
 
 ビルド・署名・配布・HP反映を行う前に、`docs/hypha_release_entry.md`を読む。
 入口は`node scripts/build_hypha.mjs`一つ。まず採用commitと作業checkoutを確認し、以下のhelpから目的を選ぶ。
@@ -17,21 +17,7 @@ helpはSDK・認証・USB不要。未署名buildにもiLok不要。既存の成�
 この案内のためにbuild / CI / 署名を起動しない。実機受入、LS担当者工程、公開承認、3チャネル条件は維持する。
 途中再開のprivate profile・証跡は作業checkoutのignored `release_state/`で確認し、管理URLや秘密値を転載しない。
 入口が無い古いworktreeには必要差分の統合が必要。別checkoutのscriptを絶対pathで実行して代用しない。
-Claudeは`CLAUDE.md`の`@AGENTS.md`で本正本を読む。詳細手順・安全契約を別コピーへ分岐させない。
-
-## Notion操作 全面禁止
-Codexセッションは Notion へのいかなる書き込みも行わない。
-- 📍現在地 SECTION:DEV 更新 → 禁止
-- ログDB エントリ作成 → 禁止
-- Daily Brief 更新 → 禁止
-- その他あらゆる Notion ページへの write → 禁止
-
-## 完了時の出力形式（チャット出力のみ）
-- Commit hash / B番号 / 変更ファイル数 (+N / -N)
-- Test: pass/fail/skip
-- LSアップ用: ready/blocker/skip（リリース・配置・notarizeを行った場合は原則 ready まで作る）
-- HPアップ用: macOS ready/blocker/skip、Windows ready/blocker/skip
-- 未処理申し送り（番人裁定待ち等）
+詳細手順・安全契約は上記の文書を正本とする。
 
 ## 公開リリース3チャネル（全件必須）
 Hyphaの公開リリースは、以下の3チャネルを同じバージョンで揃えて初めて完了とする。
@@ -110,14 +96,14 @@ Reference欠損、検証失敗時はA経路を維持する。
 失効ではPOSTを維持して比較を中断し、再選択まで戻さない。この対応は、PREとPOSTの間のpluginが遅延を
 正しく報告し、DAWが遅延を補償することを前提にする。前提が崩れた疑いは利用者に警告し、遅延が変わる
 設定変更の直後の短い区間に時計で検出できない誤対応があり得ることも示す。
-（2026-09-28、利用者が実装の開始を承認。根拠は`docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）
+（技術契約: `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）
 PREの増幅が比較ceilingを超えるMATCHでは、利用者の明示承認の後だけ、PREを原音量に保ってPOSTの出力を
 差だけ固定減衰できる（Local Blindと同じ方式）。減衰は試聴の終了後も、利用者が明示して通常の音量へ
 戻すまで保持し、急に上げない。offline render、hostが知らせるbypass、他の試聴が出力を取るblockには
-適用せず、正本のPRE/POST測定・Recordは減衰の前で取る。（2026-09-28、利用者が承認）
+適用せず、正本のPRE/POST測定・Recordは減衰の前で取る。（2026-09-28技術契約）
 明示MATCHの後、利用者が明示して選んだ追従（AUTO）だけは、そのMATCHのgainから±6 dB以内、そのMATCHで
 承認したceiling以下で、PREの試聴コピーのgainを50 msのrampで動かせる。POSTとceilingは動かさず、範囲を
-出るときは追従を止めて通知する。追従はBlindへ持ち込まない。（2026-09-28、第3段階として利用者が承認）
+出るときは追従を止めて通知する。追従はBlindへ持ち込まない。（2026-09-28技術契約）
 
 Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。Reference比較試聴では、
 非RT側で検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。
@@ -142,36 +128,22 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 ### 分離原則
 各モジュール（計測エンジン / GUI / IO / Audio Thread）は独立して動作し、1つが落ちても他が連動して落ちない構造にする。
 
-## 禁止事項（📍現在地から。全件適用）
+## Contribution requirements
 
-1. backdrop-filterを全画面overlayにかけるな（GUI実装時）
-2. 1画面だけ修正して他を放置するな — 全対象を一括処理
-3. PRESENCE overlay値を勝手に変えるな — Daisuke実機調整済み
-4. 既存コードを読まずに新規実装するな
-5. 「表示されている」「解決した」と雰囲気で言うな — 確認した事実のみ
-6. 「はい」「わかりました」だけで実装に入るな — 内容に触れてから
-7. R-22: ADVISORは価値判断を出さない（Hypha GUI表示に適用）
-8. R-26: 言うことがなければ沈黙する
-8a. R-28（機能的沈黙）: 内部検証および互換 fallback 等で利用者操作と非紐づきの失敗は無言で skip。UIにエラーを出さない。ただし利用者が明示意図して操作した結果の失敗（沈黙すれば「問題なく進んだ」と勘違いするケース）は通知必須
-9. 入力データを1件も見ずにコードを書くな — 実物確認必須。「こうなっているはず」禁止
-10. 出力の妥当性を数字で確認しろ — サイズ・クラス分布・桁を期待値と比較
-11. 外部ツールのコマンド/APIは公式ドキュメントで確認しろ — 記憶で書くな
-12. 正常系だけテストするな — エラーパス・再起動後・ファイル不在時も確認
-13. 世界観から逆算していない表現を画面に出すな — CE 2226世界設定 + ビジュアルバイブルv2
-14. Phase 2送りはDaisukeの承認なしに決定するな
+- 既存コード、実データ、設計契約と影響範囲を確認してから変更する。
+- 通常A経路のbit identity、0 sample latency、RT安全性、Record整合性を維持する。
+- 全対象role/platform/formatを確認し、一画面・一formatだけを直して他を放置しない。
+- 表示と解決を検証した事実で報告し、正常系・エラーパス・境界値・復元を確認する。
+- 外部API/format仕様を新たに使う場合は公式資料で確認する。
+- ADVISORは価値判断を出さない。内部検証や互換fallbackの非操作失敗は無言でskipするが、
+  利用者の明示操作が失敗した場合は通知する。
+- GUIのCE 2226契約と実画面を確認する。調整済みPRESENCE値を無根拠に変更せず、
+  全画面overlayへbackdrop-filterをかけない。
+- ソース、テスト、ライセンス、公開検証方法を保持する。秘密値・個人PC情報・運用stateをcommitしない。
+- PR検証は署名credential不要の環境で行う。署名・公証・正式配布はレビュー済みexact sourceと
+  独立した権限境界で行い、CI成功だけで公開承認を推定しない。
 
 ## 開発ルール
-
-### 構造的対処原則（最重要）
-パッチ処理（修正の積み重ね・段階的修正）禁止。タスクを受けたら:
-1. 前の部屋のやりとりと設計意図を確認
-2. 影響する全ファイルを最初に特定
-3. 全問題を一括で洗い出し
-4. 利用者目線で批評
-5. 1回の出力で全変更を含んだ完全なファイルを出す
-
-前の出力に依存する出力をしない。問題を能動的に発見・報告する。
-「システムレベルの問題」「無関係」で片付けずコードで確認する。
 
 ### コード品質
 
@@ -190,19 +162,6 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 同じアプローチは最大2回。3回目は別手法
 - テスト: 正常系 + エラーパス + 境界値
 - vendor/* 配下の clippy 警告は upstream 修正待ちとして監査対象外。kirin_hypha 本体の警告ゼロが品質基準
-
-### Daisukeに手動編集を依頼しない
-全ての修正は完全なファイルとして出力する。
-「この行を変えてください」「追加してください」は禁止。
-
-### 質問には質問で答える。行動に先走らない
-不明点があれば確認してから実装。推測で進めない。
-
-## セッション開始手順
-
-2. SECTION:DEV と SECTION:TASKS を読む
-3. 番人の指示書がある場合はその md を読む
-4. `[未検証]` 項目があれば公式ドキュメントで確認してから実装
 
 ## Kirin Hypha 固有
 
@@ -234,9 +193,10 @@ JUCE共通shellが出荷面であり、PRE / POSTとAU / VST3 / AAXは同じedit
 300×200から900×600まで3:2固定比でリサイズし、LEVEL / TIME / FREQ / SPACEとReferenceを表示する。
 外観変更は`docs/hypha_ce2226_jungle_visual_system_20260901.md`と実画面を両方確認する。
 
-### Lensエンジンからの流用
-Lens側の既存Rustエンジン（symphonia + ebur128 + napi-rs）から計測コアを切り出す。
-napi-rs依存を外し、純粋なRustライブラリとして抽出。
+### Measurement core
+
+Rust計測coreとJUCE共通shellは本リポジトリの公開sourceで検証する。
+proprietary製品のsourceを取り込まず、公開されたファイル形式・通信契約で連携する。
 
 ### AAX境界
 
@@ -269,25 +229,13 @@ macOSの正本は`docs/aax_macos_universal_build_20260910.md`、Windowsは
 - テスト信号は `test_signals/` 内の S-1〜S-5 を使用
 
 ### ビルド・テスト
-```bash
-# ビルド (PRE / POST 両方)
-cargo run --package xtask -- bundle hypha_pre --release
-cargo run --package xtask -- bundle hypha_post --release
 
-# VST3を配置（macOS / 
-# user-level (~/Library/Audio/Plug-Ins/VST3/) の古い .vst3 を除去 (sudo 不要)
-# + system-level (/Library/Audio/Plug-Ins/VST3/) に最新を sudo cp で配置
-# を一括実行する。途中で sudo パスワード入力プロンプトが出る。
-cargo run --package xtask -- install --release
-
-# Studio Oneで確認
-# MIX Bus → PRE挿入 → POST挿入 → 再生 → 数値確認 → 音声素通り確認
-```
-
-**注意**: `sudo cp -r ... /Library/Audio/Plug-Ins/VST3/` の手動運用は禁止。
-user-level に古いバイナリが残ると Studio One が古い方を優先読込みして
-コード修正が反映されない事故が起こる (
-必ず `cargo run --package xtask -- install --release` を経由すること。
+Contributor手順は[CONTRIBUTING.md](CONTRIBUTING.md)、未署名buildは
+[docs/hypha_build_entry.md](docs/hypha_build_entry.md)を参照する。
+署名・配置・公開は[docs/hypha_release_entry.md](docs/hypha_release_entry.md)の対象工程を確認する。
+通常PRの検証にcredential、iLok、licensed AAX SDKは不要。
+通常のsource検証は`bash scripts/test_lightweight_contract.sh`、完全なrelease-source検証は
+`bash scripts/test_release_source.sh`。後者は実DAW受入・正式署名・公開を代用しない。
 
 ### 合格基準（Step 1）
 - Audio Thread: 通常のA経路でテスト信号PRE/POST差分 = 0（ビット同一）
@@ -302,7 +250,7 @@ user-level に古いバイナリが残ると Studio One が古い方を優先読
 Kirin Hypha は CE 2226 の菌糸の先端。DAWの中に200年後の世界がほんの少しだけ顔を出したもの。
 
 - タイトル「PRE」「POST」は CE 2226 Font（実現可能であれば）
-- 数値はシステムフォントまたは番人指定のフォント
+- 数値はシステムフォントまたはデザイン仕様で指定したフォント
 - 背景は暗い菌糸テクスチャ
 - Watch LED = 青の淡い発光（静的）
 - Kirin OS本体（CE 2026の岩と苔）とは明確に異質
@@ -310,7 +258,7 @@ Kirin Hypha は CE 2226 の菌糸の先端。DAWの中に200年後の世界が�
 ## GPLv3 分離
 
 このリポジトリは GPLv3。Kirin OS本体（プロプライエタリ）とは:
-- リポジトリが物理的に分離（~/Dev/kirin_hypha/ vs ~/Dev/kirin_sense_lens/）
+- リポジトリを物理的に分離する
 - 通信はファイルベースのみ（/tmp/ → plugin_data/）
 - コードの共有なし。計測アルゴリズムは同一ロジックだが独立実装
 - ライセンス降格なし（G-50-47）
