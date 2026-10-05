@@ -214,10 +214,14 @@ void testReferenceKirinFingerprint()
         weak.bits[tick] = static_cast<std::uint16_t> (weak.bits[tick] ^ (tick % 3 == 0 ? 0x00f : tick % 3 == 1 ? 0x0f0 : 0xf00));
     identifier.setCandidates ({ { "preset/check/weak", weak } });
     const auto weakNear = identifier.identify (recent, 149), weakFar = identifier.identify (recent, 2'149);
+    // 弱い同じ曲は DAW の位置では必ず AUTO になる（何も AUTO にならなくても通る書き方だった。2026-10-06）。
     check (! weakNear.matches.empty() && weakNear.matches.front().agreement < strongSameSongAgreement
-               && (weakNear.autoId.isEmpty() || weakNear.matches.front().relation == FingerprintMatch::Relation::sameSong)
-               && weakFar.autoId.isEmpty(),
-           "a weak same-song match counts only at the DAW position, never anywhere on the timeline");
+               && weakNear.matches.front().agreement >= 0.62
+               && weakNear.matches.front().relation == FingerprintMatch::Relation::sameSong
+               && weakNear.autoId == "preset/check/weak" && weakFar.autoId.isEmpty(),
+           "a weak same-song match is AUTO at the DAW position, never anywhere on the timeline ("
+               + (weakNear.matches.empty() ? juce::String ("none") : juce::String (weakNear.matches.front().agreement, 3) + " / "
+                  + juce::String (weakNear.matches.front().loudnessCorrelation, 3)) + ")");
 
     // 選び方：同じ Version が 2 回続けて最良になってから選ぶ。利用者が選んだ Version は替えない。AUTO の選んだ
     // ものは、別の Version が一致率で 0.02 以上上回り続けたときだけ選び直す。

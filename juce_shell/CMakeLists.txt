@@ -970,6 +970,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_library_test.cpp
         tests/reference_library_sets_test.cpp
         tests/reference_library_skipped_test.cpp
+        tests/reference_auto_version_test.cpp
         tests/reference_live_window_test.cpp
         tests/reference_tracking_gain_test.cpp
         tests/reference_abcv_roles_test.cpp

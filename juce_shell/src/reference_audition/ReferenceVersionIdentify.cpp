@@ -2,6 +2,7 @@
 #include "ReferenceSourceRanges.h"
 
 #include <algorithm>
+#include <limits>
 #include <set>
 
 namespace hypha::reference_audition
@@ -145,16 +146,29 @@ VersionIdentity VersionIdentifier::identify (const KirinFingerprint& slice, std:
     return result;
 }
 
-juce::String AutoVersionChooser::next (const VersionIdentity& identity, const juce::String& currentId, bool currentIsAuto)
+AutoChoice chooseAutoVersion (const VersionIdentity& identity, const juce::String& currentId, bool currentIsAuto,
+                              AutoChoiceMemory memory)
 {
-    const auto reset = [this] { candidate.clear(); streak = 0; return juce::String {}; };
-    if (identity.autoId.isEmpty() || identity.autoId == currentId) return reset();
-    if (currentId.isNotEmpty() && ! currentIsAuto) return reset();  // 利用者が選んだ Version は替えない
-    for (const auto& match : identity.matches)  // AUTO の選んだものがまだ合っていて、差が小さければ替えない
-        if (match.versionId == currentId && match.eligible && identity.autoAgreement < match.agreement + switchMargin)
-            return reset();
-    streak = candidate == identity.autoId ? streak + 1 : 1;
-    candidate = identity.autoId;
-    return streak >= confirmations ? identity.autoId : juce::String {};
+    const auto keep = [&memory] { memory.candidate.clear(); memory.streak = 0; return AutoChoice { {}, memory }; };
+    if (currentId.isNotEmpty() && ! currentIsAuto) { memory.knownId.clear(); return keep(); }  // 手の選択は替えない
+    // 今の AUTO の選択の一致率：今の照合で条件を満たしていればそれを覚え、無ければ最後に分かった値を基準にする。
+    auto baseline = -std::numeric_limits<double>::infinity();
+    if (currentId.isNotEmpty())
+    {
+        const auto current = std::find_if (identity.matches.begin(), identity.matches.end(),
+                                           [&] (const auto& match) { return match.versionId == currentId && match.eligible; });
+        if (current != identity.matches.end()) { memory.knownId = currentId; memory.knownAgreement = current->agreement; }
+        if (memory.knownId == currentId) baseline = memory.knownAgreement;
+    }
+    if (identity.autoId.isEmpty() || identity.autoId == currentId) return keep();
+    if (currentId.isNotEmpty() && identity.autoAgreement < baseline + autoSwitchMargin) return keep();
+    memory.streak = memory.candidate == identity.autoId ? memory.streak + 1 : 1;
+    memory.candidate = identity.autoId;
+    if (memory.streak < autoConfirmations) return { {}, memory };
+    memory.knownId = identity.autoId;  // 選んだ時点の一致率を、次からの基準にする
+    memory.knownAgreement = identity.autoAgreement;
+    memory.candidate.clear();
+    memory.streak = 0;
+    return { identity.autoId, memory };
 }
 }

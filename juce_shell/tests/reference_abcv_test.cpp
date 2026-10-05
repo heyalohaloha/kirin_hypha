@@ -13,6 +13,7 @@ void testReferenceKirinSpectrum();
 void testReferenceBlauertBands();
 void testReferenceDynamicsRange();
 void testReferenceKirinFingerprint();
+void testReferenceAutoVersion (const juce::File&);
 void testReferenceAbcv (const juce::File&);
 bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
 
@@ -30,6 +31,7 @@ void testReferenceAbcv (const juce::File& sandbox)
     testReferenceBlauertBands();         // 2026-10-04：Blauert の帯の差
     testReferenceDynamicsRange();        // 2026-10-04：範囲の帯（Kirin OS と同じ区間の値）
     testReferenceKirinFingerprint();
+    testReferenceAutoVersion (sandbox);  // 2026-10-06：V の AUTO のしきい値と選び直しの表
 }
 
 // `--abcv-only`：ABCV のテストだけを流す（手元で直すときに全体の 4 分を待たない）。

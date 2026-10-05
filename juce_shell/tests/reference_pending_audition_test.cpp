@@ -3,6 +3,7 @@
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
 #include "ReferenceSelectionSafetyTest.h"
+#include "ReferenceAutoVersionSafetyTest.h"
 
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
@@ -16,6 +17,7 @@ bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
 void testReferencePendingAudition (const juce::File& sandbox)
 {
     verifyReferenceSelectionSafety (sandbox);
+    verifyReferenceAutoVersionSafety (sandbox);
     using Stage = ref::PendingAuditionView::Stage;
     const auto root = sandbox.getChildFile ("queued-abc");
     require (root.createDirectory(), "queued audition fixture directory");

@@ -16,12 +16,13 @@ namespace hypha::reference_audition
 //  - どれも AUTO に届かなければ、曲が DAW の時間軸のどこにあっても探す（アルバムの 2 曲目など）。位置の手がかりが
 //    無いぶん、弱い「同じ曲」（一致率 0.62〜0.70）は採らない。
 //  - AUTO にするのは Kirin OS の「同じ曲」のうち、一致率 0.70 以上の側にも音量の流れの相関 0.3 以上があるもの。
-//    曲全体どうしで決めた Kirin OS のしきい値に比べ、直近 30 秒の切り出しは別の曲と偶然そろいやすい。持ち主の
-//    実素材（Studio One の書き出し、16 曲 47 版、2026-10-03）では、別の曲の最良は一致率が 0.70 に届いても
-//    相関は 90% が 0.26 以下、同じ曲の最良は 90% が 0.52 以上だった。この下限で、当たる数を変えずに誤りを減らした。
-// 選び方（AutoVersionChooser）：利用者が選んだ Version は替えない。同じ Version が 2 回続けて最良になってから
-// 選び、AUTO の選んだものは、別の Version が一致率で 0.02 以上上回り続けたときだけ選び直す。V の選択だけを替え、
-// 鳴っている B・C は止めない（ReferenceComparisonController::selectVersion の automatic）。
+//    曲全体どうしで決めた Kirin OS のしきい値に比べ、直近 30 秒の切り出しは別の曲と偶然そろいやすい（別の曲の似た所は
+//    一致率が届いても音量の流れがついてこない）。この下限で、当たる数を変えずに誤りを減らす（2026-10-03）。
+// 選び方（chooseAutoVersion）：利用者が選んだ Version は替えない。同じ Version が 2 回続けて最良になってから
+// 選び、AUTO の選んだものは、別の Version が一致率で 0.02 以上、2 回続けて上回ったときだけ選び直す。今の選択が照合に
+// 無い・一時的に条件を外れたときは、最後に分かった一致率を基準にする（2026-10-06：相関が一瞬下がるだけで差なしに替わり、
+// 戻ると替わり直していた）。V の選択だけを替え、鳴っている B・C は止めない（ReferenceComparisonController::selectVersion の
+// automatic）。
 // Version の指紋の読み込み（ファイル）は Reference の作業スレッドで行い、照合はメッセージスレッドで行う。
 struct VersionMatch
 {
@@ -72,18 +73,42 @@ private:
     std::int64_t retryAtMs = 0;  // 読めなかった ranges があれば、この時刻を過ぎたら読み直す
 };
 
-// AUTO の選び方（画面が照合のたびに呼ぶ）。選ぶ Version を返す（選ばなければ空）。currentId は今の V の選択、
-// currentIsAuto はそれを AUTO が選んだか。
+// AUTO の選び直しの規則が覚えていること（呼ぶ側が持つ）。
+struct AutoChoiceMemory
+{
+    juce::String candidate;        // 続けて最良になっている Version
+    int streak = 0;                // 何回続けて最良になったか
+    juce::String knownId;          // 一致率を最後に知った AUTO の選択
+    double knownAgreement = 0.0;   // その一致率
+};
+
+struct AutoChoice
+{
+    juce::String chosen;   // 選ぶ Version（替えなければ空）
+    AutoChoiceMemory memory;
+};
+
+inline constexpr int autoConfirmations = 2;       // 同じ Version が続けて最良になる回数
+inline constexpr double autoSwitchMargin = 0.02;  // AUTO の選んだものを替えるのに要る一致率の差
+
+// AUTO の選び直しの規則（純粋な関数。表の試験で固める）。currentId は今の V の選択、currentIsAuto はそれを AUTO が
+// 選んだか。手の選択は替えない。V が空なら、同じ Version が 2 回続けて最良になってから選ぶ。AUTO の選択は、ほかの
+// Version がその一致率（今の照合で条件を満たしていればその値、無ければ最後に分かった値）を 0.02 以上、2 回続けて上回った
+// ときだけ替える（INV-S51）。
+AutoChoice chooseAutoVersion (const VersionIdentity&, const juce::String& currentId, bool currentIsAuto, AutoChoiceMemory);
+
+// 画面が照合のたびに呼ぶ入れ物（規則は chooseAutoVersion）。選ぶ Version を返す（選ばなければ空）。
 class AutoVersionChooser
 {
 public:
-    juce::String next (const VersionIdentity&, const juce::String& currentId, bool currentIsAuto);
-
-    static constexpr int confirmations = 2;       // 同じ Version が続けて最良になった回数
-    static constexpr double switchMargin = 0.02;  // AUTO の選んだものを替えるのに要る一致率の差
+    juce::String next (const VersionIdentity& identity, const juce::String& currentId, bool currentIsAuto)
+    {
+        auto choice = chooseAutoVersion (identity, currentId, currentIsAuto, memory);
+        memory = std::move (choice.memory);
+        return choice.chosen;
+    }
 
 private:
-    juce::String candidate;
-    int streak = 0;
+    AutoChoiceMemory memory;
 };
 }
