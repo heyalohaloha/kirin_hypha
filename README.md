@@ -968,9 +968,9 @@ Signed Windows installers require an independently controlled signing environmen
 exact source. The full source commit and a successful CI run for that commit bind the signed PRE/POST
 payload, installer and uninstaller. Same-version reinstall, prior-release upgrade, isolated uninstall,
 pluginval and dedicated-host acceptance remain mandatory release gates. Signing credentials and
-operator configuration must remain outside this public GPL repository. The legacy public CI
-`windows_signing=signed` route is subject to the security audit in
-[the exposure report](docs/security/public_repo_exposure_audit_20261005.md).
+operator configuration must remain outside this public GPL repository. Public CI always creates unsigned candidates with external acceptance pending. It has no signing
+credential or persistent-runner route; manual dispatch cannot enable signing.
+[The exposure report](docs/security/public_repo_exposure_audit_20261005.md) records the trust boundary.
 
 The legacy manual-install zip can still be built as a fallback with:
 
@@ -992,3 +992,5 @@ Kirin Hypha is released under GPLv3 to keep the measurement layer auditable. The
 Built on [nih-plug](https://github.com/robbert-vdh/nih-plug) by Robbert van der Helm.
 
 *Kirin Hypha — observation, kept simple.*
+
+Public diagnostic CI retains build/test logs, but new image and binary artifact publication remains disabled pending reviewed material and actual NOTICE/source delivery evidence. This does not skip the required build or validation jobs.
