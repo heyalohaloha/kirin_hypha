@@ -265,6 +265,7 @@ jobs:
         id: provenance-assets
         run: node scripts/provenance/asset_gate.mjs --github-output
 
+      # Preview permission is separate from actual binary/source delivery qualification.
       - name: Upload Windows DRUM UI previews
         if: ${{ always() && steps.provenance-assets.outputs.preview-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -354,6 +355,7 @@ jobs:
             Get-ChildItem -LiteralPath $bundle -Recurse | Select-Object -First 20 FullName,Length
           }
 
+      # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload Windows VST3 artifacts
         if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -364,8 +366,8 @@ jobs:
             juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3
           if-no-files-found: error
 
-      # B-198: load-validate the built VST3 with Tracktion pluginval (headless). Runs after Upload
-      # so the .vst3 artifacts are downloadable even if validation fails. This is the first step
+      # B-198: load-validate the built VST3 with Tracktion pluginval (headless). Runs after the
+      # gated upload step; binary publication remains held pending distribution evidence. This is the first step
       # that actually instantiates the plugin (the build/Verify steps only prove link + file presence).
       # VST3 bundles are discovered dynamically (not hardcoded) to avoid duplicating the literal
       # artifact path strings: windows-preflight's negative test replaces the POST path in the Upload
@@ -449,6 +451,7 @@ jobs:
             -Signing $env:WINDOWS_SIGNING `
             -Manifest "$($installer[0].FullName).json"
 
+      # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload primary Windows installer
         if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -472,6 +475,7 @@ jobs:
           --external-validation pending
           --payload-signing $env:WINDOWS_SIGNING
 
+      # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload fallback Windows VST3 ZIP
         if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
