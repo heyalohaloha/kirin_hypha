@@ -13,7 +13,7 @@ ATTACK is a POST-only, on-demand observation page. It shows where a transient ob
 and how the same content event changed from PRE to POST. It does not classify instruments, score a
 sound, prescribe a target, suggest a setting, or process audio.
 
-The current product route exposes the independently implemented `DRUM` definition for
+The current product route exposes the `DRUM` definition for
 percussion-dominant full-kit buses and isolated kick or snare tracks. Full-kit material determines
 DRUM's shared detector parameters; isolated tracks are an in-domain regression subset, not extra
 profiles or separately tuned modes. Entering ATTACK is the user's explicit request to start this

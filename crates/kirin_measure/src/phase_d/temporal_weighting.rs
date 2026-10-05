@@ -6,7 +6,7 @@
 //! N_filtered = 0.47 * LP1(N) + 0.53 * LP2(N)
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/temporal_weighting.rs` からアルゴリズム同一移植）。
-//! Reference:  loudness_zwtv/_temporal_weighting.py + _lowpass_intp.py
+//! Reference: MoSQITo loudness_zwtv/_temporal_weighting.py + _lowpass_intp.py
 
 use super::tables::*;
 

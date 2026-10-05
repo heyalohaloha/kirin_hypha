@@ -7,7 +7,7 @@
 //! Time constants: t_short=5ms, t_long=15ms, t_var=75ms
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/nonlinear_decay.rs` からアルゴリズム同一移植）。
-//! Reference:  loudness_zwtv/_nonlinear_decay.py
+//! Reference: MoSQITo loudness_zwtv/_nonlinear_decay.py
 
 use super::tables::*;
 

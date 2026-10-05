@@ -4,7 +4,7 @@
 //! Output: SPL matrix [28 bands × Ntime] at 2 kHz temporal resolution
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/filter_bank.rs` からアルゴリズム同一移植）。
-//! Reference:  loudness_zwtv/_third_octave_levels.py + _square_and_smooth.py
+//! Reference: MoSQITo loudness_zwtv/_third_octave_levels.py + _square_and_smooth.py
 
 use super::tables::*;
 
