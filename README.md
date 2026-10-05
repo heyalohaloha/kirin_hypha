@@ -992,3 +992,5 @@ Kirin Hypha is released under GPLv3 to keep the measurement layer auditable. The
 Built on [nih-plug](https://github.com/robbert-vdh/nih-plug) by Robbert van der Helm.
 
 *Kirin Hypha — observation, kept simple.*
+
+Public diagnostic CI retains build/test logs, but new image and binary artifact publication remains disabled pending reviewed material and actual NOTICE/source delivery evidence. This does not skip the required build or validation jobs.
