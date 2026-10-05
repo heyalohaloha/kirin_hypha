@@ -24,8 +24,7 @@ inline Measures measuresFor (const key_light::Light& light) noexcept
     return main_frame_geometry::forDiagonal (light.diagonal);
 }
 
-// What the frame and its shadow cover around a window: the shadow's widest stroke, shifted down,
-// in whole points so the cached image lands on the same pixels as a direct paint.
+// What the frame and its shadow cover around a window: the shadow's widest stroke, shifted down.
 inline float marginFor (const Measures& measures) noexcept
 {
     return static_cast<float> (main_frame_geometry::marginFor (measures));
@@ -152,7 +151,9 @@ inline int inset() noexcept
 
 // The frame around `window`, lit by the light of the component now painting. Only the ring
 // around the window and the shadow just inside its top hold anything, so the glass below is
-// clipped away: a repaint composites the ring, not the whole window.
+// clipped away: a repaint composites the ring, not the whole window. The fine bevel uses the
+// canonical raster from its first paint, so entering the cache never changes its antialiasing at
+// fractional local or inherited positions. Without an editor the same raster is temporary.
 inline void paint (juce::Graphics& g, juce::Rectangle<float> window)
 {
     if (window.isEmpty())
@@ -171,6 +172,7 @@ inline void paint (juce::Graphics& g, juce::Rectangle<float> window)
     material_cache::draw (g, window.expanded (margin),
                           { 3, { landing.fraction, landing.strength, measures.ring, measures.shadow } }, {},
                           [&landing, &measures, margin] (juce::Graphics& target, juce::Rectangle<float> local) {
-                              uncached::paint (target, local.reduced (margin), landing, measures); });
+                              uncached::paint (target, local.reduced (margin), landing, measures); }, {},
+                          material_cache::InitialPaint::canonicalRaster);
 }
 }

@@ -3,6 +3,7 @@
 #include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaSurfaceMaterial.h"
 #include "../src/HyphaTheme.h"
+#include "MainFrameCacheContract.h"
 
 #include <algorithm>
 #include <cmath>
@@ -89,9 +90,9 @@ inline std::optional<juce::SharedResourcePointer<material_cache::Store>> sharedS
     return juce::SharedResourcePointer<material_cache::Store>::getSharedObjectWithoutCreating();
 }
 
-// The first request paints directly, the second keeps an image, and from then on the image is
-// drawn. Every one of them looks like the direct paint, the glass also where its flat middle,
-// filled directly, meets its image between device pixels.
+// Panels and glass paint directly on their first request, then keep an image. A main frame uses
+// its canonical raster immediately (MainFrameCacheContract.h). The glass also agrees where its
+// flat middle, filled directly, meets its image between device pixels.
 inline void verifyCachedMaterialLooksPainted()
 {
     for (const auto& [dpi, c] : { std::pair { 1.0f, Case { Kind::panel, { 20.0f, 20.0f, 180.0f, 90.0f } } },
@@ -106,7 +107,7 @@ inline void verifyCachedMaterialLooksPainted()
         material_cache::Lifetime editor;
         const auto& store = *editor.store;
         KIRIN_MATERIAL_CACHE_REQUIRE (largestDifference (painted, render (c, dpi)) == 0);
-        KIRIN_MATERIAL_CACHE_REQUIRE (store.bytes() == 0u);
+        KIRIN_MATERIAL_CACHE_REQUIRE (c.kind == Kind::well ? store.bytes() > 0u : store.bytes() == 0u);
         const auto kept = render (c, dpi);
         KIRIN_MATERIAL_CACHE_REQUIRE (store.bytes() > 0u);
         const auto cached = render (c, dpi);
@@ -184,6 +185,7 @@ inline void verifyCachedMaterialIsCheaper (bool software)
 
 inline void verifyMaterialCacheContract()
 {
+    verifyMainFrameCacheContract();
     material_cache_contract::verifyCachedMaterialLooksPainted();
     material_cache_contract::verifyCacheLifetimeAndBudget();
     material_cache_contract::verifyCachedMaterialIsCheaper (false);

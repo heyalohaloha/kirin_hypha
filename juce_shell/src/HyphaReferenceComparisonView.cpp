@@ -241,7 +241,7 @@ void ComparisonView::paint (juce::Graphics& g)
     const auto heading = data && data->binding.aligned ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "V OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
     if (!data || !data->binding.overview || !data->binding.overview->waveform)
-    { text_style::drawEllipsized (g, emptyMessage, getLocalBounds().reduced (20), juce::Justification::centred); return; }
+    { text_style::drawEllipsized (g, emptyMessage, getLocalBounds().reduced (6, 1), juce::Justification::centred); return; }
     if (cacheRevision != data->revision) rebuild();
     if (waveformCache.isValid()) g.drawImageAt (waveformCache, int(waveform.getX()), int(waveform.getY()));
     g.setColour (COL_TEXT_SECONDARY);
@@ -261,10 +261,10 @@ void ComparisonView::paint (juce::Graphics& g)
     crest.setToggleState (showingCrest, juce::dontSendNotification);
     loudness.setToggleState (! showingCrest, juce::dontSendNotification);
     if (detail) paintDetails (g);
-    else if(getHeight()>=42)
+    else if (! viewLayout.readout.isEmpty())
     {
         g.setColour (COL_TEXT_SECONDARY);
-        text_style::drawEllipsized (g, valuesAt (position, true), getLocalBounds().removeFromBottom (17).reduced (6, 0), juce::Justification::centredLeft);
+        text_style::drawEllipsized (g, valuesAt (position, true), viewLayout.readout.toNearestInt(), juce::Justification::centredLeft);
     }
 }
 void ComparisonView::paintDetails (juce::Graphics& g)

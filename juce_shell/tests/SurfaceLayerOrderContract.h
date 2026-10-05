@@ -1,12 +1,15 @@
 #pragma once
 
+#include "../src/HyphaCaptureHistoryPainter.h"
 #include "../src/HyphaRunSummary.h"
 #include "../src/HyphaSpacePainter.h"
 #include "../src/HyphaSurfaceMaterial.h"
 #include "../src/HyphaTimeHistoryPainter.h"
 
+#include <array>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 namespace hypha::tests
 {
@@ -124,11 +127,84 @@ inline void verifyTime()
     requireInnerShadow (framed, glass, window,
                         "TIME RUN keeps its inner shadow before labels and retained run facts");
 }
+
+inline void verifyLevel()
+{
+    // PRE absolute, POST delta, no observations, and rejected/non-finite observations all use
+    // this painter in the editor and Capture. A merely non-zero shadow is insufficient: the old
+    // layer order retained ~20% of the upper wall's shadow and passed that weaker check.
+    const std::array contexts {
+        presentation::forEditor (600, 400), presentation::forEditor (900, 600),
+        presentation::forOutput (1200, 630, presentation::OutputTarget::capture)
+    };
+    for (const auto context : contexts)
+        for (const int dpi : { 1, 2 })
+        {
+            const juce::Rectangle<int> window (40, 40, context.logicalWidth - 80,
+                                              context.logicalHeight - 80);
+            const auto paint = [&] (auto&& painter) {
+                juce::Component root;
+                root.setSize (context.logicalWidth, context.logicalHeight);
+                const key_light::Scope light (root);
+                juce::Image image (juce::Image::ARGB, context.logicalWidth * dpi,
+                                   context.logicalHeight * dpi, true, juce::NativeImageType {});
+                juce::Graphics g (image);
+                g.addTransform (juce::AffineTransform::scale (static_cast<float> (dpi)));
+                g.fillAll (BG);
+                painter (g);
+                return image;
+            };
+            const auto glass = paint ([&] (juce::Graphics& g) {
+                surface_material::paintPanel (g, window.toFloat(), 0.62f);
+            });
+            // An independent uncached frame defines the full shadow after the glass fill.
+            const auto reference = paint ([&] (juce::Graphics& g) {
+                surface_material::paintPanel (g, window.toFloat(), 0.62f);
+                main_frame::uncached::paint (g, window.toFloat());
+            });
+            for (int state = 0; state < 4; ++state)
+            {
+                std::vector<KirinMeterHistoryEntry> history (state == 2 ? 0u : 1u);
+                if (! history.empty())
+                {
+                    history.front().last_observed_frames = 48'000u;
+                    const auto value = state == 3 ? std::numeric_limits<double>::quiet_NaN()
+                                                 : state == 1 ? 0.5 : -14.0;
+                    history.front().lufs_m = { value, value, value };
+                    history.front().true_peak = { -6.0, -6.0, -6.0 };
+                }
+                const auto actual = paint ([&] (juce::Graphics& g) {
+                    capture_history::paint (g, window, history, state == 1, 48'000.0,
+                                            context);
+                });
+                int actualShadow = 0, referenceShadow = 0, count = 0;
+                for (int y = (window.getY() + 2) * dpi; y < (window.getY() + 5) * dpi; ++y)
+                    for (int x = (window.getX() + window.getWidth() / 4) * dpi;
+                         x < (window.getX() + window.getWidth() * 3 / 4) * dpi; ++x)
+                    {
+                        const auto brightness = [] (juce::Colour colour) {
+                            return (int) colour.getRed() + (int) colour.getGreen()
+                                 + (int) colour.getBlue();
+                        };
+                        const auto substrate = brightness (glass.getPixelAt (x, y));
+                        actualShadow += substrate - brightness (actual.getPixelAt (x, y));
+                        referenceShadow += substrate - brightness (reference.getPixelAt (x, y));
+                        ++count;
+                    }
+                require (count > 0 && referenceShadow > count * 4,
+                         "LEVEL shadow reference is visible and above quantization noise");
+                require (actualShadow * 10 >= referenceShadow * 9,
+                         "LEVEL retains at least 90% of its frame's upper-wall shadow");
+            }
+        }
+    std::cout << "LEVEL layer order: PASS (24 absolute/delta/empty/non-finite editor/Capture cases)\n";
+}
 }
 
 inline void verifySurfaceLayerOrderContract()
 {
     surface_layer_order::verifySpace();
     surface_layer_order::verifyTime();
+    surface_layer_order::verifyLevel();
 }
 }

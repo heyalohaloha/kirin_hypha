@@ -49,6 +49,14 @@ the A/B waveform, tabs and readout before allocating enough plot height for the 
 axis labels. Smaller panes keep fewer quarter-grid labels when all three cannot fit. The
 renderer, cache invalidation and waveform interaction use those same assigned bounds.
 
+Compact Reference panes reserve the actual numerical text line before assigning the waveform.
+Tonal panes share their paint and interaction geometry, and yield the extra heading or curve
+when those would compress the band labels, differences or selected-band readout. Full selectors
+and the idle/busy/kept/restored/failed Capture controls participate in the capacity checks.
+At 300/375, the full selector/Capture composition retains its existing capacity limit and
+some text is abbreviated. Complete numerical rows and selected-band readouts are required
+at 450 and above; this change does not reorganize the parent controls.
+
 DRUM shares the frame dimensions with its pure layout contract. Its horizontal allocation
 includes the cast shadow; its vertical allocation reserves the bevel and clips the shadow to
 HISTORY. This keeps header controls clear while retaining the 150% summary and selected-hit
@@ -62,9 +70,14 @@ afterward without reparenting. DRUM's chrome cache includes both light position 
 diagonal, so equal positions at different editor sizes cannot reuse a different bevel.
 
 Static frame composition clips away the unchanged glass centre. The flat centre of a glass
-well is filled directly; only its edge material is cached. Existing lifetime, device-scale
-budget and direct-versus-cached pixel tolerances apply. Native and software rendering costs
-are checked by `MaterialCacheContract.h`.
+well is filled directly; only its edge material is cached. A frame uses the same device-resolution
+raster from its first paint, including temporary painting without an editor cache. This avoids
+switching antialiasing at fractional local or inherited positions; its oracle is that canonical
+raster, rather than the platform's direct vector renderer. Panels and glass keep their direct-first
+policy and direct-versus-cached tolerance. Existing lifetime and device-scale memory limits apply.
+`MainFrameCacheContract.h` checks cold/warm and moved-origin agreement on native/software renderers
+with real FREQ geometry, fractional DPI and inherited transforms, and records cold resize cost.
+Steady rendering costs remain checked by `MaterialCacheContract.h` and the page paint budgets.
 
 ## Verification and acceptance
 
@@ -77,8 +90,17 @@ contracts check that glass fills precede the frame interior and that text and da
 Comparison-state contracts cover named PRE/POST, Blind and Reference state transitions at all
 five sizes, with opt-in native review images for preparation, approval, listening, results,
 failure and restoration (`BlindLightContract.h` and `ReferenceStateLightContract.h`).
+PRE/POST Live Blind keeps `REVEAL` and `END` as fixed control labels in both English and
+Japanese, as requested on 2026-10-05. Explanatory text retains its normal localization;
+accessible action descriptions, reveal/end callbacks and phase gates are unchanged.
 `ReferenceComparisonLayoutContract.h` checks real waveform, chart, readout and label bounds,
 including the reserved-frame geometry and detail-admission boundaries.
+`ReferenceCompactCapacityContract.h` checks the production selector/Capture composition, real
+numeric glyphs, band selection, absent data and Blind return at the POST-only REF shipping
+entry, in both languages. PRE's other observation and Blind surfaces use their own contracts.
+The LEVEL layer-order oracle compares the actual absolute/delta/empty/non-finite painter's
+upper-wall shadow against a glass-then-frame reference at editor and Capture sizes; it rejects
+the prior frame-then-glass order rather than merely requiring a faint remaining shadow.
 
 The local source gate includes native GUI contracts, paint budgets, normal Rust suites,
 ignored CPU and Record/pairing suites, static source contracts and clippy. A successful local

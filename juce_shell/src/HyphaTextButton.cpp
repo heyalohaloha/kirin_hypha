@@ -6,9 +6,10 @@
 
 namespace hypha
 {
-HyphaTextButton::HyphaTextButton (const juce::String& text, bool shouldDrawFrame)
+HyphaTextButton::HyphaTextButton (const juce::String& text, bool shouldDrawFrame,
+                                 text_style::LabelPolicy policy)
     : juce::TextButton (text),
-      framed (shouldDrawFrame)
+      framed (shouldDrawFrame), labelPolicy (policy)
 {
     setWantsKeyboardFocus (true);
 }
@@ -35,6 +36,6 @@ void HyphaTextButton::paintButton (juce::Graphics& g,
     g.setFont (monoFont (presentationContext, typography::TextRole::action));
     text_style::draw (g, getButtonText(), getLocalBounds().reduced (6, 2),
                       presentationContext, typography::TextRole::action,
-                      juce::Justification::centred);
+                      juce::Justification::centred, 1, typography::Composition::shell, labelPolicy);
 }
 }

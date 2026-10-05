@@ -3,7 +3,9 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
+#include "../src/HyphaSurfaceMaterial.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
+#include <cmath>
 #include <iostream>
 
 namespace hypha::tests
@@ -18,11 +20,57 @@ inline void verifyLiveBlindUiContract()
     live_blind_ui::Component view;
     const auto button = [&] (const char* id)
     { return dynamic_cast<juce::Button*> (view.findChildWithID (id)); };
+    const auto requireFixedLabel = [&] (HyphaTextButton& action, const juce::String& literal,
+                                        presentation::Context context, bool checkPixels)
+    {
+        require (action.getButtonText() == literal && action.displayedText() == literal,
+                 "REVEAL and END keep their literal labels in both languages");
+        const auto font = monoFont (context, typography::TextRole::action);
+        const auto area = action.getLocalBounds().reduced (6, 2);
+        require (font.getStringWidthFloat (literal) <= area.getWidth()
+            && area.getHeight() >= std::ceil (typography::resolve (
+                context, typography::TextRole::action).lineHeight), "fixed label fits whole at its painted font");
+        if (!checkPixels || !action.isVisible()) return;
+        const auto render = [&] (bool text) {
+            juce::Image image (juce::Image::ARGB, action.getWidth(), action.getHeight(), true);
+            juce::Graphics g (image); g.fillAll (BG);
+            if (text) action.paintEntireComponent (g, true);
+            else
+            {
+                const key_light::Scope light (action);
+                surface_material::paintControl (g, action.getLocalBounds().toFloat().reduced (0.5f),
+                    false, false, action.getToggleState(), COL_FLORA_BR);
+            }
+            return image;
+        };
+        const auto actual = render (true), plate = render (false);
+        juce::Image mask (juce::Image::ARGB, action.getWidth(), action.getHeight(), true);
+        juce::Graphics g (mask); g.setColour (juce::Colours::white);
+        g.setFont (monoFont (context, typography::TextRole::action));
+        // Literal English is the independent pixel oracle; it never uses the translation policy.
+        g.drawText (literal, area, juce::Justification::centred, false);
+        int glyphs = 0, visible = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+                if (mask.getPixelAt (x, y).getAlpha() >= 160)
+                {
+                    const auto brightness = [] (juce::Colour c) {
+                        return int (c.getRed()) + int (c.getGreen()) + int (c.getBlue()); };
+                    ++glyphs;
+                    visible += brightness (actual.getPixelAt (x, y))
+                        - brightness (plate.getPixelAt (x, y)) > 30;
+                }
+        require (glyphs > 5 && visible * 5 >= glyphs * 4,
+                 "actual enabled and disabled controls paint the full English REVEAL or END glyphs");
+    };
     const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     int cases = 0;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
+        require (text_style::shownText ("END") == (language == i18n::Language::japanese
+            ? juce::String::fromUTF8 (u8"終了") : juce::String ("END")),
+            "other END controls retain their default localization");
         for (auto preset : observatory::sizePresets)
             for (int phase = 0; phase < 11 + static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++phase)
             {
@@ -43,6 +91,18 @@ inline void verifyLiveBlindUiContract()
                 state.compensationOff = state.reason == live_compare::RecoveryReason::compensationOff;
                 view.setSize (preset.width, preset.height);
                 view.setState (state, phase != 8, phase >= 7 ? 0.0631f : 1.0f);
+                const auto context = presentation::forEditor (preset.width, preset.height);
+                auto* reveal = dynamic_cast<HyphaTextButton*> (button ("live-blind-reveal"));
+                auto* end = dynamic_cast<HyphaTextButton*> (button ("live-blind-end"));
+                require (reveal && end, "fixed commands remain the actual screen controls");
+                const bool checkPixels = phase == 2 || phase == 3 || phase == 8;
+                requireFixedLabel (*reveal, "REVEAL", context, checkPixels);
+                requireFixedLabel (*end, "END", context, checkPixels);
+                require (reveal->isVisible() == (state.stage == Stage::active && !state.trial.revealed)
+                    && end->isVisible(), "fixed labels preserve reveal-phase visibility and the exit command");
+                require (text_style::shownText (reveal->getTooltip()) == i18n::tr ("Reveal the sources without an answer")
+                    && text_style::shownText (end->getTitle()) == i18n::tr ("End and restore normal level"),
+                    "fixed labels retain localized instructions and tooltips");
                 if (phase == 0)
                     require (i18n::tr (dynamic_cast<juce::Label*> (
                                            view.findChildWithID ("live-blind-text-2"))->getText())
@@ -74,7 +134,10 @@ inline void verifyLiveBlindUiContract()
                     if (auto* action = dynamic_cast<juce::TextButton*> (child))
                     {
                         const auto font = labelFont (presentation::forEditor (preset.width, preset.height), typography::TextRole::action);
-                        require (text_style::shownWidth (font, action->getButtonText()) <= action->getWidth() - 12,
+                        const auto* hyphaAction = dynamic_cast<HyphaTextButton*> (action);
+                        const auto shown = hyphaAction ? hyphaAction->displayedText()
+                                                       : text_style::shownText (action->getButtonText());
+                        require (text_style::shownWidth (font, shown, text_style::LabelPolicy::fixed) <= action->getWidth() - 12,
                                  "action fits whole");
                         if (phase == 2 || phase == 3)
                             require (! action->getTitle().contains ("PRE") && ! action->getTitle().contains ("POST"),
@@ -99,6 +162,7 @@ inline void verifyLiveBlindUiContract()
                         + "-" + juce::String (preset.width) + ".png");
                     auto stream = file.createOutputStream();
                     require (stream != nullptr, "preview file opens");
+                    require (stream->setPosition (0) && stream->truncate().wasOk(), "preview replaces prior pixels");
                     require (juce::PNGImageFormat().writeImageToStream (view.createComponentSnapshot (view.getLocalBounds()), *stream),
                              "preview written");
                 }

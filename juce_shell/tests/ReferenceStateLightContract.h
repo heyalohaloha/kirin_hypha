@@ -277,20 +277,14 @@ inline void verifyTonalCells (juce::Component& root, int width)
     const auto context = presentation::forEditor (width, width * 2 / 3);
     tonal.setBounds (18, 55, width - 36, juce::jmax (80, width * 2 / 3 - 90));
     tonal.update ({}, context, false, {}, {});
-    const bool compact = width < 450;
-    auto area = tonal.getLocalBounds().toFloat();
-    area.removeFromTop (compact ? 20.0f : 27.0f);
-    auto summary = compact ? area.reduced (5.0f, 4.0f) : area.removeFromBottom (42.0f).reduced (5.0f, 3.0f);
     const auto actual = render (tonal);
     juce::Image expected (juce::Image::ARGB, tonal.getWidth(), tonal.getHeight(), true);
     juce::Graphics g (expected); g.fillAll (BG);
     const key_light::Scope light (tonal);
     surface_material::paintPanel (g, tonal.getLocalBounds().toFloat(), 0.72f);
     reference_ui::window_material::paintInterior (g, tonal.getLocalBounds().toFloat(), tonal.getLocalBounds().toFloat());
-    const float gap = compact ? 3.0f : 5.0f, cellWidth = (summary.getWidth() - gap * 3.0f) / 4.0f;
-    for (int group = 0; group < 4; ++group)
+    for (const auto& cell : tonal.visualLayout().cards)
     {
-        const auto cell = summary.removeFromLeft (cellWidth); summary.removeFromLeft (gap);
         surface_material::paintPanel (g, cell, 0.72f, 3.0f);
         const int x = int (std::ceil (cell.getX())) + 1;
         for (int y = int (cell.getCentreY()) - 2; y <= int (cell.getCentreY()) + 2; ++y)

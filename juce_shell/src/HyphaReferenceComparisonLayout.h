@@ -57,8 +57,19 @@ inline Layout forPane (juce::Rectangle<float> bounds, presentation::Context cont
     const float line = axisLineHeight (context);
     const bool detail = bounds.getWidth() >= minimumDetailWidth
         && bounds.getHeight() >= minimumPaneHeight (context, 1);
-    float waveformHeight = juce::jmax (8.0f, area.getHeight() - 17.0f);
-    if (detail)
+    if (! detail)
+    {
+        // Readouts are facts, not an optional decoration. Reserve their real text line
+        // before the overview, including panes shortened by Capture and the frame.
+        auto compactArea = bounds.reduced (contentInset, 1.0f);
+        result.toolbar = compactArea.removeFromTop (bounds.getHeight() >= 65.0f ? toolbarHeight : 0.0f);
+        if (compactArea.getHeight() >= line)
+            result.readout = compactArea.removeFromBottom (line);
+        result.waveform = compactArea.getHeight() >= 8.0f
+            ? compactArea.withTrimmedLeft (15.0f) : juce::Rectangle<float> {};
+        return result;
+    }
+    float waveformHeight = minimumWaveform;
     {
         // Reserve a real plot and its readout before accepting a proportional waveform.
         // Where three axis values fit, all three stay. A smaller pane keeps an honest A/B
@@ -88,7 +99,6 @@ inline Layout forPane (juce::Rectangle<float> bounds, presentation::Context cont
                   width, line }, fraction };
         }
     }
-    if (bounds.getHeight() < 42.0f) result.waveform = bounds.reduced (5.0f, 1.0f);
     return result;
 }
 }

@@ -3,13 +3,17 @@
 #include "HyphaTheme.h"
 
 // Every piece of Hypha's screen text is drawn through these calls (INV-S40). They show the text
-// in the current language (HyphaLanguage.h) and, when that text is Japanese, in the native text
-// font at the height the caller chose. English is drawn exactly as the caller asked.
+// in the current language (HyphaLanguage.h), except controls explicitly given a fixed label.
+// Japanese text uses the native text font at the height the caller chose. English and fixed
+// labels are drawn exactly as the caller asked.
 namespace hypha::text_style
 {
+// Fixed control labels keep their literal spelling; explanatory text remains localized.
+enum class LabelPolicy { localized, fixed };
+
 // The text the calls below show for `text`, and the width it takes when drawn in `font`.
-juce::String shownText (const juce::String&);
-float shownWidth (const juce::Font&, const juce::String&);
+juce::String shownText (const juce::String&, LabelPolicy = LabelPolicy::localized);
+float shownWidth (const juce::Font&, const juce::String&, LabelPolicy = LabelPolicy::localized);
 
 int requiredWidth (const juce::Font&, const juce::String&,
                    const typography::TextStyle&, int minimum = 0);
@@ -18,7 +22,8 @@ juce::String ellipsizedText (const juce::String&, const juce::Font&, float width
 void draw (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
            const presentation::Context&, typography::TextRole,
            juce::Justification, int maximumLines = 1,
-           typography::Composition = typography::Composition::shell);
+           typography::Composition = typography::Composition::shell,
+           LabelPolicy = LabelPolicy::localized);
 void drawEllipsized (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                      juce::Justification);
 // The lines Japanese `shown` breaks into at `width` in `font`: a line never starts with closing

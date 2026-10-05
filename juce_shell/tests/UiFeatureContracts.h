@@ -18,6 +18,7 @@
 #include "TimeHistoryContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
+#include "ReferenceCompactCapacityContract.h"
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
 #include "ChainTimingTextContract.h"
@@ -121,6 +122,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyChainTimingFooterContract();
     verifyReferenceAccessPanelContract();
     verifyReferenceAuditionComponentContract();
+    reference_compact_capacity::verify();
     verifyOsAccessUiContract();
     verifyTimePageNavigationContract();
     verifyMenuArrowContract();
