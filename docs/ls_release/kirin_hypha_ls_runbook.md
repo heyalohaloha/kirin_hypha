@@ -363,7 +363,7 @@ and registers one product uninstaller without owning the shared VST3 root.
 
 ### WIN-1: CI build and signing
 
-Run this repository's `.github/workflows/ci.yml` in unsigned mode. Record the completed green run ID
+Run this repository's `.github/workflows/ci.yml` (no signing inputs; always unsigned). Record the green run ID
 and its exact 40-character commit. Public source validation does not establish signed release readiness.
 
 Formal signing uses a separately controlled environment holding credentials and any licensed SDK/PACE

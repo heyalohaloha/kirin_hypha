@@ -36,7 +36,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     verify_cmake_platform_split(JUCE_CMAKE)?;
     verify_windows_ci_job(CI_WORKFLOW)?;
     verify_ffi_staticlib_docs(FFI_HEADER, FFI_README, FFI_CARGO_TOML)?;
-    eprintln!("[windows-preflight] OK: Windows VST3 build, installer, signing, and verification gates are present.");
+    eprintln!("[windows-preflight] OK: Windows VST3 build, unsigned installer, and verification gates are present.");
     Ok(())
 }
 
@@ -264,7 +264,7 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     require(
         job_code,
         "--signing $env:WINDOWS_SIGNING",
-        "Windows installer build must select signed or unsigned mode explicitly",
+        "Windows installer build must select unsigned candidate mode explicitly",
     )?;
     require(
         job_code,
@@ -286,10 +286,25 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "dist/WINDOWS_CI/Kirin-Hypha-*-Windows-x64-Setup.exe",
         "Windows primary artifact must include the Setup executable",
     )?;
-    require(
+    for required in [
+        "WINDOWS_SIGNING: unsigned",
+        "WINDOWS_EXTERNAL_VALIDATION: pending",
+    ] {
+        require(
+            job_code,
+            required,
+            "public Windows CI must remain an unsigned candidate",
+        )?;
+    }
+    reject(
         job_code,
-        "ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}",
-        "signed Windows builds must obtain eSigner credentials only from repository secrets",
+        "secrets.",
+        "public Windows CI must not receive signing credentials",
+    )?;
+    reject(
+        job_code,
+        "inputs.windows_signing",
+        "public Windows CI must not select signing mode",
     )?;
     require(
         job_code,
@@ -302,11 +317,16 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "fallback ZIP must record whether its embedded payload is signed",
     )?;
     verify_ci_uses_layout_artifact_paths(job_code)?;
-    require(
-        job_code,
-        "uses: actions/upload-artifact@v7",
-        "Windows preflight job must upload built VST3 artifacts",
-    )?;
+    let pinned_upload = job_code.lines().any(|line| {
+        line.trim()
+            .strip_prefix("uses: actions/upload-artifact@")
+            .is_some_and(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    });
+    if !pinned_upload {
+        bail!(
+            "Windows preflight job must upload built VST3 artifacts with an immutable Action SHA"
+        );
+    }
     require(
         job_code,
         "name: kirin-hypha-windows-vst3",

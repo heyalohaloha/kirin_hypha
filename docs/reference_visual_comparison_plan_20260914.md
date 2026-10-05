@@ -117,7 +117,8 @@ OSのsource hash、PCM hash、rate、channel、全長、計測物receiptを検�
 既存measurement 2.0を無断で別の意味に変更しない。
 追加のwindow/algorithm情報が必要かは上記fixtureで決め、必要なら旧receiptと旧readerを維持した新しい計測profile/形式を定義する。
 実装開始時の成果物に採用形式と旧版互換の判断を残し、曖昧な時刻のままUIへ進めない。
-Kirin OSとHyphaはコードを共有せず、公開データ契約と独立実装の数値一致試験で揃える。
+本計画のKirin OSとHypha間の整合性は、公開データ契約と共通fixtureによる数値一致試験で検証する。
+計測coreの記録済み来歴は[PROVENANCE.md](../PROVENANCE.md)を参照する。
 
 ## 6. Blind・C・サイズ・復帰
 

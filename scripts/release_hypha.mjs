@@ -13,11 +13,13 @@ import { produceMac, verifyMac, verifyCi, verifyWindows, packageAll, verifyPacka
   prepareLs } from './ls_release/hypha_release_local.mjs';
 import { hpPreflight, publishGithub, publishHp, publicDownloadFacts,
   verifyPublicHp } from './ls_release/hypha_release_hp.mjs';
+import { assetDecision, embeddedAssets } from './provenance/asset_gate.mjs';
+import { verifyReleaseProvenance } from './provenance/distribution_gate.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
-export const STAGES = ['ci', 'macos-au-vst3', 'macos-aax', 'windows', 'freeze', 'hosts',
-  'packages', 'distribution', 'ls', 'github', 'hp', 'postrelease'];
+export const STAGES = ['provenance-inputs', 'ci', 'macos-au-vst3', 'macos-aax', 'windows', 'freeze', 'hosts',
+  'packages', 'provenance', 'distribution', 'ls', 'github', 'hp', 'postrelease'];
 export const HELP = `Usage: node scripts/build_hypha.mjs --release --state release_state/NAME.json [options]
 
 One workflow through HP upload: macOS Universal AU/VST3/AAX + approved Windows x64
@@ -31,6 +33,7 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --hp-root DIR             Existing HP main checkout (must be clean/current before publish)
   --ls-state FILE           Existing private LS product-target state
   --notes FILE              Reviewed public release notes
+  --provenance-report FILE  Retained exact-payload NOTICE/license/source evidence (private)
   --date YYYY-MM-DD         Release date (default: today UTC)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
   --until packages|hp|complete  Default hp; no stage/gate is skipped
@@ -48,7 +51,7 @@ export function parseReleaseArgs(argv) {
   const fields = { '--state': 'state', '--sdk': 'sdk', '--ci-run': 'ciRun',
     '--windows-installer-dir': 'windowsInstallerDir', '--hp-root': 'hpRoot',
     '--ls-state': 'lsState', '--notes': 'notes', '--date': 'date', '--until': 'until',
-    '--publish-approved': 'publishApproved' };
+    '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (fields[arg]) {
@@ -81,6 +84,7 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
     sdk: inputPath(options.sdk), licenseConfirmed: !!options.licenseConfirmed, ciRun: options.ciRun || '',
     windowsInstallerDir: inputPath(options.windowsInstallerDir), hpRoot: inputPath(options.hpRoot),
     hpBaseCommit: '', hpProjectSha256: '', lsState: inputPath(options.lsState), notes: inputPath(options.notes),
+    provenanceReport: inputPath(options.provenanceReport),
     hostsReport: path.join(prefix, 'hosts.json'), distributionReport: path.join(prefix, 'distribution.json'),
     lsReport: path.join(prefix, 'ls.json'), postreleaseReport: path.join(prefix, 'postrelease.json') };
   if (inputs.hpRoot) inputs.hpBaseCommit = childProcess.execFileSync('git', ['rev-parse', 'HEAD'],
@@ -116,6 +120,11 @@ export function realActions(state, options, run, save, fetcher = fetch) {
     return { facts: validateReport(state, state.inputs[input], gate, binding, ids) };
   };
   return {
+    'provenance-inputs': async () => {
+      const decision = assetDecision(state.root, embeddedAssets(state.root));
+      if (!decision.approved) throw new Checkpoint('Embedded materials have distribution holds; verify rights or review replacements before producing a release');
+      return { evidence: decision };
+    },
     ci: async () => ({ evidence: await verifyCi(state, run) }),
     'macos-au-vst3': async () => ({ facts: await produceMac(state, run) }),
     'macos-aax': async () => ({ facts: await produceMac(state, run, true) }),
@@ -137,6 +146,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
     },
     hosts: async () => report('hostsReport', 'A4', state.freeze.sha256, state.requiredHostTests),
     packages: async () => ({ facts: await packageAll(state, run) }),
+    provenance: async () => verifyReleaseProvenance(state),
     distribution: async () => {
       checkFacts(state.freeze.payloads);
       await verifyMac(state, run); await verifyMac(state, run, true);
@@ -168,13 +178,15 @@ export function realActions(state, options, run, save, fetcher = fetch) {
     },
     hp: async () => {
       authorization(state, options);
-      const downloads = await publicDownloadFacts(state, state.stages.packages.facts, fetcher);
+      const downloads = await publicDownloadFacts(state,
+        [...state.stages.packages.facts, ...state.stages.provenance.publicFacts], fetcher);
       const evidence = await publishHp(state, run, save, fetcher);
       return { evidence: { ...evidence, downloads } };
     },
     postrelease: async () => {
       await verifyPublicHp(state, fetcher);
-      await publicDownloadFacts(state, state.stages.packages.facts, fetcher);
+      await publicDownloadFacts(state,
+        [...state.stages.packages.facts, ...state.stages.provenance.publicFacts], fetcher);
       return report('postreleaseReport', 'A7', digest(state.stages.packages.facts), POST_TESTS);
     },
   };

@@ -1,6 +1,6 @@
 //! ISO 532-1:2017 constant tables
 //!
-//! All values extracted from  v1.2.1 (Apache 2.0)
+//! All values extracted from MoSQITo v1.2.1 (Apache 2.0)
 //! which implements ISO 532-1:2017 Annex A tables.
 //!
 //! Lens `native/src/psychoacoustic/tables.rs` からアルゴリズム同一移植。

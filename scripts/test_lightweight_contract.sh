@@ -16,6 +16,7 @@ run node --test scripts/structural_repair_detection.test.mjs
 run node --test scripts/hypha_workflow_discovery.test.mjs
 run node --test scripts/build_hypha.test.mjs
 run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_hp.test.mjs
+run node --test scripts/provenance/*.test.mjs
 run bash scripts/test_source_line_budget.sh
 run bash scripts/check_source_line_budget.sh
 # Public text: what a change adds and its commit messages carry no internal records.

@@ -4,7 +4,7 @@
 //! Plus 1 zero-padded band = 21 total.
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/core_loudness.rs` からアルゴリズム同一移植）。
-//! Reference:  loudness_zwst/_main_loudness.py
+//! Reference: MoSQITo loudness_zwst/_main_loudness.py
 
 use super::tables::*;
 

@@ -119,7 +119,7 @@ if(KIRIN_HYPHA_AAX_ENABLED)
     juce_set_aax_sdk_path("${KIRIN_HYPHA_AAX_SDK_PATH}")
 endif()
 
-# B-054: embed the mycelium background PNG (the same GPLv3 asset egui uses:
+# B-054: embed the tracked mycelium background PNG (also used by legacy egui:
 # crates/hypha_gui/assets/bg_mycelium.png, 300×200, brightness ~15%) as BinaryData so the
 # editor can draw it without a runtime file dependency. Shared by both plugin targets.
 #

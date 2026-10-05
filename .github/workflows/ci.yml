@@ -2,27 +2,14 @@ name: CI
 
 on:
   workflow_dispatch:
-    inputs:
-      windows_signing:
-        description: 'Build an unsigned CI candidate or the Authenticode-signed public installer.'
-        required: true
-        default: unsigned
-        type: choice
-        options:
-          - unsigned
-          - signed
-      windows_external_validation:
-        description: 'Use complete only when the dedicated Windows DAW checklist is already green for this source.'
-        required: true
-        default: pending
-        type: choice
-        options:
-          - pending
-          - complete
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+# Public validation stays read-only and never receives signing credentials.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,14 +26,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           # Tag reachability and duplicate-label checks require the complete
           # candidate-main history on every event, including ordinary main pushes.
           fetch-depth: 0
 
       - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
 
       - name: Resolve source line comparison commit
         env:
@@ -56,6 +46,9 @@ jobs:
             SOURCE_LINE_BUDGET_EVENT_BASE=HEAD^
           fi
           echo "SOURCE_LINE_BUDGET_BASE_REF=$SOURCE_LINE_BUDGET_EVENT_BASE" >> "$GITHUB_ENV"
+
+      - name: Test public CI security boundary
+        run: node --test scripts/ci_security.test.mjs
 
       - name: Test lightweight source contract
         run: bash scripts/test_lightweight_contract.sh
@@ -74,8 +67,9 @@ jobs:
     # headroom; this changes no test deadline or acceptance criterion.
     timeout-minutes: 55
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           # Release provenance and release_state history guards inspect tags and
           # public branch history, so the source-contract job needs full history.
           fetch-depth: 0
@@ -85,9 +79,11 @@ jobs:
           submodules: recursive
 
       - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Test shipping source contract
         run: bash scripts/test_release_source.sh
@@ -101,14 +97,17 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           submodules: recursive # JUCE is a pinned submodule (juce_shell/JUCE)
 
       - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       # arm64-native: macos-14 host is aarch64, so `cargo build` produces the arm64 staticlib at
       # target/release (the CMake KIRIN_FFI_LIB default path).
@@ -140,7 +139,7 @@ jobs:
 
       - name: Upload macOS pluginval logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-macos-pluginval-logs
           path: target/pluginval/logs/macos
@@ -192,17 +191,20 @@ jobs:
     # bounded headroom for runner variance instead of weakening or duplicating the preflight.
     timeout-minutes: 55
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           submodules: recursive # JUCE is required for the Windows VST3 shell build.
 
       - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       # Windows remains VST3-only. AU, Apple signing, notarization, and macOS LS packaging stay
-      # on macOS; the Windows installer has its own Authenticode path below.
+      # on macOS. Public CI produces only unsigned candidates; release signing is isolated.
       - name: Build kirin_hypha_ffi staticlib (MSVC)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
@@ -223,6 +225,8 @@ jobs:
 
       - name: Configure JUCE VST3 shell (Windows)
         shell: pwsh
+        env:
+          KIRIN_FFI_LIB_PATH: ${{ github.workspace }}\target\release\kirin_hypha_ffi.lib
         run: >
           cmake -S juce_shell -B juce_shell/build-windows
           -DCMAKE_BUILD_TYPE=Release
@@ -230,7 +234,7 @@ jobs:
           -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
           -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
           -DKIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS=ON
-          -DKIRIN_FFI_LIB="${{ github.workspace }}\target\release\kirin_hypha_ffi.lib"
+          -DKIRIN_FFI_LIB="$env:KIRIN_FFI_LIB_PATH"
 
       - name: Validate Windows UI render contract
         run: |
@@ -257,9 +261,14 @@ jobs:
           cmake --build juce_shell/build-windows --config Release --target KirinAttackUiContractTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_attack_ui_contract$'
 
+      - name: Check embedded material distribution permissions
+        id: provenance-assets
+        run: node scripts/provenance/asset_gate.mjs --github-output
+
+      # Preview permission is separate from actual binary/source delivery qualification.
       - name: Upload Windows DRUM UI previews
-        if: always()
-        uses: actions/upload-artifact@v7
+        if: ${{ always() && steps.provenance-assets.outputs.preview-approved == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-drum-ui
           path: drum-ui-preview/*.png
@@ -346,8 +355,10 @@ jobs:
             Get-ChildItem -LiteralPath $bundle -Recurse | Select-Object -First 20 FullName,Length
           }
 
+      # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload Windows VST3 artifacts
-        uses: actions/upload-artifact@v7
+        if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-vst3
           path: |
@@ -355,8 +366,8 @@ jobs:
             juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3
           if-no-files-found: error
 
-      # B-198: load-validate the built VST3 with Tracktion pluginval (headless). Runs after Upload
-      # so the .vst3 artifacts are downloadable even if validation fails. This is the first step
+      # B-198: load-validate the built VST3 with Tracktion pluginval (headless). Runs after the
+      # gated upload step; binary publication remains held pending distribution evidence. This is the first step
       # that actually instantiates the plugin (the build/Verify steps only prove link + file presence).
       # VST3 bundles are discovered dynamically (not hardcoded) to avoid duplicating the literal
       # artifact path strings: windows-preflight's negative test replaces the POST path in the Upload
@@ -412,48 +423,13 @@ jobs:
           }
           "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Setup CodeSignTool Java
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_signing == 'signed' }}
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Download pinned CodeSignTool
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_signing == 'signed' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $url = 'https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2-windows.zip'
-          $expectedSha256 = '4afc32e8b7f79bbe1de7e4e7049aaad4e0f754357613b9bbec0e3052f06fd36b'
-          $zipPath = Join-Path $env:RUNNER_TEMP 'CodeSignTool-v1.3.2-windows.zip'
-          Invoke-WebRequest -Uri $url -OutFile $zipPath
-          $actualSha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
-          if ($actualSha256 -ne $expectedSha256) {
-            throw "CodeSignTool zip checksum mismatch: $actualSha256"
-          }
-          $extractPath = Join-Path $env:RUNNER_TEMP 'CodeSignTool'
-          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
-          $javaPath = Join-Path $env:JAVA_HOME 'bin\java.exe'
-          $jarPath = Join-Path $extractPath 'jar\code_sign_tool-1.3.2.jar'
-          if (-not (Test-Path -LiteralPath $javaPath -PathType Leaf)) {
-            throw 'Temurin CodeSignTool Java runtime not found'
-          }
-          if (-not (Test-Path -LiteralPath $jarPath -PathType Leaf)) {
-            throw 'CodeSignTool jar not found after verified download'
-          }
-          "CODE_SIGN_TOOL_PATH=$extractPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CODE_SIGN_TOOL_JAVA=$javaPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
+      # Legacy provenance identifier retained for existing artifact consumers.
+      # Execution is always unsigned; release signing uses the independent trusted factory.
       - name: Build Windows installer and sign all executable surfaces
         shell: pwsh
         env:
-          WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}
-          WINDOWS_EXTERNAL_VALIDATION: ${{ inputs.windows_external_validation || 'pending' }}
-          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
-          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
-          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
-          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          WINDOWS_SIGNING: unsigned
+          WINDOWS_EXTERNAL_VALIDATION: pending
         run: >
           node scripts/windows/build-installer.mjs
           --artifact-dir juce_shell/build-windows
@@ -464,7 +440,7 @@ jobs:
       - name: Verify Windows installer install, same-version reinstall, signatures, and uninstall
         shell: pwsh
         env:
-          WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}
+          WINDOWS_SIGNING: unsigned
         run: |
           $ErrorActionPreference = 'Stop'
           $installer = @(Get-ChildItem -LiteralPath dist/WINDOWS_CI -File -Filter 'Kirin-Hypha-*-Windows-x64-Setup.exe')
@@ -475,8 +451,10 @@ jobs:
             -Signing $env:WINDOWS_SIGNING `
             -Manifest "$($installer[0].FullName).json"
 
+      # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload primary Windows installer
-        uses: actions/upload-artifact@v7
+        if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-installer
           path: |
@@ -488,7 +466,7 @@ jobs:
       - name: Package fallback Windows VST3 ZIP
         shell: pwsh
         env:
-          WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}
+          WINDOWS_SIGNING: unsigned
         run: >
           node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs
           --artifact-dir dist/WINDOWS_CI/installer-payload
@@ -497,8 +475,10 @@ jobs:
           --external-validation pending
           --payload-signing $env:WINDOWS_SIGNING
 
+      # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload fallback Windows VST3 ZIP
-        uses: actions/upload-artifact@v7
+        if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-vst3-ls-package
           path: |

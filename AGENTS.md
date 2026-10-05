@@ -63,7 +63,7 @@ node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
 Kirin Hypha は Kirin OS と連携する計測プラグイン。出荷shellはJUCE共通実装で、AAXは既定OFFの追加formatとする。通常の計測経路ではDAW入力を加工せず、
 利用者が明示した比較試聴では登録済みReferenceを非破壊再生できる。
 PRE/POST の2バイナリでマスタリングチェインの前後を計測し、差分（Δ）を表示する。
-ライセンス: GPLv3（オープンソース公開）。Kirin OS本体（プロプライエタリ）とは完全分離。
+ライセンス: GPLv3（オープンソース公開）。Kirin OS本体（プロプライエタリ）とは別repository・配布境界で管理する。
 
 
 ## 技術スタック
@@ -144,7 +144,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 外部API/format仕様を新たに使う場合は公式資料で確認する。
 - ADVISORは価値判断を出さない。内部検証や互換fallbackの非操作失敗は無言でskipするが、
   利用者の明示操作が失敗した場合は通知する。
-- GUIのCE 2226契約と実画面を確認する。調整済みPRESENCE値を無根拠に変更せず、
+- GUIの表示契約と実画面を確認する。調整済みPRESENCE値を無根拠に変更せず、
   全画面overlayへbackdrop-filterをかけない。
 - ソース、テスト、ライセンス、公開検証方法を保持する。秘密値・個人PC情報・運用stateをcommitしない。
 - PR検証は署名credential不要の環境で行う。署名・公証・正式配布はレビュー済みexact sourceと
@@ -203,7 +203,7 @@ JUCE共通shellが出荷面であり、PRE / POSTとAU / VST3 / AAXは同じedit
 ### Measurement core
 
 Rust計測coreとJUCE共通shellは本リポジトリの公開sourceで検証する。
-proprietary製品のsourceを取り込まず、公開されたファイル形式・通信契約で連携する。
+初期coreにはLensからの移植と公開MoSQITo参照の記録がある。公開されたファイル形式・通信契約で連携し、componentごとの出典とlicenseを保持する。
 
 ### AAX境界
 
@@ -252,22 +252,20 @@ Contributor手順は[CONTRIBUTING.md](CONTRIBUTING.md)、未署名buildは
 - CPU: processメソッド単体 0.1%未満
 - クラッシュ耐性: Measure Thread panic → Audio Thread継続
 
-## 世界観（GUI適用時）
+## GUIの表示条件
 
-Kirin Hypha は CE 2226 の菌糸の先端。DAWの中に200年後の世界がほんの少しだけ顔を出したもの。
-
-- タイトル「PRE」「POST」は CE 2226 Font（実現可能であれば）
 - 数値はシステムフォントまたはデザイン仕様で指定したフォント
-- 背景は暗い菌糸テクスチャ
+- 背景は既存の暗い菌糸テクスチャ
 - Watch LED = 青の淡い発光（静的）
-- Kirin OS本体（CE 2026の岩と苔）とは明確に異質
+- 外部フォントは任意とし、指定時にはそのlicenseを確認する
 
 ## GPLv3 分離
 
 このリポジトリは GPLv3。Kirin OS本体（プロプライエタリ）とは:
 - リポジトリを物理的に分離する
 - 通信はファイルベースのみ（/tmp/ → plugin_data/）
-- コードの共有なし。計測アルゴリズムは同一ロジックだが独立実装
+- 初期計測coreにはLensからの移植と公開MoSQITo参照の記録がある。リポジトリ分離だけで独立実装を証明しない
+- componentごとの出典・変更・license条件を保持する。公開方針は`PROVENANCE.md`と`THIRD_PARTY_NOTICES.md`を参照する
 - ライセンス降格なし（G-50-47）
 
 ## 約束5原則（常に遵守）
