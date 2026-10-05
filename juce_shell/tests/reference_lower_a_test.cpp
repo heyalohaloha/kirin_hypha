@@ -6,6 +6,7 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
+#include <functional>
 
 void testReferenceLowerA (const juce::File&);
 
@@ -14,6 +15,8 @@ namespace
 constexpr int songFrames = 480'000;  // 10 秒
 constexpr float songLevel = 0.1f, aLevel = 0.5f;
 bool closeTo (double value, double expected, double tolerance = 1.0e-4) { return std::abs (value - expected) <= tolerance; }
+// 下げ幅の照合（dB）。表示は 0.1 dB 単位で、計算の小さな違い（環境ごとの浮動小数点）では外さない。
+constexpr double levelTolerance = 1.0e-2;
 
 // A の直近 10 秒（10 Hz のメーター履歴）が一定の音量。
 std::vector<KirinMeterHistoryEntry> steadyA (double lufs)
@@ -406,29 +409,42 @@ void testReferenceLowerA (const juce::File& sandbox)
     // 下げ直しは深くする向きだけ、2 回まで（2026-10-06）。承認の後に A が大きくなり続けると、その時点の差まで 2 回下げ
     // 直し、3 回目は鳴らさずに理由を言う（下げた量はそのまま）。B の要る下げ幅は −(A の音量 + 18)。
     until ([&] { return controller.snapshot().referenceReady; }, "B is ready again");
-    require (! controller.requestAudition (3, -16.4, -12.0) && closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -1.6, 1.0e-3),
+    require (! controller.requestAudition (3, -16.4, -12.0) && closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -1.6, levelTolerance),
              "B is refused 1.6 dB short");
     require (controller.approveLowerAAndPlay (offerFor (3, -1.6)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -1.6),
              "the offered amount is approved");
     const auto pendingStage = [&] { return controller.snapshot().pendingAudition.stage; };
-    // 下げ終わってから鳴らす（50 ms の直線）ので、試みのたびに A が落ち着くまでブロックを流す。
-    const auto settle = [&] { for (int index = 0; index < 8; ++index) host(); };
+    const auto state = [&] (const char* what)
+    {
+        return (juce::String (what) + " (held " + juce::String (controller.heldAttenuationDb(), 4)
+                + ", slot " + juce::String (controller.snapshot().audibleComparisonSlot)
+                + ", stage " + juce::String (static_cast<int> (pendingStage())) + ", needed "
+                + juce::String (controller.snapshot().referenceSelection->neededAttenuationDb, 4) + ")").toStdString();
+    };
+    // 下げ終わってから鳴らす（50 ms の直線）。鳴らす前の条件（B の音の用意は別のスレッド）がそろうまで、ブロックを
+    // 流して少し待ちながら呼び直す。下げ幅が変わった（または止まった）ところで抜けるので、余計には下げない。
+    const auto serviceUntil = [&] (double loudness, const std::function<bool()>& done)
+    {
+        for (int attempt = 0; attempt < 400 && ! done(); ++attempt)
+        {
+            for (int index = 0; index < 8; ++index) host();
+            controller.servicePendingAudition (loudness, -12.0, true);
+            if (! done()) juce::Thread::sleep (5);
+        }
+    };
     for (const auto& [loudness, held] : { std::pair { -14.0, -4.0 }, std::pair { -12.0, -6.0 } })
     {
-        settle();
-        controller.servicePendingAudition (loudness, -12.0, true);
-        require (closeTo (controller.heldAttenuationDb(), held, 1.0e-3) && controller.snapshot().audibleComparisonSlot == 0
+        serviceUntil (loudness, [&, expected = held] { return closeTo (controller.heldAttenuationDb(), expected, levelTolerance); });
+        const auto message = state ("A grew louder after the approval: A is lowered again to the difference at play time");
+        require (closeTo (controller.heldAttenuationDb(), held, levelTolerance) && controller.snapshot().audibleComparisonSlot == 0
                      && pendingStage() == ref::PendingAuditionView::Stage::checking,
-                 ("A grew louder after the approval: A is lowered again to the difference at play time (held "
-                  + juce::String (controller.heldAttenuationDb(), 2) + ", slot " + juce::String (controller.snapshot().audibleComparisonSlot)
-                  + ", stage " + juce::String (static_cast<int> (pendingStage())) + ", needed "
-                  + juce::String (controller.snapshot().referenceSelection->neededAttenuationDb, 2) + ")").toRawUTF8());
+                 message.c_str());
     }
-    settle();
-    controller.servicePendingAudition (-10.0, -12.0, true);
-    require (closeTo (controller.heldAttenuationDb(), -6.0, 1.0e-3) && controller.snapshot().audibleComparisonSlot == 0
+    serviceUntil (-10.0, [&] { return pendingStage() == ref::PendingAuditionView::Stage::ceilingExceeded; });
+    const auto notChased = state ("a third deeper difference is not chased: B stops with its reason and A stays where it was");
+    require (closeTo (controller.heldAttenuationDb(), -6.0, levelTolerance) && controller.snapshot().audibleComparisonSlot == 0
                  && pendingStage() == ref::PendingAuditionView::Stage::ceilingExceeded,
-             "a third deeper difference is not chased: B stops with its reason and A stays where it was");
+             notChased.c_str());
     controller.returnAToNormalLevel();
     for (int index = 0; index < 60; ++index) host();
     // 浅くはしない：鳴らす時点の差が承認した量より小さければ、承認した量のまま鳴らす。
@@ -440,7 +456,7 @@ void testReferenceLowerA (const juce::File& sandbox)
         host();
         controller.servicePendingAudition (-15.0, -12.0, true);
     }
-    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -4.0, 1.0e-3),
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -4.0, levelTolerance),
              "a smaller difference at play time plays at the approved amount, never shallower");
     controller.returnAToNormalLevel();
     for (int index = 0; index < 60; ++index) host();
