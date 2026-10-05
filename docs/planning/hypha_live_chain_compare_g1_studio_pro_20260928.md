@@ -26,7 +26,7 @@
 VST3版とAU版で、それぞれ試験AとBを行った。遅延はどちらもVST3版を使った。
 各試験で、4秒loop（小節1〜3）を約20秒、8.125秒loop（小節1〜小節5＋16分）を約40秒再生した。
 途中でloop内のseekを1回、停止と再生を1回入れた。
-操作はClaudeが利用者の承認のもとで画面操作により行った。
+操作は承認された検証担当者がGUIで行った。
 
 照合は識別PCMのexactなsample bitだけで行い、相関は使っていない。
 各callbackの先頭と末尾のsampleを音源上の位置へ写し、報告されたproject時刻とVST3連続時刻（auxiliary）と比べた。
@@ -82,7 +82,7 @@ AU版（試験A・Bとも、2048 frames、48 kHz）:
 - 1 host、VST3とAU、48 kHz、process block 2048、遅延4096の1条件、Intel Macでの結果である。遅延pluginはVST3版だけを使った。
 - Windows、他のbuffer設定、Dropout Protectionの違い、AAX、他のDAW、動的PDC（G1-04）は測っていない。到着期限（G1-02）と転送（G1-06）は第6節と第7節の限定条件だけである。
 - 連続時刻の性質を他のhostや条件へ一般化しない。
-- 試験は利用者の承認を得たうえで、Claudeが画面操作で行った。各操作の時刻は秒単位の目安であり、結果はCSVの値だけから導いた。
+- 試験は承認された検証担当者がGUIで行った。各操作の時刻は秒単位の目安であり、結果はCSVの値だけから導いた。
 
 ## 5. 証跡と再現
 
@@ -113,7 +113,7 @@ AU版（試験A・Bとも、2048 frames、48 kHz）:
 | 転送 | macOSのPOSIX共有メモリ（`/kh-tprobe-v1`、2^19 frames × 2ch float、descriptor 1024件のseqlock）。PREとPOSTは同じhost process内の別module |
 | PRE | 入力を加工せず出力し、連続時計（VST3連続時刻、AU render時刻）で索引した位置へ書く。書込み末尾と公開件数を公開する |
 | POST | 定常区間でproject時刻が一致するPRE blockから差K（POSTの連続時計 − 同じ内容のPREの連続時計）の候補を求め、同じ候補が8回続いたら採用する。「連続時計 − K」でPREを引き、到着（書込み末尾 ≥ 必要範囲の末尾）、ring上書き、全sampleのbit一致、processBlock内の所要時間（`mach_absolute_time`）を記録する |
-| 操作 | 各試験で、4秒loopと8.125秒loopの再生（VST3試験Aは8.125秒loopだけ）、再生中のseek 1回、停止と再生1回。Claudeが利用者の承認のもとで画面操作で行った |
+| 操作 | 各試験で、4秒loopと8.125秒loopの再生（VST3試験Aは8.125秒loopだけ）、再生中のseek 1回、停止と再生1回。承認された検証担当者がGUIで行った |
 
 試験Aは「PRE → POST」、試験Bは「PRE → 既存PDC Validation Delay 4096（VST3版）→ POST」である。
 VST3試験Aは、試験Bの後の停止中に遅延pluginだけを外し、同じPRE/POST instanceで続けた。
@@ -482,4 +482,3 @@ G1Rの決定と、その後の見直し（遅延の報告の誤りへの警告�
 | 解析 | `tools/analyze-multi-mono.py` `dce584be5308790ce4062a401a27ab18dac9e95f491df78b45b1e808cc809570`、出力`tools/analysis-output.txt` `1eb111a9f7729f9c4680345df8949be16925f799cf7bb4de89383ff4314487c3` |
 | binary | multi-mono probe `b08780ee77a8922804e4f280a0ca2cf9f4eda3a1acbe52af896f27510e0650a0`。試験後にPro Toolsのplug-in folderから`~/KirinValidation/ProToolsG1/removed-aax-fixtures/`へ移した |
 | 試験音 | `tools/mm-l1k-r3k.wav` `38c87899f8eecc81bec1126f218a30f23b7bad60bdc5489a00c354e3097e2055`（Pro Toolsへはコピーを追加した） |
-

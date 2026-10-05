@@ -90,13 +90,12 @@ Local Blindの未完了を理由にBalanceや聴取手順の実装を止めな�
 | --- | --- | --- | --- | --- |
 | 計画保存先 | `kirin_hypha/main` | `9cb40e56ddbd7c3b9ebb0186c2169467ebaae317` | 既存の変更済みS-1音源と未追跡計画4件あり | 本書だけを新規作成し、既存変更を保持する |
 | Hypha Reference | `codex/reference-abc-delivery` | `53937c0da5916c7b771329e98fff79671fb5b22c`（B-887） | clean | 製品実装の基点候補とする |
-| Kirin OS Reference | `codex/reference-whole-song` | `31fd330c4b297637bebe321d2d60d6bd59ff643f`（W-3080） | clean | OS側実装の基点候補とする |
+| Kirin OS Reference | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | clean | OS側実装の基点候補とする |
 
 実装開始時はC0で三つのworktreeを再取得する。
 HEADが移動していた場合は、対象責務の差分を読んで新しい組合せを実装記録へ固定する。
 旧commitの試験結果を、未確認の後続差分へ転用しない。
 main、別worktreeのcheckout、merge、resetは計画作成に含めない。
-Notionへの書込みは行わない。
 実装先は上表のHypha ReferenceとOS Referenceの二つのbranchに固定し、計画保存先の旧mainへ製品変更を重ねない。
 統合担当は実装を受け持つ主セッション一つとし、両branchの対応commit、共有境界、試験記録を管理する。
 同時編集や別担当への委任を本計画の前提にしない。
@@ -491,6 +490,6 @@ revision 2の作業は本書の修正と規範付属書の追加である。
 - [聴取再利用と確認手順](reference_listening_workflow_plan_20260914.md)
 - [PRE/POST Blind](hypha_pre_post_blind_usability_plan_20260914.md)
 - [比較機能の共通安全契約](hypha_comparison_safety_contract_20260914.md)
-- [B-887 CaptureとReference解析所有権の実装記録](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_capture_b887_implementation_20260914.md)
-- [Reference製品の不変条件](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/hypha_invariants.md)
-- [Kirin OS Reference製品契約](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/docs/reference_product_contract_20260905.md)
+- [B-887 CaptureとReference解析所有権の実装記録](reference_capture_b887_implementation_20260914.md)
+- [Reference製品の不変条件](hypha_invariants.md)
+- Kirin OS Reference製品契約（非公開の検証資料）

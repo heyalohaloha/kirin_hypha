@@ -1,6 +1,6 @@
 # SPACE 残響提案の精査
 
-対象は Downloads の [hypha_space_decay_design.md](/Users/nishiodaisuke/Downloads/hypha_space_decay_design.md)（2026-09-04、B-687 / `119a63e` を参照）。
+対象は Downloads の hypha_space_decay_design.md（非公開の検証資料）（2026-09-04、B-687 / `119a63e` を参照）。
 元文書の SHA-256 は `c3fe3def4075ad13b4d6608ee347477e8a8e262f2c017c4cbb5e2fa4728eb9da`。
 現行コード（B-705 / `6389733`）、指定された旧コミット、一次論文、提案式の数値計算を照合した。
 これは設計レビューであり、SPACE の新機能は実装していない。
@@ -176,10 +176,10 @@ DEPTH を先に公開して M8 を達成扱いにする順序は、現時点の�
 
 | 確認対象 | 所在 |
 | --- | --- |
-| 2 オーナー上限 | [analysis_lease.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/analysis_lease.rs:26) |
-| 解析方式の排他制御 | [spectrum_exchange_control.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/spectrum_exchange_control.rs:32) |
-| 生 PCM 保持と詳細の確定 | [attack_detail.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/attack_detail.rs:140) |
-| イベントと波形の保持容量 | [attack_runtime_state.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/attack_runtime_state.rs:5) |
-| FFT の時間窓とレート依存 | [spectrum.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/spectrum.rs:27) |
-| SPACE の絶対値制約 | [HyphaObservatoryContract.h](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/HyphaObservatoryContract.h:325) |
-| PSB 境界表と表示用比率 | [tables_psb.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/phase_d/tables/tables_psb.rs:1)、[display.rs](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/phase_d/display.rs:1) |
+| 2 オーナー上限 | [analysis_lease.rs](../crates/kirin_measure/src/analysis_lease.rs) |
+| 解析方式の排他制御 | [spectrum_exchange_control.rs](../crates/kirin_measure/src/spectrum_exchange_control.rs) |
+| 生 PCM 保持と詳細の確定 | [attack_detail.rs](../crates/kirin_measure/src/attack_detail.rs) |
+| イベントと波形の保持容量 | [attack_runtime_state.rs](../crates/kirin_measure/src/attack_runtime_state.rs) |
+| FFT の時間窓とレート依存 | [spectrum.rs](../crates/kirin_measure/src/spectrum.rs) |
+| SPACE の絶対値制約 | [HyphaObservatoryContract.h](../juce_shell/src/HyphaObservatoryContract.h) |
+| PSB 境界表と表示用比率 | [tables_psb.rs](../crates/kirin_measure/src/phase_d/tables/tables_psb.rs)、[display.rs](../crates/kirin_measure/src/phase_d/display.rs) |

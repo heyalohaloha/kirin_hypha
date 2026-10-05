@@ -44,10 +44,10 @@ BL4まで完了していない状態で、Reference側の完了を統合計画�
 
 | 対象 | 今回確認した基点 | 扱い |
 | --- | --- | --- |
-| Hypha計画の置き場 | /Users/nishiodaisuke/Dev/kirin_hypha、mainの9cb40e56 | 本書、聴取手順、Local Blind、共通安全契約の詳細文書を整合させる。製品実装の基点にはしない |
-| Hypha Reference | /Users/nishiodaisuke/Dev/kirin_hypha_reference_abc、codex/reference-abc-delivery、B-887 53937c0da5916c7b771329e98fff79671fb5b22c | B-887のCapture操作直列化、ReferenceAnalysisOwner、表示投影を実装基点にする。DAW実機、Windows、両Blindを含む共存確認は未完了 |
-| Kirin OS Reference | /Users/nishiodaisuke/Dev/kirin_os_reference_delivery、codex/reference-whole-song、W-3080 31fd330c4b297637bebe321d2d60d6bd59ff643f | Library 1.1、独立したBのVersions公開、CのLibrary配信を維持して変更する |
-| 旧案のOS参照 | /Users/nishiodaisuke/Dev/kirin_sense_lens、27dee5b7d | 別worktreeの確認記録としてのみ残す。今回の配信設計と回帰試験の基点から外す |
+| Hypha計画の置き場 | 非公開の検証資料 | 本書、聴取手順、Local Blind、共通安全契約の詳細文書を整合させる。製品実装の基点にはしない |
+| Hypha Reference | 非公開の検証資料 53937c0da5916c7b771329e98fff79671fb5b22c | B-887のCapture操作直列化、ReferenceAnalysisOwner、表示投影を実装基点にする。DAW実機、Windows、両Blindを含む共存確認は未完了 |
+| Kirin OS Reference | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | Library 1.1、独立したBのVersions公開、CのLibrary配信を維持して変更する |
+| 旧案のOS参照 | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | 別worktreeの確認記録としてのみ残す。今回の配信設計と回帰試験の基点から外す |
 
 実装開始時には両Reference worktreeのHEADと変更一覧を再取得し、組み合わせたexact commit、対象差分、試験結果を同じ実装記録へ残す。
 HEADの移動だけで安全性を推定せず、観測、保存、Library、Versionsに関係する差分を読み直す。
@@ -333,7 +333,7 @@ Tonal追加やジャンル設定によって新版へ移る編集は、新revisi
 
 | 配信 | transport rootからの相対path | 契約 |
 | --- | --- | --- |
-| 旧版 | library/manifest.json | W-3080のLibrary 1.1とPreset projection 1.0。旧canonical storageの現在の有効一覧とVersionsを公開する |
+| 旧版 | library/manifest.json | OS側の対応実装のLibrary 1.1とPreset projection 1.0。旧canonical storageの現在の有効一覧とVersionsを公開する |
 | 新版 | library/tonal-v1/manifest.json | Library 2.0とPreset projection 2.0。旧保存物の検証済み参照と新版stateから構成し、Tonal viewとジャンル設定を表現する |
 | 新版観測 | library/tonal-v1/observations/manifest.json | 観測index 1.0。source identity、Check、Cue、methodに対応する不変artifactのreceiptを更新する |
 | 新版の稼働証明 | library/tonal-v1/presence.json | 既存presenceのproducer sessionと、新版headのrevision/hash、入力stateのreceiptを結び付ける。旧presenceのschemaは変えない |
@@ -627,7 +627,7 @@ G0-N／E／R／Lをモデルpassで埋めたり、G0-Uの操作上限を未定�
 | T3 | 窓起点の欠落 | 同一PCMと同一起点、0.03〜3.03秒の反例、開始1 sample差、window/hop境界、任意途中開始、seek/loop、全域／部分範囲 | 同条件では値0.05 dB以内かつ窓列、窓数、欠測bitmapが一致。3窓対4窓は条件差として検出し、値の一致を偽装しない |
 | T4 | 区間再Captureによる置換 | 全曲Capture→サビ選択→別範囲→全域→保存再open。停止中とOS不在で同じ操作。範囲連打、別PCへの書出し／読込み、artifact欠損 | 再生も再Captureも不要。Capture ID、全域要約、波形、索引、receipt、保持データhashが不変。正常な移送後は区間値も一致。欠損時は区間値だけ利用不可 |
 | T5 | 保存予算の衝突 | 2時間、最大binsと索引、最大receipt、最大Tonal、最大聴取手順要素、最大既存設定を同時保存。全rate/channel、encode境界、ディスク不足、破損と途中終了 | 実plugin stateが1 MiB未満、Tonal増分16 KiB以内、聴取手順増分4 KiB以内、artifact 16 MiB以内。既存項目の欠落0。読戻し一致。Tonal失敗が音声と既存Captureへ波及しない |
-| T6 | OS基点の不一致 | 両exact commitを記録し、W-3080のFactory、genre、Library、Versions、History、初回Workless利用とOS再起動を通す | 新旧namespaceの両方で独立B VersionsとCの意味を保持。別worktreeのpassを対象基点の証跡へ転用しない |
+| T6 | OS基点の不一致 | 両exact commitを記録し、OS側の対応実装のFactory、genre、Library、Versions、History、初回Workless利用とOS再起動を通す | 新旧namespaceの両方で独立B VersionsとCの意味を保持。別worktreeのpassを対象基点の証跡へ転用しない |
 | T7 | 再レビュー1：OS内部保存の旧新版混在 | 旧形式2件を持つ保存領域から新版Preset、default、draftを保存。旧OSへ戻って起動、編集、削除し、再び新版へ。各書込み境界で終了、移行再試行、同時起動 | 新版形式の保存、移行、default、draft操作で旧保存物のhash不変。旧形式の明示編集は既存writerで保存できる。新旧の並行編集を喪失せず、削除を復活させない。新版headは一覧と設定が同じsnapshot |
 | T8 | 再レビュー2：Tonal確定前のDAW保存 | base確定前、pending公開後、sealed前後、ready記録後、dirty通知前後に保存→即終了→再open。restore直後再保存、Editorなし、旧job完了前の新Capture、破損、別PC | 各境界で第7節の復元表どおり。sealed以後は再取得なしで復元。sealed前は未完了を明示しbaseを保持。snapshot混在0、追加dirty通知の欠落0、破棄済みcallback 0 |
 | T9 | 生存jobより早い枠返却と試聴待機の取消漏れ | 2枠使用中に一方のFFT/I/Oを停止点で保持し、同じreceiverでB/Cを1回要求。待機中にA、取消、曲／Cue／Check／Preset変更、transport停止／不連続、rate変更、bypass、offline、Blind、close、restore、processor再作成を個別に行う。3番目の要求、遅延ack、混在wrapper、unloadも確認 | running ownerでは借用でき、draining ownerには新規登録しない。停止ackまで枠を保持。条件不変なら枠と試聴許可の取得後に再クリックなしで1回だけ開始。取消済み要求の開始0、待機だけの試聴履歴0。A復帰は即時に要求可能。running+drainingは2枠以内、二重解放0、RT/UIのjoin待ち0 |
@@ -731,7 +731,6 @@ T7のうち旧readerについては、実際のW-3080 readerとencoderへメモ�
 計画の置き場であるHypha mainで`cargo test --workspace --locked --offline`と`cargo clippy --workspace --locked --offline -- -D warnings`も起動したが、完了待ちを中断した（終了コード130）。
 中断時点でGUIの31件passは得られたが、workspace testとclippyは未完了であり、Reference worktreeの回帰証拠にも使わない。
 既存LastTestsFailedログを確認したが、古いbuild結果を今回のソースでの再現結果とは扱わない。
-NotionのSECTION:DEV／TASKSは利用可能なread toolがなく未読であり、書込みも行わない。
 
 計画ファイルはHypha mainに置き、開始時から変更されていたtest_signals/S-1_1kHz_sine_m6dBFS_10s.wavを保持する。
 今回、新しいcommitやB番号は発行しない。
@@ -887,29 +886,29 @@ Tonalまたは聴取手順の先行実装をLocal Blind待ちとして止めな�
 - [比較機能の共通安全契約とCS受入試験](hypha_comparison_safety_contract_20260914.md)
 - [聴取再利用と確認手順の詳細・WG工程・R/V受入試験](reference_listening_workflow_plan_20260914.md)
 - [PRE/POST Blindの使いやすさ、診断、BL工程・BL-V/BL-U受入試験](hypha_pre_post_blind_usability_plan_20260914.md)
-- [B-887 CaptureとReference解析所有権の実装記録](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_capture_b887_implementation_20260914.md)
+- [B-887 CaptureとReference解析所有権の実装記録](reference_capture_b887_implementation_20260914.md)
 
-- [Kirin OS Reference製品契約](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/docs/reference_product_contract_20260905.md)
-- [ジャンル分布の設計と実測記録](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/docs/measure_genre_reference_balance_rebuild_plan_20260823.md)
-- [現在のReference Library配信](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/docs/reference_library_delivery_20260913.md)
-- [A/B/C receiver](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_library_receiver_20260913.md)
-- [全体A/B表示の実装記録](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_visual_comparison_implementation_20260914.md)
-- [進行中のCaptureと導線修正](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_capture_workflow_implementation_20260914.md)
-- [Capture証跡と探索の契約](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_evidence_and_discovery_contract_20260914.md)
-- [A観測がalignmentとdecodeに依存する現実装](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceVisualObservation.cpp)
-- [通常試聴と観測の許可切替](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceComparisonController.cpp)
-- [準備済み音源の試聴開始とgeneration照合](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceRuntimeV2NormalSelection.cpp)
-- [現行の試聴枠取得とCaptureからの借用](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/crates/kirin_hypha_ffi/src/audition_admission_ffi.rs)
-- [既存Libraryの全Preset検証](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceLibraryRepository.cpp)
-- [OS W-3080のLibraryとVersions配信](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceLibraryDelivery.mjs)
-- [OSの窓配置](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/native/src/spectral_balance.rs)
-- [OSの範囲選択と集計](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/readSpectralBalanceModel.mjs)
-- [Capture最大保存量の既存試験](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/tests/ReferenceCaptureStorageBudgetTest.h)
-- [OSの旧Preset保存reader](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceWorkspaceTemplateRepository.mjs)
-- [OSの履歴manifest解決](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceLibraryHistory.mjs)
-- [Hyphaの履歴contextとwriter](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceRuntimeEventTransport.cpp)
-- [Captureの非同期dirty通知](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/HyphaCaptureStateNotification.h)
-- [解析枠の解放処理](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/crates/kirin_measure/src/analysis_lease.rs)
+- Kirin OS Reference製品契約（非公開の検証資料）
+- ジャンル分布の設計と実測記録（非公開の検証資料）
+- 現在のReference Library配信（非公開の検証資料）
+- [A/B/C receiver](reference_library_receiver_20260913.md)
+- [全体A/B表示の実装記録](reference_visual_comparison_implementation_20260914.md)
+- [進行中のCaptureと導線修正](reference_capture_workflow_implementation_20260914.md)
+- [Capture証跡と探索の契約](reference_evidence_and_discovery_contract_20260914.md)
+- [A観測がalignmentとdecodeに依存する現実装](../juce_shell/src/reference_audition/ReferenceVisualObservation.cpp)
+- [通常試聴と観測の許可切替](../juce_shell/src/reference_audition/ReferenceComparisonController.cpp)
+- [準備済み音源の試聴開始とgeneration照合](../juce_shell/src/reference_audition/ReferenceRuntimeV2NormalSelection.cpp)
+- [現行の試聴枠取得とCaptureからの借用](../crates/kirin_hypha_ffi/src/audition_admission_ffi.rs)
+- [既存Libraryの全Preset検証](../juce_shell/src/reference_audition/ReferenceLibraryRepository.cpp)
+- OS側の対応実装のLibraryとVersions配信（非公開の検証資料）
+- OSの窓配置（非公開の検証資料）
+- OSの範囲選択と集計（非公開の検証資料）
+- [Capture最大保存量の既存試験](../juce_shell/tests/ReferenceCaptureStorageBudgetTest.h)
+- OSの旧Preset保存reader（非公開の検証資料）
+- OSの履歴manifest解決（非公開の検証資料）
+- [Hyphaの履歴contextとwriter](../juce_shell/src/reference_audition/ReferenceRuntimeEventTransport.cpp)
+- [Captureの非同期dirty通知](../juce_shell/src/HyphaCaptureStateNotification.h)
+- [解析枠の解放処理](../crates/kirin_measure/src/analysis_lease.rs)
 - [Hypha CE2226表示契約](hypha_ce2226_jungle_visual_system_20260901.md)
 
 外部の表示例として、iZotopeの公式資料で四広帯域と全域詳細、単曲と曲集合の参照という構成を確認した。

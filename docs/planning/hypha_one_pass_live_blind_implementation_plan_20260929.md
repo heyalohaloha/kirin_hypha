@@ -468,7 +468,7 @@ Live Blindは、次がすべて揃ったときだけ製品実装完了とする�
 上昇量は英日・全サイズで事前表示し、小サイズの操作列は比較操作を優先する。匿名面は全階層のaccessibilityと背後の操作を隔離する。
 Exact 4 SはMENUのPINに残し、直接Capture入口を主面から除去した。Reference改善は別計画のまま未変更。
 
-日次ログ（2026-09-29）: JUCEの不足していた正本patch 0009/0010を適用し、10本全体の一致を検証。
+検証概要（2026-09-29）: JUCEの不足していた正本patch 0009/0010を適用し、10本全体の一致を検証。
 macOS x86_64 DebugでPRE/POST共通shellと試験targetをbuild。配布用build、DAW配置、release、署名、公証、外部送信は行っていない。
 Rust FFIのソース／ABIは未変更。staticlibは現行ソースからDebug再buildした。
 最終の対象CTest 24件、Blind UI 90件、上昇量表示20件、Rust workspace 2,165件、Clippyがpass。41件のignoredは未実施でありpassへ含めない。
@@ -480,5 +480,4 @@ Handoff: FREQ全体UI性能gateの未達を切り分け、実機matrixを承認�
 今回未変更のSpectrumLandscapeContractの900×600/DPI 2が単独実行でも18.6429 ms/frame（基準12 ms未満）だった。
 閾値は緩めず、失敗を保持した。新規Blindの表示試験と混同しない。
 
-セッション記録手順を再読。このリポジトリはNotion書込み禁止のため、SECTION:DEV、日次ログ、Notion Handoffは未記録。
-その未送信内容を上記の現在地、日次ログ、Handoffの順に残す。LS/HPは全チャネルskip、実機未検証と性能gate未達は公開blocker。
+LS/HPは全チャネルskip、実機未検証と性能gate未達は公開blocker。

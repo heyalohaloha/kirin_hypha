@@ -11,7 +11,7 @@ an auxiliary label unique.
 - A `B-NNN` value in a commit subject is a supplemental work label. It is not a unique commit,
   release, or review identifier.
 - A history-convergence merge uses its full SHA and PR number. It does not allocate a new B number
-  unless Daisuke supplies one.
+  unless a maintainer supplies one.
 
 ## Duplicate B labels
 

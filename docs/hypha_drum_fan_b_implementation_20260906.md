@@ -1,12 +1,12 @@
 # DRUM B案の実装と軽量化検証
 
-> 2026-09-07追記：この扇案は、その後のDaisukeの指示で上部の実測包絡と下部の半透明膜へ置き換えた。
+> 2026-09-07追記：この扇案は、その後の設計担当の指示で上部の実測包絡と下部の半透明膜へ置き換えた。
 > 最新の実装と未完了項目は [上下分離と膜の実装記録](hypha_drum_membrane_implementation_20260907.md) を参照する。
 > 以下の性能値と512件キャッシュの記述はB-729時点の履歴であり、現行仕様ではない。
 
 ## 現在の状態
 
-2026-09-06にDaisukeが選択したB案「菌糸の扇」を、JUCEのDRUM表示へ実装した。
+2026-09-06に設計担当が選択したB案「菌糸の扇」を、JUCEのDRUM表示へ実装した。
 Windows検証機で単体描画の60条件が合格したが、macOSの最大Retina表示には性能基準を超える2条件が残る。
 **軽量化全体、DAW上の実音同期、配布版への反映は未完了**である。
 この変更は検証候補であり、公開可能なリリースではない。
@@ -140,7 +140,7 @@ ctest --test-dir /tmp/hypha-attack-validation -C RelWithDebInfo --output-on-fail
 Debugでは数値報告だけとなり、性能合格の根拠には使わない。
 別のJUCE配置を使う場合は `HYPHA_JUCE_SOURCE` を指定する。
 
-Windowsの専用buildは `C:\Users\hello\Dev\hypha_fan_validation_20260906\build` にある。
+Windowsの専用buildは `非公開の検証資料` にある。
 既存DAWのVST3とは別物であり、このexeの成功を「DAWへ配置済み」と読まない。
 
 - Windowsの最終記録：`/tmp/hypha-fan-windows-b729-verification.log`

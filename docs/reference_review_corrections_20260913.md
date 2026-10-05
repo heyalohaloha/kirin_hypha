@@ -1,4 +1,4 @@
-# Reference review corrections — B-869 / W-3078
+# Reference review corrections — B-869
 
 The B868/W3077 review reproduced four product failures: unchanged PCM moved on
 the DAW timeline retained an incorrect map; edited live-A level retained stale

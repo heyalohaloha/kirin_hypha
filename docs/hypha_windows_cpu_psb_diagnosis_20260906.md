@@ -13,7 +13,7 @@ PRE/POST Blind は開始 UI と入場許可が未接続であり、完成して�
 ## 検証対象と操作範囲
 
 ユーザーの一時差し替え許可を受け、Windows の既存 PRE/POST を両方バックアップした。
-バックアップ先は `C:/Users/hello/Dev/vst3_backups/hypha-blind-b722-20260906-174826` である。
+バックアップ先は `非公開の検証資料` である。
 `baseline` は全ファイルを照合した複製で、`originals` に旧配置の両 bundle を保持している。
 一時配置したのは B-722 の Debug 検証用 VST3 であり、公開リリースではない。
 

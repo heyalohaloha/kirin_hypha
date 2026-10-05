@@ -343,7 +343,7 @@ Gate B（実機の state save → close → reopen）で実際に観察してか
 
 ### 9.4 実施しなかったもの
 
-- **実機 gate（§5 / Gate B）** — この環境では macOS / Windows ビルドも DAW も動かせない。**Daisuke の実行が要る。**
+- **実機 gate（§5 / Gate B）** — この環境では macOS / Windows ビルドも DAW も動かせない。**設計担当 の実行が要る。**
 - **§3.2 の probe 行列** — Gate C の作業として未着手。
 - **§2.2 型による防止** — 未着手。§9.5 に論点を書く。
 

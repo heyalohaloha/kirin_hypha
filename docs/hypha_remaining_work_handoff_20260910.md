@@ -25,21 +25,8 @@ C0の判定用HTMLは完了しているため、作り直さない。
 | PKG検証 | Developer ID Installer署名、公証、staple、Gatekeeper、4 payload、LS dry-runがpass |
 
 次のセッションは作業前に`AGENTS.md`を読む。
-Windows検証機を使う場合は、先に`/Users/nishiodaisuke/Dev/kirin_sense_lens/docs/windows_validation_remote_access.md`を読む。
+検証機の接続と操作は、その環境で承認された非公開の運用手順に従う。
 認証情報を画面、ログ、コマンド出力、リポジトリへ出さない。
-Notionへの書込みは禁止されている。
-
-次の既存作業は本件へ取り込まず、削除もしない。
-
-```text
- m juce_shell/JUCE
-?? build-aax-universal/
-?? build-aax/
-?? docs/hypha_completion_plan_20260907.md
-?? docs/hypha_remaining_work_handoff_20260910.md
-?? docs/hypha_trace_record_inbox_recovery_handoff_20260806.md
-?? juce_shell/build-pdc-macos/
-```
 
 B-789は巨大なFFI正本からMeter Session制御境界を分離した。
 B-790は別作業のrelease／platform test改善である。
@@ -72,7 +59,7 @@ cargo run --package xtask -- install --release --verify-only
 ```
 
 手動の`sudo cp`やuser-level VST3だけの差替えは行わない。
-install時の管理者パスワード入力だけはDaisukeの操作が必要になる。
+管理者権限が必要な配置は、その検証環境の運用担当者が行う。
 配置後はPREとPOSTの読込build ID、format、binary hashを記録し、古いインスタンスを見て合否を決めない。
 
 現行の公開版はすでにv1.1.49である。
@@ -205,13 +192,13 @@ B-788の局所診断は製品route、request、表示へ接続していない。
 5. 人指定区間で計算器を検証し、自動区間選択とは別に合否を出す。
 6. ノイズ床、次の音、再上昇、持続音、fade、gate、追跡区間なしを別の結果として保持する。
 7. PREとPOSTで同じ起点と採用区間を使い、同一入力と固定gainの不変性を確認する。
-8. 開発結果から採用Precision、Coverage、最低標本数、曲別集計を提案し、意味を変える条件だけDaisukeへ判断材料を渡す。
+8. 開発結果から採用Precision、Coverage、最低標本数、曲別集計を提案し、意味を変える条件だけ設計担当へ判断材料を渡す。
 9. 定義ID、係数、候補hash、評価器を固定してから、未使用holdoutで評価する。
 10. 合格するまで製品routeを有効化せず、数値を得るためだけに20 dB条件や直線適合度を緩めない。
 
 ## 8. 2MIX ATTACKの残作業
 
-2MIX ATTACKはDaisukeの判断で別日に延期した。
+2MIX ATTACKは設計判断で別日に延期した。
 延期は中止や完成扱いではない。
 TRACK/STEM DRUMは独立した現行定義のまま使用し、2MIX検出器の代用にしない。
 
@@ -256,7 +243,7 @@ PREとPOSTのbuild IDとbinary hashを保存し、2MIX、TRACK/STEM、mono、ste
 
 短い音付き操作動画と最終HTMLには、実際のcandidate、音声と映像の時刻差、対象format、build IDを記録する。
 合成画像は合成と明記する。
-Daisukeへ依頼するのは、音の切替、表示の読み取り、SPACE区間、2MIX ATTACK注釈など人の知覚が必要な判断だけにする。
+設計担当へ依頼するのは、音の切替、表示の読み取り、SPACE区間、2MIX ATTACK注釈など人の知覚が必要な判断だけにする。
 
 ## 10. C5の統合と配布
 
@@ -279,7 +266,7 @@ HPの紹介と宣伝は、機能、実機、配布3チャネルが同じrelease 
 
 ### 11.1 5.1
 
-Daisukeは5.1対応を行う意向を示しているが、現行製品契約はmonoとstereoに限定されている。
+設計担当は5.1対応を行う意向を示しているが、現行製品契約はmonoとstereoに限定されている。
 EBUの5.0／5.1素材をdecodeして参照値を確認した実績は、プラグインの5.1対応を意味しない。
 
 5.1はJUCE bus、channel map、Measure Thread、PRE/POST exchange、SPACE、Sharpness、Reference、Blind、Record、表示、配布形式を同時に定義する独立計画として作る。
@@ -317,9 +304,9 @@ AAX対応済みとは、これらが揃うまで表示しない。
 - [C3開発評価](hypha_c3_development_evaluation_20260909.md)
 - [ATTACK表示提案](hypha_attack_visual_completion_proposal_20260909.md)
 - [AAX Phase A](aax_phase_a_readiness_20260907.md)
-- macOS／Windows PDC証拠：`/Users/nishiodaisuke/Downloads/Hypha_PDC_Evidence_20260908/`
-- 初期ホスト証拠：`/Users/nishiodaisuke/Downloads/Hypha_B1_Host_Evidence_20260907/`
-- SPACE追加回答：`/Users/nishiodaisuke/Downloads/Hypha_SPACE_Followup_01_20260907/evaluation_sidecar_recovered.json`
+- macOS／Windows PDC証拠：`非公開の検証資料`
+- 初期ホスト証拠：`非公開の検証資料`
+- SPACE追加回答：`非公開の検証資料`
 
 `/tmp`の画像やログは消える可能性があるため、最終合格の正本にしない。
 実行できなかった試験は未検証のまま残し、部品試験を実機合格へ読み替えない。

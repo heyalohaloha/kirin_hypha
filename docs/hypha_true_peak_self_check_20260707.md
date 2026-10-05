@@ -32,7 +32,7 @@ All five signals pass the self-check tolerance of `+/-0.100 dBTP`.
 
 - This verifies the Hypha measurement core path, not a DAW screenshot or a third-party certification.
 - The True Peak value here is the session maximum (`max_true_peak`), not the live 400 ms recent peak shown in Watch mode.
-- The local source note says these True Peak files were copied from Kirin Sense and are Daisuke-created original test signals. If the public post says "EBU Tech 3341 test set", use the actual official EBU files or clearly phrase this as "known True Peak self-check signals based on EBU Tech 3341-style cases."
+- The local source note says these True Peak files were copied from Kirin Sense and are original test signals created for Kirin. If the public post says "EBU Tech 3341 test set", use the actual official EBU files or clearly phrase this as "known True Peak self-check signals based on EBU Tech 3341-style cases."
 - The public wording should invite independent verification and avoid certified/compliance language unless a separate formal verification is performed.
 
 ## Safe Public Copy

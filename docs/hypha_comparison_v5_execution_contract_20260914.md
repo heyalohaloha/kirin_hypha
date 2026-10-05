@@ -163,11 +163,11 @@ host構成の読み取りが未完了なら親計画C0も未完了であり、�
 既存実装の根拠は次の資料と対応するsource／fixtureとする。
 資料に記載された旧passは本計画の新sourceに対するpassではない。
 
-- [B-887実装・検証記録](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_capture_b887_implementation_20260914.md)
-- [Whole-song alignmentと固定Gain契約](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_whole_song_alignment_20260913.md)
-- [通常・Version試聴のcontroller](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceComparisonController.cpp)
-- [Version BlindのPause・END・全曲出力](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceWholeSongRealtime.cpp)
-- [Gain／配置変更の既存fixture](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/tests/reference_calibration_regression_test.cpp)
-- [全曲試聴の既存fixture](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/tests/reference_whole_song_fixture.h)
+- [B-887実装・検証記録](reference_capture_b887_implementation_20260914.md)
+- [Whole-song alignmentと固定Gain契約](reference_whole_song_alignment_20260913.md)
+- [通常・Version試聴のcontroller](../juce_shell/src/reference_audition/ReferenceComparisonController.cpp)
+- [Version BlindのPause・END・全曲出力](../juce_shell/src/reference_audition/ReferenceWholeSongRealtime.cpp)
+- [Gain／配置変更の既存fixture](../juce_shell/tests/reference_calibration_regression_test.cpp)
+- [全曲試聴の既存fixture](../juce_shell/tests/reference_whole_song_fixture.h)
 
 今回の計画修正では、これらの製品source、測定入力、旧4文書を変更しない。

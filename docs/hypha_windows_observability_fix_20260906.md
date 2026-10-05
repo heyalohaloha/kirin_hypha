@@ -1,8 +1,8 @@
 # Windows observation and readability repair
 
 Status: implementation complete; full validation has remaining gates. Some final macOS test
-executables stalled before entering their test harness. Windows host validation is paused at
-Daisuke's request because another implementation is using that machine.
+executables stalled before entering their test harness. Windows host validation remained incomplete
+at the time of this record.
 This is not a public release and not a claim that every Windows observation is resolved.
 Baseline: B-701 `d1e6b53`; responsibility extractions: B-702 `0c9ed28`,
 B-703 `70e561e`, B-704 `37b477c`.
@@ -191,9 +191,9 @@ handoff alone while another implementation owns the machine.
 - Installed diagnostic POST SHA-256:
   `BB10616E16596383E17A6710266E10165D6CD436A30E7D52C2171591BA4D9C49`.
 - Recoverable original bundles:
-  `C:\Users\hello\Dev\vst3_backups\hypha-observability-20260906-105924`.
+  `非公開の検証資料`.
 - Isolated latest build:
-  `C:\Users\hello\Dev\validation_staging\hypha_observability_20260906`.
+  `非公開の検証資料`.
 - Temporary manual-only tasks created for this session:
   `HyphaObservabilityUI20260906` and `HyphaObservabilityActions20260906`.
   They have no recurring trigger. The first task owns the Studio Pro launch process; do not
@@ -204,4 +204,4 @@ handoff alone while another implementation owns the machine.
   another implementation may have changed the machine after the observations above.
 
 This is a diagnostic Debug build, not a public release or signed installer candidate.
-No version bump, publication, notarization, macOS installation or Notion write is performed.
+No version bump, publication, notarization, or macOS installation was performed.

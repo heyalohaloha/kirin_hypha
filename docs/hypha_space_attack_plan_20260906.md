@@ -5,7 +5,7 @@
 状態：2026-09-06、推奨方針と着手を承認済み。承認範囲と検証待ちは [実装承認記録](hypha_implementation_approval_20260906.md) を正本とする。公開承認ではない。
 再点検：2026-09-06、B-708 の作業木を照合。方向性は維持するが、§14 の定義凍結前に製品実装へ進めない。
 共通の採否表と最新版の導線は [両計画の再点検と更新案内](hypha_plans_review_and_update_path_20260906.md) を参照。
-Windows の操作停止を継続し、本書のための実機操作は行っていない。
+本書作成時にはWindowsの実機操作は行っていない。
 現行 ATTACK の DRUM 明示、TRACK／STEM と 2MIX の区分、2MIX 専用 ATTACK の開発を追加の計画対象に含む。
 
 推奨する順序は、現行 ATTACK の対象を明示し、2MIX 用 ATTACK を独立に開発し、その適用範囲を確かめて SPACE の自動観測へ接続することである。
@@ -83,7 +83,7 @@ UI の主値は **20 dB 相当時間** `D20 = 20 / |s| [s]` とする案を推�
 
 この案では、少なくとも 20 dB の実測幅がある区間だけから D20 を出す。
 短い観測から 60 dB の時間へ外挿した値を、意味の説明なしに主値へ置かない。
-元提案の秒表示とは定義が変わるため、採用には Daisuke の承認と新しい定義 ID が必要になる。
+元提案の秒表示とは定義が変わるため、採用には 設計担当 の承認と新しい定義 ID が必要になる。
 試作ログには元提案の `60 / |s|` も比較用に保存できるが、製品へ二つの「秒」を同時に追加することは推奨しない。
 
 回帰方式、区間の開始規則、測定下限、適合度の閾値は開発用素材で比較してから固定する。
@@ -185,7 +185,7 @@ SPACE の処理待ちを理由に ATTACK の表示を遅らせない。
 打楽器主体のバス、疎な楽曲、持続音主体の楽曲、密な完成マスターを別々に集計し、DRUM の成績を 2MIX の成績へ合算しない。
 
 2MIX で十分な観測が得られない場合の選択肢は、検出法の再設計、利用者が区間を指定する別の操作案、対象素材の限定である。
-どの案を選ぶかは実験結果とともに Daisuke へ戻し、裏で DRUM へ切り替える fallback は作らない。
+どの案を選ぶかは実験結果とともに 設計担当 へ戻し、裏で DRUM へ切り替える fallback は作らない。
 ATTACK 2MIX の event が確定しても、次の音まで 20 dB の減衰が観測できるとは限らない。
 2MIX 用 ATTACK の製品 gate と、SPACE の区間採用 gate の両方を通って初めて自動接続を承認する。
 
@@ -395,7 +395,7 @@ G1 以降は機能ごとに適用し、ATTACK 2MIX、SPACE、Reference 拡張の
 | --- | --- | --- |
 | G0 既存修正の検証整理 | B-705 の残りテストと Windows 実機結果、再現可能な基準版 | 製品統合前に既存の未完了ゲートを閉じる。Windows 再操作は別途調整後 |
 | G1 独立したオフライン試作 | ATTACK の A1／A2、SPACE の計算器、別々の素材台帳と数値レポート | ATTACK の検出と SPACE の区間採用を別々に判断できる |
-| G2 定義と構造の固定 | A0 の入口設計、各定義 ID、容量上限、状態遷移、追加 ABI、pair 保持、全サイズの配置、Reference 契約差分 | Daisuke が意味と範囲を承認し、性能予算とテスト基準を未使用評価前に固定 |
+| G2 定義と構造の固定 | A0 の入口設計、各定義 ID、容量上限、状態遷移、追加 ABI、pair 保持、全サイズの配置、Reference 契約差分 | 設計担当 が意味と範囲を承認し、性能予算とテスト基準を未使用評価前に固定 |
 | G3 製品への一括統合 | ATTACK の A3、SPACE の計算器から PRE／POST、公開 snapshot、GUI、Capture までの縦通し実装 | 各機能の関連責務と異常系を揃える。準備途中の route は有効化しない |
 | G4 両 OS と利用体験の検証 | ATTACK の A4、SPACE の独立評価、macOS／Windows 結果、実機画像と操作記録 | 各 gate と人の読解確認が通る。ATTACK 2MIX の公開を SPACE の完成待ちにはしない |
 | G5 公開準備 | 承認された版の配布物と更新資料 | 公開の承認後、LS、macOS HP、Windows の3チャネルを同版で揃える |
@@ -404,7 +404,7 @@ G1 の研究は、Windows を操作せずに進められる範囲を切り出せ
 現行 DRUM の適用範囲を明示する A0 の設計は先に固め、承認後は 2MIX 検出器の完成を待たずに反映する案とする。
 ただし本書を作成した時点では、G0 の残りテストも G1 の新しい実験も実行していない。
 数式の検証が成功しても、自動選択、ペア比較、性能のどれかが不成立なら、対象の新規計測機能を G3 へ進めない。
-その場合は失敗した条件と選択肢を Daisuke に示し、対象限定や別操作への変更を承認なしに行わない。
+その場合は失敗した条件と選択肢を 設計担当 に示し、対象限定や別操作への変更を承認なしに行わない。
 
 製品コードへ着手する際は、影響ファイルとテストを先に確定する。
 既存の巨大ファイルから必要な責務だけを先行抽出し、新規 owned source を 500 行以下にする。
@@ -428,16 +428,14 @@ G1 の研究は、Windows を操作せずに進められる範囲を切り出せ
 既存文書を本提案だけで上書きせず、承認した意味と対応テストを揃えて改訂する。
 Reference の形式変更は Hypha 単独で確定できないため、次の契約調整が必要になる。
 
-**Handoff 案**
+**技術条件の確認案**
 
-- To: Kirin OS Reference 契約担当
-- From: Codex 2026-09-06
 - What: EARLY／DECAY の測定 artifact の所有者、version、source／cue identity、旧版互換、欠測時の扱いを合意したい。
 - Why: 現在の Reference 詳細 schema は閉じた形式で、新しい二指標をそのまま追加できないため。
 - Next: G1 の定義候補と必要メタデータを確認し、既存の原音試聴と Blind を壊さない契約差分を返す。
 - Ref: 本書 §8、`docs/reference_runtime_v2_handoff_20260905.md`、`ReferenceRuntimeV2Measurement.cpp`。
 
-この Handoff は計画上の依頼案であり、別タスクの作成や外部への送信は行っていない。
+この記録は計画上の提案であり、実施済みの検証ではない。
 
 ## 13. 今回承認を提案する範囲
 
@@ -451,7 +449,7 @@ DECAY は 20 dB 相当時間を主値候補にし、DEPTH を奥行きとして�
 Reference、REPEAT、帯域別の研究順序は、この結果を見て承認する。
 工数と公開日は、自動選択とペア保持の難易度が判明する前には確約しない。
 素材の使用権、未使用評価の隔離履歴、二人の注釈者、Reference 契約の担当者、両 OS の検証時間を着手時の依存関係として確認する。
-Windows は現在の操作停止が解除され、他の実装との占有調整が済むまで操作しない。
+Windowsの実機検証は、承認された隔離環境で行う。
 
 ## 14. 再点検で追加した実装前の必須成果物
 
@@ -479,11 +477,11 @@ G2 の各未決定値は、決定担当、必要な実験、期限ではなく�
 
 ## 参照資料
 
-- [SPACE 提案の精査結果](/Users/nishiodaisuke/Dev/kirin_hypha/docs/hypha_space_decay_design_review_20260906.md)
-- [既存の表示修正と未完了ゲート](/Users/nishiodaisuke/Dev/kirin_hypha/docs/hypha_windows_observability_fix_20260906.md)
-- [Meter 製品契約](/Users/nishiodaisuke/Dev/kirin_hypha/docs/hypha_meter_product_contract_20260831.md)
-- [Hypha の不変条件](/Users/nishiodaisuke/Dev/kirin_hypha/docs/hypha_invariants.md)
-- [ATTACK の対象素材と測定契約](/Users/nishiodaisuke/Dev/kirin_hypha/docs/transient_delta_design.md)
-- [ATTACK 二 profile の評価条件と探索の制限](/Users/nishiodaisuke/Dev/kirin_hypha/docs/transient_delta_phase2_recovery_plan_20260830.md)
-- [Reference runtime v2 の契約資料](/Users/nishiodaisuke/Dev/kirin_hypha/docs/reference_runtime_v2_handoff_20260905.md)
-- [現在の Reference 詳細読取実装](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/reference_audition/ReferenceRuntimeV2Measurement.cpp)
+- [SPACE 提案の精査結果](hypha_space_decay_design_review_20260906.md)
+- [既存の表示修正と未完了ゲート](hypha_windows_observability_fix_20260906.md)
+- [Meter 製品契約](hypha_meter_product_contract_20260831.md)
+- [Hypha の不変条件](hypha_invariants.md)
+- [ATTACK の対象素材と測定契約](transient_delta_design.md)
+- [ATTACK 二 profile の評価条件と探索の制限](transient_delta_phase2_recovery_plan_20260830.md)
+- [Reference runtime v2 の契約資料](reference_runtime_v2_handoff_20260905.md)
+- [現在の Reference 詳細読取実装](../juce_shell/src/reference_audition/ReferenceRuntimeV2Measurement.cpp)

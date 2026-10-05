@@ -46,15 +46,15 @@ SPACE / ATTACK と PRE/POST Blind の方向性は維持してよい。
 
 確認箇所:
 
-- [SPACE capabilities](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/HyphaObservationPageContract.h)
-- [無音判定と取得入口](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/PluginProcessor.cpp:39)
-- [optional ingress](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_hypha_ffi/src/lib.rs:2809)
-- [mode の排他](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/spectrum_exchange_control.rs)
-- [POST 出力の選択](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/PluginProcessor.cpp:506)
-- [Keep 入口](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/PluginProcessor.cpp:632)
-- [Blind の出力と中断時 gain](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp)
-- [版表示の幅条件](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/HyphaObservatoryViewFooter.cpp:79)
-- [AU と network の設定](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/CMakeLists.txt:184)
+- [SPACE capabilities](../juce_shell/src/HyphaObservationPageContract.h)
+- [無音判定と取得入口](../juce_shell/src/PluginProcessor.cpp)
+- [optional ingress](../crates/kirin_hypha_ffi/src/lib.rs)
+- [mode の排他](../crates/kirin_measure/src/spectrum_exchange_control.rs)
+- [POST 出力の選択](../juce_shell/src/PluginProcessor.cpp)
+- [Keep 入口](../juce_shell/src/PluginProcessor.cpp)
+- [Blind の出力と中断時 gain](../juce_shell/src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp)
+- [版表示の幅条件](../juce_shell/src/HyphaObservatoryViewFooter.cpp)
+- [AU と network の設定](../juce_shell/CMakeLists.txt)
 
 ## 3. 実装者の推測を残さない共通ゲート
 
@@ -76,7 +76,7 @@ SA、BL、UP の各要求について、担当、承認状態、入力 fixture�
 44.1 / 48 / 96 / 192 kHz に加え、製品が受理する端点の SR と非対応値を確認する。
 可変 block、最小 block、最大 block、範囲が block 内で終わる場合、seek、loop、再起動、editor の開閉を試験する。
 macOS の出荷対象 AU と VST3、Windows VST3 を同一 source commit で検証する。
-Windows は現在の操作停止と他作業の占有調整が解消した後にのみ操作する。
+Windowsの実機検証は、承認された隔離環境で行う。
 
 画面は 300×200 から 900×600、自由リサイズ、100 / 125 / 150 / 200% と monitor 間の DPI 移動を確認する。
 font floor 11 logical px は下限であって読解の合格証拠ではない。
@@ -242,24 +242,20 @@ TRACK/STEM を Blind の対象から外す提案はしていない。
 手動更新入口を先に実装するなら、全サイズ共通の情報メニューと、HP の二言語の更新説明を同じ変更範囲として承認する。
 HP が別 repository にあることを理由に説明部分を抜かず、担当と成果物を明示する。
 
-**Handoff 案**
+**技術条件の確認案**
 
-- To: Hypha 製品契約担当と Kirin OS Reference 契約担当
-- From: Codex 2026-09-06
 - What: SA / BL の定義凍結、試聴と Record の排他、R-12 の復帰状態、短い TRACK の gain 方針を裁定する。
 - Why: 現行 Reference 契約の流用だけでは PRE/POST 試聴と下流の正本保護を保証できない。
 - Next: 各 ID に承認者、実験、合否、対応 fixture を割り当て、製品実装開始の条件を確定する。
 - Ref: 本書 §2〜§3 と両計画の追加 gate。
 
-**Handoff 案**
+**技術条件の確認案**
 
-- To: Hypha 配布担当と HP 担当
-- From: Codex 2026-09-06
 - What: 共通情報メニューから入る英日更新説明と、3 チャネルの同版リンク確認を準備する。
 - Why: 単に最新 release を開くだけでは、適切な配布物と導入後の版確認まで案内できない。
 - Next: UP-01〜UP-04 を承認し、公開 version、変更内容、対応 OS、PRE/POST の更新手順を二言語で揃える。自動 manifest は別承認とする。
 - Ref: 本書 §4〜§7、[配布 runbook](ls_release/kirin_hypha_ls_runbook.md)。
 
-Handoff は未送信の計画であり、別タスクの作成、Notion 書込み、HP 公開変更は行っていない。
+本書は計画であり、HPの公開変更は行っていない。
 今回は文書改訂と読み取り検証だけで、コード変更、build、install、release、Windows 操作は行っていない。
 日本語技術文書の規範を使い、確認済み事実と未承認案、コードの存在と実機での成立を分離した。

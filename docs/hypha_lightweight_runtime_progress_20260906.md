@@ -65,7 +65,7 @@ Windowsのデスクトップにあるデモ用ショートカットは、保存�
 両方が一致したのは次のファイルだったため、以後のDAW確認先を固定した。
 
 ```text
-C:\Users\hello\OneDrive\ドキュメント\Studio Pro\Songs\Peach_Hypha_Demo(13)\Peach_Hypha_Demo.song
+非公開の検証資料 Pro\Songs\非公開のDAW検証セッション\Peach_Hypha_Demo.song
 ```
 
 20:00にこのファイルを明示して開いた。
@@ -94,7 +94,7 @@ Perceptual、Hybrid VU、TIME五量、SPACE密度を含む全対象が合格し�
 
 ## 同じ曲で確認できたPSBと操作の中断
 
-Peach_Hypha_Demo(13)の150%表示で、停止中はPSBがINACTIVEとなり、再生するとPOSTの20帯域バーが現れた。
+非公開のDAW検証セッションの150%表示で、停止中はPSBがINACTIVEとなり、再生するとPOSTの20帯域バーが現れた。
 20:07と20:09の画像では値が更新されている。
 POSTからΔへの切替後は、外部処理をbypassしたメインPRE/POSTでゼロ付近の線を確認した。
 非ゼロΔ、停止後の消去、再起動後の再現は、まだ合格としていない。
@@ -109,7 +109,7 @@ POST単体Spectrumでも差分専用のFocus Trail領域を予約しており、
 外部操作の変更を取り消したり、その状態で性能値を採用したりしていない。
 共有領域の競合対策は別途[Windows Analysis共有領域の排他と再開](hypha_windows_exchange_safety_20260906.md)に記録した。
 
-その後、Daisukeの操作停止と検証委任を受けて、同じ曲でTRACKのDRUMを検証した。
+その後、同じ検証用の曲でTRACKのDRUMを検証した。
 最適化した単独描画試験でも、31件の合成イベントで全体に362〜446 ms、流線だけで227〜338 msを要した。
 停止後の実機editorにも残余負荷があり、描画と停止時更新を分けて修正する必要がある。
 測定条件と修正対象は[DRUMの描画負荷の検証](hypha_drum_render_diagnosis_20260906.md)に記録した。

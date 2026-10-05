@@ -39,7 +39,7 @@ Work接続の必須化、DAW transportの自動操作、音源の自動再生、
 | --- | --- | --- |
 | 計画の保存先 | kirin_hypha、main、9cb40e56ddbd7c3b9ebb0186c2169467ebaae317 | 本書と統合計画v4を更新する |
 | Hypha Reference | kirin_hypha_reference_abc、B-884、ef9bc148f14adfafd1edede8ac1e771a8800504e | 初版のB-883から進んだgain解析とCapture codec等の差分を統合計画へ記録。既存の未コミット差分を保持 |
-| Kirin OS Reference | kirin_os_reference_delivery、W-3080、31fd330c4b297637bebe321d2d60d6bd59ff643f | Preset保存、Candidate、Library、Historyの基点。確認時はclean |
+| Kirin OS Reference | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | Preset保存、Candidate、Library、Historyの基点。確認時はclean |
 
 実装開始時には両Reference worktreeのHEADと未コミット変更を取り直す。
 別worktreeの古い製品契約にあるA/B表記やWork必須の条件を、現在のA/B/Cと独立Libraryへ持ち込まない。
@@ -538,7 +538,6 @@ macOSとWindows、Studio OneとPro Toolsの対象wrapperで、通常試聴、保
 比較modeと戻り先、attempt内条件の確定順、WG0の実行必須証跡、V1〜V3の受入条件を追加した。
 統合計画では共通DAW snapshot、Tonal表示との分離、三経路の履歴識別、合算容量、共存試験へ接続した。
 新しいcommitとB番号は発行しない。
-NotionのSECTION:DEVとTASKSは利用可能なread toolがなく未読であり、Notionへの書込みも行わない。
 新しい外部APIや外部計測方式を導入しないため、今回は追加の外部調査を必要条件にしない。
 
 次の聴取手順実装はWG0から始める。
@@ -548,16 +547,16 @@ NotionのSECTION:DEVとTASKSは利用可能なread toolがなく未読であり�
 
 ## 13. 参照
 
-- [現行Reference Library receiver](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/reference_library_receiver_20260913.md)
-- [現行ReferenceとCaptureの利用者向け説明](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/README.md)
-- [Captureと操作導線の統合計画](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/hypha_capture_and_workflow_integrated_plan_20260914.md)
-- [Candidateの保存契約](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceWorkspaceCandidate.mjs)
-- [Cueの保存と境界検証](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceWorkspaceCandidateCue.mjs)
-- [Presetの編集処理](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceWorkspaceEditor.mjs)
-- [Preset原本の保存](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceWorkspaceTemplateRepository.mjs)
-- [Library Historyの現行reader](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceLibraryHistory.mjs)
-- [Runtime eventの検証](/Users/nishiodaisuke/Dev/kirin_os_reference_delivery/src/services/referenceWorkspaceRuntimeEvent.mjs)
-- [DAW状態の現行保存](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/reference_audition/ReferenceComparisonSettings.h)
-- [共通Reference UI](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/juce_shell/src/HyphaReferenceComponent.cpp)
-- [Hyphaの表示契約](/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc/docs/hypha_ce2226_jungle_visual_system_20260901.md)
+- [現行Reference Library receiver](reference_library_receiver_20260913.md)
+- [現行ReferenceとCaptureの利用者向け説明](../README.md)
+- [Captureと操作導線の統合計画](hypha_capture_and_workflow_integrated_plan_20260914.md)
+- Candidateの保存契約（非公開の検証資料）
+- Cueの保存と境界検証（非公開の検証資料）
+- Presetの編集処理（非公開の検証資料）
+- Preset原本の保存（非公開の検証資料）
+- Library Historyの現行reader（非公開の検証資料）
+- Runtime eventの検証（非公開の検証資料）
+- [DAW状態の現行保存](../juce_shell/src/reference_audition/ReferenceComparisonSettings.h)
+- [共通Reference UI](../juce_shell/src/HyphaReferenceComponent.cpp)
+- [Hyphaの表示契約](hypha_ce2226_jungle_visual_system_20260901.md)
 - [Reference統合実装計画v4・共通契約とTonal詳細](reference_c_tonal_balance_plan_20260914.md)

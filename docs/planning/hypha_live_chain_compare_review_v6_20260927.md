@@ -106,7 +106,7 @@ exactLoopRangeValidは、artifactとloopが一致し、callbackが整列した�
 非分割2ケースと8秒包含loopはfalseであり、過剰なexact-loop証明に依存した反例ではない。
 5 ms遷移をゼロにして得た結果でもない。
 
-fixture: `/private/tmp/hypha-v6-loop-audit.KQ7AmL/loop_audit.cpp`。
+fixture: 非公開の描画検証資料。
 SHA-256: `a04fd11ac88171ff8995d4d2e73413620b8a82ce667e41b93dffcc8ee96ab610`。
 compileはclang++のC++17、O2、Wall、Wextra、Werrorで成功し、4条件の期待結果をassert相当で確認してexit 0。
 独立した再compileと再実行でも同じ値を得た。
@@ -163,12 +163,9 @@ fetch/merge/pushは実施せず、サーバー状態や統合branch全体の品�
 | 文書link、章/試験ID、fence、空白、入力hash | pass。ローカル参照9件、章0〜16、LC-01〜32、G1-01〜10、fence対、末尾空白、元入力SHA-256不変を確認 |
 | cargo test/clippy、製品全native、実DAW、実音、性能、installer | skip。製品変更なし。G0〜G6は未実施 |
 
-セッション記録手順を読み、Notionへの書込み禁止を優先した。
-現在地、日次ログ、HandoffはNotionへ記録せず、以下に引継ぎ内容を残す。
-迂回接続や他の利用者タスクへのメッセージ送信は行っていない。
 
-現在地: 第6版を精査し、第7版と本記録を作成。
-日次ログ相当: 2026-09-27、コードと公式仕様を照合し、4秒loopの再生待機を実rendererへの模擬入力で確認。
+改訂: 第6版を精査し、第7版と本記録を作成。
+検証概要: 2026-09-27、コードと公式仕様を照合し、4秒loopの再生待機を実rendererへの模擬入力で確認。
 Handoff: 採用commitを確定して参照を再照合した後、G1-01〜03を先行し、G1-07で取得から両source完走まで、G1-08でadmission分離を実証する。
 音声保持3秒、128 MiB、live転送、動的PDC、各host対応は未実証の候補であり、承認済みの完成仕様ではない。
 必要な新しい契約や範囲変更は利用者の判断を求める。
@@ -178,4 +175,4 @@ Commit: 新規なし。基点 ee522a53 / B-1023。
 Test: 文書/算術/限定native fixture pass、製品全体/実機 skip。
 LSアップ用: skip。
 HPアップ用: macOS skip、Windows skip。
-未処理: 採用基点とG0/G1、必要な契約変更の承認、Notion禁止による未記録。
+未処理: 採用基点とG0/G1、必要な契約変更の承認。

@@ -16,7 +16,7 @@ function validateEntrances(agents, claude, readme) {
     assert.ok(text.includes(build), 'missing build-only guide');
   }
   assert.match(claude, /^@AGENTS\.md$/m, 'Claude must import the shared project contract');
-  assert.ok(agents.indexOf(guide) < agents.indexOf('## Notion操作'), 'entry is not visible at startup');
+  assert.ok(agents.indexOf(guide) < agents.indexOf('## 公開リリース3チャネル'), 'entry is not visible at startup');
   assert.ok(readme.indexOf(guide) < readme.indexOf('## Start in under a minute'), 'README hides the developer entry');
 }
 
@@ -37,7 +37,7 @@ test('missing guides or replacing the Claude import cannot silently break discov
 test('the guide distinguishes help, resume, old worktrees and mandatory release boundaries', () => {
   const text = read(guide);
   for (const token of ['--release --help', 'build-only', '作業checkout内', 'release_state/',
-    '古いworktree', '別checkout', '強制再読', 'LS', '公開承認', 'RELEASE_COMPLETE']) {
+    '古いworktree', '別checkout', 'LS', '公開承認', 'RELEASE_COMPLETE']) {
     assert.ok(text.includes(token), `missing workflow boundary: ${token}`);
   }
 });
