@@ -32,6 +32,7 @@
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
 #include "HyphaVersionBlindScreen.h"
+#include "HyphaReferenceTrackingNotice.h"
  #include "HyphaReferencePreparationWatch.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
@@ -329,8 +330,7 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
-    bool referenceTrackingStopShown = false; // 追従が上限・±6 dB で止まったことを一度だけ知らせる
-    int referenceTrackingStopSlot = 0;       // 知らせた役（同じ役を聴いているあいだは止まり直しても知らせない）
+    hypha::reference_ui::TrackingStopNotice referenceTrackingStop;  // 追従が止まった知らせ（同じ役の同じ試みで一度）
     juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;

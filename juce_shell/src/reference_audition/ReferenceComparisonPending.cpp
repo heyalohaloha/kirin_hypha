@@ -110,6 +110,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive)
 {
     reconcileVersionBlindSession();
+    reconcileOutputMark();
     if (offlineRenderSeen.exchange (false, std::memory_order_acq_rel)) forgetHeldAudition();
     if (activePendingIntent.load (std::memory_order_acquire) == 0 && !armResume()) return;
     PendingIntent intent;
@@ -129,6 +130,9 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         }
     };
     auto& target = slotController (intent.view.slot);
+    // 戻す控えが消えた（ライブラリが公開を引っ込めた）なら、同じ音が戻っても鳴らさない。音源が変わったと言う。
+    if (intent.resume && ! target.hasHeldSelection())
+    { dropResume(); publish (Stage::sourceChanged, true); return; }
     const auto state = target.snapshot();
     const auto inputSafety = pendingInputSafety.load (std::memory_order_acquire);
     if (intent.safetyEpoch != pendingSafetyEpoch.load (std::memory_order_acquire)

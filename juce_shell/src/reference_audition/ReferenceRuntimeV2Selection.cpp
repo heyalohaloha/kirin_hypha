@@ -145,6 +145,28 @@ namespace hypha::reference_audition
         return versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
     }
 
+    std::int64_t RuntimeV2Controller::loopedCuePosition (std::int64_t hostPosition) const noexcept
+    {
+        for (int attempt = 0; attempt < 3; ++attempt)
+        {
+            const auto generation = mappingGeneration.load (std::memory_order_acquire);
+            if ((generation & 1u) != 0)
+                continue;
+            const auto start = cueStart.load (std::memory_order_relaxed);
+            const auto end = cueEnd.load (std::memory_order_relaxed);
+            const auto hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
+            const auto sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
+            std::int64_t result = -1, delta = 0, origin = 0;
+            if (end > start && sourceAnchor >= start && sourceAnchor < end
+                && checkedSubtract (hostPosition, hostAnchor, delta)
+                && checkedAdd (sourceAnchor - start, delta, origin))
+                result = start + positiveModulo (origin, end - start);
+            if (mappingGeneration.load (std::memory_order_acquire) == generation)
+                return result;
+        }
+        return -1;
+    }
+
     bool RuntimeV2Controller::restartsAtCueStart() const noexcept
     {
         return ! versionComparison && ! sampleLocked.load (std::memory_order_acquire)
@@ -306,8 +328,14 @@ namespace hypha::reference_audition
         }
     }
 
+    // 作業スレッドの A へ切る道（ライブラリが公開を引っ込めた・選択が使えない・音源が確かめられない）。戻す控えも消す：
+    // 同じ音が公開し直されても勝手に鳴り直さない（受け取り・読み直しでは役を始めない）。
     void RuntimeV2Controller::failClosedToA() noexcept
     {
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (heldSelection.valid) { heldSelection = {}; heldWithdrawn.store (true, std::memory_order_release); }
+        }
         revokeAuditionPublication();
         if (blind.ongoing())
             invalidateBlind();

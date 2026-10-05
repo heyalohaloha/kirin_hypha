@@ -63,8 +63,7 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             if (normalSelectionGeneration.load (std::memory_order_acquire) == selectionGeneration)
             {
-                currentSnapshot.matchFailure = reason;
-                currentSnapshot.neededAttenuationDb = neededAttenuationDb;
+                failMatchLocked (reason, neededAttenuationDb);
                 preparedNormalSelection.valid = false;
             }
             return false;
@@ -254,7 +253,7 @@ namespace hypha::reference_audition
             : normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel) + 1;
         const bool alreadySelected = bSelected.load (std::memory_order_acquire);
         const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
-        { const juce::ScopedLock lock (stateLock); currentSnapshot.matchFailure = MatchFailure::none; currentSnapshot.neededAttenuationDb = 0.0; }
+        { const juce::ScopedLock lock (stateLock); beginMatchLocked(); }
         if (!prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp, generation,
                                     expectedPlaybackIdentity)) return false;
         const bool selected = activatePreparedB (generation);

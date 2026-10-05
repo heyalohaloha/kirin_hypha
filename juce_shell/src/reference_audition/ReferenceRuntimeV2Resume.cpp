@@ -49,6 +49,23 @@ void RuntimeV2Controller::forgetHeldSelection()
 {
     const juce::ScopedLock lock (stateLock);
     heldSelection = {};
+    heldWithdrawn.store (false, std::memory_order_release);
+}
+
+void RuntimeV2Controller::beginMatchLocked() noexcept
+{
+    ++currentSnapshot.matchAttempt;
+    if (currentSnapshot.matchFailure == MatchFailure::none && ! (currentSnapshot.neededAttenuationDb < 0.0)) return;
+    currentSnapshot.matchFailure = MatchFailure::none;
+    currentSnapshot.neededAttenuationDb = 0.0;
+    ++currentSnapshot.matchFailureSerial;
+}
+
+void RuntimeV2Controller::failMatchLocked (MatchFailure reason, double neededAttenuationDb) noexcept
+{
+    currentSnapshot.matchFailure = reason;
+    currentSnapshot.neededAttenuationDb = neededAttenuationDb;
+    ++currentSnapshot.matchFailureSerial;
 }
 
 void RuntimeV2Controller::holdCurrentGainLocked() noexcept
@@ -64,5 +81,6 @@ void RuntimeV2Controller::holdCurrentGainLocked() noexcept
     facts.loudnessDeltaBMinusA = currentSnapshot.loudnessDeltaBMinusA;
     facts.truePeakDeltaBMinusA = currentSnapshot.truePeakDeltaBMinusA;
     facts.tracking = currentSnapshot.tracking;
+    facts.peakShortfallDb = currentSnapshot.peakShortfallDb;  // 戻したときも同じ「上限で届かない量」を言う
 }
 }

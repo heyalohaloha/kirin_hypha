@@ -387,7 +387,8 @@ namespace hypha::reference_audition
             activeMappingKey = mappingKey;
             activeContentMappingKey.clear();
         }
-        pages.setPinnedCue (mappedCueStart, mappedCueEnd, cue->loopEnabled);
+        // Cue の頭から鳴らし直す役（DAW の位置に合わせない曲）も、周回して頭へ戻るので頭のページを読んでおく。
+        pages.setPinnedCue (mappedCueStart, mappedCueEnd, cue->loopEnabled || restartsAtCueStart());
         next.sourceIntegratedLoudness = selectedSource->measurementSummary
             && selectedSource->measurementSummary->loudnessLufsI
             ? *selectedSource->measurementSummary->loudnessLufsI : unavailable();

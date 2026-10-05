@@ -90,9 +90,9 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         return step.action;
     }
     currentSnapshot.tracking = TrackingState::following;
+    currentSnapshot.peakShortfallDb = step.shortfallDb;  // 先に書く：戻す控え（applyMatchedGainLocked）にも同じ量が入る
     applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
                             louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
-    currentSnapshot.peakShortfallDb = step.shortfallDb;
     return TrackingAction::move;
 }
 
@@ -157,17 +157,18 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     if (shortfall > peakShortfallToleranceDb + 1.0e-9)
     {
         const juce::ScopedLock lock (stateLock);
-        currentSnapshot.matchFailure = MatchFailure::ceilingExceeded;
-        currentSnapshot.neededAttenuationDb = referenceAttenuationToMatch (required);  // 承認すれば合わせられる下げ幅
+        beginMatchLocked();
+        failMatchLocked (MatchFailure::ceilingExceeded, referenceAttenuationToMatch (required));  // 承認すれば合わせられる下げ幅
         return RematchResult::ceilingExceeded;
     }
 
     const juce::ScopedLock lock (stateLock);
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation || ! bSelected.load (std::memory_order_acquire))
         return RematchResult::notPlaying;
+    beginMatchLocked();  // 成功は前の失敗と承認の下げ幅を必ず消す
     currentSnapshot.tracking = TrackingState::fixed;
+    currentSnapshot.peakShortfallDb = shortfall;  // 先に書く：戻す控えにも同じ量が入る
     applyMatchedGainLocked (required - shortfall, aLoudness, aPeak, sourceLoudness, sourcePeak);  // 0.5 dB 以下は上限まで
-    currentSnapshot.peakShortfallDb = shortfall;
     trackingAnchorDb = required - shortfall;
     if (heldSelection.valid) heldSelection.facts.anchorGainDb = required - shortfall;
     return RematchResult::matched;

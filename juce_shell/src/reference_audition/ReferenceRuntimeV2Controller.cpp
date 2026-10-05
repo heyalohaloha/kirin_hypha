@@ -251,11 +251,15 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::publishLocked (Snapshot next)
     {
+        next.matchAttempt = currentSnapshot.matchAttempt;
+        next.matchFailureSerial = currentSnapshot.matchFailureSerial;
         if (next.playbackIdentity.isNotEmpty() && next.playbackIdentity == currentSnapshot.playbackIdentity)
         {
             next.matchFailure = currentSnapshot.matchFailure;
             next.neededAttenuationDb = currentSnapshot.neededAttenuationDb;  // 上限超えの承認の下げ幅も一緒に残す
         }
+        else if (currentSnapshot.matchFailure != MatchFailure::none || currentSnapshot.neededAttenuationDb < 0.0)
+            ++next.matchFailureSerial;  // 別の音になって失敗が消えた
         next.migratedVersionChoice = legacyVersionChoice;
         next.selectionGeneration = appliedSelectionGeneration.load (std::memory_order_acquire);
         next.bSelected = bSelected.load (std::memory_order_acquire);

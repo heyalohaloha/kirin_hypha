@@ -64,6 +64,8 @@ namespace hypha::reference_audition
         // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。
         double neededAttenuationDb = 0.0;
         double peakShortfallDb = 0.0;  // 上限まで上げて鳴らしていて、A に届かない量（0.5 dB 以下、0 なら合っている）
+        std::uint64_t matchAttempt = 0;        // MATCH の試みの番号（押した・待たせた・やり直し）。知らせを一度にする鍵
+        std::uint64_t matchFailureSerial = 0;  // 失敗と承認の下げ幅を作った・消したときだけ変わる番号
         // 承認して A（POST の出力全体）を下げている量（0 以下）。比較の制御が出す（役の値ではない）。
         double heldAttenuationDb = 0.0;
         juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.

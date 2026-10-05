@@ -331,6 +331,14 @@ void matchesAndFollows (const juce::File& sandbox)
                  && controller.rematch (std::numeric_limits<double>::quiet_NaN(), -2.0) == ref::RematchResult::levelUnavailable
                  && closeTo (controller.snapshot().appliedGainDb, 2.5),
              "a MATCH over the ceiling or without an A window keeps the gain and says why");
+    const auto refusedAgain = controller.snapshot();
+    require (refusedAgain.matchFailure == ref::MatchFailure::ceilingExceeded && refusedAgain.neededAttenuationDb < 0.0,
+             "the refused MATCH again offers how far A must be lowered");
+    require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched
+                 && controller.snapshot().matchFailure == ref::MatchFailure::none
+                 && ! (controller.snapshot().neededAttenuationDb < 0.0)
+                 && controller.snapshot().matchFailureSerial != refusedAgain.matchFailureSerial,
+             "a later MATCH that fits clears the old failure and its offer");
     controller.selectA();
     render(); render();
     require (controller.rematch (-13.5, -2.0) == ref::RematchResult::notPlaying, "MATCH again needs C to be playing");
@@ -393,7 +401,11 @@ void matchesAndFollows (const juce::File& sandbox)
                  && controller.snapshot().tracking == ref::TrackingState::stoppedRange
                  && closeTo (controller.snapshot().appliedGainDb, -2.0),
              "a gain more than 6 dB from the MATCH stops following and keeps the current gain");
-    require (controller.followSelection (steady (-17.0), -2.0) == ref::TrackingAction::keep, "a stopped follow stays stopped");
+    // 下げる向きの要求でも、±6 dB で止めた追従は戻らない（上限で止めたものだけが下げる向きで戻る）。
+    require (controller.followSelection (steady (-19.0), -2.0) == ref::TrackingAction::keep
+                 && controller.snapshot().tracking == ref::TrackingState::stoppedRange
+                 && closeTo (controller.snapshot().appliedGainDb, -2.0),
+             "a follow stopped 6 dB from the MATCH stays stopped, even when A asks for a lower gain");
     controller.selectA();
     render(); render();
 }

@@ -112,7 +112,8 @@ void testReferenceCueRestart (const juce::File& sandbox)
                  && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
              "a library with one B song whose Cue does not loop");
 
-    ref::ReferenceComparisonController controller (root, [] (bool) { return true; });
+    int auditions = 0;  // Rust の試聴の許可を取った回数（作り直すと増える）
+    ref::ReferenceComparisonController controller (root, [&] (bool active) { if (active) ++auditions; return true; });
     controller.configure ({ "cue-restart", {}, 43, true }, 48'000, 2);
     controller.setPresented (true);
     juce::AudioBuffer<float> block (2, 480);
@@ -139,8 +140,8 @@ void testReferenceCueRestart (const juce::File& sandbox)
     require (controller.snapshot().referenceReady, "the B song prepares");
     const auto nearCueStart = [&] { const auto value = block.getSample (0, 479); return value > 0.1f && value < rampAt (4'800); };
 
-    // 選んでから曲の終わりまで再生し（Cue の頭のページは追い出される）、Cue を過ぎた。範囲外とは言わず、Cue の頭を
-    // 先に読み直して「準備できた」になり、押せば今の位置から Cue の頭が鳴る。
+    // 選んでから曲の終わりまで再生し、Cue を過ぎた。範囲外とは言わず、Cue の頭は読んだままで（周回して頭へ戻る役）
+    // 「準備できた」になり、押せば今の位置から Cue の頭が鳴る。
     while (position < songFrames + 48'000)
     { host (true); if (position % 48'000 < 480) juce::Thread::sleep (20); }  // 1 秒ごとに読み込みを待つ（頭を追い出す）
     for (int attempt = 0; attempt < 1500 && ! (controller.snapshot().referenceSelection != nullptr
@@ -150,9 +151,24 @@ void testReferenceCueRestart (const juce::File& sandbox)
     require (beyond.referenceSelection != nullptr && ! beyond.referenceSelection->auditionOutsideCue
                  && beyond.referenceSelection->auditionBuffered,
              "past the Cue, B is not reported outside its Cue; it is ready to start at the Cue's head");
+    const auto pressedAt = position - 480;  // B の起点は、押したときに見えていた最後のブロックの位置
     require (controller.requestAudition (3, -14.0, -6.0), "B plays past the Cue");
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && nearCueStart(), "B starts at the head of its Cue");
+
+    // 鳴っている B が Cue の終わりを越えても、A へ切らずに Cue の頭へ周回して鳴り続ける（鳴らない間を作らない・Rust の
+    // 試聴を作り直さない）。背景の読み込みに 1 ページずつ追いつかせ、どのブロックも鳴ったかを確かめる。
+    const auto auditionsBefore = auditions;
+    const auto cueEndAt = pressedAt + songFrames;
+    int gaps = 0;
+    while (position < cueEndAt + 48'000)
+    {
+        if (! host (true)) ++gaps;
+        juce::Thread::sleep (position % 48'000 < 480 ? 20 : 1);
+    }
+    require (gaps == 0 && auditions == auditionsBefore && controller.snapshot().audibleComparisonSlot == 3
+                 && std::abs (block.getSample (0, 479) - rampAt (position - 1 - cueEndAt)) < 1.0e-4f,
+             "past its Cue's end, B goes on from the Cue's head without a gap and without a new audition");
 
     // 鳴らしている B を止め、起点より前（DAW の頭）へ戻して再生する。自動で B に戻り、Cue の頭から鳴る。
     const auto unknown = std::numeric_limits<double>::quiet_NaN();

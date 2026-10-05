@@ -58,8 +58,28 @@ void ReferenceComparisonController::dropResume()
     reference.forgetHeldSelection();
 }
 
+void ReferenceComparisonController::reconcileOutputMark()
+{
+    const int marked = normalOutputSlot.load (std::memory_order_acquire);
+    for (int slot = 1; slot <= 3; ++slot)
+        if (slotController (slot).takeHeldWithdrawn() && marked == slot && activePendingIntent.load (std::memory_order_acquire) == 0
+            && switchSlot.load (std::memory_order_acquire) != slot)
+        {
+            const juce::ScopedLock lock (selectionLock);
+            pendingAudition = {};
+            pendingAudition.view = { slot, PendingAuditionView::Stage::sourceChanged };
+        }
+    if (marked < 1 || marked > 3 || switchSlot.load (std::memory_order_acquire) == marked
+        || activePendingIntent.load (std::memory_order_acquire) != 0) return;
+    const auto& target = slotController (marked);
+    if (target.outputSelected() || target.hasOutputPath() || target.hasHeldSelection()) return;
+    auto expected = marked;
+    normalOutputSlot.compare_exchange_strong (expected, 0, std::memory_order_acq_rel);
+}
+
 void ReferenceComparisonController::continueAfterSwitch (int slot, bool continues)
 {
+    reconcileOutputMark();  // 控えも出力も無い役の古い印で、選択の替えを「鳴っている役の替え」と取り違えない
     bool pendingHere = false;
     {
         const juce::ScopedLock lock (selectionLock);

@@ -99,14 +99,19 @@ namespace hypha::reference_audition
             const auto generation = mappingGeneration.load (std::memory_order_acquire);
             if ((generation & 1u) != 0)
                 continue;
-            const auto sourcePosition = mappedSourcePosition (hostPosition);
+            auto sourcePosition = mappedSourcePosition (hostPosition);
             const auto start = cueStart.load (std::memory_order_relaxed);
             const auto end = cueEnd.load (std::memory_order_relaxed);
             const auto loops = cueLoops.load (std::memory_order_relaxed);
+            // Cue の頭から鳴らし直す役は、Cue の終わり・DAW のループで外へ出ても止めずに周回する（A へ切ると約 0.5 秒
+            // 鳴らず、Rust の試聴と記録を作り直す）。
+            const bool restart = restartsAtCueStart();
+            if (sourcePosition < 0 && restart)
+                sourcePosition = loopedCuePosition (hostPosition);
             if (sourcePosition < 0
                 || mappingGeneration.load (std::memory_order_acquire) != generation)
                 continue;
-            rendered = pages.renderCue (buffer, sourcePosition, start, end, loops, 1.0f);
+            rendered = pages.renderCue (buffer, sourcePosition, start, end, loops || restart, 1.0f);
         }
         if (! rendered)
         {

@@ -108,6 +108,9 @@ namespace hypha::reference_audition
         std::uint64_t requestedGeneration() const; // 今の選択の世代（状態の selectionGeneration と比べる）
         juce::String heldPlaybackIdentity() const;
         void forgetHeldSelection();
+        // A へ切る道（ライブラリが公開を引っ込めた・音源が確かめられない）で戻す控えを消した。比べる制御が一度だけ読み、
+        // 鳴っていた役を「音源が変わった」で止める（同じ音が戻っても勝手に鳴り直さない）。
+        bool takeHeldWithdrawn() noexcept { return heldWithdrawn.exchange (false, std::memory_order_acq_rel); }
 
     private:
         struct Configuration
@@ -191,6 +194,9 @@ namespace hypha::reference_audition
         // 自動で戻すときに今の位置がその Cue の外（選んだ後に頭へ戻した・Cue を過ぎた）なら、今の位置を起点に Cue の
         // 頭から鳴らし直す。DAW の位置に合わせる曲（同じ Work・V）は置き直さない（位置を動かすのは利用者）。
         bool restartsAtCueStart() const noexcept;
+        // Audio Thread。Cue の頭から鳴らし直す役が鳴っているあいだに Cue の外へ出た（Cue の終わり・DAW のループ）とき
+        // の位置：選んだときの起点から Cue を周回した位置（終わりの次は頭）。公開を引っ込めず、試聴を作り直さない。
+        std::int64_t loopedCuePosition (std::int64_t hostPosition) const noexcept;
         bool restartCueAtPlayhead (std::int64_t hostPosition) noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
@@ -278,7 +284,12 @@ namespace hypha::reference_audition
             bool valid = false;
         } heldSelection; // stateLock
         double trackingAnchorDb = 0.0; // stateLock：鳴っている選択の MATCH の gain（追従の幅の中心）
+        std::atomic<bool> heldWithdrawn { false };
         void holdCurrentGainLocked() noexcept;
+        // MATCH の結果（失敗・承認の下げ幅）を書くのはこの 2 つだけ。試みの始めに前の失敗を必ず消す（成功しても前の
+        // 失敗が残ると、古い量の承認が出る）。stateLock を持って呼ぶ。
+        void beginMatchLocked() noexcept;
+        void failMatchLocked (MatchFailure, double neededAttenuationDb) noexcept;
         // 決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
         void applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
                                      double sourceLoudness, double sourcePeakDbtp) noexcept;

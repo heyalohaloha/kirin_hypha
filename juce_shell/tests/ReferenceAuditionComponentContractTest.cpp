@@ -11,6 +11,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
+#include "../src/HyphaReferenceTrackingNotice.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -89,8 +90,26 @@ reference_ui::State readyState()
 }
 }
 
+// 追従が止まった知らせは、停止・シーク・ループで N 回自動に戻っても一度だけ。押し直す・別の役なら、また一度。
+static void verifyTrackingStopNoticeOnce()
+{
+    reference_ui::TrackingStopNotice notice;
+    KIRIN_REF_REQUIRE (! notice.update (true, 3, 1, false));
+    KIRIN_REF_REQUIRE (notice.update (true, 3, 1, true));
+    int shown = 0;
+    for (int round = 0; round < 5; ++round)
+    {
+        shown += notice.update (false, 0, 0, true) ? 1 : 0;  // 停止：A に戻った
+        shown += notice.update (true, 3, 1, true) ? 1 : 0;   // 自動で戻った同じ試み
+    }
+    KIRIN_REF_REQUIRE (shown == 0);
+    KIRIN_REF_REQUIRE (notice.update (true, 3, 2, true));   // 押し直した
+    KIRIN_REF_REQUIRE (notice.update (true, 2, 2, true));   // 別の役
+}
+
 void verifyReferenceAuditionComponentContract()
 {
+    verifyTrackingStopNoticeOnce();
     verifyReferenceVisualNavigation();
     verifyReferenceVisualComparison();
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;

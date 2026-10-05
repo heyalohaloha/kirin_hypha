@@ -172,16 +172,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     // 追従が上限（True Peak）か MATCH から ±6 dB で止まったら一度だけ知らせる（R-28）。今の gain は保たれる。
     // 上限で止めた追従は A が静かになると下げる向きで戻るので、同じ役を聴いているあいだは止まり直しても知らせない
     // （止まっているかは状態の行が言う）。
+    // 鍵は役と MATCH の試みの番号：停止・シーク・ループで自動に戻っても同じ試みなので、知らせは出し直さない。
     using Tracking = hypha::reference_audition::TrackingState;
-    const bool trackingStopped = runtime.bSelected && (audible.tracking == Tracking::stoppedCeiling || audible.tracking == Tracking::stoppedRange);
-    const int trackedSlot = runtime.bSelected ? runtime.audibleComparisonSlot : 0;
-    if (trackedSlot != referenceTrackingStopSlot)
-        referenceTrackingStopShown = false;
-    referenceTrackingStopSlot = trackedSlot;
-    if (trackingStopped && ! referenceTrackingStopShown)
+    const bool trackingStopped = audible.tracking == Tracking::stoppedCeiling || audible.tracking == Tracking::stoppedRange;
+    if (referenceTrackingStop.update (runtime.bSelected, runtime.audibleComparisonSlot, audible.matchAttempt, trackingStopped))
         showToast (audible.tracking == Tracking::stoppedCeiling ? "Level follow stopped at the safe ceiling. The current gain is kept."
                                                                 : "Level follow stopped 6 dB from the MATCH. The current gain is kept.");
-    referenceTrackingStopShown = referenceTrackingStopShown || trackingStopped;
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
     const bool connected = runtime.libraryReceived;

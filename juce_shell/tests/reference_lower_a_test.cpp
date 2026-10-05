@@ -15,8 +15,23 @@ constexpr int songFrames = 480'000;  // 10 秒
 constexpr float songLevel = 0.1f, aLevel = 0.5f;
 bool closeTo (double value, double expected, double tolerance = 1.0e-4) { return std::abs (value - expected) <= tolerance; }
 
+// A の直近 10 秒（10 Hz のメーター履歴）が一定の音量。
+std::vector<KirinMeterHistoryEntry> steadyA (double lufs)
+{
+    std::vector<KirinMeterHistoryEntry> history (100);
+    for (auto& entry : history)
+    {
+        entry = {};
+        entry.measurement_epoch = 1; entry.run_id = 1; entry.observation_count = 1;
+        entry.resolution = KIRIN_METER_HISTORY_10_HZ;
+        entry.lufs_m = { lufs, lufs, lufs };
+        entry.true_peak = { -12.0, -12.0, -12.0 };
+    }
+    return history;
+}
+
 juce::var lowerASets (const juce::String& setId, const juce::File& song, const juce::String& hash, const juce::String& pcm,
-                      const ref::RuntimeContentReceipt& source)
+                      const ref::RuntimeContentReceipt& source, bool prepared = true, int revision = 1)
 {
     auto* identity = new juce::DynamicObject();
     identity->setProperty ("catalog_reference_id", "catalog:source-test");
@@ -38,10 +53,10 @@ juce::var lowerASets (const juce::String& setId, const juce::File& song, const j
     candidate->setProperty ("display_name", song.getFileNameWithoutExtension());
     candidate->setProperty ("source_kind", "catalog_track");
     candidate->setProperty ("source_identity", juce::var (identity));
-    candidate->setProperty ("source_artifact", juce::var (artifact));
+    candidate->setProperty ("source_artifact", prepared ? juce::var (artifact) : juce::var());  // 準備中は音源の記録が無い
     candidate->setProperty ("cues", juce::Array<juce::var> { juce::var (cue) });
     candidate->setProperty ("default_cue_id", "47474747-4747-4747-8747-474747474747");
-    candidate->setProperty ("preparation_status", "prepared");
+    candidate->setProperty ("preparation_status", prepared ? "prepared" : "pending");
     auto* set = new juce::DynamicObject();
     set->setProperty ("song_set_id", setId);
     set->setProperty ("revision_id", "68686868-6868-4868-8868-686868686868");
@@ -51,7 +66,7 @@ juce::var lowerASets (const juce::String& setId, const juce::File& song, const j
     auto* root = new juce::DynamicObject();
     root->setProperty ("format", "kirin_hypha_reference_library_sets");
     root->setProperty ("version", "1.0");
-    root->setProperty ("revision", 1);
+    root->setProperty ("revision", revision);
     root->setProperty ("manifest_revision", 1);
     root->setProperty ("song_sets", juce::Array<juce::var> { juce::var (set) });
     root->setProperty ("check_sets", juce::Array<juce::var>());
@@ -163,9 +178,81 @@ void testReferenceLowerA (const juce::File& sandbox)
         position += block.getNumSamples();
         return rendered;
     };
-    for (int attempt = 0; attempt < 1500 && ! controller.snapshot().referenceReady; ++attempt)
-    { host(); juce::Thread::sleep (10); }
-    require (controller.snapshot().referenceReady, "the quiet B song prepares");
+    // 作業スレッドを待つ：条件が満ちるまでブロックを流して待ちを回す（期限 10 秒。決まった回数の sleep に頼らない）。
+    bool sounded = false;  // 最後のブロックで役が鳴ったか
+    const auto until = [&] (const auto& condition, const char* what, bool playing = true)
+    {
+        const auto deadline = juce::Time::getMillisecondCounter() + 10'000;
+        while (! condition())
+        {
+            require (juce::Time::getMillisecondCounter() < deadline, what);
+            sounded = host (true, playing);
+            controller.servicePendingAudition (-10.0, -12.0, true);
+            juce::Thread::sleep (1);
+        }
+    };
+    until ([&] { const auto s = controller.snapshot(); return s.referenceReady && s.checkReady; }, "the quiet B song prepares");
+
+    // 押したときも 0.5 dB の決まり（B の peak −2 dBTP、上限 −1 dBTP）：上限に 0.3 dB 届かないなら上限まで上げて鳴らし
+    // 届かない量を持つ。0.6 dB なら断り、承認すれば合う下げ幅を言う。B と C で同じ。
+    for (const int slot : { 3, 2 })
+    {
+        const auto role = [&] { const auto s = controller.snapshot(); return slot == 3 ? *s.referenceSelection : *s.checkSelection; };
+        require (controller.requestAudition (slot, -16.7, -12.0), "a role 0.3 dB short of the ceiling plays at the ceiling");
+        require (closeTo (role().appliedGainDb, 1.0, 1.0e-6) && closeTo (role().peakShortfallDb, 0.3, 1.0e-6),
+                 "it says how far short of A it plays");
+        controller.selectA(); host(); host();
+        require (! controller.requestAudition (slot, -16.4, -12.0) && role().matchFailure == ref::MatchFailure::ceilingExceeded
+                     && closeTo (role().neededAttenuationDb, -1.6, 1.0e-6),
+                 "a role 0.6 dB short is refused with the amount A must be lowered");
+    }
+
+    // 停止・シークで戻しても、追従で変わった「上限で届かない量」まで同じに戻る。
+    require (controller.requestAudition (3, -18.5, -12.0) && closeTo (controller.snapshot().referenceSelection->appliedGainDb, -0.5),
+             "B plays below the ceiling");
+    host(); host();
+    require (controller.followAudition (steadyA (-16.7), -12.0) == ref::TrackingAction::move
+                 && closeTo (controller.snapshot().referenceSelection->peakShortfallDb, 0.3, 1.0e-6),
+             "following A up to the ceiling says how far short it plays");
+    for (int index = 0; index < 4; ++index) host (true, false);
+    require (! host (true, false) && controller.auditionHeld(), "a stop keeps the B selection");
+    sounded = false;
+    until ([&] { return sounded; }, "B comes back after the stop");
+    require (closeTo (controller.snapshot().referenceSelection->peakShortfallDb, 0.3, 1.0e-6)
+                 && closeTo (controller.snapshot().referenceSelection->appliedGainDb, 1.0, 1.0e-6),
+             "B comes back with the same gain and the same shortfall");
+
+    // ローカル Blind が B の戻す控えを譲らせるのは、Rust の許可が通った後だけ（断られたら利用者の選択は残る）。
+    until ([&] { return ! controller.outputDecision (hypha::output_owner::Activity::localBlind).refused(); },
+           "B returns its output while stopped", false);
+    require (controller.auditionHeld(), "B is held while stopped");
+    require (controller.reserveLocalBlind(), "a local Blind reserves its slot");
+    controller.releaseLocalBlind (0);  // Rust が断った
+    require (controller.auditionHeld(), "a refused local Blind leaves the held B selection");
+    require (controller.reserveLocalBlind(), "a local Blind reserves its slot again");
+    controller.bindLocalBlind (7);     // Rust が許した
+    require (! controller.auditionHeld(), "an admitted local Blind clears the held B selection");
+    controller.releaseLocalBlind (7);
+
+    // Kirin OS がライブラリを送り直し、B の曲をいったん「準備中」にしてから同じ音で戻しても、B は勝手に鳴り直さない。
+    // 戻す控えと「鳴っている役」の印を消し、音源が変わったと言う。
+    until ([&] { return controller.requestAudition (3, -16.7, -12.0) && controller.snapshot().audibleComparisonSlot == 3; },
+           "B plays again");
+    for (int index = 0; index < 4; ++index) host (true, false);
+    require (controller.auditionHeld(), "B is held while stopped before the library changes");
+    require (writeJson (root.getChildFile ("library/sets.json"),
+                        lowerASets ("79797979-7979-4979-8979-797979797979", file, hash, pcm, source, false, 2)),
+             "Kirin OS republishes the B song as being prepared");
+    until ([&] { return controller.snapshot().referenceSelection->rejectionCode == "reference_source_unavailable"; },
+           "the B song becomes unavailable", false);
+    require (writeJson (root.getChildFile ("library/sets.json"),
+                        lowerASets ("79797979-7979-4979-8979-797979797979", file, hash, pcm, source, true, 3)),
+             "Kirin OS republishes the same B song as prepared");
+    until ([&] { return controller.snapshot().referenceReady; }, "the same B song is ready again", false);
+    for (int index = 0; index < 40; ++index) { host(); controller.servicePendingAudition (-10.0, -12.0, true); }
+    require (controller.snapshot().audibleComparisonSlot == 0 && ! controller.auditionHeld()
+                 && controller.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::sourceChanged,
+             "a republished B never plays on its own; the selection ends as a source change");
 
     // A −10 LUFS（peak −12 dBTP）に −18 LUFS の参照：+8 dB が要り、参照の peak −2 dBTP で上限を超える。
     require (! controller.requestAudition (3, -10.0, -12.0), "a MATCH over the ceiling does not play B");
@@ -189,13 +276,15 @@ void testReferenceLowerA (const juce::File& sandbox)
     const auto lowered = static_cast<float> (aLevel * std::pow (10.0, -8.0 / 20.0));
     int blocks = 0;
     float aBeforeB = aLevel;
-    for (int attempt = 0; attempt < 400 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
+    const auto deadline = juce::Time::getMillisecondCounter() + 10'000;
+    while (controller.snapshot().audibleComparisonSlot != 3)
     {
+        require (juce::Time::getMillisecondCounter() < deadline, "the approved B plays");
         host();
         ++blocks;
         aBeforeB = block.getSample (0, 479);
         controller.servicePendingAudition (-10.0, -12.0, true);
-        juce::Thread::sleep (2);
+        juce::Thread::sleep (1);
     }
     require (blocks >= 4 && closeTo (aBeforeB, lowered), "B is chosen only after A has settled lower");
     host(); host();
@@ -237,9 +326,8 @@ void testReferenceLowerA (const juce::File& sandbox)
     require (controller.requestAudition (3, std::numeric_limits<double>::quiet_NaN(), -12.0)
                  && controller.snapshot().audibleComparisonSlot == 0,
              "a role pressed before A has a level waits (A stays live)");
-    for (int attempt = 0; attempt < 400 && controller.snapshot().pendingAudition.stage
-                                              != ref::PendingAuditionView::Stage::ceilingExceeded; ++attempt)
-    { host(); controller.servicePendingAudition (-10.0, -12.0, true); juce::Thread::sleep (2); }
+    until ([&] { return controller.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::ceilingExceeded; },
+           "the waiting role reaches the ceiling");
     const auto stopped = controller.snapshot();
     require (stopped.pendingAudition.stage == ref::PendingAuditionView::Stage::ceilingExceeded
                  && stopped.referenceSelection->matchFailure == ref::MatchFailure::ceilingExceeded
@@ -248,8 +336,7 @@ void testReferenceLowerA (const juce::File& sandbox)
     // 承認の量が鳴らす時点の差より小さかった（再生を始めた直後の見積もり）ときは、その時点の差まで下げ直して鳴らす。
     require (controller.approveLowerAAndPlay (3, -5.0) && closeTo (controller.heldAttenuationDb(), -5.0),
              "the waiting role can be approved without pressing it again, first by the offered amount");
-    for (int attempt = 0; attempt < 400 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
-    { host(); controller.servicePendingAudition (-10.0, -12.0, true); juce::Thread::sleep (2); }
+    until ([&] { return controller.snapshot().audibleComparisonSlot == 3; }, "the approved role plays");
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -8.0),
              "an approval smaller than the difference at play time lowers A to that difference and plays");
 

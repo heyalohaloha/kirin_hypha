@@ -145,6 +145,10 @@ private:
     // その役のまま鳴らす（押せば即切替）。ほかの役は止めない。continues が false（新しい選択が Kirin OS の
     // 準備待ちで、まだ世代が進んでいない）なら、その役の保留と待ちを手放すだけ。
     void continueAfterSwitch (int slot, bool continues = true);
+    // 鳴っている役の印（normalOutputSlot）を役の実際（出力・戻す控え・選択の替え・待ち）に合わせる。控えが消えて出力も
+    // 終わった役の印を残すと、選択を替えただけで鳴り出し、timer が回り続け、V の AUTO が止まる。ライブラリが公開を
+    // 引っ込めて控えが消えたときは、その役を「音源が変わった」で止めたと言う。
+    void reconcileOutputMark();
     bool waitWhilePreparing (int slot);
     bool queueAudition (int slot, std::uint64_t safetyEpoch);
     bool selectCheckRole (const std::function<bool()>& apply);
