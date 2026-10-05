@@ -14,7 +14,8 @@ case "${1:-}" in
 esac
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-JUCE_DIR="juce_shell/JUCE"
+# KIRIN_JUCE_DIR：試験が手つかずの JUCE の写しを指すときだけ（scripts/test_juce_patch_state.sh）。
+JUCE_DIR="${KIRIN_JUCE_DIR:-juce_shell/JUCE}"
 EXPECTED_HEAD="4f43011b96eb0636104cb3e433894cda98243626"
 
 EXPECTED_FILES=(
@@ -87,7 +88,8 @@ dirty_files=()
 while IFS= read -r path; do
   [[ -n "$path" ]] && dirty_files+=("$path")
 done < <(git -C "$JUCE_DIR" diff --name-only)
-for dirty in "${dirty_files[@]}"; do
+# macOS の /bin/bash 3.2 は、set -u のとき空の配列の展開で止まる（手つかずの JUCE で 0 を数えられなかった）。
+for dirty in ${dirty_files[@]+"${dirty_files[@]}"}; do
   require_file_in_expected_set "$dirty"
 done
 

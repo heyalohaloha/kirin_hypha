@@ -13,7 +13,7 @@
 namespace hypha::reference_audition
 {
 // 2026-10-04：Dynamics・Loudness・Stereo・Waveform・Transient の Check を、
-// A と比べる側（C・V）の区間ごとの値の p10・中央値・p90 で比べる。値は Kirin OS（native/src/reference_analysis.rs）と
+// A と比べる側（C・V）の区間ごとの値の p10・中央値・p90 で比べる。値は Kirin OS の解析と
 // 同じ定義：
 //  - 区間（hop）は 100 ms の整数倍。A は VisualMeter の 100 ms の bin を、比べる側の hop にまとめ直して出す。
 //  - クレスト：20·log10(TP / RMS)。TP は区間の true peak（100 ms ごとの prev_true_peak の最大）、RMS は全 ch。

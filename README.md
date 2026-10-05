@@ -679,16 +679,16 @@ shows the song and the status; songs are switched from 125%.
   ΣLR/√(ΣL²·ΣR²); LUFS at the end of the hop), so A's 100 ms bins are regrouped into C's hop
   (200 ms for a song longer than 204.8 s). Loudness facts (LUFS-M, peak, RMS) are shown at the level
   C plays at. Until A has 3 seconds only C is drawn (A WAITING).
-  Every difference on B, C and V is said with A as the subject and a word instead of a sign (chosen
-  by the owner on 2026-10-04 after "is A more or less than C?" was hard to read): A 0.12 LOWER,
+  Every difference on B, C and V is said with A as the subject and a word instead of a sign (2026-10-04;
+  a signed difference left it unclear whether A had more or less than C): A 0.12 LOWER,
   A 10 pt NARROWER, A 1.2 LU QUIETER (Aが0.12低い, Aが10 pt狭い, Aが1.2 LU小さい), and A SAME AS C
   (AはCと同じ) when it rounds to zero. The metric cards read A, C and A VS C (CよりA) with the size of
   the difference and its unit and word under it (1.2 / LU QUIETER); at 200 % and below each card is one
   line, LUFS-I A 1.2 LU QUIETER.
 - **V**: the Version (across the whole row), then the tabs WHOLE, TONE, DYNAMICS, STEREO and LOW END
   (全体・音色・ダイナミクス・ステレオ・低域). V's items are fixed and separate from C's CHECK SET, whose
-  Checks each come with their own reference songs (owner, 2026-10-04: comparing Versions of the same
-  song needs no CHECK SET; section and album Checks do not compare one section). WHOLE is the song timeline: A above V,
+  Checks each come with their own reference songs (2026-10-04: comparing Versions of the same song needs
+  no CHECK SET; section and album Checks do not compare one section). WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
   position; these controls never seek the DAW or switch audio. The other tabs compare A and V over
@@ -708,12 +708,11 @@ shows the song and the status; songs are switched from 125%.
   call the same song is marked AUTO with its agreement — another mix of your song counts. Because 30
   seconds can resemble another song by chance, a match also needs A's loudness contour to follow the
   Version (correlation 0.3 or more), and away from the DAW position only a strong match (agreement 0.70
-  or more) counts. On the owner's own mixdowns (16 songs, 47 versions) this chose the right song in
-  122 of 134 tries with no wrong choice when the song starts the timeline, and 113 with one wrong
-  choice when it sits later in an album session. When no Version is chosen,
+  or more) counts. When no Version is chosen,
   the AUTO one is chosen once it is the best twice in a row; AUTO changes only V's choice and never
   stops B or C, and never changes V while V plays or waits to play. A Version chosen by hand is never
-  replaced; a Version AUTO chose is replaced only when another stays clearly better (by 0.02).
+  replaced; a Version AUTO chose is replaced only when another is better by 0.02 twice in a row (while AUTO's
+Version briefly drops out of the match, its last agreement stays the bar).
 
 At 300 % on B, C and V, pointing at an item shows one line over the footer on what the item
 measures and what it is for (CREST, the four bands, Blauert's bands, WHOLE and so on), as a loudness
@@ -741,7 +740,7 @@ song every 100 ms, A's definition; for a longer song C shows no spectrum and the
 Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS's English
 names, whatever language they were saved in. On the Japanese screen a name reads in Japanese where
 Hypha has its Japanese (the Check sets, for example, also when ranked "1 / 3"); simple English names
-(Dynamics, Stereo, Set 1) stay in English rather than turning into katakana (owner, 2026-10-05).
+(Dynamics, Stereo, Set 1) stay in English rather than turning into katakana (2026-10-05).
 Names you give stay as written. A role
 waiting for the DAW is marked on its button and named in the status line.
 

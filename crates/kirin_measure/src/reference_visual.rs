@@ -34,7 +34,7 @@ pub struct VisualBin {
     pub short_lufs: f64,
     pub crest_db: f64,
     /// The bin's raw sums and end-of-bin values, so Hypha can recompute Kirin OS's per-hop facts
-    /// (native/src/reference_analysis.rs) for a hop made of whole bins (2026-10-04, range strips).
+    /// (its reference analysis) for a hop made of whole bins (2026-10-04, range strips).
     /// Linear true peak: the largest `prev_true_peak` over the bin's pushes.
     pub true_peak: f64,
     /// LUFS-M at the end of the bin (NaN until 0.4 s have been pushed).

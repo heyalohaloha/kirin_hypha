@@ -1,6 +1,6 @@
 // Hypha が Kirin OS の library/sets.json（Hypha に出した B セット・CHECK セットの順位）と、
 // Cue の値のファイル（ranges/<sha256>.json）を読む。
-// tests/fixtures/kirin_os_library_abcv は、Kirin OS の本物の書き出し処理（kirin_sense_lens の
+// tests/fixtures/kirin_os_library_abcv は、Kirin OS の本物の書き出し処理（Kirin OS の
 // publishReferenceLibrary、2026-10-03 の本流）で作ったデータ一式。組み込み Preset ＋保存した Preset 1 つ、
 // B セット 1 つ（準備済みの Catalog の曲と未準備の Works の曲）、CHECK セットの順位 2 つ、Version 1 つ。
 #include "reference_runtime_test_support.h"
