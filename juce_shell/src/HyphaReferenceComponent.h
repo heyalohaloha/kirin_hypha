@@ -300,6 +300,8 @@ public:
     int comparisonButtonWidth() const noexcept { return detailedLayout() ? 80 : current.separateComparisons ? 36 : 48; }
     // Whether the last paint showed the guide whole (HyphaReferenceGuide.h); checked by the tests.
     const GuideFit& guideFit() const noexcept { return lastGuideFit; }
+    // The one framed observation, whether a child view or the configured chart group paints it.
+    juce::Rectangle<int> observationWindowBounds() const noexcept;
     bool shortPanel() const noexcept { return getHeight()<150 && !isBlindSession(current.blindPhase); }
     int panelHeaderHeight() const noexcept { return shortPanel() ? 20 : detailedLayout() ? 42 : 34; }
     int panelPickerHeight() const noexcept { return shortPanel() ? 18 : 24; }
@@ -347,6 +349,7 @@ private:
     State current;
     bool guideShown = false;
     GuideFit lastGuideFit;
+    juce::Rectangle<int> observationArea;
     ComparisonView comparisonView;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;

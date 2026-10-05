@@ -87,9 +87,7 @@ private:
         }
         void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
         {
-            g.fillAll (hypha::BG);
-            hypha::surface_material::paintInstrumentFrame (
-                g, juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height), false);
+            hypha::TextLookAndFeel::drawPopupMenuBackground (g, width, height);
         }
         // Menus are built in English and shown in the current language by TextLookAndFeel,
         // in the native menu font above, which carries Japanese (INV-S40).

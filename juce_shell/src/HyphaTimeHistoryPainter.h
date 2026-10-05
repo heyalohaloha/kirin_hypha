@@ -15,6 +15,7 @@ namespace hypha::time_history
 // from the same KirinMeterHistoryEntry and therefore shares its run and sample endpoint. Metric
 // availability remains independent: a missing 400 ms M value must not erase a valid 3 s S value.
 // Without `momentary` (100%, which reads S and TP only) the jagged 400 ms M line is not drawn.
+// `mainWindow` frames the glass after its fill and before any status, label or measured stroke.
 void paint (juce::Graphics&,
             juce::Rectangle<int> area,
             const std::vector<KirinMeterHistoryEntry>&,
@@ -24,5 +25,6 @@ void paint (juce::Graphics&,
             meter_context::ScaleMode scaleMode,
             presentation::Context,
             const juce::String& comparisonStatus = {},
-            bool momentary = true);
+            bool momentary = true,
+            bool mainWindow = false);
 }

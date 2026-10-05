@@ -2,6 +2,7 @@
 
 #include "../src/HyphaAttackBandSummaryPainter.h"
 #include "../src/HyphaAttackLanePainter.h"
+#include "../src/HyphaTextStyle.h"
 
 // DRUM band summary (2026-09-29): while LIVE the band view reads the engine's summary of the recent
 // hits that rise in the band; a locked hit reads itself beside the same number lines; END returns.
@@ -57,7 +58,7 @@ inline juce::Rectangle<int> readingArea (const attack_ui::Layout& layout)
     if (attack_band::panesShown (layout))
         return rectangle (layout.loupe ? attack_ui::loupeArea (layout)
                                        : attack_ui::readoutCell (layout, layout.history));
-    return rectangle (layout.history);
+    return rectangle (attack_ui::historyWindow (layout));
 }
 
 inline bool writeBandPreview (const char* label, const char* name, const juce::Image& image)
@@ -120,6 +121,30 @@ inline bool verifyBandRendering()
             return fail ("END does not return to the same summary");
         if (differences (live, waiting, readingArea (layout)) == 0)
             return fail ("the summary says nothing different when nothing is summed");
+        if (preset.width == 450)
+        {
+            // 150% keeps the summary's title AND fact line, and a locked hit's time, at the
+            // fixed typography floor. A decorative frame must never silently remove them.
+            constexpr auto visualization = typography::Composition::visualization;
+            const auto heightFor = [&context] (typography::TextRole role) {
+                return text_style::requiredLineHeight (typography::resolve (context, role, visualization)); };
+            auto words = readingArea (layout).reduced (11, 2);
+            const auto title = words.removeFromTop (heightFor (typography::TextRole::legend));
+            if (words.getHeight() < heightFor (typography::TextRole::readout)
+                || countColour (live, title, COL_TEXT_SECONDARY, 40) == 0
+                || countColour (live, words, COL_OBSERVATORY_VALUE, 40) == 0
+                || differences (live, waiting, words) == 0)
+                return fail ("the 150% summary loses its title or fact line");
+            auto time = rectangle (attack_ui::readoutCell (layout, layout.history)).reduced (6, 2);
+            const auto titleHeight = heightFor (typography::TextRole::legend);
+            const auto timeHeight = heightFor (typography::TextRole::secondaryValue);
+            if (time.getHeight() < titleHeight + timeHeight)
+                return fail ("the 150% selected-hit time falls below its typography floor");
+            time = time.withSizeKeepingCentre (time.getWidth(), titleHeight + timeHeight);
+            time.removeFromTop (titleHeight);
+            if (countColour (locked, time, COL_OBSERVATORY_VALUE, 40) == 0)
+                return fail ("the 150% locked hit has no visible selected time");
+        }
         for (std::size_t lane = 0; lane < attack_ui::laneCount; ++lane)
             if (differences (live, waiting, laneReadout (layout, lane)) == 0)
                 return fail ("a lane's median reads like nothing summed");
@@ -131,7 +156,8 @@ inline bool verifyBandRendering()
             return fail ("NOW does not tell LIVE from a locked hit");
         if (differences (locked, reasons, laneReadout (layout, 0)) == 0)
             return fail ("a withheld DELAY reads like a value");
-        const auto rows = attack_band_summary_painter::rowPlots (rectangle (layout.history), context);
+        const auto rows = attack_band_summary_painter::rowPlots (
+            rectangle (attack_ui::historyWindow (layout)), context);
         if (layout.arrangement == attack_ui::Arrangement::lanes || layout.arrangement == attack_ui::Arrangement::line)
             for (std::size_t lane = 0; lane < attack_ui::laneCount; ++lane)
             {

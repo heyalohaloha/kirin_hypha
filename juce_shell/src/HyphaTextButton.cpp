@@ -1,4 +1,5 @@
 #include "HyphaTextButton.h"
+#include "HyphaKeyLight.h"
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -16,6 +17,9 @@ void HyphaTextButton::paintButton (juce::Graphics& g,
                                    bool shouldDrawButtonAsHighlighted,
                                    bool shouldDrawButtonAsDown)
 {
+    const key_light::Scope light (*this);
+    shouldDrawButtonAsHighlighted = shouldDrawButtonAsHighlighted && isEnabled();
+    shouldDrawButtonAsDown = shouldDrawButtonAsDown && isEnabled();
     auto area = getLocalBounds().toFloat().reduced (0.5f);
     const auto textColour = findColour (getToggleState()
                                             ? juce::TextButton::textColourOnId

@@ -210,11 +210,12 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     area.removeFromTop (timeControlsHeight());
+    area.reduce (main_frame::inset(), main_frame::inset()); // the page's main window, in its frame
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
                             frameAvailable ? observatoryFrame.meter.sample_rate : 0.0,
                             presentationContext(),
-                            frameAvailable ? &observatoryFrame.meter : nullptr);
+                            frameAvailable ? &observatoryFrame.meter : nullptr, true);
     else
         time_history::paint (g, area, history, compact ? historyRequest().label : "",
                              target() == ObservationTarget::delta, compact, selectedScaleMode,
@@ -224,6 +225,6 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                                        observatoryFrame.comparison_state,
                                        observatoryFrame.comparison_reason)
                                  : juce::String(),
-                             currentPreset().density != Density::compact);
+                             currentPreset().density != Density::compact, true);
 }
 }

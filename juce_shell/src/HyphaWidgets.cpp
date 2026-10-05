@@ -1,4 +1,5 @@
 #include "HyphaWidgets.h"
+#include "HyphaKeyLight.h"
 
 #include "BinaryData.h"
 #include "HyphaSurfaceMaterial.h"
@@ -91,6 +92,7 @@ namespace hypha
     void PairDropdownButton::paintButton (
         juce::Graphics& g, bool highlighted, bool down)
     {
+        const key_light::Scope light (*this);
         const auto bounds = getLocalBounds().toFloat();
         surface_material::paintControl (
             g, bounds.reduced (0.5f), highlighted, down, getToggleState(), COL_FLORA_BR);

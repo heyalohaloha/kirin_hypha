@@ -385,9 +385,11 @@ void paint (juce::Graphics& g,
             meter_context::ScaleMode scaleMode,
             presentation::Context presentation,
             const juce::String& comparisonStatus,
-            bool momentary)
+            bool momentary,
+            bool mainWindow)
 {
     surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
+    if (mainWindow) main_frame::paint (g, area.toFloat());
     if (delta && comparisonStatus.isNotEmpty())
     {
         auto statusArea = area.removeFromTop (compactMeter ? 18 : 22);

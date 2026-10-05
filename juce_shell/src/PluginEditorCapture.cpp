@@ -216,16 +216,23 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
             (float) width / hypha::observatory::captureRenderScale);
         const auto logicalCaptureHeight = juce::roundToInt (
             (float) height / hypha::observatory::captureRenderScale);
-        setAnalysisPresentationContext (*external, hypha::presentation::forOutput (
+        const auto captureContext = hypha::presentation::forOutput (
             logicalCaptureWidth, logicalCaptureHeight,
-            hypha::presentation::OutputTarget::capture));
+            hypha::presentation::OutputTarget::capture);
+        setAnalysisPresentationContext (*external, captureContext);
         external->setSize (
             juce::roundToInt ((float) body.getWidth()
                               / hypha::observatory::captureRenderScale),
             juce::roundToInt ((float) body.getHeight()
                               / hypha::observatory::captureRenderScale));
-        const auto analysis = external->createComponentSnapshot (
-            external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
+        juce::Image analysis;
+        {
+            const hypha::key_light::CoordinateScope light (*external, captureContext,
+                { (float) body.getX() / hypha::observatory::captureRenderScale,
+                  (float) body.getY() / hypha::observatory::captureRenderScale });
+            analysis = external->createComponentSnapshot (
+                external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
+        }
         external->setBounds (originalBounds);
         setAnalysisPresentationContext (*external, logicalPresentationContext());
         juce::Graphics graphics (snapshot.image);

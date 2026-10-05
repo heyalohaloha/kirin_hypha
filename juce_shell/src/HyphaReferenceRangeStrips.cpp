@@ -6,6 +6,7 @@
 #include "HyphaReferenceHelp.h"
 #include "HyphaReferenceHelpText.h"
 #include "HyphaReferenceLegend.h"
+#include "HyphaReferenceWindowMaterial.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -316,7 +317,7 @@ bool rangeStripBinding (const juce::String& binding) noexcept
 }
 
 bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state, const juce::String& binding,
-                          presentation::Context context)
+                          presentation::Context context, juce::Rectangle<float> frame)
 {
     const auto rows = rowsFor (binding);
     if (rows.empty()) return false;
@@ -349,6 +350,7 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
     for (const auto& item : prepared) anyHeard = anyHeard || item.row.asHeard;
 
     surface_material::paintPanel (g, bounds, 0.72f);
+    window_material::paintInterior (g, frame, bounds);
     auto header = bounds.removeFromTop (28.0f).reduced (9.0f, 1.0f).toNearestInt();
     help::note (header, help_text::strips);
     g.setColour (COL_NORMAL.withAlpha (0.92f));

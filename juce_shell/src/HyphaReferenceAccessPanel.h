@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaReferenceComponent.h"
 #include "HyphaTextLookAndFeel.h"
@@ -77,6 +78,12 @@ public:
         if (unconfirmed == value) return;
         unconfirmed = value;
         refresh();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const key_light::Scope light (*this);
+        comparison_surface::paintQuietBody (g, getLocalBounds().toFloat(), 0.72f, 4.0f);
     }
 
     void resized() override

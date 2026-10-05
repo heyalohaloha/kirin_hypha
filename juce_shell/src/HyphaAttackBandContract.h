@@ -108,7 +108,7 @@ constexpr attack_ui::Box chipCell (const attack_ui::Layout& layout,
 // Panes: at 200% and 300% the HISTORY row shows the selected hit in the band, its head
 // magnified (where a few ms of DELAY are visible) and its tail (where the ring-out is). Below
 // that, HISTORY keeps the six-second envelope and the lanes alone carry the band.
-constexpr int paneMinimumHeight = 64;
+constexpr int paneMinimumHeight = attack_ui::bandPaneMinimumHeight;
 constexpr int paneGap = 8;
 constexpr float headFromMs = -5.0f;
 constexpr float headToMs = 40.0f;

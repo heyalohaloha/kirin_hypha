@@ -12,6 +12,7 @@
 #include "HyphaAttackBandModel.h"
 #include "HyphaAttackLaneModel.h"
 #include "HyphaAttackUiContract.h"
+#include "HyphaKeyLight.h"
 #include "HyphaPresentationContext.h"
 
 namespace hypha
@@ -129,6 +130,7 @@ namespace hypha
             bool bandDelta = false;
             attack_band::PreBand preBand = attack_band::PreBand::off;
             bool summary = false;
+            key_light::Light light; // position and editor diagonal determine the frame material
             bool operator== (const ChromeKey&) const noexcept;
         };
         static constexpr std::size_t chromeByteBudget = 8 * 1024 * 1024;

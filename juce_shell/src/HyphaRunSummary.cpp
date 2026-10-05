@@ -327,9 +327,10 @@ int visibleRowCount (int width) noexcept
 
 void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
             double sampleRate, presentation::Context presentation,
-            const KirinMeterSession* meter)
+            const KirinMeterSession* meter, bool mainWindow)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.78f);
+    if (mainWindow) main_frame::paint (g, area.toFloat());
     area.reduce (8, 6);
     auto heading = area.removeFromTop (juce::jlimit (18, 28, area.getHeight() / 7));
     g.setFont (monoFont (presentation, typography::TextRole::sectionTitle,

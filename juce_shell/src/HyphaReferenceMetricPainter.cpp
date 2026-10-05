@@ -1,7 +1,7 @@
 #include "HyphaReferenceMetricPainter.h"
 
 #include "HyphaTheme.h"
-#include "HyphaSurfaceMaterial.h"
+#include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 #include <cmath>
@@ -55,7 +55,7 @@ Difference differenceOf (reference_ui::AVersus pair, const juce::String& unit, r
 
 void paintPanel (juce::Graphics& g, juce::Rectangle<float> area, float alpha)
 {
-    surface_material::paintPanel (g, area, alpha);
+    comparison_surface::paintQuietBody (g, area, alpha, 4.0f);
 }
 
 void paintComparisonRoots (juce::Graphics& g, juce::Rectangle<float> area)

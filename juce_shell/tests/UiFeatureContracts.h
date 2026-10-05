@@ -26,6 +26,7 @@
 #include "LocalBlindNamedUiContractTest.h"
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
+#include "BlindLightContract.h"
 #include "LiveCompareFooterContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
 #include "ObservationEqualityContractTest.h"
@@ -127,6 +128,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyLocalBlindNamedUiContract();
     verifyLiveBlindUiContract();
     verifyVersionBlindScreen();
+    blind_light_contract::verify();
     if (entryOnly)
     {
         verifyLiveCompareFooterContract();

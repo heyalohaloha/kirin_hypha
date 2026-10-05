@@ -1,6 +1,6 @@
 #include "HyphaBlindScreen.h"
 #include "HyphaLanguage.h"
-#include "HyphaSurfaceMaterial.h"
+#include "HyphaComparisonSurfaceMaterial.h"
 
 #include <tuple>
 
@@ -129,7 +129,6 @@ void ScreenComponent::resized()
 
 void ScreenComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (BG);
-    surface_material::paintInstrumentFrame (g, getLocalBounds().toFloat(), false);
+    comparison_surface::paintScreen (g, *this);
 }
 }

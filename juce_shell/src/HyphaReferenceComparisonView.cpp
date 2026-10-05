@@ -2,6 +2,7 @@
 #include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceHelpText.h"
 #include "HyphaReferenceVersionPage.h"
+#include "HyphaReferenceWindowMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -22,9 +23,10 @@ juce::String timeText (double seconds)
 }
 void ComparisonView::ViewButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
+    const key_light::Scope light (*this);
     const auto bounds = getLocalBounds().toFloat().reduced (1);
-    g.setColour (COL_MUTED.withAlpha (down ? 0.3f : highlighted ? 0.16f : 0.07f));
-    g.fillRoundedRectangle (bounds, 3);
+    surface_material::paintControl (g, bounds, highlighted && isEnabled(), down && isEnabled(),
+                                     getToggleState(), COL_FLORA);
     g.setColour (getToggleState() ? COL_FLORA : COL_TEXT_SECONDARY);
     g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::captureMetadata,
         typography::Composition::visualization));
@@ -95,19 +97,17 @@ void ComparisonView::setRange (double first, double last)
 void ComparisonView::resized()
 {
     const auto previous = waveform;
-    auto area = getLocalBounds().toFloat().reduced (5);
-    const bool detail = getHeight() >= 140 && getWidth() >= 380;
-    auto toolbar = area.removeFromTop (getHeight() >= 65 ? 18.0f : 0.0f);
+    viewLayout = comparison_layout::forPane (getLocalBounds().toFloat(), context);
+    const bool detail = viewLayout.detailed();
+    auto toolbar = viewLayout.toolbar;
     follow.setBounds (toolbar.removeFromRight (60).toNearestInt());
     follow.setVisible (getHeight() >= 65 && !hidden && sameSection.isEmpty());
-    waveform = area.removeFromTop (detail ? area.getHeight() * 0.46f : juce::jmax (8.0f, area.getHeight() - 17));
-    waveform.removeFromLeft (15);
-    auto tabs = area.removeFromTop (20);
+    waveform = viewLayout.waveform;
+    auto tabs = viewLayout.tabs;
     loudness.setBounds (tabs.removeFromLeft (84).toNearestInt());
     crest.setBounds (tabs.removeFromLeft (58).toNearestInt());
     loudness.setVisible (detail && !hidden && sameSection.isEmpty()); crest.setVisible (detail && !hidden && sameSection.isEmpty());
-    graph = detail ? area.reduced (15, 3) : juce::Rectangle<float> {};
-    if(getHeight()<42) waveform=getLocalBounds().toFloat().reduced(5,1);
+    graph = viewLayout.graph;
     if (previous != waveform) cacheRevision = 0;
 }
 void ComparisonView::rebuild()
@@ -230,9 +230,11 @@ void ComparisonView::paint (juce::Graphics& g)
 {
     const help::Collector collect (helpRegions);  // V の Check のタブの図が添える説明の場所
     if (hidden) return;
+    const key_light::Scope light (*this);
     if (sameSection.isNotEmpty())
     { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context); return; }
-    surface_material::paintObservationWell (g, getLocalBounds().toFloat());
+    surface_material::paintObservationWell (g, getLocalBounds().toFloat(), false); // framed by the page
+    window_material::paintInterior (g, getLocalBounds().toFloat(), getLocalBounds().toFloat());
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY);
     const bool detail = !graph.isEmpty();
@@ -279,7 +281,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
         g.setColour (colour); g.fillRect (cell.removeFromLeft (16).withSizeKeepingCentre (16, name[0] == 'A' ? 2.6f : 1.4f));
         g.setColour (COL_TEXT_SECONDARY); text_style::drawText (g, name, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
     }
-    auto chart = graph; chart.removeFromBottom (18);
+    const auto chart = viewLayout.plot;
     double minimum = showingCrest ? 0.0 : -24.0, maximum = showingCrest ? 18.0 : -6.0;
     double low = std::numeric_limits<double>::infinity(), high = -low;
     if (data && data->binding.source) for (size_t i=0; i<data->bins.size(); ++i)
@@ -300,8 +302,13 @@ void ComparisonView::paintDetails (juce::Graphics& g)
     {
         const auto y = chart.getY()+chart.getHeight()*i/4;
         g.setColour (COL_MUTED.withAlpha (0.12f)); g.drawHorizontalLine (int (y), chart.getX(), chart.getRight());
-        g.setColour (COL_TEXT_SECONDARY.withAlpha (0.65f));
-        text_style::drawText (g, juce::String (maximum-(maximum-minimum)*i/4,1), juce::Rectangle<float> (chart.getX(),y-11,32,11), juce::Justification::centredLeft);
+    }
+    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.65f));
+    for (int index = 0; index < viewLayout.axisLabelCount; ++index)
+    {
+        const auto& label = viewLayout.axisLabels[size_t (index)];
+        text_style::drawText (g, juce::String (maximum-(maximum-minimum)*label.fraction,1),
+                             label.bounds, juce::Justification::centredLeft);
     }
     if (data && data->binding.aligned && end > start)
     {
@@ -325,7 +332,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
     }
     g.setColour (COL_TEXT_SECONDARY);
     const auto unit = showingCrest ? "TP/RMS  " : "3s  ";
-    text_style::drawEllipsized (g, juce::String (unit) + valuesAt (time), graph.toNearestInt().removeFromBottom (18), juce::Justification::centredLeft);
+    text_style::drawEllipsized (g, juce::String (unit) + valuesAt (time), viewLayout.readout.toNearestInt(), juce::Justification::centredLeft);
 }
 double ComparisonView::timeAt (float x) const
 { return data && waveform.getWidth() > 0 ? juce::jlimit (0.0, data->duration(), double ((x-waveform.getX())/waveform.getWidth())*data->duration()) : 0; }

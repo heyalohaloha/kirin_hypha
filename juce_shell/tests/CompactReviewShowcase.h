@@ -237,11 +237,18 @@ inline juce::Image renderShell (observatory::View& shell)
 
 inline void paintInto (juce::Image& image, juce::Component& body, juce::Rectangle<int> bounds)
 {
-    body.setSize (bounds.getWidth(), bounds.getHeight());
-    juce::Graphics g (image);
-    g.addTransform (juce::AffineTransform::translation ((float) bounds.getX(), (float) bounds.getY())
-                        .scaled (dpi));
-    body.paintEntireComponent (g, true);
+    // The body stands where the editor puts it, so the key light reaches it as in the editor.
+    juce::Component editor;
+    editor.setSize (juce::roundToInt ((float) image.getWidth() / dpi), juce::roundToInt ((float) image.getHeight() / dpi));
+    editor.addChildComponent (body);
+    body.setBounds (bounds);
+    {
+        juce::Graphics g (image);
+        g.addTransform (juce::AffineTransform::translation ((float) bounds.getX(), (float) bounds.getY())
+                            .scaled (dpi));
+        body.paintEntireComponent (g, true);
+    }
+    editor.removeChildComponent (&body);
 }
 
 inline void presentAt (juce::Component& body, int width, int height)

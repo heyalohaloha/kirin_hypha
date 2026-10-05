@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaKeyLight.h"
 #include "HyphaTextStyle.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaAttackUiContract.h"
@@ -35,6 +36,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     // One opaque Observatory root lets Windows present a completed frame instead of compositing
     // intermediate transformed children.
     scaleRoot.setOpaque (true);
+    // The editor's logical coordinates: the key light stands above them (HyphaKeyLight.h).
+    scaleRoot.getProperties().set (hypha::key_light::rootProperty, true);
     addAndMakeVisible (scaleRoot);
     observatorySizeIndex = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),

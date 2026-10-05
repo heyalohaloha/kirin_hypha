@@ -1,6 +1,6 @@
 #include "HyphaLocalBlindComponent.h"
 
-#include "HyphaSurfaceMaterial.h"
+#include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaLocalBlindPresentationState.h"
 #include "HyphaLocalBlindSteps.h"
 #include "HyphaTextStyle.h"
@@ -179,9 +179,7 @@ bool Component::canChooseContext() const noexcept
 
 void Component::paint (juce::Graphics& g)
 {
-    g.fillAll (BG);
-    const auto area = getLocalBounds().toFloat().reduced (10.0f);
-    surface_material::paintPanel (g, area, 0.94f, 7.0f);
+    const auto area = comparison_surface::paintScreen (g, *this);
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));
     g.fillEllipse (area.getX() + 18.0f, area.getY() + 18.0f, 7.0f, 7.0f);
     paintSteps (g, stepsArea, stepFor (current), presentationContext);

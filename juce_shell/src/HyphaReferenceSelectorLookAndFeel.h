@@ -11,6 +11,15 @@ class ReferenceSelectorLookAndFeel final : public TextLookAndFeel
 public:
     void setPresentationContext (presentation::Context next) noexcept { context = next; }
 
+    void drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour&,
+                               bool highlighted, bool down) override
+    {
+        const key_light::Scope light (button);
+        surface_material::paintControl (g, button.getLocalBounds().toFloat().reduced (0.5f),
+            highlighted && button.isEnabled(), down && button.isEnabled(), button.getToggleState(),
+            button.findColour (juce::TextButton::textColourOffId));
+    }
+
     void drawComboBox (juce::Graphics& g,
                        int width,
                        int height,
@@ -23,10 +32,12 @@ public:
     {
         const auto area = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height)
                               .reduced (0.5f);
+        const key_light::Scope light (box);
+        const bool pressed = isButtonDown && box.isEnabled();
         surface_material::paintControl (
-            g, area, box.isMouseOver(), isButtonDown, false, COL_FLORA_BR);
+            g, area, box.isMouseOver() && box.isEnabled(), pressed, false, COL_FLORA_BR);
 
-        const auto centreY = area.getCentreY() + (isButtonDown ? 1.0f : 0.0f);
+        const auto centreY = area.getCentreY() + (pressed ? 1.0f : 0.0f);
         const auto right = area.getRight() - 9.0f;
         g.setColour (box.findColour (juce::ComboBox::arrowColourId)
                          .withAlpha (box.isEnabled() ? 0.88f : 0.28f));

@@ -112,7 +112,7 @@ inline bool verifyBandInteraction()
     {
         auto line = presetScene (observatory::sizePresets[1]);
         showSummary (*line.component, fixture);
-        const auto rows = attack_band_summary_painter::rowPlots (rectangle (line.layout.history),
+        const auto rows = attack_band_summary_painter::rowPlots (rectangle (attack_ui::historyWindow (line.layout)),
                                                                  presentation::forEditor (450, 300));
         const auto summaryImage = renderAttack (*line.component);
         line.component->mouseMove (bandMouse (*line.component, rows[1].getCentre().toFloat()));
