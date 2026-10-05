@@ -4,6 +4,7 @@
 // publishReferenceLibrary、2026-10-03 の本流）で作ったデータ一式。組み込み Preset ＋保存した Preset 1 つ、
 // B セット 1 つ（準備済みの Catalog の曲と未準備の Works の曲）、CHECK セットの順位 2 つ、Version 1 つ。
 #include "reference_runtime_test_support.h"
+#include "KirinLibraryFixture.h"
 #include "../src/reference_audition/ReferenceLibrarySets.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceSourceRanges.h"
@@ -18,9 +19,8 @@ namespace
 {
 juce::File copyFixture (const juce::File& sandbox, const char* name)
 {
-    const auto source = juce::File (KIRIN_REFERENCE_FIXTURE_DIR).getChildFile ("kirin_os_library_abcv");
-    const auto root = sandbox.getChildFile (name);
-    require (source.isDirectory() && source.copyDirectoryTo (root), "the Kirin OS library fixture must be copied");
+    const auto root = kirin_library_fixture::copy (sandbox, name);
+    require (root != juce::File(), "the Kirin OS library fixture must be copied");
     return root;
 }
 

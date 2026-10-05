@@ -6,6 +6,7 @@
 //  - Version の指紋の読み込み（VersionIdentifier::prepare）を、Kirin OS の書き出しの写しで一度通し、読めなかった
 //    ものは 5 秒ごとに読み直す。
 #include "reference_runtime_test_support.h"
+#include "KirinLibraryFixture.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceVersionIdentify.h"
 
@@ -113,9 +114,8 @@ void choosing()
 // Version の指紋を、Kirin OS の書き出しの写しから読む。読めなかった ranges は 5 秒たつまで読み直さない。
 void preparing (const juce::File& sandbox)
 {
-    const auto source = juce::File (KIRIN_REFERENCE_FIXTURE_DIR).getChildFile ("kirin_os_library_abcv");
-    const auto root = sandbox.getChildFile ("auto-version-library");
-    require (root.isAChildOf (sandbox) && source.copyDirectoryTo (root), "the Kirin OS library fixture is copied inside the test folder");
+    const auto root = kirin_library_fixture::copy (sandbox, "auto-version-library");
+    require (root != juce::File(), "the Kirin OS library fixture is copied inside the test folder");
     RuntimeV2Repository repository (root);
     const auto loaded = repository.refreshLibrary();
     require (loaded.usable(), "the fixture library must be read");
