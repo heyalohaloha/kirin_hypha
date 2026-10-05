@@ -13,7 +13,7 @@
 | Kirin Hypha 1.1.50/Audio Unit/Kirin Hypha PRE.component/Contents/MacOS/Kirin Hypha PRE | `bbe4198ce4a956981a4587ab1e085b09eddc8db8e8f506f9582c3903df22c29c` | x86_64 86 / arm64 78 |
 | Kirin Hypha 1.1.50/Audio Unit/Kirin Hypha POST.component/Contents/MacOS/Kirin Hypha POST | `8f86afb1249b15f5b38bf23aff95ad2dfb21e588dd1ac9e109754228488a2a0b` | x86_64 86 / arm64 78 |
 
-4 filesそれぞれ164箇所、ZIP計656箇所。PKG内は同一hashの4実行fileで、重複を含め1,312箇所。Mach-O各sliceのload commandsとsection範囲を解析すると、全件が`__TEXT/__cstring`にあり、`__DWARF` sectionはない。debug symbolをstripするだけでは、この文字列領域を除去できない。Rust dependencyの`file!()`、panic等に使われるsource location由来である可能性が高いが、各call siteとの対応は未確認。
+4 filesそれぞれ164箇所、ZIP計656箇所。PKG内は同一hashの4実行fileで656箇所。ZIPとPKGの両containerを合計すると、重複を含め1,312箇所。Mach-O各sliceのload commandsとsection範囲を解析すると、全件が`__TEXT/__cstring`にあり、`__DWARF` sectionはない。debug symbolをstripするだけでは、この文字列領域を除去できない。Rust dependencyの`file!()`、panic等に使われるsource location由来である可能性が高いが、各call siteとの対応は未確認。
 
 第三者はbuilderのlocal usernameとCargo registryのdependency source位置を知る。path自体はcredential、接続先、実行権限を与えず、既知の公開作者名との関連を強めるprivacy影響が中心。取得済みpayloadのscanでこれ以外のowner emailやcredentialは検出していないが、全過去binaryを保証する結果ではない。値は本書へ再掲しない。
 

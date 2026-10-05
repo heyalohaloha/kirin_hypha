@@ -364,4 +364,3 @@ history_audit担当はPR-A変更を執筆していない。a8→d27の固定obje
 |`tag:v1.0.0`|`81aefb70fadcca10702065f756f5cc1e01695430`|01, 02, 06, 08, 11|01, 06, 08, 11|yes|
 
 本表のevidence収集はread-only Git/object/API既存証拠の分析のみ。fetch/push/PR作成/CI起動/rewrite/tag作り直し/asset変更/settings変更/production build/署名は行っていない。
-
