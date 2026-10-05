@@ -1,7 +1,8 @@
-//! : ISO 532-1 Psychoacoustic Analysis Engine
+//! ISO 532-1 Psychoacoustic Analysis Engine
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/` からアルゴリズム同一移植）。
-//! napi-rs / symphonia 依存なし。定数テーブル・フィルタ係数は  bit-identical。
+//! napi-rs / symphonia 依存なし。初期実装は MoSQITo v1.2.1 を参照・移植した記録を持つ。
+//! 出典と変更の概要はリポジトリの THIRD_PARTY_NOTICES.md を参照。
 //!
 //! パイプライン:
 //! ```text

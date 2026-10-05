@@ -41,3 +41,18 @@ Public PR CI must be hosted and unsigned with a read-only token. Formal signing 
 require reviewed exact source and a separately controlled credential boundary. Do not treat a green
 PR as permission to merge, sign or release. See [release qualification](docs/hypha_release_entry.md).
 Report vulnerabilities according to [SECURITY.md](SECURITY.md), without putting details in an Issue.
+
+## Contribution provenance
+
+Contribute code, documentation and assets that you are entitled to provide under the applicable
+project and dependency licenses. Identify third-party sources, versions or commits, license terms,
+required notices, and the parts adapted or used as references. Preserve upstream attribution and
+record meaningful modifications. Generated code and assets follow the same rule; retain available
+source/reference and generation records without committing account identifiers or credentials.
+
+Do not submit leaked source, unauthorized non-public materials, or code obtained by decompiling or
+disassembling a third-party proprietary product. Do not commit proprietary product binaries or
+assets without a documented redistribution basis. Public product research and normal user-visible
+observations should be described separately from implementation sources. If provenance is uncertain,
+flag it for review before incorporation; a matching name or a common algorithm alone does not
+establish copying. See [PROVENANCE.md](PROVENANCE.md).

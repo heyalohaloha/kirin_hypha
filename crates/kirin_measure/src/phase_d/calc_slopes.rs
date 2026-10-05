@@ -4,12 +4,12 @@
 //! + total loudness N via frequency masking slopes.
 //!
 //! Algorithm: Zwicker & Fastl (1991) BASIC program, scalar port.
-//! Verified against  v1.2.1:
+//! Verified against MoSQITo v1.2.1:
 //!   1kHz 94dB: N bit-identical, N_spec bit-identical
 //!   Pink 60dB: N bit-identical, N_spec max_diff=0.003
 //!
 //! Kirin Hypha 移植版（Lens `native/src/psychoacoustic/calc_slopes.rs` からアルゴリズム同一移植）。
-//! Reference:  loudness_zwst/_calc_slopes.py
+//! Reference: MoSQITo loudness_zwst/_calc_slopes.py
 //! Original: Zwicker & Fastl, J.A.S.J.(E) 12, 1 (1991)
 
 use super::tables::*;
