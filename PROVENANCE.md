@@ -34,3 +34,22 @@ decompiling or disassembling a third-party proprietary product. Public feature c
 manuals and normal user-visible product observations should be distinguished from implementation
 sources and interoperability research. Preserve uncertainty for review rather than declaring an
 unsupported origin or deleting a reference solely because it names another product.
+
+## Baseline and subsequent changes
+
+The 2026-10-05 scoped review retains unresolved pre-Git, source and asset questions as Unknown.
+Public availability, generation evidence and build success do not establish redistribution rights.
+The final Provenance/Security Baseline is recorded only after the separate provenance and security
+PRs have been reviewed, passed their candidate CI and merged. It is not a whole-history certificate.
+
+After that baseline, review changed code, dependencies, patches, assets, generation references and
+distribution uses. Reopen affected historical findings when new facts invalidate them; ordinary
+development does not require repeating the full historical provenance audit. Use the
+[change review template](docs/provenance/change_review_template.md). Existing source, security,
+host, signing and release gates continue to apply.
+
+New distribution holds are per material/use in the
+[asset registry](docs/provenance/asset_distribution_registry.json), including rendered previews
+and CI binaries that contain held inputs. They do not remove historical evidence, change existing
+Releases or stop unrelated OSS development. Rights evidence or a reviewed replacement can resolve
+an individual hold. See the [actual distribution gate](docs/provenance/distribution_gate.md).

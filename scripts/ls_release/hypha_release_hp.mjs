@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileFact, hash, Checkpoint, readBudgetPolicy } from './hypha_release_contract.mjs';
+import { fileFact, hash, Checkpoint, readBudgetPolicy, checkFacts } from './hypha_release_contract.mjs';
 
 export const GH_REPO = 'heyalohaloha/kirin_hypha';
 export const HP_FILES = ['hypha.html', 'ja/hypha.html', 'scripts/__tests__/hypha-entry-links.test.mjs'];
@@ -115,7 +115,11 @@ async function verifyReleaseBytes(state, run, release, facts) {
 
 export async function publishGithub(state, run, save) {
   const tag = `v${state.candidate.version}`;
-  const facts = state.stages.packages.facts;
+  if (state.stages.provenance?.status !== 'PASS' || !state.stages.provenance.publicFacts?.length) {
+    throw new Checkpoint('Verified exact-release Corresponding Source delivery required before publication');
+  }
+  checkFacts(state.stages.provenance.facts);
+  const facts = [...state.stages.packages.facts, ...state.stages.provenance.publicFacts];
   await checkTag(state, run, { optional: true });
   // Candidate must already exist in public history; no implicit product push/branch fallback.
   const remoteCommit = await api(run, `repos/${GH_REPO}/commits/${state.candidate.commit}`);

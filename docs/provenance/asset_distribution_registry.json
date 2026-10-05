@@ -1,0 +1,469 @@
+{
+  "schema": "hypha-asset-distribution-registry-v1",
+  "policy": "Hold applies to these materials in new distributions, not to the entire project or existing Releases.",
+  "assets": [
+    {
+      "path": "assets_source/IMG_3113.png",
+      "sha256": "0a2fc4107f32505885164d3c6f4b73ff168958f03119b2c494d8f261c140fdf2",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_0.png",
+      "sha256": "cac383bf0b8e24e55ed0655d660959a0300b08f52b42db3a7968ec4685e47b8c",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_1.png",
+      "sha256": "274cdb9be0dfffd0869dadcb715dfd88c88ce29507b8772bbeadcfbc30fd7e9d",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_2.png",
+      "sha256": "6790f84294c3461fac8fa3f49c9220528bd0994848990460df2d394b27a0499b",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_3.png",
+      "sha256": "e71c9465c8d4994401d281ab51eb4a3a66f1013bafe4a5330c3558615b0e0486",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_4.png",
+      "sha256": "8fc88c789cc5552bd98942e51ee32825517fae9f4c0f1b06956294932520c029",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_5.png",
+      "sha256": "45f47cb8cf1cb2ce1fbaf292fc5269bb102c5c76d523f0519482d206b2fce324",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_6.png",
+      "sha256": "59c88f2f12cb2f1582d5a9ee8c1a76e77bdd0f2f4d3deb7c960bdf6dd294b302",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_7.png",
+      "sha256": "68353070f5d03c5785c01f57ec05b987efd3a18d76ea89437e625cc837f761e1",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_8.png",
+      "sha256": "45e9a7b381bb38e890c268827611e12e702ea1139d8b278ae71f3dd34d8bdf01",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_9.png",
+      "sha256": "de34f089f99842ab772f767e683f433b311ff5bfe0c5298919c1388d34f399b8",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_A.png",
+      "sha256": "b90c76a8555b796d8117e5b3d406462712111efaf4b5d59f5f28a9f7321b6ad7",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_ALOHA.png",
+      "sha256": "53f7af389694f51ad46984991c926a6a64db9f0b662e6c38c59f3308f4efd769",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_B.png",
+      "sha256": "483d6e03924a752c25c621b1cd409b1b6f05f4fec308dc191d7e45bed4b74b4a",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_C.png",
+      "sha256": "b7b1159120d4e97ddcdaf544dd5b3bcbbdf81aff4cb514f91a8bc8d8bd00c849",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_D.png",
+      "sha256": "47d4fbebc1d0ad6cf6409a1294e59950676dd16258499e883021da5f07032e2b",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_E.png",
+      "sha256": "43acd01d6be5c787c4a3894ef2a884be85f4694dbaa76e36605586d88e86cb75",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_F.png",
+      "sha256": "41bddbbbb3e4f61c8f6e6feb069128766a24401c50fc2b89d13146ecec5decec",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_G.png",
+      "sha256": "c1fef62e216634b1fcb20650fb76fbb8aa9583d257aa5392962a04cb92dfd7df",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_H.png",
+      "sha256": "34df9898000067f9ab30af4b029f604631e78d7ef51293640355c74e468db1a2",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_I.png",
+      "sha256": "9912bd709792b8c5b917684118f6b3114fe83302a33280614023c9594c806fc7",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_J.png",
+      "sha256": "c8acae18d50e24972061d906369696d73373b0dc8ff6cb015bd963ea731a5983",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_K.png",
+      "sha256": "d5446840cd2159ca6b62a7c7c4456fd0eed090479f18060419547fd6d8f8b34b",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_KIRIN.png",
+      "sha256": "33fd73b2aefc9d90a24375f90c6931cdeed23db94813ff88dcff5020e5371b99",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_L.png",
+      "sha256": "5440fed53614084d828b39011c0f20e0ebcf0e51a497eface2f18cadcd3637bf",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_M.png",
+      "sha256": "0b6a8ff1c94438ab3b99a56c7222f8229ca5f79d927430014a439a68183f7e57",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_N.png",
+      "sha256": "d8e81f4640b66caa2e3528a2ce34abd9a59238495fc4da243f3d7163761e94a7",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_O.png",
+      "sha256": "334f08a05c70e61d7f2d278d000ba60782dc0268865ce0162e7f695e20e41cfa",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_P.png",
+      "sha256": "aaf301fb6d2496b6b5f0c425696ee3347b461d1239b2473b4034731f21fa6756",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_PCB.png",
+      "sha256": "d4f062aca9dd6c1dc61a4c4409434c67e58ef41deeffa81682875a976d1e1884",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_PEACH.png",
+      "sha256": "ea6785b24fdbf1108e91218097e170505f710f48c1b926a0bc4ae36be1a92227",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_Q.png",
+      "sha256": "41f2683c29f1105cf63ad74cac4a91b034431781e1f78f341f5473135806acf3",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_R.png",
+      "sha256": "865b7045eea4cec497162e51a9241e5ede1da0f58ecee203ee12fd057cf0b99b",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_S.png",
+      "sha256": "c49e496bf927d331828579fee05b1807df5da2ce1499e527ea2704e08b82e0a6",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_T.png",
+      "sha256": "6ea15cccfe9f30cbcdbf81a3466b9684bb96d03831481f42a9d6bcea3f73f87c",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_U.png",
+      "sha256": "5edc7941d6182ccb5af2f631180ecba1130cb391b24d35647faf614b1b26f386",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_V.png",
+      "sha256": "5d2c2042ff208f8f735d5e620cb539afd838e1a1e9c0b7083ee854c793e7943c",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_W.png",
+      "sha256": "bc11bde6c2e4a978428c7892f041264a0e9fd91354830c7a64077b78513e093a",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_X.png",
+      "sha256": "24779e82048ebd08f2993c5e1af5b72c22122c709f484896b21aa011526fa92f",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_Y.png",
+      "sha256": "4866c1dd48d30b9c493f82f05ace678381503a96a225c5ecd75a7353d1fdf585",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "assets_source/fonts/kirin_font_ce2226_Z.png",
+      "sha256": "f1ec931b2030a355dd6f7e2f8ee2fde523992ac3d3c353c0a16a715f6de59645",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "crates/hypha_gui/assets/attack_specimen_emission.png",
+      "sha256": "5f5b464179568747fc46c7ce661261e1458782b45c652714dd2912fcfbcef6a7",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "crates/hypha_gui/assets/bg_mycelium.png",
+      "sha256": "efb64c8ebf443d1e718e6624c9ade86c74f516e859814b53d7d60b78a54dfc3a",
+      "status": "verified",
+      "rights": "Maintainer factual declaration accepted for the specified distribution uses; no legal certification.",
+      "reason": "Specified three shipping images accepted on factual declaration plus bounded generation evidence; reopen only on concrete contradictory evidence.",
+      "creation": "Codex-generated per maintainer statement; current-file generation bridge remains unverified.",
+      "rightsEvidence": "Maintainer declaration 2026-10-05: created with Codex from textual instructions; no third-party image/photo/logo/UI/illustration inputs or specific product/design reproduction instructions. Corroborating generation/hash/copy records retained privately where available; record absence alone is not adverse evidence.",
+      "allowedUses": [
+        "binary",
+        "preview",
+        "source"
+      ]
+    },
+    {
+      "path": "crates/hypha_gui/assets/hybrid_vu_chassis.png",
+      "sha256": "6e64a304440f2dedd3483cec0323fbcda82a1d72b3692c579ec6ffa747ac7510",
+      "status": "verified",
+      "rights": "Maintainer factual declaration accepted for the specified distribution uses; no legal certification.",
+      "reason": "Specified three shipping images accepted on factual declaration plus bounded generation evidence; reopen only on concrete contradictory evidence.",
+      "creation": "Codex-generated: maintainer statement and generation-output/current-file hash match.",
+      "rightsEvidence": "Maintainer declaration 2026-10-05: created with Codex from textual instructions; no third-party image/photo/logo/UI/illustration inputs or specific product/design reproduction instructions. Corroborating generation/hash/copy records retained privately where available; record absence alone is not adverse evidence.",
+      "allowedUses": [
+        "binary",
+        "preview",
+        "source"
+      ]
+    },
+    {
+      "path": "crates/hypha_gui/assets/hypha_level_corners.png",
+      "sha256": "a3e82fe9487650a48c650b0143ac22ae4e980daee2d79c6aa2ce8d3220f33247",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "crates/hypha_gui/assets/observatory_understory.png",
+      "sha256": "73c15942931313a327a3d4c07f6616826f22b4e69454c049da9a51d7f3989056",
+      "status": "verified",
+      "rights": "Maintainer factual declaration accepted for the specified distribution uses; no legal certification.",
+      "reason": "Specified three shipping images accepted on factual declaration plus bounded generation evidence; reopen only on concrete contradictory evidence.",
+      "creation": "Codex-generated per maintainer statement; current-file generation bridge remains unverified.",
+      "rightsEvidence": "Maintainer declaration 2026-10-05: created with Codex from textual instructions; no third-party image/photo/logo/UI/illustration inputs or specific product/design reproduction instructions. Corroborating generation/hash/copy records retained privately where available; record absence alone is not adverse evidence.",
+      "allowedUses": [
+        "binary",
+        "preview",
+        "source"
+      ]
+    },
+    {
+      "path": "docs/assets/hypha_attack_300pct_concept_20260909.png",
+      "sha256": "4a52002a2924175055873c50bd11da4cb25ea1f0fae96e8dc9c401073d67bab6",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/assets/hypha_attack_feature_independence_20260909.png",
+      "sha256": "07519398a9b39aaeb815448cb76d09d0bd18f0e2aaa3ec3cebc6a67c6acc4d53",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/assets/hypha_attack_shape_comparison_20260909.png",
+      "sha256": "3a7b15f7ffaffad9f81092282b7a2c7b80339697c9699b624a5718afb895c29f",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/hypha_jungle_concept_20260911.png",
+      "sha256": "d0be710c1d190a38be9781b7363923210172b0f822cfe8c6c0430aabdac2c767",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/hypha_main_background_concept_v8_20260915.png",
+      "sha256": "73c15942931313a327a3d4c07f6616826f22b4e69454c049da9a51d7f3989056",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/hypha_meter_concepts/concept-a-precision-instrument.png",
+      "sha256": "888d22badfdec7c18980faf491675c5a1226a198988523e7c016b7b3f28380cd",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/hypha_meter_concepts/concept-b-living-mycelium.png",
+      "sha256": "06b0297051aae67e686285154f0c016566d502c5457ec18245c9011bea30762a",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/hypha_meter_concepts/concept-c-hybrid-observatory.png",
+      "sha256": "f3a1c47928f25bc99c528a9c507a22233d35d8a9c3aefabb55d7de606c8adda9",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/hypha_normal_level_concept_20260911.png",
+      "sha256": "4248c487fe93105ca876010a3928dd9106d35f0f38160dce939fe793189cfb57",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-freq-demo.mp4",
+      "sha256": "e149441b4c8bbbcd908c9bda53fc56c0ef106962abadab0531f39d5d9b77194d",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-freq.jpg",
+      "sha256": "07ead3f12501b601e3e098d48f81bee44faf1a55d8681548ac63ac93cefb7c60",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-live.jpg",
+      "sha256": "9b200ff12454b176e213f7ea5dfa31d75c23a7ce59a29fe5d94cf776311d5cb6",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-pre-post-demo.mp4",
+      "sha256": "7d1ce8ad1f8fab4e6245c08fb25a1b5b733dd40c5e1f876d7a1527b5fef0bc13",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-pre-post.jpg",
+      "sha256": "c38f068db726a4172850a0cd4099a7dcf116fe1ef29f123eda647612217c5416",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-record-keep-demo.mp4",
+      "sha256": "24db4c35289ce82678d476017fb509f63d52435d95e79fdacaadfd3c559b77eb",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "docs/media/kirin-hypha-sharp.jpg",
+      "sha256": "5ffa99bc02eca335b95643c11df07e84e369abb54024f32a8108857d5a12c2d2",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    },
+    {
+      "path": "vendor/egui-baseview/screenshot.png",
+      "sha256": "04b479bb3f47ade7a1328e2d676a3e6a80b31ca2125f0847744cb5c7d195519b",
+      "status": "hold",
+      "rights": "Unknown",
+      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+    }
+  ],
+  "embedContractSha256": "b7fd69b8a96dc754e8f21e2288cc6b37af02062fe1002096d00fbaae3caa1070"
+}

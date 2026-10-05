@@ -261,8 +261,12 @@ jobs:
           cmake --build juce_shell/build-windows --config Release --target KirinAttackUiContractTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_attack_ui_contract$'
 
+      - name: Check embedded material distribution permissions
+        id: provenance-assets
+        run: node scripts/provenance/asset_gate.mjs --github-output
+
       - name: Upload Windows DRUM UI previews
-        if: always()
+        if: ${{ always() && steps.provenance-assets.outputs.preview-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-drum-ui
@@ -351,6 +355,7 @@ jobs:
           }
 
       - name: Upload Windows VST3 artifacts
+        if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-vst3
@@ -445,6 +450,7 @@ jobs:
             -Manifest "$($installer[0].FullName).json"
 
       - name: Upload primary Windows installer
+        if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-installer
@@ -467,6 +473,7 @@ jobs:
           --payload-signing $env:WINDOWS_SIGNING
 
       - name: Upload fallback Windows VST3 ZIP
+        if: ${{ steps.provenance-assets.outputs.binary-approved == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kirin-hypha-windows-vst3-ls-package

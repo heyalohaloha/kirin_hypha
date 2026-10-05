@@ -56,3 +56,7 @@ assets without a documented redistribution basis. Public product research and no
 observations should be described separately from implementation sources. If provenance is uncertain,
 flag it for review before incorporation; a matching name or a common algorithm alone does not
 establish copying. See [PROVENANCE.md](PROVENANCE.md).
+Review provenance for changed source, dependencies, patches, assets, generation references and
+distribution uses, using [the change review template](docs/provenance/change_review_template.md).
+Keep Unknown items visible; do not substitute an unsupported origin or legal guarantee. Private
+evidence may be reviewed separately without committing account records, personal values or secrets.

@@ -64,6 +64,7 @@ node scripts/build_hypha.mjs --release --init \
   --hp-root /absolute/path/to/kirin_hp \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
+  --provenance-report release_state/distribution-provenance.json \
   --date YYYY-MM-DD
 
 # planのみ。build / 署名 / CI / 公開 / HP変更は実行しない。
@@ -91,8 +92,8 @@ AUはApple専用。Windows x64を「Universal Binary」とは呼ばない。
 ## 自動化する部分と、人による確認
 
 署名・公証・配布・GitHub・HPのコマンド接続はscriptが行うが、実DAWの聴取試験を自動PASSにしない。
-`ci`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
-`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
+`provenance-inputs`、`ci`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
+`provenance`、`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
 
 確認待ちは`CHECKPOINT`／exit 2。後段へは進まない。担当者は表示されたgateを確認し、
 profileで指定されたreportへ実測と証跡を記録する。接続や資料の不足を、利用者の手動編集で補わない。
@@ -101,6 +102,7 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
   external validation・Native-only provenanceが必要。旧runは代用できない。
 - **A4**: SDK/機器を含まないfixture結果で実host matrixを代用しない。ARM64 / Intelの各format、
   Windows両format、pair組合せ、LISTEN / Blind / Exact 4 S、通常透明性、保存、stress等を確認する。
+- **Provenance**: build/signing前に素材の用途を確認し、packaging後に実payloadのNOTICE・license・対応source配送を確認する。保持したprivate reportと実bytesを[配布gate](provenance/distribution_gate.md)で照合する。fixture PASSだけで配布readyにしない。
 - **A5**: packaging前後のpayload連続性、両OSのclean install、全署名、Rollback準備の証跡が必要。
 - **LS**: 現行Runbookのauthenticated uploadはoperator工程。scriptはPKG/stateを揃え、各商品の
   ダウンロード控えのhashとChromeの配送表示を確認する。LS uploadを自動実装済みとは扱わない。

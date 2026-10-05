@@ -21,8 +21,10 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# GitHub budget policy\n');
   const payload = path.join(root, 'payload.pkg'); fs.writeFileSync(payload, 'signed fixture bytes');
+  const source = path.join(root, 'source.zip'); fs.writeFileSync(source, 'source delivery fixture bytes');
   return { root, payload, state: { root, candidate: { id: 'candidate', version: '1.2.3', commit: 'a'.repeat(40) },
-    inputs: { notes: 'reviewed-notes.md', date: '2026-10-01' }, stages: { packages: { facts: [fileFact(payload)] } } } };
+    inputs: { notes: 'reviewed-notes.md', date: '2026-10-01' }, stages: { packages: { facts: [fileFact(payload)] },
+      provenance: { status: 'PASS', facts: [fileFact(source)], publicFacts: [fileFact(source)] } } } };
 }
 
 test('HP transforms both real-shaped languages, installer links, version/date tests and AAX formats together', () => {
@@ -45,11 +47,11 @@ test('changed/mixed HP markup or zip-only primary channels require review', () =
 
 function githubMock(f, { published = false, existingAsset = false, corrupt = false } = {}) {
   let release = published ? { id: 1, draft: false, target_commitish: f.state.candidate.commit, assets: [], html_url: 'release' } : null;
-  const fact = f.state.stages.packages.facts[0]; const calls = [];
-  const asset = () => ({ name: path.basename(f.payload), size: fact.bytes, digest: `sha256:${fact.sha256}` });
+  const facts = [...f.state.stages.packages.facts, ...f.state.stages.provenance.publicFacts]; const calls = [];
+  const asset = fact => ({ name: path.basename(fact.path), size: fact.bytes, digest: `sha256:${fact.sha256}` });
   if (release || existingAsset) {
     release ||= { id: 1, draft: true, target_commitish: f.state.candidate.commit, assets: [], html_url: 'release' };
-    release.assets.push(asset());
+    release.assets.push(...facts.map(asset));
   }
   const run = async (tool, args) => {
     calls.push([tool, args]); assert.equal(tool, 'gh');
@@ -60,10 +62,10 @@ function githubMock(f, { published = false, existingAsset = false, corrupt = fal
       if (args[1].includes('/releases/tags/')) return release ? JSON.stringify(release) : '';
     }
     if (args[1] === 'create') release = { id: 1, draft: true, assets: [], target_commitish: f.state.candidate.commit, html_url: 'release' };
-    if (args[1] === 'upload') release.assets.push(asset());
+    if (args[1] === 'upload') release.assets.push(asset(facts.find(fact => fact.path === args[3])));
     if (args[1] === 'download') {
       const dir = args[args.indexOf('--dir') + 1];
-      fs.writeFileSync(path.join(dir, path.basename(f.payload)), corrupt ? 'corrupt' : fs.readFileSync(f.payload));
+      for (const fact of facts) fs.writeFileSync(path.join(dir, path.basename(fact.path)), corrupt ? 'corrupt' : fs.readFileSync(fact.path));
     }
     if (args[1] === 'edit') release.draft = false;
     return '';
@@ -79,6 +81,17 @@ test('GitHub stages an immutable draft, hashes read-back before publish, pins ex
   assert.ok(create.includes('--draft'));
   assert.ok(m.calls.findIndex(([, a]) => a[1] === 'download') < m.calls.findIndex(([, a]) => a[1] === 'edit'));
   assert.ok(!m.calls.some(([, a]) => a.includes('--clobber') || a[1] === 'delete'));
+});
+
+test('missing source gate or changed source bytes stops before GitHub mutation', async t => {
+  const f = fixture(t); const m = githubMock(f);
+  f.state.stages.provenance.status = 'PENDING';
+  await assert.rejects(publishGithub(f.state, m.run, () => {}), Checkpoint);
+  assert.deepEqual(m.calls, []);
+  f.state.stages.provenance.status = 'PASS';
+  fs.writeFileSync(f.state.stages.provenance.publicFacts[0].path, 'changed source');
+  await assert.rejects(publishGithub(f.state, m.run, () => {}), /artifact changed/);
+  assert.deepEqual(m.calls, []);
 });
 
 test('interrupted draft upload and published same-byte release are reusable without duplicate upload', async t => {
@@ -107,6 +120,17 @@ test('public-user-path download validates actual streamed bytes, not HEAD 200 or
     async () => new Response('wrong')), /hash mismatch/);
   await assert.rejects(publicDownloadFacts(f.state, f.state.stages.packages.facts,
     async () => new Response('no', { status: 404 })), /download failed/);
+});
+
+test('Corresponding Source public readback detects missing or altered source independently of the package', async t => {
+  const f = fixture(t); const facts = [...f.state.stages.packages.facts, ...f.state.stages.provenance.publicFacts];
+  const visited = [];
+  await assert.rejects(publicDownloadFacts(f.state, facts, async url => {
+    visited.push(url);
+    return new Response(url.endsWith('/source.zip') ? 'wrong source' : fs.readFileSync(f.payload));
+  }), /hash|bytes|size/i);
+  assert.equal(visited.length, 2);
+  assert.ok(visited[1].endsWith('/source.zip'));
 });
 
 test('HP public check validates both languages, both platforms and exact deployed source', async t => {
