@@ -231,7 +231,6 @@ trackのrecord armは有効にせず、音声eventは作成していない。
 
 画面、buildと配置のhash台帳、復旧結果、公式headerの比較結果は、ローカルの`Downloads/Hypha_B1_Host_Evidence_20260907/`へ保存した。
 B-757のWindows証拠とB-765のmacOS画面、比較値、候補binary、要求artifact、復旧結果は、ローカルの`Downloads/Hypha_PDC_Evidence_20260908/`へ保存した。
-OneDriveの容量100%通知も表示されたが、アカウントや同期設定は変更していない。
 
 ## 次に閉じる条件
 

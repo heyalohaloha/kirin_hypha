@@ -602,3 +602,19 @@ Checks: assigned changed docs 82, assigned H0-kept docs 43, all 63 new relative 
 | tag | `v1.1.3` | `6c4d71c462ecd43cb43ab4e18c2b0dfebfe00fd9` |
 | tag | `v1.1.1` | `83738961e899f2276487a3353cf8c5820674f38e` |
 | tag | `v1.0.0` | `81aefb70fadcca10702065f756f5cc1e01695430` |
+
+
+## Supplementary contact/cloud review — before final hygiene edit
+
+All 165 submitted phone/address/cloud/admin candidates (153 source lines, 40 files) were inspected in context:
+157 apparent phone values are UUID test fixtures or numeric CMake benchmark parameters; the other eight
+are a null example admin-URL field, generic local-state schema logic, and a metadata-redaction denylist.
+They are H0 and retained. No actual telephone/address/personal cloud path/populated management URL or
+credential was found in that candidate set; legal copyright/license contacts are retained.
+
+| File / original location | Content type and evidence | Public necessity / classification | Recommended action / side effect | Persistence / public surfaces |
+| --- | --- | --- | --- | --- |
+| `docs/hypha_b1_host_observation_20260907.md:234` (pre-edit candidate) | Personal cloud capacity notification and operator account/sync-state note; no account, path or credential value | Unnecessary to build, reproduce or assess adjacent host/PCM findings; internal operator detail, H1 | Remove only this sentence; preserve neighboring host evidence, exact source/binary hashes, restoration and test limits | Already committed: remains in Git history, source archives and any published PR diff; forward cleanup does not alter old Release or logs. No rewrite; owner decision deferred |
+
+This finding was recorded before removing its sentence. The remaining observation document preserves
+all technical acceptance evidence; this is an additional PR-A hygiene edit with no code change.
