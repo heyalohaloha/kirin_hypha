@@ -73,6 +73,20 @@ const Catalog& japaneseCatalog()
     return lookup;
 }
 
+bool isFactSeparator (juce::juce_wchar character) noexcept
+{
+    return character == '/' || character == 0x00b7;
+}
+
+// " / " and "  ·  " join separate facts (translateParts).
+bool joinsFacts (const juce::String& text) noexcept
+{
+    for (int index = 1; index + 1 < text.length(); ++index)
+        if (isFactSeparator (text[index]) && text[index - 1] == ' ' && text[index + 1] == ' ')
+            return true;
+    return false;
+}
+
 // Values are found left to right: each one runs up to the next fixed text, the last one up to the
 // fixed text that ends the English. A value is never empty.
 bool matchPattern (const Pattern& pattern, const juce::String& text,
@@ -102,7 +116,28 @@ bool matchPattern (const Pattern& pattern, const juce::String& text,
     return position == valuesEnd;
 }
 
-juce::String exactOrPattern (const Catalog& catalog, const juce::String& text, bool& found)
+// A value inside a pattern can itself be catalog prose, a state inside a sentence ("B: %1" around
+// "KIRIN OS PREPARES 2 SONGS FIRST"): it is translated whole, by a pattern of its own, or part by
+// part, down to this many sentences deep. Below that only a whole entry is looked up.
+constexpr int nestingLimit = 3;
+
+juce::String translateParts (const Catalog&, const juce::String&, int depth);
+
+juce::String exactOrPattern (const Catalog&, const juce::String&, bool& found, int depth = 0);
+
+juce::String nestedValue (const Catalog& catalog, const juce::String& value, int depth)
+{
+    if (depth >= nestingLimit)
+    {
+        const auto nested = catalog.exact.find (value);
+        return nested != catalog.exact.end() ? nested->second : value;
+    }
+    bool found = false;
+    const auto whole = exactOrPattern (catalog, value, found, depth + 1);
+    return found ? whole : translateParts (catalog, value, depth + 1);
+}
+
+juce::String exactOrPattern (const Catalog& catalog, const juce::String& text, bool& found, int depth)
 {
     found = true;
     if (const auto entry = catalog.exact.find (text); entry != catalog.exact.end())
@@ -113,28 +148,34 @@ juce::String exactOrPattern (const Catalog& catalog, const juce::String& text, b
         if (! matchPattern (pattern, text, values))
             continue;
         auto result = pattern.japanese;
-        for (int slot = 1; slot <= 3; ++slot)
+        bool spansFacts = false;
+        for (const auto slot : pattern.slots)
         {
-            // A value that is itself catalog prose (a state inside a sentence) is shown translated.
             const auto& value = values[static_cast<std::size_t> (slot)];
-            const auto nested = catalog.exact.find (value);
-            result = result.replace ("%" + juce::String (slot),
-                                     nested != catalog.exact.end() ? nested->second : value);
+            // A value holds one fact, or several facts the catalog has as one sentence ("V: %1" around a
+            // "reason / fix"). "OUTSIDE %1 CUE" must not take "B CUE / MOVE OR CHOOSE LONGER" as its value:
+            // such a text is translated fact by fact instead.
+            if (joinsFacts (value))
+            {
+                const auto sentence = catalog.exact.find (value);
+                spansFacts = sentence == catalog.exact.end();
+                if (spansFacts) break;
+                result = result.replace ("%" + juce::String (slot), sentence->second);
+                continue;
+            }
+            result = result.replace ("%" + juce::String (slot), nestedValue (catalog, value, depth));
         }
+        if (spansFacts)
+            continue;
         return result;
     }
     found = false;
     return text;
 }
 
-bool isFactSeparator (juce::juce_wchar character) noexcept
-{
-    return character == '/' || character == 0x00b7;
-}
-
 // "PART / PART" statuses and "PART  ·  PART" Guide facts join separate facts; each part is looked
 // up on its own when the whole is not in the catalog. The spaces around each separator are kept.
-juce::String translateParts (const Catalog& catalog, const juce::String& text)
+juce::String translateParts (const Catalog& catalog, const juce::String& text, int depth)
 {
     juce::String result;
     auto translatedAny = false;
@@ -153,7 +194,7 @@ juce::String translateParts (const Catalog& catalog, const juce::String& text)
         while (nextStart < text.length() && text[nextStart] == ' ')
             ++nextStart;
         bool found = false;
-        result += exactOrPattern (catalog, text.substring (start, partEnd), found);
+        result += exactOrPattern (catalog, text.substring (start, partEnd), found, depth);
         translatedAny = translatedAny || found;
         result += text.substring (partEnd, nextStart);
         start = nextStart;
@@ -161,7 +202,7 @@ juce::String translateParts (const Catalog& catalog, const juce::String& text)
     if (start == 0)
         return text;
     bool found = false;
-    result += exactOrPattern (catalog, text.substring (start), found);
+    result += exactOrPattern (catalog, text.substring (start), found, depth);
     return translatedAny || found ? result : text;
 }
 
@@ -185,7 +226,7 @@ juce::String translateLine (const Catalog& catalog, const juce::String& line)
 {
     bool found = false;
     const auto whole = exactOrPattern (catalog, line, found);
-    return found ? whole : translateParts (catalog, line);
+    return found ? whole : translateParts (catalog, line, 0);
 }
 }
 
@@ -238,7 +279,7 @@ juce::String translate (const juce::String& english, Language language)
     // A detail built from several lines (a failure, then what was kept) translates line by line.
     if (! english.containsChar ('\n'))
     {
-        const auto parts = translateParts (catalog, english);
+        const auto parts = translateParts (catalog, english, 0);
         if (auto* observer = missObserver.load (std::memory_order_relaxed); observer != nullptr
             && parts == english)
             observer (english);

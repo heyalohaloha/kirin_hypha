@@ -172,14 +172,19 @@ inline void verifyReferenceStatusLine()
         preparing.referenceStep = Step::preparing;
         preparing.rolePreparation = { "pending", "queued", {}, {}, "working", 2 };
         line = reference_ui::referenceStatusLine (preparing);
+        // 日本語は中の文まで訳す（「B：KIRIN OS PREPARES 2 SONGS FIRST」と英語のまま出ていた。2026-10-06）。
         require (line.kind == StatusKind::waiting && line.text == "B: KIRIN OS PREPARES 2 SONGS FIRST"
-                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
-                 "a song Kirin OS is preparing says how many come first");
+                     && i18n::translate (line.text, i18n::Language::japanese)
+                            == juce::String (juce::CharPointer_UTF8 ("B\xef\xbc\x9a" "Kirin OS\xe3\x81\x8c\xe5\x85\x88\xe3\x81\xab"
+                                                                     "2\xe6\x9b\xb2\xe3\x82\x92\xe6\xba\x96\xe5\x82\x99\xe3\x81\x97"
+                                                                     "\xe3\x81\xa6\xe3\x81\x84\xe3\x81\xbe\xe3\x81\x99")),
+                 "a song Kirin OS is preparing says how many come first, in Japanese too");
         preparing.rolePreparation = { "pending", {}, "source_unavailable", "manual", "idle", 0 };
         line = reference_ui::referenceStatusLine (preparing);
         require (line.kind == StatusKind::unable && line.text == "B: KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS"
-                     && i18n::translate (line.text, i18n::Language::japanese) != line.text,
-                 "a song Kirin OS cannot find says so with its fix");
+                     && ! i18n::translate (line.text, i18n::Language::japanese).contains ("FILE")
+                     && ! i18n::translate (line.text, i18n::Language::japanese).contains ("RETRY"),
+                 "a song Kirin OS cannot find says so with its fix, in Japanese too");
         preparing.referenceStep = Step::ready;
         require (reference_ui::referenceStatusLine (preparing).text == preparing.status, "a ready song keeps its own line");
         using P = reference_audition::RuntimeSongPreparation;

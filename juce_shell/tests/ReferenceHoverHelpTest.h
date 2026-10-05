@@ -20,16 +20,6 @@ inline std::set<juce::String> helpTextsOf (reference_ui::Component& panel)
     return texts;
 }
 
-inline const std::vector<const char*>& referenceHelpTexts()
-{
-    using namespace reference_ui::help_text;
-    static const std::vector<const char*> texts { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,
-                                                  timeLines, cueSpectrum, versionSpectrum, balance, blauert, cueBands,
-                                                  versionBands, integrated, truePeak, cueBar, match, checkTabs, versionTabs,
-                                                  whole, songs };
-    return texts;
-}
-
 // 足元の行（300%、エディターが置く場所）に、説明が両言語で収まる。`extra` は部品の説明（ツールチップ）。
 inline void verifyReferenceHelpFits (const std::set<juce::String>& extra)
 {
@@ -42,7 +32,7 @@ inline void verifyReferenceHelpFits (const std::set<juce::String>& extra)
     require (line.getWidth() > 300, "300% has a footer line for the help");
     const auto context = presentation::forEditor (900, 600);
     std::set<juce::String> texts (extra);
-    for (const auto* text : referenceHelpTexts()) texts.insert (text);
+    for (const auto* text : reference_ui::help_text::all) texts.insert (text);
     juce::String tooWide;
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {

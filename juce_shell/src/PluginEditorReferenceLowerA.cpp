@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaReferenceNotices.h"
 
 // 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超える（大きな A に静かな参照曲）とき、
 // 断るだけでなく「A を差だけ下げて合わせる」承認を出す。参照は元の音量のまま。承認した量は足元の RETURN で戻す
@@ -30,8 +31,7 @@ bool KirinHyphaEditor::offerReferenceLowerA (int slot, const hypha::reference_au
     processorRef.markReferenceLowerAOfferShown (slot, role.matchFailureSerial);
     processorRef.selectReferenceVisualSlot (slot);
     if (getWidth() < 900 || getHeight() < 600) setSize (900, 600);
-    showToast (juce::String (hypha::reference_ui::roleLetter (slot)) + " needs A "
-               + juce::String (-role.neededAttenuationDb, 1) + " dB lower to match. Press LOWER A.");
+    showToast (hypha::reference_ui::notice::lowerANeeded (slot, role.neededAttenuationDb));
     return true;
 }
 
@@ -60,7 +60,7 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
     if (referenceLowerAApprovedDb < 0.0 && (runtime.bSelected || runtime.heldAttenuationDb >= 0.0))
     {
         if (runtime.bSelected && runtime.heldAttenuationDb < referenceLowerAApprovedDb - 0.05)
-            showToast ("A lowered " + juce::String (-runtime.heldAttenuationDb, 1) + " dB to match: A got louder after the offer.");
+            showToast (hypha::reference_ui::notice::lowerAAgain (runtime.heldAttenuationDb));
         referenceLowerAApprovedDb = 0.0;
     }
     // 待たせた役（A がたまる前・準備中に押した役）が合わせる時点で上限を超えたら、押し直させずに一度だけ知らせる
@@ -75,12 +75,10 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
     const auto found = hypha::reference_ui::lowerAOfferFor (runtime, slot);
     if (! found) return;
     const auto offer = *found;
-    const auto letter = juce::String (hypha::reference_ui::roleLetter (slot));
-    const auto amount = juce::String (-offer.db, 1);
     // 直し方はボタンが言う（量も）。2 度言うと 300% の足元で状態の文とボタンの文が両方切れた（2026-10-05）。
-    state.status = letter + " NEEDS A " + amount + " DB LOWER";
+    state.status = hypha::reference_ui::notice::lowerAOfferStatus (slot, offer.db);
     state.action = { hypha::reference_ui::ActionKind::lowerAAndPlay, offer };
-    state.actionText = "LOWER A " + amount + " DB & PLAY " + letter;
+    state.actionText = hypha::reference_ui::notice::lowerAOfferAction (slot, offer.db);
 }
 
 // 足元の RETURN：live 比較が POST を下げていなくて Reference が A を下げていれば、Reference の分を戻す。

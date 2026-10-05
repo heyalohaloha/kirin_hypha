@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaReferenceNotices.h"
 #include "HyphaReferencePendingUI.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
@@ -17,11 +18,7 @@ void KirinHyphaEditor::wireReferenceRoles()
         const auto latest = processorRef.referenceAuditionSnapshot();
         const auto& slot = latest.referenceSelection ? *latest.referenceSelection : latest;
         if (offerReferenceLowerA (3, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
-        const auto failure = matchFailureText (slot.matchFailure);
-        const auto step = slotStep (slot, latest.transportPlaying);
-        showToast (failure.isNotEmpty() ? failure : step == hypha::reference_ui::SourceStep::ready
-            ? "B could not switch at this playhead. A remains live; retry when B is ready."
-            : "B: " + hypha::reference_ui::stepText (step));
+        showToast (hypha::reference_ui::notice::roleUnavailable (3, slotStep (slot, latest.transportPlaying), slot.matchFailure));
     };
     referenceView.onSelectSong = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSong (id)) showToast ("Song selection was not changed"); };
@@ -57,8 +54,7 @@ void KirinHyphaEditor::openReferenceLarge (int slot)
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
                                     : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
     setSize (900, 600);
-    if (slot == 1) showToast (playable ? "V opened at 300%. Press V to listen." : "V opened at 300%.");
-    else showToast (playable ? "C opened at 300%. Press C to listen." : "C opened at 300%.");
+    showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
 }
 
 void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
