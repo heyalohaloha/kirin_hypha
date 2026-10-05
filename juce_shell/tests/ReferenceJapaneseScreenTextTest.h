@@ -202,6 +202,12 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
                 add (state);
             }
             state.pendingAudition = {};
+            for (const auto substitute : { reference_ui::CueSubstitute::wholeSong, reference_ui::CueSubstitute::noSpectrum })
+            {
+                state.cueSubstitute = substitute;
+                add (state);
+            }
+            state.cueSubstitute = reference_ui::CueSubstitute::none;
         }
         auto playing = base;
         playing.bSelected = true; playing.audibleComparisonSlot = playing.comparisonSlot = slot;

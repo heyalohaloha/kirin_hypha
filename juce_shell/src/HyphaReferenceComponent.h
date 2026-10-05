@@ -93,6 +93,10 @@ struct SongFact
     double partStartSeconds = std::numeric_limits<double>::quiet_NaN(), partEndSeconds = std::numeric_limits<double>::quiet_NaN();
 };
 
+// C の Cue の値がまだ無いとき：曲全体の値で比べている（wholeSong）／曲全体のスペクトルの定義が A と違うので出さない
+// （noSpectrum。ReferenceWholeSongSpectrum.h）。
+enum class CueSubstitute { none, wholeSong, noSpectrum };
+
 struct State
 {
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
@@ -185,6 +189,7 @@ struct State
     bool cueLoops = false;
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
     reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
+    CueSubstitute cueSubstitute = CueSubstitute::none;          // C の Cue の値が無いときの代わり（状態の行が言う）
 };
 
 // 画面が読む gain：比べる側に掛かる gain（下げる前の A の基準）に、承認して下げた A の量を足す。読みはすべてここを

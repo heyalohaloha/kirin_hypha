@@ -65,6 +65,11 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         return { StatusKind::unable, letter + ": " + state.preparationOverdue };
     // Kirin OS へ頼んだこと（Preset・曲の準備、Kirin OS で開く、Blind の承認）の途中は、その文（直し方はボタン）。
     if (state.kirinOsRequest) return { kind, state.status };
+    // C の Cue の値がまだ無い：曲全体で比べている、または曲全体のスペクトルを出さないことを、理由と直し方で言う
+    // （2026-10-06：黙って曲全体の値を使い、手がかりは凡例の「C WHOLE」だけだった）。
+    if (slot == 2 && (step == SourceStep::ready || step == SourceStep::playDaw))
+        if (const auto substitute = cueSubstituteLine (state.cueSubstitute); substitute.isNotEmpty())
+            return { kind, substitute };
     return { kind, stageLine (step, slot) };
 }
 

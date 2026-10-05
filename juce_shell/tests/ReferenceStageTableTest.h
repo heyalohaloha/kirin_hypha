@@ -9,6 +9,7 @@
 #include "ReferenceGuideContractTest.h"
 #include "../src/HyphaReferencePreparationWatch.h"
 #include "../src/HyphaReferenceStages.h"
+#include "../src/reference_audition/ReferenceWholeSongSpectrum.h"
 
 namespace hypha::tests
 {
@@ -92,6 +93,43 @@ inline void verifyReferenceStageTable()
                      juce::String ("the 300% page layout is used at 300% only (") + juce::String (width) + ", "
                          + reference_ui::roleLetter (slot) + ")");
         }
+
+    // 2026-10-06：C の Cue の値がまだ無いときの代わり（曲全体のスペクトル）は、同じ測定の区切りが 100 ms の曲だけ。
+    // 長い曲（区切り 200 ms 以上）は図に出さず、どちらのときも状態の行が理由と直し方を言う。
+    {
+        using reference_audition::WholeSongSpectrum;
+        reference_audition::RuntimeDetailedMeasurement measurement;
+        measurement.audio = { 48'000, 2, 48'000 * 180 };
+        measurement.spectrum = reference_audition::RuntimeMeasurementSpectrum { { 100.0, 1'000.0 }, { -40'000, -42'000 },
+                                                                                 { -30'000, -32'000 }, { -20'000, -22'000 } };
+        measurement.loudness = reference_audition::RuntimeMeasurementTimeline { 4'800, {} };
+        require (reference_audition::wholeSongSpectrum (measurement) == WholeSongSpectrum::comparable
+                     && reference_audition::wholeSongWindow (measurement) != nullptr
+                     && reference_audition::wholeSongWindow (measurement)->medianDb[1] == -32.0f,
+                 "a song measured every 100 ms stands in for its Cue with the same definition as A");
+        measurement.loudness = reference_audition::RuntimeMeasurementTimeline { 9'600, {} };
+        require (reference_audition::wholeSongSpectrum (measurement) == WholeSongSpectrum::differentDefinition
+                     && reference_audition::wholeSongWindow (measurement) == nullptr,
+                 "a longer song measured every 200 ms does not stand in for its Cue");
+        measurement.loudness.reset();
+        measurement.waveform = reference_audition::RuntimeMeasurementWaveform { 4'800, {}, {} };
+        require (reference_audition::wholeSongSpectrum (measurement) == WholeSongSpectrum::comparable,
+                 "without a loudness timeline the waveform bins give the same measurement's hop");
+        measurement.spectrum.reset();
+        require (reference_audition::wholeSongSpectrum (measurement) == WholeSongSpectrum::missing, "no spectrum, nothing stands in");
+        for (const auto& [substitute, expected] : { std::pair { reference_ui::CueSubstitute::wholeSong, "C COMPARED OVER THE WHOLE SONG" },
+                                                    std::pair { reference_ui::CueSubstitute::noSpectrum, "C SPECTRUM WAITS FOR ITS CUE VALUES" } })
+            for (const auto step : { SourceStep::ready, SourceStep::playDaw })
+            {
+                auto state = stageState (2, step);
+                state.cueSubstitute = substitute;
+                const auto line = reference_ui::referenceStatusLine (state);
+                require (line.text == juce::String (expected) + " / MEASURE ITS CUE IN KIRIN OS" && line.kind == reference_ui::kindOf (step),
+                         "C says what stands in for its Cue, why and how to fix it: " + line.text);
+                state.comparisonSlot = 1;
+                require (! reference_ui::referenceStatusLine (state).text.contains ("CUE"), "only C's page says it");
+            }
+    }
 
     // 切れた状態の文は、指せば全文を読める。300% 未満は吹き出し、300% は足元の説明の行（statusLineHelp）。
     for (const auto& size : observatory::sizePresets)

@@ -735,7 +735,9 @@ shown when a band is near silence (−100 dBFS or below). The four-band Balance 
 250 Hz–2 kHz band holds both 300–400 Hz and 1 kHz. A Check that Kirin OS
 compares by listening (no measured view, such as Vocal balance) says so on C instead of showing
 a chart. V's tabs are matched with the alignment's level even while V is not playing. Until
-Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is. Standard names from
+Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is, and the status line says so
+with the fix (measure the Cue in Kirin OS). The whole-song spectrum stands in only when Kirin OS measured the
+song every 100 ms, A's definition; for a longer song C shows no spectrum and the status line says why. Standard names from
 Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS's English
 names, whatever language they were saved in. On the Japanese screen a name reads in Japanese where
 Hypha has its Japanese (the Check sets, for example, also when ranked "1 / 3"); simple English names

@@ -11,16 +11,9 @@ std::optional<CueLevel> readCueLevel (const juce::File& root, const RuntimeWorks
                                       const RuntimeSource& source)
 {
     if (! workspace.librarySets) return std::nullopt;
-    const RuntimeSourceRangesReceipt* receipt = nullptr;
-    for (const auto& entry : workspace.librarySets->sourceRanges)
-        if (entry.sourceArtifactSha256 == candidate.sourceArtifact.sha256) receipt = &entry;
-    RuntimeSourceRanges ranges;
-    if (receipt == nullptr || ! readReferenceSourceRanges (root, receipt->rangesArtifact, ranges)
-        || ranges.sha256File != source.sourceFileSha256 || ranges.sha256Pcm != source.sourcePcmSha256
-        || ranges.sampleRateHz != source.audio.sampleRateHz
-        || ranges.totalSampleFrames != source.audio.totalSampleFrames
-        || cue.sampleRateHz != ranges.sampleRateHz)
-        return std::nullopt;
+    const auto verified = readSourceRanges (root, *workspace.librarySets, candidate.sourceArtifact, source);
+    if (! verified || cue.sampleRateHz != verified->sampleRateHz) return std::nullopt;
+    const auto& ranges = *verified;
     const auto* range = ranges.find (cue.startSample, cue.endSample);
     if (range == nullptr || ! range->lufsIMilliLu) return std::nullopt;
     CueLevel level;

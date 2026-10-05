@@ -2,6 +2,7 @@
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 #include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferenceNotices.h"
+#include "reference_audition/ReferenceWholeSongSpectrum.h"
 #include "HyphaReferencePendingUI.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
@@ -119,32 +120,23 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueMeasurement = checkRole.detailedMeasurement;
     state.cuePart = checkRole.cuePart;
     state.cueLoudness = checkRole.cueLevelAvailable ? checkRole.cueIntegratedLoudness : std::numeric_limits<double>::quiet_NaN();
-    // Cue の値がまだ無い（Kirin OS が区間をまだ測っていない）あいだは、MATCH と同じく C の曲全体の値で比べる。
-    // Kirin OS の曲全体のスペクトルは Cue の値と同じ定義（2026-10-04：FREQ の線と曲全体を、音量を合わせずに
-    // 重ねていた）。4 帯域は曲全体には無いので「—」。
-    if (! state.cueKirin && checkRole.detailedMeasurement && checkRole.detailedMeasurement->spectrum
-        && std::isfinite (checkRole.sourceIntegratedLoudness) && checkRole.sourceIntegratedLoudness < 0.0)
+    // Cue の値がまだ無い（Kirin OS が区間をまだ測っていない）あいだは、MATCH と同じく C の曲全体の値で比べる。ただし
+    // 曲全体のスペクトルが A の窓と同じ定義になる曲（区切りが 100 ms）だけ（ReferenceWholeSongSpectrum.h）。どちらの
+    // ときも状態の行が理由と直し方を言う。4 帯域は曲全体には無いので「—」。
+    using hypha::reference_audition::WholeSongSpectrum;
+    state.cueSubstitute = hypha::reference_ui::CueSubstitute::none;
+    if (! state.cueKirin && checkRole.detailedMeasurement && std::isfinite (checkRole.sourceIntegratedLoudness)
+        && checkRole.sourceIntegratedLoudness < 0.0)
     {
-        const auto& whole = *checkRole.detailedMeasurement->spectrum;
-        auto window = std::make_shared<hypha::reference_audition::KirinSpectrumWindow>();
-        window->centersHz = whole.bandCentersHz;
-        const auto toDb = [] (const std::vector<std::int64_t>& values)
-        {
-            std::vector<float> result;
-            for (const auto value : values) result.push_back (static_cast<float> (static_cast<double> (value) / 1000.0));
-            return result;
-        };
-        window->p10Db = toDb (whole.p10Millidbfs);
-        window->medianDb = toDb (whole.medianMillidbfs);
-        window->p90Db = toDb (whole.p90Millidbfs);
-        window->frames = window->wantedFrames = 1;
-        if (window->medianDb.size() == window->centersHz.size() && window->p10Db.size() == window->centersHz.size()
-            && window->p90Db.size() == window->centersHz.size() && ! window->centersHz.empty())
+        if (auto window = hypha::reference_audition::wholeSongWindow (*checkRole.detailedMeasurement))
         {
             state.cueKirin = std::move (window);
             state.cueLoudness = checkRole.sourceIntegratedLoudness;
             state.cuePart = hypha::reference_audition::CuePart::whole;
+            state.cueSubstitute = hypha::reference_ui::CueSubstitute::wholeSong;
         }
+        else if (hypha::reference_audition::wholeSongSpectrum (*checkRole.detailedMeasurement) == WholeSongSpectrum::differentDefinition)
+            state.cueSubstitute = hypha::reference_ui::CueSubstitute::noSpectrum;
     }
     state.cueStartSeconds = checkRole.cueStartSeconds;
     state.cueEndSeconds = checkRole.cueEndSeconds;

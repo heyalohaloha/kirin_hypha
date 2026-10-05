@@ -1,6 +1,8 @@
 #include "ReferenceSourceRanges.h"
 #include "ReferenceRuntimeRepositoryParsing.h"
 
+#include <algorithm>
+
 #include <juce_cryptography/juce_cryptography.h>
 
 namespace hypha::reference_audition
@@ -173,7 +175,9 @@ bool parseBandCenters (const juce::var& value, RuntimeSourceRanges& result)
 }
 }
 
-bool readReferenceSourceRanges (const juce::File& root, const RuntimeContentReceipt& receipt, RuntimeSourceRanges& result)
+namespace
+{
+bool readRangesFile (const juce::File& root, const RuntimeContentReceipt& receipt, RuntimeSourceRanges& result)
 {
     result = {};
     if (! sha256 (receipt.sha256) || receipt.relativePath != "plugin_data/reference/v2/ranges/" + receipt.sha256 + ".json"
@@ -220,5 +224,20 @@ bool readReferenceSourceRanges (const juce::File& root, const RuntimeContentRece
         result.ranges.push_back (std::move (range));
     }
     return true;
+}
+}
+
+std::optional<RuntimeSourceRanges> readSourceRanges (const juce::File& root, const RuntimeLibrarySets& sets,
+                                                     const RuntimeContentReceipt& sourceArtifact, const RuntimeSource& source)
+{
+    const auto receipt = std::find_if (sets.sourceRanges.begin(), sets.sourceRanges.end(), [&] (const auto& entry) {
+        return entry.sourceArtifactSha256 == sourceArtifact.sha256;
+    });
+    RuntimeSourceRanges ranges;
+    if (receipt == sets.sourceRanges.end() || ! readRangesFile (root, receipt->rangesArtifact, ranges)
+        || ranges.sha256File != source.sourceFileSha256 || ranges.sha256Pcm != source.sourcePcmSha256
+        || ranges.sampleRateHz != source.audio.sampleRateHz || ranges.totalSampleFrames != source.audio.totalSampleFrames)
+        return std::nullopt;
+    return ranges;
 }
 }

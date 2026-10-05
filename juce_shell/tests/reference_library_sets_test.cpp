@@ -8,6 +8,7 @@
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceSourceRanges.h"
 #include "../src/reference_audition/ReferenceLibrarySongs.h"
+#include "../src/reference_audition/ReferenceCueMatch.h"
 
 #include <algorithm>
 
@@ -50,8 +51,11 @@ void readsWhatKirinOsWrote (const juce::File& sandbox)
         return item.sourceArtifactSha256 == song.sourceArtifact.sha256;
     });
     require (entry != sets.sourceRanges.end(), "the prepared song's Cue values are indexed by its source");
-    ref::RuntimeSourceRanges ranges;
-    require (ref::readReferenceSourceRanges (root, entry->rangesArtifact, ranges), "the Cue values file must be read");
+    const auto source = ref::RuntimeV2SourceRepository (root).load (song);
+    require (source.accepted(), "the song's source descriptor is read");
+    const auto verified = ref::readSourceRanges (root, sets, song.sourceArtifact, *source.source);
+    require (verified.has_value(), "the Cue values file of this very source must be read");
+    const auto& ranges = *verified;
     require (ranges.sampleRateHz == 48'000 && ranges.totalSampleFrames == 96'000 && ranges.spectrumBandCentersHz.size() == 12,
              "the audio facts and the spectrum bands");
     const auto* cue = ranges.find (song.cues[0].startSample, song.cues[0].endSample);
@@ -75,10 +79,32 @@ void readsWhatKirinOsWrote (const juce::File& sandbox)
                  && ! std::isfinite (pendingFacts->second.lufsI) && pendingFacts->second.spectrumMedianDb.empty(),
              "each B song carries its Cue loudness and spectrum for the B page");
 
+    // 2026-10-06：索引が別の音源の Cue の値を指していれば、一覧・Balance・MATCH のどれも受け付けない（同じ入口）。
+    {
+        auto other = sets;
+        const auto foreign = std::find_if (other.sourceRanges.begin(), other.sourceRanges.end(), [&] (const auto& item) {
+            return item.sourceArtifactSha256 != song.sourceArtifact.sha256;
+        });
+        require (foreign != other.sourceRanges.end(), "the fixture indexes another source");
+        for (auto& item : other.sourceRanges)
+            if (item.sourceArtifactSha256 == song.sourceArtifact.sha256) item.rangesArtifact = foreign->rangesArtifact;
+        require (! ref::readSourceRanges (root, other, song.sourceArtifact, *source.source).has_value(),
+                 "another source's Cue values are refused");
+        auto workspace = *loaded.workspace;
+        workspace.librarySets = other;
+        ref::applyLibrarySongEntries (root, workspace);
+        const auto facts = workspace.librarySets->songFacts.find (ref::referenceSongEntryId (sets.songSets[0].songSetId, song.candidateId));
+        require (facts != workspace.librarySets->songFacts.end() && ! std::isfinite (facts->second.lufsI)
+                     && facts->second.spectrumMedianDb.empty(),
+                 "the B list and Balance show no value from another source's Cue values");
+        require (! ref::readCueLevel (root, workspace, song, song.cues[0], *source.source).has_value(),
+                 "MATCH takes no level from another source's Cue values");
+    }
+
     // 受け取りと違うファイル（書き換えられた・壊れた）は読まない。
     const auto file = root.getChildFile ("ranges/" + entry->rangesArtifact.sha256 + ".json");
     require (file.appendText (" "), "a changed Cue values file");
-    require (! ref::readReferenceSourceRanges (root, entry->rangesArtifact, ranges), "a changed file is refused");
+    require (! ref::readSourceRanges (root, sets, song.sourceArtifact, *source.source).has_value(), "a changed file is refused");
 }
 
 void followsRankChangesAndPublication (const juce::File& sandbox)

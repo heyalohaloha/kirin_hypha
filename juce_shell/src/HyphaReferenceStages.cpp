@@ -116,6 +116,17 @@ double budgetSeconds (WaitBudget budget) noexcept
     return 0.0;
 }
 
+juce::String cueSubstituteLine (CueSubstitute substitute)
+{
+    switch (substitute)
+    {
+        case CueSubstitute::wholeSong: return "C COMPARED OVER THE WHOLE SONG / MEASURE ITS CUE IN KIRIN OS";
+        case CueSubstitute::noSpectrum: return "C SPECTRUM WAITS FOR ITS CUE VALUES / MEASURE ITS CUE IN KIRIN OS";
+        case CueSubstitute::none: break;
+    }
+    return {};
+}
+
 juce::String stepText (SourceStep step)
 {
     return stageOf (step).brief;

@@ -68,6 +68,10 @@ const Entry entries[] = {
     { "RANK A B SET FOR HYPHA IN KIRIN OS", u8"Kirin OSでBセットをHyphaに出す" },
     { "CHECK THE SOURCE IN KIRIN OS", u8"Kirin OSで音源を確認" },
     { "SOURCE NOT READY", u8"音源が未準備" },
+    // C の Cue の値がまだ無いとき（HyphaReferenceStages.cpp の cueSubstituteLine）。
+    { "C COMPARED OVER THE WHOLE SONG", u8"Cは曲全体で比較中" },
+    { "C SPECTRUM WAITS FOR ITS CUE VALUES", u8"CのスペクトルはCueの値待ち" },
+    { "MEASURE ITS CUE IN KIRIN OS", u8"Kirin OSでCueを測る" },
     { "PRE DELTA PAUSED", u8"PRE差分は停止中" },
     { u8"PRE Δ PAUSED", u8"PREのΔは停止中" },
     { "REF REQUIRES KIRIN OS", u8"REFにはKirin OSが必要" },

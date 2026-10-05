@@ -17,18 +17,18 @@ juce::String referenceSongEntryId (const juce::String& songSetId, const juce::St
 
 namespace
 {
+// 一覧と Balance の値は、その曲の音源のものと確かめた Cue の値だけから取る（MATCH と同じ入口）。
 RuntimeSongFacts readSongFacts (const juce::File& root, const RuntimeLibrarySets& sets, const RuntimeCandidate& song)
 {
     RuntimeSongFacts facts;
     if (! song.prepared) return facts;
-    const auto receipt = std::find_if (sets.sourceRanges.begin(), sets.sourceRanges.end(), [&] (const auto& entry) {
-        return entry.sourceArtifactSha256 == song.sourceArtifact.sha256;
-    });
     const auto cue = std::find_if (song.cues.begin(), song.cues.end(), [&] (const auto& item) { return item.cueId == song.defaultCueId; });
-    RuntimeSourceRanges ranges;
-    if (receipt == sets.sourceRanges.end() || cue == song.cues.end()
-        || ! readReferenceSourceRanges (root, receipt->rangesArtifact, ranges) || cue->sampleRateHz != ranges.sampleRateHz)
+    const auto source = RuntimeV2SourceRepository (root).load (song);
+    const auto verified = source.accepted() ? readSourceRanges (root, sets, song.sourceArtifact, *source.source)
+                                            : std::optional<RuntimeSourceRanges> {};
+    if (cue == song.cues.end() || ! verified || cue->sampleRateHz != verified->sampleRateHz)
         return facts;
+    const auto& ranges = *verified;
     // どの部分か（凡例）は、Cue の値の行がまだ無くても Cue の範囲と自動区間から決まる。
     facts.part = cuePartOf (ranges, cue->startSample, cue->endSample, cue->label);
     facts.partStartSeconds = static_cast<double> (cue->startSample) / static_cast<double> (ranges.sampleRateHz);

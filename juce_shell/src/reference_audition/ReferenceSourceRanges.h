@@ -2,6 +2,7 @@
 
 #include "ReferenceCuePart.h"
 #include "ReferenceRuntimeV2Model.h"
+#include "ReferenceRuntimeV2Source.h"
 
 #include <array>
 
@@ -72,7 +73,9 @@ inline CuePart cuePartOf (const RuntimeSourceRanges& ranges, std::int64_t start,
     return label == "Loudest 30 s" ? CuePart::loudest : CuePart::cue;
 }
 
-// 受け取り（relative_path・sha256・bytes）どおりのファイルかを確かめてから読む。
-bool readReferenceSourceRanges (const juce::File& root, const RuntimeContentReceipt& receipt,
-                                RuntimeSourceRanges& result);
+// この音源の Cue の値。sets.json の索引（音源の受け取りの sha256）で探し、受け取り（relative_path・sha256・bytes）どおりの
+// ファイルで、その音源（ファイルと PCM の sha256・サンプルレート・長さ）のものだけを返す。Cue の値はここからだけ読む
+// （2026-10-06：B の曲の一覧・Balance は確かめずに読み、索引が別の曲を指すと一覧の値と鳴る音が食い違った）。
+std::optional<RuntimeSourceRanges> readSourceRanges (const juce::File& root, const RuntimeLibrarySets& sets,
+                                                     const RuntimeContentReceipt& sourceArtifact, const RuntimeSource& source);
 }

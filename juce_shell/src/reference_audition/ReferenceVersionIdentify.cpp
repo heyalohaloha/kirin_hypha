@@ -30,25 +30,30 @@ void VersionIdentifier::prepare (const juce::File& root, const RuntimeWorkspace&
                 for (const auto& candidate : check.candidates)
                 {
                     if (candidate.sourceKind != "work_version" || ! seen.insert (candidate.sourceIdentityKey).second) continue;
-                    const RuntimeSourceRangesReceipt* receipt = nullptr;
-                    for (const auto& entry : workspace.librarySets->sourceRanges)
-                        if (entry.sourceArtifactSha256 == candidate.sourceArtifact.sha256) receipt = &entry;
-                    if (receipt == nullptr) continue;
-                    const auto& sha = receipt->rangesArtifact.sha256;
-                    used.insert (sha);
-                    auto cached = printsByRanges.find (sha);
+                    const auto receipt = std::find_if (workspace.librarySets->sourceRanges.begin(),
+                                                       workspace.librarySets->sourceRanges.end(), [&] (const auto& entry) {
+                        return entry.sourceArtifactSha256 == candidate.sourceArtifact.sha256;
+                    });
+                    if (receipt == workspace.librarySets->sourceRanges.end()) continue;
+                    // 覚えるのは、この音源のものと確かめた指紋（音源と Cue の値の組で。別の音源の値を指していれば使わない）。
+                    const auto key = candidate.sourceArtifact.sha256 + ":" + receipt->rangesArtifact.sha256;
+                    used.insert (key);
+                    auto cached = printsByRanges.find (key);
                     if (cached == printsByRanges.end())
                     {
-                        RuntimeSourceRanges ranges;
-                        if (! readReferenceSourceRanges (root, receipt->rangesArtifact, ranges))
+                        const auto source = RuntimeV2SourceRepository (root).load (candidate);
+                        const auto ranges = source.accepted()
+                            ? readSourceRanges (root, *workspace.librarySets, candidate.sourceArtifact, *source.source)
+                            : std::optional<RuntimeSourceRanges> {};
+                        if (! ranges)
                         {
                             retryAtMs = nowMs + retryMs;  // 覚えない（書き終えたら読める）
                             continue;
                         }
                         KirinFingerprint print;
-                        if (ranges.fingerprintTicks > 0)
-                            print = decodeFingerprint (ranges.fingerprintChromaSigns, ranges.fingerprintLoudness, ranges.fingerprintTicks);
-                        cached = printsByRanges.emplace (sha, std::move (print)).first;
+                        if (ranges->fingerprintTicks > 0)
+                            print = decodeFingerprint (ranges->fingerprintChromaSigns, ranges->fingerprintLoudness, ranges->fingerprintTicks);
+                        cached = printsByRanges.emplace (key, std::move (print)).first;
                     }
                     if (! cached->second.bits.empty())
                         next.emplace_back (preset.sourcePresetArtifact.presetId + "/" + check.checkId + "/" + candidate.candidateId,
