@@ -22,12 +22,10 @@ void configureBox (juce::ComboBox& box, const juce::String& id, const juce::Stri
     box.setColour (juce::ComboBox::arrowColourId, COL_FLORA.withAlpha (0.84f));
 }
 
+// B の段階は Kirin OS からの届き方・B セットも含めて editor が決める（PluginEditorReferenceRoles.cpp）。言い方は段階の表。
 juce::String referenceUnavailableText (const State& state)
 {
-    const auto step = ! state.libraryReceived ? SourceStep::waitingForKirinOs : state.referenceStep;
-    return "B: " + (! state.libraryReceived && ! state.osOnline ? juce::String ("Open Kirin OS")
-                    : state.songSets.empty() ? juce::String ("Rank a B set for Hypha in Kirin OS")
-                    : stepText (step));
+    return "B: " + stepText (state.referenceStep);
 }
 }
 
@@ -87,8 +85,8 @@ void Component::syncRoles (bool blindSession)
     songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
     songBox.setEnabled (songBox.isEnabled() && ! glance);
-    // 300% 以上の B の画面は、左に曲の一覧、右に Balance。
-    songList.setVisible (referenceView && detailedLayout() && ! current.songs.empty());
+    // 300% の B の画面は、左に曲の一覧、右に Balance。
+    songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
     std::vector<SongList::Row> rows;
     for (size_t index = 0; index < current.songs.size(); ++index)
     {

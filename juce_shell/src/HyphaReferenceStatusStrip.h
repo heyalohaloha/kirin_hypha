@@ -10,14 +10,18 @@
 // 入れ物そのものはクリックを取らない（Blind の 1・2・REVEAL など、下に重なるボタンへ通す）。
 namespace hypha::reference_ui
 {
-class StatusStrip final : public juce::Component
+class StatusStrip final : public juce::Component, public juce::TooltipClient
 {
 public:
     std::function<void (juce::Graphics&, juce::Rectangle<int>, bool inFooter)> paintRow;
     std::function<void (juce::Rectangle<int>)> layoutRow;
+    // 切れている状態の文の全文（指すと読める。2026-10-06：300% 未満では読む手段が無かった）。300% は足元の説明の行が出す。
+    std::function<juce::String()> wholeText;
     juce::Colour footerFill;
 
-    StatusStrip() { setInterceptsMouseClicks (false, true); }
+    // 行の上で指したことを受ける（全文の吹き出し）。足元では下に隠した LIVE／HOLD を押させない。
+    StatusStrip() { setInterceptsMouseClicks (true, true); }
+    juce::String getTooltip() override { return wholeText ? wholeText() : juce::String(); }
     bool inFooter() const noexcept { return footer; }
     void setInFooter (bool value) { if (footer != value) { footer = value; repaint(); } }
     void paint (juce::Graphics& g) override

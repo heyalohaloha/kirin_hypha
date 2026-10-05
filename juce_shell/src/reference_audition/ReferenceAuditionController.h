@@ -135,6 +135,7 @@ namespace hypha::reference_audition
         std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（Kirin OS の audition_only）。図の代わりに案内を出す
         std::vector<RuntimeSongSetOption> songSets;
         juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
+        std::vector<RuntimeSkippedItem> librarySkipped; // Kirin OS の項目のうち受け付けずに外したもの（名前と理由）
         std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // Kirin OS の準備の状態（無ければ null）
         std::vector<RuntimeCheckSetRank> checkSetRanks; // Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;

@@ -36,9 +36,12 @@ int Component::statusRowHeight() const noexcept
     return detailedLayout() ? 24 : 18;
 }
 
+// 300% の B・C・V のページの並びかどうかは、ここだけで決める（inspection の密度）。2026-10-06：200% にも当たり、200% の
+// B に 300% の欄が詰まって B SET が切れ、C・V の見出しが消えていた。
 bool Component::rolePage() const noexcept
 {
-    return detailedLayout() && current.separateComparisons && ! isBlindSession (current.blindPhase);
+    return presentationContext.density == observatory::Density::inspection && current.separateComparisons
+        && ! isBlindSession (current.blindPhase);
 }
 
 
@@ -107,12 +110,20 @@ Component::StatusTextLayout Component::statusTextLayout (juce::Rectangle<int> st
     return layout;
 }
 
-// 足元で状態の文が切れているときは、文を指すと全文を足元の段の全幅に出す（PluginEditorHelpLine.cpp）。
-juce::String Component::statusLineHelp (juce::Point<int> stripPoint) const
+// 状態の文が切れているときの全文（どの大きさでも指すと読める：300% は足元の段の全幅、ほかは吹き出し）。
+juce::String Component::statusLineWhole() const
 {
     if (statusRowConcealed() || ! statusLineShown() || ! statusStrip.isVisible()) return {};
     const auto layout = statusTextLayout (statusStrip.getLocalBounds());
-    return layout.cut && layout.primary.contains (stripPoint) ? layout.line.text : juce::String {};
+    return layout.cut ? layout.line.text : juce::String {};
+}
+
+// 足元で状態の文が切れているときは、文を指すと全文を足元の段の全幅に出す（PluginEditorHelpLine.cpp）。
+juce::String Component::statusLineHelp (juce::Point<int> stripPoint) const
+{
+    const auto whole = statusLineWhole();
+    return whole.isNotEmpty() && statusTextLayout (statusStrip.getLocalBounds()).primary.contains (stripPoint) ? whole
+                                                                                                           : juce::String {};
 }
 
 void Component::paintStatusRow (juce::Graphics& g, juce::Rectangle<int> statusArea) const

@@ -12,6 +12,7 @@ struct RuntimeStatus
     juce::String status;
     ActionIntent action;     // 押したときの意図（ボタンの文と一緒に決める）
     juce::String actionText; // ボタンの文（空ならボタンを出さない）
+    bool request = false;    // Kirin OS へ頼んだこと（Preset・曲の準備、Kirin OS で開く、Blind の承認）の途中の文
 };
 
 // `state` からは、先に決めた Kirin OS とのつながり・A・Blind の承認の項目だけを読む（osAccess・auditionBuffered・

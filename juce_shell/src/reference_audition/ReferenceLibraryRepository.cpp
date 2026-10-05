@@ -24,7 +24,8 @@ juce::String setsIssue (const juce::String& rejection)
 RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shared_ptr<const RuntimeWorkspace> current)
 {
     juce::String rejection;
-    auto sets = readReferenceLibrarySets (root, *current, rejection);
+    std::vector<RuntimeSkippedItem> skipped;
+    auto sets = readReferenceLibrarySets (root, *current, rejection, skipped);
     const auto unchanged = RuntimeWorkspaceLoadResult { RuntimeWorkspaceLoadState::unchanged, current, {} };
     const auto issue = rejection == "reference_library_sets_stale" ? current->librarySetsIssue : rejection;
     if (! sets && rejection.isNotEmpty())
@@ -35,11 +36,12 @@ RuntimeWorkspaceLoadResult refreshLibrarySets (const juce::File& root, std::shar
         return { RuntimeWorkspaceLoadState::updated, updated, {} };
     }
     if (sets.has_value() == current->librarySets.has_value() && (! sets || sets->hash == current->librarySets->hash)
-        && issue == current->librarySetsIssue)
+        && issue == current->librarySetsIssue && skipped == current->setsSkipped)
         return unchanged;
     auto updated = std::make_shared<RuntimeWorkspace> (*current);
     updated->librarySets = std::move (sets);
     updated->librarySetsIssue = issue;
+    updated->setsSkipped = std::move (skipped);
     applyLibrarySongEntries (root, *updated);
     return { RuntimeWorkspaceLoadState::updated, updated, {} };
 }
@@ -104,7 +106,7 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
         if (! readJson (presetFile, maximumPresetBytes, presetBytes, presetJson)
             || presetBytes.getSize() != static_cast<size_t> (receipt.bytes)
             || juce::SHA256 (presetBytes).toHexString() != receipt.sha256
-            || ! parsePreset (presetJson, receipt, {}, preset, true))
+            || ! parsePreset (presetJson, receipt, {}, preset, true, &next->librarySkipped))
             return failure ("reference_library_preset_rejected", previous);
         if (receipt.presetId == next->manifest.activePresetId)
             next->manifest.activePresetRevisionId = receipt.revisionId;
@@ -117,11 +119,14 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
     if (json["version"] == "1.1" && !readReferenceLibraryVersions (root, json["versions"], *next))
         return failure ("reference_library_versions_rejected", previous);
     juce::String setsRejection;
-    next->librarySets = readReferenceLibrarySets (root, *next, setsRejection);
+    next->librarySets = readReferenceLibrarySets (root, *next, setsRejection, next->setsSkipped);
     // Kirin OS は manifest を先に書き、sets.json はその直後に続く。追いつくまで（読めないあいだも）前の sets を
-    // 保つ（B の曲が一瞬消えて選択や鳴っている B を失わない）。
+    // 保つ（B の曲が一瞬消えて選択や鳴っている B を失わない）。外した曲の知らせも前のまま。
     if (! next->librarySets && setsRejection.isNotEmpty() && previous && previous->librarySets)
+    {
         next->librarySets = carriedLibrarySets (*previous->librarySets, next->manifest);
+        next->setsSkipped = previous->setsSkipped;
+    }
     next->librarySetsIssue = setsIssue (setsRejection);
     applyLibrarySongEntries (root, *next);
     return { RuntimeWorkspaceLoadState::updated, next, {} };

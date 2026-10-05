@@ -3,6 +3,7 @@
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceMetricPainter.h"
+#include "HyphaReferenceStages.h"
 #include "HyphaTextStyle.h"
 
 #include <cmath>
@@ -22,66 +23,12 @@ SourceStep shownStep (SourceStep step, bool audible, bool playing) noexcept
     return step;
 }
 
-juce::String headingFor (SourceStep step, bool version)
-{
-    switch (step)
-    {
-        case SourceStep::registerVersion: return "Register a Version of this song in Kirin OS";
-        case SourceStep::chooseVersion: return "Choose a Version for V";
-        case SourceStep::enableCheck: return "No Check is enabled in Kirin OS";
-        case SourceStep::chooseSource: return "Choose a source for C in Kirin OS";
-        case SourceStep::aligning: return "Aligning V with A";
-        case SourceStep::noMatchingPassage: return "V did not match this passage";
-        case SourceStep::playAnotherPassage: return "Play another passage to align V";
-        case SourceStep::verifyingSource: return version ? "Verifying V source" : "Verifying C source";
-        case SourceStep::loadingAudio: return version ? "Loading V at the playhead" : "Loading C at the playhead";
-        case SourceStep::outsideCue: return "This playhead is outside C's Cue";
-        case SourceStep::preparing: return version ? "Preparing V" : "Preparing C";
-        case SourceStep::attention: return "Open Kirin OS to check the source";
-        case SourceStep::waitingForKirinOs: return "Open Kirin OS";
-        case SourceStep::playDaw: return "Play the song in your DAW";
-        case SourceStep::ready: break;
-    }
-    return {};
-}
-
-juce::String detailFor (SourceStep step)
-{
-    switch (step)
-    {
-        case SourceStep::registerVersion:
-            return "V plays another Version of the song you are playing, registered in Kirin OS.";
-        case SourceStep::chooseVersion:
-            return "Choose it in V / VERSION above. V plays another Version of the song you are playing.";
-        case SourceStep::enableCheck:
-        case SourceStep::chooseSource: return "C plays the source a Check compares your mix with.";
-        case SourceStep::aligning: return "Keep playing. V must be a Version of the song you are playing.";
-        case SourceStep::noMatchingPassage:
-            return "Check that V is a Version of A at this POST, or play a different matching passage.";
-        case SourceStep::playAnotherPassage:
-            return "This passage repeats in V. Play a part that occurs only once.";
-        case SourceStep::verifyingSource: return "The source is being checked. A stays live.";
-        case SourceStep::loadingAudio: return "Keep playing while audio loads.";
-        case SourceStep::outsideCue:
-            return "Move to the comparison passage, or choose a longer or looping Cue in Kirin OS. A stays live.";
-        case SourceStep::preparing: return "This takes a moment.";
-        case SourceStep::attention: return "The source changed or could not be opened.";
-        case SourceStep::waitingForKirinOs:
-            return "Versions and References registered in Kirin OS arrive here automatically.";
-        case SourceStep::playDaw: return "V follows the song; C uses its Cue.";
-        case SourceStep::ready: break;
-    }
-    return {};
-}
-
 enum class Mark { ready, action, waiting };
 
+// The guide marks a step that settles by itself (one with a wait limit) apart from one the person moves.
 Mark markFor (SourceStep step) noexcept
 {
-    return step == SourceStep::ready ? Mark::ready
-         : step == SourceStep::waitingForKirinOs || step == SourceStep::aligning
-             || step == SourceStep::verifyingSource || step == SourceStep::loadingAudio
-             || step == SourceStep::preparing ? Mark::waiting : Mark::action;
+    return step == SourceStep::ready ? Mark::ready : automaticStage (step) ? Mark::waiting : Mark::action;
 }
 
 juce::Colour markColour (Mark mark)
@@ -166,15 +113,16 @@ Guide guide (const State& state)
     }
     if (! state.libraryReceived)
     {
-        result.heading = state.osOnline ? "Receiving from Kirin OS" : "Open Kirin OS";
-        result.detail = detailFor (SourceStep::waitingForKirinOs);
+        const auto step = state.osOnline ? SourceStep::waitingForKirinOs : SourceStep::openKirinOs;
+        result.heading = stageHeading (step, 2);
+        result.detail = stageOf (step).detail;
         return result;
     }
     const auto first = !state.aAvailable ? SourceStep::playDaw
         : result.version != SourceStep::ready ? result.version : result.check;
     const bool version = state.aAvailable && result.version != SourceStep::ready;
-    result.heading = headingFor (first, version);
-    result.detail = detailFor (first);
+    result.heading = stageHeading (first, version ? 1 : 2);
+    result.detail = stageOf (first).detail;
     return result;
 }
 
@@ -235,37 +183,12 @@ void Component::paintSourceHints (juce::Graphics& g) const
     }
 }
 
-juce::String stepText (SourceStep step)
-{
-    switch (step)
-    {
-        case SourceStep::ready: return "Ready";
-        case SourceStep::waitingForKirinOs: return "Waiting for Kirin OS";
-        case SourceStep::registerVersion: return "Register a Version in Kirin OS";
-        case SourceStep::chooseVersion: return "Choose a Version";
-        case SourceStep::enableCheck: return "Enable a Check in Kirin OS";
-        case SourceStep::chooseSource: return "Choose a source in Kirin OS";
-        case SourceStep::playDaw: return "Ready when the DAW plays";
-        case SourceStep::aligning: return "Aligning with A. Keep playing";
-        case SourceStep::noMatchingPassage: return "No verified match here; check Version";
-        case SourceStep::playAnotherPassage: return "Play another passage";
-        case SourceStep::verifyingSource: return "Verifying source";
-        case SourceStep::loadingAudio: return "Loading audio here; keep playing";
-        case SourceStep::outsideCue: return "Outside Cue; move or choose longer Cue";
-        case SourceStep::preparing: return "Preparing";
-        case SourceStep::attention: return "Check the source in Kirin OS";
-    }
-    return {};
-}
-
 juce::String unavailableText (const State& state, bool version)
 {
     const auto shown = guide (state);
-    const auto step = ! state.libraryReceived ? SourceStep::waitingForKirinOs
+    const auto step = ! state.libraryReceived ? (state.osOnline ? SourceStep::waitingForKirinOs : SourceStep::openKirinOs)
         : version ? shown.version : shown.check;
-    return juce::String (version ? "V: " : "C: ")
-        + (step == SourceStep::waitingForKirinOs && ! state.osOnline ? juce::String ("Open Kirin OS")
-                                                                      : stepText (step));
+    return juce::String (version ? "V: " : "C: ") + stepText (step);
 }
 
 GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& shown,

@@ -67,7 +67,12 @@ namespace hypha::reference_audition
         };
         for (const auto& item : workspace.presets) if (!item.versionEntry && !item.songEntry) appendWork (item, false);
         if (workspace.library && workspace.librarySets) snapshot.checkSetRanks = workspace.librarySets->checkSets;
-        if (workspace.library) snapshot.songSetsIssue = workspace.librarySetsIssue;
+        if (workspace.library)
+        {
+            snapshot.songSetsIssue = workspace.librarySetsIssue;
+            snapshot.librarySkipped = workspace.librarySkipped;
+            snapshot.librarySkipped.insert (snapshot.librarySkipped.end(), workspace.setsSkipped.begin(), workspace.setsSkipped.end());
+        }
         if (workspace.library && workspace.librarySets)
             for (const auto& set : workspace.librarySets->songSets)
             {

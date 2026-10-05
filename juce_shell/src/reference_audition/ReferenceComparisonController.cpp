@@ -232,6 +232,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.referenceSelection = std::make_shared<const Snapshot> (r);
     result.songSets = r.songSets;
     result.songSetsIssue = r.songSetsIssue;
+    result.librarySkipped = r.librarySkipped;
     result.libraryPreparation = r.libraryPreparation;
     result.selectedSongId = songId;
     result.selectedSongSetId = std::any_of (r.songSets.begin(), r.songSets.end(), [this] (const auto& set) { return set.id == songSetId; })

@@ -43,7 +43,7 @@ bool rangesReceipt (const juce::var& value, RuntimeContentReceipt& result)
         && exactInteger (value["bytes"], 1, maximumRangesBytes, result.bytes);
 }
 
-bool parseSongSet (const juce::var& value, int expectedRank, RuntimeSongSet& result, bool& songSkipped)
+bool parseSongSet (const juce::var& value, int expectedRank, RuntimeSongSet& result, std::vector<RuntimeSkippedItem>& skipped)
 {
     const auto* object = value.getDynamicObject();
     std::int64_t rank = 0;
@@ -64,7 +64,7 @@ bool parseSongSet (const juce::var& value, int expectedRank, RuntimeSongSet& res
     {
         RuntimeCandidate candidate;
         if (! parseLibraryVersionCandidate (song, candidate) || ! candidateIds.insert (candidate.candidateId).second)
-        { songSkipped = true; continue; }
+        { skipped.push_back (skippedItem (song, "display_name")); continue; }
         result.songs.push_back (std::move (candidate));
     }
     return true;
@@ -105,9 +105,11 @@ RuntimeLibrarySets carriedLibrarySets (const RuntimeLibrarySets& previous, const
 
 std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& root,
                                                             const RuntimeWorkspace& workspace,
-                                                            juce::String& rejection)
+                                                            juce::String& rejection,
+                                                            std::vector<RuntimeSkippedItem>& skipped)
 {
     rejection = {};
+    skipped.clear();
     const auto file = root.getChildFile ("library/sets.json");
     if (! file.exists()) return std::nullopt;
     const auto reject = [&rejection] (const char* code) {
@@ -137,16 +139,17 @@ std::optional<RuntimeLibrarySets> readReferenceLibrarySets (const juce::File& ro
         || checkSets == nullptr || checkSets->size() > maximumRankedSets
         || sourceRanges == nullptr || sourceRanges->size() > maximumSourceRanges)
         return reject ("reference_library_sets_rejected");
-    // 読めない項目は 1 つずつ飛ばして理由を残す（最初に見つけた理由。B の画面が直し方を出す）。
+    // 読めない項目は 1 つずつ飛ばす。名前のある B セットと曲は、どれをなぜ外したかを `skipped` に（直し方はその名前を
+    // Kirin OS で直すこと。2026-10-06：「Kirin OS と Hypha を更新」と違う直し方を言っていた）。ほかは最初に見つけた理由を残す。
     const auto skip = [&rejection] (const char* code) { if (rejection.isEmpty()) rejection = code; };
     std::set<juce::String> setIds, presetIds, sources;
     for (int index = 0; index < songSets->size(); ++index)
     {
         RuntimeSongSet set;
-        bool songSkipped = false;
-        if (! parseSongSet (songSets->getReference (index), index + 1, set, songSkipped) || ! setIds.insert (set.songSetId).second)
-        { skip ("reference_library_song_set_rejected"); continue; }
-        if (songSkipped) skip ("reference_library_song_rejected");
+        std::vector<RuntimeSkippedItem> songs;
+        if (! parseSongSet (songSets->getReference (index), index + 1, set, songs) || ! setIds.insert (set.songSetId).second)
+        { skipped.push_back (skippedItem (songSets->getReference (index), "name")); continue; }
+        skipped.insert (skipped.end(), songs.begin(), songs.end());
         sets.songSets.push_back (std::move (set));
     }
     for (int index = 0; index < checkSets->size(); ++index)

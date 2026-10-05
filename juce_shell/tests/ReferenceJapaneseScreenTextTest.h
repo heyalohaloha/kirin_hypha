@@ -156,11 +156,8 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
     {
         for (const bool footer : { false, true }) texts.insert (reference_ui::referenceStatusLine (state, footer).text);
     };
-    const std::vector<SourceStep> steps { SourceStep::ready, SourceStep::waitingForKirinOs, SourceStep::registerVersion,
-                                          SourceStep::chooseVersion, SourceStep::enableCheck, SourceStep::chooseSource,
-                                          SourceStep::playDaw, SourceStep::aligning, SourceStep::noMatchingPassage,
-                                          SourceStep::playAnotherPassage, SourceStep::verifyingSource, SourceStep::loadingAudio,
-                                          SourceStep::outsideCue, SourceStep::preparing, SourceStep::attention };
+    std::vector<SourceStep> steps;  // 段階の表の全部（足した段階もここに入る）
+    for (int index = 0; index <= static_cast<int> (SourceStep::attention); ++index) steps.push_back (static_cast<SourceStep> (index));
     const std::vector<reference_audition::RuntimeSongPreparation> preparations {
         { "pending", "queued", {}, {}, "working", 0 }, { "pending", "queued", {}, {}, "working", 1 },
         { "pending", "queued", {}, {}, "working", 2 }, { "pending", "resolving", {}, {}, "working", 0 },
@@ -263,6 +260,13 @@ inline void addGuidesAndNotices (std::set<juce::String>& texts)
     for (const bool ceiling : { true, false }) texts.insert (reference_ui::notice::trackingStopped (ceiling));
     for (const int slot : { 1, 2 })
         for (const bool playable : { true, false }) texts.insert (reference_ui::notice::pageOpened (slot, playable));
+    using Skipped = reference_audition::RuntimeSkippedItem;  // 名前は Kirin OS の中身（訳さない）なので、英字の無い名前で試す
+    for (const bool unreadable : { true, false })
+        for (const std::vector<Skipped>& items : { std::vector<Skipped> { { "01", unreadable } },
+                                                   std::vector<Skipped> { { "01", unreadable }, { "02", unreadable } },
+                                                   std::vector<Skipped> { { {}, unreadable } },
+                                                   std::vector<Skipped> { { {}, unreadable }, { {}, unreadable } } })
+            texts.insert (reference_ui::notice::librarySkipped (items));
     for (const auto* help : reference_ui::help_text::all) texts.insert (help);
 }
 }

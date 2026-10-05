@@ -2,6 +2,7 @@
 #include <juce_core/juce_core.h>
 
 void testReferenceLibrarySets (const juce::File&);
+void testReferenceLibrarySkipped (const juce::File&);
 void testReferenceLiveWindow();
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
@@ -18,6 +19,7 @@ bool runReferenceAbcvTests (int argc, char** argv, const juce::File&);
 void testReferenceAbcv (const juce::File& sandbox)
 {
     testReferenceLibrarySets (sandbox);
+    testReferenceLibrarySkipped (sandbox);  // 2026-10-06：受け付けない 1 項目だけを外す
     testReferenceLiveWindow();
     testReferenceTrackingRules();
     testReferenceCueMatch (sandbox);

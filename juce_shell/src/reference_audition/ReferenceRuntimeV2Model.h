@@ -174,6 +174,16 @@ namespace hypha::reference_audition
         }
     };
 
+    // Kirin OS の項目のうち、Hypha が受け付けずに外したもの（ほかの項目は使う。2026-10-06：1 つの名前のせいで
+    // ライブラリ全体を捨て、違う直し方を言っていた）。B セットの曲・Version・Check の候補曲・B セット。
+    struct RuntimeSkippedItem
+    {
+        juce::String name;           // 画面に出せる形にした名前（読めなければ空）
+        bool nameUnreadable = false; // 名前（曲名・Cue の名前）に Hypha が受け付けない字がある（Kirin OS で名前を直す）
+        bool operator== (const RuntimeSkippedItem& other) const noexcept
+        { return name == other.name && nameUnreadable == other.nameUnreadable; }
+    };
+
     struct RuntimeLibrarySets
     {
         std::int64_t revision = 0;
@@ -196,6 +206,7 @@ namespace hypha::reference_audition
         // まだ追いついていない・読めないときは、前の sets を保つ（CHECK セットは今の manifest にある Preset だけ）。
         std::optional<RuntimeLibrarySets> librarySets;
         juce::String librarySetsIssue; // sets.json を読めなかった・一部を飛ばした理由（B の画面が直し方を出す）
+        std::vector<RuntimeSkippedItem> librarySkipped, setsSkipped; // manifest・sets.json から外した項目
     };
 
     enum class RuntimeWorkspaceLoadState

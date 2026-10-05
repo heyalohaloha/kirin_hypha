@@ -13,6 +13,51 @@ inline juce::String referenceVersionEntryId (const RuntimeCandidate& candidate)
         + "-8" + hash.substring (17, 20) + "-" + hash.substring (20, 32);
 }
 
+// 1 つの Version（ファイルの受け取りと中身）。読めれば workspace.presets に足して true。読めなければ `skipped` に、
+// 中身まで読めたときはその名前（曲名・Cue の名前に受け付けない字があるか）を入れる。
+inline bool readReferenceLibraryVersion (const juce::File& root, const juce::var& value, std::set<juce::String>& ids,
+                                         RuntimeWorkspace& workspace, RuntimeSkippedItem& skipped)
+{
+    using namespace runtime_repository_parsing;
+    const auto* object = value.getDynamicObject();
+    RuntimePresetReceipt receipt;
+    receipt.presetId = value["entry_id"].toString(); receipt.revisionId = value["revision_id"].toString();
+    receipt.sha256 = value["sha256"].toString(); receipt.relativePath = value["relative_path"].toString();
+    if (object == nullptr || !exactProperties (*object, { "entry_id", "revision_id", "relative_path", "sha256", "bytes" })
+        || !uuidV4 (receipt.presetId) || receipt.revisionId != receipt.presetId || !sha256 (receipt.sha256)
+        || !ids.insert (receipt.presetId).second
+        || std::any_of (workspace.presets.begin(), workspace.presets.end(), [&] (const auto& preset) { return preset.sourcePresetArtifact.presetId == receipt.presetId; })
+        || receipt.relativePath != "plugin_data/reference/v2/library/versions/" + receipt.sha256 + ".json"
+        || !exactInteger (value["bytes"], 1, 65536, receipt.bytes)) return false;
+    juce::MemoryBlock bytes; juce::var descriptor;
+    if (!readJson (root.getChildFile ("library/versions/" + receipt.sha256 + ".json"), 65536, bytes, descriptor)
+        || bytes.getSize() != static_cast<size_t> (receipt.bytes) || juce::SHA256 (bytes).toHexString() != receipt.sha256) return false;
+    skipped = skippedItem (descriptor["candidate"], "display_name");
+    RuntimeCandidate candidate;
+    const auto* item = descriptor.getDynamicObject();
+    if (item == nullptr || !exactProperties (*item, { "format", "version", "entry_id", "display_name", "candidate" })
+        || descriptor["format"] != "kirin_hypha_reference_library_version" || descriptor["version"] != "1.0"
+        || descriptor["entry_id"] != receipt.presetId
+        || !parseLibraryVersionCandidate (descriptor["candidate"], candidate)
+        || candidate.sourceKind != "work_version" || !candidate.prepared
+        || candidate.candidateId != receipt.presetId || referenceVersionEntryId (candidate) != receipt.presetId
+        || descriptor["display_name"] != candidate.displayName || candidate.cues.size() != 1
+        || candidate.defaultCueId != receipt.presetId || candidate.cues[0].cueId != receipt.presetId
+        || candidate.cues[0].startSample != 0 || candidate.cues[0].loopEnabled) return false;
+    RuntimePreset entry;
+    entry.versionEntry = true;
+    entry.sourcePresetArtifact = receipt;
+    entry.name = candidate.displayName.substring (0, 80);
+    RuntimeCheck check;
+    check.checkId = receipt.presetId; check.label = "Version"; check.mode = "audition_with_facts";
+    check.viewBindings = { "waveform", "loudness", "dynamics" }; check.comparisonMode = "loudness_match";
+    check.candidates.push_back (std::move (candidate)); entry.checks.push_back (std::move (check));
+    workspace.presets.push_back (std::move (entry));
+    return true;
+}
+
+// 受け付けない Version は 1 つずつ外して workspace.librarySkipped に足す（同じ確かめのまま。2026-10-06：1 つで
+// ライブラリ全体を捨てていた）。一覧そのものの形が違うときだけ全体を断る。
 inline bool readReferenceLibraryVersions (const juce::File& root, const juce::var& values, RuntimeWorkspace& workspace)
 {
     using namespace runtime_repository_parsing;
@@ -20,41 +65,8 @@ inline bool readReferenceLibraryVersions (const juce::File& root, const juce::va
     if (array == nullptr || array->size() > 512) return false;
     std::set<juce::String> ids;
     for (const auto& value : *array)
-    {
-        const auto* object = value.getDynamicObject();
-        RuntimePresetReceipt receipt;
-        receipt.presetId = value["entry_id"].toString(); receipt.revisionId = value["revision_id"].toString();
-        receipt.sha256 = value["sha256"].toString(); receipt.relativePath = value["relative_path"].toString();
-        if (object == nullptr || !exactProperties (*object, { "entry_id", "revision_id", "relative_path", "sha256", "bytes" })
-            || !uuidV4 (receipt.presetId) || receipt.revisionId != receipt.presetId || !sha256 (receipt.sha256)
-            || !ids.insert (receipt.presetId).second
-            || std::any_of (workspace.presets.begin(), workspace.presets.end(), [&] (const auto& preset) { return preset.sourcePresetArtifact.presetId == receipt.presetId; })
-            || receipt.relativePath != "plugin_data/reference/v2/library/versions/" + receipt.sha256 + ".json"
-            || !exactInteger (value["bytes"], 1, 65536, receipt.bytes)) return false;
-        juce::MemoryBlock bytes; juce::var descriptor;
-        if (!readJson (root.getChildFile ("library/versions/" + receipt.sha256 + ".json"), 65536, bytes, descriptor)
-            || bytes.getSize() != static_cast<size_t> (receipt.bytes) || juce::SHA256 (bytes).toHexString() != receipt.sha256) return false;
-        RuntimeCandidate candidate;
-        const auto* item = descriptor.getDynamicObject();
-        if (item == nullptr || !exactProperties (*item, { "format", "version", "entry_id", "display_name", "candidate" })
-            || descriptor["format"] != "kirin_hypha_reference_library_version" || descriptor["version"] != "1.0"
-            || descriptor["entry_id"] != receipt.presetId
-            || !parseLibraryVersionCandidate (descriptor["candidate"], candidate)
-            || candidate.sourceKind != "work_version" || !candidate.prepared
-            || candidate.candidateId != receipt.presetId || referenceVersionEntryId (candidate) != receipt.presetId
-            || descriptor["display_name"] != candidate.displayName || candidate.cues.size() != 1
-            || candidate.defaultCueId != receipt.presetId || candidate.cues[0].cueId != receipt.presetId
-            || candidate.cues[0].startSample != 0 || candidate.cues[0].loopEnabled) return false;
-        RuntimePreset entry;
-        entry.versionEntry = true;
-        entry.sourcePresetArtifact = receipt;
-        entry.name = candidate.displayName.substring (0, 80);
-        RuntimeCheck check;
-        check.checkId = receipt.presetId; check.label = "Version"; check.mode = "audition_with_facts";
-        check.viewBindings = { "waveform", "loudness", "dynamics" }; check.comparisonMode = "loudness_match";
-        check.candidates.push_back (std::move (candidate)); entry.checks.push_back (std::move (check));
-        workspace.presets.push_back (std::move (entry));
-    }
+        if (RuntimeSkippedItem skipped; ! readReferenceLibraryVersion (root, value, ids, workspace, skipped))
+            workspace.librarySkipped.push_back (skipped);
     workspace.independentVersions = true;
     return true;
 }

@@ -108,6 +108,7 @@ struct State
     juce::String title;
     juce::String sourceLabel;
     juce::String status;
+    bool kirinOsRequest = false;  // status は Kirin OS へ頼んだことの途中の文（段階の文より先に言う。HyphaReferenceRuntimeStatus.h）
     juce::String alignmentLabel;
     double aIntegratedLoudness = unavailableValue();
     double aMaximumTruePeakDbtp = unavailableValue();
@@ -286,6 +287,7 @@ public:
     };
     StatusTextLayout statusTextLayout (juce::Rectangle<int> statusArea) const;
     juce::String statusLineHelp (juce::Point<int> stripPoint) const;
+    juce::String statusLineWhole() const;  // 状態の文が切れているときの全文（切れていなければ空）
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
     int comparisonButtonWidth() const noexcept { return detailedLayout() ? 80 : current.separateComparisons ? 36 : 48; }

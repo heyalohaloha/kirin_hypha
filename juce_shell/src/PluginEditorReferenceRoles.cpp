@@ -103,14 +103,15 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.songSetId = runtime.selectedSongSetId;
     state.songId = runtime.selectedSongId;
     state.songSetsIssue = runtime.songSetsIssue;
-    // Kirin OS のセットの一部を読めなかったら一度だけ知らせる（R-28：Kirin OS で選んだものが黙って消えない）。
-    // 全部を読めないときは B の画面の状態の行が言う。
-    if (runtime.songSetsIssue.isNotEmpty() && ! runtime.songSets.empty() && referenceSetsIssueShown != runtime.songSetsIssue)
-        showToast ("Some Kirin OS sets were not read. Update Kirin OS and Hypha.");
-    referenceSetsIssueShown = runtime.songSetsIssue;
-    state.referenceStep = ! runtime.libraryReceived ? hypha::reference_ui::SourceStep::waitingForKirinOs
-        : runtime.songSets.empty() ? hypha::reference_ui::SourceStep::chooseSource
-        : slotStep (slot, state.aAvailable);
+    // Kirin OS の項目を外したら、どれをなぜ外したかと直し方を一度だけ知らせる（R-28：Kirin OS で選んだものが黙って
+    // 消えない）。名前で言えない形の違い（sets.json の一部）は更新を勧める。全部を読めないときは B の画面の状態の行が言う。
+    const auto skipped = hypha::reference_ui::notice::librarySkipped (runtime.librarySkipped);
+    const auto issue = skipped.isNotEmpty() ? skipped
+        : runtime.songSetsIssue.isNotEmpty() && ! runtime.songSets.empty() ? juce::String ("Some Kirin OS sets were not read. Update Kirin OS and Hypha.")
+        : juce::String();
+    if (issue.isNotEmpty() && referenceSetsIssueShown != issue) showToast (issue);
+    referenceSetsIssueShown = issue;
+    state.referenceStep = referenceStep (runtime, slot, state.aAvailable);
     // 同じ定義・同じ区間・同じ音量で比べる値（A の窓は観測スレッド、C の Cue の値は C の役から）。
     const auto& checkRole = runtime.checkSelection ? *runtime.checkSelection : runtime;
     if (runtime.visualTimeline) state.aKirin = runtime.visualTimeline->aKirin;

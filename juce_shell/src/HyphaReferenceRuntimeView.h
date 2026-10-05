@@ -67,6 +67,17 @@ inline hypha::reference_ui::BlindPhase referenceBlindPhase (
 }
 
 // Where one slot stands from its own snapshot; `playing` is A as the page shows it.
+// 断られた音源の段階（理由ごとに直し方が違う）。
+inline SourceStep rejectedStep (const juce::String& code)
+{
+    if (code == "source_changed" || code == "reference_source_changed") return SourceStep::sourceChanged;
+    if (code == "reference_source_audio_mismatch") return SourceStep::sourceFormatChanged;
+    if (code == "source_open_failed" || code == "source_decode_failed"
+        || code == "reference_source_open_failed" || code == "reference_source_decode_failed")
+        return SourceStep::sourceUnopenable;
+    return SourceStep::attention;
+}
+
 inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playing)
 {
     using Runtime = reference_audition::RuntimeState;
@@ -78,7 +89,7 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
                  : slot.auditionOutsideCue ? SourceStep::outsideCue
                  : slot.auditionBuffered ? SourceStep::ready : SourceStep::loadingAudio;
         case Runtime::verifying: return SourceStep::verifyingSource;
-        case Runtime::rejected: return SourceStep::attention;
+        case Runtime::rejected: return rejectedStep (code);
         case Runtime::waiting:
             if (code == "reference_alignment_waiting_for_content")
                 return playing ? SourceStep::aligning : SourceStep::playDaw;
@@ -87,12 +98,29 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
             if (code == "reference_checks_empty") return SourceStep::enableCheck;
             if (code == "reference_candidates_empty" || code == "reference_cues_empty")
                 return SourceStep::chooseSource;
-            if (code == "reference_source_unavailable" || code == "reference_selection_unavailable")
-                return SourceStep::attention;
+            if (code == "reference_source_unavailable") return SourceStep::sourceUnavailable;
+            if (code == "reference_selection_unavailable") return SourceStep::savedChoiceUnavailable;
+            if (code == "reference_version_unselected") return SourceStep::chooseVersion;
             return SourceStep::preparing;
         case Runtime::disconnected: break;
     }
     return SourceStep::waitingForKirinOs;
+}
+
+// Kirin OS からまだ何も届いていない役：Kirin OS が開いていれば届くのを待ち（上限あり）、閉じていれば開くのが直し方。
+inline SourceStep libraryStep (const reference_audition::Snapshot& comparison)
+{
+    return comparison.osOnline ? SourceStep::waitingForKirinOs : SourceStep::openKirinOs;
+}
+
+// B（REF）の段階：Kirin OS からの届き方と B セットも含める。B セットが無ければ Hypha に出すのが直し方、sets.json を
+// 形ごと読めなければ更新が直し方（名前で言える項目を外したことは知らせが言う）。
+inline SourceStep referenceStep (const reference_audition::Snapshot& comparison, const reference_audition::Snapshot& slot,
+                                 bool aAvailable)
+{
+    return ! comparison.libraryReceived ? libraryStep (comparison)
+         : comparison.songSets.empty() ? (comparison.songSetsIssue.isNotEmpty() ? SourceStep::setsNotRead : SourceStep::rankSet)
+         : slotStep (slot, aAvailable);
 }
 
 // B and C side by side: B needs a Version registered and chosen, and the chosen one applied.
@@ -101,13 +129,12 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
     const auto& version = comparison.versionSelection ? *comparison.versionSelection : comparison;
     const auto& check = comparison.checkSelection ? *comparison.checkSelection : comparison;
     const auto chosen = version.presetId + "/" + version.checkId + "/" + version.candidateId;
-    state.versionStep = ! version.libraryReceived ? SourceStep::waitingForKirinOs
+    state.versionStep = ! version.libraryReceived ? libraryStep (comparison)
         : comparison.versions.empty() ? SourceStep::registerVersion
         : comparison.selectedVersionId.isEmpty() ? SourceStep::chooseVersion
         : comparison.selectedVersionId != chosen ? SourceStep::preparing
         : slotStep (version, state.aAvailable);
-    state.checkStep = ! check.libraryReceived ? SourceStep::waitingForKirinOs
-                                              : slotStep (check, state.aAvailable);
+    state.checkStep = ! check.libraryReceived ? libraryStep (comparison) : slotStep (check, state.aAvailable);
 }
 
 // CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、

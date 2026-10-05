@@ -13,7 +13,8 @@ namespace hypha::reference_ui
 {
 struct State;
 
-// What one of B and C still needs before it can be heard.
+// What a role (B, C or V) still needs before it can be heard: its stage. Every stage's kind, status
+// line, guide texts and wait limit come from one table (HyphaReferenceStages.h).
 enum class SourceStep
 {
     ready,
@@ -30,7 +31,15 @@ enum class SourceStep
     loadingAudio,
     outsideCue,
     preparing,
-    attention,
+    openKirinOs,            // Kirin OS is closed
+    rankSet,                // B: no B set is ranked for Hypha in Kirin OS
+    setsNotRead,            // B: Kirin OS's B sets could not be read as a whole (an older or newer format)
+    sourceChanged,
+    sourceFormatChanged,
+    sourceUnopenable,       // the source could not be opened or decoded
+    sourceUnavailable,      // Kirin OS cannot make the source available
+    savedChoiceUnavailable, // the saved choice is no longer in Kirin OS
+    attention,              // any other reason to prepare the source again
 };
 
 struct Guide

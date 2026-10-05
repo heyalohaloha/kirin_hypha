@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaLanguage.h"
@@ -22,6 +24,8 @@ public:
     bool isEnabled();
     bool setEnabled (bool enabled);
     void refreshNowForTest();
+    // Tests show `enabled` in this process without writing the person's file; nullopt reads the file again.
+    void overrideForTest (std::optional<bool> enabled);
 
 private:
     void refreshUnlocked();

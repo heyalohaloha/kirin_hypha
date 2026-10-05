@@ -7,6 +7,8 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaReferenceStatusModel.h"
 #include "../src/HyphaReferencePreparationWatch.h"
+#include "../src/HyphaReferenceRuntimeView.h"
+#include "../src/HyphaReferenceStages.h"
 
 namespace hypha::tests
 {
@@ -146,22 +148,38 @@ inline void verifyReferenceStatusLine()
     require (line.kind == StatusKind::unable && line.text.endsWith ("SELECT AGAIN"),
              "a stopped switch says to select again");
 
-    // B の画面で B SET が無い：Kirin OS で B SET を出すのが直し方。
+    // B の画面で B SET が無い：Kirin OS で B SET を出すのが直し方。B の段階は Kirin OS からの届き方と B セットも含む。
+    reference_audition::Snapshot library;
+    library.libraryReceived = library.osOnline = true;
+    require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::rankSet,
+             "a library without a B set for Hypha is its own stage");
     auto noSet = named ("ready");
     noSet.separateComparisons = true;
     noSet.libraryReceived = true;
     noSet.comparisonSlot = 3;
     noSet.songSets.clear();
+    noSet.referenceStep = Step::rankSet;
     line = reference_ui::referenceStatusLine (noSet);
-    require (line.kind == StatusKind::unable && line.text == "B: RANK A B SET FOR HYPHA IN KIRIN OS"
-                 && i18n::translate (line.text, i18n::Language::japanese) != line.text,
-             "a B page with no B set says how to make one");
-    // B SET を出しているのに読めない（sets.json の形が違う）ときは、出し方ではなく更新を言う。
-    noSet.songSetsIssue = "reference_library_song_set_rejected";
+    require (line.kind == StatusKind::unable && line.text == "NO B SET FOR HYPHA / RANK A B SET FOR HYPHA IN KIRIN OS",
+             "a B page with no B set says how to make one: " + line.text);
+    // B SET を出しているのに sets.json を形ごと読めないときは、出し方ではなく更新を言う。
+    library.songSetsIssue = "reference_library_sets_rejected";
+    require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::setsNotRead,
+             "sets Hypha could not read are not mistaken for missing ones");
+    noSet.referenceStep = Step::setsNotRead;
     line = reference_ui::referenceStatusLine (noSet);
-    require (line.kind == StatusKind::unable && line.text == "B: B SET NOT READ / UPDATE KIRIN OS AND HYPHA"
-                 && i18n::translate (line.text, i18n::Language::japanese) != line.text,
-             "a B set Hypha could not read is not mistaken for a missing one");
+    require (line.kind == StatusKind::unable && line.text == "B SETS NOT READ / UPDATE KIRIN OS AND HYPHA",
+             "a B set Hypha could not read says to update: " + line.text);
+    // Kirin OS からまだ届いていない B：開いていれば待ち（上限あり）、閉じていれば開くのが直し方（INV-S48。2026-10-06：
+    // B のページだけ、いつも「できない」と言っていた）。
+    library.libraryReceived = false;
+    require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::waitingForKirinOs
+                 && reference_ui::kindOf (Step::waitingForKirinOs) == StatusKind::waiting,
+             "B waits for Kirin OS while it is open");
+    library.osOnline = false;
+    require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::openKirinOs
+                 && reference_ui::kindOf (Step::openKirinOs) == StatusKind::unable,
+             "B says to open Kirin OS while it is closed");
 
     // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合。確かめられない
     // 曲は「できない」と直し方。聴ける曲・Kirin OS から届いていない曲は今までどおり。
@@ -186,7 +204,7 @@ inline void verifyReferenceStatusLine()
                      && ! i18n::translate (line.text, i18n::Language::japanese).contains ("RETRY"),
                  "a song Kirin OS cannot find says so with its fix, in Japanese too");
         preparing.referenceStep = Step::ready;
-        require (reference_ui::referenceStatusLine (preparing).text == preparing.status, "a ready song keeps its own line");
+        require (reference_ui::referenceStatusLine (preparing).text == "READY / A REMAINS LIVE", "a ready song reads ready");
         using P = reference_audition::RuntimeSongPreparation;
         require (reference_ui::preparationWord (P { "pending", "queued", {}, {}, "working", 3 }) == "3 AHEAD"
                      && reference_ui::preparationWord (P { "pending", "resolving", {}, {}, "working", 0 }) == "CHECKING"
@@ -197,15 +215,26 @@ inline void verifyReferenceStatusLine()
                  "the B list says what Kirin OS is doing for a song that cannot play yet");
     }
 
-    // Kirin OS を待つ段階は、Kirin OS が閉じていればできない（開くのが直し方）。
+    // Kirin OS を待つ段階は、Kirin OS が閉じていればできない（開くのが直し方）。どの役も同じ段階を引く。
+    reference_audition::Snapshot kirin;
+    kirin.osOnline = true;
     auto closed = named ("ready");
     closed.separateComparisons = true;
-    closed.comparisonSlot = 2;
-    closed.checkStep = Step::waitingForKirinOs;
-    closed.osOnline = true;
-    require (reference_ui::referenceStatusLine (closed).kind == StatusKind::waiting, "a running Kirin OS is waited for");
-    closed.osOnline = false;
-    require (reference_ui::referenceStatusLine (closed).kind == StatusKind::unable, "a closed Kirin OS has to be opened");
+    for (const int slot : { 1, 2, 3 })
+    {
+        closed.comparisonSlot = slot;
+        closed.versionStep = closed.checkStep = closed.referenceStep = reference_ui::runtime_view::libraryStep (kirin);
+        require (reference_ui::referenceStatusLine (closed).kind == StatusKind::waiting, "a running Kirin OS is waited for");
+    }
+    kirin.osOnline = false;
+    for (const int slot : { 1, 2, 3 })
+    {
+        closed.comparisonSlot = slot;
+        closed.versionStep = closed.checkStep = closed.referenceStep = reference_ui::runtime_view::libraryStep (kirin);
+        const auto line = reference_ui::referenceStatusLine (closed);
+        require (line.kind == StatusKind::unable && line.text == "KIRIN OS IS CLOSED / OPEN KIRIN OS",
+                 "a closed Kirin OS has to be opened, on every role's page: " + line.text);
+    }
 
     // Blind の間は今の文のまま：どれが鳴っているかも、追従も言わない。
     auto blind = playing;

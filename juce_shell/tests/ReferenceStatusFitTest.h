@@ -10,6 +10,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaReferenceStages.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaTheme.h"
 
@@ -72,6 +73,19 @@ inline void verifyReferenceStatusFits()
         version.bSelected = false;
         cases.push_back ({ "V Blind needs headroom", version });
     }
+    // 2026-10-06：段階の表の全部の段階 × 全部の役（今までは 5 つの状態だけだった）。
+    std::vector<juce::String> stageNames;
+    stageNames.reserve (static_cast<size_t> (reference_ui::stageCount) * 3);  // Case は名前の文字を指すので動かさない
+    for (int index = 0; index < reference_ui::stageCount; ++index)
+        for (const int slot : { 1, 2, 3 })
+        {
+            auto stage = base;
+            stage.comparisonSlot = slot;
+            stage.songSets = { { "set", "Set   1 / 1" } };
+            stage.versionStep = stage.checkStep = stage.referenceStep = static_cast<reference_ui::SourceStep> (index);
+            stageNames.push_back (juce::String (reference_ui::roleLetter (slot)) + " stage " + juce::String (index));
+            cases.push_back ({ stageNames.back().toRawUTF8(), stage });
+        }
     const auto readout = labelFont (context, typography::TextRole::readout, typography::Composition::information);
     const auto action = labelFont (context, typography::TextRole::action, typography::Composition::information);
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })

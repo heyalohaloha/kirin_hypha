@@ -6,6 +6,7 @@
 // 状態の所に、両言語で省略せずに収まる。200% 以下は吹き出しのまま、REF の B・C・V も同じ行（REF の説明の文の試験は
 // ReferenceHoverHelpTest.h）。
 #include "EditorProductChecks.h"
+#include "ReferenceStatusPlacementCheck.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaAttackBandPainter.h"
 #include "../src/HyphaAttackBandSummaryPainter.h"
@@ -234,6 +235,8 @@ inline void verifyObservatoryHelpLine (const juce::File& previews)
     view->onDomainChange (Domain::reference);
     require (editor->helpLineAt ({ 450, 300 }).text.isEmpty() && ! lineReplacesBubble(),
              "REF's A page and its access panel keep their bubbles");
+    if (auto* panel = component<reference_ui::Component> (*editor))
+        withReferenceShown (*editor, *panel, [&] { verifyReferenceHelpLine (*editor, *panel); });
     processor.editorBeingDeleted (editor);
     base.reset();
     processor.releaseResources();

@@ -58,14 +58,12 @@ const CheckGroup* currentGroup (const std::vector<CheckGroup>& groups, const juc
 
 bool Component::versionPage() const noexcept
 {
-    return current.separateComparisons && current.comparisonSlot == 1
-        && presentationContext.density == observatory::Density::inspection && ! isBlindSession (current.blindPhase);
+    return rolePage() && current.comparisonSlot == 1;
 }
 
 bool Component::checkPage() const noexcept
 {
-    return current.separateComparisons && current.comparisonSlot == 2
-        && presentationContext.density == observatory::Density::inspection && ! isBlindSession (current.blindPhase);
+    return rolePage() && current.comparisonSlot == 2;
 }
 
 void Component::configureCheckPage()

@@ -2,33 +2,11 @@
 
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferencePendingUI.h"
+#include "HyphaReferenceStages.h"
 #include "HyphaTheme.h"
 
 namespace hypha::reference_ui
 {
-StatusKind kindOf (SourceStep step) noexcept
-{
-    switch (step)
-    {
-        case SourceStep::ready: return StatusKind::ready;
-        case SourceStep::waitingForKirinOs:
-        case SourceStep::playDaw:
-        case SourceStep::aligning:
-        case SourceStep::playAnotherPassage:
-        case SourceStep::verifyingSource:
-        case SourceStep::loadingAudio:
-        case SourceStep::preparing: return StatusKind::waiting;
-        case SourceStep::registerVersion:
-        case SourceStep::chooseVersion:
-        case SourceStep::enableCheck:
-        case SourceStep::chooseSource:
-        case SourceStep::noMatchingPassage:
-        case SourceStep::outsideCue:
-        case SourceStep::attention: return StatusKind::unable;
-    }
-    return StatusKind::unable;
-}
-
 static StatusLine composeStatusLine (const State& state, bool returnInFooter)
 {
     using Tracking = reference_audition::TrackingState;
@@ -68,28 +46,26 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             return { StatusKind::unable, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
     }
-    if (state.readiness == Readiness::rejected) return { StatusKind::unable, state.status };
     if (state.osAccess == os_access::State::unowned) return { StatusKind::unable, state.status };
     if (! state.separateComparisons)
-        return { state.readiness == Readiness::ready && state.auditionBuffered ? StatusKind::ready : StatusKind::waiting,
+        return { state.readiness == Readiness::rejected ? StatusKind::unable
+                 : state.readiness == Readiness::ready && state.auditionBuffered ? StatusKind::ready : StatusKind::waiting,
                  state.status };
-    if (state.comparisonSlot == 3 && state.songSets.empty())
-        return { StatusKind::unable, ! state.libraryReceived ? state.status
-                 : state.songSetsIssue.isNotEmpty() ? juce::String ("B: B SET NOT READ / UPDATE KIRIN OS AND HYPHA")
-                 : juce::String ("B: RANK A B SET FOR HYPHA IN KIRIN OS") };
-    const auto step = state.comparisonSlot == 1 ? state.versionStep
-                    : state.comparisonSlot == 3 ? state.referenceStep : state.checkStep;
+    // B・C・V のページ：見ている役の段階を、どの役も同じ段階の表から引く（HyphaReferenceStages.h）。
+    const auto slot = state.comparisonSlot;
+    const auto step = slot == 1 ? state.versionStep : slot == 3 ? state.referenceStep : state.checkStep;
+    const auto letter = juce::String (roleLetter (slot));
     // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
     // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限より先に言う。
     if (step != SourceStep::ready && step != SourceStep::playDaw)
         if (const auto line = preparationLine (state.rolePreparation); line.isNotEmpty())
-            return { preparationFailed (state.rolePreparation) ? StatusKind::unable : StatusKind::waiting,
-                     juce::String (roleLetter (state.comparisonSlot)) + ": " + line };
-    // Kirin OS を待っている段階は、Kirin OS が閉じていれば待っても進まない（開くのが直し方）。
-    const auto kind = step == SourceStep::waitingForKirinOs && ! state.osOnline ? StatusKind::unable : kindOf (step);
+            return { preparationFailed (state.rolePreparation) ? StatusKind::unable : StatusKind::waiting, letter + ": " + line };
+    const auto kind = kindOf (step);
     if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())
-        return { StatusKind::unable, juce::String (roleLetter (state.comparisonSlot)) + ": " + state.preparationOverdue };
-    return { kind, state.status };
+        return { StatusKind::unable, letter + ": " + state.preparationOverdue };
+    // Kirin OS へ頼んだこと（Preset・曲の準備、Kirin OS で開く、Blind の承認）の途中は、その文（直し方はボタン）。
+    if (state.kirinOsRequest) return { kind, state.status };
+    return { kind, stageLine (step, slot) };
 }
 
 // 承認して A を下げているあいだは「A は今の音のまま」と言わず、下げた量を言う（足元の RETURN で戻すまで）。

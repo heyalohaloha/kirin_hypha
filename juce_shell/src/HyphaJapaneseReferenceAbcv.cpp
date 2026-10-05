@@ -39,7 +39,19 @@ const Entry entries[] = {
     { "Level follow stopped 6 dB from the MATCH. The current gain is kept.",
       u8"音量の追従はMATCHから6 dBで停止。今のgainを保ちます。" },
     // Kirin OS のセット（sets.json）を読めなかったとき。
-    { "B SET NOT READ / UPDATE KIRIN OS AND HYPHA", u8"Bセットを読めません / Kirin OSとHyphaを更新" },
+    // 外した Kirin OS の項目（HyphaReferenceNotices.h の librarySkipped）。
+    { "%1: name not readable. Rename it in Kirin OS.", u8"%1の名前を読めません。Kirin OSで名前を直してください。" },
+    { "%1 was not read. Prepare it again in Kirin OS.", u8"%1を読めませんでした。Kirin OSで準備し直してください。" },
+    { "%1 and %2 more: names not readable. Rename them in Kirin OS.",
+      u8"%1ほか%2件の名前を読めません。Kirin OSで名前を直してください。" },
+    { "%1 and %2 more were not read. Prepare them again in Kirin OS.",
+      u8"%1ほか%2件を読めませんでした。Kirin OSで準備し直してください。" },
+    { "A Kirin OS item was not read. Prepare it again in Kirin OS.",
+      u8"Kirin OSの項目を1つ読めませんでした。Kirin OSで準備し直してください。" },
+    { "%1 Kirin OS items were not read. Prepare them again in Kirin OS.",
+      u8"Kirin OSの項目を%1件読めませんでした。Kirin OSで準備し直してください。" },
+    { "B SETS NOT READ", u8"Bセットを読めません" },
+    { "UPDATE KIRIN OS AND HYPHA", u8"Kirin OSとHyphaを更新" },
     { "Some Kirin OS sets were not read. Update Kirin OS and Hypha.",
       u8"Kirin OSのセットの一部を読めませんでした。Kirin OSとHyphaを更新してください。" },
     // V のタブ（その Check の表示に合わせる）。

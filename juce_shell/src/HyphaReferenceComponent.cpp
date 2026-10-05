@@ -121,6 +121,7 @@ Component::Component()
     statusStrip.addChildComponent (actionButton);
     statusStrip.paintRow = [this] (juce::Graphics& g, juce::Rectangle<int> row, bool) { paintStatusRow (g, row); };
     statusStrip.layoutRow = [this] (juce::Rectangle<int> row) { layoutStatusRow (row); };
+    statusStrip.wholeText = [this] { return statusLineWhole(); };
     statusStrip.footerFill = BG;
     addChildComponent (statusStrip);
     configureRoles();

@@ -3,6 +3,8 @@
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceRuntimeView.h"
 
+#include <algorithm>
+
 // 2026-10-06：値を入れて組み立てる Reference の文（足元に一度出す知らせと、A を下げる承認の申し出）。editor はここで
 // 作った文だけを出し、試験は同じ関数で全部の組み合わせを作って、日本語の画面に英語が残らないかを確かめる。
 namespace hypha::reference_ui::notice
@@ -44,6 +46,24 @@ inline juce::String trackingStopped (bool atCeiling)
 {
     return atCeiling ? "Level follow stopped at the safe ceiling. The current gain is kept."
                      : "Level follow stopped 6 dB from the MATCH. The current gain is kept.";
+}
+
+// Kirin OS の項目を外した：最初の名前と数、なぜ（名前の字）と直し方（Kirin OS で名前を直す。ほかは準備し直す）。
+inline juce::String librarySkipped (const std::vector<reference_audition::RuntimeSkippedItem>& items)
+{
+    if (items.empty()) return {};
+    const auto named = std::find_if (items.begin(), items.end(), [] (const auto& item) { return item.name.isNotEmpty(); });
+    const bool names = std::all_of (items.begin(), items.end(), [] (const auto& item) { return item.nameUnreadable; });
+    const auto count = static_cast<int> (items.size());
+    if (named == items.end())
+        return count == 1 ? juce::String ("A Kirin OS item was not read. Prepare it again in Kirin OS.")
+                          : juce::String (count) + " Kirin OS items were not read. Prepare them again in Kirin OS.";
+    const auto name = "\"" + named->name + "\"";
+    if (count == 1)
+        return names ? name + ": name not readable. Rename it in Kirin OS." : name + " was not read. Prepare it again in Kirin OS.";
+    const auto more = juce::String (count - 1);
+    return names ? name + " and " + more + " more: names not readable. Rename them in Kirin OS."
+                 : name + " and " + more + " more were not read. Prepare them again in Kirin OS.";
 }
 
 // 300% 未満で C・V を押して、その役の画面を開いた。

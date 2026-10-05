@@ -10,6 +10,7 @@
 #include "ReferenceAComparisonTest.h"
 #include "ReferenceADirectionTest.h"
 #include "ReferenceJapaneseScreenTextTest.h"
+#include "ReferenceStageTableTest.h"
 
 namespace hypha::tests
 {
@@ -23,6 +24,7 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceAComparison();
     verifyReferenceADirection();
     verifyReferenceJapaneseScreenText();
+    verifyReferenceStageTable();
     // 2026-10-03：再生中でも、準備が自動で進む段階なら押した役を待たせる（押したことを捨てない）。
     // 利用者が動かす段階（Cue の外・この区間で合わない）は待たせず、理由を言う。
     {
@@ -108,6 +110,10 @@ inline void verifyReferenceAbcvRoles()
 
         auto* list = dynamic_cast<reference_ui::SongList*> (panel.findChildWithID ("reference-song-list"));
         require (list != nullptr, "the B song list exists");
+        // 曲の一覧は 300% の B のページだけ（2026-10-06：200% にも 300% の並びが当たっていた）。隠れていれば下の確かめを飛ばす
+        // のではなく、出るべき大きさで出ていることを確かめる。
+        const bool inspection = presentation::forEditor (size.width, size.height).density == observatory::Density::inspection;
+        require (list->isVisible() == inspection, "the B song list shows exactly at 300% (" + juce::String (size.width) + ")");
         if (list->isVisible())
         {
             require (list->rows().size() == 2 && list->rows()[0].selected && list->rows()[0].title == "Song 1"
@@ -162,6 +168,7 @@ inline void verifyReferenceAbcvRoles()
         auto empty = state;
         empty.songSets.clear(); empty.songs.clear(); empty.songId.clear(); empty.songSetId.clear();
         empty.referenceReady = empty.referenceArmable = false;
+        empty.referenceStep = reference_ui::SourceStep::rankSet;  // editor が Kirin OS の届き方と B セットから決める
         panel.setState (empty);
         b->onClick();
         require (auditions == 1 && explained == "B: Rank a B set for Hypha in Kirin OS",
@@ -176,21 +183,24 @@ inline void verifyReferenceAbcvRoles()
         // 開くだけで、音は変えない。300% では今までどおり鳴らす。
         auto sized = state;
         sized.blindLargeScreen = size.width >= 900;
+        sized.versionReady = sized.checkReady = true;  // 鳴らせる C と V（300% では押せば鳴る）
+        sized.versionStep = sized.checkStep = reference_ui::SourceStep::ready;
         panel.setState (sized);
         int opened = 0, visual = 0;
-        bool heard = false;
+        bool heardV = false, heardC = false;
         panel.onOpenLarge = [&] (int slot) { opened = slot; };
         panel.onSelectVisualSlot = [&] (int slot) { visual = slot; };
-        panel.onSelectB = [&] { heard = true; };
-        panel.onSelectC = [&] { heard = true; };
+        panel.onSelectB = [&] { heardV = true; };
+        panel.onSelectC = [&] { heardC = true; };
         c->onClick();
         const auto openedC = opened, visualC = visual;
         opened = visual = 0;
         v->onClick();
         if (sized.blindLargeScreen)
-            require (opened == 0 && v->getTooltip() != "Open V at 300%", "at 300% V and C play as before");
+            require (opened == 0 && openedC == 0 && heardC && heardV && v->getTooltip() != "Open V at 300%",
+                     "at 300% pressing C and V plays them");
         else
-            require (openedC == 2 && visualC == 2 && opened == 1 && visual == 1 && ! heard
+            require (openedC == 2 && visualC == 2 && opened == 1 && visual == 1 && ! heardC && ! heardV
                          && c->getTooltip() == "Open C at 300%" && v->getTooltip() == "Open V at 300%",
                      "below 300% V and C open their page at 300% without changing the sound");
         panel.onOpenLarge = {}; panel.onSelectVisualSlot = {}; panel.onSelectB = {}; panel.onSelectC = {};

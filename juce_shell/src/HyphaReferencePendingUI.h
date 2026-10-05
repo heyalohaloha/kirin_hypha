@@ -1,5 +1,6 @@
 #pragma once
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceStages.h"
 
 namespace hypha::reference_ui
 {
@@ -7,8 +8,7 @@ namespace hypha::reference_ui
 // （押したことを捨てない。待ちの上限は HyphaReferencePreparationWatch.h が見張る）。
 inline bool settlesByItself (SourceStep step) noexcept
 {
-    return step == SourceStep::verifyingSource || step == SourceStep::loadingAudio
-        || step == SourceStep::preparing || step == SourceStep::aligning;
+    return automaticStage (step) && step != SourceStep::waitingForKirinOs;  // 段階の表で上限のある段階
 }
 
 inline bool canQueueSource (const State& state, bool version)

@@ -284,6 +284,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     {
         auto shown = hypha::reference_ui::runtimeStatus (runtime, state);
         state.status = std::move (shown.status);
+        state.kirinOsRequest = shown.request;
         state.action = shown.action;
         state.actionText = std::move (shown.actionText);
     }

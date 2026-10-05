@@ -114,7 +114,8 @@ void followsRankChangesAndPublication (const juce::File& sandbox)
     require (older.usable() && ! older.workspace->librarySets.has_value() && ! older.workspace->presets.empty(),
              "without sets the library is read as before");
     juce::String rejection;
-    require (! ref::readReferenceLibrarySets (root, *older.workspace, rejection) && rejection.isEmpty(),
+    std::vector<ref::RuntimeSkippedItem> skipped;
+    require (! ref::readReferenceLibrarySets (root, *older.workspace, rejection, skipped) && rejection.isEmpty(),
              "a missing sets file is not a rejection");
 
     // 形の壊れた sets は理由つきで読まないが、library は使える。
@@ -123,7 +124,7 @@ void followsRankChangesAndPublication (const juce::File& sandbox)
     ref::RuntimeV2Repository broken (root);
     const auto withBroken = broken.refreshLibrary();
     require (withBroken.usable() && ! withBroken.workspace->librarySets.has_value(), "a broken sets file leaves the library usable");
-    require (! ref::readReferenceLibrarySets (root, *withBroken.workspace, rejection)
+    require (! ref::readReferenceLibrarySets (root, *withBroken.workspace, rejection, skipped)
                  && rejection == "reference_library_sets_rejected",
              "a broken sets file is rejected with its reason");
 }
@@ -141,13 +142,16 @@ void refusesWhatItCannotTrust (const juce::File& sandbox)
     const auto check = [&] (const juce::var& sets, const char* expected, const char* why) {
         write (sets);
         juce::String rejection;
-        require (! ref::readReferenceLibrarySets (root, *loaded.workspace, rejection) && rejection == expected, why);
+        std::vector<ref::RuntimeSkippedItem> skipped;
+        require (! ref::readReferenceLibrarySets (root, *loaded.workspace, rejection, skipped) && rejection == expected, why);
     };
-    // 読めない項目は 1 つずつ飛ばし、残りを使って理由を残す（1 つの壊れた項目で B セット全体を失わない）。
+    // 読めない項目は 1 つずつ飛ばし、残りを使って理由を残す（1 つの壊れた項目で B セット全体を失わない）。名前のある
+    // B セットと曲は、どれを外したかを skipped に（理由の文は残さない）。
+    std::vector<ref::RuntimeSkippedItem> lastSkipped;
     const auto skips = [&] (const juce::var& sets, const char* expected, const char* why) {
         write (sets);
         juce::String rejection;
-        const auto read = ref::readReferenceLibrarySets (root, *loaded.workspace, rejection);
+        const auto read = ref::readReferenceLibrarySets (root, *loaded.workspace, rejection, lastSkipped);
         require (read.has_value() && rejection == expected, why);
         return *read;
     };
@@ -170,20 +174,22 @@ void refusesWhatItCannotTrust (const juce::File& sandbox)
     require (pathRead.sourceRanges.size() == 2, "the other Cue values stay");
     auto song = original.clone();
     song["song_sets"].getArray()->getReference (0)["songs"].getArray()->getReference (1).getDynamicObject()->setProperty ("unexpected", 1);
-    const auto songRead = skips (song, "reference_library_song_rejected", "a song Hypha cannot read is skipped");
+    const auto songRead = skips (song, "", "a song Hypha cannot read is skipped by itself");
     require (songRead.songSets.size() == 1 && songRead.songSets[0].songs.size() == 1, "the B set keeps its other song");
+    require (lastSkipped.size() == 1 && lastSkipped[0].name == "Reference" && ! lastSkipped[0].nameUnreadable,
+             "the skipped song is named, and its name is not the reason");
 
-    // 理由は workspace に残り（B の画面が直し方を出す）、読めるように戻れば消える。
+    // 外した曲は workspace に残り（知らせがどれを外したかを言う）、読めるように戻れば消える。
     const auto partial = repository.refreshLibrary (loaded.workspace);
-    require (partial.state == ref::RuntimeWorkspaceLoadState::updated
-                 && partial.workspace->librarySetsIssue == "reference_library_song_rejected"
+    require (partial.state == ref::RuntimeWorkspaceLoadState::updated && partial.workspace->librarySetsIssue.isEmpty()
+                 && partial.workspace->setsSkipped.size() == 1
                  && partial.workspace->librarySets->songSets[0].songs.size() == 1,
              "a skipped song is reported beside the songs that were read");
     write (original);
     const auto repaired = repository.refreshLibrary (partial.workspace);
-    require (repaired.state == ref::RuntimeWorkspaceLoadState::updated && repaired.workspace->librarySetsIssue.isEmpty()
+    require (repaired.state == ref::RuntimeWorkspaceLoadState::updated && repaired.workspace->setsSkipped.empty()
                  && repaired.workspace->librarySets->songSets[0].songs.size() == 2,
-             "the reason goes away once the sets are read whole");
+             "the skipped song goes away once the sets are read whole");
 
     auto extra = original.clone();
     extra.getDynamicObject()->setProperty ("note", "unexpected");

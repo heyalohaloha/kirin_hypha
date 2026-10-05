@@ -422,6 +422,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceSongList.cpp
             src/HyphaReferenceBalance.cpp
             src/HyphaReferenceStatusModel.cpp
+            src/HyphaReferenceStages.cpp
             src/HyphaReferenceRuntimeStatus.cpp
             src/HyphaReferenceCheckTabs.cpp
             src/HyphaReferenceCheckPage.cpp
@@ -594,6 +595,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceSongList.cpp
         src/HyphaReferenceBalance.cpp
         src/HyphaReferenceStatusModel.cpp
+        src/HyphaReferenceStages.cpp
         src/HyphaReferenceRuntimeStatus.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
@@ -745,6 +747,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceSongList.cpp
         src/HyphaReferenceBalance.cpp
         src/HyphaReferenceStatusModel.cpp
+        src/HyphaReferenceStages.cpp
         src/HyphaReferenceRuntimeStatus.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp
@@ -966,6 +969,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
         tests/reference_library_sets_test.cpp
+        tests/reference_library_skipped_test.cpp
         tests/reference_live_window_test.cpp
         tests/reference_tracking_gain_test.cpp
         tests/reference_abcv_roles_test.cpp
@@ -1047,6 +1051,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceSongList.cpp
         src/HyphaReferenceBalance.cpp
         src/HyphaReferenceStatusModel.cpp
+        src/HyphaReferenceStages.cpp
         src/HyphaReferenceRuntimeStatus.cpp
         src/HyphaReferenceCheckTabs.cpp
         src/HyphaReferenceCheckPage.cpp

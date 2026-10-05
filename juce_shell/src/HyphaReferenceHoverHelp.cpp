@@ -10,7 +10,7 @@ namespace hypha::reference_ui
 // 300% だけ（200% 以下の足元の行は説明の一行に足りないので、今までどおり吹き出し）。
 bool Component::helpInLine() const noexcept
 {
-    return rolePage() && presentationContext.density == observatory::Density::inspection;
+    return rolePage();
 }
 
 juce::String Component::helpAt (juce::Point<int> local)

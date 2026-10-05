@@ -63,31 +63,37 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
     const auto act = [&result] (ActionKind kind, const juce::String& text) { result.action = { kind, {} }; result.actionText = text; };
     if (runtime.presetSelectionStatus == "pending")
     {
+        result.request = true;
         result.status = "KIRIN OS PREPARING CHECK PRESET / A REMAINS LIVE";
         act (ActionKind::none, {});
     }
     else if (runtime.presetSelectionStatus == "prepared")
     {
+        result.request = true;
         result.status = "CHECK PRESET READY / A REMAINS LIVE";
         act (ActionKind::none, {});
     }
     else if (runtime.presetSelectionStatus == "timed_out")
     {
+        result.request = true;
         result.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
         act (ActionKind::retryPresetPreparation, "RETRY PREPARATION");
     }
     else if (runtime.presetSelectionStatus == "preset_setup_required")
     {
+        result.request = true;
         result.status = "CHOOSE A REFERENCE IN KIRIN OS / A REMAINS LIVE";
         act (ActionKind::openReference, "OPEN REFERENCE");
     }
     else if (runtime.presetSelectionStatus == "source_unavailable")
     {
+        result.request = true;
         result.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
         act (ActionKind::chooseSource, "CHOOSE SOURCE");
     }
     else if (runtime.presetSelectionStatus == "measurement_required")
     {
+        result.request = true;
         result.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
         act (ActionKind::measureSource, "MEASURE SOURCE");
     }
@@ -95,37 +101,44 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
              || runtime.presetSelectionStatus == "storage_unavailable"
              || runtime.presetSelectionStatus == "publication_failed")
     {
+        result.request = true;
         result.status = "CHECK PRESET NOT REFRESHED / A REMAINS LIVE";
         act (ActionKind::retryPresetPreparation, "RETRY PREPARATION");
     }
     else if (runtime.presetSelectionStatus == "work_unavailable"
              || runtime.presetSelectionStatus == "request_invalid")
     {
+        result.request = true;
         result.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
         act (ActionKind::openReference, "OPEN REFERENCE");
     }
     else if (runtime.candidatePreparationStatus == "pending")
     {
+        result.request = true;
         result.status = "KIRIN OS PREPARING REFERENCE / A REMAINS LIVE";
         act (ActionKind::none, {});
     }
     else if (runtime.candidatePreparationStatus == "prepared")
     {
+        result.request = true;
         result.status = "REFERENCE READY / A REMAINS LIVE";
         act (ActionKind::none, {});
     }
     else if (runtime.candidatePreparationStatus == "timed_out")
     {
+        result.request = true;
         result.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
         act (ActionKind::retryCandidatePreparation, "RETRY PREPARATION");
     }
     else if (runtime.candidatePreparationStatus == "source_unavailable")
     {
+        result.request = true;
         result.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
         act (ActionKind::chooseSource, "CHOOSE SOURCE");
     }
     else if (runtime.candidatePreparationStatus == "measurement_required")
     {
+        result.request = true;
         result.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
         act (ActionKind::measureSource, "MEASURE SOURCE");
     }
@@ -133,47 +146,56 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
              || runtime.candidatePreparationStatus == "storage_unavailable"
              || runtime.candidatePreparationStatus == "publication_failed")
     {
+        result.request = true;
         result.status = "REFERENCE NOT REFRESHED / A REMAINS LIVE";
         act (ActionKind::retryCandidatePreparation, "RETRY PREPARATION");
     }
     else if (runtime.candidatePreparationStatus.isNotEmpty())
     {
+        result.request = true;
         result.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
         act (ActionKind::openReference, "OPEN REFERENCE");
     }
     else if (runtime.recoveryStatus == "pending")
     {
+        result.request = true;
         result.status = "OPENING REFERENCE IN KIRIN OS";
         act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "opened")
     {
+        result.request = true;
         result.status = "CONTINUE IN KIRIN OS";
         act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "exact_opened")
     {
+        result.request = true;
         result.status = "KIRIN OS OPENED THE REFERENCE LOCATION";
         act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "safe_fallback_opened")
     {
+        result.request = true;
         result.status = "KIRIN OS OPENED SAFE REFERENCE SETTINGS";
         act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "rejected")
     {
+        result.request = true;
         result.status = "REFERENCE ITEM IS NO LONGER AVAILABLE";
         act (ActionKind::retryKirinOs, "TRY KIRIN OS AGAIN");
     }
     else if (runtime.recoveryStatus == "timed_out")
     {
+        result.request = true;
         result.status = "KIRIN OS DID NOT RESPOND / A REMAINS LIVE";
         act (ActionKind::retryKirinOs, "TRY KIRIN OS AGAIN");
     }
     else if (state.blindLowerAApprovalRequired)
     {
         const auto attenuation = juce::String (state.blindRequiredAAttenuationDb, 1);
+        result.request = true;
         result.status = "BLIND NEEDS HEADROOM / A RETURNS +" + attenuation + " dB ON END";
         act (state.blindLargeScreen ? ActionKind::approveBlindLowerA : ActionKind::none,
              state.blindLargeScreen ? "LOWER A " + attenuation + " dB & START" : juce::String {});
