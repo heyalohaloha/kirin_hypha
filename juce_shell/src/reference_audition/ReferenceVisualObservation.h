@@ -17,6 +17,8 @@ public:
     void setPresented (bool);
     static constexpr size_t inputQueueBytes() { return sizeof(Block)*queueSize; }
     bool pendingInput() const noexcept { return readIndex.load()!=writeIndex.load(); }
+    // 受け口が満ちて渡せなかった塊の数（enqueue を呼ぶスレッドが読む。試験と診断のため）。
+    std::uint64_t droppedBlocks() const noexcept { return rtDiscontinuity; }
     // Non-RT admission transfer. Neither method waits for source reads.
     void pauseAdmission();
     void resumeObservation();

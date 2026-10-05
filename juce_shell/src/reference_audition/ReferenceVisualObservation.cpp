@@ -222,6 +222,14 @@ void VisualObservation::run()
                 && channels >= 1 && channels <= 2;
             pairWanted = wanted && !next.hidden && next.aligned && next.source && next.overview
                 && next.overview->waveform && next.hostRate >= 8000 && next.hostRate <= 768000;
+            if (! bindingChanged && (std::abs (timeline.binding.gainDb - next.gainDb) > 1.0e-9
+                                     || timeline.binding.matched != next.matched))
+            {
+                // 見せ方（gain・合わせたか）だけが替わった：測ったものは保ち、描く値だけを替える。
+                timeline.binding.gainDb = next.gainDb;
+                timeline.binding.matched = next.matched;
+                dirty = true;
+            }
             if (bindingChanged)
             {
                 clearMeters(); timeline.binding = next; timeline.bins.clear(); timeline.hop = 0;

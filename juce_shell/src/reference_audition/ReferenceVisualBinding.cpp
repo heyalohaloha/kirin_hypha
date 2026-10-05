@@ -65,7 +65,8 @@ VisualBinding RuntimeV2Controller::visualBinding() const
             && std::isfinite (result.gainDb);
         if (!std::isfinite (result.gainDb)) result.gainDb = 0.0;
     }
-    result.key += ":gain:" + juce::String (result.gainDb, 9);
+    // gain と合わせたかは見せ方（描くときに足す）。何を測るかの鍵（key）には入れない：入れると追従で gain が動くたびに
+    // 比べた窓を作り直し、V の画面の WHOLE の線と組の窓が消える。
     return result;
 }
 }
