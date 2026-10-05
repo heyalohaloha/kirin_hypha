@@ -250,7 +250,7 @@ Contributor手順は[CONTRIBUTING.md](CONTRIBUTING.md)、未署名buildは
 Kirin Hypha は CE 2226 の菌糸の先端。DAWの中に200年後の世界がほんの少しだけ顔を出したもの。
 
 - タイトル「PRE」「POST」は CE 2226 Font（実現可能であれば）
-- 数値はシステムフォントまたは番人指定のフォント
+- 数値はシステムフォントまたはデザイン仕様で指定したフォント
 - 背景は暗い菌糸テクスチャ
 - Watch LED = 青の淡い発光（静的）
 - Kirin OS本体（CE 2026の岩と苔）とは明確に異質

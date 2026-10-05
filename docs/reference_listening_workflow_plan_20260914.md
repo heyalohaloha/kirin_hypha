@@ -38,7 +38,7 @@ Work接続の必須化、DAW transportの自動操作、音源の自動再生、
 | 対象 | 確認した基点 | 本計画での扱い |
 | --- | --- | --- |
 | 計画の保存先 | kirin_hypha、main、9cb40e56ddbd7c3b9ebb0186c2169467ebaae317 | 本書と統合計画v4を更新する |
-| Hypha Reference | kirin_hypha_reference_abc、B-884、ef9bc148f14adfafd1edede8ac1e771a8800504e | 初版のB-883から進んだgain解析とCapture codec等の差分を統合計画へ記録。既存の未コミット差分を保持 |
+| Hypha Reference | 公開履歴、B-884、ef9bc148f14adfafd1edede8ac1e771a8800504e | 初版のB-883から進んだgain解析とCapture codec等の差分を統合計画へ記録。既存の未コミット差分を保持 |
 | Kirin OS Reference | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | Preset保存、Candidate、Library、Historyの基点。確認時はclean |
 
 実装開始時には両Reference worktreeのHEADと未コミット変更を取り直す。

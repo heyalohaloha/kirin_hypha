@@ -37,12 +37,12 @@ HyphaからSolo、Mute、Fader、他プラグインのBypass、Routing、Transpo
 | 対象 | 確認した基点 | 扱い |
 | --- | --- | --- |
 | 計画保存先 | `kirin_hypha` main `9cb40e56ddbd7c3b9ebb0186c2169467ebaae317` | 本書と統合計画v4を更新する。既存の未コミット計画と変更済みWAVは保持 |
-| 製品実装の参照先 | `kirin_hypha_reference_abc` B-887 `53937c0da5916c7b771329e98fff79671fb5b22c` | Local Blindの現行契約とソース、B-887のCapture直列化とReference解析所有権を確認。旧mainを製品実装の基点にしない |
-| 直前の共有責務修正 | [B-887実装記録](../../kirin_hypha_reference_abc/docs/reference_capture_b887_implementation_20260914.md) | native、全体baseline、実寸検証は完了。DAW実機、Windows、現行候補での共存確認は未実施 |
+| 製品実装の参照先 | 公開履歴 B-887 `53937c0da5916c7b771329e98fff79671fb5b22c` | Local Blindの現行契約とソース、B-887のCapture直列化とReference解析所有権を確認。旧mainを製品実装の基点にしない |
+| 直前の共有責務修正 | [B-887実装記録](reference_capture_b887_implementation_20260914.md) | native、全体baseline、実寸検証は完了。DAW実機、Windows、現行候補での共存確認は未実施 |
 | 競合検証の候補 | GainMatch v1.53、2026-08-06公開 | 公式履歴で確認。導入済みversionや性能は未確認 |
 
-既存の[Captureと操作導線の統合計画](../../kirin_hypha_reference_abc/docs/hypha_capture_and_workflow_integrated_plan_20260914.md)はH01〜H08の範囲を所有する。
-その[実装記録](../../kirin_hypha_reference_abc/docs/reference_capture_workflow_implementation_20260914.md)にはB-882のBlind導線とB-883のPRE候補探索が記録されている。
+既存の[Captureと操作導線の統合計画](hypha_capture_and_workflow_integrated_plan_20260914.md)はH01〜H08の範囲を所有する。
+その[実装記録](reference_capture_workflow_implementation_20260914.md)にはB-882のBlind導線とB-883のPRE候補探索が記録されている。
 本書はこれらを再実装せず、Local Blindの追加改善と受入試験を定義する。
 旧計画の「未実装」という記述だけで現状を判断せず、確定commitのソースと実装記録を突き合わせる。
 
@@ -50,7 +50,7 @@ B-885のレビューは、Reference Captureの二重Start、保持AによるLIVE
 B-887は、この3件についてCaptureの操作直列化、ReferenceAnalysisOwner、表示投影を実装し、対象native試験と全体baselineを完了した。
 これらはLocal Blind固有の準備済み取消、診断、Pause、実機復帰を実証した結果ではない。
 共有する開始排他、解析枠、通知の所有についてはB-887を実装基点とし、本書の共存試験でLocal Blindからの利用を確認する。
-[B-885構造修正計画](../../kirin_hypha_reference_abc/docs/reference_capture_b885_structural_repair_plan_20260914.md)とB-887の修正を本書で重複実装しない。
+[B-885構造修正計画](reference_capture_b885_structural_repair_plan_20260914.md)とB-887の修正を本書で重複実装しない。
 B-887の未実施項目を解決済みの根拠にせず、関連する実DAW共存試験が通るまで製品完成とはしない。
 無関係なReference機能全体の完成をLocal Blindの着手条件にはしない。
 
@@ -255,7 +255,7 @@ Gain factsと診断は同じcapture generationへ結び、古い失敗が新し�
 ### 7.2 解析方針の維持と短音の試験
 
 2MIXの`alignedActiveBlocksV1`とTRACK/STEMの`exactTrackEventEnergyV1`は変更しない。
-前者の連続active block、後者の対応event窓の条件は[既存不変条件](../../kirin_hypha_reference_abc/docs/hypha_invariants.md)を正本とする。
+前者の連続active block、後者の対応event窓の条件は[既存不変条件](hypha_invariants.md)を正本とする。
 短音を通すためのloop padding、無音の水増し、閾値の引下げ、未補正再生fallbackは加えない。
 
 検証素材は既存S-1〜S-5に加え、権利を確認したキック、クラップ、スネア、疎な打音、減衰音、連続2MIXを用いる。

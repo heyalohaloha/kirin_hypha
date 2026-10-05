@@ -692,3 +692,50 @@ SHA-256 multisets, all Markdown link targets, all private evidence basenames and
 line are unchanged; no new public evidence links. Authorized storage-root remnants zero. Research
 holdout/Trash recoverability, source-supplied review-input version/hash, G1 disposable session/fixture
 removal/shared-memory unlink and host acceptance limits retained. `git diff --check` passed.
+
+
+## Final supplemental link/role findings — 2026-10-05
+
+Five links in one changed technical plan still escape into a historical sibling checkout. They were already broken in baseline main. All five destination documents are tracked publicly in current main/candidate, and the B-885/B-887 headers were read to confirm matching evidence scope and honest DAW/Windows limits. Private directory values are intentionally omitted.
+
+| Source location (baseline/current) | Category / public need | Verified public relative target | Action / side effect | History / other public surfaces |
+| --- | --- | --- | --- | --- |
+| docs/hypha_pre_post_blind_usability_plan_20260914.md:41 / 41 | Private sibling-checkout path; public technical evidence/contract reference needed | reference_capture_b887_implementation_20260914.md | Replace only target with same-directory relative link; keep displayed label, commit/hash/outcomes and every unverified/acceptance limit | H1 topology remains in previous commits and historical source archives/PR diffs; exact Release/Actions/generated spread unconfirmed |
+| docs/hypha_pre_post_blind_usability_plan_20260914.md:44 / 44 | Private sibling-checkout path; public technical evidence/contract reference needed | hypha_capture_and_workflow_integrated_plan_20260914.md | Replace only target with same-directory relative link; keep displayed label, commit/hash/outcomes and every unverified/acceptance limit | H1 topology remains in previous commits and historical source archives/PR diffs; exact Release/Actions/generated spread unconfirmed |
+| docs/hypha_pre_post_blind_usability_plan_20260914.md:45 / 45 | Private sibling-checkout path; public technical evidence/contract reference needed | reference_capture_workflow_implementation_20260914.md | Replace only target with same-directory relative link; keep displayed label, commit/hash/outcomes and every unverified/acceptance limit | H1 topology remains in previous commits and historical source archives/PR diffs; exact Release/Actions/generated spread unconfirmed |
+| docs/hypha_pre_post_blind_usability_plan_20260914.md:53 / 53 | Private sibling-checkout path; public technical evidence/contract reference needed | reference_capture_b885_structural_repair_plan_20260914.md | Replace only target with same-directory relative link; keep displayed label, commit/hash/outcomes and every unverified/acceptance limit | H1 topology remains in previous commits and historical source archives/PR diffs; exact Release/Actions/generated spread unconfirmed |
+| docs/hypha_pre_post_blind_usability_plan_20260914.md:258 / 258 | Private sibling-checkout path; public technical evidence/contract reference needed | hypha_invariants.md | Replace only target with same-directory relative link; keep displayed label, commit/hash/outcomes and every unverified/acceptance limit | H1 topology remains in previous commits and historical source archives/PR diffs; exact Release/Actions/generated spread unconfirmed |
+
+AGENTS.md:305 baseline / 253 current: numeric-font guidance retains an internal individual-operator role label. H1 low-impact internal wording cleanup: use the documented design specification as the font authority. Preserve the default system-font choice and all visual requirements. Historical comments/source archives retain the prior label; no credential/rotation issue.
+
+Recorded before the final five-link/font-authority cleanup. No source/build/test/CI/settings action. All destination paths above are current tracked public paths.
+
+
+Final supplemental document verification: 95 changed docs/guides and 330 local Markdown targets
+checked against the base, including historical sibling-checkout escapes. Broken targets and links
+escaping the public repository both zero. The five narrow target replacements preserve labels,
+commit/hash/numeric multisets, evidence scope and all DAW/Windows/unverified acceptance limits.
+All six tracked legal LICENSE/NOTICE files and ten test WAVs are byte-identical to base; original
+creator attribution remains. Invariant numeric multiset and PNG nonmetadata/IDAT are unchanged.
+No product behavior, build/CI setting or signature threshold changes in this supplemental hygiene pass.
+
+
+## Bare historical checkout nickname classification — 2026-10-05
+
+Read-only context inspection of owned tracked docs/root guides found three remaining bare local-checkout nickname occurrences, each next to a public B identifier and full source commit. The prior absolute/sibling-path usages identify the same token as a checkout-directory label. No currently registered Git worktree has that basename; this review does not claim that old checkout still exists. The read-only public API inventory contains 24 branches, with no exact name or branch-basename match. No branch/API inventory is to be altered. Both referenced source commits exist locally and are ancestors of baseline public main.
+
+| File / original and current line | Category / public necessity | Recommended minimal action | Side effects / history / public surfaces |
+| --- | --- | --- | --- |
+| docs/hypha_comparison_safety_contract_20260914.md:43 / 43 | H1 historical local checkout identity; public source B/full commit is required, checkout nickname is unnecessary | Remove only checkout nickname; preserve B number, full commit and every source/evidence, native-vs-host, unresolved/acceptance condition | Documentation only. Historical commits/source archives/PR diffs may retain the nickname; exact Release binary/Actions/generated spread unconfirmed. Rotation is not indicated; history rewrite remains deferred for the user's judgment. |
+| docs/hypha_pre_post_blind_usability_plan_20260914.md:40 / 40 | H1 historical local checkout identity; public source B/full commit is required, checkout nickname is unnecessary | Remove only checkout nickname; preserve B number, full commit and every source/evidence, native-vs-host, unresolved/acceptance condition | Documentation only. Historical commits/source archives/PR diffs may retain the nickname; exact Release binary/Actions/generated spread unconfirmed. Rotation is not indicated; history rewrite remains deferred for the user's judgment. |
+| docs/reference_listening_workflow_plan_20260914.md:41 / 41 | H1 historical local checkout identity; public source B/full commit is required, checkout nickname is unnecessary | Remove only checkout nickname; preserve B number, full commit and every source/evidence, native-vs-host, unresolved/acceptance condition | Documentation only. Historical commits/source archives/PR diffs may retain the nickname; exact Release binary/Actions/generated spread unconfirmed. Rotation is not indicated; history rewrite remains deferred for the user's judgment. |
+
+Public branch names, main and their API inventory are H0 public Git evidence; preserve. Public repo/project names and full commit identifiers also stay. These three before-edit rows were saved before the narrow forward cleanup.
+
+No credentials, product/source edits, build/test/CI/settings actions or commits performed. Private scalar values are omitted.
+
+
+Final bare-nickname cleanup result: three recorded document locations now use neutral public-history
+wording; B identifiers and full public source commits are preserved. Combined final supplement changes
+four guides/documents and nine lines. Non-link numerical/full-hash token sets remain identical; public
+branch inventory remains unchanged. Discovery suite rerun after these edits: 5/5 PASS; diff check PASS.
