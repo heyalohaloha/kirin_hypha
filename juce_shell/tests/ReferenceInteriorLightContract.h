@@ -2,7 +2,6 @@
 
 #include "../src/HyphaReferenceComparisonView.h"
 #include "../src/HyphaReferenceComponent.h"
-#include "../src/HyphaReferenceTonalView.h"
 #include "../src/HyphaReferenceVisualLayout.h"
 #include "../src/HyphaReferenceVisuals.h"
 #include "../src/HyphaReferenceWindowMaterial.h"
@@ -81,9 +80,7 @@ inline void verifyChildren()
     root.getProperties().set (key_light::rootProperty, true);
     root.setSize (900, 600);
     reference_ui::ComparisonView comparison;
-    reference_ui::TonalView tonal;
     root.addAndMakeVisible (comparison);
-    root.addAndMakeVisible (tonal);
     for (const int editorWidth : { 300, 900 })
     {
         const auto context = presentation::forEditor (editorWidth, editorWidth * 2 / 3);
@@ -92,11 +89,6 @@ inline void verifyChildren()
         comparison.update ({}, -1, context, false);
         verifyChild (comparison, [&] (juce::Graphics& g) {
             surface_material::paintObservationWell (g, comparison.getLocalBounds().toFloat(), false);
-        });
-        tonal.setBounds (20, 60, editorWidth - 40, context.logicalHeight - 80);
-        tonal.update ({}, context, false, {}, {});
-        verifyChild (tonal, [&] (juce::Graphics& g) {
-            surface_material::paintPanel (g, tonal.getLocalBounds().toFloat(), 0.72f);
         });
     }
 }

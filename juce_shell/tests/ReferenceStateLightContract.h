@@ -41,40 +41,22 @@ inline bool sameColour (juce::Colour a, juce::Colour b)
         && std::abs (int (a.getBlue()) - int (b.getBlue())) <= 1;
 }
 
-inline void requireQuietEdge (reference_ui::Component& panel, juce::Rectangle<int> body,
-                             float alpha, const juce::String& where)
+// The control with this ID anywhere under root, and whether it and its parents up to root are visible.
+inline const juce::Component* findById (const juce::Component& root, const juce::String& id)
 {
-    expect (body.getWidth() > 10 && body.getHeight() > 8, where + ": quiet body has room");
-    const auto actual = render (panel);
-    juce::Image expected (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
-    juce::Graphics g (expected);
-    g.fillAll (BG);
-    const key_light::Scope light (panel);
-    comparison_surface::paintQuietBody (g, body.toFloat(), alpha, 4.0f);
-    // The left wall lies outside the text and decorative comparison roots. Compare actual
-    // pixels, so a separate instrument frame or a state-specific flat fill cannot pass.
-    for (int y = body.getY() + body.getHeight() / 3; y < body.getBottom() - body.getHeight() / 3; ++y)
-        for (int x = body.getX() + 1; x <= body.getX() + 2; ++x)
-            expect (sameColour (actual.getPixelAt (x, y), expected.getPixelAt (x, y)),
-                    where + ": anonymous and instructional bodies use the shared quiet material");
+    for (auto* child : root.getChildren())
+    {
+        if (child->getComponentID() == id) return child;
+        if (const auto* found = findById (*child, id)) return found;
+    }
+    return nullptr;
 }
 
-inline juce::Rectangle<int> blindBody (const reference_ui::Component& panel, bool active)
+inline bool visibleIn (const juce::Component& root, const juce::Component* control)
 {
-    auto area = panel.panelArea();
-    area.removeFromTop (panel.panelHeaderHeight() + panel.panelGap());
-    const int line = panel.detailedLayout() ? 24 : 18;
-    if (active) area.removeFromBottom (line);
-    area.removeFromTop (line + 2);
-    return area;
-}
-
-inline juce::Rectangle<int> metricsBody (const reference_ui::Component& panel)
-{
-    auto area = panel.panelArea();
-    area.removeFromTop (panel.panelHeaderHeight() + panel.panelGap());
-    area.removeFromBottom (panel.detailedLayout() ? 24 : 18);
-    return area;
+    for (auto* item = control; item != nullptr && item != &root; item = item->getParentComponent())
+        if (! item->isVisible()) return false;
+    return control != nullptr;
 }
 
 inline void requireSharedPlate (juce::Button& button, float inset, juce::Colour accent,
@@ -108,22 +90,23 @@ inline void writeIfRequested (const reference_ui::State& state, int width, const
             "state screenshot " + name);
 }
 
+// VERSION BLIND の試行のあいだ、REF は主役の窓も、比べる音源の名前と値も出さない（窓全体はエディターの Blind の
+// 画面が持つ。その素材は BlindLightContract.h）。終われば元の観測に戻り、描き直しは音の命令を出さない。
 inline void verifyBlind (reference_ui::Component& panel, int width)
 {
     const auto where = "Blind at " + juce::String (width);
     int audioCommands = 0;
-    panel.onSelectA = panel.onSelectB = panel.onSelectC = [&] { ++audioCommands; };
-    panel.onStartBlind = panel.onRevealBlind = panel.onEndBlind = [&] { ++audioCommands; };
-    panel.onSelectBlindStimulus = [&] (int) { ++audioCommands; };
+    panel.onSelectA = panel.onSelectB = panel.onSelectC = panel.onSelectRef = [&] { ++audioCommands; };
+    panel.onStartBlind = [&] { ++audioCommands; };
     auto state = fixture ("ready");
     state.comparisonSlot = 1;
     state.title = "Mix v4";
     state.blindLargeScreen = width >= 900;
     state.blindPhase = reference_ui::BlindPhase::available;
     panel.setState (state);
-    auto* launch = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-blind"));
-    expect (launch && launch->isVisible(), where + ": named audition exposes its separate trial entry");
-    requireSharedPlate (*launch, 1.0f, COL_FLORA_BR, 4.0f, where + " launch");
+    if (auto* launch = dynamic_cast<juce::Button*> (const_cast<juce::Component*> (findById (panel, "reference-blind")));
+        visibleIn (panel, launch))
+        requireSharedPlate (*launch, 1.0f, COL_FLORA_BR, 4.0f, where + " launch");
     writeIfRequested (state, width, "blind-named");
     for (const auto phase : { reference_ui::BlindPhase::starting, reference_ui::BlindPhase::active,
                               reference_ui::BlindPhase::revealed, reference_ui::BlindPhase::invalidated })
@@ -132,182 +115,27 @@ inline void verifyBlind (reference_ui::Component& panel, int width)
         state.activeBlindStimulus = 2;
         state.blindStimulusOneHeard = state.blindStimulusTwoHeard = phase == reference_ui::BlindPhase::revealed;
         state.blindRequiredAAttenuationDb = phase == reference_ui::BlindPhase::invalidated ? 2.0 : 0.0;
-        state.status = phase == reference_ui::BlindPhase::starting ? "PREPARING BLIND"
-            : phase == reference_ui::BlindPhase::invalidated ? "BLIND INTERRUPTED / A LEVEL HELD" : "BLIND ACTIVE";
-        state.blindReveal = phase == reference_ui::BlindPhase::revealed ? "1 = A / 2 = MIX V4" : "";
         panel.setState (state);
         expect (panel.observationWindowBounds().isEmpty(), where + ": a trial never gains a hero frame");
-        for (const auto* id : { "reference-a", "reference-b", "reference-c", "reference-version",
-                                "reference-check", "reference-comparison-view", "reference-tonal-view",
-                                "capture-a-controls" })
-            expect (!panel.findChildWithID (id)->isVisible(), where + ": named sources and measurements stay hidden");
-        const bool revealed = phase == reference_ui::BlindPhase::revealed;
-        if (revealed)
-        {
-            auto body = metricsBody (panel);
-            const int gap = panel.detailedLayout() ? 6 : 4;
-            body = body.removeFromLeft (juce::roundToInt ((body.getWidth() - gap) * 0.5f));
-            requireQuietEdge (panel, body, panel.detailedLayout() ? 0.66f : 0.72f, where + " revealed");
-        }
-        else
-            requireQuietEdge (panel, blindBody (panel, phase == reference_ui::BlindPhase::active), 0.72f, where);
-        for (const auto* id : { "reference-blind-1", "reference-blind-2", "reference-blind-reveal", "reference-blind-end" })
-            if (auto* button = dynamic_cast<juce::Button*> (panel.findChildWithID (id)); button && button->isVisible())
-                requireSharedPlate (*button, 1.0f, COL_SPECTRUM_DELTA_BR, 4.0f, where + " " + id);
-        if (phase == reference_ui::BlindPhase::active || revealed)
-        {
-            const auto* one = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-blind-1"));
-            const auto* two = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-blind-2"));
-            expect (one && two && !one->getToggleState() && two->getToggleState(),
-                    where + ": lighting never changes the assigned audible stimulus");
-        }
+        for (const auto* id : { "reference-comparison-view", "reference-song-list" })
+            expect (! visibleIn (panel, findById (panel, id)), where + ": named sources and measurements stay hidden");
         const auto name = phase == reference_ui::BlindPhase::starting ? "blind-starting"
             : phase == reference_ui::BlindPhase::active ? "blind-active"
-            : revealed ? "blind-revealed" : "blind-invalid-return";
+            : phase == reference_ui::BlindPhase::revealed ? "blind-revealed" : "blind-invalid-return";
         writeIfRequested (state, width, name);
     }
     state = fixture ("ready"); state.comparisonSlot = 1; state.blindLargeScreen = width >= 900;
     panel.setState (state);
-    expect (!panel.observationWindowBounds().isEmpty()
-                && panel.findChildWithID ("reference-comparison-view")->isVisible(),
+    expect (!panel.observationWindowBounds().isEmpty() && visibleIn (panel, findById (panel, "reference-comparison-view")),
             where + ": ending the trial restores the normal observation");
     expect (audioCommands == 0, where + ": repaint and restoration issue no audio command");
     writeIfRequested (state, width, "blind-restored");
-    panel.onSelectA = panel.onSelectB = panel.onSelectC = {};
-    panel.onStartBlind = panel.onRevealBlind = panel.onEndBlind = {};
-    panel.onSelectBlindStimulus = {};
+    panel.onSelectA = panel.onSelectB = panel.onSelectC = panel.onSelectRef = {};
+    panel.onStartBlind = {};
 }
 
-inline void verifyWorkflowAndApproval (reference_ui::Component& panel, int width)
+inline void verifyDisabledSelectors (reference_ui::Component& panel)
 {
-    for (const auto* name : { "stopped", "loading_audio", "approve_b_rate", "queued_c_ceiling" })
-    {
-        const auto state = fixture (name);
-        panel.setState (state);
-        if (reference_ui::guide (state).shown)
-        {
-            auto body = panel.panelArea();
-            body.removeFromTop (panel.panelHeaderHeight() + panel.panelGap()
-                + (panel.detailedLayout() ? 40 : panel.panelPickerHeight())
-                + (!state.presets.empty() || state.libraryReceived
-                    ? (panel.detailedLayout() ? 38 : panel.panelPickerHeight()) : 0)
-                + panel.panelGap());
-            const auto footer = body.removeFromBottom (panel.detailedLayout()
-                ? (state.sampleRateApprovalRequired ? 32 : 24) : 18);
-            if (state.readiness != reference_ui::Readiness::rejected && state.actionText.isEmpty())
-                body = body.getUnion (footer);
-            requireQuietEdge (panel, body, 0.72f, name);
-        }
-        for (const auto* id : { "reference-action", "reference-visual-slot" })
-            if (auto* button = dynamic_cast<juce::Button*> (panel.findChildWithID (id)); button && button->isVisible())
-                requireSharedPlate (*button, 1.0f, state.sampleRateApprovalRequired && juce::String (id) == "reference-action"
-                    ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR, 4.0f, juce::String (name) + " command");
-        writeIfRequested (state, width, name);
-    }
-    using Workflow = reference_audition::WorkflowView;
-    for (const auto status : { Workflow::Status::available, Workflow::Status::preparing, Workflow::Status::ready,
-                               Workflow::Status::saving, Workflow::Status::rejected, Workflow::Status::resumeAvailable })
-    {
-        auto state = fixture ("ready"); state.comparisonSlot = 1;
-        state.workflow.mode = status == Workflow::Status::available ? Workflow::Mode::normal : Workflow::Mode::review;
-        state.workflow.status = status; state.workflow.reviewAvailable = state.workflow.bookmarkAvailable = true;
-        state.workflow.canMoveBack = state.workflow.canAdvance = state.workflow.canEnd = true;
-        state.workflow.itemTitle = "Level and balance"; state.workflow.itemCount = 3;
-        panel.setState (state);
-        int commands = 0;
-        for (auto* child : panel.getChildren())
-            if (auto* workflow = dynamic_cast<reference_ui::WorkflowControls*> (child); workflow && workflow->isVisible())
-                for (auto* command : workflow->getChildren())
-                    if (auto* button = dynamic_cast<juce::Button*> (command); button && button->isVisible())
-                    {
-                        requireSharedPlate (*button, 0.5f, COL_TEXT_SECONDARY, 3.0f, "workflow command");
-                        const auto bounds = panel.getLocalArea (button, button->getLocalBounds());
-                        expect (panel.getLocalBounds().contains (bounds)
-                                    && !panel.observationWindowBounds().intersects (bounds),
-                                "workflow commands remain outside the observation at " + juce::String (width));
-                        ++commands;
-                    }
-        expect (commands >= 2, "workflow state retains reachable commands");
-        writeIfRequested (state, width, "workflow-" + juce::String (int (status)));
-    }
-}
-
-inline void verifyCaptureRestoration (reference_ui::Component& panel, int width)
-{
-    auto access = std::make_shared<reference_audition::ACaptureAccess>();
-    auto state = fixture ("ready"); state.comparisonSlot = 1; state.captureAccess = access;
-    const auto restore = access->beginRestore ("fixture-only", false);
-    expect (restore != 0, "fixture reserves restoration");
-    panel.setState (state);
-    expect (panel.findChildWithID ("capture-a-controls")->getTitle() == "RESTORING", "restoration stays explicit");
-    writeIfRequested (state, width, "capture-restoring");
-    expect (access->finishRestore (restore, {}), "fixture finishes failed restoration");
-    access->completeRestore (restore);
-    reference_audition::ACaptureState failed;
-    failed.outcome = { reference_audition::CaptureOutcome::restoreFailed, restore, {} };
-    access->publish (failed);
-    panel.setState (state);
-    expect (panel.findChildWithID ("capture-a-controls")->getDescription().contains ("unavailable"),
-            "failed restoration retains its reason");
-    writeIfRequested (state, width, "capture-restore-failed");
-    auto held = std::make_shared<reference_audition::ACaptureData>();
-    held->id = "state-light-fixture"; held->rate = 48000; held->channels = 2; held->frames = 48000;
-    held->complete = held->restored = true;
-    const auto retry = access->beginRestore ("fixture-retry-only", false);
-    expect (access->finishRestore (retry, held), "fixture finishes successful restoration");
-    access->completeRestore (retry);
-    reference_audition::ACaptureState saved; saved.held = saved.shown = held;
-    access->publish (saved);
-    panel.setState (state);
-    auto* row = panel.findChildWithID ("capture-a-controls");
-    expect (row->getTitle() == "CAPTURED", "restoration recovers the held capture without audition");
-    for (const auto* id : { "capture-a-action", "capture-a-view" })
-    {
-        auto* button = dynamic_cast<juce::Button*> (row->findChildWithID (id));
-        expect (button && button->isVisible(), "capture state retains its actions");
-        requireSharedPlate (*button, 0.5f, COL_MUTED, 3.0f, "restored capture command");
-    }
-    writeIfRequested (state, width, "capture-restored");
-}
-
-inline void verifyTonalCells (juce::Component& root, int width)
-{
-    reference_ui::TonalView tonal;
-    root.addAndMakeVisible (tonal);
-    const auto context = presentation::forEditor (width, width * 2 / 3);
-    tonal.setBounds (18, 55, width - 36, juce::jmax (80, width * 2 / 3 - 90));
-    tonal.update ({}, context, false, {}, {});
-    const auto actual = render (tonal);
-    juce::Image expected (juce::Image::ARGB, tonal.getWidth(), tonal.getHeight(), true);
-    juce::Graphics g (expected); g.fillAll (BG);
-    const key_light::Scope light (tonal);
-    surface_material::paintPanel (g, tonal.getLocalBounds().toFloat(), 0.72f);
-    reference_ui::window_material::paintInterior (g, tonal.getLocalBounds().toFloat(), tonal.getLocalBounds().toFloat());
-    for (const auto& cell : tonal.visualLayout().cards)
-    {
-        surface_material::paintPanel (g, cell, 0.72f, 3.0f);
-        const int x = int (std::ceil (cell.getX())) + 1;
-        for (int y = int (cell.getCentreY()) - 2; y <= int (cell.getCentreY()) + 2; ++y)
-            expect (sameColour (actual.getPixelAt (x, y), expected.getPixelAt (x, y)),
-                    "each Balance group uses quiet shared material at " + juce::String (width));
-    }
-}
-
-inline void verifyDisabledControls (reference_ui::Component& panel)
-{
-    auto state = fixture ("ready"); state.blindPhase = reference_ui::BlindPhase::active;
-    panel.setState (state);
-    auto* reveal = dynamic_cast<juce::Button*> (panel.findChildWithID ("reference-blind-reveal"));
-    expect (reveal && !reveal->isEnabled(), "unheard sources keep Reveal disabled");
-    const auto disabled = render (*reveal);
-    for (const auto next : { juce::Button::buttonOver, juce::Button::buttonDown })
-    {
-        reveal->setState (next);
-        const auto changed = render (*reveal);
-        for (int x = 6; x < reveal->getWidth() - 6; ++x)
-            expect (disabled.getPixelAt (x, 1) == changed.getPixelAt (x, 1),
-                    "disabled Reveal cannot acquire a hover or pressed highlight");
-    }
     reference_ui::ReferenceSelectorLookAndFeel look;
     juce::ComboBox selector; panel.addAndMakeVisible (selector); selector.setBounds (20, 20, 120, 24);
     selector.setEnabled (false);
@@ -319,6 +147,7 @@ inline void verifyDisabledControls (reference_ui::Component& panel)
     for (int y = 0; y < 24; ++y) for (int x = 0; x < 120; ++x)
         expect (idle.getPixelAt (x, y) == pressed.getPixelAt (x, y),
                 "disabled selectors keep both their bevel and arrow at rest");
+    panel.removeChildComponent (&selector);
 }
 
 inline void verifyAccess (juce::Component& root, observatory::View& shell, int width)
@@ -430,10 +259,7 @@ inline void verify()
             panel.setPresentationContext (presentation::forEditor (preset.width, preset.height));
             panel.setBounds (shell.analysisBodyBounds());
             verifyBlind (panel, preset.width);
-            verifyWorkflowAndApproval (panel, preset.width);
-            verifyCaptureRestoration (panel, preset.width);
-            verifyTonalCells (root, preset.width);
-            verifyDisabledControls (panel);
+            verifyDisabledSelectors (panel);
             verifyAccess (root, shell, preset.width);
         }
     }

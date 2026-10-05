@@ -29,6 +29,25 @@ inline reference_ui::State named (const char* name)
     return {};
 }
 
+// The control with this ID anywhere under root (role buttons sit in the panel, the action in its
+// status strip), and whether it and every parent up to root are visible.
+inline const juce::Component* findById (const juce::Component& root, const juce::String& id)
+{
+    for (auto* child : root.getChildren())
+    {
+        if (child->getComponentID() == id) return child;
+        if (const auto* found = findById (*child, id)) return found;
+    }
+    return nullptr;
+}
+
+inline bool visibleIn (const juce::Component& root, const juce::Component* control)
+{
+    for (auto* item = control; item != nullptr && item != &root; item = item->getParentComponent())
+        if (! item->isVisible()) return false;
+    return control != nullptr;
+}
+
 // Sample the actual rendered bronze ring outside the child/chart area. This catches a missing
 // frame on parent-painted C views, and a frame painted using another component's light origin.
 inline void requireRenderedFrame (reference_ui::Component& panel, juce::Rectangle<int> window,
@@ -62,11 +81,10 @@ inline void requireRenderedFrame (reference_ui::Component& panel, juce::Rectangl
 inline void requireControlsOutside (reference_ui::Component& panel, juce::Rectangle<int> window,
                                     const juce::String& where)
 {
-    for (const auto* id : { "reference-a", "reference-b", "reference-c", "reference-version",
-                            "reference-check", "reference-preset", "reference-cue",
-                            "reference-visual-slot", "reference-action" })
-        if (const auto* control = panel.findChildWithID (id); control && control->isVisible())
-            require (! window.intersects (control->getBounds()),
+    for (const auto* id : { "reference-a", "reference-b", "reference-c", "reference-ref", "reference-blind",
+                            "reference-check-tabs", "reference-check-song", "reference-match", "reference-action" })
+        if (const auto* control = findById (panel, id); visibleIn (panel, control))
+            require (! window.intersects (panel.getLocalArea (control, control->getLocalBounds())),
                      where + ": observation leaves " + id + " reachable");
 }
 
@@ -161,14 +179,6 @@ inline void verifyOperationFamilies()
     root.getProperties().set (key_light::rootProperty, true);
     root.setSize (900, 600);
     const auto context = presentation::forEditor (900, 600);
-    reference_ui::CaptureControls capture;
-    root.addAndMakeVisible (capture);
-    capture.setBounds (0, 180, 180, 24);
-    capture.update (std::make_shared<reference_audition::ACaptureAccess>(), false, context);
-    auto* action = dynamic_cast<juce::Button*> (capture.findChildWithID ("capture-a-action"));
-    require (action && action->isVisible(), "Capture action exists");
-    requireLitOperation (capture, *action, "Capture");
-
     reference_ui::ComparisonView comparison;
     root.addAndMakeVisible (comparison);
     comparison.setBounds (0, 240, 180, 160);
@@ -176,23 +186,11 @@ inline void verifyOperationFamilies()
     auto* follow = dynamic_cast<juce::Button*> (comparison.findChildWithID ("reference-follow"));
     require (follow && follow->isVisible(), "Comparison Follow command exists");
     requireLitOperation (comparison, *follow, "Comparison");
-
-    reference_ui::ReferenceSelectorLookAndFeel look;
-    look.setPresentationContext (context);
-    reference_ui::WorkflowControls workflow;
-    workflow.setLookAndFeel (&look);
-    root.addAndMakeVisible (workflow);
-    workflow.setBounds (0, 420, 180, 24);
-    reference_audition::WorkflowView view;
-    view.reviewAvailable = true;
-    workflow.update (view, false, false);
-    auto* today = dynamic_cast<juce::Button*> (workflow.getChildComponent (0));
-    require (today && today->isVisible(), "Workflow Today command exists");
-    requireLitOperation (workflow, *today, "Workflow");
-    workflow.setLookAndFeel (nullptr);
 }
 }
 
+// REF の枠は実際に見える主役の窓を一つだけ囲む（INV-S45）：V の比較の窓か、C の設定された図の群。B の一覧と
+// BALANCE、耳で聴き比べる Check の案内、案内だけのページ、Blind のあいだは囲まない。
 inline void verifyReferenceLightContract()
 {
     using namespace reference_light_contract;
@@ -213,23 +211,14 @@ inline void verifyReferenceLightContract()
         auto state = named ("ready");
         state.comparisonSlot = 1;
         panel.setState (state);
-        const auto* comparison = panel.findChildWithID ("reference-comparison-view");
-        const auto* tonal = panel.findChildWithID ("reference-tonal-view");
-        require (comparison && tonal, "Reference observation children exist");
-        require (comparison->isVisible() && !tonal->isVisible()
-                     && panel.observationWindowBounds() == comparison->getBounds(),
-                 "B frames its actual comparison window" + size);
-        requireRenderedFrame (panel, panel.observationWindowBounds(), "B" + size);
-        requireControlsOutside (panel, panel.observationWindowBounds(), "B" + size);
+        const auto* comparison = findById (panel, "reference-comparison-view");
+        require (comparison != nullptr, "Reference observation child exists");
+        require (comparison->isVisible() && panel.observationWindowBounds() == comparison->getBounds(),
+                 "V frames its actual comparison window" + size);
+        requireRenderedFrame (panel, panel.observationWindowBounds(), "V" + size);
+        requireControlsOutside (panel, panel.observationWindowBounds(), "V" + size);
 
         state.comparisonSlot = 2;
-        state.viewBindings = { "balance" };
-        panel.setState (state);
-        require (tonal->isVisible() && !comparison->isVisible()
-                     && panel.observationWindowBounds() == tonal->getBounds(),
-                 "C Balance frames its actual tonal window" + size);
-        requireRenderedFrame (panel, panel.observationWindowBounds(), "C Balance" + size);
-
         for (const auto* layout : { "equal", "main" })
             for (int count = 1; count <= 3; ++count)
             {
@@ -238,8 +227,7 @@ inline void verifyReferenceLightContract()
                 state.presentationLayout = layout;
                 panel.setState (state);
                 const auto where = "C configured " + juce::String (count) + " / " + layout + size;
-                require (!comparison->isVisible() && !tonal->isVisible(),
-                         where + ": configured charts paint in the parent");
+                require (!comparison->isVisible(), where + ": configured charts paint in the parent");
                 const auto window = panel.observationWindowBounds();
                 if (observatory::isFullDensity (preset.density))
                 {
@@ -249,17 +237,28 @@ inline void verifyReferenceLightContract()
                 else
                     require (window.isEmpty(), where + ": compact metric cards stay quiet");
             }
-
+        // 300% の C の画面は、耳で聴き比べる Check に図の代わりの案内を出す（その案内は囲まない）。
+        state.listeningChecks = { state.checkId.upToFirstOccurrenceOf ("/", false, false) };
+        panel.setState (state);
+        if (preset.density == observatory::Density::inspection)
+            require (panel.observationWindowBounds().isEmpty(), "a Check compared by ear stays quiet" + size);
+        state.listeningChecks.clear();
         state.viewBindings.clear();
         panel.setState (state);
         require (panel.observationWindowBounds().isEmpty(), "fallback metric cards stay quiet" + size);
+
+        state = named ("ready");
+        state.comparisonSlot = 3;
+        panel.setState (state);
+        require (panel.observationWindowBounds().isEmpty() && !comparison->isVisible(),
+                 "B's song list and BALANCE stay quiet" + size);
         for (const auto* name : { "stopped", "no_check", "no_library" })
         {
             state = named (name);
-            state.viewBindings = { "balance", "spectrum_full" };
+            state.viewBindings = { "spectrum_full" };
             panel.setState (state);
             require (reference_ui::guide (state).shown && panel.observationWindowBounds().isEmpty()
-                         && !comparison->isVisible() && !tonal->isVisible(),
+                         && !comparison->isVisible(),
                      juce::String (name) + ": guide-only page stays quiet" + size);
         }
         for (const auto phase : { reference_ui::BlindPhase::starting, reference_ui::BlindPhase::active,
@@ -267,11 +266,10 @@ inline void verifyReferenceLightContract()
         {
             state = named ("ready");
             state.comparisonSlot = 1;
-            state.viewBindings = { "balance", "spectrum_full" };
+            state.viewBindings = { "spectrum_full" };
             state.blindPhase = phase;
             panel.setState (state);
-            require (panel.observationWindowBounds().isEmpty()
-                         && !comparison->isVisible() && !tonal->isVisible(),
+            require (panel.observationWindowBounds().isEmpty() && !comparison->isVisible(),
                      "Blind states never frame an observation" + size);
         }
         writeConfiguredViewIfRequested (panel, preset.width);

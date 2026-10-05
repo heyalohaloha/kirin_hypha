@@ -24,8 +24,8 @@ PRE/POST named listening, Exact 4 S, Live Blind and every Reference phase share 
 recessed body and raised control material. Blind preparation, approval, anonymous listening,
 reveal, interruption and return change their facts and available actions; their material does
 not change with the hidden source assignment. Disabled buttons and selectors never brighten
-on hover or press. Reference's tonal-band cards use the same quiet recessed material as its
-Guide, access and connection-help, metric and workflow surfaces. Selector menus and live-comparison approval menus share
+on hover or press. Reference's Guide, access and connection-help and metric surfaces use the same
+quiet recessed material. Selector menus and live-comparison approval menus share
 the quiet popup background while keeping their existing item, selection and text colours.
 
 ## Main observation area
@@ -38,10 +38,10 @@ the quiet popup background while keeping their existing item, selection and text
 | TIME DRUM | HISTORY area, including the band summary or envelope occupying that area |
 | FREQ | Spectrum, delta or PSB plot |
 | SPACE | M/S field |
-| REF | Visible Comparison, Tonal or configured comparison-chart group |
+| REF | V's comparison window, or C's configured chart group (B's song list and BALANCE stay unframed) |
 
 Reference owns its outer frame; child charts paint their glass without adding another frame.
-Guide-only and Blind views have no main observation frame. Existing Reference selectors and
+Guide-only pages, a Check compared by ear on the C page and Blind have no main observation frame. Existing Reference selectors and
 ABCV controls retain their current layout.
 
 Reference waveform and detail-chart layout share one geometry contract. The layout reserves
@@ -50,12 +50,9 @@ axis labels. Smaller panes keep fewer quarter-grid labels when all three cannot 
 renderer, cache invalidation and waveform interaction use those same assigned bounds.
 
 Compact Reference panes reserve the actual numerical text line before assigning the waveform.
-Tonal panes share their paint and interaction geometry, and yield the extra heading or curve
-when those would compress the band labels, differences or selected-band readout. Full selectors
-and the idle/busy/kept/restored/failed Capture controls participate in the capacity checks.
-At 300/375, the full selector/Capture composition retains its existing capacity limit and
-some text is abbreviated. Complete numerical rows and selected-band readouts are required
-at 450 and above; this change does not reorganize the parent controls.
+At 300/375 the parent controls keep their existing capacity limit and some text is abbreviated.
+The complete numerical row of V's comparison is required at 450 and above; this change does not
+reorganize the parent controls.
 
 DRUM shares the frame dimensions with its pure layout contract. Its horizontal allocation
 includes the cast shadow; its vertical allocation reserves the bevel and clips the shadow to
