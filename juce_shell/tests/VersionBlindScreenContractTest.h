@@ -91,9 +91,15 @@ inline void verifyVersionBlindScreen()
                 if (which == revealedA)
                     require (one->getButtonText() == "1: A" && two->getButtonText() == "2: V", "the result names A and V");
                 if (! (which == revealedV || which == revealedA))
+                {
                     require (one->getButtonText() == "SOURCE 1" && two->getButtonText() == "SOURCE 2"
                                  && one->getTitle() == "SOURCE 1" && two->getTitle() == "SOURCE 2",
                              "before the reveal, nothing names A or V");
+                    // 開示の前は、どちらの割り当てでも同じ画面になる（割り当てで変わる所があれば答えが漏れる）。
+                    auto other = state;
+                    other.blindOneIsComparison = ! state.blindOneIsComparison;
+                    require (reference_ui::versionBlindScreen (other) == screen, "before the reveal, the screen is the same for both assignments");
+                }
                 for (int i = 0; i < view.getNumChildComponents(); ++i)
                 {
                     auto* child = view.getChildComponent (i);
@@ -128,6 +134,52 @@ inline void verifyVersionBlindScreen()
                 }
                 ++cases;
             }
+    }
+    // ボタンは processor の操作へつながり、失敗は Blind の画面の原因と直し方の行が言う（足元の知らせは Blind の画面に
+    // 隠れる）。文に役や gain の手がかりを入れない。成功と END は知らせを消す。
+    {
+        blind_ui::ScreenComponent wired ("version-blind");
+        int selected = 0, reveals = 0, ends = 0;
+        bool selectWorks = false, revealWorks = false;
+        reference_ui::VersionBlindNotice last;
+        reference_ui::wireVersionBlindScreen (wired,
+            { [&] (int stimulus) { selected = stimulus; return selectWorks; }, [&] { ++reveals; return revealWorks; }, [&] { ++ends; } },
+            [&] (const reference_ui::VersionBlindNotice& notice) { last = notice; });
+        const auto state = stateFor (bothHeard);
+        wired.setSize (900, 600);
+        wired.setScreen (reference_ui::versionBlindScreen (state));
+        const auto press = [&wired] (const char* id)
+        {
+            auto* pressed = dynamic_cast<juce::Button*> (wired.findChildWithID (id));
+            if (pressed == nullptr || ! pressed->onClick) return false;
+            pressed->onClick();
+            return true;
+        };
+        require (press ("version-blind-source-2") && selected == 2 && last.shown(), "a failed switch is told on the Blind screen");
+        const auto told = reference_ui::versionBlindScreen (state, last);
+        require (told.guidanceShown && told.cause == last.cause && told.recovery == last.recovery
+                     && told.instruction == reference_ui::versionBlindScreen (state).instruction,
+                 "the notice uses the cause and recovery lines and keeps the instruction");
+        for (const auto& text : { last.cause, last.recovery })
+        {
+            require (! text.containsIgnoreCase ("dB") && ! text.containsWholeWord ("A") && ! text.containsWholeWord ("B")
+                         && ! text.containsWholeWord ("V"), "no role or gain clue: " + text);
+            i18n::ScopedLanguage japanese (i18n::Language::japanese);
+            require (i18n::tr (text) != text, "Japanese for " + text);
+        }
+        selectWorks = true;
+        require (press ("version-blind-source-1") && selected == 1 && ! last.shown(), "a switch that works clears the notice");
+        require (press ("version-blind-reveal") && reveals == 1 && last.shown(), "a refused reveal says why on the Blind screen");
+        for (const auto& text : { last.cause, last.recovery })
+        {
+            i18n::ScopedLanguage japanese (i18n::Language::japanese);
+            require (i18n::tr (text) != text, "Japanese for " + text);
+        }
+        revealWorks = true;
+        require (press ("version-blind-reveal") && reveals == 2 && ! last.shown(), "a reveal that works clears the notice");
+        selectWorks = false;
+        require (press ("version-blind-source-2") && last.shown() && press ("version-blind-end") && ends == 1 && ! last.shown(),
+                 "END always reaches the processor and clears the notice");
     }
     std::cout << "Version Blind screen: PASS " << cases << " language/size/state cases\n";
 }

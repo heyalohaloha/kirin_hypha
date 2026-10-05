@@ -84,8 +84,6 @@ const Entry entries[] = {
     { "Cue selection was not changed", u8"Cueの選択は変わっていません" },
     { "Kirin OS could not receive the request", u8"Kirin OSが要求を受け取れませんでした" },
     { "Blind Compare could not start", u8"Blind Compareを開始できませんでした" },
-    { "Blind source could not be confirmed", u8"Blindのソースを確定できませんでした" },
-    { "Listen to both sources before revealing", u8"答えを表示する前に両方のソースを聴いてください" },
     { "This source is no longer awaiting sample-rate approval; check V or C again",
       u8"変換の承認待ちは終了。VかCを再確認" },
     { "Blind view opened. Press VERSION BLIND to start after checking the level.",

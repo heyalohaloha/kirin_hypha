@@ -70,20 +70,28 @@ bool ReferenceComparisonController::startBlind (double loudness, double peak) no
 {
     if (trialActive() || ! snapshot().versionReady || !beginBlindGuard()) return false;
     dropResume(); check.suspendAudition(); reference.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
-    const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
+    const bool started=version.startBlind(loudness,peak); if(!started) finishVersionBlindSession(); return started;
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
     if (trialActive() || !snapshot().versionReady || !beginBlindGuard()) return false;
     dropResume(); check.suspendAudition(); reference.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
-    const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
+    const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) finishVersionBlindSession(); return started;
 }
 bool ReferenceComparisonController::selectBlindStimulus (int value) noexcept { return version.selectBlindStimulus (value); }
 bool ReferenceComparisonController::answerBlind (int value) noexcept { return version.answerBlind (value); }
 bool ReferenceComparisonController::revealBlind() noexcept { return version.revealBlind(); }
-void ReferenceComparisonController::endBlind() noexcept { version.endBlind(); endBlindGuard(); }
+// END と、REF を離れる・窓を閉じるとき。中の Blind が無ければ何もしない（聴いている V はそのまま）。
+void ReferenceComparisonController::endBlind() noexcept
+{
+    version.endBlind();
+    if (blindSessionOpen.load (std::memory_order_acquire)) finishVersionBlindSession();
+}
 void ReferenceComparisonController::suspendAudition() noexcept
-{ clearPendingAudition(); dropResume(); version.suspendAudition(); check.suspendAudition(); reference.suspendAudition(); }
+{
+    clearPendingAudition(); dropResume(); version.suspendAudition(); check.suspendAudition(); reference.suspendAudition();
+    reconcileVersionBlindSession();  // ライセンスを失ったときは定期の処理がここだけを呼ぶ
+}
 
 }
 

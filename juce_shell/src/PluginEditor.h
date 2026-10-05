@@ -30,6 +30,7 @@
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
+#include "HyphaVersionBlindScreen.h"
  #include "HyphaReferencePreparationWatch.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
@@ -263,6 +264,8 @@ private:
     hypha::local_blind_ui::Component localBlindView;
     hypha::live_blind_ui::Component liveBlindView;
     hypha::blind_ui::ScreenComponent versionBlindView { "version-blind" };  // REF の VERSION BLIND（LIVE BLIND と同じ画面）
+    hypha::reference_ui::VersionBlindNotice versionBlindNotice;  // VERSION BLIND の操作の失敗（Blind の画面が言う）
+    juce::uint32 versionBlindNoticeUntil = 0;
     bool liveBlindOpen = false;
     bool liveCompareFinishingSeen = false;
 #endif

@@ -36,4 +36,38 @@ blind_ui::Screen versionBlindScreen (const State& state)
     screen.endTitle = "End Blind Compare and return to live A.";
     return screen;
 }
+
+blind_ui::Screen versionBlindScreen (const State& state, const VersionBlindNotice& notice)
+{
+    auto screen = versionBlindScreen (state);
+    if (notice.shown())
+    {
+        screen.guidanceShown = true;
+        screen.cause = notice.cause;
+        screen.recovery = notice.recovery;
+    }
+    return screen;
+}
+
+void wireVersionBlindScreen (blind_ui::ScreenComponent& view, VersionBlindActions actions,
+                             std::function<void (const VersionBlindNotice&)> notify)
+{
+    const auto report = [notify] (bool done, const char* cause, const char* recovery)
+    {
+        if (notify) notify (done ? VersionBlindNotice {} : VersionBlindNotice { cause, recovery });
+    };
+    view.onSelect = [select = actions.select, report] (int stimulus)
+    {
+        report (select && select (stimulus), "The source did not switch", "Keep the DAW playing and press it again");
+    };
+    view.onReveal = [reveal = actions.reveal, report]
+    {
+        report (reveal && reveal(), "Both sources are not heard yet", "Listen to SOURCE 1 and SOURCE 2, then reveal");
+    };
+    view.onEnd = [end = actions.end, notify]
+    {
+        if (notify) notify ({});
+        if (end) end();
+    };
+}
 }

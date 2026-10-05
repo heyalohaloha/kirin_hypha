@@ -11,4 +11,23 @@ namespace hypha::reference_ui
 // ボタンが「1: A」「2: V」（Kirin OS の 1 曲だけの B では「2: B」）になり、そのまま切り替えられる。図は終了の後に
 // V の画面で見る（Blind の画面には出さない）。A を下げて始めた Blind は、終了で戻る量を説明の行が言う。
 blind_ui::Screen versionBlindScreen (const State&);
+
+// 操作の失敗は、窓全体の Blind の画面の原因と直し方の行で言う（足元の知らせは Blind の画面に隠れて見えない）。
+// 文に役や gain の手がかりを入れない（INV-S48）。成功すれば消える。
+struct VersionBlindNotice
+{
+    juce::String cause, recovery;
+    bool shown() const noexcept { return cause.isNotEmpty(); }
+};
+blind_ui::Screen versionBlindScreen (const State&, const VersionBlindNotice&);
+
+// 画面のボタンを processor の操作へつなぐ。押した結果（失敗の知らせ、成功なら空）を notify で返す。
+struct VersionBlindActions
+{
+    std::function<bool (int)> select;
+    std::function<bool()> reveal;
+    std::function<void()> end;
+};
+void wireVersionBlindScreen (blind_ui::ScreenComponent&, VersionBlindActions,
+                             std::function<void (const VersionBlindNotice&)> notify);
 }

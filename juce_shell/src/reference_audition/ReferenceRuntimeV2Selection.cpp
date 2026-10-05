@@ -271,6 +271,8 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::endBlind() noexcept
     {
+        // Blind が無ければ何もしない。REF を離れる・窓を閉じるときにも呼ばれ、聴いている V を止めてはいけない。
+        if (! blind.engaged()) return;
         ReferenceSessionRetirement cancelled;
         if (blind.cancelUnheardStart (cancelled))
             releaseOutputGate (cancelled.outputGateToken);

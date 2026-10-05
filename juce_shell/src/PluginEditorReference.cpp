@@ -110,14 +110,11 @@ void KirinHyphaEditor::configureReferenceAudition()
                                                  state.aMaximumTruePeakDbtp))
             showToast ("Blind Compare could not start");
     };
-    // 2026-10-04：始めた VERSION BLIND は PRE/POST Blind と同じ画面（versionBlindView）が窓全体に出して操作を受ける。
-    versionBlindView.onSelect = [this] (int stimulus)
-    {
-        if (! processorRef.selectReferenceBlindStimulus (stimulus))
-            showToast ("Blind source could not be confirmed");
-    };
-    versionBlindView.onReveal = [this] { if (! processorRef.revealReferenceBlind()) showToast ("Listen to both sources before revealing"); };
-    versionBlindView.onEnd = [this] { processorRef.endReferenceBlind(); };
+    // 始めた VERSION BLIND は PRE/POST Blind と同じ画面（versionBlindView）が窓全体に出して操作を受ける。失敗は Blind の画面が言う。
+    hypha::reference_ui::wireVersionBlindScreen (versionBlindView,
+        { [this] (int stimulus) { return processorRef.selectReferenceBlindStimulus (stimulus); },
+          [this] { return processorRef.revealReferenceBlind(); }, [this] { processorRef.endReferenceBlind(); } },
+        [this] (const auto& notice) { versionBlindNotice = notice; versionBlindNoticeUntil = juce::Time::getMillisecondCounter() + 5000; });
     scaleRoot.addChildComponent (versionBlindView);
     scaleRoot.addChildComponent (referenceView);
 }
@@ -484,7 +481,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         pending.isNotEmpty() && ! (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
-    versionBlindView.setScreen (hypha::reference_ui::versionBlindScreen (referenceView.state()));
+    if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};
+    versionBlindView.setScreen (hypha::reference_ui::versionBlindScreen (referenceView.state(), versionBlindNotice));
     referenceAccessView.setOwned (processorRef.licenseIsOs());
     layoutReferenceAudition();
 }

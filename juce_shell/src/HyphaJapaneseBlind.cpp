@@ -10,6 +10,11 @@ namespace
 const Entry entries[] = {
     // ローカル Blind の取り込みと live 比較の段階（2026-10-04 まで Reference の A の取り込みの区分にあった）。
     { "PLAY", u8"再生して" },
+    // VERSION BLIND の操作の失敗（Blind の画面の原因と直し方の行）。役や gain の手がかりを入れない。
+    { "The source did not switch", u8"ソースが切り替わりませんでした" },
+    { "Keep the DAW playing and press it again", u8"DAWを再生したまま、もう一度押してください" },
+    { "Both sources are not heard yet", u8"まだ両方のソースを聴いていません" },
+    { "Listen to SOURCE 1 and SOURCE 2, then reveal", u8"SOURCE 1と2を聴いてから開示してください" },
     { "CAPTURING", u8"取り込み中" },
     { "WAIT", u8"待機中" },
     { "CAPTURE A", u8"Aを取り込む" },

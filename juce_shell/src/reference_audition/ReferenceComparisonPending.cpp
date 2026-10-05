@@ -19,7 +19,7 @@ void ReferenceComparisonController::clearPendingAudition()
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
 {
     return activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted()
-        || offlineRenderSeen.load (std::memory_order_acquire);
+        || offlineRenderSeen.load (std::memory_order_acquire) || blindSessionOpen.load (std::memory_order_acquire);
 }
 
 int ReferenceComparisonController::pendingSlot() const
@@ -109,6 +109,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
 
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive)
 {
+    reconcileVersionBlindSession();
     if (offlineRenderSeen.exchange (false, std::memory_order_acq_rel)) forgetHeldAudition();
     if (activePendingIntent.load (std::memory_order_acquire) == 0 && !armResume()) return;
     PendingIntent intent;

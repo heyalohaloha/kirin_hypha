@@ -52,7 +52,9 @@ bool ReferenceComparisonController::admit (int slot, bool active)
     else if ((gateOwners & bit) != 0)
     {
         gateOwners &= ~bit;
-        if (slot == 1 && blindGuardOwned) releaseVersionBlindGuard();  // A へ戻し終えた VERSION BLIND の排他
+        // VERSION BLIND が終わった後に V が A へ戻し終えたら、ほかの Blind との排他を解く。始めるときに V の通常の試聴が
+        // 出力を返すのは Blind の途中（aInputPaused）なので、解かない。
+        if (slot == 1 && blindGuardOwned && ! aInputPaused) releaseVersionBlindGuard();
         if (gateOwners == 0)
         {
             if (gate) gate (false);

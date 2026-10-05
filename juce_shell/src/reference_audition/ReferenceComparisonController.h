@@ -89,8 +89,13 @@ public:
 
 private:
     bool admit (int, bool);
+    // VERSION BLIND の持ち物。始まりで A を観測へ渡すのを止め、ほかの Blind を締め出す（Blind の枠と barrier）。終わりは
+    // どの道でも finishVersionBlindSession だけを通る。A はすぐ観測へ戻し、締め出しは V が出力を返し終えたとき（admit）に、
+    // 返すものが無ければすぐ放す。中の Blind が END 以外で終わったとき（取り消し・DAW の状態の読み込み・作り直し・失効）は
+    // reconcileVersionBlindSession が定期の処理で拾う。
     bool beginBlindGuard();
-    void endBlindGuard();
+    void finishVersionBlindSession();
+    void reconcileVersionBlindSession();
     void releaseVersionBlindGuard();
     void refreshObservation();
     RuntimeV2Controller& viewed() noexcept;
@@ -99,7 +104,8 @@ private:
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
     SelectionGate gate, versionBlindGate;
     bool blindGuardOwned=false,localBlindOwned=false;
-    bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終了を押すまで、A を観測スレッドへ渡さない
+    bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終わるまで、A を観測スレッドへ渡さない
+    std::atomic<bool> blindSessionOpen { false };  // aInputPaused か blindGuardOwned が残っている（定期の処理で片付ける）
     std::uint64_t localBlindEpoch=0;
     std::atomic<bool> presented{false};
     juce::CriticalSection gateLock;

@@ -108,17 +108,14 @@ void observationBoundaries()
     require (observations.changed (next, 44100, 44100) == false, "different source rate does not compare incompatible evidence");
     observations.clear(); require (!observations.changed (next, 0, 48000), "reconfiguration clears prior observations");
 }
-}
 
-void testReferenceCalibrationRegressions (const juce::File& sandbox);
-void testReferenceCalibrationRegressions (const juce::File& sandbox)
+// 較正の済んだ V の試聴の道具（Kirin OS の 1 つの Version の公開・位置合わせ・音量の較正まで）。
+std::unique_ptr<ref::ReferenceComparisonController> calibratedController (const juce::File& root, WholeSongFixture& fixture)
 {
-    observationBoundaries();
-    const auto root = sandbox.getChildFile ("calibration-regressions");
     require (root.createDirectory().wasOk(), "calibration fixture directory");
     const auto file = root.getChildFile ("version.wav");
     const juce::String recording = "22222222-2222-4222-8222-222222222222", version = "33333333-3333-4333-8333-333333333333";
-    const auto fixture = makeWholeSongFixture (root, file, recording, version);
+    fixture = makeWholeSongFixture (root, file, recording, version);
     auto preset = bindRuntimeV2WorkVersionPresetToSource ("88888888-8888-4888-8888-888888888888",
         "99999999-9999-4999-8999-999999999999", fixture.receipt, juce::SHA256 (file).toHexString(), fixture.pcmHash,
         recording, version, fixture.audio.getNumSamples());
@@ -130,7 +127,8 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     legacy.version = { preset["source_template_artifact"]["preset_id"].toString(), preset["checks"][0]["check_id"].toString(),
         preset["checks"][0]["candidates"][0]["candidate_id"].toString(), preset["checks"][0]["candidates"][0]["default_cue_id"].toString() };
     require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 2)), "independent measured Version catalog");
-    ref::ReferenceComparisonController controller (root);
+    auto owned = std::make_unique<ref::ReferenceComparisonController> (root);
+    auto& controller = *owned;
     controller.restoreSettings (legacy);
     controller.configure ({ "calibration-post", {}, 42, true }, 48000, 2);
     controller.setPresented (true);
@@ -147,6 +145,40 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
             << " from " << state.migratedVersionChoice << " reason " << state.rejectionCode << " capture " << state.aCaptureAvailable << '\n';
     }
     require (controller.snapshot().versionReady, "initial position and gain calibration");
+    return owned;
+}
+
+// DAW の状態の読み込みで終わった VERSION BLIND：V が出力を返すまではほかの Blind を断り、返したら A を観測へ戻す。
+void versionBlindReloadEnds (const juce::File& sandbox)
+{
+    WholeSongFixture fixture;
+    auto owned = calibratedController (sandbox.getChildFile ("calibration-reload"), fixture);
+    auto& controller = *owned;
+    controller.observeTransport (0, true, true);
+    juce::Thread::sleep (100);
+    require (controller.startBlind (-22, -6), "a Version Blind that a state reload ends");
+    juce::AudioBuffer<float> input (2, 1024);
+    for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, 0, 1024);
+    require (controller.renderSelectedB (input, 0, true, true, true), "the reloaded trial is heard");
+    controller.restoreSettings (controller.savedSettings());
+    require (! controller.reserveLocalBlind(), "another Blind waits until V has returned its output");
+    for (int i = 0; i < 500 && (controller.snapshot().blindPhase != ref::BlindPhase::inactive || ! controller.aInputFeeding()); ++i)
+    { controller.observeTransport (0, false, false); controller.servicePendingAudition (-23.0, -6.0, false); juce::Thread::sleep (10); }
+    require (controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding(),
+             "A goes back to the observation when a state reload ends the Version Blind");
+    require (controller.reserveLocalBlind(), "the Blind slot is free once V has returned its output");
+    controller.releaseLocalBlind (0);
+}
+}
+
+void testReferenceCalibrationRegressions (const juce::File& sandbox);
+void testReferenceCalibrationRegressions (const juce::File& sandbox)
+{
+    observationBoundaries();
+    const auto root = sandbox.getChildFile ("calibration-regressions");
+    WholeSongFixture fixture;
+    auto owned = calibratedController (root, fixture);
+    auto& controller = *owned;
     require (controller.savedSettings().version.target() == controller.snapshot().versions[0].id,
              "legacy C-based B choice migrates through its immutable receipt after C removal");
     const auto initial = calibrationReceipt (controller, fixture, root);
@@ -156,6 +188,9 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     require (controller.selectB (-28.0206, -12.0206), "B is available after repeated-passage gain edit");
     const auto corrected = controller.snapshot().appliedGainDb;
     require (std::abs (corrected + 6.0205999) < 0.01, "B gain follows the revised A calibration, not the old 0 dB receipt");
+    // REF を離れる・窓を閉じるときも endBlind が呼ばれる。Blind が無ければ、聴いている V を止めない。
+    controller.endBlind();
+    require (controller.snapshot().bSelected, "leaving REF or closing the window keeps the V audition");
     controller.selectA();
     const auto gained = calibrationReceipt (controller, fixture, root);
     const auto hash = gained["sources"]["a"]["observation_pcm_sha256"].toString();
@@ -178,5 +213,34 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     for (int i = 0; i < 500 && controller.snapshot().blindPhase != ref::BlindPhase::inactive; ++i) juce::Thread::sleep (10);
     require (controller.snapshot().blindPhase == ref::BlindPhase::inactive, "invalidated trial still has an END exit");
     require (controller.aInputFeeding(), "A goes back to the observation after an invalidated trial is ended");
+    // VERSION BLIND が END を通らずに終わっても、A は観測へ戻り、ほかの Blind を締め出したままにしない。
+    const auto startEndingTrial = [&] (const char* what)
+    {
+        // Blind が終わると V の位置合わせはやり直しになる。ほかの試験と同じく、始める前に A の区間を流す。
+        feedPassage (controller, fixture, gainedB, gainedA + 48000, 0.5f, what);
+        for (int i = 0; i < 300 && ! controller.snapshot().versionReady; ++i)
+        { controller.observeTransport (gainedA + 48000, true, true); juce::Thread::sleep (10); }
+        controller.observeTransport (gainedA + 48000, true, true); juce::Thread::sleep (100);
+        if (! controller.startBlind (-28, -12))
+        {
+            const auto state = controller.snapshot();
+            std::cerr << what << ": ready " << state.versionReady << " phase " << static_cast<int> (state.blindPhase)
+                      << " reason " << state.rejectionCode << '\n';
+            require (false, what);
+        }
+    };
+    // 聴く前に終わった Blind（最初の block が bypass・書き出しで鳴らせず、作業スレッドが取り消す）。
+    startEndingTrial ("a Version Blind that ends before it is heard");
+    require (! controller.aInputFeeding(), "A pauses while the Version Blind starts");
+    juce::AudioBuffer<float> bypassed (2, 256); bypassed.clear();
+    controller.renderSelectedB (bypassed, gainedA + 48000, true, false, true);
+    for (int i = 0; i < 500 && (controller.snapshot().blindPhase != ref::BlindPhase::inactive || ! controller.aInputFeeding()); ++i)
+    { controller.observeTransport (gainedA + 48000, true, true); controller.servicePendingAudition (-23.0, -6.0, true); juce::Thread::sleep (10); }
+    require (controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding(),
+             "A goes back to the observation when a Version Blind ends before it is heard");
+    require (controller.reserveLocalBlind(), "the Blind slot is free after an unheard Version Blind");
+    controller.releaseLocalBlind (0);
+    owned.reset();
+    versionBlindReloadEnds (sandbox);
     std::cout << "calibration regressions: gain " << corrected << " dB; relocated identical PCM 48000 samples, mapping error 0 samples\n";
 }

@@ -30,18 +30,27 @@ bool ReferenceComparisonController::beginBlindGuard()
         return false;
     }
     blindGuardOwned = true;
+    blindSessionOpen.store (true, std::memory_order_release);
     return true;
 }
 
-// 終了を押したら試験は終わり：A はすぐ観測へ戻す（V の画面・B と C の A の値・AUTO）。ほかの Blind との排他だけは、
-// V がまだ出力を持っていれば（A へ戻す途中）、出力を返し終えたとき（admit）に解く（2026-10-04。以前は
-// 終了の後に A が観測へ戻らず、V の画面が空・B の MATCH が「再生10秒でAを測れません」になった）。
-void ReferenceComparisonController::endBlindGuard()
+// VERSION BLIND の終わり（END でも、ほかの終わり方でも）。試験は終わりなので A はすぐ観測へ戻す（V の画面・B と C の
+// A の値・AUTO）。ほかの Blind との排他は、V がまだ出力を持っていれば（A へ戻す途中）返し終えたとき（admit）に解く：
+// その前に解くと、V が鳴っているあいだにほかの Blind が始まる。何度呼んでも同じ。
+void ReferenceComparisonController::finishVersionBlindSession()
 {
     const juce::ScopedLock lock (gateLock);
     aInputPaused = false;
     if ((gateOwners & 2) == 0) releaseVersionBlindGuard();
+    blindSessionOpen.store (blindGuardOwned, std::memory_order_release);
     refreshObservation();
+}
+
+// 中の Blind が END を通らずに終わった（始まる前の取り消し・DAW の状態の読み込み・形式の作り直し・ライセンスの失効）
+// なら、持ち物を片付ける。定期の処理（servicePendingAudition）から呼ぶ。
+void ReferenceComparisonController::reconcileVersionBlindSession()
+{
+    if (blindSessionOpen.load (std::memory_order_acquire) && ! trialActive()) finishVersionBlindSession();
 }
 
 // gateLock を持って呼ぶ。VERSION BLIND のほかの Blind との排他（Blind の枠と、同じ project・process の Hypha）を解く。
@@ -50,6 +59,7 @@ void ReferenceComparisonController::releaseVersionBlindGuard()
     if (blindGuardOwned && versionBlindGate) versionBlindGate (false);
     blindGuardOwned = false;
     blindSlot.release (BlindOwner::version);
+    blindSessionOpen.store (aInputPaused, std::memory_order_release);
 }
 
 bool ReferenceComparisonController::reserveLocalBlind()

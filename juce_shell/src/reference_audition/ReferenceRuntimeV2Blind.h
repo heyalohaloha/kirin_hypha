@@ -126,6 +126,8 @@ namespace hypha::reference_audition
         }
         RuntimeV2BlindSnapshot snapshot() const;
         bool ongoing() const noexcept;
+        // Blind がある（中止の後に END を待つものも含む）。無ければ endBlind は通常の試聴に触れない。
+        bool engaged() const noexcept;
         bool listening() const noexcept;
         bool auditioning() const noexcept;
         ReferenceSessionIdentity activeSessionIdentity() const noexcept;

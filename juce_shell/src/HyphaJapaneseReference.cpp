@@ -147,8 +147,6 @@ const Entry entries[] = {
     { "The source is being checked. A stays live.",
       u8"ソースを確認中です。音はAのままです。" },
     { "Keep playing while audio loads.", u8"音声を読み込む間は再生を続けてください。" },
-    { "Listen to both sources before revealing them.",
-      u8"答えを表示する前に両方のソースを聴いてください。" },
 
     // Actions.
     { "RETRY PREPARATION", u8"準備をやり直す" },
