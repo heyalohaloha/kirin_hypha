@@ -159,6 +159,8 @@ private:
 #endif
 
     static constexpr int jungleModeMenuAction = 13;
+    static constexpr int chainFooterMenuAction = 690; // information menu, POST only
+    juce::String chainFooterText; // the footer chain readout while it is turned on; POST only
     void refreshWatchSnapshot();
     uint8_t refreshRecordPhase();
     void showCandidateMenu();

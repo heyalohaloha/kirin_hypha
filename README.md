@@ -60,6 +60,13 @@ The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 
 folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD, 5.1 MEASURE). The loaded
 version remains in the information menu, not in the narrow status rail.
 
+POST's information menu shows how long the plug-ins between PRE and POST took per audio block:
+typical and peak milliseconds and their share of the block's own length. It is elapsed time, not
+CPU usage, and only blocks in which PRE demonstrably ran just before POST on the same thread count;
+otherwise the menu gives the reason. **Show in the footer** keeps the typical / peak share in view as
+`CHAIN LOAD 31% / 70%` (at 100% and 125% in the bottom strip), highlighted when a block took longer
+than its own length. It is off until turned on and applies to every POST.
+
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
 `< TP` / `TP >` select adjacent excursions above −1 dBTP; `LIVE` resumes scrolling without resetting
 measurements. Only TP strictly above 0 dBTP receives strong local glow, always at its measured height.

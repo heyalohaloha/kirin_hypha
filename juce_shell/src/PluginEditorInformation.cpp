@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaBuildIdentity.h"
+#include "HyphaChainTimingPreference.h"
 #include "HyphaChainTimingText.h"
 #include "HyphaLocalBlindUiContract.h"
 #include "HyphaPluginFormat.h"
@@ -51,6 +52,8 @@ void KirinHyphaEditor::showInformationMenu()
         for (const auto& line : hypha::chain_timing::lines (processorRef.chainTimingView()))
             menu.addItem (chainLine++, line, false);
         menu.addItem (chainLine, "Elapsed time between PRE and POST, not CPU usage", false);
+        menu.addItem (chainFooterMenuAction, "Show in the footer", true,
+                      hypha::ChainTimingFooterPreference::shared().isEnabled());
     }
    #if JUCE_DEBUG
     juce::PopupMenu validation;
@@ -106,6 +109,14 @@ void KirinHyphaEditor::handleInformationMenu (int result)
     if (result == 12)
     {
         if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
+        return;
+    }
+    if (result == chainFooterMenuAction)
+    {
+        auto& preference = hypha::ChainTimingFooterPreference::shared();
+        if (! preference.setEnabled (! preference.isEnabled()))
+            showToast ("Footer chain time changed for this session only");
+        updatePost(); // show or clear it now, not on the next tick
         return;
     }
     if (result == jungleModeMenuAction)

@@ -6,6 +6,7 @@
 #include "HyphaTextStyle.h"
 
 #include <cmath>
+#include <utility>
 
 namespace hypha::observatory
 {
@@ -44,6 +45,14 @@ void View::setKeepActive (bool active)
     if (keepActive == active) return;
     keepActive = active;
     resized();
+}
+
+void View::setChainReadout (juce::String text, bool caution)
+{
+    if (chainReadoutText == text && chainReadoutCaution == caution) return;
+    chainReadoutText = std::move (text);
+    chainReadoutCaution = caution;
+    repaint (sessionArea);
 }
 
 void View::layoutFooterActions (juce::Rectangle<int> actions)
@@ -135,6 +144,7 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
     g.setColour (frameAvailable ? COL_TEXT_SECONDARY : COL_MUTED);
+    chainReadoutShown = false;
     if (! captureFrame)
     {
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
@@ -145,9 +155,30 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
         if (text_style::shownWidth (font, label) > (float) session.getWidth())
             label = state == "BYPASSED" ? "BYP" : state == "WAITING" ? "WAIT"
                   : state == "5.1 MEASURE" ? "5.1" : measurementFormatHeld ? "FORMAT" : state;
-        if (feedbackText.isEmpty()
-            && text_style::shownWidth (font, label) <= (float) session.getWidth())
+        // The chain timing the user asked to keep in view goes right of the state. Where the two do
+        // not fit, it takes the place of LIVE, HOLD or WAITING, shortened if it must be, while the
+        // states that call for action keep the rail. Feedback owns the rail while it lasts, and
+        // the folded sizes show the readout in the editor's strip instead.
+        const auto width = (float) session.getWidth();
+        const auto labelWidth = text_style::shownWidth (font, label);
+        auto chain = chainReadoutText; // then without spaces, then "LOAD 31%/70%"
+        for (const auto& shorter : { chainReadoutText.replace (" / ", "/"),
+                                     chainReadoutText.replace (" / ", "/").fromFirstOccurrenceOf ("CHAIN ", false, false) })
+            if (text_style::shownWidth (font, chain) > width) chain = shorter;
+        const bool chainWanted = feedbackText.isEmpty() && chainReadoutText.isNotEmpty();
+        const bool both = chainWanted && labelWidth + 12.0f + text_style::shownWidth (font, chainReadoutText) <= width;
+        const bool replaces = chainWanted && ! both && ! measurementFormatHeld
+            && (state == "LIVE" || state == "HOLD" || state == "WAITING")
+            && ! chainReadoutText.endsWith ("--") && text_style::shownWidth (font, chain) <= width;
+        if (feedbackText.isEmpty() && ! replaces && labelWidth <= width)
             text_style::drawText (g, label, session, juce::Justification::centredLeft, false);
+        if (both || replaces)
+        {
+            g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
+            text_style::drawText (g, both ? chainReadoutText : chain, session,
+                                  both ? juce::Justification::centredRight : juce::Justification::centredLeft, false);
+            chainReadoutShown = true;
+        }
         return;
     }
 

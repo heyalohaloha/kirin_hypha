@@ -31,6 +31,31 @@ inline juce::String number (double value)
     return juce::String (value, value >= 10.0 ? 1 : value >= 0.1 ? 2 : 3);
 }
 
+// The footer's one-line form: the typical / peak share of the block's own length, as a load.
+// Milliseconds next to PRE and POST would read as an offset between them, so the footer leaves
+// them to the information menu. A reading that was not measured is shown as dashes; its reason is
+// in the menu. caution marks a peak block that took longer than its own length, the case in which
+// the host cannot keep up.
+struct FooterReadout
+{
+    juce::String text;
+    bool caution = false;
+};
+
+inline juce::String wholePercent (double share)
+{
+    const auto percent = share * 100.0;
+    return percent < 1.0 ? juce::String ("<1%") : juce::String (juce::roundToInt (percent)) + "%";
+}
+
+inline FooterReadout footerReadout (const live_compare::ChainTimingView& view)
+{
+    if (view.state != live_compare::ChainTimingView::State::measuring)
+        return { "CHAIN LOAD --", false };
+    return { "CHAIN LOAD " + wholePercent (view.typicalLoad) + " / " + wholePercent (view.peakLoad),
+             view.peakLoad >= 1.0 };
+}
+
 inline juce::StringArray lines (const live_compare::ChainTimingView& view)
 {
     using State = live_compare::ChainTimingView::State;

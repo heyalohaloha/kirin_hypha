@@ -116,6 +116,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     }
     verifyInformationContract();
     verifyChainTimingTextContract();
+    verifyChainTimingFooterContract();
     verifyReferenceAccessPanelContract();
     verifyReferenceAuditionComponentContract();
     verifyOsAccessUiContract();

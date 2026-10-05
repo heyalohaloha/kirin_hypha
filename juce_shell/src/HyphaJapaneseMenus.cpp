@@ -98,6 +98,9 @@ const Entry entries[] = {
       u8"PREとPOSTが1ブロックに1回ずつ呼ばれていません" },
     { "PRE and POST get different block lengths", u8"PREとPOSTのブロック長が違います" },
     { "PRE is not confirmed to run before POST", u8"PREがPOSTより先に動くことを確認できません" },
+    { "Show in the footer", u8"下部に常時表示" },
+    { "Footer chain time changed for this session only",
+      u8"下部のチェーン表示は、このセッションだけ変更しました" },
 
     // Saving and attaching a measurement image.
     { "Capture format", u8"画像の形式" },
