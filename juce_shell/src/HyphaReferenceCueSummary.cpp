@@ -32,11 +32,6 @@ float logX (double hz, double minimumHz, double maximumHz, juce::Rectangle<float
     return area.getX() + static_cast<float> (normalized) * area.getWidth();
 }
 
-juce::String signedDb (double value)
-{
-    return (value >= 0.0 ? "+" : juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92"))) + juce::String (std::abs (value), 1);
-}
-
 juce::String clock (double seconds)
 {
     const auto whole = static_cast<int> (std::floor (std::max (0.0, seconds)));
@@ -111,8 +106,8 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
     g.strokePath (median, juce::PathStrokeType (1.4f));
     if (aReady)  // 曲の中の帯どうしの差なので、音量を合わせていなくても出せる
-        paintBlauertReadout (g, area, 'C', reference_audition::blauertDifferenceDb (state.aKirin->centersHz, state.aKirin->medianDb,
-                                                                                     cue.centersHz, cue.medianDb),
+        paintBlauertReadout (g, area, 'C', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
+                                                         cue.centersHz, cue.medianDb),
                              minimumHz, maximumHz, context);
     return true;
 }
@@ -156,7 +151,7 @@ juce::String matchReadout (const State& state)
         && state.aWindowBlocks < state.aWindowNeededBlocks)
         return "A " + juce::String (state.aWindowBlocks / 10) + " / " + juce::String (state.aWindowNeededBlocks / 10) + " S";
     if (! std::isfinite (gain)) return {};
-    const auto value = "C " + signedDb (gain + state.heldAttenuationDb) + " dB";  // 下げた A の基準で読む
+    const auto value = "C " + gainText (displayGainDb (state, gain)) + " dB";
     // 合わせ方（MATCHED AND FIXED）は状態の行が言い、鳴っていることは色で分かる。2 度言うと読みが切れた（「MATCHED / C
     // −4.9 dB /…」2026-10-04、「MATCH済み / C −1.2…」2026-10-05）。鳴っていなければ鳴らすときの gain。
     return state.bSelected && state.audibleComparisonSlot == 2 ? value : "ON PLAY / " + value;
@@ -184,7 +179,7 @@ BandLayout bandLayout (int width, const presentation::Context& context)
     BandLayout layout;
     const auto words = labelFont (context, typography::TextRole::unit, typography::Composition::information);
     layout.heading = juce::roundToInt (std::ceil (text_style::shownWidth (words, bandHeading))) + 10;
-    const auto reserve = std::ceil (std::max (aComparisonWidth (compareBand (-24.5), context), aComparisonWidth (compareBand (24.5), context)));
+    const auto reserve = std::ceil (std::max (aComparisonWidth (compareBand ({ 0.0, 24.5 }), context), aComparisonWidth (compareBand ({ 24.5, 0.0 }), context)));
     const auto available = width - layout.heading - bandGap * 3;
     std::array<int, 4> need {};
     int total = 0;
@@ -222,7 +217,7 @@ void paintBandSummary (juce::Graphics& g, juce::Rectangle<int> area, const State
         auto inner = cell.reduced (bandPadding, 0);
         const auto c = ready ? state.cueKirin->balanceDb[band] + gain : std::numeric_limits<double>::quiet_NaN();
         const auto a = ready ? state.aKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
-        const auto comparison = std::isfinite (c) && a > -200.0 ? compareBand (a - c) : AComparison {};
+        const auto comparison = std::isfinite (c) && a > -200.0 ? compareBand ({ a, c }) : AComparison {};
         const auto phraseWidth = comparison.shown() ? std::ceil (aComparisonWidth (comparison, context)) : 16.0f;
         auto phrase = inner.removeFromRight (std::min (inner.getWidth(), juce::roundToInt (phraseWidth)));
         g.setColour (COL_TEXT_TERTIARY);

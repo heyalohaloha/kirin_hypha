@@ -263,8 +263,6 @@ void verifyReferenceAuditionComponentContract()
     blindState.aMaximumTruePeakDbtp = 1.5;
     blindState.adjustedBIntegratedLoudness = -28.0;
     blindState.adjustedBMaximumTruePeakDbtp = -12.0;
-    blindState.loudnessDeltaBMinusA = 25.0;
-    blindState.truePeakDeltaBMinusA = 13.5;
     blindState.appliedGainDb = -14.0;
     blindState.bSelected = true;
     component.setState (blindState);
@@ -299,8 +297,6 @@ void verifyReferenceAuditionComponentContract()
     selected.status = "B AUDITION / PRE DELTA PAUSED";
     selected.adjustedBIntegratedLoudness = -14.0;
     selected.adjustedBMaximumTruePeakDbtp = -1.0;
-    selected.loudnessDeltaBMinusA = 0.0;
-    selected.truePeakDeltaBMinusA = 0.8;
     selected.appliedGainDb = 2.0;
     selected.gainLimited = true;
     component.setState (selected);

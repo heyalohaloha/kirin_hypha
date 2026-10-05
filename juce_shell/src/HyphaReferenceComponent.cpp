@@ -332,14 +332,13 @@ void Component::paint (juce::Graphics& g)
             help::note (metrics.withTrimmedLeft (juce::roundToInt (width + gap)), help_text::truePeak);
             reference_metric_painter::paintMetric (
                         g, metrics.removeFromLeft (juce::roundToInt (width)).toFloat(),
-                        "INTEGRATED LOUDNESS", "LUFS", current.aIntegratedLoudness,
-                        current.adjustedBIntegratedLoudness, current.loudnessDeltaBMinusA, AWords::loudness,
-                        presentationContext, side);
+                        "INTEGRATED LOUDNESS", "LUFS", { current.aIntegratedLoudness, current.adjustedBIntegratedLoudness },
+                        AWords::loudness, presentationContext, side);
             metrics.removeFromLeft (juce::roundToInt (gap));
             reference_metric_painter::paintMetric (
                         g, metrics.toFloat(), "MAXIMUM TRUE PEAK", "dBTP",
-                        current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp,
-                        current.truePeakDeltaBMinusA, AWords::level, presentationContext, side);
+                        { current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp }, AWords::level,
+                        presentationContext, side);
         }
     }
     else if (!comparisonView.isVisible())
@@ -348,10 +347,10 @@ void Component::paint (juce::Graphics& g)
         auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);
         area.removeFromLeft (gap);
         reference_metric_painter::paintCompactDelta (
-            g, left.toFloat(), "LUFS-I", current.loudnessDeltaBMinusA, "LU", AWords::loudness,
+            g, left.toFloat(), "LUFS-I", { current.aIntegratedLoudness, current.adjustedBIntegratedLoudness }, "LU", AWords::loudness,
             presentationContext, side);
         reference_metric_painter::paintCompactDelta (
-            g, area.toFloat(), "MAX TP", current.truePeakDeltaBMinusA, "dB", AWords::level,
+            g, area.toFloat(), "MAX TP", { current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp }, "dB", AWords::level,
             presentationContext, side);
     }
 }

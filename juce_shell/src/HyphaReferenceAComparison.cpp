@@ -48,8 +48,9 @@ juce::Font numberFont (const presentation::Context& context)
 }
 }
 
-AComparison compareA (double aMinusOther, int decimals, const juce::String& unit, AWords words, char other)
+AComparison compareA (AVersus pair, int decimals, const juce::String& unit, AWords words, char other)
 {
+    const auto aMinusOther = pair.aMinusOther();
     if (! std::isfinite (aMinusOther)) return {};
     const auto scale = std::pow (10.0, decimals);
     const auto magnitude = std::round (std::abs (aMinusOther) * scale) / scale;
@@ -61,8 +62,9 @@ AComparison compareA (double aMinusOther, int decimals, const juce::String& unit
     return { "A " + number + unit + " " + word, number, word };
 }
 
-AComparison compareBand (double aMinusOther)
+AComparison compareBand (AVersus pair)
 {
+    const auto aMinusOther = pair.aMinusOther();
     if (! std::isfinite (aMinusOther)) return {};
     const auto magnitude = std::round (std::abs (aMinusOther) * 10.0) / 10.0;
     if (magnitude < 0.05) return { "SAME", {}, {} };

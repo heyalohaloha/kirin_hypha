@@ -41,10 +41,10 @@ struct Difference
     juce::String bottom;
 };
 
-Difference differenceOf (double otherMinusA, const juce::String& unit, reference_ui::AWords words, const juce::String& side)
+Difference differenceOf (reference_ui::AVersus pair, const juce::String& unit, reference_ui::AWords words, const juce::String& side)
 {
     Difference result;
-    result.comparison = reference_ui::compareA (-otherMinusA, 1, " " + unit, words, static_cast<char> (side[0]));
+    result.comparison = reference_ui::compareA (pair, 1, " " + unit, words, static_cast<char> (side[0]));
     result.value = ! result.comparison.shown() ? std::numeric_limits<double>::quiet_NaN()
                  : result.comparison.same() ? 0.0 : result.comparison.number.getDoubleValue();
     result.bottom = ! result.comparison.shown() ? unit : result.comparison.same() ? juce::String ("SAME")
@@ -79,7 +79,7 @@ void paintComparisonRoots (juce::Graphics& g, juce::Rectangle<float> area)
 
 void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
                   const juce::String& name, const juce::String& unit,
-                  double a, double b, double otherMinusA, reference_ui::AWords words, presentation::Context presentation,
+                  reference_ui::AVersus pair, reference_ui::AWords words, presentation::Context presentation,
                   const juce::String& side)
 {
     paintPanel (g, area);
@@ -92,21 +92,21 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
     text_style::drawText (g, name, header.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
     area.reduce (5.0f, 3.0f);
     const float columnWidth = area.getWidth() / 3.0f;
-    paintValue (g, area.removeFromLeft (columnWidth), "A", a, unit,
+    paintValue (g, area.removeFromLeft (columnWidth), "A", pair.a, unit,
                 COL_OBSERVATORY_VALUE, scale, presentation);
-    paintValue (g, area.removeFromLeft (columnWidth), side, b, unit,
+    paintValue (g, area.removeFromLeft (columnWidth), side, pair.other, unit,
                 COL_OBSERVATORY_VALUE, scale, presentation);
-    const auto difference = differenceOf (otherMinusA, unit == "LUFS" ? "LU" : "dB", words, side);
+    const auto difference = differenceOf (pair, unit == "LUFS" ? "LU" : "dB", words, side);
     paintValue (g, area, "A VS " + side, difference.value, difference.bottom,
                 COL_SPECTRUM_DELTA_BR, scale * 1.12f, presentation);
 }
 
 void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
-                        const juce::String& name, double otherMinusA, const juce::String& unit,
+                        const juce::String& name, reference_ui::AVersus pair, const juce::String& unit,
                         reference_ui::AWords words, presentation::Context presentation, const juce::String& side)
 {
     paintPanel (g, area, 0.72f);
-    const auto difference = differenceOf (otherMinusA, unit, words, side);
+    const auto difference = differenceOf (pair, unit, words, side);
     if (area.getHeight() < 52.0f)
     {
         area.reduce (4.0f, 0.0f);

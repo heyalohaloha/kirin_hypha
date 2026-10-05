@@ -8,6 +8,7 @@
 #include "ReferenceCheckPageTest.h"
 #include "ReferenceBlauertTest.h"
 #include "ReferenceAComparisonTest.h"
+#include "ReferenceADirectionTest.h"
 
 namespace hypha::tests
 {
@@ -19,6 +20,7 @@ inline void verifyReferenceAbcvRoles()
     verifyReferenceCheckPage();
     verifyReferenceBlauertReadout();
     verifyReferenceAComparison();
+    verifyReferenceADirection();
     // 2026-10-03：再生中でも、準備が自動で進む段階なら押した役を待たせる（押したことを捨てない）。
     // 利用者が動かす段階（Cue の外・この区間で合わない）は待たせず、理由を言う。
     {

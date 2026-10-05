@@ -46,15 +46,12 @@ inline double blauertContrastDb (const std::vector<double>& centersHz, const std
     return means[1] - (means[0] + means[2]) / 2.0;
 }
 
-// 比べる側 − A（dB）。帯域の並びが違う、またはどちらかが出せなければ NaN。
-inline double blauertDifferenceDb (const std::vector<double>& aCentersHz, const std::vector<float>& aLevelsDb,
-                                   const std::vector<double>& otherCentersHz, const std::vector<float>& otherLevelsDb) noexcept
+// A と比べる側が同じ帯域の並びで測ってあるか（並びが違えば 2 つの値を比べない）。差の向きは画面の型（AVersus）が決める。
+inline bool blauertBandsAligned (const std::vector<double>& aCentersHz, const std::vector<double>& otherCentersHz) noexcept
 {
-    if (aCentersHz.empty() || aCentersHz.size() != otherCentersHz.size())
-        return std::numeric_limits<double>::quiet_NaN();
+    if (aCentersHz.empty() || aCentersHz.size() != otherCentersHz.size()) return false;
     for (size_t band = 0; band < aCentersHz.size(); ++band)
-        if (! (std::abs (aCentersHz[band] / otherCentersHz[band] - 1.0) <= 1.0e-3))
-            return std::numeric_limits<double>::quiet_NaN();
-    return blauertContrastDb (otherCentersHz, otherLevelsDb) - blauertContrastDb (aCentersHz, aLevelsDb);
+        if (! (std::abs (aCentersHz[band] / otherCentersHz[band] - 1.0) <= 1.0e-3)) return false;
+    return true;
 }
 }

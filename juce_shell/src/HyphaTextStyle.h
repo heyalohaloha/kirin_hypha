@@ -40,4 +40,21 @@ void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float>,
                juce::Justification, bool useEllipsesIfTooLong = true);
 void drawText (juce::Graphics&, const juce::String&, int x, int y, int width, int height,
                juce::Justification, bool useEllipsesIfTooLong = true);
+
+// What the screen said, for tests: while a log lives on this thread, every call above that draws
+// appends the text it drew (in the current language, after any ellipsis), in drawing order.
+class ShownTextLog final
+{
+public:
+    ShownTextLog() noexcept;
+    ~ShownTextLog();
+    const juce::StringArray& texts() const noexcept { return entries; }
+    void clear() noexcept { entries.clearQuick(); }
+    void add (const juce::String& text) { entries.add (text); }
+
+private:
+    juce::StringArray entries;
+    ShownTextLog* outer = nullptr;
+    JUCE_DECLARE_NON_COPYABLE (ShownTextLog)
+};
 }

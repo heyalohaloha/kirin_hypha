@@ -38,18 +38,27 @@ inline void paintBlauertZones (juce::Graphics& g, juce::Rectangle<float> chart, 
                                                                 std::max (x (zone.highHz), x (zone.lowHz) + 2.0f), chart.getBottom() - 14.0f));
 }
 
-// 「1k vs 300-400·3-4k / A 1.2 dB LOWER」。`differenceDb` は比べる側 − A（blauertDifferenceDb）。差が有限でなければ空。
-inline juce::String blauertReadout (char role, double differenceDb)
+// A と比べる側の 1k の張り出し（blauertContrastDb）。帯域の並びが違えば値を出さない。
+inline AVersus blauertVersus (const std::vector<double>& aCentersHz, const std::vector<float>& aLevelsDb,
+                              const std::vector<double>& otherCentersHz, const std::vector<float>& otherLevelsDb)
 {
-    const auto comparison = compareA (-differenceDb, 1, " dB", AWords::level, role);
+    if (! reference_audition::blauertBandsAligned (aCentersHz, otherCentersHz)) return {};
+    return { reference_audition::blauertContrastDb (aCentersHz, aLevelsDb),
+             reference_audition::blauertContrastDb (otherCentersHz, otherLevelsDb) };
+}
+
+// 「1k vs 300-400·3-4k / A 1.2 dB LOWER」。どちらかが出せなければ空。
+inline juce::String blauertReadout (char role, AVersus contrasts)
+{
+    const auto comparison = compareA (contrasts, 1, " dB", AWords::level, role);
     if (! comparison.shown()) return {};
     return juce::String::fromUTF8 (u8"1k vs 300-400·3-4k") + " / " + comparison.text;
 }
 
-inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart, char role, double differenceDb,
+inline void paintBlauertReadout (juce::Graphics& g, juce::Rectangle<float> chart, char role, AVersus contrasts,
                                  double minimumHz, double maximumHz, const presentation::Context& context)
 {
-    const auto text = blauertReadout (role, differenceDb);
+    const auto text = blauertReadout (role, contrasts);
     if (text.isEmpty() || ! blauertShown (minimumHz, maximumHz) || chart.getWidth() < 160.0f || chart.getHeight() < 40.0f) return;
     g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));

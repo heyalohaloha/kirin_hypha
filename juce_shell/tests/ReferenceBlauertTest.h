@@ -13,12 +13,13 @@ inline void verifyReferenceBlauertReadout()
 {
     using namespace reference_guide_contract;
     using reference_ui::blauertReadout;
-    require (blauertReadout ('C', 1.24) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k / A 1.2 dB LOWER"))
-                 && blauertReadout ('B', -2.36) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k / A 2.4 dB HIGHER"))
-                 && blauertReadout ('V', -0.04) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k / A SAME AS V"))
-                 && blauertReadout ('C', std::numeric_limits<double>::quiet_NaN()).isEmpty(),
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+    require (blauertReadout ('C', { 0.0, 1.24 }) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k / A 1.2 dB LOWER"))
+                 && blauertReadout ('B', { 2.36, 0.0 }) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k / A 2.4 dB HIGHER"))
+                 && blauertReadout ('V', { 0.04, 0.0 }) == juce::String (juce::CharPointer_UTF8 ("1k vs 300-400\xc2\xb7" "3-4k / A SAME AS V"))
+                 && blauertReadout ('C', { nan, 0.0 }).isEmpty() && blauertReadout ('C', {}).isEmpty(),
              "the Blauert readout says how A's 1 kHz sits against the compared side, and nothing when it cannot be read");
-    require (i18n::translate (blauertReadout ('C', 1.24), i18n::Language::japanese)
+    require (i18n::translate (blauertReadout ('C', { 0.0, 1.24 }), i18n::Language::japanese)
                  == juce::String (juce::CharPointer_UTF8 ("300-400\xc2\xb7" "3-4k\xe3\x81\xab\xe5\xaf\xbe\xe3\x81\x99\xe3\x82\x8b" "1k / A"
                                                           "\xe3\x81\x8c" "1.2 dB\xe4\xbd\x8e\xe3\x81\x84")),
              "the Blauert readout reads in Japanese");
@@ -29,8 +30,12 @@ inline void verifyReferenceBlauertReadout()
     // 決まる（1 kHz の 2 帯域の平均の位置 35.5 と、300-400 Hz・3-4 kHz の平均の位置 36.5 の差 1 帯域ぶん）。
     const auto a = kirinWindow (0.0f, { -20.0, -14.0, -18.0, -30.0 }, 300);
     const auto c = kirinWindow (-6.0f, { -16.5, -11.5, -15.0, -28.5 }, 300);
-    const auto difference = reference_audition::blauertDifferenceDb (a->centersHz, a->medianDb, c->centersHz, c->medianDb);
-    require (std::abs (difference - 6.0 / 63.0) < 1.0e-4 && blauertReadout ('C', difference).endsWith ("A 0.1 dB LOWER"),
+    const auto contrasts = reference_ui::blauertVersus (a->centersHz, a->medianDb, c->centersHz, c->medianDb);
+    require (std::abs (contrasts.aMinusOther() + 6.0 / 63.0) < 1.0e-4 && blauertReadout ('C', contrasts).endsWith ("A 0.1 dB LOWER"),
              "the C page reads the difference between its two windows");
+    auto shifted = *c;
+    shifted.centersHz[40] *= 1.01;
+    require (std::isnan (reference_ui::blauertVersus (a->centersHz, a->medianDb, shifted.centersHz, shifted.medianDb).aMinusOther()),
+             "windows measured on different bands are not compared");
 }
 }

@@ -1,5 +1,6 @@
 #include "HyphaReferenceSongList.h"
 
+#include "HyphaReferenceGainText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -10,10 +11,10 @@ namespace hypha::reference_ui
 {
 namespace
 {
-juce::String number (double value, bool signedValue)
+juce::String number (double value)
 {
     if (! std::isfinite (value)) return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
-    return (signedValue && value >= 0.0 ? "+" : "") + juce::String (value, 1);
+    return juce::String (value, 1);
 }
 }
 
@@ -76,7 +77,7 @@ void SongList::paint (juce::Graphics& g)
         g.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
         text_style::drawEllipsized (g, "A LAST " + juce::String (liveSeconds) + " S", cells[1], juce::Justification::centredLeft);
         g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
-        text_style::drawEllipsized (g, number (liveLoudness, false), cells[2], juce::Justification::centredRight);
+        text_style::drawEllipsized (g, number (liveLoudness), cells[2], juce::Justification::centredRight);
         g.setColour (COL_FLORA_BR.withAlpha (0.25f));
         g.drawHorizontalLine (content.getY() - 1, static_cast<float> (content.getX()), static_cast<float> (content.getRight()));
     }
@@ -100,10 +101,10 @@ void SongList::paint (juce::Graphics& g)
         text_style::drawEllipsized (g, row.title, cells[1], juce::Justification::centredLeft);
         g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
         g.setColour (COL_TEXT_SECONDARY);
-        text_style::drawEllipsized (g, number (row.lufsI, false), cells[2], juce::Justification::centredRight);
+        text_style::drawEllipsized (g, number (row.lufsI), cells[2], juce::Justification::centredRight);
         // 鳴っている曲は実際の gain、ほかは押したときの gain（薄く）。
         g.setColour (row.playing ? COL_SPECTRUM_DELTA : COL_MUTED);
-        if (std::isfinite (row.gainDb)) text_style::drawEllipsized (g, number (row.gainDb, true), cells[3], juce::Justification::centredRight);
+        if (std::isfinite (row.gainDb)) text_style::drawEllipsized (g, gainText (row.gainDb), cells[3], juce::Justification::centredRight);
         const bool missing = row.preparation == "NOT FOUND";  // Kirin OS がファイルを確かめられない（待っても進まない）
         g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.preparing && ! missing ? COL_FLORA : COL_MUTED);
         text_style::drawEllipsized (g, row.playing ? "PLAYING" : ! row.preparing ? "READY"

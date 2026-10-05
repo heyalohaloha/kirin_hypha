@@ -141,7 +141,7 @@ juce::String preparationLine (const reference_audition::RuntimeSongPreparation& 
 juce::String gainReadout (const State& state)
 {
     const auto side = state.separateComparisons ? juce::String (roleLetter (state.audibleComparisonSlot)) : juce::String ("B");
-    return side + " " + fmtDelta (state.appliedGainDb + state.heldAttenuationDb) + " dB"
+    return side + " " + gainText (displayGainDb (state, state.appliedGainDb)) + " dB"
          + (state.gainLimited ? "  /  MATCH UNAVAILABLE" : "");
 }
 

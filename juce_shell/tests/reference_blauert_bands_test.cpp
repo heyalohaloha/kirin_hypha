@@ -67,12 +67,11 @@ void testReferenceBlauertBands()
     const auto low = kirinCenters (2'000.0);
     require (std::isnan (blauertContrastDb (low, levels (low, -40.0, 0.0, 0.0, 0.0))), "a spectrum without 3-4 kHz is not read");
     require (std::isnan (blauertContrastDb ({}, {})), "an empty spectrum is not read");
-    // 比べる側 − A。
-    const auto a = levels (centers, -30.0, 0.0, 0.0, 0.0);
-    const auto c = levels (centers, -42.0, 0.0, 1.5, 0.0);
-    require (matches (blauertDifferenceDb (centers, a, centers, c), 1.5), "the difference is the compared side minus A");
-    require (matches (blauertDifferenceDb (centers, c, centers, a), -1.5), "and changes sign the other way round");
-    require (std::isnan (blauertDifferenceDb (low, levels (low, -30.0, 0.0, 0.0, 0.0), centers, c)),
+    // 比べるのは同じ帯域の並びで測った 2 つだけ（差の向きは画面の AVersus が決める。ReferenceBlauertTest.h）。
+    require (blauertBandsAligned (centers, centers), "spectra on the same bands are compared");
+    require (! blauertBandsAligned (low, centers) && ! blauertBandsAligned (centers, low) && ! blauertBandsAligned ({}, {}),
              "spectra on different bands are not compared");
-    require (std::isnan (blauertDifferenceDb (centers, silent, centers, c)), "nothing is compared when A cannot be read");
+    std::vector<double> shifted = centers;
+    shifted[40] *= 1.01;
+    require (! blauertBandsAligned (centers, shifted), "one band off by 1% is a different measurement");
 }

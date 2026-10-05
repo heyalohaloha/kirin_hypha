@@ -142,8 +142,8 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (2.8f));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
         g.strokePath (medianPath (*timeline->vPairKirin, shift, chart, maximumHz), juce::PathStrokeType (1.4f));
-        paintBlauertReadout (g, chart, 'V', reference_audition::blauertDifferenceDb (timeline->aPairKirin->centersHz, timeline->aPairKirin->medianDb,
-                                                                                      timeline->vPairKirin->centersHz, timeline->vPairKirin->medianDb),
+        paintBlauertReadout (g, chart, 'V', blauertVersus (timeline->aPairKirin->centersHz, timeline->aPairKirin->medianDb,
+                                                          timeline->vPairKirin->centersHz, timeline->vPairKirin->medianDb),
                              20.0, maximumHz, context);
     }
     else
@@ -193,7 +193,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         const auto a = ready ? timeline->aPairKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
         const auto v = ready ? timeline->vPairKirin->balanceDb[band] : std::numeric_limits<double>::quiet_NaN();
         const bool shown = std::isfinite (v) && a > -200.0 && std::isfinite (gainDb);
-        const auto comparison = shown ? compareBand (a - (v + shift)) : AComparison {};
+        const auto comparison = shown ? compareBand ({ a, v + shift }) : AComparison {};
         if (comparison.shown())
             paintAComparison (g, comparison, inner.toFloat(), juce::Justification::centredLeft, context, COL_TEXT_SECONDARY,
                               COL_OBSERVATORY_VALUE);

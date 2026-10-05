@@ -6,6 +6,28 @@
 
 namespace hypha::text_style
 {
+namespace
+{
+thread_local ShownTextLog* activeLog = nullptr;
+
+// Every drawing call reports the text it drew here (nothing happens unless a test keeps a log).
+const juce::String& drawn (const juce::String& text)
+{
+    if (activeLog != nullptr && text.isNotEmpty()) activeLog->add (text);
+    return text;
+}
+}
+
+ShownTextLog::ShownTextLog() noexcept : outer (activeLog)
+{
+    activeLog = this;
+}
+
+ShownTextLog::~ShownTextLog()
+{
+    activeLog = outer;
+}
+
 juce::String shownText (const juce::String& text)
 {
     return i18n::tr (text);
@@ -231,7 +253,7 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
         auto top = static_cast<float> (area.getY()) + offset;
         for (const auto& line : japaneseLines (text, font, static_cast<float> (area.getWidth())))
         {
-            graphics.drawText (line, juce::Rectangle<float> (static_cast<float> (area.getX()), top,
+            graphics.drawText (drawn (line), juce::Rectangle<float> (static_cast<float> (area.getX()), top,
                                                              static_cast<float> (area.getWidth()),
                                                              font.getHeight()),
                                justification.getOnlyHorizontalFlags()
@@ -245,7 +267,7 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
     // left edge whatever the justification. Starting it at the centre put a centred status half
     // outside the area, where the clip cut "INACTIVE" to "INAC".
     const auto baseline = area.getY() + juce::roundToInt (offset + font.getAscent());
-    graphics.drawMultiLineText (text, area.getX(), baseline, area.getWidth(), justification);
+    graphics.drawMultiLineText (drawn (text), area.getX(), baseline, area.getWidth(), justification);
 }
 
 template <typename Area>
@@ -254,7 +276,7 @@ void drawShown (juce::Graphics& graphics, const juce::String& text, Area area,
 {
     const auto shown = shownText (text);
     const ShownFont font (graphics, shown);
-    graphics.drawText (shown, area, justification, useEllipsesIfTooLong);
+    graphics.drawText (drawn (shown), area, justification, useEllipsesIfTooLong);
 }
 }
 
@@ -276,7 +298,7 @@ void draw (juce::Graphics& graphics, const juce::String& text,
     const auto displayed = overflow == typography::Overflow::ellipsize
         ? ellipsizedText (shown, graphics.getCurrentFont(), static_cast<float> (area.getWidth()))
         : shown;
-    graphics.drawText (displayed, area, justification, false);
+    graphics.drawText (drawn (displayed), area, justification, false);
 }
 
 void drawEllipsized (juce::Graphics& graphics, const juce::String& text,
@@ -285,8 +307,8 @@ void drawEllipsized (juce::Graphics& graphics, const juce::String& text,
     if (area.isEmpty() || text.isEmpty()) return;
     const auto shown = shownText (text);
     const ShownFont font (graphics, shown);
-    graphics.drawText (ellipsizedText (shown, graphics.getCurrentFont(),
-                                       static_cast<float> (area.getWidth())),
+    graphics.drawText (drawn (ellipsizedText (shown, graphics.getCurrentFont(),
+                                              static_cast<float> (area.getWidth()))),
                        area, justification, false);
 }
 
@@ -299,7 +321,7 @@ void drawLines (juce::Graphics& graphics, const juce::String& text, juce::Rectan
     if (maximumLines > 1)
         drawWrapped (graphics, shown, area, justification);
     else
-        graphics.drawText (shown, area, justification, true);
+        graphics.drawText (drawn (shown), area, justification, true);
 }
 
 void drawText (juce::Graphics& graphics, const juce::String& text, juce::Rectangle<int> area,

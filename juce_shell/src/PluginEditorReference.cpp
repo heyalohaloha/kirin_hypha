@@ -285,8 +285,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     {
         state.adjustedBIntegratedLoudness = runtime.adjustedBIntegratedLoudness;
         state.adjustedBMaximumTruePeakDbtp = runtime.adjustedBMaximumTruePeakDbtp;
-        state.loudnessDeltaBMinusA = runtime.loudnessDeltaBMinusA;
-        state.truePeakDeltaBMinusA = runtime.truePeakDeltaBMinusA;
     }
     state.appliedGainDb = runtime.bSelected ? audible.appliedGainDb : runtime.appliedGainDb;
     state.peakShortfallDb = runtime.bSelected ? audible.peakShortfallDb : 0.0;

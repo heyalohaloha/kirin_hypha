@@ -129,8 +129,8 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
         g.strokePath (curve (chosen->centersHz, shifted, chart), juce::PathStrokeType (1.4f));
         if (aShown)  // 曲の中の帯どうしの差なので、音量をそろえられない曲でも出せる
-            paintBlauertReadout (g, chart, 'B', reference_audition::blauertDifferenceDb (state.aKirin->centersHz, state.aKirin->medianDb,
-                                                                                          chosen->centersHz, chosen->medianDb),
+            paintBlauertReadout (g, chart, 'B', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
+                                                              chosen->centersHz, chosen->medianDb),
                                  minimumHz, maximumHz, context);
     }
     g.setColour (unmatched ? COL_FLORA : COL_TEXT_TERTIARY);

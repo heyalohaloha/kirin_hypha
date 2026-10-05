@@ -84,15 +84,15 @@ juce::String valueText (Unit unit, double value)
 }
 
 // A − 比べる側を、A を主語に言葉で（「A 0.12 LOWER」、日本語は「Aが0.12低い」）。
-juce::String differenceText (const Row& row, double aMinusOther, char other)
+juce::String differenceText (const Row& row, AVersus pair, char other)
 {
     switch (row.unit)
     {
-        case Unit::db: case Unit::dbfs: return compareA (aMinusOther, 1, " dB", row.words, other).text;
-        case Unit::lu: case Unit::lufs: return compareA (aMinusOther, 1, " LU", row.words, other).text;
-        case Unit::percent: return compareA (aMinusOther, 0, " pt", row.words, other).text;
-        case Unit::ratio: return compareA (aMinusOther, 2, "", row.words, other).text;
-        case Unit::onset: return compareA (aMinusOther * 100.0, 0, " pt", row.words, other).text;
+        case Unit::db: case Unit::dbfs: return compareA (pair, 1, " dB", row.words, other).text;
+        case Unit::lu: case Unit::lufs: return compareA (pair, 1, " LU", row.words, other).text;
+        case Unit::percent: return compareA (pair, 0, " pt", row.words, other).text;
+        case Unit::ratio: return compareA (pair, 2, "", row.words, other).text;
+        case Unit::onset: return compareA ({ pair.a * 100.0, pair.other * 100.0 }, 0, " pt", row.words, other).text;
     }
     return {};
 }
@@ -174,7 +174,7 @@ std::vector<Prepared> prepare (const std::vector<Row>& rows, const Sides& sides)
         item.aText = item.aBar.shown ? valueText (row.unit, value (item.aBar)) : dash;  // 測れていない側は「—」（凡例が A WAITING と言う）
         item.otherText = item.otherBar.shown ? valueText (row.unit, value (item.otherBar)) : dash;
         if (item.aBar.shown && item.otherBar.shown)
-            item.difference = differenceText (row, value (item.aBar) - value (item.otherBar), sides.letter[0]);
+            item.difference = differenceText (row, { value (item.aBar), value (item.otherBar) }, sides.letter[0]);
         prepared.push_back (std::move (item));
     }
     return prepared;

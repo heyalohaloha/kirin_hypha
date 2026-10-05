@@ -13,6 +13,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaReferenceAction.h"
+#include "HyphaReferenceGainText.h"
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceGuide.h"
@@ -112,9 +113,7 @@ struct State
     double aMaximumTruePeakDbtp = unavailableValue();
     double adjustedBIntegratedLoudness = unavailableValue();
     double adjustedBMaximumTruePeakDbtp = unavailableValue();
-    double loudnessDeltaBMinusA = unavailableValue();
-    double truePeakDeltaBMinusA = unavailableValue();
-    double appliedGainDb = unavailableValue();  // 下げる前の A の基準（グラフをそろえる）。読みは heldAttenuationDb を足す
+    double appliedGainDb = unavailableValue();  // 下げる前の A の基準（グラフをそろえる）。読みは displayGainDb を通す
     double heldAttenuationDb = 0.0;              // 承認して A を下げている量（0 以下。2026-10-03、R-12）
     bool aAvailable = false;
     bool gainLimited = false;
@@ -186,6 +185,14 @@ struct State
     juce::String preparationOverdue; // 待ちが上限を超えたときの「理由 / 直し方」（HyphaReferencePreparationWatch）
     reference_audition::RuntimeSongPreparation rolePreparation; // 見ている役の曲を Kirin OS が準備している状態
 };
+
+// 画面が読む gain：比べる側に掛かる gain（下げる前の A の基準）に、承認して下げた A の量を足す。読みはすべてここを
+// 通し、部品は自分で足さない（足す所と足さない所があると、同じ大きさの曲が +0.0 と +6.0 に分かれた。2026-10-06）。
+// 数の書き方は gainText（HyphaReferenceGainText.h）。
+inline double displayGainDb (const State& state, double gainDb) noexcept
+{
+    return gainDb + state.heldAttenuationDb;
+}
 
 inline bool canSelectB (const State& state) noexcept
 {
