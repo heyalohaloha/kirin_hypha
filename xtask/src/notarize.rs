@@ -130,6 +130,10 @@ pub fn run(args: Vec<String>) -> Result<()> {
                 b.path.display()
             )
         })?;
+        crate::update_package_binding::verify_bundle(&b.path)?;
+    }
+    // Qualify the complete pair/format set before contacting either signing service.
+    for b in &bundles {
         eprintln!(
             "==================== {} ====================",
             b.spec.label()

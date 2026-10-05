@@ -120,6 +120,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
     observatoryView.onInformation = [this] { showInformationMenu(); };
+    configureUpdateChecking();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     observatoryView.onRecordBodyOwnershipChange = [this] (bool)
     {

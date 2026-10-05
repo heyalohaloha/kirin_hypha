@@ -14,6 +14,7 @@ import {
 } from './windows-aax-bundles.mjs';
 import { loadWindowsAaxSignedProvenance } from './windows-aax-provenance.mjs';
 import { requireCleanReleaseSource } from '../ls_release/release_source_identity.mjs';
+import { updateBinding, validatePublicKey, inspectUpdateBinary } from '../updates/update_key_binding.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
@@ -41,6 +42,7 @@ export function parseArgs(argv) {
     bNumber: process.env.KIRIN_B_NUMBER || '',
     commit: process.env.KIRIN_COMMIT || '',
     runUrl: process.env.KIRIN_GITHUB_RUN_URL || '',
+    updatePublicKey: '',
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -57,6 +59,7 @@ export function parseArgs(argv) {
     else if (arg === '--b-number') opts.bNumber = argv[++index] || '';
     else if (arg === '--commit') opts.commit = argv[++index] || '';
     else if (arg === '--run-url') opts.runUrl = argv[++index] || '';
+    else if (arg === '--update-public-key') opts.updatePublicKey = argv[++index] || '';
     else throw new Error(`unknown option: ${arg}`);
   }
   if (!['unsigned', 'signed'].includes(opts.signing)) {
@@ -219,6 +222,10 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxPr
     schema: 'kirin-hypha-windows-installer-v1',
     schema_version: 1,
     generated_at: new Date().toISOString(),
+    updateCheck: { ...updateBinding(opts.updatePublicKey), binaries: [
+      ...payloadRecords.map(record => ({ role: record.role, format: 'VST3', ...inspectUpdateBinary(record.binary, opts.updatePublicKey) })),
+      ...aaxPayloadRecords.map(record => ({ role: record.role, format: 'AAX', ...inspectUpdateBinary(record.binary, opts.updatePublicKey) })),
+    ] },
     product: {
       name: PRODUCT_NAME,
       version: VERSION,
@@ -301,6 +308,7 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxPr
 }
 
 export async function buildInstaller(opts) {
+  validatePublicKey(opts.updatePublicKey || '');
   if (process.platform !== 'win32') throw new Error('Windows installer builds must run on Windows');
   if (opts.signing === 'signed') signingEnvironment();
   let aaxProvenance = null;
@@ -308,6 +316,7 @@ export async function buildInstaller(opts) {
     aaxProvenance = loadWindowsAaxSignedProvenance({
       artifactRoot: opts.aaxArtifactDir,
       version: VERSION,
+      updatePublicKey: opts.updatePublicKey || '',
     });
     opts = bindAaxSourceIdentity(opts, requireCleanReleaseSource({ root: ROOT }), aaxProvenance);
   } else {
@@ -328,6 +337,7 @@ export async function buildInstaller(opts) {
   fs.mkdirSync(payloadDir, { recursive: true });
 
   const sourceRecords = ['PRE', 'POST'].map((role) => bundleRecord(opts.artifactDir, role));
+  for (const record of sourceRecords) inspectUpdateBinary(record.binary, opts.updatePublicKey || '');
   const aaxSourceRecords = opts.aaxArtifactDir
     ? loadWindowsAaxBundleManifest({ artifactRoot: opts.aaxArtifactDir }).bundles
     : [];

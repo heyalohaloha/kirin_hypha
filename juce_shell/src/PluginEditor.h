@@ -25,6 +25,7 @@
 #include "HyphaUiPreferences.h"
 #include "HyphaWidgets.h"
 #include "appearance/AppearanceService.h"
+#include "update/UpdateChecker.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
@@ -211,6 +212,14 @@ private:
     void showInformationMenu();
     void handleInformationMenu (int result);
     bool informationBlockedByBlind() const;
+    void configureUpdateChecking();
+    void refreshUpdateChecking();
+    void addUpdateCheckMenu (juce::PopupMenu&) const;
+    bool handleUpdateCheckMenu (int result);
+    std::shared_ptr<hypha::update::Checker> updateChecker;
+    double nextUpdateSnapshotAt = 0.0;
+    std::uint64_t manualUpdateToken = 0, updatePreferenceToken = 0;
+    bool requestedUpdatePreference = false;
     void handleCandidateMenu (int result,
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();

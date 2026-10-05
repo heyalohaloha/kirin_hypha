@@ -10,6 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
+# Each invocation supplies an explicit input, including empty; cached keys never enable checking.
+export KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT="${KIRIN_HYPHA_UPDATE_PUBLIC_KEY:-}"
+node scripts/updates/update_key_binding.mjs key >/dev/null
 
 echo "==> cargo build kirin_hypha_ffi (x86_64-apple-darwin)"
 cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin
@@ -39,11 +42,14 @@ cmake --build juce_shell/build-universal --config Release --clean-first
 
 for role in PRE POST; do
   plist="juce_shell/build-universal/KirinHypha${role}_artefacts/Release/AU/Kirin Hypha ${role}.component/Contents/Info.plist"
-  /usr/libexec/PlistBuddy -c "Print :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write" "$plist" >/dev/null
-  if /usr/libexec/PlistBuddy -c "Print :AudioComponents:0:resourceUsage:network.client" "$plist" >/dev/null 2>&1; then
-    echo "ERROR: ${role} AU still declares network.client resourceUsage" >&2
+  # Dotted plist keys cannot be extracted with a dotted keypath; use the existing
+  # PlistBuddy dictionary path, then verify the value instead of mere key presence.
+  files_access="$(/usr/libexec/PlistBuddy -c 'Print :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write' "$plist")"
+  if [[ "$files_access" != "true" ]]; then
+    echo "ERROR: ${role} AU missing true files.all permission" >&2
     exit 1
   fi
 done
+node scripts/updates/update_key_binding.mjs mac-tree juce_shell/build-universal 4 >/dev/null
 
 echo "==> universal bundles under juce_shell/build-universal/KirinHypha{PRE,POST}_artefacts/Release/"

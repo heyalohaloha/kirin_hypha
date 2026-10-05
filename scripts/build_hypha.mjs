@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { sourceSnapshot } from './hypha_build_source.mjs';
 export { sourceSnapshot } from './hypha_build_source.mjs';
 import { rejectSignedArtifacts, verifyArtifacts } from './hypha_build_artifacts.mjs';
+import { validatePublicKey, updateBinding, assertUpdateBinding } from './updates/update_key_binding.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const PROJECT_ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
@@ -27,6 +28,7 @@ Options:
   --arch universal|x64  Must match the supported OS matrix; Windows ARM64 is not assumed
   --jobs N              Native build parallelism (default: 2)
   --build-id ID         Separate output/cache under target/hypha-build (default: default)
+  --update-public-key KEY  Explicit approved public RSA key; default empty disables checking
   --dry-run             Read-only validation and command plan; no build tools run
   --verify-only         Recheck the existing build manifest/binaries; no rebuild
   --help                Show this entry and the signing/release boundary
@@ -39,9 +41,10 @@ End-to-end through HP: node scripts/build_hypha.mjs --release --help
 
 export function parseArgs(argv, env = process.env) {
   const options = { sdk: env.KIRIN_AAX_SDK_PATH || '', licenseConfirmed: false,
-    platform: '', arch: '', jobs: 2, buildId: 'default', dryRun: false, verifyOnly: false, withoutAax: false };
+    platform: '', arch: '', jobs: 2, buildId: 'default', dryRun: false, verifyOnly: false, withoutAax: false,
+    updatePublicKey: '' };
   const values = { '--sdk': 'sdk', '--platform': 'platform', '--arch': 'arch',
-    '--jobs': 'jobs', '--build-id': 'buildId' };
+    '--jobs': 'jobs', '--build-id': 'buildId', '--update-public-key': 'updatePublicKey' };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (Object.hasOwn(values, arg)) {
@@ -77,6 +80,7 @@ function rejectSymlinkAncestors(root, candidate) {
 
 export function createPlan(options, { root = PROJECT_ROOT, host = process.platform } = {}) {
   root = fs.realpathSync(root);
+  const updatePublicKey = validatePublicKey(options.updatePublicKey || '');
   const platform = options.platform || ({ darwin: 'macos', win32: 'windows' }[host]);
   if (!['macos', 'windows'].includes(platform)) throw new Error('Only macOS and Windows are supported');
   const arch = platform === 'macos' ? 'universal' : 'x64';
@@ -132,18 +136,19 @@ export function createPlan(options, { root = PROJECT_ROOT, host = process.platfo
     '-DKIRIN_HYPHA_KIMERA_FONT_FILE=', '-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=OFF'];
   if (platform === 'macos') configure.push('-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64');
   else configure.push('-G', 'Visual Studio 17 2022', '-A', 'x64');
-  commands.push(command('cmake', configure), command('cmake', ['--build', buildDir,
+  const buildEnvironment = { KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT: updatePublicKey };
+  commands.push({ ...command('cmake', configure), env: buildEnvironment }, { ...command('cmake', ['--build', buildDir,
     '--config', 'Release', '--target',
     ...['PRE', 'POST'].flatMap((role) => formats.map((format) => `KirinHypha${role}_${format}`)),
-    '--parallel', String(options.jobs)]));
-  return { root, platform, arch, label, buildDir, version, formats, preparation, commands,
+    '--parallel', String(options.jobs)]), env: buildEnvironment });
+  return { root, platform, arch, label, buildDir, version, formats, preparation, commands, updatePublicKey,
     manifestPath: path.join(buildDir, 'hypha-build.json') };
 }
 
 export function commandRunner(root) {
-  return (tool, args, { capture = false, allowFailure = false, includeStderr = false } = {}) => {
+  return (tool, args, { capture = false, allowFailure = false, includeStderr = false, env = {} } = {}) => {
     const result = childProcess.spawnSync(tool, args, { cwd: root, encoding: 'utf8',
-      stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', maxBuffer: 32 * 1024 * 1024 });
+      env: { ...process.env, ...env }, stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', maxBuffer: 32 * 1024 * 1024 });
     if (!allowFailure && (result.error || result.status !== 0)) {
       throw new Error(`${tool} failed (exit ${result.status ?? 'unavailable'})`);
     }
@@ -161,6 +166,7 @@ export function executePlan(plan, options, { run = commandRunner(plan.root),
   }
   if (options.verifyOnly) {
     const saved = JSON.parse(fs.readFileSync(plan.manifestPath, 'utf8'));
+    assertUpdateBinding(saved.updateCheck, plan.updatePublicKey);
     if (saved.schema !== 'kirin-hypha-local-build-v1' || saved.platform !== plan.label
         || saved.version !== plan.version || saved.source.fingerprint !== snapshot(plan.root).fingerprint) {
       throw new Error('Build manifest does not match current source/platform/version');
@@ -181,7 +187,7 @@ export function executePlan(plan, options, { run = commandRunner(plan.root),
     if (fs.existsSync(plan.manifestPath)) fs.unlinkSync(plan.manifestPath);
     invalidated = true;
     fs.mkdirSync(path.join(plan.buildDir, 'ffi'), { recursive: true });
-    for (const { tool, args } of plan.commands) run(tool, args);
+    for (const { tool, args, env } of plan.commands) run(tool, args, { env });
     const artifacts = verify(plan, run);
     const after = snapshot(plan.root);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
@@ -190,7 +196,7 @@ export function executePlan(plan, options, { run = commandRunner(plan.root),
     const result = { schema: 'kirin-hypha-local-build-v1', generatedAt: new Date().toISOString(),
       platform: plan.label, version: plan.version, source: after,
       buildOnly: true, signed: false, notarized: false, notForDistribution: true,
-      hostAcceptance: 'not tested', artifacts };
+      hostAcceptance: 'not tested', updateCheck: updateBinding(plan.updatePublicKey), artifacts };
     fs.writeFileSync(plan.manifestPath, `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' });
     log(`[hypha-build] PASS: ${artifacts.length} verified bundles -> ${plan.manifestPath}`);
     return result;

@@ -20,6 +20,7 @@ mod rt_safety;
 mod shell_parity;
 mod ship_bundle;
 mod stamp_version;
+mod update_package_binding;
 mod windows_preflight;
 mod windows_readiness;
 mod windows_vst3_layout;

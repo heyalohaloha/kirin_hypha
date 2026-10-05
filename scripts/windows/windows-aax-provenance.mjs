@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspectUpdateBinary, updateBinding, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 
 import {
   inspectWindowsAaxRecord,
@@ -54,6 +55,12 @@ function inspectRecords(artifactRoot) {
       sha256: inspected.binarySha256,
     };
   });
+}
+
+function inspectUpdateRecords(artifactRoot, key) {
+  return { ...updateBinding(key), binaries: loadWindowsAaxBundleManifest({ artifactRoot }).bundles.map(record => ({
+    role: record.role, format: 'AAX', ...inspectUpdateBinary(inspectWindowsAaxRecord(record).binary, key),
+  })) };
 }
 
 function cmakeCacheValue(cache, name) {
@@ -136,6 +143,7 @@ export function writeWindowsAaxBuildProvenance({
   artifactRoot,
   version,
   source,
+  updatePublicKey = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '',
 }) {
   validateSource(source);
   const resolvedRoot = path.resolve(artifactRoot);
@@ -143,6 +151,7 @@ export function writeWindowsAaxBuildProvenance({
     schema: BUILD_SCHEMA,
     generated_at: new Date().toISOString(),
     source,
+    updateCheck: inspectUpdateRecords(resolvedRoot, updatePublicKey),
     product: {
       name: 'Kirin Hypha',
       version,
@@ -161,6 +170,7 @@ export function loadWindowsAaxBuildProvenance({
   artifactRoot,
   version,
   requireReleaseReady = false,
+  updatePublicKey = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '',
 }) {
   const resolvedRoot = path.resolve(artifactRoot);
   const manifestPath = path.join(resolvedRoot, BUILD_MANIFEST_NAME);
@@ -173,6 +183,10 @@ export function loadWindowsAaxBuildProvenance({
     throw new Error('Windows AAX release signing requires clean source');
   }
   validateBundles(manifest.bundles, inspectRecords(resolvedRoot));
+  assertPackageUpdateBinding(manifest.updateCheck, updatePublicKey, ['AAX/PRE', 'AAX/POST']);
+  if (JSON.stringify(manifest.updateCheck) !== JSON.stringify(inspectUpdateRecords(resolvedRoot, updatePublicKey))) {
+    throw new Error('Windows AAX update key build evidence changed');
+  }
   return { manifest, manifestPath, manifestSha256: sha256File(manifestPath) };
 }
 
@@ -181,11 +195,13 @@ export function writeWindowsAaxSignedProvenance({
   signedArtifactRoot,
   version,
   wraptool,
+  updatePublicKey = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '',
 }) {
   const build = loadWindowsAaxBuildProvenance({
     artifactRoot: sourceArtifactRoot,
     version,
     requireReleaseReady: true,
+    updatePublicKey,
   });
   const signedRoot = path.resolve(signedArtifactRoot);
   const signedRecords = loadWindowsAaxBundleManifest({ artifactRoot: signedRoot }).bundles.map((record) => {
@@ -206,6 +222,7 @@ export function writeWindowsAaxSignedProvenance({
     source: build.manifest.source,
     product: build.manifest.product,
     release: build.manifest.release,
+    updateCheck: inspectUpdateRecords(signedRoot, updatePublicKey),
     unsigned_build: {
       manifest_sha256: build.manifestSha256,
       bundles: build.manifest.bundles,
@@ -222,7 +239,7 @@ export function writeWindowsAaxSignedProvenance({
   return { manifest, manifestPath, manifestSha256: sha256File(manifestPath) };
 }
 
-export function loadWindowsAaxSignedProvenance({ artifactRoot, version }) {
+export function loadWindowsAaxSignedProvenance({ artifactRoot, version, updatePublicKey = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '' }) {
   const resolvedRoot = path.resolve(artifactRoot);
   const manifestPath = path.join(resolvedRoot, SIGNED_MANIFEST_NAME);
   const manifest = readJson(manifestPath, 'signed Windows AAX provenance');
@@ -249,6 +266,10 @@ export function loadWindowsAaxSignedProvenance({ artifactRoot, version }) {
     }
   }
   validateBundles(manifest.bundles, inspectRecords(resolvedRoot));
+  assertPackageUpdateBinding(manifest.updateCheck, updatePublicKey, ['AAX/PRE', 'AAX/POST']);
+  if (JSON.stringify(manifest.updateCheck) !== JSON.stringify(inspectUpdateRecords(resolvedRoot, updatePublicKey))) {
+    throw new Error('Windows signed AAX update key evidence changed');
+  }
   return { manifest, manifestPath, manifestSha256: sha256File(manifestPath) };
 }
 

@@ -17,6 +17,16 @@ Kirin Hypha ships through three release surfaces. Updating only one leaves the o
 
 The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
 
+Optional update verification uses the same explicitly approved RSA public key for every role,
+format and OS. Empty is the explicit default and disables checking; stale CMake caches do not
+enable it. See the [release entry](../hypha_release_entry.md) for the input routes. Every package
+records `updateCheck` with the canonical key SHA-256 and hashes of the actual distributed
+binaries. macOS verifies expanded PKG/extracted ZIP bytes and their plist/key markers, requiring
+both ARM64/Intel fat slices to carry the same key and retaining each slice hash; Windows
+ties the signed PRE/POST VST3/AAX markers to the installer payload and signed AAX provenance.
+The freeze binds the approved key, and the offline manifest producer rejects a different signer.
+Previous artifacts missing this evidence cannot qualify as a newly enabled update build.
+
 ## Files
 
 - Runbook: `docs/ls_release/kirin_hypha_ls_runbook.md`

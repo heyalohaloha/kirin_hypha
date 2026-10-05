@@ -10,12 +10,18 @@ param(
 
   [switch]$Distribution,
 
+  [string]$UpdatePublicKey = "",
+
   [string]$BuildDir = "build-aax-windows"
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
+$env:KIRIN_HYPHA_UPDATE_PUBLIC_KEY = $UpdatePublicKey
+$env:KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT = $UpdatePublicKey
+& node scripts/updates/update_key_binding.mjs key
+if ($LASTEXITCODE -ne 0) { throw "Approved update public-key input is invalid" }
 
 if (!$LicenseConfirmed) {
   throw "-LicenseConfirmed is required for the external AAX SDK"

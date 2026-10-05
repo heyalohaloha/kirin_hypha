@@ -115,6 +115,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # JUCE 7.0.12 (GPLv3 option), pinned as submodule. Does not touch crates/ or xtask.
 add_subdirectory(JUCE)
+include(cmake/UpdateChecking.cmake)
 if(KIRIN_HYPHA_AAX_ENABLED)
     juce_set_aax_sdk_path("${KIRIN_HYPHA_AAX_SDK_PATH}")
 endif()
@@ -277,9 +278,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         NEEDS_MIDI_OUTPUT FALSE
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-        # B-130 (G-115-373 / §7): JUCE 既定の AU resourceUsage（network.client +
-        # temporary-exception.files.all.read-write）を抑止し、下の POST_BUILD で自前最小
-        # （files.all のみ・network.client なし）を宣言する。Hypha は通信せず plugin_data 書込のみ。
+        # Explicit AU file access plus opt-in update permission (only with a pinned key).
         SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
@@ -374,6 +373,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         ${MAIN_SRC})
 
     target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_GUIDE_TRANSPORT=1)
+    hypha_add_update_checking(${TARGET})
     target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
 
     if("${TARGET}" STREQUAL "KirinHyphaPRE")
@@ -522,16 +522,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             juce::juce_recommended_warning_flags)
 
     if(APPLE)
-        # B-130 (G-115-373 / §7): SUPPRESS で消えた AU resourceUsage に、自前最小（files.all のみ・
-        # network.client なし）を AU bundle の Info.plist へ POST_BUILD で付与する。AU sandbox（GarageBand 等）
-        # で plugin_data（bundle 外）書込に files exception が要るため files.all は保持。network.client は §7 で除去。
-        add_custom_command(TARGET ${TARGET}_AU POST_BUILD
-            COMMAND /bin/sh -c
-                "/usr/libexec/PlistBuddy -c 'Delete :AudioComponents:0:resourceUsage' \"$1\" >/dev/null 2>&1 || true; /usr/libexec/PlistBuddy -c 'Add :AudioComponents:0:resourceUsage dict' -c 'Add :AudioComponents:0:resourceUsage:temporary-exception.files.all.read-write bool true' \"$1\""
-                _
-                "$<TARGET_FILE_DIR:${TARGET}_AU>/../Info.plist"
-            VERBATIM
-            COMMENT "B-130: AU resourceUsage = files.all only (no network.client)")
+        hypha_au_resource_usage(${TARGET})
     endif()
 endfunction()
 
@@ -1103,3 +1094,5 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     add_test(NAME kirin_reference_audition_component
         COMMAND KirinReferenceAuditionComponentTests)
 endif()
+
+include(cmake/UpdateIntegrationTests.cmake)

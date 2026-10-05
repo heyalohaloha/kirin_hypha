@@ -32,6 +32,7 @@
 #endif
 #include "reference_audition/ReferenceComparisonController.h"
 #include "reference_audition/ReferenceLiveALevel.h"
+#include "update/UpdateServiceOwner.h"
 
 class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt fixture only
 
@@ -73,6 +74,7 @@ public:
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
+    hypha::update::ServiceOwner& updateServicesForEditor() noexcept { return updateServiceOwner; }
 
     juce::AudioProcessorParameter* getBypassParameter() const override;
 
@@ -360,6 +362,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    hypha::update::ServiceOwner updateServiceOwner;
     friend class LiveTimingFixtureAccess; // no runtime method or product policy override
     hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)

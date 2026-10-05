@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireCleanReleaseSource } from './release_source_identity.mjs';
+import { assertPackageUpdateBinding, validatePublicKey } from '../updates/update_key_binding.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(THIS_FILE);
@@ -138,7 +139,7 @@ function requireValidSigningTargets(manifest, { requireAax }) {
 export function requireWindowsInstaller(
   value,
   expectedIdentity = currentReleaseIdentity(),
-  { requireAax = false } = {},
+  { requireAax = false, updatePublicKey = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '' } = {},
 ) {
   const candidates = [
     value,
@@ -319,6 +320,17 @@ export function requireWindowsInstaller(
   if (manifest.distribution?.primary !== true || manifest.distribution?.public_ready !== true) {
     throw new Error('Windows installer manifest does not mark the primary artifact public-ready');
   }
+  assertPackageUpdateBinding(manifest.updateCheck, updatePublicKey,
+    ['VST3/PRE', 'VST3/POST', ...(requireAax ? ['AAX/PRE', 'AAX/POST'] : [])]);
+  for (const record of manifest.updateCheck.binaries) {
+    const payload = [...payloads, ...(manifest.installer.aax_payload || [])]
+      .find(p => p.role === record.role && (p.format || 'VST3') === record.format);
+    if (payload?.binary_sha256 !== record.binarySha256) throw new Error('Windows update key evidence differs from accepted payload hash');
+  }
+  if (requireAax) {
+    const aax = JSON.parse(fs.readFileSync(path.join(directory, manifest.distribution.aax_identity.signed_manifest), 'utf8'));
+    assertPackageUpdateBinding(aax.updateCheck, updatePublicKey, ['AAX/PRE', 'AAX/POST']);
+  }
   return installer;
 }
 
@@ -328,6 +340,7 @@ function runMain() {
     console.log(usage());
     return;
   }
+  validatePublicKey(process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '');
   const source = requireCleanReleaseSource({ root: ROOT });
   const releaseIdentity = {
     ...currentReleaseIdentity(),

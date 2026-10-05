@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { inspectUpdateBinary, verifyUpdatePlist } from './updates/update_key_binding.mjs';
 
 export function expectedArtifacts(platform, buildDir,
   formats = platform === 'macos' ? ['AAX', 'AU', 'VST3'] : ['AAX', 'VST3']) {
@@ -58,7 +59,7 @@ export function rejectSignedArtifacts(platform, buildDir, run) {
   }
 }
 
-export function verifyArtifacts({ platform, buildDir, version, formats }, run) {
+export function verifyArtifacts({ platform, buildDir, version, formats, updatePublicKey = '' }, run) {
   return expectedArtifacts(platform, buildDir, formats).map((artifact) => {
     const stat = fs.statSync(artifact.executable, { throwIfNoEntry: false });
     if (!stat?.isFile() || stat.size === 0) {
@@ -72,6 +73,8 @@ export function verifyArtifacts({ platform, buildDir, version, formats }, run) {
         throw new Error(`${artifact.role} ${artifact.format} is not Universal`);
       }
       const plist = path.join(artifact.bundle, 'Contents', 'Info.plist');
+      verifyUpdatePlist(JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', plist], { capture: true })),
+        updatePublicKey, artifact.format === 'AU');
       const value = (key) => run('/usr/libexec/PlistBuddy',
         ['-c', `Print :${key}`, plist], { capture: true }).trim();
       if (value('CFBundleShortVersionString') !== version
@@ -96,7 +99,7 @@ export function verifyArtifacts({ platform, buildDir, version, formats }, run) {
       }
       architectures = ['x64'];
     }
-    return { ...artifact, architectures, bytes: stat.size,
+    return { ...artifact, architectures, bytes: stat.size, updateCheck: inspectUpdateBinary(artifact.executable, updatePublicKey, { universal: platform === 'macos' }),
       sha256: crypto.createHash('sha256').update(fs.readFileSync(artifact.executable)).digest('hex') };
   });
 }

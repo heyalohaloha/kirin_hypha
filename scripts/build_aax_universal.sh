@@ -16,6 +16,8 @@ KIMERA_LICENSE_CONFIRMED=0
 DEFAULT_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool"
 FALLBACK_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool"
 NOTARY_PROFILE="${KIRIN_NOTARY_PROFILE:-kirin-notarize}"
+export KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT="${KIRIN_HYPHA_UPDATE_PUBLIC_KEY:-}"
+node scripts/updates/update_key_binding.mjs key >/dev/null
 
 usage() {
   cat <<'EOF'
@@ -252,6 +254,7 @@ for role in PRE POST; do
     archs="$(lipo -archs "$binary")"
     [[ " $archs " == *" x86_64 "* && " $archs " == *" arm64 "* ]] \
       || fail "${role} is not Universal: $archs"
+    node scripts/updates/update_key_binding.mjs mac-bundles "$bundle" >/dev/null
   fi
 done
 

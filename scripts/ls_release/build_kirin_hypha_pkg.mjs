@@ -12,6 +12,7 @@ import {
 } from './aax_notarization_receipt.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
+import { inspectMacBundle, inspectMacTree, validatePublicKey } from '../updates/update_key_binding.mjs';
 import {
   readReleaseSourceIdentity,
   requireCleanReleaseSource,
@@ -37,6 +38,7 @@ const WITH_AAX = process.argv.includes('--with-aax');
 const shipManifest = loadMacShipBundleManifest({ root: ROOT });
 const aaxManifest = WITH_AAX ? loadMacAaxBundleManifest({ root: ROOT }) : null;
 const bundles = [...shipManifest.bundles, ...(aaxManifest?.bundles || [])];
+const UPDATE_PUBLIC_KEY = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '';
 
 function usage() {
   return `Usage:
@@ -52,6 +54,7 @@ Environment:
   KIRIN_NOTARY_PROFILE=<name>   notarytool keychain profile. Default: ${NOTARY_PROFILE}
   KIRIN_SKIP_PKG_SIGN=1         Build an UNSIGNED-DO-NOT-UPLOAD smoke package
   KIRIN_SKIP_PKG_NOTARIZE=1     Sign but do not notarize/staple
+  KIRIN_HYPHA_UPDATE_PUBLIC_KEY Approved public key; explicit empty default disables checking
 `;
 }
 
@@ -115,12 +118,13 @@ function verifySourceBundle(bundle, releaseIdentity) {
     if (actual !== VERSION) throw new Error(`${bundle.label} ${key}=${actual}, expected ${VERSION}`);
   }
   if (bundle.kind === 'au') {
-    const usage = run('plutil', ['-p', plist], { capture: true });
-    if (!usage.includes('temporary-exception.files.all.read-write')) {
+    const value = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', plist], { capture: true }));
+    const usage = value.AudioComponents?.[0]?.resourceUsage ?? {};
+    if (usage['temporary-exception.files.all.read-write'] !== true) {
       throw new Error(`${bundle.label} AU resourceUsage missing files.all`);
     }
-    if (usage.includes('network.client')) throw new Error(`${bundle.label} AU resourceUsage has network.client`);
   }
+  inspectMacBundle(source, UPDATE_PUBLIC_KEY);
   if (bundle.kind === 'aax') {
     verifyAaxBundle({
       bundlePath: source,
@@ -221,12 +225,13 @@ function findBundleDirectories(root, expectedNames) {
   return matches;
 }
 
-function verifyPackagedAax(packagePath) {
-  if (!WITH_AAX) return;
+function verifyPackagedPayload(packagePath) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-expand-'));
   const expanded = path.join(temporary, 'expanded');
   try {
     run('pkgutil', ['--expand-full', packagePath, expanded]);
+    const updateCheck = inspectMacTree(expanded, UPDATE_PUBLIC_KEY, WITH_AAX ? 6 : 4);
+    if (!WITH_AAX) return updateCheck;
     const expectedNames = aaxManifest.bundles.map((bundle) => path.basename(bundle.install_relative));
     const matches = findBundleDirectories(expanded, expectedNames);
     const payloadDirectories = new Set();
@@ -246,6 +251,7 @@ function verifyPackagedAax(packagePath) {
       artifactDir: aaxManifest.defaultBuildRoot,
       payloadDir: [...payloadDirectories][0],
     });
+    return updateCheck;
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -258,6 +264,7 @@ function buildPackage() {
   }
   const unknown = process.argv.slice(2).filter((arg) => arg !== '--with-aax');
   if (unknown.length > 0) throw new Error(`unknown option: ${unknown[0]}`);
+  validatePublicKey(UPDATE_PUBLIC_KEY);
 
   const releaseIdentity = SKIP_SIGN
     ? readReleaseSourceIdentity({ root: ROOT })
@@ -356,7 +363,7 @@ function buildPackage() {
   }
 
   run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
-  verifyPackagedAax(PACKAGE_PATH);
+  const updateCheck = verifyPackagedPayload(PACKAGE_PATH);
   if (!SKIP_SIGN) {
     run('pkgutil', ['--check-signature', PACKAGE_PATH]);
     if (!SKIP_NOTARIZE) run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
@@ -367,6 +374,7 @@ function buildPackage() {
     schema: 'kirin-hypha-pkg-artifact-v1',
     product: 'Kirin Hypha',
     version: VERSION,
+    updateCheck,
     fileName: path.basename(PACKAGE_PATH),
     path: path.relative(ROOT, PACKAGE_PATH),
     size,

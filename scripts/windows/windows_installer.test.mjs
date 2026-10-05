@@ -55,6 +55,7 @@ function createPeFixture(filePath, machine = 0x8664) {
   data.writeUInt16LE(machine, 0x84);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, data);
+  fs.appendFileSync(filePath, 'KirinHyphaUpdateKeySha256=disabled;');
 }
 
 function createAaxBuildConfiguration(root, { kimeraEmbedded, distributionBuild }) {
@@ -83,6 +84,7 @@ test('Windows installer arguments default to unsigned fail-safe CI mode', () => 
       bNumber: process.env.KIRIN_B_NUMBER || '',
       commit: process.env.KIRIN_COMMIT || '',
       runUrl: process.env.KIRIN_GITHUB_RUN_URL || '',
+      updatePublicKey: '',
       help: false,
     },
   );
@@ -137,6 +139,7 @@ test('Windows AAX build provenance pins source, optional typography, surface, an
     source: verified.manifest.source,
     product: verified.manifest.product,
     release: verified.manifest.release,
+    updateCheck: verified.manifest.updateCheck,
     unsigned_build: {
       manifest_sha256: verified.manifestSha256,
       bundles: verified.manifest.bundles,

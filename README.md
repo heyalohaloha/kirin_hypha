@@ -542,7 +542,29 @@ The manual VST3 ZIP is a diagnostic and recovery fallback, not the normal instal
 
 ## Sandbox & privacy (Audio Unit)
 
-The Audio Unit declares a broad file-access entitlement (`temporary-exception.files.all.read-write`), which the AU sandbox requires for the plug-in to persist its session data (`.kirin` and plug-in data) on disk. The build declares no network entitlement and links no networking or web frameworks — you can confirm this with `codesign -d --entitlements - "Kirin Hypha PRE.component"` and `otool -L "Kirin Hypha PRE.component"`.
+The Audio Unit preserves its file-access declaration (`temporary-exception.files.all.read-write`) for
+session and plug-in data. Builds without the official update verification key declare no network
+access. A deliberately provisioned update build additionally declares `network.client` and the
+update protocol marker; signing and packaging gates check these together.
+
+### Optional update information
+
+The PRE / POST information menu retains explicit English/Japanese official download links. The
+new update checker is **OFF by default**. When enabled (or explicitly checked), it requests only
+one fixed official manifest, with a shared **24-hour limit including failures and cancellations**.
+The download page opens only when you choose it; Hypha does not install updates automatically.
+
+Update storage and exclusion are dedicated to `Kirin Hypha/UpdateCheck/v1`, not Kirin OS
+identity, Reference delivery/lease, or Record data. HTTP, signature checks and storage run on a
+separate worker, never in audio processing. Checks send no installation, license, Work or audio
+identifiers. The server still receives ordinary network information such as the IP address.
+Invalid, expired or unsigned information cannot announce a release. Normal use works offline.
+
+This source includes the implementation and offline tests, **not a published update service**.
+No production verification key is provisioned here: until a key and signed official endpoint are
+approved and deployed, checks make no HTTP request and the manual official links remain usable.
+See [update implementation and acceptance](docs/hypha_update_check_contract_20261005.md) for
+the precise host/format, lifecycle and outstanding real-device verification boundaries.
 
 ## Pairing PRE and POST
 

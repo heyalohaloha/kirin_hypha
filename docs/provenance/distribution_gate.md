@@ -23,6 +23,22 @@ replacement. A new hash never inherits permission automatically.
 The inspected CMake build contract is hash-bound in the registry. Changed embedding declarations,
 including appended resources, require review and a corresponding registry update.
 
+### 2026-10-05 optional updater build-contract review
+
+Base: `cd045837b4f4c28c08ade2cdb3ea707560b39ff7` (B-1229). At review time, the updater candidate
+was uncommitted; the review did not assert exact-commit or release acceptance. Independent read-only review
+and the implementation session compared the CMake difference and inspected
+`UpdateChecking.cmake`, `UpdateTrust.cmake` and `UpdateIntegrationTests.cmake`.
+The original `KIRIN_HYPHA_DATA_SOURCES` declaration and the three embedded PNG hashes are
+unchanged. These helpers add original updater code, system-framework links, trust/plist metadata
+and fixture tests, with no image append, replacement or optional-font change.
+The reviewed candidate `CMakeLists.txt` SHA-256 is
+`35fecd970c53c985e359f08b015f18756661db4401ad2dda06389adec9cd05bf`; only the registry's
+build-contract hash is advanced. Existing material hashes, holds, rights evidence and allowed
+uses are not changed. Whole-file contract drift continues to fail closed. This bounded technical
+review is not new asset permission, extraction/linkage evidence, legal certification or release
+approval. Exact-candidate linkage/NOTICE/source delivery and all release-specific gates remain.
+
 Public CI continues the complete build/test matrix but suppresses new Windows UI/binary/installer/
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked
 separately from binary use. Diagnostic CI also lacks verified actual-payload NOTICE/source delivery,

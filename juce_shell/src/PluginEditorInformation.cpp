@@ -55,6 +55,7 @@ void KirinHyphaEditor::showInformationMenu()
         menu.addItem (chainFooterMenuAction, "Show in the footer", true,
                       hypha::ChainTimingFooterPreference::shared().isEnabled());
     }
+    addUpdateCheckMenu (menu);
    #if JUCE_DEBUG
     juce::PopupMenu validation;
     int diagnosticId = 1000;
@@ -98,6 +99,7 @@ void KirinHyphaEditor::showInformationMenu()
 void KirinHyphaEditor::handleInformationMenu (int result)
 {
     if (result == 0) return;
+    if (handleUpdateCheckMenu (result)) return;
     if (result == 11)
     {
         const bool enabled = ! processorRef.hybridVuOnRecordPreference();

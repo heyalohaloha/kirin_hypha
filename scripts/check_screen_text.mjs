@@ -24,6 +24,7 @@ const offScreen = [
   /^juce_shell\/src\/PluginProcessorValidation\.cpp$/,
   /^juce_shell\/src\/CaptureWorkAttachment\.cpp$/,
   /^juce_shell\/src\/appearance\//,
+  /^juce_shell\/src\/update\//,
   /^juce_shell\/src\/local_blind\//,
   /^juce_shell\/src\/reference_audition\/(?!ReferenceComparisonController\.cpp|ReferenceRuntimeV2Workspace\.cpp)/,
   /^juce_shell\/src\/pre_display\/(?!PreDisplayProjection\.cpp)/,
