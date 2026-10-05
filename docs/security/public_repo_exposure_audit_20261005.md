@@ -1156,3 +1156,11 @@ Originals and private review/evidence copies are outside the public checkout; no
 private credential file was added. Session-record runbook honors the project Notion-write prohibition:
 current/daily/Handoff contents will be preserved privately in that order, and Notion remains unrecorded.
 The private originals are a local transfer backup, not a claim of completed permanent private migration.
+
+## Stage2 factual precision and forward decisions
+
+Stage2 adds the [12-ID H1 decision matrix](public_repo_h1_decision_matrix_20261005.md), [full A manifest](public_hygiene_change_manifest_20261005.md), [binary plan](binary_path_normalization_plan_20261005.md), [signing boundary](signing_trust_boundary_20261005.md), [fresh GitHub baseline](github_repository_security_baseline_20261005.md), and [review packet](security_hardening_review_packet_20261005.md). No history rewrite, tag/Release mutation or production flags were applied.
+
+Precision correction: earlier six-file license inventory used bare LICENSE names plus license-engine source. The complete tracked inventory is seven LICENSE texts (including baseview LICENSE-APACHE and LICENSE-MIT) plus `crates/kirin_measure/src/license.rs`, eight relatedfiles total, all byte-identical across a8→d27. There is no tracked NOTICE file. This corrects count wording; no legal file changed.
+
+The prior 24-branch/40-tag snapshot remains the coverage basis. Stage2 cached origin/claude/hypha-abcv-h advanced from snapshot3d74286f to a5bb2234; both objects exist and the H1 table uses the snapshot SHA. Fresh API main remains a8. Do not interpret the snapshot as allrefs current at the later timestamp.
