@@ -3,6 +3,7 @@
 // 使い続けていた）。外した項目は名前と、名前の字が原因か（直し方は Kirin OS で名前を直す）を残す。1 項目ずつの確かめは
 // 今までと同じ厳しさ。試験は tests/fixtures の Kirin OS の書き出しの写し（試験用のフォルダの中）だけを書き換える。
 #include "reference_runtime_test_support.h"
+#include "KirinLibraryFixture.h"
 #include "../src/reference_audition/ReferenceLibrarySets.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceRuntimeEventTransport.h"
@@ -13,10 +14,8 @@ namespace
 {
 juce::File libraryCopy (const juce::File& sandbox, const char* name)
 {
-    const auto source = juce::File (KIRIN_REFERENCE_FIXTURE_DIR).getChildFile ("kirin_os_library_abcv");
-    const auto root = sandbox.getChildFile (name);
-    require (root.isAChildOf (sandbox) && source.isDirectory() && source.copyDirectoryTo (root),
-             "the Kirin OS library fixture is copied inside the test folder");
+    const auto root = kirin_library_fixture::copy (sandbox, name);
+    require (root != juce::File(), "the Kirin OS library fixture is copied inside the test folder");
     return root;
 }
 

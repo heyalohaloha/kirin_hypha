@@ -1,6 +1,7 @@
 // B・V の追従 gain（1 秒ごと・0.5 dB 以内は動かさない・50 ms の ramp・上限で止めて知らせる）と、
 // C の固定 Match（Kirin OS の Cue の値 × A の同じ長さ）。
 #include "reference_runtime_v2_analysis_test_support.h"
+#include "KirinLibraryFixture.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
@@ -125,9 +126,8 @@ namespace
 // Kirin OS が書いた本物の ranges から、B セットの曲の「サビ候補」の Cue の値を読む。
 void readsKirinOsCueLevel (const juce::File& sandbox)
 {
-    const auto root = sandbox.getChildFile ("cue-level");
-    require (juce::File (KIRIN_REFERENCE_FIXTURE_DIR).getChildFile ("kirin_os_library_abcv").copyDirectoryTo (root),
-             "the Kirin OS library fixture must be copied");
+    const auto root = kirin_library_fixture::copy (sandbox, "cue-level");
+    require (root != juce::File(), "the Kirin OS library fixture must be copied");
     ref::RuntimeV2Repository repository (root);
     const auto loaded = repository.refreshLibrary();
     require (loaded.usable() && loaded.workspace->librarySets, "the fixture library must be read");
