@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaBuildIdentity.h"
+#include "HyphaChainTimingText.h"
 #include "HyphaLocalBlindUiContract.h"
 #include "HyphaPluginFormat.h"
 #include "HyphaUpdateContract.h"
@@ -42,6 +43,15 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addItem (3, juce::String ("Source ") + HYPHA_SOURCE_ID + " / "
                       + HYPHA_SOURCE_STATE, false);
     menu.addItem (4, "Official release identity not verified", false);
+    if (isPost)
+    {
+        // Read as the menu opens; a reading that is not measured states its reason instead.
+        menu.addSectionHeader ("PRE to POST chain");
+        int chainLine = 700;
+        for (const auto& line : hypha::chain_timing::lines (processorRef.chainTimingView()))
+            menu.addItem (chainLine++, line, false);
+        menu.addItem (chainLine, "Elapsed time between PRE and POST, not CPU usage", false);
+    }
    #if JUCE_DEBUG
     juce::PopupMenu validation;
     int diagnosticId = 1000;

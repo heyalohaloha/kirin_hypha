@@ -14,7 +14,7 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-constexpr std::uint32_t ringVersion = 6;
+constexpr std::uint32_t ringVersion = 7;
 constexpr std::uint32_t ringChannels = 2;
 constexpr std::uint32_t ringCapacityFrames = 1u << 19; // power of two: about 10.9 s at 48 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
@@ -105,6 +105,8 @@ struct Ring
         h.timing.loopSamples.store (0, std::memory_order_relaxed);
         h.timing.generation.store (0, std::memory_order_relaxed);
         h.timing.sequence.store (0, std::memory_order_relaxed);
+        h.timing.wallNanos.store (0, std::memory_order_relaxed);
+        h.timing.thread.store (0, std::memory_order_relaxed);
         // Raw in-process fixtures use a local serial. SharedRingMapping supplies a fresh
         // 128-bit identity, so a newly created PRE cannot inherit another mapping's evidence.
         static std::atomic<std::uint64_t> localOwners { 0 };

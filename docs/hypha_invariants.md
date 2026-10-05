@@ -258,7 +258,7 @@ Local Blind UIのINV-S25は番号と内容を維持する。
 
 2026-09-28、利用者が実装の開始を承認した。根拠は
 `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`にあり、各行は実装と試験ができた時点で本表へ入れた。
-INV-LC5は第1段階の対応規則の実測（G1記録）を正本へ移したもので、INV-LC6は静かな区間の判断（2026-09-28、利用者が推奨を採用）で、INV-LC8はPro Toolsの遅延補償の無効（同日、利用者が推奨を採用）で、INV-LC9はPro Toolsのmulti-monoの実測（同日、利用者がstereoと組の唯一のinstanceに限る案を採用）で、INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOST減衰（2026-09-28、利用者が第3段階から前倒しを承認）で、INV-LC15は第2段階のPINで、INV-LC16は第3段階の追従（AUTO）で、INV-LC17は記名A/B（同日、利用者が推奨を採用）で加えた。
+INV-LC5は第1段階の対応規則の実測（G1記録）を正本へ移したもので、INV-LC6は静かな区間の判断（2026-09-28、利用者が推奨を採用）で、INV-LC8はPro Toolsの遅延補償の無効（同日、利用者が推奨を採用）で、INV-LC9はPro Toolsのmulti-monoの実測（同日、利用者がstereoと組の唯一のinstanceに限る案を採用）で、INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOST減衰（2026-09-28、利用者が第3段階から前倒しを承認）で、INV-LC15は第2段階のPINで、INV-LC16は第3段階の追従（AUTO）で、INV-LC17は記名A/B（同日、利用者が推奨を採用）で、INV-LC25はチェーン経過時間の表示（2026-10-05、利用者が試作を依頼）で加えた。
 閾値と回数はhost profileの値であり、本表に固定値を書かない。
 
 | ID | 不変条件 | 紐づくテスト |
@@ -288,12 +288,17 @@ INV-LC5は第1段階の対応規則の実測（G1記録）を正本へ移した�
 | INV-LC23 | PREは比較前から固定サイズの時計metadataだけを公開し、PCMコピーはINV-LC4の明示demand後だけ行う。POSTの準備leaseはdemand／gain／選択／出力許可を持たず、同じ較正profileで非LOOPの線形観測またはINV-LC22の初回LOOP証明からKを準備する。pair／rate、PRE領域lifetime、時計世代、proof種別、restore ticket、当該POST callbackへ束縛し、明示比較の未成立の入口でだけ引き継ぐ。新しいPCMの世代・末尾を検査し、準備metadataだけで古い音声を出さない。時計世代・lifetimeはPCMコピー前後で照合し、コピー中の変更とPRE終了も拒否する。初回読み取り競合は同じ入口で待てるが、成立済みまたは壊れたproofを初回へ戻して失効Blindを復活させない。metadata書込み競合だけで成立したPCM proofを中断しない。既存service timerを待機4 Hz／明示操作20 Hzで再利用し、PREの時計判定結果は同じcallbackのPCM公開へ共有する。PCM振幅・音色の一致を較正条件にせず、コンプやdynamic EQの内部状態変化を時計変化と同一視しない | `kirin_live_compare_timing` / `kirin_live_timing_product` / `kirin_live_initial_loop_product` / xtask `live_compare_timing_tests` |
 
 | INV-LC24 | 同じpairのPRE書き手は非RTの所有権で一つに限定する。取得失敗は既存領域を変更しない。Macは本人だけが開ける通常ファイルへの非ブロックflock、WindowsはPOSTが保持しない専用の名前付きsectionを使用し、プロセス終了でOSが解放する。音声領域の終了印・unmap後に所有権を解放し、異常終了の旧領域も終了印を付けてから退役する。旧POSTが保持する領域を再初期化しない。別pairの独立動作、重複拒否、正常終了後とdestructorなしの異常終了後の再取得を両platformで検査する。Audio Threadへ所有権のlock・syscall・pollを追加しない | kirin_live_compare_timing の livePreMappingHasOneWriter / crashedPreCannotRestampOldReaders / xtask pre_mapping_ownership_is_non_rt_and_cannot_restamp_readers |
+| INV-LC25 | チェーン経過時間は表示専用で、PREのcallbackが終わってからPOSTのcallbackが始まるまでの経過時間を示す。PREは自分のcallbackで既に読んだ単調時計の値とthreadの識別子を、INV-LC23の時計metadataと同じ一貫した書込みで公開する。POSTはcallbackの最初に読んだ値との差を、(a) 同じthread、(b) POSTの前のcallbackからPREのcallbackがちょうど1回、(c) 同じblock長、(d) 両側が再生中で、POSTのproject位置が直前のblockから正確に続き、PREの位置がPOSTの位置以上（ring容量以内）、の全てが成り立つblockだけ数える。成り立たないblockは理由ごとに数え、数値にしない。PREがPCMを書いたblock（PREの公開数が進んだblock）は、PREの時刻記録の後に写しが入るため数えない。値は経過時間と、blockの音声の長さに対する割合で示し、CPU使用率、余裕、良否とは呼ばない。Sourceの選択、K、MATCH、出力、測定、Recordには使わない。両側のAudio Threadへ時計の読取、thread、queue、mappingを足さない。offline、bypassでは観測しない | `kirin_live_compare_chain_timing` / `kirin_ui_render_contract` verifyChainTimingTextContract |
 
 既知の限界: hostが古い／別の音に完全に整合した新しい時計情報を付け直す場合、時計だけでは検出できない。
 モデル化した位置移動はrun fenceで拒否するが、それを全hostのseek検出保証にしない。
 初回LOOPはINV-LC22の認定範囲だけ対応し、認定外host／version、欠損時計、短いLOOPは拒否する。既知Kならloop長以上の遅延も独立PCMで試験するが、
 POST位置clampと長遅延の組合せは継続認定しない。host／formatごとの実機認定は未完了であり、
 局所fixtureの成功を公開候補の実機証跡へ流用しない。
+チェーン経過時間（INV-LC25）は壁時計の経過時間であり、待ち、割込み、別のthreadへ逃がした処理を区別しない。
+停止中、折返しやseekのblock、PREとPOSTでblockの分け方が違うhostでは数えない。同じthreadで直列に呼ばれる前提は、hostごとの実機確認が済むまで成立を主張しない。
+読みには、PREが時刻を記録した後の処理とPOSTが時刻を読むまでの処理が含まれる。間に何も無い合成host（Intel Mac、`kirin_live_chain_timing_product`の`--empty-chain`）で1 blockあたり約0.5〜2 µsであり、これより短いチェーンは区別できない。
+実hostでは2026-10-06、Intel Mac、48 kHzで、Pro Tools Developer 2026.4（AAX、未署名の診断build）とLogic Pro 12.2（AU）がPREとPOSTを同じthreadで1 blockに1回ずつ呼び、1024 frames（21.3 ms）のblockの99.5%以上を数えた。間に何も無い場合の読みは0.008 ms（Pro Tools）と0.014 ms（Logic）だった。Logic Pro 12.2の録音待機（128 frames、2.67 ms）でも同じく数え、間に重いEQを置いてLogicが処理落ちを報告した区間では、ピークがblock長の5倍を超える値として表示された。Pro Toolsの録音待機と入力monitor、VST3と他host、Apple silicon、Windowsは未確認である。
 
 ---
 

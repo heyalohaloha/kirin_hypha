@@ -161,8 +161,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const auto processClock = readHostProcessClock();
     const auto [playing, hasPosition, clockSource, positionSamples, hasClockEnd, clockStartSamples, clockEndSamples,
           presentationSource, inputPresentationValid, inputPresentationSamples, outputPresentationValid,
-          outputPresentationSamples, looping, auxiliaryClock] = processClock;
-    juce::ignoreUnused (looping); // Used by the explicit local Blind output path below.
+          outputPresentationSamples, looping, auxiliaryClock, callbackNanos] = processClock;
+    juce::ignoreUnused (looping, callbackNanos); // Used by the comparison paths below.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayClock.publish (positionSamples, preparedFormat.sampleRate,

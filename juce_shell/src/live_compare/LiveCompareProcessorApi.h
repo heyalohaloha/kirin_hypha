@@ -18,6 +18,7 @@ std::uint32_t liveComparePlaybackRun() const noexcept;
 hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
 hypha::live_compare::Status liveCompareStatus() const noexcept;
 bool liveCompareSupported() const noexcept;
+hypha::live_compare::ChainTimingView chainTimingView() const noexcept; // POST, display only
 bool aaxMultiMonoMember() const noexcept;
 bool takeLiveComparePreWait() noexcept;
 bool serviceLiveCompare();

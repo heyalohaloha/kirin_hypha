@@ -44,7 +44,7 @@ public:
         char suffix[24] {};
         std::snprintf (suffix, sizeof (suffix), "%016llx", static_cast<unsigned long long> (key));
        #if defined (_WIN32)
-        const std::string narrow = std::string ("Local\\kh-lc6-owner-") + suffix;
+        const std::string narrow = std::string ("Local\\kh-lc7-owner-") + suffix;
         const std::wstring name (narrow.begin(), narrow.end());
         auto candidate = CreateFileMappingW (INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 1, name.c_str());
         if (candidate == nullptr) return false;
@@ -55,7 +55,7 @@ public:
         // Darwin POSIX shm descriptors do not support flock (ENOTSUP). Use a zero-byte,
         // user-owned regular file instead. Keep its name: unlinking a lock file would let
         // another opener lock a different inode while a cooperating process still holds it.
-        const std::string path = "/tmp/kh-lc6-owner-" + std::to_string (geteuid()) + "-" + suffix;
+        const std::string path = "/tmp/kh-lc7-owner-" + std::to_string (geteuid()) + "-" + suffix;
         const int candidate = ::open (path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
         if (candidate < 0) return false;
         struct stat info {};

@@ -8,6 +8,8 @@ static_assert (std::atomic<bool>::is_always_lock_free
 
 hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
 {
+    // The chain timing ends where POST's callback begins, so this is the callback's first reading.
+    const std::uint64_t callbackNanos = role == Role::Post ? hypha::live_compare::callbackWallNanos() : 0;
     bool playing = false;
     bool recording = false;
     bool hasPosition = false;
@@ -93,7 +95,7 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     const hypha::HostProcessClock clock { playing, hasPosition, clockSource, positionSamples, hasClockEnd,
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
-             outputPresentationValid, outputPresentationSamples, loop, auxiliary };
+             outputPresentationValid, outputPresentationSamples, loop, auxiliary, callbackNanos };
     // Release PRE never issues a capture request. Keep its Audio Thread free of an otherwise
     // unused snapshot write while retaining both-role clock diagnostics in Debug validation.
    #if JUCE_DEBUG

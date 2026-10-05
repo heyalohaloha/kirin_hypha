@@ -20,6 +20,7 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
+#include "ChainTimingTextContract.h"
 #include "HybridVuContractTest.h"
 #include "LocalBlindUiContractTest.h"
 #include "LocalBlindNamedUiContractTest.h"
@@ -114,6 +115,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         return true;
     }
     verifyInformationContract();
+    verifyChainTimingTextContract();
     verifyReferenceAccessPanelContract();
     verifyReferenceAuditionComponentContract();
     verifyOsAccessUiContract();

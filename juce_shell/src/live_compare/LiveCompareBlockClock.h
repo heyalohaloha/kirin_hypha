@@ -17,6 +17,9 @@ struct BlockClock
     bool outputPresentationValid = false;
     std::uint32_t outputPresentationSamples = 0, maximumDelaySamples = 0;
     LoopContext loop;
+    // The callback's one wall-clock reading and its thread, for the chain timing display only
+    // (LiveCompareChainTiming.h). Never a sample address, a proof, or an output permission.
+    std::uint64_t wallNanos = 0, thread = 0;
 };
 
 struct LoopAnchor

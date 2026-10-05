@@ -1,5 +1,6 @@
 #pragma once
 #include "../local_blind/RtPublicationSlot.h"
+#include "LiveCompareChainTiming.h"
 #include "LiveCompareSharedRing.h"
 #include <atomic>
 #include <memory>
@@ -39,10 +40,14 @@ public:
         peers.collect();
     }
 
+    // chain, when given, sees the same snapshot this callback read: the chain timing display
+    // takes no reading of its own (LiveCompareChainTiming.h).
     TimingEvidence observe (const BlockClock& block, std::uint32_t rate,
-                            std::uint64_t authority, bool eligible) noexcept
+                            std::uint64_t authority, bool eligible,
+                            ChainTimingMeter* chain = nullptr) noexcept
     {
         TimingEvidence evidence;
+        bool chainSawPre = false;
         peers.withRealtime ([&] (Peer& peer)
         {
             auto* ring = peer.mapping.ring();
@@ -59,8 +64,15 @@ public:
                 evidence = peer.observer.unavailable (block, rate, ringCapacityFrames);
                 return;
             }
+            if (chain != nullptr)
+            {
+                chain->observe (snapshot, block, ring->header.published.load (std::memory_order_acquire));
+                chainSawPre = true;
+            }
             evidence = peer.observer.observe (snapshot, block, rate, ringCapacityFrames);
         });
+        if (chain != nullptr && ! chainSawPre)
+            chain->observeWithoutPre (block);
         return evidence;
     }
 
