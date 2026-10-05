@@ -23,7 +23,6 @@ StatusKind kindOf (SourceStep step) noexcept
         case SourceStep::enableCheck:
         case SourceStep::chooseSource:
         case SourceStep::noMatchingPassage:
-        case SourceStep::approveSampleRate:
         case SourceStep::outsideCue:
         case SourceStep::attention: return StatusKind::unable;
     }
@@ -40,7 +39,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
                      : StatusKind::ready,
                  state.status };
     // 2026-10-03（R-12）：上限超えで、承認すれば A を下げて合わせられる（直し方はアクションの LOWER A）。
-    if (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot)
+    if (state.action.kind == ActionKind::lowerAAndPlay && state.action.offer.slot == state.comparisonSlot)
         return { StatusKind::unable, state.status };
     if (state.bSelected)
     {

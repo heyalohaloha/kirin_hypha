@@ -5,19 +5,29 @@
 // 戻すまで保つ。live 比較・Blind が POST を取っている・下げているあいだは下げない（POST を二重に下げない。出力の
 // 持ち主の表 OutputOwnership.h）。
 
-hypha::reference_audition::LowerAApproval KirinHyphaProcessorBase::approveReferenceLowerA (int slot, double approvedDb)
+hypha::reference_audition::LowerAApproval KirinHyphaProcessorBase::approveReferenceLowerA (
+    const hypha::reference_audition::LowerAOffer& offer)
 {
     using Approval = hypha::reference_audition::LowerAApproval;
     refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (! licenseIsOs() || referenceAuditionController == nullptr || role != Role::Post) return Approval::refused;
     if (outputDecision (hypha::output_owner::Activity::lowerA).refused()) return Approval::postInUse;
-    if (! referenceAuditionController->approveLowerAAndPlay (slot, approvedDb)) return Approval::refused;
-    startTimer (50);  // 下げ終わってから鳴らす待ちを回す
-    return Approval::lowered;
+    const auto result = referenceAuditionController->approveLowerAAndPlay (offer);
+    if (result == Approval::lowered) startTimer (50);  // 下げ終わってから鳴らす待ちを回す
+    return result;
    #else
-    juce::ignoreUnused (slot, approvedDb);
+    juce::ignoreUnused (offer);
     return Approval::refused;
+   #endif
+}
+
+void KirinHyphaProcessorBase::markReferenceLowerAOfferShown (int slot, std::uint64_t failureSerial)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr) referenceAuditionController->markLowerAOfferShown (slot, failureSerial);
+   #else
+    juce::ignoreUnused (slot, failureSerial);
    #endif
 }
 

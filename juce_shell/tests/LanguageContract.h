@@ -67,13 +67,6 @@ inline void verifyLookup()
                             == utf8 (u8"Blindを中止 / Aを-3.0 dBで保持中 / Aは手動で戻す"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("LOADING B AT PLAYHEAD / KEEP PLAYING")
                             == utf8 (u8"再生位置でBを読み込み中 / 再生を継続"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("B SAMPLE RATE 44.1 TO 48.0 kHz / A REMAINS LIVE")
-                            == utf8 (u8"Bのサンプルレート 44.1 → 48.0 kHz / Aは今の音のまま"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("APPROVE C 44.1 TO 48.0 kHz")
-                            == utf8 (u8"Cの44.1 → 48.0 kHzを承認"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("Approve B 44.1 to 48.0 kHz for the audition copy only. "
-                                      "A stays unchanged.")
-                            == utf8 (u8"試聴用コピーのBを44.1 → 48.0 kHzに変換します。Aは変わりません。"));
     KIRIN_LANGUAGE_REQUIRE (japanese (utf8 (u8"Legacy guide  ·  No timed items  ·  Retained"))
                             == utf8 (u8"旧形式のGuide  ·  時刻指定なし  ·  保持"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("ANALYSIS IN USE / POST Kirin") == utf8 (u8"解析を使用中 / POST Kirin"));

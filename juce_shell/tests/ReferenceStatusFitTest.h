@@ -44,8 +44,7 @@ inline void verifyReferenceStatusFits()
     {
         auto offer = base;
         offer.comparisonSlot = 3;
-        offer.lowerAOfferSlot = 3;
-        offer.lowerAOfferDb = -0.8;
+        offer.action = { reference_ui::ActionKind::lowerAAndPlay, { 3, -0.8, "b-song", 1, 1 } };
         offer.status = "B NEEDS A 0.8 DB LOWER";
         offer.actionText = "LOWER A 0.8 DB & PLAY B";
         cases.push_back ({ "B approval", offer });

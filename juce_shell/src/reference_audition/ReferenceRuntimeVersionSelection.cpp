@@ -15,10 +15,7 @@ bool RuntimeV2Controller::selectLibraryCheck (const juce::String& id)
         requestedSelection.checkId = id.substring (0, split);
         requestedSelection.candidateId = id.substring (split + 1);
         requestedSelection.cueId.clear();
-        requestedSelection.sampleRateApprovalKey.clear();
         ++requestedSelection.generation;
-        pendingApprovalKey.clear();
-        currentSnapshot.sampleRateApprovalRequired = false;
         revokeAfterFadeLocked();
     }
     selectA(); notify(); return true;
@@ -38,10 +35,7 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
         requestedSelection.checkId = parts[1];
         requestedSelection.candidateId = parts[2];
         requestedSelection.cueId.clear();
-        requestedSelection.sampleRateApprovalKey.clear();
         ++requestedSelection.generation;
-        pendingApprovalKey.clear();
-        currentSnapshot.sampleRateApprovalRequired = false;
         revokeAfterFadeLocked();
     }
     selectA();
@@ -63,10 +57,7 @@ bool RuntimeV2Controller::selectLibrarySong (const juce::String& id)
         requestedSelection.checkId = parts[1];
         requestedSelection.candidateId = parts[2];
         requestedSelection.cueId.clear();
-        requestedSelection.sampleRateApprovalKey.clear();
         ++requestedSelection.generation;
-        pendingApprovalKey.clear();
-        currentSnapshot.sampleRateApprovalRequired = false;
         revokeAfterFadeLocked();
     }
     selectA();
@@ -95,8 +86,6 @@ void RuntimeV2Controller::restoreChoice (const ReferenceChoice& value)
         requestedSelection.candidateId = choice.candidateId;
         requestedSelection.cueId = choice.cueId;
         requestedSelection.generation = generation;
-        pendingApprovalKey.clear();
-        currentSnapshot.sampleRateApprovalRequired = false;
         revokeAfterFadeLocked();
     }
     notify();

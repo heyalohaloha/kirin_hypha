@@ -20,7 +20,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         referenceAccessView.setRecheckUnconfirmed (! processorRef.licenseIsOs());
     };
     scaleRoot.addChildComponent (referenceAccessView);
-    referenceView.onSelectA = [this] { referenceLowerAOffer = {}; processorRef.selectReferenceA(); };
+    referenceView.onSelectA = [this] { processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
     wireReferenceRoles();
@@ -77,24 +77,28 @@ void KirinHyphaEditor::configureReferenceAudition()
         if (! processorRef.selectReferenceCue (id))
             showToast ("Cue selection was not changed");
     };
+    // REF のアクション：表示と一緒に決めた意図（state.action）だけを実行する。ほかの印から推し量らない。
     referenceView.onAction = [this]
     {
-        if (approveOfferedLowerA()) return;  // 上限超えの承認：A を下げて合わせる
-        const auto& state = referenceView.state();
-        if (state.blindLowerAApprovalRequired && !state.blindLargeScreen) { setSize (900, 600); return; }
-        const bool accepted = state.sampleRateApprovalRequired
-            ? processorRef.approveReferenceSampleRateConversion(state.sampleRateApprovalSlot)
-            : state.blindLowerAApprovalRequired
-                ? processorRef.approveReferenceBlindLowerA (
-                    state.aIntegratedLoudness, state.aMaximumTruePeakDbtp)
-                : state.presetSelectionAction == "retry"
-                    ? processorRef.retryReferencePresetSelection()
-                    : state.candidatePreparationAction == "retry"
-                        ? processorRef.retryReferenceCandidatePreparation()
-                    : processorRef.requestReferenceRecovery();
-        if (! accepted) showToast (state.sampleRateApprovalRequired
-            ? "This source is no longer awaiting sample-rate approval; check V or C again"
-            : "Kirin OS could not receive the request");
+        using hypha::reference_ui::ActionKind;
+        const auto state = referenceView.state();
+        const auto unreachable = [this] (bool sent) { if (! sent) showToast ("Kirin OS could not receive the request"); };
+        switch (state.action.kind)
+        {
+            case ActionKind::lowerAAndPlay: approveOfferedLowerA (state.action.offer); break;
+            case ActionKind::approveBlindLowerA:
+                if (outputRefused (hypha::output_owner::Activity::versionBlind)) break;
+                if (! processorRef.approveReferenceBlindLowerA (state.aIntegratedLoudness, state.aMaximumTruePeakDbtp))
+                    showToast ("Blind Compare could not start");
+                break;
+            case ActionKind::retryPresetPreparation: unreachable (processorRef.retryReferencePresetSelection()); break;
+            case ActionKind::retryCandidatePreparation: unreachable (processorRef.retryReferenceCandidatePreparation()); break;
+            case ActionKind::openReference:
+            case ActionKind::chooseSource:
+            case ActionKind::measureSource:
+            case ActionKind::retryKirinOs: unreachable (processorRef.requestReferenceRecovery()); break;
+            case ActionKind::none: break;
+        }
     };
     referenceView.onStartBlind = [this]
     {
@@ -230,7 +234,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.aAvailable = runtime.bSelected || frozenBlindA
         || (callbackLive && runtime.transportPlaying && runtime.transportPositionValid);
     setSourceSteps (state, runtime);
-    setSampleRateApproval (state, runtime);
     state.aIntegratedLoudness = runtime.bSelected || frozenBlindA
         ? audible.aIntegratedLoudness
         : liveA ? frame.meter.lufs_i : hypha::reference_ui::unavailableValue();
@@ -264,8 +267,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
     state.visualPreferences = runtime.visualPreferences;
     state.profiles = runtime.profiles;
-    state.presetSelectionAction = runtime.presetSelectionAction;
-    state.candidatePreparationAction = runtime.candidatePreparationAction;
     state.candidatePreparationPending = checkSelection.candidatePreparationStatus == "pending";
     if (observatoryDomain == hypha::observatory::Domain::reference)
     {
@@ -341,140 +342,131 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
             : "RECEIVING REFERENCE";
     else
         state.status = "OPEN KIRIN OS";
-    if (state.sampleRateApprovalRequired)
-    {
-        const auto sourceRate = juce::String (state.sourceSampleRateHz / 1000.0, 1);
-        const auto hostRate = juce::String (state.hostSampleRateHz / 1000.0, 1);
-        const juce::String target = state.sampleRateApprovalSlot == 1 ? "V" : "C";
-        if (!runtime.bSelected) state.status = target + " SAMPLE RATE " + sourceRate + " TO " + hostRate
-            + " kHz / A REMAINS LIVE";
-        state.actionText = getWidth() < 600 ? "APPROVE " + target + " RATE"
-            : "APPROVE " + target + " " + sourceRate + " TO " + hostRate + " kHz";
-    }
-    else if (runtime.presetSelectionStatus == "pending")
+    // ボタンの文と押したときの意図は act だけが一緒に決める（押したときは state.action だけを実行する）。
+    using hypha::reference_ui::ActionKind;
+    const auto act = [&state] (ActionKind kind, const juce::String& text) { state.action = { kind, {} }; state.actionText = text; };
+    if (runtime.presetSelectionStatus == "pending")
     {
         state.status = "KIRIN OS PREPARING CHECK PRESET / A REMAINS LIVE";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.presetSelectionStatus == "prepared")
     {
         state.status = "CHECK PRESET READY / A REMAINS LIVE";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.presetSelectionStatus == "timed_out")
     {
         state.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
-        state.actionText = "RETRY PREPARATION";
+        act (ActionKind::retryPresetPreparation, "RETRY PREPARATION");
     }
     else if (runtime.presetSelectionStatus == "preset_setup_required")
     {
         state.status = "CHOOSE A REFERENCE IN KIRIN OS / A REMAINS LIVE";
-        state.actionText = "OPEN REFERENCE";
+        act (ActionKind::openReference, "OPEN REFERENCE");
     }
     else if (runtime.presetSelectionStatus == "source_unavailable")
     {
         state.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
-        state.actionText = "CHOOSE SOURCE";
+        act (ActionKind::chooseSource, "CHOOSE SOURCE");
     }
     else if (runtime.presetSelectionStatus == "measurement_required")
     {
         state.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
-        state.actionText = "MEASURE SOURCE";
+        act (ActionKind::measureSource, "MEASURE SOURCE");
     }
     else if (runtime.presetSelectionStatus == "request_stale"
              || runtime.presetSelectionStatus == "storage_unavailable"
              || runtime.presetSelectionStatus == "publication_failed")
     {
         state.status = "CHECK PRESET NOT REFRESHED / A REMAINS LIVE";
-        state.actionText = "RETRY PREPARATION";
+        act (ActionKind::retryPresetPreparation, "RETRY PREPARATION");
     }
     else if (runtime.presetSelectionStatus == "work_unavailable"
              || runtime.presetSelectionStatus == "request_invalid")
     {
         state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
-        state.actionText = "OPEN REFERENCE";
+        act (ActionKind::openReference, "OPEN REFERENCE");
     }
     else if (runtime.candidatePreparationStatus == "pending")
     {
         state.status = "KIRIN OS PREPARING REFERENCE / A REMAINS LIVE";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.candidatePreparationStatus == "prepared")
     {
         state.status = "REFERENCE READY / A REMAINS LIVE";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.candidatePreparationStatus == "timed_out")
     {
         state.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
-        state.actionText = "RETRY PREPARATION";
+        act (ActionKind::retryCandidatePreparation, "RETRY PREPARATION");
     }
     else if (runtime.candidatePreparationStatus == "source_unavailable")
     {
         state.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
-        state.actionText = "CHOOSE SOURCE";
+        act (ActionKind::chooseSource, "CHOOSE SOURCE");
     }
     else if (runtime.candidatePreparationStatus == "measurement_required")
     {
         state.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
-        state.actionText = "MEASURE SOURCE";
+        act (ActionKind::measureSource, "MEASURE SOURCE");
     }
     else if (runtime.candidatePreparationStatus == "request_stale"
              || runtime.candidatePreparationStatus == "storage_unavailable"
              || runtime.candidatePreparationStatus == "publication_failed")
     {
         state.status = "REFERENCE NOT REFRESHED / A REMAINS LIVE";
-        state.actionText = "RETRY PREPARATION";
+        act (ActionKind::retryCandidatePreparation, "RETRY PREPARATION");
     }
     else if (runtime.candidatePreparationStatus.isNotEmpty())
     {
         state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
-        state.actionText = "OPEN REFERENCE";
+        act (ActionKind::openReference, "OPEN REFERENCE");
     }
     else if (runtime.recoveryStatus == "pending")
     {
         state.status = "OPENING REFERENCE IN KIRIN OS";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "opened")
     {
         state.status = "CONTINUE IN KIRIN OS";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "exact_opened")
     {
         state.status = "KIRIN OS OPENED THE REFERENCE LOCATION";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "safe_fallback_opened")
     {
         state.status = "KIRIN OS OPENED SAFE REFERENCE SETTINGS";
-        state.actionText.clear();
+        act (ActionKind::none, {});
     }
     else if (runtime.recoveryStatus == "rejected")
     {
         state.status = "REFERENCE ITEM IS NO LONGER AVAILABLE";
-        state.actionText = "TRY KIRIN OS AGAIN";
+        act (ActionKind::retryKirinOs, "TRY KIRIN OS AGAIN");
     }
     else if (runtime.recoveryStatus == "timed_out")
     {
         state.status = "KIRIN OS DID NOT RESPOND / A REMAINS LIVE";
-        state.actionText = "TRY KIRIN OS AGAIN";
+        act (ActionKind::retryKirinOs, "TRY KIRIN OS AGAIN");
     }
     else if (state.blindLowerAApprovalRequired)
     {
         const auto attenuation = juce::String (state.blindRequiredAAttenuationDb, 1);
         state.status = "BLIND NEEDS HEADROOM / A RETURNS +" + attenuation + " dB ON END";
-        state.actionText = state.blindLargeScreen ? "LOWER A " + attenuation + " dB & START" : juce::String {};
+        act (state.blindLargeScreen ? ActionKind::approveBlindLowerA : ActionKind::none,
+             state.blindLargeScreen ? "LOWER A " + attenuation + " dB & START" : juce::String {});
     }
-    else if (connected && (runtime.state == Runtime::rejected
-                           || runtime.state == Runtime::waiting))
-        state.actionText = "OPEN REFERENCE";
-    // 2026-10-04：PREPARE VISUALS（Kirin OS を開くだけ。Kirin OS は自分で測る。進み具合は状態の行が言う）と
-    // EDIT GENRE（Kirin OS が受け付けない "balance" の表示にしか出ない）は外した。
+    else if (hypha::reference_ui::opensKirinOsPreset (runtime))
+        act (ActionKind::openReference, "OPEN REFERENCE");
     applyReferenceRoles (state, runtime);
     if (const auto pending = hypha::reference_ui::pendingAuditionText (state);
-        pending.isNotEmpty() && ! (state.lowerAOfferSlot != 0 && state.lowerAOfferSlot == state.comparisonSlot))
+        pending.isNotEmpty() && state.action.kind != hypha::reference_ui::ActionKind::lowerAAndPlay)
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
     if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};

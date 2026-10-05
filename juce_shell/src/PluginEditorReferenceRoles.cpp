@@ -188,7 +188,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
         watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);
     // B の曲は Kirin OS の Preset ではないので、Preset を開く・表示を準備する・Genre を編集する操作は出さない
     // （直し方は曲の側から）。
-    if (runtime.comparisonSlot == 3) state.actionText.clear();
+    if (runtime.comparisonSlot == 3) { state.actionText.clear(); state.action = {}; }
     applyReferenceLowerA (state, runtime);  // 上限超えの承認（B の画面でも出す）と、下げている量
 }
 #endif

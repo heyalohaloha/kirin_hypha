@@ -31,7 +31,8 @@ std::vector<KirinMeterHistoryEntry> steadyA (double lufs)
 }
 
 juce::var lowerASets (const juce::String& setId, const juce::File& song, const juce::String& hash, const juce::String& pcm,
-                      const ref::RuntimeContentReceipt& source, bool prepared = true, int revision = 1)
+                      const ref::RuntimeContentReceipt& source, bool prepared = true, int revision = 1,
+                      const juce::String& setName = "Quiet refs")
 {
     auto* identity = new juce::DynamicObject();
     identity->setProperty ("catalog_reference_id", "catalog:source-test");
@@ -61,7 +62,7 @@ juce::var lowerASets (const juce::String& setId, const juce::File& song, const j
     set->setProperty ("song_set_id", setId);
     set->setProperty ("revision_id", "68686868-6868-4868-8868-686868686868");
     set->setProperty ("rank", 1);
-    set->setProperty ("name", "Quiet refs");
+    set->setProperty ("name", setName);
     set->setProperty ("songs", juce::Array<juce::var> { juce::var (candidate) });
     auto* root = new juce::DynamicObject();
     root->setProperty ("format", "kirin_hypha_reference_library_sets");
@@ -260,17 +261,41 @@ void testReferenceLowerA (const juce::File& sandbox)
     require (refused.matchFailure == ref::MatchFailure::ceilingExceeded && closeTo (refused.neededAttenuationDb, -8.0),
              "the refusal names how far A must be lowered to match");
 
-    // 承認は承認のボタンに出した量で下げる（状態が作り直されても、利用者が見た量）。量の無い承認・鳴らす待ちを
-    // 立てられない承認（ローカル Blind の準備中）では A を下げない（下げたまま「下げていない」と言わない）。
-    require (! controller.approveLowerAAndPlay (3, 0.0) && controller.heldAttenuationDb() == 0.0,
+    // 承認はボタンに出した申し出（その役・その音・その選択・その MATCH の失敗）を、出した量で受ける。量の無い承認・
+    // 鳴らす待ちを立てられない承認（ローカル Blind の準備中）・別の役や古い申し出では A を下げない。
+    using Approval = ref::LowerAApproval;
+    const auto offerFor = [&] (int slot, double db)
+    {
+        const auto s = *controller.snapshot().referenceSelection;
+        return ref::LowerAOffer { slot, db, s.playbackIdentity, s.selectionGeneration, s.matchFailureSerial };
+    };
+    require (controller.approveLowerAAndPlay (offerFor (3, 0.0)) == Approval::refused && controller.heldAttenuationDb() == 0.0,
              "an approval without an amount lowers nothing");
+    require (controller.approveLowerAAndPlay (offerFor (2, refused.neededAttenuationDb)) != Approval::lowered
+                 && controller.heldAttenuationDb() == 0.0,
+             "B's offer cannot be approved as another role's");
+    const auto stale = offerFor (3, refused.neededAttenuationDb);
+    require (! controller.requestAudition (3, -10.0, -12.0)
+                 && controller.approveLowerAAndPlay (stale) == Approval::stale && controller.heldAttenuationDb() == 0.0,
+             "an offer from before pressing the role again is not approved");
     require (controller.reserveLocalBlind(), "a local Blind takes the audition gate");
-    require (! controller.approveLowerAAndPlay (3, refused.neededAttenuationDb) && controller.heldAttenuationDb() == 0.0,
+    require (controller.approveLowerAAndPlay (offerFor (3, refused.neededAttenuationDb)) != Approval::lowered
+                 && controller.heldAttenuationDb() == 0.0,
              "an approval that cannot queue the role leaves A at its level");
     controller.releaseLocalBlind (0);
 
+    // Kirin OS が同じ音のまま一覧を送り直しても、出した申し出はそのまま承認できる（失敗の番号は変わらない）。
+    const auto shown = offerFor (3, refused.neededAttenuationDb);
+    require (writeJson (root.getChildFile ("library/sets.json"),
+                        lowerASets ("79797979-7979-4979-8979-797979797979", file, hash, pcm, source, true, 4, "Quiet refs 2")),
+             "Kirin OS republishes the same B song");
+    until ([&] { const auto s = controller.snapshot(); return ! s.songSets.empty() && s.songSets[0].name == "Quiet refs 2"; },
+           "the library is read again");
+    require (controller.snapshot().referenceSelection->matchFailureSerial == shown.failureSerial,
+             "republishing the same source keeps the offer");
+
     // 承認：A を 8 dB 下げ、下げ終わってから B を鳴らす。B は元の音量（0.1）、下がっているあいだ B は聴こえない。
-    require (controller.approveLowerAAndPlay (3, refused.neededAttenuationDb) && closeTo (controller.heldAttenuationDb(), -8.0),
+    require (controller.approveLowerAAndPlay (shown) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -8.0),
              "the approval holds A 8 dB lower");
     // 下げるのは 50 ms の直線（1 → 0.398 は約 1445 サンプル、480 のブロックで 4 つ目に着く）。B を選ぶのはその後。
     const auto lowered = static_cast<float> (aLevel * std::pow (10.0, -8.0 / 20.0));
@@ -334,7 +359,7 @@ void testReferenceLowerA (const juce::File& sandbox)
                  && closeTo (stopped.referenceSelection->neededAttenuationDb, -8.0),
              "a waiting role stopped by the ceiling still names how far A must be lowered");
     // 承認の量が鳴らす時点の差より小さかった（再生を始めた直後の見積もり）ときは、その時点の差まで下げ直して鳴らす。
-    require (controller.approveLowerAAndPlay (3, -5.0) && closeTo (controller.heldAttenuationDb(), -5.0),
+    require (controller.approveLowerAAndPlay (offerFor (3, -5.0)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -5.0),
              "the waiting role can be approved without pressing it again, first by the offered amount");
     until ([&] { return controller.snapshot().audibleComparisonSlot == 3; }, "the approved role plays");
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -8.0),

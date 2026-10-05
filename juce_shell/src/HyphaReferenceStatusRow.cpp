@@ -33,7 +33,7 @@ juce::String fittedSegments (const juce::String& shown, const juce::Font& font, 
 
 int Component::statusRowHeight() const noexcept
 {
-    return detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18;
+    return detailedLayout() ? 24 : 18;
 }
 
 bool Component::rolePage() const noexcept
@@ -71,7 +71,7 @@ void Component::layoutStatusRow (juce::Rectangle<int> row)
     {
         // 承認のボタンは文字の幅に合わせる（量と鳴らす役まで言う。2026-10-05、300% で「Aを0.8 dB下げて
         // Bを…」と切れた。英語の「LOWER A 0.8 DB & PLAY B」も 188 に入らなかった）。最小は今までの幅、最大は行の半分。
-        const int minimum = detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116;
+        const int minimum = detailedLayout() ? 188 : 116;
         const auto font = labelFont (presentationContext, typography::TextRole::action, typography::Composition::information);
         const int fitted = juce::roundToInt (std::ceil (text_style::shownWidth (font, actionButton.getButtonText()))) + 24;
         actionButton.setBounds (row.removeFromRight (juce::jlimit (minimum, juce::jmax (minimum, row.getWidth() / 2), fitted)));

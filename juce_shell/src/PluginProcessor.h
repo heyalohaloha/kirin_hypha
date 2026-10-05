@@ -131,12 +131,12 @@ public:
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
     bool selectReferenceVisualSlot (int);
-    bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);
-    hypha::reference_audition::LowerAApproval approveReferenceLowerA (int slot, double approvedDb); // 2026-10-03（R-12）
+    hypha::reference_audition::LowerAApproval approveReferenceLowerA (const hypha::reference_audition::LowerAOffer&); // R-12
+    void markReferenceLowerAOfferShown (int slot, std::uint64_t failureSerial);  // 窓に一度出した申し出
     void returnReferenceLevelToNormal();     // RETURN：役を止めてから A を通常の音量へ
     double referenceHeldAttenuationDb() const noexcept; // 承認して A を下げている量（0 以下）
     bool selectReferenceBlindStimulus (int stimulus);

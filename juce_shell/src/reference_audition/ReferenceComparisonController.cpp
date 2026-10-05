@@ -190,6 +190,8 @@ Snapshot ReferenceComparisonController::snapshot()
     const auto slot = viewedSlot.load (std::memory_order_acquire);
     auto result = slot == 1 ? b : slot == 3 ? r : c;
     result.heldAttenuationDb = heldA.targetDb();
+    result.lowerAOfferShownSlot = offerShownSlot;
+    result.lowerAOfferShownSerial = offerShownSerial;
     result.visualTimeline = visual.snapshot();
     result.visualPreferences = visualPreferences;
     const auto viewedMap = slotController (slot).visualBinding();
@@ -302,12 +304,6 @@ bool ReferenceComparisonController::selectVisualSlot (int slot)
 }
 bool ReferenceComparisonController::retryPresetSelection() { return check.retryPresetSelection(); }
 bool ReferenceComparisonController::retryCandidatePreparation() { return viewed().retryCandidatePreparation(); }
-bool ReferenceComparisonController::approveSampleRateConversion(int slot)
-{
-    if (slot == 1) return version.approveSampleRateConversion();
-    if (slot == 2) return check.approveSampleRateConversion();
-    return false;
-}
 bool ReferenceComparisonController::requestRecovery() { return viewed().requestRecovery(); }
 
 }

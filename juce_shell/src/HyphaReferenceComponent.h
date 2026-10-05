@@ -12,6 +12,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaReferenceAction.h"
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceGuide.h"
@@ -115,8 +116,6 @@ struct State
     double truePeakDeltaBMinusA = unavailableValue();
     double appliedGainDb = unavailableValue();  // 下げる前の A の基準（グラフをそろえる）。読みは heldAttenuationDb を足す
     double heldAttenuationDb = 0.0;              // 承認して A を下げている量（0 以下。2026-10-03、R-12）
-    int lowerAOfferSlot = 0;                     // 上限超えで A を下げる承認を出している役（0 は無し）
-    double lowerAOfferDb = 0.0;
     bool aAvailable = false;
     bool gainLimited = false;
     bool comparisonFallbackOriginal = false;
@@ -160,14 +159,11 @@ struct State
     std::vector<float> liveSpectrumDbfs;
     float liveSpectrumMinimumHz = 0.0f;
     float liveSpectrumMaximumHz = 0.0f;
-    bool sampleRateApprovalRequired = false;
-    int sampleRateApprovalSlot = 0; // 1 = B/Version, 2 = C/Check; never infer from the viewed slot.
     std::int64_t sourceSampleRateHz = 0;
     std::int64_t hostSampleRateHz = 0;
-    juce::String presetSelectionAction;
-    juce::String candidatePreparationAction;
     bool candidatePreparationPending = false;
-    juce::String actionText;
+    juce::String actionText;   // ボタンの文。action と一緒に決める
+    ActionIntent action;       // 押したときにすること（ほかの印から推し量らない）
     // B（REF）。Hypha に届いた B セット（B SET）と、選んでいるセットの曲。
     bool referenceReady = false, referenceArmable = false;
     reference_audition::TrackingState tracking = reference_audition::TrackingState::none; // 聴いている役の合わせ方

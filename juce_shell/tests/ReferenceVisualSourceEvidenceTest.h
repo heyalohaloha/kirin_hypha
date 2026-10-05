@@ -14,7 +14,7 @@ void verifyReferenceVisualSourceEvidence (const juce::File& root, const juce::St
     // 試聴コピーのサンプルレート変換は自動。見た目は元の 48k の Cue の範囲のまま、音は出さない。
     require (wait (controller, [&] (const auto& state) {
         return state.presetId + "/" + state.checkId + "/" + state.candidateId == versionId
-            && state.state == ref::RuntimeState::ready && !state.sampleRateApprovalRequired;
+            && state.state == ref::RuntimeState::ready;
     }), "the audition copy is converted without asking");
     const auto state = controller.snapshot();
     const auto converted = controller.visualBinding();

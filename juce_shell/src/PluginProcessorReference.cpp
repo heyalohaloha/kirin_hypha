@@ -257,18 +257,6 @@ bool KirinHyphaProcessorBase::selectReferenceVisualSlot (int slot)
    #endif
 }
 
-bool KirinHyphaProcessorBase::approveReferenceSampleRateConversion(int slot)
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->approveSampleRateConversion(slot);
-   #else
-    juce::ignoreUnused (slot);
-    return false;
-   #endif
-}
-
 bool KirinHyphaProcessorBase::requestReferenceRecovery()
 {
     refreshLicenseForUserAction();

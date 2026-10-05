@@ -7,6 +7,7 @@
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceVisualNavigationTest.h"
 #include "ReferenceAbcvRolesTest.h"
+#include "ReferenceActionIntentTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -110,6 +111,7 @@ static void verifyTrackingStopNoticeOnce()
 void verifyReferenceAuditionComponentContract()
 {
     verifyTrackingStopNoticeOnce();
+    verifyReferenceActionIntent();
     verifyReferenceVisualNavigation();
     verifyReferenceVisualComparison();
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
@@ -354,8 +356,8 @@ void verifyReferenceAuditionComponentContract()
     writeImageIfRequested (render (compactPendingComponent),
                            "KIRIN_REFERENCE_UI_PENDING_COMPACT_OUTPUT");
     auto approval = selected;
-    approval.sampleRateApprovalRequired = true;
-    approval.actionText = "USE 44.1 TO 48.0 kHz";
+    approval.actionText = "RETRY PREPARATION";
+    approval.action = { reference_ui::ActionKind::retryCandidatePreparation, {} };
     component.setState (approval);
     auto* action = dynamic_cast<juce::TextButton*> (
         findReferenceControl (component, "reference-action"));

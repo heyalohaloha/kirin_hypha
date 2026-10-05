@@ -68,6 +68,9 @@ namespace hypha::reference_audition
         std::uint64_t matchFailureSerial = 0;  // 失敗と承認の下げ幅を作った・消したときだけ変わる番号
         // 承認して A（POST の出力全体）を下げている量（0 以下）。比較の制御が出す（役の値ではない）。
         double heldAttenuationDb = 0.0;
+        // 窓に一度出した承認の申し出（役と失敗の番号）。窓を開き直しても出し直さない。比較の制御が出す。
+        int lowerAOfferShownSlot = 0;
+        std::uint64_t lowerAOfferShownSerial = 0;
         juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
         std::uint64_t selectionGeneration = 0; // 作業スレッドがこの状態を出したときに反映していた選択の世代
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;
@@ -150,7 +153,6 @@ namespace hypha::reference_audition
         double visualPositionSeconds = -1.0;
         std::shared_ptr<VisualPreferences> visualPreferences;
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
-        bool sampleRateApprovalRequired = false;
         std::int64_t sourceSampleRateHz = 0;
         std::int64_t hostSampleRateHz = 0;
         bool measurementAvailable = false;

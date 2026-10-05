@@ -328,7 +328,6 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             runtime = controller.snapshot();
             require (runtime.state == ref::RuntimeState::ready
                      && runtime.auditionBuffered
-                     && ! runtime.sampleRateApprovalRequired
                      && runtime.sourceSampleRateHz == 48'000
                      && runtime.hostSampleRateHz == 44'100
                      && ! runtime.bSelected,

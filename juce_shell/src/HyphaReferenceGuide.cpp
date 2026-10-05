@@ -33,7 +33,6 @@ juce::String headingFor (SourceStep step, bool version)
         case SourceStep::aligning: return "Aligning V with A";
         case SourceStep::noMatchingPassage: return "V did not match this passage";
         case SourceStep::playAnotherPassage: return "Play another passage to align V";
-        case SourceStep::approveSampleRate: return version ? "Approve V conversion" : "Approve C conversion";
         case SourceStep::verifyingSource: return version ? "Verifying V source" : "Verifying C source";
         case SourceStep::loadingAudio: return version ? "Loading V at the playhead" : "Loading C at the playhead";
         case SourceStep::outsideCue: return "This playhead is outside C's Cue";
@@ -61,8 +60,6 @@ juce::String detailFor (SourceStep step)
             return "Check that V is a Version of A at this POST, or play a different matching passage.";
         case SourceStep::playAnotherPassage:
             return "This passage repeats in V. Play a part that occurs only once.";
-        case SourceStep::approveSampleRate:
-            return "Only the audition copy changes. A stays unchanged.";
         case SourceStep::verifyingSource: return "The source is being checked. A stays live.";
         case SourceStep::loadingAudio: return "Keep playing while audio loads.";
         case SourceStep::outsideCue:
@@ -155,14 +152,10 @@ Guide guide (const State& state)
         && ! (state.comparisonSlot == 2 && !state.viewBindings.empty()
             && (state.detailedMeasurement || !state.profiles.empty()
                 || (state.visualTimeline && (state.visualTimeline->aKirin || state.visualTimeline->aTicks))));
-    const bool versionApproval = result.version == SourceStep::approveSampleRate;
-    const bool checkApproval = result.check == SourceStep::approveSampleRate;
     if (state.pendingAudition.stage != reference_audition::PendingAuditionView::Stage::none)
     {
         result.heading = pendingAuditionHeading (state);
-        result.detail = state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::approval
-            ? juce::String ("Approve below. A stays live; press A to cancel.")
-            : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable
+        result.detail = state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable
             ? juce::String ("Prepare this source in Kirin OS. A stays live.")
             : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::ceilingExceeded
             ? juce::String ("MATCH exceeds the safe level. A stays live.")
@@ -171,16 +164,15 @@ Guide guide (const State& state)
                                               : "A stays live. Choose the source again.");
         return result;
     }
-    if (! state.libraryReceived && ! versionApproval && ! checkApproval)
+    if (! state.libraryReceived)
     {
         result.heading = state.osOnline ? "Receiving from Kirin OS" : "Open Kirin OS";
         result.detail = detailFor (SourceStep::waitingForKirinOs);
         return result;
     }
     const auto first = !state.aAvailable ? SourceStep::playDaw
-        : versionApproval ? result.version : checkApproval ? result.check
         : result.version != SourceStep::ready ? result.version : result.check;
-    const bool version = versionApproval || (! checkApproval && state.aAvailable && result.version != SourceStep::ready);
+    const bool version = state.aAvailable && result.version != SourceStep::ready;
     result.heading = headingFor (first, version);
     result.detail = detailFor (first);
     return result;
@@ -257,7 +249,6 @@ juce::String stepText (SourceStep step)
         case SourceStep::aligning: return "Aligning with A. Keep playing";
         case SourceStep::noMatchingPassage: return "No verified match here; check Version";
         case SourceStep::playAnotherPassage: return "Play another passage";
-        case SourceStep::approveSampleRate: return "Approve rate conversion";
         case SourceStep::verifyingSource: return "Verifying source";
         case SourceStep::loadingAudio: return "Loading audio here; keep playing";
         case SourceStep::outsideCue: return "Outside Cue; move or choose longer Cue";

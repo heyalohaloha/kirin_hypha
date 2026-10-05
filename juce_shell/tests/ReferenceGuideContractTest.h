@@ -54,14 +54,6 @@ inline void verifyGuideStates()
     require (shown.shown && shown.heading == "Choose a Version for V"
                  && shown.check == Step::enableCheck,
              "neither audible while playing: B's step first, C's step in its row");
-    shown = guide (named ("approve_b_rate"));
-    require (shown.shown && shown.heading == "Approve V conversion"
-                 && shown.version == Step::approveSampleRate,
-             "B's explicit conversion approval is a next step, not Preparing");
-    shown = guide (named ("approve_c_rate"));
-    require (shown.shown && shown.heading == "Approve C conversion"
-                 && shown.check == Step::approveSampleRate,
-             "C's explicit conversion approval is a next step, not Preparing");
     require (! guide (named ("ready")).shown, "B and C audible: no guide");
     for (const auto* name : { "stopped", "no_check", "no_library" })
     {
@@ -88,12 +80,12 @@ inline void verifyGuideStates()
                  && reference_ui::unavailableText (named ("stopped"), true) == "V: Choose a Version"
                  && reference_ui::unavailableText (named ("stopped"), false)
                         == "C: Ready when the DAW plays"
-                 && reference_ui::unavailableText (named ("approve_b_rate"), true)
-                        == "V: Approve rate conversion",
+                 && reference_ui::unavailableText (named ("loading_audio"), true)
+                        == "V: Loading audio here; keep playing",
              "the reasons on hover and after a click name the source and its step");
 }
 
-inline void verifyIndependentRateApproval()
+inline void verifySourceStepReasons()
 {
     using namespace reference_audition;
     Snapshot comparison;
@@ -101,62 +93,12 @@ inline void verifyIndependentRateApproval()
     auto c = std::make_shared<Snapshot>();
     b->libraryReceived = c->libraryReceived = true;
     b->presetId = "preset"; b->checkId = "check"; b->candidateId = "candidate";
-    b->state = RuntimeState::waiting;
-    b->rejectionCode = "reference_sample_rate_approval_required";
-    b->sampleRateApprovalRequired = true;
-    b->sourceSampleRateHz = 44100; b->hostSampleRateHz = 48000;
-    c->state = RuntimeState::ready; c->auditionBuffered = true;
+    b->state = RuntimeState::ready; b->auditionBuffered = true;
     comparison.versionSelection = b; comparison.checkSelection = c;
     comparison.versions.push_back ({ "preset/check/candidate", "Version", {}, false });
     comparison.selectedVersionId = "preset/check/candidate";
     comparison.comparisonSlot = 2;
     reference_ui::State state = reference_review::playing (reference_review::library());
-    reference_ui::runtime_view::setSourceSteps (state, comparison);
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (state.versionStep == reference_ui::SourceStep::approveSampleRate
-                 && state.checkStep == reference_ui::SourceStep::ready
-                 && state.sampleRateApprovalSlot == 0,
-             "B names its approval without commandeering C's display action");
-    comparison.pendingAudition = { 1, PendingAuditionView::Stage::approval };
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (state.sampleRateApprovalSlot == 1 && state.sourceSampleRateHz == 44100,
-        "pending B exposes its exact approval without changing the A/C visual pane");
-    comparison.pendingAudition = {};
-    comparison.comparisonSlot = 1;
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (state.sampleRateApprovalSlot == 1 && state.sourceSampleRateHz == 44100
-        && state.hostSampleRateHz == 48000, "inspecting B exposes B's exact conversion");
-    b->state = RuntimeState::ready; b->sampleRateApprovalRequired = false;
-    b->rejectionCode.clear(); b->auditionBuffered = true;
-    c->state = RuntimeState::waiting; c->auditionBuffered = false;
-    c->sampleRateApprovalRequired = true;
-    c->sourceSampleRateHz = 96000; c->hostSampleRateHz = 48000;
-    reference_ui::runtime_view::setSourceSteps (state, comparison);
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (!state.sampleRateApprovalRequired, "C's approval never commandeers B's display action");
-    comparison.pendingAudition = { 2, PendingAuditionView::Stage::approval };
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (state.sampleRateApprovalSlot == 2 && state.sourceSampleRateHz == 96000,
-        "pending C exposes its exact approval from the A/B visual pane too");
-    b->sampleRateApprovalRequired = true;
-    reference_ui::runtime_view::setSourceSteps (state, comparison);
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (state.sampleRateApprovalSlot == 2, "pending C wins over B view even when both need different conversions");
-    b->sampleRateApprovalRequired = false;
-    comparison.pendingAudition = {};
-    reference_ui::runtime_view::setSourceSteps (state, comparison);
-    comparison.comparisonSlot = 2;
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (state.versionStep == reference_ui::SourceStep::ready
-                 && state.checkStep == reference_ui::SourceStep::approveSampleRate
-                 && state.sampleRateApprovalSlot == 2
-                 && state.sourceSampleRateHz == 96000,
-             "C approval remains actionable while B is already ready");
-    c->sampleRateApprovalRequired = false; c->rejectionCode.clear();
-    reference_ui::runtime_view::setSourceSteps (state, comparison);
-    reference_ui::runtime_view::setSampleRateApproval (state, comparison);
-    require (! state.sampleRateApprovalRequired && state.sampleRateApprovalSlot == 0,
-             "stale approval is cleared when the source no longer requests it");
     c->state = RuntimeState::ready;
     c->auditionBuffered = false;
     reference_ui::runtime_view::setSourceSteps (state, comparison);
@@ -212,7 +154,8 @@ inline void verifyUnavailableButtons()
     require (reference_ui::guide (viewed).shown, "the guide takes the configured views' place");
 }
 
-inline void verifyApprovalAction()
+// アクションのボタンは、どの大きさでも枠の中に収まり、文が切れない（承認の量と役まで言う長い文も）。
+inline void verifyActionFits()
 {
     for (const auto& preset : observatory::sizePresets)
     {
@@ -225,24 +168,25 @@ inline void verifyApprovalAction()
         const auto context = presentation::forEditor (preset.width, preset.height);
         component.setPresentationContext (context);
         component.setSize (body.getWidth(), body.getHeight());
-        auto state = named ("approve_b_rate");
-        if (preset.width < 600) state.actionText = "APPROVE B RATE";
-        component.setState (state);
-        auto* action = dynamic_cast<juce::TextButton*> (findReferenceControl (component, "reference-action"));
-        require (action != nullptr && action->isVisible() && action->getBounds().getWidth() > 0
-                     && component.getLocalBounds().contains (boundsWithin (component, *action))
-                     && action->getTooltip().contains ("44.1")
-                     && action->getTooltip().contains ("48.0")
-                     && action->getTooltip().contains ("A stays unchanged"),
-                 "approval action names the correct conversion and remains inside every size");
-        const auto font = hypha::labelFont (context, typography::TextRole::action,
-                                    typography::Composition::information);
-        require (text_style::shownWidth (font, action->getButtonText())
-                     <= static_cast<float> (action->getWidth()),
-                 "approval action label is whole at " + juce::String (preset.width)
-                     + ": " + action->getButtonText() + " / "
-                     + juce::String (text_style::shownWidth (font, action->getButtonText()))
-                     + " > " + juce::String (action->getWidth()));
+        for (const auto* text : { "RETRY PREPARATION", "LOWER A 8.0 DB & PLAY B" })
+        {
+            auto state = named ("loading_audio");
+            state.actionText = text;
+            state.action = { reference_ui::ActionKind::retryCandidatePreparation, {} };
+            component.setState (state);
+            auto* action = dynamic_cast<juce::TextButton*> (findReferenceControl (component, "reference-action"));
+            require (action != nullptr && action->isVisible() && action->getBounds().getWidth() > 0
+                         && component.getLocalBounds().contains (boundsWithin (component, *action)),
+                     "the action remains inside every size");
+            const auto font = hypha::labelFont (context, typography::TextRole::action,
+                                                typography::Composition::information);
+            require (text_style::shownWidth (font, action->getButtonText())
+                         <= static_cast<float> (action->getWidth()),
+                     "action label is whole at " + juce::String (preset.width)
+                         + ": " + action->getButtonText() + " / "
+                         + juce::String (text_style::shownWidth (font, action->getButtonText()))
+                         + " > " + juce::String (action->getWidth()));
+        }
     }
 }
 
@@ -290,9 +234,9 @@ inline void verifyGuideFits()
 inline void verifyReferenceGuideContract()
 {
     reference_guide_contract::verifyGuideStates();
-    reference_guide_contract::verifyIndependentRateApproval();
+    reference_guide_contract::verifySourceStepReasons();
     reference_guide_contract::verifyUnavailableButtons();
-    reference_guide_contract::verifyApprovalAction();
+    reference_guide_contract::verifyActionFits();
     reference_guide_contract::verifyGuideFits();
 }
 }

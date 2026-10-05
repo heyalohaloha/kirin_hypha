@@ -171,11 +171,8 @@ void Component::setState (State next)
     syncRoles (blindSession);
     syncCheckPage (blindSession);
     actionButton.setButtonText (current.actionText);
-    actionButton.setAttention (current.sampleRateApprovalRequired);
-    actionButton.setTooltip (current.sampleRateApprovalRequired
-        ? "Approve " + juce::String (current.sampleRateApprovalSlot == 1 ? "V " : "C ") + juce::String (current.sourceSampleRateHz / 1000.0, 1) + " to " + juce::String (current.hostSampleRateHz / 1000.0, 1) + " kHz for the audition copy only. A stays unchanged."
-        : current.actionText == "EDIT GENRE" ? "Open this Balance Check in Kirin OS."
-        : "Continue with the safe next action.");
+    actionButton.setAttention (false);
+    actionButton.setTooltip ("Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
     comparisonView.setVisible (! guideShown && current.separateComparisons && current.comparisonSlot == 1 && ! blindSession);
     const auto emptyB = current.versionId.isEmpty() ? juce::String ("Choose Version")

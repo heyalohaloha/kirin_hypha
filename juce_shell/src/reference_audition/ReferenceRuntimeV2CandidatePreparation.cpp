@@ -80,8 +80,6 @@ namespace hypha::reference_audition
             currentSnapshot.candidatePreparationTargetId = id;
             candidatePreparationWaitingSinceMs = juce::Time::currentTimeMillis();
             candidatePreparationStatusExpiresAtMs = 0;
-            pendingApprovalKey.clear();
-            currentSnapshot.sampleRateApprovalRequired = false;
             revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
@@ -169,7 +167,6 @@ namespace hypha::reference_audition
                 requestedSelection.checkId = prepared.checkId;
                 requestedSelection.candidateId = prepared.candidateId;
                 requestedSelection.cueId.clear();
-                requestedSelection.sampleRateApprovalKey.clear();
                 ++requestedSelection.generation;
                 currentSnapshot.candidatePreparationStatus = "prepared";
                 currentSnapshot.candidatePreparationAction.clear();

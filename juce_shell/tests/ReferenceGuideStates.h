@@ -54,20 +54,6 @@ inline std::vector<Case> cases()
 {
     using Step = reference_ui::SourceStep;
     std::vector<Case> result;
-    for (const int pendingSlot : { 1, 2 })
-    {
-        auto state = library();
-        state.versionId = "v4"; state.versionArmable = state.checkArmable = true;
-        state.comparisonSlot = pendingSlot == 1 ? 2 : 1;
-        state.versionStep = pendingSlot == 1 ? Step::approveSampleRate : Step::playDaw;
-        state.checkStep = pendingSlot == 2 ? Step::approveSampleRate : Step::playDaw;
-        state.pendingAudition = { pendingSlot, reference_audition::PendingAuditionView::Stage::approval };
-        state.sampleRateApprovalRequired = true; state.sampleRateApprovalSlot = pendingSlot;
-        state.sourceSampleRateHz = 44100; state.hostSampleRateHz = 48000;
-        state.actionText = pendingSlot == 1 ? "APPROVE B RATE" : "APPROVE C RATE";
-        state.status = reference_ui::pendingAuditionText (state);
-        result.push_back ({ pendingSlot == 1 ? "queued_b_rate_c_view" : "queued_c_rate_b_view", state });
-    }
     for (const auto slot : { 1, 2 })
     {
         auto state = library();
@@ -150,22 +136,12 @@ inline std::vector<Case> cases()
     {
         auto state = playing (library());
         state.versionId = "v4";
-        state.versionStep = Step::approveSampleRate;
         state.checkStep = Step::preparing;
-        state.sampleRateApprovalRequired = true;
-        state.sampleRateApprovalSlot = 1;
         state.sourceSampleRateHz = 44100;
         state.hostSampleRateHz = 48000;
-        state.actionText = "APPROVE B 44.1 TO 48.0 kHz";
-        result.push_back ({ "approve_b_rate", state });
-        state.versionStep = Step::preparing;
-        state.checkStep = Step::approveSampleRate;
-        state.sampleRateApprovalSlot = 2;
-        state.actionText = "APPROVE C 44.1 TO 48.0 kHz";
-        result.push_back ({ "approve_c_rate", state });
         state.aAvailable = false;
         state.versionStep = Step::playDaw;
-        result.push_back ({ "stopped_c_rate", state });
+        result.push_back ({ "stopped_c_preparing", state });
         state.aAvailable = true;
         state.versionReady = true;
         state.versionStep = Step::ready;

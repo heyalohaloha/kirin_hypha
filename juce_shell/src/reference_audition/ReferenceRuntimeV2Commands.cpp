@@ -28,9 +28,6 @@ namespace hypha::reference_audition
                 if (kind != "cue") requestedSelection.cueId.clear();
             }
             ++requestedSelection.generation;
-            requestedSelection.sampleRateApprovalKey.clear();
-            pendingApprovalKey.clear();
-            currentSnapshot.sampleRateApprovalRequired = false;
             revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
@@ -124,8 +121,6 @@ namespace hypha::reference_audition
             currentSnapshot.presetSelectionTargetId = option.id;
             presetSelectionWaitingSinceMs = juce::Time::currentTimeMillis();
             presetSelectionStatusExpiresAtMs = 0;
-            pendingApprovalKey.clear();
-            currentSnapshot.sampleRateApprovalRequired = false;
             revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
@@ -192,18 +187,6 @@ namespace hypha::reference_audition
     bool RuntimeV2Controller::selectCue (const juce::String& id)
     {
         return requestSelection ("cue", id);
-    }
-
-    bool RuntimeV2Controller::approveSampleRateConversion()
-    {
-        const juce::ScopedLock lock (stateLock);
-        if (pendingApprovalKey.isEmpty()
-            || ! currentSnapshot.sampleRateApprovalRequired)
-            return false;
-        requestedSelection.sampleRateApprovalKey = pendingApprovalKey;
-        ++requestedSelection.generation;
-        notify();
-        return true;
     }
 
     bool RuntimeV2Controller::requestRecovery()
@@ -318,7 +301,6 @@ namespace hypha::reference_audition
                 requestedSelection.checkId.clear();
                 requestedSelection.candidateId.clear();
                 requestedSelection.cueId.clear();
-                requestedSelection.sampleRateApprovalKey.clear();
                 ++requestedSelection.generation;
                 currentSnapshot.presetSelectionStatus = "prepared";
                 currentSnapshot.presetSelectionAction.clear();

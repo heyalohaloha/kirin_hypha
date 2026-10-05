@@ -26,7 +26,6 @@ enum class SourceStep
     aligning,
     noMatchingPassage,
     playAnotherPassage,
-    approveSampleRate,
     verifyingSource,
     loadingAudio,
     outsideCue,

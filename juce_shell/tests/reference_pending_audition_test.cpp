@@ -154,7 +154,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
         "restore the fixture's explicit original mode");
     // 試聴コピーのサンプルレート変換は自動。承認を待たずに準備ができ、止まっていれば再生を待つ。
     controller.configure (identity, 44100, 2); host (false);
-    wait ([] (const auto& s) { return s.checkArmable && !s.checkSelection->sampleRateApprovalRequired && s.checkReady; });
+    wait ([] (const auto& s) { return s.checkArmable && s.checkReady; });
     require (controller.requestAudition (2, -14, -2), "C queues on a converted audition copy");
     controller.servicePendingAudition (-14, -2, false);
     require (controller.snapshot().pendingAudition.waiting() && !controller.snapshot().bSelected,

@@ -431,10 +431,8 @@ bool testReferenceLibraryOsFixture()
                 require (waitFor (first, [&] (const auto& s) { return s.presetId == preset.sourcePresetArtifact.presetId; }), "preset arrival");
                 require (first.selectCheck (check.checkId), "select registered check");
                 require (waitFor (first, [&] (const auto& s) {
-                    return s.checkId == check.checkId && (s.state == ref::RuntimeState::ready || s.sampleRateApprovalRequired);
+                    return s.checkId == check.checkId && s.state == ref::RuntimeState::ready;
                 }), "registered source must prepare for audition");
-                if (first.snapshot().sampleRateApprovalRequired)
-                    require (first.approveSampleRateConversion(), "explicit sample-rate permission");
                 require (waitFor (first, [] (const auto& s) { return s.state == ref::RuntimeState::ready && s.auditionBuffered; }), "source pages must be buffered");
                 require (first.selectB (-14.0, -2.0), "explicit B must activate from prepared source");
                 juce::AudioBuffer<float> buffer (2, 128); buffer.clear();

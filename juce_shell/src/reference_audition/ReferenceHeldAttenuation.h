@@ -8,8 +8,20 @@
 
 namespace hypha::reference_audition
 {
-// 上限超えの承認の結果。断ったときは理由を言う（R-28：押した利用者に「下げた」と思わせない）。
-enum class LowerAApproval { lowered, postInUse, refused };
+// 上限超えの承認の結果。断ったときは理由を言う（R-28：押した利用者に「下げた」と思わせない）。stale：申し出の後に、その役の
+// 音・選択・MATCH の失敗が替わった（別の役・古い申し出は承認しない）。
+enum class LowerAApproval { lowered, postInUse, refused, stale };
+
+// 承認の申し出。どの役の、どの音・選択の、どの MATCH の失敗に対するものか。失敗の番号は失敗を作った・消したときだけ
+// 変わり、同じ音の公開し直しでは変わらない。
+struct LowerAOffer
+{
+    int slot = 0;
+    double db = 0.0;  // ボタンに出した量（0 未満）。下げるのはこの量（そのときに要る量と同じことは求めない）
+    juce::String playbackIdentity;
+    std::uint64_t selectionGeneration = 0, failureSerial = 0;
+    bool valid() const noexcept { return slot >= 1 && slot <= 3 && db < 0.0 && playbackIdentity.isNotEmpty(); }
+};
 
 // 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、利用者が承認すれば
 // A（POST の出力全体）を差だけ下げて合わせる。参照は元の音量のまま（上げない）。承認した量は試聴の後も、

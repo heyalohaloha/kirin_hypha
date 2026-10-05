@@ -8,12 +8,11 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     VisualBinding result;
     const auto calibration = blind.snapshot();
     result.hidden = calibration.phase != BlindPhase::inactive;
-    const bool awaitingApproval = currentSnapshot.sampleRateApprovalRequired;
     // A transport-only revoke stops output, not the verified display/queued source identity.
     // Invalid/replaced publications clear these pointers; aligned still requires audio readiness.
     const bool validPublication = currentSnapshot.state == RuntimeState::ready
         || currentSnapshot.state == RuntimeState::waiting;
-    result.source = !validPublication ? nullptr : awaitingApproval ? approvalVisualSource : publishedSource;
+    result.source = validPublication ? publishedSource : nullptr;
     result.overview = result.source ? currentSnapshot.detailedMeasurement : nullptr;
     result.presetId = currentSnapshot.presetId;
     result.checkId = currentSnapshot.checkId;

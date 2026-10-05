@@ -71,8 +71,6 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
 {
     using Runtime = reference_audition::RuntimeState;
     const auto& code = slot.rejectionCode;
-    if (slot.sampleRateApprovalRequired || code == "reference_sample_rate_approval_required")
-        return SourceStep::approveSampleRate;
     switch (slot.state)
     {
         case Runtime::ready:
@@ -144,23 +142,4 @@ inline juce::String matchFailureText (reference_audition::MatchFailure failure)
     return {};
 }
 
-// A pending intent owns its next action independently of the visual pane. Without an intent,
-// the inspected source owns the action. Never substitute another source's conversion consent.
-inline void setSampleRateApproval (State& state, const reference_audition::Snapshot& comparison)
-{
-    const bool versionPending = state.versionStep == SourceStep::approveSampleRate;
-    const bool checkPending = state.checkStep == SourceStep::approveSampleRate;
-    const auto pending = comparison.pendingAudition;
-    state.sampleRateApprovalSlot = pending.waiting() && pending.slot == 1 && versionPending ? 1
-        : pending.waiting() && pending.slot == 2 && checkPending ? 2
-        : comparison.comparisonSlot == 1 && versionPending ? 1
-        : comparison.comparisonSlot == 2 && checkPending ? 2 : 0;
-    state.sampleRateApprovalRequired = state.sampleRateApprovalSlot != 0;
-    if (! state.sampleRateApprovalRequired) return;
-    const auto& source = state.sampleRateApprovalSlot == 1
-        ? (comparison.versionSelection ? *comparison.versionSelection : comparison)
-        : (comparison.checkSelection ? *comparison.checkSelection : comparison);
-    state.sourceSampleRateHz = source.sourceSampleRateHz;
-    state.hostSampleRateHz = source.hostSampleRateHz;
-}
 }

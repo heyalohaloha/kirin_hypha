@@ -144,7 +144,8 @@ private:
                 KirinMeterSession meter {};
                 require (post->pollMeterSession (meter) && std::isfinite (meter.lufs_m), "A is measured before the approval");
                 beforeLufs = meter.lufs_m;
-                require (post->approveReferenceLowerA (3, needed) == hypha::reference_audition::LowerAApproval::lowered,
+                require (post->approveReferenceLowerA ({ 3, needed, b.playbackIdentity, b.selectionGeneration, b.matchFailureSerial })
+                             == hypha::reference_audition::LowerAApproval::lowered,
                          "the approval lowers A");
                 stage = 2;
                 break;

@@ -91,8 +91,7 @@ inline void verifyReferenceStatusLine()
     auto offered = named ("ready");
     offered.separateComparisons = true;
     offered.comparisonSlot = 3;
-    offered.lowerAOfferSlot = 3;
-    offered.lowerAOfferDb = -8.0;
+    offered.action = { reference_ui::ActionKind::lowerAAndPlay, { 3, -8.0, "b-song", 1, 1 } };
     offered.status = "B NEEDS A 8.0 DB LOWER";
     const auto offerLine = reference_ui::referenceStatusLine (offered);
     require (offerLine.kind == StatusKind::unable && offerLine.text == offered.status

@@ -242,7 +242,9 @@ void versionBlindWaitsForReturn (const juce::File& sandbox)
     require (controller.snapshot().referenceReady && controller.snapshot().versionReady, "the quiet B song prepares next to V");
     require (! controller.requestAudition (3, -10.0, -12.0), "a B MATCH over the ceiling does not play B");
     const auto needed = controller.snapshot().referenceSelection->neededAttenuationDb;
-    require (needed < 0.0 && controller.approveLowerAAndPlay (3, needed) && controller.heldAttenuationDb() < 0.0,
+    const auto b = *controller.snapshot().referenceSelection;
+    require (needed < 0.0 && controller.approveLowerAAndPlay ({ 3, needed, b.playbackIdentity, b.selectionGeneration, b.matchFailureSerial })
+                                 == ref::LowerAApproval::lowered && controller.heldAttenuationDb() < 0.0,
              "the approval lowers A for B");
     require (! controller.startBlind (-22, -6) && ! controller.approveBlindLowerAAndStart (-22, -6),
              "VERSION BLIND does not start while A is lowered (POST is never lowered twice)");

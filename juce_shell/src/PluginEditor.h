@@ -151,11 +151,9 @@ private:
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     void openReferenceLarge (int slot);
     // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
-    struct ReferenceLowerAOffer { int slot = 0; double db = 0.0; } referenceLowerAOffer;
-    int referenceLowerAPendingOffered = 0;  // 待たせた役の上限超えに一度だけ承認を出した役（1〜3）
     double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）
     bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);
-    bool approveOfferedLowerA();
+    void approveOfferedLowerA (const hypha::reference_audition::LowerAOffer&);
     void applyReferenceLowerA (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     bool returnReferenceLevelIfHeld();
     int referenceHeldTenthsDb() const;

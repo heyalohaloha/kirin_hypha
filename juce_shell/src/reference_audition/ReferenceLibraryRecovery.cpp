@@ -16,8 +16,9 @@ bool RuntimeV2Controller::requestLibraryRecovery()
         for (const auto& check : targetPreset->checks)
             if (check.checkId == currentSnapshot.checkId)
             { targetCheck = &check; break; }
-    // B の曲は Kirin OS の Preset ではないので、Preset を開く依頼は送らない（直し方は状態の行が曲の側から言う）。
-    if (! requestedConfiguration.identity.valid() || targetPreset == nullptr
+    // B の曲と V（Version の項目）は Kirin OS の Preset ではないので、Preset を開く依頼は送らない（Kirin OS は
+    // Preset として見つけられない。直し方は状態の行が言う）。
+    if (versionComparison || ! requestedConfiguration.identity.valid() || targetPreset == nullptr
         || targetCheck == nullptr || targetPreset->songEntry) return false;
     bool opensBalanceSettings = false;
     for (const auto& binding : targetCheck->viewBindings)

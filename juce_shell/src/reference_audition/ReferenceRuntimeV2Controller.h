@@ -52,7 +52,6 @@ namespace hypha::reference_audition
         bool selectLibraryCheck (const juce::String&);
         bool retryPresetSelection();
         bool retryCandidatePreparation();
-        bool approveSampleRateConversion();
         bool requestRecovery();
 
         void observeTransport (std::int64_t hostPosition, bool positionValid,
@@ -127,7 +126,6 @@ namespace hypha::reference_audition
             juce::String checkId;
             juce::String candidateId;
             juce::String cueId;
-            juce::String sampleRateApprovalKey;
             std::uint64_t generation = 0;
         };
 
@@ -185,8 +183,6 @@ namespace hypha::reference_audition
                                       const std::shared_ptr<const RuntimeSource>&, Snapshot&);
         void publish (Snapshot);
         void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>, const RuntimeCue&);
-        void publishApprovalRequired (Snapshot, const juce::String& approvalKey,
-            std::shared_ptr<const RuntimeSource>, const RuntimeCue&);
         void publishLocked (Snapshot);
         bool requestSelection (const juce::String& kind, const juce::String& id);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
@@ -262,14 +258,11 @@ namespace hypha::reference_audition
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
         std::shared_ptr<const RuntimeSource> publishedSource;
-        // Non-RT visual evidence only. This never grants ready/playback authority.
-        std::shared_ptr<const RuntimeSource> approvalVisualSource;
         std::int64_t visualSourceCueStart = 0, visualSourceCueEnd = 0;
         juce::String activeSourceKey;
         juce::String activeMappingKey;
         juce::String activeContentMappingKey;
         juce::String activePublishedSelectionKey;
-        juce::String pendingApprovalKey;
         juce::String blindContextKey;
         juce::String blindPreparationKey;
         juce::String legacyVersionLookupKey, legacyVersionChoice;

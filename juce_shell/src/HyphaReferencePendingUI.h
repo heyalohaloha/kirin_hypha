@@ -39,7 +39,6 @@ inline juce::String pendingAuditionReason (const State& state)
                             : state.pendingAudition.slot == 3 ? state.referenceStep : state.checkStep;
             return step == SourceStep::ready ? "VERIFYING PLAYBACK" : stepText (step);
         }
-        case Stage::approval: return "APPROVE CONVERSION";
         case Stage::level: return "MEASURING A LEVEL";
         case Stage::sourceChanged: return "SOURCE CHANGED";
         case Stage::safetyChanged: return "PLAYBACK CHANGED";

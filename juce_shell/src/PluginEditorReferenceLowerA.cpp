@@ -6,38 +6,52 @@
 // 断るだけでなく「A を差だけ下げて合わせる」承認を出す。参照は元の音量のまま。承認した量は足元の RETURN で戻す
 // まで保つ（live PRE/POST 比較の POST の減衰と同じ見せ方）。承認のボタンは 300% の REF のアクション。
 
-// 押した役（再生中・MATCH のやり直し）が上限を超えたら、承認を出す。出したら true（通知はここで出す）。
+namespace
+{
+const hypha::reference_audition::Snapshot* roleOf (const hypha::reference_audition::Snapshot& runtime, int slot)
+{
+    const auto& role = slot == 1 ? runtime.versionSelection : slot == 3 ? runtime.referenceSelection : runtime.checkSelection;
+    return role != nullptr ? role.get() : nullptr;
+}
+
+bool needsLowerA (const hypha::reference_audition::Snapshot* role)
+{
+    return role != nullptr && role->matchFailure == hypha::reference_audition::MatchFailure::ceilingExceeded
+        && role->neededAttenuationDb < 0.0 && role->playbackIdentity.isNotEmpty();
+}
+}
+
+// その役の上限超えを、窓で一度だけ知らせる（押した直後、または待たせた役が合わせる時点で上限を超えたとき）。承認の
+// ボタンは 300% の REF にあるので、その役のページにして大きさを合わせる。出したことは processor が持ち、窓を開き直しても
+// 出し直さない。知らせたら true。
 bool KirinHyphaEditor::offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role)
 {
-    if (role.matchFailure != hypha::reference_audition::MatchFailure::ceilingExceeded
-        || ! (role.neededAttenuationDb < 0.0))
-        return false;
-    referenceLowerAOffer = { slot, role.neededAttenuationDb };
+    if (! needsLowerA (&role)) return false;
+    processorRef.markReferenceLowerAOfferShown (slot, role.matchFailureSerial);
     processorRef.selectReferenceVisualSlot (slot);
-    if (getWidth() < 900 || getHeight() < 600) setSize (900, 600);  // 承認のボタンは 300% の REF にある
+    if (getWidth() < 900 || getHeight() < 600) setSize (900, 600);
     showToast (juce::String (hypha::reference_ui::roleLetter (slot)) + " needs A "
                + juce::String (-role.neededAttenuationDb, 1) + " dB lower to match. Press LOWER A.");
     return true;
 }
 
-// REF のアクション。出している承認があれば、ボタンに出した量で承認する（A を下げ終わってから、押した役を鳴らす）。
-bool KirinHyphaEditor::approveOfferedLowerA()
+// REF のアクションの承認：ボタンに出した申し出（その役・その音・その MATCH の失敗）を、ボタンに出した量で承認する。
+void KirinHyphaEditor::approveOfferedLowerA (const hypha::reference_audition::LowerAOffer& offer)
 {
     using Approval = hypha::reference_audition::LowerAApproval;
-    const auto offer = referenceLowerAOffer;
-    if (offer.slot == 0) return false;
-    referenceLowerAOffer = {};
-    const auto result = processorRef.approveReferenceLowerA (offer.slot, offer.db);
+    if (outputRefused (hypha::output_owner::Activity::lowerA)) return;
+    const auto result = processorRef.approveReferenceLowerA (offer);
     if (result == Approval::lowered) referenceLowerAApprovedDb = offer.db;
-    if (result == Approval::postInUse)
+    else if (result == Approval::postInUse)
         showToast ("PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.");
-    else if (result != Approval::lowered)
+    else if (result == Approval::stale)
+        showToast ("The offer changed. Press the role again.");
+    else
         showToast ("A was not lowered. Press the role again.");
-    return true;
 }
 
-// 下げている量（読みは下げた後の A の基準にする）と、見ている役に出している承認を状態に入れる。選び直した・
-// 何かを鳴らした（その役の MATCH の結果が変わった）ら、承認は引っ込める。
+// 下げている量（読みは下げた後の A の基準にする）と、見ているページの役の承認を状態に入れる。承認の申し出は見ている
+// ページの役の MATCH の結果から作る（別の役の申し出を、このページのボタンで承認しない）。
 void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
                                              const hypha::reference_audition::Snapshot& runtime)
 {
@@ -49,39 +63,23 @@ void KirinHyphaEditor::applyReferenceLowerA (hypha::reference_ui::State& state,
             showToast ("A lowered " + juce::String (-runtime.heldAttenuationDb, 1) + " dB to match: A got louder after the offer.");
         referenceLowerAApprovedDb = 0.0;
     }
-    auto& offer = referenceLowerAOffer;
-    // 待たせた役（A がたまる前・準備中に押した役）が、合わせる時点で上限を超えて止まったときも、押し直させずに
-    // 一度だけ承認を出す（2026-10-04）。
+    // 待たせた役（A がたまる前・準備中に押した役）が合わせる時点で上限を超えたら、押し直させずに一度だけ知らせる
+    // （2026-10-04）。REF のページが出ていないときは、窓の大きさもページも変えない（開いたときにボタンが言う）。
     using Stage = hypha::reference_audition::PendingAuditionView::Stage;
     const auto& pending = runtime.pendingAudition;
-    // 別の役を押して待たせたら、前の役の承認は引っ込める（押した役が優先）。2026-10-04：B の承認が残って
-    // いて、あとで押して待たせた C が上限を超えても承認が出ず「C STOPPED / MATCH EXCEEDS SAFE LEVEL」で止まった。
-    if (offer.slot != 0 && pending.stage != Stage::none && pending.slot != 0 && pending.slot != offer.slot) offer = {};
-    if (pending.stage != Stage::ceilingExceeded) referenceLowerAPendingOffered = 0;
-    else if (offer.slot == 0 && referenceLowerAPendingOffered != pending.slot)
-    {
-        referenceLowerAPendingOffered = pending.slot;
-        const auto& role = pending.slot == 1 ? runtime.versionSelection
-                         : pending.slot == 3 ? runtime.referenceSelection : runtime.checkSelection;
-        if (role != nullptr) offerReferenceLowerA (pending.slot, *role);
-    }
-    if (offer.slot != 0)
-    {
-        const auto& role = offer.slot == 1 ? runtime.versionSelection
-                         : offer.slot == 3 ? runtime.referenceSelection : runtime.checkSelection;
-        // 別の役が鳴った・選び直した（その役の MATCH の結果が変わった）ら引っ込める。C の MATCH のやり直しは C が
-        // 鳴ったまま出す。
-        if ((runtime.bSelected && runtime.audibleComparisonSlot != offer.slot) || role == nullptr
-            || role->matchFailure != hypha::reference_audition::MatchFailure::ceilingExceeded)
-            offer = {};
-    }
-    state.lowerAOfferSlot = offer.slot;
-    state.lowerAOfferDb = offer.db;
-    if (offer.slot == 0 || offer.slot != state.comparisonSlot) return;
-    const auto letter = juce::String (hypha::reference_ui::roleLetter (offer.slot));
+    if (pending.stage == Stage::ceilingExceeded && referenceView.isShowing())
+        if (const auto* role = roleOf (runtime, pending.slot); needsLowerA (role)
+            && ! (runtime.lowerAOfferShownSlot == pending.slot && runtime.lowerAOfferShownSerial == role->matchFailureSerial))
+            offerReferenceLowerA (pending.slot, *role);
+    const int slot = state.comparisonSlot;
+    const auto found = hypha::reference_ui::lowerAOfferFor (runtime, slot);
+    if (! found) return;
+    const auto offer = *found;
+    const auto letter = juce::String (hypha::reference_ui::roleLetter (slot));
     const auto amount = juce::String (-offer.db, 1);
     // 直し方はボタンが言う（量も）。2 度言うと 300% の足元で状態の文とボタンの文が両方切れた（2026-10-05）。
     state.status = letter + " NEEDS A " + amount + " DB LOWER";
+    state.action = { hypha::reference_ui::ActionKind::lowerAAndPlay, offer };
     state.actionText = "LOWER A " + amount + " DB & PLAY " + letter;
 }
 
@@ -91,7 +89,6 @@ bool KirinHyphaEditor::returnReferenceLevelIfHeld()
     const auto live = processorRef.liveCompareStatus();
     if (live.postTarget < 1.0f || live.postActual < 1.0f || processorRef.referenceHeldAttenuationDb() >= 0.0)
         return false;
-    referenceLowerAOffer = {};
     processorRef.returnReferenceLevelToNormal();
     return true;
 }

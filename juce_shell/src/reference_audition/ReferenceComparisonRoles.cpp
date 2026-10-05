@@ -38,12 +38,17 @@ void ReferenceComparisonController::selectA() noexcept
 // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認して A を差だけ下げて合わせる（参照は元の音量）。
 // 下げ終わってから、押したのと同じ待ちで鳴らす（再生中でも止まっていても）。深くするだけで、浅くするのは RETURN。
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
-bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double approvedDb)
+LowerAApproval ReferenceComparisonController::approveLowerAAndPlay (const LowerAOffer& offer)
 {
-    if ((slot != 1 && slot != 2 && slot != 3) || trialActive()
-        || outputDecision (output_owner::Activity::lowerA).refused()) return false;
-    if (! std::isfinite (approvedDb) || approvedDb >= 0.0
-        || slotController (slot).snapshot().matchFailure != MatchFailure::ceilingExceeded) return false;
+    const int slot = offer.slot;
+    const double approvedDb = offer.db;
+    if (! offer.valid() || ! std::isfinite (approvedDb) || trialActive()) return LowerAApproval::refused;
+    if (outputDecision (output_owner::Activity::lowerA).refused()) return LowerAApproval::postInUse;
+    // 申し出は、その役の今の音・選択・MATCH の失敗に対するものだけを受ける（別の役・古い申し出・押し直した後は断る）。
+    const auto role = slotController (slot).snapshot();
+    if (role.matchFailure != MatchFailure::ceilingExceeded || role.playbackIdentity != offer.playbackIdentity
+        || role.selectionGeneration != offer.selectionGeneration || role.matchFailureSerial != offer.failureSerial)
+        return LowerAApproval::stale;
     const auto before = heldA.targetDb();
     heldA.hold (approvedDb);
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
@@ -51,11 +56,18 @@ bool ReferenceComparisonController::approveLowerAAndPlay (int slot, double appro
     {
         const juce::ScopedLock lock (selectionLock);
         pendingAudition.approvedLowerA = true;
-        return true;
+        return LowerAApproval::lowered;
     }
     heldA.restore (before);
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
-    return false;
+    return LowerAApproval::refused;
+}
+
+void ReferenceComparisonController::markLowerAOfferShown (int slot, std::uint64_t failureSerial)
+{
+    const juce::ScopedLock lock (selectionLock);
+    offerShownSlot = slot;
+    offerShownSerial = failureSerial;
 }
 
 // RETURN：鳴っている役を止めてから A を通常の音量へ（0.5 秒で上げる）。役の gain は下げた A に合わせてあり、

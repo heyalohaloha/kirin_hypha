@@ -159,7 +159,6 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     if (state.state == RuntimeState::rejected || state.state == RuntimeState::disconnected
         || (state.playbackIdentity.isNotEmpty() && state.playbackIdentity != intent.identity))
     { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged); return; }
-    if (state.sampleRateApprovalRequired) { publish (Stage::approval, state.transportPlaying); return; }
     if (!state.transportPlaying) { publish (Stage::play); return; }
     if (!callbackLive || inputSafety != 1
         || !state.transportPositionValid || state.state != RuntimeState::ready

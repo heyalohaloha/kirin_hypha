@@ -41,7 +41,6 @@ public:
     bool selectVisualSlot (int); // Display only; never changes the audible source or gain.
     bool retryPresetSelection();
     bool retryCandidatePreparation();
-    bool approveSampleRateConversion(int slot);
     bool requestRecovery();
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
@@ -85,7 +84,9 @@ public:
     RematchResult rematch (int slot, double aLoudness, double aSessionPeakDbtp); // C の MATCH をもう一度
     VersionIdentity identifyVersions(); // A の直近の指紋で V を特定する（メッセージスレッド）
     // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認した量だけ A を下げて合わせる。下げ終わってから鳴らす。
-    bool approveLowerAAndPlay (int slot, double approvedDb);
+    LowerAApproval approveLowerAAndPlay (const LowerAOffer&);
+    // 承認の申し出を窓に出した（一度だけ）。窓を開き直しても出し直さないために持つ。
+    void markLowerAOfferShown (int slot, std::uint64_t failureSerial);
     // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
     void returnAToNormalLevel();
     double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
@@ -158,6 +159,8 @@ private:
     juce::String songSetId, songId; // selectionLock
     std::atomic<int> switchSlot { 0 };        // 選択を替えた役（1〜3）。公開されたら新しい MATCH で鳴らす
     std::uint64_t switchGeneration = 0;        // selectionLock：その役の替えた後の選択の世代
+    int offerShownSlot = 0;                     // selectionLock：窓に出した承認の申し出
+    std::uint64_t offerShownSerial = 0;
     std::atomic<bool> offlineRenderSeen { false };
     std::uint64_t pendingSequence = 0;
     std::atomic<std::uint64_t> activePendingIntent { 0 };

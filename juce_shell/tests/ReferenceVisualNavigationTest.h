@@ -34,15 +34,17 @@ inline void verifyReferenceVisualNavigation()
         panel.setVisible (true);
         panel.setPresentationContext (presentation::forEditor (size.width, size.height));
         panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
-        for (const auto* name : { "queued_b_rate_c_view", "queued_c_rate_b_view" })
         {
-            panel.setState (named (name));
+            auto withAction = named ("loading_audio");
+            withAction.actionText = "RETRY PREPARATION";
+            withAction.action = { reference_ui::ActionKind::retryCandidatePreparation, {} };
+            panel.setState (withAction);
             auto* action = dynamic_cast<juce::TextButton*> (findReferenceControl (panel, "reference-action"));
             require (action && action->isVisible() && !action->getBounds().isEmpty()
                 && panel.getComponentAt (boundsWithin (panel, *action).getCentre()) == action,
-                "pending approval has a directly reachable action in the other visual pane at every size");
-            int approvals = 0; panel.onAction = [&] { ++approvals; };
-            action->onClick(); require (approvals == 1, "one click reaches the pending approval");
+                "the page's action is directly reachable at every size");
+            int actions = 0; panel.onAction = [&] { ++actions; };
+            action->onClick(); require (actions == 1, "one click reaches the action");
             panel.onAction = {};
         }
         auto state = named ("ready");
@@ -81,7 +83,7 @@ inline void verifyReferenceVisualNavigation()
             && panel.getComponentAt (c->getBounds().getCentre()) == c,
             "A/B/C keep separate unobstructed primary hit targets");
         state.checkReady = false;
-        state.checkStep = reference_ui::SourceStep::approveSampleRate;
+        state.checkStep = reference_ui::SourceStep::chooseSource;
         state.comparisonSlot = 1;
         panel.setState (state);
         c->onClick();
@@ -108,14 +110,12 @@ inline void verifyReferenceVisualNavigation()
         require (!singleCheck->isVisible() && !preset->isVisible()
             && !cue->isVisible(), "Blind conceals the display switch and all source selectors");
     }
-    auto stopped = named ("approve_c_rate");
-    stopped.aAvailable = false;
-    stopped.versionStep = reference_ui::SourceStep::playDaw;
+    auto stopped = named ("stopped_c_preparing");
     require (reference_ui::guide (stopped).heading == "Play the song in your DAW",
-        "C approval cannot hide that B only needs DAW playback");
+        "a C still preparing cannot hide that V only needs DAW playback");
     stopped.viewBindings = { "spectrum_full", "spectrum_low" };
     stopped.detailedMeasurement = std::make_shared<reference_audition::RuntimeDetailedMeasurement>();
     require (!reference_ui::guide (stopped).shown,
-        "OS-prepared A/C display evidence is not replaced by an audio approval guide");
+        "OS-prepared A/C display evidence is not replaced by a playback guide");
 }
 }

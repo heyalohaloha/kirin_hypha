@@ -52,7 +52,6 @@ juce::String PreparationWatch::observe (int slot, SourceStep step, bool measurin
         case SourceStep::playDaw:
         case SourceStep::noMatchingPassage:
         case SourceStep::playAnotherPassage:
-        case SourceStep::approveSampleRate:
         case SourceStep::outsideCue:
         case SourceStep::attention:
             break;  // 聴ける、または利用者の操作を待っている（上限は無い。直し方は今の文にある）
