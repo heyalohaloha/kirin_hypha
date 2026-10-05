@@ -107,7 +107,7 @@ B-758のmacOS候補を最初にbuildした際、C headerが要求発行関数の
 同名C ABIの型はlinkerが検証しないため、旧calleeが整数引数を出力pointerとして解釈し、Studio Pro 8.1.2のhost process内で異常終了した。
 要求発行symbolを`kirin_hypha_issue_local_blind_capture_request_v2`へ更新し、手書きC structの240-byte layoutをRustのsize、alignment、全padding境界とC++ `static_assert`で固定した。
 旧staticlibとの意図的なlink試験はundefined symbolで失敗し、ABI不一致をhost起動前に止めることを確認した。
-crash reportは`Downloads/Hypha_PDC_Evidence_20260908/macos-vst3/Studio One-2026-09-08-173644.ips`へ保存した。
+crash reportは非公開の証跡集`Hypha_PDC_Evidence_20260908`の`macos-vst3`記録として、`Studio One-2026-09-08-173644.ips`を保存した。
 
 取得laneの詳細な失敗理由もownerのlock-free atomicへ退避し、lane回収後も明示resetまでDebug情報から読めるようにした。
 通常buildのAudio Threadにはこの診断counterを含めず、PRE／POST製品名から開くversion、format、source、公式更新先、release notes、hover helpの情報入口だけを常設する。
@@ -229,8 +229,8 @@ trackのrecord armは有効にせず、音声eventは作成していない。
 - FFIの必須ignored suite：一覧を実測し、parity 20 / 20件、pairing candidates 6 / 6件を単一threadでpass。
 - B-765 owned clippy：pass。inlineのcapture requestは非RT pollごとのheap確保を避けるため、上限256 bytesのstack値として保持する。
 
-画面、buildと配置のhash台帳、復旧結果、公式headerの比較結果は、ローカルの`Downloads/Hypha_B1_Host_Evidence_20260907/`へ保存した。
-B-757のWindows証拠とB-765のmacOS画面、比較値、候補binary、要求artifact、復旧結果は、ローカルの`Downloads/Hypha_PDC_Evidence_20260908/`へ保存した。
+画面、buildと配置のhash台帳、復旧結果、公式headerの比較結果は、非公開の証跡集`Hypha_B1_Host_Evidence_20260907`として保存した。
+B-757のWindows証拠とB-765のmacOS画面、比較値、候補binary、要求artifact、復旧結果は、非公開の証跡集`Hypha_PDC_Evidence_20260908`として保存した。
 
 ## 次に閉じる条件
 

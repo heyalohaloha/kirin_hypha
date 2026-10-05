@@ -223,7 +223,7 @@ fresh DRUM holdout、2MIX development、2MIX fresh holdoutは一度もcandidate 
 candidate evaluator、MIDI parser、audio読込、音楽内容の表示または解析は実行していない。
 後続確認は`find`によるpathと件数の確認、およびofficial metadata filenameが存在するかの照合だけだった。
 
-展開directoryは`~/.Trash/kirin-attack-development-representatives.ShlDUS`へ移動した。
+展開directory（`kirin-attack-development-representatives.ShlDUS`）はOSのTrashへ移動した。
 Trashを空にするまでは回収可能であり、本作業では中身を開かず、移動せず、削除せず、Trashを空にしない。
 秘密情報は含まれていない。
 

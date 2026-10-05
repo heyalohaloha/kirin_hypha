@@ -541,8 +541,8 @@ host別の画面置換は各資料の記載であり、Hyphaでの実機観察�
 
 | 入力 | 行数 | SHA-256 |
 | --- | ---: | --- |
-| Downloads/hypha_live_chain_compare_external_research_20260927.md | 189 | f893baee104492c13a44772c53aff054ca7e13081308a75f127cc49bbbc7699a |
-| Downloads/hypha_live_chain_compare_implementation_plan_20260927.md | 690 | 244795e236e01795cfe7075431855274319eda86b9be119360a57157deb33fc8 |
+| 添付入力（非公開）: hypha_live_chain_compare_external_research_20260927.md | 189 | f893baee104492c13a44772c53aff054ca7e13081308a75f127cc49bbbc7699a |
+| 添付入力（非公開）: hypha_live_chain_compare_implementation_plan_20260927.md | 690 | 244795e236e01795cfe7075431855274319eda86b9be119360a57157deb33fc8 |
 
 以下の行番号はこの添付第2版を指す。
 現行ソース基点は `ee522a536fa7f418ce3247c64eb77ec55d1d8d86`、B-1023。

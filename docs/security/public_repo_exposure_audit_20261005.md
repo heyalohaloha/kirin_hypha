@@ -618,3 +618,77 @@ credential was found in that candidate set; legal copyright/license contacts are
 
 This finding was recorded before removing its sentence. The remaining observation document preserves
 all technical acceptance evidence; this is an additional PR-A hygiene edit with no code change.
+
+
+## Supplementary private storage-root audit — before final path edits
+
+Read-only review of 139 owned docs/root guides classified 135 concrete path/numeric candidate lines:
+23 H1 private storage-root lines in four documents, 112 H0 public protocol/platform/SDK/output/anonymous
+temporary evidence lines retained. Ten further explicit external/absolute contributor placeholders
+are H0. No actual private network host/address, UNC share, populated Windows username or named volume
+was established in this reviewed document scope. Candidate classification used actual context.
+
+| File / pre-edit locations | Actual category / public necessity | Action and side effects | History / public surfaces |
+| --- | --- | --- | --- |
+| `docs/hypha_b1_host_observation_20260907.md:110,232,233` | Private crash/host/PDC evidence storage roots; directory topology unnecessary for contributor verification | Remove storage root; preserve report/evidence basenames, test results, hashes, recovery and pending limitations. No invented public download link. | H1; prior Git/source archives/PR diffs may retain; no rewrite or old asset/log removal |
+| `docs/planning/hypha_live_chain_compare_g1_studio_pro_20260928.md:91,95,96,185,189,272,370,391,429,430,431,433,434,435,448,480,483` | Private CSV/PCM/analysis/disposable DAW session and removed-fixture directory topology | Use honestly marked private evidence identities/basenames. Preserve every SHA-256, host/clock/PDC metric, source-supplied limitations, disposable/removal/unlink status and public source references. | H1; same forward-only/history scope, no binary package rebuild claimed |
+| `docs/planning/hypha_live_chain_compare_review_20260927.md:544,545` | Private storage roots for two supplied review inputs | Keep basenames, attached-input/version status, 189/690 line counts, SHA-256 and exact input-line references; remove storage root only | H1; prior commits/archives/diffs remain |
+| `docs/transient_delta_phase2_research_foundation_report_20260830.md:226` | Actual home Trash storage path following dataset isolation incident | Remove home root; retain moved-to-OS-Trash fact, not emptied/recoverability, strict-unopened violation, exact counts/hash and holdout blocker. No research-gate weakening. | H1; prior commits/archives/diffs remain; log/artifact spread unconfirmed |
+| `test_signals/source.md:6` | Private source-repository folder nickname embedded in otherwise legitimate source/creator attribution | Remove only folder nickname. Keep source product, original creator and per-wave origin table; no WAV/license change. | H1 nickname; H0 attribution retained; prior commits/archives/diffs remain |
+
+These categories/locations were recorded before the narrow edits. Anonymous temporary evidence
+identities, public app-data/protocol/SDK paths and source/author/license provenance remain public.
+
+
+## Embedded HMAC semantic classification (no key value reproduced)
+
+`crates/kirin_measure/src/identity.rs:30–32,187–190` explicitly states that Phase 1 embeds a fixed
+key with GPLv3-public source and limited tamper resistance. The exact default declarations at
+`identity.rs:202`, `preset.rs:149`, `preset_v2.rs:167`, `plugin_data.rs:4362` are identical deliberately
+public protocol defaults: **H0, retain for compatibility; not a private API/signing/service credential**.
+Semantic comparison of 105 relevant historical blobs / 94 declarations found one identical public
+variant and no literal override assignment. The known public default is also present in the inspected
+Mac release executables. Values/fingerprints are not republished here. No rotation is indicated for
+this intentional default. No blanket exception is granted to arbitrary/future/override HMAC values.
+
+Medium existing limitation: anyone already able to supply/alter local files can recompute default
+checksums. Identity MAC covers installation/hardware IDs, not every field; the shipping license
+reader is explicitly loose. This does not establish remote compromise or adversary file access, and
+the existing MAC must not be described as adversarial producer/entitlement authentication. Its
+source remains necessary to verify the public protocol. Producer/protocol/license changes are outside
+this task and remain unchanged. [HMAC RFC 2104](https://www.rfc-editor.org/rfc/rfc2104.html).
+
+Low existing warning discrepancy: `crates/kirin_measure/build.rs:13` reports an empty override as
+default, whereas consumers' `option_env!` select an empty supplied value. The warning alone is not
+proof of actual key selection. No private environment/credential store was read; no behavior change
+was made. A real private build-time override would be embedded in a client and requires separate
+H2 assessment if found; none was identified in inspected source/history/sample binaries.
+
+## Trusted origin identities retained — explicit privacy exception
+
+Final URL/context review found the following real internal origin identities (values omitted):
+
+| Location | Actual role / classification | Public need / disposition | Side effects / persistence |
+| --- | --- | --- | --- |
+| `scripts/ls_release/build_kirin_hypha_release_set.mjs:222,313` | Signing workflow origin allowlist and exclusive signed-candidate validation origin; H1 internal topology, no credential | Retain existing checks. Replacing with arbitrary/synthetic origin changes security acceptance; independent public provenance verification needs an explicit trusted-origin policy. | No loosening/configuration migration. Public source/history retain this operational identity; a different auditable policy requires separate review. |
+| `scripts/ls_release/release_metadata.test.mjs:392,408` | Matching local synthetic artifact fixtures using those real allowed origin identities | Retain to exercise current production acceptance. These fixtures make no external calls. | Retained exception to private-URL residual scan; generic fixture replacement would fail current policy |
+| Existing `v1.1.49` verification report + Setup EXE JSON, `v1.1.50` verification report + Setup EXE JSON | Six private signing/candidate run-URL occurrences across four small text assets, expressing trusted artifact provenance | H1 operational origin, useful provenance. Existing assets preserved; no secret value identified. | Source alone cannot remove published URLs. Future verifier/sidecar migration would need coordinated origin-policy review; not an asset rewrite |
+
+Release asset IDs inspected: 541167516 / 541167501 / 579174069 / 579174053. The JSON fields are
+`signing.workflow_run` and, for v1.1.50, `external_validation.candidate_workflow_run`; reports state
+the signed-candidate/promotion runs. These are provenance run links, not administration/credential
+URLs. Keep reporting distinct from secret exposure. A raw residual assertion initially flagged the
+fixture file; actual validator/field review established this deliberate retained exception, rather
+than making an unjustified all-private-URLs-absent claim.
+
+`test_signals/source.md` retains source product and original creator attribution for the six
+measurement WAVs; only the unnecessary source-folder nickname is removed. Author/license provenance
+is H0 and must remain. Public verifier/signer identity and copyrighted vendor notices are likewise
+retained; real names are not mechanically erased.
+
+
+Supplemental storage cleanup result: four documents / 23 authorized lines replaced. Numeric-token and
+SHA-256 multisets, all Markdown link targets, all private evidence basenames and every unassigned
+line are unchanged; no new public evidence links. Authorized storage-root remnants zero. Research
+holdout/Trash recoverability, source-supplied review-input version/hash, G1 disposable session/fixture
+removal/shared-memory unlink and host acceptance limits retained. `git diff --check` passed.
