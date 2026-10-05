@@ -20,10 +20,13 @@ struct TimingHeader
     std::atomic<std::int32_t> frames { 0 };
     std::atomic<std::int64_t> loopClock { 0 }, loopProject { 0 }, loopSamples { 0 };
     std::atomic<double> ppq { 0 }, loopStart { 0 }, loopEnd { 0 }, bpm { 0 };
+    // PRE's wall-clock reading and thread for this callback (LiveCompareChainTiming.h).
+    std::atomic<std::uint64_t> wallNanos { 0 }, thread { 0 };
 };
 
 struct TimingSnapshot
 {
+    std::uint64_t sequence = 0; // advances by two for each PRE callback
     std::uint64_t generation = 0;
     std::uint64_t ownerA = 0, ownerB = 0;
     bool active = false;
@@ -66,6 +69,9 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
         h.ppq.load (std::memory_order_relaxed), h.loopStart.load (std::memory_order_relaxed),
         h.loopEnd.load (std::memory_order_relaxed), h.bpm.load (std::memory_order_relaxed) };
     next.block.loop = next.anchor.loop;
+    next.block.wallNanos = h.wallNanos.load (std::memory_order_relaxed);
+    next.block.thread = h.thread.load (std::memory_order_relaxed);
+    next.sequence = seq;
     std::atomic_thread_fence (std::memory_order_acquire);
     if (seq != h.sequence.load (std::memory_order_relaxed)) return false;
     result = next;
@@ -130,6 +136,8 @@ public:
         h.loopStart.store (loop.start, std::memory_order_relaxed);
         h.loopEnd.store (loop.end, std::memory_order_relaxed);
         h.bpm.store (loop.bpm, std::memory_order_relaxed);
+        h.wallNanos.store (block.wallNanos, std::memory_order_relaxed);
+        h.thread.store (block.thread, std::memory_order_relaxed);
         h.sequence.store (seq + 2, std::memory_order_release);
         havePrevious = active;
         previousBlock = block;

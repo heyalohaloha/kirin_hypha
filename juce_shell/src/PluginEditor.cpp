@@ -211,7 +211,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     }
 
     // Where the footer folds into the header, feedback is shown over the body's bottom edge.
-    feedbackStrip.onClick = [this] { showFeedbackInformationMenu(); };
+    feedbackStrip.onClick = [this]
+    {
+        if (chainFooterText.isNotEmpty() && feedbackStrip.text() == chainFooterText)
+            showInformationMenu(); // the chain timing's details and its switch
+        else
+            showFeedbackInformationMenu();
+    };
     scaleRoot.addChildComponent (feedbackStrip);
     scaleRoot.addChildComponent (helpLineBar);
 
@@ -387,8 +393,11 @@ void KirinHyphaEditor::updateFeedback (
         toastText.clear();
 
     observatoryView.setFeedback (text);
-    // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows.
-    feedbackStrip.setFeedback (text.isNotEmpty() ? text : observatoryView.footerStatus());
+    // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows,
+    // and then the chain timing the user turned on (POST only; empty otherwise).
+    const auto footerStatus = observatoryView.footerStatus();
+    feedbackStrip.setFeedback (text.isNotEmpty() ? text
+                               : footerStatus.isNotEmpty() ? footerStatus : chainFooterText);
     layoutBodyAndFeedback();
 }
 

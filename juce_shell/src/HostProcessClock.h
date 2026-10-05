@@ -22,5 +22,8 @@ struct HostProcessClock
     std::uint32_t outputPresentationSamples = 0;
     live_compare::LoopContext loop; // observations, never native sample-range authority
     HostAuxiliaryClock auxiliary;
+    // POST only: the wall clock as its callback began, for the chain timing display
+    // (LiveCompareChainTiming.h). Zero for PRE, which reads its clock after its own work.
+    std::uint64_t callbackNanos = 0;
 };
 }

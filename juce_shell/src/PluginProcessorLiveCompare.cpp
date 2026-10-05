@@ -313,6 +313,17 @@ bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
         && hypha::live_compare::sharedRingAvailable();
 }
 
+// Message thread. What POST measured between PRE's callback and its own over the last seconds
+// (LiveCompareChainTiming.h). A reading for the screen only: nothing decides or switches on it.
+hypha::live_compare::ChainTimingView KirinHyphaProcessorBase::chainTimingView() const noexcept
+{
+    hypha::live_compare::ChainTimingReport report;
+    if (role != Role::Post || ! liveCompare.chain.read (report))
+        return {};
+    return hypha::live_compare::summarise (report, preparedFormat.sampleRate,
+                                          hypha::live_compare::callbackWallNanos());
+}
+
 // INV-LC9: a mono AAX instance that the host does not show to be the only one of its group: one
 // channel of a multi-mono set, or a host that names no groups. Pro Tools processes the channels of
 // a set on parallel threads (G1 record, section 10), so no instance can switch them all in a block.

@@ -80,6 +80,28 @@ const Entry entries[] = {
       u8"再起動または再スキャンして、両方の読み込んだ版を確認します" },
     { "Could not open the browser", u8"ブラウザを開けませんでした" },
 
+    // The chain timing in POST's information.
+    { "PRE to POST chain", u8"PREからPOSTまでのチェーン" },
+    { "Elapsed %1 ms typical / %2 ms peak", u8"経過時間  通常 %1 ms / ピーク %2 ms" },
+    { "Share of a %1 ms block: %2% typical / %3% peak",
+      u8"ブロック長（%1 ms）に対する割合  通常 %2% / ピーク %3%" },
+    { "Counted %1% of blocks (%2)", u8"計測できたブロック %1%（%2）" },
+    { "Elapsed time between PRE and POST, not CPU usage",
+      u8"PREとPOSTの間の経過時間です。CPU使用率ではありません" },
+    { "Waiting for audio callbacks", u8"音声の処理が始まるのを待っています" },
+    { "Not measured: %1", u8"計測できません：%1" },
+    { "PRE timing is not available", u8"PREの時刻を読めません" },
+    { "playback is stopped", u8"再生が止まっています" },
+    { "PRE is feeding PRE/POST LISTEN", u8"PREがPRE/POST LISTENへ音声を送っています" },
+    { "PRE and POST run on different threads", u8"PREとPOSTが別のスレッドで動いています" },
+    { "PRE and POST are not called once each per block",
+      u8"PREとPOSTが1ブロックに1回ずつ呼ばれていません" },
+    { "PRE and POST get different block lengths", u8"PREとPOSTのブロック長が違います" },
+    { "PRE is not confirmed to run before POST", u8"PREがPOSTより先に動くことを確認できません" },
+    { "Show in the footer", u8"下部に常時表示" },
+    { "Footer chain time changed for this session only",
+      u8"下部のチェーン表示は、このセッションだけ変更しました" },
+
     // Saving and attaching a measurement image.
     { "Capture format", u8"画像の形式" },
     { "1200 x 630  Landscape", u8"1200 x 630  横長" },

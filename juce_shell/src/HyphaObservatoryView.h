@@ -284,6 +284,9 @@ public:
     bool localBlindDirectEntryVisible() const noexcept { return localBlindButton.isVisible(); }
     juce::Component& timeRangeMenuAnchor() noexcept { return timeRangeMenuButton; }
     const juce::String& feedback() const noexcept { return feedbackText; }
+    void setChainReadout (juce::String text, bool caution); // POST footer, empty when off
+    bool chainReadoutShownForTest() const noexcept { return chainReadoutShown; }
+    const juce::String& chainReadoutForTest() const noexcept { return chainReadoutText; }
     void setLocalBlindEntryEnabled (bool enabled)
     {
         if (localBlindEntryEnabled == enabled) return;
@@ -444,6 +447,7 @@ private:
     juce::Rectangle<int> sessionArea, footerArea;
     juce::Rectangle<int> statusStrip;
     bool statusStripOverBody = false;
+    juce::String chainReadoutText; bool chainReadoutCaution = false, chainReadoutShown = false;
     juce::Rectangle<int> levelHistoryArea;
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;

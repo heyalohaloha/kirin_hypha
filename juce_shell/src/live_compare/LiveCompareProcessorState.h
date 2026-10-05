@@ -84,6 +84,7 @@ struct ProcessorState
     std::uint8_t clockAuthority = 0;       // prepareToPlay, host suspends Audio Thread
     std::uint32_t maximumDelaySamples = 0; // certified host bound, never a measured guess
     TimingPreparation preparation;
+    ChainTimingMeter chain; // POST, display only: the host work between PRE's callback and its own
     std::atomic<bool> sessionActive { false }; // user session, independent of the ring's fade/ramp lease
     std::atomic<bool> preAudible { false };
     std::atomic<bool> preWaiting { false };
