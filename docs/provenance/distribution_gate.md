@@ -10,7 +10,11 @@ three GUI PNGs in PRE and POST. The maintainer declared these Codex-created imag
 textual instructions, with no third-party image inputs or specific existing-product/design
 reproduction instruction. Scoped generation/copy/hash evidence corroborates the known outputs;
 a retained input JPEG shows a Hypha-labelled mockup, not evidence of a third-party product. These
-three materials are accepted for binary, preview and source use. Missing historical records alone
+three materials are accepted for binary, preview and source use. One documentation image is a
+byte-identical alias of the accepted embedded image, giving four accepted paths for three distinct
+image hashes. The same material/use decision applies to both paths; this does not approve a fourth
+image or extend approval to other materials. Held-byte checks still reject renamed copies of
+unapproved material. Missing historical records alone
 do not establish a problem or keep the project Freeze in place. Other explicitly unresolved
 materials keep individual holds; existing Releases and unrelated OSS work are not stopped.
 No product image, executable line or visual behavior is changed to evade this gate.

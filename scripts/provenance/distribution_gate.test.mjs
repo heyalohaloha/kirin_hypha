@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import zlib from 'node:zlib';
-import { assetDecision, embeddedAssets, rejectHeldBytes, REGISTRY, sha256 } from './asset_gate.mjs';
+import { assetDecision, embeddedAssets, readAssetRegistry, rejectHeldBytes, ROOT, REGISTRY, sha256 } from './asset_gate.mjs';
 import { verifyDistributionEvidence } from './distribution_gate.mjs';
 import { fileFact, Checkpoint } from '../ls_release/hypha_release_contract.mjs';
 
@@ -88,6 +88,20 @@ function fixture(t) {
   return { root, report, registry, sources, archive, args };
 }
 
+test('real registry aliases agree on use permission and approved embedded source bytes pass', () => {
+  const registry = readAssetRegistry(ROOT); const grants = new Map();
+  for (const asset of registry.assets) {
+    const uses = ['binary', 'preview', 'source'].map(use =>
+      asset.status === 'verified' && asset.allowedUses.includes(use));
+    if (grants.has(asset.sha256)) {
+      assert.deepEqual(uses, grants.get(asset.sha256), `Conflicting material grants: ${asset.path}`);
+    } else grants.set(asset.sha256, uses);
+  }
+  const inputs = embeddedAssets(ROOT);
+  assert.equal(assetDecision(ROOT, inputs, 'source').approved, true);
+  const bytes = new Map(inputs.map(file => [file, fs.readFileSync(path.join(ROOT, file))]));
+  assert.doesNotThrow(() => rejectHeldBytes(registry, bytes, 'source'));
+});
 test('all three exact payloads deliver notices, source pointer and matching source bytes', t => {
   const f = fixture(t); const result = verifyDistributionEvidence(f.args);
   assert.equal(result.publicFacts.length, 1); assert.equal(result.publicFacts[0].sha256, f.report.sourceSha256);

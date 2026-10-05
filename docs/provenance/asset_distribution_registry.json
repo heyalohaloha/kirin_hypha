@@ -376,9 +376,16 @@
     {
       "path": "docs/media/hypha_main_background_concept_v8_20260915.png",
       "sha256": "73c15942931313a327a3d4c07f6616826f22b4e69454c049da9a51d7f3989056",
-      "status": "hold",
-      "rights": "Unknown",
-      "reason": "Input rights or applicable creation/use terms not verified; generation evidence alone is insufficient."
+      "status": "verified",
+      "rights": "Maintainer factual declaration accepted for the specified distribution uses; no legal certification.",
+      "reason": "Specified three shipping images accepted on factual declaration plus bounded generation evidence; reopen only on concrete contradictory evidence.",
+      "allowedUses": [
+        "binary",
+        "preview",
+        "source"
+      ],
+      "creation": "Byte-identical alias of crates/hypha_gui/assets/observatory_understory.png; not a separate generated material.",
+      "rightsEvidence": "Exact Git blob and SHA256 match the accepted observatory_understory.png image. The same maintainer factual declaration and retained evidence apply to these identical bytes for binary, preview and source use; no additional material or broader rights grant is inferred."
     },
     {
       "path": "docs/media/hypha_meter_concepts/concept-a-precision-instrument.png",
