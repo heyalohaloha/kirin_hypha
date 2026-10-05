@@ -93,6 +93,34 @@ test('all three exact payloads deliver notices, source pointer and matching sour
   assert.equal(result.publicFacts.length, 1); assert.equal(result.publicFacts[0].sha256, f.report.sourceSha256);
   assert.equal(result.facts.length, 31);
 });
+test('JUCE license-route review cannot be satisfied by unresolved declarations', t => {
+  for (const license of ['Unknown', ' NOASSERTION ', 'unknown', 'Pending', 'TBD', 'Unverified',
+    'Unspecified', 'Unconfirmed', 'Unresolved', 'Missing', 'NONE', 'N/A', 'NA', 'not provided',
+    '未確認', '不明', '要確認', '?', 'GPL-3.0 OR Unknown', '', null, 42]) {
+    const f = fixture(t); f.report.components[1].license = license;
+    assert.throws(() => verifyDistributionEvidence(f.args), /unresolved distribution license/, String(license));
+  }
+});
+test('Cargo components without manifest license require a resolved reviewed declaration', t => {
+  const f = fixture(t); const requirements = f.args.requirements;
+  f.args.requirements = () => ({ ...requirements(), packages: [{ id: 'fixture-cargo@1', license: null }] });
+  f.report.components.push({ id: 'fixture-cargo@1', license: 'NOASSERTION', source: 'owned fixture',
+    modificationNotice: 'unmodified fixture', licenseFiles: ['LICENSE'] });
+  assert.throws(() => verifyDistributionEvidence(f.args), /unresolved distribution license/);
+  f.report.components.at(-1).license = 'GPL-3.0';
+  assert.equal(verifyDistributionEvidence(f.args).publicFacts.length, 1);
+});
+test('additional linked components cannot bypass license and retained-source evidence review', t => {
+  const f = fixture(t);
+  const component = { id: 'extra-linked-fixture@1', license: 'Unknown', source: 'owned fixture',
+    modificationNotice: 'unmodified fixture', licenseFiles: ['LICENSE'] };
+  f.report.components.push(component);
+  assert.throws(() => verifyDistributionEvidence(f.args), /unresolved distribution license/);
+  component.license = 'GPL-3.0'; component.licenseFiles = ['missing-license.txt'];
+  assert.throws(() => verifyDistributionEvidence(f.args), /License absent from Corresponding Source/);
+  component.licenseFiles = ['LICENSE'];
+  assert.equal(verifyDistributionEvidence(f.args).publicFacts.length, 1);
+});
 test('asset holds block affected binary distribution but unrelated fixture has no global hold', t => {
   const f = fixture(t); assert.equal(assetDecision(f.root, embeddedAssets(f.root)).approved, true);
   f.registry.assets[0].status = 'hold'; put(f.root, REGISTRY, JSON.stringify(f.registry));

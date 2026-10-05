@@ -39,6 +39,10 @@ private retained JSON report. It must be schema `hypha-distribution-provenance-v
 - `components`: IDs, actual version/source, license expression, modification notice and archive
   `licenseFiles`. The gate requires MoSQITo, JUCE and a conservative normal/build FFI Cargo closure;
   additional actual linked/embedded components must be identified in the retained linkage review.
+  Every reported component needs a resolved license declaration and retained license files, including
+  additional components and those with no manifest license. `Unknown`, `NOASSERTION`, pending markers
+  or expressions containing them remain blockers. This does not select JUCE's licensing route or
+  infer rights from a nonempty declaration; actual license applicability still requires review.
 - `payloads`: exactly `macos-pkg`, `macos-zip`, `windows-exe`, each with exact artifact SHA,
   `root` for actual extracted/installed payload, extractor identity, PASS extraction report file/hash,
   `binaryFiles` path/hash inventory, `legalFiles` mapping and `sourceDeliveryFile`.
