@@ -10,6 +10,7 @@ Component::SideButton::SideButton (const juce::String& text) : juce::TextButton 
 {
     setWantsKeyboardFocus (true);
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    setPresentationContext (presentationContext);
 }
 
 void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bool down)

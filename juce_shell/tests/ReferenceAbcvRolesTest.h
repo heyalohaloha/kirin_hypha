@@ -73,6 +73,27 @@ inline void verifyReferenceAbcvRoles()
         state.referenceStep = reference_ui::SourceStep::ready;
         state.comparisonSlot = 3;
         panel.setState (state);
+        // どのボタンも今の大きさの文脈を持つ（MATCH だけが 100% の字のままだった。2026-10-06）。状態の行の中も含めて巡る。
+        {
+            std::set<juce::Component*> buttons;
+            std::function<void (juce::Component&)> visit = [&] (juce::Component& parent)
+            {
+                for (auto* child : parent.getChildren())
+                {
+                    if (const auto width = child->getProperties()["presentation_width"]; ! width.isVoid())
+                    {
+                        buttons.insert (child);
+                        require (static_cast<int> (width) == size.width,
+                                 "every REF button has the editor's size (" + child->getComponentID() + " at " + juce::String (size.width) + ")");
+                    }
+                    visit (*child);
+                }
+            };
+            visit (panel);
+            visit (panel.footerStatusStrip());
+            require (buttons.size() == 7, "the seven REF buttons (A B C V, MATCH, VERSION BLIND, action) are all visited ("
+                                              + juce::String (static_cast<int> (buttons.size())) + ")");
+        }
         auto* a = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-a"));
         auto* b = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-ref"));
         auto* c = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-c"));

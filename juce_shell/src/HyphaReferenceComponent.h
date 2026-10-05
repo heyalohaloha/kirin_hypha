@@ -247,8 +247,10 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
-        for (auto* button : { &aButton, &bButton, &cButton, &refButton, &blindButton, &actionButton })
-            button->setPresentationContext (next);
+        // 子の部品を巡って渡す（手で並べると MATCH のボタンだけ漏れ、300% でも 100% の字だった。2026-10-06）。
+        // 状態の行は足元の段に移ると REF の子ではないので、それも巡る。
+        passPresentationContext (*this, next);
+        passPresentationContext (statusStrip, next);
         resized();
         repaint();
     }
@@ -317,9 +319,10 @@ private:
     {
     public:
         explicit SideButton (const juce::String& text);
-        void setPresentationContext (presentation::Context next) noexcept
+        void setPresentationContext (presentation::Context next)
         {
             presentationContext = next;
+            getProperties().set ("presentation_width", next.logicalWidth);  // どのボタンも今の文脈か（試験）
         }
         // Not ready yet: drawn like a disabled button, but a click still reaches onClick to explain.
         void setReady (bool next) { if (ready != next) { ready = next; repaint(); } }
@@ -331,6 +334,15 @@ private:
         presentation::Context presentationContext = presentation::defaultContext();
         bool ready = true, attention = false;
     };
+
+    static void passPresentationContext (juce::Component& parent, presentation::Context next)
+    {
+        for (auto* child : parent.getChildren())
+        {
+            if (auto* button = dynamic_cast<SideButton*> (child)) button->setPresentationContext (next);
+            passPresentationContext (*child, next);
+        }
+    }
 
     State current;
     bool guideShown = false;
