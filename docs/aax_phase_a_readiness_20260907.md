@@ -40,17 +40,16 @@ candidate boundary.
 
 ## CI boundary
 
-`.github/workflows/aax-phase-a.yml` always runs the SDK-absence guard. Its build matrix is skipped
-on normal pushes and pull requests and on the default manual invocation. A manual operator must
-explicitly request the build, confirm the license, provide the external path, and use SDK-equipped
-self-hosted macOS and Windows runners. The two runner paths are separate workflow inputs because
-their filesystem syntax and SDK installation locations differ.
+`.github/workflows/aax-phase-a.yml` runs hosted SDK-absence/source checks on pushes, pull requests
+and manual dispatch. It does not address a persistent runner, accept licensed SDK paths, or receive
+signing credentials. Normal PR validation needs neither the SDK nor iLok.
 
-The macOS self-hosted leg uses `scripts/build_aax_universal.sh` and builds both Apple architectures
-before linking PRE/POST. It deliberately does not sign in CI. PACE signing stays a release-operator
-step on the Mac holding the physical authorization device. The Windows leg remains host-x64 and
-writes build provenance; an explicitly diagnostic build cannot enter distribution signing.
-The optional Kimera App font is not a prerequisite for signing or distribution.
+Licensed AAX builds remain available through `scripts/build_aax_universal.sh` and
+`scripts/build_aax_windows.ps1` on an independently controlled machine with explicit SDK/license
+inputs. macOS builds both Apple architectures; Windows remains host-x64 and records provenance.
+PACE/Authenticode signing and exact candidate host acceptance use a separately authorized boundary.
+An unsigned diagnostic build cannot enter distribution signing. The optional Kimera App font is not
+a prerequisite for signing or distribution. See [the build/signing guide](aax_build_signing_entry.md).
 
 ## Remaining external gates
 

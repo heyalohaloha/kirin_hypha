@@ -460,18 +460,20 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.doesNotMatch(aaxDistribution, /Command::new\("ditto"\)\.arg\(&bundle\.source\)/);
 });
 
-test('self-hosted macOS AAX CI uses the Universal build entry point', () => {
+test('public AAX CI retains the hosted SDK-absence gate without a licensed runner route', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/aax-phase-a.yml'), 'utf8');
-  assert.match(workflow, /scripts\/build_aax_universal\.sh/);
-  assert.match(workflow, /x86_64-apple-darwin aarch64-apple-darwin/);
-  assert.doesNotMatch(workflow, /Build macOS Universal AAX[\s\S]*--sign/);
+  assert.match(workflow, /runs-on: ubuntu-latest/);
+  assert.match(workflow, /node scripts\/check_aax_sdk_absence\.mjs/);
+  assert.doesNotMatch(workflow, /self-hosted|aax-sdk-build|inputs\.aax_sdk/);
 });
 
-test('self-hosted Windows AAX CI uses the x64 build entry point without signing', () => {
-  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/aax-phase-a.yml'), 'utf8');
-  assert.match(workflow, /scripts\/build_aax_windows\.ps1/);
-  assert.match(workflow, /-LicenseConfirmed/);
-  assert.doesNotMatch(workflow, /Build Windows x64 AAX without signing[\s\S]*wraptool/);
+test('external licensed SDK build entries remain available for local macOS and Windows builds', () => {
+  const mac = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_universal.sh'), 'utf8');
+  const windows = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_windows.ps1'), 'utf8');
+  assert.match(mac, /aarch64-apple-darwin/);
+  assert.match(mac, /x86_64-apple-darwin/);
+  assert.match(windows, /LicenseConfirmed/);
+  assert.match(windows, /KIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED/);
 });
 
 test('Windows AAX provenance survives build, combined signing, installer, and release-set gates', () => {

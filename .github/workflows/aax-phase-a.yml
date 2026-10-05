@@ -2,38 +2,25 @@ name: AAX Phase A
 
 on:
   workflow_dispatch:
-    inputs:
-      build_with_external_sdk:
-        description: 'Build AAX on SDK-equipped self-hosted macOS and Windows runners.'
-        required: true
-        default: false
-        type: boolean
-      aax_sdk_license_confirmed:
-        description: 'Confirm the external SDK is used under an appropriate Avid license.'
-        required: true
-        default: false
-        type: boolean
-      aax_sdk_path_macos:
-        description: 'Absolute external SDK path on the SDK-equipped macOS runner.'
-        required: false
-        type: string
-      aax_sdk_path_windows:
-        description: 'Absolute external SDK path on the SDK-equipped Windows runner.'
-        required: false
-        type: string
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+# Licensed SDK builds run locally or in the separate trusted release factory.
+# Public contributors use the hosted, credential-free absence gate below.
 jobs:
   sdk-absence:
     name: licensed AAX SDK absence
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           submodules: recursive
 
       - name: Test and enforce SDK absence
@@ -44,57 +31,3 @@ jobs:
           node --test scripts/ls_release/aax_distribution.test.mjs
           node --test scripts/ls_release/aax_submission_archive.test.mjs
           node scripts/check_aax_sdk_absence.mjs
-
-  aax-sdk-build:
-    name: AAX external SDK build (${{ matrix.runner_os }})
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_with_external_sdk }}
-    needs: sdk-absence
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner_os: macOS
-          - runner_os: Windows
-    runs-on: [self-hosted, aax-sdk, "${{ matrix.runner_os }}"]
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build macOS Universal AAX without signing
-        if: ${{ matrix.runner_os == 'macOS' }}
-        env:
-          AAX_SDK_PATH: ${{ inputs.aax_sdk_path_macos }}
-          AAX_LICENSE_CONFIRMED: ${{ inputs.aax_sdk_license_confirmed }}
-        run: |
-          if [ "$AAX_LICENSE_CONFIRMED" != "true" ]; then
-            echo "AAX SDK license confirmation is required." >&2
-            exit 1
-          fi
-          rustup target add x86_64-apple-darwin aarch64-apple-darwin
-          bash scripts/build_aax_universal.sh \
-            --sdk "$AAX_SDK_PATH" \
-            --license-confirmed
-
-      - name: Build Windows x64 AAX without signing
-        if: ${{ matrix.runner_os == 'Windows' }}
-        shell: pwsh
-        env:
-          AAX_SDK_PATH_WINDOWS: ${{ inputs.aax_sdk_path_windows }}
-          AAX_LICENSE_CONFIRMED: ${{ inputs.aax_sdk_license_confirmed }}
-        run: |
-          if ($env:AAX_LICENSE_CONFIRMED -ne 'true') {
-            throw 'AAX SDK license confirmation is required.'
-          }
-          pwsh -NoProfile -File scripts/build_aax_windows.ps1 `
-            -Sdk $env:AAX_SDK_PATH_WINDOWS `
-            -LicenseConfirmed

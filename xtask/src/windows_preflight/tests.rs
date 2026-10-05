@@ -286,13 +286,49 @@ fn preflight_requires_installer_post_install_verification() {
 }
 
 #[test]
-fn preflight_requires_fail_closed_esigner_secret_route() {
+fn preflight_rejects_signing_credentials_in_public_ci() {
     let bad = CI_WORKFLOW.replace(
-        "ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}",
-        "ESIGNER_TOTP_SECRET: hardcoded",
+        "WINDOWS_SIGNING: unsigned",
+        "WINDOWS_SIGNING: unsigned\n          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
-    assert!(err.to_string().contains("only from repository secrets"));
+    assert!(err
+        .to_string()
+        .contains("must not receive signing credentials"));
+}
+
+#[test]
+fn preflight_rejects_signed_candidate_or_completed_external_validation() {
+    for (from, to) in [
+        ("WINDOWS_SIGNING: unsigned", "WINDOWS_SIGNING: signed"),
+        (
+            "WINDOWS_EXTERNAL_VALIDATION: pending",
+            "WINDOWS_EXTERNAL_VALIDATION: complete",
+        ),
+    ] {
+        let bad = CI_WORKFLOW.replace(from, to);
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("must remain an unsigned candidate"));
+    }
+}
+
+#[test]
+fn preflight_rejects_mutable_artifact_action_refs() {
+    let bad = CI_WORKFLOW
+        .lines()
+        .map(|line| {
+            if line.contains("uses: actions/upload-artifact@") {
+                "        uses: actions/upload-artifact@v7"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err.to_string().contains("immutable Action SHA"));
 }
 
 #[test]

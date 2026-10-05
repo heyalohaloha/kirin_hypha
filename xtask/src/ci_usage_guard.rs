@@ -258,10 +258,11 @@ mod tests {
         let bad = CI_WORKFLOW
             .replacen(&format!("    {FULL_CI_JOB_IF}\n"), "", 1)
             .replacen(
-                "      - uses: actions/checkout@v4\n",
-                &format!("      - uses: actions/checkout@v4\n        {FULL_CI_JOB_IF}\n"),
+                "      - name: Test shipping source contract\n",
+                &format!("      - name: Test shipping source contract\n        {FULL_CI_JOB_IF}\n"),
                 1,
             );
+        assert!(bad.contains(&format!("        {FULL_CI_JOB_IF}\n")));
         assert!(verify_ci_usage_gate(&bad)
             .unwrap_err()
             .to_string()

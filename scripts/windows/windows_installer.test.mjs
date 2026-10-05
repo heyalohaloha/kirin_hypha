@@ -355,12 +355,13 @@ test('Windows eSigner rejects a relative explicit Java runtime', () => {
   assert.throws(() => resolveInvocation(env, 'win32'), /absolute path/);
 });
 
-test('signed Windows CI provisions current Java for the pinned CodeSignTool jar', () => {
+test('public Windows CI builds unsigned candidates without signing credentials', () => {
   const workflow = fs.readFileSync(path.join(scriptDir, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
-  assert.match(workflow, /actions\/setup-java@v4/);
-  assert.match(workflow, /java-version: '17'/);
-  assert.match(workflow, /CODE_SIGN_TOOL_JAVA=\$javaPath/);
-  assert.match(workflow, /jar\\code_sign_tool-1\.3\.2\.jar/);
+  assert.doesNotMatch(workflow, /secrets[.\[]|ESIGNER_|setup-java|CodeSignTool/);
+  assert.doesNotMatch(workflow, /inputs\.windows_signing|inputs\.windows_external_validation/);
+  assert.match(workflow, /name: Build Windows installer and sign all executable surfaces/);
+  assert.match(workflow, /WINDOWS_SIGNING: unsigned/);
+  assert.match(workflow, /WINDOWS_EXTERNAL_VALIDATION: pending/);
 });
 
 test('eSigner requests never reuse the same TOTP authorization window', async (context) => {

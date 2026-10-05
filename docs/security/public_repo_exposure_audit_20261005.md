@@ -307,9 +307,9 @@ The table records matched line numbers at the candidate before edits. `person` o
 | `scripts/ls_release/aax_distribution.test.mjs` | personal_email: 348 | H0 public verification/runtime home checks/synthetic fixtures; retain unless specific actual operator metadata |
 | `scripts/ls_release/aax_notarization_flow.test.mjs` | personal_email: 29 | H0 public verification/runtime home checks/synthetic fixtures; retain unless specific actual operator metadata |
 | `scripts/ls_release/build_kirin_hypha_pkg.mjs` | personal_path: 181 | H0 public verification/runtime home checks/synthetic fixtures; retain unless specific actual operator metadata |
-| `scripts/ls_release/build_kirin_hypha_release_set.mjs` | private_repo_name: 222,313 | H0 public verification/runtime home checks/synthetic fixtures; retain unless specific actual operator metadata |
+| `scripts/ls_release/build_kirin_hypha_release_set.mjs` | private_repo_name: 222,313 | Final classification H1 operational origin, retained for existing security/provenance checks; see explicit exception below |
 | `scripts/ls_release/hypha_release_local.mjs` | private_repo_name: 1,81,83,84 | H0 public verification/runtime home checks/synthetic fixtures; retain unless specific actual operator metadata |
-| `scripts/ls_release/release_metadata.test.mjs` | person: 721; private_repo_name: 392,408 | H0 public verification/runtime home checks/synthetic fixtures; retain unless specific actual operator metadata |
+| `scripts/ls_release/release_metadata.test.mjs` | person: 721; private_repo_name: 392,408 | H0 fixture/author identity; H1 real origin fixtures retained to verify current allowlists, see explicit exception below |
 | `scripts/release_hypha.mjs` | private_repo_name: 30,189 | Review category context; public attribution/product path H0, individual internal workflow H1 |
 | `scripts/test_source_line_budget.sh` | personal_email: 96 | Review category context; public attribution/product path H0, individual internal workflow H1 |
 | `scripts/windows/windows-aax-bundles.mjs` | person: 13 | Review category context; public attribution/product path H0, individual internal workflow H1 |
@@ -603,6 +603,27 @@ Checks: assigned changed docs 82, assigned H0-kept docs 43, all 63 new relative 
 | tag | `v1.1.1` | `83738961e899f2276487a3353cf8c5820674f38e` |
 | tag | `v1.0.0` | `81aefb70fadcca10702065f756f5cc1e01695430` |
 
+## PR-B implementation (local candidate)
+
+The public CI signing inputs/Java/CodeSignTool/eSigner bindings are removed, not merely hidden behind
+an unsigned switch. All Windows build/package steps use literal unsigned; external acceptance is
+pending. The optional public AAX persistent-runner/SDK-input job is removed. Hosted validation and
+existing required job names/artifact paths remain; independently controlled local SDK/signing entry
+scripts and exact signature/lifecycle/host/distribution acceptance requirements are retained.
+README, the Windows release runbook and AAX readiness guide now describe the same public/trusted boundary.
+No product runtime, DSP, audio, Reference, UI, format/schema/API, license, price, version, tag or Release changes.
+
+Actions use the exact commits resolved from their existing refs at audit, with read-only contents permission,
+no persisted checkout token, and explicit stable Rust toolchain. No write/OIDC permissions are added.
+The new policy regression checks every tracked workflow and negative variants for credentials, token write,
+privileged events, persistent/dynamic runners, mutable Actions, token persistence, shell-context injection,
+signing dispatch and false external-acceptance status. Its hosted check is part of public-history validation.
+These editable source checks complement server settings; they cannot enforce independent collaborator review.
+
+Dependabot covers actual GitHub Actions and Cargo ecosystems only, weekly, with two open PRs per ecosystem
+and grouping; no auto-merge. Pin updates remain reviewed changes, including source/security/native gates.
+CODEOWNERS/branch-policy changes were not imposed on the sole current maintainer.
+
 
 ## Supplementary contact/cloud review — before final hygiene edit
 
@@ -618,6 +639,114 @@ credential was found in that candidate set; legal copyright/license contacts are
 
 This finding was recorded before removing its sentence. The remaining observation document preserves
 all technical acceptance evidence; this is an additional PR-A hygiene edit with no code change.
+
+
+## Authorized email privacy follow-up
+
+The authenticated owner approved GitHub noreply for this session's new local commits only. Commit
+identity was supplied per invocation; the repository/global Git configuration, prior author/committer
+metadata and `.mailmap` were not changed. The public profile's email field was null, but a separate
+`user/emails` API read showed primary email visibility `public`; a null profile field was therefore
+not treated as proof of private email. No address value was printed or copied.
+
+After explicit owner approval, `PATCH /user/email/visibility` with `visibility=private` succeeded. A fresh
+`GET /user/emails` confirmed one verified primary address with visibility `private`. The account UI's
+block-personal-email-push option remains unconfirmed, and old commit email remains H1. This account
+setting and the already approved/enabled PVR are the only external settings changed by this task.
+See [official email visibility API](https://docs.github.com/en/rest/users/emails#set-primary-email-visibility-for-the-authenticated-user).
+
+## Latest released binary sample — actual H1 persistence
+
+Read-only sample: public `v1.1.50`, source `3d2234ec78ba5924d5db92fd88498bec64233b5c`,
+published 2026-09-21. Downloaded the existing macOS Universal PKG, macOS Universal ZIP and Windows
+x64 Setup EXE, total 167,223,551 bytes. All three SHA-256 values matched existing published sidecars;
+this confirms checksum agreement, not independent signature/notarization acceptance. No installer,
+payload or package script was executed; no existing asset was changed.
+
+ZIP: 42 entries, every member CRC validated while reading, 167,985,195 expanded bytes. PKG: installed
+`pkgutil --expand` used only for container extraction; gzip/odc cpio payload streamed without writing
+or following member paths, 83 entries / 167,910,942 payload bytes with gzip CRC/trailer validation.
+Metadata/scripts were read as inert bytes. Windows: raw ASCII/UTF-16LE container checked; installed
+`bsdtar` could not recognize Inno format and no installed extractor was available. The compressed
+Windows payload is **unconfirmed — no retrieval/extraction coverage**. Across 88 raw/member objects
+and 503,193,412 scanned bytes (including repeated containers/payloads), no credential signature
+candidate was found. This is scoped inspection, not proof against every encoded/unknown secret.
+
+| Released location | Content / necessity | Classification / recommended action | Persistence / side effects |
+| --- | --- | --- | --- |
+| Four PRE/POST AU/VST3 Universal Mach-O binaries inside the ZIP and identical PKG counterparts | Owner-specific home component in Rust `.cargo/registry` dependency source-location strings; 164 matches per binary, 656 in ZIP, 1,312 including duplicate PKG packaging. Personal values omitted. Crate/file/line diagnostic identity is useful; the individual home name is unnecessary. | Medium, H1. Keep current assets under the explicit no-asset-change condition. Evaluate future compiler path remapping and verify new unsigned artifacts before normal signing/release gates. No rotation indicated by a path. | Existing Release assets retain the strings; current docs/PNG cleanup cannot remove them. Build flags are unchanged, so forward recurrence is not yet prevented. Older assets/Windows compressed payload/Actions artifacts require separate coverage; do not mark clean. |
+| Other generic user-directory matches / binary regex coincidences | 17 generic framework/portable installer matches and five short entropy matches were inspected; not another identified account or personal email | H0, retain portable installer behavior | No cleanup needed |
+
+The ZIP intentionally packages README/LICENSE/generated INSTALL, plugin metadata and bundles. PKG
+payload packages installable bundles and its preinstall metadata/script. Neither contains bulk docs,
+AGENTS/CLAUDE/private release state/source artwork by inspected member inventory. Complete original
+and cleaned source-PNG byte sequences were absent from all inspected objects; CMake embeds three
+derived GUI assets, not that source image. This assertion excludes unexpanded Windows/older assets.
+
+[Official rustc source-path remapping documentation](https://doc.rust-lang.org/rustc/remap-source-paths.html)
+explains the best-effort boundary and linker/external-tool limitations. Future work must preserve useful
+source traceability and exercise the existing source, native/audio and release gates; stripping alone
+is not an established remedy. Historical binaries/metadata are H1 pending owner decision; H2 was not
+identified and no credential rotation trigger was established by this sample.
+
+## Forward cleanup / regeneration verification boundary
+
+Source inspection of `xtask/src/release_package.rs`, package metadata modules, PKG builder, Inno
+manifest, Windows fallback ZIP builder, build-source identity and CMake build identity established:
+
+- Future HP ZIP explicitly copies current README/LICENSE; future Windows fallback ZIP explicitly
+  copies `docs/windows_external_validation.md`. Those files are cleaned in this candidate.
+- Other curated docs, AGENTS/CLAUDE and ignored private state are not bulk-copied by these packagers.
+- Public provenance reads commit/B/hash/source state, not author or committer email. A source commit
+  hash remains intentionally public and does not erase metadata from GitHub history.
+- No owned doc generator restoring removed operator prose was found in inspected paths. No new
+  signed release package was built for this hygiene task, so final binary/package absence is not claimed.
+- Ignored private state stays outside public payload lists. The source PNG picture/IDAT bytes are
+  unchanged; only unnecessary account/job/source-reference metadata was removed, with AI attribution retained.
+- Selected hosted Actions logs contain runner/runneradmin paths (H0), not an identified owner home.
+  Future hosted candidate CI has not run. Current local build logs necessarily show the local checkout
+  path and are private evidence; they must not be uploaded wholesale.
+
+Remote main, prior commits, tags, source archives, old PR diffs and existing Release assets remain
+unchanged. Removal statements apply to the local PR-A/PR-B candidate, not already-published main.
+
+
+## PR-B affected source guards and operational consequence
+
+| Path | Concrete change / necessity | Preserved behavior / remaining effect |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | Remove public signed dispatch inputs, Java/CodeSignTool and every signing-secret binding; literal unsigned/pending Windows candidate, contents read, SHA pins, no persisted checkout token, workspace via env, source-security check | Keep existing required job names, expensive-job event gates, native/pluginval/audio-transparency/install lifecycle and artifact names/paths. Signed acceptance remains external. |
+| `.github/workflows/aax-phase-a.yml` | Remove optional public persistent SDK runner and SDK path inputs; hosted SDK-absence suite, readonly token and pinned checkout remain | Licensed local Mac/Windows entry scripts remain; no public runner enrollment or private SDK publication |
+| `.github/dependabot.yml` | Review-driven Actions/Cargo weekly updates for actual ecosystems; two open PRs per ecosystem, groups | No npm/Python invented and no auto-merge |
+| `scripts/ci_security.test.mjs` | Meaningful negative mutations for secret under unsigned mode, token write, runners, privileged events, Action mutability, checkout persistence and signing status; reject flow mappings outside scalar/script bodies to keep block-source scans defined | Regression aid that an authorized source editor can change; independent server review is still necessary. Current flow sequence branch lists retained. |
+| `xtask/src/windows_preflight.rs` / `tests.rs` | Require unsigned/pending, reject credential route/manual signing and mutable uploader; keep package/lifecycle/artifact checks | Immutable SHA format rather than one pinned digest allows reviewed Action updates without another Rust digest edit |
+| `xtask/src/windows_readiness.rs` | Final dependency inspection found old positive `upload-artifact@v7` string at baseline line 329; use Action prefix and require immutable-ref negative-test evidence | Readiness remains compatible with pinned CI; other release checks retained |
+| `xtask/src/ci_usage_guard.rs` | Final inspection found existing `checkout@v4` step mutation did nothing against baseline v6; target stable named shipping-source step and assert actual mutation | Tests truly exercise rejection of step-only gate; production usage-policy code unchanged |
+| `scripts/windows/windows_installer.test.mjs` | Replace obsolete public Java route assertion with public unsigned/credential-free assertion | Keep independent signer/TOTP/redaction/Java/Inno fixture tests |
+| `scripts/ls_release/aax_distribution.test.mjs` | Replace obsolete public persistent-runner expectations with hosted/local boundary assertions | Signature/provenance/materialization tests and both local licensed SDK entries retained |
+| `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs` / `release_metadata.test.mjs` | Final PR-B leaves these files byte-identical to PR-A. Retain the existing consumed exact CI step identifier. | Same source/signature/hash/provenance schemas and readiness requirements; avoid unnecessary executable-script hash churn in private signer allowlists. Private factory configuration still unconfirmed. |
+| `README.md`, `docs/aax_phase_a_readiness_20260907.md`, `docs/ls_release/kirin_hypha_ls_runbook.md` | Describe the actual public hosted unsigned/trusted licensed signing boundary | Build/reproducibility/checksum/signature/three-channel acceptance remain public |
+| This audit | Facts, fixes, validation and limits | No credential/personal values republished |
+
+## Future binary path prevention — separate unimplemented work
+
+Read-only build-graph tracing establishes that the current candidate does not enforce source-path
+normalization. `scripts/build_hypha.mjs` unsigned plans compile both Apple FFI targets; its `--release`
+route instead delegates through `release_hypha.mjs` and `hypha_release_local.mjs` to
+`build_juce_universal.sh` and `build_aax_universal.sh --sign`. Both scripts compile Apple FFI archives
+before lipo/link; CMake's default FFI fallback also uses Cargo without enforced remapping. Thus a
+checkout-only or diagnostic-entry-only fix cannot cover the observed Cargo registry strings. No
+ambient private machine config was inspected or changed.
+
+Future policy must normalize actual Cargo-home/registry, checkout and generated-source prefixes
+without hardcoding or printing personal FROM values, preserve existing compiler options and encoded
+flag precedence, cover both Apple targets/all producers, and inspect final unsigned binary bytes.
+Build/source snapshots do not fingerprint ambient flags, and diagnostic build IDs do not alone
+isolate shared Cargo archives: old manifest/PASS reuse cannot certify a new mapping policy. The
+applicable fixture/source/native/audio/format/provenance gates and normal licensed/signing/host/three-
+channel gates remain required. Changing released executable bytes invalidates existing signatures
+and hashes; the explicit existing-asset/tag/version prohibition keeps the released H1 unresolved.
+No build-flag/product change was silently added to this hygiene/CI task.
 
 
 ## Supplementary private storage-root audit — before final path edits
@@ -694,6 +823,194 @@ holdout/Trash recoverability, source-supplied review-input version/hash, G1 disp
 removal/shared-memory unlink and host acceptance limits retained. `git diff --check` passed.
 
 
+Additional read-only configuration inventory: repository Actions variables `total_count=0`,
+Dependabot secret names `total_count=0`, repository webhooks count/active count both zero. These
+GETs returned successfully; no values, deliveries or webhook tests were requested and no setting
+was changed. API method/paths verified in official
+[Actions variables](https://docs.github.com/en/rest/actions/variables#list-repository-variables),
+[repository webhooks](https://docs.github.com/en/rest/repos/webhooks#list-repository-webhooks), and
+[Dependabot secrets](https://docs.github.com/en/rest/dependabot/secrets#list-repository-secrets) documentation.
+Private external service/factory credentials are still unconfirmed; zero repository inventories do
+not certify those systems. Fresh main read still returned original protected base commit.
+
+
+Final compatibility decision: preserve the existing Windows installer CI step identifier
+`Build Windows installer and sign all executable surfaces` because downstream provenance checks
+consume it. YAML explicitly marks it as a legacy identifier; actual execution is always unsigned.
+The unsigned/pending/no-secret regression and preflight guards are retained. Package verifier and
+release-metadata test are byte-identical to PR-A, avoiding unnecessary private script-allowlist hash
+changes. The final combined Node security/installer/Inno/metadata suite passed 45/45; actionlint
+passed. This preserves a stable interface while strengthening the actual credential boundary.
+
+
+## Supplementary public branch/tag workflow trust boundaries — 2026-10-05
+
+Scope: all 24 branch tips and 40 tag tips in the existing public API inventory; exact commits were resolved from already-local Git objects. 84 workflow instances reduce to 31 exact blobs (28 ci.yml, 3 aax-phase-a.yml). All 31 YAML blobs parsed; no duplicate YAML keys found. No fetch/checkout/ref change/settings/test/build/CI/private-repository access occurred. Detailed per-step evidence is preserved privately; complete boundary/ref tables follow.
+
+## Findings and trust consequences
+
+- **High, latent if secrets are added:** 13 distinct CI blobs at 21 tips (19 branches including API main; 2 tags) bind four eSigner references to the installer source-execution step. The step has no additional `if`. Its job admits PR, workflow_dispatch, or a main push containing `[ci full]`. Signed-only preparation guards do not protect these env bindings on same-repository PR/unsigned runs. Repo secrets were previously confirmed absent by root; this is a remaining route, not proof of disclosure or rotation need.
+- **High, latent if persistent runners are attached:** all 3 AAX blobs at 20 tips (19 branches; 1 tag) retain a manual optional SDK-equipped self-hosted runner route. Its source `if` and license confirmation are workflow-level operator checks, without an environment/immutable trusted-ref boundary. Root previously confirmed repository runners absent. Keep persistent licensed/signing machines inaccessible to this public repository. [GitHub runner security guidance](https://docs.github.com/en/actions/reference/security/secure-use).
+- **Medium:** every inventoried blob omits workflow permissions; no job overrides/environment declarations exist. Every referenced Action uses a mutable version tag or `stable`, and every checkout defaults to persisting credentials/event ref. Current root-confirmed default token read is an inherited default, not immutable enforcement against authorized workflow editors. [GitHub permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
+- **Informational:** only ordinary push-main/PR-to-main and, where declared, manual dispatch events occur. No pull_request_target, workflow_run, repository_dispatch, release, workflow_call, reusable job, privileged artifact downloader or auto-merge route was found in these workflow files. Direct expressions inside run source reference only github.workspace, not PR/Issue text/branch names. No eval found in workflow script bodies; source scripts still execute untrusted candidate code as expected for hosted validation.
+
+Main cleanup does not remove old branch/tag workflow definitions. Manual dispatch requires an eligible default-branch workflow and authorized access; the API accepts a branch or tag as ref. Thus retain the already-confirmed repo-global absence of signing secrets and persistent runners across old refs. Do not assume new main guards, Dependabot or SHA pins apply retroactively. Existing refs/tags were left intact. [Dispatch eligibility](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow), [branch/tag ref API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).
+
+The snapshot has 19 branch tips with secret consumers: 18 non-main branches plus the unchanged remote main snapshot. A normal public fork PR does not receive repository signing secrets; same-repository/authorized dispatch and main push contexts remain distinct. No current secret value is included or newly discovered by this reference inventory. Broader credential/log findings and settings freshness remain root audit responsibilities.
+
+## Actual boundary classes
+
+| Class | Exact blobs | Workflow tip instances | Differing behavior |
+|---|---:|---:|---|
+| AAX | 3 | 20 | Manual licensed SDK route on persistent runner |
+| CI-early | 2 | 6 | Hosted CI; push/PR only; no manual dispatch |
+| CI-hosted-v4 | 6 | 29 | Hosted validation; dispatch/PR/full-push gate; checkout v4 |
+| CI-hosted-v6 | 7 | 8 | Hosted validation; dispatch/PR/full-push gate; checkout v6 |
+| CI-signed-old | 6 | 8 | Public eSigner route; signed-only CodeSignTool preparation |
+| CI-signed-java | 7 | 13 | Public eSigner route; signed-only Java and CodeSignTool preparation |
+
+AAX V01/V03/V02 differ only by additional hosted fixture tests: V02 adds three tests versus V01 and submission-archive test versus V03; persistent-runner trust boundary is identical. Hosted CI variants differ in native/product preflight coverage and checkout v4/v6. Signed CI variants additionally differ in whether Java is provisioned; all retain identical unguarded secret-consuming env bindings. Exact blobs/actions/guards remain separately enumerated below and in the private per-step inventory; these are not inferred safe from a no-secret grep.
+
+## Exact workflow blobs
+
+| ID | Filename | Blob SHA | Lines | Tip instances | Class |
+|---|---|---|---:|---:|---|
+| V01 | .github/workflows/aax-phase-a.yml | `52ac9fbeab315fd702c26dd6a49c81421367ddee` | 97 | 1 | AAX |
+| V02 | .github/workflows/aax-phase-a.yml | `763dd96db11f2f37ae816d2593050e094685b2c3` | 100 | 14 | AAX |
+| V03 | .github/workflows/aax-phase-a.yml | `b9f8b5626af71a666dbf811ed13cbd99405dd817` | 99 | 5 | AAX |
+| V04 | .github/workflows/ci.yml | `05edeef55093ff6b2e4a7d326d7e4bfb53c6861a` | 30 | 5 | CI-early |
+| V05 | .github/workflows/ci.yml | `0c98e54a67537e46b3189c46cc86d617654549c8` | 206 | 5 | CI-hosted-v4 |
+| V06 | .github/workflows/ci.yml | `11479d35bec0a18716ef2d7e6930724a741804d4` | 508 | 1 | CI-signed-java |
+| V07 | .github/workflows/ci.yml | `31c8d7fd917050b6c5ae7cc197421a65139fa5aa` | 92 | 1 | CI-early |
+| V08 | .github/workflows/ci.yml | `3396520fc64531379d990509813f8575da287666` | 252 | 1 | CI-hosted-v6 |
+| V09 | .github/workflows/ci.yml | `478211a7bc841c363fa43831fb27d4619f65e457` | 225 | 4 | CI-hosted-v4 |
+| V10 | .github/workflows/ci.yml | `483e7b7fccd121dfc3a9cd0f734dd363707bcd72` | 504 | 3 | CI-signed-java |
+| V11 | .github/workflows/ci.yml | `73f0b1ec90e0f634e2d16f6c9ee7540edee92f5b` | 250 | 7 | CI-hosted-v4 |
+| V12 | .github/workflows/ci.yml | `75ea543994768fb96de2ac8bf7b9ecc106b7baa9` | 267 | 1 | CI-hosted-v6 |
+| V13 | .github/workflows/ci.yml | `7aff9d9ffd0c2d253f2723b861704333607fcb29` | 434 | 3 | CI-signed-old |
+| V14 | .github/workflows/ci.yml | `8173fa56fff28902c73ed930fdf56c2cc4ec3599` | 232 | 7 | CI-hosted-v4 |
+| V15 | .github/workflows/ci.yml | `826ace4eb44708985a9ce530c4616fe3a92521f5` | 434 | 1 | CI-signed-old |
+| V16 | .github/workflows/ci.yml | `8812d928d7a0f30569bcac9af9100885c53b6bd3` | 451 | 1 | CI-signed-old |
+| V17 | .github/workflows/ci.yml | `96f3257d8219e033f0418094e5e328cf5c1de2b1` | 236 | 1 | CI-hosted-v6 |
+| V18 | .github/workflows/ci.yml | `9ac31ba9a37fc8ddce67ebc748ba44623764982b` | 504 | 3 | CI-signed-java |
+| V19 | .github/workflows/ci.yml | `a615841366fbd393e579c930456432d134656f23` | 246 | 1 | CI-hosted-v6 |
+| V20 | .github/workflows/ci.yml | `b2ff392b42759e17acfc8026d1193cb45a33fa01` | 246 | 1 | CI-hosted-v4 |
+| V21 | .github/workflows/ci.yml | `c14cd1adeeaa82110389aa6058707243a67ee732` | 375 | 1 | CI-signed-old |
+| V22 | .github/workflows/ci.yml | `c69a47e58c634fa9582085614744a776c2951664` | 254 | 5 | CI-hosted-v4 |
+| V23 | .github/workflows/ci.yml | `c7c2caaea13a9dcf1688446a8b1dd9545d485baa` | 492 | 3 | CI-signed-java |
+| V24 | .github/workflows/ci.yml | `c884bbce007cc8e3dcd0f52825b90f62ea764334` | 240 | 1 | CI-hosted-v6 |
+| V25 | .github/workflows/ci.yml | `cbb925a90afa8037732d76f7937dbd4656894e89` | 508 | 1 | CI-signed-java |
+| V26 | .github/workflows/ci.yml | `d1c0e3711bc13148d8d161660c91d3aff65c2139` | 508 | 1 | CI-signed-java |
+| V27 | .github/workflows/ci.yml | `d44def1bb69858e47bd8025d5b7131aa643675ae` | 236 | 1 | CI-hosted-v6 |
+| V28 | .github/workflows/ci.yml | `dcb560169ab813574aca530b4eff440a96c111b1` | 464 | 1 | CI-signed-java |
+| V29 | .github/workflows/ci.yml | `dea1dfb9a4c5b361f3ca422765c1f5dfcd013c67` | 427 | 1 | CI-signed-old |
+| V30 | .github/workflows/ci.yml | `f37bf39936f935059c2dad7881443ccfee7645c2` | 434 | 1 | CI-signed-old |
+| V31 | .github/workflows/ci.yml | `f72e1e9b37ee9ba4e0b73e0e73a6c1f3f5245c8e` | 254 | 2 | CI-hosted-v6 |
+
+## Secret references (identifiers and exact source lines only)
+
+Only dot notation occurs; no secrets[index] or unresolved dynamic index is present. All references are step env in `windows-vst3-preflight`, installer step `Build Windows installer and sign all executable surfaces`. Shared job guard: workflow_dispatch OR pull_request OR head commit `[ci full]`. Shared secret step guard: none. Shared environment declaration: none.
+
+| Variant | ESIGNER_USERNAME | ESIGNER_PASSWORD | ESIGNER_CREDENTIAL_ID | ESIGNER_TOTP_SECRET |
+|---|---:|---:|---:|---:|
+| V06 | 453 | 454 | 455 | 456 |
+| V10 | 449 | 450 | 451 | 452 |
+| V13 | 379 | 380 | 381 | 382 |
+| V15 | 379 | 380 | 381 | 382 |
+| V16 | 396 | 397 | 398 | 399 |
+| V18 | 449 | 450 | 451 | 452 |
+| V21 | 320 | 321 | 322 | 323 |
+| V23 | 437 | 438 | 439 | 440 |
+| V25 | 453 | 454 | 455 | 456 |
+| V26 | 453 | 454 | 455 | 456 |
+| V28 | 409 | 410 | 411 | 412 |
+| V29 | 372 | 373 | 374 | 375 |
+| V30 | 379 | 380 | 381 | 382 |
+
+CodeSignTool download is guarded by workflow_dispatch AND windows_signing == signed in all secret-consuming variants. Java has the same guard where present. Installer build/verification/ZIP derive signing mode from windows_signing with unsigned default; external validation input can select complete for installer. GITHUB_TOKEN is explicitly passed only to verified Inno Setup download in these 13 CI blobs (JSON records exact lines), and inherited implicit tokens remain available to Actions. Token is not a signing credential. A mutable action or changed candidate script can misuse accessible data; masking is not a trust boundary. [GitHub secret and action guidance](https://docs.github.com/en/actions/reference/security/secure-use).
+
+AAX persistent runner route: V01 job if line47/runner55, V02 if50/runner58, V03 if49/runner57. All use `[self-hosted, aax-sdk, matrix.runner_os]`, default event checkout, and no environment declaration. Manual SDK/path/license inputs have the same names in all three variants (private per-step inventory); no actual SDK path values are recorded.
+
+Historical Action refs: actions/checkout@v4 or @v6, dtolnay/rust-toolchain@stable, Swatinem/rust-cache@v2, actions/upload-artifact@v7 where uploads exist, actions/setup-java@v4 only in CI-signed-java. Full per-step line/guard inventory is in the private per-step inventory. No full-SHA pin exists in these inventoried public tip workflows.
+
+## Every public ref and actual workflow filenames
+
+CI = .github/workflows/ci.yml; AAX = .github/workflows/aax-phase-a.yml. Only API main is marked protected in branch inventory. The local hardened candidate is not one of these published tip snapshots.
+
+| Type | Public ref | Exact commit | Workflow variants |
+|---|---|---|---|
+| branch | `backup/feature-pre-rebase-20260517_193855` | `04900e93efc4a2736a477d2aa9c160302a5592a6` | CI V04 |
+| branch | `backup/feature-snapshot-20260517_193855` | `04900e93efc4a2736a477d2aa9c160302a5592a6` | CI V04 |
+| branch | `backup/main-pre-rebase-20260517_193855` | `a318639b98b63ac00deb3245cf2134e678bd5805` | CI V04 |
+| branch | `claude/gracious-pasteur-5b5452` | `c71c12e9b1fd08d23982db69cd723975643607e0` | AAX V02, CI V23 |
+| branch | `claude/hypha-abcv-h` | `3d74286f7635bdbdaab9b3681948f830aa78351d` | AAX V02, CI V06 |
+| branch | `claude/hypha-drum-band-mock` | `283ab7ad42efcecb35e772f45bb318e2822efebe` | AAX V02, CI V18 |
+| branch | `claude/hypha-drum-band-summary` | `95da298b9129ee5291b60ccbd411c9b9e0fb9350` | AAX V02, CI V18 |
+| branch | `claude/hypha-light-stage2` | `20d7dcd56543430ae51c1532277a94f15a6beec2` | AAX V02, CI V10 |
+| branch | `claude/hypha-protools-windows-check` | `37396101f0d13fc4383b2334fd78474409483291` | AAX V02, CI V18 |
+| branch | `claude/local-main-reconcile` | `5364e6292aa1326c5e265a8e9cc00d100f2eda88` | AAX V02, CI V23 |
+| branch | `codex/b896-observatory-background-recovery` | `5200f8817c8adfd12bfe95531c7409205b0ecb7d` | AAX V03, CI V13 |
+| branch | `codex/b897-observatory-background-current` | `e7db39d225fce028f465616f279eb94dcd24ce3a` | AAX V03, CI V13 |
+| branch | `codex/hypha-aax-cka` | `0093a4f339d107fd1a4e49cfa9ef8e538b887893` | AAX V01, CI V29 |
+| branch | `codex/hypha-aax-qualification` | `7ad511a6556b4d4268a9155b55e9ee8192b87568` | AAX V02, CI V10 |
+| branch | `codex/hypha-one-pass-blind` | `91079ae7cf200ac511f26fe1341f5541016d315c` | AAX V02, CI V10 |
+| branch | `codex/hypha-perceptual-continuous` | `ad8aad129ede7679b6c9907508818aa51c15e598` | CI V08 |
+| branch | `codex/hypha-ref-simple-abc` | `6ba9fe20e681d369c1de08e1c74b1ef2406dc010` | AAX V02, CI V25 |
+| branch | `codex/hypha-reference-b-preparation` | `e0f2cc9dbb3517a4a92bc5e40cee8ef5c340192d` | AAX V02, CI V23 |
+| branch | `codex/local-recovery-20260915` | `05d347ad19da96917c42ebd68ce55393753b40e8` | AAX V03, CI V15 |
+| branch | `codex/reference-abc-delivery` | `0aab301373c511ff6813a01363dbd99630079a69` | AAX V03, CI V30 |
+| branch | `codex/reference-library-receiver` | `9b2c827448931fda24abd85b5cd9a570fdc10269` | AAX V03, CI V13 |
+| branch | `feature/hypha-pre-post-stabilization` | `05a1a63d25bef1607faafa6978b4ea3467c874e0` | CI V04 |
+| branch | `fix/b1007-modern-codesigntool-java` | `99ea232ff94e06e7b73e0b17d07a4a3538c7425d` | AAX V02, CI V28 |
+| branch | `main` | `a8f5a4a4a791cd4a81346e2c5462d08269619b16` | AAX V02, CI V26 |
+| tag | `v1.1.50` | `3d2234ec78ba5924d5db92fd88498bec64233b5c` | AAX V02, CI V16 |
+| tag | `v1.1.49` | `c9e458d1e98c43f9028afd974518a298cca94108` | CI V21 |
+| tag | `v1.1.48` | `992cb3094010b6eda44ce0d486ad01a0e94a9b54` | CI V12 |
+| tag | `v1.1.47` | `b965ea12a90152038b01949c1ef8e2cea99dc26a` | CI V31 |
+| tag | `v1.1.46` | `9d27808dd10d6c859340d0f9aec093d0bd8db4cf` | CI V31 |
+| tag | `v1.1.45` | `5ba9bf5e3bcfc1df230f93ca933f39213477d446` | CI V19 |
+| tag | `v1.1.44` | `6baa82d81575f0019412c4f9d5da79c8708f3661` | CI V24 |
+| tag | `v1.1.43` | `5b1e8a9deb2bc41f7fa5631e92037c0f8a1fdf6f` | CI V27 |
+| tag | `v1.1.35` | `547d7767f802b61e447f953d9887ca6253818170` | CI V17 |
+| tag | `v1.1.34` | `eb99f1ad17e54dc32b8ad959e1798193b6f39d1b` | CI V14 |
+| tag | `v1.1.33` | `019dc3fa85c4932605a2837e6c6b55adfb3c3bb9` | CI V14 |
+| tag | `v1.1.30` | `58c975fba5489fb2612674169421bf483ca48fae` | CI V14 |
+| tag | `v1.1.29` | `cc54e9ec121de0449d8ff91f99edbc21a47093e5` | CI V14 |
+| tag | `v1.1.28` | `3e611b545dc3f1ca2bd85b065b264c702a7bc3dd` | CI V14 |
+| tag | `v1.1.27` | `d861b8dba1b5228573b93497e4b5def67f75b2fc` | CI V14 |
+| tag | `v1.1.26` | `a5ec2e11a7c933709a7e09e82088e121405b9b38` | CI V14 |
+| tag | `v1.1.25` | `fc68e87795b2741e4eaf938c1f36ce1ce7a61a4e` | CI V22 |
+| tag | `v1.1.24` | `a34e1e517b02ad7be8ae82327d47e782b7452195` | CI V22 |
+| tag | `v1.1.23` | `724de70315f9f21aa754f39fc963070c073acfd0` | CI V22 |
+| tag | `v1.1.22` | `1d8a10dc45d72f5bb8df65e8beff2d2fb65046c4` | CI V22 |
+| tag | `v1.1.21` | `9a2e6f0062af0aa06f26522ddf00ed7b77c1a2c4` | CI V22 |
+| tag | `v1.1.20` | `645fd4f3901428cc655dcf9972070cb16a5da912` | CI V11 |
+| tag | `v1.1.19` | `51c7111151894409292c8710f92985b213d1f76d` | CI V11 |
+| tag | `v1.1.18` | `c5a32b3c0acc64e5158c1471cbac0ca8e42610bd` | CI V11 |
+| tag | `v1.1.17` | `f30051606d1eb9d36d50ae2bbd6f8605f32cca8b` | CI V11 |
+| tag | `v1.1.16` | `e2e3e7409ae0bcd7d91dbe89a5aee9ab7b7676f8` | CI V11 |
+| tag | `v1.1.15` | `199259360669a6b083a5c4d6dfcbb32f8bb49b90` | CI V11 |
+| tag | `v1.1.14` | `aede33bcbb34c796272f8660dfdbbedbb2aa396b` | CI V11 |
+| tag | `v1.1.13` | `e31656f9a6d87b151e2dee4ade62e3220af51563` | CI V20 |
+| tag | `v1.1.12` | `03597bce44c3483aa146bda0bfa3f368f0b346d3` | CI V09 |
+| tag | `v1.1.11` | `7fae45ad57be7b5e754bfa46aa3083c9b73ce173` | CI V09 |
+| tag | `v1.1.10` | `bb304753e7a2737d9289cba78966531c4244815a` | CI V09 |
+| tag | `v1.1.9` | `5e9c5fda19333ae454b2f61bd2260a0a52ed06f8` | CI V09 |
+| tag | `v1.1.7` | `f5ac789e1fdac702de2d1fb51e84b831a415fe38` | CI V05 |
+| tag | `v1.1.6` | `2f9554859227cbf4b3dd0e93be80e4c7e21a5b34` | CI V05 |
+| tag | `v1.1.5` | `15b2cc7b1f11de7aef40e1652f88bf09f0c680fb` | CI V05 |
+| tag | `v1.1.4` | `9aed8ec20fcfa7066f056ee1b5a9b44d1aaa29d6` | CI V05 |
+| tag | `v1.1.3` | `6c4d71c462ecd43cb43ab4e18c2b0dfebfe00fd9` | CI V05 |
+| tag | `v1.1.1` | `83738961e899f2276487a3353cf8c5820674f38e` | CI V07 |
+| tag | `v1.0.0` | `81aefb70fadcca10702065f756f5cc1e01695430` | CI V04 |
+
+## Verification/limits
+
+Commands: local `git rev-parse <API_SHA>^{commit}`, `git ls-tree -r <commit> -- .github/workflows`, `git cat-file blob <workflow_blob>`; YAML.safe_load + Psych AST traversed complete documents, including triggers, job/step guards, env scope and permissions, and exact scalar line ranges. Exact blob de-duplication avoids reclassifying identical source. The first private parser attempt failed because system Ruby lacks Enumerable#tally; a compatible grouping implementation then parsed all 31 blobs. This was a read-only parser correction, not repository test execution.
+
+This pass does not validate runtime behavior of every historical script/tool or past secret configuration, private factory enforcement, all historical commits between tip snapshots, or refreshed GitHub settings. It makes no safe/rotation conclusion from reference absence alone. No branch/tag deletion, history rewrite or mass forward-integration was performed. Any future credential/runner addition or migration of remaining active branches must review these old routes first; immutable tags remain subject to the global isolation boundary.
+
+
 ## Final supplemental link/role findings — 2026-10-05
 
 Five links in one changed technical plan still escape into a historical sibling checkout. They were already broken in baseline main. All five destination documents are tracked publicly in current main/candidate, and the B-885/B-887 headers were read to confirm matching evidence scope and honest DAW/Windows limits. Private directory values are intentionally omitted.
@@ -739,3 +1056,103 @@ Final bare-nickname cleanup result: three recorded document locations now use ne
 wording; B identifiers and full public source commits are preserved. Combined final supplement changes
 four guides/documents and nine lines. Non-link numerical/full-hash token sets remain identical; public
 branch inventory remains unchanged. Discovery suite rerun after these edits: 5/5 PASS; diff check PASS.
+
+
+Final fresh read-only setting checks: remote main still protected at the original `a8f5a4a4`
+base; PVR enabled; authenticated account primary email verified with visibility private (values
+omitted). Repository Actions secrets, runners and environments each report total_count 0. No further
+settings changes, CI trigger or publication occurred. Non-primary email/UI block-push privacy and
+private external factory settings remain outside these confirmations.
+
+
+## Final local validation — executed commands and results
+
+The repository-defined source gate was executed from this isolated candidate checkout:
+`CMAKE_BUILD_PARALLEL_LEVEL=2 bash scripts/test_release_source.sh`. Exit **0**, final
+`release source contract: PASS`. This includes the real lightweight/source/typography/screen/research/
+release-metadata/installer fixtures, two C++ contract builds, the exact tracked JUCE patch stack,
+35 optimized native build targets, selected CTest inventory **57/57 PASS** (834.16 seconds), the
+following Rust commands, required eight exported C ABI definitions, and both owned clippy gates.
+Counts below are actual summed result lines for each command (including integration/doc tests),
+not estimates from test source. Normal ignored counts remain explicit. Required FFI ignored suite
+inventories were measured as parity 20 and pairing_candidates 6 before their serial runs.
+
+| Actual command | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS, exit 0 within completed source gate |
+| `cargo test -p kirin_measure --locked` | PASS: 1701 passed / 0 failed / 15 ignored |
+| `cargo test -p kirin_hypha_ffi --locked` | PASS: 179 passed / 0 failed / 26 ignored |
+| `cargo test -p hypha_pre -p hypha_post --locked` | PASS: 111 passed / 0 failed / 0 ignored |
+| `cargo test -p vst3-com --locked --test vtable_expression` | PASS: 1 passed / 0 failed / 0 ignored |
+| `cargo test -p kirin_measure --release --locked one_visible_pair_continuous_sharpness_worker_budget_is_quantified --lib -- --ignored --nocapture` | PASS: 1 passed / 0 failed / 0 ignored |
+| `cargo test -p kirin_measure --release --locked two_post_absolute_workers_fit_the_optional_analysis_budget --lib -- --ignored --nocapture` | PASS: 1 passed / 0 failed / 0 ignored |
+| `cargo build -p kirin_hypha_ffi --locked` | PASS, exit 0 within completed source gate |
+| `cargo test -p xtask --locked` | PASS: 166 passed / 0 failed / 0 ignored |
+| `cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1` | PASS: 20 passed / 0 failed / 0 ignored |
+| `cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1` | PASS: 6 passed / 0 failed / 0 ignored |
+| `cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings` | PASS, exit 0 within completed source gate |
+| `cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings` | PASS, exit 0 within completed source gate |
+
+Additional targeted checks actually executed:
+
+| Actual command / concrete verification | Result |
+| --- | --- |
+| `node --test scripts/ci_security.test.mjs scripts/windows/windows_installer.test.mjs scripts/windows/inno_signing.test.mjs scripts/ls_release/release_metadata.test.mjs` | 45/45 PASS, including 9 negative security-policy cases |
+| `node --test scripts/check_aax_sdk_absence.test.mjs scripts/ls_release/aax_distribution.test.mjs scripts/ls_release/aax_submission_archive.test.mjs` | 22/22 PASS; also executed within canonical gate |
+| `node scripts/test_aax_cmake_gate.mjs` | 10 SDK-free cases PASS |
+| `node scripts/test_build_aax_universal.mjs` | SDK-free dry-run PASS; also in canonical gate |
+| `node scripts/check_aax_sdk_absence.mjs` | PASS, no licensed SDK committed |
+| `node --test scripts/hypha_workflow_discovery.test.mjs` | 5/5 PASS, rerun after final AGENTS/link/nickname edits |
+| `cargo run -p xtask --locked -- windows-preflight` | Exit 0, actual unsigned installer/verification source contract OK |
+| `cargo fmt --all -- --check` | Final PASS |
+| `bash scripts/check_source_line_budget.sh` | Final PASS: 29 legacy oversized files with exact ratchet, new source <=500 |
+| `/tmp/hypha-actionlint-20261005/actionlint .github/workflows/ci.yml .github/workflows/aax-phase-a.yml` (verified official v1.7.12 binary) | PASS; shellcheck is unavailable, not represented as passed |
+| Ruby YAML parse of both workflows and Dependabot; full historical workflow AST review | PASS, 31 distinct historical blobs parsed; source-policy negative tests complement parser |
+| `.gitignore` secret/local-state and public-template exceptions | 17 checks PASS; public examples/audit/.cargo not inadvertently ignored |
+| Changed-doc links and source/numeric/provenance checks | 95 guides/docs / 330 local links, 0 broken or repository-escaping; supplemental non-link numeric/full-hash sets identical |
+| PNG chunks/CRC/IDAT/decompressed pixels | Metadata only: 441 bytes removed; same 2048×2048 RGB picture and 12,582,912 decoded pixel bytes |
+| Latest Release checksums/ZIP CRC/PKG gzip CRC and matching PKG/ZIP binaries | PASS for three downloaded assets; signature/notarization and Windows compressed payload not independently validated |
+| `git diff --check` / isolated submodule state | PASS; verified/reversed only the 11 test patch-stack changes, restored only own line-ending residues after logical HEAD equivalence. JUCE pristine, gitlink unchanged. |
+
+Initial attempts and actual failures are not hidden: lightweight fmt-check first failed while guard
+edits were in progress; final fmt/canonical gate passed. The first new JavaScript security test had a
+syntax error, corrected before its 45/45 final run. Two old AAX assertions expected the removed public
+SDK runner/input route; those assertions were updated to the hosted/local boundary and final 22/22
+passed. The first serial native compilation was intentionally interrupted with exit 130 after partial
+progress, only this task's process group; the bounded two-worker retry reused object files and passed.
+No other session/process was canceled. A private read-only Ruby parser initially lacked Enumerable
+`#tally`; compatible grouping then covered every blob. A final narrow documentation substitution
+assertion stopped on a plain-text occurrence after two code-formatted occurrences; actual formatting
+was inspected, the third authorized location corrected, and all token/diff/discovery checks passed.
+No threshold/deadline or product acceptance gate was weakened to obtain these results.
+
+No new Actions run/dispatch/rerun or candidate artifact was created or reused for acceptance. Four
+pre-existing runs were inspected for log exposure only: 37077361064 / 37228898432 / 36860903973 /
+36860907827. Their success is not attributed to the new candidate. No budget/capacity setting or
+artifact retention/deletion changed; no claimed cost saving. GitHub required exact-candidate checks,
+macOS arm64 AU/pluginval, Windows hosted build/pluginval/lifecycle, licensed AAX host/SDK/signing,
+private factory acceptance, actual signature/notarization and public three-channel release are
+**unperformed/unconfirmed**, not PASS. LS/HP package readiness is skip because this task did not
+execute release/sign/install/publication. Local source-gate success does not substitute those gates.
+
+## Review and outstanding decisions
+
+PR-A is a local forward branch (`codex/hypha-public-hygiene-20261005`, main base → `d27e1638`),
+with five commits B-1206 through B-1210: audit before cleanup, public/private contributor separation,
+personal cloud operator note removal, private storage-root removal, and repaired public evidence
+links/historical checkout nickname removal. PR-B is the separate local hardening branch based on
+PR-A; its final commit is recorded by Git/the final report. No direct main push or public PR creation.
+Original developer-checkout changes are outside this worktree and preserved.
+
+Owner decisions remain: H1 history remediation and its clone/tag/PR/archive side effects; existing
+Release binary home strings and future all-producer path normalization; privacy vs current explicit
+trusted-origin allowlists/provenance; independent review/branch/Actions/secret-scanning/push-protection
+settings without blocking sole-maintainer development; private factory integration verification;
+permanent private operations-document destination and any further broad artifact/log inspection.
+No H2 credential identified in inspected scope, so no rotation requirement established. Future actual
+credential findings must still stop, redact values and prioritize revoke/rotation.
+
+Originals and private review/evidence copies are outside the public checkout; no internal.md or
+private credential file was added. Session-record runbook honors the project Notion-write prohibition:
+current/daily/Handoff contents will be preserved privately in that order, and Notion remains unrecorded.
+The private originals are a local transfer backup, not a claim of completed permanent private migration.
