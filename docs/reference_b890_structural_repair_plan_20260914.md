@@ -13,8 +13,8 @@
 
 | 対象 | 作業先 | 固定する製品基点 |
 | --- | --- | --- |
-| Hypha | `/Users/nishiodaisuke/Dev/kirin_hypha_reference_abc`、`codex/reference-abc-delivery` | B-890 `db2769cc0490f2468a347e1ea3cc3e76949e3ded` |
-| Kirin OS | `/Users/nishiodaisuke/Dev/kirin_os_reference_delivery`、`codex/reference-whole-song` | W-3083 `163bd9656ae89d69fe5b3b790c560de01366f1c6` |
+| Hypha | `非公開の検証資料`、`codex/reference-abc-delivery` | B-890 `db2769cc0490f2468a347e1ea3cc3e76949e3ded` |
+| Kirin OS | 非公開の連携側資料（技術契約と試験範囲は本文を参照） | 非公開の連携側資料（技術契約と試験範囲は本文を参照） |
 
 作成時に両作業先はcleanで、取得済みoriginと一致していた。
 元の`kirin_hypha/main`には既存の音源変更と未追跡資料があり、本修正の作業先にしない。
@@ -273,4 +273,4 @@ Windows検証前は共通Runbookを読み、署名やCode Integrityの既存制�
 構造修正の完了にはF1からF7、3 MiB境界、回復途中の中断、古いreceipt、負荷制約の全対象試験と内部監査を要求する。
 実機受入、初見利用試験、Windows unloadなどの既存未完了を、今回の単体試験で解消済みにしない。
 v5の`engineering_complete`、`ux_accepted`、`integration_complete`はそれぞれの条件で判定する。
-この計画作成では製品コード、テスト信号、ユーザーデータ、DAW、配布物を変更せず、Notionへ書き込まない。
+この計画作成では製品コード、テスト信号、ユーザーデータ、DAW、配布物を変更していない。

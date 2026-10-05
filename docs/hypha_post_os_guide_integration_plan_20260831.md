@@ -6,7 +6,7 @@ Date: 2026-08-31
 
 Branch: `codex/hypha-meter`
 
-ATTACK統合後のworkspace testがgreenになったため、Daisukeの判断に従ってMeter本体と共同で進める。
+ATTACK統合後のworkspace testがgreenになったため、設計判断に従ってMeter本体と共同で進める。
 
 POST版の受信、表示、移行Gateが成立するまで、現行PREのprotocol、receiver、routing、UIを維持する。
 
@@ -17,7 +17,7 @@ Implementation status:
 - v3 transport identity: presence、capability、connection、active pointer、clear authority、acknowledgementをPOST roleとexact runtime identityで照合する契約を追加した。
 - POST receiver worker: PREと同じ低優先度workerをPOST targetにも組み込み、Audio Threadはlock-free clock publishだけに限定した。POST VST3 Release buildで組込みを検証済み。
 - B-586〜B-589: Hypha POST receiver、接続確認、Guide rail、FREQ投影を実装した。
-- W-2836: Kirin OSのINSPECT／MASKING既定送信入口をPOSTへ変更し、旧PRE bindingを明示再接続までfail-closedにした。
+- OS側の対応実装: Kirin OSのINSPECT／MASKING既定送信入口をPOSTへ変更し、旧PRE bindingを明示再接続までfail-closedにした。
 
 ## 1. Decision
 

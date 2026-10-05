@@ -10,7 +10,7 @@
 
 ## Commits
 
-- Kirin OS: `2a8da9109` (`W-3026`)
+- Kirin OS: `2a8da9109` (`OS側の対応実装`)
 - Hypha: recorded in the session completion report.
 
 ## Automated verification completed

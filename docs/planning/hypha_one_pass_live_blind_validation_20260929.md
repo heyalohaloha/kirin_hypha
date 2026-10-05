@@ -43,7 +43,6 @@ macOS x86_64 / JUCE Debug。実機DAW・Windows検証機には接続していな
 - 聴取での操作感、DAW stop/seek/loop/睡眠、PDC変更直後、最大減衰からの復帰は実機で確認が必要。
 - 全体UI性能が未達のため、全試験green・公開準備完了とはしない。FREQ性能の閾値緩和や無関係な製品変更はしていない。
 - release build/install/notarize/upload未実施。LS skip、HP macOS skip、Windows skip。
-- Notionは禁止に従い未記録。現在地→日次→Handoffは実装計画の第16節に未送信記録として残す。
 
 ## 再実行入口
 

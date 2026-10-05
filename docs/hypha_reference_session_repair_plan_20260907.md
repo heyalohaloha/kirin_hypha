@@ -33,7 +33,7 @@ RTだけが最初の実出力でArmedからActiveへ進め、workerのprepare / 
 | SR2 / P2 | 開始がtrueを返したのに、listening=false、出力callback数0となった | `blind.start()`のactive公開と`activeAuditionEpoch`の公開が別々。UIとRTが同じlifecycleを更新する | 一つの準備済みsessionからRTが開始を採用し、実出力receiptでだけ開始済みとする |
 | SR3 / P2 | 現行HEADのRT安全性3件・試聴権限1件が失敗する | `processComparisonPaths`への改名に検証対象の登録が追従せず、新しい呼出し先の監査も分散している | 実際の呼出し境界に揃えた静的契約と、出力・所有権のnative試験が同じ候補で通る |
 
-再現資料は[レビュー報告](/Users/nishiodaisuke/Downloads/hypha_review_B734_B747_20260907.md)と`/tmp/hypha_review_b734_b747/`にある。
+再現資料はレビュー報告（非公開の検証資料）と`/tmp/hypha_review_b734_b747/`にある。
 SR1はControllerの実関数と出力値で再現した。
 SR2は音源更新のない二つのthreadの交差で再現したもので、10,274回という捕捉回数をDAWでの発生確率とは扱わない。
 

@@ -40,7 +40,7 @@ ReferenceのライブA、Version B、Check C、Live Blindの連続PRE/POST、Exa
 
 ## 2. 現行で確認した土台
 
-確認基点は`kirin_hypha_reference_abc` B-887 `53937c0da5916c7b771329e98fff79671fb5b22c`である。
+確認基点は公開履歴 B-887 `53937c0da5916c7b771329e98fff79671fb5b22c`である。
 B-887ではReference Captureの操作直列化、ReferenceAnalysisOwner、表示投影が実装され、対象native試験、全体baseline、実寸検証が完了した。
 同じcommitでのDAW実機、Windows、両Blindを含む共存確認は未実施であり、CS1〜CS8の完了証拠にはしない。
 

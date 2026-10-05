@@ -409,15 +409,15 @@ Blind の非開示対象には、新しい SPACE と ATTACK、PRE の別ウィ�
 
 - [Hypha 製品契約](hypha_meter_product_contract_20260831.md)
 - [Reference runtime v2 handoff](reference_runtime_v2_handoff_20260905.md)
-- [Reference 横断契約](/Users/nishiodaisuke/Dev/kirin_sense_lens/docs/reference_product_contract_20260905.md): §8、§9、Listening Trial の source matrix と Hypha runtime 契約。
-- [POST の計測と出力切替](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/PluginProcessor.cpp:506)
-- [一時音声取得](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/reference_audition/ReferenceRuntimeACapture.cpp)
-- [Blind 準備](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/reference_audition/ReferenceRuntimeV2Blind.cpp)
-- [Gain 方針とランダム割当](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/reference_audition/ReferenceRuntimeV2BlindState.cpp)
-- [Blind 出力と中断時減衰](/Users/nishiodaisuke/Dev/kirin_hypha/juce_shell/src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp)
-- [Gain Match 解析](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/reference_gain.rs)
-- [Record の一時 PCM](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/record_spool.rs)
-- [PRE 所有権の公開](/Users/nishiodaisuke/Dev/kirin_hypha/crates/kirin_measure/src/io_thread_post_pair_claim.rs)
+- Reference 横断契約（非公開の検証資料）: §8、§9、Listening Trial の source matrix と Hypha runtime 契約。
+- [POST の計測と出力切替](../juce_shell/src/PluginProcessor.cpp)
+- [一時音声取得](../juce_shell/src/reference_audition/ReferenceRuntimeACapture.cpp)
+- [Blind 準備](../juce_shell/src/reference_audition/ReferenceRuntimeV2Blind.cpp)
+- [Gain 方針とランダム割当](../juce_shell/src/reference_audition/ReferenceRuntimeV2BlindState.cpp)
+- [Blind 出力と中断時減衰](../juce_shell/src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp)
+- [Gain Match 解析](../crates/kirin_measure/src/reference_gain.rs)
+- [Record の一時 PCM](../crates/kirin_measure/src/record_spool.rs)
+- [PRE 所有権の公開](../crates/kirin_measure/src/io_thread_post_pair_claim.rs)
 - [既存の検証結果と未完了事項](hypha_windows_observability_fix_20260906.md)
 - [独立した SPACE / ATTACK 計画](hypha_space_attack_plan_20260906.md)
 

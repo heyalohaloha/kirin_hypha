@@ -31,7 +31,6 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 
 ## Boundaries
 
-- Do not write to Notion from this repository.
 - Do not upload unsigned packages to Lemon Squeezy.
 - The signed package requires a `Developer ID Installer` certificate. `Developer ID Application` is sufficient for the plug-in bundles, but not for the installer package.
 - Lemon Squeezy displays file sizes as rounded MiB labels. Compare local bytes to `bytes / 1024 / 1024`, rounded to 2 decimals.
@@ -364,56 +363,33 @@ and registers one product uninstaller without owning the shared VST3 root.
 
 ### WIN-1: CI build and signing
 
-First dispatch this repository's `.github/workflows/ci.yml` with
-`windows_signing=unsigned`. Record the completed green run ID and its exact 40-character commit.
-For an AAX release, first dispatch `hypha-aax-signing.yml` in the private Kirin release-control
-repository and record its successful `KirinHypha-Windows-AAX-signed` run ID. A VST3-only release
-does not dispatch the AAX workflow and leaves `signed_aax_run_id` empty.
+Run this repository's `.github/workflows/ci.yml` in unsigned mode. Record the completed green run ID
+and its exact 40-character commit. Public source validation does not establish signed release readiness.
 
-Then dispatch `hypha-windows-signing.yml` in the private Kirin release-control repository with:
+Formal signing uses a separately controlled environment holding credentials and any licensed SDK/PACE
+inputs. Review the exact source and distribution scripts before authorizing that environment to execute
+them. Verify the successful CI run belongs to the same source commit and includes all required jobs.
+Keep credentials, account/administration identifiers, machine topology and operator state outside this
+public repository. The AAX build/license/signing boundary is documented in [the AAX guide](../aax_build_signing_entry.md).
 
-```text
-hypha_commit=<exact 40-character commit>
-hypha_ci_run_id=<green Hypha CI run ID>
-signed_aax_run_id=<successful AAX signing run ID, or empty for VST3-only>
-signed_candidate_run_id=
-external_validation=pending
-external_validation_report_sha256=
-```
-
-This produces `KirinHypha-Windows-signed-candidate`. Run
-`docs/windows_external_validation.md` against that exact signed installer, retain the report, and
-record its SHA-256. Do not rebuild or re-sign after the DAW test. Dispatch the same workflow again:
-
-```text
-hypha_commit=<same exact 40-character commit>
-hypha_ci_run_id=<same green Hypha CI run ID>
-signed_aax_run_id=<same AAX signing run ID, or empty for VST3-only>
-signed_candidate_run_id=<successful signed-candidate workflow run ID>
-external_validation=complete
-external_validation_report_sha256=<lowercase SHA-256 of the retained validation report>
-```
-
-The promotion job downloads the exact candidate, verifies its hash, source identity, signature and
-pending state, then changes only the JSON sidecar. It does not rebuild or re-sign the installer. The factory
-rejects a CI run whose commit or conclusion does not match, keeps the four `ESIGNER_*` secrets out of
-this public GPL repository, requires all three complete Hypha CI jobs, rejects distribution scripts
-outside its private SHA-256 allowlist, downloads pinned CodeSignTool bytes, uses a verified immutable
-Inno Setup release, and invokes the pinned CodeSignTool v1.3.2 jar directly with workflow-provisioned
-Temurin 17 so Windows shell parsing cannot split spaced paths or reinterpret password metacharacters.
-The bundled Java 11.0.2 is not used in CI because its stale trust store failed the current SSL.com TLS
-certificate chain on 2026-09-23; the archive and jar remain checksum-pinned. It signs:
+The signing workflow must verify the reviewed script hashes and pinned signing-tool/Inno Setup bytes,
+produce a candidate bound to that source commit, and sign all executable surfaces:
 
 - PRE VST3 PE binary
 - POST VST3 PE binary
+- PRE/POST AAX payload when selected, with PACE and Authenticode verification
 - generated uninstaller
 - Setup EXE
 
-It first installs the previous public signed installer, upgrades it with the candidate, installs the
-candidate a second time, compares installed payload hashes, verifies all signatures, silently
-uninstalls, checks registry cleanup, and proves unrelated VST3 (and, when selected, AAX) sentinels
-were not removed. VST3-only signing runs on the hosted Windows runner. AAX uses the approved
-`hypha-aax-build` and `hypha-aax-sign` self-hosted runners because PACE verification is required.
+Run [external validation](../windows_external_validation.md) against that exact signed installer, retain
+the report and its SHA-256, and promote only after complete evidence. Candidate promotion must verify
+hash/source/signature and change only the readiness sidecar; never rebuild or resign accepted bytes.
+Keep pending evidence distinguishable from complete evidence.
+
+Verify previous-public-version upgrade, same-version reinstall and isolated uninstall, installed payload
+hashes, every signature, registry cleanup and unrelated VST3/AAX sentinels. AAX release evidence must
+come from the same commit and accepted SDK/PACE boundary. An unsigned public-CI candidate is never a
+substitute for `KirinHypha-Windows-signed-full` or for dedicated-host acceptance.
 
 ### WIN-2: Required artifacts
 

@@ -2,10 +2,10 @@
 
 **See what changed across a processing chain — while the measurement path stays transparent.**
 
-Developers / Codex / Claude: start with the [build-to-HP workflow](docs/hypha_release_entry.md).
-One entry, `node scripts/build_hypha.mjs --release --help`, explains signing, qualification and HP publication;
-[`--help`](docs/hypha_build_entry.md) explains unsigned native builds. Neither help command needs SDKs, credentials or iLok.
-Project instructions live in [AGENTS.md](AGENTS.md), shared with Claude through [CLAUDE.md](CLAUDE.md).
+Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+The [build guide](docs/hypha_build_entry.md) documents unsigned native builds;
+[release qualification](docs/hypha_release_entry.md) covers signing, acceptance and publication.
+Both `node scripts/build_hypha.mjs --help` and `--release --help` work without SDKs, credentials or iLok.
 For a quick unsigned GUI/DSP test build, run `node scripts/build_hypha.mjs --without-aax`
 (Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok).
 The default still builds all formats; this shortcut is not a full-format/release gate.
@@ -1091,13 +1091,13 @@ KIRIN_SKIP_PKG_SIGN=1 KIRIN_SKIP_PKG_NOTARIZE=1 \
   node scripts/ls_release/build_kirin_hypha_pkg.mjs
 ```
 
-Each signed Windows installer is built only on `windows-latest`. The eSigner secrets stay in the
-private Kirin release-control repository rather than this public GPL repository. Its manual Hypha
-signing factory accepts only a full source commit and the successful Hypha CI run ID for that exact
-commit, then signs both VST3 binaries plus the generated installer and uninstaller and performs the
-same-version reinstall and isolated-uninstall checks. Upgrade from the preceding public version is a
-separate dedicated-machine release gate. This repository's own `windows_signing=signed` input is also
-fail-closed and becomes usable only if equivalent repository secrets are deliberately added.
+Signed Windows installers require an independently controlled signing environment and reviewed
+exact source. The full source commit and a successful CI run for that commit bind the signed PRE/POST
+payload, installer and uninstaller. Same-version reinstall, prior-release upgrade, isolated uninstall,
+pluginval and dedicated-host acceptance remain mandatory release gates. Signing credentials and
+operator configuration must remain outside this public GPL repository. The legacy public CI
+`windows_signing=signed` route is subject to the security audit in
+[the exposure report](docs/security/public_repo_exposure_audit_20261005.md).
 
 The legacy manual-install zip can still be built as a fallback with:
 

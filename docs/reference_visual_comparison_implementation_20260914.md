@@ -2,7 +2,7 @@
 
 Scope: the approved [visual comparison plan](reference_visual_comparison_plan_20260914.md).
 This is a development candidate; these changes do not publish or install a release.
-Kirin OS remains W-3080 `31fd330c`; its existing measurement 2.0 data is reused without a schema change.
+Kirin OS remains OS側の対応実装 `31fd330c`; its existing measurement 2.0 data is reused without a schema change.
 
 ## Product behavior
 

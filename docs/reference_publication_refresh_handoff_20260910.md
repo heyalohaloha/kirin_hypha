@@ -1,4 +1,4 @@
-# Reference publication refresh — B-799 / W-3023–W-3024
+# Reference publication refresh — B-799
 
 ## 実装した境界
 
@@ -17,9 +17,9 @@ Cueの全条件を通常Bの位置対応とBlindの準備keyでも使う。同�
 
 ## OS側
 
-OS worktree: `/Users/nishiodaisuke/.codex/worktrees/reference-check-version-blind-boundary`
+OS側の検証環境は公開リポジトリ外に保持している。
 
-W-3023でmainのReference publication transactionを抽出。W-3024で準備後のWork設定、Global catalog、全source revisionを確認し、古い準備結果を公開しないようにした。遅いdecode中はWork transactionを保持しない。Historyのみの追加では準備を破棄しない。
+OS側の対応実装でmainのReference publication transactionを抽出。OS側の対応実装で準備後のWork設定、Global catalog、全source revisionを確認し、古い準備結果を公開しないようにした。遅いdecode中はWork transactionを保持しない。Historyのみの追加では準備を破棄しない。
 
 検証失敗で既存Manifestを消さない。利用者の明示操作が失敗した場合は既存のtyped acknowledgementでretry／source選択へ戻す。バックグラウンド準備の失敗を新しいUIエラーとして追加していない。
 
@@ -35,7 +35,7 @@ W-3023でmainのReference publication transactionを抽出。W-3024で準備後�
 
 ## 次に残る作業
 
-1. active B／Candidateの先行準備・公開。B-800／OS W-3025で全Preset待ちを分離し、未準備Presetは既存一覧とtyped requestで選べるようにした。選択Preset内の全Candidate待ちは残る。詳細は`docs/reference_lazy_presets_handoff_20260910.md`。
+1. active B／Candidateの先行準備・公開。B-800／OS側の対応実装で全Preset待ちを分離し、未準備Presetは既存一覧とtyped requestで選べるようにした。選択Preset内の全Candidate待ちは残る。詳細は`docs/reference_lazy_presets_handoff_20260910.md`。
 2. Manifest読込で多数のCheck／候補を再検証する際の非RT負荷の計測と削減。特に繰り返し構築されるregexを確認する。今回CPU性能の改善は測定していない。
 3. OS所有のhost-rate試聴cache、同曲Version追加後の候補更新、PSR／chroma、実曲corpus、各サイズの実データ目視、macOS／WindowsのDAW実動。
 

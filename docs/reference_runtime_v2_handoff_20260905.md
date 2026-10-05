@@ -8,7 +8,7 @@ Date: 2026-09-05
 
 Consumer baseline: B-700 / `65b02b4`
 
-Canonical cross-product contract: `kirin_sense_lens/docs/reference_product_contract_20260905.md`
+Canonical cross-product contract: 非公開のKirin OS側実装資料
 
 ## 1. 目的
 
@@ -39,7 +39,7 @@ CheckとVersion Blindは別の作業として扱う。
 - 信頼境界とR-12を守るため、Hyphaは受信artifactのbytes／hash／source revisionを再検証し、選択中source一件だけを非RT threadでopen、decode、page fillする。これは設定・測定・分析ではなく、安全な試聴に必要なbounded consumer処理とする。
 - Audio Threadは準備済みpageのRT-safeな読出しだけを行う。全Presetの先行decode、測定、JSON parse、hash、file I/O、allocation、lockを持ち込まない。
 
-Daisukeの2026-09-05判断により、日本語UIへ`Candidate`を表示しない。上部ラベルは「比較する曲」、先頭2件は「第1候補」「第2候補」、追加は「候補曲を追加」、3件目以後は「その他」とする。内部schema／code上の`candidate`は変更しない。
+2026-09-05の設計判断により、日本語UIへ`Candidate`を表示しない。上部ラベルは「比較する曲」、先頭2件は「第1候補」「第2候補」、追加は「候補曲を追加」、3件目以後は「その他」とする。内部schema／code上の`candidate`は変更しない。
 
 Aのbit identity、0 samples latency、Audio ThreadのRT safetyを維持する。
 
@@ -95,7 +95,7 @@ Hypha内の一時的なPreset切替はKirin OSのactive Presetを書き換えな
 
 ManifestはPreset本文、表示名、Check、Candidate、設定値、生成時刻を持たない。
 
-Preset projectionは、Daisukeの2026-09-05判断に基づき`plugin_data/reference/v2/presets/<work_id>/<preset_id>.json`から個別に読む。
+Preset projectionは、2026-09-05の設計判断に基づき`plugin_data/reference/v2/presets/<work_id>/<preset_id>.json`から個別に読む。
 
 Hyphaが使うPreset projectionは、Workへ適用されたimmutable revisionの表示名と順序付きCheckを持つ。
 
@@ -243,23 +243,23 @@ Alignment artifact本文は`format`、`version`、`feature_profile`、`source_co
 
 Global Presetの変更を直接読まず、Kirin OSが明示的に更新したWork snapshotだけを読む。
 
-Daisukeの2026-09-05判断により、Kirin OS正本のPreset snapshotは`format = kirin_reference_preset`、`version = 1.0`、`preset_id`、`revision_id`、`name`、`origin`、`purpose`、`checks`、`created_at`の9項目だけを持つ。`work_id`、content hash、`updated_at`、`rank`、`order`、`template_id`を重複しない。
+2026-09-05の設計判断により、Kirin OS正本のPreset snapshotは`format = kirin_reference_preset`、`version = 1.0`、`preset_id`、`revision_id`、`name`、`origin`、`purpose`、`checks`、`created_at`の9項目だけを持つ。`work_id`、content hash、`updated_at`、`rank`、`order`、`template_id`を重複しない。
 
 Checkは表示名、比較方法、Candidate bindingを持つ。
 
-Daisukeの2026-09-05判断により、Checkは`check_id`、`label`、`mode`、`view_bindings`、`comparison_mode`、`candidates`、`profile_bindings`、`enabled`の8項目だけを持ち、`mode`は`audition_only | audition_with_facts`に閉じる。Facts欠損で試聴を止めず、Hyphaは推定値や良否を補完しない。
+2026-09-05の設計判断により、Checkは`check_id`、`label`、`mode`、`view_bindings`、`comparison_mode`、`candidates`、`profile_bindings`、`enabled`の8項目だけを持ち、`mode`は`audition_only | audition_with_facts`に閉じる。Facts欠損で試聴を止めず、Hyphaは推定値や良否を補完しない。
 
-Daisukeの2026-09-05判断により、Kirin OS正本の各Checkは`check_id`、`label`、`mode`、`view_bindings`、`comparison_mode`、`candidates`、`profile_bindings`、`enabled`の8項目だけを持つ。Hypha projectionは必要な表示・再生fieldだけを派生し、現在選択中のCandidate、測定結果、順序fieldを正本Checkへ書き戻さない。
+2026-09-05の設計判断により、Kirin OS正本の各Checkは`check_id`、`label`、`mode`、`view_bindings`、`comparison_mode`、`candidates`、`profile_bindings`、`enabled`の8項目だけを持つ。Hypha projectionは必要な表示・再生fieldだけを派生し、現在選択中のCandidate、測定結果、順序fieldを正本Checkへ書き戻さない。
 
-Daisukeの2026-09-05判断により、保存済みPresetの`checks[]`は1〜64件、`check_id`は一意、配列順を表示順の正本とする。Hyphaは空Presetを受け取らず、並べ替え時も`rank`や`order`を派生して正本へ書き戻さない。
+2026-09-05の設計判断により、保存済みPresetの`checks[]`は1〜64件、`check_id`は一意、配列順を表示順の正本とする。Hyphaは空Presetを受け取らず、並べ替え時も`rank`や`order`を派生して正本へ書き戻さない。
 
-Daisukeの2026-09-05判断により、Preset `name`はCheck `label`と同じNFC正規化済み、前後空白なし、1〜80 Unicode文字の一行stringとする。Hyphaは非canonicalな保存値を修復せずprojectionを拒否する。
+2026-09-05の設計判断により、Preset `name`はCheck `label`と同じNFC正規化済み、前後空白なし、1〜80 Unicode文字の一行stringとする。Hyphaは非canonicalな保存値を修復せずprojectionを拒否する。
 
-Daisukeの2026-09-05判断により、Check `label`はNFC正規化済み、前後空白なし、1〜80 Unicode文字の一行stringとする。改行、tab、C0／C1制御文字、Unicode line／paragraph separator、不正surrogateを受け付けない。Hyphaは非canonicalな保存値を修復せずprojectionを拒否し、表示上のellipsisで保存値を変えない。
+2026-09-05の設計判断により、Check `label`はNFC正規化済み、前後空白なし、1〜80 Unicode文字の一行stringとする。改行、tab、C0／C1制御文字、Unicode line／paragraph separator、不正surrogateを受け付けない。Hyphaは非canonicalな保存値を修復せずprojectionを拒否し、表示上のellipsisで保存値を変えない。
 
-Daisukeの2026-09-05判断により、`view_bindings`は`waveform | spectrum_full | spectrum_low | loudness | dynamics | transient | stereo`から重複なしで最大3件を選ぶ順序付き配列とする。`audition_only`は0〜3件、`audition_with_facts`は1〜3件を必須とし、先頭を主表示、残りを補助表示としてReferenceの同じ画面へ出す。FREQ／TIME／SPACE等へ画面遷移させず、既存分析描画はprojectionとして再利用して再生経路を結合しない。
+2026-09-05の設計判断により、`view_bindings`は`waveform | spectrum_full | spectrum_low | loudness | dynamics | transient | stereo`から重複なしで最大3件を選ぶ順序付き配列とする。`audition_only`は0〜3件、`audition_with_facts`は1〜3件を必須とし、先頭を主表示、残りを補助表示としてReferenceの同じ画面へ出す。FREQ／TIME／SPACE等へ画面遷移させず、既存分析描画はprojectionとして再利用して再生経路を結合しない。
 
-Daisukeの2026-09-05判断により、表示配置はPreset／Checkから分離したpresentation preferenceとし、`layout_mode = auto | main | equal`の3値だけを扱う。日本語UIは「自動」「主表示を大きく」「均等」とする。`auto`は画面幅と表示件数に応じた再配置、`main`は先頭viewを大きくした全件表示、`equal`は同じ優先度の全件表示とする。狭い画面の縦積みはruntimeが自動適用し、`stack`を保存値にしない。
+2026-09-05の設計判断により、表示配置はPreset／Checkから分離したpresentation preferenceとし、`layout_mode = auto | main | equal`の3値だけを扱う。日本語UIは「自動」「主表示を大きく」「均等」とする。`auto`は画面幅と表示件数に応じた再配置、`main`は先頭viewを大きくした全件表示、`equal`は同じ優先度の全件表示とする。狭い画面の縦積みはruntimeが自動適用し、`stack`を保存値にしない。
 
 主表示／補助表示の順番は`view_bindings[]`だけから導く。Kirin OS ReferenceのHypha PreviewとHypha本体は同じpresentation preferenceを読み、配置変更でPreset revision、Check本文、測定事実、Blind条件を書き換えない。
 
@@ -267,29 +267,29 @@ presentation preferenceはWork単位の`reference/presentation.v1.json`へatomic
 
 Preset変更時は、新Presetにも同じstable `check_id`の有効Checkがある場合だけ選択を維持し、なければ`checks[]`の先頭の有効Checkへ移る。表示名では照合しない。HyphaはPreset確定と同じUI更新で新しい`view_bindings[]`と`layout_mode`を描画し、旧測定値を即座に外す。新しい事実が未準備なら「測定データを準備中」とし、A再生を維持したままB source検証と独立して準備する。
 
-Daisukeの2026-09-05判断により、`comparison_mode`は通常A/B試聴専用の`original | loudness_match | peak_match`に閉じる。Blind開始時はこのfieldを参照せず、Kirin OSが発行したStart artifactの`conditions.gain_match`だけを使用する。Preset projectionへBlind用固定値を追加しない。
+2026-09-05の設計判断により、`comparison_mode`は通常A/B試聴専用の`original | loudness_match | peak_match`に閉じる。Blind開始時はこのfieldを参照せず、Kirin OSが発行したStart artifactの`conditions.gain_match`だけを使用する。Preset projectionへBlind用固定値を追加しない。
 
 通常比較ではA／Bと設定済みの描画を表示する。Blind中は1／2の切替、transport、回答、note、操作不能・再生失敗の必要な事実だけを残し、`view_bindings`の描画、比較数値、凡例、音源名、色分け、Gain情報を全面非表示にする。tooltip、accessibility label、logにもidentityを混ぜない。Blind終了後は保存済み`view_bindings`を変更せず、元の順序の描画へ戻す。通常比較で測定事実が欠けても試聴を止めず、短い欠損事実だけを表示する。直接の測定事実がないvocal balance等は推定描画を作らず`audition_only`で提供する。
 
 Candidate bindingはsource receiptのcontent hashと、sample位置を正本とするCueを持つ。
 
-Daisukeの2026-09-05判断により、永続Candidate Cueは`cue_id`、`label`、`sample_rate_hz`、`start_sample`、`end_sample`、`loop_enabled`の6項目だけを持つ。範囲はsource時間軸のsample frameによる非負の半開区間で、`end_sample`も必須とする。Candidateは1〜4件を持ち、`default_cue_id`は配列内のCueを必ず指す。Cue未設定時はKirin OSが全曲Cueを作る。
+2026-09-05の設計判断により、永続Candidate Cueは`cue_id`、`label`、`sample_rate_hz`、`start_sample`、`end_sample`、`loop_enabled`の6項目だけを持つ。範囲はsource時間軸のsample frameによる非負の半開区間で、`end_sample`も必須とする。Candidateは1〜4件を持ち、`default_cue_id`は配列内のCueを必ず指す。Cue未設定時はKirin OSが全曲Cueを作る。
 
 親Candidateのdual hashをCueへ重複しない。Hyphaはsource receiptとのsample rate／総frame境界を再生前に検証し、負のhost timeline位置はListening Trial Cueだけで扱う。
 
-Daisukeの2026-09-05判断により、Candidateのclosed top-levelは`candidate_id`、`source_kind`、`source_identity`、`cues`、`default_cue_id`、`note`の6項目だけとする。`source_kind`は`work_version | catalog_track`に閉じる。DAW再生音はHypha runtimeの一時的なAとしてのみ扱い、Preset projectionのCandidateには保存しない。
+2026-09-05の設計判断により、Candidateのclosed top-levelは`candidate_id`、`source_kind`、`source_identity`、`cues`、`default_cue_id`、`note`の6項目だけとする。`source_kind`は`work_version | catalog_track`に閉じる。DAW再生音はHypha runtimeの一時的なAとしてのみ扱い、Preset projectionのCandidateには保存しない。
 
-Daisukeの2026-09-05判断により、`source_identity`はWork Versionでは`work_id / recording_id / version_id / sha256_file / sha256_pcm`、Catalog Trackでは`catalog_reference_id / sha256_file / sha256_pcm`だけを持つ。Hyphaはpath、表示名、曲長、測定値をidentityとして受理せず、content-addressed Source artifactから現在pathを使い、両hashを照合する。
+2026-09-05の設計判断により、`source_identity`はWork Versionでは`work_id / recording_id / version_id / sha256_file / sha256_pcm`、Catalog Trackでは`catalog_reference_id / sha256_file / sha256_pcm`だけを持つ。Hyphaはpath、表示名、曲長、測定値をidentityとして受理せず、content-addressed Source artifactから現在pathを使い、両hashを照合する。
 
 第1候補、第2候補等は`candidates[]`の配列順から取り、順位、絶対path、測定結果、現在選択状態、Blind可否をCandidate projectionへ加えない。表示名だけは`display_name` snapshotとして投影し、永続Candidateへ書き戻さない。Blind可否はTrial開始時のsame-recording／different-revision gateが決める。
 
-Daisukeの2026-09-05判断により、`candidates[]`は最大16件とする。Global／Factory templateと無効Checkは0件を許可するが、Workへ適用された有効Checkは1件以上を必須とする。同一Check内のCandidate IDとsource identityは一意で、同じsourceの複数区間は一Candidateの`cues[]`から選ぶ。Hyphaは先頭2件を第1候補／第2候補として常時表示し、3件目以後を「その他」から選べるようにする。
+2026-09-05の設計判断により、`candidates[]`は最大16件とする。Global／Factory templateと無効Checkは0件を許可するが、Workへ適用された有効Checkは1件以上を必須とする。同一Check内のCandidate IDとsource identityは一意で、同じsourceの複数区間は一Candidateの`cues[]`から選ぶ。Hyphaは先頭2件を第1候補／第2候補として常時表示し、3件目以後を「その他」から選べるようにする。
 
-Daisukeの2026-09-05判断により、Candidate `note`は`null`またはcanonical LFの1〜4000文字に閉じる。Hyphaはnoteをsource identity、判定、推奨へ使用せず、そのまま表示する。非canonicalな保存済みnoteをruntimeで修復しない。
+2026-09-05の設計判断により、Candidate `note`は`null`またはcanonical LFの1〜4000文字に閉じる。Hyphaはnoteをsource identity、判定、推奨へ使用せず、そのまま表示する。非canonicalな保存済みnoteをruntimeで修復しない。
 
-Daisukeの2026-09-05判断により、Profile bindingは`profile_artifact`と`weight_basis_points`だけを持つ。artifactは`profile_id`、`revision_id`、`relative_path`、`sha256`、`bytes`のimmutable receiptで、0〜3件、非空時の整数weight合計は10,000とする。HyphaはProfile本文や測定値をPreset projectionから受けず、検証済みProfile projectionだけを表示に使う。Blind中はProfileを描画しない。
+2026-09-05の設計判断により、Profile bindingは`profile_artifact`と`weight_basis_points`だけを持つ。artifactは`profile_id`、`revision_id`、`relative_path`、`sha256`、`bytes`のimmutable receiptで、0〜3件、非空時の整数weight合計は10,000とする。HyphaはProfile本文や測定値をPreset projectionから受けず、検証済みProfile projectionだけを表示に使う。Blind中はProfileを描画しない。
 
-Daisukeの2026-09-05判断に基づき、CheckとCandidateの表示順はPreset projectionの配列順から取る。
+2026-09-05の設計判断に基づき、CheckとCandidateの表示順はPreset projectionの配列順から取る。
 
 `rank`または`order` fieldを受け付けない。
 
@@ -301,23 +301,23 @@ Blindを許可するCandidateは、Kirin OSが発行したexact A bindingも持�
 
 Preset projectionのCandidateは安定IDとSHA-256だけを持つ。
 
-Daisukeの2026-09-05判断に基づき、absolute pathとfile revisionはcontent-addressed Source artifactだけに置き、使用時に再検証する。
+2026-09-05の設計判断に基づき、absolute pathとfile revisionはcontent-addressed Source artifactだけに置き、使用時に再検証する。
 
 HyphaはPreset projection内のpath fieldを受け付けない。
 
 unknown field、重複ID、循環参照、orphan receiptはrejectする。
 
-Manifest v3全体は64 KiBを超えない。B-800／OS W-3025のv4では、未準備Presetの名前とimmutable設定receiptを`pending_presets`として加え、全体上限を256 KiBとする。ready＋pendingは合計128件以内。v3のunknown-field拒否と64 KiB上限は維持する。詳細は`docs/reference_lazy_presets_handoff_20260910.md`。
+Manifest v3全体は64 KiBを超えない。B-800／OS側の対応実装のv4では、未準備Presetの名前とimmutable設定receiptを`pending_presets`として加え、全体上限を256 KiBとする。ready＋pendingは合計128件以内。v3のunknown-field拒否と64 KiB上限は維持する。詳細は`docs/reference_lazy_presets_handoff_20260910.md`。
 
 Preset projection一件は2 MiBを超えない。
 
-Kirin OS正本のimmutable Preset snapshotはDaisukeの2026-09-05判断により、RFC 8785 JCS UTF-8 bytesで最大8 MiBとする。Hyphaは読取前にreceiptのbytes／SHA-256と8 MiB上限を検証し、正本全体をそのままruntime projectionへ複製しない。active Checkに必要な情報だけを2 MiB projection上限内へ展開する。
+Kirin OS正本のimmutable Preset snapshotは2026-09-05の設計判断により、RFC 8785 JCS UTF-8 bytesで最大8 MiBとする。Hyphaは読取前にreceiptのbytes／SHA-256と8 MiB上限を検証し、正本全体をそのままruntime projectionへ複製しない。active Checkに必要な情報だけを2 MiB projection上限内へ展開する。
 
-Daisukeの2026-09-05判断により、Global User Preset registryはKirin OSローカル領域の`reference/templates/index.v1.json`を正本とし、`format`、`version`、`revision`、`preset_artifacts`、`updated_at`のexact 5 fieldsだけを持つ。`preset_artifacts[]`は最大128件のcurrent `origin: user` template receiptを配列順で保持する。Factory Presetを含めず、Hyphaもregistryを直接読まない。Hyphaが受け取るのはKirin OSが選択・検証してWorkへ固定したsnapshotのruntime projectionだけである。
+2026-09-05の設計判断により、Global User Preset registryはKirin OSローカル領域の`reference/templates/index.v1.json`を正本とし、`format`、`version`、`revision`、`preset_artifacts`、`updated_at`のexact 5 fieldsだけを持つ。`preset_artifacts[]`は最大128件のcurrent `origin: user` template receiptを配列順で保持する。Factory Presetを含めず、Hyphaもregistryを直接読まない。Hyphaが受け取るのはKirin OSが選択・検証してWorkへ固定したsnapshotのruntime projectionだけである。
 
 同registryはRFC 8785 JCS UTF-8 bytesで最大64 KiBとし、Kirin OSが保存前と読込時にfail closedで検証する。Hyphaへregistryの読込責務や上限処理を移さない。
 
-Daisukeの2026-09-05判断により、Factory Presetを利用者Presetとして複製する場合はKirin OSが新しい`preset_id`と`revision_id`を発行し、`origin: user`とする。未編集のFactoryをWorkへ適用する場合だけFactoryのID、`origin: factory`、content hashを維持する。Hyphaは受領したWork snapshotのidentityを再発行または書き換えない。
+2026-09-05の設計判断により、Factory Presetを利用者Presetとして複製する場合はKirin OSが新しい`preset_id`と`revision_id`を発行し、`origin: user`とする。未編集のFactoryをWorkへ適用する場合だけFactoryのID、`origin: factory`、content hashを維持する。Hyphaは受領したWork snapshotのidentityを再発行または書き換えない。
 
 同じFactory複製処理で、Kirin OSは全`check_id`、`candidate_id`、`cue_id`を新規発行し、`default_cue_id`を対応する新Cueへ付け替える。Work、Recording、Version、Catalog、音声hash、Profile artifactの外部identityは維持する。Hyphaは複製前後のowned IDを同一視せず、受領したWork snapshotのIDだけを使う。
 
@@ -460,13 +460,13 @@ Hyphaで行ったPreset、Check、Candidate、Cue、A/B、Revealの操作は、K
 
 Eventはmanifest revision、Work ID、runtime instance ID、event ID、操作、時刻、任意の既存`run_id`、stable ID、当時の表示名snapshotを持つ。
 
-Daisukeの2026-09-05判断により、Hypha runtime eventのclosed top-level envelopeは`format`、`version`、`event_id`、`runtime_instance_id`、`host_process_id`、`work_id`、`manifest_revision`、`event_type`、`occurred_at_ms`、`run_id`、`preset_artifact`、`display_snapshot`、`note`、`payload`の14項目だけを持つ。
+2026-09-05の設計判断により、Hypha runtime eventのclosed top-level envelopeは`format`、`version`、`event_id`、`runtime_instance_id`、`host_process_id`、`work_id`、`manifest_revision`、`event_type`、`occurred_at_ms`、`run_id`、`preset_artifact`、`display_snapshot`、`note`、`payload`の14項目だけを持つ。
 
 `format = kirin_hypha_reference_event`、`version = 1.0`とする。`payload`は`event_type`ごとのclosed objectであり、History `details`を無検証で通す汎用objectにはしない。
 
 Hyphaは`recorded_at`、`previous_event_sha256`、History segment、History transaction、次state pointerをemitしない。Kirin OSがruntime authority、Manifest revision、Preset artifact、表示snapshot、event固有payloadを検証した後にこれらを確定する。
 
-Daisukeの2026-09-05判断に基づき、表示名snapshotはHistory表示専用とし、identity判定には使わない。
+2026-09-05の設計判断に基づき、表示名snapshotはHistory表示専用とし、identity判定には使わない。
 
 Kirin OSは一致するeventだけをidempotentにHistoryへ取り込む。
 
@@ -506,7 +506,7 @@ Blind中はProfile overlayも表示しない。
 
 ## 9. Gain Match
 
-Daisukeの2026-09-05判断により、Bのpositive gainとheadroom不足時の承認済みA減衰を許可する。
+2026-09-05の設計判断により、Bのpositive gainとheadroom不足時の承認済みA減衰を許可する。
 
 既定`a_fixed`はAを0 dBで維持し、Bだけを必要量減衰または増幅する。
 
@@ -623,9 +623,9 @@ Reference変更で通常のPRE/POST measurement、Record、Guide、CAPTUREの契
 
 ## 14. 実装開始条件
 
-Kirin OSのReference pointer方式はDaisukeの2026-09-05判断で採用済みである。
+Kirin OSのReference pointer方式は2026-09-05の設計判断で採用済みである。
 
-Work内のPreset snapshotは`reference/presets/<preset_id>/<revision_id>.v1.json`にimmutable fileとして保存する方式が、Daisukeの2026-09-05判断で採用済みである。
+Work内のPreset snapshotは`reference/presets/<preset_id>/<revision_id>.v1.json`にimmutable fileとして保存する方式が、2026-09-05の設計判断で採用済みである。
 
 `reference/states/<state_sha256>.v1.json`はcontent-addressed immutable artifactであり、active Presetと順序付きPreset／History artifact参照だけを持つindexとする。Check、Candidate、Cue、source binding、Preset本文は持たない。
 
@@ -667,7 +667,7 @@ Blind中は失敗表示にも音源名、割り当て、比較表示を含めな
 
 利用者が保存または履歴記録の結果を期待する操作は沈黙させず、再試行可能なpending状態を元の操作位置へ残す。
 
-Daisukeの2026-09-05判断により、Kirin OSから生存中のHypha runtimeへ選択中のWorkとRecordingを渡す短命な権限receiptは`plugin_data/reference/v2/a_bindings/<runtime_instance_id>.json`へruntimeごとの最新一件をatomic replaceする。
+2026-09-05の設計判断により、Kirin OSから生存中のHypha runtimeへ選択中のWorkとRecordingを渡す短命な権限receiptは`plugin_data/reference/v2/a_bindings/<runtime_instance_id>.json`へruntimeごとの最新一件をatomic replaceする。
 
 Closed top-levelは`format`、`version`、`binding_id`、`runtime_instance_id`、`host_process_id`、`work_id`、`recording_id`、`issued_at_ms`、`lease_expires_at_ms`の9項目だけとする。
 
@@ -675,7 +675,7 @@ Closed top-levelは`format`、`version`、`binding_id`、`runtime_instance_id`�
 
 Hyphaは自分のruntime instance、host process、Workと一致し、現在時刻がlease内にあるreceiptだけを受け取る。A bindingはDAW音声を登録済みVersionとみなさず、Version ID、DAW revision ID、PCM hash、表示名、pathを含めない。
 
-Daisukeの2026-09-05判断により、Kirin OSの復旧箇所へ移動する操作は`plugin_data/reference/v2/recovery_requests/<runtime_instance_id>.json`へruntimeごとの最新一件をatomic replaceする。
+2026-09-05の設計判断により、Kirin OSの復旧箇所へ移動する操作は`plugin_data/reference/v2/recovery_requests/<runtime_instance_id>.json`へruntimeごとの最新一件をatomic replaceする。
 
 Closed top-levelは`format`、`version`、`request_id`、`runtime_instance_id`、`host_process_id`、`work_id`、`destination`、`context`、`requested_at_ms`の9項目だけとする。
 
@@ -693,7 +693,7 @@ RequestはHistoryへ保存せず、Reference正本またはPreset projectionを�
 
 書込失敗時はAとDAW再生を維持し、同じinline表示へ再試行を残す。
 
-Daisukeの2026-09-05判断により、Kirin OSの処理結果は`plugin_data/reference/v2/recovery_acknowledgements/<runtime_instance_id>.json`へruntimeごとの最新一件をatomic replaceして返す。
+2026-09-05の設計判断により、Kirin OSの処理結果は`plugin_data/reference/v2/recovery_acknowledgements/<runtime_instance_id>.json`へruntimeごとの最新一件をatomic replaceして返す。
 
 Closed top-levelは`format`、`version`、`request_id`、`runtime_instance_id`、`host_process_id`、`outcome`、`handled_at_ms`の7項目だけとする。
 
@@ -723,7 +723,7 @@ Kirin OS History eventは固定envelopeと`event_type`別closed `details`を使�
 
 `recorded_at >= occurred_at`を必須とし、同時刻だけを許可する。Hyphaは`occurred_at_ms`を発生時の値として保持し、Kirin OSは逆転時刻を補正してHistoryへ混入させない。表示順と訂正chainはtimestamp sortではなくJSONL追記順と`previous_event_sha256`を正本とする。
 
-History eventの識別子はDaisukeの2026-09-05判断により`format = kirin_reference_history_event`、`version = 1.0`へ固定する。Hypha runtime receiptをKirin OSがこの固定14項目envelopeへ変換し、9種類の`event_type`に対応しない`details`は取り込まない。
+History eventの識別子は2026-09-05の設計判断により`format = kirin_reference_history_event`、`version = 1.0`へ固定する。Hypha runtime receiptをKirin OSがこの固定14項目envelopeへ変換し、9種類の`event_type`に対応しない`details`は取り込まない。
 
 Referenceが発行する`event_id`と非`null`の`run_id`は小文字UUIDv4、`work_id`は既存WorksのUUID形式をそのまま使う。History所有者、開始／完了event、note訂正元、Blind Start artifactの`work_id`を完全一致させる一方、通常A/Bで参照する別Work Versionのsource `work_id`はHistory所有者と同一である必要はない。
 
@@ -773,7 +773,7 @@ Start `conditions.gain_match`は`measurement_basis`、`match_policy`、`gain_str
 
 Kirin OS実データ2 Recording／8 Versionの予備監査では、全有向32組のうち固定-1 dBTPで5組（15.6%）、固定0 dBTPでも4組（12.5%）が完全match不能だった。track-wide Integrated差とTrue Peakによる保守的代理値であり、正式なaligned Cue corpusではない。
 
-Daisukeの2026-09-05判断により、通常A/Bはgateで拒否せず、Blindの既定`a_fixed`だけへ元のA/B exposureを超えない完全match gateを適用する。不足時は利用者の1操作承認で`lower_a_approved`へ切り替える。
+2026-09-05の設計判断により、通常A/Bはgateで拒否せず、Blindの既定`a_fixed`だけへ元のA/B exposureを超えない完全match gateを適用する。不足時は利用者の1操作承認で`lower_a_approved`へ切り替える。
 
 Start artifactのdiscriminatorは`format = "kirin_reference_listening_trial_start"`、`version = "1.0"`の文字列完全一致とする。
 
@@ -795,7 +795,7 @@ Start artifactの`source_kind` matrixは、Kirin OS／MEASUREではA=`work_versi
 
 Blind開始後にA cache、Work binding、Cue、sample rate、channel layoutまたはruntime instanceが変わった場合、そのTrialをRevealせず中断する。
 
-Daisukeの2026-09-05判断により、Start `conditions.playback`は`engine`、`runtime_fingerprint`、`sample_rate_hz`、`channels`、`switch_policy`の5項目だけを持つ。
+2026-09-05の設計判断により、Start `conditions.playback`は`engine`、`runtime_fingerprint`、`sample_rate_hz`、`channels`、`switch_policy`の5項目だけを持つ。
 
 Hyphaは`engine = kirin_hypha_reference_v1`だけを受理する。`runtime_fingerprint`はhost process／plugin runtime／callback条件の識別事実を表示名なしで束ねたlowercase SHA-256、`switch_policy`は`callback_boundary_no_crossfade`固定とする。engine、fingerprint、sample rate、channelsの変更でBlindを無効化し、Aへ戻す。
 
@@ -833,9 +833,9 @@ Reference Listening Trial 1.0は`reference/listening_trials/<trial_id>/start.v1.
 
 Start artifactのclosed top-level envelopeは`format`、`version`、`trial_id`、`work_id`、`recording_id`、`created_at`、`origin`、`sources`、`relationship`、`cue`、`conditions`、`commitment`だけを持つ。`sources`は`{ a, b }`の名前付きobjectとし、A/Bを配列indexへ依存させない。`status`、`mode`、`updated_at`、表示名は重複しない。
 
-Daisukeの2026-09-05判断により、Start `conditions`は`playback`、`alignment`、`gain_match`の3項目だけを持つ。sample rate変換承認、resampler名、変換品質名を永続conditionsへ追加せず、Cue A/Bとplaybackのsample rateから変換の有無を判定する。1操作の承認はBlind開始前のruntime gateとする。
+2026-09-05の設計判断により、Start `conditions`は`playback`、`alignment`、`gain_match`の3項目だけを持つ。sample rate変換承認、resampler名、変換品質名を永続conditionsへ追加せず、Cue A/Bとplaybackのsample rateから変換の有無を判定する。1操作の承認はBlind開始前のruntime gateとする。
 
-Start `commitment`はDaisukeの2026-09-05判断により、`algorithm = sha256`、`canonicalization = rfc8785_jcs`、`domain = kirin_reference_assignment_v1`、lowercase SHA-256の`value`という4項目だけを持つ。
+Start `commitment`は2026-09-05の設計判断により、`algorithm = sha256`、`canonicalization = rfc8785_jcs`、`domain = kirin_reference_assignment_v1`、lowercase SHA-256の`value`という4項目だけを持つ。
 
 秘密preimageは`trial_id`、相互に異なる`stimulus_1`／`stimulus_2`の`a | b`、暗号学的乱数32 bytesのlowercase hex `nonce`である。domain UTF-8＋NUL一byte＋preimageのRFC 8785 JCS bytesをSHA-256する。Startへnonce、割当、null placeholder、重複時刻を出さず、Completedで初めて開示する。
 
@@ -845,11 +845,11 @@ Start artifactは最大128 KiBとし、HyphaもKirin OSも超過したstart payl
 
 Completed artifactは最大256 KiBとし、HyphaもKirin OSも超過したcompleted payloadを受理しない。これも音声やHistoryの保持上限ではない。
 
-Daisukeの2026-09-05判断により、Completed artifactのclosed top-level envelopeは`format`、`version`、`trial_id`、`completed_at`、`start_artifact`、`answer`、`reveal`、`audible_receipt`の8項目だけを持つ。Work、Recording、Source、Gain Match、Alignmentを複製しない。
+2026-09-05の設計判断により、Completed artifactのclosed top-level envelopeは`format`、`version`、`trial_id`、`completed_at`、`start_artifact`、`answer`、`reveal`、`audible_receipt`の8項目だけを持つ。Work、Recording、Source、Gain Match、Alignmentを複製しない。
 
-Daisukeの2026-09-05判断により、Completed `answer`は`selected_stimulus`と`note`だけを持つ。`selected_stimulus`は`stimulus_1 | stimulus_2`の明示回答に限定し、最後に可聴だったsourceを自動回答にしない。`note`は未入力時`null`、入力時1〜4,000文字とする。無回答のRevealではCompletedを作らず、Startだけの中断Trialとして扱う。
+2026-09-05の設計判断により、Completed `answer`は`selected_stimulus`と`note`だけを持つ。`selected_stimulus`は`stimulus_1 | stimulus_2`の明示回答に限定し、最後に可聴だったsourceを自動回答にしない。`note`は未入力時`null`、入力時1〜4,000文字とする。無回答のRevealではCompletedを作らず、Startだけの中断Trialとして扱う。
 
-Daisukeの2026-09-05判断により、Completed `audible_receipt`は`basis`、`trial_id`、`runtime_fingerprint`、`first_callback_sequence`、`last_callback_sequence`、`stimulus_1`、`stimulus_2`の7項目だけを持つ。`basis = audio_callback_frames_v1`、callback sequenceはuint64非ゼロ10進文字列とし、各stimulusは`confirmed_switches`と`audible_frames`だけを持つ。両方のAudio Thread確認が正である場合だけCompletedをemitし、固定の最低秒数は課さない。
+2026-09-05の設計判断により、Completed `audible_receipt`は`basis`、`trial_id`、`runtime_fingerprint`、`first_callback_sequence`、`last_callback_sequence`、`stimulus_1`、`stimulus_2`の7項目だけを持つ。`basis = audio_callback_frames_v1`、callback sequenceはuint64非ゼロ10進文字列とし、各stimulusは`confirmed_switches`と`audible_frames`だけを持つ。両方のAudio Thread確認が正である場合だけCompletedをemitし、固定の最低秒数は課さない。
 
 path内ID／hashと各fieldの一致はKirin OSのdomain contractで検証し、Hypha runtime projectionへ未検証値を渡さない。
 

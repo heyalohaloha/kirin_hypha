@@ -40,7 +40,7 @@ POSTを2MIXの最終段に常設したとき、Hyphaだけで日常的なメー�
 
 Kirin OSのINSPECTとMASKINGから送るGuideは、常時表示されるPOSTを主送信先とし、親Shellのcontext layerへ統合する。
 
-ATTACK統合後のworkspace testがgreenになったため、Daisukeの2026-08-31の判断に従ってMeter本体と共同で進める。
+ATTACK統合後のworkspace testがgreenになったため、2026-08-31の設計判断に従ってMeter本体と共同で進める。
 
 精度を装飾で演出するのではなく、単位、時間窓、軸、状態、測定時刻を美しく組み立てる。
 
@@ -48,7 +48,7 @@ ATTACK統合後のworkspace testがgreenになったため、Daisukeの2026-08-3
 
 ## 2. Isolation boundary
 
-本作業は専用worktree `/Users/nishiodaisuke/Dev/kirin_hypha_meter` と専用ブランチ `codex/hypha-meter`だけで行う。
+製品変更の検証は、他の作業から分離したcheckoutで行う。
 
 ATTACKセッションが使用するworktree、ブランチ、submodule、build成果物、VST3配置先には触れない。
 

@@ -1,6 +1,6 @@
 # Hypha サラウンド化 — 集約が未定義な 4 指標の候補比較（承認事項 3）
 
-Status: 候補比較。**測定量そのものを決める判断であり、確定は Daisuke。**
+Status: 候補比較。**測定量そのものを決める判断であり、確定は 設計担当。**
 実装なし・仕様変更なし。工数は材料にしない（R-27）。
 
 Date: 2026-09-18
@@ -275,7 +275,7 @@ TOP REAR   TRL ↔ TRR
 - 契約表 §11.3.1 のとおり **selector も role で指す**。
   **この role vocabulary を Correlation / Balance / Attack / Spectrum / Sharpness で共通化する。**
 
-**Daisuke が手で対を列挙する項目にしない。**
+**設計担当 が手で対を列挙する項目にしない。**
 
 #### 4.2.1 mirror の判定規則 — 方位角の符号反転で足りる
 
@@ -435,7 +435,7 @@ findings §3.1 の「チャンネル数で layout を特定してはならない
 ## 7. 未確認 [C]
 
 - role vocabulary の共通化範囲（どの subsystem まで同じ語彙を使うか）。
-- **ITU 角度の割り当て自体は [B]**（Daisuke が BS.2051 から確認）。
+- **ITU 角度の割り当て自体は [B]**（設計担当 が BS.2051 から確認）。
   §4.2.1 の規則はその角度表を前提とする。
 - Downmix Observation の測定量定義（計画 §7.3 の `D_interference` と残存エネルギー比の区別）。
   **MONO の承認とは切り離し、§6.2（承認事項 3B）で扱う。**

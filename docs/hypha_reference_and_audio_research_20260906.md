@@ -155,6 +155,7 @@ FFIの製品sourceは変更しておらず、ignored parity／pairingの25件は
 - 共通: 描画性能の切分け、全workspace、負荷、エラーパス、再起動、旧版混在、実ホスト、macOS AU／VST3とWindows VST3の必須試験。
 
 Windowsは操作していない。
-Notion書込み、他担当への送信、配置、公開、pushは行っていない。
 LSアップ用はskip、HP配布物はmacOS skip／Windows skipである。
 3チャネルの公開readyや、実装全体の独立レビュー指摘0件とは報告しない。
+
+配置、公開、pushは行っていない。

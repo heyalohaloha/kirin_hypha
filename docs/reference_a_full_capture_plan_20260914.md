@@ -4,7 +4,7 @@ Date: 2026-09-14
 Status: 実装・対象試験を実施。実機を含む完成判定は [検証記録](reference_a_full_capture_validation_20260914.md) を参照。
 Review follow-up: B-875の4件とCapture後の変更検知は[構造修正計画](reference_capture_structural_repair_plan_20260914.md)で扱う。現行実装を完成扱いしない。
 Plan review follow-up: Capture表示のGain、入力差と同曲校正の区別、保存予算は[根拠・判定・探索の実装契約](reference_evidence_and_discovery_contract_20260914.md)で更新した。本書のLIVE表示・音声契約は維持する。
-Baseline: Hypha B-873 `674e383a93aedcb3cbab211452e7a1f17fb2d931` / Kirin OS W-3080 `31fd330c`。
+Baseline: Hypha B-873 `674e383a93aedcb3cbab211452e7a1f17fb2d931` / Kirin OS側の対応実装 `31fd330c`。
 
 利用者の合意は、現在のDAW音Aを一度曲全体で把握し、波形・音量・強弱の比較に使えるようにすることである。
 通常のA/B比較を続けながら、必要なときに全体を取得して保持する操作を加える。
