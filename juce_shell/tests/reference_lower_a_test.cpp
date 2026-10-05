@@ -316,6 +316,14 @@ void testReferenceLowerA (const juce::File& sandbox)
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), songLevel),
              "B plays at its own level, matched to the lowered A");
     require (closeTo (controller.snapshot().heldAttenuationDb, -8.0), "the snapshot reports the held attenuation");
+    // 承認した量は、Kirin OS が一覧を送り直した後も残る（2026-10-06）。
+    require (writeJson (root.getChildFile ("library/sets.json"),
+                        lowerASets ("79797979-7979-4979-8979-797979797979", file, hash, pcm, source, true, 5, "Quiet refs 3")),
+             "Kirin OS republishes the list while A is lowered");
+    until ([&] { const auto s = controller.snapshot(); return ! s.songSets.empty() && s.songSets[0].name == "Quiet refs 3"; },
+           "the library is read again while A is lowered");
+    require (closeTo (controller.heldAttenuationDb(), -8.0) && closeTo (controller.snapshot().heldAttenuationDb, -8.0),
+             "the approved amount stays after the library is read again");
 
     // 試聴の後も A は下がったまま。書き出し・bypass のブロックには掛けない。
     controller.selectA();
@@ -394,5 +402,47 @@ void testReferenceLowerA (const juce::File& sandbox)
     for (int index = 0; index < 10; ++index) { host (true, false); controller.servicePendingAudition (-10.0, -12.0, true); }
     for (int index = 0; index < 20; ++index) { host(); controller.servicePendingAudition (-10.0, -12.0, true); }
     require (controller.snapshot().audibleComparisonSlot == 0 && ! controller.auditionHeld(), "after RETURN, stop and play keep A");
+
+    // 下げ直しは深くする向きだけ、2 回まで（2026-10-06）。承認の後に A が大きくなり続けると、その時点の差まで 2 回下げ
+    // 直し、3 回目は鳴らさずに理由を言う（下げた量はそのまま）。B の要る下げ幅は −(A の音量 + 18)。
+    until ([&] { return controller.snapshot().referenceReady; }, "B is ready again");
+    require (! controller.requestAudition (3, -16.4, -12.0) && closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -1.6, 1.0e-3),
+             "B is refused 1.6 dB short");
+    require (controller.approveLowerAAndPlay (offerFor (3, -1.6)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -1.6),
+             "the offered amount is approved");
+    const auto pendingStage = [&] { return controller.snapshot().pendingAudition.stage; };
+    // 下げ終わってから鳴らす（50 ms の直線）ので、試みのたびに A が落ち着くまでブロックを流す。
+    const auto settle = [&] { for (int index = 0; index < 8; ++index) host(); };
+    for (const auto& [loudness, held] : { std::pair { -14.0, -4.0 }, std::pair { -12.0, -6.0 } })
+    {
+        settle();
+        controller.servicePendingAudition (loudness, -12.0, true);
+        require (closeTo (controller.heldAttenuationDb(), held, 1.0e-3) && controller.snapshot().audibleComparisonSlot == 0
+                     && pendingStage() == ref::PendingAuditionView::Stage::checking,
+                 ("A grew louder after the approval: A is lowered again to the difference at play time (held "
+                  + juce::String (controller.heldAttenuationDb(), 2) + ", slot " + juce::String (controller.snapshot().audibleComparisonSlot)
+                  + ", stage " + juce::String (static_cast<int> (pendingStage())) + ", needed "
+                  + juce::String (controller.snapshot().referenceSelection->neededAttenuationDb, 2) + ")").toRawUTF8());
+    }
+    settle();
+    controller.servicePendingAudition (-10.0, -12.0, true);
+    require (closeTo (controller.heldAttenuationDb(), -6.0, 1.0e-3) && controller.snapshot().audibleComparisonSlot == 0
+                 && pendingStage() == ref::PendingAuditionView::Stage::ceilingExceeded,
+             "a third deeper difference is not chased: B stops with its reason and A stays where it was");
+    controller.returnAToNormalLevel();
+    for (int index = 0; index < 60; ++index) host();
+    // 浅くはしない：鳴らす時点の差が承認した量より小さければ、承認した量のまま鳴らす。
+    until ([&] { return controller.snapshot().referenceReady; }, "B is ready after RETURN");
+    require (! controller.requestAudition (3, -14.0, -12.0), "B is refused 4 dB short");
+    require (controller.approveLowerAAndPlay (offerFor (3, -4.0)) == Approval::lowered, "4 dB is approved");
+    for (int attempt = 0; attempt < 400 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
+    {
+        host();
+        controller.servicePendingAudition (-15.0, -12.0, true);
+    }
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -4.0, 1.0e-3),
+             "a smaller difference at play time plays at the approved amount, never shallower");
+    controller.returnAToNormalLevel();
+    for (int index = 0; index < 60; ++index) host();
     std::cout << "Reference lowers A to match a quiet reference only after approval, and RETURN restores it PASS\n";
 }
