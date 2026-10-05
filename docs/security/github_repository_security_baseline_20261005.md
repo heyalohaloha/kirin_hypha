@@ -2,7 +2,7 @@
 
 本書は読み取り専用の設定候補資料。GitHub設定変更・push・PR・dispatch・rerun・secret取得・private factory接続・test/buildを行っていない。
 
-- Local source: `b1b3df847b3d9b9af021e09e69b982d7e8e6fa15`。
+- API照合時のLocal source: `b1b3df847b3d9b9af021e09e69b982d7e8e6fa15`。後続のforward記録commitと最終候補はreview packet/最終検証記録で区別する。
 - Remote default main: `a8f5a4a4a791cd4a81346e2c5462d08269619b16`。候補のhardeningはまだGitHubへ反映されていない。
 - API主snapshot: 2026-10-05 01:15 UTC。collectorはGETのみ。collaborator permission追加取得はJSON内の独立timestamp参照。
 - Repository admin read可、owner.type=User。private factoryの設定・コード・credential/local secretファイルは調査対象外。
@@ -15,7 +15,7 @@
 
 | 項目 | Current | Recommended | Reason | Security impact | Development impact | Codexが安全に変更できるか | Owner approval | Evidence |
 |---|---|---|---|---|---|---|---|---|
-| Default branch / source | main; public; remote a8f5a4a4; local b1b3df84 unpublished | main維持。候補が公開された後もexact SHAで再確認 | 採用sourceの混同防止 | 旧runを候補の合格へ流用しない | 既存開発入口を維持 | 変更不要 | 不要（維持） | repository/default_branch |
+| Default branch / source | main; public; remote a8f5a4a4; 調査時local b1b3df84 unpublished | main維持。候補が公開された後もexact SHAで再確認 | 採用sourceの混同防止 | 旧runを候補の合格へ流用しない | 既存開発入口を維持 | 変更不要 | 不要（維持） | repository/default_branch |
 | PR / approvals | PR review ruleあり; required_approving_review_count=0; collaboratorはadmin 1人 | PR必須を維持。独立reviewerを確保できる場合のみ1 approvalを検討 | 現状、独立承認は強制されない | レビューなしの同一repo workflow変更は残る | enforce_admins下でsole authorの自己承認は不可。1にすると開発停止のおそれ | 不可（自動変更しない） | 必須。reviewer/運用を先に決定 | main_protection/collaborator_permission_summary |
 | Stale approval | dismiss_stale_reviews=false | 独立reviewer導入時、trueを併せて検討 | 承認後の追加変更を再審査 | 承認の使い回しを防ぐ | 更新ごとに再承認が必要 | 不可（自動変更しない） | 必須 | main_protection |
 | Last push approval | require_last_push_approval=false | 独立reviewerと最後のpush担当を分離できる場合true検討 | 最後の変更の別人確認 | review後の差込みを防ぐ | solo運用をblockする可能性 | 不可（自動変更しない） | 必須 | main_protection |

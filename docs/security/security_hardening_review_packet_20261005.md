@@ -80,7 +80,7 @@ job skipがmergeを防がない場合とworkflow全体のbranch filterによるp
 
 ## 7. 最終local test evidence
 
-最終候補の実行command・結果・失敗/再実行は、追記する検証記録を参照する。前段のPASSを今回再実行のPASSと混同しない。private raw logsは公開repo外に保管する。
+[最終local検証記録](public_repo_final_local_validation_20261005.md)に実行command・実測結果・初回修正・限界をまとめた。1364b9e5でcanonical exit0、native57/57、normal Rust、ignored20+6、C ABI/clippy、Node45/45、AAX22、SDK-free10、discovery5、actionlint、preflight、fmt/source-budgetがPASS。後続は記録文書だけで、tracked executable source/recipeは同一。build identityはHEADごとに変わるため、旧native artifactや古いGitHub greenを最終HEADの正式出荷証跡へ流用しない。private raw logsは公開repo外に保管する。
 
 ## 8. 未確認・保留理由
 
@@ -98,12 +98,13 @@ job skipがmergeを防がない場合とworkflow全体のbranch filterによるp
 4. security scanning/push protection/Dependabot alertsを有効にし、required SDK absenceとActions SHA enforcementを採用するか（個別Yes/No。設定変更の承認は今回未取得）。
 5. 独立reviewerを指定してrequired approval 1、stale dismissal/last-push approval/CODEOWNERSを設定するか（reviewer確保後の判断。sole ownerをself-review不能にしない）。
 6. 検証済みlocal A/B branchesをpushしdraft PRを作成し、必要な新CIだけを実行するか（public送信/CI予算の承認が別途必要）。
+7. 元内部手順を恒久的な非公開運用先へ移管するか（推奨Yes、今回はprivate archive保存まで。新session/別PCへの自動反映は未実施）。
 
 既承認のPVR有効化、primary visibility private、今回commit noreplyは完了済み。history rewrite、force push、既存tag/asset変更、secret削除/rotation、factory変更、rulesets/bypass変更、release/HP/LS/main mergeの承認と読み替えない。
 
 ## 10. 独立reviewの範囲
 
-A cleanupを一部実装したhygiene agentのpreservation self-reviewと、Aを実装していないCI agentの独立read-only reviewを区別する。B workflow/guardを実装していないhygiene agentは固定d27→b1の全14 filesをreviewし、17 SHA-pinned uses、5 checkout token非保存、unsigned3箇所、hosted SDK absenceの6 commands一致、8 producers一致、条件/timeout/upload数の保持を確認した。新たなmaterial defectは指摘されなかった。H1のsnapshot/ref coverage、最新settings、実signingコード/receipt前提のread-only確認も別agentで実施した。これは人間security reviewerの承認、別GitHub accountのapproval、private factory実機監査ではない。最終document/doc-link/privacy reviewの結果を検証記録に追記する。
+A cleanupを一部実装したhygiene agentのpreservation self-reviewと、Aを実装していないCI agentの独立read-only reviewを区別する。B workflow/guardを実装していないhygiene agentは固定d27→b1の全14 filesをreviewし、17 SHA-pinned uses、5 checkout token非保存、unsigned3箇所、hosted SDK absenceの6 commands一致、8 producers一致、条件/timeout/upload数の保持を確認した。新たなmaterial defectは指摘されなかった。H1のsnapshot/ref coverage、最新settings、実signingコード/receipt前提のread-only確認も別agentで実施した。これは人間security reviewerの承認、別GitHub accountのapproval、private factory実機監査ではない。最終read-only reviewerはA59f→B1364の17files分離・source一致・privacy候補0・相対linksを確認し、重大な追加指摘なし。原Aを実装していないhistory/CI agentsが、license関連8files、10WAV、18RT rows、13 producers、PNG内容一致を独立確認した。最終記録文書追加後はB18filesとなる。
 
 ## 11. Merge後検証
 
