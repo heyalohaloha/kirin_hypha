@@ -12,8 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 fn missing_base(label: &str) -> PathBuf {
-    std::env::temp_dir()
-        .join("kirin")
+    crate::PlatformPaths::current_kirin_tmp_root()
         .join("post-open-drop-tests")
         .join(format!("{label}-{}", uuid::Uuid::new_v4()))
 }

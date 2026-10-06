@@ -18,7 +18,8 @@ use kirin_measure::plugin_data::{Role, WriterPaths};
 use kirin_measure::record_signal;
 use kirin_measure::reservation::{count_frames, reserve_pairing_at, ReserveOutcome};
 use kirin_measure::{
-    materialize_observation_id, process_project_hash, set_project_uuid, MAX_ACTIVE_PER_PROJECT,
+    materialize_observation_id, process_project_hash, set_project_uuid, PlatformPaths,
+    MAX_ACTIVE_PER_PROJECT,
 };
 
 /// 3 攻撃ケース（§7）: (i)絶対パス (ii)../traversal (iii)非UUID。
@@ -69,8 +70,8 @@ fn c2_all_builders_quarantine_traversal_within_base() {
     for atk in TRAVERSAL_ATTACKS {
         let _ = drain_path_events();
 
-        // io_dir（Watch pre.json builder）— base = $TMPDIR/kirin。
-        let kirin_root = std::env::temp_dir().join("kirin");
+        // io_dir（Watch pre.json builder）— base = Kirin の一時フォルダ（試験では sandbox の中）。
+        let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let p = io_dir(atk, atk);
         assert_within_base(&p, &kirin_root);
 
@@ -115,7 +116,7 @@ fn s7_non_uuid_safe_value_stays_within_base() {
 #[test]
 fn d5_three_attacks_egui_end_to_end_within_base() {
     let _guard = event_sink_guard();
-    let kirin_root = std::env::temp_dir().join("kirin");
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
     for atk in [ABS, TRAVERSAL, CONTROL] {
         // D4: is_path_safe_component が 3 攻撃すべて reject（絶対 / `..` / 制御文字）。
         assert!(
@@ -151,7 +152,7 @@ fn s7_egui_set_project_uuid_path_is_within_base() {
     // egui 殻の restore: params.project_uuid（#[persist]）→ set_project_uuid(cell) → io_thread が
     // process_project_hash() を project_hash として builder へ。攻撃値を set してもその値で構築される
     // path は wall で base 内に留まる。within-base は cell の値に依らず常に成立（並行テスト安全）。
-    let kirin_root = std::env::temp_dir().join("kirin");
+    let kirin_root = PlatformPaths::current_kirin_tmp_root();
     set_project_uuid(ABS.to_string());
     let ph = process_project_hash(); // = io_thread に渡る project_hash（egui 経路）
     let p = io_dir(&ph, "iid");

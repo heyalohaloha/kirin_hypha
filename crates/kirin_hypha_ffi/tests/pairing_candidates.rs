@@ -16,6 +16,8 @@ use kirin_hypha_ffi::{
 
 #[path = "support/pairing_candidates_local_blind.rs"]
 mod local_blind_handshake;
+#[path = "support/storage_sandbox.rs"]
+mod storage_sandbox;
 
 const SR: u32 = 48_000;
 
@@ -74,8 +76,7 @@ fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
 
     let kirin_os = home.join("Library/Application Support/Kirin OS");

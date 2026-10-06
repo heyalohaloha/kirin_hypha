@@ -12,6 +12,8 @@
 //!
 //! 入力は **L==R のステレオ**（本番 measure_thread の (L+R)*0.5 → mono 等価）。
 
+#[path = "support/storage_sandbox.rs"]
+mod storage_sandbox;
 use std::f64::consts::PI;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
@@ -907,8 +909,7 @@ fn pre_direct_record_without_pair_does_not_write_plugin_data_json() {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
     // io_thread spawn 前に設定（default_macos/temp_dir は呼出毎に env を読む）。
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1175,8 +1176,7 @@ fn set_identity_direct_record_does_not_create_annotation_target() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1291,8 +1291,7 @@ fn post_writes_delta_against_colocated_pre() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1419,8 +1418,7 @@ fn post_keep_acked_by_colocated_pre() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1539,8 +1537,7 @@ fn capstone_paired_record_output_and_linkage() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1804,10 +1801,9 @@ fn keep_failure_after_enter_reverts_record_state() {
     std::fs::create_dir_all(&appdata).unwrap();
     std::fs::create_dir_all(&local_appdata).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
+    storage_sandbox::isolate(&home, Some(&tmp));
     std::env::set_var("APPDATA", &appdata);
     std::env::set_var("LOCALAPPDATA", &local_appdata);
-    std::env::set_var("TMPDIR", &tmp);
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1869,11 +1865,9 @@ fn keep_failure_after_enter_reverts_record_state() {
         pre.push_samples(&[], 2);
 
         // ── 失敗ケース: platform storage env を外して StoragePaths::default_platform() を強制失敗（⑤経路）──
-        std::env::remove_var("HOME");
-        std::env::remove_var("APPDATA");
-        std::env::remove_var("LOCALAPPDATA");
+        storage_sandbox::unresolvable();
         let kept_fail = post.keep();
-        std::env::set_var("HOME", &home); // 後続/cleanup 用に即復帰。
+        storage_sandbox::isolate(&home, None); // 後続/cleanup 用に即復帰。
         std::env::set_var("APPDATA", &appdata);
         std::env::set_var("LOCALAPPDATA", &local_appdata);
 
@@ -1929,8 +1923,7 @@ fn post_mark_survives_flush_and_close_with_wav_sample_position() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -2066,7 +2059,7 @@ fn load_license_reads_identity_json() {
     let home = test_root.join("home");
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
-    std::env::set_var("HOME", &home);
+    storage_sandbox::isolate(&home, None);
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     let id_path = kirin_os.join("identity.json");
@@ -2130,8 +2123,7 @@ fn double_keep_preserves_linkage() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -2371,8 +2363,7 @@ fn two_post_instances_converge_on_one_shelf() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: 他テストの first-wins seed を引き継がないよう reset（旧 overwrite 隔離の代替）。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
@@ -2579,8 +2570,7 @@ fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("TMPDIR", &tmp);
+    storage_sandbox::isolate(&home, Some(&tmp));
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
