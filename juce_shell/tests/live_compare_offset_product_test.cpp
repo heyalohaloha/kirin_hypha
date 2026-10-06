@@ -204,8 +204,9 @@ private:
                 break;
             }
             case 5:
-                // Stopping ends the hold; the session stays for the next run.
-                if (post->liveCompareStatus().contentHeld) break;
+                // Stopping ends the hold; the session stays for the next run. One audio callback
+                // clears the hold before it revokes MATCH, so wait until the stop is fully observed.
+                if (post->liveCompareStatus().contentHeld || post->liveCompareStatus().matched) break;
                 require (post->liveCompareStatus().contentJumpLagFrames == 0,
                          "the prior run's jump evidence does not leak into a new run");
                 require (post->liveCompareStatus().active, "the session survives the stop");
