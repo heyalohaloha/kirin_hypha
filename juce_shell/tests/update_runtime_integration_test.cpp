@@ -265,6 +265,8 @@ int main (int argc, char** argv)
     }
     receiveReference (data.getChildFile ("reference/v2"));
     require (kirin_hypha_load_license() == 2, "missing disposable identity resolves Unknown");
+    // On Windows identity.json lives in APPDATA, apart from plugin_data in LOCALAPPDATA.
+    require (identity.getParentDirectory().createDirectory().wasOk(), "create disposable Kirin OS folder");
     require (identity.replaceWithText ("{"), "publish malformed disposable identity");
     require (kirin_hypha_load_license() == 2, "real license recheck rejects malformed identity");
     writeLicense (identity, "sense");
