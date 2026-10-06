@@ -1025,8 +1025,8 @@ unsigned AAXのloadや診断probeだけで通常Pro Tools／配布完了を主�
 
 ### 2026-10-02: LOOP再取得とMATCH承認の構造的分離
 
-Windowsの途中LOOP検証で、LOOPを有効にする前に範囲終端を越えていた場合は、正常な折返しではなく
-project seekだった。PREは4100976→4096、POSTは4096880→0へ移動する一方、独立時計は進んでいた。
+LOOPを有効にする前に範囲終端を越えていた場合、それは正常な折返しではなくproject seekになる。
+PREとPOSTの位置はLOOPの頭へ移る一方、独立時計は進み続ける。
 旧Consumerは成立後の初回取得入口を閉じ、seekでKを失効した後も、反復位置だけでは較正し直せない。
 画面でPREを選び直すだけではその入口が開かず、別の準備観測に新proofがあってもPRE WAITに留まった。
 較正条件を緩めるのではなく、取得入口と利用者の出力権限を分離する。
@@ -1071,9 +1071,8 @@ macOS release-sourceのbuild targets・選択regex・件数検査とWindows pref
 既存400周全frame oracle、正常Aのbit同一、RT heap操作0に加え、最終sourceのfull processor追加時間を
 元の中央値／p99上限で確認する。これらの最終gateと新候補実DAW検証は、この追記時点では未完了である。
 
-B-1142実機の認定済み範囲は別証跡として保持する。Windows VST3初回LOOPは115周／33284192 verified
-frames、Developer AAX初回LOOPは157周／42791936 verified framesを独立固有PCMで確認した。
-Startup／crossfade内の非grid blocksを除外記録し、全遷移bit同一や新候補の合格へ読み替えない。
+前のcommitで実hostの初回LOOPを確かめた結果は、そのcommit・host・形式の証跡に限る。
+startup／crossfade内の非grid blocksを除いた記録であり、全遷移のbit同一や新候補の合格へ読み替えない。
 AAX DeveloperのSaveが無効なのは、[Avidのdebuggable build仕様](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html)
 に記載されたsession保存／export制限と整合する。署名済み通常Pro Toolsのsave／reopenは別受入であり、
 Developerの診断成功やこの制限から合格を推定しない。
@@ -1085,3 +1084,19 @@ Developerの診断成功やこの制限から合格を推定しない。
 同じ現行比較のAUTO適用確認待ちは未開始理由を通知する。古いメニューや新故障をその通知で
 覆わず、後からAUTOへ自動移行するstate／timerは追加しない。共有UI境界の決定的純粋試験と、
 実AAX拒否表示の複数tick確認、全preset・英日の新通知の幅／描画を最終gateへ含める。
+
+### 2026-10-06: full processorの追加時間（交互の測定）
+
+基準（この変更の前）と候補を交互に8往復し、512 framesのfull processorを測った（x86_64のMac、
+Release、各1200 callbacks）。同じbinaryでも回ごとの中央値が13.6〜25.1 µs揺れたため、1回ずつの
+比較では元の上限を判定できない。同じ時間帯に並べた往復ごとの差で判定する。
+
+| 経路 | 差の中央値（上限） | p99の差の中央値（上限） | 下位1%の差の中央値 |
+| --- | --- | --- | --- |
+| 通常A | +0.76 µs（+2.04） | +5.24 µs（+25.65） | +0.09 µs |
+| 記名PRE LOOP | −0.05 µs（+2.18） | −7.67 µs（+24.11） | +0.44 µs |
+| BLIND PRE LOOP | +1.81 µs（+2.17） | +10.15 µs（+22.33） | +0.62 µs |
+
+上限は元のまま（中央値max(1 µs, 基準の10%)、p99 max(2 µs, 基準の20%)）。三つとも上限の内で、
+通常Aの処理そのもの（下位1%）は増えていない。LOOPの比較中だけ1 blockあたり1 µs未満増える。
+測定器は下位1%・10%も出力する。新候補の実DAWでの確認は、この測定とは別に残る。
