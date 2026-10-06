@@ -60,6 +60,14 @@ void HoverHelpPreference::refreshNowForTest()
     lastRefreshMs = juce::Time::getApproximateMillisecondCounter();
 }
 
+void HoverHelpPreference::overrideForTest (std::optional<bool> enabled)
+{
+    const juce::ScopedLock lock (stateLock);
+    sessionOverride = enabled.has_value();
+    haveRead = enabled.has_value();
+    if (enabled) cachedEnabled = *enabled;
+}
+
 void HoverHelpPreference::refreshUnlocked()
 {
     const auto stored = ui_preferences::read (file, kHoverHelpKey);

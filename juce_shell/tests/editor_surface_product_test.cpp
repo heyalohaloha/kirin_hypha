@@ -3,8 +3,10 @@
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
-#include "EditorCaptureProductTest.h"
 #include "EditorProductChecks.h"
+#include "EditorResizeGripCheck.h"
+#include "ObservatoryHelpLineCheck.h"
+#include "ReferenceStatusPlacementCheck.h"
 
 #include <array>
 #include <chrono>
@@ -332,6 +334,15 @@ private:
                 require (access->getBounds() == view->analysisBodyBounds(), "Reference returns to its body bounds");
         }
         require (processor->getLatencySamples() == 0, "display transitions retain zero latency");
+        // 2026-10-04：足元の段がある大きさでは、REF の状態の行は足元の左（ほかの画面の LIVE／HOLD と同じ場所）。
+        // 知らせと承認のボタンが重なるときだけ REF の一番下へ戻す。足元の段が無い大きさでは REF の一番下。
+        // 2026-10-06：規則を試験の中で計算し直さず、知らせ・ボタンのある場面を作って置き場所を確かめる。
+        if (! pre && ! vu && view->domain() == Domain::reference)
+            if (auto* panel = component<hypha::reference_ui::Component> (*editor);
+                panel != nullptr && dynamic_cast<KirinHyphaEditor*> (editor.get()) != nullptr)
+                hypha::tests::editor_product::verifyReferenceStatusPlacementShown (
+                    *dynamic_cast<KirinHyphaEditor*> (editor.get()), *view, *panel,
+                    ! view->statusStripFolded() && ! view->statusStripBounds().isEmpty());
         if (! vu)
         {
             // A connection may arrive after the editor has laid out an empty guide rail.
@@ -447,12 +458,13 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
     hypha::tests::editor_product::verifyMagnifiedEditor();
+    hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);
-    std::unique_ptr<SurfaceContract> contract;
-    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(previews); });
+    hypha::tests::editor_product::verifyObservatoryHelpLine (previews);
+    auto contract = std::make_unique<SurfaceContract> (previews);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

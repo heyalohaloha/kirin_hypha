@@ -49,6 +49,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         processorRef.observatoryTimeRangePreference()));
     configureMeterContext(); setResizable (true, false);
     setConstrainer (&sizeConstrainer);
+    addAndMakeVisible (resizeGrip);
+    addMouseListener (this, true); // the help line follows the pointer over every child
     updateResizeLimits();
     const auto storedEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
@@ -211,6 +213,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     // Where the footer folds into the header, feedback is shown over the body's bottom edge.
     feedbackStrip.onClick = [this] { showFeedbackInformationMenu(); };
     scaleRoot.addChildComponent (feedbackStrip);
+    scaleRoot.addChildComponent (helpLineBar);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);
@@ -313,6 +316,8 @@ void KirinHyphaEditor::resized()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost) layoutLocalBlindProduct();
    #endif
+    resizeGrip.setVisible (isResizable());
+    resizeGrip.place (getLocalBounds());
 }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaEditor::cycleSpectrumSize()
@@ -408,8 +413,6 @@ void KirinHyphaEditor::layoutBodyAndFeedback()
    #endif
     feedbackStrip.setBounds (observatoryView.statusStripBounds());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (captureStatus.getBounds() != observatoryView.statusStripBounds())
-        captureStatus.setBounds (observatoryView.statusStripBounds());
    #endif
     feedbackStrip.setVisible (shown);
     // Only repair ordering when another visible body actually overtook the strip. Do not disturb
@@ -422,4 +425,41 @@ void KirinHyphaEditor::layoutBodyAndFeedback()
                 && child->getBounds().intersects (feedbackStrip.getBounds()))
             { feedbackStrip.toFront (false); break; }
     }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    placeReferenceStatus();
+   #endif
 }
+
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+// 2026-10-04（状態の表示はどの画面でも左下に）：足元の段があるとき（150% 以上）は、REF の状態の行もほかの
+// 画面と同じ足元の左（LIVE／HOLD の場所）に出し、REF の中の 1 段を図に回す。知らせ（通知・Keeping など）が出ている
+// あいだは知らせを出し、状態の行は隠すだけで図の高さは変えない。ただし承認・VERSION BLIND のボタンがあるときは、
+// どちらも隠さないよう行を REF の一番下へ戻す。足元の段が無い 100%・125% は REF の一番下。
+// 計測の更新ごとに呼ばれるので、置き場所・大きさ・見え方が変わったときだけ前に出す（描き直しは REF の setState）。
+void KirinHyphaEditor::placeReferenceStatus()
+{
+    if (! isPost) return;
+    auto& strip = referenceView.footerStatusStrip();
+    const auto footer = observatoryView.statusStripBounds();
+    const bool feedbackShown = observatoryView.feedback().isNotEmpty();
+    const bool footerMode = ! observatoryView.statusStripFolded() && ! footer.isEmpty()
+                         && ! (feedbackShown && referenceView.statusRowHasControls());
+    referenceView.setStatusInFooter (footerMode);
+    if (footerMode)
+    {
+        const bool moved = strip.getParentComponent() != &scaleRoot;
+        if (moved) scaleRoot.addChildComponent (strip);
+        strip.setInFooter (true);
+        const bool shown = referenceView.isVisible() && ! feedbackShown && ! referenceView.statusRowConcealed();
+        const bool changed = moved || strip.getBounds() != footer || strip.isVisible() != shown;
+        strip.setBounds (footer);
+        strip.setVisible (shown);
+        if (shown && changed) strip.toFront (false);
+    }
+    else if (strip.getParentComponent() != &referenceView)
+    {
+        referenceView.addChildComponent (strip);
+        referenceView.resized();
+    }
+}
+#endif

@@ -67,12 +67,21 @@ inline hypha::reference_ui::BlindPhase referenceBlindPhase (
 }
 
 // Where one slot stands from its own snapshot; `playing` is A as the page shows it.
+// 断られた音源の段階（理由ごとに直し方が違う）。
+inline SourceStep rejectedStep (const juce::String& code)
+{
+    if (code == "source_changed" || code == "reference_source_changed") return SourceStep::sourceChanged;
+    if (code == "reference_source_audio_mismatch") return SourceStep::sourceFormatChanged;
+    if (code == "source_open_failed" || code == "source_decode_failed"
+        || code == "reference_source_open_failed" || code == "reference_source_decode_failed")
+        return SourceStep::sourceUnopenable;
+    return SourceStep::attention;
+}
+
 inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playing)
 {
     using Runtime = reference_audition::RuntimeState;
     const auto& code = slot.rejectionCode;
-    if (slot.sampleRateApprovalRequired || code == "reference_sample_rate_approval_required")
-        return SourceStep::approveSampleRate;
     switch (slot.state)
     {
         case Runtime::ready:
@@ -80,7 +89,7 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
                  : slot.auditionOutsideCue ? SourceStep::outsideCue
                  : slot.auditionBuffered ? SourceStep::ready : SourceStep::loadingAudio;
         case Runtime::verifying: return SourceStep::verifyingSource;
-        case Runtime::rejected: return SourceStep::attention;
+        case Runtime::rejected: return rejectedStep (code);
         case Runtime::waiting:
             if (code == "reference_alignment_waiting_for_content")
                 return playing ? SourceStep::aligning : SourceStep::playDaw;
@@ -89,12 +98,29 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
             if (code == "reference_checks_empty") return SourceStep::enableCheck;
             if (code == "reference_candidates_empty" || code == "reference_cues_empty")
                 return SourceStep::chooseSource;
-            if (code == "reference_source_unavailable" || code == "reference_selection_unavailable")
-                return SourceStep::attention;
+            if (code == "reference_source_unavailable") return SourceStep::sourceUnavailable;
+            if (code == "reference_selection_unavailable") return SourceStep::savedChoiceUnavailable;
+            if (code == "reference_version_unselected") return SourceStep::chooseVersion;
             return SourceStep::preparing;
         case Runtime::disconnected: break;
     }
     return SourceStep::waitingForKirinOs;
+}
+
+// Kirin OS からまだ何も届いていない役：Kirin OS が開いていれば届くのを待ち（上限あり）、閉じていれば開くのが直し方。
+inline SourceStep libraryStep (const reference_audition::Snapshot& comparison)
+{
+    return comparison.osOnline ? SourceStep::waitingForKirinOs : SourceStep::openKirinOs;
+}
+
+// B（REF）の段階：Kirin OS からの届き方と B セットも含める。B セットが無ければ Hypha に出すのが直し方、sets.json を
+// 形ごと読めなければ更新が直し方（名前で言える項目を外したことは知らせが言う）。
+inline SourceStep referenceStep (const reference_audition::Snapshot& comparison, const reference_audition::Snapshot& slot,
+                                 bool aAvailable)
+{
+    return ! comparison.libraryReceived ? libraryStep (comparison)
+         : comparison.songSets.empty() ? (comparison.songSetsIssue.isNotEmpty() ? SourceStep::setsNotRead : SourceStep::rankSet)
+         : slotStep (slot, aAvailable);
 }
 
 // B and C side by side: B needs a Version registered and chosen, and the chosen one applied.
@@ -103,13 +129,31 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
     const auto& version = comparison.versionSelection ? *comparison.versionSelection : comparison;
     const auto& check = comparison.checkSelection ? *comparison.checkSelection : comparison;
     const auto chosen = version.presetId + "/" + version.checkId + "/" + version.candidateId;
-    state.versionStep = ! version.libraryReceived ? SourceStep::waitingForKirinOs
+    state.versionStep = ! version.libraryReceived ? libraryStep (comparison)
         : comparison.versions.empty() ? SourceStep::registerVersion
         : comparison.selectedVersionId.isEmpty() ? SourceStep::chooseVersion
         : comparison.selectedVersionId != chosen ? SourceStep::preparing
         : slotStep (version, state.aAvailable);
-    state.checkStep = ! check.libraryReceived ? SourceStep::waitingForKirinOs
-                                              : slotStep (check, state.aAvailable);
+    state.checkStep = ! check.libraryReceived ? libraryStep (comparison) : slotStep (check, state.aAvailable);
+}
+
+// CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、
+// 「1 / 3」を添える。順位が無い（sets.json が無い・古い Kirin OS）ときは今までどおりすべての Preset。
+// 選んでいる Preset は順位が無くても残す（選び直すまで消さない）。
+inline void rankCheckSets (State& state, const std::vector<reference_audition::RuntimeCheckSetRank>& ranks)
+{
+    if (ranks.empty()) return;
+    std::vector<SelectionOption> ranked;
+    const auto count = juce::String (static_cast<int> (ranks.size()));
+    for (const auto& rank : ranks)
+        for (const auto& option : state.presets)
+            if (option.id == rank.presetId)
+                ranked.push_back ({ option.id, option.label + "   " + juce::String (rank.rank) + " / " + count });
+    for (const auto& option : state.presets)
+        if (option.id == state.presetId
+            && std::none_of (ranked.begin(), ranked.end(), [&option] (const auto& item) { return item.id == option.id; }))
+            ranked.push_back (option);
+    state.presets = std::move (ranked);
 }
 
 inline juce::String matchFailureText (reference_audition::MatchFailure failure)
@@ -125,23 +169,4 @@ inline juce::String matchFailureText (reference_audition::MatchFailure failure)
     return {};
 }
 
-// A pending intent owns its next action independently of the visual pane. Without an intent,
-// the inspected source owns the action. Never substitute another source's conversion consent.
-inline void setSampleRateApproval (State& state, const reference_audition::Snapshot& comparison)
-{
-    const bool versionPending = state.versionStep == SourceStep::approveSampleRate;
-    const bool checkPending = state.checkStep == SourceStep::approveSampleRate;
-    const auto pending = comparison.pendingAudition;
-    state.sampleRateApprovalSlot = pending.waiting() && pending.slot == 1 && versionPending ? 1
-        : pending.waiting() && pending.slot == 2 && checkPending ? 2
-        : comparison.comparisonSlot == 1 && versionPending ? 1
-        : comparison.comparisonSlot == 2 && checkPending ? 2 : 0;
-    state.sampleRateApprovalRequired = state.sampleRateApprovalSlot != 0;
-    if (! state.sampleRateApprovalRequired) return;
-    const auto& source = state.sampleRateApprovalSlot == 1
-        ? (comparison.versionSelection ? *comparison.versionSelection : comparison)
-        : (comparison.checkSelection ? *comparison.checkSelection : comparison);
-    state.sourceSampleRateHz = source.sourceSampleRateHz;
-    state.hostSampleRateHz = source.hostSampleRateHz;
-}
 }

@@ -1,0 +1,4 @@
+# The public text check (scripts/check_public_text.mjs) began after this commit (2026-10-06). Messages of
+# commits reachable from it were published earlier and can be fixed only by rewriting history, so their
+# records are reported as remaining rather than failed.
+a5bb22347e59cd20cb6c00599aa88b5a97b229b4

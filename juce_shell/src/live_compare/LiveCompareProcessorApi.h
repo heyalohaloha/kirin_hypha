@@ -1,6 +1,7 @@
 // Class-scope declarations included by PluginProcessor.h; not a standalone header.
 // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
 hypha::live_compare::StartResult startLiveCompare();
+// LISTEN（reuseSession なら LIVE BLIND）を始めてよいか。出力の持ち主の表（outputDecision）の答え。
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 void stopLiveCompare (hypha::live_compare::RecoveryReason reason = hypha::live_compare::RecoveryReason::none);
 void selectLiveComparePre (bool pre) noexcept;

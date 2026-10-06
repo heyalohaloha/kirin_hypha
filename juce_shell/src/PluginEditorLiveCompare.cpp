@@ -138,6 +138,7 @@ void KirinHyphaEditor::configureLiveCompare()
     observatoryView.onLiveComparePin = [this] { pinLiveCompareForBlind(); };
     observatoryView.onLiveCompareReturn = [this]
     {
+        if (returnReferenceLevelIfHeld()) { refreshLiveCompare(); return; }  // Reference が下げた A を戻す
         processorRef.returnLiveComparePostToNormal();
         liveCompareFinishingSeen = true;
         refreshLiveCompare();
@@ -220,7 +221,7 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
 // step. The live session ends; Blind owns the output from here, and its own RETURN brings back POST.
 void KirinHyphaEditor::pinLiveCompareForBlind()
 {
-    if (liveCompareHoldBlocksAudition())
+    if (outputRefused (hypha::output_owner::Activity::localBlind))
         return;
     const auto result = processorRef.pinLiveCompareForBlind (processorRef.meterContextPreference());
     if (! result.pinned)
@@ -244,14 +245,6 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
 }
 
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
-bool KirinHyphaEditor::liveCompareHoldBlocksAudition()
-{
-    const auto admission = processorRef.liveCompareAdmission (false);
-    if (admission == StartResult::started) return false;
-    showToast (startFailure (admission));
-    return true;
-}
-
 void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Status& status, double now)
 {
     auto& m = liveCompareOffset;
@@ -334,7 +327,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
     const auto held = std::min (status.postActual, status.postTarget);
     footer.postHeldTenthsDb = held > 0.0f && held < 1.0f
-        ? juce::jmin (-1, juce::roundToInt (200.0f * std::log10 (held))) : 0;
+        ? juce::jmin (-1, juce::roundToInt (200.0f * std::log10 (held))) : referenceHeldTenthsDb();
     observatoryView.setLiveCompareFooter (footer);
 }
 

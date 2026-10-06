@@ -87,6 +87,10 @@ namespace hypha::reference_audition
         if (rtNormalEpoch != epoch) { rtNormalBlend = 0.0f; rtNormalEpoch = epoch; }
         const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
         const bool selected = normalTarget && bSelected.load (std::memory_order_acquire);
+        // gain が変わったら 50 ms の直線で動かす。まだ聴こえていない（入りのフェードの前）なら即座に合わせる。
+        const float targetGain = bLinearGain.load (std::memory_order_acquire);
+        const int rampFrames = trackingRampFrames.load (std::memory_order_acquire);
+        if (rtNormalBlend <= 0.0f) rtTrackingRamp.settle (targetGain);
         for (int c = 0; c < channels; ++c)
             std::copy_n (buffer.getReadPointer (c), frames, normalLiveA[static_cast<size_t> (c)].data());
         bool rendered = false;
@@ -95,16 +99,19 @@ namespace hypha::reference_audition
             const auto generation = mappingGeneration.load (std::memory_order_acquire);
             if ((generation & 1u) != 0)
                 continue;
-            const auto sourcePosition = mappedSourcePosition (hostPosition);
+            auto sourcePosition = mappedSourcePosition (hostPosition);
             const auto start = cueStart.load (std::memory_order_relaxed);
             const auto end = cueEnd.load (std::memory_order_relaxed);
             const auto loops = cueLoops.load (std::memory_order_relaxed);
+            // Cue の頭から鳴らし直す役は、Cue の終わり・DAW のループで外へ出ても止めずに周回する（A へ切ると約 0.5 秒
+            // 鳴らず、Rust の試聴と記録を作り直す）。
+            const bool restart = restartsAtCueStart();
+            if (sourcePosition < 0 && restart)
+                sourcePosition = loopedCuePosition (hostPosition);
             if (sourcePosition < 0
                 || mappingGeneration.load (std::memory_order_acquire) != generation)
                 continue;
-            rendered = pages.renderCue (
-                buffer, sourcePosition, start, end, loops,
-                bLinearGain.load (std::memory_order_acquire));
+            rendered = pages.renderCue (buffer, sourcePosition, start, end, loops || restart, 1.0f);
         }
         if (! rendered)
         {
@@ -114,11 +121,12 @@ namespace hypha::reference_audition
         const float step = normalFadeStep.load (std::memory_order_acquire);
         for (int f = 0; f < frames; ++f)
         {
+            const float gain = rtTrackingRamp.next (targetGain, rampFrames);
             rtNormalBlend = selected ? juce::jmin (1.0f, rtNormalBlend + step) : juce::jmax (0.0f, rtNormalBlend - step);
             for (int c = 0; c < channels; ++c)
             {
                 const auto a = normalLiveA[static_cast<size_t> (c)][static_cast<size_t> (f)];
-                const auto b = buffer.getSample (c, f);
+                const auto b = buffer.getSample (c, f) * gain;
                 buffer.setSample (c, f, rtNormalBlend == 0.0f ? a : rtNormalBlend == 1.0f ? b : a + (b - a) * rtNormalBlend);
             }
         }

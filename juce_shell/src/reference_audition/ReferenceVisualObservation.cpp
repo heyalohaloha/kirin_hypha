@@ -4,15 +4,22 @@
 #include <cmath>
 namespace hypha::reference_audition
 {
-VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner,
-                                      juce::File runtimeRoot)
-    : juce::Thread ("Reference view"), analysis(std::move(owner)),
-      tonalRepository (std::move (runtimeRoot)), binding (std::move (callback))
+VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner)
+    : juce::Thread ("Reference view"), analysis(std::move(owner)), binding (std::move (callback))
 { formats.registerBasicFormats(); startThread (juce::Thread::Priority::low); }
 VisualObservation::~VisualObservation()
 {
     setPresented (false); signalThreadShouldExit(); notify(); stopThread (-1);
-    clearMeters(); clearTonal(); admission.reset();
+    clearMeters(); admission.reset();
+}
+namespace
+{
+bool finiteSamples (const float* data, size_t count) noexcept
+{
+    for (size_t index = 0; index < count; ++index)
+        if (! std::isfinite (data[index])) return false;
+    return true;
+}
 }
 void VisualObservation::configure (double sampleRate, int channels)
 {
@@ -59,20 +66,31 @@ std::shared_ptr<const VisualTimeline> VisualObservation::snapshot() const
 { const juce::ScopedLock lock (snapshotLock); return published; }
 void VisualObservation::publish()
 {
+    // その役の窓（B・V は 10 秒、C は Cue と同じ長さ）の A の要約。
+    timeline.aKirin = kirinMeter.window (std::clamp (timeline.binding.matchWindowBlocks, 100, 6'000));
+    timeline.aPairKirin = pairAMeter.window (300);
+    timeline.aTicks = aTickMeter.bins();
+    timeline.aTickChannels = aTickMeter.channels();
+    timeline.aPairTicks = pairATicks.bins();
+    timeline.vPairTicks = pairVTicks.bins();
+    timeline.pairTickChannels = pairATicks.channels();
+    if (printMeter.ticksHeld() >= 30 && printEndSample >= 0)  // 3 秒から（照合は 10 秒ぶん鳴ってから答える）
+    {
+        timeline.aFingerprint = std::make_shared<const KirinFingerprint> (printMeter.fingerprint (300));
+        timeline.aFingerprintEndTick = (printEndSample - printMeter.pendingSamples()) / std::max (1, runRate / 10) - 1;
+    }
+    else { timeline.aFingerprint.reset(); timeline.aFingerprintEndTick = -1; }
+    timeline.vPairKirin = pairVMeter.window (300);
     ++timeline.revision; dirty = false;
     auto next = std::make_shared<const VisualTimeline> (timeline);
     const juce::ScopedLock lock (snapshotLock); published = std::move (next);
 }
 void VisualObservation::clearMeters()
 {
+    pairAMeter.reset(); pairVMeter.reset(); pairKirinExpected = -1;
+    pairATicks.reset(); pairVTicks.reset();
     kirin_reference_visual_drop (aMeter); kirin_reference_visual_drop (bMeter);
     aMeter = bMeter = nullptr; expected = -1; completeBin = false; measuring = false;
-}
-void VisualObservation::clearTonal()
-{
-    kirin_reference_tonal_drop (tonalMeter); tonalMeter = nullptr;
-    tonalExpected = -1; tonalDiscontinuity = 0;
-    timeline.tonal = {}; timeline.tonalAvailable = false;
 }
 bool VisualObservation::resetMeters()
 {
@@ -81,27 +99,24 @@ bool VisualObservation::resetMeters()
     bMeter = kirin_reference_visual_create (uint32_t (timeline.binding.hostRate), uint32_t (timeline.binding.channels));
     return aMeter && bMeter;
 }
-bool VisualObservation::resetTonal()
+// A（この Block は DAW の入力）を、Kirin OS が参照曲の Cue に残す値と同じ定義で測る。
+// 途切れ（位置の飛び・discontinuity）では窓を捨てる（シークの後の窓は新しい位置から）。有限でない値（壊れた
+// 入力）は測らずに窓を捨てる（K 特性のフィルタの状態や FFT に NaN を残さない）。
+void VisualObservation::consumeKirin (const Block& block, int rate)
 {
-    if (! tonalMeter)
-        tonalMeter = kirin_reference_tonal_create (uint32_t (configuredRate), uint32_t (configuredChannels));
-    else if (! kirin_reference_tonal_reset (tonalMeter))
-    { clearTonal(); return false; }
-    timeline.tonal = {}; timeline.tonalAvailable = false; dirty = true;
-    return tonalMeter != nullptr;
-}
-void VisualObservation::consumeTonal (const Block& block)
-{
-    if (block.channels != configuredChannels)
-    { clearTonal(); dirty = true; return; }
-    if (! tonalMeter || block.position != tonalExpected || block.discontinuity != tonalDiscontinuity)
-        if (! resetTonal()) return;
-    tonalDiscontinuity = block.discontinuity;
-    if (! kirin_reference_tonal_push (tonalMeter, block.pcm.data(), size_t (block.frames * block.channels))
-        || ! kirin_reference_tonal_snapshot (tonalMeter, &timeline.tonal))
-    { clearTonal(); dirty = true; return; }
-    tonalExpected = block.position + block.frames;
-    timeline.tonalAvailable = timeline.tonal.valid_bits != 0;
+    if (! kirinMeter.configuredFor (rate, block.channels) && ! kirinMeter.configure (rate, block.channels, 6'000))
+        return;
+    if (! printMeter.configuredFor (rate, block.channels) && ! printMeter.configure (rate, block.channels, 300)) return;
+    if (! finiteSamples (block.pcm.data(), size_t (block.frames * block.channels)))
+    { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); kirinExpected = -1; dirty = true; return; }
+    if (block.position != kirinExpected || block.discontinuity != kirinDiscontinuity)
+    { kirinMeter.reset(); printMeter.reset(); aTickMeter.reset(); }
+    kirinDiscontinuity = block.discontinuity;
+    kirinMeter.push (block.pcm.data(), block.frames);
+    printMeter.push (block.pcm.data(), block.frames);
+    aTickMeter.push (block.pcm.data(), block.frames, rate, block.channels);
+    printEndSample = block.position + block.frames;
+    kirinExpected = block.position + block.frames;
     dirty = true;
 }
 void VisualObservation::consumePair (const Block& block)
@@ -114,6 +129,27 @@ void VisualObservation::consumePair (const Block& block)
     if (position < 0 || position >= end || block.channels != map.channels) { clearMeters(); return; }
     if (position != expected || block.discontinuity != previousDiscontinuity || !aMeter)
         if (!resetMeters()) return;
+    // 同じ区間の A と V を同じフレームで測る（途切れたら両方とも新しい窓から）。
+    if ((pairAMeter.configuredFor (int (map.hostRate), block.channels) || pairAMeter.configure (int (map.hostRate), block.channels, 300))
+        && (pairVMeter.configuredFor (int (map.hostRate), block.channels) || pairVMeter.configure (int (map.hostRate), block.channels, 300)))
+    {
+        const auto pairFrames = int (juce::jmin<std::int64_t> (block.frames, end - position));
+        const auto samples = size_t (pairFrames * block.channels);
+        if (! finiteSamples (block.pcm.data(), samples) || ! finiteSamples (bPcm.data(), samples))
+        { pairAMeter.reset(); pairVMeter.reset(); pairATicks.reset(); pairVTicks.reset(); pairKirinExpected = -1; }  // 壊れた値は測らず、窓を新しくする
+        else
+        {
+            if (position != pairKirinExpected) { pairAMeter.reset(); pairVMeter.reset(); pairATicks.reset(); pairVTicks.reset(); }
+            pairAMeter.push (block.pcm.data(), pairFrames);
+            pairVMeter.push (bPcm.data(), pairFrames);
+            pairATicks.push (block.pcm.data(), pairFrames, int (map.hostRate), block.channels);
+            pairVTicks.push (bPcm.data(), pairFrames, int (map.hostRate), block.channels);
+            // A と V の bin はいつも同じ区切り（片方だけ捨てたら両方とも新しく）。
+            const auto a = pairATicks.bins(), v = pairVTicks.bins();
+            if ((a == nullptr) != (v == nullptr) || (a && a->size() != v->size())) { pairATicks.reset(); pairVTicks.reset(); }
+            pairKirinExpected = position + pairFrames;
+        }
+    }
     previousDiscontinuity = block.discontinuity;
     int offset = 0;
     const auto limit = int (juce::jmin<std::int64_t> (block.frames, end - position));
@@ -146,20 +182,20 @@ void VisualObservation::consumePair (const Block& block)
 }
 void VisualObservation::run()
 {
+    const juce::ScopedNoDenormals noDenormals;  // 無音の端で FFT・フィルタが非正規化数で遅くならない
     double nextPublish = 0;
     juce::String readerKey;
     std::uint64_t workerGeneration = 0;
     double nextRevisionCheck = 0.0; bool sourceUnchanged = false; juce::String checkedKey;
-    double nextTonalCheck = 0.0; juce::String tonalPublicationKey;
-    double nextTonalRetry = 0.0, tonalRetryDelay = 1000.0;
     while (!threadShouldExit())
     {
         bool visible = false; int rate = 0, channels = 0;
         { const juce::ScopedLock lock (controlLock); visible = presented; rate = configuredRate; channels = configuredChannels; }
+        runRate = rate; runChannels = channels;
         if (!visible)
         {
             if (timeline.observing || timeline.pairedObserving)
-            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); }
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); kirinMeter.reset(); printMeter.reset(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             wait (100); continue;
@@ -176,37 +212,8 @@ void VisualObservation::run()
             checkedKey = next.key; nextRevisionCheck = checkedAt + 100.0;
         }
         next.aligned = next.aligned && sourceUnchanged;
-        juce::String observedTonalKey = tonalPublicationKey;
-        bool tonalPublicationChanged = false;
-        if (checkedAt >= nextTonalCheck)
-        {
-            observedTonalKey = tonalRepository.publicationKey();
-            tonalPublicationChanged = observedTonalKey != tonalPublicationKey;
-            nextTonalCheck = checkedAt + 1000.0;
-        }
         const bool bindingChanged = timeline.binding.key != next.key
             || timeline.binding.aligned != next.aligned;
-        const bool tonalRetryDue = nextTonalRetry > 0.0 && checkedAt >= nextTonalRetry;
-        auto nextTonalReference = timeline.tonalReference;
-        auto nextTonalGenre = timeline.tonalGenre;
-        bool retrySource = false, retryGenre = false;
-        if (bindingChanged || tonalPublicationChanged || tonalRetryDue)
-        {
-            if (bindingChanged || tonalPublicationChanged || nextTonalReference == nullptr)
-                nextTonalReference = !next.hidden && next.source
-                    ? tonalRepository.load (*next.source, next.sourceCueStartSample, next.sourceCueEndSample,
-                                            &retrySource) : nullptr;
-            if (bindingChanged || tonalPublicationChanged || nextTonalGenre == nullptr)
-                nextTonalGenre = !next.hidden
-                    ? tonalRepository.loadGenre (next.presetId, next.presetRevisionId, next.checkId,
-                                                 &retryGenre) : nullptr;
-            if (retrySource || retryGenre)
-            {
-                nextTonalRetry = checkedAt + tonalRetryDelay;
-                tonalRetryDelay = std::min (tonalRetryDelay * 2.0, 15'000.0);
-            }
-            else { nextTonalRetry = 0.0; tonalRetryDelay = 1000.0; }
-        }
         bool wanted = false, pairWanted = false;
         {
             const juce::ScopedLock lock (controlLock);
@@ -215,6 +222,14 @@ void VisualObservation::run()
                 && channels >= 1 && channels <= 2;
             pairWanted = wanted && !next.hidden && next.aligned && next.source && next.overview
                 && next.overview->waveform && next.hostRate >= 8000 && next.hostRate <= 768000;
+            if (! bindingChanged && (std::abs (timeline.binding.gainDb - next.gainDb) > 1.0e-9
+                                     || timeline.binding.matched != next.matched))
+            {
+                // 見せ方（gain・合わせたか）だけが替わった：測ったものは保ち、描く値だけを替える。
+                timeline.binding.gainDb = next.gainDb;
+                timeline.binding.matched = next.matched;
+                dirty = true;
+            }
             if (bindingChanged)
             {
                 clearMeters(); timeline.binding = next; timeline.bins.clear(); timeline.hop = 0;
@@ -227,12 +242,6 @@ void VisualObservation::run()
                 }
             }
             else timeline.binding = next;
-            if (bindingChanged || tonalPublicationChanged || tonalRetryDue)
-            {
-                timeline.tonalReference = std::move (nextTonalReference);
-                timeline.tonalGenre = std::move (nextTonalGenre);
-                tonalPublicationKey = observedTonalKey; dirty = true;
-            }
             pairWanted = pairWanted && !timeline.bins.empty();
             if (!wanted) admission.reset();
             if(!analysis->current(admission)) admission.reset();
@@ -245,7 +254,7 @@ void VisualObservation::run()
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); clearTonal(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); kirinMeter.reset(); printMeter.reset(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);
@@ -256,7 +265,7 @@ void VisualObservation::run()
             bool decoded = false;
             if (timeline.observing && analysis->current(job) && block.generation == epoch)
             {
-                consumeTonal (block);
+                consumeKirin (block, rate);
                 if (timeline.pairedObserving)
                 {
                     if (readerKey != next.key)

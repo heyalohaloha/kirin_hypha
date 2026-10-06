@@ -317,6 +317,7 @@ public:
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
+    juce::Rectangle<int> footerBounds() const noexcept { return footerArea; } // the footer row's panel
     // Where feedback and a running capture are shown: the footer's session line, or, where the
     // footer folds into the header, a strip over the bottom edge of the body (statusStripFolded).
     juce::Rectangle<int> statusStripBounds() const noexcept { return statusStrip; }
@@ -440,7 +441,7 @@ private:
     juce::Rectangle<int> bodyArea;
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;
-    juce::Rectangle<int> sessionArea;
+    juce::Rectangle<int> sessionArea, footerArea;
     juce::Rectangle<int> statusStrip;
     bool statusStripOverBody = false;
     juce::Rectangle<int> levelHistoryArea;

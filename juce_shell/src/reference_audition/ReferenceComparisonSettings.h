@@ -1,6 +1,5 @@
 #pragma once
 #include "ReferenceAuditionProtocol.h"
-#include "ReferencePersistedState.h"
 #include "ReferenceVisualPreferences.h"
 
 namespace hypha::reference_audition
@@ -21,12 +20,12 @@ struct ReferenceChoice
 
 struct ReferenceComparisonSettings
 {
-    ReferenceChoice version, check;
+    ReferenceChoice version, check, reference;  // reference: B（REF）の曲
+    bool versionAuto = false;                   // V の Version は AUTO が選んだ（AUTO が選び直せる）
+    juce::String songSetId;                     // 選んでいる B SET
     VisualViewChoice visualView;
     int viewedSlot = 2;
-    juce::String captureState; bool capturedView=false;
-    TonalDisplayState tonal;
-    WorkflowResumeState workflow;
+    // 2026-10-04：A の取り込み（ACapture）と Tonal の表示（ReferenceTonal）は書かず、古い版が残したものは読み飛ばす。
     void write (juce::XmlElement& parent) const
     {
         auto* xml = parent.createNewChildElement ("ReferenceChoices");
@@ -39,10 +38,9 @@ struct ReferenceComparisonSettings
             child->setAttribute ("candidate", choice.candidateId);
             child->setAttribute ("cue", choice.cueId);
         };
-        if(captureState.isNotEmpty() && captureState.getNumBytesAsUTF8() <= referenceCaptureMaximumEncodedBytes)
-        { auto* captured=xml->createNewChildElement("ACapture"); captured->setAttribute("data",captureState); captured->setAttribute("shown",capturedView); }
-        append ("B", version); append ("C", check); visualView.write (*xml);
-        tonal.write (parent); workflow.write (parent);
+        append ("B", version); append ("C", check); append ("REF", reference); visualView.write (*xml);
+        if (safeId (songSetId)) xml->getChildByName ("REF")->setAttribute ("set", songSetId);
+        if (versionAuto && version.candidateId.isNotEmpty()) xml->getChildByName ("B")->setAttribute ("auto", true);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
     {
@@ -56,13 +54,16 @@ struct ReferenceComparisonSettings
                            child->getStringAttribute ("candidate"), child->getStringAttribute ("cue") };
             return choice.valid() ? choice : ReferenceChoice {};
         };
-        if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.getNumBytesAsUTF8()<=referenceCaptureMaximumEncodedBytes) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
         result.visualView = VisualViewChoice::read (*xml);
-        result.tonal = TonalDisplayState::read (parent);
-        result.workflow = WorkflowResumeState::read (parent);
-        result.version = readChoice ("B"); result.check = readChoice ("C");
+        result.version = readChoice ("B"); result.check = readChoice ("C"); result.reference = readChoice ("REF");
         if (result.version.candidateId.isEmpty()) result.version = {};
-        result.viewedSlot = xml->getIntAttribute ("viewed_slot", 2) == 1 ? 1 : 2;
+        if (const auto* versionXml = xml->getChildByName ("B"))
+            result.versionAuto = result.version.candidateId.isNotEmpty() && versionXml->getBoolAttribute ("auto");
+        if (result.reference.candidateId.isEmpty()) result.reference = {};
+        if (const auto* songs = xml->getChildByName ("REF"))
+            if (safeId (songs->getStringAttribute ("set"))) result.songSetId = songs->getStringAttribute ("set");
+        const auto viewed = xml->getIntAttribute ("viewed_slot", 2);
+        result.viewedSlot = viewed == 1 || viewed == 3 ? viewed : 2;
         return result;
     }
 };

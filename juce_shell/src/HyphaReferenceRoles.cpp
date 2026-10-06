@@ -1,0 +1,118 @@
+#include "HyphaReferenceComponent.h"
+#include "HyphaReferencePendingUI.h"
+#include "HyphaReferenceStatusModel.h"
+#include "HyphaTheme.h"
+
+// A／B／C／V の B（REF）。Kirin OS が「Hypha に出す」にした B セットの曲を鳴らす役のボタンと、
+// B SET（順位つき、最大 3）と曲の選択。B を押すと B の画面になり、B のまま曲を選ぶとすぐ切り替わる。
+namespace hypha::reference_ui
+{
+namespace
+{
+void configureBox (juce::ComboBox& box, const juce::String& id, const juce::String& title, const juce::String& tooltip)
+{
+    box.setComponentID (id);
+    box.setTitle (title);
+    box.setDescription (tooltip);
+    box.setTooltip (tooltip);
+    box.setWantsKeyboardFocus (true);
+    box.setColour (juce::ComboBox::backgroundColourId, kFieldFill.withAlpha (0.94f));
+    box.setColour (juce::ComboBox::outlineColourId, COL_MUTED.withAlpha (0.46f));
+    box.setColour (juce::ComboBox::textColourId, COL_NORMAL);
+    box.setColour (juce::ComboBox::arrowColourId, COL_FLORA.withAlpha (0.84f));
+}
+
+// B の段階は Kirin OS からの届き方・B セットも含めて editor が決める（PluginEditorReferenceRoles.cpp）。言い方は段階の表。
+juce::String referenceUnavailableText (const State& state)
+{
+    return "B: " + stepText (state.referenceStep);
+}
+}
+
+void Component::configureRoles()
+{
+    refButton.setComponentID ("reference-ref");
+    refButton.setTitle ("Audition B Reference");
+    refButton.onClick = [this] { if (! explainReference() && onSelectRef) onSelectRef(); };
+    addAndMakeVisible (refButton);
+    songSetBox.setLookAndFeel (&selectorLookAndFeel);
+    songBox.setLookAndFeel (&selectorLookAndFeel);
+    configureBox (songSetBox, "reference-song-set", "B Set", "Choose a B set Kirin OS ranked for Hypha.");
+    configureBox (songBox, "reference-song", "B Song", "Choose the song B plays. A stays the current DAW input.");
+    songSetBox.onChange = [this]
+    {
+        const auto id = selectedOptionId (songSetBox, current.songSets);
+        if (id.isNotEmpty() && id != current.songSetId && onSelectSongSet) onSelectSongSet (id);
+    };
+    songBox.onChange = [this]
+    {
+        const auto id = selectedOptionId (songBox, current.songs);
+        if (id.isNotEmpty() && id != current.songId && onSelectSong) onSelectSong (id);
+    };
+    addChildComponent (songSetBox);
+    addChildComponent (songBox);
+    songList.onChoose = [this] (const juce::String& id) { if (id != current.songId && onSelectSong) onSelectSong (id); };
+    addChildComponent (songList);
+}
+
+// 300% 未満の C と V は薄く描き、押すと 300% に広げてその役の画面を開く（Blind と同じ動き）。
+// 鳴らすのは 300% でもう一度押したとき。広げる前に音は変えない。
+bool Component::openLarge (int slot)
+{
+    if (! current.separateComparisons || current.blindLargeScreen || isBlindSession (current.blindPhase)) return false;
+    if (onSelectVisualSlot) onSelectVisualSlot (slot);
+    if (onOpenLarge) onOpenLarge (slot);
+    return true;
+}
+
+void Component::syncRoles (bool blindSession)
+{
+    const bool waiting = current.pendingAudition.waiting() && current.pendingAudition.slot == 3;
+    const bool audible = canHearReference (current), queue = canQueueReference (current);
+    refButton.setToggleState (current.bSelected && current.audibleComparisonSlot == 3, juce::dontSendNotification);
+    refButton.setVisible (! blindSession && current.separateComparisons);
+    // 予約（DAW の再生を待つ）は色で示し、何を待つかは状態の行が言う（「B...」は文字が切れたように見えた。2026-10-04）。
+    refButton.setButtonText ("B");
+    refButton.setAttention (waiting);
+    refButton.setReady (audible || queue);
+    refButton.setTooltip (queue ? "Queue B for DAW playback. A stays live until ready; press A to cancel."
+        : audible ? juce::String ("Audition a song of the B set from Kirin OS (B).") : referenceUnavailableText (current));
+    syncSelectionControl (songSetBox, current.songSets, current.songSetId);
+    syncSelectionControl (songBox, current.songs, current.songId);
+    const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
+    // 100% の B は曲名・gain・状態だけ。B SET は出さず、曲の切替は 125% 以上。
+    const bool glance = presentationContext.density == observatory::Density::compact;
+    songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
+    songBox.setVisible (referenceView && ! current.songs.empty());
+    songBox.setEnabled (songBox.isEnabled() && ! glance);
+    // 300% の B の画面は、左に曲の一覧、右に Balance。
+    songList.setVisible (referenceView && rolePage() && ! current.songs.empty());
+    std::vector<SongList::Row> rows;
+    for (size_t index = 0; index < current.songs.size(); ++index)
+    {
+        const auto& song = current.songs[index];
+        const auto fact = index < current.songFacts.size() ? current.songFacts[index] : SongFact {};
+        const bool selected = song.id == current.songId;
+        const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
+        // MATCH：鳴っている曲は実際の gain、ほかは押したときの gain（A の窓 − その曲の Cue の値）。どちらも読みの基準で。
+        const auto would = fact.prepared && std::isfinite (current.aWindowLoudness) && std::isfinite (fact.lufsI)
+            ? current.aWindowLoudness - fact.lufsI : std::numeric_limits<double>::quiet_NaN();
+        rows.push_back ({ song.id, song.label.upToFirstOccurrenceOf ("   PREPARING", false, false), fact.lufsI,
+                          displayGainDb (current, playing ? current.appliedGainDb : would),
+                          selected, playing, ! fact.prepared, preparationWord (fact.preparation) });
+    }
+    songList.setRows (std::move (rows), presentationContext);
+    songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));
+    if (! referenceView) return;
+    // B の画面には V・C の選択を出さない（B SET と曲だけ）。
+    for (auto* box : { &versionBox, &checkBox, &presetBox, &cueBox }) box->setVisible (false);
+}
+
+bool Component::explainReference()
+{
+    if (canHearReference (current) || canQueueReference (current)) return false;
+    if (onSelectVisualSlot) onSelectVisualSlot (3);
+    if (onExplain) onExplain (referenceUnavailableText (current));
+    return true;
+}
+}

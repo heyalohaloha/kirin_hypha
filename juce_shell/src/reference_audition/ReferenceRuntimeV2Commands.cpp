@@ -21,8 +21,6 @@ namespace hypha::reference_audition
             if (*selectedId == id)
                 return true;
             *selectedId = id;
-            requestedSelection.workflowCondition.reset();
-            requestedSelection.workflowToken.clear();
             if (requestedConfiguration.identity.library)
             {
                 if (kind == "preset") requestedSelection.checkId.clear();
@@ -30,10 +28,7 @@ namespace hypha::reference_audition
                 if (kind != "cue") requestedSelection.cueId.clear();
             }
             ++requestedSelection.generation;
-            requestedSelection.sampleRateApprovalKey.clear();
-            pendingApprovalKey.clear();
-            currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
+            revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
         else selectA();
@@ -126,9 +121,7 @@ namespace hypha::reference_audition
             currentSnapshot.presetSelectionTargetId = option.id;
             presetSelectionWaitingSinceMs = juce::Time::currentTimeMillis();
             presetSelectionStatusExpiresAtMs = 0;
-            pendingApprovalKey.clear();
-            currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
+            revokeAfterFadeLocked();
         }
         if (blind.ongoing()) invalidateBlind();
         else selectA();
@@ -194,43 +187,6 @@ namespace hypha::reference_audition
     bool RuntimeV2Controller::selectCue (const juce::String& id)
     {
         return requestSelection ("cue", id);
-    }
-
-    bool RuntimeV2Controller::selectWorkflowCondition (
-        const WorkflowCondition& condition, const juce::String& token)
-    {
-        if (versionComparison || token.isEmpty() || condition.comparison != "a_c"
-            || blind.ongoing()) return false;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (! requestedConfiguration.identity.library) return false;
-            requestedSelection.presetId = condition.presetId;
-            requestedSelection.checkId = condition.checkId;
-            requestedSelection.candidateId = condition.candidateId;
-            requestedSelection.cueId = condition.cueId;
-            requestedSelection.sampleRateApprovalKey.clear();
-            requestedSelection.workflowCondition = condition;
-            requestedSelection.workflowToken = token;
-            ++requestedSelection.generation;
-            pendingApprovalKey.clear();
-            currentSnapshot.sampleRateApprovalRequired = false;
-            revokeAuditionPublication();
-        }
-        selectA();
-        notify();
-        return true;
-    }
-
-    bool RuntimeV2Controller::approveSampleRateConversion()
-    {
-        const juce::ScopedLock lock (stateLock);
-        if (pendingApprovalKey.isEmpty()
-            || ! currentSnapshot.sampleRateApprovalRequired)
-            return false;
-        requestedSelection.sampleRateApprovalKey = pendingApprovalKey;
-        ++requestedSelection.generation;
-        notify();
-        return true;
     }
 
     bool RuntimeV2Controller::requestRecovery()
@@ -345,9 +301,6 @@ namespace hypha::reference_audition
                 requestedSelection.checkId.clear();
                 requestedSelection.candidateId.clear();
                 requestedSelection.cueId.clear();
-                requestedSelection.sampleRateApprovalKey.clear();
-                requestedSelection.workflowCondition.reset();
-                requestedSelection.workflowToken.clear();
                 ++requestedSelection.generation;
                 currentSnapshot.presetSelectionStatus = "prepared";
                 currentSnapshot.presetSelectionAction.clear();
@@ -371,42 +324,5 @@ namespace hypha::reference_audition
         }
         presetSelectionTransport.removeExchange (*request);
         notify();
-    }
-
-    bool RuntimeV2Controller::appendWorkflowEvent (WorkflowEventRequest request)
-    {
-        if (versionComparison) return false;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (workflowEvents.size() >= 32) return false;
-            workflowEvents.push_back (std::move (request));
-        }
-        notify();
-        return true;
-    }
-
-    void RuntimeV2Controller::serviceWorkflowEvents (std::int64_t nowMs)
-    {
-        WorkflowEventRequest request;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (workflowEvents.empty() || nowMs < workflowRetryAtMs) return;
-            request = workflowEvents.front();
-        }
-        const auto committed = workflowRepository.appendReviewEvent (request);
-        if (! committed.committed)
-        {
-            const juce::ScopedLock lock (stateLock);
-            workflowRetryAtMs = nowMs + 500;
-            return;
-        }
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (! workflowEvents.empty()
-                && workflowEvents.front().operationId == request.operationId)
-                workflowEvents.pop_front();
-            workflowRetryAtMs = 0;
-        }
-        if (workflowCommitCallback) workflowCommitCallback (committed);
     }
 }

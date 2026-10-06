@@ -264,7 +264,7 @@ void testReferenceComparisons (const juce::File& sandbox)
         && std::memcmp (&displayedGain, &frozenGain, sizeof (double)) == 0
         && std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f,
         "display navigation does not switch sound, gain, output owner or source samples");
-    require (!controller.selectVisualSlot (0) && !controller.selectVisualSlot (3),
+    require (!controller.selectVisualSlot (0) && !controller.selectVisualSlot (4),
         "invalid display targets cannot alter a comparison");
     auto observed = fixture.source.clone();
     addRuntimeV2MeasurementSummary (observed, -18, -6);
@@ -431,10 +431,8 @@ bool testReferenceLibraryOsFixture()
                 require (waitFor (first, [&] (const auto& s) { return s.presetId == preset.sourcePresetArtifact.presetId; }), "preset arrival");
                 require (first.selectCheck (check.checkId), "select registered check");
                 require (waitFor (first, [&] (const auto& s) {
-                    return s.checkId == check.checkId && (s.state == ref::RuntimeState::ready || s.sampleRateApprovalRequired);
+                    return s.checkId == check.checkId && s.state == ref::RuntimeState::ready;
                 }), "registered source must prepare for audition");
-                if (first.snapshot().sampleRateApprovalRequired)
-                    require (first.approveSampleRateConversion(), "explicit sample-rate permission");
                 require (waitFor (first, [] (const auto& s) { return s.state == ref::RuntimeState::ready && s.auditionBuffered; }), "source pages must be buffered");
                 require (first.selectB (-14.0, -2.0), "explicit B must activate from prepared source");
                 juce::AudioBuffer<float> buffer (2, 128); buffer.clear();

@@ -56,19 +56,30 @@ constexpr const char* label (Metric metric) noexcept
     return "";
 }
 
+// What the value is and what it is used for (2026-10-04).
+// Facts and uses only, no judgement of the value (R-22). Shown after "POST. ", "PRE. " or "POST minus PRE. ".
 constexpr const char* scopeHelp (Metric metric) noexcept
 {
     switch (metric)
     {
-        case Metric::momentary: return "Momentary loudness over 400 ms.";
-        case Metric::shortTerm: return "Short-term loudness over 3 seconds.";
-        case Metric::integrated: return "Integrated loudness since the last Meter Session reset.";
-        case Metric::maximumTruePeak: return "Highest true peak since the last Meter Session reset.";
-        case Metric::loudnessRange: return "Loudness range since the last Meter Session reset.";
-        case Metric::plr: return "Session maximum true peak minus integrated loudness.";
-        case Metric::truePeak: return "True peak in the current measurement window.";
-        case Metric::crest: return "Peak-to-RMS difference in the current measurement window.";
-        case Metric::psr: return "Peak-to-short-term loudness difference in the current measurement window.";
+        case Metric::momentary:
+            return "Momentary loudness (M): the loudness over 400 ms, moment by moment. Read it while playing to compare passages.";
+        case Metric::shortTerm:
+            return "Short-term loudness (S): the loudness over 3 seconds, phrase by phrase. Compare sections such as verse and chorus.";
+        case Metric::integrated:
+            return "Integrated loudness (I): the whole song since the last Meter Session reset. Compare it with a delivery target such as -14 LUFS.";
+        case Metric::maximumTruePeak:
+            return "Highest true peak (MAX TP) since the last Meter Session reset, inter-sample peaks included. Compare it with a ceiling such as -1 dBTP.";
+        case Metric::loudnessRange:
+            return "Loudness range (LRA): how far the loudness moves within the song since the reset. Compare PRE and POST to see how much compression narrowed it.";
+        case Metric::plr:
+            return "Average dynamics of the song (PLR): the highest true peak minus integrated loudness. Compare PRE and POST to see how much limiting reduced it.";
+        case Metric::truePeak:
+            return "True peak (TP) in the current window, inter-sample peaks included. Watch it against a ceiling such as -1 dBTP.";
+        case Metric::crest:
+            return "Crest factor (CREST): peak minus RMS in this window, the dynamics of the moment. Compare PRE and POST to see how much transients were reduced.";
+        case Metric::psr:
+            return "Peak to short-term loudness (PSR) in the current window: the dynamics heard now. Compare PRE and POST to see how much they were reduced.";
     }
     return "";
 }

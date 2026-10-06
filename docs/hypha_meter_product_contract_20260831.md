@@ -75,6 +75,12 @@ FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Thread
 登録済みの不変なReferenceを試聴専用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。
 Referenceファイル、通常のA経路、正本のPRE/POST測定・Recordは変更しない。
 
+Reference比較試聴の役（A・B・C・V）、Gain Match（追従・固定・上限・Aを下げる承認）、選択と停止・シークからの
+復帰、比べる表示の定義、VのAUTO、REFの状態の行と300%のページの規則は、`docs/hypha_invariants.md`の
+INV-S46〜S53とREADMEのReferenceを正本とし、ここには書き写さない（2026-10-06：書き写した規則が古くなり、
+Versionの役をBと呼んでいた）。この契約が決めるのは、上の音声の境界（A経路・Referenceファイル・正本の測定を
+変えない）と、下の非RT・Audio Threadの境界である。
+
 B経路は接続、Reference読込、project復元だけでは有効化しない。offline render、Reference欠損、
 identity検証失敗時はA経路を維持する。Referenceのfile I/O、decode、検証、可変長準備は非RT側で行い、
 Audio Threadでは事前確保済みbufferのRT-safeな選択・出力だけを許可する。allocation、lock、
@@ -97,13 +103,13 @@ POSTのREF入口はOS権限を確認できない状態でも開け、Reference�
 Keep／All Keepは消さずdisabled表示にする。
 ReferenceはKirin OSが保存済みプリセットを自動配信し、POSTが受信する独立した経路である。
 INSPECT、Guide、Work接続、PRE/POSTペア選択をReference接続の前提にしない。
-OS所有・未受信でも通常画面への操作（選択欄とA/B/C）を覆わない。
-BとCのどちらも聴けない間は、空の比較値の代わりに、次の一手とA・B・Cそれぞれの段階を示す（INV-S41）。
+OS所有・未受信でも通常画面への操作（選択欄とA・B・C・Vのボタン）を覆わない。
+聴ける役が無い間の案内はINV-S41を正本とする。
 受信したプリセットと確認項目は音源の準備状態にかかわらず選択できる。Hypha内蔵のFactory代用品は表示しない。
-通常のA/Bとプリセット選択は全5サイズで使用でき、Blindは「300%で開く」から900×600へ移動して使用する。
+A・B・C・Vとプリセットの選択は全5サイズで使用でき、VERSION BLINDは300%で使用する。
 配信、読込、再初期化だけでBへ切り替えず、通常Aへの明示復帰と既存の解析2枠・比較試聴排他を維持する。
-接続済み・準備不足では不足している前提に関係する操作だけを止め、準備完了時だけBとBlindを許可する。
-聴けないBとCは薄く表示するが、押しても切り替えず、ホバーとクリックで理由を示す（R-28）。
+接続済み・準備不足では不足している前提に関係する操作だけを止め、準備完了時だけB・C・VとBlindを許可する。
+聴けない役を押したときの動き（待たせる・理由を言う・300%で開く）はINV-S46・S48を正本とする（R-28）。
 
 REFの案内画面は試聴の許可ではない。
 登録ReferenceのB／BlindはUIだけでなく、利用者操作の入口とAudio ThreadのB出力条件でもOS entitlementを再確認する。

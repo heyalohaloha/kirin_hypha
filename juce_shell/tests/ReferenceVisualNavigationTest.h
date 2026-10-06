@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ReferenceControlLookup.h"
 #include "ReferenceGuideContractTest.h"
 #include "../src/HyphaReferencePendingUI.h"
 #include "../src/HyphaReferenceVisualLayout.h"
@@ -33,15 +34,17 @@ inline void verifyReferenceVisualNavigation()
         panel.setVisible (true);
         panel.setPresentationContext (presentation::forEditor (size.width, size.height));
         panel.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
-        for (const auto* name : { "queued_b_rate_c_view", "queued_c_rate_b_view" })
         {
-            panel.setState (named (name));
-            auto* action = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-action"));
+            auto withAction = named ("loading_audio");
+            withAction.actionText = "RETRY PREPARATION";
+            withAction.action = { reference_ui::ActionKind::retryCandidatePreparation, {} };
+            panel.setState (withAction);
+            auto* action = dynamic_cast<juce::TextButton*> (findReferenceControl (panel, "reference-action"));
             require (action && action->isVisible() && !action->getBounds().isEmpty()
-                && panel.getComponentAt (action->getBounds().getCentre()) == action,
-                "pending approval has a directly reachable action in the other visual pane at every size");
-            int approvals = 0; panel.onAction = [&] { ++approvals; };
-            action->onClick(); require (approvals == 1, "one click reaches the pending approval");
+                && panel.getComponentAt (boundsWithin (panel, *action).getCentre()) == action,
+                "the page's action is directly reachable at every size");
+            int actions = 0; panel.onAction = [&] { ++actions; };
+            action->onClick(); require (actions == 1, "one click reaches the action");
             panel.onAction = {};
         }
         auto state = named ("ready");
@@ -49,29 +52,24 @@ inline void verifyReferenceVisualNavigation()
         state.checks = { { "low/ref-a", "Low end  /  The actual C song" } };
         state.checkId = "low/ref-a";
         panel.setState (state);
-        auto* view = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-visual-slot"));
+        // 2026-10-04：VIEW（音を変えずに見せる比較だけを替える）の行は無い。見せる比較は開いている役の画面が決める。
+        require (panel.findChildWithID ("reference-visual-slot") == nullptr, "no VIEW row takes chart height");
         auto* preset = panel.findChildWithID ("reference-preset");
         auto* cue = panel.findChildWithID ("reference-cue");
         auto* singleCheck = panel.findChildWithID ("reference-selection-value-2");
-        require (view && preset && cue && singleCheck, "visual navigation controls exist");
-        for (const auto* control : { static_cast<juce::Component*> (view), preset, cue, singleCheck })
-            require (control->isVisible() && !control->getBounds().isEmpty()
-                && panel.getLocalBounds().contains (control->getBounds()),
+        require (preset && cue && singleCheck, "visual navigation controls exist");
+        // 300% 以上の V の画面は VERSION と決まった項目のタブ（2026-10-04）。C の CHECK SET・曲・Cue は C の画面で選ぶ。
+        for (const auto* control : { preset, cue, singleCheck })
+        {
+            const bool shown = size.width < 900;
+            require (control->isVisible() == shown && (! shown || (!control->getBounds().isEmpty()
+                && panel.getLocalBounds().contains (control->getBounds()))),
                 "C Preset, Cue and source stay reachable from A/B at " + juce::String (size.width));
-        require (!view->getBounds().intersects (preset->getBounds())
-            && !view->getBounds().intersects (cue->getBounds())
-            && !preset->getBounds().intersects (cue->getBounds()), "navigation has distinct hit targets");
-        require (panel.getComponentAt (view->getBounds().getCentre()) == view,
-            "the visual switch is not covered by a readout at " + juce::String (size.width));
-        const auto font = labelFont (presentation::forEditor (size.width, size.height),
-            typography::TextRole::action, typography::Composition::information);
-        require (text_style::shownWidth (font, view->getButtonText()) <= view->getWidth(),
-            "VIEW label fits without shrinking at " + juce::String (size.width));
+        }
+        require (! cue->isVisible() || !preset->getBounds().intersects (cue->getBounds()), "navigation has distinct hit targets");
         int audioChanges = 0, displayed = 0;
         panel.onSelectA = panel.onSelectB = panel.onSelectC = [&] { ++audioChanges; };
         panel.onSelectVisualSlot = [&] (int slot) { displayed = slot; };
-        view->onClick();
-        require (displayed == 2 && audioChanges == 0, "VIEW A/B opens A/C without an audio command");
         state.comparisonSlot = 2;
         state.bSelected = true;
         state.audibleComparisonSlot = 1;
@@ -84,10 +82,8 @@ inline void verifyReferenceVisualNavigation()
             && panel.getComponentAt (b->getBounds().getCentre()) == b
             && panel.getComponentAt (c->getBounds().getCentre()) == c,
             "A/B/C keep separate unobstructed primary hit targets");
-        view->onClick();
-        require (displayed == 1 && audioChanges == 0, "inspecting A/B leaves B playing");
         state.checkReady = false;
-        state.checkStep = reference_ui::SourceStep::approveSampleRate;
+        state.checkStep = reference_ui::SourceStep::chooseSource;
         state.comparisonSlot = 1;
         panel.setState (state);
         c->onClick();
@@ -98,8 +94,9 @@ inline void verifyReferenceVisualNavigation()
         state.pendingAudition = { 2, reference_audition::PendingAuditionView::Stage::play };
         panel.setState (state);
         c->onClick();
-        require (audioChanges == 1 && !c->getToggleState() && c->getButtonText() == "C...",
-            "stopped C accepts an explicit queue action and is distinct from audible selection");
+        require (audioChanges == 1 && !c->getToggleState() && c->getButtonText() == "C"
+                     && static_cast<bool> (c->getProperties()["waiting"]),
+            "stopped C accepts an explicit queue action, marked as waiting without an ellipsis, distinct from audible selection");
         auto* a = dynamic_cast<juce::TextButton*> (panel.findChildWithID ("reference-a"));
         require (a && a->isEnabled(), "A remains reachable to cancel a stopped queue");
         a->onClick();
@@ -110,17 +107,15 @@ inline void verifyReferenceVisualNavigation()
             && c->getButtonText() == "C", "a cancelled switch cannot appear to be still waiting");
         state.blindPhase = reference_ui::BlindPhase::active;
         panel.setState (state);
-        require (!view->isVisible() && !singleCheck->isVisible() && !preset->isVisible()
+        require (!singleCheck->isVisible() && !preset->isVisible()
             && !cue->isVisible(), "Blind conceals the display switch and all source selectors");
     }
-    auto stopped = named ("approve_c_rate");
-    stopped.aAvailable = false;
-    stopped.versionStep = reference_ui::SourceStep::playDaw;
+    auto stopped = named ("stopped_c_preparing");
     require (reference_ui::guide (stopped).heading == "Play the song in your DAW",
-        "C approval cannot hide that B only needs DAW playback");
+        "a C still preparing cannot hide that V only needs DAW playback");
     stopped.viewBindings = { "spectrum_full", "spectrum_low" };
     stopped.detailedMeasurement = std::make_shared<reference_audition::RuntimeDetailedMeasurement>();
     require (!reference_ui::guide (stopped).shown,
-        "OS-prepared A/C display evidence is not replaced by an audio approval guide");
+        "OS-prepared A/C display evidence is not replaced by a playback guide");
 }
 }

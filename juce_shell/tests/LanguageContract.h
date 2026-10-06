@@ -53,10 +53,11 @@ inline void verifyLookup()
     KIRIN_LANGUAGE_REQUIRE (japanese ("20 to 250 Hz") == utf8 (u8"20〜250 Hz"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("Drum Attack. Click to switch view.")
                             == utf8 (u8"ドラムのアタック。クリックで表示を切り替えます。"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("POST. Short-term loudness over 3 seconds. Showing its maximum "
+    KIRIN_LANGUAGE_REQUIRE (japanese ("POST. Short-term loudness (S): the loudness over 3 seconds, phrase by phrase. "
+                                      "Compare sections such as verse and chorus. Showing its maximum "
                                       "since the last Meter Session reset.")
-                            == utf8 (u8"POST：3秒間のショートタームラウドネスです。最後にMeter Session"
-                                     u8"をリセットしてからの最大値を表示しています。"));
+                            == utf8 (u8"POSTのショートタームラウドネス（S）：3秒ごとの音量。Aメロとサビなど、場面ごとの"
+                                     u8"大きさを比べます。最後にMeter Sessionをリセットしてからの最大値を表示しています。"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 3 ready POSTs") == utf8 (u8"All Keep：準備済みのPOST 3"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 1 ready POST") == utf8 (u8"All Keep：準備済みのPOST 1"));
 
@@ -66,13 +67,6 @@ inline void verifyLookup()
                             == utf8 (u8"Blindを中止 / Aを-3.0 dBで保持中 / Aは手動で戻す"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("LOADING B AT PLAYHEAD / KEEP PLAYING")
                             == utf8 (u8"再生位置でBを読み込み中 / 再生を継続"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("B SAMPLE RATE 44.1 TO 48.0 kHz / A REMAINS LIVE")
-                            == utf8 (u8"Bのサンプルレート 44.1 → 48.0 kHz / Aは今の音のまま"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("APPROVE C 44.1 TO 48.0 kHz")
-                            == utf8 (u8"Cの44.1 → 48.0 kHzを承認"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("Approve B 44.1 to 48.0 kHz for the audition copy only. "
-                                      "A stays unchanged.")
-                            == utf8 (u8"試聴用コピーのBを44.1 → 48.0 kHzに変換します。Aは変わりません。"));
     KIRIN_LANGUAGE_REQUIRE (japanese (utf8 (u8"Legacy guide  ·  No timed items  ·  Retained"))
                             == utf8 (u8"旧形式のGuide  ·  時刻指定なし  ·  保持"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("ANALYSIS IN USE / POST Kirin") == utf8 (u8"解析を使用中 / POST Kirin"));
@@ -80,8 +74,8 @@ inline void verifyLookup()
 
     // A detail of several lines translates line by line.
     KIRIN_LANGUAGE_REQUIRE (
-        japanese ("Capture interrupted / previous kept\n12.3 s captured. Live A audio is unchanged.")
-        == utf8 (u8"取り込みが中断しました / 前の取り込みを保持\n12.3 s 取り込みました。今のAの音は変わりません。"));
+        japanese ("ANALYSIS IN USE / POST Kirin\nWaiting for Kirin OS")
+        == utf8 (u8"解析を使用中 / POST Kirin\nKirin OSを待っています"));
 
     // The comparison states now reach the screen as the Unicode they are written in, so they meet
     // their catalog entries; they used to be read as ASCII and shown garbled.

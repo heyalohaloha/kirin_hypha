@@ -2,6 +2,9 @@
 
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceLegend.h"
+#include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceFrequencyTicks.h"
+#include "HyphaReferenceRangeStrips.h"
 #include "HyphaReferenceVisualLayout.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -131,8 +134,18 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
 {
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
+    // C の Cue の値があれば「Cue 対 A の同じ長さの直近」を同じ定義・同じ音量で比べる。
+    if (state.separateComparisons && state.comparisonSlot == 2 && state.cueKirin)
+    {
+        const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation);
+        paintFrequencyTicks (g, cueArea, minimumHz, maximumHz, presentation);  // どこが何 Hz か（2026-10-04）
+        if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz, presentation)) return true;
+        unavailable (g, cueArea, presentation);
+        return false;
+    }
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
-                           state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C TRACK" : "A / B", presentation);
+                           state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C TRACK"
+                               : state.separateComparisons && state.comparisonSlot == 3 ? "A / B" : "A / V", presentation);
     bool drew = false;
     for (const auto& profile : state.profiles)
     {
@@ -156,10 +169,10 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
                                           minimumHz, maximumHz, area, 1000.0);
         const auto upper = spectrumPath (spectrum.bandCentersHz, spectrum.p90Millidbfs,
                                          minimumHz, maximumHz, area, 1000.0);
-        g.setColour (COL_FLORA.withAlpha (0.18f));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
         g.strokePath (lower, juce::PathStrokeType (0.8f));
         g.strokePath (upper, juce::PathStrokeType (0.8f));
-        g.setColour (COL_FLORA.withAlpha (0.82f));
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.82f));
         g.strokePath (median, juce::PathStrokeType (1.5f));
         drew = true;
     }
@@ -183,7 +196,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
             if (! started) { live.startNewSubPath (point); started = true; }
             else live.lineTo (point);
         }
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
+        g.setColour (COL_FLORA_BR.withAlpha (0.92f));
         g.strokePath (live, juce::PathStrokeType (1.25f));
         drew = true;
     }
@@ -191,87 +204,10 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     return drew;
 }
 
-float tonalY (double db, juce::Rectangle<float> area)
-{
-    constexpr double minimum = -90.0, maximum = -3.0;
-    return area.getBottom() - static_cast<float> (
-        (juce::jlimit (minimum, maximum, db) - minimum) / (maximum - minimum)) * area.getHeight();
-}
-
-template <typename Value>
-juce::Path tonalPath (const std::array<double, 60>& centers, const Value& values,
-                      std::uint64_t validBits, juce::Rectangle<float> area)
-{
-    juce::Path path;
-    bool started = false;
-    for (size_t band = 0; band < centers.size(); ++band)
-    {
-        if ((validBits & (std::uint64_t (1) << band)) == 0)
-        { started = false; continue; }
-        const juce::Point<float> point {
-            logX (centers[band], 20.0, 20'000.0, area), tonalY (values[band], area)
-        };
-        if (started) path.lineTo (point); else { path.startNewSubPath (point); started = true; }
-    }
-    return path;
-}
-
-bool drawTonalBalance (juce::Graphics& g, juce::Rectangle<float> bounds,
-                       const State& state, presentation::Context presentation)
-{
-    const auto timeline = state.visualTimeline;
-    const bool aReady = timeline && timeline->tonalAvailable;
-    const bool cReady = timeline && timeline->tonalReference;
-    const bool genreReady = timeline && timeline->tonalGenre;
-    const bool captured = timeline && timeline->capture && timeline->capture->tonal.valid();
-    auto detail = juce::String (cReady ? (captured ? "A CAPTURE / C CUE" : "A LIVE / C CUE")
-                                             : (captured ? "A CAPTURE" : "A LIVE"));
-    if (genreReady) detail += " / " + timeline->tonalGenre->displayLabel.toUpperCase();
-    auto area = chartArea (g, bounds, "BALANCE",
-                           detail, presentation);
-    std::array<double, 60> centers {};
-    const auto ratio = std::pow (20'000.0 / 20.0, 1.0 / 60.0);
-    for (size_t band = 0; band < centers.size(); ++band)
-        centers[band] = 20.0 * std::pow (ratio, static_cast<double> (band) + 0.5);
-    if (cReady)
-    {
-        const auto& curve = *timeline->tonalReference;
-        if (! genreReady)
-        {
-            g.setColour (COL_FLORA.withAlpha (0.20f));
-            g.strokePath (tonalPath (curve.centersHz, curve.p10, curve.validBits, area),
-                          juce::PathStrokeType (0.8f));
-            g.strokePath (tonalPath (curve.centersHz, curve.p90, curve.validBits, area),
-                          juce::PathStrokeType (0.8f));
-        }
-        g.setColour (COL_FLORA.withAlpha (0.86f));
-        g.strokePath (tonalPath (curve.centersHz, curve.median, curve.validBits, area),
-                      juce::PathStrokeType (1.5f));
-    }
-    if (genreReady)
-    {
-        const auto& curve = *timeline->tonalGenre;
-        g.setColour (COL_TEXT_TERTIARY.withAlpha (0.34f));
-        g.strokePath (tonalPath (curve.centersHz, curve.p10, curve.validBits, area),
-                      juce::PathStrokeType (1.0f));
-        g.strokePath (tonalPath (curve.centersHz, curve.p90, curve.validBits, area),
-                      juce::PathStrokeType (1.0f));
-    }
-    if (aReady)
-    {
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.94f));
-        g.strokePath (tonalPath (centers, timeline->tonal.values_db,
-                                 timeline->tonal.valid_bits, area),
-                      juce::PathStrokeType (1.55f));
-    }
-    if (! aReady && ! cReady) unavailable (g, area, presentation);
-    return aReady || cReady;
-}
-
 bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                    presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B", presentation);
+    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons ? roleLetter (state.comparisonSlot) : "B", presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->waveform)
     {
         unavailable (g, area, presentation);
@@ -305,9 +241,9 @@ bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State
         peak.lineTo (x, area.getCentreY() + static_cast<float> (value) * area.getHeight() * 0.46f);
     }
     peak.closeSubPath();
-    g.setColour (COL_FLORA.withAlpha (0.24f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.24f));
     g.fillPath (peak);
-    g.setColour (COL_FLORA.withAlpha (0.74f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.74f));
     g.strokePath (peak, juce::PathStrokeType (0.8f));
     return true;
 }
@@ -349,7 +285,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.detailedMeasurement)
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
-    auto area = chartArea (g, bounds, title, state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B", presentation);
+    auto area = chartArea (g, bounds, title, state.separateComparisons ? roleLetter (state.comparisonSlot) : "B", presentation);
     if (series == nullptr || std::none_of (series->begin(), series->end(),
         [] (const auto& value) { return value.has_value(); }))
     {
@@ -371,7 +307,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
         if (! started) { path.startNewSubPath (point); started = true; }
         else path.lineTo (point);
     }
-    g.setColour (COL_FLORA.withAlpha (0.88f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.88f));
     g.strokePath (path, juce::PathStrokeType (1.35f));
     return true;
 }
@@ -379,7 +315,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
 bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                     presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "TRANSIENT", state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B",
+    auto area = chartArea (g, bounds, "TRANSIENT", state.separateComparisons ? roleLetter (state.comparisonSlot) : "B",
                            presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->transient
         || state.detailedMeasurement->transient->onsetStrengthQ15.empty())
@@ -398,7 +334,7 @@ bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const Stat
             * static_cast<float> (values[index]) / 32'767.0f;
         path.lineTo (x, y);
     }
-    g.setColour (COL_FLORA.withAlpha (0.86f));
+    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.86f));
     g.strokePath (path, juce::PathStrokeType (1.2f));
     return true;
 }
@@ -407,8 +343,12 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
                const State& state, const juce::String& binding,
                presentation::Context presentation)
 {
-    if (binding == "balance") drawTonalBalance (g, area, state, presentation);
-    else if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
+    // C の画面の Dynamics・Loudness・Stereo・Waveform・Transient は A と C の範囲の帯（2026-10-04）。
+    if (state.separateComparisons && state.comparisonSlot == 2 && rangeStripBinding (binding)
+        && paintCueRangeStrips (g, area, state, binding, presentation))
+        return;
+    // Kirin OS の view_bindings に balance は無い（Tonal の BALANCE の絵は 2026-10-04 に外した）。
+    if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
     else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation);
     else if (binding == "waveform") drawWaveform (g, area, state, presentation);
     else if (binding == "transient") drawTransient (g, area, state, presentation);

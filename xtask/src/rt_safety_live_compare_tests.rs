@@ -16,7 +16,12 @@ const EDITOR_LOCAL_BLIND_CPP: &str =
     include_str!("../../juce_shell/src/PluginEditorLocalBlind.cpp");
 const EDITOR_LIVE_COMPARE_CPP: &str =
     include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp");
-const EDITOR_REFERENCE_CPP: &str = include_str!("../../juce_shell/src/PluginEditorReference.cpp");
+const EDITOR_REFERENCE_CPP: &str = concat!(
+    include_str!("../../juce_shell/src/PluginEditorReference.cpp"),
+    include_str!("../../juce_shell/src/PluginEditorReferenceRoles.cpp")
+);
+const REFERENCE_PENDING_CPP: &str =
+    include_str!("../../juce_shell/src/reference_audition/ReferenceComparisonPending.cpp");
 const PROCESSOR_PIN_CPP: &str =
     include_str!("../../juce_shell/src/PluginProcessorLiveComparePin.cpp");
 const PIN_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveComparePin.cpp");
@@ -274,18 +279,22 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
     let render = function_body(SESSION_H, "RenderReport render (");
     assert!(render.contains("guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear)"));
     assert!(render.contains("report.guardTripped = true;"));
+    // Every entry asks the one output ownership table first (Blind; Reference B, C, V and VERSION
+    // BLIND; the controller's pressed and waiting auditions); its liveHeld column refuses them until
+    // RETURN (output_ownership_test.cpp holds the table itself).
     let blind = function_body(
         EDITOR_LOCAL_BLIND_CPP,
         "void KirinHyphaEditor::openLocalBlindProduct",
     );
-    assert!(blind.contains("if (liveCompareHoldBlocksAudition())"));
-    assert_eq!(
-        EDITOR_REFERENCE_CPP
-            .matches("if (liveCompareHoldBlocksAudition()) return;")
-            .count(),
-        3,
-        "Reference B, C and Blind wait for RETURN"
-    );
+    assert!(blind.contains("outputDecision (hypha::output_owner::Activity::localBlind)"));
+    assert!(blind.contains("owner.cause == State::liveHeld"));
+    let refused = |source: &str, gate: &str| source.matches(gate).count();
+    let audition = "Activity::audition)) return;";
+    assert_eq!(refused(EDITOR_REFERENCE_CPP, audition), 3, "B, C and V");
+    let version = "Activity::versionBlind)) return;";
+    assert_eq!(refused(EDITOR_REFERENCE_CPP, version), 1, "VERSION BLIND");
+    let controller = "Activity::audition).refused()";
+    assert_eq!(refused(REFERENCE_PENDING_CPP, controller), 2, "controller");
 }
 
 // INV-LC7 / LC10: the content offset is measured off the Audio Thread and only shown; a jump the
@@ -337,7 +346,8 @@ fn live_compare_pin_hands_one_range_to_blind_through_its_own_admission() {
         EDITOR_LIVE_COMPARE_CPP,
         "void KirinHyphaEditor::pinLiveCompareForBlind",
     );
-    let held = editor.find("if (liveCompareHoldBlocksAudition())").unwrap();
+    let gate = "outputRefused (hypha::output_owner::Activity::localBlind)";
+    let held = editor.find(gate).unwrap();
     let request = editor.find("processorRef.pinLiveCompareForBlind").unwrap();
     let stop = editor.find("processorRef.stopLiveCompare();").unwrap();
     assert!(held < request && request < stop);

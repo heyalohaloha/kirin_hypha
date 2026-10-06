@@ -224,7 +224,6 @@ pub struct AuditionAdmission {
     process_audition: AnalysisLease,
     project_audition: crate::project_audition_lease::ProjectAuditionLease,
     held: bool,
-    borrowed_analysis: bool,
     shared_analysis: Option<reference_owner::ReferenceAnalysisGrant>,
     capture_barrier: capture::CaptureBarrier,
 }
@@ -260,7 +259,6 @@ impl AuditionAdmission {
                 project_hash,
             ),
             held: false,
-            borrowed_analysis: false,
             shared_analysis: None,
             capture_barrier: capture::CaptureBarrier::new(
                 process_barrier,
@@ -274,10 +272,7 @@ impl AuditionAdmission {
         if self.held {
             return Ok(true);
         }
-        if !self.borrowed_analysis
-            && self.shared_analysis.is_none()
-            && !self.analysis.try_acquire_for(owner_name)?
-        {
+        if self.shared_analysis.is_none() && !self.analysis.try_acquire_for(owner_name)? {
             return Ok(false);
         }
         if !self.process_audition.try_acquire_for(owner_name)? {
@@ -307,13 +302,12 @@ impl AuditionAdmission {
         self.process_audition.release();
         self.analysis.release();
         self.held = false;
-        self.borrowed_analysis = false;
         self.shared_analysis = None;
         self.capture_barrier.release();
     }
 
     pub fn try_acquire_blind_for(&mut self, owner: &str) -> io::Result<bool> {
-        if !self.capture_barrier.acquire(false)? {
+        if !self.capture_barrier.acquire()? {
             return Ok(false);
         }
         match self.try_acquire_for(owner) {
@@ -323,22 +317,6 @@ impl AuditionAdmission {
                 other
             }
         }
-    }
-
-    pub fn try_acquire_during_capture(
-        &mut self,
-        capture: &capture::CaptureAdmission,
-        owner: &str,
-    ) -> io::Result<bool> {
-        if !capture.compatible(self) {
-            return Ok(false);
-        }
-        self.borrowed_analysis = true;
-        let result = self.try_acquire_for(owner);
-        if !matches!(result, Ok(true)) {
-            self.borrowed_analysis = false;
-        }
-        result
     }
 
     pub fn held(&self) -> bool {

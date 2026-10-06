@@ -5,28 +5,33 @@ namespace hypha::reference_ui
 void Component::resized()
 {
     const int comparisonWidth = comparisonButtonWidth();
-    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 3 : 2) - 39, 6, 24, 18);
+    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 4 : 2) - 42, 6, 24, 18);
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
-    const int buttonWidth = detailedLayout() ? 62 : 48;
     const auto place = [this,&header] (juce::Component& button, int width)
     {
         button.setBounds (header.removeFromRight (width).reduced (0, shortPanel() ? 1 : 4));
         header.removeFromRight (3);
     };
     const bool blindSession = isBlindSession (current.blindPhase);
-    if (blindSession)
+    // A B C V（左から）。右から V・C・B・A の順に置く。始めた VERSION BLIND の操作は、エディターが窓全体に出す
+    // PRE/POST Blind と同じ画面にある（HyphaVersionBlindScreen.h）。
+    place (bButton, comparisonWidth);
+    if (current.separateComparisons) { place (cButton, comparisonWidth); place (refButton, comparisonWidth); }
+    place (aButton, comparisonWidth);
+    if (! versionPage() && blindButton.getParentComponent() != &statusStrip) statusStrip.addChildComponent (blindButton);
+    // 2026-10-04：300% の B・C・V では選択欄を A・B・C・V のボタンと同じ段の左に置く（曲名の見出しは選択欄と同じなので出さない）。
+    auto selectors = header.withRight (juce::jmin (header.getRight(), connectionStatus.getX() - 10));
+    if (checkPage() || versionPage()) layoutCheckPage (area, selectors);  // C・V の画面（HyphaReferenceCheckPage.cpp）
+    else if (rolePage() && current.comparisonSlot == 3)
     {
-        place (endBlindButton, current.blindPhase == BlindPhase::invalidated
-            ? (detailedLayout() ? 132 : 94) : buttonWidth);
+        // B の画面：B SET と曲。V・C の選択欄と Preset・Cue は B では出さない。
+        songSetBox.setBounds (selectors.removeFromLeft ((selectors.getWidth() - 8) / 2).removeFromBottom (25));
+        selectors.removeFromLeft (8);
+        songBox.setBounds (selectors.removeFromBottom (25));
+        versionBox.setBounds (songSetBox.getBounds()); checkBox.setBounds (songBox.getBounds());
     }
-    else
-    {
-        if (current.separateComparisons) place (cButton, comparisonWidth);
-        place (bButton, comparisonWidth);
-        place (aButton, comparisonWidth);
-    }
-    if (current.separateComparisons && ! blindSession)
+    else if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (panelGap());
         auto row = area.removeFromTop (detailedLayout() ? 40 : panelPickerHeight());
@@ -42,14 +47,10 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
-        auto top = area.removeFromTop (selectionVisible (presetBox) || viewButton.isVisible()
+        songSetBox.setBounds (versionBox.getBounds()); // B の画面では同じ場所。100% は曲名だけを行いっぱいに
+        songBox.setBounds (songSetBox.isVisible() ? checkBox.getBounds() : versionBox.getBounds().getUnion (checkBox.getBounds()));
+        auto top = area.removeFromTop (selectionVisible (presetBox) || selectionVisible (cueBox)
             ? (detailedLayout() ? 38 : panelPickerHeight()) : 0);
-        if (viewButton.isVisible())
-        {
-            viewButton.setBounds (top.removeFromRight (detailedLayout() ? 96 : 72)
-                .removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
-            top.removeFromRight (5);
-        }
         const auto width = selectionVisible (cueBox) ? (top.getWidth() - 5) * 3 / 5 : top.getWidth();
         presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (detailedLayout() ? 22 : panelPickerHeight()));
         top.removeFromLeft (5);
@@ -96,38 +97,19 @@ void Component::resized()
         }
     }
     area.removeFromTop (panelGap());
-    if (workflowControls.isVisible())
-    {
-        workflowControls.setBounds (area.removeFromTop (workflowControls.preferredHeight()));
-        area.removeFromTop (panelGap());
-    }
-    if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
-    auto footer = area.removeFromBottom (detailedLayout() && current.sampleRateApprovalRequired ? 32 : detailedLayout() ? 24 : 18);
+    const bool rowInPanel = ! statusInFooter();
+    auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
+    if (checkPage()) area.removeFromBottom (checkFooterHeight());
     comparisonView.setBounds (area);
-    tonalView.setBounds (area);
-    if (blindSession)
+    songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
+    // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
+    if (statusStrip.getParentComponent() == this)
     {
-        const auto placeLeft = [&footer] (juce::Component& button, int width)
-        {
-            button.setBounds (footer.removeFromLeft (width));
-            footer.removeFromLeft (3);
-        };
-        const auto placeRight = [&footer] (juce::Component& button, int width)
-        {
-            button.setBounds (footer.removeFromRight (width));
-            footer.removeFromRight (3);
-        };
-        if (oneButton.isVisible()) placeLeft (oneButton, buttonWidth);
-        if (twoButton.isVisible()) placeLeft (twoButton, buttonWidth);
-        if (revealButton.isVisible()) placeRight (revealButton, detailedLayout() ? 78 : 62);
+        statusStrip.setInFooter (false);
+        statusStrip.setVisible (rowInPanel && ! statusRowConcealed());
+        if (rowInPanel) statusStrip.setBounds (footer);
     }
-    else if (blindButton.isVisible())
-    {
-        blindButton.setBounds (footer.removeFromRight (detailedLayout() ? 112 : 84));
-        footer.removeFromRight (detailedLayout() ? 8 : 6);
-    }
-    if (actionButton.isVisible())
-        actionButton.setBounds (footer.removeFromRight (detailedLayout() && current.sampleRateApprovalRequired ? 238 : detailedLayout() ? 188 : 116));
+    statusStrip.resized();
     layoutSelectionReadouts();
 }
 

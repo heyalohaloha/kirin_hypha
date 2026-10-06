@@ -36,7 +36,8 @@ inline void verifyReferenceSelectionWorkflow (reference_ui::State state)
                 && juce::PNGImageFormat().writeImageToStream (preview, *output), "ABC preview written");
         }
     }
-    state.versions.resize (1); component.setState (state);
+    // 300% の C の画面は V の選択を出さない（V の画面で選ぶ）ので、V の画面で確かめる。
+    state.versions.resize (1); state.comparisonSlot = 1; component.setState (state);
     require (! version->isVisible() && readout->isVisible() && readout->getText() == "Version 1",
              "a known singleton is readable without a disabled input border");
     state.versionId = "not-in-library"; component.setState (state);

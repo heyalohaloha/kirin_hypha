@@ -304,7 +304,8 @@ namespace hypha::reference_audition
             return result.empty() || total == 10'000;
         }
 
-        static bool parseCheck (const juce::var& value, RuntimeCheck& result, bool progressive, bool library)
+        static bool parseCheck (const juce::var& value, RuntimeCheck& result, bool progressive, bool library,
+                                std::vector<RuntimeSkippedItem>* skipped)
         {
             const auto* object = value.getDynamicObject();
             if (object == nullptr || ! exactProperties (*object, {
@@ -346,7 +347,11 @@ namespace hypha::reference_audition
                 if (! parseCandidate (item, candidate, progressive)
                     || ! candidateIds.emplace (candidate.candidateId.toStdString()).second
                     || ! identities.emplace ((candidate.sourceKind + ":" + candidate.sourceIdentityKey).toStdString()).second)
-                    return false;
+                {
+                    if (skipped == nullptr) return false;
+                    skipped->push_back (skippedItem (item, "display_name"));  // 同じ確かめのまま、この曲だけを外す
+                    continue;
+                }
                 result.candidates.push_back (std::move (candidate));
             }
             return (library || std::any_of (result.candidates.begin(), result.candidates.end(),
@@ -358,8 +363,26 @@ namespace hypha::reference_audition
         bool parseLibraryVersionCandidate (const juce::var& value, RuntimeCandidate& result)
         { return parseCandidate (value, result, true); }
 
+        RuntimeSkippedItem skippedItem (const juce::var& item, const char* nameProperty)
+        {
+            RuntimeSkippedItem result;
+            juce::String checked;
+            result.nameUnreadable = item[nameProperty].isString() && ! displayText (item[nameProperty], 160, checked);
+            if (const auto* cues = item["cues"].getArray())
+                for (const auto& cue : *cues)
+                    result.nameUnreadable = result.nameUnreadable || (cue["label"].isString() && ! displayText (cue["label"], 160, checked));
+            juce::String shown;
+            for (const auto character : item[nameProperty].toString())
+                shown += (character < 0x20 || (character >= 0x7f && character <= 0x9f) || character == 0x2028 || character == 0x2029)
+                    ? juce::String ("?") : juce::String::charToString (character);
+            shown = shown.trim();
+            result.name = shown.length() > 40 ? shown.substring (0, 39).trimEnd() + juce::String::charToString (0x2026) : shown;
+            return result;
+        }
+
         bool parsePreset (const juce::var& value, const RuntimePresetReceipt& expected,
-                          const juce::String& workId, RuntimePreset& result, bool library)
+                          const juce::String& workId, RuntimePreset& result, bool library,
+                          std::vector<RuntimeSkippedItem>* skipped)
         {
             const auto* object = value.getDynamicObject();
             if (object == nullptr || ! exactProperties (*object, library
@@ -392,7 +415,7 @@ namespace hypha::reference_audition
             for (const auto& item : *checks)
             {
                 RuntimeCheck check;
-                if (! parseCheck (item, check, library || object->getProperty ("version") == "3.0", library)
+                if (! parseCheck (item, check, library || object->getProperty ("version") == "3.0", library, library ? skipped : nullptr)
                     || ! checkIds.emplace (check.checkId.toStdString()).second)
                     return false;
                 result.checks.push_back (std::move (check));

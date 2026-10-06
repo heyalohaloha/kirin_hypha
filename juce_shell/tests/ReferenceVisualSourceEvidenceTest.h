@@ -11,28 +11,18 @@ void verifyReferenceVisualSourceEvidence (const juce::File& root, const juce::St
             [&] (const auto& option) { return option.id == versionId; });
     }), "selection waits for the exact published option, not an earlier library receipt");
     require (controller.selectLibraryVersion (versionId), "select prepared visual-only source");
+    // 試聴コピーのサンプルレート変換は自動。見た目は元の 48k の Cue の範囲のまま、音は出さない。
     require (wait (controller, [&] (const auto& state) {
         return state.presetId + "/" + state.checkId + "/" + state.candidateId == versionId
-            && state.sampleRateApprovalRequired;
-    }), "rate conversion remains an explicit audition permission");
+            && state.state == ref::RuntimeState::ready;
+    }), "the audition copy is converted without asking");
     const auto state = controller.snapshot();
-    const auto display = controller.visualBinding();
-    require (state.measurementAvailable && state.detailedMeasurement && !state.bSelected
-        && display.source && display.overview && !display.aligned
-        && display.sourceCueStartSample == 0 && display.sourceCueEndSample == 384000
-        && display.hostRate == 44100 && !controller.selectB (-14, -2)
-        && juce::SHA256 (file).toHexString() == hash,
-        "pre-SRC visuals retain the exact 48k source Cue without resampling, playback or source mutation");
-    require (controller.approveSampleRateConversion(), "explicitly approve the audition copy");
-    require (wait (controller, [] (const auto& next) {
-        return next.state == ref::RuntimeState::ready && !next.sampleRateApprovalRequired;
-    }), "approved copy becomes ready");
     const auto converted = controller.visualBinding();
-    require (converted.source && converted.hostRate == 44100
-        && converted.sourceCueStartSample == display.sourceCueStartSample
-        && converted.sourceCueEndSample == display.sourceCueEndSample
-        && !controller.snapshot().bSelected && juce::SHA256 (file).toHexString() == hash,
-        "SRC approval keeps the same full source-range visuals and never starts audio");
+    require (state.measurementAvailable && state.detailedMeasurement && !state.bSelected
+        && converted.source && converted.overview && !converted.aligned && converted.hostRate == 44100
+        && converted.sourceCueStartSample == 0 && converted.sourceCueEndSample == 384000
+        && juce::SHA256 (file).toHexString() == hash,
+        "converted visuals keep the exact 48k source Cue, never start audio and never change the source");
     controller.disconnect();
     require (wait (controller, [] (const auto& next) { return next.state == ref::RuntimeState::disconnected; })
         && !controller.visualBinding().source, "disconnect clears prepared visual evidence");

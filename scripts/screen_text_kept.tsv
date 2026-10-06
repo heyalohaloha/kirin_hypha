@@ -21,19 +21,17 @@ MAXIMUM TRUE PEAK	REF metric heading
 PRE/POST BLIND	footer control label
 PRE/POST LISTEN	footer control label
 DRUM Attack	page name (accessibility title)
-B Version	REF selector name
+V Version	REF selector name
 B Source	REF selector name
 PRE / POST Blind Compare	feature name
 PRE / POST Blind Compare / 	feature name before the context label
 PRE / POST Listen	feature name
-Quick Reference	Kirin OS vocabulary name
 Low end	Kirin OS vocabulary name
 Vocal balance	Kirin OS vocabulary name
 Full track	Kirin OS vocabulary name
 POST Kirin Hypha	plug-in name the host shows
 PRE Kirin Hypha	plug-in name the host shows
 Format unconfirmed	plug-in format name
-Captured A	accessibility description only
 , cue 	accessibility description only
 , selected 	accessibility description only
 KIRIN_HYPHA_OPEN_ATTACK	environment variable name

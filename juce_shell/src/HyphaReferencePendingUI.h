@@ -1,15 +1,30 @@
 #pragma once
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceStages.h"
 
 namespace hypha::reference_ui
 {
+// 再生中でも、準備が自動で進む段階（確認・読み込み・準備・位置合わせ）なら押した役を待たせ、準備でき次第鳴らす
+// （押したことを捨てない。待ちの上限は HyphaReferencePreparationWatch.h が見張る）。
+inline bool settlesByItself (SourceStep step) noexcept
+{
+    return automaticStage (step) && step != SourceStep::waitingForKirinOs;  // 段階の表で上限のある段階
+}
+
 inline bool canQueueSource (const State& state, bool version)
 {
-    return state.separateComparisons && state.libraryReceived && !state.transportPlaying
-        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase)
-        && (version ? state.versionArmable : state.checkArmable)
-        && (state.workflow.mode == reference_audition::WorkflowView::Mode::normal
-            || state.workflow.status == reference_audition::WorkflowView::Status::resumeAvailable);
+    const bool waits = state.transportPlaying ? settlesByItself (version ? state.versionStep : state.checkStep)
+                                              : (version ? state.versionArmable : state.checkArmable);
+    return state.separateComparisons && state.libraryReceived && waits
+        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
+}
+
+// B（REF）も止まっているあいだに押せば、再生で鳴る。再生中は準備が自動で進む段階なら待たせる。
+inline bool canQueueReference (const State& state)
+{
+    const bool waits = state.transportPlaying ? settlesByItself (state.referenceStep) : state.referenceArmable;
+    return state.separateComparisons && state.libraryReceived && waits
+        && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
 }
 
 inline juce::String pendingAuditionReason (const State& state)
@@ -20,10 +35,10 @@ inline juce::String pendingAuditionReason (const State& state)
         case Stage::play: return "PLAY DAW";
         case Stage::checking:
         {
-            const auto step = state.pendingAudition.slot == 1 ? state.versionStep : state.checkStep;
+            const auto step = state.pendingAudition.slot == 1 ? state.versionStep
+                            : state.pendingAudition.slot == 3 ? state.referenceStep : state.checkStep;
             return step == SourceStep::ready ? "VERIFYING PLAYBACK" : stepText (step);
         }
-        case Stage::approval: return "APPROVE CONVERSION";
         case Stage::level: return "MEASURING A LEVEL";
         case Stage::sourceChanged: return "SOURCE CHANGED";
         case Stage::safetyChanged: return "PLAYBACK CHANGED";
@@ -37,9 +52,8 @@ inline juce::String pendingAuditionReason (const State& state)
 
 inline juce::String pendingAuditionHeading (const State& state)
 {
-    return state.pendingAudition.waiting()
-        ? (state.pendingAudition.slot == 1 ? "B WAIT" : "C WAIT")
-        : (state.pendingAudition.slot == 1 ? "B STOPPED" : "C STOPPED");
+    return juce::String (roleLetter (state.pendingAudition.slot))
+        + (state.pendingAudition.waiting() ? " WAIT" : " STOPPED");
 }
 
 inline juce::String pendingAuditionText (const State& state)

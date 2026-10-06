@@ -47,7 +47,8 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
         if (result != StartResult::started) return result;
     }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController && ! referenceAuditionController->reserveLocalBlind())
+    if (referenceAuditionController
+        && ! referenceAuditionController->reserveLocalBlind (hypha::output_owner::Activity::liveBlind))
     {
         if (startedHere) stopLiveCompare();
         return StartResult::comparisonBusy;

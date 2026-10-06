@@ -101,14 +101,17 @@ void KirinHyphaEditor::openLocalBlindProduct()
         refreshLocalBlindProduct();
         return;
     }
-    if (processorRef.referenceAuditionSnapshot().blindPhase
-        != hypha::reference_audition::BlindPhase::inactive)
+    // 動いている比較・Blind（開くと LISTEN を止める）は、開く前に言う。Keep・組・再生・Reference の下げと試聴は、
+    // 開いた画面が直し方と一緒に言う（localBlindCaptureAvailability）。
+    using hypha::output_owner::State;
+    const auto owner = processorRef.outputDecision (hypha::output_owner::Activity::localBlind);
+    if (owner.refused() && (owner.cause == State::versionBlind || owner.cause == State::liveRestoring
+                            || owner.cause == State::liveFinishing || owner.cause == State::liveSessionLowered
+                            || owner.cause == State::liveHeld || owner.cause == State::liveBlind))
     {
-        showToast ("End Reference Blind Compare before starting PRE / POST Blind");
+        showToast (hypha::output_owner::refusalText (owner.reason));
         return;
     }
-    if (liveCompareHoldBlocksAudition())
-        return;
     processorRef.stopLiveCompare(); // one comparison at a time; Blind starts from POST
     localBlindReturnIntent.clear();
     localBlindPreflight = true;
@@ -210,12 +213,23 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
         setSize (900, 600);
     }
     setResizable (! localBlindOpen && ! referenceBlind, false);
+    resizeGrip.setVisible (isResizable());
     localBlindView.setBounds (scaleRoot.getLocalBounds());
     localBlindView.setVisible (localBlindOpen);
     liveBlindView.setBounds (scaleRoot.getLocalBounds());
     liveBlindView.setVisible (liveBlindOpen);
-    setLocalBlindIsolation (localBlindOpen || liveBlindOpen);
+    // VERSION BLIND（REF）も PRE/POST Blind と同じ画面で窓全体を覆う（2026-10-04）。
+    const bool versionBlindShown = referenceBlind && ! localBlindOpen && ! liveBlindOpen;
+    const bool versionBlindWasShown = versionBlindView.isVisible();
+    versionBlindView.setBounds (scaleRoot.getLocalBounds());
+    versionBlindView.setVisible (versionBlindShown);
+    setLocalBlindIsolation (localBlindOpen || liveBlindOpen || versionBlindShown);
     if (liveBlindOpen) liveBlindView.toFront (true);
+    if (versionBlindShown)
+    {
+        versionBlindView.toFront (false);  // REF の更新が前に出しても、Blind の画面がいつも上
+        if (! versionBlindWasShown && versionBlindView.isShowing()) versionBlindView.grabKeyboardFocus();
+    }
     syncAnalysisDemand();
     if (localBlindOpen)
     {
@@ -241,7 +255,7 @@ void KirinHyphaEditor::setLocalBlindIsolation (bool active)
         for (int index = 0; index < scaleRoot.getNumChildComponents(); ++index)
         {
             auto* component = scaleRoot.getChildComponent (index);
-            if (component == &localBlindView || component == &liveBlindView)
+            if (component == &localBlindView || component == &liveBlindView || component == &versionBlindView)
                 continue;
             conceal (conceal, component, true);
         }

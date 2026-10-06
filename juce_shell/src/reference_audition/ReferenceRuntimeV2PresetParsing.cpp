@@ -96,9 +96,12 @@ bool parseGlobalPresetCatalog (const juce::var& value,
         || object->getProperty ("version") != "1.0")
         return false;
     const auto* presets = object->getProperty ("presets").getArray();
-    if (presets == nullptr || presets->size() < 5 || presets->size() > 133)
+    if (presets == nullptr || presets->size() < 1 || presets->size() > 133)
         return false;
+    // 工場出荷の Preset が先、そのあとが利用者の Preset。工場出荷の数は Kirin OS が決める（2026-10-05 に 6 項目までに
+    // 分けて 5 → 9。数を決め打ちしない）。
     std::set<std::string> presetIds, revisionIds;
+    bool userSeen = false;
     for (int index = 0; index < presets->size(); ++index)
     {
         const auto* entry = presets->getReference (index).getDynamicObject();
@@ -111,10 +114,13 @@ bool parseGlobalPresetCatalog (const juce::var& value,
                               parsed.nameSnapshot)
             || ! exactString (entry->getProperty ("origin"), parsed.origin)
             || ! uuidV4 (parsed.presetId) || ! uuidV4 (parsed.revisionId)
-            || parsed.origin != (index < 5 ? "factory" : "user")
+            || (parsed.origin != "factory" && parsed.origin != "user")
+            || (parsed.origin == "factory" && userSeen)
+            || (index == 0 && parsed.origin != "factory")
             || ! presetIds.emplace (parsed.presetId.toStdString()).second
             || ! revisionIds.emplace (parsed.revisionId.toStdString()).second)
             return false;
+        userSeen = userSeen || parsed.origin == "user";
         result.presets.push_back (std::move (parsed));
     }
     return true;

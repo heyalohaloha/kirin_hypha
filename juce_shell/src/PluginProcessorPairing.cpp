@@ -118,6 +118,33 @@ bool KirinHyphaProcessorBase::acceptLocalBlindProductPair (
         request, post, pre, hypha::reference_audition::secureRandomBit);
 }
 
+namespace
+{
+// 表が断った理由を、PRE/POST Blind の画面の言い方へ。
+hypha::local_blind::CaptureAdmission captureAdmissionFor (const hypha::output_owner::Decision& decision)
+{
+    using Admission = hypha::local_blind::CaptureAdmission;
+    using hypha::output_owner::Reason;
+    using hypha::output_owner::State;
+    switch (decision.reason)
+    {
+        case Reason::layout:             return Admission::unsupported;
+        case Reason::returnFirst:        return decision.cause == State::referenceLowered ? Admission::referenceLowered
+                                                                                          : Admission::returnFirst;
+        case Reason::blindRunning:       return decision.cause == State::versionBlind ? Admission::referenceBusy
+                                                                                      : Admission::recovery;
+        case Reason::recordRunning:      return Admission::keepBusy;
+        case Reason::referenceReturning: return Admission::referenceReturning;
+        case Reason::auditionRunning:    return Admission::referenceAudition;
+        case Reason::restoring:
+        case Reason::liveReturning:
+        case Reason::liveComparison:
+        case Reason::none:               break;
+    }
+    return Admission::recovery;
+}
+}
+
 hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::localBlindCaptureAvailability() const
 {
     using Admission = hypha::local_blind::CaptureAdmission;
@@ -127,11 +154,9 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::localBlindCaptureA
     if (session.phase != Phase::idle && session.phase != Phase::returned && session.phase != Phase::failed)
         return Admission::recovery;
     if (session.phase == Phase::failed && ! session.canRecapture) return Admission::releasePending;
-    const auto reference=referenceAuditionSnapshot();
-    if(reference.captureAccess && reference.captureAccess->busy()) return Admission::referenceBusy;
-    if (reference.blindPhase != hypha::reference_audition::BlindPhase::inactive)
-        return Admission::referenceBusy;
-    if (isRecording() || keepPhase() != KIRIN_KEEP_PHASE_IDLE) return Admission::keepBusy;
+    // 下げた A・live 比較・VERSION BLIND・Keep／Record・鳴っている B・C・V は、出力の持ち主の表で決める。
+    const auto owner = outputDecision (hypha::output_owner::Activity::localBlind);
+    if (owner.refused()) return captureAdmissionFor (owner);
     if (pairStatus() != KIRIN_PAIR_STATUS_PAIRED) return Admission::pairRequired;
     if (localBlindCapture.view().phase != hypha::local_blind::CaptureOwnerPhase::idle)
         return Admission::captureBusy;

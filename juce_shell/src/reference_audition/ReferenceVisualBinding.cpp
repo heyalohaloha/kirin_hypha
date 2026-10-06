@@ -8,12 +8,11 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     VisualBinding result;
     const auto calibration = blind.snapshot();
     result.hidden = calibration.phase != BlindPhase::inactive;
-    const bool awaitingApproval = currentSnapshot.sampleRateApprovalRequired;
     // A transport-only revoke stops output, not the verified display/queued source identity.
     // Invalid/replaced publications clear these pointers; aligned still requires audio readiness.
     const bool validPublication = currentSnapshot.state == RuntimeState::ready
         || currentSnapshot.state == RuntimeState::waiting;
-    result.source = !validPublication ? nullptr : awaitingApproval ? approvalVisualSource : publishedSource;
+    result.source = validPublication ? publishedSource : nullptr;
     result.overview = result.source ? currentSnapshot.detailedMeasurement : nullptr;
     result.presetId = currentSnapshot.presetId;
     result.checkId = currentSnapshot.checkId;
@@ -28,6 +27,7 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.channels = requestedConfiguration.channels;
     result.sourceCueStartSample = visualSourceCueStart;
     result.sourceCueEndSample = visualSourceCueEnd;
+    result.matchWindowBlocks = trackingEnabled.load (std::memory_order_acquire) ? liveWindowBlocks : currentSnapshot.cueWindowBlocks;
     const auto generation = mappingGeneration.load (std::memory_order_acquire);
     result.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
     result.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
@@ -36,6 +36,9 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.hostPositionValid = latestPositionValid.load (std::memory_order_acquire);
     result.hostPosition = result.hostPositionValid
         ? latestHostPosition.load (std::memory_order_acquire) : -1;
+    if (! versionComparison && bSelected.load (std::memory_order_acquire) && result.hostPositionValid && result.hostRate > 0)
+        if (const auto position = mappedSourcePosition (result.hostPosition); position >= 0)
+            result.cuePlayheadSeconds = static_cast<double> (position) / static_cast<double> (result.hostRate);
     if (result.source)
         result.key = result.source->sourceFileSha256 + ":" + juce::String (requestedConfiguration.generation)
             + ":" + juce::String (generation) + ":" + juce::String (calibration.pairedLoudnessDeltaDb, 9)
@@ -62,8 +65,8 @@ VisualBinding RuntimeV2Controller::visualBinding() const
             && std::isfinite (result.gainDb);
         if (!std::isfinite (result.gainDb)) result.gainDb = 0.0;
     }
-    result.captureEvidence = !result.hidden ? publishedCaptureEvidence : nullptr;
-    result.key += ":gain:" + juce::String (result.gainDb, 9);
+    // gain と合わせたかは見せ方（描くときに足す）。何を測るかの鍵（key）には入れない：入れると追従で gain が動くたびに
+    // 比べた窓を作り直し、V の画面の WHOLE の線と組の窓が消える。
     return result;
 }
 }

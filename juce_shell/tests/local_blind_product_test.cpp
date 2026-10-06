@@ -314,6 +314,8 @@ private:
                 if (! state.trial.passComplete || ! state.trial.canAnswer) break;
                 if (const auto* answer = find (*editor, "local-blind-answer-same");
                     answer == nullptr || ! answer->isVisible()) break;
+                if (const auto* grip = find (*editor, "editor-resize-grip"); grip == nullptr || grip->isVisible())
+                    require (false, "Blind holds the editor size, so its corner grip is hidden");
                 if (const auto* reveal = find (*editor, "local-blind-reveal");
                     reveal == nullptr || reveal->isVisible())
                     require (false, "normal answer flow hides the redundant Reveal action");
@@ -350,6 +352,8 @@ private:
                 if (state.phase != Phase::returned) break;
                 if (auto* screen = find (*editor, "local-blind-screen"); screen != nullptr && screen->isVisible()) break;
                 require (editor->isResizable(), "audio-confirmed return restores normal resize without Close");
+                if (const auto* grip = find (*editor, "editor-resize-grip"); grip == nullptr || ! grip->isVisible())
+                    require (false, "and shows the corner grip again");
                 require (preTransparent.load() && postTransparent.load(), "normal PRE/POST paths stay bit identical");
                 require (maximumCopyError.load() < 0.00004, "matched output stays within fixed-gain quantization bound");
                 require (auditionSamples.load() >= 192000 * 2, "actual audio output covered both complete sides");

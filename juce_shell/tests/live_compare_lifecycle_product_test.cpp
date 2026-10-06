@@ -178,6 +178,11 @@ private:
                     || mode == "reuse-held" || mode == "restore-matched-listen")
                 {
                     require (post->startLiveCompare() == StartResult::started, "named session starts");
+                    // LISTEN が POST を使っているあいだ、Reference は A を下げない（POST を二重に下げない）。B・C・V は取って代わる。
+                    const auto lowering = post->outputDecision (hypha::output_owner::Activity::lowerA);
+                    require (lowering.refused() && lowering.reason == hypha::output_owner::Reason::liveComparison
+                                 && ! post->outputDecision (hypha::output_owner::Activity::audition).refused(),
+                             "LISTEN refuses a Reference A lowering and yields to an audition");
                     lowerPost (mode == "reuse-held" || mode == "restore-matched-listen" ? 8.0 : 20.0);
                     stage = 3;
                 }
@@ -197,6 +202,10 @@ private:
                         && post->liveCompareAdmission (true) == StartResult::returnRequired, "all new entries require RETURN");
                     require (post->startLiveCompare() == StartResult::returnRequired
                         && post->beginLiveBlind() == StartResult::returnRequired, "held gate cannot be bypassed through API");
+                    // 保持中は、ほかの試聴も Reference の下げも始めない（INV-LC14）。
+                    for (auto activity : { hypha::output_owner::Activity::audition, hypha::output_owner::Activity::lowerA,
+                                           hypha::output_owner::Activity::versionBlind, hypha::output_owner::Activity::localBlind })
+                        require (post->outputDecision (activity).refused(), "a held POST attenuation keeps every other comparison waiting");
                     restore(); stage = 6;
                 }
                 else if (mode == "finishing") { restore (true); stage = 8; }

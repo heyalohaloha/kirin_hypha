@@ -1,5 +1,7 @@
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaVersionBlindScreen.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -139,7 +141,6 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
     state.readiness = hypha::reference_ui::Readiness::ready;
     state.osAccess = hypha::os_access::State::ready;
     state.auditionBuffered = true;
-    state.aAvailable = false;
     state.title = text (candidate, "label");
     state.sourceLabel = "REFERENCE PREVIEW";
     state.status = "PREVIEW / DAW INPUT NOT AVAILABLE";
@@ -148,9 +149,9 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
     state.presetId = text (preset, "id", 128);
     state.presetName = text (preset, "label");
     state.presets = options (preset);
-    state.checkId = text (check, "id", 128);
+    const auto checkId = text (check, "id", 128);
     state.checkLabel = text (check, "label");
-    state.checks = options (check);
+    const auto checkOptions = options (check);
     state.comparisonMode = text (check, "comparison_mode", 32);
     state.viewBindings = viewBindings (check);
     state.candidateId = text (candidate, "id", 128);
@@ -165,18 +166,42 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
             { return option.id == selected; });
     };
     if (! hasSelectedId (state.presetId, state.presets)
-        || ! hasSelectedId (state.checkId, state.checks)
+        || ! hasSelectedId (checkId, checkOptions)
         || ! hasSelectedId (state.candidateId, state.candidates)
         || ! hasSelectedId (state.cueId, state.cues))
         fail ("reference-preview-request-invalid");
-    state.blindPhase = example == "blind"
-        ? hypha::reference_ui::BlindPhase::active
-        : hypha::reference_ui::BlindPhase::unavailable;
+    // ABCV の C（CHECK）の画面（Kirin OS の CHECK の編集画面が「Hypha ではこう見える」を出す）。Check の
+    // タブは CHECK SET の Check、曲は選んでいる Check の曲（ほかの Check の曲は要求に無いので、今の曲で並べる）。
+    for (const auto& option : checkOptions)
+        if (option.id == checkId)
+            for (const auto& song : state.candidates)
+                state.checks.push_back ({ option.id + "/" + song.id, option.label + "  /  " + song.label });
+        else
+            state.checks.push_back ({ option.id + "/" + state.candidateId, option.label + "  /  " + state.candidateName });
+    state.checkId = checkId + "/" + state.candidateId;
+    state.comparisonSlot = 2;
+    state.libraryReceived = state.osOnline = true;  // Kirin OS の中のプレビュー。Kirin OS を開く案内は出さない
+    state.blindLargeScreen = true;
+    // C が聴ける状態として描く（準備の段階と始め方の案内は Hypha 本体が言う。案内で C の画面を覆わない）。
+    state.checkStep = hypha::reference_ui::SourceStep::ready;
+    state.aAvailable = state.checkReady = state.checkArmable = true;
+    state.versionStep = hypha::reference_ui::SourceStep::chooseVersion;
+    if (example == "blind")
+    {
+        // Blind は V（VERSION）の画面から始まる（VERSION BLIND）。表示の例だけで、始めも記録もしない。
+        state.comparisonSlot = 1;
+        state.blindPhase = hypha::reference_ui::BlindPhase::active;
+        state.transportPlaying = true;
+        state.status = "BLIND / SOURCE IDENTITY HIDDEN";
+    }
+    else state.blindPhase = hypha::reference_ui::BlindPhase::unavailable;
     return state;
 }
 
-juce::Image render (hypha::reference_ui::State state)
+juce::Image render (hypha::reference_ui::State state, bool japanese)
 {
+    // 要求の locale（Kirin OS の画面の言語）で描く。Hypha の画面の言語の設定は変えない。
+    const hypha::i18n::ScopedLanguage language (japanese ? hypha::i18n::Language::japanese : hypha::i18n::Language::english);
     juce::Component surface;
     hypha::observatory::View shell { hypha::observatory::Role::post };
     hypha::reference_ui::Component reference;
@@ -189,8 +214,22 @@ juce::Image render (hypha::reference_ui::State state)
                          hypha::observatory::ConnectionState::paired);
     surface.addAndMakeVisible (shell);
     reference.setBounds (shell.bodyBounds());
+    const bool blind = hypha::reference_ui::isBlindSession (state.blindPhase);
+    // 2026-10-04（B-1181）：始めた VERSION BLIND は、Hypha 本体と同じく PRE/POST Blind と同じ画面が窓全体を覆う
+    // （REF は Blind の間は何も描かない）。Kirin OS の表示の例も同じ画面で描く。
+    hypha::blind_ui::ScreenComponent screen ("version-blind");
+    screen.setBounds (surface.getLocalBounds());
+    screen.setScreen (hypha::reference_ui::versionBlindScreen (state));
     reference.setState (std::move (state));
     surface.addAndMakeVisible (reference);
+    if (blind)
+    {
+        surface.addAndMakeVisible (screen);
+        const auto* source = screen.findChildWithID ("version-blind-source-1");
+        const auto* end = screen.findChildWithID ("version-blind-end");
+        if (source == nullptr || end == nullptr || ! source->isVisible() || ! end->isVisible())
+            fail ("reference-preview-render-failed");  // Blind の例が空の絵にならない
+    }
     juce::Image image (juce::Image::ARGB, surface.getWidth(), surface.getHeight(), true);
     juce::Graphics graphics (image);
     surface.paintEntireComponent (graphics, true);
@@ -217,7 +256,7 @@ int main (int argc, char** argv)
         juce::FileOutputStream stream { output };
         if (! stream.openedOk()
             || ! juce::PNGImageFormat().writeImageToStream (
-                render (stateFromRequest (object (request))), stream))
+                render (stateFromRequest (object (request)), request["locale"] == juce::var ("ja")), stream))
             fail ("reference-preview-output-failed");
         std::cout << "{\"renderer_version\":\"1.0.0\"}\n";
         return EXIT_SUCCESS;

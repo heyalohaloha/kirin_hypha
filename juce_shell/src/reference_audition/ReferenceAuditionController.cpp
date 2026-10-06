@@ -92,6 +92,8 @@ namespace hypha::reference_audition
                 ? "1 = B  /  2 = A" : "1 = A  /  2 = B";
         else
             result.blindReveal.clear();
+        result.blindStimulusOneIsComparison = blind.phase == BlindPhase::revealed
+            && blind.revealedStimulusOneSide == static_cast<int> (BlindSide::b);
         return result;
     }
 

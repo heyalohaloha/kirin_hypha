@@ -20,8 +20,24 @@ namespace hypha::reference_audition
     {
     }
 
+    namespace
+    {
+        juce::CriticalSection testingRootLock;
+        juce::File testingRoot;  // testingRootLock
+    }
+
+    void RuntimeV2Repository::setTransportRootForTesting (const juce::File& root)
+    {
+        const juce::ScopedLock lock (testingRootLock);
+        testingRoot = root;
+    }
+
     juce::File RuntimeV2Repository::transportRoot()
     {
+        {
+            const juce::ScopedLock lock (testingRootLock);
+            if (testingRoot != juce::File()) return testingRoot;
+        }
        #if JUCE_WINDOWS
         auto local = juce::File::getSpecialLocation (juce::File::windowsLocalAppData);
         return local.getChildFile ("Kirin OS").getChildFile ("plugin_data")

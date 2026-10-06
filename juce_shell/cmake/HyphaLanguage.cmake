@@ -8,8 +8,9 @@ set(KIRIN_HYPHA_LANGUAGE_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseAnalysis.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseMenus.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseReference.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseReferenceCapture.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseReferenceGuide.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseReferenceAbcv.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseBlind.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseInformation.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseNotices.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseNotices.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseHelpLine.cpp")

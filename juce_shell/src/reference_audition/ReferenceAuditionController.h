@@ -1,13 +1,19 @@
 #pragma once
+
+#include <map>
+#include <set>
 #include "ReferencePendingAudition.h"
+#include "ReferenceTrackingState.h"
 
 #include <atomic>
 #include <functional>
+#include <limits>
 #include <memory>
 
 #include <juce_core/juce_core.h>
 
 #include "ReferenceAudioPages.h"
+#include "ReferenceCuePart.h"
 #include "ReferenceDeferredControl.h"
 #include "ReferenceVisualTimeline.h"
 #include "ReferenceVisualPreferences.h"
@@ -16,7 +22,6 @@
 #include "ReferenceAuditionRepository.h"
 #include "ReferenceRuntimeV2Measurement.h"
 #include "ReferenceRuntimeV2Profile.h"
-#include "ReferenceWorkflowModel.h"
 
 namespace hypha::reference_audition
 {
@@ -37,6 +42,16 @@ namespace hypha::reference_audition
         bool requiresPreparation = false;
     };
 
+    // Hypha に届いた B セット（順位順、最大 3）と、その曲（B の一覧）。曲の id は選択の ID。
+    struct RuntimeSongSetOption
+    {
+        juce::String id;
+        juce::String name;
+        int rank = 0;
+        std::vector<RuntimeSelectionOption> songs;
+        std::vector<RuntimeSongFacts> facts; // songs と同じ順。既定の Cue の Kirin OS の値
+    };
+
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
 
     struct Snapshot
@@ -46,7 +61,18 @@ namespace hypha::reference_audition
         juce::String sourceKind;
         juce::String rejectionCode;
         MatchFailure matchFailure = MatchFailure::none;
+        // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。
+        double neededAttenuationDb = 0.0;
+        double peakShortfallDb = 0.0;  // 上限まで上げて鳴らしていて、A に届かない量（0.5 dB 以下、0 なら合っている）
+        std::uint64_t matchAttempt = 0;        // MATCH の試みの番号（押した・待たせた・やり直し）。知らせを一度にする鍵
+        std::uint64_t matchFailureSerial = 0;  // 失敗と承認の下げ幅を作った・消したときだけ変わる番号
+        // 承認して A（POST の出力全体）を下げている量（0 以下）。比較の制御が出す（役の値ではない）。
+        double heldAttenuationDb = 0.0;
+        // 窓に一度出した承認の申し出（役と失敗の番号）。窓を開き直しても出し直さない。比較の制御が出す。
+        int lowerAOfferShownSlot = 0;
+        std::uint64_t lowerAOfferShownSerial = 0;
         juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
+        std::uint64_t selectionGeneration = 0; // 作業スレッドがこの状態を出したときに反映していた選択の世代
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;
         double sourceIntegratedLoudness = 0.0;
         double sourceMaximumTruePeakDbtp = 0.0;
@@ -59,6 +85,19 @@ namespace hypha::reference_audition
         double truePeakDeltaBMinusA = 0.0;
         bool gainLimited = false;
         bool comparisonFallbackOriginal = false;
+        TrackingState tracking = TrackingState::none;
+        // 選んだ Cue の Kirin OS の値（ranges）。無ければ曲全体の値で合わせている（Kirin OS で測り直すと使う）。
+        bool cueLevelAvailable = false;
+        double cueIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
+        double cueMaximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();
+        int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
+        // C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。
+        std::shared_ptr<const KirinSpectrumWindow> cueSpectrum;
+        CuePart cuePart = CuePart::unknown;  // Cue が曲のどの部分か（C の図の凡例）
+        double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
+        double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN();
+        bool cueLoops = false;
+        double cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
         bool bSelected = false;
         bool transportPlaying = false;
         bool transportPositionValid = false;
@@ -72,6 +111,7 @@ namespace hypha::reference_audition
         bool blindStimulusOneHeard = false;
         bool blindStimulusTwoHeard = false;
         juce::String blindReveal;
+        bool blindStimulusOneIsComparison = false;  // 開示の後：1 が比べる側（V、1 曲だけの B）
         bool blindLowerAApprovalRequired = false;
         double blindRequiredAAttenuationDb = 0.0;
         juce::String presetId;
@@ -91,19 +131,29 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> cues;
         std::vector<RuntimeSelectionOption> versions;
         std::vector<RuntimeSelectionOption> checkTargets;
+        std::map<juce::String, std::vector<juce::String>> checkViewBindings; // CHECK SET の Check ごとの表示（V のタブ）
+        std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（Kirin OS の audition_only）。図の代わりに案内を出す
+        std::vector<RuntimeSongSetOption> songSets;
+        juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
+        std::vector<RuntimeSkippedItem> librarySkipped; // Kirin OS の項目のうち受け付けずに外したもの（名前と理由）
+        std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // Kirin OS の準備の状態（無ければ null）
+        std::vector<RuntimeCheckSetRank> checkSetRanks; // Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
+        bool versionAuto = false; // 選んでいる Version は AUTO が選んだ（AUTO が選び直せる）
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
         bool versionArmable = false, checkArmable = false;
+        // B（REF）。選んだ B SET と曲、その役の状態（referenceSelection）。
+        std::shared_ptr<const Snapshot> referenceSelection;
+        juce::String selectedSongSetId, selectedSongId;
+        bool referenceReady = false, referenceArmable = false;
         PendingAuditionView pendingAudition;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
         std::shared_ptr<const VisualTimeline> visualTimeline;
         double visualPositionSeconds = -1.0;
         std::shared_ptr<VisualPreferences> visualPreferences;
-    std::shared_ptr<ACaptureAccess> captureAccess;
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
-        bool sampleRateApprovalRequired = false;
         std::int64_t sourceSampleRateHz = 0;
         std::int64_t hostSampleRateHz = 0;
         bool measurementAvailable = false;
@@ -121,9 +171,6 @@ namespace hypha::reference_audition
         bool libraryReceived = false;
         bool osOnline = false;
         std::int64_t manifestRevision = 0;
-        std::shared_ptr<const WorkflowCatalog> workflowCatalog;
-        juce::String workflowToken;
-        WorkflowView workflow;
     };
 
     class Controller final : private juce::Thread

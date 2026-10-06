@@ -8,9 +8,12 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#include "HyphaOutputOwnershipText.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaEditorResizeGrip.h"
 #include "HyphaEditorSizeConstrainer.h"
 #include "HyphaFeedbackStrip.h"
+#include "HyphaHelpLineBar.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
@@ -28,6 +31,9 @@
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
+#include "HyphaVersionBlindScreen.h"
+#include "HyphaReferenceTrackingNotice.h"
+ #include "HyphaReferencePreparationWatch.h"
  #include "HyphaReferenceAccessPanel.h"
  #include "HyphaLocalBlindComponent.h"
  #include "HyphaLiveBlindComponent.h"
@@ -50,8 +56,17 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void visibilityChanged() override;
+    // 300% 以上は、指している項目の説明を足元に出す（PluginEditorHelpLine.cpp）。`point` はエディターの座標。
+    // wholeRow：足元の段の全幅（図・値・タブ）か、左の状態の所だけ（足元のボタン）か。出さないときは空。
+    struct HelpLine { juce::String text; bool wholeRow = false; };
+    HelpLine helpLineAt (juce::Point<int> point);
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseEnter (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
+    bool helpLineActive() const;
+    void updateHelpLine();
     class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
     {
     public:
@@ -99,6 +114,10 @@ private:
     // on whole device pixels that fit the display (HyphaEditorSizeConstrainer.h).
     void updateResizeLimits();
     hypha::EditorSizeConstrainer sizeConstrainer;
+    // The corner a user drags where the host has no window frame for it (HyphaEditorResizeGrip.h);
+    // shown whenever the editor may be resized.
+    hypha::EditorResizeGrip resizeGrip { this, &sizeConstrainer };
+    hypha::HelpLineBar helpLineBar; // the help line over the footer at 300% and above
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
@@ -126,10 +145,20 @@ private:
     void updateSpectrumSizeControl();
     void configureReferenceAudition();
     void showReferenceInformationMenu();
-    void refreshCaptureControls();
-    hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition();
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    void wireReferenceRoles();  // B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
+    void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
+    void openReferenceLarge (int slot);
+    // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
+    double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）
+    bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);
+    void approveOfferedLowerA (const hypha::reference_audition::LowerAOffer&);
+    void applyReferenceLowerA (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
+    bool returnReferenceLevelIfHeld();
+    int referenceHeldTenthsDb() const;
+    hypha::reference_ui::PreparationWatch referencePreparationWatch;
+    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser;
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();
@@ -146,7 +175,6 @@ private:
     void refreshLiveCompare();
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
-    bool liveCompareHoldBlocksAudition();
     void pinLiveCompareForBlind();
     void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     void matchLiveCompare();
@@ -187,6 +215,13 @@ private:
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
+    // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
+    bool outputRefused (hypha::output_owner::Activity activity)
+    {
+        const auto decision = processorRef.outputDecision (activity);
+        if (decision.refused()) showToast (hypha::output_owner::refusalText (decision.reason));
+        return decision.refused();
+    }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::String liveCompareWarningText() const { return liveCompareWarning; }
 #else
@@ -194,6 +229,9 @@ private:
 #endif
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     void layoutBodyAndFeedback();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    void placeReferenceStatus();  // 300% の B・C・V の状態の行を足元の段へ
+   #endif
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);
@@ -231,6 +269,9 @@ private:
     hypha::reference_ui::AccessPanel referenceAccessView;
     hypha::local_blind_ui::Component localBlindView;
     hypha::live_blind_ui::Component liveBlindView;
+    hypha::blind_ui::ScreenComponent versionBlindView { "version-blind" };  // REF の VERSION BLIND（LIVE BLIND と同じ画面）
+    hypha::reference_ui::VersionBlindNotice versionBlindNotice;  // VERSION BLIND の操作の失敗（Blind の画面が言う）
+    juce::uint32 versionBlindNoticeUntil = 0;
     bool liveBlindOpen = false;
     bool liveCompareFinishingSeen = false;
 #endif
@@ -287,6 +328,8 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
+    hypha::reference_ui::TrackingStopNotice referenceTrackingStop;  // 追従が止まった知らせ（同じ役の同じ試みで一度）
+    juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif

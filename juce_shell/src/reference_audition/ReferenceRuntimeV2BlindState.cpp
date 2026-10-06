@@ -197,6 +197,11 @@ namespace hypha::reference_audition
             || attenuationHoldActive.load (std::memory_order_acquire);
     }
 
+    bool RuntimeV2Blind::engaged() const noexcept
+    {
+        return ongoing() || lifecycle.load (std::memory_order_acquire) == invalidated;
+    }
+
     bool RuntimeV2Blind::listening() const noexcept
     {
         const auto state = lifecycle.load (std::memory_order_acquire);

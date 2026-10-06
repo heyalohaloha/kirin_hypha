@@ -21,6 +21,10 @@ inline const char* admissionText (local_blind::CaptureAdmission reason) noexcept
         case A::engineUnavailable: return "The measurement engine is not available.";
         case A::admissionFailed: return "Capture could not be admitted. Check the current pair and comparisons.";
         case A::requestFailed: return "The capture request could not be sent. Try again after it is released.";
+        case A::referenceLowered: return "Reference lowered A. Press RETURN first.";
+        case A::returnFirst: return "Press RETURN first";
+        case A::referenceReturning: return "A is returning to normal level";
+        case A::referenceAudition: return "Press A in REF first";
     }
     return "Capture could not start.";
 }

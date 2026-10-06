@@ -83,8 +83,9 @@ mod tests {
         assert!(reference.contains("hypha::reference_ui::needsAccessPanel (referenceView.state())"));
         assert!(reference.contains("processorRef.refreshLicenseForUserAction();"));
         assert!(reference.contains("safe->handleInformationMenu (selected)"));
+        assert!(reference.contains("hypha::reference_ui::runtimeStatus (runtime, state)"));
         let status = body(
-            reference,
+            include_str!("../../juce_shell/src/HyphaReferenceRuntimeStatus.cpp"),
             "using Runtime = hypha::reference_audition::RuntimeState;",
             "if (runtime.presetSelectionStatus == \"pending\")",
         );

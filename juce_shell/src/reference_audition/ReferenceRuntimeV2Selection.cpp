@@ -57,6 +57,8 @@ namespace hypha::reference_audition
         const auto sourcePosition = mappedSourcePosition (hostPosition);
         if (sourcePosition >= 0)
             pages.request (sourcePosition);
+        else if (restartsAtCueStart())
+            pages.request (cueStart.load (std::memory_order_acquire));  // 押せば Cue の頭から鳴らし直すので先に読む
     }
 
     void RuntimeV2Controller::setContentObservationEnabled (bool enabled) noexcept
@@ -143,6 +145,47 @@ namespace hypha::reference_audition
         return versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
     }
 
+    std::int64_t RuntimeV2Controller::loopedCuePosition (std::int64_t hostPosition) const noexcept
+    {
+        for (int attempt = 0; attempt < 3; ++attempt)
+        {
+            const auto generation = mappingGeneration.load (std::memory_order_acquire);
+            if ((generation & 1u) != 0)
+                continue;
+            const auto start = cueStart.load (std::memory_order_relaxed);
+            const auto end = cueEnd.load (std::memory_order_relaxed);
+            const auto hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
+            const auto sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
+            std::int64_t result = -1, delta = 0, origin = 0;
+            if (end > start && sourceAnchor >= start && sourceAnchor < end
+                && checkedSubtract (hostPosition, hostAnchor, delta)
+                && checkedAdd (sourceAnchor - start, delta, origin))
+                result = start + positiveModulo (origin, end - start);
+            if (mappingGeneration.load (std::memory_order_acquire) == generation)
+                return result;
+        }
+        return -1;
+    }
+
+    bool RuntimeV2Controller::restartsAtCueStart() const noexcept
+    {
+        return ! versionComparison && ! sampleLocked.load (std::memory_order_acquire)
+            && ! cueLoops.load (std::memory_order_acquire)
+            && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
+    }
+
+    bool RuntimeV2Controller::restartCueAtPlayhead (std::int64_t hostPosition) noexcept
+    {
+        const juce::ScopedLock lock (mappingWriteLock);
+        if (! restartsAtCueStart() || mappedSourcePosition (hostPosition) >= 0)
+            return false;
+        mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
+        bHostAnchor.store (hostPosition, std::memory_order_relaxed);
+        bSourceAnchor.store (cueStart.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        mappingGeneration.fetch_add (1, std::memory_order_release);
+        return true;
+    }
+
     bool RuntimeV2Controller::startBlind (double aIntegratedLoudness,
                                           double aMaximumTruePeakDbtp) noexcept
     {
@@ -161,7 +204,7 @@ namespace hypha::reference_audition
         double aIntegratedLoudness, bool approveLowerA) noexcept
     {
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
-        if (! ready.load (std::memory_order_acquire)
+        if (! ready.load (std::memory_order_acquire) || revokeAfterFade.load (std::memory_order_acquire)
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
             || bSelected.load (std::memory_order_acquire) || blind.ongoing())
@@ -250,6 +293,8 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::endBlind() noexcept
     {
+        // Blind が無ければ何もしない。REF を離れる・窓を閉じるときにも呼ばれ、聴いている V を止めてはいけない。
+        if (! blind.engaged()) return;
         ReferenceSessionRetirement cancelled;
         if (blind.cancelUnheardStart (cancelled))
             releaseOutputGate (cancelled.outputGateToken);
@@ -283,8 +328,14 @@ namespace hypha::reference_audition
         }
     }
 
+    // 作業スレッドの A へ切る道（ライブラリが公開を引っ込めた・選択が使えない・音源が確かめられない）。戻す控えも消す：
+    // 同じ音が公開し直されても勝手に鳴り直さない（受け取り・読み直しでは役を始めない）。
     void RuntimeV2Controller::failClosedToA() noexcept
     {
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (heldSelection.valid) { heldSelection = {}; heldWithdrawn.store (true, std::memory_order_release); }
+        }
         revokeAuditionPublication();
         if (blind.ongoing())
             invalidateBlind();

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "ReferenceVisualTimeline.h"
+#include "ReferenceDynamicsRange.h"
 #include "ReferenceAnalysis.h"
 #include <array>
 #include <functional>
@@ -10,13 +11,14 @@ class VisualObservation final : private juce::Thread
 {
 public:
     using Binding = std::function<VisualBinding()>;
-    explicit VisualObservation (Binding, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(),
-                                juce::File runtimeRoot = {});
+    explicit VisualObservation (Binding, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>());
     ~VisualObservation() override;
     void configure (double sampleRate, int channels);
     void setPresented (bool);
     static constexpr size_t inputQueueBytes() { return sizeof(Block)*queueSize; }
     bool pendingInput() const noexcept { return readIndex.load()!=writeIndex.load(); }
+    // 受け口が満ちて渡せなかった塊の数（enqueue を呼ぶスレッドが読む。試験と診断のため）。
+    std::uint64_t droppedBlocks() const noexcept { return rtDiscontinuity; }
     // Non-RT admission transfer. Neither method waits for source reads.
     void pauseAdmission();
     void resumeObservation();
@@ -40,10 +42,10 @@ private:
     std::uint64_t rtDiscontinuity = 0;
     mutable juce::CriticalSection controlLock, snapshotLock;
     bool presented = false, paused = false;
-    int configuredRate = 0, configuredChannels = 0;
+    int configuredRate = 0, configuredChannels = 0;  // controlLock
+    int runRate = 0, runChannels = 0;  // 観測スレッドだけ：周期の頭で controlLock の中から写した値
     std::shared_ptr<ReferenceAnalysis> analysis;
     ReferenceAnalysis::Lease admission;
-    ReferenceTonalRepository tonalRepository;
     Binding binding;
     VisualTimeline timeline;
     std::shared_ptr<const VisualTimeline> published;
@@ -53,19 +55,23 @@ private:
     std::array<float, 512> bPcm {};
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
-    KirinReferenceTonalMeter* tonalMeter = nullptr;
+    KirinSpectrumMeter kirinMeter;        // A を Kirin OS の Cue と同じ定義で
+    KirinSpectrumMeter pairAMeter, pairVMeter; // 位置合わせで対応した A と V（同じフレーム）
+    KirinFingerprintMeter printMeter;     // A の Kirin 指紋（直近 30 秒）
+    DynamicsTicks aTickMeter;              // 範囲の帯：A の 100 ms の bin（Kirin OS の区間の値と同じ定義）
+    DynamicsTicks pairATicks { 300 }, pairVTicks { 300 }; // V の画面：同じ区間の A と V（直近 30 秒）
+    std::int64_t printEndSample = -1;
+    std::int64_t pairKirinExpected = -1;
+    std::int64_t kirinExpected = -1;
+    std::uint64_t kirinDiscontinuity = 0;
     std::int64_t expected = -1;
-    std::int64_t tonalExpected = -1;
     std::uint64_t previousDiscontinuity = 0;
-    std::uint64_t tonalDiscontinuity = 0;
     bool completeBin = false, measuring = false, dirty = true;
     void run() override;
     void clearMeters();
-    void clearTonal();
     bool resetMeters();
-    bool resetTonal();
     void consumePair (const Block&);
-    void consumeTonal (const Block&);
+    void consumeKirin (const Block&, int rate);
     void publish();
 };
 }

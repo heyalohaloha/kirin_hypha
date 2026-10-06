@@ -111,17 +111,12 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
         return StartResult::notReady;
     }
     liveCompare.sessionActive.store (true, std::memory_order_release);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // 仕様 A：live 比較を始めたら、停止前の Reference の選択へ自動で戻さない。
+    if (referenceAuditionController != nullptr) referenceAuditionController->forgetHeldAudition();
+   #endif
     startTimer (50);
     return StartResult::started;
-}
-
-hypha::live_compare::StartResult KirinHyphaProcessorBase::liveCompareAdmission (bool reuseSession) const noexcept
-{
-    return hypha::live_compare::entryAdmission (reuseSession,
-        liveCompare.sessionActive.load (std::memory_order_acquire) && liveCompare.authority.permitted(),
-        liveCompare.authority.restoring() || liveCompare.authority.generation() != liveCompare.restoreServiced,
-        liveCompare.completion.pending(), liveCompare.blindScope != 0,
-        liveCompare.postActual.load (std::memory_order_acquire), liveCompare.postTarget.load (std::memory_order_acquire));
 }
 
 void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReason reason)

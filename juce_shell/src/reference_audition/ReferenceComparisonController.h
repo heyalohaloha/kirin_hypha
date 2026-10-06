@@ -1,33 +1,39 @@
 #pragma once
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceVisualObservation.h"
-#include "ReferenceACaptureSession.h"
-#include "ReferenceACaptureProjection.h"
+#include "ReferenceAInputRelay.h"
+#include "ReferenceBlindSlot.h"
+#include "ReferenceComparisonSettings.h"
+#include "ReferenceHeldAttenuation.h"
+#include "../OutputOwnership.h"
 
 #include <deque>
 #include <juce_events/juce_events.h>
 
 namespace hypha::reference_audition
 {
-// A is the original DAW input. B and C own separate prepared choices, while one
-// shared gate admits only the explicitly selected output path.
-class ReferenceComparisonController final : private juce::AsyncUpdater
+// A is the original DAW input. V (slot 1, Version), C (slot 2, Check) and B (slot 3, REF: the
+// B set songs) own separate prepared choices, while one shared gate admits only the explicitly
+// selected output path. Only one role sounds at a time.
+class ReferenceComparisonController final
 {
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
     using StateChanged = std::function<void()>;
-    explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {},
-                                            SelectionGate = {}, StateChanged = {});
-    ~ReferenceComparisonController() override;
+    using ExternalStates = std::function<output_owner::States()>;
+    // gate：出力の経路（Rust の試聴の排他）。versionBlindGate：VERSION BLIND のあいだのほかの Blind との排他（同じ project・
+    // 同じ process の別の Hypha も含む。Rust の kirin_hypha_set_version_blind_capture_exclusion）。externalStates：Reference の
+    // 外の状態（live 比較・PRE/POST Blind・Keep／Record・形式・書き出し・bypass）。出力を取る入口は表（OutputOwnership.h）で決める。
+    explicit ReferenceComparisonController (juce::File, SelectionGate gate = {}, SelectionGate versionBlindGate = {},
+                                            StateChanged = {}, ExternalStates externalStates = {});
+    ~ReferenceComparisonController();
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
     Snapshot snapshot();
-    bool captureObservationReady() const noexcept { return version.captureObservationReady(); }
-    bool captureObservationQueueDrained() const noexcept { return version.captureObservationQueueDrained(); }
     ReferenceComparisonSettings savedSettings();
     void restoreSettings (const ReferenceComparisonSettings&);
-    bool selectVersion (const juce::String&);
+    bool selectVersion (const juce::String&, bool automatic = false); // automatic：V の自動特定の AUTO（V の選択だけを替える）
     bool selectPreset (const juce::String&);
     bool selectCheck (const juce::String&);
     bool selectCandidate (const juce::String&);
@@ -35,20 +41,23 @@ public:
     bool selectVisualSlot (int); // Display only; never changes the audible source or gain.
     bool retryPresetSelection();
     bool retryCandidatePreparation();
-    bool approveSampleRateConversion(int slot);
     bool requestRecovery();
-    bool startLatestReview();
-    bool startLatestBookmark();
-    bool moveWorkflow (int direction, bool confirmed, bool deferred);
-    void endWorkflow();
-    void setCaptureTonalRange (double startSeconds, double endSeconds);
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
-    bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues only.
+    bool selectRef (double, double) noexcept;              // B（REF）を鳴らす
+    bool selectSong (const juce::String& songId);          // B の曲。B が鳴っていれば即切替
+    bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
+    bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues, playing waits while preparing.
     void servicePendingAudition (double, double, bool callbackLive);
     bool pendingAuditionNeedsService() const;
+    int pendingSlot() const; // 押した後に待っている役（無ければ 0）
+    // 仕様 A：オフライン書き出し（Audio Thread が知らせる）・live 比較の開始では、停止前の選択へ自動で戻さない。
+    void noteOfflineRender() noexcept { offlineRenderSeen.store (true, std::memory_order_release); }
+    void forgetHeldAudition();
     void selectA() noexcept;
-    bool reserveLocalBlind();
+    // PRE/POST Blind・LIVE BLIND の Blind の枠を押さえる（表で調べて、gateLock の中で）。B・C・V の戻す控えを譲らせるのは
+    // Rust の許可が通った後（bindLocalBlind）。断られたときに利用者の選択を黙って失わない。
+    bool reserveLocalBlind (output_owner::Activity = output_owner::Activity::localBlind);
     void bindLocalBlind(std::uint64_t);
     void releaseLocalBlind(std::uint64_t);
     bool startBlind (double, double) noexcept;
@@ -59,48 +68,57 @@ public:
     void endBlind() noexcept;
     void suspendAudition() noexcept;
     void observeTransport (std::int64_t, bool, bool) noexcept;
-    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0, std::optional<bool> captureAllowed = {}, CaptureClockSignature = {}) noexcept;
+    // allowed：ライセンスを含めて A を聞く・測る。inputAllowed：バイパス・書き出しでない（無ければ allowed）。
+    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0,
+                        std::optional<bool> inputAllowed = {}, AInputClockSignature = {}) noexcept;
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
+    // A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。
+    int liveWindowBlocks (int slot) const;
+    int pendingLiveWindowBlocks() const;
+    // 利用者が B／C を選んだまま（停止のあいだも）。戻す保留を立てるために timer を回し続ける。
+    bool auditionHeld() const noexcept { return normalOutputSlot.load (std::memory_order_acquire) != 0; }
+    bool pendingAuditionNeedsLevel() const; // 新しい MATCH をする保留だけが A の音量を要る（戻すときは要らない）
+    // 聴いている役が追従するなら、1 秒ごとに A の直近の履歴で gain を求め直す（メッセージスレッド）。
+    bool trackingNeedsService() const noexcept;
+    TrackingAction followAudition (const std::vector<KirinMeterHistoryEntry>&, double aSessionPeakDbtp);
+    RematchResult rematch (int slot, double aLoudness, double aSessionPeakDbtp); // C の MATCH をもう一度
+    VersionIdentity identifyVersions(); // A の直近の指紋で V を特定する（メッセージスレッド）
+    // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認した量だけ A を下げて合わせる。下げ終わってから鳴らす。
+    LowerAApproval approveLowerAAndPlay (const LowerAOffer&);
+    // 承認の申し出を窓に出した（一度だけ）。窓を開き直しても出し直さないために持つ。
+    void markLowerAOfferShown (int slot, std::uint64_t failureSerial);
+    // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
+    void returnAToNormalLevel();
+    double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
+    // 出力の持ち主の表のための、Reference の中の状態（Blind の枠・VERSION BLIND・下げた A・鳴っている役・控えと待ち）。
+    output_owner::States ownOutputStates() const;
+    // 表の答え（Reference の中と外の状態で）。入口は押さえる直前に、もう一度これで確かめる。
+    output_owner::Decision outputDecision (output_owner::Activity) const;
+    // A を観測スレッドへ渡しているか（見せていて Blind の外）。VERSION BLIND の終了の後に戻ることを試験が確かめる。
+    bool aInputFeeding() const noexcept { return aFeed.load(); }
 
 private:
-    struct PendingWorkflowTransition
-    {
-        enum class Action { checkpointOnly, move, finish };
-        Action action = Action::checkpointOnly;
-        juce::String operationId;
-        std::shared_ptr<const WorkflowDefinition> definition;
-        int nextIndex = 0;
-    };
-    struct WorkflowCommitInbox
-    {
-        juce::CriticalSection lock;
-        std::deque<WorkflowEventCommit> commits;
-        juce::AsyncUpdater* updater = nullptr;
-        bool accepting = true;
-    };
     bool admit (int, bool);
-    bool admitCapture(bool);
+    output_owner::States ownStatesLocked() const;  // gateLock を持って呼ぶ（atomic と gateLock の値だけを読む）
+    output_owner::States external() const { return externalStates ? externalStates() : 0; }  // gateLock の外で呼ぶ
+    // VERSION BLIND の持ち物。始まりで A を観測へ渡すのを止め、ほかの Blind を締め出す（Blind の枠と barrier）。終わりは
+    // どの道でも finishVersionBlindSession だけを通る。A はすぐ観測へ戻し、締め出しは V が出力を返し終えたとき（admit）に、
+    // 返すものが無ければすぐ放す。中の Blind が END 以外で終わったとき（取り消し・DAW の状態の読み込み・作り直し・失効）は
+    // reconcileVersionBlindSession が定期の処理で拾う。
     bool beginBlindGuard();
-    void endBlindGuard();
+    void finishVersionBlindSession();
+    void reconcileVersionBlindSession();
+    void releaseVersionBlindGuard();
     void refreshObservation();
-    ACaptureReceipt captureReceipt() const;
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
-    bool startWorkflow (std::shared_ptr<const WorkflowDefinition>, int itemIndex = 0);
-    bool prepareWorkflowItem (const std::shared_ptr<const WorkflowDefinition>&, int);
-    bool appendWorkflowEvent (const juce::String&, const WorkflowItem&,
-                              const std::shared_ptr<const WorkflowDefinition>&,
-                              PendingWorkflowTransition::Action, int nextIndex = 0);
-    void workflowCommitted (const WorkflowEventCommit&);
-    void serviceWorkflowCommits();
-    void handleAsyncUpdate() override;
-    bool hasActiveWorkflow() const;
     void clearPendingAudition();
     void appendPendingAudition (Snapshot&, const VisualBinding&, const VisualBinding&) const;
-    bool finishWorkflow (bool completed);
-    void applyWorkflowFinish();
-    SelectionGate gate, captureGate, blindCaptureGate;
-    bool captureOwned=false,blindGuardOwned=false,localBlindOwned=false;
+    SelectionGate gate, versionBlindGate;
+    ExternalStates externalStates;
+    bool blindGuardOwned=false,localBlindOwned=false;
+    bool aInputPaused = false;  // gateLock：VERSION BLIND を始めてから終わるまで、A を観測スレッドへ渡さない
+    std::atomic<bool> blindSessionOpen { false };  // aInputPaused か blindGuardOwned が残っている（定期の処理で片付ける）
     std::uint64_t localBlindEpoch=0;
     std::atomic<bool> presented{false};
     juce::CriticalSection gateLock;
@@ -108,12 +126,6 @@ private:
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
-    TonalDisplayState tonalState;
-    WorkflowResumeState workflowState;
-    std::shared_ptr<const WorkflowDefinition> activeWorkflow;
-    std::optional<PendingWorkflowTransition> pendingWorkflowTransition;
-    ReferenceChoice normalCheckChoice;
-    int workflowItemIndex = 0;
     StateChanged stateChanged;
     struct PendingIntent
     {
@@ -122,7 +134,34 @@ private:
         std::uint64_t safetyEpoch = 0;
         std::uint64_t intentId = 0;
         bool sawPlayback = false;
+        bool resume = false; // 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
+        bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）
+        bool approvedLowerA = false; // 承認して A を下げて鳴らす待ち（鳴らす時点の差まで下げ直せる）
+        int lowerRetries = 0;
     } pendingAudition; // selectionLock; control thread only.
+    bool resumeWanted() const;
+    bool armResume();
+    void dropResume();
+    // 鳴っていた（戻る保留・押した後の待ちを含む）役の選択を替えた。新しい選択が公開されたら新しい MATCH で
+    // その役のまま鳴らす（押せば即切替）。ほかの役は止めない。continues が false（新しい選択が Kirin OS の
+    // 準備待ちで、まだ世代が進んでいない）なら、その役の保留と待ちを手放すだけ。
+    void continueAfterSwitch (int slot, bool continues = true);
+    // 鳴っている役の印（normalOutputSlot）を役の実際（出力・戻す控え・選択の替え・待ち）に合わせる。控えが消えて出力も
+    // 終わった役の印を残すと、選択を替えただけで鳴り出し、timer が回り続け、V の AUTO が止まる。ライブラリが公開を
+    // 引っ込めて控えが消えたときは、その役を「音源が変わった」で止めたと言う。
+    void reconcileOutputMark();
+    bool waitWhilePreparing (int slot);
+    bool queueAudition (int slot, std::uint64_t safetyEpoch);
+    bool selectCheckRole (const std::function<bool()>& apply);
+    RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
+    const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
+    void ensureReferenceSong (const Snapshot& reference);
+    juce::String songSetId, songId; // selectionLock
+    std::atomic<int> switchSlot { 0 };        // 選択を替えた役（1〜3）。公開されたら新しい MATCH で鳴らす
+    std::uint64_t switchGeneration = 0;        // selectionLock：その役の替えた後の選択の世代
+    int offerShownSlot = 0;                     // selectionLock：窓に出した承認の申し出
+    std::uint64_t offerShownSerial = 0;
+    std::atomic<bool> offlineRenderSeen { false };
     std::uint64_t pendingSequence = 0;
     std::atomic<std::uint64_t> activePendingIntent { 0 };
     std::atomic<std::uint64_t> pendingSafetyEpoch { 0 };
@@ -131,15 +170,19 @@ private:
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
     std::atomic<bool> versionChosen { false };
+    bool versionAuto = false; // selectionLock：V の Version は AUTO が選んだ（利用者が選ぶと false）
     bool rtPlaying = false, rtInputAllowed = false, rtInputObserved = false;
-    juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
+    juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 }, rScratch { 2, 8192 };
+    HeldAttenuation heldA;  // 承認して A（POST の出力全体）を下げている量。RETURN まで保つ
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
-    std::shared_ptr<WorkflowCommitInbox> workflowCommitInbox = std::make_shared<WorkflowCommitInbox>();
-    juce::CriticalSection workflowServiceLock;
-    RuntimeV2Controller version, check;
+    RuntimeV2Controller version, check, reference;
     VisualObservation visual;
-    ACaptureSession capture;
-    ACaptureProjection captureProjection;
+    // A を観測スレッドへ渡す（Audio Thread）。aFeed：見せていて Blind の外のときだけ渡す。aWriters：片付けで、Audio Thread が
+    // 渡し終えるのを待つ（2026-10-04、A の取り込みの部品をやめたときにそこから移した守り）。
+    AInputRelay aInput;
+    std::atomic<bool> aFeed { false };
+    std::atomic<int> aWriters { 0 };
+    BlindSlot blindSlot;  // VERSION BLIND とローカル Blind は 1 つだけ
     std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();
 };
 }

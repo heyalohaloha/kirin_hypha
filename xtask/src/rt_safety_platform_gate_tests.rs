@@ -73,10 +73,6 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
             "KirinPairPreviewLifetimeTests",
             "kirin_pair_preview_lifetime",
         ),
-        (
-            "KirinReferenceAuditionRuntimeTests",
-            "kirin_reference_capture_memory",
-        ),
     ] {
         assert!(root_cmake.contains(target) && root_cmake.contains(test_name));
         assert!(ci.contains(target) && ci.contains(test_name));
@@ -173,7 +169,6 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     for test in [
         "kirin_editor_surface_product",
         "kirin_pair_preview_lifetime",
-        "kirin_reference_capture_memory",
         "kirin_reference_audio_streaming",
         "kirin_live_compare_correspondence",
         "kirin_live_compare_timing",

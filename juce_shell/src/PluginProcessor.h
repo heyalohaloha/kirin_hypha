@@ -118,8 +118,11 @@ public:
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     void setReferenceViewPresented (bool);
     bool selectReferenceC();
-    bool selectReferenceVersion (const juce::String&);
+    bool selectReferenceVersion (const juce::String&, bool automatic = false);
     bool selectReferenceB();
+    bool selectReferenceRef(); bool selectReferenceSong (const juce::String&); bool selectReferenceSongSet (const juce::String&);
+    hypha::reference_audition::WindowLoudnessCache referenceWindowLoudness (int slot) const; hypha::reference_audition::RematchResult rematchReferenceCheck();
+    hypha::reference_audition::VersionIdentity identifyReferenceVersion(); // V の自動特定（メッセージスレッド）
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
     bool retryReferencePresetSelection();
@@ -128,16 +131,14 @@ public:
     bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
     bool selectReferenceVisualSlot (int);
-    bool approveReferenceSampleRateConversion(int slot);
     bool requestReferenceRecovery();
-    bool startLatestReferenceReview();
-    bool startLatestReferenceBookmark();
-    bool moveReferenceWorkflow (int direction, bool confirmed, bool deferred);
-    void endReferenceWorkflow();
-    void setReferenceCaptureTonalRange (double startSeconds, double endSeconds);
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);
+    hypha::reference_audition::LowerAApproval approveReferenceLowerA (const hypha::reference_audition::LowerAOffer&); // R-12
+    void markReferenceLowerAOfferShown (int slot, std::uint64_t failureSerial);  // 窓に一度出した申し出
+    void returnReferenceLevelToNormal();     // RETURN：役を止めてから A を通常の音量へ
+    double referenceHeldAttenuationDb() const noexcept; // 承認して A を下げている量（0 以下）
     bool selectReferenceBlindStimulus (int stimulus);
     bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();
@@ -158,6 +159,7 @@ public:
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
     #include "live_compare/LiveCompareProcessorApi.h"
+    #include "OutputOwnershipProcessorApi.h"
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
@@ -372,7 +374,11 @@ private:
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void serviceReferencePendingAudition();
     bool referencePendingAuditionNeedsService() const;
-    hypha::reference_audition::LiveALevel referenceLiveALevel() const;
+    void serviceReferenceTracking();            // B・V の追従（1 秒ごと）
+    bool referenceTrackingNeedsService() const;
+    double referenceTrackingNextAtMs = 0.0;     // message thread only
+    mutable hypha::reference_audition::WindowLoudnessCache referenceWindowCache; // message thread only
+    hypha::reference_audition::LiveALevel referenceLiveALevel (bool windowOnly = false, int windowBlocks = 100, int minimumBlocks = 0) const;
     bool requestReferenceAudition (int slot);
     void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)

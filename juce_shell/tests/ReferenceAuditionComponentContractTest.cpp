@@ -1,16 +1,18 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "ReferenceDisplayRegressionTest.h"
 #include "ReferenceVisualComparisonTest.h"
-#include "ReferenceACaptureControlsTest.h"
 #include "ReferenceSelectionWorkflowTest.h"
 #include "MetricPresentationWorkflowTest.h"
 #include "PairPreviewUiContractTest.h"
-#include "ReferenceTonalViewContractTest.h"
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceVisualNavigationTest.h"
+#include "ReferenceAbcvRolesTest.h"
+#include "ReferenceActionIntentTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaVersionBlindScreen.h"
+#include "../src/HyphaReferenceTrackingNotice.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -89,11 +91,29 @@ reference_ui::State readyState()
 }
 }
 
+// 追従が止まった知らせは、停止・シーク・ループで N 回自動に戻っても一度だけ。押し直す・別の役なら、また一度。
+static void verifyTrackingStopNoticeOnce()
+{
+    reference_ui::TrackingStopNotice notice;
+    KIRIN_REF_REQUIRE (! notice.update (true, 3, 1, false));
+    KIRIN_REF_REQUIRE (notice.update (true, 3, 1, true));
+    int shown = 0;
+    for (int round = 0; round < 5; ++round)
+    {
+        shown += notice.update (false, 0, 0, true) ? 1 : 0;  // 停止：A に戻った
+        shown += notice.update (true, 3, 1, true) ? 1 : 0;   // 自動で戻った同じ試み
+    }
+    KIRIN_REF_REQUIRE (shown == 0);
+    KIRIN_REF_REQUIRE (notice.update (true, 3, 2, true));   // 押し直した
+    KIRIN_REF_REQUIRE (notice.update (true, 2, 2, true));   // 別の役
+}
+
 void verifyReferenceAuditionComponentContract()
 {
+    verifyTrackingStopNoticeOnce();
+    verifyReferenceActionIntent();
     verifyReferenceVisualNavigation();
-    verifyReferenceVisualComparison(); verifyCaptureControls();
-    KIRIN_REF_REQUIRE (verifyReferenceTonalViewContract());
+    verifyReferenceVisualComparison();
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();
     constexpr auto presentationContext = presentation::forEditor (450, 300);
@@ -146,10 +166,7 @@ void verifyReferenceAuditionComponentContract()
     bool requestedA = false;
     bool requestedB = false;
     bool requestedBlind = false;
-    bool requestedReveal = false;
-    bool requestedEnd = false;
     bool requestedAction = false;
-    int requestedStimulus = 0;
     juce::String requestedPreset;
     juce::String requestedCheck;
     juce::String requestedCandidate;
@@ -157,11 +174,6 @@ void verifyReferenceAuditionComponentContract()
     component.onSelectA = [&requestedA] { requestedA = true; };
     component.onSelectB = [&requestedB] { requestedB = true; };
     component.onStartBlind = [&requestedBlind] { requestedBlind = true; };
-    component.onSelectBlindStimulus = [&requestedStimulus] (int value) {
-        requestedStimulus = value;
-    };
-    component.onRevealBlind = [&requestedReveal] { requestedReveal = true; };
-    component.onEndBlind = [&requestedEnd] { requestedEnd = true; };
     component.onSelectPreset = [&requestedPreset] (const juce::String& id) {
         requestedPreset = id;
     };
@@ -178,27 +190,23 @@ void verifyReferenceAuditionComponentContract()
     auto* a = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-a"));
     auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-b"));
     auto* startBlind = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind"));
+        findReferenceControl (component, "reference-blind"));
     auto* compactCandidate = dynamic_cast<juce::ComboBox*> (
         component.findChildWithID ("reference-candidate"));
     auto* compactCheck = dynamic_cast<juce::ComboBox*> (
         component.findChildWithID ("reference-check"));
-    auto* one = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-1"));
-    auto* two = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-2"));
-    auto* reveal = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-reveal"));
-    auto* endBlind = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-blind-end"));
+    // 2026-10-04：始めた VERSION BLIND の 1・2・開示・終了は、エディターが窓全体に出す PRE/POST Blind と同じ画面
+    // （HyphaVersionBlindScreen.h、verifyVersionBlindScreen）。REF には始めるボタンだけが残る。
     KIRIN_REF_REQUIRE (a != nullptr && b != nullptr && b->isEnabled()
                        && startBlind != nullptr && startBlind->isVisible()
-                       && one != nullptr && two != nullptr
-                       && reveal != nullptr
-                       && endBlind != nullptr
+                       && component.findChildWithID ("reference-blind-1") == nullptr
+                       && component.findChildWithID ("reference-blind-2") == nullptr
+                       && component.findChildWithID ("reference-blind-reveal") == nullptr
+                       && component.findChildWithID ("reference-blind-end") == nullptr
                        && component.findChildWithID ("reference-blind-answer") == nullptr);
+    const auto blindBounds = boundsWithin (component, *startBlind);
     KIRIN_REF_REQUIRE (startBlind->getButtonText() == "BLIND 300%"
-                       && startBlind->getY() > b->getBottom());
+                       && blindBounds.getY() > b->getBottom());
     KIRIN_REF_REQUIRE (compactCheck != nullptr && compactCheck->isVisible()
                        && compactCandidate != nullptr && compactCandidate->isVisible()
                        && compactCheck->getTitle() == "Check"
@@ -206,7 +214,7 @@ void verifyReferenceAuditionComponentContract()
                        && compactCheck->getY() == compactCandidate->getY()
                        && compactCheck->getRight() < compactCandidate->getX()
                        && compactCandidate->getY() > b->getBottom()
-                       && compactCandidate->getBottom() < startBlind->getY());
+                       && compactCandidate->getBottom() < blindBounds.getY());
     auto* compactPreset = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-preset"));
     KIRIN_REF_REQUIRE (compactPreset != nullptr && compactPreset->isVisible()
                        && compactPreset->getBottom() <= compactCheck->getY());
@@ -232,33 +240,19 @@ void verifyReferenceAuditionComponentContract()
     startingState.blindPhase = reference_ui::BlindPhase::starting;
     startingState.status = "BLIND / WAITING FOR FIRST AUDIBLE BLOCK";
     component.setState (startingState);
-    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
-                       && ! one->isVisible() && ! two->isVisible()
-                       && ! reveal->isVisible()
-                       && endBlind->isVisible());
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible());
 
     auto blindState = readyState();
     blindState.blindPhase = reference_ui::BlindPhase::active;
     blindState.activeBlindStimulus = 1;
     blindState.pendingBlindStimulus = 2;
     component.setState (blindState);
-    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
-                       && one->isVisible() && two->isVisible() && reveal->isVisible()
-                       && ! reveal->isEnabled()
-                       && endBlind->isVisible() && one->isEnabled() && ! two->isEnabled());
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible());
     blindState.pendingBlindStimulus = 0;
-    component.setState (blindState);
-    one->onClick();
-    two->onClick();
-    KIRIN_REF_REQUIRE (reveal->isVisible() && ! reveal->isEnabled());
     blindState.activeBlindStimulus = 2;
     blindState.blindStimulusOneHeard = true;
     blindState.blindStimulusTwoHeard = true;
     component.setState (blindState);
-    KIRIN_REF_REQUIRE (reveal->isVisible() && reveal->isEnabled());
-    reveal->onClick();
-    endBlind->onClick();
-    KIRIN_REF_REQUIRE (requestedStimulus == 2 && requestedReveal && requestedEnd);
     const auto concealedA = render (component);
     writeImageIfRequested (concealedA, "KIRIN_REFERENCE_UI_BLIND_OUTPUT");
     blindState.title = "Identity must not affect blind pixels";
@@ -269,8 +263,6 @@ void verifyReferenceAuditionComponentContract()
     blindState.aMaximumTruePeakDbtp = 1.5;
     blindState.adjustedBIntegratedLoudness = -28.0;
     blindState.adjustedBMaximumTruePeakDbtp = -12.0;
-    blindState.loudnessDeltaBMinusA = 25.0;
-    blindState.truePeakDeltaBMinusA = 13.5;
     blindState.appliedGainDb = -14.0;
     blindState.bSelected = true;
     component.setState (blindState);
@@ -289,9 +281,6 @@ void verifyReferenceAuditionComponentContract()
     component.setState (invalidated);
     const auto invalidatedB = render (component);
     KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible()
-                       && ! one->isVisible() && ! two->isVisible()
-                       && endBlind->isVisible()
-                       && endBlind->getButtonText().contains ("+4.2 dB")
                        && differentPixels (invalidatedA, invalidatedB) == 0);
 
     blindState.blindPhase = reference_ui::BlindPhase::revealed;
@@ -299,8 +288,8 @@ void verifyReferenceAuditionComponentContract()
     component.setState (blindState);
     const auto revealed = render (component);
     writeImageIfRequested (revealed, "KIRIN_REFERENCE_UI_REVEALED_OUTPUT");
-    KIRIN_REF_REQUIRE (! reveal->isVisible()
-                       && differentPixels (concealedB, revealed) > 100);
+    // 開示の結果（1: B／2: A）は Blind の画面が言う。終了まで REF は何も出さない（図も曲名も Blind の画面の下）。
+    KIRIN_REF_REQUIRE (differentPixels (concealedB, revealed) == 0);
 
     auto selected = readyState();
     selected.blindLargeScreen = false;
@@ -308,8 +297,6 @@ void verifyReferenceAuditionComponentContract()
     selected.status = "B AUDITION / PRE DELTA PAUSED";
     selected.adjustedBIntegratedLoudness = -14.0;
     selected.adjustedBMaximumTruePeakDbtp = -1.0;
-    selected.loudnessDeltaBMinusA = 0.0;
-    selected.truePeakDeltaBMinusA = 0.8;
     selected.appliedGainDb = 2.0;
     selected.gainLimited = true;
     component.setState (selected);
@@ -365,11 +352,11 @@ void verifyReferenceAuditionComponentContract()
     writeImageIfRequested (render (compactPendingComponent),
                            "KIRIN_REFERENCE_UI_PENDING_COMPACT_OUTPUT");
     auto approval = selected;
-    approval.sampleRateApprovalRequired = true;
-    approval.actionText = "USE 44.1 TO 48.0 kHz";
+    approval.actionText = "RETRY PREPARATION";
+    approval.action = { reference_ui::ActionKind::retryCandidatePreparation, {} };
     component.setState (approval);
     auto* action = dynamic_cast<juce::TextButton*> (
-        component.findChildWithID ("reference-action"));
+        findReferenceControl (component, "reference-action"));
     KIRIN_REF_REQUIRE (action != nullptr && action->isVisible());
     action->onClick();
     KIRIN_REF_REQUIRE (requestedAction);
@@ -411,10 +398,15 @@ void verifyReferenceAuditionComponentContract()
         component.setState (abc);
         KIRIN_REF_REQUIRE (a->isVisible() && b->isVisible() && c->isVisible()
             && c->getToggleState() && ! b->getToggleState() && ! a->getToggleState());
-        KIRIN_REF_REQUIRE (version->isVisible() && check->isVisible() && preset->isVisible()
-            && ! version->getBounds().intersects (check->getBounds())
-            && component.getLocalBounds().contains (version->getBounds())
-            && component.getLocalBounds().contains (check->getBounds()));
+        // 300% の C の画面は CHECK SET・Check のタブ・曲で選ぶ（V の選択は V の画面）。
+        auto* tabs = component.findChildWithID ("reference-check-tabs");
+        auto* song = component.findChildWithID ("reference-check-song");
+        KIRIN_REF_REQUIRE (preset->isVisible() && (width == 900
+            ? ! version->isVisible() && ! check->isVisible() && tabs != nullptr && tabs->isVisible() && song != nullptr
+                && song->isVisible() && component.getLocalBounds().contains (tabs->getBounds())
+            : version->isVisible() && check->isVisible() && ! version->getBounds().intersects (check->getBounds())
+                && component.getLocalBounds().contains (version->getBounds())
+                && component.getLocalBounds().contains (check->getBounds())));
         if (width == 300) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_COMPACT_OUTPUT");
         if (width == 900) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_OUTPUT");
     }
@@ -438,7 +430,7 @@ void verifyReferenceAuditionComponentContract()
     abc.blindPhase = reference_ui::BlindPhase::available;
     abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
     component.setState (abc);
-    KIRIN_REF_REQUIRE (cue->isVisible() && startBlind->isEnabled());
+    KIRIN_REF_REQUIRE (! cue->isVisible() && startBlind->isEnabled());  // 300% の V の画面に C の Cue は出さない
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
     abc.blindPhase = reference_ui::BlindPhase::active;
     abc.activeBlindStimulus = 1;
@@ -447,13 +439,16 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (!version->isVisible() && !check->isVisible() && !preset->isVisible());
     writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_WHOLE_BLIND_OUTPUT");
     abc.blindPaused = true; component.setState (abc);
-    KIRIN_REF_REQUIRE (!one->isEnabled() && !two->isEnabled() && endBlind->isEnabled());
+    // 一時停止中は 1・2 を押せず、終了はできる（PRE/POST Blind と同じ画面。verifyVersionBlindScreen）。
+    const auto paused = reference_ui::versionBlindScreen (component.state());
+    KIRIN_REF_REQUIRE (! paused.sourceOneEnabled && ! paused.sourceTwoEnabled && paused.endEnabled
+                       && paused.instruction == "Play the DAW to continue");
     component.setState (visual);
 
     verifyMetricPresentationWorkflow();
     verifyPairPreviewUiContract();
     verifyReferenceSelectionWorkflow (readyState());
-    verifyReferenceGuideContract();
+    verifyReferenceGuideContract(); verifyReferenceAbcvRoles();
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});

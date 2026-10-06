@@ -69,7 +69,6 @@ namespace hypha::reference_audition
                         || matched.reason == "reference_alignment_timing_changed");
                 const bool calibrationChanged = previous.eligible && matched.established
                     && calibrationObservation.changed (*capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
-                if(matched.established) serviceCaptureEvidence(*capturedA,*selectedSource,matched);
                 bool prepared = false;
                 if (mappingChanged || calibrationChanged)
                 {
@@ -109,6 +108,7 @@ namespace hypha::reference_audition
         if (nextContentMappingKey.isNotEmpty()
             && nextContentMappingKey != activeContentMappingKey)
         {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
             cueStart.store (mappedCueStart, std::memory_order_relaxed);
             cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
@@ -125,6 +125,7 @@ namespace hypha::reference_audition
         }
         else if (nextContentMappingKey.isEmpty() && activeContentMappingKey.isNotEmpty())
         {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
             cueStart.store (mappedCueStart, std::memory_order_relaxed);
             cueEnd.store (mappedCueEnd, std::memory_order_relaxed);

@@ -8,6 +8,16 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // ローカル Blind の取り込みと live 比較の段階（2026-10-04 まで Reference の A の取り込みの区分にあった）。
+    { "PLAY", u8"再生して" },
+    // VERSION BLIND の操作の失敗（Blind の画面の原因と直し方の行）。役や gain の手がかりを入れない。
+    { "The source did not switch", u8"ソースが切り替わりませんでした" },
+    { "Keep the DAW playing and press it again", u8"DAWを再生したまま、もう一度押してください" },
+    { "Both sources are not heard yet", u8"まだ両方のソースを聴いていません" },
+    { "Listen to SOURCE 1 and SOURCE 2, then reveal", u8"SOURCE 1と2を聴いてから開示してください" },
+    { "CAPTURING", u8"取り込み中" },
+    { "WAIT", u8"待機中" },
+    { "CAPTURE A", u8"Aを取り込む" },
     { "Ended; normal level returns with audio", u8"比較終了・音声処理の再開で通常音量へ" },
     { "RETURNING +%1 dB", u8"復帰待ち +%1 dB" },
     { "Waiting for comparison; POST plays", u8"比較の準備を待っています（POST出力）" },
@@ -86,6 +96,12 @@ const Entry entries[] = {
     { "PREFER SOURCE 2", u8"2が好み" },
     { "END restores normal level", u8"終了すると通常の音量に戻ります" },
     { "END returns +%1 dB", u8"終了すると音量が%1 dB上がります" },
+    // VERSION BLIND（REF）を同じ画面で出す文（HyphaVersionBlindScreen.cpp）。A は Kirin OS と同じ役の名前。
+    { "END returns to A", u8"終了するとAに戻ります" },
+    { "Blind stopped; A plays", u8"Blindを中止しました。Aが鳴っています" },
+    { "Preparing the sources; A plays", u8"準備しています。Aが鳴っています" },
+    { "Play the DAW to continue", u8"DAWを再生すると続けられます" },
+    { "Play within the song; A plays", u8"曲の中で再生してください。Aが鳴っています" },
     { "Blind stopped; POST output", u8"比較を中断しました。出力はPOSTです" },
     { "Blind stopped; output released", u8"比較を中断し、試聴出力を解放しました" },
     { "Returning to normal level", u8"通常の音量に戻しています" },
@@ -237,6 +253,7 @@ const Entry entries[] = {
       u8"取り込む前に、今のKeep／Recordを終えてください。" },
     { "Finish Reference Blind and return to Live first.",
       u8"先にReferenceのBlindを終えて、今の音に戻ってください。" },
+    { "Reference lowered A. Press RETURN first.", u8"ReferenceでAを下げています。先にRETURNを押してください。" },
     { "The previous audio capture is still in use.", u8"前の音声の取り込みがまだ使われています。" },
     { "DAW: start playback, then capture the section.",
       u8"DAW：再生を始めてから、その区間を取り込んでください。" },

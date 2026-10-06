@@ -21,7 +21,7 @@ namespace
         juce::var source;
     };
 
-    WholeSongFixture makeWholeSongFixture (const juce::File& root, const juce::File& file,
+    [[maybe_unused]] WholeSongFixture makeWholeSongFixture (const juce::File& root, const juce::File& file,
                                             const juce::String& recording, const juce::String& version)
     {
         WholeSongFixture result;
@@ -103,6 +103,7 @@ namespace
         juce::Thread::sleep (200);
         require (controller.selectB (-22, -6), "normal Version B can lead directly into Blind");
         require (controller.startBlind (-22, -6), "whole-song Library Blind starts after acoustic confirmation");
+        require (! controller.reserveLocalBlind(), "a VERSION BLIND started from a playing V keeps other Blinds out");
         require (!controller.startBlind (-22, -6) && !controller.approveBlindLowerAAndStart (-22, -6),
             "repeated start actions cannot interrupt or replace the active trial");
         require (!controller.answerBlind (1), "an unheard trial cannot be answered");

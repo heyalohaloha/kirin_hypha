@@ -64,7 +64,16 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     };
     host (false);
     wait ([] (const auto& s) { return s.checkArmable && !s.versions.empty(); });
-    require (controller.selectVersion (controller.snapshot().versions.front().id), "choose safety Version");
+    // V の自動特定の AUTO は V の選択だけを替える：押して待っている C を消さない。V を選んだ後は AUTO が上書きしない。
+    require (controller.requestAudition (2, level.loudness, level.peak), "queue C before AUTO");
+    const auto autoId = controller.snapshot().versions.front().id;
+    require (controller.selectVersion (autoId, true) && controller.pendingSlot() == 2
+                 && controller.snapshot().selectedVersionId == autoId && controller.snapshot().versionAuto,
+             "AUTO chooses V without touching the queued C");
+    controller.selectA();
+    require (controller.selectVersion (controller.snapshot().versions.front().id) && ! controller.snapshot().versionAuto,
+             "choose safety Version");
+    require (! controller.selectVersion (autoId, true), "AUTO never replaces a Version the user chose");
     wait ([] (const auto& s) { return s.versionArmable; });
     int cursor = 0;
     for (int i = 0; i < 1500 && !controller.snapshot().versionReady; ++i)
@@ -78,9 +87,13 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     const auto fromB = *controller.snapshot().checkSelection;
     require (!fromB.comparisonFallbackOriginal && std::abs (fromB.appliedGainDb + 6) < 1e-9, "B to C applies exact -6 dB MATCH");
     controller.selectA(); for (int i = 0; i < 12; ++i) host (true);
-    require (!controller.requestAudition (2, b.aIntegratedLoudness, b.aMaximumTruePeakDbtp)
-        && controller.snapshot().checkSelection->matchFailure == ref::MatchFailure::liveLevelUnavailable && !host (true),
+    // 仕様 C：A の窓の音量が無い（表示用の値でも NaN）あいだ、C は合わせずに押した選択を待たせる。鳴らさない。
+    require (controller.requestAudition (2, b.aIntegratedLoudness, b.aMaximumTruePeakDbtp)
+        && controller.snapshot().pendingAudition.waiting() && controller.snapshot().pendingAudition.slot == 2 && !host (true),
         "even accidental frozen display input cannot select unmatched C");
+    controller.servicePendingAudition (b.aIntegratedLoudness, b.aMaximumTruePeakDbtp, true);
+    require (controller.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::level && !host (true),
+        "C waits for the A window instead of playing unmatched");
     require (!controller.requestAudition (2, -1, -2)
         && controller.snapshot().checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded && !host (true),
         "manual clicks enforce the same ceiling as queued selection");
