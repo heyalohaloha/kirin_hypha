@@ -18,6 +18,7 @@ void processAudio()
     std::size_t delayHead = 0;
     std::int64_t emitted = 0;
     auto next = std::chrono::steady_clock::now();
+    auto previousCallback = std::chrono::steady_clock::time_point();
     while (running.load())
     {
         if (suspendAudio.load())
@@ -25,6 +26,7 @@ void processAudio()
             suspended.store (true);
             std::this_thread::sleep_for (std::chrono::milliseconds (5));
             next = std::chrono::steady_clock::now();
+            previousCallback = {};
             continue;
         }
         suspended.store (false);
@@ -32,7 +34,15 @@ void processAudio()
         {
             std::this_thread::sleep_for (std::chrono::milliseconds (600));
             next = std::chrono::steady_clock::now();
+            previousCallback = {};
         }
+        // The test machine's own stalls, apart from the deliberate gaps above. The product calls
+        // an interval longer than 2.5 blocks a callback gap, so a failure report carries this.
+        const auto callbackAt = std::chrono::steady_clock::now();
+        if (previousCallback != std::chrono::steady_clock::time_point())
+            longestCallbackMicros.store (std::max (longestCallbackMicros.load(), static_cast<std::int64_t> (
+                std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previousCallback).count())));
+        previousCallback = callbackAt;
         postClock.playing = clock.playing = play.load();
         clock.loop.advance (clock.position);
         postClock.position = clock.position - (loopMode ? 4096 : 0);
@@ -97,4 +107,5 @@ void processAudio()
 }
 
 std::atomic<std::uint64_t> loopPreFrames { 0 }, loopPostFrames { 0 }, loopPcmErrors { 0 };
+std::atomic<std::int64_t> longestCallbackMicros { 0 };
 std::atomic<bool> loopPcmAuditActive { false }; // only the first MATCH/Blind session, not later fault/END fixtures

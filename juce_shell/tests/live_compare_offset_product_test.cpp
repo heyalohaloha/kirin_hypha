@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -132,7 +133,19 @@ private:
 
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (60), "offset round trip timed out");
+        if (std::chrono::steady_clock::now() - started >= std::chrono::seconds (60))
+        {
+            // Where the round trip stood, for a slow test machine to explain itself.
+            const auto status = post->liveCompareStatus();
+            std::cerr << "Live offset product state: stage " << stage << ", footer \"" << footer()
+                      << "\", pair " << static_cast<int> (post->pairStatus()) << ", active " << status.active
+                      << ", matched " << status.matched << ", PRE selected " << status.preSelected
+                      << ", PRE audible " << status.preAudible << ", PRE waiting " << status.preWaiting
+                      << ", held " << status.contentHeld << ", reason " << static_cast<int> (status.reason) << "/"
+                      << static_cast<int> (status.observation) << ", longest callback interval "
+                      << longestCallbackMicros.load() / 1000.0 << " ms\n";
+            require (false, "offset round trip timed out");
+        }
         switch (stage)
         {
             case 0:
@@ -266,8 +279,14 @@ private:
         std::vector<float> line (lineFrames * 2, 0.0f);
         std::int64_t written = 0;
         auto next = std::chrono::steady_clock::now();
+        auto previousCallback = std::chrono::steady_clock::time_point();
         while (running.load())
         {
+            const auto callbackAt = std::chrono::steady_clock::now();
+            if (previousCallback != std::chrono::steady_clock::time_point())
+                longestCallbackMicros.store (std::max (longestCallbackMicros.load(), static_cast<std::int64_t> (
+                    std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previousCallback).count())));
+            previousCallback = callbackAt;
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
@@ -298,6 +317,7 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
+    std::atomic<std::int64_t> longestCallbackMicros { 0 };
     std::atomic<std::int64_t> delayFrames { 2000 };
     std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;
