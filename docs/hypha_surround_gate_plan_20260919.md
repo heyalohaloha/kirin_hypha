@@ -1,6 +1,6 @@
 # サラウンド対応 — Gate 計画（2026-09-19 / B-975）
 
-2026-10-06: 現在の残工程は[サラウンド残作業の実行計画・第2版](planning/hypha_surround_remaining_execution_plan_20261001.md)を参照。
+2026-10-06: 現在の残工程は[サラウンド残作業の実行計画](planning/hypha_surround_remaining_execution_plan_20261001.md)を参照。
 以下の現在地・未修正記述は当時の記録であり、現候補の状態を示さない。
 Gateの設計意図は保持し、後続の部分証跡と現候補で必要な受入を改訂計画で分けている。
 
