@@ -15,6 +15,7 @@
 #include "LargePageReview.h"
 #include "FreqHistoryReview.h"
 #include "PageLightReview.h"
+#include "ReadmeMediaReview.h"
 #include "MaterialLightContract.h"
 #include "PsbLightContract.h"
 #include "SurfaceLayerOrderContract.h"
@@ -156,6 +157,7 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (hypha::tests::writeLargePageReview());
     KIRIN_REQUIRE (hypha::tests::writeFreqHistoryReview());
     KIRIN_REQUIRE (hypha::tests::writeLightingReview());
+    KIRIN_REQUIRE (hypha::tests::readme_media::write());
     if (std::getenv ("KIRIN_HYPHA_REVIEW_ONLY") != nullptr) return 0;
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     KIRIN_REQUIRE (hypha::tests::verifyMaterialLight());

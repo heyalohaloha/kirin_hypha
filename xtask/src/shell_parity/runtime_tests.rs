@@ -314,7 +314,7 @@
         let watch = watch.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
             watch.contains("Top-level **FREQ** shows signed POST − PRE spectrum")
-                && watch.contains("Under **TIME**, ATTACK, SHARP, and LIVE")
+                && watch.contains("Under **TIME**, DRUM, SHARP and LIVE")
                 && watch.contains("Only the visible optional analyzer runs")
                 && watch.contains("two POST instances may own slots")
                 && watch.contains("a third identifies the owners and waits"),

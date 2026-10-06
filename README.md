@@ -1,33 +1,91 @@
 # Kirin Hypha
 
-**See what changed across a processing chain — while the measurement path stays transparent.**
+**See — and hear — exactly what your processing chain changed.**
 
-Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
-The [build guide](docs/hypha_build_entry.md) documents unsigned native builds;
+A free, open-source PRE/POST measurement plug-in for macOS (AU · VST3) and Windows (VST3).
+
+![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
+
+Insert **PRE** before the processors you want to judge and **POST** after them. POST measures both
+exact points and shows what changed: loudness, peaks, dynamics, spectrum, stereo image and drum
+attack. When the numbers are not enough, listen — switch PRE and POST in place at a matched level,
+take a blind test, or compare your mix with your reference tracks. Normal measurement never touches
+the audio; only an explicit audition replaces POST's output.
+
+**[Download](#download)** · **[Start in a minute](#start-in-under-a-minute)** ·
+**[What it measures](#what-it-measures)** · **[Build from source](#building-from-source)**
+
+![A tour of Kirin Hypha: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind](docs/media/readme/tour.gif)
+
+## Highlights
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/level.jpg" alt="LEVEL: momentary, short-term and integrated loudness, true peak, LRA, PLR and crest above 60 seconds of history">
+<br><b>LEVEL</b> — loudness (M / S / I), true peak, LRA, PLR and crest above a minute of history.
+Click a moment to hold it while measurement continues; step through every peak above −1 dBTP.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
+<br><b>PRE/POST Blind</b> — two anonymous sources at a fixed matched level. Switch while the DAW
+plays, then <b>REVEAL</b> which one was PRE and which was POST.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/ref_c.jpg" alt="Reference C: your mix and a reference cue on the same spectrum, with four-band differences and the cue timeline">
+<br><b>Reference A · B · C · V</b> (with Kirin OS) — compare your mix (A) with ranked reference
+songs (B), a check on a reference cue (C) or another version of the same song (V), at the same
+level and with the same spectrum definition.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: PRE playing at +1.8 dB with POST, MATCH and END in the footer">
+<br><b>Live PRE/POST compare</b> — <b>LISTEN</b> plays PRE in POST's place wherever its line-up
+with POST is proven. <b>MATCH</b> fixes a level match; <b>AUTO</b> follows it within ±6 dB.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/drum.jpg" alt="TIME DRUM: PRE and POST envelopes with per-hit transient, strength, crest and sharpness lanes">
+<br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
+sharpness. Pick an octave band to compare each hit's delay, attack, release and level.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
+<br><b>FREQ</b> — where the chain changed: PRE, POST and their difference in LR, MID or SIDE, with
+a six-second field and a Focus Trail for any frequency.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/ref_v.jpg" alt="Reference V: your mix against another version of the same song across the whole timeline">
+<br><b>Reference V</b> — Hypha finds where your mix is in another version of the same song and
+plays it from the same place, at the same level.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
+<br><b>SPACE</b> — mid/side density, balance, correlation, and how much of each band survives the
+mono sum.
+</td>
+</tr>
+</table>
+
+Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). The
+[build guide](docs/hypha_build_entry.md) documents unsigned native builds, and
 [release qualification](docs/hypha_release_entry.md) covers signing, acceptance and publication.
-Both `node scripts/build_hypha.mjs --help` and `--release --help` work without SDKs, credentials or iLok.
+`node scripts/build_hypha.mjs --help` and `--release --help` work without SDKs, credentials or iLok.
 For a quick unsigned GUI/DSP test build, run `node scripts/build_hypha.mjs --without-aax`
-(Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok).
-The default still builds all formats; this shortcut is not a full-format/release gate.
-
-Kirin Hypha is a free, open-source pass-through measurement plug-in for macOS and Windows. Place
-**PRE** before the processors you want to inspect and **POST** after them. POST then shows the measured
-difference between those two exact points. Normal measurement does not generate, modify, attenuate,
-or delay audio. Only an explicit audition temporarily replaces POST's output: Reference and PRE/POST
-Blind play a verified, immutable comparison copy, and the live PRE/POST compare plays PRE's input
-where its line-up with POST is proven.
-
-![Kirin Hypha FREQ showing the signed POST minus PRE spectrum and a locked six-second Focus Trail](docs/media/kirin-hypha-freq.jpg)
-
-[Watch FREQ react to the measured chain in Studio One (10-second silent MP4)](docs/media/kirin-hypha-freq-demo.mp4)
+(Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok). The default still
+builds all formats; this shortcut is not a full-format or release gate.
 
 ## Start in under a minute
 
 1. Insert **PRE Kirin Hypha** before the processing chain.
 2. Insert **POST Kirin Hypha** after the processing chain.
 3. Click POST's pair selector or arrow, then choose that exact PRE under **PRE connection**.
-4. Use the top-level **LEVEL**, **TIME**, **FREQ**, and **SPACE** domains. In **TIME**, choose
-   **HISTORY**, **ATTACK**, **SHARP**, or **LIVE**.
+4. Use the top-level **LEVEL**, **TIME**, **FREQ**, **SPACE** and **REF** domains (FREQ and REF on
+   POST). In **TIME**, choose **HISTORY**, **RUN**, **SHARP** or **LIVE**, and **DRUM** on a track or stem.
 
 Names are optional labels. PRE and POST do not need matching names, and track position is never used
 to guess a pair. The two plug-ins are the measurement boundary: PRE captures the input state, while
@@ -49,7 +107,7 @@ The measurement-only 5.1 path remains a transparent pass-through with zero repor
 latency. It does not allocate the Record backlog or run optional FREQ / ATTACK analysis in the
 background.
 
-## Four observation domains
+## Observation domains
 
 ### LEVEL — loudness, peak, dynamics, and meaningful history
 
@@ -60,13 +118,6 @@ The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 
 folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD, 5.1 MEASURE). The loaded
 version remains in the information menu, not in the narrow status rail.
 
-POST's information menu shows how long the plug-ins between PRE and POST took per audio block:
-typical and peak milliseconds and their share of the block's own length. It is elapsed time, not
-CPU usage, and only blocks in which PRE demonstrably ran just before POST on the same thread count;
-otherwise the menu gives the reason. **Show in the footer** keeps the typical / peak share in view as
-`CHAIN LOAD 31% / 70%` (at 100% and 125% in the bottom strip), highlighted when a block took longer
-than its own length. It is off until turned on and applies to every POST.
-
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
 `< TP` / `TP >` select adjacent excursions above −1 dBTP; `LIVE` resumes scrolling without resetting
 measurements. Only TP strictly above 0 dBTP receives strong local glow, always at its measured height.
@@ -74,10 +125,22 @@ measurements. Only TP strictly above 0 dBTP receives strong local glow, always a
 project-timeline coordinates or an exact peak sample: this history ABI does not distinguish project
 and render clocks. An unavailable host position is shown as `ELAPSED`, never invented as a DAW position.
 
+### Chain time between PRE and POST
+
+POST's information menu (click the **POST HYPHA** title) shows how long the plug-ins between PRE and POST took per audio block:
+typical and peak milliseconds and their share of the block's own length. It is elapsed time, not
+CPU usage, and only blocks in which PRE demonstrably ran just before POST on the same thread count;
+otherwise the menu gives the reason. **Show in the footer** keeps the typical / peak share in view as
+`CHAIN LOAD 31% / 70%` (at 100% and 125% in the bottom strip), highlighted when a block took longer
+than its own length. It is off until turned on and applies to every POST.
+
 ### TIME — what happened and when
 
-TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, or three absolute
+TIME directly selects **HISTORY**, **RUN** (absolute facts grouped by playback run within the
+selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
+
+![TIME HISTORY: thirty seconds of momentary and short-term loudness with true peak, PLR and correlation](docs/media/readme/time.jpg)
 
 DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
 **TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
@@ -119,14 +182,14 @@ to retain one temporary full-spectrum reference. The display scale is ±24 dB.
 
 ### SHARP — how perceptual brightness changed over time
 
-![Kirin Hypha SHARP showing six seconds of signed Sharpness difference](docs/media/kirin-hypha-sharp.jpg)
+![TIME SHARP: six seconds of the signed Sharpness difference](docs/media/readme/sharp.jpg)
 
-SHARP shows six seconds of signed **Δ Sharpness** in acum. It reports observation only: no target,
-warning colour, score, or recommendation.
+SHARP shows six seconds of signed **Δ Sharpness** in acum; without a paired PRE it shows POST's own
+Sharpness. It reports observation only: no target, warning colour, score, or recommendation.
 
 ### LIVE — three absolute POST facts on one timeline
 
-![Kirin Hypha LIVE showing LUFS-M, recent True Peak, and Sharpness on one six-second timeline](docs/media/kirin-hypha-live.jpg)
+![TIME LIVE: LUFS-M, recent True Peak and Sharpness on one six-second timeline](docs/media/readme/live.jpg)
 
 LIVE overlays POST **LUFS-M**, **recent True Peak**, and **Sharpness** on one six-second time axis.
 Each metric keeps an independent fixed scale, and the current values update at a readable rate.
@@ -162,14 +225,8 @@ MONO is measured on both PRE and POST, so the two can be compared by switching b
 plug-ins. It adds no analyzer, consumes no analysis slot, and runs whether or not SPACE is open.
 
 Two POST optional analyzers may stay active: one can remain on the 2MIX while the other follows the
-working track. A third identifies the owners and waits until one returns to **LEVEL**, **TIME /
-HISTORY**, or **SPACE**, or closes.
-
-macOS 12 or later is supported as signed and notarized VST3 and Audio Unit plug-ins. Windows 10/11
-64-bit is supported as VST3. The current v1.1.49 Windows release uses one Authenticode-signed
-installer for PRE and POST. Its payloads, installer, and generated uninstaller passed signature,
-pluginval, dedicated-machine DAW, same-version reinstall, v1.1.48 upgrade, and isolated-uninstall
-gates.
+working track. A third identifies the owners and waits until one of them leaves DRUM, FREQ, SHARP or LIVE for
+another view, or closes.
 
 ## Design
 
@@ -190,7 +247,7 @@ measured, stored, or read back.
   between two drum hits, for instance) keeps the value it was last measured at for up to one second,
   drawn faintly, so the curve does not blink between hits. After that the band breaks the line.
 
-Watch consumes the producer-owned `KirinWatchDisplay` snapshot directly. SPACE's six-second MONO
+Watch draws the measurement engine's own Watch snapshot directly. SPACE's six-second MONO
 field draws observations as measured.
 
 When playback stops, or a rest outlasts the 3-second Watch window, the pages with a six-second history
@@ -217,22 +274,25 @@ conformance and does not use the EBU logo.
 | Feature | Standalone | With Kirin OS |
 |---|---|---|
 | Watch mode | ✓ | ✓ |
-| POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
+| POST on-demand DRUM / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Local PRE/POST Blind Compare | ✓ | ✓ |
-| Live PRE/POST compare (Windows: Pro Tools check pending) | ✓ | ✓ |
+| Live PRE/POST compare | ✓ | ✓ |
+| Reference A · B · C · V and VERSION BLIND | — | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
-Kirin Hypha is free and fully functional as a standalone plugin. Record mode requires a Kirin OS license.
+Kirin Hypha is free, and everything without Kirin OS above works as a standalone plug-in. Reference and Record
+mode require a Kirin OS license.
 
 ## Screen language
 
 Hypha's screen is in English or Japanese. **MENU → Display → Language** chooses **English** or
 **日本語**; until a choice is made, Hypha follows the system's display language. The choice is saved
 for every PRE and POST, and open editors switch at once. In Japanese, what explains or reports is
-Japanese: status lines, notices, hover help, menus, guidance and dialog text. Labels, abbreviations,
-legends, units, values and names (LEVEL, LUFS, TP, POST / Δ, MARK, Kirin OS names) stay as written,
-so the layout and the measurement vocabulary are the same in both languages. The language changes
+Japanese: status lines, notices, hover help, menus, guidance and dialog text. Measurement labels,
+abbreviations, legends, units and values (LEVEL, LUFS, TP, POST / Δ, MARK) stay as written, so the
+layout and the measurement vocabulary are the same in both languages. Action labels are translated,
+except Blind's **REVEAL** and **END**, which read the same in both. Names you give stay as written. The language changes
 only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
 Kirin OS, and every measurement stay the same.
 
@@ -242,17 +302,17 @@ Kirin OS, and every measurement stay the same.
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770 |
+| LUFS-M / LUFS-S | Momentary (400 ms) and Short-term (3 s) loudness (LUFS) | ITU-R BS.1770 |
 | True Peak | Recent peak, last 400 ms (dBTP) | ITU-R BS.1770 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 
-PRE displays absolute values. POST displays Δ values relative to the paired PRE. If that exact PRE
-is explicitly bypassed, POST returns to its own absolute values without releasing the pair; the
-upper-right state changes from blue **PAIR** to lavender **ABS** until PRE is enabled again. A stop,
-silence, stale read, or temporary absence never claims that PRE was bypassed. The M/S choice
-also selects the independent MAX value for the current Watch playback pass.
-In LEVEL, the live 400 ms True Peak and its playback-pass MAX are distinct facts. Pressing **Keep**
-changes the presented result context; **Max TP** then means the maximum for the whole Keep session,
+PRE displays absolute values. POST shows its own values (**POST**) or the difference from the
+paired PRE (**Δ**). If that exact PRE is explicitly bypassed, the Δ views say **PRE IS OFF — ENABLE
+PRE TO COMPARE** without releasing the pair; choose **POST** for absolute values. A stop, silence,
+stale read, or temporary absence never claims that PRE was bypassed. LUFS-M and LUFS-S each keep
+their own MAX value for the current Watch playback pass.
+In LEVEL, the live 400 ms True Peak and its playback-pass MAX are distinct facts. Starting **Keep**
+(MENU → Keep) changes the presented result context; **Max TP** then means the maximum for the whole Keep session,
 including across transport stops. Watch, every MAX, and everything Keep and Record write are raw.
 
 ### FREQ: Spectrum (on demand)
@@ -275,6 +335,7 @@ output-presentation sample endpoint.
 | RAW / SHAPE | Switches the same exact-pair curve between gain-inclusive difference and energy-normalized shape; clears a mode-specific MARK and Focus Trail |
 | Hover / click | Reads frequency and the selected RAW/SHAPE value; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only reference in the selected mode; × clears it |
+| PSB | Perceptual share by Bark band: how the loudness is shared across 20 Bark bands |
 | Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Drag the editor's own bottom-right grip in any host (Studio One on Windows and Pro Tools have no window frame to drag) or choose a size from the size menu. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%; none fits a 1920×1080 display at 125%) |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
@@ -323,8 +384,8 @@ pointing at an item on LEVEL, TIME, FREQ, SPACE or REF's B, C and V shows its he
 the footer instead of a popup: across the whole footer row for the graphs, values and tabs (what the
 item is and how it is used; PLR, for one, reads as the song's average dynamics, compared between PRE
 and POST to see how much limiting reduced it), and in the status at the left for the footer's own
-controls, which stay in view. The popup at 200 % and below keeps the full text. **Show hover help**
-in the POST arrow menu disables or restores explanatory popups for every PRE and POST; the user
+controls, which stay in view. The popup at 200 % and below keeps the full text. **MENU → Display →
+Show hover help** disables or restores explanatory popups for every PRE and POST; the user
 preference survives plug-in and DAW restarts. FREQ inspection, click lock, Focus Trail, and MARK stay
 available while help is hidden. A click in the plot
 locks that readout to the same frequency until its × is pressed. While locked,
@@ -459,19 +520,18 @@ views keeps ownership; only a non-analysis domain or editor close releases it.
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770 |
+| LUFS-M / LUFS-S | Momentary (400 ms) and Short-term (3 s) loudness (LUFS) | ITU-R BS.1770 |
 | Integrated Loudness | Current Keep session (LUFS) | ITU-R BS.1770 |
 | Max True Peak | Current Keep session maximum (dBTP) | ITU-R BS.1770 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 | PSR | Peak-to-Short-term Ratio, 3 s (dB) | — |
 | Sharpness | acum, independent-channel arithmetic mean | DIN 45692 |
 
-PRE displays all six values. A paired POST displays Δ for the selected M/S loudness, PSR, Crest,
+PRE displays all six values. A paired POST displays Δ for LUFS-M and LUFS-S, PSR, Crest,
 and Sharpness; Integrated Loudness and Max True Peak remain absolute POST session values. The
 Integrated value spans transport stops within one Keep. After Stop, the final Record result remains
 visible until the first newly computed Watch result arrives.
-PSR always uses the engine's 3 s Short-term loudness, regardless of the M/S selector. The selector
-changes the loudness value displayed and compared; it does not redefine PSR.
+PSR always uses the engine's 3 s Short-term loudness.
 
 **On True Peak.** Two distinct True Peak quantities are reported. The *recent peak* is the maximum inter-sample peak within the last 400 ms (the same window as LUFS-M) and is shown live in Watch mode; it is not held, so a transient drops out of the reading once that window has passed. The *session maximum* is the running maximum inter-sample peak over the whole recording and is what the Record data stores. When a single dBTP figure is quoted for a file, it is the session maximum. Peak windows are tracked by sample count, so offline / faster-than-real-time rendering does not shift them.
 
@@ -502,11 +562,10 @@ xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
 The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
 
-The current v1.1.49 Windows 10/11 64-bit VST3 release is distributed as one signed installer EXE for
-PRE and POST. It was built from the same release commit as macOS and passed Windows CI, pluginval,
-Studio One Pro validation, same-version reinstall, upgrade from v1.1.48, and isolated uninstall on
-the dedicated Windows machine. Its plug-in binaries, installer, and generated uninstaller all have
-valid Authenticode signatures. [`docs/windows_external_validation.md`](docs/windows_external_validation.md)
+The current v1.1.50 Windows 10/11 64-bit VST3 release is distributed as one signed installer EXE for
+PRE and POST, built from the same release commit as macOS.
+Its payloads, installer, and generated uninstaller passed signature, pluginval, DAW, same-version
+reinstall, upgrade from v1.1.49, and isolated-uninstall gates. [`docs/windows_external_validation.md`](docs/windows_external_validation.md)
 is the repeatable real-machine regression checklist.
 
 ### Release provenance
@@ -584,10 +643,11 @@ Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per proj
 
 ## Reference from Kirin OS
 
-Kirin OS automatically publishes its saved Reference library to POST. No Work connection,
-INSPECT screen, receiver choice, or connect button is required. A small OS indicator reports the
-connection; received settings remain visible when media is unavailable. Hypha does not substitute
+Kirin OS automatically publishes its saved Reference library to POST; there is nothing to
+connect. A small OS indicator reports the connection; received settings remain visible when media is unavailable. Hypha does not substitute
 its own Factory library.
+
+![Reference B: the last 30 seconds of your mix (A) beside a ranked set of reference songs, with level match and spectral balance](docs/media/readme/ref_b.jpg)
 
 Reference has four roles, each with its own button in the same place at every size: **A B C V**.
 
@@ -677,7 +737,7 @@ and plays it as soon as it is ready, as when you press it while the DAW is stopp
 can change (outside the Cue, no match in this passage) or a match that cannot be made is explained
 instead.
 
-**Pages.** Each role has its page at 300% (900×600). Below 300%, C and V are drawn dimmed; pressing
+**Pages.** Each role has its page at 300% (900×600) and above. Below 300%, C and V are drawn dimmed; pressing
 them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
 shows the song and the status; songs are switched from 125%.
 
@@ -708,16 +768,16 @@ shows the song and the status; songs are switched from 125%.
   ΣLR/√(ΣL²·ΣR²); LUFS at the end of the hop), so A's 100 ms bins are regrouped into C's hop
   (200 ms for a song longer than 204.8 s). Loudness facts (LUFS-M, peak, RMS) are shown at the level
   C plays at. Until A has 3 seconds only C is drawn (A WAITING).
-  Every difference on B, C and V is said with A as the subject and a word instead of a sign (2026-10-04;
-  a signed difference left it unclear whether A had more or less than C): A 0.12 LOWER,
+  Every difference on B, C and V is said with A as the subject and a word instead of a sign:
+  A 0.12 LOWER,
   A 10 pt NARROWER, A 1.2 LU QUIETER (Aが0.12低い, Aが10 pt狭い, Aが1.2 LU小さい), and A SAME AS C
   (AはCと同じ) when it rounds to zero. The metric cards read A, C and A VS C (CよりA) with the size of
   the difference and its unit and word under it (1.2 / LU QUIETER); at 200 % and below each card is one
   line, LUFS-I A 1.2 LU QUIETER.
 - **V**: the Version (across the whole row), then the tabs WHOLE, TONE, DYNAMICS, STEREO and LOW END
   (全体・音色・ダイナミクス・ステレオ・低域). V's items are fixed and separate from C's CHECK SET, whose
-  Checks each come with their own reference songs (2026-10-04: comparing Versions of the same song needs
-  no CHECK SET; section and album Checks do not compare one section). WHOLE is the song timeline: A above V,
+  Checks each come with their own reference songs (comparing Versions of the same song needs no
+  CHECK SET). WHOLE is the song timeline: A above V,
   peak outside and RMS inside, only observed A regions drawn and older passes dimmed. Select a region
   for the shared LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play
   position; these controls never seek the DAW or switch audio. The other tabs compare A and V over
@@ -726,7 +786,7 @@ shows the song and the status; songs are switched from 125%.
   for A and V over the last 30 seconds of that section (both measured by Hypha on the same frames),
   with the first fact over time above them (A gold, V cyan, scaled to the lines).
   VERSION BLIND opens from this page and runs on the same screen as the PRE/POST **BLIND**, over the
-  whole window: switch **SOURCE 1 / SOURCE 2** while the DAW plays, **REVEAL SOURCES** once both
+  whole window: switch **SOURCE 1 / SOURCE 2** while the DAW plays, **REVEAL** once both
   have sounded, and BLIND RESULT names them (1: A / 2: V) while you keep switching. **END** returns
   to A, and says by how much A rises when Blind started with A lowered. The graphs and their
   accessibility content stay hidden until END; they are on the V page afterwards.
@@ -769,7 +829,7 @@ song every 100 ms, A's definition; for a longer song C shows no spectrum and the
 Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS's English
 names, whatever language they were saved in. On the Japanese screen a name reads in Japanese where
 Hypha has its Japanese (the Check sets, for example, also when ranked "1 / 3"); simple English names
-(Dynamics, Stereo, Set 1) stay in English rather than turning into katakana (2026-10-05).
+(Dynamics, Stereo, Set 1) stay in English rather than turning into katakana.
 Names you give stay as written. A role
 waiting for the DAW is marked on its button and named in the status line.
 
@@ -782,11 +842,9 @@ way over the section aligned with A.
 
 A is compared live: while REF is open and the song plays, Hypha measures A for the role you
 are looking at (B, C or V) and fills V's WHOLE timeline as you play. There is no separate step
-to capture A and no VIEW switch; the page of the role you open decides what is compared, and the
-space goes to the charts. The former **CAPTURE A** was removed on 2026-10-04: it added a second
-analysis of A only to keep the overview in the DAW session. A capture saved in a session by an
-older version is skipped on reopen (it neither changes the display nor uses analysis) and is
-dropped at the next save.
+to capture A; the page of the role you open decides what is compared, and the space goes to the
+charts. A capture saved in a session by an older version is skipped on reopen (it neither changes
+the display nor uses analysis) and is dropped at the next save.
 
 ## Live PRE/POST compare
 
@@ -805,8 +863,8 @@ testing is not acceptance of a signed plug-in in regular Pro Tools. Avid documen
 [debuggable Developer builds cannot save or export sessions](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html).
 Saving and reopening therefore remain separate regular-host acceptance requirements.
 
-1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
-   300%) in the footer.
+1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
+   300% and above) in the footer.
 2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms.
 3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
    least three, BS.1770 loudness, up to ±24 dB) and applies that gain to PRE only; the PRE control
@@ -855,10 +913,9 @@ playback time for **MATCH again**; Hypha does not duplicate recorded samples.
 **HELD** means the approved gain and ceiling remain, not that current levels have been measured
 equal again. In named comparison, an identified stop, position move or re-enabled delay
 compensation renews the timing proof before PRE returns, without an automatic re-MATCH.
-An unexplained gap, missing clock or changed
-source requires an explicit PRE selection; state restore, pair or format changes cannot inherit
-the old approval. Interrupted BLIND trials never resume automatically. A failed or cancelled
-rematch never discards the previous gain.
+An unexplained gap, missing clock or changed source requires an explicit PRE selection; state
+restore, pair or format changes cannot inherit the old approval. Interrupted BLIND trials never
+resume automatically. A failed or cancelled rematch never discards the previous gain.
 
 Some hosts hold POST's reported position at the loop start while delayed audio is still arriving.
 That interval stays on POST until the occurrence is proven, not on unverified PRE. Native
@@ -896,9 +953,8 @@ same channel; in Pro Tools, turn off its **Target** button.
   Hypha keeps POST playing, shows the interruption reason and asks you to select PRE again.
   An inactive meter alone cannot distinguish silence from host suspension or bypass.
 - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear
-  phase) while comparing, PRE can be misaligned for a moment right after the change. In our
-  measurements this lasted up to four blocks in Studio Pro 8.1.2 (171 ms at 2048 samples); the
-  clocks recorded in Pro Tools 2026.4 bound it to two blocks (43 ms at 1024 samples).
+  phase) while comparing, PRE can be misaligned for a moment right after the change: a few audio
+  blocks (measured at up to four blocks, 171 ms at 2048 samples).
 - PRE follows the exact occurrence of audio currently reaching POST, not just the displayed
   playhead or the newest PRE block. A previous-pass occurrence is valid only when the delayed
   POST audio actually belongs to that pass and the timing proof uniquely identifies it.
@@ -912,6 +968,8 @@ as needed during that same playback. Once both have actually sounded, **REVEAL**
 PRE/POST assignment in one click, without a preference question or another playback. You can keep
 switching after reveal, or press **END**. Live Blind does not collect preference answers, save a
 vote, learn from it, or change audio from it. No Kirin OS is required.
+
+![PRE/POST Blind after REVEAL: SOURCE 1 was PRE and SOURCE 2 was POST; switching continues until END](docs/media/readme/blind_result.jpg)
 
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
 another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match. If matching
@@ -946,7 +1004,7 @@ selection uses the same command-bound rule, so a late callback cannot clear a ne
 Reference and its access panel follow the parent editor's current body bounds when a recovery
 line appears or disappears. Unchanged geometry does not relayout those panes.
 Meters, names, gain details and their accessibility are isolated until the comparison ends.
-The new one-pass/END flow still requires real-host acceptance on each supported format.
+Real-host acceptance of the one-pass/END flow on each supported format is still to be done.
 
 ### Optional Exact 4 S
 
@@ -954,8 +1012,7 @@ For the identical four-second range on both sides, use **LISTEN → MENU → PIN
 the immutable-PCM trial below, with replay of the same range for each source. It is a preference
 listening trial, not a score or proof that either side is better.
 
-The AAX entry is enabled by user direction for current-candidate validation. Its
-Pro Tools clock/PDC acceptance remains pending; exact capture and runtime checks
+In AAX, its Pro Tools clock/PDC acceptance is still to be done; exact capture and runtime checks
 are enforced on every format.
 
 1. In POST, select the PRE pair and start LISTEN.
@@ -1004,10 +1061,10 @@ whole-song loudness or an immutable whole-song identity for the current DAW inpu
 
 ## Watch mode
 
-Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest Factor during
-playback. The M and S selections retain independent playback-pass maximums. POST displays the
+Real-time display of LUFS-M and LUFS-S, True Peak (recent), and Crest Factor during playback.
+LUFS-M and LUFS-S keep independent playback-pass maximums. POST displays the
 difference between its own measurements and the paired PRE.
-Top-level **FREQ** shows signed POST − PRE spectrum. Under **TIME**, ATTACK, SHARP, and LIVE provide
+Top-level **FREQ** shows signed POST − PRE spectrum. Under **TIME**, DRUM, SHARP and LIVE provide
 their on-demand time observations. Only the visible optional analyzer runs; two POST instances may
 own slots, while a third identifies the owners and waits.
 
@@ -1035,16 +1092,13 @@ per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU n
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
 
-![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
-
-[Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
-
 ## Record mode (Kirin OS required)
 
-With a Kirin OS license, the POST plugin shows a **Keep** button in Watch mode.
+With a Kirin OS license, POST can keep a session record.
 
-1. Press **Keep** to begin a session recording.
-2. Press **Stop** to end the session. The session is written to the `.kirin` record.
+1. Choose **MENU → Keep → Keep selected pair** (or **All Keep**) to begin a session recording.
+2. Press **STOP** in the footer, or choose **MENU → Stop selected pair**, to end the session. The
+   session is written to the `.kirin` record.
 
 Integrated Loudness and session-maximum True Peak accumulate across DAW transport stops while the
 same Keep remains active. During an offline bounce/export, POST auto-runs the same cleanup as
@@ -1057,8 +1111,6 @@ newly computed Watch result; that result returns the grid to Watch without showi
 in between. Multiple pairs record independently.
 
 If measurement samples are ever dropped during a recording (for example, on a buffer overflow), the dropped-sample count and an integrity flag are written into the session data. Incomplete measurement is recorded as incomplete, never presented as complete.
-
-[Watch POST move from Watch to Keep/Record and hold the final result after Stop (45-second silent MP4)](docs/media/kirin-hypha-record-keep-demo.mp4)
 
 ## Kirin OS ecosystem
 
@@ -1075,8 +1127,8 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 - Windows 10 or 11, 64-bit
 - VST3-compatible DAW, or an Audio Unit-compatible DAW on macOS
 
-Validated on macOS 14 (Sonoma) and Windows with Studio One Pro. Windows is VST3-only. The current
-v1.1.49 release uses an Authenticode-signed installer containing both PRE and POST.
+macOS releases are signed and notarized VST3 and Audio Unit plug-ins. Windows releases are VST3; the
+current v1.1.50 release uses an Authenticode-signed installer containing both PRE and POST.
 
 **Not currently supported:** Linux · CLAP
 
@@ -1095,11 +1147,12 @@ This is an unsigned diagnostic build, with no iLok, CI, installation or publicat
 Use `--dry-run` to inspect the plan and `--verify-only` to recheck saved binaries without rebuilding.
 Signing and release qualification retain their independent mandatory gates.
 
-For the complete workflow **through HP upload**, use the same entry's
+For the complete workflow **through the homepage update**, use the same entry's
 [`--release` mode](docs/hypha_release_entry.md). It coordinates the approved signing/notarization
-producers, same-commit Windows installer, A3/A4/A5, LS verification, immutable GitHub Release,
-EN/JA homepage links, standard staged production deployment and public download hash checks.
-Human host/LS checkpoints and explicit candidate publication authorization remain mandatory.
+producers, same-commit Windows installer, the acceptance steps, Lemon Squeezy verification,
+immutable GitHub Release, EN/JA homepage links, staged production deployment and public download
+hash checks. Human host and Lemon Squeezy checkpoints and explicit publication authorization remain
+mandatory.
 
 ```bash
 node scripts/build_hypha.mjs --release --help
@@ -1125,7 +1178,7 @@ For opt-in AAX builds, start with the [AAX build and signing entry guide](docs/a
 It separates diagnostic builds, local host validation and distribution candidates, and identifies
 the macOS and Windows signing inputs without storing customer information or credentials here.
 
-On the release machine, after signing and notarizing the four source plug-in bundles with `cargo run --package xtask -- notarize`, build the Lemon Squeezy installer package with the Kirin OS-style release scripts:
+On the release machine, after signing and notarizing the four source plug-in bundles with `cargo run --package xtask -- notarize`, build the Lemon Squeezy installer package with the release scripts:
 
 ```bash
 node scripts/ls_release/build_kirin_hypha_pkg.mjs
@@ -1165,6 +1218,8 @@ cargo run --package xtask -- release-package
 Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
 Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to the configured Lemon Squeezy products after local verification passes.
 
+Public diagnostic CI retains all required build/validation jobs and logs. Preview artifacts are published only for inputs accepted for that use; binary/installer uploads remain held pending actual NOTICE, component license and Corresponding Source delivery evidence. Unresolved materials keep individual holds in the [distribution registry](docs/provenance/asset_distribution_registry.json).
+
 ## License
 
 [GNU General Public License v3.0](LICENSE)
@@ -1173,8 +1228,7 @@ Kirin Hypha is released under GPLv3 to keep the measurement layer auditable. The
 
 ## Acknowledgements
 
-Built on [nih-plug](https://github.com/robbert-vdh/nih-plug) by Robbert van der Helm.
+Built on [JUCE](https://juce.com). The legacy VST3 identity and state compatibility path uses
+[nih-plug](https://github.com/robbert-vdh/nih-plug) by Robbert van der Helm.
 
 *Kirin Hypha — observation, kept simple.*
-
-Public diagnostic CI retains all required build/validation jobs and logs. Preview artifacts are published only for inputs accepted for that use; binary/installer uploads remain held pending actual NOTICE, component license and Corresponding Source delivery evidence. Unresolved materials keep individual holds in the [distribution registry](docs/provenance/asset_distribution_registry.json).

@@ -144,64 +144,51 @@ test('release_state boundary rejects each reinsertion path', () => {
 
 test('README uses the verified current Hypha UI media', () => {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  // Drawn by the shipping editor from invented data (scripts/make_readme_media.sh); no session appears.
   const media = [
-    {
-      relativePath: 'docs/media/kirin-hypha-freq.jpg',
-      sha256: '07ead3f12501b601e3e098d48f81bee44faf1a55d8681548ac63ac93cefb7c60',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-freq-demo.mp4',
-      sha256: 'e149441b4c8bbbcd908c9bda53fc56c0ef106962abadab0531f39d5d9b77194d',
-      signature: Buffer.from('ftyp'),
-      signatureOffset: 4,
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-sharp.jpg',
-      sha256: '5ffa99bc02eca335b95643c11df07e84e369abb54024f32a8108857d5a12c2d2',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-live.jpg',
-      sha256: '9b200ff12454b176e213f7ea5dfa31d75c23a7ce59a29fe5d94cf776311d5cb6',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-pre-post.jpg',
-      sha256: 'c38f068db726a4172850a0cd4099a7dcf116fe1ef29f123eda647612217c5416',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-pre-post-demo.mp4',
-      sha256: '7d1ce8ad1f8fab4e6245c08fb25a1b5b733dd40c5e1f876d7a1527b5fef0bc13',
-      signature: Buffer.from('ftyp'),
-      signatureOffset: 4,
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-record-keep-demo.mp4',
-      sha256: '24db4c35289ce82678d476017fb509f63d52435d95e79fdacaadfd3c559b77eb',
-      signature: Buffer.from('ftyp'),
-      signatureOffset: 4,
-    },
+    ['vu.jpg', '5b24f1a2189932cffad99e1f7b4dc4dbf1c2cb513c268a98a34181c1b8184d16'],
+    ['tour.gif', 'e5a5a1b9de0f379dc3cca16ec039cf0b4194083d80ce94f5ef552eca97c00b23'],
+    ['level.jpg', 'ec8524078fe55abc87438bbd2596425707a11a329a8b4bcf3f3f4024f0c44570'],
+    ['blind.jpg', '9c5d4e6afbbe9ec92d0bfec71a9867ef2afecf2c1071b48c0061ccb5c1a891df'],
+    ['ref_c.jpg', '61784191ec2c60224d5ab4d42f92420dc9a5662c31f26404379e2298a6223169'],
+    ['listen.jpg', 'e8b9ff7c818a821e744f58a33a90f2ce369e5f0b590c15979dbd175335da9d20'],
+    ['drum.jpg', 'fe72ab809374963274b8a9e9fa569e74d02ed4e57ff55d4b52a375b943407d27'],
+    ['freq.jpg', 'c91faa202b4bbe2b5c2310aa919c77bd180e0bfca97eacfd0d0a1253bd188e24'],
+    ['ref_v.jpg', '8f7086db868d606d1eb29f125519cf0ab2f7f1b71f5c5ad6885fa33a0ac51d08'],
+    ['space.jpg', 'eeb56aab9d0d54ef445b487dea842ed14c06ae6540fd66587504ebca74287114'],
+    ['time.jpg', 'ef307eefc63bf534f08fde205252eb1129125c51e481848a2db35db3e9c31a14'],
+    ['sharp.jpg', 'ed2d8d5df75a1a67d713faa6dbecb0f52b60db2cb63035dab017746c17750359'],
+    ['live.jpg', 'b0fe86f591f4cf7ff21db6d8fbc2356829b7a21305bded793c54f58941a231b1'],
+    ['ref_b.jpg', '42699833c6e3d00590184d030c19f6a1ca9f9309eb97f10d301a9c40b4b27774'],
+    ['blind_result.jpg', '15ccbba11e6315463b418a3bd6060bd623ecce16ee0b0304263885f44dd06cee'],
   ];
+  const signatures = { '.jpg': Buffer.from([0xff, 0xd8, 0xff]), '.gif': Buffer.from('GIF89a') };
 
-  for (const asset of media) {
-    const assetPath = path.join(repoRoot, asset.relativePath);
-    assert.match(readme, new RegExp(asset.relativePath.replaceAll('.', '\\.')));
-    assert.ok(fs.statSync(assetPath).size > 10_000, `${asset.relativePath} must not be empty`);
-    assert.equal(sha256File(assetPath), asset.sha256, `${asset.relativePath} digest`);
-    const contents = fs.readFileSync(assetPath);
-    const offset = asset.signatureOffset ?? 0;
-    assert.deepEqual(
-      contents.subarray(offset, offset + asset.signature.length),
-      asset.signature,
-      `${asset.relativePath} signature`,
-    );
+  for (const [name, digest] of media) {
+    const relativePath = `docs/media/readme/${name}`;
+    const assetPath = path.join(repoRoot, relativePath);
+    const signature = signatures[path.extname(name)];
+    assert.match(readme, new RegExp(relativePath.replaceAll('.', '\\.')));
+    assert.ok(fs.statSync(assetPath).size > 10_000, `${relativePath} must not be empty`);
+    assert.equal(sha256File(assetPath), digest, `${relativePath} digest`);
+    assert.deepEqual(fs.readFileSync(assetPath).subarray(0, signature.length), signature, `${relativePath} signature`);
   }
+  assert.deepEqual(
+    fs.readdirSync(path.join(repoRoot, 'docs/media/readme')).filter((name) => !name.startsWith('.')).sort(),
+    media.map(([name]) => name).sort(),
+    'every published README picture is used and verified',
+  );
 
   for (const retired of [
     'docs/images/hypha_record_mode.jpg',
     'docs/images/hypha_watch_mode.jpg',
+    'docs/media/kirin-hypha-freq.jpg',
+    'docs/media/kirin-hypha-freq-demo.mp4',
+    'docs/media/kirin-hypha-sharp.jpg',
+    'docs/media/kirin-hypha-live.jpg',
+    'docs/media/kirin-hypha-pre-post.jpg',
+    'docs/media/kirin-hypha-pre-post-demo.mp4',
+    'docs/media/kirin-hypha-record-keep-demo.mp4',
   ]) {
     assert.equal(fs.existsSync(path.join(repoRoot, retired)), false, `${retired} must stay retired`);
     assert.doesNotMatch(readme, new RegExp(retired.replaceAll('.', '\\.')));
@@ -214,20 +201,19 @@ test('README opens with current analysis, exact pairing, and supported Windows f
   const entrance = readme.slice(0, designIndex);
 
   assert.ok(designIndex > 0, 'README must keep the technical Design contract after the entrance');
-  assert.match(entrance, /docs\/media\/kirin-hypha-freq\.jpg/);
-  assert.match(entrance, /docs\/media\/kirin-hypha-freq-demo\.mp4/);
-  assert.match(entrance, /docs\/media\/kirin-hypha-sharp\.jpg/);
-  assert.match(entrance, /docs\/media\/kirin-hypha-live\.jpg/);
-  assert.ok(
-    entrance.indexOf('docs/media/kirin-hypha-freq.jpg')
-      < readme.indexOf('docs/media/kirin-hypha-pre-post.jpg'),
-    'FREQ must be the first public product image',
+  for (const name of ['vu.jpg', 'tour.gif', 'level.jpg', 'blind.jpg', 'ref_c.jpg', 'listen.jpg', 'freq.jpg']) {
+    assert.match(entrance, new RegExp(`docs/media/readme/${name.replace('.', '\\.')}`));
+  }
+  assert.equal(
+    entrance.match(/docs\/media\/readme\/[a-z_]+\.(?:jpg|gif)/)?.[0],
+    'docs/media/readme/vu.jpg',
+    'the shipping POST editor must be the first public product image',
   );
   assert.match(entrance, /choose that exact PRE under \*\*PRE connection\*\*/);
   assert.match(entrance, /Names are optional labels/);
-  assert.match(readme, /current v1\.1\.49 Windows 10\/11 64-bit VST3 release is distributed as one signed installer EXE/);
+  assert.match(readme, /current v1\.1\.50 Windows 10\/11 64-bit VST3 release is distributed as one signed installer EXE/);
   assert.match(readme, /payloads, installer, and generated uninstaller passed signature/);
-  assert.match(readme, /current\s+v1\.1\.49 release uses an Authenticode-signed installer containing both PRE and POST/);
+  assert.match(readme, /current\s+v1\.1\.50 release uses an Authenticode-signed installer containing both PRE and POST/);
   assert.doesNotMatch(readme, /supported release is currently macOS-only/);
   assert.doesNotMatch(readme, /Windows validation candidate/);
   assert.doesNotMatch(readme, /External validation is pending/);

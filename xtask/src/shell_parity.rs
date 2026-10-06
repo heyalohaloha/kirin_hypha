@@ -7,8 +7,8 @@ mod tests {
             .split("\n## ")
             .find(|section| section.starts_with("Record mode (Kirin OS required)\n"))
             .expect("README Record mode section");
-        assert!(record_mode.contains("1. Press **Keep**"));
-        assert!(record_mode.contains("2. Press **Stop**"));
+        assert!(record_mode.contains("1. Choose **MENU → Keep → Keep selected pair**"));
+        assert!(record_mode.contains("Press **STOP** in the footer"));
         assert!(
             !record_mode.contains("**Mark**"),
             "README must not advertise a Mark control absent from the shipping UI"

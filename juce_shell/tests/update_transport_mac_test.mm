@@ -172,7 +172,7 @@ int main()
     bodyCase ("{}", true, "application/json; charset=utf-8");
     bodyCase ("{}", true, "application/json ; charset=utf-8");
     bodyCase (std::string ("{\0}", 3), false);
-    bodyCase (std::string ("\xff\xfe", 2), false);
+    bodyCase (std::string { static_cast<char> (0xff), static_cast<char> (0xfe) }, false);  // invalid UTF-8 bytes, not text
     bodyCase ("", false);
 
     {

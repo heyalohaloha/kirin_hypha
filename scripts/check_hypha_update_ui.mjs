@@ -94,7 +94,7 @@ test('the existing fixed official download and copy routes remain explicit user 
 
 test('every new update sentence has Japanese and the catalog section is registered', () => {
   assert.equal(findUntranslated(root).filter(finding => finding.path === updateFile).length, 0);
-  assert.match(read('juce_shell/src/HyphaJapaneseCatalog.h'), /noticeSection\(\), updateSection\(\)/);
+  assert.match(read('juce_shell/src/HyphaJapaneseCatalog.h'), /noticeSection\(\),[^}]*\bupdateSection\(\) \};/);
   const catalog = catalogEnglish(root);
   for (const sample of ['New official version available: v1.1.51',
     'Development build; official version: v1.1.51',
