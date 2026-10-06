@@ -225,11 +225,16 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
     // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
+    // live 比較が断りの元なら、先に live 比較を読み直す（新しい中断の知らせを断りの文で隠さない：INV-LC21）。
     bool outputRefused (hypha::output_owner::Activity activity)
     {
         const auto decision = processorRef.outputDecision (activity);
-        if (decision.refused()) showToast (hypha::output_owner::refusalText (decision.reason));
-        return decision.refused();
+        if (! decision.refused()) return false;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (hypha::output_owner::liveCause (decision.cause)) refreshLiveCompare();
+       #endif
+        showToast (hypha::output_owner::refusalText (decision.reason));
+        return true;
     }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::String liveCompareWarningText() const { return liveCompareWarning; }

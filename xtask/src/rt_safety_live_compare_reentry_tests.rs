@@ -51,13 +51,23 @@ fn direct_live_action_results_follow_ambient_state_acknowledgement() {
     assert!(start.contains("performAction") && start.contains("ActionFaultScope::duringAction"));
     assert!(start.contains("currentNamedAction") && start.contains("generation, false"));
     assert!(start.find("refreshLiveCompare()").unwrap() < start.find("showToast").unwrap());
-    for method in [
-        "void KirinHyphaEditor::matchLiveCompare",
-        "void KirinHyphaEditor::applyLiveCompareChoice",
-        "void KirinHyphaEditor::pinLiveCompareForBlind",
-        "bool KirinHyphaEditor::liveCompareHoldBlocksAudition",
+    let header = include_str!("../../juce_shell/src/PluginEditor.h");
+    let refused = function_body(
+        header,
+        "bool outputRefused (hypha::output_owner::Activity activity)",
+    );
+    assert!(refused
+        .contains("if (hypha::output_owner::liveCause (decision.cause)) refreshLiveCompare();"));
+    for (source, method) in [
+        (editor, "void KirinHyphaEditor::matchLiveCompare"),
+        (editor, "void KirinHyphaEditor::applyLiveCompareChoice"),
+        (editor, "void KirinHyphaEditor::pinLiveCompareForBlind"),
+        (
+            header,
+            "bool outputRefused (hypha::output_owner::Activity activity)",
+        ),
     ] {
-        let body = function_body(editor, method);
+        let body = function_body(source, method);
         assert!(body.find("refreshLiveCompare()").unwrap() < body.find("showToast").unwrap());
         let after_notice = body.rsplit("showToast").next().unwrap();
         assert!(!after_notice.contains("refreshLiveCompare()"));
