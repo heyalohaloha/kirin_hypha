@@ -5,6 +5,9 @@ use crate::attack_perception::band::{
 };
 use crate::attack_runtime::{AttackBandDetail, AttackBandResults};
 
+#[path = "attack_exchange_codec_identity_tests.rs"]
+mod identity_tests;
+
 fn history() -> AttackHistory {
     history_with(true)
 }

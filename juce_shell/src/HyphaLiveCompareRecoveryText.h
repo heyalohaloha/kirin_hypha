@@ -47,6 +47,28 @@ inline const char* cause (Reason reason) noexcept
 
 enum class RecoveryAction { none, automatic, play, stopPlay, compensation, checkPre,
                             checkLevels, selectPre, endBlind, returnLevel, listen, busy };
+
+// After the cause: what plays now and how to go on. The short status in the footer is the same
+// story cut to fit; the help line and the status window tell it whole as "LISTEN: <cause>. <next step>"
+// (PluginEditorHelpLine.cpp).
+inline const char* nextStep (RecoveryAction action) noexcept
+{
+    switch (action)
+    {
+        case RecoveryAction::automatic: return "POST plays until PRE is confirmed, then it resumes by itself.";
+        case RecoveryAction::play: return "POST plays now. Play the DAW to resume.";
+        case RecoveryAction::stopPlay: return "POST plays now. Stop and play the DAW to continue.";
+        case RecoveryAction::compensation: return "POST plays now. Turn on the DAW's delay compensation.";
+        case RecoveryAction::checkPre: return "POST plays now. Check the PRE in PAIR, then MENU > LISTEN.";
+        case RecoveryAction::checkLevels: return "POST plays now. Check the chain's levels, then MATCH again.";
+        case RecoveryAction::selectPre: return "POST plays now. Select PRE to compare again.";
+        case RecoveryAction::endBlind: return "Press END, then start BLIND again.";
+        case RecoveryAction::returnLevel: return "POST is still lowered. Press RETURN, then LISTEN.";
+        case RecoveryAction::listen: return "POST plays now. MENU > LISTEN compares again.";
+        case RecoveryAction::busy: case RecoveryAction::none: break;
+    }
+    return "";
+}
 struct RecoveryPresentation
 {
     Reason reason = Reason::none; // history, independent of the current remedy
@@ -91,10 +113,24 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
+    if (state.active && state.interrupted)
+    {
+        if (state.reason == Reason::ceiling) return result (RecoveryAction::checkLevels, "Level limit: rematch, select PRE (POST)");
+        if (state.reason == Reason::nonFinite) return result (RecoveryAction::checkLevels, "Invalid audio: check chain (POST)");
+        if (state.reason == Reason::bypassed) return result (RecoveryAction::selectPre, "Bypassed: enable, select PRE (POST)");
+        if (state.reason == Reason::offline) return result (RecoveryAction::selectPre, "Offline: play, select PRE (POST)");
+        if (state.reason == Reason::outputTaken) return result (RecoveryAction::selectPre, "Other audition: end it, select PRE");
+        if (state.reason == Reason::callbackGap) return result (RecoveryAction::selectPre, "Audio gap: select PRE again (POST)");
+        if (state.reason == Reason::clockMissing || state.reason == Reason::projectClockMissing)
+            return result (RecoveryAction::selectPre, "Clock missing: select PRE again (POST)");
+        return result (RecoveryAction::selectPre, "Select PRE again");
+    }
     if (state.active && (state.observation == Reason::loopUnproven
         || state.observation == Reason::loopTooShort
         || state.observation == Reason::loopClockUnavailable))
-        return result (RecoveryAction::none, state.observation == Reason::loopTooShort
+        return state.timingReentryPending && state.observation == Reason::loopUnproven
+            ? result (RecoveryAction::automatic, "Checking PRE: auto-resume; POST plays")
+            : result (RecoveryAction::none, state.observation == Reason::loopTooShort
             ? "Loop too short for verified timing; POST plays"
             : "LOOP timing unverified; POST; END closes");
     if (state.active && state.observation == Reason::loopWaiting)
@@ -107,11 +143,11 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         if (admission != live_compare::StartResult::started)
             return result (RecoveryAction::busy, "Comparison releasing; POST plays");
         if (state.reason == Reason::restored)
-            return result (RecoveryAction::listen, "State restored: MENU > LISTEN (POST)");
+            return result (RecoveryAction::listen, "Reopened: MENU > LISTEN (POST)");
         if (state.reason == Reason::formatChanged)
             return result (RecoveryAction::listen, "Format changed: MENU > LISTEN (POST)");
         if (state.reason == Reason::pairChanged || state.reason == Reason::preUnavailable || state.reason == Reason::foreignRing)
-            return result (RecoveryAction::checkPre, "Check PRE pair; MENU > LISTEN (POST)");
+            return result (RecoveryAction::checkPre, "PRE changed: check PAIR, MENU > LISTEN (POST)");
         return result (RecoveryAction::listen, "Stopped: MENU > LISTEN (POST)");
     }
     if (state.active && state.preSelected && state.preWaiting)
@@ -125,14 +161,8 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         return result (RecoveryAction::automatic, "Checking PRE: auto-resume; POST plays");
     }
     if (state.active && state.matchHeld && ! state.interrupted)
-        return result (RecoveryAction::selectPre, "MATCH held; rematch to confirm levels");
-    if (! state.interrupted || ! state.active) return {};
-    if (state.reason == Reason::ceiling) return result (RecoveryAction::checkLevels, "Level limit: rematch, select PRE (POST)");
-    if (state.reason == Reason::nonFinite) return result (RecoveryAction::checkLevels, "Invalid audio: check chain (POST)");
-    if (state.reason == Reason::bypassed) return result (RecoveryAction::selectPre, "Bypassed: enable, select PRE (POST)");
-    if (state.reason == Reason::offline) return result (RecoveryAction::selectPre, "Offline: play, select PRE (POST)");
-    if (state.reason == Reason::outputTaken) return result (RecoveryAction::selectPre, "Other audition: end it, select PRE");
-    return result (RecoveryAction::selectPre, "Select PRE again");
+        return result (RecoveryAction::selectPre, "MATCH held; select PRE to check timing");
+    return {};
 }
 inline const char* namedRecovery (const live_compare::Status& state) noexcept
 { return namedPresentation (state).instruction; }

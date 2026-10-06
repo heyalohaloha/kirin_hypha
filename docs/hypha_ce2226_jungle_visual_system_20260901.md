@@ -69,11 +69,11 @@ VUの計器フレームはこの簡略化の対象外とし、既存の筐体構
 |---|---|---|
 | 基材 | 温かい黒 `#16110D` | 画面、panel、計測面 |
 | POSTの値 | シャンパンゴールド `#E0BD7E` | FREQのPOST、LIVEのLUFS-M、DRUMのPOST包絡、STRENGTH（`#D9A24E`） |
-| 差分・動き・選択 | 水色 `#7FCFD8` | Δ、M/SのMID、true peak（VUのbar、LIVE）、PAIR、TRANSIENT、DRUMの選択（淡い氷色 `#B5E6EF`） |
+| 差分・動き・選択 | 水色 `#7FCFD8` | Δ、M/SのMID、true peak（VUのbar、LIVE、LEVELとTIMEの履歴）、PAIR、TRANSIENT、DRUMの選択（淡い氷色 `#B5E6EF`） |
 | PRE | 温かい灰 `#968C80`（DRUMのPRE traceは明るい無彩色 `#D8D0C4`） | PRE曲線、PRE trace |
 | 数値 | 象牙色 `#F0E4CC`、通常文字 `#E8E2D8` | 数値、見出し |
 | 素材・保持・Guide | 金 `#C9A15A` | 名前、hold、Session、Guide |
-| 小さな印と細い線だけ | 銅 `#D0835A`、薄紫（SIDE `#AD9FDC`、Sharpness `#B3A2E6`） | CREST、SIDE、Sharpness（LIVEの線、DRUMのlane）のlabel、棒、細い線 |
+| 小さな印と細い線だけ | 銅 `#D0835A`、薄紫（SIDE `#AD9FDC`、Sharpness `#B3A2E6`） | CREST、TIMEのPSR、SIDE、TIMEのCORR < 0の印、Sharpness（LIVEの線、DRUMのlane）のlabel、棒、細い線 |
 
 広い面と長い線に使う色は、基材、金、水色、無彩色（象牙色、温かい灰）だけとする。
 銅と薄紫は区別のための色なので、label、棒、先端、細いデータ線にだけ使い、帯や面にしない（DRUMのlaneの0線は象牙色）。
@@ -127,7 +127,7 @@ PRE/POST対応のΔ表示は平面のままとする（2026-09-26 設計決定�
 | Surface | 強度 | 主な視覚層 | 実測との接続 | Compactで残す事実（最大3） |
 |---|---:|---|---|---|
 | POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | S、I（TRACK/STEMではCrest）、MAX TP |
-| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、125%はM、S、TP、100%はSとTPだけを表示する | M、S、TP（100%はS、TP） |
+| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TPのexact historyとその下のPSRの推移（PLRとcorrelationは数字）、125%はM、S、TP、100%はSとTPだけを表示する | M、S、TP（100%はS、TP） |
 | POST TIME ATTACK | 5/5 | 観測、時間 | 六秒HISTORYの下で打音ごとのTRANSIENT、STRENGTH、CREST、SHARPNESSのlaneを同じ時間軸へ並べ、選択打音を静的な菌糸線で貫く | HISTORY、選択打音の四値、選択位置（100%は1段のHISTORYと大きな四値） |
 | POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
 | POST TIME LIVE | 3/5 | 観測、時間 | POST単体のLUFS-M、TP、Sharpnessを固定scale上で追跡する | 三つの絶対値、history |
@@ -254,7 +254,7 @@ LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを
 
 LEVEL Historyの横軸は常に固定60秒とし、測定開始直後の短い履歴を横幅いっぱいへ引き伸ばさない。
 
-Mを主線とし、Sを含む詳細推移はTIMEに集約する。TPは連続線を重ねず、`-1.0 dBTP`を超える連続区間ごとの最大`true_peak.max`だけをevent stemとして示す。可視60秒の最大値であっても閾値以下ならstemへ昇格しない。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M Historyは全面を使い、TP stemだけが下から立ち上がる。
+Mを主線とし、Sを含む詳細推移はTIMEに集約する。TPは連続線を重ねず、`-1.0 dBTP`を超える連続区間ごとの最大`true_peak.max`だけをevent stemとして示す。可視60秒の最大値であっても閾値以下ならstemへ昇格しない。TPは別railへ分離せず、同じ60秒全面の下部へ右側`-1〜+3 dBTP`軸とともに重ねる。stemが立つ範囲だけを軸とし、0 dBTPに基準線を引く（2026-10-06）。M Historyは全面を使い、TP stemだけが下から立ち上がる。
 
 閾値を超えた可視区間の正確な最大値と相対時刻だけを`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。閾値以下しかない区間へ数値、stem、強い発光を追加しない。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
 

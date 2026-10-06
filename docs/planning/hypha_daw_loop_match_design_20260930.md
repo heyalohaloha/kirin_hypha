@@ -1022,3 +1022,81 @@ cold runnerの全gateを完走させるためjob上限だけ55分へ変更する
 試験、clippyを維持し、各製品試験のdeadlineや合格値は変えない。新commitの必須CIは別途必要で、
 旧runの個別passを新候補のgreenへ読み替えない。WindowsのDeveloper実機検証も継続中であり、
 unsigned AAXのloadや診断probeだけで通常Pro Tools／配布完了を主張しない。
+
+### 2026-10-02: LOOP再取得とMATCH承認の構造的分離
+
+LOOPを有効にする前に範囲終端を越えていた場合、それは正常な折返しではなくproject seekになる。
+PREとPOSTの位置はLOOPの頭へ移る一方、独立時計は進み続ける。
+旧Consumerは成立後の初回取得入口を閉じ、seekでKを失効した後も、反復位置だけでは較正し直せない。
+画面でPREを選び直すだけではその入口が開かず、別の準備観測に新proofがあってもPRE WAITに留まった。
+較正条件を緩めるのではなく、取得入口と利用者の出力権限を分離する。
+
+1. 通常stop、連続時計に裏付けられたproject移動、hostが通知した補償有効化を型付きの既知変更とする。
+   同じpair／rate／PRE owner／出力authorityの場合だけ記名選択と固定gainを保つ。
+   旧Kと測定履歴を破棄し、現在世代・owner・当該callback・新PCMに束縛された別の取得入口で確かめ直す。
+2. 時計欠損、説明不能なcallback gap、owner変更、不正LOOP metadataを既知seekへ昇格させない。
+   旧選択を封鎖してPOSTを出し、最初の原因と実在するPRE再選択の動線を示す。
+   現在の一般的なLOOP待機案内で、保持した中断理由や次の操作を覆わない。
+3. 一時的なmetadata／gain writerの競合は出力の準備不足であって、既知変更の復帰権限の消失ではない。
+   競合中はPOSTを出す。coherentな原因と承認tupleを確認した後だけ復帰の権限を消費する。
+   PCM runだけが変わった場合に、前の時計世代のstop原因を流用しない。
+4. PAIR選択／解除はmessage timerを待たず、操作時に旧RT authorityを失効する。
+   停止中にpairを変更して直ちに再生しても、古いmappingとMATCHからPREやBlindを復活させない。
+5. 失効済みBlind、END、state restoreは記名自動再取得を許可しない。利用者の新しい明示BLINDは
+   旧trialの復活ではなく、新しい取得要求・履歴・authorityと非RTのCSPRNG割当を使う別試行とする。
+   準備が成立しないまま受理済みAPIが無期限待機になる状態を作らない。
+
+再取得は音量の再測定ではない。正常な停止／移動後にLOOP解除や再MATCHを要求しない。
+無音meterのInactiveはheartbeat停止やbypassでも起こるため、無音sleepの証明として使わない。
+認定済み独立時計が保った単なる遅いcallbackと、実際の説明不能な空白を区別する。
+遅延補償のON通知と未知gapが同時にあれば、既知通知で未知失効を上書きしない。
+
+MATCHはPRE gain、POST target、ceiling、limited、保持状態、承認identityを一つのeven revisionで公開する。
+全readerが同じtupleを取り、MATCH／AUTO／RT ENDの全writerが一回だけのCAS更新leaseを共有する。
+途中の旧POST／新PRE混在や、旧音量の適用receiptで新MATCH／Blindを許可することを防ぐ。
+現在の時刻根拠と同じrevisionの実適用receiptを確認してから完全MATCHと扱う。
+Audio Threadへ待機、spin、allocation、lock、I/Oは加えず、既存ring容量とworker数を保つ。
+
+比較lease、END、Blindがなく、実POST gainが正確に1の通常経路だけは、even revision→POST target→
+acquire fence→同じrevisionでunityを確認して出力を触らず返す。このsubsetは承認tupleや適用receiptでは
+なく、PRE／ceiling／承認identityを読まない。条件が成立しなければ全tupleを新たに取得し、subsetの
+部分値を比較経路へ流用しない。時計準備とMATCH失効判定は省略の前に維持する。
+odd writer、非unity／非finite、終了lease、保持中の減衰は従来のfull pathを通る。新しいRT状態や
+workerを追加せず、決定的writer差込みとloadmaskの対照でこの通常経路の読取り境界を固定する。
+これによる最新製品の追加時間の合格は、未計測のまま主張しない。
+
+新pure契約と実processorのstop／seek／unknown／DC／odd publication／pair変更／新旧Blind対照を、
+macOS release-sourceのbuild targets・選択regex・件数検査とWindows preflightへ明示登録する。
+冷たいCIで新CTestが未build／未選択のまま合格することを許さない。
+既存400周全frame oracle、正常Aのbit同一、RT heap操作0に加え、最終sourceのfull processor追加時間を
+元の中央値／p99上限で確認する。これらの最終gateと新候補実DAW検証は、この追記時点では未完了である。
+
+前のcommitで実hostの初回LOOPを確かめた結果は、そのcommit・host・形式の証跡に限る。
+startup／crossfade内の非grid blocksを除いた記録であり、全遷移のbit同一や新候補の合格へ読み替えない。
+AAX DeveloperのSaveが無効なのは、[Avidのdebuggable build仕様](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html)
+に記載されたsession保存／export制限と整合する。署名済み通常Pro Toolsのsave／reopenは別受入であり、
+Developerの診断成功やこの制限から合格を推定しない。
+
+記名操作の表示も同じ因果境界へ揃える。旧中断通知のacknowledgement、操作、操作後の新故障と
+現在適格性の確認を一つのmessage-thread境界で行い、新しい中断を成功通知で隠さない。
+古い未観測ceilingから合法再MATCHする対照も保ち、旧履歴だけで拒否しない。非同期MATCH／AUTO
+メニューは開いた比較世代を操作前と測定結果へ引き継ぎ、終了後の新しい比較へ作用させない。
+同じ現行比較のAUTO適用確認待ちは未開始理由を通知する。古いメニューや新故障をその通知で
+覆わず、後からAUTOへ自動移行するstate／timerは追加しない。共有UI境界の決定的純粋試験と、
+実AAX拒否表示の複数tick確認、全preset・英日の新通知の幅／描画を最終gateへ含める。
+
+### 2026-10-06: full processorの追加時間（交互の測定）
+
+基準（この変更の前）と候補を交互に8往復し、512 framesのfull processorを測った（x86_64のMac、
+Release、各1200 callbacks）。同じbinaryでも回ごとの中央値が13.6〜25.1 µs揺れたため、1回ずつの
+比較では元の上限を判定できない。同じ時間帯に並べた往復ごとの差で判定する。
+
+| 経路 | 差の中央値（上限） | p99の差の中央値（上限） | 下位1%の差の中央値 |
+| --- | --- | --- | --- |
+| 通常A | +0.76 µs（+2.04） | +5.24 µs（+25.65） | +0.09 µs |
+| 記名PRE LOOP | −0.05 µs（+2.18） | −7.67 µs（+24.11） | +0.44 µs |
+| BLIND PRE LOOP | +1.81 µs（+2.17） | +10.15 µs（+22.33） | +0.62 µs |
+
+上限は元のまま（中央値max(1 µs, 基準の10%)、p99 max(2 µs, 基準の20%)）。三つとも上限の内で、
+通常Aの処理そのもの（下位1%）は増えていない。LOOPの比較中だけ1 blockあたり1 µs未満増える。
+測定器は下位1%・10%も出力する。新候補の実DAWでの確認は、この測定とは別に残る。

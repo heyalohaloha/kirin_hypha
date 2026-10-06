@@ -81,6 +81,9 @@ MatchFailure validateMatchPlan (const MatchPlan& plan, MatchChoice choice) noexc
         || ! std::isfinite (plan.postGainDb) || ! std::isfinite (plan.ceilingDbtp)
         || plan.lowerPostGainDb > 0.0 || plan.postGainDb > 0.0)
         return MatchFailure::invalidPlan;
+    // The approval publishes a float linear ceiling, not the finite double dB value itself.
+    const auto ceiling = static_cast<float> (std::pow (10.0, plan.ceilingDbtp / 20.0));
+    if (! std::isfinite (ceiling) || ceiling <= 0.0f) return MatchFailure::invalidPlan;
     if (std::abs (plan.preGainDb) > maximumMatchDb || plan.lowerPostGainDb < -maximumMatchDb
         || plan.postGainDb < -maximumMatchDb)
         return MatchFailure::outOfRange;

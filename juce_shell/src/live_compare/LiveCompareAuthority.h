@@ -35,6 +35,9 @@ public:
     std::uint64_t ticket() const noexcept { return state.load (std::memory_order_acquire); }
     std::uint64_t generation() const noexcept { return ticket() >> 32; }
     bool restoring() const noexcept { return (ticket() & depthMask) != 0; }
+    // Explicit pair mutation invalidates the old permission before any FFI/state mutation.
+    std::uint64_t revoke() noexcept
+    { return (state.fetch_add (epochStep, std::memory_order_acq_rel) + epochStep) >> 32; }
     bool permitted() const noexcept
     {
         const auto current = ticket();

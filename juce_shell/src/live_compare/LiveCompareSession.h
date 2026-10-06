@@ -142,6 +142,7 @@ struct RenderReport
     bool stableSource = false; // every frame used one direct, exact source path
     bool gainSettled = false;  // every frame used the command's PRE and POST gain targets
     bool timelineChanged = false;
+    TimelineBreak loss = TimelineBreak::none;
     AudibleSource audibleSource = AudibleSource::none;
 };
 
@@ -180,6 +181,16 @@ public:
     bool adoptInitialTiming (const Ring& ring, const BlockClock& block,
                              const TimingEvidence& evidence) noexcept
     { return consumer.adoptInitialTiming (ring, block, evidence); }
+    bool needsNewAdmission() const noexcept { return consumer.needsNewAdmission(); }
+    void renewNamedTiming() noexcept // Audio Thread, only after NamedReentry grant
+    {
+        weight = 0.0f;
+        consumer.reset();
+        invalidateHistory(); // no old measurement/approval window survives re-entry
+        projectKnown.store (false, std::memory_order_release);
+    }
+    void revokeTiming() noexcept
+    { weight = 0.0f; consumer.revoke(); invalidateHistory(); }
 
     // MATCH (non-RT) reads the POST input history, contiguous over [start, end) of POST's clock,
     // and the K that mapped the latest block, then verifies the history was not overwritten.
@@ -264,13 +275,11 @@ public:
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
         recordHistory (block, io, channels, decision);
         report.timelineChanged = decision.timelineChanged || decision.invalidatedByDisagreement;
+        report.loss = decision.loss;
         report.verdict = decision.verdict;
         report.reason = recoveryReason (decision.verdict);
         if (report.timelineChanged)
-            report.reason = block.afterGap ? RecoveryReason::callbackGap
-                : ! block.playing ? RecoveryReason::stopped
-                : ! block.clockValid ? RecoveryReason::clockMissing
-                : ! block.projectValid ? RecoveryReason::projectClockMissing : RecoveryReason::positionChanged;
+            report.reason = recoveryReason (decision.loss);
         if (decision.verdict != Verdict::accepted)
         {
             weight = 0.0f; // switch to POST at the block start
@@ -278,14 +287,17 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        if (weight <= 0.0f)
+        // Validate the raw wanted gain before peak(): std::max(current, NaN) can hide NaN.
+        const bool validGain = std::isfinite (preGain) && preGain > 0.0f
+            && std::isfinite (ceilingLinear) && ceilingLinear > 0.0f;
+        if (validGain && weight <= 0.0f)
             preLevel.settle (preGain);
         bool finitePost = true;
         if (blind)
             for (int channel = 0; channel < channels; ++channel)
                 for (std::int32_t i = 0; i < block.frames; ++i)
                     finitePost = finitePost && std::isfinite (io[channel][i]);
-        report.reason = ! finitePost ? RecoveryReason::nonFinite
+        report.reason = ! finitePost || ! validGain ? RecoveryReason::nonFinite
             : (blind || preSelected || weight > 0.0f)
                 ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
         if (report.reason != RecoveryReason::none)
@@ -358,7 +370,15 @@ private:
     // guard alone does not prove the true peak.
     RecoveryReason guardFailure (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
     {
-        const float limit = preGain > 1.0f ? ceilingLinear / preGain : std::numeric_limits<float>::infinity();
+        if (! std::isfinite (preGain) || preGain <= 0.0f) return RecoveryReason::nonFinite;
+        float limit = std::numeric_limits<float>::infinity();
+        if (preGain > 1.0f)
+        {
+            const double exact = static_cast<double> (ceilingLinear) / static_cast<double> (preGain);
+            limit = static_cast<float> (exact);
+            // A rounded-up threshold can admit a sample whose gained value exceeds even FLT_MAX.
+            if (static_cast<double> (limit) > exact) limit = std::nextafter (limit, 0.0f);
+        }
         for (const float* channel : { left.get(), right.get() })
             for (std::int32_t i = 0; i < frames; ++i)
             {

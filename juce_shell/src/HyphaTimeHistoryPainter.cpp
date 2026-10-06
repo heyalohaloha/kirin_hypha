@@ -10,12 +10,13 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 
 namespace hypha::time_history
 {
 namespace
 {
-enum class Metric { momentary, shortTerm, truePeak, plr, correlation };
+enum class Metric { momentary, shortTerm, truePeak, psr, correlation };
 
 struct MetricVisual
 {
@@ -33,8 +34,8 @@ const KirinMeterHistoryRange& rangeFor (const KirinMeterHistoryEntry& entry,
         return entry.lufs_s;
     if (metric == Metric::truePeak)
         return entry.true_peak;
-    if (metric == Metric::plr)
-        return entry.plr;
+    if (metric == Metric::psr)
+        return entry.psr;
     if (metric == Metric::correlation)
         return entry.correlation;
     return entry.lufs_m;
@@ -82,93 +83,85 @@ juce::String latestText (const std::vector<KirinMeterHistoryEntry>& history,
     return "---";
 }
 
-double latestValue (const std::vector<KirinMeterHistoryEntry>& history,
-                    Metric metric) noexcept
+// PSR moves with the music, so its lane keeps one fixed scale per mode. Absolute PSR of mastered
+// music lies between a crushed 4 dB and an open 16 dB. POST - PRE is mostly a reduction, so its
+// scale keeps 3 dB above zero and 9 below. A value beyond either end rests on that end.
+constexpr double psrBottom (bool delta) noexcept { return delta ? -9.0 : 4.0; }
+constexpr double psrTop (bool delta) noexcept { return delta ? 3.0 : 16.0; }
+
+float psrY (juce::Rectangle<float> plot, double value, bool delta) noexcept
 {
-    for (auto iterator = history.rbegin(); iterator != history.rend(); ++iterator)
+    const auto proportion = juce::jlimit (
+        0.0, 1.0, (value - psrBottom (delta)) / (psrTop (delta) - psrBottom (delta)));
+    return plot.getBottom() - static_cast<float> (proportion) * plot.getHeight();
+}
+
+juce::String scaleText (double value, bool delta)
+{
+    return (delta && value > 0.0 ? "+" : "") + juce::String (value, 0);
+}
+
+// One row of numbers over the PSR trace: the current PSR and what it is, then the session facts
+// that barely move (PLR, CORR) as numbers only.
+void paintPsrReadout (juce::Graphics& g,
+                      const AuxiliaryLaneGeometry& lane,
+                      const std::vector<KirinMeterHistoryEntry>& history,
+                      bool delta,
+                      double sessionPlr,
+                      presentation::Context presentation)
+{
+    const auto row = psrReadout (presentation, lane.readout, delta);
+    g.setFont (monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::visualization));
+    g.setColour (COL_COPPER);
+    text_style::drawText (g, "PSR " + latestText (history, Metric::psr, delta) + " dB",
+                          row.value, juce::Justification::centredLeft);
+    if (! row.correlation.isEmpty())
     {
-        const auto value = rangeFor (*iterator, metric).mean;
-        if (std::isfinite (value)) return value;
+        g.setColour (COL_SPECTRUM_SIDE);
+        text_style::drawText (g, "CORR " + latestText (history, Metric::correlation, delta),
+                              row.correlation, juce::Justification::centredRight);
     }
-    return std::numeric_limits<double>::quiet_NaN();
+    if (! row.plr.isEmpty())
+    {
+        const auto plr = std::isfinite (sessionPlr) ? juce::String (sessionPlr, 1) : juce::String ("---");
+        g.setColour (COL_TEXT_SECONDARY);
+        text_style::drawText (g, "PLR " + plr + " dB", row.plr, juce::Justification::centredLeft);
+    }
+    if (row.definition.isEmpty())
+        return;
+    // PSR = PEAK - S of one 100 ms point, so the point that gives PSR also gives its PEAK.
+    juce::String definition = delta ? psrDefinition (true) : juce::String();
+    for (auto entry = history.rbegin(); ! delta && entry != history.rend(); ++entry)
+        if (std::isfinite (entry->psr.mean) && std::isfinite (entry->lufs_s.mean))
+        {
+            definition = psrDefinition (false, entry->psr.mean + entry->lufs_s.mean, entry->lufs_s.mean);
+            break;
+        }
+    g.setFont (monoFont (presentation, typography::TextRole::body,
+                         typography::Composition::visualization));
+    g.setColour (COL_TEXT_TERTIARY);
+    text_style::drawText (g, definition, row.definition, juce::Justification::centredLeft);
 }
 
-float normalizedAux (Metric metric, double value, bool delta) noexcept
-{
-    const double minimum = metric == Metric::plr ? (delta ? -12.0 : 0.0)
-                                                  : (delta ? -2.0 : -1.0);
-    const double maximum = metric == Metric::plr ? (delta ? 12.0 : 24.0)
-                                                  : (delta ? 2.0 : 1.0);
-    return 1.0f - (float) juce::jlimit (0.0, 1.0, (value - minimum) / (maximum - minimum));
-}
-
-void paintAuxLane (juce::Graphics& g,
-                   juce::Rectangle<int> area,
+void paintPsrLane (juce::Graphics& g,
+                   const AuxiliaryLaneGeometry& lane,
                    const std::vector<KirinMeterHistoryEntry>& history,
-                   Metric metric,
-                   const char* label,
-                   juce::Colour colour,
                    const HistoryAxis& axis,
-                   juce::Range<float> timelineX,
-                   const AuxiliaryLaneGeometry* sharedGeometry,
                    bool delta,
+                   double sessionPlr,
                    presentation::Context presentation)
 {
     g.setColour (COL_MUTED.withAlpha (0.16f));
-    g.fillRoundedRectangle (area.toFloat(), 2.0f);
-    auto labelArea = sharedGeometry != nullptr ? sharedGeometry->readout
-        : area.removeFromLeft (auxLabelWidth (
-            presentation, metric == Metric::plr, delta, area.getWidth()));
-    g.setColour (colour.withAlpha (0.90f));
-    g.setFont (monoFont (presentation, typography::TextRole::readout,
-                         typography::Composition::visualization));
-    const auto labelText = juce::String (label) + " "
-                         + latestText (history, metric, delta) + (metric == Metric::plr ? " dB" : "");
-    if (metric == Metric::plr)
-    {
-        text_style::drawText (g, labelText, labelArea.removeFromTop (labelArea.getHeight() / 2),
-                    juce::Justification::centredLeft);
-        g.setFont (monoFont (presentation, typography::TextRole::body,
-                             typography::Composition::visualization));
-        const auto definition = presentation.logicalWidth >= 600
-            ? (delta ? "PLR / POST - PRE" : "SESSION FACT / TP MAX - LUFS-I")
-            : (delta ? "PLR POST - PRE" : "TP MAX - LUFS-I");
-        text_style::drawText (g, definition, labelArea,
-                    juce::Justification::centredLeft);
+    g.fillRoundedRectangle (lane.bounds.toFloat(), 2.0f);
+    paintPsrReadout (g, lane, history, delta, sessionPlr, presentation);
 
-        // PLR is a cumulative session fact and normally changes very little. Present it as a
-        // restrained horizontal fact gauge instead of a misleading near-flat time trace.
-        const auto value = latestValue (history, metric);
-        const auto minimum = delta ? -12.0 : 0.0;
-        const auto maximum = delta ? 12.0 : 24.0;
-        auto gauge = area.reduced (6, juce::jmax (4, area.getHeight() / 3)).toFloat();
-        const auto centreY = gauge.getCentreY();
-        g.setColour (COL_MUTED.withAlpha (0.28f));
-        g.drawLine (gauge.getX(), centreY, gauge.getRight(), centreY, 1.0f);
-        if (std::isfinite (value))
-        {
-            const auto proportion = (float) juce::jlimit (
-                0.0, 1.0, (value - minimum) / (maximum - minimum));
-            const auto start = delta ? gauge.getCentreX() : gauge.getX();
-            const auto end = gauge.getX() + proportion * gauge.getWidth();
-            g.setColour (colour.withAlpha (0.82f));
-            g.drawLine (start, centreY, end, centreY, 1.15f);
-            g.fillEllipse (end - 2.0f, centreY - 2.0f, 4.0f, 4.0f);
-        }
-        return;
-    }
-    else
-        text_style::drawText (g, labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
-
-    auto axisArea = sharedGeometry != nullptr ? sharedGeometry->axis
-                                              : area.removeFromRight (32);
-    auto plot = sharedGeometry != nullptr ? sharedGeometry->data
-        : juce::Rectangle<float> (
-            timelineX.getStart(), static_cast<float> (area.getY() + 2),
-            timelineX.getLength(), static_cast<float> (juce::jmax (0, area.getHeight() - 4)));
-    const auto zeroY = plot.getY() + normalizedAux (metric, 0.0, delta) * plot.getHeight();
+    const auto plot = lane.data;
+    // Delta keeps its zero; absolute PSR keeps its middle, 10 dB, as the one reference line.
+    const auto reference = delta ? 0.0 : 10.0;
     g.setColour (COL_MUTED.withAlpha (0.28f));
-    g.drawHorizontalLine (juce::roundToInt (zeroY), plot.getX(), plot.getRight());
+    g.drawHorizontalLine (juce::roundToInt (psrY (plot, reference, delta)),
+                          plot.getX(), plot.getRight());
 
     juce::Path path;
     bool open = false;
@@ -177,14 +170,14 @@ void paintAuxLane (juce::Graphics& g,
     for (size_t index = 0u; index < history.size(); ++index)
     {
         const auto& entry = history[index];
-        const auto value = rangeFor (entry, metric).mean;
+        const auto value = entry.psr.mean;
         if (! std::isfinite (value))
         {
             open = false;
             continue;
         }
         const auto x = xFor (plot, entry, axis, index, history.size());
-        const auto y = plot.getY() + normalizedAux (metric, value, delta) * plot.getHeight();
+        const auto y = psrY (plot, value, delta);
         const bool newRun = ! open || entry.generation != previousGeneration
                          || entry.run_id != previousRun;
         if (newRun) path.startNewSubPath (x, y); else path.lineTo (x, y);
@@ -192,16 +185,17 @@ void paintAuxLane (juce::Graphics& g,
         previousGeneration = entry.generation;
         previousRun = entry.run_id;
     }
-    g.setColour (colour.withAlpha (0.88f));
-    g.strokePath (path, juce::PathStrokeType (1.0f));
+    // Copper is a thin-line colour: no glow band and no filled range under the trace.
+    g.setColour (COL_COPPER.withAlpha (0.92f));
+    g.strokePath (path, juce::PathStrokeType (1.1f, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
 
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
-    const auto top = metric == Metric::plr ? (delta ? "+12" : "24")
-                                            : (delta ? "+2" : "+1");
-    const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
-                                               : (delta ? "-2" : "-1");
+    auto axisArea = lane.axis;
+    const auto top = scaleText (psrTop (delta), delta);
+    const auto bottom = scaleText (psrBottom (delta), delta);
     // A lane too short for both ends keeps the top one, at the top where its line is.
     const auto axisLine = juce::roundToInt (std::ceil (typography::resolve (
         presentation, typography::TextRole::axis, typography::Composition::visualization).lineHeight));
@@ -211,8 +205,43 @@ void paintAuxLane (juce::Graphics& g,
         return;
     }
     text_style::drawText (g, top, axisArea.removeFromTop (axisArea.getHeight() / 2),
-                juce::Justification::centredRight);
+                          juce::Justification::centredRight);
     text_style::drawText (g, bottom, axisArea, juce::Justification::centredRight);
+}
+
+// The 3 s correlation keeps only one mark in the history: a lilac tick on the floor of the plot
+// for each stretch where it fell below zero (more SIDE than MID), at that stretch's lowest point.
+// Nothing is drawn while it stays at or above zero.
+void paintCorrelationBelowZero (juce::Graphics& g,
+                                juce::Rectangle<float> plot,
+                                const std::vector<KirinMeterHistoryEntry>& history,
+                                const HistoryAxis& axis)
+{
+    std::optional<size_t> lowest;
+    const auto mark = [&]
+    {
+        if (! lowest.has_value()) return;
+        const auto x = xFor (plot, history[*lowest], axis, *lowest, history.size());
+        g.setColour (COL_SPECTRUM_SIDE.withAlpha (0.94f));
+        g.fillRoundedRectangle (x - 1.0f, plot.getBottom() - 6.0f, 2.0f, 6.0f, 1.0f);
+        lowest.reset();
+    };
+    for (size_t index = 0u; index < history.size(); ++index)
+    {
+        const auto& entry = history[index];
+        if (index > 0u && (entry.generation != history[index - 1u].generation
+                           || entry.run_id != history[index - 1u].run_id))
+            mark();
+        const auto value = entry.correlation.min;
+        if (! std::isfinite (value) || value >= 0.0)
+        {
+            mark();
+            continue;
+        }
+        if (! lowest.has_value() || value < history[*lowest].correlation.min)
+            lowest = index;
+    }
+    mark();
 }
 
 void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
@@ -236,7 +265,8 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
         if (detailedAxes)
         {
             g.setColour (COL_TEXT_TERTIARY);
-            const auto loudness = juce::String (floor * (double) index / 4.0, 0);
+            const auto level = floor * (double) index / 4.0;
+            const auto loudness = juce::String (level == 0.0 ? 0.0 : level, 0); // never "-0"
             text_style::drawText (g, delta ? juce::String (difference[index]) : loudness,
                         juce::roundToInt (plot.getX()) - 32, y - 7,
                         28, 14, juce::Justification::centredRight);
@@ -253,7 +283,7 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
         if (plot.getHeight() < 100.0f && std::abs (value) > 0.01 && value > -23.99) continue;
         const auto y = juce::roundToInt (
             yFor (plot, Metric::truePeak, value, false, scaleMode));
-        g.setColour ((value == 0.0 ? COL_FLORA_BR : COL_MUTED).withAlpha (0.78f));
+        g.setColour ((value == 0.0 ? COL_TRUE_PEAK : COL_MUTED).withAlpha (0.78f));
         const auto label = juce::String (value > 0.0 ? "+" : "") + juce::String (value, 0);
         text_style::drawText (g, label, juce::roundToInt (plot.getRight()) + 4, y - 7,
                     28, 14, juce::Justification::centredLeft);
@@ -353,14 +383,13 @@ void paintLegend (juce::Graphics& g,
                   bool compact,
                   presentation::Context presentation)
 {
-    auto left = area;
-    const auto range = left.removeFromRight (legendBasisWidth (area.getWidth(), compact));
-    const int metricWidth = compact ? 42 : juce::jmin (72, left.getWidth() / 3);
+    const auto range = area.withTrimmedLeft (area.getWidth() - legendBasisWidth (area.getWidth(), compact));
+    const auto cells = legendCells (area, compact);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
     for (auto* visual = firstVisual; visual != endVisual; ++visual)
     {
-        auto cell = left.removeFromLeft (metricWidth);
+        const auto cell = cells[static_cast<std::size_t> (visual - firstVisual)];
         g.setColour (visual->colour);
         const auto text = compact ? juce::String (visual->label)
                                   : juce::String (visual->label) + " "
@@ -386,13 +415,14 @@ void paint (juce::Graphics& g,
             presentation::Context presentation,
             const juce::String& comparisonStatus,
             bool momentary,
-            bool mainWindow)
+            bool mainWindow,
+            double sessionPlr)
 {
     surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
     if (mainWindow) main_frame::paint (g, area.toFloat());
     if (delta && comparisonStatus.isNotEmpty())
     {
-        auto statusArea = area.removeFromTop (compactMeter ? 18 : 22);
+        auto statusArea = area.removeFromTop (statusRowHeight (compactMeter));
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentation, typography::TextRole::status,
                              typography::Composition::visualization));
@@ -416,7 +446,7 @@ void paint (juce::Graphics& g,
     const std::array<MetricVisual, 3> visuals {{
         { Metric::momentary, "M", COL_SPECTRUM_POST, 4.0f, 1.35f },
         { Metric::shortTerm, "S", COL_NORMAL, 3.0f, 1.05f },
-        { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
+        { Metric::truePeak, "TP", COL_TRUE_PEAK, 2.4f, 0.9f },
     }};
     const auto* firstVisual = momentary ? visuals.data() : visuals.data() + 1;
     const auto* endVisual = visuals.data() + visuals.size();
@@ -431,11 +461,9 @@ void paint (juce::Graphics& g,
         paintMetric (g, geometry.mainPlot, history, *visual, axis, delta, scaleMode, presentation);
     if (! compactMeter)
     {
-        paintAuxLane (g, geometry.plrBounds, history, Metric::plr, "PLR", COL_GUIDE_BR,
-                      axis, geometry.timelineX, nullptr, delta, presentation);
-        paintAuxLane (g, geometry.correlation.bounds, history, Metric::correlation, "CORR",
-                      COL_SPECTRUM_DELTA_BR, axis, geometry.timelineX,
-                      &geometry.correlation, delta, presentation);
+        if (! delta)
+            paintCorrelationBelowZero (g, geometry.mainPlot, history, axis);
+        paintPsrLane (g, geometry.psr, history, axis, delta, sessionPlr, presentation);
     }
 
 }

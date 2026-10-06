@@ -61,6 +61,9 @@ public:
     // wholeRow：足元の段の全幅（図・値・タブ）か、左の状態の所だけ（足元のボタン）か。出さないときは空。
     struct HelpLine { juce::String text; bool wholeRow = false; };
     HelpLine helpLineAt (juce::Point<int> point);
+    // The shown status told whole, when it has more to say (the live comparison's cause, then
+    // what plays now and how to go on); empty otherwise.
+    juce::StringArray statusStory() const;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseEnter (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -68,30 +71,17 @@ public:
 private:
     bool helpLineActive() const;
     void updateHelpLine();
+    // The window, rows, marks and headers are TextLookAndFeel's one Kirin Select drawing; this
+    // look only chooses the native menu font, which carries Japanese (INV-S40).
     class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
     {
     public:
-        PairMenuLookAndFeel()
-        {
-            setColour (juce::PopupMenu::backgroundColourId, hypha::BG);
-            setColour (juce::PopupMenu::textColourId, hypha::COL_NORMAL);
-            setColour (juce::PopupMenu::headerTextColourId, hypha::COL_FLORA);
-            setColour (juce::PopupMenu::highlightedBackgroundColourId,
-                       hypha::kFieldFill.brighter (0.08f));
-            setColour (juce::PopupMenu::highlightedTextColourId, hypha::COL_FLORA_BR);
-        }
         juce::Font getPopupMenuFont() override
         {
             return hypha::nativeTextFont (hypha::presentation::forOutput (
                 450, 300, hypha::presentation::OutputTarget::popup),
                 hypha::typography::TextRole::menu);
         }
-        void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
-        {
-            hypha::TextLookAndFeel::drawPopupMenuBackground (g, width, height);
-        }
-        // Menus are built in English and shown in the current language by TextLookAndFeel,
-        // in the native menu font above, which carries Japanese (INV-S40).
     };
 
     void timerCallback() override;
@@ -171,14 +161,14 @@ private:
     void openLiveBlind();
     void refreshLiveBlind();
     void configureLiveCompare();
-    void refreshLiveCompare();
+    bool refreshLiveCompare(); // true only when this refresh published a new fault notification
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
     void pinLiveCompareForBlind();
-    void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
-    void matchLiveCompare();
+    bool monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
+    void matchLiveCompare (std::uint64_t menuGeneration = UINT64_MAX);
     void chooseLiveCompareFollow();
-    void followLiveCompare (const hypha::live_compare::Status&, double now);
+    bool followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
@@ -225,11 +215,16 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
     // 押した操作を、出力の持ち主の表（processor と同じ答え）で先に確かめる。断るなら理由を言って true（R-28）。
+    // live 比較が断りの元なら、先に live 比較を読み直す（新しい中断の知らせを断りの文で隠さない：INV-LC21）。
     bool outputRefused (hypha::output_owner::Activity activity)
     {
         const auto decision = processorRef.outputDecision (activity);
-        if (decision.refused()) showToast (hypha::output_owner::refusalText (decision.reason));
-        return decision.refused();
+        if (! decision.refused()) return false;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (hypha::output_owner::liveCause (decision.cause)) refreshLiveCompare();
+       #endif
+        showToast (hypha::output_owner::refusalText (decision.reason));
+        return true;
     }
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::String liveCompareWarningText() const { return liveCompareWarning; }
@@ -340,6 +335,7 @@ private:
     hypha::reference_ui::TrackingStopNotice referenceTrackingStop;  // 追従が止まった知らせ（同じ役の同じ試みで一度）
     juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
+    juce::StringArray liveCompareStory; // its cause and its next step, for the help line and the status window
     double liveComparePreWaitUntil = 0.0;
 #endif
     int    floraY      = 0;       // y of the flora separator line

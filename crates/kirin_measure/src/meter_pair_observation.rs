@@ -140,6 +140,7 @@ impl DeltaHistoryState {
                 lufs_m: difference(post_point.lufs_m.mean, pre_point.lufs_m),
                 lufs_s: difference(post_point.lufs_s.mean, pre_point.lufs_s),
                 true_peak: difference(post_point.true_peak.mean, pre_point.true_peak),
+                psr: difference(post_point.psr.mean, pre_point.psr),
                 ..MeasureResult::default()
             };
             self.history.push(
@@ -156,7 +157,6 @@ impl DeltaHistoryState {
                 &delta,
                 MeterHistoryAux {
                     correlation: difference(post_point.correlation.mean, pre_point.correlation),
-                    plr: difference(post_point.plr.mean, pre_point.plr),
                     clip_event_count: [0; crate::meter_history::METER_HISTORY_CHANNELS],
                 },
             );

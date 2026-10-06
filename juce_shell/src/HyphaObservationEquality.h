@@ -116,6 +116,6 @@ inline bool same (const KirinMeterHistoryEntry& a, const KirinMeterHistoryEntry&
                             b.observation_count, b.resolution, b.clip_event_count))
         && same (a.lufs_m, b.lufs_m) && same (a.lufs_s, b.lufs_s)
         && same (a.true_peak, b.true_peak) && same (a.correlation, b.correlation)
-        && same (a.plr, b.plr);
+        && same (a.psr, b.psr);
 }
 }

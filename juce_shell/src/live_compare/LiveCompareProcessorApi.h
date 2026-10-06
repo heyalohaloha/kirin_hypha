@@ -4,6 +4,7 @@ hypha::live_compare::StartResult startLiveCompare();
 // LISTEN（reuseSession なら LIVE BLIND）を始めてよいか。出力の持ち主の表（outputDecision）の答え。
 hypha::live_compare::StartResult liveCompareAdmission (bool reuseSession) const noexcept;
 void stopLiveCompare (hypha::live_compare::RecoveryReason reason = hypha::live_compare::RecoveryReason::none);
+void invalidateLiveComparePair() noexcept;
 void selectLiveComparePre (bool pre) noexcept;
 void setLiveCompareGain (float linear) noexcept;
 hypha::live_compare::MatchResult measureLiveCompare();

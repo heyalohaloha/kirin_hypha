@@ -159,7 +159,7 @@ void View::setDomain (Domain value)
     levelInspection.clear();
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
-    levelHistoryArea = {};
+    levelHistoryArea = timeHistoryArea = {};
     updateControls();
     resized();
     repaint();

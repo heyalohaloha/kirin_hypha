@@ -448,7 +448,7 @@ private:
     juce::Rectangle<int> statusStrip;
     bool statusStripOverBody = false;
     juce::String chainReadoutText; bool chainReadoutCaution = false, chainReadoutShown = false;
-    juce::Rectangle<int> levelHistoryArea;
+    juce::Rectangle<int> levelHistoryArea, timeHistoryArea; // where each history was last painted
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;
     history_inspection::Selection levelInspection;

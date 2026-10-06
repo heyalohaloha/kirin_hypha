@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -132,7 +133,33 @@ private:
 
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (60), "offset round trip timed out");
+        if (std::chrono::steady_clock::now() - started >= std::chrono::seconds (60))
+        {
+            // Where the round trip stood, for a slow test machine to explain itself.
+            const auto status = post->liveCompareStatus();
+            std::cerr << "Live offset product state: stage " << stage << ", footer \"" << footer()
+                      << "\", pair " << static_cast<int> (post->pairStatus()) << ", active " << status.active
+                      << ", matched " << status.matched << ", PRE selected " << status.preSelected
+                      << ", PRE audible " << status.preAudible << ", PRE waiting " << status.preWaiting
+                      << ", held " << status.contentHeld << ", reason " << static_cast<int> (status.reason) << "/"
+                      << static_cast<int> (status.observation) << ", longest callback interval "
+                      << longestCallbackMicros.load() / 1000.0 << " ms\n";
+            require (false, "offset round trip timed out");
+        }
+        // A stall of this machine past the callback-gap rule (2.5 blocks, 213 ms) rightly stops PRE:
+        // "Audio gap: select PRE again". While the offset settles, select PRE again as a user would.
+        // A gap reported without such a stall is a product fault and fails here.
+        if (stage == 3)
+            if (const auto status = post->liveCompareStatus(); status.active && status.interrupted
+                && status.reason == hypha::live_compare::RecoveryReason::callbackGap && ! status.preSelected)
+            {
+                require (stalls.load() > recoveredStalls, "a callback gap is reported only after a real stall");
+                recoveredStalls = stalls.load();
+                std::cout << "recovered from a test-machine stall of " << longestCallbackMicros.load() / 1000.0
+                          << " ms" << std::endl;
+                click ("observatory-live-pre");
+                return;
+            }
         switch (stage)
         {
             case 0:
@@ -204,8 +231,9 @@ private:
                 break;
             }
             case 5:
-                // Stopping ends the hold; the session stays for the next run.
-                if (post->liveCompareStatus().contentHeld) break;
+                // Stopping ends the hold; the session stays for the next run. One audio callback
+                // clears the hold before it revokes MATCH, so wait until the stop is fully observed.
+                if (post->liveCompareStatus().contentHeld || post->liveCompareStatus().matched) break;
                 require (post->liveCompareStatus().contentJumpLagFrames == 0,
                          "the prior run's jump evidence does not leak into a new run");
                 require (post->liveCompareStatus().active, "the session survives the stop");
@@ -265,8 +293,19 @@ private:
         std::vector<float> line (lineFrames * 2, 0.0f);
         std::int64_t written = 0;
         auto next = std::chrono::steady_clock::now();
+        auto previousCallback = std::chrono::steady_clock::time_point();
         while (running.load())
         {
+            const auto callbackAt = std::chrono::steady_clock::now();
+            if (previousCallback != std::chrono::steady_clock::time_point())
+            {
+                const auto interval = static_cast<std::int64_t> (
+                    std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previousCallback).count());
+                longestCallbackMicros.store (std::max (longestCallbackMicros.load(), interval));
+                // The product's gap rule: longer than 2.5 times the previous block.
+                if (interval * 48000 > static_cast<std::int64_t> (blockFrames) * 2'500'000) stalls.fetch_add (1);
+            }
+            previousCallback = callbackAt;
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
@@ -297,6 +336,9 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
+    std::atomic<std::int64_t> longestCallbackMicros { 0 };
+    std::atomic<int> stalls { 0 };
+    int recoveredStalls = 0;
     std::atomic<std::int64_t> delayFrames { 2000 };
     std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;
@@ -309,6 +351,8 @@ private:
 int main()
 {
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

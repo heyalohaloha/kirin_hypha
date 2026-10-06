@@ -121,7 +121,16 @@ pub(super) fn sources<'a>(
             .details()
             .map(|detail| {
                 let onset = detail.event.event_sample;
-                let post = post_results.and_then(|results| results.own_at(onset));
+                let post = post_results
+                    .and_then(|results| results.own_at(onset))
+                    .filter(|post| {
+                        post.matches_run(
+                            detail.event.generation,
+                            detail.event.sample_rate,
+                            detail.event.channels,
+                            &detail.event.definition_hash,
+                        )
+                    });
                 Source {
                     hit: KirinAttackBandHit {
                         event_sample: onset,
@@ -155,14 +164,33 @@ pub(super) fn sources<'a>(
             );
             let pre = pre_results
                 .zip(pair.pre_event_sample.filter(|_| has_pre))
-                .and_then(|(results, onset)| results.own_at(onset));
+                .and_then(|(results, onset)| results.own_at(onset))
+                .filter(|pre| {
+                    pre.matches_run(
+                        pair.pre_generation,
+                        pair.sample_rate,
+                        pair.channels,
+                        &pair.definition_hash,
+                    )
+                });
             let (measured_at, post) = match (pair.kind, pre_results) {
                 // POST measured at the PRE onset over the PRE tail: the same content samples.
                 (AttackPairEventKind::Matched, Some(_)) => {
                     let onset = pair.pre_event_sample.unwrap_or(pair.event_sample);
-                    let post = pre.and_then(|pre| pre.measure).zip(post_results).and_then(
-                        |(measure, results)| results.anchored_at(onset, measure.span_end_sample),
-                    );
+                    let post = pre
+                        .and_then(|pre| pre.measure)
+                        .zip(post_results)
+                        .and_then(|(measure, results)| {
+                            results.anchored_at(onset, measure.span_end_sample)
+                        })
+                        .filter(|post| {
+                            post.matches_run(
+                                pair.post_generation,
+                                pair.sample_rate,
+                                pair.channels,
+                                &pair.definition_hash,
+                            )
+                        });
                     (onset, post)
                 }
                 // Without PRE's band, POST's own hit is what there is to show.
@@ -170,7 +198,16 @@ pub(super) fn sources<'a>(
                     let onset = pair.post_event_sample.unwrap_or(pair.event_sample);
                     (
                         onset,
-                        post_results.and_then(|results| results.own_at(onset)),
+                        post_results
+                            .and_then(|results| results.own_at(onset))
+                            .filter(|post| {
+                                post.matches_run(
+                                    pair.post_generation,
+                                    pair.sample_rate,
+                                    pair.channels,
+                                    &pair.definition_hash,
+                                )
+                            }),
                     )
                 }
                 _ => (pair.pre_event_sample.unwrap_or(pair.event_sample), None),

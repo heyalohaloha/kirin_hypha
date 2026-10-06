@@ -101,7 +101,7 @@ pub(crate) fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryE
         lufs_s: to_c_history_range(entry.lufs_s),
         true_peak: to_c_history_range(entry.true_peak),
         correlation: to_c_history_range(entry.correlation),
-        plr: to_c_history_range(entry.plr),
+        psr: to_c_history_range(entry.psr),
     }
 }
 

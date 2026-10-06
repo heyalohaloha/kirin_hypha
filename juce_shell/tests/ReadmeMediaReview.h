@@ -55,7 +55,11 @@ inline std::vector<KirinMeterHistoryEntry> history()
         const auto peak = hot ? -0.6 : std::min (-1.3, momentary + 8.4 + 0.4 * std::sin (t * 2.0 * pi * 1.1));
         entry.true_peak.min = entry.true_peak.max = entry.true_peak.mean = std::min (-0.4, peak);
         entry.correlation.min = entry.correlation.max = entry.correlation.mean = 0.79 + 0.06 * std::sin (t * 0.9);
-        entry.plr.min = entry.plr.max = entry.plr.mean = t < 28.0 ? 12.9 : 11.6;
+        // PSR, the 400 ms peak over the 3 s loudness: open in the verse, held down in the chorus.
+        const auto held = juce::jlimit (0.0, 1.0, (t - 24.5) / 4.0);
+        const auto psr = 11.6 - 4.0 * held + (hot ? 1.2 : 0.0)
+                       + 0.8 * std::sin (t * 2.0 * pi * 1.7) * std::sin (t * 2.0 * pi * 0.31);
+        entry.psr.min = entry.psr.max = entry.psr.mean = psr;
     }
     return result;
 }

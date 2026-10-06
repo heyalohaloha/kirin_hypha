@@ -1,4 +1,6 @@
 #include "PluginEditor.h"
+#include "HyphaLiveCompareActionResult.h"
+#include "HyphaLiveCompareRecoveryText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 
@@ -36,20 +38,47 @@ void KirinHyphaEditor::chooseLiveCompareFollow()
     const auto generation = processorRef.liveCompareStatus().sessionGeneration;
     menu.showMenuAsync (options, [safe, generation] (int result)
     {
-        if (safe == nullptr || safe->liveBlindOpen || safe->processorRef.liveCompareStatus().finishing
-            || safe->processorRef.liveCompareStatus().sessionGeneration != generation)
+        if (safe == nullptr || safe->liveBlindOpen || result < 1 || result > 3)
+            return;
+        const auto opening = safe->processorRef.liveCompareStatus();
+        if (! opening.active || opening.finishing || opening.sessionGeneration != generation)
             return;
         if (result == 1)
-            safe->matchLiveCompare();
-        else if (result == 2)
-            safe->stopLiveCompareAuto ("AUTO off");
-        else if (result == 3 && safe->liveCompareMatched && ! safe->liveCompareLimited)
         {
-            safe->liveCompareAuto.on = true;
-            safe->liveCompareAuto.nextAt = safe->nowSecs() + hypha::live_compare::followIntervalSeconds;
-            safe->showToast ("AUTO on: within 0.5 dB");
+            safe->matchLiveCompare (generation); // the measurement/plan keeps the menu's scope
+            return;
         }
-        safe->refreshLiveCompare();
+        juce::String refusal;
+        const auto completion = hypha::live_compare_ui::performAction (hypha::live_compare_ui::ActionFaultScope::includingOpeningRefresh,
+            [safe, result, generation]
+            {
+                const auto current = safe->processorRef.liveCompareStatus();
+                if (! hypha::live_compare_ui::currentNamedAction (current, generation, false))
+                    return hypha::live_compare_ui::ActionOutcome::stale;
+                if (result == 2) safe->stopLiveCompareAuto ({});
+                return hypha::live_compare_ui::ActionOutcome::success;
+            },
+            [safe] { return safe->refreshLiveCompare(); },
+            [safe, result, generation, &refusal]
+            {
+                const auto current = safe->processorRef.liveCompareStatus();
+                if (result != 3) return hypha::live_compare_ui::currentNamedAction (current, generation, false);
+                const auto readiness = hypha::live_compare_ui::autoReadiness (current, generation);
+                refusal = readiness == hypha::live_compare_ui::AutoReadiness::blocked
+                    ? hypha::live_compare_ui::namedRecovery (current)
+                    : hypha::live_compare_ui::autoReadinessNotice (readiness);
+                return readiness == hypha::live_compare_ui::AutoReadiness::ready;
+            }, [safe, result]
+            {
+                if (result == 3)
+                {
+                    safe->liveCompareAuto.on = true;
+                    safe->liveCompareAuto.nextAt = safe->nowSecs() + hypha::live_compare::followIntervalSeconds;
+                }
+                safe->showToast (result == 3 ? "AUTO on: within 0.5 dB" : "AUTO off");
+            });
+        if (completion == hypha::live_compare_ui::ActionCompletion::ineligible && refusal.isNotEmpty())
+            safe->showToast (refusal); // same current intention failed; new faults/stale menus remain untouched
     });
 }
 
@@ -62,29 +91,38 @@ void KirinHyphaEditor::stopLiveCompareAuto (const juce::String& notice)
 
 // Message thread, from the refresh. A held content offset, a block that is not proven or a window
 // that does not measure leaves the gain where it is.
-void KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& status, double now)
+bool KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& status, double now)
 {
     auto& a = liveCompareAuto;
     if (! a.on)
-        return;
-    if (! status.active || status.finishing || liveBlindOpen || ! status.matched || status.matchLimited)
+        return false;
+    if (! status.active || status.finishing || liveBlindOpen || ! status.matched || status.matchLimited
+        || status.interrupted)
     {
         a.on = false;
-        return;
+        return false;
     }
-    if (status.contentHeld || status.verdict != hypha::live_compare::Verdict::accepted || now < a.nextAt)
-        return;
+    if (status.contentHeld || status.compensationOff || ! status.matchReady
+        || status.verdict != hypha::live_compare::Verdict::accepted || now < a.nextAt)
+        return false;
     a.nextAt = now + hypha::live_compare::followIntervalSeconds;
     const double heldDb = status.postTarget > 0.0f ? 20.0 * std::log10 (status.postTarget) : 0.0;
     const double currentDb = status.gain > 0.0f ? 20.0 * std::log10 (status.gain) : 0.0;
     const auto step = hypha::live_compare::followStep (processorRef.measureLiveCompare(), heldDb, a.approvedPreDb,
                                                        a.ceilingDbtp, currentDb);
     if (step.action == FollowAction::stopCeiling)
+    {
         stopLiveCompareAuto ("AUTO stopped: TP ceiling");
+        return true;
+    }
     else if (step.action == FollowAction::stopReach)
+    {
         stopLiveCompareAuto ("AUTO stopped: over 6 dB");
+        return true;
+    }
     else if (step.action == FollowAction::move)
         processorRef.followLiveCompareGain (step.preGainDb);
+    return false;
 }
 
 #endif

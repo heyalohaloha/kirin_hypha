@@ -37,8 +37,13 @@ KirinHyphaEditor::HelpLine KirinHyphaEditor::helpLineAt (juce::Point<int> point)
     const bool wholeRow = ! getLocalArea (&scaleRoot, observatoryView.footerBounds()).contains (point);
     for (auto* under = getComponentAt (point); under != nullptr && under != this; under = under->getParentComponent())
     {
-        // The status itself is not a help: its tooltip repeats the line it already shows.
-        if (under == &feedbackStrip || under == &observatoryView.feedbackDetailsAnchor()) return {};
+        // The status tells its whole story there when it has one; otherwise its tooltip only repeats
+        // the line it already shows, and the status is not a help.
+        if (under == &feedbackStrip || under == &observatoryView.feedbackDetailsAnchor())
+        {
+            const auto story = statusStory();
+            return story.isEmpty() ? HelpLine {} : HelpLine { story.joinIntoString (" "), true };
+        }
         juce::String text;
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (under == &referenceView)
@@ -79,6 +84,15 @@ void KirinHyphaEditor::updateHelpLine()
                     area.setRight (juce::jmin (area.getRight(), bounds.getX() - 4));
     }
     helpLineBar.show (line.text, area, footer, logicalPresentationContext());
+}
+
+juce::StringArray KirinHyphaEditor::statusStory() const
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! liveCompareStory.isEmpty() && observatoryView.feedback() == liveCompareWarning)
+        return liveCompareStory;
+   #endif
+    return {};
 }
 
 void KirinHyphaEditor::mouseMove (const juce::MouseEvent&) { updateHelpLine(); }
