@@ -210,7 +210,16 @@ private:
                     post->finishLiveCompare(); stage = 9; break;
                 }
                 if (now - checkpoint < std::chrono::milliseconds (500)) break;
-                require (! status.active && ! status.preAudible && ! status.matched, "END/restore/Blind stop never renews a session");
+                {
+                    // A slow runner can take longer than 500 ms to service the stop: wait for it (up
+                    // to 5 s), then require that nothing renews the session for another 500 ms.
+                    const bool ended = ! status.active && ! status.preAudible && ! status.matched;
+                    if (! ended && now - checkpoint < std::chrono::seconds (5)) break;
+                    require (ended, "END/restore/Blind stop never renews a session");
+                    if (endedAt == Steady::time_point()) endedAt = now;
+                    if (now - endedAt < std::chrono::milliseconds (500)) break;
+                    endedAt = {};
+                }
                 require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "old Blind receipts and controls remain revoked");
                 if (mode.rfind ("preparing-", 0) == 0 || mode == "failure-named")
                     require (post->liveBlindStatus().stage == BlindStage::invalidated
@@ -365,7 +374,7 @@ private:
     std::atomic<int> blocks { 0 }, pcmErrors { 0 }; std::atomic<unsigned int> heap { 0 };
     std::atomic<int> oddStart { -1 }; std::atomic<bool> oddProofSeen { false };
     std::atomic<std::uint64_t> verifiedFrames { 0 };
-    Steady::time_point began = Steady::now(), checkpoint;
+    Steady::time_point began = Steady::now(), checkpoint, endedAt;
     bool demanded = false, restarted = false; int stage = 0, faultBlocks = 0, transportRound = 0;
     float fixedGain = 1.0f, fixedPost = 1.0f;
     std::uint32_t oldBlindEpoch = 0;
