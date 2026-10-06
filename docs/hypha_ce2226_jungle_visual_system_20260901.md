@@ -265,7 +265,7 @@ LEVEL履歴のclickは表示用snapshotを固定し、計測やRecordは継続�
 Reset、engine世代、比較identity変更では古い選択を破棄する。Captureは従来どおり正本snapshotを使い、検査用の固定履歴を混ぜない。
 hover／固定表示の`HOST ~`はTP計測窓のhost clock終端であり、現行ABIではproject/render clockを区別できない。DAW上のexact peak位置やproject timeを保証しない。
 不明時は`ELAPSED`を使う。`COPY`はこの制約も含めて明示操作でコピーする。host seekは行わない。
-150%以上のFooterはLIVE/HOLD/WAITING/BYPASSEDを表示し、100%と125%の折りたたみ帯は短い状態（WAITING、BYPASSED、FORMAT HELD、5.1 MEASURE）だけを示す。versionは情報メニューに置く。狭い幅で`development`等を省略表示しない。
+150%以上のFooterはLIVE/HOLD/WAITING/BYPASSEDを表示し、100%と125%の折りたたみ帯は短い状態（WAITING、BYPASSED、FORMAT HELD）だけを示す。Footerの状態とCHAIN LOADは、同じ行のボタンと同じaction roleの文字の大きさで描く（2026-10-06）。versionは情報メニューに置く。狭い幅で`development`等を省略表示しない。
 
 LEVELのΔ HistoryはM差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
 

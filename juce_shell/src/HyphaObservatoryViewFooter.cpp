@@ -147,7 +147,8 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     chainReadoutShown = false;
     if (! captureFrame)
     {
-        g.setFont (monoFont (presentationContext(), typography::TextRole::status));
+        // The state and the chain readout use the footer buttons' size, so the rail reads as one row.
+        g.setFont (monoFont (presentationContext(), typography::TextRole::action));
         // Version/build identity belongs to the information menu. It must not compete with
         // live state in this narrow rail (the old development label rendered as "d...").
         const auto font = g.getCurrentFont();
