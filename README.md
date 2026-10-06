@@ -263,9 +263,9 @@ Every metric is backed by a known-signal golden test: the expected values are de
 The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
 records the verified scope: BS.1770-5 Annex 1/2 for mono and stereo, all 70 assets in the EBU
 Loudness Test Set v05, the source archive SHA-256, and comparison of the Hypha wrapper with the
-pinned `ebur128` reference. Decoding the 5.0/5.1 test assets was not used as evidence for the
-separately implemented exact 5.1 measurement-only product mode. Hypha does not claim EBU Mode
-conformance and does not use the EBU logo.
+pinned `ebur128` reference. The suite was rerun on 2026-10-06. While surround is held back, the
+5.0/5.1 test assets are checked against the pinned reference only and are not evidence for a
+surround mode. Hypha does not claim EBU Mode conformance and does not use the EBU logo.
 
 ## Modes
 

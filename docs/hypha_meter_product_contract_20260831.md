@@ -613,7 +613,8 @@ LEVELのObservation Plateは主値、M内のMax M補助値、その他の補助�
 
 既存test signalによるM、Max M、S、I、TP、LRAの数値比較はpassした。
 
-公式test set v05の全70素材は、固定`ebur128 0.1.10`とHyphaの`MeasureEngine`でpassした。
+公式test set v05の全70素材は、固定`ebur128 0.1.10`とHyphaの`MeasureEngine`でpassした（2026-10-06に再実行）。
+サラウンドを閉じている間、5.0／5.1の2素材はreferenceだけで確かめ、Hyphaの`MeasureEngine`には通さない。
 内部解析はTech 3341の20 ms alignmentを保持する10 ms、既存GUI、TRACE、IO公開は100 msである。
 Tech 3341のM、S、I、Max M、Max S、TP、Tech 3342のLRAと4 reference/alignment素材を公式許容差で検証する。
 mono／stereoに加え、役割順が`L, R, C, LFE, Ls, Rs`と一致するexact 5.1を
