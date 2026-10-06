@@ -57,6 +57,8 @@ Result summarize (const std::vector<KirinMeterHistoryEntry>& history);
 int visibleRowCount (int width) noexcept;
 double durationSeconds (const Summary&, double sampleRate) noexcept;
 
+// The shipping TIME window frames its filled glass before labels and retained run facts.
 void paint (juce::Graphics&, juce::Rectangle<int>, const Result&, double sampleRate,
-            presentation::Context, const KirinMeterSession* meter = nullptr);
+            presentation::Context, const KirinMeterSession* meter = nullptr,
+            bool mainWindow = false);
 }

@@ -17,9 +17,9 @@ struct State;
 
 bool rangeStripBinding (const juce::String& binding) noexcept;  // dynamics・loudness・stereo・waveform・transient
 
-// C の Cue の値が無ければ false（呼ぶ側が今までどおり描く）。
+// C の Cue の値が無ければ false（呼ぶ側が今までどおり描く）。frame は REF の主役の窓（塗った面の上に枠の内側の影を戻す）。
 bool paintCueRangeStrips (juce::Graphics&, juce::Rectangle<float> bounds, const State&, const juce::String& binding,
-                          presentation::Context);
+                          presentation::Context, juce::Rectangle<float> frame);
 
 // V の画面の Check のタブ：位置合わせで対応した同じ区間の A と V（Hypha が同じフレームで測る）。V は同じ曲なので、上に
 // 時間の線（A と V）を重ね、下に範囲の帯。area は図の中（見出しは V の画面が描く）。A と V が 3 秒に満たなければ false。

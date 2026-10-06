@@ -28,14 +28,14 @@ ShownTextLog::~ShownTextLog()
     activeLog = outer;
 }
 
-juce::String shownText (const juce::String& text)
+juce::String shownText (const juce::String& text, LabelPolicy policy)
 {
-    return i18n::tr (text);
+    return policy == LabelPolicy::fixed ? text : i18n::tr (text);
 }
 
-float shownWidth (const juce::Font& font, const juce::String& text)
+float shownWidth (const juce::Font& font, const juce::String& text, LabelPolicy policy)
 {
-    const auto shown = shownText (text);
+    const auto shown = shownText (text, policy);
     return requiresJapaneseGlyphs (shown) ? nativeTextFontLike (font).getStringWidthFloat (shown)
                                           : font.getStringWidthFloat (shown);
 }
@@ -283,11 +283,11 @@ void drawShown (juce::Graphics& graphics, const juce::String& text, Area area,
 void draw (juce::Graphics& graphics, const juce::String& text,
            juce::Rectangle<int> area, const presentation::Context& context,
            typography::TextRole role, juce::Justification justification,
-           int maximumLines, typography::Composition composition)
+           int maximumLines, typography::Composition composition, LabelPolicy policy)
 {
     if (area.isEmpty() || text.isEmpty())
         return;
-    const auto shown = shownText (text);
+    const auto shown = shownText (text, policy);
     const ShownFont font (graphics, shown);
     const auto overflow = typography::resolve (context, role, composition).overflow;
     if (overflow == typography::Overflow::wrap && maximumLines > 1)

@@ -266,6 +266,12 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         if (chainSnapshotAvailable)
             paintChainSummary (g, summary, chainSnapshot, chainPoints, context, false);
     }
+    // Without its history the metrics are LEVEL's main window: framed inside the body.
+    if (includeChannelStrips)
+    {
+        area.reduce (main_frame::inset(), main_frame::inset());
+        main_frame::paint (g, area.toFloat());
+    }
     if (target() == ObservationTarget::delta)
     {
         if (compact)
@@ -437,6 +443,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     paintLevel (g, metricsArea, false);
     levelHistoryArea = historyArea.reduced (2);
     if (! captureFrame) levelHistoryArea.removeFromTop (22);
+    levelHistoryArea.reduce (main_frame::inset(), main_frame::inset()); // LEVEL's main window, in its frame
     const auto maximumMomentary = target() == ObservationTarget::absolute
                                && cumulativeFactsAvailable()
                                && std::isfinite (observatoryFrame.meter.max_lufs_m)

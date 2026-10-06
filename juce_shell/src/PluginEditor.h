@@ -25,6 +25,7 @@
 #include "HyphaUiPreferences.h"
 #include "HyphaWidgets.h"
 #include "appearance/AppearanceService.h"
+#include "update/UpdateChecker.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
@@ -87,9 +88,7 @@ private:
         }
         void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
         {
-            g.fillAll (hypha::BG);
-            hypha::surface_material::paintInstrumentFrame (
-                g, juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height), false);
+            hypha::TextLookAndFeel::drawPopupMenuBackground (g, width, height);
         }
         // Menus are built in English and shown in the current language by TextLookAndFeel,
         // in the native menu font above, which carries Japanese (INV-S40).
@@ -187,6 +186,8 @@ private:
 #endif
 
     static constexpr int jungleModeMenuAction = 13;
+    static constexpr int chainFooterMenuAction = 690; // information menu, POST only
+    juce::String chainFooterText; // the footer chain readout while it is turned on; POST only
     void refreshWatchSnapshot();
     uint8_t refreshRecordPhase();
     void showCandidateMenu();
@@ -211,6 +212,14 @@ private:
     void showInformationMenu();
     void handleInformationMenu (int result);
     bool informationBlockedByBlind() const;
+    void configureUpdateChecking();
+    void refreshUpdateChecking();
+    void addUpdateCheckMenu (juce::PopupMenu&) const;
+    bool handleUpdateCheckMenu (int result);
+    std::shared_ptr<hypha::update::Checker> updateChecker;
+    double nextUpdateSnapshotAt = 0.0;
+    std::uint64_t manualUpdateToken = 0, updatePreferenceToken = 0;
+    bool requestedUpdatePreference = false;
     void handleCandidateMenu (int result,
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();

@@ -51,7 +51,9 @@ private:
     unsigned languageRevision = 0;
     juce::Label title, status, detail, cause, recovery;
     HyphaTextButton one { "SOURCE 1" }, two { "SOURCE 2" };
-    HyphaTextButton reveal { "REVEAL SOURCES" }, end { "END" }, approve { "LOWER POST" };
+    // REVEAL と END はどちらの言語でもこの綴りのまま（説明の文は訳す）。
+    HyphaTextButton reveal { "REVEAL", true, text_style::LabelPolicy::fixed };
+    HyphaTextButton end { "END", true, text_style::LabelPolicy::fixed }, approve { "LOWER POST" };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ScreenComponent)
 };
 }

@@ -16,8 +16,9 @@
 // paint at 200-300% on high-density displays, and the pages that show it repaint 10-30 times a
 // second. A material requested again at the same key is drawn once into a device-resolution image
 // and only blitted from then on. A key seen once (a size passing by during a corner drag) is painted
-// directly, so a resize never pays for an image it will not reuse. The images exist only while an
-// editor holds a Lifetime; without one every material is painted directly.
+// directly, so a resize need not pay for an image it will not reuse. Fine frames opt into a
+// canonical raster from their first paint to keep their antialiasing stable. Kept images exist
+// only while an editor holds a Lifetime; a canonical raster without one is temporary.
 namespace hypha::material_cache
 {
 struct Key
@@ -42,6 +43,23 @@ struct Bleed
     float top = 0.0f;
     float bottom = 0.0f;
 };
+
+// A part of the material that holds one opaque colour and nothing else (the middle of a glass
+// beyond its shadows), in the same coordinates as its area. A kept image is composited only
+// around it and the part is filled directly: blending an image costs more per pixel than a flat
+// fill, on the software renderer more than painting the whole material.
+struct Flat
+{
+    juce::Rectangle<float> area;
+    juce::Colour colour;
+};
+
+// A fine frame must use the same raster on every paint. Switching from vector paint to a bitmap
+// changes antialiasing at fractional positions, including origins inherited from a component's
+// transform. JUCE exposes the physical scale but not that inherited transform, so guessing a
+// pixel phase from the area's local origin is insufficient. Canonical material is rasterised on
+// its first paint as well, and uses that same path without an editor-owned cache.
+enum class InitialPaint { direct, canonicalRaster };
 
 class Store
 {
@@ -217,13 +235,15 @@ juce::Image image (Key key, int pixelWidth, int pixelHeight, Build&& build)
 // Draws `paint (graphics, area)` through the cache. `paint` must depend only on the key and the
 // area's size, never on its position.
 template <typename Paint>
-void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed, Paint&& paint)
+void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed, Paint&& paint,
+           Flat flat = {}, InitialPaint initial = InitialPaint::direct)
 {
     const auto store = juce::SharedResourcePointer<Store>::getSharedObjectWithoutCreating();
     const auto scale = g.getInternalContext().getPhysicalPixelScaleFactor();
     const auto extent = area.withTop (area.getY() - bleed.top)
                             .withBottom (area.getBottom() + bleed.bottom);
-    if (! store.has_value() || area.isEmpty() || ! std::isfinite (scale) || scale <= 0.0f
+    if ((! store.has_value() && initial == InitialPaint::direct) || area.isEmpty()
+        || ! std::isfinite (scale) || scale <= 0.0f
         || scale > 4.0f || extent.getWidth() * scale > 4'096.0f || extent.getHeight() * scale > 4'096.0f)
     {
         paint (g, area);
@@ -232,8 +252,8 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
     key.width = area.getWidth();
     key.height = area.getHeight();
     key.scale = scale;
-    auto found = (*store)->lookup (key);
-    if (! found.image.isValid() && ! found.build)
+    auto found = store.has_value() ? (*store)->lookup (key) : Store::Lookup {};
+    if (! found.image.isValid() && ! found.build && initial == InitialPaint::direct)
     {
         paint (g, area);
         return;
@@ -248,10 +268,24 @@ void draw (juce::Graphics& g, juce::Rectangle<float> area, Key key, Bleed bleed,
             pixels.addTransform (juce::AffineTransform::translation (0.0f, bleed.top).scaled (scale));
             paint (pixels, area.withPosition (0.0f, 0.0f));
         }
-        (*store)->keep (key, image);
+        if (store.has_value())
+            (*store)->keep (key, image);
         found.image = image;
     }
     const juce::Graphics::ScopedSaveState saved (g);
+    // The flat part, a point inside its edge, is left out of the composite in whole points; the
+    // fill reaches a point further, so no pixel the clip cuts through is left without the colour.
+    const auto left = (int) std::ceil (flat.area.getX() + 1.0f);
+    const auto top = (int) std::ceil (flat.area.getY() + 1.0f);
+    const auto right = (int) std::floor (flat.area.getRight() - 1.0f);
+    const auto bottom = (int) std::floor (flat.area.getBottom() - 1.0f);
+    if (right > left && bottom > top)
+    {
+        const juce::Rectangle<int> hole { left, top, right - left, bottom - top };
+        g.setColour (flat.colour);
+        g.fillRect (hole.toFloat().expanded (1.0f));
+        g.excludeClipRegion (hole);
+    }
     g.setOpacity (1.0f);
     // Already device resolution: one image pixel per device pixel, never smoothed.
     g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);

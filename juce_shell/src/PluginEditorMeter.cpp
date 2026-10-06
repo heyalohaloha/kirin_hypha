@@ -1,4 +1,6 @@
 #include "PluginEditor.h"
+#include "HyphaChainTimingPreference.h"
+#include "HyphaChainTimingText.h"
 
 void KirinHyphaEditor::refreshWatchSnapshot()
 {
@@ -104,6 +106,13 @@ void KirinHyphaEditor::updatePost()
         toastText = keepNotice;
         toastUntil = now + 3.0;
     }
+
+    // The chain timing on the footer, only while the user keeps it turned on (INV-LC25).
+    const auto chain = hypha::ChainTimingFooterPreference::shared().isEnabled()
+        ? hypha::chain_timing::footerReadout (processorRef.chainTimingView())
+        : hypha::chain_timing::FooterReadout {};
+    chainFooterText = chain.text;
+    observatoryView.setChainReadout (chain.text, chain.caution);
 
     const auto recordError = processorRef.recordErrorMessage();
     const juce::String status = anomalyActive ? pathAnomalyText

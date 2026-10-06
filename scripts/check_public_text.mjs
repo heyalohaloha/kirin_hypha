@@ -5,7 +5,7 @@
 // private repository), plus the names on a private list kept outside the repository. A bare "owner" is
 // not a pattern: code says owner->getProperties() and the like.
 //
-// Scope: lines added since the base (PUBLIC_TEXT_BASE_REF, else SOURCE_LINE_BUDGET_BASE_REF as CI sets
+// Scope: lines added since the base (a line moved unchanged within the change is not new) (PUBLIC_TEXT_BASE_REF, else SOURCE_LINE_BUDGET_BASE_REF as CI sets
 // it, else the merge base with origin/main), and the messages of commits after the base. Messages of
 // commits reachable from scripts/public_text_baseline.txt were published before this check and can
 // only be fixed by rewriting history: they are reported as remaining, not failed. The tree as a whole
@@ -66,6 +66,31 @@ export function addedLines(diff) {
   return lines;
 }
 
+// The `-` lines of a unified diff, inside its hunks.
+export function removedLines(diff) {
+  const lines = [];
+  let inHunk = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) { inHunk = false; continue; }
+    if (/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/.test(line)) { inHunk = true; continue; }
+    if (inHunk && line.startsWith('-')) lines.push(line.slice(1));
+  }
+  return lines;
+}
+
+// The added lines that are new text. A line moved unchanged within the same change (removed in one
+// place, added in another) publishes nothing new, so it is not checked again.
+export function newLines(diff) {
+  const moved = new Map();
+  for (const text of removedLines(diff)) moved.set(text, (moved.get(text) ?? 0) + 1);
+  return addedLines(diff).filter((added) => {
+    const count = moved.get(added.text) ?? 0;
+    if (count === 0) return true;
+    moved.set(added.text, count - 1);
+    return false;
+  });
+}
+
 function git(args) {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
@@ -96,7 +121,7 @@ function main() {
   const patterns = [...PATTERNS, ...(listed ? namePatterns(listed.names) : [])];
   const findings = [];
   const diff = git(['diff', '--unified=0', '--no-color', '--no-ext-diff', `${base}...HEAD`, '--', '.', ':(exclude)juce_shell/JUCE']);
-  for (const added of addedLines(diff)) {
+  for (const added of newLines(diff)) {
     if (SELF.has(added.file)) continue;
     for (const record of findRecords(added.text, patterns))
       findings.push(`${added.file}:${added.line}: ${record.kind}: ${record.text}`);

@@ -1,13 +1,15 @@
 #include "HyphaTextButton.h"
+#include "HyphaKeyLight.h"
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 namespace hypha
 {
-HyphaTextButton::HyphaTextButton (const juce::String& text, bool shouldDrawFrame)
+HyphaTextButton::HyphaTextButton (const juce::String& text, bool shouldDrawFrame,
+                                 text_style::LabelPolicy policy)
     : juce::TextButton (text),
-      framed (shouldDrawFrame)
+      framed (shouldDrawFrame), labelPolicy (policy)
 {
     setWantsKeyboardFocus (true);
 }
@@ -16,6 +18,9 @@ void HyphaTextButton::paintButton (juce::Graphics& g,
                                    bool shouldDrawButtonAsHighlighted,
                                    bool shouldDrawButtonAsDown)
 {
+    const key_light::Scope light (*this);
+    shouldDrawButtonAsHighlighted = shouldDrawButtonAsHighlighted && isEnabled();
+    shouldDrawButtonAsDown = shouldDrawButtonAsDown && isEnabled();
     auto area = getLocalBounds().toFloat().reduced (0.5f);
     const auto textColour = findColour (getToggleState()
                                             ? juce::TextButton::textColourOnId
@@ -31,6 +36,6 @@ void HyphaTextButton::paintButton (juce::Graphics& g,
     g.setFont (monoFont (presentationContext, typography::TextRole::action));
     text_style::draw (g, getButtonText(), getLocalBounds().reduced (6, 2),
                       presentationContext, typography::TextRole::action,
-                      juce::Justification::centred);
+                      juce::Justification::centred, 1, typography::Composition::shell, labelPolicy);
 }
 }

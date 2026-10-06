@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/PluginEditor.h"
+#include "../src/HyphaChainTimingPreference.h"
 #include "../src/HyphaEditorSizeConstrainer.h"
 #include "../src/HyphaFeedbackStrip.h"
 #include "../src/HyphaLanguage.h"
@@ -57,6 +58,13 @@ struct SyncLanguage
     friend Type privateMember (SyncLanguage);
 };
 template struct PrivateAccess<SyncLanguage, &KirinHyphaEditor::syncLanguage>;
+
+struct UpdatePost
+{
+    using Type = void (KirinHyphaEditor::*)();
+    friend Type privateMember (UpdatePost);
+};
+template struct PrivateAccess<UpdatePost, &KirinHyphaEditor::updatePost>;
 
 // A look review of the shipping editor, written only when KIRIN_HYPHA_COMPACT_REVIEW_DIR is set.
 inline void writeReview (juce::Component& editor, const juce::String& name)
@@ -195,6 +203,44 @@ inline void verifyFoldedFeedbackStrip()
                 editor.reset();
                 processor.releaseResources();
             }
+}
+
+// The chain timing on POST's footer follows the user's switch (INV-LC25): off by default, the
+// readout reaches the shipping view on the next update once it is on, and never reaches PRE.
+// Before any audio it is dashes, so WAITING keeps the folded strip.
+inline void verifyChainTimingFooterSwitch()
+{
+    auto& preference = ChainTimingFooterPreference::shared();
+    require (! preference.isEnabled(), "the footer chain time is off by default");
+    for (const bool enabled : { false, true })
+    {
+        require (preference.setEnabled (enabled), "the switch is saved in the sandbox");
+        for (const auto role : { Processor::Role::Post, Processor::Role::Pre })
+        {
+            juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+            Processor processor (role);
+            processor.prepareToPlay (48'000, 960);
+            std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
+            auto* shipping = dynamic_cast<KirinHyphaEditor*> (editor.get());
+            auto* view = component<observatory::View> (*editor);
+            require (shipping != nullptr && view != nullptr, "editor and view exist");
+            editor->setSize (300, 200);
+            if (role == Processor::Role::Post)
+                (shipping->*privateMember (UpdatePost {})) ();
+            const bool shown = enabled && role == Processor::Role::Post;
+            require (view->chainReadoutForTest() == (shown ? "CHAIN LOAD --" : ""),
+                     "only POST shows the readout, only while it is turned on");
+            if (role == Processor::Role::Post)
+            {
+                auto* strip = dynamic_cast<FeedbackStrip*> (find (*editor, "feedback-strip"));
+                require (strip != nullptr && strip->text() == "WAITING", "WAITING keeps the folded strip");
+            }
+            processor.editorBeingDeleted (editor.get());
+            editor.reset();
+            processor.releaseResources();
+        }
+    }
+    require (preference.setEnabled (false), "the sandbox switch is turned off again");
 }
 
 // The language changes while an editor is open (INV-S40): the editor lays itself out again and

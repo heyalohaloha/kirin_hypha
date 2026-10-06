@@ -306,6 +306,7 @@ void paint (juce::Graphics& g,
             const KirinChainPoint* selectedChain)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.62f);
+    main_frame::paint (g, area.toFloat()); // Keep LEVEL's recessed shadow above its glass fill.
     const auto layout = layoutFor (area);
     const auto peakSummary = delta ? TruePeakSummary {} : analyseTruePeak (history, sampleRate);
 

@@ -2,14 +2,17 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha
 {
 class HyphaTextButton : public juce::TextButton
 {
 public:
-    explicit HyphaTextButton (const juce::String& text, bool framed = true);
+    explicit HyphaTextButton (const juce::String& text, bool framed = true,
+                             text_style::LabelPolicy = text_style::LabelPolicy::localized);
+
+    juce::String displayedText() const { return text_style::shownText (getButtonText(), labelPolicy); }
 
     void setPresentationContext (presentation::Context next) noexcept
     {
@@ -21,6 +24,7 @@ public:
 
 private:
     bool framed = true;
+    text_style::LabelPolicy labelPolicy = text_style::LabelPolicy::localized;
     presentation::Context presentationContext = presentation::defaultContext();
 };
 }

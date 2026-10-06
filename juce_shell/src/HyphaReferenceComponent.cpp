@@ -1,5 +1,7 @@
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceWindowMaterial.h"
 
+#include "HyphaMainFrame.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceVisuals.h"
@@ -197,6 +199,8 @@ void Component::paint (juce::Graphics& g)
     lastGuideFit = {};
     const help::Collector collect (helpRegions);  // 描く図が添える説明の場所（HyphaReferenceHelp.h）
     getProperties().set (help::shownInLineProperty, helpInLine());  // 部品の説明も吹き出しでなく下の行に
+    const key_light::Scope light (*this);
+    window_material::paintOuter (g, observationWindowBounds().toFloat());
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     // 2026-10-04：始めた VERSION BLIND は、エディターが PRE/POST Blind と同じ画面で窓全体に出す
@@ -324,7 +328,7 @@ void Component::paint (juce::Graphics& g)
         else if (!comparisonView.isVisible() && checkPage() && listeningCheck())
             paintListeningPanel (g, area);  // 耳で聴き比べる Check（C−A がいつも 0.0 の箱を出していた）
         else if (!comparisonView.isVisible()
-            && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
+            && !paintConfiguredReferenceViews (g, observationArea.toFloat(), current, presentationContext))
         {
             auto metrics = area;
             const float gap = 6.0f;

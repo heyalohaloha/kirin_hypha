@@ -138,6 +138,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     if with_aax {
         aax_distribution::verify_zip(&zip_path, &package_root_name)?;
     }
+    let update_check = crate::update_package_binding::verify_zip(&zip_path, with_aax)?;
     let sha = sha256_file(&zip_path)?;
     let zip_name = zip_path.file_name().unwrap().to_string_lossy();
     fs::write(&sha_path, format!("{sha}  {zip_name}\n"))
@@ -146,15 +147,16 @@ pub fn run(args: Vec<String>) -> Result<()> {
     entries.extend(aax_distribution::metadata_entries(&aax_bundles)?);
     fs::write(
         &manifest_path,
-        release_package_metadata::manifest_json(
-            &version,
-            &package_leaf,
-            &sha,
+        release_package_metadata::manifest_json(release_package_metadata::ManifestInput {
+            version: &version,
+            package_leaf: &package_leaf,
+            sha256: &sha,
             allow_unsigned,
-            &source_git_dirty,
+            git_dirty: &source_git_dirty,
             with_aax,
-            &entries,
-        )?,
+            bundles: &entries,
+            update_check: &update_check,
+        })?,
     )
     .with_context(|| format!("write {}", manifest_path.display()))?;
 
@@ -217,6 +219,7 @@ fn verify_sources(bundles: &[ShipBundle], version: &str, allow_unsigned: bool) -
             .with_context(|| format!("{} forbidden framework check failed", label))?;
         verify_bundle_version(&b.source, version)
             .with_context(|| format!("{} version mismatch", label))?;
+        crate::update_package_binding::verify_bundle(&b.source)?;
         if b.spec.kind == BundleKind::Au {
             verify_au_resource_usage(&b.source)
                 .with_context(|| format!("{} AU resourceUsage check failed", label))?;
@@ -298,7 +301,7 @@ fn verify_bundle_version(bundle: &Path, expected: &str) -> Result<()> {
 fn verify_au_resource_usage(bundle: &Path) -> Result<()> {
     let plist = bundle.join("Contents/Info.plist");
     let out = Command::new("plutil")
-        .arg("-p")
+        .args(["-convert", "json", "-o", "-"])
         .arg(&plist)
         .output()
         .with_context(|| format!("spawn plutil for {}", plist.display()))?;
@@ -309,12 +312,19 @@ fn verify_au_resource_usage(bundle: &Path) -> Result<()> {
             String::from_utf8_lossy(&out.stderr)
         );
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    if !text.contains("temporary-exception.files.all.read-write") {
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let usage = &value["AudioComponents"][0]["resourceUsage"];
+    if usage["temporary-exception.files.all.read-write"] != true {
         bail!("AU resourceUsage missing files.all: {}", bundle.display());
     }
-    if text.contains("network.client") {
-        bail!("AU resourceUsage has network.client: {}", bundle.display());
+    if usage.get("network.client").is_some()
+        && (usage["network.client"] != true
+            || value["KirinHyphaUpdateProtocol"].as_i64() != Some(1))
+    {
+        bail!(
+            "AU network.client without pinned update protocol: {}",
+            bundle.display()
+        );
     }
     Ok(())
 }

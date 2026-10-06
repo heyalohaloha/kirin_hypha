@@ -118,6 +118,8 @@ struct Measurements
                   << " pre_median_us=" << percentile (pre, 50) << " pre_p99_us=" << percentile (pre, 99)
                   << " post_median_us=" << percentile (post, 50) << " post_p99_us=" << percentile (post, 99)
                   << " pair_median_us=" << percentile (pair, 50) << " pair_p99_us=" << percentile (pair, 99)
+                  << " pair_p1_us=" << percentile (pair, 1) << " pair_p10_us=" << percentile (pair, 10)
+                  << " pre_p10_us=" << percentile (pre, 10) << " post_p10_us=" << percentile (post, 10)
                   << " window_begin_ns=" << windowBegin << " window_end_ns=" << windowEnd
                   << " deadline_overruns=" << deadlineOverruns << " cpp_heap_operations=" << heapOperations
                   << " system_heap_covered=" << int (initialiseProcessorHeapProbe())
@@ -411,6 +413,8 @@ int main (int argc, char** argv)
     require (argc == 2, "thread CPU split is a macOS-only diagnostic");
    #endif
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

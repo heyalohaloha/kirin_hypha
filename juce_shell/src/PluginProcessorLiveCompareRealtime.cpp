@@ -1,15 +1,9 @@
 #include "PluginProcessor.h"
 #include "live_compare/LiveCompareIdle.h"
-#include <chrono>
 
 namespace
 {
 using hypha::live_compare::SharedRingMapping;
-std::uint64_t steadyNanos() noexcept
-{
-    return static_cast<std::uint64_t> (std::chrono::duration_cast<std::chrono::nanoseconds> (
-        std::chrono::steady_clock::now().time_since_epoch()).count());
-}
 }
 
 // Audio Thread. Both roles advance their continuous clock and gap detector on every callback so
@@ -36,7 +30,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     block.presentationSource = clock.presentationSource;
     block.outputPresentationValid = clock.outputPresentationValid;
     block.outputPresentationSamples = clock.outputPresentationSamples;
-    const bool wallGap = liveCompare.gaps.observe (steadyNanos(), frames, preparedFormat.sampleRate);
+    // The callback's one wall-clock reading serves the gap rule and the chain timing display.
+    // POST took it as the callback began; PRE takes it here, after its own measurement work.
+    block.wallNanos = clock.callbackNanos != 0 ? clock.callbackNanos
+                                               : hypha::live_compare::callbackWallNanos();
+    block.thread = hypha::live_compare::callbackThread();
+    const bool wallGap = liveCompare.gaps.observe (block.wallNanos, frames, preparedFormat.sampleRate);
     block.afterGap = hypha::live_compare::callbackGapBreaksContinuity (wallGap, continuous.basis);
     const int channels = buffer.getNumChannels();
     const bool usable = ! bypassed && ! nonRealtimeMode && channels > 0 && channels <= 2;
@@ -72,7 +71,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     }
     const auto timing = liveCompare.preparation.observe (block,
         static_cast<std::uint32_t> (preparedFormat.sampleRate), liveCompare.authority.ticket(),
-        usable && ! outputTaken && ! compensationOff && ! contentHeld && ! liveCompare.authority.restoring());
+        usable && ! outputTaken && ! compensationOff && ! contentHeld && ! liveCompare.authority.restoring(),
+        usable ? &liveCompare.chain : nullptr);
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
     const auto blindCommand = liveCompare.blind.command();

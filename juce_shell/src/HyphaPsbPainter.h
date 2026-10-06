@@ -22,6 +22,7 @@ struct State
 void paint (juce::Graphics&, juce::Rectangle<float>, const State&);
 void paintSubviewToggle (juce::Graphics&, juce::Rectangle<float>, bool psbSelected,
                          presentation::Context);
-juce::Rectangle<float> dataBounds (juce::Rectangle<float> componentBounds);
-int bandAt (juce::Rectangle<float> componentBounds, juce::Point<float>) noexcept;
+juce::Rectangle<float> windowBounds (juce::Rectangle<float> componentBounds, presentation::Context);
+juce::Rectangle<float> dataBounds (juce::Rectangle<float> componentBounds, presentation::Context);
+int bandAt (juce::Rectangle<float> componentBounds, juce::Point<float>, presentation::Context) noexcept;
 }

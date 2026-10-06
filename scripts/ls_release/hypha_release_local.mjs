@@ -6,6 +6,7 @@ import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
 import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
 import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson } from './hypha_release_contract.mjs';
+import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 
 export function macBundles(state, aax = false) {
   return (aax ? loadMacAaxBundleManifest({ root: state.root })
@@ -16,6 +17,10 @@ export async function verifyMac(state, run, aax = false) {
   const bundles = macBundles(state, aax);
   for (const b of bundles) {
     const binary = path.join(b.sourcePath, 'Contents/MacOS', b.executable_name);
+    inspectUpdateBinary(binary, state.inputs.updatePublicKey, { universal: true });
+    const plist = JSON.parse(await run('plutil', ['-convert', 'json', '-o', '-',
+      path.join(b.sourcePath, 'Contents/Info.plist')], { capture: true }));
+    verifyUpdatePlist(plist, state.inputs.updatePublicKey, b.kind === 'au');
     const architectures = (await run('lipo', ['-archs', binary], { capture: true })).trim().split(/\s+/).sort();
     if (architectures.join(',') !== 'arm64,x86_64') throw new Error('macOS payload is not Universal');
     const version = (await run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString',
@@ -42,10 +47,12 @@ export async function produceMac(state, run, aax = false) {
   }
   if (aax) {
     if (!state.inputs.licenseConfirmed || !state.inputs.sdk) throw new Checkpoint('External SDK/license confirmation required');
-    await run('bash', ['scripts/build_aax_universal.sh', '--sdk', state.inputs.sdk, '--license-confirmed', '--sign']);
+    await run('bash', ['scripts/build_aax_universal.sh', '--sdk', state.inputs.sdk, '--license-confirmed', '--sign'],
+      { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
   } else {
-    await run('bash', ['scripts/build_juce_universal.sh']);
-    await run('cargo', ['run', '--package', 'xtask', '--', 'notarize']);
+    await run('bash', ['scripts/build_juce_universal.sh'], { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
+    await run('cargo', ['run', '--package', 'xtask', '--', 'notarize'],
+      { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
   }
   return verifyMac(state, run, aax);
 }
@@ -72,7 +79,7 @@ export async function verifyWindows(state, run) {
   if (!state.inputs.windowsInstallerDir) throw new Checkpoint('Approved same-commit Windows signed-full installer required');
   const installer = requireWindowsInstaller(resolveInput(state, state.inputs.windowsInstallerDir), {
     version: state.candidate.version, commit: state.candidate.commit, bNumber: state.candidate.bNumber,
-  }, { requireAax: true });
+  }, { requireAax: true, updatePublicKey: state.inputs.updatePublicKey || '' });
   const manifest = readJson(`${installer}.json`);
   const sourceRun = manifest.source.github_actions_run.split('/').at(-1);
   if (sourceRun !== String(state.inputs.ciRun)) throw new Error('Windows source CI differs from the pinned CI run');
@@ -102,6 +109,24 @@ export function verifyPackages(state) {
   const files = artifactPaths(state);
   const pkg = readJson(`${files[0]}.json`);
   const zip = readJson(files[5]);
+  const macIds = ['AU/PRE', 'AU/POST', 'VST3/PRE', 'VST3/POST', 'AAX/PRE', 'AAX/POST'];
+  assertPackageUpdateBinding(pkg.updateCheck, state.inputs.updatePublicKey, macIds, { universal: true });
+  assertPackageUpdateBinding(zip.updateCheck, state.inputs.updatePublicKey, macIds, { universal: true });
+  for (const record of pkg.updateCheck.binaries) {
+    const other = zip.updateCheck.binaries.find(b => b.role === record.role && b.format === record.format);
+    if (record.binarySha256 !== other.binarySha256 || record.architectures.some(arch =>
+      other.architectures.find(a => a.architecture === arch.architecture).sha256 !== arch.sha256)) {
+      throw new Error('PKG and ZIP update payload provenance differs');
+    }
+  }
+  const win = readJson(files[8]);
+  assertPackageUpdateBinding(win.updateCheck, state.inputs.updatePublicKey,
+    ['VST3/PRE', 'VST3/POST', 'AAX/PRE', 'AAX/POST']);
+  for (const record of win.updateCheck.binaries) {
+    const payload = [...(win.installer?.payload || []), ...(win.installer?.aax_payload || [])]
+      .find(p => p.role === record.role && p.format === record.format);
+    if (payload?.binary_sha256 !== record.binarySha256) throw new Error('Windows distributed update binary hash mismatch');
+  }
   if (pkg.source?.commit !== state.candidate.commit || pkg.source?.bNumber !== state.candidate.bNumber
       || pkg.version !== state.candidate.version || !pkg.signed || !pkg.notarized || !pkg.aaxIncluded
       || pkg.sha256 !== fileFact(files[0]).sha256) throw new Error('PKG release identity/signing/hash mismatch');
@@ -120,7 +145,8 @@ export async function packageAll(state, run) {
     throw new Checkpoint('Existing package bytes must be qualified/imported, never overwritten by an automatic retry');
   }
   await run('node', ['scripts/ls_release/build_kirin_hypha_release_set.mjs', '--with-aax',
-    '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)]);
+    '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)],
+    { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
   return verifyPackages(state);
 }
 

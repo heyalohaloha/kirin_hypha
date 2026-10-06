@@ -75,19 +75,13 @@ namespace
                     && (! state.absoluteObservation || state.inputChannels != 2u));
             if (selected)
             {
-                // This selector is repainted with every live Spectrum frame. Keep the same
-                // graphite depth and continuous reflected edge as the shared material without
-                // paying for a nested multi-pass panel at four very small segments.
+                // Only the chosen mode is a raised plate. Its static bevel is cached by the
+                // shared material and catches the same scoped key light as the observation.
                 const auto radius = scaled (3.0f);
-                g.setColour (BG.brighter (0.10f).withAlpha (0.90f));
-                g.fillRoundedRectangle (segment, radius);
+                surface_material::paintControl (g, segment, false, false, true,
+                                                 COL_SPECTRUM_DELTA_BR, radius);
                 g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.58f));
                 g.drawRoundedRectangle (segment.reduced (0.35f), radius, scaled (0.65f));
-                const auto reflection = segment.reduced (radius + scaled (1.0f), 0.0f);
-                g.setColour (COL_NORMAL.withAlpha (0.055f));
-                g.drawLine (reflection.getX(), segment.getY() + scaled (0.55f),
-                            reflection.getRight(), segment.getY() + scaled (0.55f),
-                            scaled (0.55f));
             }
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
@@ -216,12 +210,8 @@ namespace
             return;
 
         const auto mark = spectrum_geometry::markBoundsFor (outerPlot, scale);
-        if (state.haveMark)
-        {
-            g.setColour (COL_FLORA.withAlpha (
-                ui_contract::spectrumMarkButtonActiveFillAlpha));
-            g.fillRoundedRectangle (mark, scaled (3.0f));
-        }
+        surface_material::paintControl (g, mark, false, false, state.haveMark,
+                                         state.haveMark ? COL_FLORA_BR : COL_FLORA, scaled (3.0f));
         g.setColour ((state.haveMark ? COL_FLORA_BR : COL_FLORA).withAlpha (
             state.haveMark ? ui_contract::spectrumMarkButtonActiveBorderAlpha
                            : ui_contract::spectrumMarkButtonInactiveBorderAlpha));

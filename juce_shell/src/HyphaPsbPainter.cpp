@@ -34,17 +34,26 @@ juce::String valueText (double value, bool delta)
          + (delta ? " PP" : "%");
 }
 }
-juce::Rectangle<float> dataBounds (juce::Rectangle<float> bounds)
+juce::Rectangle<float> windowBounds (juce::Rectangle<float> bounds, presentation::Context presentation)
 {
     const auto scale = visualScale (bounds);
+    // The header remains on the quiet instrument face. Leave room below its last row for the
+    // shared frame; the lower frame sits before the Bark labels, inside the existing bottom inset.
     return spectrum_geometry::plotBoundsFor (bounds)
-        .withTrimmedTop (juce::jmax (32.0f, 30.0f * scale))
+        .withTrimmedTop (juce::jmax (32.0f, 30.0f * scale)
+                         + (float) main_frame::insetFor (presentation))
         .withTrimmedBottom (14.0f * scale);
 }
 
-int bandAt (juce::Rectangle<float> bounds, juce::Point<float> point) noexcept
+juce::Rectangle<float> dataBounds (juce::Rectangle<float> bounds, presentation::Context presentation)
 {
-    const auto plot = dataBounds (bounds);
+    return windowBounds (bounds, presentation).reduced (1.0f);
+}
+
+int bandAt (juce::Rectangle<float> bounds, juce::Point<float> point,
+            presentation::Context presentation) noexcept
+{
+    const auto plot = dataBounds (bounds, presentation);
     if (! plot.contains (point)) return -1;
     return juce::jlimit (0, (int) bandCount - 1,
         (int) ((point.x - plot.getX()) * (float) bandCount / plot.getWidth()));
@@ -72,8 +81,10 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
 {
     const auto scale = visualScale (bounds);
     const auto outer = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = dataBounds (bounds);
+    const auto window = windowBounds (bounds, state.presentation);
+    const auto plot = dataBounds (bounds, state.presentation);
     surface_material::paintPanel (g, outer, 0.84f, 4.0f * scale);
+    surface_material::paintObservationWell (g, window);
 
     g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
@@ -135,7 +146,8 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     {
         const auto x = plot.getX() + slot * ((float) band - 0.5f);
         text_style::drawText (g, juce::String ((band - 0.5) * 1.2, 1), juce::Rectangle<float> (x - 12.0f * scale,
-                    plot.getBottom(), 24.0f * scale, 14.0f * scale).toNearestInt(),
+                    window.getBottom() + (float) main_frame::insetFor (state.presentation),
+                    24.0f * scale, 14.0f * scale).toNearestInt(),
                     juce::Justification::centred);
     }
     if (state.hoverBand >= 0 && state.hoverBand < (int) bandCount)

@@ -5,6 +5,7 @@
 #include "HyphaReferenceHelp.h"
 #include "HyphaReferenceHelpText.h"
 #include "HyphaReferenceRangeStrips.h"
+#include "HyphaReferenceWindowMaterial.h"
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -105,9 +106,11 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
     const double maximumHz = lowOnly ? 250.0 : 20'000.0;
     const bool ready = sameSectionReady (timeline);
     const auto shift = std::isfinite (gainDb) ? gainDb : 0.0;
+    const auto frame = area.toFloat();  // V の画面は REF の主役の窓：塗った面の上に枠の内側の影を戻す
     auto bands = area.removeFromBottom (40);
     area.removeFromBottom (6);
     surface_material::paintPanel (g, area.toFloat(), 0.72f);
+    window_material::paintInterior (g, frame, area.toFloat());
     auto header = area.removeFromTop (28).reduced (9, 1);
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
@@ -186,6 +189,7 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         auto cell = bands.removeFromLeft (width);
         bands.removeFromLeft (gap);
         surface_material::paintPanel (g, cell.toFloat(), 0.6f);
+        window_material::paintInterior (g, frame, cell.toFloat());
         auto inner = cell.reduced (8, 3);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::information));

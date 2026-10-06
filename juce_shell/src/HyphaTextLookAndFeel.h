@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaComparisonSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 namespace hypha
@@ -15,6 +16,13 @@ namespace hypha
 class TextLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
+    void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+    {
+        g.fillAll (BG);
+        comparison_surface::paintQuietBody (
+            g, { 0.0f, 0.0f, static_cast<float> (width), static_cast<float> (height) });
+    }
+
     void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area,
                             bool isSeparator, bool isActive, bool isHighlighted, bool isTicked,
                             bool hasSubMenu, const juce::String& text,

@@ -1,9 +1,12 @@
-use super::{function_body, without_line_comments, CORRESPONDENCE_H, RING_H, SESSION_H};
+use super::{
+    function_body, without_line_comments, CORRESPONDENCE_H, PROCESSOR_CPP, RING_H, SESSION_H,
+};
 
 const BLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareBlockClock.h");
 const TIMING_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareTimingWitness.h");
 const PREPARATION_H: &str =
     include_str!("../../juce_shell/src/live_compare/LiveCompareTimingPreparation.h");
+const CHAIN_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareChainTiming.h");
 
 #[test]
 fn clock_preparation_and_shared_projection_stay_realtime_safe() {
@@ -165,6 +168,87 @@ fn clock_preparation_never_copies_pcm_or_grants_output_permission() {
             .unwrap()
             > process.find("decision.verdict = read (").unwrap()
     );
+}
+
+#[test]
+fn chain_timing_is_display_only_and_adds_no_clock_reading() {
+    // INV-LC25. The meter and everything it calls stay free of allocation, locks, I/O and waits.
+    let code = without_line_comments(CHAIN_H);
+    for forbidden in [
+        "make_unique",
+        "new ",
+        "delete ",
+        "mutex",
+        ".lock(",
+        ".lock (",
+        "malloc",
+        "calloc",
+        "realloc",
+        "free(",
+        "std::vector",
+        "std::string",
+        "std::function",
+        "std::thread",
+        "std::filesystem",
+        "fstream",
+        "fopen",
+        "printf",
+        "sleep",
+        "wait(",
+        "wait (",
+        "juce::",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "chain timing contains {forbidden}"
+        );
+    }
+    // Each callback keeps its one wall-clock reading: POST's is the first thing its callback
+    // reads, PRE's follows its own measurement work, and neither side takes a second one.
+    let realtime = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    assert_eq!(realtime.matches("callbackWallNanos()").count(), 1);
+    assert!(realtime.contains("clock.callbackNanos != 0 ? clock.callbackNanos"));
+    let host_clock = include_str!("../../juce_shell/src/PluginProcessorHostClock.cpp");
+    assert_eq!(host_clock.matches("callbackWallNanos()").count(), 1);
+    assert!(host_clock.contains(
+        "role == Role::Post ? hypha::live_compare::callbackWallNanos() : 0;\n    bool playing = false;"
+    ));
+    // PRE stamps every callback and its publisher still never looks at demand (INV-LC23);
+    // POST refuses a block PRE copied by PRE's own count of copied blocks.
+    let publisher = function_body(TIMING_H, "TimelineStep observe (TimingHeader&");
+    assert!(publisher.contains("h.wallNanos.store (block.wallNanos, std::memory_order_relaxed);"));
+    assert!(publisher.contains("h.thread.store (block.thread, std::memory_order_relaxed);"));
+    let observe = function_body(PREPARATION_H, "TimingEvidence observe (");
+    assert!(observe.contains(
+        "chain->observe (snapshot, block, ring->header.published.load (std::memory_order_acquire));"
+    ));
+    assert!(observe.contains("chain->observeWithoutPre (block);"));
+    // A counted block meets every condition; none of them is a tolerance.
+    let classify = function_body(CHAIN_H, "ChainTimingReason classify (");
+    for required in [
+        "haveSequence && fedBlocks != fed",
+        "pre.block.thread != post.thread || post.wallNanos < pre.block.wallNanos",
+        "pre.sequence != sequence + 2",
+        "pre.block.frames != post.frames",
+        "post.project != expected",
+        "lead < 0 || lead > static_cast<std::int64_t> (ringCapacityFrames)",
+    ] {
+        assert!(classify.contains(required), "chain timing lost {required}");
+    }
+    // Display only: the Audio Thread hands the meter to the clock preparation and nothing that
+    // selects, matches or renders knows it exists.
+    assert_eq!(
+        without_line_comments(realtime)
+            .matches("liveCompare.chain")
+            .count(),
+        1
+    );
+    for source in [RING_H, SESSION_H, CORRESPONDENCE_H] {
+        assert!(!source.contains("ChainTiming"));
+    }
 }
 
 #[test]

@@ -18,13 +18,16 @@
 #include "TimeHistoryContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
+#include "ReferenceCompactCapacityContract.h"
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
+#include "ChainTimingTextContract.h"
 #include "HybridVuContractTest.h"
 #include "LocalBlindUiContractTest.h"
 #include "LocalBlindNamedUiContractTest.h"
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
+#include "BlindLightContract.h"
 #include "LiveCompareFooterContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
 #include "ObservationEqualityContractTest.h"
@@ -115,8 +118,11 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         return true;
     }
     verifyInformationContract();
+    verifyChainTimingTextContract();
+    verifyChainTimingFooterContract();
     verifyReferenceAccessPanelContract();
     verifyReferenceAuditionComponentContract();
+    reference_compact_capacity::verify();
     verifyOsAccessUiContract();
     verifyTimePageNavigationContract();
     verifyMenuArrowContract();
@@ -124,6 +130,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyLocalBlindNamedUiContract();
     verifyLiveBlindUiContract();
     verifyVersionBlindScreen();
+    blind_light_contract::verify();
     if (entryOnly)
     {
         verifyLiveCompareFooterContract();

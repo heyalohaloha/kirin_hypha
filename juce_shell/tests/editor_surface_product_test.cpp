@@ -457,6 +457,7 @@ int main (int argc, char** argv)
     verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
+    hypha::tests::editor_product::verifyChainTimingFooterSwitch();
     hypha::tests::editor_product::verifyMagnifiedEditor();
     hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();

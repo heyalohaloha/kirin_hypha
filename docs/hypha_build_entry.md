@@ -74,6 +74,9 @@ node scripts/build_hypha.mjs --verify-only
 ```
 
 別候補を分けるときは`--build-id name`、並列数は`--jobs N`。
+更新通知の鍵は`--update-public-key KEY`で明示する。既定は空で、以前のCMake cacheに鍵があっても
+毎configureで空へ戻す。承認済みRSA-2048/65537の正規公開鍵だけを受け付け、全role/formatの
+実binary内digestとMac plistを照合し、`hypha-build.json`へ記録する。鍵の違うmanifestは再利用しない。
 `--platform windows --dry-run`でMacからWindows用計画だけを確認できる。
 実ビルドは各OSで実行し、MacからWindows binaryを生成したとは報告しない。
 
@@ -103,7 +106,8 @@ JUCEのMac ad-hoc signatureが付く場合も、Developer ID / PACE署名済み�
 この出力を署名／配布factoryへ任意に差し込まない。承認済みのclean-source経路を使う。
 正本は[署名入口](aax_build_signing_entry.md)と[3チャネルRunbook](ls_release/kirin_hypha_ls_runbook.md)。
 既存の`build_juce_universal.sh`、`build_aax_universal.sh`、`build_aax_windows.ps1`の
-署名・配布契約とprivate factoryの承認済みhashは変更しない。
+署名・配布契約を維持する。producer変更後はprivate factoryのscript hash allowlistを再レビューし、
+承認済みのexact sourceへ揃えてから正式署名する。
 
 ## 根拠と自動試験
 

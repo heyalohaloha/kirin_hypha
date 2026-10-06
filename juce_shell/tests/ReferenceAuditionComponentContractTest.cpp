@@ -8,6 +8,7 @@
 #include "ReferenceVisualNavigationTest.h"
 #include "ReferenceAbcvRolesTest.h"
 #include "ReferenceActionIntentTest.h"
+#include "ReferenceLightContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -113,6 +114,7 @@ void verifyReferenceAuditionComponentContract()
     verifyTrackingStopNoticeOnce();
     verifyReferenceActionIntent();
     verifyReferenceVisualNavigation();
+    verifyReferenceLightContract();
     verifyReferenceVisualComparison();
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();

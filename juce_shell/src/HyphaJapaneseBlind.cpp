@@ -39,7 +39,6 @@ const Entry entries[] = {
     { "Format changed: MENU > LISTEN (POST)", u8"形式変更：MENU→LISTEN（POST出力）" },
     { "Check PRE pair; MENU > LISTEN (POST)", u8"PREペア確認後、MENU→LISTEN（POST出力）" },
     { "Stopped: MENU > LISTEN (POST)", u8"比較中断：MENU→LISTEN（POST出力）" },
-    { "REVEAL SOURCES", u8"開示" },
     { "Play the DAW and check PRE is enabled", u8"DAWを再生し、PREが有効か確認してください" },
     { "PRE pending: check PRE is on (POST)", u8"PRE未着：PREが有効か確認（POST出力）" },
     { "DAW playback stopped", u8"DAWの再生が停止しました" },

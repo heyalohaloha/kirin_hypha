@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PATTERNS, addedLines, findRecords, namePatterns } from './check_public_text.mjs';
+import { PATTERNS, addedLines, findRecords, namePatterns, newLines } from './check_public_text.mjs';
 
 const kinds = (text, patterns = PATTERNS) => findRecords(text, patterns).map((record) => record.kind);
 
@@ -52,6 +52,28 @@ test('only added lines are read, with their file and new line number', () => {
   const lines = addedLines(diff);
   assert.deepEqual(lines.map((line) => `${line.file}:${line.line}`), ['README.md:11', 'README.md:12']);
   assert.deepEqual(lines.flatMap((line) => kinds(line.text)), ['attribution']);
+});
+
+test('a line moved unchanged to another file is not new text; an edited or extra copy is', () => {
+  const diff = [
+    'diff --git a/old.test.mjs b/old.test.mjs',
+    '--- a/old.test.mjs',
+    '+++ b/old.test.mjs',
+    '@@ -5,2 +4,0 @@',
+    "-  url: 'https://example.com/W-1234',",
+    '-  plain: true,',
+    'diff --git a/new.test.mjs b/new.test.mjs',
+    '--- /dev/null',
+    '+++ b/new.test.mjs',
+    '@@ -0,0 +1,4 @@',
+    "+  url: 'https://example.com/W-1234',",
+    "+  url: 'https://example.com/W-1234',",
+    "+  edited: 'https://example.com/W-1235',",
+    '+  plain: true,',
+  ].join('\n');
+  const lines = newLines(diff);
+  assert.deepEqual(lines.map((line) => `${line.file}:${line.line}`), ['new.test.mjs:2', 'new.test.mjs:3']);
+  assert.deepEqual(lines.flatMap((line) => kinds(line.text)), ['work item', 'work item']);
 });
 
 test('a planted record in a commit message fails, a clean message passes', () => {

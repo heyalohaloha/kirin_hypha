@@ -29,8 +29,8 @@ is_owned_source() {
     crates/*.rs|crates/*.h|crates/*/*.rs|crates/*/*.h|crates/*/*/*.rs|crates/*/*/*.h|\
     crates/*/*/*/*.rs|crates/*/*/*/*.h|crates/*/*/*/*/*.rs|crates/*/*/*/*/*.h|\
     xtask/*.rs|xtask/*/*.rs|xtask/*/*/*.rs|\
-    juce_shell/src/*.cpp|juce_shell/src/*.h|juce_shell/src/*/*.cpp|juce_shell/src/*/*.h|\
-    juce_shell/tests/*.cpp|juce_shell/tests/*.h|juce_shell/tests/*/*.cpp|juce_shell/tests/*/*.h)
+    juce_shell/src/*.cpp|juce_shell/src/*.mm|juce_shell/src/*.h|juce_shell/src/*/*.cpp|juce_shell/src/*/*.mm|juce_shell/src/*/*.h|\
+    juce_shell/tests/*.cpp|juce_shell/tests/*.mm|juce_shell/tests/*.h|juce_shell/tests/*/*.cpp|juce_shell/tests/*/*.mm|juce_shell/tests/*/*.h)
       return 0
       ;;
   esac

@@ -1,5 +1,8 @@
 #include "HyphaReferenceComponent.h"
 
+#include "HyphaMainFrame.h"
+#include "HyphaReferenceVisuals.h"
+
 namespace hypha::reference_ui
 {
 void Component::resized()
@@ -100,7 +103,9 @@ void Component::resized()
     const bool rowInPanel = ! statusInFooter();
     auto footer = rowInPanel ? area.removeFromBottom (statusRowHeight()) : juce::Rectangle<int> {};
     if (checkPage()) area.removeFromBottom (checkFooterHeight());
-    comparisonView.setBounds (area);
+    // The page's main window, in the frame the page draws around it (paint). B の一覧と BALANCE は枠の外の広さのまま。
+    observationArea = area.reduced (main_frame::insetFor (presentationContext), main_frame::insetFor (presentationContext));
+    comparisonView.setBounds (observationArea);
     songList.setBounds (area.withWidth (juce::roundToInt (static_cast<float> (area.getWidth()) * 0.52f)));
     // 状態の行（ボタンは StatusStrip の子）。足元の段に出すときはエディターが置く（REF の中では隠す）。
     if (statusStrip.getParentComponent() == this)
@@ -111,6 +116,18 @@ void Component::resized()
     }
     statusStrip.resized();
     layoutSelectionReadouts();
+}
+
+juce::Rectangle<int> Component::observationWindowBounds() const noexcept
+{
+    // REF の枠は、実際に見える主役の窓を一つだけ囲む：V の比較の窓か、C の設定された図の群。B の一覧と BALANCE、
+    // 耳で聴き比べる Check の案内は囲まない（paint と同じ条件）。
+    if (guideShown || isBlindSession (current.blindPhase)) return {};
+    if (comparisonView.isVisible()) return observationArea;
+    if (detailedLayout() && ! songList.isVisible() && ! (checkPage() && listeningCheck())
+        && configuredReferenceViewsFit (observationArea.toFloat(), current))
+        return observationArea;
+    return {};
 }
 
 }

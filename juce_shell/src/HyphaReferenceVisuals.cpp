@@ -1,4 +1,5 @@
 #include "HyphaReferenceVisuals.h"
+#include "HyphaReferenceWindowMaterial.h"
 
 #include "HyphaReferenceComponent.h"
 #include "HyphaReferenceLegend.h"
@@ -31,9 +32,10 @@ void panel (juce::Graphics& g, juce::Rectangle<float> area)
 juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area,
                                   const juce::String& heading,
                                   const juce::String& detail,
-                                  presentation::Context presentation)
+                                  presentation::Context presentation, juce::Rectangle<float> window)
 {
     panel (g, area);
+    window_material::paintInterior (g, window, area);
     auto header = area.removeFromTop (28.0f);
     auto headerText = header.reduced (9.0f, 1.0f).toNearestInt();
     auto headingArea = headerText.removeFromLeft (juce::roundToInt (
@@ -130,14 +132,15 @@ juce::Path nullableSpectrumPath (const std::vector<double>& frequencies,
 }
 
 bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
-                   const State& state, bool lowOnly, presentation::Context presentation)
+                   const State& state, bool lowOnly, presentation::Context presentation,
+                   juce::Rectangle<float> window)
 {
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
     // C の Cue の値があれば「Cue 対 A の同じ長さの直近」を同じ定義・同じ音量で比べる。
     if (state.separateComparisons && state.comparisonSlot == 2 && state.cueKirin)
     {
-        const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation);
+        const auto cueArea = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM", cueSpectrumLegend (state), presentation, window);
         paintFrequencyTicks (g, cueArea, minimumHz, maximumHz, presentation);  // どこが何 Hz か（2026-10-04）
         if (paintCueSpectrum (g, cueArea, state, minimumHz, maximumHz, presentation)) return true;
         unavailable (g, cueArea, presentation);
@@ -145,7 +148,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     }
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
                            state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C TRACK"
-                               : state.separateComparisons && state.comparisonSlot == 3 ? "A / B" : "A / V", presentation);
+                               : state.separateComparisons && state.comparisonSlot == 3 ? "A / B" : "A / V", presentation, window);
     bool drew = false;
     for (const auto& profile : state.profiles)
     {
@@ -205,9 +208,9 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
 }
 
 bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
-                   presentation::Context presentation)
+                   presentation::Context presentation, juce::Rectangle<float> window)
 {
-    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons ? roleLetter (state.comparisonSlot) : "B", presentation);
+    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons ? roleLetter (state.comparisonSlot) : "B", presentation, window);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->waveform)
     {
         unavailable (g, area, presentation);
@@ -276,7 +279,7 @@ const NullableSeries* timelineSeries (const Measurement& measurement,
 
 bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
                    const State& state, const juce::String& binding,
-                   presentation::Context presentation)
+                   presentation::Context presentation, juce::Rectangle<float> window)
 {
     juce::String title = binding == "dynamics" ? "CREST" : binding.toUpperCase();
     juce::String seriesName;
@@ -285,7 +288,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.detailedMeasurement)
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
-    auto area = chartArea (g, bounds, title, state.separateComparisons ? roleLetter (state.comparisonSlot) : "B", presentation);
+    auto area = chartArea (g, bounds, title, state.separateComparisons ? roleLetter (state.comparisonSlot) : "B", presentation, window);
     if (series == nullptr || std::none_of (series->begin(), series->end(),
         [] (const auto& value) { return value.has_value(); }))
     {
@@ -313,10 +316,10 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
 }
 
 bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
-                    presentation::Context presentation)
+                    presentation::Context presentation, juce::Rectangle<float> window)
 {
     auto area = chartArea (g, bounds, "TRANSIENT", state.separateComparisons ? roleLetter (state.comparisonSlot) : "B",
-                           presentation);
+                           presentation, window);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->transient
         || state.detailedMeasurement->transient->onsetStrengthQ15.empty())
     {
@@ -341,30 +344,44 @@ bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const Stat
 
 void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
                const State& state, const juce::String& binding,
-               presentation::Context presentation)
+               presentation::Context presentation, juce::Rectangle<float> window)
 {
     // C の画面の Dynamics・Loudness・Stereo・Waveform・Transient は A と C の範囲の帯（2026-10-04）。
     if (state.separateComparisons && state.comparisonSlot == 2 && rangeStripBinding (binding)
-        && paintCueRangeStrips (g, area, state, binding, presentation))
+        && paintCueRangeStrips (g, area, state, binding, presentation, window))
         return;
     // Kirin OS の view_bindings に balance は無い（Tonal の BALANCE の絵は 2026-10-04 に外した）。
-    if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
-    else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation);
-    else if (binding == "waveform") drawWaveform (g, area, state, presentation);
-    else if (binding == "transient") drawTransient (g, area, state, presentation);
-    else drawTimeline (g, area, state, binding, presentation);
+    if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation, window);
+    else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation, window);
+    else if (binding == "waveform") drawWaveform (g, area, state, presentation, window);
+    else if (binding == "transient") drawTransient (g, area, state, presentation, window);
+    else drawTimeline (g, area, state, binding, presentation, window);
 }
+}
+
+bool configuredReferenceViewsFit (juce::Rectangle<float> area, const State& state) noexcept
+{
+    return ! state.viewBindings.empty() && area.getWidth() >= 120.0f && area.getHeight() >= 70.0f;
 }
 
 bool paintConfiguredReferenceViews (juce::Graphics& g, juce::Rectangle<float> area,
                                     const State& state, presentation::Context presentation)
 {
-    if (state.viewBindings.empty() || area.getWidth() < 120.0f || area.getHeight() < 70.0f)
+    if (! configuredReferenceViewsFit (area, state))
         return false;
     const auto count = std::min<size_t> (3, state.viewBindings.size());
     const auto cells = referenceVisualCells (area, static_cast<int> (count), state.presentationLayout);
+    {
+        const juce::Graphics::ScopedSaveState saved (g);
+        juce::Path gaps;
+        gaps.setUsingNonZeroWinding (false);
+        gaps.addRectangle (area);
+        for (size_t index = 0; index < count; ++index) gaps.addRectangle (cells[index]);
+        g.reduceClipRegion (gaps);
+        window_material::paintInterior (g, area, area);
+    }
     for (size_t index = 0; index < count; ++index)
-        paintOne (g, cells[index], state, state.viewBindings[index], presentation);
+        paintOne (g, cells[index], state, state.viewBindings[index], presentation, area);
     return true;
 }
 }

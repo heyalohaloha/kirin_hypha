@@ -167,7 +167,8 @@ std::array<juce::Rectangle<int>, attack_ui::laneCount> AttackComponent::summaryP
         for (std::size_t lane = 0; lane < attack_ui::laneCount; ++lane)
             plots[lane] = rectangleOf (attack_ui::lanePlot (shape, lane));
     else if (shape.arrangement == attack_ui::Arrangement::line && summaryShown())
-        plots = attack_band_summary_painter::rowPlots (rectangleOf (shape.history), presentationContext);
+        plots = attack_band_summary_painter::rowPlots (
+            rectangleOf (attack_ui::historyWindow (shape)), presentationContext);
     return plots;
 }
 
@@ -232,8 +233,7 @@ void AttackComponent::paintBand (juce::Graphics& g, const attack_ui::Layout& sha
                                          static_cast<float> (history.getBottom() - 2),
                                          static_cast<float> (history.getCentreY()), selected->sample);
     };
-    auto readingRow = rectangleOf (shape.history);
-    readingRow.removeFromLeft (attack_ui::labelCell (shape, shape.history).width);
+    const auto readingRow = rectangleOf (attack_ui::historyWindow (shape));
     if (bandPanes (shape))
     {
         if (live)
@@ -258,7 +258,7 @@ void AttackComponent::paintBand (juce::Graphics& g, const attack_ui::Layout& sha
         if (live && lanes && ! history.isEmpty())
             attack_band_summary_painter::paintReading (g, readingRow, summary, name, reason, waiting, presentationContext);
         else if (live && ! history.isEmpty())
-            attack_band_summary_painter::paintRows (g, rectangleOf (shape.history), summary,
+            attack_band_summary_painter::paintRows (g, readingRow, summary,
                                                     static_cast<int> (summary.count) - 1, name, reason, waiting,
                                                     presentationContext);
         else if (! history.isEmpty())

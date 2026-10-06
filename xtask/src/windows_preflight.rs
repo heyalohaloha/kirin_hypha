@@ -125,13 +125,13 @@ fn verify_cmake_platform_split(cmake: &str) -> Result<()> {
     )?;
     require(
         cmake,
-        "if(APPLE)\n        # B-130",
+        "if(APPLE)\n        hypha_au_resource_usage(${TARGET})",
         "AU resourceUsage post-build step must be APPLE-only",
     )?;
     require(
         cmake,
-        "add_custom_command(TARGET ${TARGET}_AU POST_BUILD",
-        "macOS AU resourceUsage post-build step must remain present for macOS",
+        "include(cmake/UpdateChecking.cmake)",
+        "macOS AU resourceUsage helper must remain included",
     )?;
     Ok(())
 }
@@ -201,6 +201,21 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
         "Windows preflight job must build PRE/POST VST3 targets",
     )?;
+    for required in [
+        "-DKIRIN_HYPHA_BUILD_UPDATE_TESTS=ON",
+        "KirinUpdate_manifest_Tests",
+        "KirinUpdate_store_Tests",
+        "KirinUpdate_checker_Tests",
+        "KirinUpdate_http_response_Tests",
+        "KirinUpdateRuntimeIntegrationTests",
+        "^kirin_update_((manifest|store|checker|http_response)$|runtime_)",
+    ] {
+        require(
+            job_code,
+            required,
+            "Windows must build and execute all offline update suites",
+        )?;
+    }
     require(
         job_code,
         "Validate Windows VST3 audio transparency",

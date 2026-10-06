@@ -9,10 +9,6 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgs as parseDryRunArgs } from './kirin_hypha_ls_dry_run.mjs';
 import {
-  parseArgs as parseReleaseSetArgs,
-  requireWindowsInstaller,
-} from './build_kirin_hypha_release_set.mjs';
-import {
   artifactManifestFor,
   commitReceiptFor,
   localReleaseStateFor,
@@ -148,64 +144,51 @@ test('release_state boundary rejects each reinsertion path', () => {
 
 test('README uses the verified current Hypha UI media', () => {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  // Drawn by the shipping editor from invented data (scripts/make_readme_media.sh); no session appears.
   const media = [
-    {
-      relativePath: 'docs/media/kirin-hypha-freq.jpg',
-      sha256: '07ead3f12501b601e3e098d48f81bee44faf1a55d8681548ac63ac93cefb7c60',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-freq-demo.mp4',
-      sha256: 'e149441b4c8bbbcd908c9bda53fc56c0ef106962abadab0531f39d5d9b77194d',
-      signature: Buffer.from('ftyp'),
-      signatureOffset: 4,
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-sharp.jpg',
-      sha256: '5ffa99bc02eca335b95643c11df07e84e369abb54024f32a8108857d5a12c2d2',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-live.jpg',
-      sha256: '9b200ff12454b176e213f7ea5dfa31d75c23a7ce59a29fe5d94cf776311d5cb6',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-pre-post.jpg',
-      sha256: 'c38f068db726a4172850a0cd4099a7dcf116fe1ef29f123eda647612217c5416',
-      signature: Buffer.from([0xff, 0xd8, 0xff]),
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-pre-post-demo.mp4',
-      sha256: '7d1ce8ad1f8fab4e6245c08fb25a1b5b733dd40c5e1f876d7a1527b5fef0bc13',
-      signature: Buffer.from('ftyp'),
-      signatureOffset: 4,
-    },
-    {
-      relativePath: 'docs/media/kirin-hypha-record-keep-demo.mp4',
-      sha256: '24db4c35289ce82678d476017fb509f63d52435d95e79fdacaadfd3c559b77eb',
-      signature: Buffer.from('ftyp'),
-      signatureOffset: 4,
-    },
+    ['vu.jpg', '5b24f1a2189932cffad99e1f7b4dc4dbf1c2cb513c268a98a34181c1b8184d16'],
+    ['tour.gif', 'e5a5a1b9de0f379dc3cca16ec039cf0b4194083d80ce94f5ef552eca97c00b23'],
+    ['level.jpg', 'ec8524078fe55abc87438bbd2596425707a11a329a8b4bcf3f3f4024f0c44570'],
+    ['blind.jpg', '9c5d4e6afbbe9ec92d0bfec71a9867ef2afecf2c1071b48c0061ccb5c1a891df'],
+    ['ref_c.jpg', '61784191ec2c60224d5ab4d42f92420dc9a5662c31f26404379e2298a6223169'],
+    ['listen.jpg', 'e8b9ff7c818a821e744f58a33a90f2ce369e5f0b590c15979dbd175335da9d20'],
+    ['drum.jpg', 'fe72ab809374963274b8a9e9fa569e74d02ed4e57ff55d4b52a375b943407d27'],
+    ['freq.jpg', 'c91faa202b4bbe2b5c2310aa919c77bd180e0bfca97eacfd0d0a1253bd188e24'],
+    ['ref_v.jpg', '8f7086db868d606d1eb29f125519cf0ab2f7f1b71f5c5ad6885fa33a0ac51d08'],
+    ['space.jpg', 'eeb56aab9d0d54ef445b487dea842ed14c06ae6540fd66587504ebca74287114'],
+    ['time.jpg', 'ef307eefc63bf534f08fde205252eb1129125c51e481848a2db35db3e9c31a14'],
+    ['sharp.jpg', 'ed2d8d5df75a1a67d713faa6dbecb0f52b60db2cb63035dab017746c17750359'],
+    ['live.jpg', 'b0fe86f591f4cf7ff21db6d8fbc2356829b7a21305bded793c54f58941a231b1'],
+    ['ref_b.jpg', '42699833c6e3d00590184d030c19f6a1ca9f9309eb97f10d301a9c40b4b27774'],
+    ['blind_result.jpg', '15ccbba11e6315463b418a3bd6060bd623ecce16ee0b0304263885f44dd06cee'],
   ];
+  const signatures = { '.jpg': Buffer.from([0xff, 0xd8, 0xff]), '.gif': Buffer.from('GIF89a') };
 
-  for (const asset of media) {
-    const assetPath = path.join(repoRoot, asset.relativePath);
-    assert.match(readme, new RegExp(asset.relativePath.replaceAll('.', '\\.')));
-    assert.ok(fs.statSync(assetPath).size > 10_000, `${asset.relativePath} must not be empty`);
-    assert.equal(sha256File(assetPath), asset.sha256, `${asset.relativePath} digest`);
-    const contents = fs.readFileSync(assetPath);
-    const offset = asset.signatureOffset ?? 0;
-    assert.deepEqual(
-      contents.subarray(offset, offset + asset.signature.length),
-      asset.signature,
-      `${asset.relativePath} signature`,
-    );
+  for (const [name, digest] of media) {
+    const relativePath = `docs/media/readme/${name}`;
+    const assetPath = path.join(repoRoot, relativePath);
+    const signature = signatures[path.extname(name)];
+    assert.match(readme, new RegExp(relativePath.replaceAll('.', '\\.')));
+    assert.ok(fs.statSync(assetPath).size > 10_000, `${relativePath} must not be empty`);
+    assert.equal(sha256File(assetPath), digest, `${relativePath} digest`);
+    assert.deepEqual(fs.readFileSync(assetPath).subarray(0, signature.length), signature, `${relativePath} signature`);
   }
+  assert.deepEqual(
+    fs.readdirSync(path.join(repoRoot, 'docs/media/readme')).filter((name) => !name.startsWith('.')).sort(),
+    media.map(([name]) => name).sort(),
+    'every published README picture is used and verified',
+  );
 
   for (const retired of [
     'docs/images/hypha_record_mode.jpg',
     'docs/images/hypha_watch_mode.jpg',
+    'docs/media/kirin-hypha-freq.jpg',
+    'docs/media/kirin-hypha-freq-demo.mp4',
+    'docs/media/kirin-hypha-sharp.jpg',
+    'docs/media/kirin-hypha-live.jpg',
+    'docs/media/kirin-hypha-pre-post.jpg',
+    'docs/media/kirin-hypha-pre-post-demo.mp4',
+    'docs/media/kirin-hypha-record-keep-demo.mp4',
   ]) {
     assert.equal(fs.existsSync(path.join(repoRoot, retired)), false, `${retired} must stay retired`);
     assert.doesNotMatch(readme, new RegExp(retired.replaceAll('.', '\\.')));
@@ -218,20 +201,19 @@ test('README opens with current analysis, exact pairing, and supported Windows f
   const entrance = readme.slice(0, designIndex);
 
   assert.ok(designIndex > 0, 'README must keep the technical Design contract after the entrance');
-  assert.match(entrance, /docs\/media\/kirin-hypha-freq\.jpg/);
-  assert.match(entrance, /docs\/media\/kirin-hypha-freq-demo\.mp4/);
-  assert.match(entrance, /docs\/media\/kirin-hypha-sharp\.jpg/);
-  assert.match(entrance, /docs\/media\/kirin-hypha-live\.jpg/);
-  assert.ok(
-    entrance.indexOf('docs/media/kirin-hypha-freq.jpg')
-      < readme.indexOf('docs/media/kirin-hypha-pre-post.jpg'),
-    'FREQ must be the first public product image',
+  for (const name of ['vu.jpg', 'tour.gif', 'level.jpg', 'blind.jpg', 'ref_c.jpg', 'listen.jpg', 'freq.jpg']) {
+    assert.match(entrance, new RegExp(`docs/media/readme/${name.replace('.', '\\.')}`));
+  }
+  assert.equal(
+    entrance.match(/docs\/media\/readme\/[a-z_]+\.(?:jpg|gif)/)?.[0],
+    'docs/media/readme/vu.jpg',
+    'the shipping POST editor must be the first public product image',
   );
   assert.match(entrance, /choose that exact PRE under \*\*PRE connection\*\*/);
   assert.match(entrance, /Names are optional labels/);
-  assert.match(readme, /current v1\.1\.49 Windows 10\/11 64-bit VST3 release is distributed as one signed installer EXE/);
+  assert.match(readme, /current v1\.1\.50 Windows 10\/11 64-bit VST3 release is distributed as one signed installer EXE/);
   assert.match(readme, /payloads, installer, and generated uninstaller passed signature/);
-  assert.match(readme, /current\s+v1\.1\.49 release uses an Authenticode-signed installer containing both PRE and POST/);
+  assert.match(readme, /current\s+v1\.1\.50 release uses an Authenticode-signed installer containing both PRE and POST/);
   assert.doesNotMatch(readme, /supported release is currently macOS-only/);
   assert.doesNotMatch(readme, /Windows validation candidate/);
   assert.doesNotMatch(readme, /External validation is pending/);
@@ -345,260 +327,6 @@ test('LS dry run requires an explicit local state path', () => {
   assert.equal(parseDryRunArgs(['--state', 'release_state/local.state.json']).state, 'release_state/local.state.json');
 });
 
-test('full release set accepts only a signed, verified, externally validated Windows installer', (context) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-windows-primary-'));
-  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const installer = path.join(root, 'Kirin-Hypha-1.2.3-Windows-x64-Setup.exe');
-  fs.writeFileSync(installer, 'signed installer fixture');
-  const digest = sha256File(installer);
-  const preDigest = '1'.repeat(64);
-  const postDigest = '2'.repeat(64);
-  const uninstallerDigest = '3'.repeat(64);
-  const identity = { version: '1.2.3', commit: '0'.repeat(40), bNumber: 'B-123' };
-  fs.writeFileSync(`${installer}.sha256`, `${digest}  ${path.basename(installer)}\n`);
-  const signatureTarget = (role, targetDigest) => ({
-    role,
-    file_name: `${role}.exe`,
-    status: 'Valid',
-    sha256: targetDigest,
-    signer_subject: 'CN=Kirin fixture',
-    signer_thumbprint: 'A'.repeat(40),
-    timestamp_subject: 'CN=Timestamp fixture',
-    timestamp_thumbprint: 'B'.repeat(40),
-  });
-  const manifest = {
-    schema: 'kirin-hypha-windows-installer-v1',
-    product: {
-      name: 'Kirin Hypha',
-      version: identity.version,
-      platform: 'windows-x64',
-      format: 'VST3',
-      formats: ['VST3'],
-    },
-    source: {
-      commit: identity.commit,
-      b_number: identity.bNumber,
-      github_actions_run: 'https://github.com/heyalohaloha/kirin_hypha/actions/runs/123',
-    },
-    installer: {
-      sha256: digest,
-      payload: [
-        { role: 'PRE', binary_sha256: preDigest },
-        { role: 'POST', binary_sha256: postDigest },
-      ],
-    },
-    signing: {
-      status: 'valid',
-      workflow_run: 'https://github.com/heyalohaloha/kirin_sense_lens/actions/runs/456',
-      verification: {
-        targets: [
-          signatureTarget('installer', digest),
-          signatureTarget('installed PRE VST3 binary', preDigest),
-          signatureTarget('installed POST VST3 binary', postDigest),
-          signatureTarget('installed uninstaller', uninstallerDigest),
-        ],
-      },
-    },
-    ci_validation: { status: 'passed' },
-    external_validation: {
-      status: 'complete',
-      note: 'The exact signed installer passed the retained dedicated Windows DAW validation.',
-      report_sha256: 'c'.repeat(64),
-      installer_sha256: digest,
-      candidate_workflow_run: 'https://github.com/heyalohaloha/kirin_sense_lens/actions/runs/456',
-      completed_at: '2026-09-20T03:00:00.000Z',
-    },
-    distribution: { primary: true, public_ready: true, aax_included: false },
-  };
-  fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
-
-  assert.equal(requireWindowsInstaller(root, identity), installer);
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...manifest,
-    external_validation: { ...manifest.external_validation, installer_sha256: 'd'.repeat(64) },
-  }));
-  assert.throws(
-    () => requireWindowsInstaller(root, identity),
-    /exact signed-candidate validation provenance is incomplete/,
-  );
-  fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
-  assert.equal(
-    parseReleaseSetArgs(['--windows-artifact-dir', root]).windowsInstallerDir,
-    root,
-  );
-  assert.equal(parseReleaseSetArgs(['--with-aax']).withAax, true);
-  assert.throws(
-    () => requireWindowsInstaller(root, identity, { requireAax: true }),
-    /format VST3 does not match VST3\+AAX/,
-  );
-
-  const preAaxDigest = '4'.repeat(64);
-  const postAaxDigest = '5'.repeat(64);
-  const aaxProofName = `Kirin-Hypha-${identity.version}-Windows-x64-AAX.json`;
-  const signedAaxProof = {
-    schema: 'kirin-hypha-windows-aax-signed-v1',
-    source: { commit: identity.commit, b_number: identity.bNumber, state: 'clean source' },
-    product: { name: 'Kirin Hypha', version: identity.version, platform: 'windows-x64', format: 'AAX' },
-    release: {
-      mode: 'release', kimera_embedded: false, native_only: true, audio_suite_enabled: false,
-    },
-    bundles: [
-      { role: 'PRE', sha256: preAaxDigest, pace_verified: true, authenticode_verified: true },
-      { role: 'POST', sha256: postAaxDigest, pace_verified: true, authenticode_verified: true },
-    ],
-    signing: { pace_verified: true, authenticode_verified: true },
-  };
-  const aaxProofPath = path.join(root, aaxProofName);
-  fs.writeFileSync(aaxProofPath, JSON.stringify(signedAaxProof));
-  const aaxProofDigest = sha256File(aaxProofPath);
-  const aaxManifest = {
-    ...manifest,
-    product: { ...manifest.product, format: 'VST3+AAX', formats: ['VST3', 'AAX'] },
-    installer: {
-      ...manifest.installer,
-      aax_payload: [
-        {
-          role: 'PRE', format: 'AAX', binary_sha256: preAaxDigest,
-          pace_verified: true, authenticode_verified: true,
-        },
-        {
-          role: 'POST', format: 'AAX', binary_sha256: postAaxDigest,
-          pace_verified: true, authenticode_verified: true,
-        },
-      ],
-    },
-    signing: {
-      ...manifest.signing,
-      verification: {
-        targets: [
-          ...manifest.signing.verification.targets.slice(0, 3),
-          signatureTarget('installed PRE AAX binary', preAaxDigest),
-          signatureTarget('installed POST AAX binary', postAaxDigest),
-          manifest.signing.verification.targets[3],
-        ],
-      },
-    },
-    distribution: {
-      ...manifest.distribution,
-      aax_included: true,
-      aax_identity: {
-        source_commit: identity.commit,
-        b_number: identity.bNumber,
-        source_state: 'clean source',
-        build_mode: 'release',
-        kimera_embedded: false,
-        native_only: true,
-        audio_suite_enabled: false,
-        signed_manifest: aaxProofName,
-        signed_manifest_sha256: aaxProofDigest,
-      },
-    },
-  };
-  fs.writeFileSync(`${installer}.json`, JSON.stringify(aaxManifest));
-  assert.equal(requireWindowsInstaller(root, identity, { requireAax: true }), installer);
-  assert.throws(
-    () => requireWindowsInstaller(root, identity),
-    /contains AAX.*did not select --with-aax/,
-  );
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...aaxManifest,
-    installer: {
-      ...aaxManifest.installer,
-      aax_payload: aaxManifest.installer.aax_payload.map((payload) => (
-        payload.role === 'POST' ? { ...payload, pace_verified: false } : payload
-      )),
-    },
-  }));
-  assert.throws(
-    () => requireWindowsInstaller(root, identity, { requireAax: true }),
-    /POST AAX payload is not fully verified/,
-  );
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...aaxManifest,
-    signing: {
-      ...aaxManifest.signing,
-      verification: {
-        targets: aaxManifest.signing.verification.targets.map((target) => (
-          target.role === 'installed PRE AAX binary'
-            ? { ...target, sha256: '6'.repeat(64) }
-            : target
-        )),
-      },
-    },
-  }));
-  assert.throws(
-    () => requireWindowsInstaller(root, identity, { requireAax: true }),
-    /PRE AAX payload is not fully verified/,
-  );
-
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...aaxManifest,
-    distribution: {
-      ...aaxManifest.distribution,
-      aax_identity: { ...aaxManifest.distribution.aax_identity, build_mode: 'diagnostic' },
-    },
-  }));
-  assert.throws(
-    () => requireWindowsInstaller(root, identity, { requireAax: true }),
-    /AAX release provenance is incomplete/,
-  );
-
-  const diagnosticAaxProof = {
-    ...signedAaxProof,
-    release: { ...signedAaxProof.release, mode: 'diagnostic' },
-  };
-  fs.writeFileSync(aaxProofPath, JSON.stringify(diagnosticAaxProof));
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...aaxManifest,
-    distribution: {
-      ...aaxManifest.distribution,
-      aax_identity: {
-        ...aaxManifest.distribution.aax_identity,
-        signed_manifest_sha256: sha256File(aaxProofPath),
-      },
-    },
-  }));
-  assert.throws(
-    () => requireWindowsInstaller(root, identity, { requireAax: true }),
-    /signed provenance content is invalid/,
-  );
-  fs.writeFileSync(aaxProofPath, JSON.stringify(signedAaxProof));
-
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...aaxManifest,
-    distribution: {
-      ...aaxManifest.distribution,
-      aax_identity: { ...aaxManifest.distribution.aax_identity, kimera_embedded: true },
-    },
-  }));
-  assert.throws(
-    () => requireWindowsInstaller(root, identity, { requireAax: true }),
-    /signed provenance content is invalid/,
-  );
-
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...manifest,
-    signing: { status: 'verified_unsigned_ci_candidate' },
-  }));
-  assert.throws(() => requireWindowsInstaller(root, identity), /not Authenticode-ready/);
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...manifest,
-    source: { ...manifest.source, commit: 'f'.repeat(40) },
-  }));
-  assert.throws(() => requireWindowsInstaller(root, identity), /source commit or B number/);
-  fs.writeFileSync(`${installer}.json`, JSON.stringify({
-    ...manifest,
-    signing: {
-      ...manifest.signing,
-      verification: {
-        targets: manifest.signing.verification.targets.map((target) => (
-          target.role === 'installed uninstaller' ? { ...target, status: 'NotSigned' } : target
-        )),
-      },
-    },
-  }));
-  assert.throws(() => requireWindowsInstaller(root, identity), /installed uninstaller/);
-});
 
 test('Windows fallback ZIP manifest excludes operator workflow state', (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-release-metadata-'));

@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createPlan, executePlan, parseArgs, sourceSnapshot, PROJECT_ROOT } from './build_hypha.mjs';
 import { expectedArtifacts, inspectPe, rejectSignedArtifacts, verifyArtifacts } from './hypha_build_artifacts.mjs';
+import { universalFixture } from './updates/update_binary_fixture.mjs';
 
 function fixture(t) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-unified-build-'));
@@ -30,11 +31,14 @@ function pe(machine = 0x8664, certificateBytes = 0) {
 function populate(plan, platform = plan.platform) {
   for (const a of expectedArtifacts(platform, plan.buildDir, plan.formats)) {
     fs.mkdirSync(path.dirname(a.executable), { recursive: true });
-    fs.writeFileSync(a.executable, platform === 'windows' ? pe() : Buffer.from(`fixture-${a.role}-${a.format}`));
+    fs.writeFileSync(a.executable, platform === 'windows' ?
+      Buffer.concat([pe(), Buffer.from('KirinHyphaUpdateKeySha256=disabled;')]) :
+      universalFixture(undefined, { label: `fixture-${a.role}-${a.format}` }));
   }
 }
 
 function inspectionRunner(tool, args) {
+  if (tool === 'plutil') return JSON.stringify({ KirinHyphaUpdateKeySha256: '', AudioComponents: [{ resourceUsage: { 'temporary-exception.files.all.read-write': true } }] });
   if (tool === 'lipo') return 'x86_64 arm64';
   if (tool === 'powershell.exe') return '{"File":"1.2.3","Product":"1.2.3"}';
   if (tool === '/usr/libexec/PlistBuddy') {
@@ -57,6 +61,7 @@ test('macOS plans two FFI architectures and all six targets in one incremental n
   assert.ok(p.commands.find(c => c.tool === 'cmake').args.includes('-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64'));
   assert.ok(!JSON.stringify(p).includes('--clean-first'));
   assert.ok(!JSON.stringify(p).includes('wraptool'));
+  assert.equal(p.commands.find(c => c.tool === 'cmake').env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT, '');
 });
 
 test('Windows plans explicit MSVC x64, four targets, one FFI build, and no AU', (t) => {

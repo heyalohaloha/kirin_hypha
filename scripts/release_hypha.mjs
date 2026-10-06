@@ -15,6 +15,7 @@ import { hpPreflight, publishGithub, publishHp, publicDownloadFacts,
   verifyPublicHp } from './ls_release/hypha_release_hp.mjs';
 import { assetDecision, embeddedAssets } from './provenance/asset_gate.mjs';
 import { verifyReleaseProvenance } from './provenance/distribution_gate.mjs';
+import { updateBinding, validatePublicKey, assertUpdateBinding } from './updates/update_key_binding.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
@@ -34,6 +35,7 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --ls-state FILE           Existing private LS product-target state
   --notes FILE              Reviewed public release notes
   --provenance-report FILE  Retained exact-payload NOTICE/license/source evidence (private)
+  --update-public-key KEY    Approved pinned RSA public key; default empty disables checking
   --date YYYY-MM-DD         Release date (default: today UTC)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
   --until packages|hp|complete  Default hp; no stage/gate is skipped
@@ -51,7 +53,7 @@ export function parseReleaseArgs(argv) {
   const fields = { '--state': 'state', '--sdk': 'sdk', '--ci-run': 'ciRun',
     '--windows-installer-dir': 'windowsInstallerDir', '--hp-root': 'hpRoot',
     '--ls-state': 'lsState', '--notes': 'notes', '--date': 'date', '--until': 'until',
-    '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport' };
+    '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport', '--update-public-key': 'updatePublicKey' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (fields[arg]) {
@@ -73,9 +75,11 @@ export function parseReleaseArgs(argv) {
 
 export function makeState(root, options, snapshot = sourceSnapshot) {
   const source = snapshot(root);
+  const updatePublicKey = validatePublicKey(options.updatePublicKey || '');
+  const keySuffix = updatePublicKey ? `-update-${updateBinding(updatePublicKey).publicKeySha256.slice(0, 12)}` : '';
   const version = fs.readFileSync(path.join(root, 'crates/hypha_pre/Cargo.toml'), 'utf8')
     .match(/^version\s*=\s*"(\d+\.\d+\.\d+)"/m)?.[1];
-  const candidate = { id: `${source.bNumber}-${version}-${source.commit.slice(0, 12)}`,
+  const candidate = { id: `${source.bNumber}-${version}-${source.commit.slice(0, 12)}${keySuffix}`,
     commit: source.commit, bNumber: source.bNumber, version };
   const inputPath = value => value ? path.resolve(root, value) : '';
   const directory = path.relative(root, path.dirname(path.resolve(root, options.state)));
@@ -84,7 +88,7 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
     sdk: inputPath(options.sdk), licenseConfirmed: !!options.licenseConfirmed, ciRun: options.ciRun || '',
     windowsInstallerDir: inputPath(options.windowsInstallerDir), hpRoot: inputPath(options.hpRoot),
     hpBaseCommit: '', hpProjectSha256: '', lsState: inputPath(options.lsState), notes: inputPath(options.notes),
-    provenanceReport: inputPath(options.provenanceReport),
+    provenanceReport: inputPath(options.provenanceReport), updatePublicKey,
     hostsReport: path.join(prefix, 'hosts.json'), distributionReport: path.join(prefix, 'distribution.json'),
     lsReport: path.join(prefix, 'ls.json'), postreleaseReport: path.join(prefix, 'postrelease.json') };
   if (inputs.hpRoot) inputs.hpBaseCommit = childProcess.execFileSync('git', ['rev-parse', 'HEAD'],
@@ -100,7 +104,7 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
 export function nativeRunner(root) {
   return async (tool, args, options = {}) => {
     const result = childProcess.spawnSync(tool, args, { cwd: options.cwd || root, encoding: 'utf8',
-      stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', maxBuffer: 32 * 1024 * 1024 });
+      env: { ...process.env, ...(options.env || {}) }, stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', maxBuffer: 32 * 1024 * 1024 });
     if (result.error || result.status !== 0) {
       if (options.optional404 && /HTTP 404/.test(result.stderr || '')) return '';
       throw new Error(`${tool} failed; inspect retained tool output (exit ${result.status ?? 'unavailable'})`);
@@ -132,7 +136,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
     freeze: async () => {
       const payloads = ['macos-au-vst3', 'macos-aax', 'windows'].flatMap(s => state.stages[s].facts);
       checkFacts(payloads);
-      state.freeze = { source: state.source, payloads, requiredHostTests: state.requiredHostTests, expected: state.expected,
+      state.freeze = { source: state.source, payloads, updateCheck: updateBinding(state.inputs.updatePublicKey), requiredHostTests: state.requiredHostTests, expected: state.expected,
         criteriaSha256: digest({ tests: state.requiredHostTests, expected: state.expected }),
         inputs: digest(state.inputs), publicationNotes: fileFact(resolveInput(state, state.inputs.notes)), toolchain: {
           node: process.version, xcode: (await run('xcodebuild', ['-version'], { capture: true })).trim(),
@@ -217,6 +221,7 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
         if (sha256 !== digest(frozen)) throw new Error('Frozen candidate receipt changed');
       }
       if (state.freeze && state.freeze.inputs !== digest(state.inputs)) throw new Error('Frozen release inputs changed');
+      if (state.freeze) assertUpdateBinding(state.freeze.updateCheck, state.inputs.updatePublicKey);
       if (state.freeze && state.freeze.criteriaSha256 !== digest({ tests: state.requiredHostTests, expected: state.expected })) {
         throw new Error('Frozen acceptance criteria changed');
       }

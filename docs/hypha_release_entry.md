@@ -84,6 +84,21 @@ script作成の依頼や`--execute`だけを、個別candidateの公開承認に
 `--init`は既存profileを上書きしない。profile、商品target、管理URL、reportはignored `release_state/`内。
 秘密値はprofileへ入れず、Keychain／private factoryから渡す。
 
+更新通知を組み込む候補だけは`--init --update-public-key KEY`で承認済みの公開鍵を固定する。
+鍵を組み込むcandidate IDにもdigestの短縮値を含め、同commit/版の別鍵へ公開承認を流用しない。
+省略時は空で更新確認を無効にする。RSA-2048/65537、2048-bitの奇数modulus、正規小文字表現を要求し、
+Mac両producerとWindows factoryの全formatを同じ鍵へ揃える。CMakeはconfigureごとの
+`KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT`だけを採用し、古いcacheを持ち越さない。
+正規shell producer/packagerへ直接渡す場合は`KIRIN_HYPHA_UPDATE_PUBLIC_KEY`、Windows AAX buildは
+`-UpdatePublicKey`、Windows installer producerは`--update-public-key`を使う。既定はいずれも空。
+公開鍵のSHA-256はbinary内marker、Mac plist、freeze、PKG/ZIP/EXE/AAX provenanceへ記録し、
+packaging後の実payload hashと照合する。空・異なる鍵・旧provenanceを、通知有効候補として受理しない。
+Mac Universalはfat tableのARM64/Intel各sliceを個別に検証し、markerと各slice hashを保持する。
+署名scriptの変更には既存private factoryのallowlist再レビューが必要。
+Windows CI候補も同じ公開鍵が必要な場合だけ、承認済みdispatchの`update_public_key`へ明示する。
+push/PRは空のまま。通知を有効にする署名済みcandidateは、鍵が空の古いCI payloadへ差し替えない。
+本番鍵の所有・rotation承認、manifest endpointの公開/readback、exact binaryの実host受入は別のgate。
+
 release coordinatorはMacで動く。Windows build/署名は既存の承認済みfactoryが行い、
 同一commitの`KirinHypha-Windows-signed-full`を入力にする。MacからWindowsをcross-compileしない。
 Windowsのローカル診断buildは同じ`build_hypha.mjs`のbuild-only modeで実行できる。

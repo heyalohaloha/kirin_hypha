@@ -122,9 +122,10 @@ void paintReading (juce::Graphics& g, juce::Rectangle<int> area, const KirinAtta
 {
     if (area.isEmpty())
         return;
-    auto card = area.reduced (3, 2);
+    auto card = area.reduced (3, 1);
     attack_stage::paint (g, card.toFloat(), 4.0f, 0.22f, true);
-    auto inner = card.reduced (8, 3);
+    // The 150% row keeps both its title and one fact line at the typography floor.
+    auto inner = card.reduced (8, 1);
     paintTitle (g, inner.removeFromTop (lineHeight (context, TextRole::legend)), summary, bandName, context);
     if (summary.count == 0)
     {
@@ -226,7 +227,8 @@ void paintGlance (juce::Graphics& g, const attack_ui::Layout& layout, const Kiri
                   const juce::String& bandName, const juce::String& delayReason, const juce::String& waiting,
                   const presentation::Context& context)
 {
-    const juce::Rectangle<int> history (layout.history.x, layout.history.y, layout.history.width, layout.history.height);
+    const auto window = attack_ui::historyWindow (layout);
+    const juce::Rectangle<int> history (window.x, window.y, window.width, window.height);
     g.setColour (COL_TEXT_SECONDARY);
     attack_lane_painter::drawFitting (g, { summary.count > 0 ? attack_band_summary::titleText (bandName, summary.count) : waiting,
                                            bandName },

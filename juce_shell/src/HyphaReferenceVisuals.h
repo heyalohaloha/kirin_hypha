@@ -8,6 +8,8 @@ namespace hypha::reference_ui
 {
 struct State;
 
+bool configuredReferenceViewsFit (juce::Rectangle<float>, const State&) noexcept;
+
 bool paintConfiguredReferenceViews (juce::Graphics&, juce::Rectangle<float>,
                                     const State&, presentation::Context);
 }

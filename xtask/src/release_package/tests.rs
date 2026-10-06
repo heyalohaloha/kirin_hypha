@@ -32,9 +32,17 @@ fn release_manifest_mentions_all_four_installed_files() {
     let bundles = ship_bundles().unwrap();
     let leaf = package_leaf("1.1.1", false);
     let entries = bundle_entries(&bundles).unwrap();
-    let json = release_package_metadata::manifest_json(
-        "1.1.1", &leaf, "abc", false, "false", false, &entries,
-    )
+    let update_check = serde_json::json!({"protocol": 1, "publicKeySha256": ""});
+    let json = release_package_metadata::manifest_json(release_package_metadata::ManifestInput {
+        version: "1.1.1",
+        package_leaf: &leaf,
+        sha256: "abc",
+        allow_unsigned: false,
+        git_dirty: "false",
+        with_aax: false,
+        bundles: &entries,
+        update_check: &update_check,
+    })
     .unwrap();
     for file in [
         "Kirin Hypha PRE.component",
@@ -46,6 +54,11 @@ fn release_manifest_mentions_all_four_installed_files() {
     }
     assert!(json.contains("\"ship_set\": \"juce-common-shell\""));
     assert!(json.contains("\"unsigned_smoke_test\": false"));
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["updateCheck"], update_check);
+    assert_eq!(parsed["version"], "1.1.1");
+    assert_eq!(parsed["package"], format!("{leaf}.zip"));
+    assert_eq!(parsed["sha256"], "abc");
 }
 
 #[test]
@@ -54,15 +67,16 @@ fn aax_opt_in_adds_both_roles_to_metadata_and_install_text() {
     let aax_bundles = aax_distribution::bundles().unwrap();
     let mut entries = bundle_entries(&bundles).unwrap();
     entries.extend(aax_distribution::metadata_entries(&aax_bundles).unwrap());
-    let json = release_package_metadata::manifest_json(
-        "1.1.1",
-        &package_leaf("1.1.1", false),
-        "abc",
-        false,
-        "false",
-        true,
-        &entries,
-    )
+    let json = release_package_metadata::manifest_json(release_package_metadata::ManifestInput {
+        version: "1.1.1",
+        package_leaf: &package_leaf("1.1.1", false),
+        sha256: "abc",
+        allow_unsigned: false,
+        git_dirty: "false",
+        with_aax: true,
+        bundles: &entries,
+        update_check: &serde_json::json!({"protocol": 1, "publicKeySha256": ""}),
+    })
     .unwrap();
     assert!(json.contains("\"ship_set\": \"juce-common-shell+aax\""));
     assert!(json.contains("\"aax_included\": true"));

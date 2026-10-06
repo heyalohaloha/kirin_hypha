@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceHelp.h"
+#include "HyphaReferenceComparisonLayout.h"
 #include "reference_audition/ReferenceVisualTimeline.h"
 #include "reference_audition/ReferenceVisualPreferences.h"
 namespace hypha::reference_ui
@@ -29,6 +30,7 @@ public:
     const juce::String& sameSectionCheck() const noexcept { return sameSection; }
     // 指した場所の説明（HyphaReferenceHelp.h）。V の Check のタブは描いたときに添えた説明、WHOLE は曲全体の説明。
     juce::String helpAt (juce::Point<int> local) const;
+    const comparison_layout::Layout& visualLayout() const noexcept { return viewLayout; }
 private:
     std::vector<help::Region> helpRegions;
     std::shared_ptr<const reference_audition::VisualTimeline> data;
@@ -43,6 +45,7 @@ private:
     ViewButton follow { "FOLLOW" }, loudness { "LOUDNESS" }, crest { "CREST" };
     juce::Image waveformCache;
     juce::Rectangle<float> waveform, graph;
+    comparison_layout::Layout viewLayout;
     std::uint64_t cacheRevision = 0;
     juce::String key;
     juce::String emptyMessage { "Choose Version" };

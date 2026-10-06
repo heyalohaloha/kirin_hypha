@@ -122,6 +122,12 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(local_blind.contains("KirinLiveCompareAaxGroupProductTests"));
     assert!(local_blind.contains("kirin_live_compare_aax_group_product"));
     assert!(source_gate.contains("KirinLiveCompareAaxGroupProductTests"));
+    // INV-LC25: the chain timing runs the real processors and ring on both platforms too.
+    assert!(local_blind.contains("KirinLiveChainTimingProductTests"));
+    assert!(local_blind.contains("kirin_live_chain_timing_product"));
+    assert!(source_gate.contains("KirinLiveChainTimingProductTests"));
+    assert!(source_gate.contains("kirin_live_chain_timing_product"));
+    assert!(ci.contains("KirinLiveChainTimingProductTests"));
     assert!(
         !local_blind.contains("if(NOT WIN32)\n        add_executable(KirinLiveCompare"),
         "the live compare product tests are built on Windows too"

@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "HyphaTypographyContract.h"
+#include "HyphaMainFrameGeometry.h"
 
 // ATTACK product presentation. It maps confirmed event samples onto a fixed six-second axis
 // and never attempts to infer an instrument from a waveform or expose an editable threshold. The
@@ -23,6 +24,7 @@ namespace hypha::attack_ui
     constexpr int statusControlMinimumWidth = 84;
     constexpr std::size_t laneCount = 4;
     constexpr int historyMinimumHeight = 36;
+    constexpr int bandPaneMinimumHeight = 64;
     constexpr int historyLineMinimumHeight = 24;
     constexpr int laneMinimumHeight = 18;
     constexpr int laneMaximumHeight = 52;
@@ -144,6 +146,8 @@ namespace hypha::attack_ui
         std::array<Box, laneCount> lanes {};
         int labelWidth = 0;
         int readoutWidth = 0;
+        int frameMargin = 0;
+        int frameInset = 0;
         bool loupe = false;
     };
 
@@ -177,6 +181,8 @@ namespace hypha::attack_ui
                                 const presentation::Context& context) noexcept
     {
         Layout layout;
+        layout.frameMargin = main_frame_geometry::marginFor (main_frame_geometry::forContext (context));
+        layout.frameInset = main_frame_geometry::bevelInsetFor (context);
         if (width <= 0 || height <= 0)
             return layout;
         // 100% is read at a glance and only viewed: no title, captions, VIEW or axis row. The
@@ -207,6 +213,15 @@ namespace hypha::attack_ui
             auto lane = (body * laneShareNumerator + laneShareDenominator / 2) / laneShareDenominator;
             lane = lane < laneMinimumHeight ? laneMinimumHeight
                  : lane > laneMaximumHeight ? laneMaximumHeight : lane;
+            // 200% and 300% admit HEAD/TAIL panes. Reserve their usable glass height before
+            // splitting the remainder into lanes; the frame must not remove an admitted view.
+            if (context.density == observatory::Density::observatory
+                || context.density == observatory::Density::inspection)
+            {
+                const auto minimumHistory = bandPaneMinimumHeight + 2 * layout.frameInset;
+                const auto maximumLane = (body - axis - minimumHistory) / static_cast<int> (laneCount);
+                if (maximumLane >= laneMinimumHeight && lane > maximumLane) lane = maximumLane;
+            }
             const auto history = body - axis - static_cast<int> (laneCount) * lane;
             layout.arrangement = Arrangement::lanes;
             layout.history = { 0, header, width, history };
@@ -252,6 +267,8 @@ namespace hypha::attack_ui
     {
         if (layout.arrangement != Arrangement::lanes)
             return {};
+        if (row.y == layout.history.y && row.height == layout.history.height)
+            row = reduced (row, 0, layout.frameInset);
         return { row.x, row.y, layout.labelWidth < row.width ? layout.labelWidth : row.width,
                  row.height };
     }
@@ -260,6 +277,8 @@ namespace hypha::attack_ui
     {
         if (layout.arrangement != Arrangement::lanes)
             return {};
+        if (row.y == layout.history.y && row.height == layout.history.height)
+            row = reduced (row, layout.frameMargin, layout.frameInset);
         const auto width = layout.readoutWidth < row.width ? layout.readoutWidth : row.width;
         return { row.right() - width, row.y, width, row.height };
     }
@@ -275,12 +294,28 @@ namespace hypha::attack_ui
             row.width -= label;
             row.width -= layout.readoutWidth < row.width ? layout.readoutWidth : row.width;
         }
-        return reduced (row, 1, 0);
+        return reduced (row, layout.frameMargin, 0);
+    }
+
+    // The HISTORY observation group includes its envelope/panes and the reading to their right.
+    // The bronze ring stays inside the row; chrome clips its vertical shadow to this row so
+    // short observation rows keep their readings without shading the header controls.
+    constexpr Box historyWindow (const Layout& layout) noexcept
+    {
+        if (layout.history.empty()) return {};
+        auto row = layout.history;
+        if (layout.arrangement == Arrangement::lanes)
+        {
+            row.x += layout.labelWidth;
+            row.width -= layout.labelWidth;
+        }
+        return reduced (row, layout.frameMargin, layout.frameInset);
     }
 
     constexpr Box historyPlot (const Layout& layout) noexcept
     {
-        return layout.history.empty() ? Box {} : reduced (plotColumn (layout, layout.history), 0, 1);
+        return layout.history.empty() ? Box {}
+            : reduced (plotColumn (layout, layout.history), 0, layout.frameInset);
     }
 
     constexpr Box axisPlot (const Layout& layout) noexcept

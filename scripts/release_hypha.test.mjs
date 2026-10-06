@@ -8,6 +8,7 @@ import { STAGES, executeRelease, parseReleaseArgs, makeState } from './release_h
 import { HOST_TESTS, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths } from './ls_release/hypha_release_local.mjs';
+import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
 const options = { execute: true, until: 'hp' };
@@ -35,6 +36,14 @@ test('release CLI is a plan by default; authorization, SDK and execution are sep
   assert.throws(() => parseReleaseArgs(['--state', 'x', '--skip-windows']), /Unknown/);
   assert.throws(() => authorization({ candidate: { id: 'exact' } }, {}), Checkpoint);
   authorization({ candidate: { id: 'exact' } }, { publishApproved: 'exact' });
+});
+
+test('an enabled update key selects a distinct approval identity even at the same source/version', t => {
+  const f = fixture(t), options = { state: f.statePath, date: '2026-10-01' };
+  const a = makeState(f.root, { ...options, updatePublicKey: `10001,${'f'.repeat(512)}` }, () => SOURCE);
+  const b = makeState(f.root, { ...options, updatePublicKey: `10001,${'e'.repeat(511)}f` }, () => SOURCE);
+  assert.notEqual(a.candidate.id, b.candidate.id); assert.notEqual(a.candidate.id, f.state.candidate.id);
+  assert.throws(() => authorization(b, { publishApproved: a.candidate.id }), Checkpoint);
 });
 
 test('unified entry release help works without circular import, SDK, CI or machine access', () => {
@@ -103,7 +112,7 @@ test('release input paths are root-relative and a changed freeze receipt cannot 
     windowsInstallerDir: 'windows', lsState: 'release_state/ls.json' }, () => SOURCE);
   for (const key of ['sdk', 'notes', 'windowsInstallerDir', 'lsState']) assert.ok(path.isAbsolute(profile.inputs[key]));
   f.actions.freeze = async () => {
-    f.state.freeze = { inputs: digest(f.state.inputs),
+    f.state.freeze = { inputs: digest(f.state.inputs), updateCheck: updateBinding(''),
       criteriaSha256: digest({ tests: f.state.requiredHostTests, expected: f.state.expected }) };
     f.state.freeze.sha256 = digest(f.state.freeze);
     return { facts: [fileFact(f.evidence)] };
@@ -185,12 +194,27 @@ test('CI exact commit, complete matrix and workflow must agree; no dispatch rout
 test('packaging validates actual existing sidecar schemas and all ten upload assets', t => {
   const f = fixture(t); f.state.inputs.windowsInstallerDir = 'windows';
   const files = artifactPaths(f.state);
+  const binding = ids => ({ ...updateBinding(''), binaries: ids.map(id => ({ format: id.split('/')[0], role: id.split('/')[1], binarySha256: 'd'.repeat(64), publicKeySha256: '',
+    architectures: ['arm64', 'x86_64'].map(architecture => ({ architecture, sha256: 'c'.repeat(64) })) })) });
+  const mac = binding(['AU/PRE', 'AU/POST', 'VST3/PRE', 'VST3/POST', 'AAX/PRE', 'AAX/POST']);
+  const win = binding(['VST3/PRE', 'VST3/POST', 'AAX/PRE', 'AAX/POST']);
   for (const file of files) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'artifact bytes'); }
   fs.writeFileSync(files[2], JSON.stringify({ version: '1.2.3', source: { commit: SOURCE.commit, bNumber: SOURCE.bNumber },
-    signed: true, notarized: true, aaxIncluded: true, sha256: hash(fs.readFileSync(files[0])) }));
+    signed: true, notarized: true, aaxIncluded: true, updateCheck: mac, sha256: hash(fs.readFileSync(files[0])) }));
   fs.writeFileSync(files[5], JSON.stringify({ version: '1.2.3', commit: SOURCE.commit, unsigned_smoke_test: false,
-    aax_included: true, git_dirty: '', sha256: hash(fs.readFileSync(files[3])) }));
+    aax_included: true, git_dirty: '', updateCheck: mac, sha256: hash(fs.readFileSync(files[3])) }));
+  fs.writeFileSync(files[8], JSON.stringify({ updateCheck: win, installer: { payload: win.binaries.map(b => ({ role: b.role, format: b.format, binary_sha256: b.binarySha256 })) } }));
   for (const file of [files[0], files[3], files[6]]) fs.writeFileSync(`${file}.sha256`, `${fileFact(file).sha256}  ${path.basename(file)}\n`);
   assert.equal(verifyPackages(f.state).length, 10);
+  const zipMetadata = JSON.parse(fs.readFileSync(files[5]));
+  zipMetadata.updateCheck.binaries[0].binarySha256 = 'e'.repeat(64);
+  fs.writeFileSync(files[5], JSON.stringify(zipMetadata));
+  assert.throws(() => verifyPackages(f.state), /PKG and ZIP/);
+  zipMetadata.updateCheck.binaries[0].binarySha256 = 'd'.repeat(64);
+  zipMetadata.updateCheck.binaries[0].architectures[0].sha256 = 'e'.repeat(64);
+  fs.writeFileSync(files[5], JSON.stringify(zipMetadata));
+  assert.throws(() => verifyPackages(f.state), /PKG and ZIP/);
+  zipMetadata.updateCheck.binaries[0].architectures[0].sha256 = 'c'.repeat(64);
+  fs.writeFileSync(files[5], JSON.stringify(zipMetadata));
   fs.appendFileSync(files[0], 'tampered'); assert.throws(() => verifyPackages(f.state), /PKG/);
 });

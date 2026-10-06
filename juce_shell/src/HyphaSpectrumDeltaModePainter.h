@@ -4,6 +4,7 @@
 
 #include "HyphaPresentationContext.h"
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 
@@ -19,8 +20,8 @@ inline void paint (juce::Graphics& g, juce::Rectangle<float> outer, float scale,
     const auto raw = bounds.withWidth (half);
     const auto normalized = bounds.withTrimmedLeft (half);
     const auto selected = shape ? normalized : raw;
-    g.setColour (BG.brighter (0.10f).withAlpha (0.91f));
-    g.fillRoundedRectangle (selected, 2.5f * scale);
+    surface_material::paintControl (g, selected, false, false, true,
+                                     COL_SPECTRUM_DELTA_BR, 2.5f * scale);
     g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.60f));
     g.drawRoundedRectangle (selected.reduced (0.3f), 2.5f * scale, 0.65f * scale);
     g.setFont (monoFont (context, typography::TextRole::legend,

@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 #include "HyphaBuildIdentity.h"
+#include "HyphaChainTimingPreference.h"
+#include "HyphaChainTimingText.h"
 #include "HyphaLocalBlindUiContract.h"
 #include "HyphaPluginFormat.h"
 #include "HyphaUpdateContract.h"
@@ -42,6 +44,18 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addItem (3, juce::String ("Source ") + HYPHA_SOURCE_ID + " / "
                       + HYPHA_SOURCE_STATE, false);
     menu.addItem (4, "Official release identity not verified", false);
+    if (isPost)
+    {
+        // Read as the menu opens; a reading that is not measured states its reason instead.
+        menu.addSectionHeader ("PRE to POST chain");
+        int chainLine = 700;
+        for (const auto& line : hypha::chain_timing::lines (processorRef.chainTimingView()))
+            menu.addItem (chainLine++, line, false);
+        menu.addItem (chainLine, "Elapsed time between PRE and POST, not CPU usage", false);
+        menu.addItem (chainFooterMenuAction, "Show in the footer", true,
+                      hypha::ChainTimingFooterPreference::shared().isEnabled());
+    }
+    addUpdateCheckMenu (menu);
    #if JUCE_DEBUG
     juce::PopupMenu validation;
     int diagnosticId = 1000;
@@ -85,6 +99,7 @@ void KirinHyphaEditor::showInformationMenu()
 void KirinHyphaEditor::handleInformationMenu (int result)
 {
     if (result == 0) return;
+    if (handleUpdateCheckMenu (result)) return;
     if (result == 11)
     {
         const bool enabled = ! processorRef.hybridVuOnRecordPreference();
@@ -96,6 +111,14 @@ void KirinHyphaEditor::handleInformationMenu (int result)
     if (result == 12)
     {
         if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
+        return;
+    }
+    if (result == chainFooterMenuAction)
+    {
+        auto& preference = hypha::ChainTimingFooterPreference::shared();
+        if (! preference.setEnabled (! preference.isEnabled()))
+            showToast ("Footer chain time changed for this session only");
+        updatePost(); // show or clear it now, not on the next tick
         return;
     }
     if (result == jungleModeMenuAction)

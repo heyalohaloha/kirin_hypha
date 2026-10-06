@@ -1,4 +1,5 @@
 #include "HyphaPerceptualComponent.h"
+#include "HyphaKeyLight.h"
 
 #include "HyphaAnalysisUiText.h"
 #include "HyphaPerceptualPainter.h"
@@ -309,6 +310,7 @@ void PerceptualComponent::mouseDown (const juce::MouseEvent& event)
 
 void PerceptualComponent::paint (juce::Graphics& g)
 {
+    const key_light::Scope light (*this);
     const perceptual_painter::PaintState state {
         snapshot, history, modeActionNotice, analysisOwnerNames,
         haveSnapshot, signalActive && haveSnapshot && validSnapshot (snapshot),

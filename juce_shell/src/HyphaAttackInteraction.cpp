@@ -117,7 +117,7 @@ juce::String AttackComponent::tooltipAt (const attack_ui::Layout& shape, juce::P
     }
     // 125% while LIVE: a small number line's row is its lane.
     const auto plots = summaryPlots (shape);
-    const auto history = rectangleOf (shape.history);
+    const auto history = rectangleOf (attack_ui::historyWindow (shape));
     for (std::size_t index = 0; shape.arrangement == attack_ui::Arrangement::line && index < attack_ui::laneCount; ++index)
         if (! plots[index].isEmpty() && history.withY (plots[index].getY()).withHeight (plots[index].getHeight()).contains (point))
             return attack_band_summary_painter::laneTooltip (index, bandModel.delta);
@@ -126,9 +126,7 @@ juce::String AttackComponent::tooltipAt (const attack_ui::Layout& shape, juce::P
     {
         auto reading = rectangleOf (bandPanes (shape) ? (shape.loupe ? attack_ui::loupeArea (shape)
                                                                      : attack_ui::readoutCell (shape, shape.history))
-                                                      : shape.history);
-        if (! bandPanes (shape))
-            reading.removeFromLeft (attack_ui::labelCell (shape, shape.history).width);
+                                                      : attack_ui::historyWindow (shape));
         if (reading.contains (point))
             return attack_band_summary_painter::cardTooltip();
     }

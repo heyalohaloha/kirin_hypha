@@ -6,6 +6,7 @@
 #include "AttackUiLaneContract.h"
 #include "AttackUiBandContract.h"
 #include "AttackUiChromeContract.h"
+#include "AttackUiFrameGeometryContract.h"
 #include "AttackUiSelectionContract.h"
 #include "AttackUiHeadOnlyContract.h"
 #include "AttackUiOverviewContract.h"
@@ -195,6 +196,7 @@ int main()
     KIRIN_REQUIRE (verifyOffscreenLock());
     KIRIN_REQUIRE (verifyHoldAtEverySize());
     KIRIN_REQUIRE (verifyChromeCache());
+    KIRIN_REQUIRE (verifyFrameGeometry());
     hypha::tests::verifyPolylineGeometryContract();
     KIRIN_REQUIRE (verifyRedrawContract (events, waveform, details, pairEvents, stats));
     const auto image = renderAttack (component);

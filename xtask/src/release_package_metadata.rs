@@ -7,6 +7,17 @@ pub struct BundleEntry {
     pub file: String,
 }
 
+pub struct ManifestInput<'a> {
+    pub version: &'a str,
+    pub package_leaf: &'a str,
+    pub sha256: &'a str,
+    pub allow_unsigned: bool,
+    pub git_dirty: &'a str,
+    pub with_aax: bool,
+    pub bundles: &'a [BundleEntry],
+    pub update_check: &'a serde_json::Value,
+}
+
 pub fn install_text(version: &str, with_aax: bool) -> String {
     let aax = if with_aax {
         "\nAAX:\n\
@@ -26,19 +37,25 @@ pub fn install_text(version: &str, with_aax: bool) -> String {
     )
 }
 
-pub fn manifest_json(
-    version: &str,
-    package_leaf: &str,
-    sha256: &str,
-    allow_unsigned: bool,
-    git_dirty: &str,
-    with_aax: bool,
-    bundles: &[BundleEntry],
-) -> Result<String> {
+pub fn manifest_json(input: ManifestInput<'_>) -> Result<String> {
+    let ManifestInput {
+        version,
+        package_leaf,
+        sha256,
+        allow_unsigned,
+        git_dirty,
+        with_aax,
+        bundles,
+        update_check,
+    } = input;
     let commit = command_stdout(Command::new("git").args(["rev-parse", "HEAD"]))
         .unwrap_or_else(|_| "unknown".to_string());
     let mut s = String::new();
     s.push_str("{\n");
+    s.push_str(&format!(
+        "  \"updateCheck\": {},\n",
+        serde_json::to_string(update_check)?
+    ));
     s.push_str(&format!(
         "  \"product\": \"Kirin Hypha\",\n  \"version\": \"{version}\",\n"
     ));
