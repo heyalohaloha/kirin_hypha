@@ -116,6 +116,17 @@ void receiveReference (const juce::File& root)
 // Windows paths use backslashes; compare path pieces with one separator.
 juce::String portablePath (const juce::File& file) { return file.getFullPathName().replaceCharacter ('\\', '/'); }
 
+// The pair commits on the writers' own threads once both members are present, a little after
+// recording stops; wait for it while the engines live instead of reading the tree once.
+bool pairRecordCommitted (const juce::File& data)
+{
+    juce::Array<juce::File> files;
+    data.findChildFiles (files, juce::File::findFiles, true, "*.json");
+    for (const auto& file : files)
+        if (juce::JSON::parse (file)["schema_version"] == "pair_record_session.v1") return true;
+    return false;
+}
+
 void verifyRecord (const juce::File& data)
 {
     juce::Array<juce::File> files;
@@ -308,6 +319,8 @@ int main (int argc, char** argv)
                  "real Drop closes POST Record");
         waitFor ([&] { pair.heartbeat(); return ! kirin_hypha_is_recording (pair.pre.get()); },
                  "real Drop closes PRE Record");
+        waitFor ([&] { pair.heartbeat(); return pairRecordCommitted (data); },
+                 "real FFI commits the PairRecordSession manifest");
     }
     verifyRecord (data);
     require (identity.loadFileAsString() == identityBytes, "updater and Record preserve the restored entitlement bytes");

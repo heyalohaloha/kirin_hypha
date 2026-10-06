@@ -227,12 +227,13 @@ void paintHover (juce::Graphics& g,
         g.setColour (COL_SPECTRUM_POST);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
-    if (! delta && std::isfinite (entry.true_peak.max) && (! chainBand || entry.true_peak.max > -1.0))
+    // The TP axis covers only -1..+3 dBTP, where events live; a lower TP has no place on it.
+    if (! delta && std::isfinite (entry.true_peak.max) && entry.true_peak.max > -1.0)
     {
         const auto y = chainBand ? layout.sharedPlot.getBottom() - 4.5f
                                  : true_peak::yFor (true_peak::overlayFor (layout.sharedPlot),
                                                     entry.true_peak.max);
-        g.setColour (COL_FLORA_BR);
+        g.setColour (COL_TRUE_PEAK_BR);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
 }
@@ -324,7 +325,7 @@ void paint (juce::Graphics& g,
                 loudnessLegend, juce::Justification::centredLeft);
     if (! delta)
     {
-        g.setColour (COL_FLORA_BR);
+        g.setColour (COL_TRUE_PEAK);
         text_style::drawText (g, chainView.visible() ? "TP CROSSING / > -1 dBTP"
                                         : "TP / > -1 dBTP events", meanings,
                     juce::Justification::centredRight);

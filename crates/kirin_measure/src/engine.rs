@@ -280,49 +280,29 @@ impl MeasureEngine {
         self.push_observed_internal(
             samples,
             MeterClockStart::unknown(),
-            false,
-            |frames, result, observed, _, _| observe(frames, result, observed),
+            |frames, result, observed, _| observe(frames, result, observed),
             |_| {},
         )
     }
 
-    /// Meter Session専用observer。各100 ms境界のIとMaxTPから確定したPLR、および10 ms
-    /// 規格解析から同境界までに確定したMax Mをcurrent値と同時に返す。LRAはpush全体の
-    /// 最後にだけqueryし、通常の`push_observed`にはIntegrated queryの追加costを負わせない。
-    pub fn push_observed_with_session_facts(
-        &mut self,
-        samples: &[f64],
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<f64>),
-    ) -> Option<MeasureResult> {
-        self.push_observed_internal(
-            samples,
-            MeterClockStart::unknown(),
-            true,
-            |frames, result, observed, plr, max_lufs_m| {
-                observe(frames, result, observed, plr, max_lufs_m);
-            },
-            |_| {},
-        )
-    }
-
-    /// The Meter Session's legacy 10/100 ms facts and qualified content-grid candidates
-    /// are read from the same EBU filter input. The latter never changes Session time.
+    /// The Meter Session's 10/100 ms facts, with the Max M confirmed up to the same boundary,
+    /// and qualified content-grid candidates are read from the same EBU filter input. The latter
+    /// never changes Session time. PLR is a Session summary fact, so no per-100 ms Integrated query.
     pub(crate) fn push_observed_with_session_facts_at(
         &mut self,
         samples: &[f64],
         clock: MeterClockStart,
-        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<f64>),
+        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
         observe_content: impl FnMut(ContentWindowObservation),
     ) -> Option<MeasureResult> {
-        self.push_observed_internal(samples, clock, true, observe, observe_content)
+        self.push_observed_internal(samples, clock, observe, observe_content)
     }
 
     fn push_observed_internal(
         &mut self,
         samples: &[f64],
         clock: MeterClockStart,
-        include_plr: bool,
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<f64>),
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
         mut observe_content: impl FnMut(ContentWindowObservation),
     ) -> Option<MeasureResult> {
         if let Some(grid) = self.content_grid.as_mut() {
@@ -408,23 +388,10 @@ impl MeasureEngine {
             self.total_frames += (self.publish_target / self.n_channels) as u64;
 
             let computed = self.compute();
-            let plr = include_plr
-                .then(|| {
-                    computed.tp_session_max.zip(
-                        self.ebu
-                            .loudness_global()
-                            .ok()
-                            .filter(|value| value.is_finite()),
-                    )
-                })
-                .flatten()
-                .map(|(peak, loudness)| peak - loudness)
-                .filter(|value| value.is_finite());
             observe(
                 self.total_frames,
                 &computed,
                 &self.publish_buf,
-                plr,
                 self.max_lufs_m,
             );
             result = Some(computed);

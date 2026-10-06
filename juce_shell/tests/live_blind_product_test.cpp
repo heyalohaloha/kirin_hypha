@@ -2,6 +2,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
+#include "LiveTimingFixtureAccess.h"
 #include "LiveBlindLoopFixture.h"
 
 #include <atomic>
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -115,9 +117,26 @@ private:
         return true;
     }
 
+    // What a failure on a slow test machine needs to explain itself: where the round trip stood,
+    // the session's state and reasons, and the longest stall of the fixture's own audio thread.
+    void requireWithState (bool ok, const char* message) const
+    {
+        if (ok) return;
+        const auto compare = post->liveCompareStatus();
+        const auto blind = post->liveBlindStatus();
+        std::cerr << "Live Blind product state: stage " << stage << ", blind stage " << static_cast<int> (blind.stage)
+                  << ", blind reason " << static_cast<int> (blind.reason) << "/" << static_cast<int> (blind.observation)
+                  << ", active " << compare.active << ", matched " << compare.matched << ", finishing " << compare.finishing
+                  << ", gain " << compare.gain << ", reason " << static_cast<int> (compare.reason) << "/"
+                  << static_cast<int> (compare.observation) << ", laps " << clock.loop.laps.load()
+                  << ", longest callback interval " << longestCallbackMicros.load() / 1000.0 << " ms\n";
+        require (false, message);
+    }
+
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (loopMode ? 145 : 60), "Blind round trip timed out");
+        requireWithState (std::chrono::steady_clock::now() - started < std::chrono::seconds (loopMode ? 145 : 60),
+                          "Blind round trip timed out");
         switch (stage)
         {
             case 0:
@@ -222,7 +241,7 @@ private:
             case 4:
                 if (loopMode && clock.loop.laps.load() < 200)
                 {
-                    require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active
+                    requireWithState (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active
                         && post->liveCompareStatus().matched && std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f,
                         "another 100 loop laps preserve the fixed MATCH and Blind trial");
                     break;
@@ -426,6 +445,8 @@ int main (int argc, char** argv)
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
     auto signal = readFixture (argv[1]);
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

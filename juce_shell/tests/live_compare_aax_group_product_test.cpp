@@ -210,9 +210,19 @@ private:
                 require (! post->liveCompareStatus().active, "a multi-mono PRE never starts a session");
                 require (footer() == "PRE is multi-mono: insert it as stereo", "the refusal says why");
                 std::cout << "multi-mono PRE: " << footer() << std::endl;
+                refusedAt = std::chrono::steady_clock::now();
+                stage = 8;
+                break;
+            case 8:
+                require (! post->liveCompareStatus().active
+                    && post->liveCompareStatus().reason == hypha::live_compare::RecoveryReason::pairChanged,
+                         "refusal keeps the older pairing history without restoring comparison authority");
+                require (footer() == "PRE is multi-mono: insert it as stereo",
+                         "direct refusal survives repeated editor/message/audio refresh ticks");
+                if (std::chrono::steady_clock::now() - refusedAt < std::chrono::milliseconds (250)) break;
                 // A second channel joins POST's group: POST is now one channel of a multi-mono set.
                 postRight = make (Processor::Role::Post, 33);
-                ++stage;
+                stage = 6;
                 break;
             case 6:
                 require (post->aaxMultiMonoMember() && ! post->liveCompareSupported(), "a multi-mono POST offers nothing");
@@ -278,7 +288,7 @@ private:
     std::atomic<bool> running { true }, play { false };
     std::atomic<bool> suspendAudio { false }, suspended { false }, verifyReturn { false };
     std::atomic<unsigned> returnBlocks { 0 }, returnErrors { 0 };
-    std::chrono::steady_clock::time_point started, requestedAt, endRequestedAt;
+    std::chrono::steady_clock::time_point started, requestedAt, endRequestedAt, refusedAt;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
 };
@@ -287,6 +297,8 @@ private:
 int main()
 {
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

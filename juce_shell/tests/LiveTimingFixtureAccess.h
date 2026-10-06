@@ -31,4 +31,48 @@ public:
         return processor.liveCompare.ring.hasPublishedRealtime()
             && processor.liveCompare.preparation.initialRequested.load (std::memory_order_acquire);
     }
+    static std::atomic<std::uint64_t>& gainRevision (KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.gainRevision; }
+    struct TimingAdmission { std::uint64_t request, receipt, authority; };
+    static TimingAdmission timingAdmission (const KirinHyphaProcessorBase& processor) noexcept
+    {
+        const auto& state = processor.liveCompare;
+        return { state.blindTimingRequest.load (std::memory_order_acquire),
+            state.blindTimingReceipt.load (std::memory_order_acquire),
+            state.blindTimingAuthority.load (std::memory_order_acquire) };
+    }
+    struct AudioView
+    {
+        bool preAudible = false, matchReady = false, matched = false;
+        bool active = false, finishing = false, preWaiting = false;
+        float gain = 1.0f, postActual = 1.0f, postTarget = 1.0f;
+        hypha::live_compare::Verdict verdict = hypha::live_compare::Verdict::noClock;
+    };
+    static AudioView audioView (const KirinHyphaProcessorBase& processor) noexcept
+    {
+        const auto& state = processor.liveCompare;
+        const auto permission = state.authority.ticket();
+        const auto gains = hypha::live_compare::readGainSnapshot (state);
+        const bool permitted = state.authority.permitted();
+        AudioView result;
+        result.finishing = state.completion.pending();
+        result.active = ! result.finishing && permitted && state.sessionActive.load (std::memory_order_acquire);
+        result.preAudible = permitted && state.preAudible.load (std::memory_order_acquire);
+        result.preWaiting = permitted && state.preWaiting.load (std::memory_order_acquire);
+        result.matched = permitted && gains.coherent && gains.retained
+            && state.matched.load (std::memory_order_acquire)
+            && state.matchGeneration.load (std::memory_order_acquire) == state.sessionGeneration.load (std::memory_order_acquire)
+            && state.matchRun.load (std::memory_order_acquire) == state.playbackRun.load (std::memory_order_acquire);
+        result.verdict = static_cast<hypha::live_compare::Verdict> (state.verdict.load (std::memory_order_acquire));
+        result.matchReady = permitted && hypha::live_compare::currentGainReceipt (state, gains)
+            && result.verdict == hypha::live_compare::Verdict::accepted;
+        result.gain = gains.pre; result.postActual = state.postActual.load (std::memory_order_acquire);
+        result.postTarget = gains.coherent ? gains.post : result.postActual;
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (gains.revision != state.gainRevision.load (std::memory_order_acquire))
+            result.matched = result.matchReady = false;
+        if (permission != state.authority.ticket() || ! state.authority.permitted())
+            result.active = result.preAudible = result.matched = result.matchReady = false;
+        return result; // no message-thread Blind stage, string or mutable renderer state
+    }
 };

@@ -37,7 +37,7 @@ struct Summary
     Range momentary;
     Range shortTerm;
     Range correlation;
-    Range plr;
+    Range psr;
     bool truePeakAvailable = false;
     double maximumTruePeak = 0.0;
 };

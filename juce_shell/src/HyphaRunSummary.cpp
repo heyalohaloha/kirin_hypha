@@ -49,7 +49,7 @@ struct Accumulator
     WeightedRange momentary;
     WeightedRange shortTerm;
     WeightedRange correlation;
-    WeightedRange plr;
+    WeightedRange psr;
 
     explicit Accumulator (const KirinMeterHistoryEntry& entry)
     {
@@ -70,7 +70,7 @@ struct Accumulator
         momentary.add (entry.lufs_m, observations);
         shortTerm.add (entry.lufs_s, observations);
         correlation.add (entry.correlation, observations);
-        plr.add (entry.plr, observations);
+        psr.add (entry.psr, observations);
         if (std::isfinite (entry.true_peak.max))
         {
             summary.maximumTruePeak = summary.truePeakAvailable
@@ -85,7 +85,7 @@ struct Accumulator
         summary.momentary = momentary.finish();
         summary.shortTerm = shortTerm.finish();
         summary.correlation = correlation.finish();
-        summary.plr = plr.finish();
+        summary.psr = psr.finish();
         return summary;
     }
 };

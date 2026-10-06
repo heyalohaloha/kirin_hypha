@@ -12,6 +12,7 @@
 #include "../src/HyphaAttackBandSummaryPainter.h"
 #include "../src/HyphaHelpLineText.h"
 #include "../src/HyphaLevelMetricContract.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 
 #include <set>
 
@@ -79,6 +80,12 @@ inline void addPairedFooterHelps (observatory::View& view, HelpLineTexts& texts)
 // comparison or a held value. Written out here so the line is checked for them all the same.
 inline void addHelpsBeyondPointing (HelpLineTexts& texts)
 {
+    // The live comparison's status told whole (pointing at the status): every cause, every next step.
+    for (int reason = 0; reason <= static_cast<int> (live_compare::RecoveryReason::loopClockUnavailable); ++reason)
+        for (int action = 0; action <= static_cast<int> (live_compare_ui::RecoveryAction::busy); ++action)
+            if (const auto* next = live_compare_ui::nextStep (static_cast<live_compare_ui::RecoveryAction> (action)); *next != 0)
+                texts.add (juce::String ("LISTEN: ")
+                    + live_compare_ui::cause (static_cast<live_compare::RecoveryReason> (reason)) + ". " + next, true);
     using namespace analysis_ui;
     for (std::uint8_t mode = 0; mode < 4; ++mode) texts.add (channelModeTooltip (mode), true);
     for (const auto absolute : { false, true })

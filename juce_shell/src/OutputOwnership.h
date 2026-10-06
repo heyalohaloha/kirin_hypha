@@ -137,4 +137,10 @@ constexpr States liveStates (const LiveFacts& facts) noexcept
     if (facts.active) states |= bit (State::liveSession);
     return states;
 }
+// 断った元が live 比較の状態か（liveStates が立てる状態と同じ集合）。
+constexpr bool liveCause (State state) noexcept
+{
+    return state == State::liveRestoring || state == State::liveFinishing || state == State::liveSessionLowered
+        || state == State::liveHeld || state == State::liveBlind || state == State::liveSession;
+}
 }

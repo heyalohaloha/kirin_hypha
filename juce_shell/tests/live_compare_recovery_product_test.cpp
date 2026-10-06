@@ -145,16 +145,20 @@ static void verifyLoopPresentation()
         auto* strip = component<FeedbackStrip> (*editor);
         require (view && strip, "real editor owns the recovery strip");
         for (const auto preset : observatory::sizePresets)
-        for (int scenario = 0; scenario < 3; ++scenario)
+        for (int scenario = 0; scenario < 5; ++scenario)
         {
             editor->setSize (preset.width, preset.height);
             live_compare::Status status;
             status.active = true;
-            status.matchHeld = scenario == 2;
+            status.matchHeld = scenario >= 2;
             status.matched = scenario == 1;
-            status.preSelected = status.preWaiting = scenario < 2;
+            status.preSelected = status.preWaiting = scenario < 2 || scenario == 3;
+            status.timingReentryPending = scenario == 3;
+            status.interrupted = scenario == 4;
+            if (status.interrupted) status.reason = live_compare::RecoveryReason::callbackGap;
             status.observation = scenario == 0 ? live_compare::RecoveryReason::loopUnproven
-                : scenario == 1 ? live_compare::RecoveryReason::loopWaiting : live_compare::RecoveryReason::none;
+                : scenario == 1 ? live_compare::RecoveryReason::loopWaiting
+                : scenario >= 3 ? live_compare::RecoveryReason::loopUnproven : live_compare::RecoveryReason::none;
             observatory::LiveCompareFooter footer;
             footer.active = footer.entryEnabled = true;
             footer.preSelected = status.preSelected; footer.preWaiting = status.preWaiting;
@@ -180,6 +184,8 @@ static void verifyLoopPresentation()
 int main()
 {
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

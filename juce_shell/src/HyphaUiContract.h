@@ -74,6 +74,8 @@ namespace hypha::ui_contract
     // Sharpness keeps one identity colour on every page (LIVE, DRUM). Lilac is a small-mark and
     // thin-line colour only; it never fills an area.
     constexpr std::uint32_t sharpness = 0xffb3a2e6;
+    // Copper marks the peak-to-level dynamics (CREST, PSR). Small marks and thin lines only.
+    constexpr std::uint32_t copper = 0xffd0835a;
     constexpr std::uint32_t ledBlue    = 0xff7fcfd8;
     constexpr std::uint32_t ledGreen   = 0xff4cc07a;
     constexpr std::uint32_t ledYellow  = 0xffccaa44;

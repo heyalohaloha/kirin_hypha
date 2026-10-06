@@ -65,13 +65,13 @@ const rejectedApplicationStaysPending = (source) => {
     && !rejected.includes('analysisApplication.applicationSucceeded (demand)');
 };
 
-const correlationRegionsAreSeparated = (layout, painter) => {
+const psrRegionsAreSeparated = (layout, painter) => {
   const geometry = between(layout, 'Geometry makeGeometry', 'return result;');
-  const readout = geometry.indexOf('result.correlation.readout = lane.removeFromTop');
-  const data = geometry.indexOf('result.correlation.data =');
+  const readout = geometry.indexOf('result.psr.readout = lane.removeFromTop');
+  const data = geometry.indexOf('result.psr.data =');
   return readout >= 0 && readout < data
     && geometry.includes('static_cast<float> (lane.getY() + 1)')
-    && painter.includes('&geometry.correlation, delta, presentation');
+    && painter.includes('paintPsrLane (g, geometry.psr, history, axis, delta, sessionPlr, presentation)');
 };
 
 const analysisSelectionIsAtomic = (runtime, worker) => {
@@ -160,7 +160,7 @@ test('structural repair detectors reject the nine known mutation classes', () =>
   const lifecycle = { format, processor, demand };
   assert.ok(engineLifecycleIsOrdered(lifecycle));
   assert.ok(rejectedApplicationStaysPending(analysis));
-  assert.ok(correlationRegionsAreSeparated(layout, painter));
+  assert.ok(psrRegionsAreSeparated(layout, painter));
   assert.ok(analysisSelectionIsAtomic(spectrumRuntime, spectrumWorker));
   assert.ok(analysisIdentitiesAreSeparated(spectrumRuntime));
   const comparisonTransport = {
@@ -199,13 +199,13 @@ test('structural repair detectors reject the nine known mutation classes', () =>
     'stale engine generation must be detected',
   );
 
-  const overlappingCorrelation = layout.replace(
+  const overlappingPsr = layout.replace(
     'static_cast<float> (lane.getY() + 1)',
-    'static_cast<float> (result.correlation.bounds.getY() + 1)',
+    'static_cast<float> (result.psr.bounds.getY() + 1)',
   );
   assert.ok(
-    !correlationRegionsAreSeparated(overlappingCorrelation, painter),
-    'CORR text/data overlap must be detected',
+    !psrRegionsAreSeparated(overlappingPsr, painter),
+    'PSR text/data overlap must be detected',
   );
 
   const falseSuccess = analysis.replace(

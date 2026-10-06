@@ -5,6 +5,16 @@
 
 namespace hypha::observatory
 {
+namespace
+{
+bool sameMeterSession (const KirinMeterSession& a, const KirinMeterSession& b) noexcept
+{
+    return a.generation == b.generation && a.measurement_epoch == b.measurement_epoch
+        && a.sample_rate == b.sample_rate && a.channels == b.channels && a.layout_id == b.layout_id
+        && observation_equality::field (a.channel_positions, b.channel_positions);
+}
+}
+
 // One publication owns LEVEL's current values, history and chain. A non-blocking acquisition
 // miss is not an empty publication. Keep the entire last packet, including an inspected HOLD.
 // Only a completed replacement or an observed lifecycle boundary may retire that packet.
@@ -17,33 +27,59 @@ void View::setLevelObservation (const KirinLevelSnapshot* packet,
         && packet->frame.version == KIRIN_OBSERVATORY_FRAME_VERSION
         && packet->history_count == entries.size())
     {
-        if (frameAvailable && observatoryFrame.comparison_identity != packet->frame.comparison_identity)
+        const bool changedSession = ! frameAvailable
+            || ! sameMeterSession (observatoryFrame.meter, packet->frame.meter)
+            || packet->frame.meter.state == KIRIN_METER_SESSION_EMPTY;
+        const bool changedState = observatoryFrame.signal_state != packet->frame.signal_state
+            || observatoryFrame.meter.state != packet->frame.meter.state;
+        if (changedSession)
+        {
+            if (levelInspection.held()) resumeLevelHistory();
+            setHistory ({});
+        }
+        if (changedSession || changedState
+            || observatoryFrame.comparison_identity != packet->frame.comparison_identity)
             clearChainObservation(); // A complete POST packet may still have a busy PRE-chain writer.
         setObservatoryFrame (packet->frame, true);
-        setHistory (std::move (entries));
-        if (packet->chain_updated != 0u)
+        setHistory (packet->frame.meter.state == KIRIN_METER_SESSION_EMPTY
+                        ? std::vector<KirinMeterHistoryEntry> {} : std::move (entries));
+        if (packet->chain_updated != 0u && packet->frame.meter.state != KIRIN_METER_SESSION_EMPTY)
             setChainObservation (packet->chain, points);
         return;
     }
     if (fallback == nullptr || fallback->version != KIRIN_OBSERVATORY_FRAME_VERSION)
         return;
     const bool changedSession = ! frameAvailable
-        || observatoryFrame.meter.generation != fallback->meter.generation
-        || observatoryFrame.meter.measurement_epoch != fallback->meter.measurement_epoch;
+        || ! sameMeterSession (observatoryFrame.meter, fallback->meter)
+        || fallback->meter.state == KIRIN_METER_SESSION_EMPTY;
     const bool changedState = observatoryFrame.signal_state != fallback->signal_state
         || observatoryFrame.meter.state != fallback->meter.state;
     // Comparison generation also advances on transient PRE availability. Only its producer
     // identity is a binding boundary; an unrelated delta status must not erase POST history.
     const bool changedBinding = observatoryFrame.comparison_identity != fallback->comparison_identity;
-    if (! changedSession && ! changedState)
+    if (! changedSession)
     {
-        // A PRE rebind/pass change retires its chain, not POST's still-valid absolute history.
-        if (changedBinding) clearChainObservation();
+        if (! changedState && ! changedBinding) return;
+        // Availability is not a new observation. Keep the accepted numeric/history cutoff,
+        // including absolute HOLD, while exposing the current pause/bypass fact accurately.
+        auto retained = observatoryFrame;
+        retained.signal_state = fallback->signal_state;
+        retained.meter.state = fallback->meter.state;
+        retained.comparison_state = fallback->comparison_state;
+        retained.comparison_reason = fallback->comparison_reason;
+        retained.comparison_generation = fallback->comparison_generation;
+        retained.comparison_identity = fallback->comparison_identity;
+        retained.delta_available = 0u;
+        clearChainObservation();
+        setObservatoryFrame (retained, true);
         return;
     }
-    // A reset/stop/bypass is authoritative even if the history writer is busy. Do not attach
-    // the old packet's history to the standalone replacement or let a stale HOLD survive it.
-    setObservatoryFrame (*fallback, true);
+    // Only an empty/reset/format identity boundary retires absolute history. Never attach
+    // the old packet's history or HOLD to a standalone publication from another session.
+    if (levelInspection.held()) resumeLevelHistory();
+    auto replacement = *fallback;
+    replacement.delta_available = 0u;
+    setObservatoryFrame (replacement, true);
     setHistory ({});
     clearChainObservation();
 }

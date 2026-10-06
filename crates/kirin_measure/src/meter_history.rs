@@ -51,13 +51,15 @@ pub struct MeterHistoryEntry {
     pub lufs_s: MeterHistoryRange,
     pub true_peak: MeterHistoryRange,
     pub correlation: MeterHistoryRange,
-    pub plr: MeterHistoryRange,
+    /// The engine's PSR at this point: 400 ms sample peak against the 3 s Short-term loudness.
+    /// It follows the music. PLR is a whole-session fact read from the session snapshot, so
+    /// it is not repeated in every point.
+    pub psr: MeterHistoryRange,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MeterHistoryAux {
     pub correlation: Option<f64>,
-    pub plr: Option<f64>,
     pub clip_event_count: [u32; METER_HISTORY_CHANNELS],
 }
 
@@ -87,7 +89,7 @@ impl MeterHistoryEntry {
             lufs_s: MeterHistoryRange::exact(current.lufs_s),
             true_peak: MeterHistoryRange::exact(current.true_peak),
             correlation: MeterHistoryRange::exact(aux.correlation),
-            plr: MeterHistoryRange::exact(aux.plr),
+            psr: MeterHistoryRange::exact(current.psr),
         }
     }
 }
@@ -147,7 +149,7 @@ struct BucketAccumulator {
     lufs_s: RangeAccumulator,
     true_peak: RangeAccumulator,
     correlation: RangeAccumulator,
-    plr: RangeAccumulator,
+    psr: RangeAccumulator,
 }
 
 impl BucketAccumulator {
@@ -168,7 +170,7 @@ impl BucketAccumulator {
             lufs_s: RangeAccumulator::default(),
             true_peak: RangeAccumulator::default(),
             correlation: RangeAccumulator::default(),
-            plr: RangeAccumulator::default(),
+            psr: RangeAccumulator::default(),
         };
         bucket.push(point);
         bucket
@@ -189,7 +191,7 @@ impl BucketAccumulator {
         self.lufs_s.push(point.lufs_s.mean);
         self.true_peak.push(point.true_peak.mean);
         self.correlation.push(point.correlation.mean);
-        self.plr.push(point.plr.mean);
+        self.psr.push(point.psr.mean);
     }
 
     fn finish(self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
@@ -215,7 +217,7 @@ impl BucketAccumulator {
             lufs_s: self.lufs_s.finish(),
             true_peak: self.true_peak.finish(),
             correlation: self.correlation.finish(),
-            plr: self.plr.finish(),
+            psr: self.psr.finish(),
         }
     }
 }

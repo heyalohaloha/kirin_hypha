@@ -105,7 +105,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(live_compare.contains("KirinLiveCompareMatchTests"));
     assert!(ci.contains("KirinLiveCompareMatchTests"));
     assert!(ci.contains(
-        "-R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority)|kirin_live_blind_session)$'"
+        "-R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority|reentry|gain_snapshot)|kirin_live_blind_session)$'"
     ));
     assert!(source_gate.contains("KirinLiveCompareMatchTests"));
     assert!(source_gate.contains("KirinLiveCompareSessionTests"));
@@ -149,9 +149,24 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "Kirin_live_blind_session_Tests",
         "Kirin_live_compare_completion_Tests",
         "Kirin_live_compare_authority_Tests",
+        "KirinLiveCompare_reentry_Tests",
+        "KirinLiveCompare_gain_snapshot_Tests",
+        "KirinLiveReentryProductTests",
     ] {
         assert!(ci.contains(target) && source_gate.contains(target));
     }
+    assert!(live_compare.contains("foreach(contract IN ITEMS reentry gain_snapshot)"));
+    assert!(live_compare.contains("add_test(NAME kirin_live_compare_${contract}"));
+    assert!(local_blind.contains("KirinLiveReentryProductTests"));
+    assert!(local_blind.contains("add_test(NAME kirin_live_reentry_${scenario}_product"));
+    assert_eq!(
+        source_gate
+            .lines()
+            .filter(|line| line.starts_with("JUCE_TEST_REGEX="))
+            .count(),
+        1,
+        "the native gate must use one explicit, auditable CTest inventory"
+    );
     let selected: Vec<_> = source_gate
         .lines()
         .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))
@@ -184,6 +199,30 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "kirin_live_compare_pin_product",
         "kirin_live_compare_offset_product",
         "kirin_live_compare_aax_group_product",
+        "kirin_live_compare_reentry",
+        "kirin_live_compare_gain_snapshot",
+        "kirin_live_reentry_stop_product",
+        "kirin_live_reentry_seek_product",
+        "kirin_live_reentry_clock_product",
+        "kirin_live_reentry_restore_product",
+        "kirin_live_reentry_end_product",
+        "kirin_live_reentry_blind-stop_product",
+        "kirin_live_reentry_compensation_product",
+        "kirin_live_reentry_seek-odd_product",
+        "kirin_live_reentry_pending-odd_product",
+        "kirin_live_reentry_proof-odd_product",
+        "kirin_live_reentry_pair-clear_product",
+        "kirin_live_reentry_pair-set_product",
+        "kirin_live_reentry_clock-blind_product",
+        "kirin_live_reentry_preparing-clock_product",
+        "kirin_live_reentry_preparing-stop_product",
+        "kirin_live_reentry_reuse_product",
+        "kirin_live_reentry_pending-end_product",
+        "kirin_live_reentry_restore-blind_product",
+        "kirin_live_reentry_failure-named_product",
+        "kirin_live_reentry_preparing-dc_product",
+        "kirin_live_reentry_preparing-content_product",
+        "kirin_live_reentry_preparing-seek_product",
     ] {
         assert!(
             selected.contains(&test),

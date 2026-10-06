@@ -311,7 +311,7 @@ fn channel_and_stereo_facts_do_not_depend_on_caller_chunking() {
     let chunked_history = chunked.recent_history(MeterHistoryResolution::Hz10, 100);
     assert_eq!(whole_history.len(), chunked_history.len());
     for (whole_point, chunked_point) in whole_history.iter().zip(&chunked_history) {
-        assert!(close(whole_point.plr.mean, chunked_point.plr.mean, 1.0e-12));
+        assert!(close(whole_point.psr.mean, chunked_point.psr.mean, 1.0e-12));
     }
     let whole = whole.snapshot();
     let chunked = chunked.snapshot();
@@ -358,14 +358,19 @@ fn history_retains_exact_and_multi_resolution_facts_while_editor_is_absent() {
     assert_eq!(exact[0].last_timeline_endpoint_samples, Some(124_800));
     assert_eq!(exact[31].last_observed_frames, 153_600);
     assert_eq!(exact[31].last_timeline_endpoint_samples, Some(273_600));
-    assert!(exact[31].plr.mean.is_some());
-    assert!(close(exact[31].plr.mean, session.snapshot().plr, 1.0e-12));
+    // Each exact point carries the PSR of the same 100 ms observation the Session shows now.
+    assert!(exact[31].psr.mean.is_some());
+    assert!(close(
+        exact[31].psr.mean,
+        session.snapshot().current.psr,
+        1.0e-12
+    ));
 
     let one_second = session.recent_history(MeterHistoryResolution::Hz1, 100);
     assert_eq!(one_second.len(), 4);
     assert_eq!(one_second[0].observation_count, 10);
     assert_eq!(one_second[3].observation_count, 2);
-    assert!(one_second[0].plr.mean.is_some());
+    assert!(one_second[0].psr.mean.is_some());
     let ten_seconds = session.recent_history(MeterHistoryResolution::Hz0_1, 100);
     assert_eq!(ten_seconds.len(), 1);
     assert_eq!(ten_seconds[0].observation_count, 32);

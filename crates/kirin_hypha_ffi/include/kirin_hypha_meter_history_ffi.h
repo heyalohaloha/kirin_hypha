@@ -40,7 +40,9 @@ typedef struct {
   KirinMeterHistoryRange lufs_s;
   KirinMeterHistoryRange true_peak;
   KirinMeterHistoryRange correlation;
-  KirinMeterHistoryRange plr;
+  /* 400 ms のサンプルピーク − LUFS-S. 曲の中で動く. ABI revision 7 で PLR から替えた.
+   * PLR は Session 全体の値なので、各点に繰り返さず KirinMeterSession.plr から読む. */
+  KirinMeterHistoryRange psr;
 } KirinMeterHistoryEntry;
 
 #endif

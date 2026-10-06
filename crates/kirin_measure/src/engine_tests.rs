@@ -242,7 +242,7 @@ fn content_grid_splits_do_not_change_canonical_engine_facts() {
                     output: Some(4_096),
                 },
             },
-            |_, result, _, _, _| grid_points.push(result.clone()),
+            |_, result, _, _| grid_points.push(result.clone()),
             |point| content_points.push(point),
         );
         start += frames;

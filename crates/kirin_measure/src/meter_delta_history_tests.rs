@@ -24,7 +24,7 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
         lufs_s: exact(value - 1.0),
         true_peak: exact(value + 10.0),
         correlation: exact(0.8),
-        plr: exact(12.0),
+        psr: exact(8.0),
     }
 }
 
@@ -39,7 +39,7 @@ fn pre_point(endpoint: i64, value: f64) -> WirePoint {
         lufs_s: Some(value - 1.0),
         true_peak: Some(value + 10.0),
         correlation: Some(0.5),
-        plr: Some(10.5),
+        psr: Some(9.5),
     }
 }
 
@@ -66,7 +66,22 @@ fn joins_only_the_same_unique_presentation_endpoint() {
     assert_eq!(history[0].lufs_m.mean, Some(1.5));
     assert_eq!(history[1].lufs_m.mean, Some(1.0));
     assert!((history[0].correlation.mean.unwrap() - 0.3).abs() < 1.0e-12);
-    assert_eq!(history[0].plr.mean, Some(1.5));
+    // The chain's dynamics at the same moment: POST 8.0 against PRE 9.5.
+    assert_eq!(history[0].psr.mean, Some(-1.5));
+}
+
+#[test]
+fn a_pre_publication_without_psr_still_joins_and_leaves_only_psr_empty() {
+    // A PRE built before PSR entered the history publishes `plr` and no `psr`. Its other facts
+    // stay usable; POST - PRE for PSR is simply not a fact.
+    let point: WirePoint = serde_json::from_str(
+        r#"{"generation":2,"run_id":5,"observed_frames":4800,"endpoint_samples":4800,"source":1,
+            "lufs_m":-14.0,"lufs_s":-15.0,"true_peak":-4.0,"correlation":0.5,"plr":10.5}"#,
+    )
+    .unwrap();
+    assert!(point.valid());
+    assert_eq!(point.psr, None);
+    assert_eq!(point.lufs_m, Some(-14.0));
 }
 
 #[test]
@@ -225,7 +240,7 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
     assert_eq!(joined.len(), 10);
     let loudness_delta = joined.last().unwrap().lufs_m.mean.unwrap();
     assert!((loudness_delta - 6.020_599_913).abs() < 0.01);
-    assert!(joined.last().unwrap().plr.mean.unwrap().abs() < 0.01);
+    assert!(joined.last().unwrap().psr.mean.unwrap().abs() < 0.01);
 
     fs::write(
         &pre_json,

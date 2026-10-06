@@ -25,24 +25,36 @@ pub(super) struct BandIdentity {
     pub(super) definition_hash: [u8; 32],
 }
 
-/// The declared band and its hits. Hits of another band than the declared one are left out, so
-/// PRE never declares a band with another band's measures.
+/// The declared band and its hits. Results are published separately from history: only records
+/// of this header's band/run/definition may be encoded, never re-stamped as a newer run on decode.
 pub(super) fn encode_band_section(
     bytes: &mut Vec<u8>,
     band: AttackBand,
     results: &AttackBandResults,
+    identity: &BandIdentity,
 ) {
-    let details = if results.band == Some(band) {
+    let details = if results.band == Some(band) && results.generation == identity.generation {
         results.own()
     } else {
         &[]
     };
-    let skip = details.len().saturating_sub(ATTACK_BAND_HISTORY_CAPACITY);
-    let count = (details.len() - skip) as u16;
+    let qualified = || {
+        details.iter().filter(|detail| {
+            detail.matches_run(
+                identity.generation,
+                identity.sample_rate,
+                identity.channels,
+                &identity.definition_hash,
+            )
+        })
+    };
+    let available = qualified().count();
+    let skip = available.saturating_sub(ATTACK_BAND_HISTORY_CAPACITY);
+    let count = (available - skip) as u16;
     bytes.push(band.index());
     bytes.push(0);
     bytes.extend_from_slice(&count.to_le_bytes());
-    for detail in &details[skip..] {
+    for detail in qualified().skip(skip) {
         encode_band_detail(bytes, detail);
     }
 }

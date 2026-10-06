@@ -407,6 +407,7 @@ void KirinHyphaEditor::showFeedbackInformationMenu()
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Status");
     menu.addItem (600, observatoryView.feedback(), false);
+    for (const auto& line : statusStory()) menu.addItem (601, line, false); // the cause, then what to do
     menu.showMenuAsync (juce::PopupMenu::Options()
         .withTargetComponent (feedbackStrip.isVisible() ? static_cast<juce::Component*> (&feedbackStrip)
                                                         : &observatoryView.feedbackDetailsAnchor())

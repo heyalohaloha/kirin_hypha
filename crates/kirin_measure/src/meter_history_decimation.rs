@@ -41,7 +41,7 @@ struct EntryAggregate {
     lufs_s: RangeAggregate,
     true_peak: RangeAggregate,
     correlation: RangeAggregate,
-    plr: RangeAggregate,
+    psr: RangeAggregate,
 }
 
 impl EntryAggregate {
@@ -54,7 +54,7 @@ impl EntryAggregate {
             lufs_s: RangeAggregate::default(),
             true_peak: RangeAggregate::default(),
             correlation: RangeAggregate::default(),
-            plr: RangeAggregate::default(),
+            psr: RangeAggregate::default(),
         };
         result.push(point);
         result
@@ -75,7 +75,7 @@ impl EntryAggregate {
             .push(point.true_peak, point.observation_count);
         self.correlation
             .push(point.correlation, point.observation_count);
-        self.plr.push(point.plr, point.observation_count);
+        self.psr.push(point.psr, point.observation_count);
     }
 
     fn finish(mut self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
@@ -86,7 +86,7 @@ impl EntryAggregate {
         self.first.lufs_s = self.lufs_s.finish();
         self.first.true_peak = self.true_peak.finish();
         self.first.correlation = self.correlation.finish();
-        self.first.plr = self.plr.finish();
+        self.first.psr = self.psr.finish();
         self.first
     }
 }

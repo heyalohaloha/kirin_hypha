@@ -195,7 +195,7 @@ impl MeterSession {
         self.engine.push_observed_with_session_facts_at(
             interleaved,
             clock,
-            |_, current, observed_samples, plr, max_lufs_m| {
+            |_, current, observed_samples, max_lufs_m| {
                 const MAX_HISTORY_CLIP_EVENTS: u64 = u32::MAX as u64;
                 let previous_clip_events = self.stereo.session_clip_events();
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
@@ -240,7 +240,6 @@ impl MeterSession {
                         current,
                         MeterHistoryAux {
                             correlation,
-                            plr,
                             clip_event_count,
                         },
                     );

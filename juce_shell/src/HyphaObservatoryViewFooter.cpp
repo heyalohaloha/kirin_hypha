@@ -50,8 +50,10 @@ void View::setKeepActive (bool active)
 void View::setChainReadout (juce::String text, bool caution)
 {
     if (chainReadoutText == text && chainReadoutCaution == caution) return;
+    const bool appears = chainReadoutText.isEmpty() != text.isEmpty();
     chainReadoutText = std::move (text);
     chainReadoutCaution = caution;
+    if (appears) resized(); // a status beside it gives up the room the timing needs, or takes it back
     repaint (sessionArea);
 }
 
@@ -165,18 +167,32 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
         for (const auto& shorter : { chainReadoutText.replace (" / ", "/"),
                                      chainReadoutText.replace (" / ", "/").fromFirstOccurrenceOf ("CHAIN ", false, false) })
             if (text_style::shownWidth (font, chain) > width) chain = shorter;
-        const bool chainWanted = feedbackText.isEmpty() && chainReadoutText.isNotEmpty();
+        // A status in the strip over the body leaves the rail to the state and the chain timing.
+        const bool railFree = feedbackText.isEmpty() || statusStripOverBody;
+        const bool chainWanted = railFree && chainReadoutText.isNotEmpty();
         const bool both = chainWanted && labelWidth + 12.0f + text_style::shownWidth (font, chainReadoutText) <= width;
         const bool replaces = chainWanted && ! both && ! measurementFormatHeld
             && (state == "LIVE" || state == "HOLD" || state == "WAITING")
             && ! chainReadoutText.endsWith ("--") && text_style::shownWidth (font, chain) <= width;
-        if (feedbackText.isEmpty() && ! replaces && labelWidth <= width)
+        if (railFree && ! replaces && labelWidth <= width)
             text_style::drawText (g, label, session, juce::Justification::centredLeft, false);
         if (both || replaces)
         {
             g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
             text_style::drawText (g, both ? chainReadoutText : chain, session,
                                   both ? juce::Justification::centredRight : juce::Justification::centredLeft, false);
+            chainReadoutShown = true;
+        }
+        // Beside a status in the rail: resized() kept the room right of the status button.
+        if (! railFree && chainReadoutText.isNotEmpty() && statusButton.isVisible())
+        {
+            const auto room = session.withLeft (statusButton.getRight() + 6);
+            auto beside = chainReadoutText;
+            for (const auto& shorter : { chainReadoutText.replace (" / ", "/"),
+                                         chainReadoutText.replace (" / ", "/").fromFirstOccurrenceOf ("CHAIN ", false, false) })
+                if (text_style::shownWidth (font, beside) > (float) room.getWidth()) beside = shorter;
+            g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
+            text_style::drawText (g, beside, room, juce::Justification::centredRight, false);
             chainReadoutShown = true;
         }
         return;
@@ -211,6 +227,7 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     area.removeFromTop (timeControlsHeight());
     area.reduce (main_frame::inset(), main_frame::inset()); // the page's main window, in its frame
+    timeHistoryArea = showRunSummary && target() == ObservationTarget::absolute ? juce::Rectangle<int>() : area;
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
                             frameAvailable ? observatoryFrame.meter.sample_rate : 0.0,
@@ -225,6 +242,9 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                                        observatoryFrame.comparison_state,
                                        observatoryFrame.comparison_reason)
                                  : juce::String(),
-                             currentPreset().density != Density::compact, true);
+                             currentPreset().density != Density::compact, true,
+                             target() == ObservationTarget::absolute && frameAvailable
+                                 ? observatoryFrame.meter.plr
+                                 : std::numeric_limits<double>::quiet_NaN());
 }
 }

@@ -1,6 +1,7 @@
 #include "CaptureHistoryContractTest.h"
 
 #include "../src/HyphaCaptureHistoryPainter.h"
+#include "../src/HyphaCaptureHistoryTruePeak.h"
 #include "../src/HyphaChainSummaryText.h"
 #include "../src/HyphaObservatoryContract.h"
 #include "../src/HyphaTextStyle.h"
@@ -78,6 +79,19 @@ int changedPixels (const juce::Image& first, const juce::Image& second)
             changed += first.getPixelAt (x, y).getARGB()
                     != second.getPixelAt (x, y).getARGB();
     return changed;
+}
+
+// Pixels of a cool hue. The page is warm except for the cyan family (true peak, the NOW dot).
+int coolPixels (const juce::Image& image)
+{
+    int count = 0;
+    for (int y = 0; y < image.getHeight(); ++y)
+        for (int x = 0; x < image.getWidth(); ++x)
+        {
+            const auto c = image.getPixelAt (x, y);
+            count += c.getAlpha() > 0 && c.getBlue() > c.getRed() + 8 ? 1 : 0;
+        }
+    return count;
 }
 
 std::pair<KirinChainSnapshot, std::vector<KirinChainPoint>> chainFixture (double peak)
@@ -187,6 +201,20 @@ void verifyCaptureHistoryContract()
     higherPeak[3].true_peak.max = -0.2;
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (render (higherPeak, false), render (justAboveEmphasis, false)) > 2);
+    // TP stems wear the cyan of the VU TP rail, never the champagne of the M line.
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        coolPixels (render (higherPeak, false)) > coolPixels (render (belowEmphasis, false)) + 20);
+    // The TP axis covers only where stems live, -1..+3 dBTP: -0.8 and +0.3 stand at least a
+    // quarter of the overlay apart, and a peak above +3 rests on the top instead of leaving it.
+    {
+        namespace tp = capture_history::true_peak;
+        const auto overlay = tp::overlayFor ({ 40.0f, 30.0f, 420.0f, 90.0f });
+        KIRIN_CAPTURE_HISTORY_REQUIRE (std::abs (tp::yFor (overlay, -1.0) - overlay.getBottom()) < 0.01f);
+        KIRIN_CAPTURE_HISTORY_REQUIRE (std::abs (tp::yFor (overlay, 3.0) - overlay.getY()) < 0.01f);
+        KIRIN_CAPTURE_HISTORY_REQUIRE (std::abs (tp::yFor (overlay, 7.5) - overlay.getY()) < 0.01f);
+        KIRIN_CAPTURE_HISTORY_REQUIRE (
+            tp::yFor (overlay, -0.8) - tp::yFor (overlay, 0.3) >= overlay.getHeight() * 0.25f);
+    }
     const auto zeroRate = capture_history::analyseTruePeak (history, 0.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (zeroRate.available);
     KIRIN_CAPTURE_HISTORY_REQUIRE (zeroRate.secondsBeforeEnd == 0.0);

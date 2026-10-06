@@ -5,6 +5,7 @@
 #include "../src/HyphaLocalBlindComponent.h"
 #include "../src/HyphaObservatoryView.h"
 #include "CompactReviewShowcase.h"
+#include "SelectMenuContract.h"
 
 #include <cstdlib>
 #include <functional>
@@ -250,123 +251,6 @@ inline void verifyNamedFooter (juce::Component& root, const observatory::SizePre
     }
 }
 
-inline juce::Image popupImage (TextLookAndFeel& look, int width, int height, float dpi,
-                              bool items, bool nativeItems = false)
-{
-    juce::Image image (juce::Image::ARGB, int (width * dpi), int (height * dpi), true,
-                       juce::NativeImageType {});
-    juce::Graphics g (image);
-    g.addTransform (juce::AffineTransform::scale (dpi));
-    look.drawPopupMenuBackground (g, width, height);
-    if (items)
-    {
-        const juce::Rectangle<int> heading (4, 4, width - 8, 24);
-        if (nativeItems) look.juce::LookAndFeel_V4::drawPopupMenuSectionHeader (g, heading, "PRE / POST");
-        else look.drawPopupMenuSectionHeader (g, heading, "PRE / POST");
-        for (int row = 0; row < 2; ++row)
-        {
-            const juce::Rectangle<int> area (4, 28 + row * 28, width - 8, 28);
-            const auto text = row == 0 ? "PRE" : "POST";
-            if (nativeItems)
-                look.juce::LookAndFeel_V4::drawPopupMenuItem (
-                    g, area, false, true, row == 1, false, false, text, {}, nullptr, nullptr);
-            else look.drawPopupMenuItem (
-                g, area, false, true, row == 1, false, false, text, {}, nullptr, nullptr);
-        }
-    }
-    return image;
-}
-
-inline juce::Image popupSubstrate (int width, int height, float dpi)
-{
-    juce::Image image (juce::Image::ARGB, int (width * dpi), int (height * dpi), true,
-                       juce::NativeImageType {});
-    juce::Graphics g (image);
-    g.addTransform (juce::AffineTransform::scale (dpi));
-    g.fillAll (BG);
-    // The same substrate as the popup, without its recessed upper wall. A raised plate's bevel
-    // lies above y3 and its lower shadow near the bottom, leaving our fixed y3–7 strip untouched.
-    surface_material::paintPanel (g, { 0.0f, 0.0f, float (width), float (height) }, 0.94f, 7.0f, true);
-    return image;
-}
-
-inline void popupDiagnostic (const juce::Image& body, const juce::Image& substrate,
-                            const juce::String& name, float dpi, int delta, int count)
-{
-    const auto path = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_BLIND_LIGHT_REVIEW_DIR", {});
-    if (path.isEmpty()) return;
-    const juce::File directory (path);
-    require (directory.createDirectory().wasOk(), "popup diagnostic directory");
-    const auto write = [&] (const juce::Image& image, const char* suffix) {
-        juce::FileOutputStream stream (directory.getChildFile ("popup_" + name + suffix + ".png"));
-        require (stream.setPosition (0) && stream.truncate().wasOk()
-                     && juce::PNGImageFormat().writeImageToStream (image, stream), "popup diagnostic PNG");
-    };
-    write (body, "_quiet");
-    write (substrate, "_substrate");
-    std::cout << "Popup native pixels " << name << ": delta=" << delta << '/' << count;
-    for (int y = 3; y <= 7; ++y)
-        std::cout << " y" << y << "=#" << body.getPixelAt (body.getWidth() / 2, int (y * dpi)).toDisplayString (false)
-                  << "/#" << substrate.getPixelAt (substrate.getWidth() / 2, int (y * dpi)).toDisplayString (false);
-    std::cout << '\n';
-}
-
-inline void verifyPopups()
-{
-    const i18n::ScopedLanguage language (i18n::Language::english);
-    TextLookAndFeel common;
-    reference_ui::ReferenceSelectorLookAndFeel reference;
-    for (auto* look : { &common, static_cast<TextLookAndFeel*> (&reference) })
-    {
-        const int ids[] { juce::PopupMenu::backgroundColourId, juce::PopupMenu::textColourId,
-                          juce::PopupMenu::headerTextColourId, juce::PopupMenu::highlightedBackgroundColourId,
-                          juce::PopupMenu::highlightedTextColourId };
-        std::array<juce::Colour, 5> palette;
-        for (size_t index = 0; index < palette.size(); ++index) palette[index] = look->findColour (ids[index]);
-        const auto fontHeight = look->getPopupMenuFont().getHeight();
-        for (const auto size : { juce::Point<int> (160, 96), juce::Point<int> (440, 220) })
-            for (const float dpi : { 1.0f, 2.0f })
-            {
-                const auto body = popupImage (*look, size.x, size.y, dpi, false);
-                const auto shared = popupImage (common, size.x, size.y, dpi, false);
-                require (differentPixels (body, shared) == 0,
-                         "Reference selectors and editor popups share the actual quiet body");
-                // Test rendered material, not its helper calculation: a warm body, with an upper
-                // wall in shadow and no bronze hero ring or JUCE's repeated cyan scan lines.
-                for (int y = 0; y < body.getHeight(); ++y)
-                    for (int x = 0; x < body.getWidth(); ++x)
-                    {
-                        const auto colour = body.getPixelAt (x, y);
-                        require (colour.getRed() >= colour.getGreen() && colour.getGreen() >= colour.getBlue()
-                                     && colour.getRed() < BG.getRed() * 4,
-                                 "popup body stays warm and quiet across native DPI1 and DPI2");
-                    }
-                const auto substrate = popupSubstrate (size.x, size.y, dpi);
-                int delta = 0, count = 0;
-                for (int y = int (3 * dpi); y < int (8 * dpi); ++y)
-                    for (int x = body.getWidth() / 4; x < body.getWidth() * 3 / 4; ++x)
-                    {
-                        const auto a = body.getPixelAt (x, y), b = substrate.getPixelAt (x, y);
-                        delta += int (b.getRed()) + b.getGreen() + b.getBlue()
-                               - int (a.getRed()) - a.getGreen() - a.getBlue();
-                        ++count;
-                    }
-                popupDiagnostic (body, substrate, juce::String (look == &common ? "common_" : "reference_")
-                    + juce::String (size.x) + "x" + juce::String (size.y) + "_dpi" + juce::String (int (dpi)), dpi, delta, count);
-                require (count > 0 && delta > count * 4,
-                         "the actual popup retains its upper wall shadow over the same substrate");
-                const auto items = popupImage (*look, size.x, size.y, dpi, true);
-                require (differentPixels (items, popupImage (*look, size.x, size.y, dpi, true, true)) == 0
-                             && differentPixels (items, body) > 20,
-                         "normal, selected and header text retain their native palette and font");
-            }
-        for (size_t index = 0; index < palette.size(); ++index)
-            require (look->findColour (ids[index]) == palette[index], "quiet material preserves caller menu colours");
-        require (std::equal_to<float> {} (look->getPopupMenuFont().getHeight(), fontHeight),
-                 "quiet material preserves the menu font");
-    }
-}
-
 inline void writeReview()
 {
     const auto path = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_BLIND_LIGHT_REVIEW_DIR", {});
@@ -475,7 +359,7 @@ inline void verify()
         verifyLocal (root, preset);
         verifyNamedFooter (root, preset);
     }
-    verifyPopups();
+    select_menu_contract::verify();
     writeReview();
 }
 }

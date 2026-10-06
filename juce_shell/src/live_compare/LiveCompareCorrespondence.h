@@ -34,6 +34,7 @@ struct Decision
     bool invalidatedByDisagreement = false;
     bool timelineChanged = false;
     std::uint64_t run = 0;
+    TimelineBreak loss = TimelineBreak::none;
 };
 
 // POST, Audio Thread. Maps POST's continuous clock to PRE's through K, calibrated from steady
@@ -52,8 +53,11 @@ public:
         if (! ring.matches (pairKey, sampleRate))
         {
             invalidate();
+            initialAdmission = false; preparedGeneration = 0;
             havePrevious = false;
             decision.verdict = Verdict::foreignRing;
+            decision.timelineChanged = true;
+            decision.loss = TimelineBreak::sourceChanged;
             return decision;
         }
         // A fresh entry has never authorised PRE. A startup stop/clock hole must withhold
@@ -101,8 +105,9 @@ public:
             if (! preparedTimingCurrent (ring.header))
             {
                 invalidate(); initialAdmission = false;
-                preparedGeneration = 0;
                 decision.timelineChanged = true;
+                decision.loss = preparedTimingLoss (ring.header);
+                if (decision.loss != TimelineBreak::metadataPending) preparedGeneration = 0;
                 decision.verdict = ! block.playing ? Verdict::stopped
                     : ! block.clockValid ? Verdict::noClock : Verdict::calibrating;
                 return fill (decision);
@@ -119,6 +124,8 @@ public:
             age > 0 && age < ringCapacityFrames ? age : 0);
         decision.run = run;
         decision.timelineChanged = timelineStep.broken || (haveRun && run != previousRun);
+        decision.loss = timelineStep.broken ? timelineStep.cause
+            : haveRun && run != previousRun ? TimelineBreak::pcmRunChanged : TimelineBreak::none;
         previousRun = run; haveRun = true;
         if (decision.timelineChanged)
         { invalidate(); initialAdmission = false; }
@@ -143,6 +150,7 @@ public:
             {
                 invalidate();
                 decision.invalidatedByDisagreement = true;
+                decision.loss = TimelineBreak::unknown;
             }
             feed (candidate);
         }
@@ -177,9 +185,10 @@ public:
         {
             invalidate();
             initialAdmission = false;
-            preparedGeneration = 0;
             decision.timelineChanged = true;
             decision.verdict = Verdict::torn;
+            decision.loss = preparedTimingLoss (ring.header);
+            if (decision.loss != TimelineBreak::metadataPending) preparedGeneration = 0;
         }
         return fill (decision);
     }
@@ -196,6 +205,12 @@ public:
 
     bool calibrated() const noexcept { return kValid; }
     std::int64_t offset() const noexcept { return k; }
+    bool needsNewAdmission() const noexcept { return ! kValid && ! initialAdmission; }
+    void revoke() noexcept
+    {
+        invalidate(); initialAdmission = false; preparedGeneration = 0;
+        havePrevious = haveRun = false; timeline.reset();
+    }
 
     // Audio Thread, only while a new explicit session is still unproven. An unavailable first
     // snapshot may wait, but a completed or broken proof never reopens this admission. The evidence
@@ -235,6 +250,17 @@ public:
 
 private:
     static constexpr std::int64_t noCandidate = std::numeric_limits<std::int64_t>::min();
+
+    TimelineBreak preparedTimingLoss (const RingHeader& h) const noexcept
+    {
+        TimingSnapshot current;
+        if (h.ownerClosed.load (std::memory_order_acquire) != 0 || preparedGeneration == 0)
+            return TimelineBreak::unknown;
+        if (! readTiming (h.timing, current)) return TimelineBreak::metadataPending;
+        if (current.ownerA != preparedOwnerA || current.ownerB != preparedOwnerB)
+            return TimelineBreak::sourceChanged;
+        return current.generation != preparedGeneration ? current.cause : TimelineBreak::pcmRunChanged;
+    }
 
     bool preparedTimingCurrent (const RingHeader& h) const noexcept
     {

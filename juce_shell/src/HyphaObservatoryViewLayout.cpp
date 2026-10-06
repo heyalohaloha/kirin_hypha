@@ -20,7 +20,7 @@ ShellLayout withoutFoldedTarget (ShellLayout layout)
 }
 void View::resized()
 {
-    levelHistoryArea = {};
+    levelHistoryArea = timeHistoryArea = {};
     statusStrip = {};
     statusStripOverBody = false;
     levelHistoryPointer.reset();
@@ -210,15 +210,21 @@ void View::resized()
             sessionArea.setRight (footerActions.getX() - 4);
         }
     }
+    // The chain timing the user keeps in the footer keeps its place at the rail's right end, wide
+    // enough for its shortest form in the footer buttons' size (the larger of the rail's two sizes);
+    // paintFooter draws the longest form that fits there.
+    const auto chainRoom = ! captureFrame && ! folded && chainReadoutText.isNotEmpty()
+        ? juce::roundToInt (text_style::shownWidth (monoFont (presentationContext(), typography::TextRole::action),
+                                                    "LOAD 100%/100%")) + 12 : 0;
     // Safety guidance needs more room than the residual footer after PRE/POST/END. Reuse the
     // full-width feedback strip when the complete sentence does not fit; never compress it.
     const bool overflow = ! captureFrame && feedbackText.isNotEmpty()
         && text_style::shownWidth (monoFont (presentationContext(), typography::TextRole::action), feedbackText)
-            > sessionArea.getWidth() - 14;
+            > sessionArea.getWidth() - 14 - chainRoom;
     statusStripOverBody = folded || overflow;
     statusStrip = statusStripOverBody ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
     statusButton.setVisible (! captureFrame && ! statusStripOverBody && feedbackText.isNotEmpty());
-    statusButton.setBounds (sessionArea.reduced (1, 2));
+    statusButton.setBounds (sessionArea.reduced (1, 2).withTrimmedRight (chainRoom));
     layoutFooterActions (footerActions);
     if (onBodyLayoutChanged) onBodyLayoutChanged();
 }
