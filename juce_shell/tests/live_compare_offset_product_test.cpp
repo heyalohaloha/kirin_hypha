@@ -146,6 +146,20 @@ private:
                       << longestCallbackMicros.load() / 1000.0 << " ms\n";
             require (false, "offset round trip timed out");
         }
+        // A stall of this machine past the callback-gap rule (2.5 blocks, 213 ms) rightly stops PRE:
+        // "Audio gap: select PRE again". While the offset settles, select PRE again as a user would.
+        // A gap reported without such a stall is a product fault and fails here.
+        if (stage == 3)
+            if (const auto status = post->liveCompareStatus(); status.active && status.interrupted
+                && status.reason == hypha::live_compare::RecoveryReason::callbackGap && ! status.preSelected)
+            {
+                require (stalls.load() > recoveredStalls, "a callback gap is reported only after a real stall");
+                recoveredStalls = stalls.load();
+                std::cout << "recovered from a test-machine stall of " << longestCallbackMicros.load() / 1000.0
+                          << " ms" << std::endl;
+                click ("observatory-live-pre");
+                return;
+            }
         switch (stage)
         {
             case 0:
@@ -284,8 +298,13 @@ private:
         {
             const auto callbackAt = std::chrono::steady_clock::now();
             if (previousCallback != std::chrono::steady_clock::time_point())
-                longestCallbackMicros.store (std::max (longestCallbackMicros.load(), static_cast<std::int64_t> (
-                    std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previousCallback).count())));
+            {
+                const auto interval = static_cast<std::int64_t> (
+                    std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previousCallback).count());
+                longestCallbackMicros.store (std::max (longestCallbackMicros.load(), interval));
+                // The product's gap rule: longer than 2.5 times the previous block.
+                if (interval * 48000 > static_cast<std::int64_t> (blockFrames) * 2'500'000) stalls.fetch_add (1);
+            }
             previousCallback = callbackAt;
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
@@ -318,6 +337,8 @@ private:
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
     std::atomic<std::int64_t> longestCallbackMicros { 0 };
+    std::atomic<int> stalls { 0 };
+    int recoveredStalls = 0;
     std::atomic<std::int64_t> delayFrames { 2000 };
     std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;
