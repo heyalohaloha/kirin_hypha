@@ -13,7 +13,7 @@ TP / > -1 dBTP events	LEVEL history legend
 PSB / delta pp	PSB legend
 0-24 Bark | LR	PSB axis caption
 POST dBFS / 6s field / 	FREQ legend
-PEAK - LUFS-S	TIME HISTORY PSR lane
+= PEAK 	TIME HISTORY PSR lane (followed by its value)
 RUNS IN VIEW	RUN heading
 MAXIMUM TRUE PEAK	REF metric heading
 PRE/POST BLIND	footer control label

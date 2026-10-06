@@ -147,7 +147,7 @@ test('README uses the verified current Hypha UI media', () => {
   // Drawn by the shipping editor from invented data (scripts/make_readme_media.sh); no session appears.
   const media = [
     ['vu.jpg', '5b24f1a2189932cffad99e1f7b4dc4dbf1c2cb513c268a98a34181c1b8184d16'],
-    ['tour.gif', 'f6a49b8f03ddf332a67c08ac0a20aece654e9fda93c7d8f85af219bdee71e8f7'],
+    ['tour.gif', 'a4ea92a1b7f0217452dff6bd81f932f909fa55b39dcbd38295167c06c742eca6'],
     ['level.jpg', '1831c9e8324be8ec62090cb72ce4b2a279a3b73ae4e076d544c408b8324481d4'],
     ['blind.jpg', '9c5d4e6afbbe9ec92d0bfec71a9867ef2afecf2c1071b48c0061ccb5c1a891df'],
     ['ref_c.jpg', '61784191ec2c60224d5ab4d42f92420dc9a5662c31f26404379e2298a6223169'],
@@ -156,7 +156,7 @@ test('README uses the verified current Hypha UI media', () => {
     ['freq.jpg', 'c91faa202b4bbe2b5c2310aa919c77bd180e0bfca97eacfd0d0a1253bd188e24'],
     ['ref_v.jpg', '8f7086db868d606d1eb29f125519cf0ab2f7f1b71f5c5ad6885fa33a0ac51d08'],
     ['space.jpg', 'eeb56aab9d0d54ef445b487dea842ed14c06ae6540fd66587504ebca74287114'],
-    ['time.jpg', 'cd82a8201a584290129e091dbe69cb197e16a1829c5fa15c55504ca7e100a4e5'],
+    ['time.jpg', 'd0a6bedad3f6ae712d9cb2508cb269ba2d8e477a8c5d301647871e87ea77e528'],
     ['sharp.jpg', 'ed2d8d5df75a1a67d713faa6dbecb0f52b60db2cb63035dab017746c17750359'],
     ['live.jpg', 'b0fe86f591f4cf7ff21db6d8fbc2356829b7a21305bded793c54f58941a231b1'],
     ['ref_b.jpg', '42699833c6e3d00590184d030c19f6a1ca9f9309eb97f10d301a9c40b4b27774'],

@@ -245,9 +245,9 @@ void verifyPreservedSurfaceText()
         const auto bodyFont = monoFont (
             context, typography::TextRole::body,
             typography::Composition::visualization);
-        // TIME's PSR lane: the current PSR, what it is, and the session's PLR and CORR fit in one
-        // row wherever the lane is shown (every size above the compact meter). The frame's ring
-        // and shadow are taken off both sides.
+        // TIME's PSR lane: the current PSR and the session's PLR and CORR fit in one row wherever
+        // the lane is shown (every size above the compact meter); from 600 px the row also has room
+        // for what PSR is, with its numbers. The frame's ring and shadow are taken off both sides.
         if (preset.width > 375)
         {
             const auto timeArea = juce::Rectangle<int> (
@@ -257,9 +257,10 @@ void verifyPreservedSurfaceText()
             for (const bool delta : { false, true })
             {
                 const auto row = time_history::psrReadout (context, lane.readout, delta);
-                KIRIN_TYPOGRAPHY_REQUIRE (! row.facts.isEmpty() && ! row.definition.isEmpty());
-                KIRIN_TYPOGRAPHY_REQUIRE (fits (bodyFont, time_history::psrDefinition (delta),
-                                                (float) row.definition.getWidth()));
+                KIRIN_TYPOGRAPHY_REQUIRE (! row.correlation.isEmpty() && (delta || ! row.plr.isEmpty()));
+                KIRIN_TYPOGRAPHY_REQUIRE (preset.width < 600 || ! row.definition.isEmpty());
+                KIRIN_TYPOGRAPHY_REQUIRE (row.definition.isEmpty()
+                    || fits (bodyFont, time_history::psrDefinition (delta), (float) row.definition.getWidth()));
             }
         }
     }

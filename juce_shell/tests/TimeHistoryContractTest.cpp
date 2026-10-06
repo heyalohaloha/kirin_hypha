@@ -298,9 +298,29 @@ void verifyTimeHistoryContract()
     // PLR stays as the Meter Session's number beside PSR; the history does not repeat it.
     const auto readoutRow = time_history::psrReadout (
         presentation::forEditor (600, 300), painterGeometry.psr.readout, false);
-    KIRIN_TIME_HISTORY_REQUIRE (! readoutRow.facts.isEmpty() && ! readoutRow.definition.isEmpty());
+    KIRIN_TIME_HISTORY_REQUIRE (! readoutRow.plr.isEmpty() && ! readoutRow.correlation.isEmpty()
+                                && ! readoutRow.definition.isEmpty());
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
-        renderPainter (normal, 12.1), renderPainter (normal, 14.3), readoutRow.facts) > 10);
+        renderPainter (normal, 12.1), renderPainter (normal, 14.3), readoutRow.plr) > 10);
+    // Pointing at a number or the PSR trace says what it is and how it is used; elsewhere nothing.
+    {
+        const auto context = presentation::forEditor (600, 300);
+        const auto help = [&] (juce::Rectangle<int> where, bool delta = false, bool momentary = true)
+        { return time_history::helpAt ({ 0, 0, 600, 300 }, delta, false, false, momentary, context, where.getCentre()); };
+        const auto cells = time_history::legendCells (painterGeometry.legend, false);
+        KIRIN_TIME_HISTORY_REQUIRE (help (cells[0]).startsWith ("Momentary loudness (M)"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (cells[0], false, false).startsWith ("Short-term loudness (S)"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (cells[2]).startsWith ("True peak (TP)"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (readoutRow.value).startsWith ("Peak to short-term loudness (PSR)"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (readoutRow.plr).startsWith ("Average dynamics of the song (PLR)"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (readoutRow.correlation).contains ("lilac tick"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (readoutRow.correlation, true).startsWith ("Correlation (CORR)")
+                                    && ! help (readoutRow.correlation, true).contains ("lilac"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (readoutRow.definition).startsWith ("PSR is PEAK - S"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (painterGeometry.psr.data.toNearestInt()).startsWith ("PSR over time"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (painterGeometry.psr.data.toNearestInt(), true).contains ("below 0 where the chain"));
+        KIRIN_TIME_HISTORY_REQUIRE (help (painterGeometry.mainPlot.toNearestInt()).isEmpty());
+    }
 
     auto difference = fixture (false);
     for (size_t index = 0u; index < difference.size(); ++index)
@@ -390,8 +410,8 @@ void verifyTimeHistoryContract()
             {
                 const auto row = time_history::psrReadout (
                     presentation, geometry.psr.readout, delta);
-                KIRIN_TIME_HISTORY_REQUIRE (! row.facts.isEmpty());
-                KIRIN_TIME_HISTORY_REQUIRE (! row.definition.isEmpty());
+                KIRIN_TIME_HISTORY_REQUIRE (! row.correlation.isEmpty() && (delta || ! row.plr.isEmpty()));
+                KIRIN_TIME_HISTORY_REQUIRE (dimensions.first < 600 || ! row.definition.isEmpty());
             }
         }
     }

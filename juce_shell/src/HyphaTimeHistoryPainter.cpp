@@ -116,28 +116,32 @@ void paintPsrReadout (juce::Graphics& g,
     g.setColour (COL_COPPER);
     text_style::drawText (g, "PSR " + latestText (history, Metric::psr, delta) + " dB",
                           row.value, juce::Justification::centredLeft);
-    auto facts = row.facts;
-    if (! facts.isEmpty())
+    if (! row.correlation.isEmpty())
     {
-        const auto correlationText = "CORR " + latestText (history, Metric::correlation, delta);
         g.setColour (COL_SPECTRUM_SIDE);
-        text_style::drawText (g, correlationText, facts, juce::Justification::centredRight);
-        if (! delta)
-        {
-            const auto plr = std::isfinite (sessionPlr) ? juce::String (sessionPlr, 1)
-                                                         : juce::String ("---");
-            g.setColour (COL_TEXT_SECONDARY);
-            text_style::drawText (g, "PLR " + plr + " dB", facts, juce::Justification::centredLeft);
-        }
+        text_style::drawText (g, "CORR " + latestText (history, Metric::correlation, delta),
+                              row.correlation, juce::Justification::centredRight);
     }
-    if (! row.definition.isEmpty())
+    if (! row.plr.isEmpty())
     {
-        g.setFont (monoFont (presentation, typography::TextRole::body,
-                             typography::Composition::visualization));
-        g.setColour (COL_TEXT_TERTIARY);
-        text_style::drawText (g, psrDefinition (delta), row.definition,
-                              juce::Justification::centredLeft);
+        const auto plr = std::isfinite (sessionPlr) ? juce::String (sessionPlr, 1) : juce::String ("---");
+        g.setColour (COL_TEXT_SECONDARY);
+        text_style::drawText (g, "PLR " + plr + " dB", row.plr, juce::Justification::centredLeft);
     }
+    if (row.definition.isEmpty())
+        return;
+    // PSR = PEAK - S of one 100 ms point, so the point that gives PSR also gives its PEAK.
+    juce::String definition = delta ? psrDefinition (true) : juce::String();
+    for (auto entry = history.rbegin(); ! delta && entry != history.rend(); ++entry)
+        if (std::isfinite (entry->psr.mean) && std::isfinite (entry->lufs_s.mean))
+        {
+            definition = psrDefinition (false, entry->psr.mean + entry->lufs_s.mean, entry->lufs_s.mean);
+            break;
+        }
+    g.setFont (monoFont (presentation, typography::TextRole::body,
+                         typography::Composition::visualization));
+    g.setColour (COL_TEXT_TERTIARY);
+    text_style::drawText (g, definition, row.definition, juce::Justification::centredLeft);
 }
 
 void paintPsrLane (juce::Graphics& g,
@@ -379,14 +383,13 @@ void paintLegend (juce::Graphics& g,
                   bool compact,
                   presentation::Context presentation)
 {
-    auto left = area;
-    const auto range = left.removeFromRight (legendBasisWidth (area.getWidth(), compact));
-    const int metricWidth = compact ? 42 : juce::jmin (72, left.getWidth() / 3);
+    const auto range = area.withTrimmedLeft (area.getWidth() - legendBasisWidth (area.getWidth(), compact));
+    const auto cells = legendCells (area, compact);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
     for (auto* visual = firstVisual; visual != endVisual; ++visual)
     {
-        auto cell = left.removeFromLeft (metricWidth);
+        const auto cell = cells[static_cast<std::size_t> (visual - firstVisual)];
         g.setColour (visual->colour);
         const auto text = compact ? juce::String (visual->label)
                                   : juce::String (visual->label) + " "
@@ -419,7 +422,7 @@ void paint (juce::Graphics& g,
     if (mainWindow) main_frame::paint (g, area.toFloat());
     if (delta && comparisonStatus.isNotEmpty())
     {
-        auto statusArea = area.removeFromTop (compactMeter ? 18 : 22);
+        auto statusArea = area.removeFromTop (statusRowHeight (compactMeter));
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentation, typography::TextRole::status,
                              typography::Composition::visualization));

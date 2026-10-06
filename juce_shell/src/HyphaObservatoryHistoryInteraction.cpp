@@ -3,6 +3,8 @@
 #include "HyphaCaptureHistoryPainter.h"
 #include "HyphaCaptureHistoryGeometry.h"
 #include "HyphaChannelReadoutLayout.h"
+#include "HyphaComparisonPresentation.h"
+#include "HyphaTimeHistoryLayout.h"
 
 namespace hypha::observatory
 {
@@ -199,14 +201,25 @@ juce::Rectangle<int> View::metricHelpArea (juce::Rectangle<int> area, level_metr
 
 juce::String View::metricHelpAt (juce::Point<int> point) const
 {
+    const bool difference = target() == ObservationTarget::delta;
+    const juce::String side (difference ? "POST minus PRE. " : role == Role::pre ? "PRE. " : "POST. ");
+    // TIME HISTORY: its legend values and the PSR row say what they are and how they are used.
+    if (selectedDomain == Domain::time && ! externalAnalysisBodyActive && ! hybridVuVisible() && ! captureFrame
+        && timeHistoryArea.contains (point))
+    {
+        const bool statusRow = difference && frameAvailable && comparison_presentation::statusText (
+            observatoryFrame.comparison_state, observatoryFrame.comparison_reason).isNotEmpty();
+        const auto help = time_history::helpAt (timeHistoryArea, difference, statusRow,
+            experienceFamily() == ExperienceFamily::compactMeter, currentPreset().density != Density::compact,
+            presentationContext(), point);
+        return help.isNotEmpty() ? side + help : juce::String();
+    }
     if (selectedDomain != Domain::level || hybridVuVisible() || captureFrame) return {};
     for (std::size_t index = 0; index < metricHelpCount; ++index)
     {
         const auto& region = metricHelpRegions[index];
         if (! region.bounds.contains (point)) continue;
-        const bool difference = target() == ObservationTarget::delta;
-        auto help = juce::String (difference ? "POST minus PRE. " : role == Role::pre ? "PRE. " : "POST. ");
-        help += level_metrics::scopeHelp (region.metric);
+        auto help = side + level_metrics::scopeHelp (region.metric);
         if (! difference && experienceFamily() == ExperienceFamily::compactMeter && compactShowsMaximum
             && (region.metric == level_metrics::Metric::shortTerm || region.metric == level_metrics::Metric::crest))
             help += " Showing its maximum since the last Meter Session reset.";

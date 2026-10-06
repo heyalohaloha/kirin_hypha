@@ -95,12 +95,19 @@ inline void verifyChainTimingFooterContract()
             }
         require (view.chainReadoutShownForTest() == ! folded,
                  "the footer rail carries a measurement from 150%; the folded sizes use the strip");
-        view.setFeedback ("Keeping");
+        // The timing the user keeps in the footer stays there beside any status: a short one keeps
+        // the rail, a long one moves to the strip over the body, whole.
+        for (const auto* status : { "Keeping", "PRE changed: check PAIR, then MENU > LISTEN to compare again; POST plays "
+                                               "meanwhile, and the PRE you chose waits until PAIR shows it again." })
         {
-            juce::Graphics graphics (image);
-            view.paintEntireComponent (graphics, true);
+            view.setFeedback (status);
+            {
+                juce::Graphics graphics (image);
+                view.paintEntireComponent (graphics, true);
+            }
+            require (view.chainReadoutShownForTest() == ! folded,
+                     "the chain timing the user keeps stays in the footer beside a status");
         }
-        require (! view.chainReadoutShownForTest(), "feedback owns the rail while it lasts");
     }
 }
 

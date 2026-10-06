@@ -343,8 +343,16 @@ bool KirinHyphaEditor::refreshLiveCompare()
     }
     liveCompareActiveSeen = status.active && ! status.finishing;
     newFault = monitorLiveCompareOffset (status, now) || newFault;
-    const auto recovery = hypha::live_compare_ui::namedPresentation (status, processorRef.liveCompareAdmission (false)).instruction;
-    if (*recovery != 0) liveCompareWarning = recovery;
+    const auto presentation = hypha::live_compare_ui::namedPresentation (status, processorRef.liveCompareAdmission (false));
+    liveCompareStory.clear();
+    if (*presentation.instruction != 0)
+    {
+        liveCompareWarning = presentation.instruction;
+        const auto why = presentation.reason != hypha::live_compare::RecoveryReason::none ? presentation.reason
+                                                                                         : status.observation;
+        if (const auto* next = hypha::live_compare_ui::nextStep (presentation.action); *next != 0)
+            liveCompareStory = { juce::String ("LISTEN: ") + hypha::live_compare_ui::cause (why) + ".", next };
+    }
     if (newFault) liveCompareAuto.on = false;
     newFault = followLiveCompare (status, now) || newFault;
     hypha::observatory::LiveCompareFooter footer;
@@ -358,7 +366,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
     footer.contentHeld = status.active && status.contentHeld;
     footer.compensationOff = status.active && status.compensationOff;
-    footer.recoveryHelp = recovery;
+    footer.recoveryHelp = presentation.instruction;
     footer.pinAvailable = processorRef.localBlindProductSupported()
         && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && (liveCompareMatched || status.matchHeld);

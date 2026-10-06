@@ -47,6 +47,28 @@ inline const char* cause (Reason reason) noexcept
 
 enum class RecoveryAction { none, automatic, play, stopPlay, compensation, checkPre,
                             checkLevels, selectPre, endBlind, returnLevel, listen, busy };
+
+// After the cause: what plays now and how to go on. The short status in the footer is the same
+// story cut to fit; the help line and the status window tell it whole as "LISTEN: <cause>. <next step>"
+// (PluginEditorHelpLine.cpp).
+inline const char* nextStep (RecoveryAction action) noexcept
+{
+    switch (action)
+    {
+        case RecoveryAction::automatic: return "POST plays until PRE is confirmed, then it resumes by itself.";
+        case RecoveryAction::play: return "POST plays now. Play the DAW to resume.";
+        case RecoveryAction::stopPlay: return "POST plays now. Stop and play the DAW to continue.";
+        case RecoveryAction::compensation: return "POST plays now. Turn on the DAW's delay compensation.";
+        case RecoveryAction::checkPre: return "POST plays now. Check the PRE in PAIR, then MENU > LISTEN.";
+        case RecoveryAction::checkLevels: return "POST plays now. Check the chain's levels, then MATCH again.";
+        case RecoveryAction::selectPre: return "POST plays now. Select PRE to compare again.";
+        case RecoveryAction::endBlind: return "Press END, then start BLIND again.";
+        case RecoveryAction::returnLevel: return "POST is still lowered. Press RETURN, then LISTEN.";
+        case RecoveryAction::listen: return "POST plays now. MENU > LISTEN compares again.";
+        case RecoveryAction::busy: case RecoveryAction::none: break;
+    }
+    return "";
+}
 struct RecoveryPresentation
 {
     Reason reason = Reason::none; // history, independent of the current remedy
@@ -121,11 +143,11 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         if (admission != live_compare::StartResult::started)
             return result (RecoveryAction::busy, "Comparison releasing; POST plays");
         if (state.reason == Reason::restored)
-            return result (RecoveryAction::listen, "State restored: MENU > LISTEN (POST)");
+            return result (RecoveryAction::listen, "Reopened: MENU > LISTEN (POST)");
         if (state.reason == Reason::formatChanged)
             return result (RecoveryAction::listen, "Format changed: MENU > LISTEN (POST)");
         if (state.reason == Reason::pairChanged || state.reason == Reason::preUnavailable || state.reason == Reason::foreignRing)
-            return result (RecoveryAction::checkPre, "Check PRE pair; MENU > LISTEN (POST)");
+            return result (RecoveryAction::checkPre, "PRE changed: check PAIR, MENU > LISTEN (POST)");
         return result (RecoveryAction::listen, "Stopped: MENU > LISTEN (POST)");
     }
     if (state.active && state.preSelected && state.preWaiting)

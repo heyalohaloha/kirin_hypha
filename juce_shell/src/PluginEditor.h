@@ -61,6 +61,9 @@ public:
     // wholeRow：足元の段の全幅（図・値・タブ）か、左の状態の所だけ（足元のボタン）か。出さないときは空。
     struct HelpLine { juce::String text; bool wholeRow = false; };
     HelpLine helpLineAt (juce::Point<int> point);
+    // The shown status told whole, when it has more to say (the live comparison's cause, then
+    // what plays now and how to go on); empty otherwise.
+    juce::StringArray statusStory() const;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseEnter (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -332,6 +335,7 @@ private:
     hypha::reference_ui::TrackingStopNotice referenceTrackingStop;  // 追従が止まった知らせ（同じ役の同じ試みで一度）
     juce::String referenceSetsIssueShown;    // Kirin OS のセットの一部を読めなかったことを一度だけ知らせる
     juce::String liveCompareWarning;
+    juce::StringArray liveCompareStory; // its cause and its next step, for the help line and the status window
     double liveComparePreWaitUntil = 0.0;
 #endif
     int    floraY      = 0;       // y of the flora separator line
