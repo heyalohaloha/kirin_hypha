@@ -11,6 +11,8 @@ mod notarize;
 mod os_access;
 #[cfg(test)]
 mod plugin_display_names;
+#[cfg(test)]
+mod reference_text;
 mod release_gate;
 mod release_package;
 mod release_package_metadata;

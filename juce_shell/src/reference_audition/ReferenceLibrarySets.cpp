@@ -1,4 +1,5 @@
 #include "ReferenceLibrarySets.h"
+#include "ReferenceTextEdges.h"
 #include "ReferenceRuntimeRepositoryParsing.h"
 
 #include <juce_cryptography/juce_cryptography.h>
@@ -23,7 +24,7 @@ bool setName (const juce::var& value, juce::String& result)
 {
     if (! value.isString()) return false;
     result = value.toString();
-    if (result.isEmpty() || result.length() > 80 || result != result.trim()) return false;
+    if (result.isEmpty() || result.length() > 80 || ! reference_text::trimmed (result)) return false;
     for (auto character : result)
         if (character < 0x20 || (character >= 0x7f && character <= 0x9f) || character == 0x2028 || character == 0x2029)
             return false;

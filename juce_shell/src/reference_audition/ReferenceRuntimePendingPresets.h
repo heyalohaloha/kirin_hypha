@@ -1,6 +1,7 @@
 #pragma once
 #include "ReferenceRuntimeV2Model.h"
 #include "ReferenceRuntimeV2PresetParsing.h"
+#include "ReferenceTextEdges.h"
 #include <set>
 
 namespace hypha::reference_audition
@@ -34,7 +35,7 @@ namespace hypha::reference_audition
                 || ! runtime_v2_parsing::parseSourcePresetReceipt (item->getProperty ("source_preset_artifact"), pending.sourcePresetArtifact)) return false;
             pending.name = item->getProperty ("name").toString();
             const auto& source = pending.sourcePresetArtifact;
-            if (pending.name.isEmpty() || pending.name.length() > 80 || pending.name.trim() != pending.name
+            if (pending.name.isEmpty() || pending.name.length() > 80 || ! reference_text::trimmed (pending.name)
                 || source.presetId != pending.sourceTemplateArtifact.presetId
                 || source.revisionId == pending.sourceTemplateArtifact.revisionId
                 || ! ids.insert (source.presetId).second || ! revisions.insert (source.revisionId).second) return false;

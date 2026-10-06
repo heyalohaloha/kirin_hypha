@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Profile.h"
+#include "ReferenceTextEdges.h"
 
 #include <cmath>
 #include <limits>
@@ -61,7 +62,7 @@ namespace hypha::reference_audition
         bool displayText (const juce::var& value, juce::String& result)
         {
             if (! exactString (value, result) || result.isEmpty()
-                || result.length() > 80 || result.trim() != result)
+                || result.length() > 80 || ! reference_text::trimmed (result))
                 return false;
             for (auto character : result)
                 if (character < 0x20 || (character >= 0x7f && character <= 0x9f)

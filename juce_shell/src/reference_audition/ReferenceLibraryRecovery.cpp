@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceLibraryOpenOutcome.h"
 
 namespace hypha::reference_audition
 {
@@ -52,9 +53,10 @@ void RuntimeV2Controller::serviceLibraryRecovery()
 {
     const juce::ScopedLock lock (stateLock);
     if (pendingLibraryOpen == juce::File()) return;
-    const bool opened = ! pendingLibraryOpen.existsAsFile();
-    if (! opened && juce::Time::currentTimeMillis() - libraryOpenRequestedAt < 15000) return;
-    currentSnapshot.recoveryStatus = opened ? "opened" : "timed_out";
+    const auto outcome = libraryOpenOutcome (! pendingLibraryOpen.existsAsFile(),
+                                             juce::Time::currentTimeMillis() - libraryOpenRequestedAt);
+    if (outcome == LibraryOpenOutcome::pending) return;
+    currentSnapshot.recoveryStatus = outcome == LibraryOpenOutcome::opened ? "opened" : "timed_out";
     pendingLibraryOpen = juce::File {};
     recoveryStatusExpiresAtMs = juce::Time::currentTimeMillis() + 3000;
 }

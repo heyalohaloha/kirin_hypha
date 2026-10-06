@@ -40,6 +40,9 @@ namespace hypha::reference_audition
         juce::String label;
         juce::String revisionId;
         bool requiresPreparation = false;
+        // A CHECK target's two parts. The CHECK page reads these, never a split of `label`: a
+        // Kirin OS label may itself contain the separator.
+        juce::String checkLabel {}, itemLabel {};
     };
 
     // Hypha に届いた B セット（順位順、最大 3）と、その曲（B の一覧）。曲の id は選択の ID。

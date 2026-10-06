@@ -4,9 +4,11 @@
 // 今までと同じ厳しさ。試験は tests/fixtures の Kirin OS の書き出しの写し（試験用のフォルダの中）だけを書き換える。
 #include "reference_runtime_test_support.h"
 #include "KirinLibraryFixture.h"
+#include "../src/reference_audition/ReferenceLibraryOpenOutcome.h"
 #include "../src/reference_audition/ReferenceLibrarySets.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceRuntimeEventTransport.h"
+#include "../src/reference_audition/ReferenceTextEdges.h"
 
 void testReferenceLibrarySkipped (const juce::File&);
 
@@ -33,10 +35,40 @@ void rewriteArtifact (const juce::File& root, juce::var& receipt, const char* fo
 }
 
 juce::var readJsonFile (const juce::File& file) { return juce::JSON::parse (file); }
+
+// 2026-10-07: Hypha checks a Kirin OS name's ends against Kirin OS's own trim set, the same on every
+// OS (JUCE's trim() takes U+2000B or U+20020 for a space on Windows). A Version name cut to 80 ends
+// without a space. An open request's file gone before 15 s is an open; at or after it, Kirin OS may
+// have removed an expired or late request, so it is not.
+void testNameEdgesAndOpenOutcome()
+{
+    using hypha::reference_text::trimmed;
+    using hypha::reference_text::trimEdges;
+    const auto c = [] (juce::juce_wchar character) { return juce::String::charToString (character); };
+    require (trimmed (c (0x2000b) + "Song") && trimmed ("Song" + c (0x20020)) && trimmed ("A") && trimmed ({}),
+             "a character beyond the BMP is never an edge space");
+    for (const auto space : { 0x09, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x180e, 0x2000, 0x200a, 0x200b, 0x2028, 0x2029,
+                              0x202f, 0x205f, 0x3000, 0xfeff })
+        require (! trimmed (c (static_cast<juce::juce_wchar> (space)) + "A")
+                     && ! trimmed ("A" + c (static_cast<juce::juce_wchar> (space))),
+                 "every character Kirin OS trims is an edge space");
+    require (trimEdges (c (0x3000) + " Name" + c (0x200b)) == "Name" && trimEdges ("  ").isEmpty(),
+             "trimEdges removes them from both ends");
+    require (hypha::reference_text::cut (juce::String::repeatedString ("A", 79) + " B", 80)
+                 == juce::String::repeatedString ("A", 79),
+             "a name cut to 80 does not end in a space");
+    using ref::LibraryOpenOutcome;
+    require (ref::libraryOpenOutcome (false, 1000) == LibraryOpenOutcome::pending
+                 && ref::libraryOpenOutcome (true, 14999) == LibraryOpenOutcome::opened
+                 && ref::libraryOpenOutcome (true, 15000) == LibraryOpenOutcome::timedOut
+                 && ref::libraryOpenOutcome (false, 15000) == LibraryOpenOutcome::timedOut,
+             "an open request is pending, opened or timed out by its own deadline");
+}
 }
 
 void testReferenceLibrarySkipped (const juce::File& sandbox)
 {
+    testNameEdgesAndOpenOutcome();
     const auto root = libraryCopy (sandbox, "library-skipped");
     const auto manifestFile = root.getChildFile ("library/manifest.json");
     auto manifest = readJsonFile (manifestFile);
@@ -103,4 +135,18 @@ void testReferenceLibrarySkipped (const juce::File& sandbox)
     const auto refreshed = repository.refreshLibrary (loaded.workspace);
     require (refreshed.usable() && refreshed.workspace->setsSkipped.size() == 1 && refreshed.workspace->librarySkipped.size() == 2,
              "the workspace keeps what it left out from the manifest and from the sets");
+
+    // A name that starts with the kanji U+2000B and ends with U+20020 is a clean Kirin OS name on
+    // every OS: it is read whole, not left out. Written as Kirin OS writes, in raw UTF-8 (JUCE's own
+    // JSON writer would split each into two \u escapes, which its reader does not join again).
+    const auto kanji = juce::String::charToString (0x2000b) + "Song" + juce::String::charToString (0x20020);
+    sets["song_sets"][0]["songs"][1].getDynamicObject()->setProperty ("display_name", kanji);
+    require (root.getChildFile ("library/sets.json").replaceWithText (ref::RuntimeEventTransport::canonicalJson (sets)),
+             "a renamed set song inside the copy, in raw UTF-8");
+    rejection.clear();
+    skipped.clear();
+    const auto kanjiRead = ref::readReferenceLibrarySets (root, workspace, rejection, skipped);
+    require (kanjiRead.has_value() && rejection.isEmpty() && skipped.empty() && kanjiRead->songSets[0].songs.size() == 2
+                 && kanjiRead->songSets[0].songs[1].displayName == kanji,
+             "a name with a character beyond the BMP at either end is read whole");
 }
