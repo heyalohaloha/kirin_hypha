@@ -155,6 +155,25 @@ inline void verifyReferenceCheckPage()
              "300%: the Checks are tabs in the set's order, the song is chosen within the Check, V stays on its page");
     for (size_t index = 0; index < tabs->tabs().size(); ++index)
         require (panel.getLocalBounds().contains (tabs->getBounds()) && ! tabs->tabBounds (index).isEmpty(), "every tab is reachable");
+    // 2026-10-07: a Kirin OS CHECK name may itself hold the separator. The runtime gives the CHECK and
+    // its song apart, so the tab keeps the whole name and the song stays the song.
+    {
+        auto separated = state;
+        separated.checks = { { "chk-ab/cand-1", "A  /  B  /  Song 1", "A  /  B", "Song 1" },
+                             { "chk-ab/cand-2", "A  /  B  /  Song 2", "A  /  B", "Song 2" } };
+        separated.checkId = "chk-ab/cand-1";
+        reference_ui::Component separatedPanel;
+        separatedPanel.setVisible (true);
+        separatedPanel.setPresentationContext (presentation::forEditor (900, 600));
+        separatedPanel.setSize (888, 470);
+        separatedPanel.setState (separated);
+        auto* separatedTabs = dynamic_cast<reference_ui::CheckTabs*> (separatedPanel.findChildWithID ("reference-check-tabs"));
+        auto* separatedSong = dynamic_cast<juce::ComboBox*> (separatedPanel.findChildWithID ("reference-check-song"));
+        require (separatedTabs != nullptr && separatedSong != nullptr && separatedTabs->tabs().size() == 1
+                     && separatedTabs->tabs()[0].label == "A  /  B" && separatedSong->getNumItems() == 2
+                     && separatedSong->getText() == "Song 1",
+                 "a CHECK name holding the separator keeps its whole name, and its songs stay songs");
+    }
     // 2026-10-05：Check が多くて 1 段に入らなければ 2 段に分け、どの名前も
     // 切らない（300% で Mastering の 8 項目が「音色…」「セク…」と切れていた）。
     {

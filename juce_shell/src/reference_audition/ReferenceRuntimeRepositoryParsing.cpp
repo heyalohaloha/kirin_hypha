@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeRepositoryParsing.h"
+#include "ReferenceTextEdges.h"
 #include "ReferenceRuntimeV2PresetParsing.h"
 #include "ReferenceRuntimePendingPresets.h"
 
@@ -69,7 +70,7 @@ namespace hypha::reference_audition
                           juce::String& result)
         {
             if (! exactString (value, result) || result.isEmpty()
-                || result.length() > maximumCharacters || result.trim() != result)
+                || result.length() > maximumCharacters || ! reference_text::trimmed (result))
                 return false;
             for (auto character : result)
                 if (character < 0x20 || (character >= 0x7f && character <= 0x9f)
@@ -375,8 +376,8 @@ namespace hypha::reference_audition
             for (const auto character : item[nameProperty].toString())
                 shown += (character < 0x20 || (character >= 0x7f && character <= 0x9f) || character == 0x2028 || character == 0x2029)
                     ? juce::String ("?") : juce::String::charToString (character);
-            shown = shown.trim();
-            result.name = shown.length() > 40 ? shown.substring (0, 39).trimEnd() + juce::String::charToString (0x2026) : shown;
+            shown = reference_text::trimEdges (shown);
+            result.name = shown.length() > 40 ? reference_text::trimEdges (shown.substring (0, 39)) + juce::String::charToString (0x2026) : shown;
             return result;
         }
 

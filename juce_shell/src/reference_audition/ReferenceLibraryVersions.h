@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceRuntimeRepositoryParsing.h"
+#include "ReferenceTextEdges.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <set>
 
@@ -47,7 +48,7 @@ inline bool readReferenceLibraryVersion (const juce::File& root, const juce::var
     RuntimePreset entry;
     entry.versionEntry = true;
     entry.sourcePresetArtifact = receipt;
-    entry.name = candidate.displayName.substring (0, 80);
+    entry.name = reference_text::cut (candidate.displayName, 80); // Kirin OS keeps it in listening records
     RuntimeCheck check;
     check.checkId = receipt.presetId; check.label = "Version"; check.mode = "audition_with_facts";
     check.viewBindings = { "waveform", "loudness", "dynamics" }; check.comparisonMode = "loudness_match";

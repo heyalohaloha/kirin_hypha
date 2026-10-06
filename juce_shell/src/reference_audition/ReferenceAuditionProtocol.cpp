@@ -1,4 +1,5 @@
 #include "ReferenceAuditionProtocol.h"
+#include "ReferenceTextEdges.h"
 
 #include <cmath>
 #include <regex>
@@ -85,7 +86,7 @@ namespace hypha::reference_audition
             for (auto character : value)
                 if (character < 0x20 || character == 0x7f)
                     return false;
-            return value.trim() == value && ! value.contains ("  ");
+            return reference_text::trimmed (value) && ! value.contains ("  ");
         }
 
         bool nullableSafeId (const juce::DynamicObject& object, const char* name,

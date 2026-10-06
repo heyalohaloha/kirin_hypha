@@ -30,11 +30,16 @@ std::vector<CheckGroup> checkGroups (const std::vector<SelectionOption>& targets
     for (const auto& target : targets)
     {
         const auto checkId = target.id.upToFirstOccurrenceOf ("/", false, false);
+        // The runtime gives the CHECK and its song apart; only a label without them (an older
+        // producer) is split at its first separator.
+        const bool parts = target.checkLabel.isNotEmpty();
         const auto separator = target.label.indexOf ("  /  ");
-        const bool missing = target.label.endsWith (noSource);
-        const auto label = missing ? target.label.dropLastCharacters (juce::String (noSource).length())
+        const bool missing = ! parts && target.label.endsWith (noSource);
+        const auto label = parts ? target.checkLabel
+                         : missing ? target.label.dropLastCharacters (juce::String (noSource).length())
                          : separator >= 0 ? target.label.substring (0, separator) : target.label;
-        const auto song = missing ? juce::String ("NO SOURCE IN KIRIN OS")
+        const auto song = parts ? target.itemLabel
+                        : missing ? juce::String ("NO SOURCE IN KIRIN OS")
                         : separator >= 0 ? target.label.substring (separator + 5) : target.label;
         auto group = std::find_if (groups.begin(), groups.end(), [&checkId] (const auto& item) { return item.checkId == checkId; });
         if (group == groups.end())

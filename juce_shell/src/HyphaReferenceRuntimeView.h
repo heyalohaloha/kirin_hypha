@@ -45,8 +45,12 @@ inline std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
 {
     std::vector<hypha::reference_ui::SelectionOption> output;
     output.reserve (input.size());
-    for (const auto& item : input) output.push_back ({
-        item.id, item.label + (item.requiresPreparation ? "  /  PREPARE" : "") });
+    for (const auto& item : input)
+    {
+        const juce::String preparing (item.requiresPreparation ? "  /  PREPARE" : "");
+        output.push_back ({ item.id, item.label + preparing, item.checkLabel,
+                            item.itemLabel.isEmpty() ? juce::String() : item.itemLabel + preparing });
+    }
     return output;
 }
 inline hypha::reference_ui::BlindPhase referenceBlindPhase (

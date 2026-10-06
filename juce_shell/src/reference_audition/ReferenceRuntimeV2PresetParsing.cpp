@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2PresetParsing.h"
+#include "ReferenceTextEdges.h"
 
 #include <regex>
 #include <set>
@@ -59,7 +60,7 @@ bool displayText (const juce::var& value, int maximumCharacters,
                   juce::String& result)
 {
     if (! exactString (value, result) || result.isEmpty()
-        || result.length() > maximumCharacters || result.trim() != result)
+        || result.length() > maximumCharacters || ! reference_text::trimmed (result))
         return false;
     for (auto character : result)
         if (character < 0x20 || (character >= 0x7f && character <= 0x9f)

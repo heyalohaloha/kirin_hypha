@@ -78,6 +78,7 @@ struct SelectionOption
 {
     juce::String id;
     juce::String label;
+    juce::String checkLabel {}, itemLabel {}; // a CHECK target's two parts, when the runtime gives them
 };
 
 // B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。

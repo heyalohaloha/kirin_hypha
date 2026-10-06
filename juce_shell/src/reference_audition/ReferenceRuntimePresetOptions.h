@@ -30,11 +30,11 @@ namespace hypha::reference_audition
                         if (check.mode == "audition_only") snapshot.listeningChecks.insert (check.checkId);
                         if (check.candidates.empty())
                             snapshot.checkTargets.push_back ({ check.checkId + "/",
-                                check.label + " / NO SOURCE IN KIRIN OS", {}, false });
+                                check.label + " / NO SOURCE IN KIRIN OS", {}, false, check.label, "NO SOURCE IN KIRIN OS" });
                         for (const auto& candidate : check.candidates)
                             snapshot.checkTargets.push_back ({ check.checkId + "/" + candidate.candidateId,
                                 check.label + "  /  " + candidate.displayName,
-                                {}, ! candidate.prepared });
+                                {}, ! candidate.prepared, check.label, candidate.displayName });
                     }
         std::set<juce::String> versions;
         if (workspace.library)
