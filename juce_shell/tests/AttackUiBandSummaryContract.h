@@ -125,9 +125,9 @@ inline bool verifyBandRendering()
         {
             // 150% keeps the summary's title AND fact line, and a locked hit's time, at the
             // fixed typography floor. A decorative frame must never silently remove them.
-            constexpr auto visualization = typography::Composition::visualization;
             const auto heightFor = [&context] (typography::TextRole role) {
-                return text_style::requiredLineHeight (typography::resolve (context, role, visualization)); };
+                return text_style::requiredLineHeight (typography::resolve (context, role,
+                    typography::Composition::visualization)); };
             auto words = readingArea (layout).reduced (11, 2);
             const auto title = words.removeFromTop (heightFor (typography::TextRole::legend));
             if (words.getHeight() < heightFor (typography::TextRole::readout)
