@@ -225,6 +225,9 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                                        observatoryFrame.comparison_state,
                                        observatoryFrame.comparison_reason)
                                  : juce::String(),
-                             currentPreset().density != Density::compact, true);
+                             currentPreset().density != Density::compact, true,
+                             target() == ObservationTarget::absolute && frameAvailable
+                                 ? observatoryFrame.meter.plr
+                                 : std::numeric_limits<double>::quiet_NaN());
 }
 }

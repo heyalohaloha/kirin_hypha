@@ -139,7 +139,7 @@ std::vector<KirinMeterHistoryEntry> historyFixture()
                         : index == 70u ? -1.2 : -5.0 + wave;
         entry.true_peak.min = entry.true_peak.max = entry.true_peak.mean = peak;
         entry.correlation.min = entry.correlation.max = entry.correlation.mean = 0.8;
-        entry.plr.min = entry.plr.max = entry.plr.mean = 12.0 + wave;
+        entry.psr.min = entry.psr.max = entry.psr.mean = 9.0 + 1.5 * wave;
     }
     return result;
 }

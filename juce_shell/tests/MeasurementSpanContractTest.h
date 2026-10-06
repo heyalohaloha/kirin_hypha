@@ -40,7 +40,7 @@ inline KirinMeterHistoryEntry row (std::uint64_t epoch, std::uint64_t observed, 
     entry.lufs_s = { momentary, momentary, momentary };
     entry.true_peak = { momentary, momentary, momentary };
     entry.correlation = { 0.8, 0.8, 0.8 };
-    entry.plr = { 10.0, 10.0, 10.0 };
+    entry.psr = { 9.0, 9.0, 9.0 };
     return entry;
 }
 

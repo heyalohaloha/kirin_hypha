@@ -245,11 +245,23 @@ void verifyPreservedSurfaceText()
         const auto bodyFont = monoFont (
             context, typography::TextRole::body,
             typography::Composition::visualization);
-        const auto plrDefinition = preset.width >= 600
-            ? "SESSION FACT / TP MAX - LUFS-I" : "TP MAX - LUFS-I";
-        KIRIN_TYPOGRAPHY_REQUIRE (fits (
-            bodyFont, plrDefinition,
-            time_history::auxLabelWidth (context, true, false, body.width)));
+        // TIME's PSR lane: the current PSR, what it is, and the session's PLR and CORR fit in one
+        // row wherever the lane is shown (every size above the compact meter). The frame's ring
+        // and shadow are taken off both sides.
+        if (preset.width > 375)
+        {
+            const auto timeArea = juce::Rectangle<int> (
+                shell.body.x, shell.body.y, shell.body.width,
+                shell.body.height - observatory::timeNavigationHeight (preset.density)).reduced (16, 0);
+            const auto lane = time_history::makeGeometry (timeArea, false, context).psr;
+            for (const bool delta : { false, true })
+            {
+                const auto row = time_history::psrReadout (context, lane.readout, delta);
+                KIRIN_TYPOGRAPHY_REQUIRE (! row.facts.isEmpty() && ! row.definition.isEmpty());
+                KIRIN_TYPOGRAPHY_REQUIRE (fits (bodyFont, time_history::psrDefinition (delta),
+                                                (float) row.definition.getWidth()));
+            }
+        }
     }
 }
 

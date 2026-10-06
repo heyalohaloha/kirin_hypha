@@ -53,9 +53,9 @@ std::vector<KirinMeterHistoryEntry> fixture (bool alternate)
         entry.lufs_s = { shortTerm - 0.3, shortTerm + 0.3, shortTerm };
         entry.true_peak = { peak - 0.4, peak + 0.4, peak };
         const double correlation = 0.72 + wave * 0.16;
-        const double plr = 12.0 + wave * 1.8;
+        const double psr = 9.0 + wave * 2.5;
         entry.correlation = { correlation - 0.03, correlation + 0.03, correlation };
-        entry.plr = { plr - 0.2, plr + 0.2, plr };
+        entry.psr = { psr - 0.6, psr + 0.6, psr };
     }
     return result;
 }
@@ -75,7 +75,8 @@ juce::Image render (const std::vector<KirinMeterHistoryEntry>& history,
     return image;
 }
 
-juce::Image renderPainter (const std::vector<KirinMeterHistoryEntry>& history)
+juce::Image renderPainter (const std::vector<KirinMeterHistoryEntry>& history,
+                          double sessionPlr = std::numeric_limits<double>::quiet_NaN())
 {
     constexpr int width = 600;
     constexpr int height = 300;
@@ -83,8 +84,22 @@ juce::Image renderPainter (const std::vector<KirinMeterHistoryEntry>& history)
     juce::Graphics graphics (image);
     time_history::paint (graphics, image.getBounds(), history, "30 S", false, false,
                          meter_context::ScaleMode::wide,
-                         presentation::forEditor (width, height));
+                         presentation::forEditor (width, height), {}, true, false, sessionPlr);
     return image;
+}
+
+// Pixels of a cool hue. The palette is warm except for the cyan family, which on this page only
+// true peak wears.
+int coolPixels (const juce::Image& image, juce::Rectangle<int> area)
+{
+    int count = 0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
+        {
+            const auto c = image.getPixelAt (x, y);
+            count += c.getAlpha() > 0 && c.getBlue() > c.getRed() + 8 ? 1 : 0;
+        }
+    return count;
 }
 
 class SteadyPaintFixture final
@@ -204,20 +219,20 @@ void verifyTimeHistoryContract()
     {
         for (auto* entry : { &truePeakOnlyA[index], &truePeakOnlyB[index] })
         {
-            entry->lufs_m = entry->lufs_s = entry->plr = entry->correlation
+            entry->lufs_m = entry->lufs_s = entry->psr = entry->correlation
                 = { missing, missing, missing };
         }
         truePeakOnlyB[index].true_peak.mean += std::sin ((double) index * 0.19) * 5.0;
         for (auto* entry : { &correlationOnlyA[index], &correlationOnlyB[index] })
         {
-            entry->lufs_m = entry->lufs_s = entry->true_peak = entry->plr
+            entry->lufs_m = entry->lufs_s = entry->true_peak = entry->psr
                 = { missing, missing, missing };
         }
-        correlationOnlyB[index].correlation.mean
-            = std::sin ((double) index * 0.17) * 0.8;
+        const auto swing = std::sin ((double) index * 0.17) * 0.8;
+        correlationOnlyB[index].correlation = { swing, swing, swing };
         for (auto* entry : { &allMissingA[index], &allMissingB[index] })
         {
-            entry->lufs_m = entry->lufs_s = entry->true_peak = entry->plr
+            entry->lufs_m = entry->lufs_s = entry->true_peak = entry->psr
                 = entry->correlation = { missing, missing, missing };
         }
         allMissingB[index].true_peak.min = -2.0;
@@ -226,9 +241,21 @@ void verifyTimeHistoryContract()
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
         renderPainter (truePeakOnlyA), renderPainter (truePeakOnlyB),
         { 39, 29, 522, 142 }) > 200);
+    const auto painterGeometry = time_history::makeGeometry (
+        { 0, 0, 600, 300 }, false, presentation::forEditor (600, 300));
+    const auto plotFloor = painterGeometry.mainPlot.withTop (
+        painterGeometry.mainPlot.getBottom() - 8.0f).toNearestInt();
+    // CORR keeps one mark in the history: a tick on the plot floor where it fell below zero.
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
-        renderPainter (correlationOnlyA), renderPainter (correlationOnlyB),
-        { 39, 240, 522, 54 }) > 100);
+        renderPainter (correlationOnlyA), renderPainter (correlationOnlyB), plotFloor) > 6);
+    // TP wears the cyan of the VU TP rail; M never does, so the two lines cannot be confused.
+    auto momentaryOnly = allMissingA;
+    for (size_t index = 0; index < normal.size(); ++index)
+        momentaryOnly[index].lufs_m = normal[index].lufs_m;
+    const auto plotArea = painterGeometry.mainPlot.toNearestInt();
+    const auto background = coolPixels (renderPainter (allMissingA), plotArea);
+    KIRIN_TIME_HISTORY_REQUIRE (coolPixels (renderPainter (truePeakOnlyB), plotArea) > background + 40);
+    KIRIN_TIME_HISTORY_REQUIRE (coolPixels (renderPainter (momentaryOnly), plotArea) == background);
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
         renderPainter (allMissingA), renderPainter (allMissingB)) == 0);
 
@@ -242,35 +269,38 @@ void verifyTimeHistoryContract()
         fullWidth, dawAxisFixture[1], dawAxis, 1, dawAxisFixture.size());
     KIRIN_TIME_HISTORY_REQUIRE (std::abs (projected - 85.6f) < 0.01f);
 
-    auto zeroCorrelation = normal;
-    auto movingCorrelation = normal;
+    auto steadyPsr = normal;
+    auto movingPsr = normal;
     for (size_t index = 0; index < normal.size(); ++index)
     {
-        zeroCorrelation[index].correlation = { 0.0, 0.0, 0.0 };
+        steadyPsr[index].psr = { 10.0, 10.0, 10.0 };
         const auto value = index + 1 == normal.size()
-            ? 0.0 : std::sin (static_cast<double> (index) * 0.17) * 0.9;
-        movingCorrelation[index].correlation = { value, value, value };
+            ? 10.0 : 10.0 + std::sin (static_cast<double> (index) * 0.17) * 6.0;
+        movingPsr[index].psr = { value, value, value };
     }
-    const auto zeroCorrelationImage = renderPainter (zeroCorrelation);
-    const auto movingCorrelationImage = renderPainter (movingCorrelation);
-    const auto painterGeometry = time_history::makeGeometry (
-        zeroCorrelationImage.getBounds(), false,
-        presentation::forEditor (zeroCorrelationImage.getWidth(),
-                                 zeroCorrelationImage.getHeight()));
+    const auto steadyPsrImage = renderPainter (steadyPsr);
+    const auto movingPsrImage = renderPainter (movingPsr);
     KIRIN_TIME_HISTORY_REQUIRE (
-        painterGeometry.correlation.readout.getBottom()
-            <= juce::roundToInt (painterGeometry.correlation.data.getY()));
+        painterGeometry.psr.readout.getBottom()
+            <= juce::roundToInt (painterGeometry.psr.data.getY()));
     KIRIN_TIME_HISTORY_REQUIRE (
-        std::abs (painterGeometry.correlation.data.getX()
+        std::abs (painterGeometry.psr.data.getX()
                   - painterGeometry.timelineX.getStart()) < 0.01f);
     KIRIN_TIME_HISTORY_REQUIRE (
-        std::abs (painterGeometry.correlation.data.getRight()
+        std::abs (painterGeometry.psr.data.getRight()
                   - painterGeometry.timelineX.getEnd()) < 0.01f);
-    // Both fixtures display the same `CORR +0.00` readout. Their paths differ, so any changed
+    // Both fixtures display the same `PSR 10.0 dB` readout. Their paths differ, so any changed
     // pixel in the production readout rectangle proves that data ink crossed the text band.
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
-        zeroCorrelationImage, movingCorrelationImage,
-        painterGeometry.correlation.readout) == 0);
+        steadyPsrImage, movingPsrImage, painterGeometry.psr.readout) == 0);
+    KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
+        steadyPsrImage, movingPsrImage, painterGeometry.psr.data.toNearestInt()) > 100);
+    // PLR stays as the Meter Session's number beside PSR; the history does not repeat it.
+    const auto readoutRow = time_history::psrReadout (
+        presentation::forEditor (600, 300), painterGeometry.psr.readout, false);
+    KIRIN_TIME_HISTORY_REQUIRE (! readoutRow.facts.isEmpty() && ! readoutRow.definition.isEmpty());
+    KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
+        renderPainter (normal, 12.1), renderPainter (normal, 14.3), readoutRow.facts) > 10);
 
     auto difference = fixture (false);
     for (size_t index = 0u; index < difference.size(); ++index)
@@ -282,9 +312,9 @@ void verifyTimeHistoryContract()
         difference[index].correlation = { value * 0.08 - 0.03,
                                           value * 0.08 + 0.03,
                                           value * 0.08 };
-        difference[index].plr = { value * 0.4 - 0.2,
-                                  value * 0.4 + 0.2,
-                                  value * 0.4 };
+        difference[index].psr = { -value * 0.5 - 0.3,
+                                  -value * 0.5 + 0.3,
+                                  -value * 0.5 };
     }
     const auto differenceImage = render (difference, 600, 400, true);
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (normalImage, differenceImage) > 1'000);
@@ -292,7 +322,7 @@ void verifyTimeHistoryContract()
     auto alternateAux = normal;
     for (auto& entry : alternateAux)
     {
-        entry.plr.mean += 4.0;
+        entry.psr.mean += 4.0;
         entry.correlation.mean -= 0.6;
     }
 
@@ -348,14 +378,21 @@ void verifyTimeHistoryContract()
                 time_history::legendBasisWidth (geometry.legend.getWidth(), false)
                     >= text_style::requiredWidth (legendFont, exactBasis, legendStyle));
             KIRIN_TIME_HISTORY_REQUIRE (
-                geometry.correlation.readout.getBottom()
-                    <= juce::roundToInt (geometry.correlation.data.getY()));
+                geometry.psr.readout.getBottom()
+                    <= juce::roundToInt (geometry.psr.data.getY()));
             KIRIN_TIME_HISTORY_REQUIRE (
-                std::abs (geometry.correlation.data.getX()
+                std::abs (geometry.psr.data.getX()
                           - geometry.mainPlot.getX()) < 0.01f);
             KIRIN_TIME_HISTORY_REQUIRE (
-                std::abs (geometry.correlation.data.getRight()
+                std::abs (geometry.psr.data.getRight()
                           - geometry.mainPlot.getRight()) < 0.01f);
+            for (const bool delta : { false, true })
+            {
+                const auto row = time_history::psrReadout (
+                    presentation, geometry.psr.readout, delta);
+                KIRIN_TIME_HISTORY_REQUIRE (! row.facts.isEmpty());
+                KIRIN_TIME_HISTORY_REQUIRE (! row.definition.isEmpty());
+            }
         }
     }
 

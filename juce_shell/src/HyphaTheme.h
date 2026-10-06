@@ -39,6 +39,11 @@ namespace hypha
     inline const juce::Colour COL_SPECTRUM_MID { ui_contract::spectrumMid };
     inline const juce::Colour COL_SPECTRUM_SIDE { ui_contract::spectrumSide };
     inline const juce::Colour COL_SHARPNESS { ui_contract::sharpness };
+    // True peak keeps the cyan of the VU TP rail on every page, so a TP line or mark never
+    // wears the champagne of M. Above 0 dBTP it brightens to the pale ice of the same family.
+    inline const juce::Colour COL_TRUE_PEAK { ui_contract::spectrumDelta };
+    inline const juce::Colour COL_TRUE_PEAK_BR { ui_contract::spectrumDeltaBright };
+    inline const juce::Colour COL_COPPER { ui_contract::copper };
     inline const juce::Colour COL_LED_BLUE  { ui_contract::ledBlue }; // #4488CC WatchBreathing
     inline const juce::Colour COL_LED_GREEN { ui_contract::ledGreen }; // #4CC07A RecordStandby / RecordActive
     inline const juce::Colour COL_LED_YELLOW{ ui_contract::ledYellow }; // #CCAA44 Error (measure thread)

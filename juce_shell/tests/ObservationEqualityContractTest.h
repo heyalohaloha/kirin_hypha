@@ -82,9 +82,9 @@ inline void verify()
     require (same (w, x));
     x.maximum.dropped_samples = 1; require (! same (w, x));
     KirinMeterHistoryEntry h {}, j {};
-    h.plr.mean = j.plr.mean = std::nan (""); require (same (h, j));
+    h.psr.mean = j.psr.mean = std::nan (""); require (same (h, j));
     j.reserved = 1; require (same (h, j));
-    j.plr.max = 3; require (! same (h, j)); j.plr.max = 0;
+    j.psr.max = 3; require (! same (h, j)); j.psr.max = 0;
     j.first_timeline_endpoint_samples = -1; require (! same (h, j));
     j.first_timeline_endpoint_samples = 0;
     j.clip_event_count[1] = 1; require (! same (h, j));

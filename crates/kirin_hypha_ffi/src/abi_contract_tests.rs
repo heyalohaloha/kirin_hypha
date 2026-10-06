@@ -8,7 +8,7 @@ use super::*;
 
 /// 隔離された参照値。製品の定数を読まない。
 const EXPECTED: KirinAbiContract = KirinAbiContract {
-    revision: 6,
+    revision: 7,
     observatory_frame_version: 6,
     max_channels: 16,
     mono_sum_band_count: 32,

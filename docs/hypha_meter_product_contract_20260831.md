@@ -422,7 +422,9 @@ L/R同時clipは各チャンネルの独立eventとして数え、総数へ暗�
 
 表示履歴はMeasure Thread側で固定容量の多段ring bufferへ集計する。
 
-M、S、TP、PLR、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
+M、S、TP、PSR、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
+
+TIME HISTORYは主面にM、S、TPを置き、その下の一段にPSR（400 msのsample peak − S）の推移を描く。PSRは曲の中で動くので、Sessionの間ほとんど動かないPLRとCORRは同じ段の数字だけにする。CORRは3 s相関が0を下回った連続区間ごとに、主面の床へ最小点の印を一つ置く（2026-10-06）。PLRはSession全体の値であり、各履歴点には持たない。
 
 RUNは選択中のTIME resolutionだけを`generation + run_id`で集約し、別の履歴や永続化を作らない。表示範囲内の経過時間、M min/max、Max TP、L/R clip数を出す。見出しの下に「再生1回ごとに1行（再生から停止まで）」の一文を置き、幅のある行（520 px以上）では列の見出し（RUN、LENGTH、M RANGE LUFS、TP MAX dBTP、CLIPS）を添える。行は読める高さまでとし、少ないrunを画面全体へ引き伸ばさない。clip数の欄は表示する書体の文字幅から決め、300%でも切らない。DAW sample endpointが全点で成立する時は`RUNS IN VIEW`、clock不明のホストでは捏造した区切りを足さず`SESSION RUN`として1本を表示する。resolution混在、不完全なsample endpoint、非単調sample位置は表示しない。PRE/POST間でrun_idを同一識別子として扱わず、RUNのΔは初期契約に含めない。
 
@@ -505,7 +507,7 @@ DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更�
 Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
-LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
+LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`-1〜+3 dBTP`軸と下から立ち上がるstemを重ねる。stemはすべて-1 dBTPを超えるので、軸はstemが立つ範囲だけを持ち、0 dBTPに基準線を引く。+3を超える値は上端で止め、印を付ける（2026-10-06）。TPのstemと軸はVUのTP railと同じ水色とし、Mの金と見分ける。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
 PRE／POSTのexact chain action level observation（B-1046以降）はRust／FFIで計測・照合するが、LEVEL HistoryのCHAIN ACTION帯とCompact／Standardのchain summaryはDebug buildの診断表示に限り、製品buildでは表示しない（2026-09-27）。現在の認定hostはWindowsのStudio Pro 8.1.2.113407（VST3）だけであり、表示は認定hostが広がった時点で改めて判断する。
 

@@ -8,30 +8,32 @@
 
 namespace hypha::time_history
 {
-int auxLabelWidth (presentation::Context presentation, bool plr, bool delta,
-                   int availableWidth)
+juce::String psrDefinition (bool delta)
 {
+    return delta ? "POST - PRE" : "PEAK - LUFS-S";
+}
+
+PsrReadout psrReadout (presentation::Context presentation, juce::Rectangle<int> row, bool delta)
+{
+    constexpr auto visualization = typography::Composition::visualization;
     const auto readoutStyle = typography::resolve (
-        presentation, typography::TextRole::readout,
-        typography::Composition::visualization);
-    const auto readoutFont = monoFont (presentation, typography::TextRole::readout,
-                                       typography::Composition::visualization);
-    auto required = text_style::requiredWidth (
-        readoutFont, plr ? "PLR -100.0 dB" : "CORR +1.00", readoutStyle);
-    if (plr)
-    {
-        const auto bodyStyle = typography::resolve (
-            presentation, typography::TextRole::body,
-            typography::Composition::visualization);
-        const auto bodyFont = monoFont (presentation, typography::TextRole::body,
-                                        typography::Composition::visualization);
-        const auto definition = presentation.logicalWidth >= 600
-            ? (delta ? "PLR / POST - PRE" : "SESSION FACT / TP MAX - LUFS-I")
-            : (delta ? "PLR POST - PRE" : "TP MAX - LUFS-I");
-        required = juce::jmax (required, text_style::requiredWidth (
-            bodyFont, definition, bodyStyle));
-    }
-    return juce::jmin (required, availableWidth / 2);
+        presentation, typography::TextRole::readout, visualization);
+    const auto readoutFont = monoFont (presentation, typography::TextRole::readout, visualization);
+    const auto bodyStyle = typography::resolve (presentation, typography::TextRole::body, visualization);
+    const auto bodyFont = monoFont (presentation, typography::TextRole::body, visualization);
+    const auto gap = juce::roundToInt (readoutFont.getHeight());
+    const auto value = text_style::requiredWidth (readoutFont, "PSR -10.0 dB", readoutStyle);
+    const auto correlation = text_style::requiredWidth (readoutFont, "CORR -1.00", readoutStyle);
+    const auto facts = delta ? correlation
+        : text_style::requiredWidth (readoutFont, "PLR 100.0 dB", readoutStyle) + gap + correlation;
+    const auto definition = text_style::requiredWidth (bodyFont, psrDefinition (delta), bodyStyle);
+    PsrReadout result;
+    result.value = row.removeFromLeft (juce::jmin (value, row.getWidth()));
+    if (row.getWidth() >= gap + facts)
+        result.facts = row.removeFromRight (facts);
+    if (row.getWidth() >= 2 * gap + definition)
+        result.definition = row.withTrimmedLeft (gap).withWidth (definition);
+    return result;
 }
 
 int legendBasisWidth (int availableWidth, bool compact) noexcept
@@ -66,17 +68,18 @@ Geometry makeGeometry (juce::Rectangle<int> outer, bool compactMeter,
     result.legend = remaining.removeFromTop (16);
     result.mainBounds = remaining;
 
+    const auto readoutStyle = typography::resolve (
+        presentation, typography::TextRole::readout, typography::Composition::visualization);
+    const auto readoutHeight = text_style::requiredLineHeight (readoutStyle, 12);
     if (! compactMeter)
     {
-        // PLR and CORR are slow session facts: each keeps one readable row, and the height beyond
-        // it goes to the S and TP history above. A fifth of the page each (72 px at 300%) spent
-        // most of the page on two lines that barely move.
-        const auto laneHeight = remaining.getHeight() < 160
-            ? 24 : juce::jlimit (26, 36, remaining.getHeight() / 10);
-        auto auxiliary = result.mainBounds.removeFromBottom (laneHeight * 2 + 2);
-        result.plrBounds = auxiliary.removeFromTop (laneHeight);
-        auxiliary.removeFromTop (2);
-        result.correlation.bounds = auxiliary;
+        // One PSR lane in the room of the two session-fact lanes (PLR, CORR) it replaced. PSR
+        // moves with the music, so its trace gets a quarter of the page under one row of numbers,
+        // never less than 24 px; PLR and CORR stay as numbers in that row.
+        const auto laneHeight = juce::jlimit (readoutHeight + 24, readoutHeight + 60,
+                                              remaining.getHeight() / 4);
+        result.psr.bounds = result.mainBounds.removeFromBottom (laneHeight);
+        result.mainBounds.removeFromBottom (2);
     }
 
     result.timelineX = dataXRange (result.mainBounds, compactMeter);
@@ -89,18 +92,10 @@ Geometry makeGeometry (juce::Rectangle<int> outer, bool compactMeter,
 
     if (! compactMeter)
     {
-        auto lane = result.correlation.bounds;
-        const auto style = typography::resolve (
-            presentation, typography::TextRole::readout,
-            typography::Composition::visualization);
-        const auto readoutHeight = juce::jmin (
-            lane.getHeight() / 2, text_style::requiredLineHeight (style, 12));
-        result.correlation.readout = lane.removeFromTop (readoutHeight)
-                                              .removeFromLeft (auxLabelWidth (
-                                                  presentation, false, false,
-                                                  result.correlation.bounds.getWidth()));
-        result.correlation.axis = lane.removeFromRight (32);
-        result.correlation.data = {
+        auto lane = result.psr.bounds;
+        result.psr.readout = lane.removeFromTop (readoutHeight).reduced (4, 0);
+        result.psr.axis = lane.removeFromRight (32);
+        result.psr.data = {
             result.timelineX.getStart(), static_cast<float> (lane.getY() + 1),
             result.timelineX.getLength(),
             static_cast<float> (juce::jmax (0, lane.getHeight() - 2))

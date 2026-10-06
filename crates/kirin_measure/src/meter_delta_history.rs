@@ -110,7 +110,9 @@ struct WirePoint {
     lufs_s: Option<f64>,
     true_peak: Option<f64>,
     correlation: Option<f64>,
-    plr: Option<f64>,
+    /// Absent from a PRE that predates PSR in the history; POST then leaves PSR's Δ empty.
+    #[serde(default)]
+    psr: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -346,7 +348,7 @@ impl WirePoint {
             lufs_s: finite(entry.lufs_s.mean),
             true_peak: finite(entry.true_peak.mean),
             correlation: finite(entry.correlation.mean),
-            plr: finite(entry.plr.mean),
+            psr: finite(entry.psr.mean),
         })
     }
 
@@ -357,7 +359,7 @@ impl WirePoint {
                 self.lufs_s,
                 self.true_peak,
                 self.correlation,
-                self.plr,
+                self.psr,
             ]
             .into_iter()
             .flatten()

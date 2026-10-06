@@ -119,7 +119,7 @@ inline std::vector<KirinMeterHistoryEntry> history()
         const auto peak = (index % 47 == 13) ? -1.3 : -4.5 + chorus * 0.6 + 0.8 * beat;
         entry.true_peak.min = entry.true_peak.max = entry.true_peak.mean = peak;
         entry.correlation.min = entry.correlation.max = entry.correlation.mean = 0.74 + 0.05 * beat;
-        entry.plr.min = entry.plr.max = entry.plr.mean = 12.5 - chorus * 0.4;
+        entry.psr.min = entry.psr.max = entry.psr.mean = 10.0 - chorus * 2.4 + 0.9 * beat;
     }
     return result;
 }

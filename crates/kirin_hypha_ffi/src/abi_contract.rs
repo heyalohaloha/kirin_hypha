@@ -20,7 +20,8 @@ use crate::{
 /// 4 = B-958（`KirinMeterSession` の入力チャンネル配列 `[2]` → `[MAX_ABI_CHANNELS]`）。
 /// 5 = B-962（`KirinMeterHistoryEntry` の `clip_event_count` 同上 + `measurement_epoch`）。
 /// 6 = B-981（Observatory comparison state/reason/generation/identity）。
-pub const KIRIN_ABI_REVISION: u32 = 6;
+/// 7 = `KirinMeterHistoryEntry` の最後の range が PLR から PSR に変わった（大きさと offset は同じ）。
+pub const KIRIN_ABI_REVISION: u32 = 7;
 
 /// `KirinObservatoryFrame.version`。フレーム 1 個ごとに載る版で、殻はこれが自分のヘッダの値と
 /// 違うフレームを捨てる（`HyphaObservatoryFrame.cpp:42`）。ABI 版とは別に数える。

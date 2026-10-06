@@ -5,6 +5,7 @@ fn point_value(value: f64) -> MeasureResult {
         lufs_m: Some(value),
         lufs_s: Some(value - 1.0),
         true_peak: Some(value + 10.0),
+        psr: Some(value + 10.0),
         ..MeasureResult::default()
     }
 }
@@ -39,7 +40,6 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
             &point_value(index as f64),
             MeterHistoryAux {
                 correlation: Some(index as f64 / 10.0),
-                plr: Some(10.0 + index as f64),
                 clip_event_count: match index {
                     2 => clip_counts(1, 0),
                     8 => clip_counts(0, 2),
@@ -59,9 +59,9 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
     assert_eq!(entry.lufs_m.min, Some(0.0));
     assert_eq!(entry.lufs_m.max, Some(9.0));
     assert_eq!(entry.lufs_m.mean, Some(4.5));
-    assert_eq!(entry.plr.min, Some(10.0));
-    assert_eq!(entry.plr.max, Some(19.0));
-    assert_eq!(entry.plr.mean, Some(14.5));
+    assert_eq!(entry.psr.min, Some(10.0));
+    assert_eq!(entry.psr.max, Some(19.0));
+    assert_eq!(entry.psr.mean, Some(14.5));
     assert_eq!(entry.clip_event_count, clip_counts(1, 2));
 }
 
@@ -78,7 +78,6 @@ fn clip_event_counts_saturate_in_aggregated_history_without_wrapping() {
             &point_value(-18.0),
             MeterHistoryAux {
                 correlation: None,
-                plr: None,
                 clip_event_count,
             },
         );

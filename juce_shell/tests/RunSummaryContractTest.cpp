@@ -41,7 +41,7 @@ KirinMeterHistoryEntry point (std::uint64_t generation, std::uint64_t run,
     entry.lufs_s = { momentary - 0.5, momentary + 0.5, momentary };
     entry.true_peak = { peak - 1.0, peak, peak - 0.5 };
     entry.correlation = { 0.7, 0.9, 0.8 };
-    entry.plr = { 9.0, 11.0, 10.0 };
+    entry.psr = { 7.0, 11.0, 9.0 };
     return entry;
 }
 }

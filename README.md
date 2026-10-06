@@ -140,7 +140,7 @@ TIME directly selects **HISTORY**, **RUN** (absolute facts grouped by playback r
 selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
-![TIME HISTORY: thirty seconds of momentary and short-term loudness with true peak, PLR and correlation](docs/media/readme/time.jpg)
+![TIME HISTORY: thirty seconds of momentary and short-term loudness with true peak, and PSR below it](docs/media/readme/time.jpg)
 
 DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
 **TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
