@@ -68,30 +68,17 @@ public:
 private:
     bool helpLineActive() const;
     void updateHelpLine();
+    // The window, rows, marks and headers are TextLookAndFeel's one Kirin Select drawing; this
+    // look only chooses the native menu font, which carries Japanese (INV-S40).
     class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
     {
     public:
-        PairMenuLookAndFeel()
-        {
-            setColour (juce::PopupMenu::backgroundColourId, hypha::BG);
-            setColour (juce::PopupMenu::textColourId, hypha::COL_NORMAL);
-            setColour (juce::PopupMenu::headerTextColourId, hypha::COL_FLORA);
-            setColour (juce::PopupMenu::highlightedBackgroundColourId,
-                       hypha::kFieldFill.brighter (0.08f));
-            setColour (juce::PopupMenu::highlightedTextColourId, hypha::COL_FLORA_BR);
-        }
         juce::Font getPopupMenuFont() override
         {
             return hypha::nativeTextFont (hypha::presentation::forOutput (
                 450, 300, hypha::presentation::OutputTarget::popup),
                 hypha::typography::TextRole::menu);
         }
-        void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
-        {
-            hypha::TextLookAndFeel::drawPopupMenuBackground (g, width, height);
-        }
-        // Menus are built in English and shown in the current language by TextLookAndFeel,
-        // in the native menu font above, which carries Japanese (INV-S40).
     };
 
     void timerCallback() override;

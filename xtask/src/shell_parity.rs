@@ -102,8 +102,12 @@ mod tests {
         assert!(!PLUGIN_EDITOR_CPP.contains("connection.removeFromRight (18)"));
         assert!(!PLUGIN_EDITOR_CPP.contains("const int ddW = 22;"));
         assert!(PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel())"));
+        // Every popup is TextLookAndFeel's one Kirin Select drawing; the pair menu sets no colours.
+        assert!(!PLUGIN_EDITOR_H.contains("juce::PopupMenu::backgroundColourId"));
         assert!(
-            PLUGIN_EDITOR_H.contains("setColour (juce::PopupMenu::backgroundColourId, hypha::BG);")
+            include_str!("../../juce_shell/src/HyphaTextLookAndFeel.h").contains(
+                "setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);"
+            )
         );
     }
 
