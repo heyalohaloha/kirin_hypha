@@ -427,6 +427,8 @@ int main (int argc, char** argv)
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
     auto signal = readFixture (argv[1]);
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif

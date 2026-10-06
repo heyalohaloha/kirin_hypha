@@ -286,6 +286,8 @@ int main (int argc, char** argv)
     require (argc == 2, "usage: reference lower A product S-1.wav");
     auto signal = readFixture (argv[1]);
     ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     const auto& box = sandbox.directory();
     // Rust の保存先（identity・plugin_data）は環境変数 HOME に従う。試験用の HOME の中にライセンスの印を置く。
     const auto* homeValue = std::getenv ("HOME");

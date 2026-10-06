@@ -129,4 +129,36 @@ mod tests {
         assert!(EDITOR_CAPTURE.contains("osOwned && guideAvailable"));
         assert!(EDITOR_CAPTURE.contains("chooseObservatoryCapture"));
     }
+    // A test that builds real processors shares macOS's PRE display transport, whose JUCE home
+    // ignores HOME. Every such test places that transport under its own sandbox, so no test
+    // reads or writes the user's real Kirin OS folder (and no stale file links two test runs).
+    #[test]
+    fn processor_tests_keep_pre_display_files_in_their_sandbox() {
+        let tests = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../juce_shell/tests");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&tests).expect("juce_shell/tests is readable") {
+            let path = entry.expect("test entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("cpp") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("test source is UTF-8");
+            let builds_processors = source.contains("ValidationStorageSandbox sandbox")
+                && (source.contains("PluginProcessor.h")
+                    || source.contains("EditorProductChecks.h"));
+            if builds_processors {
+                checked += 1;
+                assert!(
+                    source.contains(
+                        "hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());"
+                    ),
+                    "{} builds processors without placing PRE display under its sandbox",
+                    path.display()
+                );
+            }
+        }
+        assert!(
+            checked >= 12,
+            "the processor product tests are still found ({checked})"
+        );
+    }
 }

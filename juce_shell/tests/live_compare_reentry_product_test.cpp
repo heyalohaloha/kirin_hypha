@@ -132,7 +132,10 @@ private:
                 if (! kirin_hypha_pair_preview_poll (preview.get(), &value) || ! value.complete
                     || (! value.has_single && mode != "pair-set"))
                 { if (now - checkpoint > std::chrono::milliseconds (1050) && hypha::pair_preview::request (preview)) checkpoint = now; break; }
-                require (post->setPairCandidate (pre->instanceId(), {}), "explicit actual PRE pair"); preview.reset(); stage = 1; break;
+                // The PRE publishes its candidate on its own thread; the explicit pick waits for it.
+                if (! post->setPairCandidate (pre->instanceId(), {}))
+                { require (now - checkpoint < std::chrono::seconds (10), "explicit actual PRE pair"); break; }
+                preview.reset(); stage = 1; break;
             }
             case 1:
                 if (post->pairStatus() != KIRIN_PAIR_STATUS_PAIRED) break;
@@ -372,6 +375,8 @@ int main (int argc, char** argv)
 {
     require (argc == 3, "reentry-product S-1.wav stop|seek|clock|restore|end|blind-stop|compensation");
     auto signal = readFixture (argv[1]); ValidationStorageSandbox sandbox;
+    // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
     initialiseBlindProductHostApplication();
    #endif
