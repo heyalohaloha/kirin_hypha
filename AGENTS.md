@@ -182,8 +182,9 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - PREは絶対観測、POSTは検証済みの同時刻PREがある場合だけ差分を表示する。PRE不在時もPOSTの
   絶対観測を捏造せず維持する。
 - mono / stereoを基本範囲とし、機能ごとのrole / platform / host gateを維持する。
-  exact 5.1（L, R, C, LFE, Ls, Rs）はLEVEL / TIMEの計測専用で、
-  Record / Keep、Reference、local Blind、live比較、Hybrid VU、FREQ、SPACEは許可しない（INV-S33）。
+  exact 5.1（L, R, C, LFE, Ls, Rs）は計測coreにLEVEL / TIMEの計測専用modeとして残すが、
+  2026-10-06からサラウンドの受入が済むまでplugin wrapperでは受け付けない（INV-S33）。
+  5.1ではRecord / Keep、Reference、local Blind、live比較、Hybrid VU、FREQ、SPACEを許可しない。
   他layoutは拒否する。AAX等の実host受入は別に検証し、計測coreの引数やlayout宣言だけから完了を推定しない。
 - macOSのPRE表示共有はatomic file、Windowsはpagefile-backed共有メモリを使う。platformごとの
   transport正本を確認し、`/tmp/`だけを全platform共通仕様として扱わない。

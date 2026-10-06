@@ -96,16 +96,14 @@ POST captures the output state and joins only verified matching observations.
 - **Mono and stereo:** the complete LEVEL / TIME / FREQ / SPACE, Record / Keep, Reference, local
   PRE/POST Blind and live PRE/POST compare surface is available where its normal role, license and
   platform gates allow it.
-- **Exact 5.1 (`L, R, C, LFE, Ls, Rs`):** LEVEL and TIME measurement only, including the six
-  role-specific Peak, True Peak, and Clip facts plus shared Loudness, LRA, and PLR. Record / Keep,
-  Reference, local PRE/POST Blind, the live PRE/POST compare, Hybrid VU, FREQ, and SPACE are
-  deliberately unavailable.
+- **Surround, including exact 5.1:** not offered in this release. The measurement core keeps an
+  exact 5.1 (`L, R, C, LFE, Ls, Rs`) LEVEL / TIME measurement-only mode, but the plug-in does not
+  accept a 5.1 bus until its host acceptance is complete.
 - **Other multichannel layouts:** Hypha refuses the layout instead of guessing channel roles or
   presenting stereo-only facts as surround measurements.
 
-The measurement-only 5.1 path remains a transparent pass-through with zero reported samples of
-latency. It does not allocate the Record backlog or run optional FREQ / ATTACK analysis in the
-background.
+Pro Tools can still insert Hypha on a 5.1 track as a multi-mono plug-in. Each mono instance then
+measures its own channel, which is not a 5.1 measurement.
 
 ## Observation domains
 
@@ -115,7 +113,7 @@ LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
 The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
-folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD, 5.1 MEASURE). The loaded
+folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). The loaded
 version remains in the information menu, not in the narrow status rail.
 
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.

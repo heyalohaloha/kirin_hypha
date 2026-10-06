@@ -3,6 +3,11 @@
 初版: 2026-10-01。再作成・改訂: 2026-10-06、第2版。第3版: 2026-10-06、mainの再点検と利用者判断4件を反映。
 状態: **計画書。以下の工程を今回実行したという報告ではない。**
 
+**2026-10-06（第3版の後）: 利用者判断で、サラウンドは一旦保留する。** 他の機能を先に公開するため、公開する版はサラウンド無しとする。
+R0は、build時の切替ではなく、plugin wrapperが5.1を宣言・受理する部分を外す形で行う。計測coreのexact 5.1とその試験は残す。
+S0〜S7とS7の判断材料調査は保留し、再開は利用者の指示による。再開するときは、wrapperで5.1を受け付ける検証buildから始め、S0から進める。
+N1のうち、mono/stereoの公式素材監査はサラウンドと独立に直す。
+
 消失した未コミットの初版を、残存する申し送りと現行のsource・契約・証跡から再構成した。
 以前の参照先を維持するため、ファイル名の日付は変更しない。
 本書は残工程の実行順と判定方法を補う。製品仕様・署名・公開手順の正本を置き換えない。
@@ -70,7 +75,7 @@ E02〜E04のローカル原記録: `hypha_b1002_exact51_implementation_validatio
 
 | ID | 工程 | 着手条件 | 終了条件・成果物 | 現時点 |
 |---|---|---|---|---|
-| R0 | 公開buildの5.1閉鎖 | いつでも（S0〜S5と独立）。次の公開の前に必須 | 公開buildはexact 5.1をAU / VST3 / AAX、macOS / Windows、PRE / POSTで拒否し、検証buildだけが受理。README・INV-S33を同じ変更で更新。第7節R0の試験と必要CI | 未実施 |
+| R0 | 公開buildの5.1閉鎖 | いつでも（S0〜S5と独立）。次の公開の前に必須 | 公開buildはexact 5.1をAU / VST3 / AAX、macOS / Windows、PRE / POSTで拒否し、検証buildだけが受理。README・INV-S33を同じ変更で更新。第7節R0の試験と必要CI | 実施中（wrapperの受付を外す形） |
 | S0 | 候補・試験条件の固定 | main、既存差分、署名/CI/検証記録の棚卸し | candidate manifest、受入matrix、独立oracle、計測定義、復元控え | 未実施 |
 | S1 | 数値と境界のfixture検証 | S0のfixture条件が固定済み | 第4節の正常・異常・境界の実測と、必要な構造修正 | 未実施 |
 | S2 | 短時間のnative / DAW baseline | S1合格、正確なbuild identity | 第5・6節のbaseline。診断build結果は診断と明記 | 未実施 |
@@ -317,14 +322,16 @@ payload revisionが不変かつ公開先健全な区間の履歴再serialize/rep
 
 ### R0 — 公開buildの5.1閉鎖
 
-- 閉じ方: build時の切替とし、公開の既定は5.1を拒否、検証buildだけが受理する。runtimeの設定や隠し操作で開けるようにしない。
+- 閉じ方: plugin wrapperが5.1を宣言・受理する部分（`KirinJucePluginConfig.h`の`{6, 6}`と`isBusesLayoutSupported`の5.1）を外す。
+  サラウンドを保留したため、検証buildを並行して保つ切替は作らない（2026-10-06）。runtimeの設定や隠し操作で開けるようにしない。
 - 対象: AU / VST3 / AAX、macOS / Windows、PRE / POSTのすべて。
 - 試験: 公開buildでexact 5.1・5.0・役割不明6ch・7.1.4を拒否し、mono/stereoの受理と挙動は変えない。
-  検証buildでは第4節の5.1試験がすべて走る。CIは両方の構成を確かめ、閉じたことで5.1の試験が止まらないようにする。
+  計測coreとUI契約の5.1試験は走らせ続け、閉じたことで5.1の試験が止まらないようにする。
 - 文書: README・INV-S33・HP・リリースノートの5.1の記述を、公開buildでは使えない状態に合わせて同じ変更で直す。
 - 閉じた状態でも、Pro Toolsは5.1 trackへHyphaをmulti-monoで挿せる。これは各chのmono計測で（5.1を持たないv1.1.50と同じ扱い）、
   5.1の計測ではない。この区別を文書に書く。
-- 開く: S4で署名する最終candidateで公開の既定を「5.1受理」へ切り替え、S5・S6の対象にする。
+- 開く: 再開時に、wrapperで5.1を受け付ける変更を検証buildとして入れてS1〜S3を行い、
+  S4で署名する最終candidateで公開の既定にしてS5・S6の対象にする。
 
 ### 対象候補の公開条件
 
@@ -391,7 +398,7 @@ worktreeを消すとignoredの`dist/`と`release_state/`も消えるため、wor
 各Handoffは`候補 / gate・row / status / 実測・証跡 / blocker / 次の一手 / 復元状態`を必須とする。
 本計画はGitへ保存し、未コミットの一時ファイルだけを正本にしない。参照先の存在とcommit内のblobを最後に確認する。
 編集正本はGit上の本書とする。第2版の固定copyはCodexの出力フォルダ（private）の復元copyで、B-1270のblobと同一（2026-10-06確認）。
-main checkout（`codex/hypha-ref-simple-abc`）には本書第2版の未追跡copyと、gate planへの未commitの同じ追記がある。
+main checkout（Reference作業のbranch）には本書第2版の未追跡copyと、gate planへの未commitの同じ追記がある。
 本書がmainへ入った後でそのbranchへmainを取り込むと同じpathで衝突するため、取り込む前にその2件の扱いを決める。
 
 次の着手点は**S0のcandidate/oracle/matrix固定 → N1のEBU入口不整合の再現・修復**。

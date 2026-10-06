@@ -90,8 +90,7 @@ void verifyConfiguration (juce::AudioPluginFormat& format,
 {
     auto instance = createInstance (format, description);
     const auto channelSet = channels == 1 ? juce::AudioChannelSet::mono()
-                            : channels == 2 ? juce::AudioChannelSet::stereo()
-                                            : juce::AudioChannelSet::create5point1();
+                                          : juce::AudioChannelSet::stereo();
     juce::AudioProcessor::BusesLayout layout;
     layout.inputBuses.add (channelSet);
     layout.outputBuses.add (channelSet);
@@ -321,8 +320,9 @@ void verifyBundle (juce::AudioPluginFormat& format,
     verifyConfiguration (format, *descriptions[0], 2, false);
     verifyConfiguration (format, *descriptions[0], 2, true);
     verifyConfiguration (format, *descriptions[0], 1, false);
-    verifyConfiguration (format, *descriptions[0], 6, false);
-    verifyConfiguration (format, *descriptions[0], 6, true);
+    // Exact 5.1 is held back from the wrappers until surround acceptance (INV-S33).
+    verifyRejectedConfiguration (
+        format, *descriptions[0], juce::AudioChannelSet::create5point1(), "5.1");
     verifyRejectedConfiguration (
         format, *descriptions[0], juce::AudioChannelSet::create5point0(), "5.0");
     verifyRejectedConfiguration (
