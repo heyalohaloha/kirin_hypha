@@ -113,6 +113,9 @@ void receiveReference (const juce::File& root)
              "restored exact Reference publication remains receivable");
 }
 
+// Windows paths use backslashes; compare path pieces with one separator.
+juce::String portablePath (const juce::File& file) { return file.getFullPathName().replaceCharacter ('\\', '/'); }
+
 void verifyRecord (const juce::File& data)
 {
     juce::Array<juce::File> files;
@@ -122,7 +125,7 @@ void verifyRecord (const juce::File& data)
     {
         const auto candidate = juce::JSON::parse (file);
         if (candidate["schema_version"] == "pair_record_session.v1") manifest = candidate;
-        require (! file.getFullPathName().contains ("/.failed/"), "paired fixture creates no failed Record artifacts");
+        require (! portablePath (file).contains ("/.failed/"), "paired fixture creates no failed Record artifacts");
     }
     require (manifest.getDynamicObject() != nullptr, "real FFI writes a committed PairRecordSession manifest");
     juce::var pre, post;
@@ -130,7 +133,7 @@ void verifyRecord (const juce::File& data)
     {
         const juce::File member (manifest[role]["path"].toString());
         require (member.isAChildOf (data) && member.existsAsFile()
-            && member.getFullPathName().contains (".pair_committed"),
+            && portablePath (member).contains (".pair_committed"),
             "committed Record member belongs to disposable plugin_data tree");
         const auto value = juce::JSON::parse (member);
         const auto* frames = value["frames"].getArray();
@@ -143,7 +146,7 @@ void verifyRecord (const juce::File& data)
         bool foundShelf = false;
         for (const auto& file : files)
         {
-            if (! file.getFullPathName().contains ("/" + juce::String (role) + "/")) continue;
+            if (! portablePath (file).contains ("/" + juce::String (role) + "/")) continue;
             const auto shelf = juce::JSON::parse (file);
             foundShelf = foundShelf || (shelf["schema_version"] == "1.3"
                 && shelf["checksum"] == value["checksum"]
