@@ -898,13 +898,20 @@ If timing becomes uncertain, POST plays at the approved level and PRE WAIT expla
 **HELD** means the previous gain remains, but MATCH needs reconfirmation—not that the current
 levels are verified equal. A failed or cancelled rematch never discards the previous gain.
 
-Starting LISTEN or BLIND for the first time while already looping cannot establish a unique PRE
-occurrence from repeated timeline positions. The screen asks you to turn LOOP off and play to
-confirm PRE, then turn LOOP back on. Missing loop timing, a tempo/range change or a callback gap
-also requires reconfirmation. Some hosts hold POST's reported position at the loop start while
-delayed audio is still arriving: that interval stays on POST, not unverified PRE. Long-delay
-clamped loops may not support continuous comparison. These loop conditions have local fixture
-coverage; their qualification in real DAWs on macOS and Windows is still to be done.
+You can also press **LISTEN** or **BLIND** while the DAW is already looping, without turning the
+loop off, when the DAW's timing proves which pass of the loop PRE's audio belongs to:
+
+- VST3: the measured content clock of Studio Pro 8.1.2.113407.
+- AU: valid presentation latency on both PRE and POST, with PRE's larger than POST's.
+- AAX: the measured clock of Pro Tools Developer 26.4.0.5, with a loop longer than the host's
+  maximum delay compensation (more than 16,383 samples at 44.1 or 48 kHz).
+
+Otherwise POST keeps playing, the screen says why (for example **LOOP timing unverified**) and
+**END** closes the comparison. Missing loop timing, a tempo/range change or a callback gap also
+requires reconfirmation. Some hosts hold POST's reported position at the loop start while delayed
+audio is still arriving: that interval stays on POST, not unverified PRE. Long-delay clamped loops
+may not support continuous comparison. These loop conditions have local fixture coverage; their
+qualification in real DAWs on macOS and Windows is still to be done.
 
 In **MENU**, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
 PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
