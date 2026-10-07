@@ -334,7 +334,7 @@ pub use stereo_meter::{
 pub use storage::{
     cleanup_legacy_v1, load_installation_id_safe, load_or_recover, read_identity, write_both,
     write_identity_atomic, CleanupReport, IdentityCache, LoadStatus, LoadedIdentity, PlatformKind,
-    PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
+    PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME, TEST_STORAGE_ROOT_ENV,
 };
 pub use trace_alignment::TraceContentAlignment;
 pub use transient_layout::{TransientLayout, TransientOdfKind};

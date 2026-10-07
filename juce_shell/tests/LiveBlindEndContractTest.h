@@ -46,10 +46,18 @@ public:
         require (processor.liveCompareAdmission (false) == hypha::live_compare::StartResult::returnPending,
                  "new entry identifies the pending return, not another END operation");
         // The message thread posts the note; on a loaded machine it can follow the state by a moment.
-        if (! findView (editor)->feedback().contains ("Ended;")
+        const auto& feedback = findView (editor)->feedback();
+        if (! feedback.contains ("Ended;")
             && std::chrono::steady_clock::now() - acceptedAt < std::chrono::seconds (2))
             return false;
-        require (findView (editor)->feedback().contains ("Ended;"), "pending audio return remains visible");
+        // A failure names what the line showed instead, and when.
+        if (! feedback.contains ("Ended;"))
+            std::cerr << "Live Blind END: the line showed \"" << feedback << "\" "
+                      << std::chrono::duration_cast<std::chrono::milliseconds> (
+                             std::chrono::steady_clock::now() - acceptedAt).count()
+                      << " ms after END; reason " << static_cast<int> (state.reason) << "/"
+                      << static_cast<int> (state.observation) << ", interrupted " << state.interrupted << '\n';
+        require (feedback.contains ("Ended;"), "pending audio return remains visible");
         require (! find (editor, "observatory-live-end")->isVisible()
             && ! find (editor, "observatory-live-pre")->isVisible(), "closed comparison has no stale controls");
         suspend.store (false);

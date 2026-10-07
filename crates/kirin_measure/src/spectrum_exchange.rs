@@ -213,8 +213,7 @@ impl SpectrumCoordinator {
                 runtime,
                 attack_runtime,
                 AnalysisLease::at_path(
-                    std::env::temp_dir()
-                        .join("kirin")
+                    crate::PlatformPaths::current_kirin_tmp_root()
                         .join("analysis-tests")
                         .join(format!("{}.lease", Uuid::new_v4())),
                 ),
@@ -262,8 +261,7 @@ impl SpectrumCoordinator {
             runtime,
             None,
             AnalysisLease::at_path(
-                std::env::temp_dir()
-                    .join("kirin")
+                crate::PlatformPaths::current_kirin_tmp_root()
                     .join("analysis-tests")
                     .join(format!("{}.lease", Uuid::new_v4())),
             ),
