@@ -207,6 +207,19 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                 watch_ring_replacing.store(true, Ordering::Release);
                 watch_playback_pass_cutover_samples.store(0, Ordering::Release);
 
+                // Retire current TIME facts before a replacement worker can publish. Session
+                // cumulative measurements and Record remain owned by their existing engines.
+                if let Some(session) = meter_session.as_ref() {
+                    let mut session = crate::sync_recovery::lock_recover(
+                        session,
+                        "Watchdog TIME worker-span retirement",
+                    );
+                    session.retire_time_worker_span();
+                    if let Some(publication) = meter_session_publication.as_ref() {
+                        publication.publish(session.snapshot());
+                    }
+                }
+
                 // 新しい ring buffer と Measure Thread を生成
                 let (producer, consumer) = rtrb::RingBuffer::new(ring_capacity);
                 // Snapshot the state machine before replacing its consumer. `generation` advances

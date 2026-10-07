@@ -31,6 +31,11 @@ impl KirinHyphaEngine {
         if !transition.changed {
             return;
         }
+        self.spectrum
+            .set_pair_authority_revision(transition.generation);
+        if let Some(exchange) = self.meter_delta_history.as_ref() {
+            exchange.set_pair_authority_revision(transition.generation);
+        }
         if !project_hash.is_empty() && !post_iid.is_empty() {
             if let (Some(pre), Ok(paths)) = (
                 transition.previous_pre_instance_id.as_deref(),

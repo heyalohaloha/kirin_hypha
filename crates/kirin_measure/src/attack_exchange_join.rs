@@ -22,15 +22,21 @@ pub(super) fn store_joined_attack(
     session: &mut PostSession,
     now: Instant,
     post: Option<AttackHistory>,
-    pre: Option<(AttackHistory, Option<AttackBandResults>)>,
+    pre: Option<(
+        AttackHistory,
+        Option<AttackBandResults>,
+        Option<crate::attack_runtime::snapshot::AttackObservationSnapshot>,
+    )>,
 ) {
     let band = coordinator
         .attack_runtime
         .as_ref()
         .and_then(|runtime| runtime.band());
-    let (pre, pre_band_results) = match pre {
-        Some((history, results)) => (Some(history), results.map(Arc::new)),
-        None => (None, None),
+    let (pre, pre_band_results, observations) = match pre {
+        Some((history, results, observations)) => {
+            (Some(history), results.map(Arc::new), observations)
+        }
+        None => (None, None, None),
     };
     let joined = post
         .as_ref()
@@ -54,6 +60,19 @@ pub(super) fn store_joined_attack(
             _ => Vec::new(),
         };
         request_anchors(coordinator, band, anchors);
+        if let (Some(pre), Some(post), Some(observations)) = (&pre, &post, observations) {
+            if !coordinator.store_attack_observations(
+                session,
+                pre,
+                post,
+                Arc::new(observations),
+                &pair_events,
+            ) {
+                coordinator.clear_attack_observations();
+            }
+        } else {
+            coordinator.clear_attack_observations();
+        }
         coordinator.store_attack_view(AttackPairViewSnapshot {
             status: SpectrumViewStatus::Active,
             pre,
@@ -68,6 +87,7 @@ pub(super) fn store_joined_attack(
         session.last_presented_end_samples = Some(endpoint);
         return;
     }
+    coordinator.clear_attack_observations();
     request_anchors(coordinator, band, Vec::new());
     if session
         .last_presented_at

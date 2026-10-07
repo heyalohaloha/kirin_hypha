@@ -85,14 +85,14 @@ receiverは19 field完全一致（`contract.cjs:32–50`）、receiptも10 field
 
 ## 4. G0終了時に提案するCapture方式
 
-Capture v2はKirin OS側の別repo変更も必要な候補であり、1.1.51への採否は未決定。G0を閉じるときに利用者へ二案を提案し、選択と変更範囲を記録する。
+Capture二案を提案し、2026年10月7日に利用者が「v1を維持し、失敗を明示する」を採用した。1.1.51は保持不能なWork添付の明示失敗とローカルPNG保持を実装・検証する。v2とKirin OS側の別repo変更は今回対象外。以下には比較した二案と未採用v2の設計を残す。
 
 | 案 | 必要な変更と公開前受入 |
 | --- | --- |
 | v2を1.1.51に含める | Hypha senderに加え別repoのconsumer／Work schema／read-update-backup-restoreを整合し、PNG／metadataの両hash・stampとround-tripを受入する |
 | v1を維持し、失敗を明示する | 表現・保持不能なsnapshotのWork添付は明示失敗とし、ローカルPNGを残す。metadataを捨てたattached成功は禁止。既存v1添付は意味を保持できる検証済み範囲だけ維持し、失敗・通知・timeout／再試行を本人確認まで含めて受入する |
 
-以下4.1～4.3はv2を選んだ場合だけ適用する設計。未選択のv2を必須公開gateや別repoの実装許可と扱わない。
+以下4.1～4.3は未採用v2の設計資料。今回の実装・公開条件には含めない。v1の失敗・通知・ローカルPNG保持をG2で受入する。
 
 ### 4.1 v2候補のfreezeとrequest
 

@@ -1,8 +1,10 @@
 # Hypha サラウンド化 — 取込容量の分解と allocation lifecycle
 
-Status: 調査のみ。実装なし・定数変更なし・予算変更なし。方式の選択は 設計担当 の承認事項。
+Status: サラウンドの方式選定は調査のみ。本文第0～17章は取込の実装・定数・予算を変更しない。DRUM・PSR G1のTIME metadata変更と容量再算定は第18章。
 
 Date: 2026-09-18 / rev.2
+
+2026-10-08追記: DRUM・PSR G1のTIME metadataによる現行サイズと論理容量は[第18章](#18-drumpsr-g1のtime-metadata再算定2026-10-08)を参照する。以下の344 B・344.0 MiBはG1前の形であり、現候補の容量やRSS合格へ流用しない。
 
 Branch: `claude/eager-pascal-edacak` / 確認 commit `d701e55`
 
@@ -833,3 +835,20 @@ surround が engine に到達するのは FFI を直接叩く経路だけであ�
 **したがって §17.6 は出荷済みの欠陥ではなく、P-3 / P-4 の前提条件である。**
 Nch を bus として受理した時点で、Meter が黙って空になる状態は R-28 の
 「利用者が明示意図した操作の失敗」に当たるので、拒否を UI へ出す設計が要る。
+
+## 18. DRUM・PSR G1のTIME metadata再算定（2026-10-08）
+
+G1は各指標の有効観測数とTIME segment／接続情報を内部historyへ保持する。旧10／100観測bucketの区切りと観測数は維持し、新TIME exportで欠測・gapを分ける。新たな全容量ringを重複確保しない。公開C ABIの旧layoutは維持する。
+
+`MeterHistoryEntry`の実測サイズは360 B（旧344 Bから+16 B）、`MeterHistoryRange`は48 Bのまま。`the_preallocated_history_cost_is_measured_not_assumed`のサイズ・実capacityと独立した期待byte数を更新して検証する。capacityと対応チャンネルは変更しない。
+
+| tier | 実capacity | G1の論理bytes |
+| --- | ---: | ---: |
+| exact | 6,001 | 2,160,360 |
+| one_second | 7,201 | 2,592,360 |
+| ten_seconds | 8,641 | 3,110,760 |
+| 合計 | 21,843 | 7,863,480（7.499 MiB） |
+
+1 historyの増分は349,488 B。engineあたり2本、24 instanceで377,447,040 B（359.962 MiB）、G1前の48 historyに対する増分は16,775,424 B（15.998 MiB）。これはlogical capacityの算術であり、RSSではない。raw64件、control／export vector、allocatorの付加分を含めず、384 MiBの4領域モデルへhistoryを含めた数字でもない。旧RSS実測を360 B形のPASSへ移さない。
+
+新版exportの欠測境界で旧bucketを切り直さない。mixed bucketは保持済みexact factsからsegment別に再集約し、必要factsが残っていない場合は欠測とする。元のgapを保持喪失と混同しない。clipした範囲へfuture suffixのmean／maxを持ち込まず、有効件数を分母に使う。G1の回帰fixtureと容量再算定を合わせて受入する。

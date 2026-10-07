@@ -198,7 +198,11 @@ impl SpectrumCoordinator {
     ) -> Option<PreparedPostSession> {
         let mut slot = self.try_post_session()?;
         let session = slot.get_or_insert_with(|| self.new_post_session());
-        let definition_changed = session.target.as_ref() != Some(target)
+        let authority = self.pair_authority_revision.load(Ordering::Acquire);
+        let origin = self.attack_pair_authority.try_lock().ok()?.clone();
+        let definition_changed = session.authority_revision != authority
+            || session.attack_origin != origin
+            || session.target.as_ref() != Some(target)
             || session.analysis_mode != analysis_mode
             || session.channel_mode != channel_mode;
         // A band change is not a new definition: the session keeps its request id and its
@@ -210,6 +214,8 @@ impl SpectrumCoordinator {
         if definition_changed || rearm_required {
             retired = Some((session.target.clone(), session.request_id));
             session.request_id = Uuid::new_v4();
+            session.authority_revision = authority;
+            session.attack_origin = origin;
             session.target = Some(target.clone());
             session.last_renewed = None;
             session.last_renewal_attempt = None;
@@ -323,7 +329,13 @@ impl SpectrumCoordinator {
             .then(|| read_attack_snapshot(&target.instance_dir))
             .flatten()
             .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| (snapshot.history, snapshot.band_results));
+            .map(|snapshot| {
+                (
+                    snapshot.history,
+                    snapshot.band_results,
+                    snapshot.observations,
+                )
+            });
         let mut slot = match self.post_session.try_lock() {
             Ok(slot) => slot,
             Err(TryLockError::WouldBlock) => return false,
@@ -331,6 +343,8 @@ impl SpectrumCoordinator {
         };
         let Some(current) = slot.as_mut().filter(|current| {
             self.post_visible()
+                && current.authority_revision == session.authority_revision
+                && current.attack_origin == session.attack_origin
                 && current.request_id == session.request_id
                 && current.target.as_ref() == Some(target)
                 && current.analysis_mode == session.analysis_mode

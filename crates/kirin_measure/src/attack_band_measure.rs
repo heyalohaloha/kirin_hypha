@@ -103,20 +103,20 @@ pub(crate) fn measure_band(
     } else if !rises {
         BandSound::RingsOn
     } else {
-        let arrival = match backward(peak * 0.1) {
+        let arrival = match backward(peak * ARRIVAL_AMPLITUDE_RATIO) {
             Some(arrival_frames) => BandArrival::At {
                 arrival_frames,
-                attack_frames: backward(peak * 0.9)
+                attack_frames: backward(peak * ATTACK_UPPER_AMPLITUDE_RATIO)
                     .map_or(0.0, |rise_end| (rise_end - arrival_frames).max(0.0)),
             },
             None => BandArrival::Ringing,
         };
         let release = (peak_frame + 1..span_end)
-            .find(|frame| envelope(*frame) <= peak * 0.1)
+            .find(|frame| envelope(*frame) <= peak * RELEASE_AMPLITUDE_RATIO)
             .map(|frame| {
                 let (high, low) = (envelope(frame - 1), envelope(frame));
                 let fraction = if high > low {
-                    ((high - peak * 0.1) / (high - low)).clamp(0.0, 1.0)
+                    ((high - peak * RELEASE_AMPLITUDE_RATIO) / (high - low)).clamp(0.0, 1.0)
                 } else {
                     1.0
                 };

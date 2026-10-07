@@ -1,6 +1,10 @@
 use crate::meter_history::METER_HISTORY_CHANNELS;
 use crate::{MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution};
 
+/// A TIME export bucket cannot represent its exact observation/finite counts in the ABI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeHistoryCountOverflow;
+
 #[derive(Default)]
 struct RangeAggregate {
     min: Option<f64>,
@@ -18,7 +22,7 @@ impl RangeAggregate {
             self.max = Some(self.max.map_or(value, |current| current.max(value)));
         }
         if let Some(value) = range.mean.filter(|value| value.is_finite()) {
-            let weight = u64::from(weight.max(1));
+            let weight = u64::from(weight);
             self.weighted_sum += value * weight as f64;
             self.weight = self.weight.saturating_add(weight);
         }
@@ -36,6 +40,8 @@ impl RangeAggregate {
 struct EntryAggregate {
     first: MeterHistoryEntry,
     observations: u32,
+    valid_count: [u16; 5],
+    counts_overflow: bool,
     clip_event_count: [u32; METER_HISTORY_CHANNELS],
     lufs_m: RangeAggregate,
     lufs_s: RangeAggregate,
@@ -49,6 +55,8 @@ impl EntryAggregate {
         let mut result = Self {
             first: point,
             observations: 0,
+            valid_count: [0; 5],
+            counts_overflow: false,
             clip_event_count: [0; METER_HISTORY_CHANNELS],
             lufs_m: RangeAggregate::default(),
             lufs_s: RangeAggregate::default(),
@@ -61,6 +69,10 @@ impl EntryAggregate {
     }
 
     fn push(&mut self, point: MeterHistoryEntry) {
+        self.counts_overflow |= self
+            .observations
+            .checked_add(u32::from(point.observation_count.max(1)))
+            .is_none();
         self.observations = self
             .observations
             .saturating_add(u32::from(point.observation_count.max(1)));
@@ -69,25 +81,39 @@ impl EntryAggregate {
         for (total, count) in self.clip_event_count.iter_mut().zip(point.clip_event_count) {
             *total = total.saturating_add(count);
         }
-        self.lufs_m.push(point.lufs_m, point.observation_count);
-        self.lufs_s.push(point.lufs_s, point.observation_count);
-        self.true_peak
-            .push(point.true_peak, point.observation_count);
+        for (total, count) in self.valid_count.iter_mut().zip(point.valid_count) {
+            self.counts_overflow |= total.checked_add(count).is_none();
+            *total = total.saturating_add(count);
+        }
+        self.lufs_m.push(point.lufs_m, point.valid_count[0]);
+        self.lufs_s.push(point.lufs_s, point.valid_count[1]);
+        self.true_peak.push(point.true_peak, point.valid_count[2]);
         self.correlation
-            .push(point.correlation, point.observation_count);
-        self.psr.push(point.psr, point.observation_count);
+            .push(point.correlation, point.valid_count[3]);
+        self.psr.push(point.psr, point.valid_count[4]);
     }
 
     fn finish(mut self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
         self.first.resolution = resolution;
         self.first.observation_count = self.observations.min(u32::from(u16::MAX)) as u16;
         self.first.clip_event_count = self.clip_event_count;
+        self.first.valid_count = self.valid_count;
         self.first.lufs_m = self.lufs_m.finish();
         self.first.lufs_s = self.lufs_s.finish();
         self.first.true_peak = self.true_peak.finish();
         self.first.correlation = self.correlation.finish();
         self.first.psr = self.psr.finish();
         self.first
+    }
+
+    fn finish_checked(
+        self,
+        resolution: MeterHistoryResolution,
+    ) -> Result<MeterHistoryEntry, TimeHistoryCountOverflow> {
+        if self.counts_overflow || self.observations > u32::from(u16::MAX) {
+            return Err(TimeHistoryCountOverflow);
+        }
+        Ok(self.finish(resolution))
     }
 }
 
@@ -97,12 +123,33 @@ pub(crate) fn decimate_history(
     max_output: usize,
     resolution: MeterHistoryResolution,
 ) -> Vec<MeterHistoryEntry> {
+    // Legacy history keeps its established saturating-count behavior.
+    decimate_history_impl(points, available, max_output, resolution, false)
+        .expect("legacy decimation never rejects count saturation")
+}
+
+pub(crate) fn checked_decimate_history(
+    points: impl Iterator<Item = MeterHistoryEntry>,
+    available: usize,
+    max_output: usize,
+    resolution: MeterHistoryResolution,
+) -> Result<Vec<MeterHistoryEntry>, TimeHistoryCountOverflow> {
+    decimate_history_impl(points, available, max_output, resolution, true)
+}
+
+fn decimate_history_impl(
+    points: impl Iterator<Item = MeterHistoryEntry>,
+    available: usize,
+    max_output: usize,
+    resolution: MeterHistoryResolution,
+    checked_counts: bool,
+) -> Result<Vec<MeterHistoryEntry>, TimeHistoryCountOverflow> {
     if max_output == 0 || available == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let points: Vec<_> = points.take(available).collect();
     if points.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     fn run_ranges(points: &[MeterHistoryEntry]) -> Vec<(usize, usize)> {
@@ -111,6 +158,8 @@ pub(crate) fn decimate_history(
         for index in 1..points.len() {
             if points[index].generation != points[start].generation
                 || points[index].run_id != points[start].run_id
+                || points[index].measurement_epoch != points[start].measurement_epoch
+                || points[index].segment_id != points[start].segment_id
             {
                 ranges.push((start, index));
                 start = index;
@@ -171,8 +220,16 @@ pub(crate) fn decimate_history(
             for point in selected[start + 1..end].iter().copied() {
                 aggregate.push(point);
             }
-            output.push(aggregate.finish(resolution));
+            output.push(if checked_counts {
+                aggregate.finish_checked(resolution)?
+            } else {
+                aggregate.finish(resolution)
+            });
         }
     }
-    output
+    Ok(output)
 }
+
+#[cfg(test)]
+#[path = "meter_history_decimation_count_tests.rs"]
+mod count_tests;

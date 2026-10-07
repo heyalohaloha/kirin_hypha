@@ -16,6 +16,7 @@ pub(super) struct DeltaHistoryState {
     last_joined_axis: Option<(u64, i64, u8)>,
     pair: Option<PairKey>,
     pub(super) history: MeterHistory,
+    pub(super) time: time_pair::TimeComparisonState,
     joined_order: VecDeque<JoinedPoint>,
     joined: HashSet<JoinedPoint>,
     consumed_pre_order: VecDeque<JoinedPoint>,
@@ -23,6 +24,18 @@ pub(super) struct DeltaHistoryState {
 }
 
 impl DeltaHistoryState {
+    pub(super) fn pair_key(&self) -> Option<&PairKey> {
+        self.pair.as_ref()
+    }
+
+    pub(super) fn ingest_time(
+        &mut self,
+        pre: Option<&TimePublication>,
+        post: &[crate::meter_session::TimeRawPoint],
+    ) {
+        self.time.ingest(pre, post, &mut self.history);
+    }
+
     pub(super) fn bind(&mut self, pair: PairKey) {
         if self.pair.as_ref() == Some(&pair) {
             return;
@@ -58,6 +71,7 @@ impl DeltaHistoryState {
         self.current_source_run = None;
         self.last_joined_axis = None;
         self.history.reset();
+        self.time = time_pair::TimeComparisonState::default();
         self.joined_order.clear();
         self.joined.clear();
         self.consumed_pre_order.clear();

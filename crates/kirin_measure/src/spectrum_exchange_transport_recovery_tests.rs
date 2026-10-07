@@ -7,6 +7,8 @@ fn confirmed_backwards_transport_boundary_restarts_the_freq_timeline() {
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,
@@ -73,6 +75,8 @@ fn staggered_backwards_transport_workers_restart_freq_at_their_exact_intersectio
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,
@@ -132,6 +136,8 @@ fn one_sided_lower_freq_result_cannot_move_the_presentation_backwards() {
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,
@@ -188,6 +194,8 @@ fn repeated_stale_sharpness_endpoint_does_not_extend_the_gap_hold() {
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,

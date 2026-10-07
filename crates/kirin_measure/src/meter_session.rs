@@ -15,7 +15,13 @@ use crate::{
     MeterHistoryResolution, SessionSummary, StereoMeter, StereoMeterSnapshot,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{RwLock, TryLockError};
+use std::sync::{Arc, RwLock, TryLockError};
+#[path = "time_observation.rs"]
+pub mod time_observation;
+use time_observation::TimeObservations;
+pub use time_observation::{TimeRawPoint, TimeSourceSpan, TimeWirePoint};
+#[path = "time_session_access.rs"]
+mod time_access;
 
 /// 次の測定区間 id を取る。プロセス内で単調増加し、0 は決して返さない。
 ///
@@ -123,6 +129,7 @@ pub struct MeterSession {
     history_revision: u64,
     layout: ChannelLayout,
     measurement_epoch: u64,
+    time: TimeObservations,
 }
 
 impl MeterSession {
@@ -168,6 +175,7 @@ impl MeterSession {
             history_revision: 0,
             layout,
             measurement_epoch,
+            time: TimeObservations::new(),
         })
     }
 
@@ -191,11 +199,15 @@ impl MeterSession {
         self.state = MeterSessionState::Active;
         self.clock
             .push_span((interleaved.len() / self.n_channels) as u64, clock);
-        let mut advanced = false;
+        self.time.retire_other_run(self.clock.current_input_run());
+        self.history
+            .set_step_frames(((u64::from(self.sample_rate) + 5) / 10).max(1));
+        let span = self.time_source_span();
         self.engine.push_observed_with_session_facts_at(
             interleaved,
             clock,
-            |_, current, observed_samples, max_lufs_m| {
+            |_, current, observed_samples, max_lufs_m, summary| {
+                self.summary = summary.unwrap_or_default();
                 const MAX_HISTORY_CLIP_EVENTS: u64 = u32::MAX as u64;
                 let previous_clip_events = self.stereo.session_clip_events();
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
@@ -245,7 +257,28 @@ impl MeterSession {
                     );
                     self.history_revision = self.history_revision.wrapping_add(1);
                 }
-                advanced = true;
+                self.time.push(
+                    TimeWirePoint {
+                        span,
+                        run: clock.run_id,
+                        observed: self.observed_frames,
+                        endpoint: clock.timeline_endpoint_samples,
+                        clock: clock.timeline_source as u8,
+                        usable: clock.usable_for_history,
+                        values: [
+                            current.lufs_m,
+                            current.lufs_s,
+                            current.true_peak,
+                            current.psr,
+                            self.summary
+                                .max_true_peak
+                                .zip(self.summary.lufs_i)
+                                .map(|(p, i)| p - i),
+                            stereo_snapshot.and_then(|point| point.correlation),
+                        ],
+                    },
+                    std::time::Instant::now(),
+                );
             },
             |point| {
                 if self.content_windows.len() == 64 {
@@ -255,9 +288,6 @@ impl MeterSession {
                 self.content_revision = self.content_revision.wrapping_add(1);
             },
         );
-        if advanced {
-            self.summary = self.engine.finalize();
-        }
         true
     }
 
@@ -302,6 +332,7 @@ impl MeterSession {
 
     pub fn pause(&mut self) {
         if self.state == MeterSessionState::Active {
+            self.time.retire_current();
             self.clock.break_continuity();
             self.engine.break_content_continuity();
         }
@@ -311,6 +342,7 @@ impl MeterSession {
     }
 
     pub fn reset(&mut self) {
+        self.time.reset();
         self.engine.reset();
         self.generation = self.generation.wrapping_add(1).max(1);
         self.active_frames = 0;
@@ -371,3 +403,7 @@ mod tests;
 #[cfg(test)]
 #[path = "meter_session_maximum_tests.rs"]
 mod maximum_tests;
+
+#[cfg(test)]
+#[path = "time_observation_tests.rs"]
+mod time_tests;

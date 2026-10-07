@@ -91,3 +91,6 @@ pub unsafe extern "C" fn kirin_hypha_abi_contract(out: *mut KirinAbiContract) {
 #[cfg(test)]
 #[path = "abi_contract_tests.rs"]
 mod tests;
+
+#[path = "snapshot_abi_contract.rs"]
+pub mod snapshot;

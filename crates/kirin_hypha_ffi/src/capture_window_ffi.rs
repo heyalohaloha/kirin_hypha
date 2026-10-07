@@ -51,6 +51,25 @@ impl KirinHyphaEngine {
         auxiliary: AuxiliaryClockSamples,
         force_new_epoch: bool,
     ) {
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            // ATTACK's source epoch includes the basis and output latency even if numerical
+            // positions happen to remain continuous. This only invalidates its optional facts.
+            let basis = if !position_valid {
+                0
+            } else {
+                match (presentation_latency.source, presentation_latency.output) {
+                    (PresentationLatencySource::Vst3, Some(_)) => 3,
+                    (PresentationLatencySource::AudioUnitV2, Some(_)) => 4,
+                    _ => match clock_source {
+                        CaptureClockSource::ProjectTimeline => 1,
+                        CaptureClockSource::AudioRenderTimeline => 2,
+                        _ => 0,
+                    },
+                }
+            };
+            let policy = basis | (u64::from(presentation_latency.output.unwrap_or(u32::MAX)) << 8);
+            runtime.note_clock_policy_from_audio(policy, force_new_epoch);
+        }
         // Stage facts only. `push_samples_transaction` commits this descriptor after the
         // destination SPSC proves it can accept the complete matching audio block.
         self.pending_capture_version.fetch_add(1, Ordering::AcqRel);

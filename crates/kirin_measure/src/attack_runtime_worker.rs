@@ -2,8 +2,6 @@ use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 
-use rtrb::Consumer;
-
 use super::assembler::AttackAssembler;
 use super::band_worker::BandWorker;
 use super::detail::AttackDetailTracker;
@@ -15,6 +13,10 @@ const WORKER_IDLE: Duration = Duration::from_millis(5);
 
 impl AttackRuntime {
     pub(super) fn run_worker(&self, consumers: &mut AttackConsumers) {
+        // A restarted worker may inherit a descriptor interrupted by its predecessor. Consume
+        // only its known remainder before reading the next descriptor; unpublished PCM belongs
+        // to a future transaction and must stay in the SPSC until its header is committed.
+        consumers.discard_current_samples();
         let Ok(analyzer) = SuperFluxAnalyzer::new(self.sample_rate, drum_config(self.num_channels))
         else {
             return;
@@ -39,16 +41,14 @@ impl AttackRuntime {
             }
             let Ok(block) = consumers.blocks.pop() else {
                 // No audio: the band side finishes what the stopped run allows.
-                self.service_band(&mut band_worker, detail_tracker.decided_before());
+                self.service_band(&mut band_worker, detail_tracker.decided_before(), false);
                 thread::sleep(WORKER_IDLE);
                 continue;
             };
+            consumers.begin_descriptor(block);
             let generation = self.generation.load(Ordering::Acquire);
             if block.generation != generation || block.channels as usize != self.num_channels {
-                discard_samples(
-                    &mut consumers.samples,
-                    block.frames as usize * block.channels as usize,
-                );
+                consumers.discard_current_samples();
                 peak_picker.reset();
                 detail_tracker.reset();
                 continue;
@@ -56,10 +56,7 @@ impl AttackRuntime {
             if !assembler.begin_block(block.presentation_start_samples, block.generation)
                 || !detail_tracker.begin_block(block.presentation_start_samples, block.generation)
             {
-                discard_samples(
-                    &mut consumers.samples,
-                    block.frames as usize * block.channels as usize,
-                );
+                consumers.discard_current_samples();
                 peak_picker.reset();
                 detail_tracker.reset();
                 continue;
@@ -73,6 +70,9 @@ impl AttackRuntime {
                 &mut detail_tracker,
                 &mut band_worker,
             ) {
+                consumers.discard_current_samples();
+                self.note_drop();
+                self.reset_band(&mut band_worker);
                 assembler.reset();
                 peak_picker.reset();
                 detail_tracker.reset();
@@ -93,13 +93,13 @@ impl AttackRuntime {
     ) -> bool {
         self.band_begin_block(band_worker, generation);
         for _ in 0..frames {
-            let Ok(left) = consumers.samples.pop() else {
+            let Some(left) = consumers.pop_sample() else {
                 return false;
             };
             let right = if self.num_channels == 2 {
-                match consumers.samples.pop() {
-                    Ok(right) => Some(right),
-                    Err(_) => return false,
+                match consumers.pop_sample() {
+                    Some(right) => Some(right),
+                    None => return false,
                 }
             } else {
                 None
@@ -123,7 +123,7 @@ impl AttackRuntime {
                 }
             }
         }
-        self.service_band(band_worker, detail_tracker.decided_before());
+        self.service_band(band_worker, detail_tracker.decided_before(), true);
         true
     }
 
@@ -178,14 +178,41 @@ impl AttackRuntime {
 }
 
 fn drain(consumers: &mut AttackConsumers) {
-    while consumers.blocks.pop().is_ok() {}
-    while consumers.samples.pop().is_ok() {}
+    consumers.discard_current_samples();
+    while let Ok(block) = consumers.blocks.pop() {
+        consumers.begin_descriptor(block);
+        consumers.discard_current_samples();
+    }
 }
 
-fn discard_samples(consumer: &mut Consumer<f32>, count: usize) {
-    for _ in 0..count {
-        if consumer.pop().is_err() {
-            break;
+impl AttackConsumers {
+    fn begin_descriptor(&mut self, block: super::AttackIngressBlock) {
+        self.current_samples_remaining = block.frames as usize * usize::from(block.channels);
+    }
+    fn pop_sample(&mut self) -> Option<f32> {
+        match self.samples.pop() {
+            Ok(sample) => {
+                self.current_samples_remaining = self.current_samples_remaining.saturating_sub(1);
+                Some(sample)
+            }
+            Err(_) => {
+                // Trusted ingress commits a descriptor only after all its PCM. If that contract
+                // fails, stop at the observed empty ring; never consume a later uncommitted block
+                // trying to satisfy an impossible old count.
+                self.current_samples_remaining = 0;
+                None
+            }
+        }
+    }
+    fn discard_current_samples(&mut self) {
+        while self.current_samples_remaining > 0 {
+            if self.pop_sample().is_none() {
+                break;
+            }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "attack_runtime_worker_ingress_tests.rs"]
+mod tests;

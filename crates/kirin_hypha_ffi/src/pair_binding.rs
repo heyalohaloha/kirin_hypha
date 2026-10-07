@@ -34,6 +34,13 @@ pub(crate) struct ExactPairBindingSnapshot {
     pub pre_instance_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PairObservationAuthority {
+    pub generation: u64,
+    pub selection_intent: bool,
+    pub exact: Option<ExactPairBindingSnapshot>,
+}
+
 impl PairBinding {
     pub(crate) fn new() -> Self {
         Self {
@@ -60,6 +67,48 @@ impl PairBinding {
 
     pub(crate) fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+
+    /// One nonblocking authority read, including the distinction between no selection and a
+    /// selected PRE still awaiting its exact locator. Never hold two locks at the same time.
+    pub(crate) fn try_observation_snapshot(&self) -> Option<PairObservationAuthority> {
+        let before = {
+            let _transition = self.transition.try_lock().ok()?;
+            (
+                self.generation(),
+                self.selection_intent.load(Ordering::Acquire),
+            )
+        };
+        let pre = self.latched_pre.try_lock().ok()?.clone();
+        let _transition = self.transition.try_lock().ok()?;
+        if before
+            != (
+                self.generation(),
+                self.selection_intent.load(Ordering::Acquire),
+            )
+        {
+            return None;
+        }
+        let exact = if let Some(pre) = pre {
+            let project_hash = pre.project_dir.file_name()?.to_str()?;
+            if !kirin_measure::is_path_safe_component(project_hash)
+                || !kirin_measure::is_path_safe_component(&pre.instance_id)
+            {
+                return None;
+            }
+            Some(ExactPairBindingSnapshot {
+                generation: before.0,
+                project_hash: project_hash.to_string(),
+                pre_instance_id: pre.instance_id,
+            })
+        } else {
+            None
+        };
+        Some(PairObservationAuthority {
+            generation: before.0,
+            selection_intent: before.1,
+            exact,
+        })
     }
 
     /// Return one coherent GUI/status view of selection intent and exact PRE identity.
@@ -345,3 +394,7 @@ fn next_generation(counter: &AtomicU64) -> u64 {
 #[cfg(test)]
 #[path = "pair_binding_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pair_observation_authority_tests.rs"]
+mod observation_tests;

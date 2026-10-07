@@ -106,6 +106,17 @@ impl PostPairObservation {
         }
     }
 
+    /// Validate the frozen cycle after potentially blocking Watch output, before changing
+    /// optional-analysis authority. Each locator/claim is read separately, then generation again.
+    pub(super) fn binding_is_current(&self, snapshot: &PostPairSnapshot) -> bool {
+        let before = (self.deps.pair_binding_generation)();
+        before == snapshot.binding_generation
+            && crate::paired_pre_instance_id(&self.deps.latched_pre) == snapshot.pre_instance_id
+            && snapshot_pair_pre_name(&self.deps.pair_pre_name) == snapshot.name
+            && self.claimed_at().to_bits() == snapshot.claimed_at.to_bits()
+            && (self.deps.pair_binding_generation)() == before
+    }
+
     pub(super) fn publish_claim(
         &mut self,
         kirin_root: &Path,

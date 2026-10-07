@@ -72,6 +72,35 @@ fn own_near(runtime: &AttackRuntime, onset: i64) -> Option<AttackBandDetail> {
 }
 
 #[test]
+fn missing_cache_refresh_requires_the_full_original_analysis_range() {
+    let detail = AttackBandDetail {
+        event: AttackEvent {
+            generation: 1,
+            sample_rate: 48_000,
+            channels: 2,
+            definition_hash: [1; 32],
+            event_sample: 20_000,
+            decision_sample: 21_000,
+            value: 1.0,
+        },
+        band: band(3),
+        span_end_sample: 34_400,
+        measure: None,
+    };
+    // Independent 250 Hz contract: 960 lead + 4*192 settle + 97 half-RMS = 1825
+    // samples before onset, and 97 after requested end; one missing sample is insufficient.
+    let mut ring = crate::attack_perception::band::AttackBandRing::new(48_000, 2);
+    ring.push_block(18_175, &vec![0.0; (34_496 - 18_175) * 2]);
+    assert!(!super::needs_refresh(&detail, Some(&ring), true));
+    ring.push_block(34_496, &[0.0, 0.0]);
+    assert!(super::needs_refresh(&detail, Some(&ring), true));
+    ring.clear();
+    ring.push_block(18_176, &vec![0.0; (34_497 - 18_176) * 2]);
+    assert!(!super::needs_refresh(&detail, Some(&ring), false));
+    assert!(!super::needs_refresh(&detail, None, false));
+}
+
+#[test]
 fn all_keeps_no_ring_and_measures_nothing() {
     let runtime = AttackRuntime::new(48_000, 2).unwrap();
     assert!(runtime.set_enabled(true));

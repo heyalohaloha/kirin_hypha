@@ -1,0 +1,382 @@
+{
+  "scope": "G1 integrated development source; local blockers remain; not G3 actual DAW or release acceptance",
+  "recorded_utc": "2026-10-07T21:59:02.459221+00:00",
+  "base_commit": "f5424878dbe955528c7af331d7c924a2bfe35c61",
+  "architecture": "x86_64",
+  "source": {
+    "file_count": 1659,
+    "combined_sha256": "38605508d4685e18f57f6a8285a49bd37ba833d8508513808e51f12b90982610",
+    "different_files_after_gates": [],
+    "changed_since_historical_source": [
+      ".cargo/config.toml",
+      "crates/kirin_hypha_ffi/tests/pairing_candidates.rs",
+      "crates/kirin_hypha_ffi/tests/parity.rs",
+      "crates/kirin_hypha_ffi/tests/support/storage_sandbox.rs",
+      "crates/kirin_measure/src/io_thread_post_drop_tests.rs",
+      "crates/kirin_measure/src/lib.rs",
+      "crates/kirin_measure/src/spectrum_exchange.rs",
+      "crates/kirin_measure/src/storage.rs",
+      "crates/kirin_measure/src/storage_tests.rs",
+      "crates/kirin_measure/tests/path_traversal_test.rs",
+      "juce_shell/CMakeLists.txt",
+      "juce_shell/tests/LiveBlindEndContractTest.h",
+      "juce_shell/tests/ValidationStorageSandbox.h",
+      "scripts/source_line_budget.tsv"
+    ]
+  },
+  "workspace": {
+    "exit_code": 101,
+    "completed_result_suites": 36,
+    "pass": 2311,
+    "fail": 3,
+    "ignored": 41,
+    "ffi_unit_pass": 185,
+    "failed_tests": [
+      "record_drop_commit::tests::complete_twelve_pair_drop_snapshots_and_authorizes_every_exact_member",
+      "record_drop_commit::tests::concurrent_member_binds_publish_one_acceptance_and_complete_the_full_roster",
+      "record_ingress::tests::three_max_blocks_are_preserved_by_the_spool_before_measure_consumes_any_sample"
+    ],
+    "failed_doctest_targets": [
+      "hypha_gui",
+      "kirin_hypha_ffi"
+    ],
+    "doctest_diagnostic": "dependency rlib unavailable during rustdoc; another checkout Cargo was subsequently observed holding this target/debug/.cargo-lock; direct cause not established",
+    "log": {
+      "file": "workspace-integrated.log",
+      "bytes": 367294,
+      "sha256": "ec2841958dc29f116b6de25a7f312ff3b0bb95c7dfe7a9228476dcbf196201a5"
+    },
+    "doctest_after_rebuilding_dependencies": "PASS (all workspace doc targets); earlier FAIL retained"
+  },
+  "drop_order_diagnostic": [
+    {
+      "fixture": "kirin_record_drop_commit_test_91063_3",
+      "created_min": 1791409222592,
+      "claim_min": 1791409221795,
+      "claim_max": 1791409222770,
+      "claims_after_drop": 2,
+      "claim_count": 12
+    },
+    {
+      "fixture": "kirin_record_drop_commit_test_91063_4",
+      "created_min": 1791409224608,
+      "claim_min": 1791409223999,
+      "claim_max": 1791409224708,
+      "claims_after_drop": 2,
+      "claim_count": 12
+    }
+  ],
+  "native_snapshot_abi": {
+    "pass": 1,
+    "fail": 0,
+    "storage_root": "isolated native build test-kirin-os",
+    "observations": {
+      "TIME_COMPLETION": {
+        "supplied_frames": 192000,
+        "ready": true,
+        "feed_wall_ms": 4600.378,
+        "observed_after_feed_ms": 30.111,
+        "poll_count": 6,
+        "busy_count": 0,
+        "last_status": 0,
+        "last_cutoff": 192000,
+        "last_current_cutoff": 192000,
+        "last_endpoint": 192000,
+        "completion_age_ms": 3.694,
+        "remaining_ms": 396.306
+      },
+      "TIME_PROBE": {
+        "cutoff": 192000,
+        "psr": 3.003595673,
+        "age_first_ms": 3.694,
+        "remaining_first_ms": 396.306,
+        "age_second_ms": 31.752,
+        "remaining_second_ms": 368.248
+      }
+    },
+    "log": {
+      "file": "integration-native-abi.log",
+      "bytes": 1804,
+      "sha256": "b789eb63435ea288a64e952b862232bb01e6ecab4cab1c36b0b7295c5798b33c"
+    },
+    "archive": {
+      "file": "libkirin_hypha_ffi.a",
+      "bytes": 27943936,
+      "sha256": "9096be7c0c8fd7ab22a0d1dd2e41e3c8ab01f6c5887c70f69b38d2920de4f44f"
+    },
+    "binary": {
+      "file": "KirinSnapshotAbiContractTests",
+      "bytes": 8932008,
+      "sha256": "6e193d7d5ba0a117ac79d1f87db1e0c5e1b42f71e3fd304ec4b16a3f37556ea4"
+    }
+  },
+  "pending": [
+    "full integrated native inventory",
+    "required CI four checks",
+    "G2 UI and calibration",
+    "G3 actual DAW",
+    "user daily use and premium appearance"
+  ],
+  "component_gates": [
+    {
+      "name": "vtable",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "vst3-com",
+        "--locked",
+        "--test",
+        "vtable_expression"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 289.773
+    },
+    {
+      "name": "parity_inventory",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "--",
+        "--ignored",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 59.475,
+      "observed_count": 20,
+      "expected_count": 20
+    },
+    {
+      "name": "pairing_inventory",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "pairing_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.491,
+      "observed_count": 6,
+      "expected_count": 6
+    },
+    {
+      "name": "parity",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 167.671
+    },
+    {
+      "name": "pairing",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "pairing_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 16.156
+    },
+    {
+      "name": "ffi_debug_archive",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kirin_hypha_ffi",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.695
+    },
+    {
+      "name": "ffi_release_archive",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kirin_hypha_ffi",
+        "--release",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.765
+    },
+    {
+      "name": "clippy_owned",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kirin_measure",
+        "-p",
+        "kirin_hypha_ffi",
+        "-p",
+        "xtask",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 33.607
+    },
+    {
+      "name": "clippy_legacy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "hypha_pre",
+        "-p",
+        "hypha_post",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 25.099
+    }
+  ],
+  "isolated_and_doc_gates": [
+    {
+      "name": "capstone_isolated",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "capstone_paired_record_output_and_linkage",
+        "--",
+        "--ignored",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 10.205
+    },
+    {
+      "name": "workspace_doc",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked",
+        "--doc",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 84.161
+    }
+  ],
+  "lightweight_source_contract": {
+    "status": "PASS",
+    "log": {
+      "file": "integration-lightweight.log",
+      "bytes": 12297,
+      "sha256": "af19a256980a672d6e628e5dd41874face18fb1b94a7c723f08f8918c9218276"
+    }
+  },
+  "ignored_record_pairing": {
+    "inventory": {
+      "parity": 20,
+      "pairing_candidates": 6
+    },
+    "parity": {
+      "pass": 19,
+      "fail": 1,
+      "failure": "capstone_paired_record_output_and_linkage: poll_delta None"
+    },
+    "pairing_candidates": {
+      "pass": 6,
+      "fail": 0
+    },
+    "isolated_capstone": {
+      "pass": 0,
+      "fail": 1,
+      "failure": "poll_delta Some but lufs None"
+    },
+    "acceptance": "FAIL remains, do not substitute historical 26 PASS"
+  },
+  "native_inventory": {
+    "selected": 89,
+    "executed_on_integrated_source": 1,
+    "remaining": 88,
+    "log": {
+      "file": "native-inventory.log",
+      "bytes": 4095,
+      "sha256": "4f04c16d3ff84b7367946c280f16669f5b4819dc3b83adf2e7e5be751580fb20"
+    }
+  },
+  "additional_logs": [
+    {
+      "file": "parity.log",
+      "bytes": 1883,
+      "sha256": "9e842529aa153ba1af34cf07d86145819ac4f75fada515293e1c0902bdea0fae"
+    },
+    {
+      "file": "pairing.log",
+      "bytes": 837,
+      "sha256": "d9bade62cd11b9542ca7def11d3c9f98bb26b6fbd25539125a1a3d4c3fc3c9be"
+    },
+    {
+      "file": "clippy_owned.log",
+      "bytes": 677,
+      "sha256": "869e701b36b47de2e3a317be0f2fec1eeed498979337c077e312a3602d107b6a"
+    },
+    {
+      "file": "clippy_legacy.log",
+      "bytes": 137181,
+      "sha256": "9a1642c512edd2eeb98f29d52cfda699a75a925dc80a9f1086c32575da6b2229"
+    },
+    {
+      "file": "capstone_isolated.log",
+      "bytes": 832,
+      "sha256": "c0c31373932c20051b1630fc3a67917def866288778f093fae25f68fbeaa2ddf"
+    },
+    {
+      "file": "workspace_doc.log",
+      "bytes": 137626,
+      "sha256": "63a797652212eb88c3915f6b2dc578bd9caf2d3f69d916a7a7589e6338c01557"
+    }
+  ],
+  "blockers": [
+    "Drop fixture ordering failures",
+    "Record spool two-second close failure and stability",
+    "integrated capstone delta unavailable; isolated confirmation also FAIL"
+  ]
+}

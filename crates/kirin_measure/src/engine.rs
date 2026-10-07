@@ -280,29 +280,31 @@ impl MeasureEngine {
         self.push_observed_internal(
             samples,
             MeterClockStart::unknown(),
-            |frames, result, observed, _| observe(frames, result, observed),
+            false,
+            |frames, result, observed, _, _| observe(frames, result, observed),
             |_| {},
         )
     }
 
     /// The Meter Session's 10/100 ms facts, with the Max M confirmed up to the same boundary,
     /// and qualified content-grid candidates are read from the same EBU filter input. The latter
-    /// never changes Session time. PLR is a Session summary fact, so no per-100 ms Integrated query.
+    /// never changes Session time. The TIME raw frame also freezes the Session summary at that boundary.
     pub(crate) fn push_observed_with_session_facts_at(
         &mut self,
         samples: &[f64],
         clock: MeterClockStart,
-        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<SessionSummary>),
         observe_content: impl FnMut(ContentWindowObservation),
     ) -> Option<MeasureResult> {
-        self.push_observed_internal(samples, clock, observe, observe_content)
+        self.push_observed_internal(samples, clock, true, observe, observe_content)
     }
 
     fn push_observed_internal(
         &mut self,
         samples: &[f64],
         clock: MeterClockStart,
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+        session_summary: bool,
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<SessionSummary>),
         mut observe_content: impl FnMut(ContentWindowObservation),
     ) -> Option<MeasureResult> {
         if let Some(grid) = self.content_grid.as_mut() {
@@ -388,11 +390,13 @@ impl MeasureEngine {
             self.total_frames += (self.publish_target / self.n_channels) as u64;
 
             let computed = self.compute();
+            let summary = session_summary.then(|| self.finalize());
             observe(
                 self.total_frames,
                 &computed,
                 &self.publish_buf,
                 self.max_lufs_m,
+                summary,
             );
             result = Some(computed);
             self.publish_buf.clear();

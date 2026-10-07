@@ -7,9 +7,19 @@ fn fixture() -> (
     Arc<Mutex<MeterSession>>,
     Arc<MeterDeltaHistoryExchange>,
 ) {
+    fixture_in_epoch(0)
+}
+
+fn fixture_in_epoch(
+    epoch: u64,
+) -> (
+    tempfile::TempDir,
+    Arc<Mutex<MeterSession>>,
+    Arc<MeterDeltaHistoryExchange>,
+) {
     let dir = tempfile::tempdir().unwrap();
     let session = Arc::new(Mutex::new(
-        MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+        MeterSession::new_in_epoch(48_000, ChannelLayout::stereo(), epoch).unwrap(),
     ));
     let exchange = MeterDeltaHistoryExchange::new(48_000, Arc::clone(&session));
     (dir, session, exchange)
@@ -65,7 +75,7 @@ fn full_legacy_and_content_tails_fit_the_existing_exchange_limit() {
         AuxiliaryClockSamples, AuxiliaryClockSource, PresentationLatencySamples,
         PresentationLatencySource,
     };
-    let (dir, session, exchange) = fixture();
+    let (dir, session, exchange) = fixture_in_epoch(19);
     let audio: Vec<_> = (0..4_800)
         .flat_map(|frame| {
             let value = 0.2 * (frame as f64 * std::f64::consts::TAU / 48.0).sin();
@@ -99,6 +109,10 @@ fn full_legacy_and_content_tails_fit_the_existing_exchange_limit() {
         publication.content_windows.len(),
         METER_HISTORY_EXCHANGE_POINTS
     );
+    let time = publication.time.as_ref().unwrap();
+    assert_eq!(time.span.epoch, 19);
+    assert_eq!(time.points.len(), METER_HISTORY_EXCHANGE_POINTS);
+    assert!(time.valid());
     let bytes = fs::metadata(dir.path().join(METER_HISTORY_EXCHANGE_FILE))
         .unwrap()
         .len();
@@ -109,7 +123,7 @@ fn full_legacy_and_content_tails_fit_the_existing_exchange_limit() {
     );
     assert!(
         bytes > 10_000,
-        "{bytes} byte fixture did not exercise both tails"
+        "{bytes} byte fixture did not exercise all three tails"
     );
 }
 
@@ -278,7 +292,81 @@ fn history_with_no_exact_wire_points_does_not_repeat_empty_publication() {
     session.lock().unwrap().push_active(&vec![0.2; 9_600]);
     publish(&exchange, dir.path()).unwrap();
     assert_eq!(counts(&exchange).1, 1);
-    assert!(read_publication(dir.path()).unwrap().points.is_empty());
+    let publication = read_publication(dir.path()).unwrap();
+    assert!(publication.points.is_empty());
+    assert!(publication.time.is_none());
+}
+
+#[test]
+fn qualified_unknown_clock_raw_advances_once_and_unchanged_polls_do_not_serialize() {
+    let (dir, session, exchange) = fixture_in_epoch(20);
+    publish(&exchange, dir.path()).unwrap();
+    assert!(read_publication(dir.path())
+        .unwrap()
+        .time
+        .unwrap()
+        .points
+        .is_empty());
+    assert!(session.lock().unwrap().push_active(&vec![0.2; 9_600]));
+    publish(&exchange, dir.path()).unwrap();
+    let publication = read_publication(dir.path()).unwrap();
+    assert!(publication.points.is_empty());
+    let time = publication.time.unwrap();
+    assert!(time.valid());
+    assert_eq!(time.span.epoch, 20);
+    assert_eq!(time.points.len(), 1);
+    assert_eq!(time.points[0].observed, 4_800);
+    assert!(time.points[0].exact_key().is_none());
+    let path = dir.path().join(METER_HISTORY_EXCHANGE_FILE);
+    let stamp = FileStamp::read(&path).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    for _ in 0..600 {
+        publish(&exchange, dir.path()).unwrap();
+    }
+    assert_eq!(counts(&exchange), (2, 2));
+    assert_eq!(FileStamp::read(&path).unwrap(), stamp);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn crossed_clock_raw_publishes_without_advancing_legacy_history_revision() {
+    let (dir, session, exchange) = fixture_in_epoch(21);
+    publish(&exchange, dir.path()).unwrap();
+    let legacy_revision = session.lock().unwrap().history_publication_revision();
+    for (position, epoch) in [(0, 1), (2_400, 2)] {
+        assert!(session.lock().unwrap().push_active_at(
+            &vec![0.2; 4_800],
+            MeterClockStart {
+                position_samples: Some(position),
+                epoch: Some(epoch),
+                source: CaptureClockSource::ProjectTimeline,
+                ..Default::default()
+            },
+        ));
+    }
+    assert_eq!(
+        session.lock().unwrap().history_publication_revision(),
+        legacy_revision
+    );
+    assert_eq!(session.lock().unwrap().time_latest_observed(), Some(4_800));
+    publish(&exchange, dir.path()).unwrap();
+    let publication = read_publication(dir.path()).unwrap();
+    assert!(publication.points.is_empty());
+    let time = publication.time.unwrap();
+    assert!(time.valid());
+    assert_eq!(time.points.len(), 1);
+    assert_eq!(time.points[0].observed, 4_800);
+    assert!(!time.points[0].usable);
+    assert!(time.points[0].exact_key().is_none());
+    let path = dir.path().join(METER_HISTORY_EXCHANGE_FILE);
+    let stamp = FileStamp::read(&path).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    for _ in 0..600 {
+        publish(&exchange, dir.path()).unwrap();
+    }
+    assert_eq!(counts(&exchange), (2, 2));
+    assert_eq!(FileStamp::read(&path).unwrap(), stamp);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
 }
 
 #[test]

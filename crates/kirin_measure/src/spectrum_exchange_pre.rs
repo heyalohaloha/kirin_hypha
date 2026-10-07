@@ -238,22 +238,24 @@ impl SpectrumCoordinator {
                 else {
                     return true;
                 };
-                // Details are published or completed after their waveform, so any history
-                // change, not only a new waveform end, is a new snapshot.
-                let revision = history
-                    .waveform()
-                    .next_back()
-                    .map(|_| history.revision() as i64);
-                // The band results are published apart from the history; publishing them
-                // advances the history's revision, so a new band result is a new snapshot too.
-                let (band, results) = self
+                let Some(observations) = self
                     .attack_runtime
                     .as_ref()
-                    .map(|runtime| (runtime.band(), runtime.band_results()))
-                    .unwrap_or_default();
+                    .and_then(|runtime| runtime.try_observation_snapshot())
+                else {
+                    remove_attack_snapshot(instance_dir);
+                    return true;
+                };
+                let revision = history.waveform().next_back().map(|_| {
+                    let mut hash = sha2::Sha256::new();
+                    use sha2::Digest;
+                    hash.update(history.revision().to_le_bytes());
+                    hash.update(observations.revision.to_le_bytes());
+                    i64::from_le_bytes(hash.finalize()[..8].try_into().unwrap())
+                });
                 (
                     revision,
-                    encode_attack_snapshot(request_id, &history, band, &results),
+                    encode_attack_observation_snapshot(request_id, &history, &observations),
                     None,
                 )
             }

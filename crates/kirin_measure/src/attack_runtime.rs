@@ -24,12 +24,22 @@ mod band_worker;
 mod bins;
 #[path = "attack_detail.rs"]
 mod detail;
+#[path = "attack_observation_worker.rs"]
+mod observation_worker;
 #[path = "attack_pair.rs"]
 mod pair;
 #[path = "attack_peak.rs"]
 mod peak;
+#[path = "attack_band_semantics.rs"]
+pub mod semantics;
 #[path = "attack_sharpness.rs"]
 mod sharpness;
+#[path = "attack_single.rs"]
+pub mod single;
+#[path = "attack_single_worker.rs"]
+mod single_worker;
+#[path = "attack_snapshot.rs"]
+pub mod snapshot;
 #[path = "attack_runtime_state.rs"]
 mod state;
 #[path = "attack_runtime_worker.rs"]
@@ -58,6 +68,8 @@ struct AttackIngressBlock {
 struct AttackConsumers {
     samples: Consumer<f32>,
     blocks: Consumer<AttackIngressBlock>,
+    /// Worker-only cursor, retained if a panic interrupts an already-popped descriptor.
+    current_samples_remaining: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -86,6 +98,12 @@ pub struct AttackRuntime {
     band_anchors: Mutex<BandAnchorRequest>,
     band_anchor_revision: AtomicU64,
     band_results: Mutex<Arc<AttackBandResults>>,
+    incarnation: [u8; 16],
+    clock_policy: AtomicU64,
+    observations: Mutex<Arc<snapshot::AttackObservationSnapshot>>,
+    observation_anchors: Mutex<Vec<snapshot::AttackObservationAnchor>>,
+    selected: Mutex<single::AttackSingleControl>,
+    single_clock_origin: std::time::Instant,
     band_measurements: AtomicU64,
     band_ring_frames: AtomicU64,
     worker_running: AtomicBool,
@@ -124,6 +142,7 @@ impl AttackRuntime {
             consumers: Mutex::new(Some(AttackConsumers {
                 samples: sample_consumer,
                 blocks: block_consumer,
+                current_samples_remaining: 0,
             })),
             worker: Mutex::new(None),
             wake: (Mutex::new(()), Condvar::new()),
@@ -133,6 +152,12 @@ impl AttackRuntime {
             band_anchors: Mutex::new(BandAnchorRequest::default()),
             band_anchor_revision: AtomicU64::new(0),
             band_results: Mutex::new(Arc::new(AttackBandResults::default())),
+            incarnation: *uuid::Uuid::new_v4().as_bytes(),
+            clock_policy: AtomicU64::new(1),
+            observations: Mutex::new(Arc::new(snapshot::AttackObservationSnapshot::default())),
+            observation_anchors: Mutex::new(Vec::new()),
+            selected: Mutex::new(single::AttackSingleControl::default()),
+            single_clock_origin: std::time::Instant::now(),
             band_measurements: AtomicU64::new(0),
             band_ring_frames: AtomicU64::new(0),
             worker_running: AtomicBool::new(false),
@@ -351,6 +376,9 @@ impl AttackRuntime {
             return true;
         }
         if let Some(finished) = worker_slot.take() {
+            self.generation.fetch_add(1, Ordering::AcqRel);
+            self.latest_presentation_end
+                .store(NO_PRESENTATION_POSITION, Ordering::Release);
             if let Ok(consumers) = finished.join() {
                 if let Ok(mut slot) = self.consumers.lock() {
                     *slot = Some(consumers);

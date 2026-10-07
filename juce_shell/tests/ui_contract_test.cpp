@@ -46,6 +46,30 @@ namespace
 
 int main()
 {
+    static_assert (sizeof (KirinAbiContract) == 112);
+    static_assert (sizeof (KirinSnapshotAbiContract) == 248);
+    static_assert (offsetof (KirinSnapshotAbiContract, summary_size) == 40);
+    static_assert (offsetof (KirinSnapshotAbiContract, time_align) == 80);
+    const auto snapshotAbi = kirin::expectedSnapshotAbiContract();
+    assert (kirin::snapshotAbiMatches (snapshotAbi));
+    auto staleSnapshotAbi = snapshotAbi;
+    --staleSnapshotAbi.single_size;
+    assert (! kirin::snapshotAbiMatches (staleSnapshotAbi));
+    staleSnapshotAbi = snapshotAbi;
+    ++staleSnapshotAbi.time_version;
+    assert (! kirin::snapshotAbiMatches (staleSnapshotAbi));
+    staleSnapshotAbi = snapshotAbi;
+    --staleSnapshotAbi.struct_size;
+    assert (! kirin::snapshotAbiMatches (staleSnapshotAbi));
+    staleSnapshotAbi = snapshotAbi;
+    staleSnapshotAbi.reserved = 1;
+    assert (! kirin::snapshotAbiMatches (staleSnapshotAbi));
+    staleSnapshotAbi = snapshotAbi;
+    ++staleSnapshotAbi.time_offsets[0];
+    assert (! kirin::snapshotAbiMatches (staleSnapshotAbi));
+    staleSnapshotAbi = snapshotAbi;
+    ++staleSnapshotAbi.enum_revision;
+    assert (! kirin::snapshotAbiMatches (staleSnapshotAbi));
     const auto matchingAbi = kirin::expectedAbiContract();
     assert (kirin::abiMatches (matchingAbi));
     auto oldStaticlib = matchingAbi;

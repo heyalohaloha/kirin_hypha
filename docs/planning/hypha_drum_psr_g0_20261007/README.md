@@ -2,7 +2,7 @@
 
 2026年10月7日。利用者の決定を含む `git diff e909fc1b 284d772b | git apply` を適用した後、文書・実寸wire・development計測を行った。2026年10月7日の方針変更で、G1以降を1.1.51へ含める。PR #83のmerge通知後のmainからCodexが実装し、Claudeが途中確認／CI／merge／releaseを担当する。公開前はG3と本人の日常操作・品位確認、友人G4は今後も公開後だけで開発工程・公開条件に含めない。G0調査時点では、製品build、配置、CI、公開、新commitは行っていない。
 
-**G0の調査資料と試作は揃った。設計の閉じ方とCaptureの選択が残る。** G0で契約候補・校正手順・未検証一覧を整理し、新timestamp等を要する400 ms期限、DRUM look-behind、応答上限の負荷証拠はG1／G2で取り、G3 freeze前に最終値を固定する。下記のPASSは設計模型・限定観測の結果で、製品・実host・利用者の受入ではない。
+**G0の設計資料・校正手順を固定し、Captureはv1維持＋明示失敗で閉じた（2026年10月7日追加決定）。** G0で契約候補・校正手順・未検証一覧を整理し、新timestamp等を要する400 ms期限、DRUM look-behind、応答上限の負荷証拠はG1／G2で取り、G3 freeze前に最終値を固定する。下記のPASSは設計模型・限定観測の結果で、製品・実host・利用者の受入ではない。
 
 ## 1. 開く成果物
 
@@ -35,7 +35,7 @@
 | 平均図と単打 | 平均は同じ点参加集合のdB平均。集合変更で断線、中央値マークなし。Singleは同eventの値・形・理由・改訂を保持 |
 | producer応答 | GUI stopで完成を偽造しない。1000 msを有限応答候補とし、非RTでRetired。NotKeptと応答不能を分離。期限後late replyは拒否 |
 | 境界 | 旧structとKirinAbiContractは拡大しない。独立したversion／size／count／revision入口、混在拒否。ODFとband意味を別identityにする |
-| Capture | G0を閉じる時にv2採用とv1維持＋明示失敗の二案を利用者へ提案する。v2は別repo変更が必要な候補であり採否未定 |
+| Capture | 二案を提案し、利用者がv1維持＋保持不能添付の明示失敗を採用。ローカルPNGを残す。別repoは変更しない |
 
 日本語の短名「立上」「頭音量」「確定7/8」「全体不定」は候補。現行の英語label契約とは異なるためG2で正本を同期する。意味の理解は未判定。
 
@@ -69,7 +69,7 @@
 | DRUM look-behind／正常jitter | 未固定 | DRUM固有のpublication・取得遅延を測り、有限Lを校正する。TIMEの約500 msを転用しない。模型150 msは例示 |
 | BAND 4 Hz | 第一候補 | 2／4／8 Hz模型は技術比較のみ。実数値の窓応答・読み取り・品位の診断を経て、G3の候補freeze前に固定 |
 | 1000 ms worker応答 | 有限設計候補 | 密集二枠・idle・worker死活・応答不能で有限退役を検証。4 ms serviceをhard WCETと呼ばない |
-| Capture方式 | v2案のschema・必要変更を整理、採否未定 | G0終了時にv2（別repo変更とround-trip受入）かv1（保持不能添付の明示失敗・ローカルPNG維持）を利用者へ提案。採用方式のfixtureと制限を公開前に確認 |
+| Capture方式 | 二案を提案しv1維持＋明示失敗を採用 | G2で通常・不対応・timeout／再試行・通知・ローカルPNG維持を受入。v2 round-tripと別repo変更は今回対象外 |
 | 使いやすさ・高級感 | 未判定 | 公開前は本人の実UI・実再生の日常操作／品位。友人の初見等は今後も公開後G4だけで、開発工程・公開条件に含めない |
 
 HTMLは精密なproduct rendererではない。scope／主要数値のboundsと操作模型を確認したが、平均shape／点maskは例示、値軸・分解能／source詳細は説明だけでnative同等に表示していない。historyクリックは固定三候補の模型で、実際のhit testing、通常dragの候補集合、空窓／expired PCM、producer late completion、lifecycle、再openを実装していない。styleは低忠実度でありnative素材・書体・高級感の合格ではない。PNG+metadataの製品Captureにも接続しない。これらをG2のPASSへ繰り上げない。
@@ -113,3 +113,7 @@ Handoff：保存したG0成果を参照し、PR #83のmerge通知後のmainでG1
 日次ログ相当：2026-10-07 17:49 JST、公開文書から個別のbranch名を除き、G0校正手順とCapture採否未定を明示した。文書の整合・リンク・既存模型証拠のhashを確認し、公開文書検査のPASSを確認して計画PRを作成する。製品source／ABIと保存済み観測JSONは未変更。
 
 Handoff：Claudeが計画PRの必須4チェック（公開履歴、macOS source、AU validation、Windows preflight）、mergeを確認する。CodexはPR #83のmerge通知後のmainから実装し、G0終了時にCapture v2採用とv1維持＋明示失敗を利用者へ提案する。途中確認／CI／merge／releaseはClaude担当。Notion三記録は書込み禁止により未記録。
+
+### G0終了とG1開始（2026年10月7日）
+
+PR #83とPR #87のmerge通知を受け、main `7b0c301c`以降を起点としてG1を開始した。Capture二案を利用者へ提案し、v1維持＋保持不能添付の明示失敗を採用。ローカルPNGを残し、metadataを捨てたattached成功を禁止する。設計・校正手順・未検証一覧の固定とこの選択でG0を閉じた。新timestamp等の製品証拠と最終値はG1／G2、G3 freeze前へ引き継ぐ。模型・旧libの結果を新製品のPASSへ転用しない。上の時点別記録はG0調査時の履歴である。

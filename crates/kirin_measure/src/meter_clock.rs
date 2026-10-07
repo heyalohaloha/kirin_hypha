@@ -196,6 +196,11 @@ impl MeterClockTracker {
         maximum.min(same_run).min(grid.unwrap_or(maximum)).max(1)
     }
 
+    /// Input provenance advances before the next complete measurement slot.
+    pub fn current_input_run(&self) -> Option<u64> {
+        self.last_input.map(|input| input.run_id)
+    }
+
     pub fn consume_observation(&mut self, frames: u64) -> MeterObservationClock {
         let mut remaining = frames;
         let mut run_id = None;

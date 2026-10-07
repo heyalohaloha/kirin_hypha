@@ -1,0 +1,256 @@
+{
+  "observed_utc": "2026-10-07T16:25:58.623294+00:00",
+  "scope": "DRUM producer/runtime/exchange/Single G1 and independent fixtures; development evidence, not G3 acceptance",
+  "digest_recipe": "sorted relative path UTF-8 + NUL + raw bytes + NUL per file, SHA256",
+  "production": {
+    "combined_sha256": "f219138db9cb981fcd36a7a5e4d3d79c96d0b659620ef7baaf45486d61554c8b",
+    "file_count": 29,
+    "files": {
+      "crates/kirin_hypha_ffi/include/kirin_hypha_attack_snapshot_ffi.h": {
+        "sha256": "732d011d1063f43a4f5a8b2e6607673ed7a4a960e29403f74816da49dc40b6b2",
+        "lines": 53
+      },
+      "crates/kirin_hypha_ffi/src/attack_ffi_convert.rs": {
+        "sha256": "fe0fd50f8a027a65fc0cb413746f1bf3eba7aee9dea00c3a7cc9427428d35378",
+        "lines": 234
+      },
+      "crates/kirin_hypha_ffi/src/attack_single_v2.rs": {
+        "sha256": "ea9e3c3653c208e8a820ad1989e7eb74b68908af57938ce40419b2ab6f913971",
+        "lines": 86
+      },
+      "crates/kirin_hypha_ffi/src/attack_single_v2_assemble.rs": {
+        "sha256": "7893c5f96c7935be653f843fe8cfbe7c7d68e40720a360283a26be6f9d8197c8",
+        "lines": 196
+      },
+      "crates/kirin_hypha_ffi/src/attack_single_v2_request.rs": {
+        "sha256": "07b4452ea42b6a54ad3fd5412f78422247d3fbbc46f0b5ad60d796c0bb85b098",
+        "lines": 389
+      },
+      "crates/kirin_hypha_ffi/src/capture_window_ffi.rs": {
+        "sha256": "4020cffd646f047009edd0fcb6a07abc9fdf342e7f8faf289c62dfb56ede4ca0",
+        "lines": 204
+      },
+      "crates/kirin_measure/src/attack_band.rs": {
+        "sha256": "4578a6da38b9cb8d2884e4f1cebcc33437f3e2929038aaeadf940eb7a3514a18",
+        "lines": 476
+      },
+      "crates/kirin_measure/src/attack_band_measure.rs": {
+        "sha256": "4adf07caccd4cacf86e1d7f59a096264cbb5c6dbc1527ec5b6df93eb3b29888f",
+        "lines": 210
+      },
+      "crates/kirin_measure/src/attack_band_semantics.rs": {
+        "sha256": "ae502d66f17d9b0f48f12fecf1a17592a043fa8a4cbca656d63d47fa02818426",
+        "lines": 72
+      },
+      "crates/kirin_measure/src/attack_band_worker.rs": {
+        "sha256": "82f4e32d7436f6e5fa86f3afcb54f4c2e70f207c6656fdcbd3ecce9ab4b32ba8",
+        "lines": 462
+      },
+      "crates/kirin_measure/src/attack_bins.rs": {
+        "sha256": "a84658d979623fbf10929946fce09fdfbec27d05d89d41b0cf4c836596ca27a3",
+        "lines": 281
+      },
+      "crates/kirin_measure/src/attack_exchange_codec.rs": {
+        "sha256": "f2b4ea0f09da54bd41b6c1550489c2df3ebf40606c913c5c8a30df7ee5f7839a",
+        "lines": 443
+      },
+      "crates/kirin_measure/src/attack_exchange_codec_observation.rs": {
+        "sha256": "c8aa0071913373760dd3baec7f04ff3ccea318de63fb8dc66566e621b863c713",
+        "lines": 194
+      },
+      "crates/kirin_measure/src/attack_exchange_join.rs": {
+        "sha256": "1714e568b0a3ad00270229cd12beced3fbb3f55259529c582a640432735b7deb",
+        "lines": 295
+      },
+      "crates/kirin_measure/src/attack_observation_worker.rs": {
+        "sha256": "6d58ee074e7d6f1808ba564cfe0528f34fb7230a3f5d81baabd8d16b0cb6cc55",
+        "lines": 169
+      },
+      "crates/kirin_measure/src/attack_runtime.rs": {
+        "sha256": "e02fad00517359e246fe7357bd0ad8dfbf8b17919fa627c7de5cd7bd62e3df2f",
+        "lines": 491
+      },
+      "crates/kirin_measure/src/attack_runtime_state.rs": {
+        "sha256": "2054506b9f6209aef8119a7097763144f82942b7c1548f79c16ee101c45052c1",
+        "lines": 345
+      },
+      "crates/kirin_measure/src/attack_runtime_worker.rs": {
+        "sha256": "15a05013716d8c5f0f1ad086b83044863dca8ebd7e417a387f8319ddc3d1aa5d",
+        "lines": 218
+      },
+      "crates/kirin_measure/src/attack_single.rs": {
+        "sha256": "a3984672c6d3fa8cd2267ed1004180560a4428d3d3974be5e381a630d022d0be",
+        "lines": 299
+      },
+      "crates/kirin_measure/src/attack_single_worker.rs": {
+        "sha256": "a402e24a22b4471b0f5870171bc60971c2c17ad305ea314fa0ec4003295f1f36",
+        "lines": 192
+      },
+      "crates/kirin_measure/src/attack_snapshot.rs": {
+        "sha256": "ef0e7d0419d147a77667c971f3d71df27351954943cfb18162bc67807fc0eebd",
+        "lines": 200
+      },
+      "crates/kirin_measure/src/attack_snapshot_exchange.rs": {
+        "sha256": "bcc4db99dff5b9f3826c0467c8c65ee0e01770f30a1648536662d78e5602e1aa",
+        "lines": 468
+      },
+      "crates/kirin_measure/src/io_thread_post_analysis.rs": {
+        "sha256": "9ba4aa440cb671d5a856bbf65db6632552a40633ef6f0c4068deac9db2ab0b7f",
+        "lines": 155
+      },
+      "crates/kirin_measure/src/io_thread_post_observation.rs": {
+        "sha256": "d7c02f1ae82561d5a3857e9e2c54588abc240c235151750ce65710c1ec149ba0",
+        "lines": 110
+      },
+      "crates/kirin_measure/src/io_thread_post_observation_pair.rs": {
+        "sha256": "b6bff25fe713249e67659145e1483466d7d2a2c6d0a3eb6977cd8bff1d8748c0",
+        "lines": 167
+      },
+      "crates/kirin_measure/src/spectrum_exchange.rs": {
+        "sha256": "623b6d186657254009037b95acd7371d2ecf0d81eb4dd87a951402b259c62a2a",
+        "lines": 405
+      },
+      "crates/kirin_measure/src/spectrum_exchange_control.rs": {
+        "sha256": "6a765810695678bb31824a8456e7d1f937d970a7fd08c84e3139bcf01153d665",
+        "lines": 236
+      },
+      "crates/kirin_measure/src/spectrum_exchange_post.rs": {
+        "sha256": "452f212a9748fbeb5ad68336cf377a6b4b2ad8bf7c68559f9024baa5014c8651",
+        "lines": 469
+      },
+      "crates/kirin_measure/src/spectrum_exchange_pre.rs": {
+        "sha256": "29cc4c7bfb9fb09cfe20992b67a1d43b9c6df5eaf12c5cc942e4bdc936849cad",
+        "lines": 397
+      }
+    }
+  },
+  "fixtures": {
+    "combined_sha256": "42d7619cce86a18fe3bde3aeda3d8d1e9d7453e5b28253e72b6116059d43ace8",
+    "file_count": 9,
+    "files": {
+      "crates/kirin_hypha_ffi/src/attack_single_v2_tests.rs": {
+        "sha256": "957530447749b4a072489e3415d496d06ca4eb0c788c25e06c814da60a53b5b0",
+        "lines": 234
+      },
+      "crates/kirin_measure/src/attack_band_semantics_tests.rs": {
+        "sha256": "10b619899c0d121c89f6dc1b21ffa31b26de6c1ab6b94b73d8175bd44c3e8b2b",
+        "lines": 29
+      },
+      "crates/kirin_measure/src/attack_band_worker_tests.rs": {
+        "sha256": "83f99c42d7170cd89c7e0216739998ba3f138687a5b98d90daa73b91547458e4",
+        "lines": 359
+      },
+      "crates/kirin_measure/src/attack_exchange_codec_observation_tests.rs": {
+        "sha256": "17c5c02451b6cfcdab597275e6211089345390ae1291aca4f8d356ba77cd76c2",
+        "lines": 149
+      },
+      "crates/kirin_measure/src/attack_observation_worker_tests.rs": {
+        "sha256": "871b390e30fd0eb71a975dbcccfbd6b648d5c79c1877ff495b47fadc562c9afe",
+        "lines": 417
+      },
+      "crates/kirin_measure/src/attack_runtime_worker_ingress_tests.rs": {
+        "sha256": "452903f326fc6ce500b23251d46ac09bf68cfab09ec4651b12dd0eeba2a9792f",
+        "lines": 98
+      },
+      "crates/kirin_measure/src/attack_single_tests.rs": {
+        "sha256": "34a28aea79c1f6f50f7b2976433112b596ab228261392f19a3e8be28448e22d7",
+        "lines": 245
+      },
+      "crates/kirin_measure/src/attack_single_worker_tests.rs": {
+        "sha256": "9392bbfe5a8dfee241175a3526de5afcadd3054f5401db5519c5b947c28596de",
+        "lines": 130
+      },
+      "crates/kirin_measure/src/attack_snapshot_exchange_tests.rs": {
+        "sha256": "8750743422c904ce3d2270bec8b758b377df4b02f0b8a009aeac399204c7427f",
+        "lines": 258
+      }
+    }
+  },
+  "note": "Refreshed DRUM production/fixture byte freeze after two equivalent Clippy edits. Historical targeted_evidence is retained with its previous_byte_freeze provenance; this refresh executes no tests and grants no new PASS or G3 acceptance. Final gates are recorded separately by the root task.",
+  "frozen_utc": "2026-10-07T16:25:58.623294+00:00",
+  "targeted_evidence": {
+    "spsc_protocol_new": {
+      "pass": 3,
+      "fail": 0
+    },
+    "actual_worker_clock_silent_partial_next_hit_nan_restart": {
+      "pass": 5,
+      "fail": 0,
+      "nan_clean_onset_samples": 19712,
+      "baseline_clean_onset_samples": 19712
+    },
+    "single_control_and_cache": {
+      "pass": 10,
+      "fail": 0
+    },
+    "single_ffi": {
+      "pass": 3,
+      "fail": 0
+    },
+    "independent_semantics_codec_proof_ledger": {
+      "pass": 10,
+      "fail": 0
+    },
+    "missing_cache_full_range_boundary": {
+      "pass": 1,
+      "fail": 0
+    },
+    "legacy_band_during_parallel_cold_native_build": {
+      "pass": 10,
+      "fail": 1,
+      "failure": "seek second history; shared total 4 second deadline"
+    },
+    "legacy_seek_isolated_unchanged_threshold": {
+      "pass": 1,
+      "fail": 0,
+      "elapsed_seconds": 3.82
+    },
+    "legacy_seek_diagnostic_no_product_change": {
+      "pass": 1,
+      "fail": 0,
+      "elapsed_seconds": 3.68,
+      "first_result_seconds": 2.190822749,
+      "second_feed_seconds": 2.20954337,
+      "second_history_seconds": 3.611753402,
+      "dropped_blocks": 0
+    },
+    "format": "cargo fmt --all -- --check PASS",
+    "diff_check": "PASS",
+    "temporary_diagnostic_sources": "removed; legacy source fixture diff empty"
+  },
+  "previous_byte_freeze": {
+    "frozen_utc": "2026-10-07T15:46:36.925168+00:00",
+    "production_combined_sha256": "fad616bc946e54af399de6a09968868bcbc71b5ec74ee4e6ea6a08904e1938ca",
+    "fixtures_combined_sha256": "54b43327542e854d5ae9ce15b8adbe81dc4d15ce0321cae76fd98e1bfb524abc",
+    "evidence_scope": "targeted_evidence records executions before the two equivalent Clippy edits; it is historical evidence, not a rerun result for the refreshed bytes"
+  },
+  "byte_revision": {
+    "kind": "equivalent Clippy expression changes only",
+    "changed_files": [
+      {
+        "path": "crates/kirin_hypha_ffi/src/attack_single_v2_request.rs",
+        "previous_sha256": "1f9b2e83bb815adb66bc1d760fb221cc4cb9b91fcc05e9cf53b98ad97ba8a4a9",
+        "current_sha256": "07b4452ea42b6a54ad3fd5412f78422247d3fbbc46f0b5ad60d796c0bb85b098"
+      },
+      {
+        "path": "crates/kirin_measure/src/attack_observation_worker_tests.rs",
+        "previous_sha256": "2bf26a2dccfcef43a824a118b24fa9f1faed8e2f5e84cd80d416f2c059d789e6",
+        "current_sha256": "871b390e30fd0eb71a975dbcccfbd6b648d5c79c1877ff495b47fadc562c9afe"
+      }
+    ],
+    "tests_executed_for_this_refresh": false,
+    "test_result": "not_run",
+    "details": [
+      "Single request pointer alignment uses is_multiple_of; SourceChanged nested if collapsed with the same evaluation order.",
+      "Worker fixture mask searches use contains with unchanged assertions."
+    ],
+    "new_byte_freeze_is_new_test_pass": false
+  },
+  "root_manifest_match": {
+    "combined_sha256": "7ea3d7595f5cfabbd89204aeca56a7c54547c0479d06391b7e258252d0ea14cc",
+    "checked_files": 38,
+    "missing_files": 0,
+    "different_files": 0,
+    "note": "Final TIME/history/count changes do not modify this DRUM subset. Historical targeted evidence remains tied to its recorded byte freeze; final gates are separate."
+  }
+}

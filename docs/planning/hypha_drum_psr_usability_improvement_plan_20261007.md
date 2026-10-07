@@ -1,6 +1,6 @@
 # DRUM・PSR改善計画 — 利用者の判断から設計を組み直す
 
-2026年10月7日。今回の成果物は1.1.51の最新方針を反映した計画改訂と、既存G0資料の整合更新である。製品実装はPR #83のmerge通知後のmainから開始し、この文書改訂では製品source・ABIを変えない。途中確認、CI、merge、releaseはClaudeが担当する。新しい表示周期・受入値はG0で候補と校正手順を整理し、G1／G2のdevelopment検証で根拠を得て、G3 freeze前に固定する。計画の保存を、製品改善の完了とは呼ばない。
+2026年10月7日。G0資料はPR #87でmainへ統合済み。PR #83とPR #87のmerge通知を受け、main `7b0c301c`以降を起点としてG1の観測・snapshot実装を開始する。途中確認、CI、merge、releaseはClaudeが担当する。新しい表示周期・受入値はG0で候補と校正手順を整理し、G1／G2のdevelopment検証で根拠を得て、G3 freeze前に固定する。計画の保存を、製品改善の完了とは呼ばない。
 
 ### 2026年10月7日の決定
 
@@ -9,7 +9,7 @@
 | 公開前は利用者本人の日常操作・品位を確認し、友人による確認は今後も常に公開後だけに行う | 第7.3節と第8章。1.1.51はG3の技術・実DAW受入と本人確認で公開する。G4は公開後の確認で、開発中の工程や公開条件に含めない。初見は未見の人だけが確認し、該当者がいない言語・課題は未検証として残す |
 | 打音検出の再評価を本計画から切り離す | 本計画は検出を変えず、既存の検出評価を回帰として守る（第7.2節）。追加の音響集合、弱打等の追加gate、二人の盲検annotatorは付録Aへ移し、検出を変える別計画で行う |
 | DRUM・PSR改善のG1以降を1.1.51に含め、Codexが実装する | 第8章。G1はPR #83（Attach to Workの依頼番号修正B-1306ほか）のmergeを利用者から知らされた後、その変更を含むmainから始める。Claudeが途中確認、CI、merge、releaseを担当する。G0は文書・試作・development計測で、製品source・ABIの変更を含まない |
-| Capture v2の1.1.51への採否はG0を閉じるときに利用者へ提案する | Kirin OS側の別repo変更も必要なv2案と、v1を維持して保持不能な添付の失敗を明示する案を比較する。利用者の選択前にv2を必須の公開条件や別repoの実装許可と扱わない |
+| Captureはv1を維持し、保持不能な添付は失敗を明示する（同日追加決定） | v2案と比較して利用者が選択した。metadataを捨てたattached成功を禁止し、ローカルPNGを残す。G2で通常・不対応・timeout／再試行・通知を受入する。Kirin OS側の別repo変更は今回含めない |
 
 ### G0の実施結果と現在地
 
@@ -17,7 +17,7 @@
 
 合成wireの5サイズ×日英×2surface×14条件は、測った主要文字の切れ／重なり0。独立算術・時計モデル23項目と、固定候補／LOCK／LIVE等の操作模型を確認した。既存libのnative二位相観測と実consumerの使い捨てfixtureも実施した。製品・host・初見・日常操作・高級感のPASSではない。
 
-**G0は設計の閉じ方とCaptureの選択を残している。** 完了起点400 ms、DRUM固有のL／正常jitter、密集二枠の1000 ms応答案は未検証。G0で候補・校正手順・未検証一覧を確定し、新timestamp等が必要な証拠はG1／G2で取り、G3の候補freeze前に最終値を固定する。模型PASSを製品PASSへ繰り上げない。G0参照sourceのCaptureはcompact UUID／追加metadata／永続化の不適合を再現したが、UUID修正はPR #83に含まれる。merge通知後のmainを再照合し、v2採否はG0終了時に利用者へ提案する。
+**G0の設計・校正手順を固定し、Captureはv1維持＋明示失敗で閉じた。** 完了起点400 ms、DRUM固有のL／正常jitter、密集二枠の1000 ms応答案は未検証。G0で候補・校正手順・未検証一覧を確定し、新timestamp等が必要な証拠はG1／G2で取り、G3の候補freeze前に最終値を固定する。模型PASSを製品PASSへ繰り上げない。G0参照sourceのCaptureはcompact UUID／追加metadata／永続化の不適合を再現したが、UUID修正はPR #83に含まれる。mainのUUID修正を再照合し、v1で保持不能な添付の明示失敗をG2で受入する。
 
 ## 1. 利用者が何を判断できれば、改善したと言えるか
 
@@ -202,7 +202,7 @@ clusterは新publicationで候補を増減させず、窓外でも鍵を保持�
 | T3 時刻と期限 | main最新local cutoff C、PSR比較E≤C。global POST mainはCで更新、PRE待ちへ巻き込まない。global mainΔも独自proof／cutoffで成立判定。共通軸はCで非減少、PSR末尾はEで止める。通常pending保持はPOST slot完了から400 ms未満かつC−Eも400 ms未満、完全binding／両span／runが一致してActive、後続確定invalidなし |
 | T4 component寿命 | 正常publication待ちだけ直前同pair比較を期限内保持し沈黙。None、対応不能、stop、bypass、run／clock変更は影響current即退役。pair／PRE失効は比較componentだけ、POST span／rate／layout／Resetは両component。同source過去履歴はHOLD、run／seekはsegment境界、別sourceは破棄。callback退役後にpoll失敗しても旧値を復活させない |
 | T5 履歴と提示 | gap／runを跨がず集約、valid数を平均分母とし0置換なし。TIME native10Hzでpacket一括apply、PSRの4Hz間引きなし、PLR／CORRはmain。軸・scale・font固定。main／PSR出力各1200以下、要求は既存幅予算、compact PSR capacity=0 |
-| T6 Capture | 採用presentationへ期限／退役を適用後freeze。再poll／source選択／測定再計算0。v2採用時はcomponent target／cutoff／proof／状態／gap／期限と共通軸、DRUM表示kind／event鍵／revision／型付き端点／時計状態が画像と一致。表示丸めでraw端点を変更しない。v1維持時は保持不能添付の明示失敗とローカルPNG維持。private path／owner管理情報を出さない |
+| T6 Capture | 採用presentationへ期限／退役を適用後freeze。再poll／source選択／測定再計算0。表示丸めでraw端点を変更しない。v1で測定の意味を保持できないWork添付は理由を明示して失敗とし、ローカルPNGを残す。metadataを捨てたattached成功0。private path／owner管理情報を出さない |
 
 T2の取得順は authority前読み→session `try_lock`（raw／frame／history）→解放→exact exchange `try_lock`（binding付き比較）→解放→authority／signal後読み→最終整合検査→全出力commit。同時に複数lockを持たずGUI pollでfilesystem joinしない。前後authorityへPOST span tokenも含め、session解放後のReset／worker再起動を検出する。通常C進行だけではrejectしない。最終検査をlinearization pointとし、その後の変更はGUI lifecycle境界で退役させる。競合／authority不一致は全出力不変で無言skip。
 
@@ -212,7 +212,7 @@ T3の400 msは現行4×100 ms live_windowを参照した表示期限案で、IO�
 
 T5はNone、未対応endpoint、slot抜け、clock／run変更でsegmentを切り、entryにfirst／last endpoint、total／valid count、min／max／meanを持つ。decimationはsegmentを跨がず、予算超過は古いsegmentを落とす。欠測位置が復元不能な旧bucketを連続mean線にしない。共通rangeは `[max(0,C−durationFrames),C]`、データ上限は各component cutoff。疎なΔ点数で時間幅を作らない。両端を跨ぐbucketは保持exact観測から部分区間を正確に再集約できる時だけ使い、不能なら欠線。座標clampだけで将来mean／min／maxを残さない。最近prefixには既存10Hz exact historyを利用し、64件tailを全履歴へ拡張しない。
 
-T6の旧Capture `target` とWork `observation_target` はmain targetの意味を維持する。global POST＋PSR Δを画像全体のPOST絶対観測とだけ記録しない。G0参照consumerではv1追加field拒否・Work metadata欠落を確認した。Capture v2はKirin OS側の別repo変更も必要な候補で、G0を閉じるときに利用者へ二案を提案する。v2を選ぶなら別root／version、canonical dashed UUID、hash付きbounded sidecar、typed Work参照、両hash／stamp receiptとround-tripを受入する。v1を選ぶなら表現・保持できないsnapshotのWork添付を明示失敗にし、ローカルPNGを残す。metadataを捨てたattached成功は認めない。既存v1添付は意味を失わず保存できると検証した範囲だけ維持する。採否未定をv2必須の公開blockerや別repoの実装許可に読み替えない。通常待ち／内部fallbackの沈黙と、利用者の明示操作失敗の通知を分ける。
+T6の旧Capture `target` とWork `observation_target` はmain targetの意味を維持する。global POST＋PSR Δを画像全体のPOST絶対観測とだけ記録しない。G0参照consumerではv1追加field拒否・Work metadata欠落を確認した。二案を提案し、2026年10月7日に利用者がv1維持＋保持不能添付の明示失敗を採用した。G2で表現・保持できないsnapshotのWork添付を明示失敗にし、ローカルPNGを残す。metadataを捨てたattached成功は認めない。既存v1添付は意味を失わず保存できると検証した範囲だけ維持する。v2と別repo変更は今回対象外。通常待ち／内部fallbackの沈黙と、利用者の明示操作失敗の通知を分ける。
 
 ## 6. 動き、応答時間、高級感を同じpresentationで設計する
 
@@ -262,7 +262,7 @@ CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PRE�
 | P2 | PRE遅れ1～3tick、age299／399／400 ms、poll失敗／再join | main C継続、PSRだけ期限内保持、元期限延長0、正常待ち文字／色往復0 |
 | P3 | 各取得境界でpair／owner／epoch／POST spanを変更、callback直後poll失敗 | 混在0、失効span成功0、FFI出力不変、旧比較復活0、main POST選択時は同POST継続、mainΔはwaiting |
 | P4 | gap／slot抜け／range両端bucket、E後だけ極値100 | valid分母、gap維持、PSR prefixに100混入0／main Cには含む、不能bucket欠線、各1200以下 |
-| P5 | global POST＋PSR ΔのCapture、期限／失効直前直後、旧consumer | 再poll0、誤添付0、compact追加poll0。v2採用時は画像／component metadata一致、v1維持時は保持不能添付の明示失敗・ローカルPNG維持 |
+| P5 | global POST＋PSR ΔのCapture、期限／失効直前直後、v1 consumer | 再poll0、誤添付0、compact追加poll0。保持不能添付の明示失敗・ローカルPNG維持。既存v1で保存できる添付の回帰 |
 | P6 | HOLD C=10.0→E=9.8／C=10.1秒、stop／seek | 同span軸逆行0、PSRをCへ延長0、seek境界を区別 |
 | P7 | 全体POST／ΔとPSR target組合せ、全size／日英 | PLR可視性・CORR source／軸／helpはmainだけ |
 | D1 | 10件末尾8へSilent／pending | ID3～10が対象、過去補充0、五分類合計N |
@@ -337,7 +337,7 @@ G3では、検出に関わるsourceとODF意味identityが既存評価の対象�
 
 Releaseで `KIRIN_ATTACK_FRAME_BUDGET=1` を明示しAttackFrameBudget／BandFrameBudgetを実行。env未設定skip／Debug report-onlyはPASSでない。既存1枠中央値12 ms／2枠16 ms、更新最大24 ms、初回80 ms、resize中央値16 ms／最大40 msを維持する。5size、DPI1／1.25／2、密集二枠、V2、LOCK取得／解除／resizeを含める。TIMEは既存render gate、追加取得時間／容量／hidden poll数も確認する。
 
-Rust変更は `cargo test --workspace` と `cargo clippy`、FFI変更はparity／pairing_candidatesのignored一覧件数を実測して全件 `--ignored --test-threads=1`。Record／pairing／bit identical／0 latency、worker再起動、ファイル不在を含む。JUCEはAttackUiContract／TimeHistoryContract／ObservatoryViewContract、Capture／help-line／translation／size／ABI、`check_screen_text.mjs`、source line budget。使い捨て `KIRIN_HYPHA_TEST_STORAGE_ROOT` だけを使い、実plugin_data／DAW設定を対象にしない。
+Rust変更は `cargo test --workspace` と `cargo clippy`、FFI変更はparity／pairing_candidatesのignored一覧件数を実測して全件 `--ignored --test-threads=1`。Record／pairing／bit identical／0 latency、worker再起動、ファイル不在を含む。JUCEはAttackUiContract／TimeHistoryContract／ObservatoryViewContract、Capture／help-line／translation／size／ABI、`check_screen_text.mjs`、source line budget。書込みを伴う試験は既存の隔離fixtureで実際のstorage／Watch経路を使い捨て領域へ向け、実plugin_data／DAW設定を対象にしない。mainの保存先隔離統合後は `KIRIN_HYPHA_TEST_STORAGE_ROOT` をcoreが解決する。Cargo／nativeの設定と実際の出力先を照合し、指定だけで隔離できたと判断しない。IOを必要としない観測probeはidentityとIO roleを未割当のまま実行する。
 
 macOS AU／VST3／AAX、Windows VST3／AAXの対象候補でmono／stereoを実host受入する。DRUMの2MIX／exact5.1禁止gateを維持し、native fixtureを実host証拠にしない。Windows操作前は専用runbook。未署名診断buildは採用checkoutの `scripts/build_hypha.mjs`、`--without-aax`をAAX受入にしない。実機接続・公開は別の明示された工程とする。
 
@@ -359,11 +359,11 @@ macOS AU／VST3／AAX、Windows VST3／AAXの対象候補でmono／stereoを実h
 
 ### 担当と開始条件
 
-DRUM・PSR改善のG1以降を1.1.51に含める。Codexは実装と必要なローカル検証を進め、Claudeが途中の確認、CI、PRのmerge、releaseを担当する。製品を変えるG1は、PR #83のmergeを利用者から知らされた後、その変更を含むmainから新たに開始する。G0資料保存用の古いsourceを製品実装の起点にしない。この文書改訂と計画PRでは製品source・ABIを変えない。
+DRUM・PSR改善のG1以降を1.1.51に含める。Codexは実装と必要なローカル検証を進め、Claudeが途中の確認、CI、PRのmerge、releaseを担当する。製品を変えるG1は、PR #83のmergeを利用者から知らされた後、その変更を含むmainから新たに開始する。G0資料保存用の古いsourceを製品実装の起点にしない。G0の文書改訂と計画PRでは製品source・ABIを変えていない。G1は観測・snapshotの製品実装と検証を行う。
 
-### G0を閉じる時のCapture提案
+### G0終了時のCapture提案と採用結果
 
-G0では既存証拠、契約候補、校正方法と未検証一覧を整理する。新completion timestampなど製品変更が必要な証拠はG1／G2で取り、表示周期・正常jitter・TTL／応答期限の最終値と採点方法はG3 freeze前に固定する。未取得の証拠をG0模型PASSで埋めず、公開前の技術gateへ追跡する。G0を閉じる際に、以下の二案を利用者へ提案して採否を記録する。今回は採否を決めない。
+G0では既存証拠、契約候補、校正方法と未検証一覧を整理する。新completion timestampなど製品変更が必要な証拠はG1／G2で取り、表示周期・正常jitter・TTL／応答期限の最終値と採点方法はG3 freeze前に固定する。未取得の証拠をG0模型PASSで埋めず、公開前の技術gateへ追跡する。以下の二案を利用者へ提案し、2026年10月7日に「v1を維持し、失敗を明示する」を採用した。v2は今回の1.1.51へ含めず、別repoの変更は行わない。
 
 | 案 | 1.1.51へ必要な範囲 | 受入と制約 |
 | --- | --- | --- |
@@ -378,7 +378,7 @@ v2を選んだ場合だけ新版round-tripと別repo変更を必須にする。v
 
 | Gate | 具体的な成果物 | 次へ進む条件 |
 | --- | --- | --- |
-| G0 利用場面と設計固定（資料作成済み・判断事項あり） | 実寸wire、snapshot／clock／expiry契約候補、Capture二案、development証拠、校正手順、公開前本人rubricと公開後G4の記録方法 | 設計候補・未検証一覧・G1／G2で取る証拠を明示し、Capture採否を利用者へ提案。G0で製品source・ABIを変えない |
+| G0 利用場面と設計固定（完了） | 実寸wire、snapshot／clock／expiry契約候補、Capture二案、development証拠、校正手順、公開前本人rubricと公開後G4の記録方法 | 設計候補・未検証一覧・G1／G2で取る証拠を明示。Capture二案の提案とv1維持の採用を記録済み。G0で製品source・ABIを変えない |
 | G1 観測・整合snapshot | bounded TIME raw／proof／gap、DRUM固定cohort・区間・mask／集合、POST窓実測、producer finalization、V2、新timestampの証拠 | PR #83 merge通知後のmainを起点とし、P1～P4・P6、D1～D15、ABI／wire／応答不能の独立期待値を確認 |
 | G2 全面統合・development検証 | 主面／根拠面、単打／locator／cluster、提示時計／丸め、PSR／PLR／CORR、採用Capture方式、全size／locale、正本同期、負荷校正 | P5・P7・L1～L4・U1・F1・F2・M1～M3、既存回帰。数値・周期・正常jitter・採点方法をG3 freeze前に確定。友人確認は含めない |
 | G3 最終候補freeze・技術と実DAWの受入 | 同期済みclean exact commit、definition／settings hash、検出source・意味identity照合、正式候補の技術・対象host証拠 | Claudeが適合run／artifactを照合し、既存検出試験を含む必須技術・実DAW gateを確認。不足のまま公開へ進めない |
@@ -388,7 +388,7 @@ v2を選んだ場合だけ新版round-tripと別repo変更を必須にする。v
 
 development検証はfreeze前に反復し、正式候補の受入と分ける。正本編集はG2までに終え、G5で候補commitを変えない。G3・本人確認で修正が必要なら新candidateを再freezeし、影響gateを再受入する。旧commitの成功を新commit PASSと呼ばない。初見未検証を明示したまま、G3、本人確認、G5と既存release gateを満たして1.1.51を公開する。友人確認の実施や結果は公開可否を決めない。
 
-mainへの変更はPRで入れ、必須の試験4つ（`public history identity`、`release source contract (macos)`、`auval arm64 (AU validation)`、`windows VST3 preflight`）を維持する。CodexがPRを作ったら利用者へURLを知らせる。B番号はcommit直前の `git log --all` の最大値＋1で取る。push／PR作成前には共通予算ルール、workflow trigger、exact commit／inputs／OS／署名条件の合うrun／artifactを照合し、不要な重複を避ける。PR作成に伴う自動CIを除き、Codexからdispatch／rerun／merge／releaseを開始しない。ClaudeがCIの確認と必要な追加実行、merge、同一候補のLS／macOS HP／Windows三チャネルと正式公開gateを担当する。
+mainへの変更はPRで入れ、必須の試験4つ（`public history identity`、`release source contract (macos)`、`auval arm64 (AU validation)`、`windows VST3 preflight`）を維持する。CodexがPRを作ったら利用者へURLを知らせる。B番号はcommit直前に `git fetch` したうえで、`git log --all` の最大値＋1で取る。push／PR作成前には共通予算ルール、workflow trigger、exact commit／inputs／OS／署名条件の合うrun／artifactを照合し、不要な重複を避ける。PR作成に伴う自動CIを除き、Codexからdispatch／rerun／merge／releaseを開始しない。ClaudeがCIの確認と必要な追加実行、merge、同一候補のLS／macOS HP／Windows三チャネルと正式公開gateを担当する。
 
 ## 9. 最新の厳しめレビューを、構造へ反映したか
 
@@ -431,8 +431,8 @@ source参照はローカルB-1300 `bcb9ffd3b3913e9d5c4a526df38b4a7f430be99d`。�
 
 正本は[不変条件](../hypha_invariants.md)、[meter product contract](../hypha_meter_product_contract_20260831.md)、[DRUM band view plan](../hypha_drum_band_view_plan_20260928.md)、[DRUM lanes](../hypha_drum_lanes_20260924.md)、[打音pilot report](../transient_delta_phase2_drum_pilot_report_20260830.md)、[評価recovery契約](../transient_delta_phase2_recovery_plan_20260830.md)、[CE2226 visual system](../hypha_ce2226_jungle_visual_system_20260901.md)、[release入口](../hypha_release_entry.md)。実装と正本が異なる箇所を新表示契約として明示し、無断でPhase 2へ送らない。
 
-今回の追加確認は、利用者決定patch適用、schema／寿命／Captureの読取と設計、5サイズ日英の合成wireの280条件、独立モデル23項目、既存libの限定native観測、現consumerの使い捨てC1～C4。製品source・ABI変更、製品build、CI、実DAW／機器、v2 round-trip、参加者受入は未実施。native libのexact source provenanceも未確定。詳細と保存証拠は[G0成果一覧](hypha_drum_psr_g0_20261007/README.md)。
+G0の確認は、利用者決定patch適用、schema／寿命／Captureの読取と設計、5サイズ日英の合成wireの280条件、独立モデル23項目、既存libの限定native観測、現consumerの使い捨てC1～C4。G0では製品source・ABI変更、製品build、CI、実DAW／機器、v2 round-trip、参加者受入を行っていない。G0のnative libのexact source provenanceも未確定である。詳細と保存証拠は[G0成果一覧](hypha_drum_psr_g0_20261007/README.md)。G1の製品実装・独立fixture・native ABIと完了clockの証拠は[G1成果一覧](hypha_drum_psr_g1_20261007/README.md)へ分け、G0の模型結果で代用しない。
 
-次はG0の残る成立条件の解消方法を確定する。完了timestampを含む新APIが必要な証拠を、旧ABIや模型PASSで埋めない。G1以降は1.1.51へ含め、PR #83のmerge通知後のmainからCodexが実装する。G0を閉じるときのCapture提案、G1／G2の校正証拠、G3・本人確認・G5の公開前条件を追跡する。Claudeが途中確認／CI／merge／releaseを担当し、友人G4は今後も公開後だけとする。検出変更と追加音響評価は本計画へ戻さない。LS／HP／Windows配布準備はskip。
+G0は設計候補・未検証一覧・校正手順とCapture選択を記録して閉じた。G1はPR #83・#87のmerge通知後のmainから製品証拠を取得する。完了timestampを含む新APIが必要な証拠を、旧ABIや模型PASSで埋めない。G1以降は1.1.51へ含める。採用したv1添付失敗の受入、G1／G2の校正証拠、G3・本人確認・G5の公開前条件を追跡する。Claudeが途中確認／CI／merge／releaseを担当し、友人G4は今後も公開後だけとする。検出変更と追加音響評価は本計画へ戻さない。LS／HP／Windows配布準備はskip。
 
 セッション記録手順を読み、プロジェクトのNotion書込み禁止を優先してSECTION:DEV、日次ログ、Notion Handoffは未記録。[G0 READMEの現在地・日次・Handoff](hypha_drum_psr_g0_20261007/README.md)へ未記録内容を残した。製品改善完了・実host・使いやすさ・高級感を認定した記録ではない。

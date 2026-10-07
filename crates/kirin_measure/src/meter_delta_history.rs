@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -17,13 +17,22 @@ mod pair_observation;
 #[path = "meter_history_publisher.rs"]
 mod publisher;
 use pair_observation::DeltaHistoryState;
+#[path = "time_pair_observation.rs"]
+mod time_pair;
+use time_pair::TimePublication;
+pub use time_pair::{TimeComparisonReason, TimeComparisonView};
 #[path = "chain_observation.rs"]
 pub mod chain;
 #[path = "meter_chain_join.rs"]
 mod chain_join;
 #[path = "meter_content_wire.rs"]
 mod content_wire;
+#[path = "time_exchange_access.rs"]
+mod time_access;
 use content_wire::ContentWirePoint;
+#[path = "meter_history_wire.rs"]
+mod wire;
+use wire::{read_pre_identity, read_publication, PairKey, Publication, WirePoint};
 
 use crate::meter_history::MeterHistory;
 use crate::plugin_data::MeasurementLayout;
@@ -35,7 +44,7 @@ use crate::{
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
 /// One same-version PRE/POST envelope for TIME and qualified content observations. An older
 /// peer is rejected as a unit; no cross-version comparison or partial TIME claim is inferred.
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 7;
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 8;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
@@ -99,58 +108,6 @@ impl MeterHistoryTarget {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-struct WirePoint {
-    generation: u64,
-    run_id: u64,
-    observed_frames: u64,
-    endpoint_samples: i64,
-    source: u8,
-    lufs_m: Option<f64>,
-    lufs_s: Option<f64>,
-    true_peak: Option<f64>,
-    correlation: Option<f64>,
-    /// Absent from a PRE that predates PSR in the history; POST then leaves PSR's Δ empty.
-    #[serde(default)]
-    psr: Option<f64>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-struct Publication {
-    schema: u8,
-    pre_instance_id: String,
-    watch_owner_id: String,
-    daw_session_id: String,
-    sample_rate: u32,
-    /// PRE が実際に測っている配置。**引き算が成立するのは同じ map で測った 2 本だけである。**
-    /// mono の PRE と stereo の POST は、同じ音を通しても loudness で 3.01 LU ずれる
-    /// （mono は 1ch として測り +3.01 dB バイアスを入れない）。その差は連鎖が加えたものではない。
-    layout: MeasurementLayout,
-    clock_policy: u8,
-    points: Vec<WirePoint>,
-    content_windows: Vec<ContentWirePoint>,
-}
-
-#[derive(Deserialize)]
-struct PreIdentity {
-    instance_id: String,
-    #[serde(default)]
-    daw_session_id: String,
-    #[serde(default)]
-    watch_owner_id: String,
-    #[serde(default)]
-    signal_state: String,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct PairKey {
-    instance_id: String,
-    instance_dir: PathBuf,
-    owner_id: String,
-    daw_session_id: String,
-    post_binding: Option<PostBindingProvenance>,
-}
-
 pub struct MeterDeltaHistoryExchange {
     sample_rate: u32,
     layout: MeasurementLayout,
@@ -158,6 +115,8 @@ pub struct MeterDeltaHistoryExchange {
     meter_session: Arc<Mutex<MeterSession>>,
     delta: Mutex<DeltaHistoryState>,
     publisher: Mutex<publisher::HistoryPublisher>,
+    time_authority: AtomicU64,
+    time_post_span: Arc<AtomicU64>,
 }
 
 impl MeterDeltaHistoryExchange {
@@ -165,9 +124,12 @@ impl MeterDeltaHistoryExchange {
         // layout は session から読む。引数で二重に渡すと、渡し間違いが「違う map なのに一致」を
         // 作れてしまう。ここで 1 度だけ lock する（生成直後で競合しない）。
         let layout = MeasurementLayout::new(lock_recover(&meter_session).layout());
+        let time_post_span = time_access::initial_span(&meter_session);
         Arc::new(Self {
             sample_rate,
             layout,
+            time_authority: AtomicU64::new(1),
+            time_post_span,
             clock_policy: AtomicU8::new(CLOCK_POLICY_UNKNOWN),
             meter_session,
             delta: Mutex::new(DeltaHistoryState::default()),
@@ -217,8 +179,17 @@ impl MeterDeltaHistoryExchange {
             lock_recover(&self.delta).clear_pair();
             return;
         };
+        if let Some(binding) = &target.post_binding {
+            self.set_pair_authority_revision(binding.generation);
+            if binding.generation != self.time_authority_revision() {
+                return;
+            }
+        }
         lock_recover(&self.delta).clear_if_different_target(&target);
         let Ok(identity) = read_pre_identity(&target.pre_json) else {
+            lock_recover(&self.delta)
+                .time
+                .fail(TimeComparisonReason::Missing);
             return;
         };
         if identity.instance_id != target.pre_instance_id || identity.watch_owner_id.is_empty() {
@@ -233,12 +204,21 @@ impl MeterDeltaHistoryExchange {
             post_binding: target.post_binding.clone(),
         });
         if identity.signal_state != "active" {
+            lock_recover(&self.delta)
+                .time
+                .fail(TimeComparisonReason::Stopped);
             return;
         }
         let Ok(publication) = read_publication(&target.instance_dir) else {
+            lock_recover(&self.delta)
+                .time
+                .fail(TimeComparisonReason::Missing);
             return;
         };
         if !publication.valid_for(&identity, self.sample_rate, &self.layout) {
+            lock_recover(&self.delta)
+                .time
+                .fail(TimeComparisonReason::Incompatible);
             return;
         }
         let Ok(session) = self.meter_session.try_lock() else {
@@ -246,6 +226,8 @@ impl MeterDeltaHistoryExchange {
         };
         let local = session.recent_history(MeterHistoryResolution::Hz10, LOCAL_JOIN_POINTS);
         let snapshot = session.snapshot();
+        let raw = session.time_raw_tail(LOCAL_JOIN_POINTS);
+        let local_span = session.time_source_span();
         let incarnation = session.history_publication_revision().0;
         let local_content: Vec<_> = session
             .recent_content_windows(LOCAL_JOIN_POINTS)
@@ -261,6 +243,14 @@ impl MeterDeltaHistoryExchange {
             .collect();
         drop(session);
         let mut delta = lock_recover(&self.delta);
+        if target
+            .post_binding
+            .as_ref()
+            .is_some_and(|p| p.generation != self.time_authority_revision())
+            || local_span.token != self.time_post_span_token()
+        {
+            return;
+        }
         delta.bind(PairKey {
             instance_id: target.pre_instance_id,
             instance_dir: target.instance_dir,
@@ -278,7 +268,12 @@ impl MeterDeltaHistoryExchange {
         delta
             .chain
             .ingest(&publication.content_windows, &local_content);
-        delta.ingest(&publication.points, &local, self.sample_rate);
+        if publication.time.is_some() {
+            delta.ingest_time(publication.time.as_ref(), &raw);
+        } else {
+            delta.time.fail(TimeComparisonReason::Incompatible);
+            delta.ingest(&publication.points, &local, self.sample_rate);
+        }
         delta.chain.finish();
     }
 
@@ -334,86 +329,6 @@ impl MeterDeltaHistoryExchange {
         delta.chain.progress(snapshot);
         delta.chain.history.snapshot_limit(known_revision, limit)
     }
-}
-
-impl WirePoint {
-    fn from_history(entry: MeterHistoryEntry) -> Option<Self> {
-        Some(Self {
-            generation: entry.generation,
-            run_id: entry.run_id,
-            observed_frames: entry.last_observed_frames,
-            endpoint_samples: entry.last_timeline_endpoint_samples?,
-            source: exact_source(entry.timeline_source)?,
-            lufs_m: finite(entry.lufs_m.mean),
-            lufs_s: finite(entry.lufs_s.mean),
-            true_peak: finite(entry.true_peak.mean),
-            correlation: finite(entry.correlation.mean),
-            psr: finite(entry.psr.mean),
-        })
-    }
-
-    fn valid(&self) -> bool {
-        matches!(self.source, 1 | 2)
-            && [
-                self.lufs_m,
-                self.lufs_s,
-                self.true_peak,
-                self.correlation,
-                self.psr,
-            ]
-            .into_iter()
-            .flatten()
-            .all(f64::is_finite)
-    }
-}
-
-impl Publication {
-    fn valid_for(
-        &self,
-        identity: &PreIdentity,
-        sample_rate: u32,
-        layout: &MeasurementLayout,
-    ) -> bool {
-        self.schema == METER_HISTORY_EXCHANGE_SCHEMA
-            && self.sample_rate == sample_rate
-            && self.layout == *layout
-            && self.pre_instance_id == identity.instance_id
-            && self.watch_owner_id == identity.watch_owner_id
-            && self.daw_session_id == identity.daw_session_id
-            && self.points.len() <= METER_HISTORY_EXCHANGE_POINTS
-            && self.points.iter().all(WirePoint::valid)
-            && self.content_windows.len() <= METER_HISTORY_EXCHANGE_POINTS
-            && self
-                .content_windows
-                .iter()
-                .all(|point| point.valid(sample_rate))
-    }
-}
-
-fn read_pre_identity(path: &Path) -> Result<PreIdentity, String> {
-    read_bounded_json(path)
-}
-
-fn read_publication(instance_dir: &Path) -> Result<Publication, String> {
-    read_bounded_json(&instance_dir.join(METER_HISTORY_EXCHANGE_FILE))
-}
-
-fn read_bounded_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
-    use std::io::Read;
-    let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
-    if metadata.len() > MAX_EXCHANGE_BYTES {
-        return Err("meter history exchange exceeds byte limit".to_string());
-    }
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .map_err(|error| error.to_string())?
-        .take(MAX_EXCHANGE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes.len() as u64 > MAX_EXCHANGE_BYTES {
-        return Err("meter history exchange exceeds byte limit".to_string());
-    }
-    serde_json::from_slice(&bytes).map_err(|error| error.to_string())
 }
 
 fn wire_key(point: &WirePoint) -> (u8, i64) {

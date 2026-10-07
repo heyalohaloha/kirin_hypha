@@ -172,6 +172,8 @@ fn transient_exchange_gap_holds_freq_and_sharp_presentations_until_the_lease_bou
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,
@@ -257,6 +259,8 @@ fn repeated_stale_exact_endpoint_does_not_extend_the_gap_hold() {
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,
@@ -312,6 +316,8 @@ fn stationary_exact_endpoint_remains_visible_when_both_sides_stop() {
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
+        authority_revision: 1,
+        attack_origin: None,
         target: None,
         last_renewed: None,
         last_renewal_attempt: None,

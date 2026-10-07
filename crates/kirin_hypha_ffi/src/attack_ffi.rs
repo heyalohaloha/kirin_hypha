@@ -11,6 +11,23 @@ use kirin_measure::{
 
 use super::KirinHyphaEngine;
 
+#[path = "snapshot_interval.rs"]
+pub mod snapshot_interval;
+#[path = "snapshot_types.rs"]
+pub mod snapshot_types;
+pub use snapshot_types::*;
+#[path = "attack_snapshot_authority.rs"]
+pub(crate) mod attack_snapshot_authority;
+#[path = "attack_snapshot_classify.rs"]
+pub mod attack_snapshot_classify;
+#[path = "attack_summary_v2.rs"]
+pub mod attack_summary_v2;
+pub use attack_summary_v2::*;
+
+#[path = "attack_single_v2.rs"]
+pub mod attack_single_v2;
+pub use attack_single_v2::*;
+
 #[path = "attack_ffi_band.rs"]
 mod band;
 #[path = "attack_ffi_convert.rs"]

@@ -1,8 +1,15 @@
 //! Fixed-capacity, multi-resolution TIME history for the always-on Meter Session.
 
 use std::collections::VecDeque;
+#[path = "meter_history_bucket.rs"]
+mod bucket;
+use bucket::BucketAccumulator;
+#[path = "time_history_access.rs"]
+mod time_access;
+pub use time_access::reduce_time_history;
 
-use crate::meter_history_decimation::decimate_history;
+pub use crate::meter_history_decimation::TimeHistoryCountOverflow;
+use crate::meter_history_decimation::{checked_decimate_history, decimate_history};
 use crate::{CaptureClockSource, MeasureResult};
 
 pub const HISTORY_10_HZ_CAPACITY: usize = 10 * 60 * 10;
@@ -40,6 +47,12 @@ pub struct MeterHistoryEntry {
     pub generation: u64,
     pub run_id: u64,
     pub observation_count: u16,
+    /// Exact TIME segment; zero marks a legacy bucket containing multiple segments.
+    /// A mixed bucket must be refined from retained exact facts before TIME export.
+    pub segment_id: u64,
+    pub connects_previous: bool,
+    /// M, S, TP, CORR, PSR.
+    pub valid_count: [u16; 5],
     pub first_observed_frames: u64,
     pub last_observed_frames: u64,
     pub first_timeline_endpoint_samples: Option<i64>,
@@ -79,6 +92,16 @@ impl MeterHistoryEntry {
             generation,
             run_id,
             observation_count: 1,
+            segment_id: 0,
+            connects_previous: false,
+            valid_count: [
+                current.lufs_m,
+                current.lufs_s,
+                current.true_peak,
+                aux.correlation,
+                current.psr,
+            ]
+            .map(|v| u16::from(v.is_some_and(f64::is_finite))),
             first_observed_frames: observed_frames,
             last_observed_frames: observed_frames,
             first_timeline_endpoint_samples: timeline.0,
@@ -96,128 +119,11 @@ impl MeterHistoryEntry {
 
 impl MeterHistoryRange {
     fn exact(value: Option<f64>) -> Self {
+        let value = value.filter(|v| v.is_finite());
         Self {
             min: value,
             max: value,
             mean: value,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct RangeAccumulator {
-    min: Option<f64>,
-    max: Option<f64>,
-    sum: f64,
-    count: u16,
-}
-
-impl RangeAccumulator {
-    fn push(&mut self, value: Option<f64>) {
-        let Some(value) = value.filter(|value| value.is_finite()) else {
-            return;
-        };
-        self.min = Some(self.min.map_or(value, |current| current.min(value)));
-        self.max = Some(self.max.map_or(value, |current| current.max(value)));
-        self.sum += value;
-        self.count = self.count.saturating_add(1);
-    }
-
-    fn finish(self) -> MeterHistoryRange {
-        MeterHistoryRange {
-            min: self.min,
-            max: self.max,
-            mean: (self.count > 0).then(|| self.sum / f64::from(self.count)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct BucketAccumulator {
-    measurement_epoch: u64,
-    generation: u64,
-    run_id: u64,
-    observation_count: u16,
-    first_observed_frames: u64,
-    last_observed_frames: u64,
-    first_timeline_endpoint_samples: Option<i64>,
-    last_timeline_endpoint_samples: Option<i64>,
-    timeline_complete: bool,
-    timeline_source: CaptureClockSource,
-    clip_event_count: [u32; METER_HISTORY_CHANNELS],
-    lufs_m: RangeAccumulator,
-    lufs_s: RangeAccumulator,
-    true_peak: RangeAccumulator,
-    correlation: RangeAccumulator,
-    psr: RangeAccumulator,
-}
-
-impl BucketAccumulator {
-    fn new(point: MeterHistoryEntry) -> Self {
-        let mut bucket = Self {
-            measurement_epoch: point.measurement_epoch,
-            generation: point.generation,
-            run_id: point.run_id,
-            observation_count: 0,
-            first_observed_frames: point.first_observed_frames,
-            last_observed_frames: point.last_observed_frames,
-            first_timeline_endpoint_samples: point.first_timeline_endpoint_samples,
-            last_timeline_endpoint_samples: point.last_timeline_endpoint_samples,
-            timeline_complete: point.first_timeline_endpoint_samples.is_some(),
-            timeline_source: point.timeline_source,
-            clip_event_count: [0; METER_HISTORY_CHANNELS],
-            lufs_m: RangeAccumulator::default(),
-            lufs_s: RangeAccumulator::default(),
-            true_peak: RangeAccumulator::default(),
-            correlation: RangeAccumulator::default(),
-            psr: RangeAccumulator::default(),
-        };
-        bucket.push(point);
-        bucket
-    }
-
-    fn push(&mut self, point: MeterHistoryEntry) {
-        self.observation_count = self.observation_count.saturating_add(1);
-        self.last_observed_frames = point.last_observed_frames;
-        self.timeline_complete &= point.last_timeline_endpoint_samples.is_some();
-        if self.timeline_source != point.timeline_source {
-            self.timeline_source = CaptureClockSource::Unknown;
-        }
-        self.last_timeline_endpoint_samples = point.last_timeline_endpoint_samples;
-        for (total, count) in self.clip_event_count.iter_mut().zip(point.clip_event_count) {
-            *total = total.saturating_add(count);
-        }
-        self.lufs_m.push(point.lufs_m.mean);
-        self.lufs_s.push(point.lufs_s.mean);
-        self.true_peak.push(point.true_peak.mean);
-        self.correlation.push(point.correlation.mean);
-        self.psr.push(point.psr.mean);
-    }
-
-    fn finish(self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
-        MeterHistoryEntry {
-            resolution,
-            measurement_epoch: self.measurement_epoch,
-            generation: self.generation,
-            run_id: self.run_id,
-            observation_count: self.observation_count,
-            first_observed_frames: self.first_observed_frames,
-            last_observed_frames: self.last_observed_frames,
-            first_timeline_endpoint_samples: self
-                .timeline_complete
-                .then_some(self.first_timeline_endpoint_samples)
-                .flatten(),
-            last_timeline_endpoint_samples: self
-                .timeline_complete
-                .then_some(self.last_timeline_endpoint_samples)
-                .flatten(),
-            timeline_source: self.timeline_source,
-            clip_event_count: self.clip_event_count,
-            lufs_m: self.lufs_m.finish(),
-            lufs_s: self.lufs_s.finish(),
-            true_peak: self.true_peak.finish(),
-            correlation: self.correlation.finish(),
-            psr: self.psr.finish(),
         }
     }
 }
@@ -246,6 +152,8 @@ impl HistoryTier {
     }
 
     fn push(&mut self, point: MeterHistoryEntry) {
+        // Legacy retention is grouped by 10/100 observations, not by each metric's
+        // finite/None transitions. TIME export refines a mixed bucket separately.
         if self.pending.is_some_and(|pending| {
             pending.measurement_epoch != point.measurement_epoch
                 || pending.generation != point.generation
@@ -312,6 +220,9 @@ pub struct MeterHistory {
     exact: VecDeque<MeterHistoryEntry>,
     one_second: HistoryTier,
     ten_seconds: HistoryTier,
+    last: Option<MeterHistoryEntry>,
+    segment: u64,
+    step_frames: u64,
 }
 
 impl MeterHistory {
@@ -334,6 +245,9 @@ impl MeterHistory {
     ) -> Self {
         Self {
             exact_capacity,
+            last: None,
+            segment: 0,
+            step_frames: 0,
             exact: VecDeque::with_capacity(exact_capacity.saturating_add(1)),
             one_second: HistoryTier::aggregate(
                 MeterHistoryResolution::Hz1,
@@ -359,7 +273,7 @@ impl MeterHistory {
         current: &MeasureResult,
         aux: MeterHistoryAux,
     ) {
-        let point = MeterHistoryEntry::exact(
+        let mut point = MeterHistoryEntry::exact(
             measurement_epoch,
             generation,
             run_id,
@@ -368,6 +282,33 @@ impl MeterHistory {
             current,
             aux,
         );
+        point.connects_previous = self.last.is_some_and(|last| {
+            last.measurement_epoch == point.measurement_epoch
+                && last.generation == point.generation
+                && last.run_id == point.run_id
+                && last.timeline_source == point.timeline_source
+                && last.valid_count == point.valid_count
+                && (self.step_frames == 0
+                    || point
+                        .first_observed_frames
+                        .checked_sub(last.last_observed_frames)
+                        == Some(self.step_frames))
+                && match (
+                    last.last_timeline_endpoint_samples,
+                    point.first_timeline_endpoint_samples,
+                ) {
+                    (Some(a), Some(b)) => {
+                        self.step_frames == 0 || b.checked_sub(a) == Some(self.step_frames as i64)
+                    }
+                    (None, None) => true,
+                    _ => false,
+                }
+        });
+        if !point.connects_previous {
+            self.segment = self.segment.wrapping_add(1).max(1);
+        }
+        point.segment_id = self.segment;
+        self.last = Some(point);
         push_bounded(&mut self.exact, point, self.exact_capacity);
         self.one_second.push(point);
         self.ten_seconds.push(point);
@@ -410,7 +351,13 @@ impl MeterHistory {
         }
     }
 
+    pub fn set_step_frames(&mut self, frames: u64) {
+        self.step_frames = frames;
+    }
+
     pub fn reset(&mut self) {
+        self.last = None;
+        self.segment = 0;
         self.exact.clear();
         self.one_second.clear();
         self.ten_seconds.clear();
@@ -444,3 +391,7 @@ fn recent_bounded<T: Copy>(queue: &VecDeque<T>, max_entries: usize) -> Vec<T> {
 #[cfg(test)]
 #[path = "meter_history_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "time_history_tests.rs"]
+mod time_tests;
