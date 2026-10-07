@@ -308,6 +308,10 @@ private:
                 break;
             case 50:
                 if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::invalidated) break;
+                // The invalidation can be seen while the audio thread is still in the block that made
+                // it, before the fixture stores that block's output: judge blocks made after it.
+                if (invalidatedBlock < 0) invalidatedBlock = audioBlocks.load();
+                if (audioBlocks.load() <= invalidatedBlock + 1) break;
                 require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
                 require (post->liveBlindStatus().reason == faultReason,
                          "the first fault survives RT invalidation and message-thread teardown");
@@ -445,7 +449,7 @@ private:
     hypha::live_compare::RecoveryReason faultReason;
     std::atomic<bool> injectGap { false };
     float reusedGain = 1.0f, held = 1.0f, firstRatio = 0.0f;
-    int observedBlock = 0;
+    int observedBlock = 0, invalidatedBlock = -1;
     std::atomic<float> lastOutputRatio { 0.0f };
     std::atomic<float> lastPcmError { 0.0f };
     std::atomic<int> audioBlocks { 0 };

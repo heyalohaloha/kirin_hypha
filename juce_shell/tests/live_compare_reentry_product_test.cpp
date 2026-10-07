@@ -281,6 +281,9 @@ private:
             case 10:
                 require (post->liveBlindStatus().stage == BlindStage::preparing, "causal fault occurs before MATCH or anonymous trial");
                 if (status.verdict != Verdict::accepted) break;
+                // A machine stall can accept the timing in a block that also lost it; the product then
+                // keeps a recoverable startup wait. The fault below needs an established preparation.
+                if (! LiveTimingFixtureAccess::blindPreparationProven (*post)) break;
                 require (! status.matched, "initial timing is established but MATCH observation is not yet complete");
                 fault(); stage = 4; break;
             case 11:
