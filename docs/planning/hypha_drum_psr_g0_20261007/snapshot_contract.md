@@ -1,6 +1,6 @@
 # G0 — DRUM／PSR snapshot契約
 
-2026年10月7日。親計画は[DRUM・PSR改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)。本書はG0の設計決定であり、製品に実装された契約ではない。製品source・ABIを変えるG1以降は、1.1.51のLS・HP・Windows三チャネル公開後に開始する。検出器変更・新しい検出精度受入は別計画へ渡す。
+2026年10月7日。親計画は[DRUM・PSR改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)。本書はG0の設計決定であり、製品に実装された契約ではない。G1以降を1.1.51へ含め、PR #83のmerge通知後のmainからCodexが実装する。Claudeが途中確認／CI／merge／releaseを担当する。公開前はG3と本人の日常操作・品位、友人G4は今後も公開後だけで開発工程・公開条件に含めない。検出器変更・新しい検出精度受入は別計画へ渡す。
 
 ## 1. 確認したsourceと今回の範囲
 
@@ -178,7 +178,7 @@ G0の応答設計値は次のとおり。現行sourceの性能保証ではなく
 | 期限超過／worker死活不明 | 非RT controlが同requestをRetiredへcommit。RequestDeadline／WorkerUnavailableとして数値なし |
 | 退役後のlate reply | stale request tokenを拒否。別打へ置換せず、自動再依頼・期限延長なし |
 
-1,000 msは300 msのfuture tail、idle200 ms、部分publication30 msを上回る有限案だが、4 ms serviceのhard WCETから導いた値ではない。G0の既存probeで通常case／密集二枠の観測範囲を報告し、保証実装はG1で行う。timeoutは有効なREL boundやSilentの根拠にしない。結果がNotKeptか応答不能かを区別する。
+1,000 msは300 msのfuture tail、idle200 ms、部分publication30 msを上回る有限案だが、4 ms serviceのhard WCETから導いた値ではない。G0の旧ABI probeはTIMEの限定観測で、DRUMの通常case／密集二枠の根拠にはしない。新経路の証拠はG1／G2で取り、G3 freeze前に応答値を固定する。timeoutは有効なREL boundやSilentの根拠にしない。結果がNotKeptか応答不能かを区別する。
 
 source失効、seek、Reset、意味変更、editor離脱はrequest／LOCKを解除する。帯域変更は同eventへの新requestで旧帯域値を消す。窓外terminal Singleをimmutableコピーで保持し、「固定した過去の一打」、時刻、source、帯域を示す。再openで値／形／LOCKを復元せず、選択意図だけを新LIVE観測へ適用する。
 
@@ -215,9 +215,9 @@ BAND LIVEまとめだけ4Hzを初期案とする。値、kind、scope、件数�
 
 DRUM facts C、到着時刻、viewport Vを分ける。Vは同runの固定anchor＋rateで進み、正常publicationごとにreanchorしない。有限look-behind Lの値はmotion probeで固定する。V未到達の最新ALL一打は同SingleKeyのlocatorへ時刻／状態を出し、shape／四値と同じ鍵を保持する。実markerが入る時に同じ鍵で強調する。Vをcohort cutoffや測定時刻へ使わない。
 
-Captureは採用PresentationSnapshotへ期限／退役を反映後freezeし、画像とmetadataを同PresentationRevisionから作る。raw interval、表示文字列、renderKind、scope、event／cohort鍵、source／proof opaque token、cutoff C／E、V／clock、finish／reasonを保存する。旧target／Work observation_targetはmainの意味を維持し、PSR等のcomponent metadataをversion付きで追加する。
+Captureは採用PresentationSnapshotへ期限／退役を反映後freezeする。以下のmetadata保存はv2採用時の候補契約で、採否はG0を閉じる時に利用者へ提案する。v2採用なら画像とmetadataを同PresentationRevisionから作る。raw interval、表示文字列、renderKind、scope、event／cohort鍵、source／proof opaque token、cutoff C／E、V／clock、finish／reasonを保存する。旧target／Work observation_targetはmainの意味を維持し、PSR等のcomponent metadataをversion付きで追加する。
 
-現consumerはv1追加fieldを拒否し、Workへtype/path/notesだけ保存することを使い捨てfixtureで確認した。詳細は[TIME・Capture契約](time_capture_contract.md)。新版metadataのv2 round-tripは未検証。round-trip失敗なら明示添付を失敗として通知し受入blockerとする。ローカルPNGは利用可能。private pathやowner管理情報をCaptureへ出さない。
+現consumerはv1追加fieldを拒否し、Workへtype/path/notesだけ保存することを使い捨てfixtureで確認した。詳細は[TIME・Capture契約](time_capture_contract.md)。新版metadataのv2 round-tripは未検証。v2には別repoのconsumer／Work変更も必要。採用時だけround-tripを公開前に受入し、失敗は明示通知する。v1を維持する案では、表現・保持不能なsnapshotの添付を明示失敗として通知し、metadataを捨てたattached成功へ縮退しない。既存v1添付は意味を保持できる検証済み範囲だけ維持する。ローカルPNGは利用可能。private pathやowner管理情報をCaptureへ出さない。
 
 ## 10. 新API／wireと旧互換
 
@@ -283,11 +283,11 @@ band wireは現行v4がactual span_endを持つためmask導出だけでは増�
 | worker replyなし、1,000 ms経過、さらにlate reply | Retired、永続pending0、偽Silent／REL bound0、stale reply採用0 |
 | A−30を0 ms、B−10を125 ms、250 ms前にB選択 | ALL locator／marker／shape／四値はB。同A値の4Hz残留0 |
 | ODF同一／band意味不一致、旧peer | 比較不成立、同local POST dataは利用可、旧Δ復活0 |
-| TIME Reset／pair callback→poll busy→Capture | 退役済みcomponent復活0。PNGとtyped metadata同stamp |
+| TIME Reset／pair callback→poll busy→Capture | 退役済みcomponent復活0。v2採用時はPNGとtyped metadata同stamp、v1維持時は保持不能添付の明示失敗とローカルPNG維持 |
 | ABI短buffer／未知version／途中source変更 | 全出力byte不変、混在snapshot0 |
 
 今回の文書化を上記fixtureのPASSとは呼ばない。新API／wireのbytes、semantic golden hash、event alias、event0時のODF／PCM保持、dead worker退役実装、1,000 ms応答、consumer round-tripは未検証。G0の既存probeは現行挙動の観測だけで、新版保証の代用にしない。
 
-G0で残す判断は、実寸wireのscope／reasonの読み取り、motion probeによる有限Lと正常jitter範囲、4Hz候補の提示周期、worker応答の設計値が通常二枠負荷へ適切か、consumerのversion保存能力。製品変更を待つ検証はG1の開始条件と試験へ明示して渡す。人受入は親計画の開発責任者＋友人1～2人、初見は画面を未見の参加者だけで行う。
+G0では実寸wire、finite L／正常jitter／4Hz／worker応答の候補と校正手順、consumer保存能力、Capture二案を整理する。製品変更を要する証拠はG1／G2で取り、G3 freeze前に値を固定する。公開前の人による確認は本人の日常操作・品位だけ。友人の初見等は今後も常に公開後G4だけに行い、開発工程・公開条件には含めない。初見は未見の参加者だけが確認する。
 
 通常A経路、RTのalloc／lock／blocking I/O禁止、0 samples、Record／plugin_dataの正本、二枠lease、role／host／layout gateを維持する。本書保存ではbuild／CI／実機／リリースを開始していない。

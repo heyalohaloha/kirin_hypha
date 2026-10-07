@@ -1,6 +1,6 @@
 # G0 — TIME packetとCapture受入契約
 
-2026年10月7日。[親計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)のT1～T6を具体化するG0設計・development証拠。製品source／ABIの実装や受入完了ではない。G1以降は1.1.51のLS・HP・Windows三チャネル公開後に開始する。製品build、CI、実DAW／機器、実Workへの書込みは行っていない。
+2026年10月7日。[親計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)のT1～T6を具体化するG0設計・development証拠。製品source／ABIの実装や受入完了ではない。G1以降を1.1.51へ含め、PR #83のmerge通知後のmainからCodexが実装する。Claudeが途中確認／CI／merge／releaseを担当する。公開前はG3と本人の日常操作・品位、友人G4は今後も公開後だけで開発工程・公開条件に含めない。製品build、CI、実DAW／機器、実Workへの書込みは行っていない。
 
 ## 1. 読んだ正本と計測の限界
 
@@ -66,9 +66,9 @@ global POST mainのC進行をPRE待ちへ巻き込まない。mainΔは独自cut
 
 固定multi-rate retentionと最近10 Hz exact historyを再利用し、64 raw tailを全履歴へ拡張しない。出力はmain／PSR各1200件以下、予算超過は古いsegmentから落とす。compact PSRはcapacity=0で追加poll／cloneなし。新ABI入口はversion／caller size／count／revisionを持ち、旧structと`KirinAbiContract`layoutを拡大しない。起動時に新shell／旧lib混在を拒否する。
 
-## 3. 現Capture receiverをfixtureで確認した結果
+## 3. G0参照sourceのCaptureをfixtureで確認した結果
 
-現Hypha `juce_shell/src/CaptureWorkAttachment.cpp:177–207`はversion1.0・19 fieldのrequestとPNGを`hypha_capture/v1`へ発行する。request IDは`juce::Uuid().toString()`（compact32hex）。`CaptureWorkAttachmentTest.cpp:44–47`もその形式を期待する。一方、Kirin OS `src/port/hypha_capture/contract.cjs:9,54`と`store.cjs:19,289–290`はdashed UUIDだけを受理・走査する。
+G0で参照したB-1300のHypha `juce_shell/src/CaptureWorkAttachment.cpp:177–207`はversion1.0・19 fieldのrequestとPNGを`hypha_capture/v1`へ発行する。request IDは`juce::Uuid().toString()`（compact32hex）。`CaptureWorkAttachmentTest.cpp:44–47`もその形式を期待する。一方、Kirin OS `src/port/hypha_capture/contract.cjs:9,54`と`store.cjs:19,289–290`はdashed UUIDだけを受理・走査する。
 
 | 使い捨てconsumer fixture | 独立期待値 | 実結果 |
 | --- | --- | --- |
@@ -81,11 +81,20 @@ global POST mainのC進行をPRE待ちへ巻き込まない。mainΔは独自cut
 
 receiverは19 field完全一致（`contract.cjs:32–50`）、receiptも10 field完全一致（`:79–96`）。現在の60秒leaseは添付要求の寿命でありraw測定TTLではない。Work assetは`store.cjs:193–198`の`{type:'other',path,notes}`。既存assetの再受理もPNG hashだけ確認する（`:172–179`）。`schemas/work.schema.json:533–557`にcomponent metadataの型付きfieldはない。unknown fieldの保存・継承を推定しない。
 
-したがって、**現sender request ID、v1へのcomponent追加、componentの永続化の三境界は不適合**。新packetと画像のtarget roundtripを現経路で確認済みとは言わない。正式consumer互換受入はG1以降のblocker。UUIDだけ直すことを新mixed-target Capture受入の完了にしない。
+したがって、**現sender request ID、v1へのcomponent追加、componentの永続化の三境界は不適合**。新packetと画像のtarget roundtripを現経路で確認済みとは言わない。UUID修正はPR #83のB-1306に含まれる。merge後のmainを再照合し、過去C1を現在候補の不適合と決めつけない。UUID修正だけでmixed-target metadata保持まで受入済みにはしない。採用方式に応じてv2 round-tripまたはv1明示失敗をG1以降で確認する。
 
-## 4. Capture v2の採用設計
+## 4. G0終了時に提案するCapture方式
 
-### 4.1 freezeとrequest
+Capture v2はKirin OS側の別repo変更も必要な候補であり、1.1.51への採否は未決定。G0を閉じるときに利用者へ二案を提案し、選択と変更範囲を記録する。
+
+| 案 | 必要な変更と公開前受入 |
+| --- | --- |
+| v2を1.1.51に含める | Hypha senderに加え別repoのconsumer／Work schema／read-update-backup-restoreを整合し、PNG／metadataの両hash・stampとround-tripを受入する |
+| v1を維持し、失敗を明示する | 表現・保持不能なsnapshotのWork添付は明示失敗とし、ローカルPNGを残す。metadataを捨てたattached成功は禁止。既存v1添付は意味を保持できる検証済み範囲だけ維持し、失敗・通知・timeout／再試行を本人確認まで含めて受入する |
+
+以下4.1～4.3はv2を選んだ場合だけ適用する設計。未選択のv2を必須公開gateや別repoの実装許可と扱わない。
+
+### 4.1 v2候補のfreezeとrequest
 
 採用済みPresentationSnapshotへ期限とcomponent退役を適用してからfreezeし、PNGとmetadataを同じPresentationRevisionから作る。Capture時の再poll／source再選択／統計再計算は0。legacy `target`／Work `observation_target`はmain targetを指す意味を維持し、metadataのcomponent targetでmain POST＋PSRΔを表す。過去履歴HOLDと現在scalar失効を別fieldへ保存する。
 
@@ -116,7 +125,7 @@ receiverはrequest／PNG／metadataのbounds・version・hash・same stamp・com
 
 v2 receiptはauthority identityに加えartifact SHA-256／metadata SHA-256／PresentationRevisionを含み、Work commit・両ファイルreadback確認後にattachedを返す。Hyphaもfreezeした両digest／stampと一致するreceiptだけを受理する。これはbyte保存と対応を確認するproofであり、測定の真実性や実機受入をreceiverが新たに認定するものではない。
 
-## 5. G1以降の変更範囲と独立fixture
+## 5. G1以降の変更範囲と採用方式別fixture
 
 | 層 | 対象source／正本 |
 | --- | --- |
@@ -124,7 +133,7 @@ v2 receiptはauthority identityに加えartifact SHA-256／metadata SHA-256／Pr
 | C ABI | `crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h`の新独立header／入口、対応Rust poll、ABI照合・fixture。旧`abi_contract.rs` layout不変 |
 | JUCE TIME | `PluginProcessor*`の新coherent取得、`PluginEditorAnalysis.cpp`／lifecycle、`HyphaTimeHistory*` layout／painter／component、target help |
 | JUCE Capture | `HyphaCaptureContract.h`、`HyphaObservatoryCapture.cpp`、`PluginEditorCapture.cpp`／`PluginEditorLifecycle.cpp`、`PluginProcessorGuideTransport.cpp`、`CaptureWorkAttachment.h/.cpp`とnative tests |
-| OS consumer（別repo、今は無編集） | `src/port/hypha_capture/contract.cjs`／`store.cjs`／`__tests__/store.test.cjs`、`schemas/work.schema.json`、既存Work read／update／backup経路、Capture契約doc |
+| OS consumer（別repo、v2選択時だけ変更、今は無編集） | `src/port/hypha_capture/contract.cjs`／`store.cjs`／`__tests__/store.test.cjs`、`schemas/work.schema.json`、既存Work read／update／backup経路、Capture契約doc |
 | 同期doc | 親計画T1～T6、`hypha_meter_product_contract_20260831.md`、`hypha_invariants.md`、`hypha_observation_loop_work_attachment_20260901.md`、OS Capture契約 |
 
 巨大fileは変更責務を先にowned moduleへ分離し、既存line budgetを増やさない。追加解析はMeasure／worker、IOは非RT。Audio Threadへalloc／lock／blocking IOやA経路変更を入れない。
@@ -138,9 +147,10 @@ v2 receiptはauthority identityに加えartifact SHA-256／metadata SHA-256／Pr
 | T-prefix | endpoint既知の小配列、partial bucketと保持exact不足：手計算prefixのみ採用、不能なら欠線、future mean漏れ0 |
 | T-ABI | 旧caller／旧lib、新caller short buffer、未知version、null：canary／全出力不変、起動時混在拒否 |
 | C-v1 | 本書C1～C4：compact UUID拒否・dashed受理・unknown field拒否・旧保存metadata欠落を独立期待値として保持 |
-| C-v2 | main POST＋PSRΔのPNG／metadataをfreeze：fake Work readback後に両hash・target／C／E／HOLD／gap／期限・stamp一致 |
-| C-retry | 同ID同両hashは一添付、metadataだけ異なる同IDは拒否。receipt hash改変／旧receipt／unsupported consumerは明示失敗 |
-| C-rollback | PNG後／metadata後／Work transaction後に注入失敗、authority変更、lease超過：半添付・既存添付削除0、誤attached receipt0 |
-| C-roundtrip | Work通常read／update／backup／restoreを通してtyped参照とsidecar bytesを保持、最大metadata／不正u64／path traversalを拒否 |
+| C-v1-failure（v1維持時） | 表現・保持不能なsnapshotは誤attached0、明示失敗とローカルPNG維持。対応範囲の通常添付、timeout、再試行、理由表示を受入 |
+| C-v2（v2採用時） | main POST＋PSRΔのPNG／metadataをfreeze：fake Work readback後に両hash・target／C／E／HOLD／gap／期限・stamp一致 |
+| C-retry（v2採用時） | 同ID同両hashは一添付、metadataだけ異なる同IDは拒否。receipt hash改変／旧receipt／unsupported consumerは明示失敗 |
+| C-rollback（v2採用時） | PNG後／metadata後／Work transaction後に注入失敗、authority変更、lease超過：半添付・既存添付削除0、誤attached receipt0 |
+| C-roundtrip（v2採用時） | Work通常read／update／backup／restoreを通してtyped参照とsidecar bytesを保持、最大metadata／不正u64／path traversalを拒否 |
 
-上表のT新版とC-v2以降は未実施。G0で実施したのは既存ABIの限定development観測と現consumerの使い捨てC1～C4だけ。新TIME snapshot、400 ms完成起点TTL、v2 roundtrip、通常A経路回帰、fresh UX／motion受入はG1以降へ残る。G0設計資料が揃うことと製品gate PASSを分ける。
+上表のT新版とC-v2以降は未実施。G0で実施したのは既存ABIの限定development観測と現consumerの使い捨てC1～C4だけ。新TIME snapshot、400 ms完成起点TTL、採用Capture方式の受入、通常A経路回帰、本人の日常操作／品位とmotion受入は公開前のG1～G3／本人確認へ残る。友人の初見等は今後も公開後G4だけ。G0設計資料が揃うことと製品gate PASSを分ける。

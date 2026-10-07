@@ -1,6 +1,6 @@
 # G0 — DRUM／PSR 実寸配置仕様
 
-2026年10月7日。親計画は[DRUM・PSR改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)、観測の意味は[snapshot契約](snapshot_contract.md)を正本とする。本書は設計用wireの寸法であり、製品の実装済み契約・検証合格ではない。製品source／ABIへの着手は1.1.51の三チャネル公開後。検出再評価は別計画、責任者＋友人1～2人の利用者評価は未実施。
+2026年10月7日。親計画は[DRUM・PSR改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)、観測の意味は[snapshot契約](snapshot_contract.md)を正本とする。本書は設計用wireの寸法であり、製品の実装済み契約・検証合格ではない。G1以降を1.1.51へ含め、PR #83のmerge通知後のmainからCodexが実装する。Claudeが途中確認／CI／merge／releaseを担当する。公開前はG3と本人の日常操作・品位、友人G4は今後も公開後だけで開発工程・公開条件に含めない。検出再評価は別計画。利用者確認は未実施。
 
 ## 1. 確認した実装・画面
 
