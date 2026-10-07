@@ -100,6 +100,7 @@ public:
     }
 
     bool passed = false;
+    bool loopStall = false; // --loop-stall: LiveBlindLoopStallStep.h
 
 private:
     juce::String footer() const
@@ -226,6 +227,7 @@ private:
                     reused = true;
                     break;
                 }
+                if (loopStall) { loopStallStep(); break; }
                 if (reuse && post->liveBlindStatus().stage == hypha::live_compare::BlindStage::idle)
                 {
                     if (! post->liveCompareStatus().matchReady) break;
@@ -428,6 +430,7 @@ private:
     }
 
    #include "LiveBlindAudioFixture.h"
+   #include "LiveBlindLoopStallStep.h"
 
     // A host block of 8192 frames (171 ms): the callback-gap rule then tolerates test-machine stalls
     // up to 427 ms. This product test checks the flow, not DAW scheduling or a low-buffer load
@@ -478,7 +481,9 @@ int main (int argc, char** argv)
     const auto fault = mode == "--fault" ? Reason::compensationOff
         : mode == "--fault-gap" ? Reason::callbackGap : mode == "--fault-content" ? Reason::contentChanged
         : mode == "--fault-stop" ? Reason::stopped : Reason::none;
-    BlindContract contract (std::move (signal), mode == "--reuse" || mode == "--loop", fault, mode == "--approval", mode == "--loop");
+    const bool loop = mode == "--loop" || mode == "--loop-stall";
+    BlindContract contract (std::move (signal), mode == "--reuse" || loop, fault, mode == "--approval", loop);
+    contract.loopStall = mode == "--loop-stall"; // timers run only inside the dispatch loop below
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

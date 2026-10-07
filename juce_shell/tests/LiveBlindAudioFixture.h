@@ -45,6 +45,14 @@ void processAudio()
             continue;
         }
         suspended.store (false);
+        if (const auto lap = stallAtLap.load(); lap >= 0 && clock.loop.laps.load() >= lap)
+        {
+            // A deliberate stall of this machine, as CI runners sometimes have: both callbacks
+            // arrive 1.1 s late, and the interval counts like any other stall.
+            stallAtLap.store (-1);
+            stallBlock.store (audioBlocks.load());
+            std::this_thread::sleep_for (std::chrono::milliseconds (1100));
+        }
         if (injectGap.exchange (false))
         {
             std::this_thread::sleep_for (std::chrono::milliseconds (600));
@@ -99,6 +107,21 @@ void processAudio()
                 }
             (after.preAudible ? loopPreFrames : loopPostFrames).fetch_add (blockFrames);
         }
+        if (const auto at = stallBlock.load(); at >= 0 && audioBlocks.load() > at + 1)
+        {
+            // Skip the stall block and the one after it, where the side may fade.
+            if (after.preAudible) stallPreBlocks.fetch_add (1);
+            else if (! before.preAudible && after.active)
+            {
+                for (int c = 0; c < 2; ++c)
+                    for (int f = 0; f < blockFrames; ++f)
+                    {
+                        const float expected = processedInput (sourceSample (c, delayedPosition + f)) * before.postActual;
+                        if (std::abs (buffer.getSample (c, f) - expected) > 0.0000001f) stallPostErrors.fetch_add (1);
+                    }
+                stallPostFrames.fetch_add (blockFrames);
+            }
+        }
         audioBlocks.fetch_add (1);
         if (renderedOffline || (! before.active && ! before.finishing && before.postActual >= 1.0f
             && ! after.active && after.postTarget >= 1.0f))
@@ -119,4 +142,8 @@ void processAudio()
 std::atomic<std::uint64_t> loopPreFrames { 0 }, loopPostFrames { 0 }, loopPcmErrors { 0 };
 std::atomic<std::int64_t> longestCallbackMicros { 0 };
 std::atomic<int> machineStalls { 0 };
+// The deliberate LOOP stall: armed lap, the block it hit, and what followed it.
+std::atomic<std::int64_t> stallAtLap { -1 };
+std::atomic<int> stallBlock { -1 };
+std::atomic<std::uint64_t> stallPreBlocks { 0 }, stallPostErrors { 0 }, stallPostFrames { 0 };
 std::atomic<bool> loopPcmAuditActive { false }; // only the first MATCH/Blind session, not later fault/END fixtures
