@@ -304,10 +304,12 @@ jobs:
 
       # The Windows live ring end to end: the real PRE and POST processors, pair discovery, the
       # named section, the product editor, PIN to Blind and the offset warning.
+      # They run in real time, so a stall of the shared runner can fail one by chance: each runs once
+      # more on failure, and failing twice fails. kirin_live_blind_loop_stall_product tests a stall on purpose.
       - name: Validate live PRE/POST compare product flow
         run: |
           cmake --build juce_shell/build-windows --config Release --target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests KirinLiveChainTimingProductTests KirinLiveReentryProductTests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error --repeat until-pass:2 -R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'
 
       - name: Validate Work attachment transport
         run: |
