@@ -230,6 +230,23 @@ pub fn measure(archive: &Path, name: &str) -> Measurement {
     }
 }
 
+/// Integrated loudness from the pinned ebur128 reference alone, for assets whose layout the
+/// plug-ins do not accept. ebur128's default map reads five channels as L, R, C, Ls, Rs and six as
+/// L, R, C, LFE (unused), Ls, Rs, which are the orders of the 5.0 and 5.1 assets.
+pub fn reference_integrated(archive: &Path, name: &str) -> Option<f64> {
+    let extracted = extract(archive, name);
+    let (sample_rate, channels, samples) = decode(extracted.path());
+    let mut reference = EbuR128::new(channels as u32, sample_rate, Mode::I)
+        .expect("create direct ebur128 reference");
+    reference
+        .add_frames_f64(&samples)
+        .expect("feed direct ebur128 reference");
+    reference
+        .loudness_global()
+        .ok()
+        .filter(|value| value.is_finite())
+}
+
 pub fn fmt(value: Option<f64>) -> String {
     value.map_or_else(|| "---".to_owned(), |value| format!("{value:.3}"))
 }

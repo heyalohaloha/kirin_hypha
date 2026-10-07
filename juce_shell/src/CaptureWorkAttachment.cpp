@@ -176,7 +176,8 @@ WorkAttachmentResult WorkAttachmentController::takeResult()
 
 bool WorkAttachmentController::publish (Job& job)
 {
-    job.requestId = juce::Uuid().toString();
+    // Kirin OS accepts only the canonical dashed UUID, in the request and in its file names.
+    job.requestId = juce::Uuid().toDashedString();
     job.requestedAtMs = juce::Time::currentTimeMillis();
     job.expiresAtMs = job.requestedAtMs + requestLeaseMs;
     const auto artifactFile = job.requestId + ".png";

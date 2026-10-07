@@ -96,16 +96,14 @@ POST captures the output state and joins only verified matching observations.
 - **Mono and stereo:** the complete LEVEL / TIME / FREQ / SPACE, Record / Keep, Reference, local
   PRE/POST Blind and live PRE/POST compare surface is available where its normal role, license and
   platform gates allow it.
-- **Exact 5.1 (`L, R, C, LFE, Ls, Rs`):** LEVEL and TIME measurement only, including the six
-  role-specific Peak, True Peak, and Clip facts plus shared Loudness, LRA, and PLR. Record / Keep,
-  Reference, local PRE/POST Blind, the live PRE/POST compare, Hybrid VU, FREQ, and SPACE are
-  deliberately unavailable.
+- **Surround, including exact 5.1:** not offered in this release. The measurement core keeps an
+  exact 5.1 (`L, R, C, LFE, Ls, Rs`) LEVEL / TIME measurement-only mode, but the plug-in does not
+  accept a 5.1 bus until its host acceptance is complete.
 - **Other multichannel layouts:** Hypha refuses the layout instead of guessing channel roles or
   presenting stereo-only facts as surround measurements.
 
-The measurement-only 5.1 path remains a transparent pass-through with zero reported samples of
-latency. It does not allocate the Record backlog or run optional FREQ / ATTACK analysis in the
-background.
+Pro Tools can still insert Hypha on a 5.1 track as a multi-mono plug-in. Each mono instance then
+measures its own channel, which is not a 5.1 measurement.
 
 ## Observation domains
 
@@ -115,7 +113,7 @@ LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
 The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
-folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD, 5.1 MEASURE). The loaded
+folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). The loaded
 version remains in the information menu, not in the narrow status rail.
 
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
@@ -265,9 +263,9 @@ Every metric is backed by a known-signal golden test: the expected values are de
 The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
 records the verified scope: BS.1770-5 Annex 1/2 for mono and stereo, all 70 assets in the EBU
 Loudness Test Set v05, the source archive SHA-256, and comparison of the Hypha wrapper with the
-pinned `ebur128` reference. Decoding the 5.0/5.1 test assets was not used as evidence for the
-separately implemented exact 5.1 measurement-only product mode. Hypha does not claim EBU Mode
-conformance and does not use the EBU logo.
+pinned `ebur128` reference. The suite was rerun on 2026-10-06. While surround is held back, the
+5.0/5.1 test assets are checked against the pinned reference only and are not evidence for a
+surround mode. Hypha does not claim EBU Mode conformance and does not use the EBU logo.
 
 ## Modes
 
