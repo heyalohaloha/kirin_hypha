@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <regex>
 
 namespace
 {
@@ -42,9 +43,9 @@ juce::File publishedRequest (const juce::File& requests)
     {
         const auto id = file.getFileNameWithoutExtension();
         // JUCE's atomic-write sibling also ends in .json, but is named
-        // <UUID>_temp<random>.json. submit() uses JUCE's compact 32-hex UUID,
-        // not its dashed representation. Only that committed path is a request.
-        if (id.length() != 32 || juce::Uuid (id).toString() != id) continue;
+        // <UUID>_temp<random>.json. submit() uses the canonical dashed UUID that
+        // Kirin OS requires. Only that committed path is a request.
+        if (id.length() != 36 || juce::Uuid (id).toDashedString() != id) continue;
         if (result != juce::File()) return {}; // more than one final request is invalid
         result = file;
     }
@@ -53,13 +54,16 @@ juce::File publishedRequest (const juce::File& requests)
 
 juce::File waitForRequest (const juce::File& requests)
 {
-    for (int attempt = 0; attempt < 200; ++attempt)
+    // The controller writes on its own thread. A loaded CI runner can take seconds, so wait up to
+    // ten seconds by the clock; a request that is published returns at once.
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 10000.0;
+    while (juce::Time::getMillisecondCounterHiRes() < deadline)
     {
         const auto file = publishedRequest (requests);
         if (file != juce::File()) return file;
         juce::Thread::sleep (10);
     }
-    return {};
+    return publishedRequest (requests);
 }
 
 bool writeReceipt (const juce::File& target,
@@ -84,7 +88,9 @@ bool writeReceipt (const juce::File& target,
 hypha::capture::WorkAttachmentResult waitForResult (
     hypha::capture::WorkAttachmentController& controller)
 {
-    for (int attempt = 0; attempt < 200; ++attempt)
+    // Same clock deadline as waitForRequest: a terminal result returns at once.
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 10000.0;
+    while (juce::Time::getMillisecondCounterHiRes() < deadline)
     {
         const auto result = controller.takeResult();
         if (result.terminal())
@@ -104,7 +110,7 @@ int main()
     {
         const auto requests = root.getChildFile ("atomic-publication-control");
         require (requests.createDirectory().wasOk(), "create atomic publication control");
-        const auto target = requests.getChildFile (juce::Uuid().toString() + ".json");
+        const auto target = requests.getChildFile (juce::Uuid().toDashedString() + ".json");
         juce::TemporaryFile pending (target);
         require (pending.getFile().replaceWithText ("{}"), "create actual atomic-write sibling");
         require (requests.findChildFiles (juce::File::findFiles, false, "*.json").size() == 1
@@ -140,6 +146,12 @@ int main()
                  "carry the immutable Work Reference and Capture facts");
 
         const auto requestId = request->getProperty ("request_id").toString();
+        // Kirin OS's receiver checks this exact form, and polls only files named by it.
+        require (std::regex_match (requestId.toStdString(), std::regex (
+                     "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", std::regex::icase))
+                 && requestFile.getFileName() == requestId + ".json"
+                 && request->getProperty ("artifact_file").toString() == requestId + ".png",
+                 "name the request and its files with the canonical UUID that Kirin OS accepts");
         const auto receiptFile = root.getChildFile ("receipts").getChildFile (requestId + ".json");
         require (receiptFile.getParentDirectory().createDirectory().wasOk()
                  && writeReceipt (receiptFile, *request, "attached", juce::var()),

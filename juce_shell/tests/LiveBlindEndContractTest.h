@@ -45,8 +45,12 @@ public:
                  "message-thread ticks never release attenuation or fake an audio receipt");
         require (processor.liveCompareAdmission (false) == hypha::live_compare::StartResult::returnPending,
                  "new entry identifies the pending return, not another END operation");
-        // A failure on a slow test machine names what the line showed instead, and when.
+        // The message thread posts the note; on a loaded machine it can follow the state by a moment.
         const auto& feedback = findView (editor)->feedback();
+        if (! feedback.contains ("Ended;")
+            && std::chrono::steady_clock::now() - acceptedAt < std::chrono::seconds (2))
+            return false;
+        // A failure names what the line showed instead, and when.
         if (! feedback.contains ("Ended;"))
             std::cerr << "Live Blind END: the line showed \"" << feedback << "\" "
                       << std::chrono::duration_cast<std::chrono::milliseconds> (

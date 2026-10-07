@@ -2,9 +2,10 @@
 
 // CMake command lines are a brittle place for JUCE's brace-heavy preferred
 // channel list. Force-include this header so every wrapper advertises the
-// mono/stereo/exact-5.1 channel counts accepted by PluginProcessor.
+// mono/stereo channel counts accepted by PluginProcessor. The measurement core keeps
+// exact 5.1, but wrappers do not offer it until surround acceptance (INV-S33).
 #ifndef JucePlugin_PreferredChannelConfigurations
-#define JucePlugin_PreferredChannelConfigurations {1, 1}, {2, 2}, {6, 6}
+#define JucePlugin_PreferredChannelConfigurations {1, 1}, {2, 2}
 #endif
 
 // Expose whether JUCE's AU playhead used the host transport timeline or the mandatory

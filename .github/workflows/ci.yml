@@ -70,7 +70,9 @@ jobs:
     # Run 36959880727 passed all then-required native and 26 ignored tests but reached
     # 45 minutes in final clippy. Keep the complete gate and bounded cold-build
     # headroom; this changes no test deadline or acceptance criterion.
-    timeout-minutes: 55
+    # Run 37458769908 finished the gate in 54 minutes on a cold cache, then hit 55 minutes
+    # while saving the Rust cache. PR caches are not shared, so every new PR starts cold.
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

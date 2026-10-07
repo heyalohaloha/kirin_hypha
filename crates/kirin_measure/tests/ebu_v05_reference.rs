@@ -184,8 +184,6 @@ fn all_70_wavs_pass_tech3341_tech3342_and_hypha_wrapper() {
         ("seq-3341-3-16bit-v02.wav", -23.0),
         ("seq-3341-4-16bit-v02.wav", -23.0),
         ("seq-3341-5-16bit-v02.wav", -23.0),
-        ("seq-3341-6-5channels-16bit.wav", -23.0),
-        ("seq-3341-6-6channels-WAVEEX-16bit.wav", -23.0),
         ("seq-3341-7_seq-3342-5-24bit.wav", -23.0),
         ("seq-3341-2011-8_seq-3342-6-24bit-v02.wav", -23.0),
     ] {
@@ -196,6 +194,22 @@ fn all_70_wavs_pass_tech3341_tech3342_and_hypha_wrapper() {
             "I",
             measured.hypha.lufs_i,
             expected,
+            LUFS_TOLERANCE,
+        );
+    }
+
+    // The plug-ins accept no surround bus while surround is held back (INV-S33), so the 5.0 and
+    // 5.1 assets are checked against the pinned ebur128 reference only, not the Hypha engine.
+    for name in [
+        "seq-3341-6-5channels-16bit.wav",
+        "seq-3341-6-6channels-WAVEEX-16bit.wav",
+    ] {
+        record_check(
+            &mut failures,
+            name,
+            "reference I",
+            support::reference_integrated(&archive, name),
+            -23.0,
             LUFS_TOLERANCE,
         );
     }

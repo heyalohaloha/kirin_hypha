@@ -293,23 +293,29 @@ private:
         std::vector<float> line (lineFrames * 2, 0.0f);
         std::int64_t written = 0;
         auto next = std::chrono::steady_clock::now();
-        auto previousCallback = std::chrono::steady_clock::time_point();
-        while (running.load())
-        {
+        auto previousPre = std::chrono::steady_clock::time_point();
+        auto previousPost = std::chrono::steady_clock::time_point();
+        // Each side's gap is measured where that side's callback starts, before the call, so a stall
+        // inside PRE is counted before POST can report it.
+        const auto countStall = [this] (std::chrono::steady_clock::time_point& previous) {
             const auto callbackAt = std::chrono::steady_clock::now();
-            if (previousCallback != std::chrono::steady_clock::time_point())
+            if (previous != std::chrono::steady_clock::time_point())
             {
                 const auto interval = static_cast<std::int64_t> (
-                    std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previousCallback).count());
+                    std::chrono::duration_cast<std::chrono::microseconds> (callbackAt - previous).count());
                 longestCallbackMicros.store (std::max (longestCallbackMicros.load(), interval));
                 // The product's gap rule: longer than 2.5 times the previous block.
                 if (interval * 48000 > static_cast<std::int64_t> (blockFrames) * 2'500'000) stalls.fetch_add (1);
             }
-            previousCallback = callbackAt;
+            previous = callbackAt;
+        };
+        while (running.load())
+        {
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
                     buffer.setSample (c, f, noise (clock.position + f, c));
+            countStall (previousPre);
             pre->processBlock (buffer, midi);
             // The unreported delay between PRE and POST.
             const auto delay = delayFrames.load();
@@ -321,6 +327,7 @@ private:
                     buffer.setSample (c, f, from < 0 ? 0.0f
                         : line[static_cast<std::size_t> (from) % lineFrames * 2 + static_cast<std::size_t> (c)]);
                 }
+            countStall (previousPost);
             post->processBlock (buffer, midi);
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);

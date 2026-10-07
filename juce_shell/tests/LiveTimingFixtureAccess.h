@@ -41,6 +41,10 @@ public:
             state.blindTimingReceipt.load (std::memory_order_acquire),
             state.blindTimingAuthority.load (std::memory_order_acquire) };
     }
+    // The Blind preparation's own proof. The audio thread sets it only in a block that accepted the
+    // timing without a loss; an accepted verdict alone can come from a block that also lost it.
+    static bool blindPreparationProven (const KirinHyphaProcessorBase& processor) noexcept
+    { return (processor.liveCompare.blindTiming.command().word & 2u) != 0; }
     struct AudioView
     {
         bool preAudible = false, matchReady = false, matched = false;
