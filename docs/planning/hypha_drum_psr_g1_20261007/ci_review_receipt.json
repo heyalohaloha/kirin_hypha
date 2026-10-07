@@ -1,0 +1,109 @@
+{
+  "run_id": 37693270001,
+  "run_url": "https://github.com/heyalohaloha/kirin_hypha/actions/runs/37693270001",
+  "tested_head": "8b86da6fad3236d36efb7d03271caf0c5dba4900",
+  "source_contract_job_id": 113038508153,
+  "observed_checks": [
+    "test capstone_paired_record_output_and_linkage ... ok",
+    "test record_ingress::tests::three_max_blocks_are_preserved_by_the_spool_before_measure_consumes_any_sample ... ok",
+    "test result: ok. 20 passed; 0 failed; 0 ignored",
+    "test result: ok. 6 passed; 0 failed; 0 ignored",
+    "100% tests passed out of 89",
+    "release source contract: PASS"
+  ],
+  "jobs": [
+    {
+      "name": "release source contract (macos)",
+      "job_id": 113038508153,
+      "conclusion": "success"
+    },
+    {
+      "name": "windows VST3 preflight",
+      "job_id": 113038508422,
+      "conclusion": "failure"
+    },
+    {
+      "name": "public history identity",
+      "job_id": 113038508423,
+      "conclusion": "success"
+    },
+    {
+      "name": "auval arm64 (AU validation)",
+      "job_id": 113038508688,
+      "conclusion": "success"
+    }
+  ],
+  "disposition_authority": "user instruction 2026-10-08, Claude CI review",
+  "local_record_and_capstone": "machine load and shared Cargo target; not a G1 regression",
+  "drop_fixture_tests": "existing main time-order assumptions; any fixes require a separate PR",
+  "windows_failures": [
+    {
+      "name": "kirin_live_blind_loop_product",
+      "disposition": "0.8 s runner stall; designed LOOP behaviour, outside G1"
+    },
+    {
+      "name": "kirin_live_lifecycle_restore-invalid",
+      "disposition": "timeout, outside G1"
+    }
+  ],
+  "new_head_ci": "must be checked after merging main; not substituted by this receipt",
+  "logs": [
+    {
+      "file": "ci-37693270001-macos.log",
+      "bytes": 2336634,
+      "sha256": "542b7812fe7fcccdafa2481addda66942160dee7948ffed3326ea28db01e5862"
+    },
+    {
+      "file": "ci-37693270001-windows-failed.log",
+      "bytes": 55353,
+      "sha256": "1cba038ac638b088b7e49e658a95bf8beadee44f529b09f8c8d6f355ac33c4a7"
+    }
+  ],
+  "merged_main": "6036eae6d6505b060e97e1edc470dc93c7ffed1d",
+  "native_inventory_expected": 90,
+  "ready_for_review": true,
+  "foundation_byte_continuity": {
+    "scope": [
+      "crates/",
+      "juce_shell/src/"
+    ],
+    "changed_paths": []
+  },
+  "recorded_utc": "2026-10-07T23:42:38.018041+00:00",
+  "local_integration_checks": {
+    "ci_security_and_public_history_tests": {
+      "pass": 19,
+      "fail": 0
+    },
+    "shell_syntax": "PASS",
+    "public_text": "PASS",
+    "source_line_budget": "PASS",
+    "declared_native_inventory": {
+      "count": 90,
+      "duplicates": 0,
+      "ordinary": 52,
+      "live_product_retry": 38,
+      "required_names": [
+        "kirin_snapshot_abi_contract",
+        "kirin_live_blind_loop_stall_product"
+      ]
+    },
+    "registered_native_inventory": {
+      "status": "PASS",
+      "selected": 90,
+      "ordinary": 52,
+      "live_product_retry": 38,
+      "duplicates": 0,
+      "retry_partition_overlap": 0,
+      "required_names_present": true,
+      "method": "CMake configure and actual CTest registrations; no native test execution",
+      "inventory_sha256": "0bf48a0fc0b1d4f344ad83865c50b9d8542be6b0e09dc02e6a7384779d2699e5"
+    },
+    "test_execution": "not repeated locally for this main integration; exact updated-head CI remains required",
+    "configure_precondition": {
+      "initial_unpatched_configure": "FAIL: pristine JUCE used a macOS 15 SDK-unavailable API",
+      "corrected_configure": "PASS after applying the existing 12 tracked JUCE patches",
+      "owned_source_changes_for_correction": 0
+    }
+  }
+}

@@ -2,6 +2,16 @@
 
 G1はmain `7b0c301c`で開始し、保存先隔離を含むmain `f5424878`へ統合して、1.1.51へ含める観測・snapshot基盤を実装する。[改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)のG1受入を対象とする。G2の全面表示統合、G3の実DAW、公開前の本人の日常操作・品位確認は別の工程であり、基盤試験の成功で代用しない。Claudeが途中確認、CI、merge、releaseを担当する。
 
+## 最新の受入判断（2026年10月8日）
+
+[CI 37693270001](https://github.com/heyalohaloha/kirin_hypha/actions/runs/37693270001)の対象は`8b86da6fad3236d36efb7d03271caf0c5dba4900`。macOSのrelease source contract、public history、AU検証はPASSした。native89件、UPDATE実動7件、core1705件、FFI185件、Record／pairingのignored20＋6件を含み、capstoneとRecord spoolの2秒期限もPASS。CIログを読取確認し、利用者・Claudeの2026年10月8日の判定により、手元のcapstone／spoolのFAILは機械の負荷・共有Cargo targetによる揺れであり、G1の後戻りではないと記録する。ローカルFAILの実測とlogは履歴として保持する。
+
+12組Dropと同時bindは既存main fixtureの時刻順序の前提であり、修正する場合は別PRに分ける。このPRでは製品の受理条件やfixtureの期待値を緩めない。Windowsの`kirin_live_blind_loop_product`は0.8秒の機械停止時に設計どおりLOOPを扱った結果、`kirin_live_lifecycle_restore-invalid`はtimeoutで、ともにG1の変更範囲外という途中確認を記録する。Windowsの残りのskipをPASSとはしない。
+
+PR #88のmerge済main `6036eae6`を取り込み、`kirin_snapshot_abi_contract`と`kirin_live_blind_loop_stall_product`を両方含む一覧を90件にした。CMakeの実登録も90件で、通常52件と一度だけの再実行を許すlive製品38件に欠落・重複なく分かれることを確認した。試験実行はこの一覧確認に含めない。mainの再実行設定と、Windowsの対象stepも保持した。G1のRust・C header・JUCE表示sourceはCI対象から変更していないことを照合した。main統合後commitの必須4checkはClaudeが改めて確認し、旧runを更新後commitの全件PASSへ流用しない。
+
+G1の観測基盤の開発受入はレビュー可能と判断し、Draftを外して提出する。mergeと正式候補の受入・公開は別の判断である。G2の表示・Capture・動きと品位、G3の実DAW、本人確認は未完了。[CI判断の証跡](ci_review_receipt.json)と、以下のローカル履歴を分けて読む。
+
 ## 決定と実装境界
 
 Captureは利用者の2026年10月7日の回答によりv1を維持する。測定の意味を保存できないWork添付は理由を明示して失敗とし、ローカルPNGを残す。Kirin OS側の別repo変更とv2は今回含めない。G2で通常添付、不対応、timeoutと再試行、通知を検証する。
@@ -74,7 +84,7 @@ Notionへの書込みは禁止されているため、SECTION:DEV、日次ログ
 
 main統合（2026年10月8日）：保存先隔離のmain変更を保持した。未pushの先行commitはB番号の重複を避けてB-1318／B-1319へ付け直した。上の実行結果はsource hashへ結び付いた統合前の履歴である。統合後sourceと保存先・native ABI・Rust回帰の結果を別の記録へ保存し、旧sourceの成功を新sourceのPASSへ繰り上げない。
 
-## main統合後の再検証
+## 保存先隔離統合後のローカル履歴（CI判断前）
 
 統合後sourceは1659ファイル、SHA-256 `38605508d4685e18f57f6a8285a49bd37ba833d8508513808e51f12b90982610`。統合前との差は保存先隔離の14ファイルで、既存の成果を新sourceの成功へ繰り上げない。CMakeを再configureし、実release archiveを再buildしてnative ABIを再リンクした。専用fixture rootの設定を確認したnative ABIは1件PASS。最終192000 samplesの完了を供給終了から30.111 msで確認し、PSR3.003595673 dB、原完了age3.694→31.752 ms、残り期限396.306→368.248 msだった。
 
@@ -91,3 +101,5 @@ capstoneを単独で一度確認すると、packet自体は取得できたが`lu
 必須componentをすべて実行し、owned／legacy Clippy、vendor vtable、debug／release archiveのbuild、lightweight source contract、source行数規約、公開text、整形はPASSした。依存を再buildした後のworkspace doctestもPASS。統合後sourceの再照合は1659ファイル・差分0だった。全source script、workspace全体、parity全体のFAILは取り消さない。
 
 現在地：G1の実装と証跡を保存し、Draft PRでClaudeの途中確認・必須CIへ渡す。G1受入は未完了。日次ログ：観測基盤、停止／seekの境界、source別の検証を保存した。Handoff：Claudeは必須4checkとRecord／Δの上記blockerを確認し、問題の解決と同一sourceの受入が揃ってからmergeを判断する。G2はその後の表示・Capture・動きと品位の統合。公開・実DAW・本人確認をこの保存で完了と扱わない。
+
+2026年10月8日の現在地：PR #88のmainを保持して一覧90件と両試験を統合し、G1の開発受入の根拠を確認してレビューへ提出する。日次ログ：CIの成功とローカルFAILの環境分類を保存し、別作業の未commit変更を持ち込まず統合した。Handoff：Claudeは更新後commitの必須4checkを確認してmergeを判断する。Drop fixtureの修正は別PR。NotionのSECTION:DEV・日次ログ・Handoffは書込み禁止のため未記録。この文書に現在地と申し送りを残す。

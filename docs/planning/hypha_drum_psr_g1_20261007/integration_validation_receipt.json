@@ -1,5 +1,5 @@
 {
-  "scope": "G1 integrated development source; local blockers remain; not G3 actual DAW or release acceptance",
+  "scope": "Historical local G1 evidence for 8b86da6f; environmental failures subsequently adjudicated by CI review; not G3 actual DAW or release acceptance",
   "recorded_utc": "2026-10-07T21:59:02.459221+00:00",
   "base_commit": "f5424878dbe955528c7af331d7c924a2bfe35c61",
   "architecture": "x86_64",
@@ -330,7 +330,8 @@
       "fail": 1,
       "failure": "poll_delta Some but lufs None"
     },
-    "acceptance": "FAIL remains, do not substitute historical 26 PASS"
+    "acceptance_at_local_recording": "FAIL remains, do not substitute historical 26 PASS",
+    "ci_acceptance": "20 parity and 6 pairing PASS at tested head"
   },
   "native_inventory": {
     "selected": 89,
@@ -374,9 +375,17 @@
       "sha256": "63a797652212eb88c3915f6b2dc578bd9caf2d3f69d916a7a7589e6338c01557"
     }
   ],
-  "blockers": [
+  "blockers_at_recording": [
     "Drop fixture ordering failures",
     "Record spool two-second close failure and stability",
     "integrated capstone delta unavailable; isolated confirmation also FAIL"
-  ]
+  ],
+  "ci_disposition": {
+    "run_id": 37693270001,
+    "tested_head": "8b86da6fad3236d36efb7d03271caf0c5dba4900",
+    "macos_source_contract": "PASS",
+    "capstone_and_spool": "environmental machine load/shared target; not G1 regression, user/Claude disposition 2026-10-08",
+    "drop_fixture": "existing time-order assumptions; separate PR if fixed",
+    "new_head_required_checks": "pending Claude review"
+  }
 }
