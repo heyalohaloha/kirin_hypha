@@ -53,13 +53,16 @@ juce::File publishedRequest (const juce::File& requests)
 
 juce::File waitForRequest (const juce::File& requests)
 {
-    for (int attempt = 0; attempt < 200; ++attempt)
+    // The controller writes on its own thread. A loaded CI runner can take seconds, so wait up to
+    // ten seconds by the clock; a request that is published returns at once.
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 10000.0;
+    while (juce::Time::getMillisecondCounterHiRes() < deadline)
     {
         const auto file = publishedRequest (requests);
         if (file != juce::File()) return file;
         juce::Thread::sleep (10);
     }
-    return {};
+    return publishedRequest (requests);
 }
 
 bool writeReceipt (const juce::File& target,
@@ -84,7 +87,9 @@ bool writeReceipt (const juce::File& target,
 hypha::capture::WorkAttachmentResult waitForResult (
     hypha::capture::WorkAttachmentController& controller)
 {
-    for (int attempt = 0; attempt < 200; ++attempt)
+    // Same clock deadline as waitForRequest: a terminal result returns at once.
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 10000.0;
+    while (juce::Time::getMillisecondCounterHiRes() < deadline)
     {
         const auto result = controller.takeResult();
         if (result.terminal())
