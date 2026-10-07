@@ -323,22 +323,24 @@
     }
 
     #[test]
-    fn readme_exposes_exact_five_one_as_measurement_only() {
+    fn readme_keeps_surround_out_of_this_release() {
         let scope = README
             .split("\n## ")
             .find(|section| section.starts_with("Channel scope\n"))
             .expect("README Channel scope section");
         let scope = scope.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
-            "Exact 5.1 (`L, R, C, LFE, Ls, Rs`)",
-            "LEVEL and TIME measurement only",
-            "Record / Keep",
-            "deliberately unavailable",
-            "does not allocate the Record backlog",
-            "or run optional FREQ / ATTACK analysis",
+            "Surround, including exact 5.1",
+            "not offered in this release",
+            "does not accept a 5.1 bus",
+            "which is not a 5.1 measurement",
         ] {
-            assert!(scope.contains(required_fact), "README 5.1 scope missing {required_fact}");
+            assert!(scope.contains(required_fact), "README surround scope missing {required_fact}");
         }
+        assert!(
+            !scope.contains("LEVEL and TIME measurement only"),
+            "README must not offer the held-back 5.1 mode as available"
+        );
     }
 
     #[test]

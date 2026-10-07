@@ -45,6 +45,10 @@ public:
                  "message-thread ticks never release attenuation or fake an audio receipt");
         require (processor.liveCompareAdmission (false) == hypha::live_compare::StartResult::returnPending,
                  "new entry identifies the pending return, not another END operation");
+        // The message thread posts the note; on a loaded machine it can follow the state by a moment.
+        if (! findView (editor)->feedback().contains ("Ended;")
+            && std::chrono::steady_clock::now() - acceptedAt < std::chrono::seconds (2))
+            return false;
         require (findView (editor)->feedback().contains ("Ended;"), "pending audio return remains visible");
         require (! find (editor, "observatory-live-end")->isVisible()
             && ! find (editor, "observatory-live-pre")->isVisible(), "closed comparison has no stale controls");

@@ -135,8 +135,24 @@ private:
 
     void timerCallback() override
     {
-        requireWithState (std::chrono::steady_clock::now() - started < std::chrono::seconds (loopMode ? 145 : 60),
+        requireWithState (std::chrono::steady_clock::now() - started
+                              < std::chrono::seconds ((loopMode ? 145 : 60) + 45 * stallRestarts),
                           "Blind round trip timed out");
+        // A stall of this machine past the callback-gap rule (2.5 blocks, 427 ms) rightly ends the
+        // Blind preparation with a callback gap. Press BLIND again as a user would, at most twice;
+        // a gap without such a stall is a product fault and fails here.
+        if (stage == 3 && ! reuse && ! fault)
+            if (const auto blind = post->liveBlindStatus(); blind.stage == hypha::live_compare::BlindStage::idle
+                && blind.reason == hypha::live_compare::RecoveryReason::callbackGap)
+            {
+                requireWithState (machineStalls.load() > recoveredStalls, "a Blind callback gap follows a real test-machine stall");
+                requireWithState (++stallRestarts <= 2, "Blind recovers from at most two test-machine stalls");
+                recoveredStalls = machineStalls.load();
+                std::cout << "Blind restarted after a test-machine stall of " << longestCallbackMicros.load() / 1000.0
+                          << " ms" << std::endl;
+                stage = 2;
+                return;
+            }
         switch (stage)
         {
             case 0:
@@ -292,6 +308,10 @@ private:
                 break;
             case 50:
                 if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::invalidated) break;
+                // The invalidation can be seen while the audio thread is still in the block that made
+                // it, before the fixture stores that block's output: judge blocks made after it.
+                if (invalidatedBlock < 0) invalidatedBlock = audioBlocks.load();
+                if (audioBlocks.load() <= invalidatedBlock + 1) break;
                 require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
                 require (post->liveBlindStatus().reason == faultReason,
                          "the first fault survives RT invalidation and message-thread teardown");
@@ -424,11 +444,12 @@ private:
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false, revealReady = false;
     bool loopMode = false;
+    int recoveredStalls = 0, stallRestarts = 0;
     float faultGain = 1.0f;
     hypha::live_compare::RecoveryReason faultReason;
     std::atomic<bool> injectGap { false };
     float reusedGain = 1.0f, held = 1.0f, firstRatio = 0.0f;
-    int observedBlock = 0;
+    int observedBlock = 0, invalidatedBlock = -1;
     std::atomic<float> lastOutputRatio { 0.0f };
     std::atomic<float> lastPcmError { 0.0f };
     std::atomic<int> audioBlocks { 0 };

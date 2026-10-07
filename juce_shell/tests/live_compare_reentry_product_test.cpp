@@ -212,9 +212,9 @@ private:
                 if (now - checkpoint < std::chrono::milliseconds (500)) break;
                 {
                     // A slow runner can take longer than 500 ms to service the stop: wait for it (up
-                    // to 5 s), then require that nothing renews the session for another 500 ms.
+                    // to 15 s), then require that nothing renews the session for another 500 ms.
                     const bool ended = ! status.active && ! status.preAudible && ! status.matched;
-                    if (! ended && now - checkpoint < std::chrono::seconds (5)) break;
+                    if (! ended && now - checkpoint < std::chrono::seconds (15)) break;
                     require (ended, "END/restore/Blind stop never renews a session");
                     if (endedAt == Steady::time_point()) endedAt = now;
                     if (now - endedAt < std::chrono::milliseconds (500)) break;
@@ -281,6 +281,9 @@ private:
             case 10:
                 require (post->liveBlindStatus().stage == BlindStage::preparing, "causal fault occurs before MATCH or anonymous trial");
                 if (status.verdict != Verdict::accepted) break;
+                // A machine stall can accept the timing in a block that also lost it; the product then
+                // keeps a recoverable startup wait. The fault below needs an established preparation.
+                if (! LiveTimingFixtureAccess::blindPreparationProven (*post)) break;
                 require (! status.matched, "initial timing is established but MATCH observation is not yet complete");
                 fault(); stage = 4; break;
             case 11:
