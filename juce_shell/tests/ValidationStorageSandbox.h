@@ -64,6 +64,10 @@ public:
                 throw std::runtime_error ("could not redirect validation storage");
         }
        #endif
+        // ctest gives every test one shared folder (KIRIN_HYPHA_TEST_STORAGE_ROOT), which the Rust
+        // storage reads before HOME and TMPDIR. These tests read what the product wrote from the
+        // folders above, so the variable is cleared while the sandbox lives.
+        clear ("KIRIN_HYPHA_TEST_STORAGE_ROOT");
     }
 
     ~ValidationStorageSandbox()
@@ -82,6 +86,31 @@ public:
 
 private:
     struct SavedVariable { std::string name, value; bool present; };
+
+    void clear (const char* name)
+    {
+        SavedVariable saved { name, {}, false };
+       #if JUCE_WINDOWS
+        char* current = nullptr;
+        size_t length = 0;
+        if (::_dupenv_s (&current, &length, name) == 0 && current != nullptr)
+        {
+            saved.value = current;
+            saved.present = true;
+            std::free (current);
+        }
+        ::_putenv_s (name, "");
+       #else
+        if (const auto* current = std::getenv (name))
+        {
+            saved.value = current;
+            saved.present = true;
+        }
+        ::unsetenv (name);
+       #endif
+        variables.push_back (std::move (saved));
+    }
+
     juce::File root;
     std::vector<SavedVariable> variables;
 };

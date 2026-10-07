@@ -136,9 +136,39 @@ impl StoragePaths {
     }
 }
 
+/// Test runs place every Kirin OS folder under this root instead of the real ones, laid out as on the
+/// platform: its home at `home` (macOS `Library/Application Support/Kirin OS`, Windows
+/// `AppData/Roaming` and `AppData/Local`) and its temporary folder at `tmp`. The workspace's
+/// `.cargo/config.toml` sets it for cargo's runs and `juce_shell/CMakeLists.txt` for the native
+/// tests, so a test never writes into the user's Kirin OS folders or a running plug-in's
+/// `/tmp/kirin`. xtask clears it; a host never has it.
+pub const TEST_STORAGE_ROOT_ENV: &str = "KIRIN_HYPHA_TEST_STORAGE_ROOT";
+
+fn test_storage_root() -> Option<PathBuf> {
+    std::env::var_os(TEST_STORAGE_ROOT_ENV)
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+}
+
 impl PlatformPaths {
     pub fn current_kirin_tmp_root() -> PathBuf {
-        std::env::temp_dir().join("kirin")
+        test_storage_root()
+            .map_or_else(std::env::temp_dir, |root| root.join("tmp"))
+            .join("kirin")
+    }
+
+    fn under_test_root(root: &Path) -> Self {
+        let home = root.join("home");
+        if cfg!(target_os = "windows") {
+            let app_data = home.join("AppData");
+            Self::for_windows(
+                app_data.join("Roaming"),
+                app_data.join("Local"),
+                root.join("tmp"),
+            )
+        } else {
+            Self::for_macos(home, root.join("tmp"))
+        }
     }
 
     pub fn for_macos(home: impl Into<PathBuf>, temp_dir: impl Into<PathBuf>) -> Self {
@@ -187,6 +217,9 @@ impl PlatformPaths {
     }
 
     pub fn default_current() -> Result<Self, StorageError> {
+        if let Some(root) = test_storage_root() {
+            return Ok(Self::under_test_root(&root));
+        }
         #[cfg(target_os = "windows")]
         {
             Self::default_windows()

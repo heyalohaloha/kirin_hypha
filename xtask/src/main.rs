@@ -28,6 +28,8 @@ mod windows_readiness;
 mod windows_vst3_layout;
 
 fn main() -> nih_plug_xtask::Result<()> {
+    // cargo's workspace config points Kirin OS storage at a test sandbox; xtask works on the real one.
+    std::env::remove_var(kirin_measure::TEST_STORAGE_ROOT_ENV);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(|s| s.as_str()) {
         Some("gen-signals") => {

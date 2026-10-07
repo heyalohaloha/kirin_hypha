@@ -404,3 +404,25 @@ fn cleanup_legacy_v1_preserves_new_structure() {
     assert!(!legacy.exists(), "legacy structure removed");
     let _ = fs::remove_dir_all(root);
 }
+
+/// cargo's workspace config hands every test run the Kirin OS sandbox. Without it, a test that
+/// resolves the default folders writes into the user's real Kirin OS folders (it once left 860
+/// project folders in plugin_data) or a running plug-in's /tmp/kirin.
+#[test]
+fn test_runs_resolve_kirin_os_folders_inside_their_sandbox() {
+    let root = std::env::var_os(TEST_STORAGE_ROOT_ENV)
+        .map(PathBuf::from)
+        .expect("cargo test runs carry the Kirin OS test sandbox (.cargo/config.toml)");
+    let paths = PlatformPaths::default_current().expect("the sandbox always resolves");
+    assert!(paths.storage.primary_path().starts_with(&root));
+    assert!(paths
+        .storage
+        .plugin_data_dir()
+        .starts_with(root.join("home")));
+    assert!(paths.kirin_tmp_root.starts_with(root.join("tmp")));
+    assert!(PlatformPaths::current_kirin_tmp_root().starts_with(root.join("tmp")));
+    assert!(StoragePaths::default_platform()
+        .unwrap()
+        .plugin_data_dir()
+        .starts_with(&root));
+}

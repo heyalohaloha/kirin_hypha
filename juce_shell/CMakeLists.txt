@@ -1096,3 +1096,12 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
 endif()
 
 include(cmake/UpdateIntegrationTests.cmake)
+
+# Every native test resolves the Rust storage (Record, identity, the plug-in's temporary folder)
+# inside this build, never in the user's Kirin OS or a running plug-in's folder. Tests that use
+# ValidationStorageSandbox clear it and keep their own HOME / TMPDIR.
+get_property(kirin_hypha_native_tests DIRECTORY PROPERTY TESTS)
+if(kirin_hypha_native_tests)
+    set_property(TEST ${kirin_hypha_native_tests} APPEND PROPERTY ENVIRONMENT
+        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-kirin-os")
+endif()
