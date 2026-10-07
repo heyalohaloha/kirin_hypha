@@ -1,0 +1,4910 @@
+{
+  "schema_version": "hypha_drum_psr_g0_measurements_v1",
+  "recorded_at_utc": "2026-10-07T07:08:51.573734+00:00",
+  "status": "development_observation_only",
+  "product_gate_pass": false,
+  "source": {
+    "reference_commit": "bcb9ffd3b3913e9d5c4a526df38b4a7f430be99d",
+    "reference_build": "B-1300",
+    "plan_decision_commit": "284d772b",
+    "consumer_commit": "9b2a055801939dbb5dd9d3b08befd17dbb76f2b7",
+    "static_library_path_from_reference_checkout": "target/release/libkirin_hypha_ffi.a",
+    "static_library_sha256": "c2a4af783bae128d6cd11f2e3be61d035ffb66ee3b0a17323fac59ad97106eac",
+    "static_library_source_provenance": "unconfirmed; source checkout and ABI are recorded, but no exact-commit build provenance sidecar was found"
+  },
+  "native_time_probe": {
+    "probe_source_sha256": "dd28ba95dafac811cb878a291bec8fc1bddbb7c0efb81b5151f57925525de522",
+    "probe_binary_sha256": "894d790f1ec63d4325789cf170dc3551e14ae12c283425050e53f9d794085e68",
+    "config": {
+      "host_os": "macOS",
+      "architecture": "x86_64",
+      "sample_rate": 48000,
+      "channel_roles": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "block_frames": 480,
+      "scheduled_input_period_ms": 10,
+      "scheduled_native_poll_period_ms": 100,
+      "duration_per_run_s": 3.6,
+      "warmup_excluded_s": 0.6,
+      "file_observer_sleep_ms": 2,
+      "signal": "identical PRE/POST stereo 0.1-amplitude 997 Hz sine",
+      "storage": "Disposable KIRIN_HYPHA_TEST_STORAGE_ROOT under /tmp/hypha-g0-native-*; no device, Record, Keep or listening"
+    },
+    "definitions": {
+      "endpoint": "last_timeline_endpoint_samples from current native history; PRE publication endpoints from the isolated meter_history.json raw points",
+      "input_slot_supplied": "Wall time immediately after supplying the final 10 ms block of each 100 ms input slot to both handles; not Measure Thread completion",
+      "first_endpoint_delay": "First observation wall time minus that endpoint input_slot_supplied wall time; PRE file uses 2 ms observer, native poll uses nominal 10 Hz",
+      "latest_delta_input_slot_age": "At each poll, wall time minus supplied time for latest returned delta endpoint; not raw measurement TTL age",
+      "nominal_audio_age": "Wall time minus endpoint/sample_rate, relative to driver start; includes schedule phase and input block-start convention",
+      "cutoff_C_minus_E": "Latest POST local native history endpoint minus latest delta native history endpoint at same poll batch, divided by sample rate; old independent APIs, not a new atomic packet proof",
+      "p95": "Nearest-rank P95, ceil(0.95*n)-th ordered sample",
+      "warmup": "First-endpoint summaries exclude slots supplied before 0.6 s; latest-age and interval summaries exclude polls before 0.6 s"
+    },
+    "compile_command_from_reference_checkout": "clang++ -std=c++17 -O2 -arch x86_64 -mmacosx-version-min=12.0 -I crates/kirin_hypha_ffi/include /tmp/hypha_g0_time_probe.cpp target/release/libkirin_hypha_ffi.a -framework Security -framework CoreFoundation -framework SystemConfiguration -o /tmp/hypha_g0_time_probe",
+    "run_command_template": "/tmp/hypha_g0_time_probe /tmp/hypha-g0-native-<disposable-name> 3.6 <0.030 or 0.075>",
+    "reproducible_probe_source": "#include <algorithm>\n#include <chrono>\n#include <cmath>\n#include <cstddef>\n#include <cstdlib>\n#include <filesystem>\n#include <fstream>\n#include <iostream>\n#include <map>\n#include <set>\n#include <string>\n#include <thread>\n#include <vector>\n#include \"kirin_hypha_ffi.h\"\n#include \"kirin_hypha_abi_contract.h\"\nusing Clock=std::chrono::steady_clock;\nnamespace fs=std::filesystem;\nint main(int argc,char**argv) {\n  if(argc!=4)return 2;\n  const std::string root=argv[1]; const double duration=std::stod(argv[2]),phase=std::stod(argv[3]);\n  if(root.rfind(\"/tmp/hypha-g0-native-\",0)!=0)return 3;\n  fs::create_directories(root+\"/tmp\");fs::create_directories(root+\"/home\");\n  setenv(\"KIRIN_HYPHA_TEST_STORAGE_ROOT\",root.c_str(),1);\n  KirinAbiContract abi{};kirin_hypha_abi_contract(&abi);\n  bool ok=abi.revision==KIRIN_ABI_REVISION&&abi.meter_history_entry_size==sizeof(KirinMeterHistoryEntry)\n    &&abi.meter_history_entry_epoch_offset==offsetof(KirinMeterHistoryEntry,measurement_epoch)\n    &&abi.meter_session_size==sizeof(KirinMeterSession)&&abi.measure_result_size==sizeof(KirinMeasureResult);\n  std::cout<<\"{\\\"kind\\\":\\\"abi\\\",\\\"revision\\\":\"<<abi.revision<<\",\\\"header_revision\\\":\"<<KIRIN_ABI_REVISION\n    <<\",\\\"meter_history_size\\\":\"<<abi.meter_history_entry_size<<\",\\\"meter_session_size\\\":\"<<abi.meter_session_size<<\",\\\"match\\\":\"<<(ok?\"true\":\"false\")<<\"}\\n\";\n  if(!ok)return 4;\n  const uint8_t roles[]={KIRIN_CHANNEL_ROLE_LEFT,KIRIN_CHANNEL_ROLE_RIGHT};\n  auto*pre=kirin_hypha_create(48000,roles,2);auto*post=kirin_hypha_create(48000,roles,2);if(!pre||!post)return 5;\n  const char*preId=\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\";const char*postId=\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\";\n  for(auto*h:{pre,post})kirin_hypha_set_license(h,0);\n  kirin_hypha_set_identity(pre,preId,\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"dddddddd-dddd-4ddd-8ddd-dddddddddddd\",\"G0-probe\");\n  kirin_hypha_set_identity(post,postId,\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"dddddddd-dddd-4ddd-8ddd-dddddddddddd\",\"G0-probe\");\n  kirin_hypha_enable_pre_writes(pre);kirin_hypha_enable_post_writes(post);kirin_hypha_set_pair_target(post,\"G0-probe\");\n  const auto start=Clock::now();auto seconds=[&](){return std::chrono::duration<double>(Clock::now()-start).count();};\n  std::vector<float>samples(960);uint64_t frames=0,accepted=0,rejected=0;double nextFeed=0,nextPoll=phase,nextDiscovery=0,nextPair=0;\n  std::map<std::string,fs::path>paths;std::map<std::string,fs::file_time_type>stamps;std::map<std::string,int64_t>lastEndpoint;\n  std::map<std::string,std::set<int64_t>>seen;\n  bool selected=false;double observerTotalMs=0,observerMaxMs=0,feedLateTotalMs=0,feedLateMaxMs=0;uint64_t observerTicks=0,feedTicks=0;\n  while(seconds()<duration) {\n    const auto now=seconds();\n    if(now>=nextFeed) {\n      const double lateMs=(now-nextFeed)*1000;feedLateTotalMs+=lateMs;feedLateMaxMs=std::max(feedLateMaxMs,lateMs);++feedTicks;\n      for(size_t i=0;i<480;++i){const float s=0.1f*std::sin(2*3.141592653589793*997*(frames+i)/48000.0);samples[i*2]=s;samples[i*2+1]=s;}\n      for(auto*h:{pre,post}) {\n        kirin_hypha_set_signal_state(h,KIRIN_SIGNAL_STATE_ACTIVE);\n        kirin_hypha_note_capture_window(h,true,frames,480,KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE,KIRIN_HYPHA_PRESENTATION_SOURCE_VST3,true,0,true,0,KIRIN_HYPHA_AUXILIARY_SOURCE_UNKNOWN,false,0,false);\n        if(kirin_hypha_push_samples(h,samples.data(),480,2))++accepted;else ++rejected;\n      }\n      frames+=480;nextFeed=static_cast<double>(frames)/48000;\n      if(frames%4800==0)std::cout<<\"{\\\"kind\\\":\\\"input_slot_supplied\\\",\\\"wall_s\\\":\"<<seconds()<<\",\\\"endpoint_samples\\\":\"<<frames<<\",\\\"feed_lateness_ms\\\":\"<<lateMs<<\"}\\n\";\n    }\n    if(!selected&&now>=nextPair){selected=kirin_hypha_select_pair_candidate(post,preId);nextPair=now+0.05;if(selected)std::cout<<\"{\\\"kind\\\":\\\"pair_selected\\\",\\\"wall_s\\\":\"<<seconds()<<\"}\\n\";}\n    if(paths.size()<3&&now>=nextDiscovery) {\n      const fs::path base=root+\"/tmp/kirin\";\n      if(fs::exists(base))for(auto const&entry:fs::recursive_directory_iterator(base))if(entry.is_regular_file()) {\n        const auto name=entry.path().filename().string();const auto parent=entry.path().parent_path().filename().string();\n        if(parent==preId&&name==\"meter_history.json\")paths[\"pre_history_publication\"]=entry.path();\n        if(parent==preId&&name==\"pre.json\")paths[\"pre_watch_publication\"]=entry.path();\n        if(parent==postId&&name==\"post.json\")paths[\"post_watch_publication\"]=entry.path();\n      }\n      nextDiscovery=now+0.02;\n    }\n    const double observerStart=seconds();\n    for(const auto&[kind,path]:paths) {\n      std::error_code err;const auto stamp=fs::last_write_time(path,err);if(err|| (stamps.count(kind)&&stamps[kind]==stamp))continue;stamps[kind]=stamp;\n      if(kind==\"pre_history_publication\") {\n        std::ifstream input(path);std::string content((std::istreambuf_iterator<char>(input)),{});int64_t endpoint=-1;\n        size_t pos=0;while((pos=content.find(\"\\\"endpoint_samples\\\"\",pos))!=std::string::npos){pos=content.find(':',pos)+1;while(pos<content.size()&&(content[pos]==' '||content[pos]=='\\n'||content[pos]=='\\t'))++pos;\n          char* end=nullptr;const auto point=std::strtoll(content.c_str()+pos,&end,10);pos=end-content.c_str();endpoint=std::max<int64_t>(endpoint,point);\n          if(seen[kind].insert(point).second)std::cout<<\"{\\\"kind\\\":\\\"pre_publication_first_endpoint\\\",\\\"wall_s\\\":\"<<seconds()<<\",\\\"endpoint_samples\\\":\"<<point<<\"}\\n\";}\n        if(endpoint>=0&&endpoint!=lastEndpoint[kind]){lastEndpoint[kind]=endpoint;std::cout<<\"{\\\"kind\\\":\\\"\"<<kind<<\"\\\",\\\"wall_s\\\":\"<<seconds()<<\",\\\"endpoint_samples\\\":\"<<endpoint<<\",\\\"audio_age_ms\\\":\"<<(seconds()-static_cast<double>(endpoint)/48000)*1000<<\"}\\n\";}\n      }else std::cout<<\"{\\\"kind\\\":\\\"\"<<kind<<\"\\\",\\\"wall_s\\\":\"<<seconds()<<\"}\\n\";\n    }\n    const double observerMs=(seconds()-observerStart)*1000;observerTotalMs+=observerMs;observerMaxMs=std::max(observerMaxMs,observerMs);++observerTicks;\n    if(now>=nextPoll) {\n      const double pollAt=seconds();\n      for(const auto&[kind,handle]:std::vector<std::pair<std::string,KirinHypha*>>{{\"pre_native_history\",pre},{\"post_native_history\",post},{\"delta_native_history\",post}}){\n        KirinMeterHistoryEntry out[64]{};uint32_t count=0;\n        const bool polled=kind==\"delta_native_history\"?kirin_hypha_poll_meter_delta_history(handle,0,out,64,&count):kirin_hypha_poll_meter_history(handle,0,out,64,&count);\n        const int64_t endpoint=count?out[count-1].last_timeline_endpoint_samples:-1;\n        for(uint32_t i=0;i<count;++i){const auto point=out[i].last_timeline_endpoint_samples;if(point>=0&&seen[kind].insert(point).second)\n          std::cout<<\"{\\\"kind\\\":\\\"\"<<kind<<\"_first_endpoint\\\",\\\"wall_s\\\":\"<<pollAt<<\",\\\"endpoint_samples\\\":\"<<point<<\"}\\n\";}\n        std::cout<<\"{\\\"kind\\\":\\\"\"<<kind<<\"\\\",\\\"wall_s\\\":\"<<pollAt<<\",\\\"success\\\":\"<<(polled?\"true\":\"false\")<<\",\\\"count\\\":\"<<count\n          <<\",\\\"endpoint_samples\\\":\"<<endpoint<<\",\\\"observed_frames\\\":\"<<(count?out[count-1].last_observed_frames:0)<<\",\\\"finite_psr\\\":\"<<(count&&std::isfinite(out[count-1].psr.mean)?\"true\":\"false\")\n          <<\",\\\"audio_age_ms\\\":\"<<(endpoint>=0?(pollAt-static_cast<double>(endpoint)/48000)*1000:-1)<<\"}\\n\";\n      }\n      nextPoll+=0.1;\n    }\n    std::this_thread::sleep_for(std::chrono::milliseconds(2));\n  }\n  std::cout<<\"{\\\"kind\\\":\\\"end\\\",\\\"accepted_transactions\\\":\"<<accepted<<\",\\\"rejected_transactions\\\":\"<<rejected<<\",\\\"pair_status\\\":\"<<(int)kirin_hypha_pair_status(post)<<\",\\\"duration_s\\\":\"<<seconds()<<\",\\\"observer_sleep_ms\\\":2,\\\"observer_mean_ms\\\":\"<<observerTotalMs/observerTicks<<\",\\\"observer_max_ms\\\":\"<<observerMaxMs<<\",\\\"feed_lateness_mean_ms\\\":\"<<feedLateTotalMs/feedTicks<<\",\\\"feed_lateness_max_ms\\\":\"<<feedLateMaxMs<<\"}\\n\";\n  kirin_hypha_set_signal_state(pre,0);kirin_hypha_set_signal_state(post,0);kirin_hypha_destroy(post);kirin_hypha_destroy(pre);\n}\n",
+    "runs": [
+      {
+        "id": "native_lowcost_phase_30ms",
+        "scheduled_poll_phase_ms": 30,
+        "input_jsonl_sha256": "74e01db84b62ba316602a5d0d3c1021d8590635c1db72510916b40dc349a68cd",
+        "abi": {
+          "kind": "abi",
+          "revision": 7,
+          "header_revision": 7,
+          "meter_history_size": 248,
+          "meter_session_size": 1840,
+          "match": true
+        },
+        "pair_selected_wall_s": 0.288061,
+        "summary": {
+          "pre_native_history_first_endpoint_delay_from_input_slot": {
+            "n": 28,
+            "median_ms": 138.64,
+            "p95_ms": 160.51,
+            "maximum_ms": 239.79
+          },
+          "post_native_history_first_endpoint_delay_from_input_slot": {
+            "n": 28,
+            "median_ms": 138.438,
+            "p95_ms": 140.55,
+            "maximum_ms": 160.51
+          },
+          "pre_publication_first_endpoint_delay_from_input_slot": {
+            "n": 27,
+            "median_ms": 188.461,
+            "p95_ms": 321.38,
+            "maximum_ms": 331.8
+          },
+          "delta_native_history_first_endpoint_delay_from_input_slot": {
+            "n": 27,
+            "median_ms": 339.944,
+            "p95_ms": 539.09,
+            "maximum_ms": 539.35
+          },
+          "latest_delta_input_slot_age": {
+            "n": 30,
+            "median_ms": 339.505,
+            "p95_ms": 539.87,
+            "maximum_ms": 540.881
+          },
+          "latest_delta_nominal_audio_age": {
+            "n": 30,
+            "median_ms": 330.805,
+            "p95_ms": 530.662,
+            "maximum_ms": 532.307
+          },
+          "cutoff_C_minus_E": {
+            "n": 30,
+            "median_ms": 200.0,
+            "p95_ms": 400.0,
+            "maximum_ms": 500.0,
+            "ticks_at_or_above_400_ms": 6
+          },
+          "native_poll_interval": {
+            "n": 29,
+            "median_ms": 99.93,
+            "p95_ms": 116.73,
+            "maximum_ms": 121.94
+          },
+          "input_slot_feed_lateness_after_warmup": {
+            "n": 30,
+            "median_ms": 1.578,
+            "p95_ms": 13.913,
+            "maximum_ms": 21.899
+          },
+          "poll_calls_after_warmup": {
+            "pre_native_history": {
+              "calls": 30,
+              "failed": 2,
+              "finite_latest_psr": 28
+            },
+            "post_native_history": {
+              "calls": 30,
+              "failed": 0,
+              "finite_latest_psr": 30
+            },
+            "delta_native_history": {
+              "calls": 30,
+              "failed": 0,
+              "finite_latest_psr": 30
+            }
+          }
+        },
+        "end": {
+          "kind": "end",
+          "accepted_transactions": 720,
+          "rejected_transactions": 0,
+          "pair_status": 2,
+          "duration_s": 3.6092,
+          "observer_sleep_ms": 2,
+          "observer_mean_ms": 0.450084,
+          "observer_max_ms": 20.3912,
+          "feed_lateness_mean_ms": 6.84455,
+          "feed_lateness_max_ms": 103.626
+        },
+        "records": [
+          {
+            "kind": "abi",
+            "revision": 7,
+            "header_revision": 7,
+            "meter_history_size": 248,
+            "meter_session_size": 1840,
+            "match": true
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.11058,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.11058,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.11058,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.1539,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.1539,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.1539,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.162685,
+            "endpoint_samples": 4800,
+            "feed_lateness_ms": 72.6707
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.190184,
+            "endpoint_samples": 9600,
+            "feed_lateness_ms": 0.134606
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.210841
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.210857
+          },
+          {
+            "kind": "pair_selected",
+            "wall_s": 0.288061
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.291431,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.291431,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.291431,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 91.4308
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.291431,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.291431,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.291431,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 91.4308
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.291431,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.3298,
+            "endpoint_samples": 14400,
+            "feed_lateness_ms": 39.7823
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.329825
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.332222,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 132.222
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.332222,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 132.222
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.332222,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.405881
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.412062,
+            "endpoint_samples": 19200,
+            "feed_lateness_ms": 22.0129
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.427191,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.427196,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.427197,
+            "endpoint_samples": 9600,
+            "audio_age_ms": 227.198
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.431671,
+            "success": false,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.431671,
+            "success": false,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.431671,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.501487
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.503666,
+            "endpoint_samples": 24000,
+            "feed_lateness_ms": 13.6414
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.531952,
+            "success": true,
+            "count": 4,
+            "endpoint_samples": 19200,
+            "observed_frames": 19200,
+            "finite_psr": true,
+            "audio_age_ms": 131.952
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.531952,
+            "success": true,
+            "count": 5,
+            "endpoint_samples": 24000,
+            "observed_frames": 24000,
+            "finite_psr": true,
+            "audio_age_ms": 31.9521
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.531952,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.531952,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 331.952
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.588887
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.593021,
+            "endpoint_samples": 28800,
+            "feed_lateness_ms": 3.00541
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.644877,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.644885,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.644886,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.644888,
+            "endpoint_samples": 24000,
+            "audio_age_ms": 144.889
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.647041
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.647063,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.647063,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.647063,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 47.0626
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.647063,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.647063,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 47.0626
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.647063,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 447.063
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.691936,
+            "endpoint_samples": 33600,
+            "feed_lateness_ms": 1.90908
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.730935,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 130.935
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.730935,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 130.935
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.730935,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.730935,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.730935,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.730935,
+            "success": true,
+            "count": 5,
+            "endpoint_samples": 24000,
+            "observed_frames": 24000,
+            "finite_psr": true,
+            "audio_age_ms": 230.935
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.770017
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.773119,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.773122,
+            "endpoint_samples": 28800,
+            "audio_age_ms": 173.123
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.792084,
+            "endpoint_samples": 38400,
+            "feed_lateness_ms": 2.07265
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.82748
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.831751,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.831751,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 131.751
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.831751,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.831751,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 131.751
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.831751,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.831751,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 231.751
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.891699,
+            "endpoint_samples": 43200,
+            "feed_lateness_ms": 1.68009
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.924923
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.930339,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.930339,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 130.339
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.930339,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.930339,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 130.339
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.930339,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 330.339
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.962692
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.962834,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.962838,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.962839,
+            "endpoint_samples": 38400,
+            "audio_age_ms": 162.84
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.991429,
+            "endpoint_samples": 48000,
+            "feed_lateness_ms": 1.41273
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.03188,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.03188,
+            "success": true,
+            "count": 9,
+            "endpoint_samples": 43200,
+            "observed_frames": 43200,
+            "finite_psr": true,
+            "audio_age_ms": 131.885
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.03188,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.03188,
+            "success": true,
+            "count": 9,
+            "endpoint_samples": 43200,
+            "observed_frames": 43200,
+            "finite_psr": true,
+            "audio_age_ms": 131.885
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.03188,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.03188,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.03188,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 231.885
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.09286,
+            "endpoint_samples": 52800,
+            "feed_lateness_ms": 2.83988
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.12352
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.12353
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.13181,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.13181,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 131.808
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.13181,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.13181,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 131.808
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.13181,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 331.808
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.17988,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.17989,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.17989,
+            "endpoint_samples": 48000,
+            "audio_age_ms": 179.889
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.19149,
+            "endpoint_samples": 57600,
+            "feed_lateness_ms": 1.47554
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.23006,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.23006,
+            "success": true,
+            "count": 11,
+            "endpoint_samples": 52800,
+            "observed_frames": 52800,
+            "finite_psr": true,
+            "audio_age_ms": 130.06
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.23006,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.23006,
+            "success": true,
+            "count": 11,
+            "endpoint_samples": 52800,
+            "observed_frames": 52800,
+            "finite_psr": true,
+            "audio_age_ms": 130.06
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.23006,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 430.06
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.29326,
+            "endpoint_samples": 62400,
+            "feed_lateness_ms": 1.03401
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.29564
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.35199
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.352,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.352,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.352,
+            "success": true,
+            "count": 13,
+            "endpoint_samples": 62400,
+            "observed_frames": 62400,
+            "finite_psr": true,
+            "audio_age_ms": 51.9967
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.352,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.352,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.352,
+            "success": true,
+            "count": 13,
+            "endpoint_samples": 62400,
+            "observed_frames": 62400,
+            "finite_psr": true,
+            "audio_age_ms": 51.9967
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.352,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.352,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.352,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 351.997
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.37387,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.37388,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.37388,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.37388,
+            "endpoint_samples": 62400,
+            "audio_age_ms": 73.882
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.39084,
+            "endpoint_samples": 67200,
+            "feed_lateness_ms": 0.824098
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.43196,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.43196,
+            "success": true,
+            "count": 14,
+            "endpoint_samples": 67200,
+            "observed_frames": 67200,
+            "finite_psr": true,
+            "audio_age_ms": 31.9617
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.43196,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.43196,
+            "success": true,
+            "count": 14,
+            "endpoint_samples": 67200,
+            "observed_frames": 67200,
+            "finite_psr": true,
+            "audio_age_ms": 31.9617
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.43196,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 431.962
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.49183,
+            "endpoint_samples": 72000,
+            "feed_lateness_ms": 1.8078
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.49866
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.53231,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.53231,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 32.3069
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.53231,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.53231,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 32.3069
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.53231,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 532.307
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.5756
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.57565,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.57566,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.57566,
+            "endpoint_samples": 72000,
+            "audio_age_ms": 75.659
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.59066,
+            "endpoint_samples": 76800,
+            "feed_lateness_ms": 0.646794
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.63195,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 31.9457
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.63195,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 31.9457
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.63195,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.63195,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 131.946
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.69057,
+            "endpoint_samples": 81600,
+            "feed_lateness_ms": 0.531375
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.7298
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.732
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.73202,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 132.019
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.73202,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 132.019
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.73202,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 232.019
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.785,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.78501,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.78501,
+            "endpoint_samples": 81600,
+            "audio_age_ms": 85.0105
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.79172,
+            "endpoint_samples": 86400,
+            "feed_lateness_ms": 1.70465
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.8305,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.8305,
+            "success": true,
+            "count": 17,
+            "endpoint_samples": 81600,
+            "observed_frames": 81600,
+            "finite_psr": true,
+            "audio_age_ms": 130.5
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.8305,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.8305,
+            "success": true,
+            "count": 17,
+            "endpoint_samples": 81600,
+            "observed_frames": 81600,
+            "finite_psr": true,
+            "audio_age_ms": 130.5
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.8305,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 330.5
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.88109
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.89201,
+            "endpoint_samples": 91200,
+            "feed_lateness_ms": 1.99225
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.92076
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.93227,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.93227,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 132.266
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.93227,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.93227,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 132.266
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.93227,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.93227,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.93227,
+            "success": true,
+            "count": 17,
+            "endpoint_samples": 81600,
+            "observed_frames": 81600,
+            "finite_psr": true,
+            "audio_age_ms": 232.266
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.94111,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.94112,
+            "endpoint_samples": 86400,
+            "audio_age_ms": 141.116
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.99079,
+            "endpoint_samples": 96000,
+            "feed_lateness_ms": 0.77188
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.02407
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.0319,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.0319,
+            "success": true,
+            "count": 19,
+            "endpoint_samples": 91200,
+            "observed_frames": 91200,
+            "finite_psr": true,
+            "audio_age_ms": 131.897
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.0319,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.0319,
+            "success": true,
+            "count": 19,
+            "endpoint_samples": 91200,
+            "observed_frames": 91200,
+            "finite_psr": true,
+            "audio_age_ms": 131.897
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.0319,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.0319,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 231.897
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.09205,
+            "endpoint_samples": 100800,
+            "feed_lateness_ms": 2.03035
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.10095
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.13017,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.13017,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 130.166
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.13017,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.13017,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 130.166
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.13017,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 330.166
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.17791
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.20137,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.20137,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.20137,
+            "endpoint_samples": 96000,
+            "audio_age_ms": 201.373
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.20393,
+            "endpoint_samples": 105600,
+            "feed_lateness_ms": 13.9134
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.23067,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.23067,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 130.673
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.23067,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.23067,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 130.673
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.23067,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.23067,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.23067,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 230.673
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.29284,
+            "endpoint_samples": 110400,
+            "feed_lateness_ms": 2.82558
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.33043,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.33043,
+            "success": true,
+            "count": 22,
+            "endpoint_samples": 105600,
+            "observed_frames": 105600,
+            "finite_psr": true,
+            "audio_age_ms": 130.428
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.33043,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.33043,
+            "success": true,
+            "count": 22,
+            "endpoint_samples": 105600,
+            "observed_frames": 105600,
+            "finite_psr": true,
+            "audio_age_ms": 130.428
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.33043,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 330.428
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.35165
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.35475
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.38872,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.38872,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.38873,
+            "endpoint_samples": 105600,
+            "audio_age_ms": 188.727
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.39303,
+            "endpoint_samples": 115200,
+            "feed_lateness_ms": 3.01761
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.43313,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.43313,
+            "success": true,
+            "count": 23,
+            "endpoint_samples": 110400,
+            "observed_frames": 110400,
+            "finite_psr": true,
+            "audio_age_ms": 133.129
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.43313,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.43313,
+            "success": true,
+            "count": 23,
+            "endpoint_samples": 110400,
+            "observed_frames": 110400,
+            "finite_psr": true,
+            "audio_age_ms": 133.129
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.43313,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 433.129
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.49086,
+            "endpoint_samples": 120000,
+            "feed_lateness_ms": 0.846521
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.52836
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.52838
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.53066,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.53066,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 130.662
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.53066,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.53066,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 130.662
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.53066,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 530.662
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.59193,
+            "endpoint_samples": 124800,
+            "feed_lateness_ms": 1.91257
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.62464,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.62465,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.62465,
+            "endpoint_samples": 115200,
+            "audio_age_ms": 224.649
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.6314,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.6314,
+            "success": true,
+            "count": 25,
+            "endpoint_samples": 120000,
+            "observed_frames": 120000,
+            "finite_psr": true,
+            "audio_age_ms": 131.401
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.6314,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.6314,
+            "success": true,
+            "count": 25,
+            "endpoint_samples": 120000,
+            "observed_frames": 120000,
+            "finite_psr": true,
+            "audio_age_ms": 131.401
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.6314,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.6314,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.6314,
+            "success": true,
+            "count": 22,
+            "endpoint_samples": 105600,
+            "observed_frames": 105600,
+            "finite_psr": true,
+            "audio_age_ms": 431.401
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.66176
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.69211,
+            "endpoint_samples": 129600,
+            "feed_lateness_ms": 2.09481
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.73094,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.73094,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.73094,
+            "success": true,
+            "count": 27,
+            "endpoint_samples": 129600,
+            "observed_frames": 129600,
+            "finite_psr": true,
+            "audio_age_ms": 30.9375
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.73094,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.73094,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.73094,
+            "success": true,
+            "count": 27,
+            "endpoint_samples": 129600,
+            "observed_frames": 129600,
+            "finite_psr": true,
+            "audio_age_ms": 30.9375
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.73094,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.73094,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.73094,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 330.937
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.77449
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.79076,
+            "endpoint_samples": 134400,
+            "feed_lateness_ms": 0.745409
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.81224,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.81224,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.81225,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.81225,
+            "endpoint_samples": 129600,
+            "audio_age_ms": 112.247
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.81485
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.83014,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.83014,
+            "success": true,
+            "count": 28,
+            "endpoint_samples": 134400,
+            "observed_frames": 134400,
+            "finite_psr": true,
+            "audio_age_ms": 30.1386
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.83014,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.83014,
+            "success": true,
+            "count": 28,
+            "endpoint_samples": 134400,
+            "observed_frames": 134400,
+            "finite_psr": true,
+            "audio_age_ms": 30.1386
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.83014,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 430.139
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.89147,
+            "endpoint_samples": 139200,
+            "feed_lateness_ms": 1.45412
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.93185,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.93185,
+            "success": true,
+            "count": 29,
+            "endpoint_samples": 139200,
+            "observed_frames": 139200,
+            "finite_psr": true,
+            "audio_age_ms": 31.8504
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.93185,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.93185,
+            "success": true,
+            "count": 29,
+            "endpoint_samples": 139200,
+            "observed_frames": 139200,
+            "finite_psr": true,
+            "audio_age_ms": 31.8504
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.93185,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.93185,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.93185,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.93185,
+            "success": true,
+            "count": 27,
+            "endpoint_samples": 129600,
+            "observed_frames": 129600,
+            "finite_psr": true,
+            "audio_age_ms": 231.85
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.98748
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.98985
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.00762,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.00765,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 3.00765,
+            "endpoint_samples": 139200,
+            "audio_age_ms": 107.648
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.01192,
+            "endpoint_samples": 144000,
+            "feed_lateness_ms": 21.8991
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.03299,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.03299,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 32.9929
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.03299,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.03299,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 32.9929
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.03299,
+            "success": true,
+            "count": 27,
+            "endpoint_samples": 129600,
+            "observed_frames": 129600,
+            "finite_psr": true,
+            "audio_age_ms": 332.993
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.09064,
+            "endpoint_samples": 148800,
+            "feed_lateness_ms": 0.625814
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.14972,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.14972,
+            "success": true,
+            "count": 31,
+            "endpoint_samples": 148800,
+            "observed_frames": 148800,
+            "finite_psr": true,
+            "audio_age_ms": 49.7158
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.14972,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.14972,
+            "success": true,
+            "count": 31,
+            "endpoint_samples": 148800,
+            "observed_frames": 148800,
+            "finite_psr": true,
+            "audio_age_ms": 49.7158
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.14972,
+            "success": true,
+            "count": 27,
+            "endpoint_samples": 129600,
+            "observed_frames": 129600,
+            "finite_psr": true,
+            "audio_age_ms": 449.716
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 3.15207
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 3.1728
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.19098,
+            "endpoint_samples": 153600,
+            "feed_lateness_ms": 0.96049
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.19119,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.1912,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 3.1912,
+            "endpoint_samples": 148800,
+            "audio_age_ms": 91.201
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.23084,
+            "success": false,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.23084,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.23084,
+            "success": true,
+            "count": 32,
+            "endpoint_samples": 153600,
+            "observed_frames": 153600,
+            "finite_psr": true,
+            "audio_age_ms": 30.839
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.23084,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.23084,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.23084,
+            "success": true,
+            "count": 29,
+            "endpoint_samples": 139200,
+            "observed_frames": 139200,
+            "finite_psr": true,
+            "audio_age_ms": 330.839
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.29211,
+            "endpoint_samples": 158400,
+            "feed_lateness_ms": 2.06017
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.33201,
+            "success": false,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.33201,
+            "success": true,
+            "count": 32,
+            "endpoint_samples": 153600,
+            "observed_frames": 153600,
+            "finite_psr": true,
+            "audio_age_ms": 132.005
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.33201,
+            "success": true,
+            "count": 29,
+            "endpoint_samples": 139200,
+            "observed_frames": 139200,
+            "finite_psr": true,
+            "audio_age_ms": 432.005
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 3.35522
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 3.35524
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.3908,
+            "endpoint_samples": 163200,
+            "feed_lateness_ms": 0.776384
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.41367,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.41368,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 3.41368,
+            "endpoint_samples": 158400,
+            "audio_age_ms": 113.682
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.43077,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.43077,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.43077,
+            "success": true,
+            "count": 33,
+            "endpoint_samples": 158400,
+            "observed_frames": 158400,
+            "finite_psr": true,
+            "audio_age_ms": 130.771
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.43077,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.43077,
+            "success": true,
+            "count": 33,
+            "endpoint_samples": 158400,
+            "observed_frames": 158400,
+            "finite_psr": true,
+            "audio_age_ms": 130.771
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.43077,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.43077,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.43077,
+            "success": true,
+            "count": 31,
+            "endpoint_samples": 148800,
+            "observed_frames": 148800,
+            "finite_psr": true,
+            "audio_age_ms": 330.771
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.49105,
+            "endpoint_samples": 168000,
+            "feed_lateness_ms": 1.01633
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 3.50891
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.531,
+            "endpoint_samples": 163200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.531,
+            "success": true,
+            "count": 34,
+            "endpoint_samples": 163200,
+            "observed_frames": 163200,
+            "finite_psr": true,
+            "audio_age_ms": 131.004
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.531,
+            "endpoint_samples": 163200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.531,
+            "success": true,
+            "count": 34,
+            "endpoint_samples": 163200,
+            "observed_frames": 163200,
+            "finite_psr": true,
+            "audio_age_ms": 131.004
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.531,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.531,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.531,
+            "success": true,
+            "count": 33,
+            "endpoint_samples": 158400,
+            "observed_frames": 158400,
+            "finite_psr": true,
+            "audio_age_ms": 231.004
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 3.57079
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.59018,
+            "endpoint_samples": 172800,
+            "feed_lateness_ms": 0.128934
+          },
+          {
+            "kind": "end",
+            "accepted_transactions": 720,
+            "rejected_transactions": 0,
+            "pair_status": 2,
+            "duration_s": 3.6092,
+            "observer_sleep_ms": 2,
+            "observer_mean_ms": 0.450084,
+            "observer_max_ms": 20.3912,
+            "feed_lateness_mean_ms": 6.84455,
+            "feed_lateness_max_ms": 103.626
+          }
+        ]
+      },
+      {
+        "id": "native_lowcost_phase_75ms",
+        "scheduled_poll_phase_ms": 75,
+        "input_jsonl_sha256": "c0a574e092ca665479309d28d3541c8f85d932cdee76ea0581ab46981c7db163",
+        "abi": {
+          "kind": "abi",
+          "revision": 7,
+          "header_revision": 7,
+          "meter_history_size": 248,
+          "meter_session_size": 1840,
+          "match": true
+        },
+        "pair_selected_wall_s": 0.0922704,
+        "summary": {
+          "pre_native_history_first_endpoint_delay_from_input_slot": {
+            "n": 29,
+            "median_ms": 85.47,
+            "p95_ms": 191.59,
+            "maximum_ms": 204.49
+          },
+          "post_native_history_first_endpoint_delay_from_input_slot": {
+            "n": 29,
+            "median_ms": 85.29,
+            "p95_ms": 184.78,
+            "maximum_ms": 191.59
+          },
+          "pre_publication_first_endpoint_delay_from_input_slot": {
+            "n": 28,
+            "median_ms": 183.385,
+            "p95_ms": 303.07,
+            "maximum_ms": 306.09
+          },
+          "delta_native_history_first_endpoint_delay_from_input_slot": {
+            "n": 26,
+            "median_ms": 294.14,
+            "p95_ms": 484.991,
+            "maximum_ms": 510.83
+          },
+          "latest_delta_input_slot_age": {
+            "n": 30,
+            "median_ms": 289.16,
+            "p95_ms": 483.77,
+            "maximum_ms": 486.123
+          },
+          "latest_delta_nominal_audio_age": {
+            "n": 30,
+            "median_ms": 280.296,
+            "p95_ms": 475.596,
+            "maximum_ms": 476.246
+          },
+          "cutoff_C_minus_E": {
+            "n": 30,
+            "median_ms": 200.0,
+            "p95_ms": 300.0,
+            "maximum_ms": 400.0,
+            "ticks_at_or_above_400_ms": 1
+          },
+          "native_poll_interval": {
+            "n": 29,
+            "median_ms": 99.92,
+            "p95_ms": 120.15,
+            "maximum_ms": 126.05
+          },
+          "input_slot_feed_lateness_after_warmup": {
+            "n": 29,
+            "median_ms": 1.11,
+            "p95_ms": 17.863,
+            "maximum_ms": 17.899
+          },
+          "poll_calls_after_warmup": {
+            "pre_native_history": {
+              "calls": 30,
+              "failed": 0,
+              "finite_latest_psr": 30
+            },
+            "post_native_history": {
+              "calls": 30,
+              "failed": 0,
+              "finite_latest_psr": 30
+            },
+            "delta_native_history": {
+              "calls": 30,
+              "failed": 0,
+              "finite_latest_psr": 30
+            }
+          }
+        },
+        "end": {
+          "kind": "end",
+          "accepted_transactions": 718,
+          "rejected_transactions": 0,
+          "pair_status": 2,
+          "duration_s": 3.60066,
+          "observer_sleep_ms": 2,
+          "observer_mean_ms": 0.261941,
+          "observer_max_ms": 36.5918,
+          "feed_lateness_mean_ms": 3.37686,
+          "feed_lateness_max_ms": 34.8377
+        },
+        "records": [
+          {
+            "kind": "abi",
+            "revision": 7,
+            "header_revision": 7,
+            "meter_history_size": 248,
+            "meter_session_size": 1840,
+            "match": true
+          },
+          {
+            "kind": "pair_selected",
+            "wall_s": 0.0922704
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.0950778
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.0951225
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.0951236,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.0951236,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.0951236,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.102239,
+            "endpoint_samples": 4800,
+            "feed_lateness_ms": 12.2263
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.176957,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.176957,
+            "success": true,
+            "count": 1,
+            "endpoint_samples": 4800,
+            "observed_frames": 4800,
+            "finite_psr": true,
+            "audio_age_ms": 76.9568
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.176957,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.176957,
+            "success": true,
+            "count": 1,
+            "endpoint_samples": 4800,
+            "observed_frames": 4800,
+            "finite_psr": true,
+            "audio_age_ms": 76.9568
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.176957,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.190775,
+            "endpoint_samples": 9600,
+            "feed_lateness_ms": 0.758478
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.219985
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.219997
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.263258,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.263263,
+            "endpoint_samples": 4800,
+            "audio_age_ms": 163.264
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.276491,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.276491,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 76.4907
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.276491,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.276491,
+            "success": true,
+            "count": 2,
+            "endpoint_samples": 9600,
+            "observed_frames": 9600,
+            "finite_psr": true,
+            "audio_age_ms": 76.4907
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.276491,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.290081,
+            "endpoint_samples": 14400,
+            "feed_lateness_ms": 0.059102
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.388827
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.388839,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.388839,
+            "success": true,
+            "count": 3,
+            "endpoint_samples": 14400,
+            "observed_frames": 14400,
+            "finite_psr": true,
+            "audio_age_ms": 88.8394
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.388839,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.388839,
+            "success": true,
+            "count": 3,
+            "endpoint_samples": 14400,
+            "observed_frames": 14400,
+            "finite_psr": true,
+            "audio_age_ms": 88.8394
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.388839,
+            "success": true,
+            "count": 0,
+            "endpoint_samples": -1,
+            "observed_frames": 0,
+            "finite_psr": false,
+            "audio_age_ms": -1
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.394987,
+            "endpoint_samples": 19200,
+            "feed_lateness_ms": 4.95241
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.447577
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.467975,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.46798,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.467982,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.467983,
+            "endpoint_samples": 19200,
+            "audio_age_ms": 67.984
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.47568,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.47568,
+            "success": true,
+            "count": 4,
+            "endpoint_samples": 19200,
+            "observed_frames": 19200,
+            "finite_psr": true,
+            "audio_age_ms": 75.6803
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.47568,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.47568,
+            "success": true,
+            "count": 4,
+            "endpoint_samples": 19200,
+            "observed_frames": 19200,
+            "finite_psr": true,
+            "audio_age_ms": 75.6803
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.47568,
+            "endpoint_samples": 4800
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.47568,
+            "success": true,
+            "count": 1,
+            "endpoint_samples": 4800,
+            "observed_frames": 4800,
+            "finite_psr": true,
+            "audio_age_ms": 375.68
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.496901,
+            "endpoint_samples": 24000,
+            "feed_lateness_ms": 6.87198
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.516873
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.577031,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.577031,
+            "success": true,
+            "count": 5,
+            "endpoint_samples": 24000,
+            "observed_frames": 24000,
+            "finite_psr": true,
+            "audio_age_ms": 77.0308
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.577031,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.577031,
+            "success": true,
+            "count": 5,
+            "endpoint_samples": 24000,
+            "observed_frames": 24000,
+            "finite_psr": true,
+            "audio_age_ms": 77.0308
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.577031,
+            "endpoint_samples": 9600
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.577031,
+            "endpoint_samples": 14400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.577031,
+            "endpoint_samples": 19200
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.577031,
+            "success": true,
+            "count": 4,
+            "endpoint_samples": 19200,
+            "observed_frames": 19200,
+            "finite_psr": true,
+            "audio_age_ms": 177.031
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.591843,
+            "endpoint_samples": 28800,
+            "feed_lateness_ms": 1.82343
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.627096
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.66261
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.662701,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.662722,
+            "endpoint_samples": 24000,
+            "audio_age_ms": 162.723
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.677172,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.677172,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 77.1723
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.677172,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.677172,
+            "success": true,
+            "count": 6,
+            "endpoint_samples": 28800,
+            "observed_frames": 28800,
+            "finite_psr": true,
+            "audio_age_ms": 77.1723
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.677172,
+            "success": true,
+            "count": 4,
+            "endpoint_samples": 19200,
+            "observed_frames": 19200,
+            "finite_psr": true,
+            "audio_age_ms": 277.172
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.690127,
+            "endpoint_samples": 33600,
+            "feed_lateness_ms": 0.109731
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.770805
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.773579,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 0.773585,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 0.773586,
+            "endpoint_samples": 33600,
+            "audio_age_ms": 73.587
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.775774,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.775774,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 75.7736
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.775774,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.775774,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 75.7736
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.775774,
+            "endpoint_samples": 24000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.775774,
+            "success": true,
+            "count": 5,
+            "endpoint_samples": 24000,
+            "observed_frames": 24000,
+            "finite_psr": true,
+            "audio_age_ms": 275.774
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.790609,
+            "endpoint_samples": 38400,
+            "feed_lateness_ms": 0.596281
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.795247
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.875603,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.875603,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 75.6033
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.875603,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.875603,
+            "success": true,
+            "count": 8,
+            "endpoint_samples": 38400,
+            "observed_frames": 38400,
+            "finite_psr": true,
+            "audio_age_ms": 75.6033
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.875603,
+            "endpoint_samples": 28800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 0.875603,
+            "endpoint_samples": 33600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.875603,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 175.603
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.907932,
+            "endpoint_samples": 43200,
+            "feed_lateness_ms": 17.8987
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 0.947291
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 0.969771
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 0.976148,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 0.976148,
+            "success": true,
+            "count": 9,
+            "endpoint_samples": 43200,
+            "observed_frames": 43200,
+            "finite_psr": true,
+            "audio_age_ms": 76.1483
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 0.976148,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 0.976148,
+            "success": true,
+            "count": 9,
+            "endpoint_samples": 43200,
+            "observed_frames": 43200,
+            "finite_psr": true,
+            "audio_age_ms": 76.1483
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 0.976148,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 276.148
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 0.992143,
+            "endpoint_samples": 48000,
+            "feed_lateness_ms": 2.12575
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.07562,
+            "success": true,
+            "count": 9,
+            "endpoint_samples": 43200,
+            "observed_frames": 43200,
+            "finite_psr": true,
+            "audio_age_ms": 175.622
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.07562,
+            "success": true,
+            "count": 9,
+            "endpoint_samples": 43200,
+            "observed_frames": 43200,
+            "finite_psr": true,
+            "audio_age_ms": 175.622
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.07562,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 375.622
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.08206
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.08217,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.08218,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.08218,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.08218,
+            "endpoint_samples": 48000,
+            "audio_age_ms": 82.1787
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.08219
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.09116,
+            "endpoint_samples": 52800,
+            "feed_lateness_ms": 1.13818
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.17625,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.17625,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 176.246
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.17625,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.17625,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 176.246
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.17625,
+            "success": true,
+            "count": 7,
+            "endpoint_samples": 33600,
+            "observed_frames": 33600,
+            "finite_psr": true,
+            "audio_age_ms": 476.246
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.19126,
+            "endpoint_samples": 57600,
+            "feed_lateness_ms": 1.23599
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.20268
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.2027
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.22569,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.2257,
+            "endpoint_samples": 52800,
+            "audio_age_ms": 125.7
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.2756,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.2756,
+            "success": true,
+            "count": 11,
+            "endpoint_samples": 52800,
+            "observed_frames": 52800,
+            "finite_psr": true,
+            "audio_age_ms": 175.604
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.2756,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.2756,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.2756,
+            "success": true,
+            "count": 12,
+            "endpoint_samples": 57600,
+            "observed_frames": 57600,
+            "finite_psr": true,
+            "audio_age_ms": 75.6039
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.2756,
+            "endpoint_samples": 38400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.2756,
+            "endpoint_samples": 43200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.2756,
+            "endpoint_samples": 48000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.2756,
+            "success": true,
+            "count": 10,
+            "endpoint_samples": 48000,
+            "observed_frames": 48000,
+            "finite_psr": true,
+            "audio_age_ms": 275.604
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.30486,
+            "endpoint_samples": 62400,
+            "feed_lateness_ms": 14.8192
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.30705
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.34828
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.39571,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.39571,
+            "endpoint_samples": 57600,
+            "audio_age_ms": 195.715
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.39575,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.39575,
+            "success": true,
+            "count": 12,
+            "endpoint_samples": 57600,
+            "observed_frames": 57600,
+            "finite_psr": true,
+            "audio_age_ms": 195.747
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.39575,
+            "success": true,
+            "count": 12,
+            "endpoint_samples": 57600,
+            "observed_frames": 57600,
+            "finite_psr": true,
+            "audio_age_ms": 195.747
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.39575,
+            "endpoint_samples": 52800
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.39575,
+            "success": true,
+            "count": 11,
+            "endpoint_samples": 52800,
+            "observed_frames": 52800,
+            "finite_psr": true,
+            "audio_age_ms": 295.747
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.39782,
+            "endpoint_samples": 67200,
+            "feed_lateness_ms": 7.80927
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.45793
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.47561,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.47561,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.47561,
+            "success": true,
+            "count": 14,
+            "endpoint_samples": 67200,
+            "observed_frames": 67200,
+            "finite_psr": true,
+            "audio_age_ms": 75.6109
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.47561,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.47561,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.47561,
+            "success": true,
+            "count": 14,
+            "endpoint_samples": 67200,
+            "observed_frames": 67200,
+            "finite_psr": true,
+            "audio_age_ms": 75.6109
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.47561,
+            "endpoint_samples": 57600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.47561,
+            "success": true,
+            "count": 12,
+            "endpoint_samples": 57600,
+            "observed_frames": 57600,
+            "finite_psr": true,
+            "audio_age_ms": 275.611
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.49022,
+            "endpoint_samples": 72000,
+            "feed_lateness_ms": 0.205202
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.54447
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.57608,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.57608,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 76.0827
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.57608,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.57608,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 76.0827
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.57608,
+            "success": true,
+            "count": 12,
+            "endpoint_samples": 57600,
+            "observed_frames": 57600,
+            "finite_psr": true,
+            "audio_age_ms": 376.083
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.57819
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.57829,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.57829,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.57829,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.57829,
+            "endpoint_samples": 72000,
+            "audio_age_ms": 78.2937
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.6059,
+            "endpoint_samples": 76800,
+            "feed_lateness_ms": 0.221375
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.676,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.676,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 76.0034
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.676,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.676,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 76.0034
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.676,
+            "endpoint_samples": 62400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.676,
+            "endpoint_samples": 67200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.676,
+            "endpoint_samples": 72000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.676,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 176.003
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.69006,
+            "endpoint_samples": 81600,
+            "feed_lateness_ms": 0.03765
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.69435
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.69437
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.69707,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.69708,
+            "endpoint_samples": 76800,
+            "audio_age_ms": 97.0798
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.77576,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.77576,
+            "success": true,
+            "count": 17,
+            "endpoint_samples": 81600,
+            "observed_frames": 81600,
+            "finite_psr": true,
+            "audio_age_ms": 75.761
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.77576,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.77576,
+            "success": true,
+            "count": 17,
+            "endpoint_samples": 81600,
+            "observed_frames": 81600,
+            "finite_psr": true,
+            "audio_age_ms": 75.761
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.77576,
+            "success": true,
+            "count": 15,
+            "endpoint_samples": 72000,
+            "observed_frames": 72000,
+            "finite_psr": true,
+            "audio_age_ms": 275.761
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.79096,
+            "endpoint_samples": 86400,
+            "feed_lateness_ms": 0.942135
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 1.83277
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.85487
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.87636,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 1.87639,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 1.87639,
+            "endpoint_samples": 86400,
+            "audio_age_ms": 76.3919
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.87643,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.87643,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 76.4251
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.87643,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.87643,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 76.4251
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 1.87643,
+            "endpoint_samples": 76800
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.87643,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 276.425
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.89263,
+            "endpoint_samples": 91200,
+            "feed_lateness_ms": 2.6138
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 1.97601,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 1.97601,
+            "success": true,
+            "count": 19,
+            "endpoint_samples": 91200,
+            "observed_frames": 91200,
+            "finite_psr": true,
+            "audio_age_ms": 76.0102
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 1.97601,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 1.97601,
+            "success": true,
+            "count": 19,
+            "endpoint_samples": 91200,
+            "observed_frames": 91200,
+            "finite_psr": true,
+            "audio_age_ms": 76.0102
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 1.97601,
+            "success": true,
+            "count": 16,
+            "endpoint_samples": 76800,
+            "observed_frames": 76800,
+            "finite_psr": true,
+            "audio_age_ms": 376.01
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 1.99084,
+            "endpoint_samples": 96000,
+            "feed_lateness_ms": 0.818867
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 1.99695
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.0439
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.07599,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.07599,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 75.9856
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.07599,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.07599,
+            "success": true,
+            "count": 20,
+            "endpoint_samples": 96000,
+            "observed_frames": 96000,
+            "finite_psr": true,
+            "audio_age_ms": 75.9856
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.07599,
+            "endpoint_samples": 81600
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.07599,
+            "endpoint_samples": 86400
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.07599,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 275.986
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.09214,
+            "endpoint_samples": 100800,
+            "feed_lateness_ms": 2.11775
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.109
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.15493
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.17591,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.17591,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 75.9149
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.17591,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.17591,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 75.9149
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.17591,
+            "success": true,
+            "count": 18,
+            "endpoint_samples": 86400,
+            "observed_frames": 86400,
+            "finite_psr": true,
+            "audio_age_ms": 375.915
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.19031,
+            "endpoint_samples": 105600,
+            "feed_lateness_ms": 0.288999
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.1957,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.19573,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.19573,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.19573,
+            "endpoint_samples": 100800,
+            "audio_age_ms": 95.733
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.2208
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.2756,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.2756,
+            "success": true,
+            "count": 22,
+            "endpoint_samples": 105600,
+            "observed_frames": 105600,
+            "finite_psr": true,
+            "audio_age_ms": 75.6038
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.2756,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.2756,
+            "success": true,
+            "count": 22,
+            "endpoint_samples": 105600,
+            "observed_frames": 105600,
+            "finite_psr": true,
+            "audio_age_ms": 75.6038
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.2756,
+            "endpoint_samples": 91200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.2756,
+            "endpoint_samples": 96000
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.2756,
+            "endpoint_samples": 100800
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.2756,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 175.604
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.2906,
+            "endpoint_samples": 110400,
+            "feed_lateness_ms": 0.585176
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.36232
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.36234
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.37532,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.37532,
+            "success": true,
+            "count": 23,
+            "endpoint_samples": 110400,
+            "observed_frames": 110400,
+            "finite_psr": true,
+            "audio_age_ms": 75.3171
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.37532,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.37532,
+            "success": true,
+            "count": 23,
+            "endpoint_samples": 110400,
+            "observed_frames": 110400,
+            "finite_psr": true,
+            "audio_age_ms": 75.3171
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.37532,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 275.317
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.38628,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.38628,
+            "endpoint_samples": 105600,
+            "audio_age_ms": 186.285
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.39112,
+            "endpoint_samples": 115200,
+            "feed_lateness_ms": 1.10958
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.47572,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.47572,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 75.719
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.47572,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.47572,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 75.719
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.47572,
+            "success": true,
+            "count": 21,
+            "endpoint_samples": 100800,
+            "observed_frames": 100800,
+            "finite_psr": true,
+            "audio_age_ms": 375.719
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.49183,
+            "endpoint_samples": 120000,
+            "feed_lateness_ms": 1.81667
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.49415
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.5169
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.52,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.52,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.52,
+            "endpoint_samples": 115200,
+            "audio_age_ms": 120.002
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.57674,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 176.737
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.57674,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 176.737
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.57674,
+            "endpoint_samples": 105600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.57674,
+            "success": true,
+            "count": 22,
+            "endpoint_samples": 105600,
+            "observed_frames": 105600,
+            "finite_psr": true,
+            "audio_age_ms": 376.737
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.59082,
+            "endpoint_samples": 124800,
+            "feed_lateness_ms": 0.797883
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.6834
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.68342
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.68342,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.68342,
+            "success": true,
+            "count": 25,
+            "endpoint_samples": 120000,
+            "observed_frames": 120000,
+            "finite_psr": true,
+            "audio_age_ms": 183.419
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.68342,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.68342,
+            "success": true,
+            "count": 25,
+            "endpoint_samples": 120000,
+            "observed_frames": 120000,
+            "finite_psr": true,
+            "audio_age_ms": 183.419
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.68342,
+            "endpoint_samples": 110400
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.68342,
+            "endpoint_samples": 115200
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.68342,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 283.419
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.69189,
+            "endpoint_samples": 129600,
+            "feed_lateness_ms": 1.87215
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.72615,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.72616,
+            "endpoint_samples": 120000,
+            "audio_age_ms": 226.16
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.7756,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.7756,
+            "success": true,
+            "count": 26,
+            "endpoint_samples": 124800,
+            "observed_frames": 124800,
+            "finite_psr": true,
+            "audio_age_ms": 175.601
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.7756,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.7756,
+            "success": true,
+            "count": 26,
+            "endpoint_samples": 124800,
+            "observed_frames": 124800,
+            "finite_psr": true,
+            "audio_age_ms": 175.601
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.7756,
+            "success": true,
+            "count": 24,
+            "endpoint_samples": 115200,
+            "observed_frames": 115200,
+            "finite_psr": true,
+            "audio_age_ms": 375.601
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.80567,
+            "endpoint_samples": 134400,
+            "feed_lateness_ms": 1.15571
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.83078
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 2.87096
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.87586,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.87586,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.87586,
+            "success": true,
+            "count": 28,
+            "endpoint_samples": 134400,
+            "observed_frames": 134400,
+            "finite_psr": true,
+            "audio_age_ms": 75.8603
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.87586,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.87586,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.87586,
+            "success": true,
+            "count": 28,
+            "endpoint_samples": 134400,
+            "observed_frames": 134400,
+            "finite_psr": true,
+            "audio_age_ms": 75.8603
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 2.87586,
+            "endpoint_samples": 120000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.87586,
+            "success": true,
+            "count": 25,
+            "endpoint_samples": 120000,
+            "observed_frames": 120000,
+            "finite_psr": true,
+            "audio_age_ms": 375.86
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.89011,
+            "endpoint_samples": 139200,
+            "feed_lateness_ms": 0.091801
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.89691,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.89693,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 2.89693,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 2.89693,
+            "endpoint_samples": 134400,
+            "audio_age_ms": 96.9327
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 2.95791
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 2.9756,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 2.9756,
+            "success": true,
+            "count": 29,
+            "endpoint_samples": 139200,
+            "observed_frames": 139200,
+            "finite_psr": true,
+            "audio_age_ms": 75.5963
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 2.9756,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 2.9756,
+            "success": true,
+            "count": 29,
+            "endpoint_samples": 139200,
+            "observed_frames": 139200,
+            "finite_psr": true,
+            "audio_age_ms": 75.5963
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 2.9756,
+            "success": true,
+            "count": 25,
+            "endpoint_samples": 120000,
+            "observed_frames": 120000,
+            "finite_psr": true,
+            "audio_age_ms": 475.596
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 2.99212,
+            "endpoint_samples": 144000,
+            "feed_lateness_ms": 2.09688
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 3.10162
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.10165,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.10165,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 101.649
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.10165,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.10165,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 101.649
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.10165,
+            "endpoint_samples": 124800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.10165,
+            "endpoint_samples": 129600
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.10165,
+            "endpoint_samples": 134400
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.10165,
+            "success": true,
+            "count": 28,
+            "endpoint_samples": 134400,
+            "observed_frames": 134400,
+            "finite_psr": true,
+            "audio_age_ms": 301.649
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.10792,
+            "endpoint_samples": 148800,
+            "feed_lateness_ms": 17.8625
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.16215,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.16215,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 3.16216,
+            "endpoint_samples": 144000,
+            "audio_age_ms": 162.156
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 3.16435
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.17573,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.17573,
+            "success": true,
+            "count": 31,
+            "endpoint_samples": 148800,
+            "observed_frames": 148800,
+            "finite_psr": true,
+            "audio_age_ms": 75.7318
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.17573,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.17573,
+            "success": true,
+            "count": 31,
+            "endpoint_samples": 148800,
+            "observed_frames": 148800,
+            "finite_psr": true,
+            "audio_age_ms": 75.7318
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.17573,
+            "endpoint_samples": 139200
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.17573,
+            "endpoint_samples": 144000
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.17573,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 175.732
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.19079,
+            "endpoint_samples": 153600,
+            "feed_lateness_ms": 0.778671
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.27602,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.27602,
+            "success": true,
+            "count": 32,
+            "endpoint_samples": 153600,
+            "observed_frames": 153600,
+            "finite_psr": true,
+            "audio_age_ms": 76.0243
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.27602,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.27602,
+            "success": true,
+            "count": 32,
+            "endpoint_samples": 153600,
+            "observed_frames": 153600,
+            "finite_psr": true,
+            "audio_age_ms": 76.0243
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.27602,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 276.024
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.29201,
+            "endpoint_samples": 158400,
+            "feed_lateness_ms": 1.99371
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 3.29422
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 3.29431
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.31478,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.31479,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 3.31479,
+            "endpoint_samples": 153600,
+            "audio_age_ms": 114.788
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.37682,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.37682,
+            "success": true,
+            "count": 33,
+            "endpoint_samples": 158400,
+            "observed_frames": 158400,
+            "finite_psr": true,
+            "audio_age_ms": 76.8204
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.37682,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.37682,
+            "success": true,
+            "count": 33,
+            "endpoint_samples": 158400,
+            "observed_frames": 158400,
+            "finite_psr": true,
+            "audio_age_ms": 76.8204
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.37682,
+            "success": true,
+            "count": 30,
+            "endpoint_samples": 144000,
+            "observed_frames": 144000,
+            "finite_psr": true,
+            "audio_age_ms": 376.82
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.39013,
+            "endpoint_samples": 163200,
+            "feed_lateness_ms": 0.11001
+          },
+          {
+            "kind": "post_watch_publication",
+            "wall_s": 3.42695
+          },
+          {
+            "kind": "pre_watch_publication",
+            "wall_s": 3.47015
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.4756,
+            "endpoint_samples": 163200
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.4756,
+            "success": true,
+            "count": 34,
+            "endpoint_samples": 163200,
+            "observed_frames": 163200,
+            "finite_psr": true,
+            "audio_age_ms": 75.6013
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.4756,
+            "endpoint_samples": 163200
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.4756,
+            "success": true,
+            "count": 34,
+            "endpoint_samples": 163200,
+            "observed_frames": 163200,
+            "finite_psr": true,
+            "audio_age_ms": 75.6013
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.4756,
+            "endpoint_samples": 148800
+          },
+          {
+            "kind": "delta_native_history_first_endpoint",
+            "wall_s": 3.4756,
+            "endpoint_samples": 153600
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.4756,
+            "success": true,
+            "count": 32,
+            "endpoint_samples": 153600,
+            "observed_frames": 153600,
+            "finite_psr": true,
+            "audio_age_ms": 275.601
+          },
+          {
+            "kind": "input_slot_supplied",
+            "wall_s": 3.49013,
+            "endpoint_samples": 168000,
+            "feed_lateness_ms": 0.10835
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.53342,
+            "endpoint_samples": 158400
+          },
+          {
+            "kind": "pre_publication_first_endpoint",
+            "wall_s": 3.53342,
+            "endpoint_samples": 163200
+          },
+          {
+            "kind": "pre_history_publication",
+            "wall_s": 3.53343,
+            "endpoint_samples": 163200,
+            "audio_age_ms": 133.427
+          },
+          {
+            "kind": "pre_native_history_first_endpoint",
+            "wall_s": 3.57679,
+            "endpoint_samples": 168000
+          },
+          {
+            "kind": "pre_native_history",
+            "wall_s": 3.57679,
+            "success": true,
+            "count": 35,
+            "endpoint_samples": 168000,
+            "observed_frames": 168000,
+            "finite_psr": true,
+            "audio_age_ms": 76.7909
+          },
+          {
+            "kind": "post_native_history_first_endpoint",
+            "wall_s": 3.57679,
+            "endpoint_samples": 168000
+          },
+          {
+            "kind": "post_native_history",
+            "wall_s": 3.57679,
+            "success": true,
+            "count": 35,
+            "endpoint_samples": 168000,
+            "observed_frames": 168000,
+            "finite_psr": true,
+            "audio_age_ms": 76.7909
+          },
+          {
+            "kind": "delta_native_history",
+            "wall_s": 3.57679,
+            "success": true,
+            "count": 32,
+            "endpoint_samples": 153600,
+            "observed_frames": 153600,
+            "finite_psr": true,
+            "audio_age_ms": 376.791
+          },
+          {
+            "kind": "end",
+            "accepted_transactions": 718,
+            "rejected_transactions": 0,
+            "pair_status": 2,
+            "duration_s": 3.60066,
+            "observer_sleep_ms": 2,
+            "observer_mean_ms": 0.261941,
+            "observer_max_ms": 36.5918,
+            "feed_lateness_mean_ms": 3.37686,
+            "feed_lateness_max_ms": 34.8377
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "The existing ABI exposes no original Measure Thread slot completion monotonic timestamp, so completion-based 400 ms TTL was not measured.",
+      "Native first observation occurs only on nominal 10 Hz poll ticks; it bounds discovery, not exact comparison publication wall time.",
+      "The observer and synthetic input feed share one driver loop. Observer processing and scheduler lateness are recorded; this is not actual DAW callback timing.",
+      "PRE meter_history.json publishes exact points; POST watch mtime is a publication cadence observation, not a per-cutoff exact delta publish time.",
+      "Source checkout, ABI sizes and library SHA match the stated probe inputs; exact library commit provenance is unconfirmed.",
+      "Two short single-pair development runs do not prove production maximum IO delay, all format/platform behavior, controlled raw-gap behavior, new atomic packet correctness, or fresh user acceptance.",
+      "C-E at or above 400 ms was observed. A strict C-E<400 ms policy would hide those ticks if applied to these returned endpoints; the probe does not establish whether each such tick is normal production pending or a genuine deadline failure.",
+      "Initial latest-only and regex observer trial runs were excluded because endpoint enumeration and instrumentation cost were improved before the two retained runs.",
+      "DRUM look-behind clock delay is a separate source and presentation concern; these TIME observations do not calibrate or validate L=150 ms."
+    ]
+  },
+  "capture_consumer_probe": {
+    "kind": "G0_local_capture_consumer_probe",
+    "consumer_source_commit": "9b2a055801939dbb5dd9d3b08befd17dbb76f2b7",
+    "cases": [
+      {
+        "id": "C1_compact_uuid",
+        "expected_ok": false,
+        "actual": {
+          "ok": false,
+          "live": false,
+          "errors": [
+            "request_id"
+          ]
+        }
+      },
+      {
+        "id": "C2_dashed_v1",
+        "expected_ok": true,
+        "actual": {
+          "ok": true,
+          "live": true,
+          "errors": []
+        }
+      },
+      {
+        "id": "C3_unknown_components_v1",
+        "expected_ok": false,
+        "actual": {
+          "ok": false,
+          "live": false,
+          "errors": [
+            "fields"
+          ]
+        }
+      }
+    ],
+    "compact_filename_poll": {
+      "observed_requests": 0,
+      "request_left_pending": true
+    },
+    "dashed_v1_store": {
+      "attached": true,
+      "png_byte_identity": true,
+      "persisted_asset_fields": [
+        "type",
+        "path",
+        "notes"
+      ],
+      "capture_domain_persisted": false,
+      "observation_target_persisted": false,
+      "component_metadata_persisted": false
+    },
+    "isolation": {
+      "temporary_workspace": true,
+      "real_work_modified": false,
+      "real_production_assets_modified": false
+    },
+    "limitation": "Uses existing bounded PNG envelope fixture, not a rendered product image; no external app, new v2 consumer or product acceptance.",
+    "probe_source_sha256": "26aa0b92eb7c31987d87edab40d4c9188d596a902ca27ee436442cb3433d9616",
+    "fixture_definition": {
+      "time_ms": 1791331200000,
+      "png": "45-byte existing consumer envelope fixture: PNG signature, IHDR 1200x630, IEND; no decoded image claim",
+      "validation": "Same valid v1 request with canonical UUID; remove UUID dashes for C1, keep it for C2, add one components field for C3",
+      "store": "Existing store factory with injected fake connected POST binding, write authority, workspace and serialized writer under mkdtemp; direct poll only; no service timer",
+      "persistence": "Read fake work.json after attached receipt and compare persisted field names and PNG bytes; compact UUID filename direct poll remains pending",
+      "cleanup": "Fake workspace and plugin storage removed after receiver fixture completion",
+      "time_iso": "2026-10-07T00:00:00Z",
+      "png_bytes_hex": "89504e470d0a1a0a0000000d49484452000004b0000002760806000000000000000000000049454e4400000000",
+      "request_base": {
+        "format": "kirin_hypha_capture_attachment_request",
+        "version": "1.0",
+        "intent": "attach_to_work",
+        "user_action": "capture_attach",
+        "request_id": "33333333-3333-4333-8333-333333333333",
+        "target_role": "post",
+        "work_id": "11111111-1111-4111-8111-111111111111",
+        "binding_id": "22222222-2222-4222-8222-222222222222",
+        "runtime_instance_id": "g0-fixture-runtime",
+        "artifact_file": "33333333-3333-4333-8333-333333333333.png",
+        "artifact_sha256": "012b5542a5cd3bd107f2bc12e6bdd89cc40f5f9ba0a86d7330893d929c4b2154",
+        "byte_length": 45,
+        "pixel_width": 1200,
+        "pixel_height": 630,
+        "capture_domain": "time",
+        "observation_target": "absolute",
+        "captured_at_ms": 1791331199990,
+        "requested_at_ms": 1791331200000,
+        "expires_at_ms": 1791331260000
+      },
+      "C1_transform": "request_id=compact32hex; artifact_file=same compact32hex + .png; no other changes",
+      "C3_added_field": {
+        "components": {
+          "main": {
+            "target": "post"
+          },
+          "psr": {
+            "target": "delta"
+          }
+        }
+      }
+    }
+  },
+  "conclusions": {
+    "current_hypha_compact_request_id_accepted_by_consumer": false,
+    "v1_unknown_component_metadata_accepted": false,
+    "v1_work_persists_capture_target_or_components": false,
+    "new_time_packet_implemented_or_verified": false,
+    "completion_based_400_ms_ttl_verified": false,
+    "400_ms_normal_pending_blank_free_guarantee_established": false,
+    "v2_image_and_component_metadata_roundtrip_verified": false
+  },
+  "source_changes": false,
+  "abi_changes": false,
+  "product_build_performed": false,
+  "ci_performed": false,
+  "external_device_or_work_access_performed": false
+}
