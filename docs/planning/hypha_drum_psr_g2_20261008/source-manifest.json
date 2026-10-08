@@ -79,7 +79,7 @@
       ]
     }
   },
-  "file_count": 148,
+  "file_count": 150,
   "files": [
     {
       "path": "README.md",
@@ -336,8 +336,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
       "status": "added",
-      "bytes": 45743,
-      "sha256": "ca2c0576c64e346e78377721a52c4b192ce2c872e949198c8045048a862c451e"
+      "bytes": 45918,
+      "sha256": "712f1add90827926948afb572cf287be6ac75d069f23db9fdf57c6c27d48304c"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png",
@@ -354,8 +354,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/performance_audit.md",
       "status": "added",
-      "bytes": 16772,
-      "sha256": "1bd0b56465e440682f415f82c3efbb595b5d1e0d0b3b15c69cfd56ffb9667e2c"
+      "bytes": 16981,
+      "sha256": "b27fdc69765fd18f32d6500782960a142a9504ad49c9024587ab0e7b7e14a237"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/time-375-ja.png",
@@ -382,10 +382,16 @@
       "sha256": "5301e3ffcae12511f244e58d04f2b19128fdd0f13ee33ee125d99030d8544823"
     },
     {
+      "path": "docs/planning/hypha_drum_psr_g3_20261008/README.md",
+      "status": "added",
+      "bytes": 3810,
+      "sha256": "67b501b42b6f9cb542c1626677eed415c23967b0546cedd13891bef3539c8736"
+    },
+    {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
       "status": "modified",
-      "bytes": 78833,
-      "sha256": "5dee41dd77b21cf97e241bb678fa95b84e5fc1f39e713f22a77464ce0b5f5988"
+      "bytes": 79247,
+      "sha256": "38adf59c72c7424e03d17cf64415490cbb121ba5e6267a602710d2fe239e1f2e"
     },
     {
       "path": "docs/provenance/asset_distribution_registry.json",
@@ -636,8 +642,8 @@
     {
       "path": "juce_shell/src/HyphaObservatoryView.cpp",
       "status": "modified",
-      "bytes": 21323,
-      "sha256": "8918cd088e180a9ea271251e9a2db47d40377836d0801437a8819d806f23127e"
+      "bytes": 21406,
+      "sha256": "9290cb2478710478c6e3432c3340814419526606d77b45a792a1d6756833064b"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryView.h",
@@ -686,6 +692,12 @@
       "status": "added",
       "bytes": 1156,
       "sha256": "f0dec395d1d9d523288f1da9df85f715694ef158d8736234d79a0bbd71e2095d"
+    },
+    {
+      "path": "juce_shell/src/HyphaSpectrumTerrain.cpp",
+      "status": "modified",
+      "bytes": 19512,
+      "sha256": "e2c2053fd924fffa6886c3300f41dcade395d937a5c8d1351ab35cdc692e250c"
     },
     {
       "path": "juce_shell/src/HyphaTimeSnapshotPainter.cpp",

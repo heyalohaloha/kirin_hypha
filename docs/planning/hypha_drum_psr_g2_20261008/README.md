@@ -54,7 +54,7 @@ VU用の独立additive locator getterは合法64-byte identityを完全に返す
 
 4件は直列、CTestのwall timeは148.94 s、再試行0。初回buildのPopup namespace compile errorは完全修飾へ直し、最終文面を含むbuildで確認した。先行FAILは保全し、最終PASSへ加算しない。新しいCTest名は増やさず、release-sourceのnative inventoryは90件を維持する。
 
-[125%日本語POST・−20のnative fixture](vu-375-ja-20.png)、[300%英語PRE・−18のnative fixture](vu-900-en-18.png)を保存した。bytes／SHAは下表の通り。実DAW・本人の日常操作／品位の証跡とは呼ばない。300／375のPOSTヘッダは末字が切れて`POS`と見える既存描画が残る。`paintHeader`はB-1325と同一で、今回のVU基準変更では触っていない。この既存の品位項目はG3の確認資料に明示する。
+[125%日本語POST・−20のnative fixture](vu-375-ja-20.png)、[300%英語PRE・−18のnative fixture](vu-900-en-18.png)を保存した。bytes／SHAは下表の通り。実DAW・本人の日常操作／品位の証跡とは呼ばない。300／375のPOSTヘッダは末字が切れて`POS`と見える既存描画が残る。`paintHeader`はB-1325と同一で、今回のVU基準変更では触っていない。この既存の品位項目はG3の確認資料に明示する。後続の[G3修正・確認](../hypha_drum_psr_g3_20261008/README.md)では必要paddingを含む見出し幅へ直し、修正後画像を別候補の証拠として扱う。
 
 | 保存PNG | bytes | SHA-256 |
 | --- | --- | --- |

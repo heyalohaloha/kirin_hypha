@@ -473,7 +473,8 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
     const auto roleFont = labelFont (context, typography::TextRole::shellTitle);
     const auto roleWidth = juce::jmin (
         titleArea.getWidth() - 20,
-        juce::roundToInt (roleFont.getStringWidthFloat (roleText)) + 2);
+        text_style::requiredWidth (roleFont, roleText,
+                                  typography::resolve (context, typography::TextRole::shellTitle)));
     auto roleArea = titleArea.removeFromLeft (juce::jmax (1, roleWidth));
     titleArea.removeFromLeft (density == Density::compact ? 3 : 5);
     g.setFont (labelFont (context, typography::TextRole::shellTitle));

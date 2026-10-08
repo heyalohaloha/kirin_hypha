@@ -116,3 +116,5 @@ raw logは環境pathを含み得るためローカル保存とし、公開文書
 | `performance-native-kirin_reference_audition_runtime.log` | `27a8075f3466f2c4706915be509970a95f39fc02042f138434f530d89d294c37` |
 
 実DAW、Windows／ARM64の現候補、利用者本人の日常操作・品位はG3と本人確認で受け入れる。友人確認は公開後G4だけである。fixtureのCPU値を未実施の実機確認の成功へ流用しない。
+
+最大DPIの追加修正と実DAW操作は[G3記録](../hypha_drum_psr_g3_20261008/README.md)に分ける。本記録の修正前の強制描画値を、追加修正後や実DAWの値へ置き換えない。

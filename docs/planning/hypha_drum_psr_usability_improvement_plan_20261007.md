@@ -6,6 +6,8 @@
 
 2026年10月7日。G0資料はPR #87でmainへ統合済み。PR #83とPR #87のmerge通知を受け、main `7b0c301c`以降を起点としてG1の観測・snapshot実装を開始する。途中確認、CI、merge、releaseはClaudeが担当する。新しい表示周期・受入値はG0で候補と校正手順を整理し、G1／G2のdevelopment検証で根拠を得て、G3 freeze前に固定する。計画の保存を、製品改善の完了とは呼ばない。
 
+2026年10月8日、利用者は最大DPIのFREQ残件と実DAWの負荷・操作確認をCodexに委任した。[G3記録](hypha_drum_psr_g3_20261008/README.md)へ候補、実測、復元を残す。CI確認・merge・正式releaseはClaude担当、公開前の本人による品位承認と公開後G4の条件は維持する。
+
 ### 2026年10月7日の決定
 
 | 決定 | 本計画への反映 |
@@ -407,7 +409,7 @@ v2を選んだ場合だけ新版round-tripと別repo変更を必須にする。v
 | G0 利用場面と設計固定（完了） | 実寸wire、snapshot／clock／expiry契約候補、Capture二案、development証拠、校正手順、公開前本人rubricと公開後G4の記録方法 | 設計候補・未検証一覧・G1／G2で取る証拠を明示。Capture二案の提案とv1維持の採用を記録済み。G0で製品source・ABIを変えない |
 | G1 観測・整合snapshot | bounded TIME raw／proof／gap、DRUM固定cohort・区間・mask／集合、POST窓実測、producer finalization、V2、新timestampの証拠 | PR #83 merge通知後のmainを起点とし、P1～P4・P6、D1～D15、ABI／wire／応答不能の独立期待値を確認 |
 | G2 全面統合・development検証（実装・ローカル受入完了） | 主面／根拠面、単打／locator／cluster、提示時計／丸め、PSR／PLR／CORR、採用Capture方式、全size／locale、正本同期、負荷校正 | P5・P7・L1～L4・U1・F1・F2・M1～M3、既存回帰。正式native 90＋Update 7、B-1325 baseline／既存Rust性能5件を確認。共有stage修正後の正式ATTACK gateはV2 120／120、legacy changing 120／resize 6／BAND 4全PASS。先行FAIL・原因・最終数値を保持。exact final CI待ち、CI／merge／releaseはClaude担当、G3・本人確認は未実施。数値・周期・正常jitter・採点方法はG3 freeze前に確定。友人確認は含めない |
-| G3 最終候補freeze・技術と実DAWの受入 | 同期済みclean exact commit、definition／settings hash、検出source・意味identity照合、正式候補の技術・対象host証拠 | Claudeが適合run／artifactを照合し、既存検出試験を含む必須技術・実DAW gateを確認。不足のまま公開へ進めない |
+| G3 最終候補freeze・技術と実DAWの受入 | 同期済みclean exact commit、definition／settings hash、検出source・意味identity照合、正式候補の技術・対象host証拠 | Codexが委任された実DAWの操作・負荷・表示確認を行う。Claudeが適合run／artifactと実測を照合し、既存検出試験を含む必須技術・実DAW gateを確認。不足のまま公開へ進めない |
 | 公開前の本人確認 | G3と同じcandidateの実UI・実再生で日常操作と品位を記録 | 第7.3節の日常操作と品位rubric。初見には数えず、友人の結果で代用しない |
 | G5 公開前の同一候補照合 | read-onlyの契約／実装／画像／採用Capture／証拠一覧、未処理項目 | freeze後のdrift0、技術・実DAW・本人PASSが同candidateに一致。Claudeが正式release gateを確認して三チャネル公開へ進む |
 | G4 公開後の確認 | 友人1～2人による未見なら初見、既見なら日常操作と品位の確認 | 公開後だけ行い、開発中の工程・公開条件には今後も含めない。未実施／FAIL／未検証を個別に残し、次の改善に使う |
