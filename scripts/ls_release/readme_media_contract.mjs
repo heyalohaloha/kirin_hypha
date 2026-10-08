@@ -32,9 +32,9 @@ export function verifyReadmeMedia(repoRoot) {
     'time.jpg': 'docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png',
   };
   const currentPng = [
-    [replacements['drum.jpg'], '8df7450ac20c24d081db6a31e74c0df425fcd7d92f1b0e9243b2206ebc646246'],
+    [replacements['drum.jpg'], 'f9da76b079eb1ebd7ce6e7bad3637159718ae078b0e2f9c5003eeb392b945b00'],
     [replacements['time.jpg'], 'f90acffd2d668624fcb40d2f229f9805a4ded9a0ab48887c3817d343d5ff8a27'],
-    ['docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png', '7178cb4f6da6d3646dfe2aa8a7895192efd26fafb667109112b89a9d2e8a7873'],
+    ['docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png', '65ee009ac500710559147593d1bcfed9efc7b3fa1adeee91ba2f49db2912a01f'],
   ];
   const signatures = { '.jpg': Buffer.from([0xff, 0xd8, 0xff]), '.gif': Buffer.from('GIF89a') };
 

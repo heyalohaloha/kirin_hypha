@@ -1141,7 +1141,7 @@
       "path": "scripts/ls_release/readme_media_contract.mjs",
       "status": "added",
       "bytes": 4553,
-      "sha256": "8a4b5b36a3eb65dde57b8d3fd7afc720fd63a323caa565fb0d764a3c1d14dc82"
+      "sha256": "1f898afdb9d61642a73841838dedab9eb24838a0e9991942436b9780622775c4"
     },
     {
       "path": "scripts/ls_release/release_metadata.test.mjs",
