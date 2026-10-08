@@ -4,7 +4,7 @@
 #include "../src/HyphaAttackV2Painter.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaTextStyle.h"
-#include "../src/HyphaMaterialCache.h"
+#include "AttackV2MaterialContract.h"
 #include <iostream>
 #include <limits>
 
@@ -494,7 +494,7 @@ bool verifyAttackV2PresentationContract()
     const auto focused = juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {});
     if (focused == "cohort") return cohortPointerContracts();
     if (focused == "layout") return sizesAndArtifacts();
-    return frameBudget() && intervalContracts() && summaryContracts() && singleAndMotionContracts()
+    return frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && summaryContracts() && singleAndMotionContracts()
         && clusterContracts() && clockContracts() && placeholderContracts() && cohortPointerContracts() && sizesAndArtifacts();
 }
 }

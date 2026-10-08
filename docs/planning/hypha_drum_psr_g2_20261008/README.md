@@ -1,6 +1,6 @@
-# G2 — DRUM／PSR実装receiptと未完了の速度受入
+# G2 — DRUM／PSR実装とローカル受入receipt
 
-2026年10月8日。起点は統合済みG1、B-1325。G2はtyped snapshotを出荷JUCE shellへ接続し、表示・Capture・Session coverageと正本を同期する工程である。Rust・static ABI・source契約の確認済みreceiptを以下へ記録する。TIME／Session／Capture／DRUM focused nativeと正式native 90件＋Update 7件を最後のcatalog修正まで確認した。G2の実装・正本同期は完了したが、先行strict legacyの失敗を保持し、最後の独立V2 dense budgetはFAIL。V2の残る11条件は未測定。既存Rust性能probe 5件は各一回・再試行0で全PASS、B-1325 original legacy baselineもPASS。最終のローカル速度blockerはV2のFAILと未測定11条件である。速度受入未完了としてDraft PRでCI担当Claudeへ引き継ぎ、G3へ進めない。G2全体PASS、実DAW受入、使いやすさ、品位、公開完了を認定しない。
+2026年10月8日。起点は統合済みG1、B-1325。G2はtyped snapshotを出荷JUCE shellへ接続し、表示・Capture・Session coverageと正本を同期する工程である。Rust・static ABI・source契約、TIME／Session／Capture／DRUM focused native、正式native 90件＋Update 7件の確認済みreceiptを以下へ記録する。先行strict legacyと独立V2 denseのFAILを原因調査に使い、固定stage材質の重複描画を既存の容量制限付きcacheへ移した。修正後の正式ATTACK gateはlegacy changing 120条件、resize 6条件、BAND 4条件、V2 dense 120条件を全て完走してPASS。未測定だった11条件も閉じ、G2の実装・ローカル受入・正本同期は完了した。閾値、入力条件、測定回数、表示内容は維持する。exact final commitのCI結果は待機中で、途中確認・CI・merge・releaseはClaude担当、G3の候補freeze・技術／実DAW受入と公開前の利用者本人確認は未実施である。ローカルfixtureを実DAW、使いやすさ、品位、公開完了の認定へ繰り上げない。
 
 正本は[改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)、[製品表示契約](../../hypha_meter_product_contract_20260831.md)、[不変条件](../../hypha_invariants.md)。G1の証拠は[G1記録](../hypha_drum_psr_g1_20261007/README.md)に留め、現候補の結果へ流用しない。
 
@@ -27,7 +27,7 @@ DRUM clockのlook-behind 150 ms／鮮度250 ms、Singleの有限1000 ms応答案
 
 [300%の英語TIME native development fixture](time-900-en.png)。mainボタン切替後もPSRのscope・履歴・元の完了期限を保持する回帰fixtureを含む最新native runで、20枚の再生成hashが一致した。
 
-[300%の英語BAND typed fixture](drum-v2-900-en.png)は、同じ8打cohortのexact件数、欠測・区間、下限と平均包絡のgapを表示する。[300%の英語ALL fixture](drum-v2-all-900-en.png)はfull-band historyと単打のPRE／POST形を表示する。二枚とも最終native functional runで生成した描画fixtureである。TIME／Session 20枚とDRUM 50枚の全70枚について、最終catalog修正後もbytes／SHA-256と寸法・CRC／IENDを照合し、先行の独立画素確認とのhash一致を確認した。実音源の検出品質や性能budgetの証拠へ読み替えない。
+[300%の英語BAND typed fixture](drum-v2-900-en.png)は、同じ8打cohortのexact件数、欠測・区間、下限と平均包絡のgapを表示する。[300%の英語ALL fixture](drum-v2-all-900-en.png)はfull-band historyと単打のPRE／POST形を表示する。二枚とも共有stage修正後の正式ATTACK gateで再生成した描画fixtureである。DRUM 50枚は全5サイズ・日英のALL／BAND、有限区間±999.9、共有指数3／308を画素確認し、bytes／SHA-256と寸法・CRC／IENDを照合した。全50枚のhashは先行最終catalog画像と一致した。TIME／Sessionの先行20枚と合わせ、全70枚の描画内容を維持している。実音源の検出品質や性能budgetの証拠へ読み替えない。
 
 | 保存PNG | bytes | SHA-256 |
 | --- | --- | --- |
@@ -77,7 +77,8 @@ Max M、current、TIME pointは100 ms境界を維持し、Session I／LRA／MaxT
 | native source／object checkpoint | PASS：Viewをcompileする5 target、最後のTIME／DRUM catalog修正、shipping callback／clock-only Captureを含む39 source objectsが全てfresh。18 targetの影響native buildもexit 0 | `g2-native-source-object-checkpoint.json`、`g2-catalog-final-native-build.log`、native runner receipt |
 | formal native全体 | PASS：inventory 90件を成功集合で照合。非timing 50件は影響外45件＋affected 4件＋help修正後editor 1件、protected 2件はTIME history 1件＋catalog修正後full UiRender 1件、正式retry-live 38件は全PASS・retry 0。affected 4件／再生成layoutは重複として加算しない | `g2-native-inventory-final.log`、先行失敗・修正後log、`g2-native-live.log`、`g2-native-accepted97.json` |
 | native Update | PASS：実測inventory 7件と実行7 passed／0 failedが一致、40.58 s、exit 0 | `g2-update-inventory-final.log`、`g2-update-accepted.log` |
-| native DRUM functional | PASS：最終sourceのRelease／x86_64。adopted-C pointer／current keyboard、cluster／drag固定、empty LOCK保持、typed Facts、丸め・mask・参加集合・断線、全size／日英を確認。性能budgetとは区別 | `g2-attack-functional.log`、native runner receipt |
+| native DRUM functional | PASS：共有stage修正後のRelease／x86_64。adopted-C pointer／current keyboard、cluster／drag固定、empty LOCK保持、typed Facts、丸め・mask・参加集合・断線、全size／日英、clock-only Captureを確認。固定材質のcold／warm同画素、寸法／DPI／材質variantとcache容量も確認 | `g2-attack-frame-budget-shared-stage.log`、`g2-drum-stage-cache-receipt.json` |
+| 正式DRUM frame budget | PASS：legacy changing 120、resize 6、BAND 4、V2 dense 120条件を全て完走、exit 0。閾値・条件・回数不変。V2の全条件最大median 10.6228 ms／max 12.1634 ms | `g2-attack-frame-budget-shared-stage.log`、`shared-stage-exit.json` |
 | native TIME／Session coverage | focused PASS：Release／x86_64、`--time-snapshot-only` exit 0。独立PSR、main切替とBUSY、原期限、gap、時計だけを進める凍結Capture、pending下限、held coverage、最新処理prefix、PSR legend階層を現sourceで確認。5サイズ×日英でTIME 10枚＋長期prefix／pending LEVEL Session 10枚を出力。native全体受入とは区別 | `g2-time-functional.log`、native runner receipt、`g2-time-images-manifest.json` |
 | native Capture Work v1／local PNG | focused PASS：Release／x86_64の最新silent binary exit 0をnative担当が確認。typed-v1不対応時のWork request 0、同じ凍結PNG保持、短い／長い画像へのatomic置換、準備／保存失敗時の既存content保持、一時sibling残存なしを確認 | native runner receipt、`g2-capture-functional.log`（0 bytes）。空logをPASS文字列として扱わない |
 | 最終Rust性能5件 | PASS：foreign header／32-sample worker／Sharpness／two POST／raw cache treeを各1件、一回serialで全exit 0。raw-treeとSession cap後fallbackの範囲を分ける | `performance-results.json`、下記5 log |
@@ -99,17 +100,17 @@ static symbol照合では`nm`のdependency member診断によるexit 1を既存s
 | 範囲 | fixture／検証方法 | 結果と残工程 |
 | --- | --- | --- |
 | navigation authority／waveform | producer ledger鍵、numeric利用不可、band切替、common support／PCM gap、proof mode・source競合 | Rust workspaceでPASS |
-| typed DRUM表示、丸め、選択、clock、平均包絡断線 | `AttackV2PresentationContractTest.cpp`、描画・操作fixture、全size／日英、UTF-8 Facts canary | 最終catalog sourceのnative functional／formal PASS。strict性能budgetは未閉鎖 |
+| typed DRUM表示、丸め、選択、clock、平均包絡断線 | `AttackV2PresentationContractTest.cpp`、描画・操作fixture、全size／日英、UTF-8 Facts canary | 共有stage修正後のnative functionalとstrict性能budget PASS。G3実host受入は未実施 |
 | TIME target／TTL／mapping／Session／Capture | `TimeSnapshotContractTest.cpp`、`TimeSnapshotInputContractTest.h`、`SessionCoverageContractTest.cpp`、`CaptureWorkAttachmentTest.cpp` | 最新main切替・Capture保存修正後のx86_64 focused／formal実行PASS。strict DRUM性能とは分ける |
 | foreign header read | `fixed_prefix_reads_exclude_large_body_and_observe_atomic_replacements` | regression PASS。ignored性能probeも1 passed／exit 0、3,000回の28-byte読取を実測 |
 | mutex外確保／reset競合 | `retention_allocation_keeps_delta_readable_and_reset_rejects_the_old_ticket`、missing／invalid publication fixture | Rust workspaceでPASS |
 | cache上限／exact parity／RESET | shared-node cap、実default budget、丸めgate二反例／memo | focused 8件PASS。ignored raw-tree query benchmarkもPASS。Session capを迂回する木だけのprobeで、上限後fallbackの性能受入には使わない |
 | pending尾／再開／repeated RESET | Stop tail、非整数rate、sized FFI出力不変、engine logical clockを戻さないRESET | Rust workspace acceptedでPASS。Session native focused／formal PASS。残る性能とG3は別工程 |
-| 負荷／検出timing | native全体、DRUM二枠frame budget、32-sample worker、timing受入 | 先行strict legacy／最終独立V2 denseのFAILを保持。V2は109／120条件を測定し11未測定。native formal 90件＋Update 7件とRust性能5件は別にPASS |
+| 負荷／検出timing | native全体、DRUM二枠frame budget、32-sample worker、timing受入 | 先行strict legacy／独立V2 denseのFAILと原因調査を保持。共有stage修正後、V2 120／120とlegacy changing 120／resize 6／BAND 4全PASS。正式native 90件＋Update 7件、Rust性能5件、G3実hostの範囲を分ける |
 
-性能の先行試行は既存legacy whole-signal budgetで失敗し、V2 dense fixtureに到達しなかった。同時刻に外部processの高負荷を確認し、診断logと終了状態を保存した。その後の静穏時strict runもexit 8、11.64 sで失敗した。DPI 2／31 events／100 resize stepsのmedian 16.0629 msが上限16.0 msを超えた。max 35.6784 msは40 ms以内、240 eventsのmedian 15.797 ms／max 38.4499 msも閾値内であり、失敗の原因行と区別する。累積legacy budgetのFAILでV2 dense前に停止したため、静穏時FAILを外部負荷の揺れと断定せず、性能FAIL・V2未測定として残す。利用者の範囲・時間指示に従い、旧描画の改修へ広げず、source・thresholdを変えない独立V2／B-1325 baselineを各一回測定した。
+性能の先行試行は既存legacy whole-signal budgetで失敗し、V2 dense fixtureに到達しなかった。同時刻に外部processの高負荷を確認し、診断logと終了状態を保存した。その後の静穏時strict runもexit 8、11.64 sで失敗した。DPI 2／31 events／100 resize stepsのmedian 16.0629 msが上限16.0 msを超えた。max 35.6784 msは40 ms以内、240 eventsのmedian 15.797 ms／max 38.4499 msも閾値内であり、失敗の原因行と区別する。累積legacy budgetのFAILでV2 dense前に停止したため、静穏時FAILを外部負荷の揺れと断定せず、性能FAIL・V2未測定として残す。この段階ではsource・thresholdを変えない独立V2／B-1325 baselineを各一回測定した。後述の原因計測と共有stage修正後の成功まで、先行FAILは履歴として保持する。
 
-### 最終の独立native性能probe
+### 先行の独立native性能probe
 
 同じJUCE pin・compiler flags／link設定を使い、B-1325のoriginal legacy fixtureはbyte-identicalな依存objectだけを再利用して17 owned C++を再構築した。準備20 commandsは全exit 0、測定前後のsource・baseline export・flags hashは不変。Audio／FFIを呼ぶ試験ではなく、実native rendererへtyped wireを渡すfixtureである。各probeを現hostで一回ずつserial実行し、pre／during／postのhost状態を残した。高CPUのNode／Chrome／rustcは観測されなかった。再試行、source・threshold変更は0。
 
@@ -118,11 +119,29 @@ static symbol照合では`nm`のdependency member診断によるexit 1を既存s
 | G2 V2 dense | 900／DPI 1.25／2 instances／ALL 240 keys／overlay 0でmedian 16.0398 ms。cold 16.1936 ms、max 16.752 ms | FAIL、exit 1。median上限16.0 ms超過；cold≤80／max≤24 msは成立。109／120条件を測定して停止、残る11条件は未測定 |
 | B-1325 original legacy | changing 120条件、resize 6条件、BAND 4条件を全て完走 | PASS、exit 0。同じ既存thresholdを維持 |
 
-旧legacy helperと新V2 helperの異なる負荷を測っているため、baseline PASSからFAILの原因を特定したとは主張しない。sourceを広げず、未合格の速度受入をDraft PR／Claudeへ引き継ぐ。正式native 90＋Update 7の機能PASSで、この性能FAILや未測定条件を埋めない。
+旧legacy helperと新V2 helperの異なる負荷を測っているため、baseline PASSだけからFAILの原因を特定しない。正式native 90＋Update 7の機能PASSで性能FAILを埋めず、次の描画計測・修正・正式速度gateで閉じた。
+
+### 原因計測と最終の正式ATTACK gate
+
+900／DPI 1.25／二枠ALLを同じ10 frameで分解した診断では、一枠平均の固定history stageが3.391 ms、固定loupe stageが1.672 ms、波形が2.604 ms、loupeの測定内容が0.729 msだった。計測instrumentationを含むため、これらは受入数値ではなく原因切り分けの値である。V2限定cacheの中間候補は独立120条件を完走したが、正式legacy resizeは31 events／DPI 2でmedian 17.0909 ms／max 60.2334 ms、240 eventsでmedian 17.4361 ms／max 38.5043 msとなりFAILした。
+
+legacy resizeの分解ではChrome描画が平均14.22 ms／frame、そのうち固定stageが約7.37 ms、main frameが約1.594 msだった。等寸法の4レーンで同じ材質を重複描画していたため、共有`HyphaAttackStage.cpp`の固定材質だけを既存のbounded surface storeへ移した。cache keyはcorner／bed／vignette／寸法／physical DPIを含む。光源・font・観測値はこの材質の入力に含まれない。初回から同じcanonical rasterを使い、上lipの半point影を1 point bleedで保持する。既存の最大192 entries／scaleに応じたbyte budgetの内側で共有し、最後のeditor Lifetime終了で破棄する。viewport、値、波形、参加集合、断線、選択の描画・取得周期は維持した。診断用の同100 resize steps比較ではmaterial build 378／stage呼出し866となり488回を再利用、Chrome平均は10.91 msとなった。
+
+最終sourceのRelease／x86_64をincremental compileし、既存の正式ATTACK executableを一回serial実行した。`KIRIN_ATTACK_FRAME_BUDGET=1`でlegacy／BAND速度→既存functional→V2速度→V2 functionalの順を維持し、exit 0。pre／during／postのhost記録とsource／object／binary／flags／link SHAを保持した。以下はこの最終正式runの数値で、先行の部分結果を足した合格ではない。
+
+| 範囲 | 最終実測 | 結果 |
+| --- | --- | --- |
+| legacy changing | 120／120条件 | PASS |
+| legacy resize | 6／6条件。DPI 2／31 events median 13.0256 ms、max 33.0381 ms。240 events median 14.5674 ms、max 29.5006 ms | PASS、median≤16／max≤40 ms |
+| legacy BAND | 4／4条件 | PASS |
+| V2 dense | 120／120条件、未測定0。元FAIL条件のmedian 8.79301 ms、max 9.20021 ms。全条件最大median 10.6228 ms、max 12.1634 ms | PASS、一枠median≤12／二枠≤16、max≤24／cold≤80 ms |
+| 全DRUM functional／描画 | material cacheのcold／warm、variant／寸法／DPI／容量、操作、clock、Capture、5サイズ×日英50 PNG | PASS。50枚全hashが先行と一致 |
+
+ローカル速度blockerは解消した。exact final commitのCI、G3の技術・実DAW受入、公開前の利用者本人確認は別工程であり、このrunでは実施していない。
 
 ### 最終の既存Rust性能probe
 
-各fixtureを一回ずつserial実行し、全5件が1 passed／0 failed、exit 0。再試行0、pre／during／postのhost logとbinary／log hashを`performance-results.json`へ記録した。thresholdを緩めず、実測を未合格のV2描画budgetへ流用しない。
+各fixtureを一回ずつserial実行し、全5件が1 passed／0 failed、exit 0。再試行0、pre／during／postのhost logとbinary／log hashを`performance-results.json`へ記録した。thresholdを緩めず、実測を別のV2描画budgetへ流用しない。
 
 | fixture | 実測 | 結果・範囲 |
 | --- | --- | --- |
@@ -204,9 +223,14 @@ static symbol照合では`nm`のdependency member診断によるexit 1を既存s
 | `screen-text-source-final.log` | `11622a7cab435a23ac668f7fe93334585c8b557f3bbfe9e7d259a3141cd7bcdb` |
 | `source-budget-final.log` | `dea85190ec67f276e5409bce57e6de6d6e00481c7d451c792c97a9d9e100b76a` |
 | `fmt-final.log`／`diff-final.log`（silent、runner exit 0） | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `g2-drum-shared-stage-build.log` | `4cd90f85387538eaee4224c92dff6b38efa0cd5031134aa58effda1e23e39b0e` |
+| `g2-attack-frame-budget-stage-cache.log` | `c89b2003ddc777c7145c2c1acf37af6b66841b6111494f90706905ae52dd484d` |
+| `g2-attack-frame-budget-shared-stage.log` | `ee0707e8336c04c59f5595bf1097e5ab9c20246ea7faf9364abf3d9a431982b1` |
+| `g2-drum-images-stage-cache-manifest.json` | `3dd8d49c1efc54820cedae76edceecd79eb29d5347950650e65dfc23976de556` |
+| `g2-drum-stage-cache-receipt.json` | `32c2a72201cd8d21bcdae41800fe2527936e5ed7d551a6b97369209c741d2df1` |
 
 ### Portable source fingerprint
 
 [source-manifest.json](source-manifest.json)はB-1325との差分となる全owned source、test、文書、config、保存PNGをrepo-relative path・bytes・SHA-256で記録する。構造抽出の準備commitも差分へ含め、manifest自身とignored検証logを除く。JUCEの同一pinとtracked patchは別のdependency欄へ記録し、patched submodule checkout全体をowned sourceとして数えない。文書へmanifestのdigestを埋め込まず、自己参照hashを作らない。最終commit後の公開文面checkは統合担当が公式入口で実行し、G3／公開の正本照合へつなぐ。
 
-V2速度受入と未測定11条件を閉じるまではG3へ進めない。CIと未合格項目はDraft PRでClaudeへ引き継ぐ。G3ではactual DAW、密集二枠、通常IO、clock・期限・操作応答を現候補で確認する。公開前に利用者本人の日常操作・読み取り・品位の受入が必要であり、ローカルfixtureでは未検証である。友人の初見／日常操作・品位確認は公開後G4だけで、開発工程・公開条件へ移さない。正式公開は既存release gateと同版のLS／macOS HP／Windows三チャネルを全て満たして初めて完了する。
+G2のローカル実装・速度受入・正本同期は完了した。exact final commitのCI結果は待機中で、CI・merge・releaseはClaudeへ引き継ぐ。G3ではactual DAW、密集二枠、通常IO、clock・期限・操作応答を現候補で確認する。公開前に利用者本人の日常操作・読み取り・品位の受入が必要であり、ローカルfixtureでは未検証である。友人の初見／日常操作・品位確認は公開後G4だけで、開発工程・公開条件へ移さない。正式公開は既存release gateと同版のLS／macOS HP／Windows三チャネルを全て満たして初めて完了する。

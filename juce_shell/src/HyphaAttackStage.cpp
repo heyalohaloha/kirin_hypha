@@ -4,6 +4,7 @@
 
 #include "HyphaAttackDepth.h"
 #include "HyphaDepthMaterial.h"
+#include "HyphaMaterialCache.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTheme.h"
 
@@ -19,7 +20,7 @@ const juce::Image& myceliumBed()
 }
 }
 
-void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float bed, bool vignette)
+static void paintMaterial (juce::Graphics& g, juce::Rectangle<float> area, float corner, float bed, bool vignette)
 {
     if (area.getWidth() < 2.0f || area.getHeight() < 2.0f)
         return;
@@ -53,6 +54,19 @@ void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float 
     g.drawLine (outer.getX() + radius, outer.getBottom() - 0.5f,
                 outer.getRight() - radius, outer.getBottom() - 0.5f, 0.8f);
     attack_depth::paintWell (g, outer, radius, vignette);
+}
+
+void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float bed, bool vignette)
+{
+    // A resize's equal-sized lanes share the same fixed well, as do later frames at a held
+    // extent. The editor-owned surface store bounds both memory and entries. Canonical first
+    // paint keeps the lip's fractional-DPI antialiasing unchanged on a hit; the top bleed
+    // retains its half-point cast shadow. No measurement, font or key light enters this well.
+    material_cache::draw (g, area, { 5, { corner, bed, vignette ? 1.0f : 0.0f, 0.0f } },
+        { 1.0f, 0.0f },
+        [=] (juce::Graphics& pixels, juce::Rectangle<float> extent) {
+            paintMaterial (pixels, extent, corner, bed, vignette);
+        }, {}, material_cache::InitialPaint::canonicalRaster);
 }
 
 // Measuring only: setFont builds the same font inline, as the typography source contract requires.

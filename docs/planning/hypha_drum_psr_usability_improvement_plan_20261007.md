@@ -1,6 +1,6 @@
 # DRUM・PSR改善計画 — 利用者の判断から設計を組み直す
 
-2026年10月8日。G1はB-1325で統合済み。G2は接続・正本同期とdevelopment検証を進め、Rust workspace aggregate／Clippy／必須ignored 20＋6件／static ABIと修正後source契約の確認済み結果を[G2記録](hypha_drum_psr_g2_20261008/README.md)へ残した。最後のcatalog修正までのTIME／Session／Capture／DRUM focusedと正式native 90件＋Update 7件は確認済み。G2実装・正本同期は完了したが、先行strict legacy失敗を保持し、最終独立V2 denseは性能FAIL。V2は109／120条件を測定し、残11未測定。B-1325 original legacy baselineと32-sample workerを含む既存Rust性能5件は全PASS（各一回・再試行0）。最終ローカルblockerはV2のFAILと未測定11条件である。速度受入未完了をDraft PRでCI担当Claudeへ引き継ぎ、G3へ進めない。G2全体PASSではなく、G3実DAW・本人確認は未検証とする。
+2026年10月8日。G1はB-1325で統合済み。G2の実装・ローカル受入・正本同期は完了した。Rust workspace aggregate／Clippy／必須ignored 20＋6件／static ABI、TIME／Session／Capture／DRUM focusedと正式native 90件＋Update 7件の結果を[G2記録](hypha_drum_psr_g2_20261008/README.md)へ残した。先行strict legacyと独立V2 denseの速度FAILは原因計測に使い、共有stageの固定材質を容量制限付きcacheで再利用した。修正後の正式ATTACK gateはlegacy changing 120／resize 6／BAND 4とV2 dense 120／120条件、全functional・5サイズ日英の50 PNGを完走してPASS、未測定0。閾値・条件・測定回数・表示内容は維持し、先行FAILと最終数値を記録する。B-1325 original legacy baselineと既存Rust性能5件もPASS。exact final commitのCI結果は待機中で、途中確認・CI・merge・releaseはClaude担当、G3の候補freeze・技術／実DAW受入と公開前の利用者本人確認は未実施である。ローカル受入を実DAW・使いやすさ・品位・公開完了へ繰り上げない。
 
 2026年10月7日。G0資料はPR #87でmainへ統合済み。PR #83とPR #87のmerge通知を受け、main `7b0c301c`以降を起点としてG1の観測・snapshot実装を開始する。途中確認、CI、merge、releaseはClaudeが担当する。新しい表示周期・受入値はG0で候補と校正手順を整理し、G1／G2のdevelopment検証で根拠を得て、G3 freeze前に固定する。計画の保存を、製品改善の完了とは呼ばない。
 
@@ -276,7 +276,7 @@ CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PRE�
 
 ## 7. 独立期待値と受入方法
 
-試験はproductionの集計を試験側へ複製せず、独立した数値と鍵を固定する。時刻／publication／raceは注入し、sleepの偶然で再現しない。以下は正式候補で追跡する受入fixtureである。G2のローカル部分結果はG2記録へ結び、未完了の負荷・timingとG3実hostの受入へ繰り上げない。G0の独立算術・時計模型と限定wire／consumer fixtureは[G0証拠](hypha_drum_psr_g0_20261007/README.md)へ区別して保存し、製品fixtureのPASSへ流用しない。
+試験はproductionの集計を試験側へ複製せず、独立した数値と鍵を固定する。時刻／publication／raceは注入し、sleepの偶然で再現しない。以下は正式候補で追跡する受入fixtureである。G2のローカル実装・development受入結果はG2記録へ結び、G3のexact候補・実hostの受入へ繰り上げない。G0の独立算術・時計模型と限定wire／consumer fixtureは[G0証拠](hypha_drum_psr_g0_20261007/README.md)へ区別して保存し、製品fixtureのPASSへ流用しない。
 
 ### 7.1 技術fixtureの反例表
 
@@ -404,7 +404,7 @@ v2を選んだ場合だけ新版round-tripと別repo変更を必須にする。v
 | --- | --- | --- |
 | G0 利用場面と設計固定（完了） | 実寸wire、snapshot／clock／expiry契約候補、Capture二案、development証拠、校正手順、公開前本人rubricと公開後G4の記録方法 | 設計候補・未検証一覧・G1／G2で取る証拠を明示。Capture二案の提案とv1維持の採用を記録済み。G0で製品source・ABIを変えない |
 | G1 観測・整合snapshot | bounded TIME raw／proof／gap、DRUM固定cohort・区間・mask／集合、POST窓実測、producer finalization、V2、新timestampの証拠 | PR #83 merge通知後のmainを起点とし、P1～P4・P6、D1～D15、ABI／wire／応答不能の独立期待値を確認 |
-| G2 全面統合・development検証（実装完了・速度受入未完了） | 主面／根拠面、単打／locator／cluster、提示時計／丸め、PSR／PLR／CORR、採用Capture方式、全size／locale、正本同期、負荷校正 | P5・P7・L1～L4・U1・F1・F2・M1～M3、既存回帰。正式native 90＋Update 7は確認済み、先行strict legacy失敗を保持。最終のB-1325 baseline／既存Rust性能5件はPASS、V2性能FAILと未測定11条件をClaudeへ引継ぎ。速度受入を閉じるまでG3不可。数値・周期・正常jitter・採点方法はG3 freeze前に確定。友人確認は含めない |
+| G2 全面統合・development検証（実装・ローカル受入完了） | 主面／根拠面、単打／locator／cluster、提示時計／丸め、PSR／PLR／CORR、採用Capture方式、全size／locale、正本同期、負荷校正 | P5・P7・L1～L4・U1・F1・F2・M1～M3、既存回帰。正式native 90＋Update 7、B-1325 baseline／既存Rust性能5件を確認。共有stage修正後の正式ATTACK gateはV2 120／120、legacy changing 120／resize 6／BAND 4全PASS。先行FAIL・原因・最終数値を保持。exact final CI待ち、CI／merge／releaseはClaude担当、G3・本人確認は未実施。数値・周期・正常jitter・採点方法はG3 freeze前に確定。友人確認は含めない |
 | G3 最終候補freeze・技術と実DAWの受入 | 同期済みclean exact commit、definition／settings hash、検出source・意味identity照合、正式候補の技術・対象host証拠 | Claudeが適合run／artifactを照合し、既存検出試験を含む必須技術・実DAW gateを確認。不足のまま公開へ進めない |
 | 公開前の本人確認 | G3と同じcandidateの実UI・実再生で日常操作と品位を記録 | 第7.3節の日常操作と品位rubric。初見には数えず、友人の結果で代用しない |
 | G5 公開前の同一候補照合 | read-onlyの契約／実装／画像／採用Capture／証拠一覧、未処理項目 | freeze後のdrift0、技術・実DAW・本人PASSが同candidateに一致。Claudeが正式release gateを確認して三チャネル公開へ進む |
