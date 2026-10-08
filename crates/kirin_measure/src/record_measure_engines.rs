@@ -1,5 +1,5 @@
 use crate::channel_layout::{ChannelLayout, LayoutId};
-use crate::MeasureEngine;
+use crate::{MeasureEngine, SessionSummary};
 
 pub(crate) struct RecordMeasureEngines {
     trace: Option<MeasureEngine>,
@@ -14,9 +14,11 @@ impl RecordMeasureEngines {
                 summary: None,
             });
         }
+        let mut summary = MeasureEngine::new(sample_rate, layout)?;
+        summary.enable_session_summary_cache()?;
         Ok(Self {
             trace: Some(MeasureEngine::new(sample_rate, layout)?),
-            summary: Some(MeasureEngine::new(sample_rate, layout)?),
+            summary: Some(summary),
         })
     }
 
@@ -36,6 +38,15 @@ impl RecordMeasureEngines {
             .expect("Record engine exists only for mono/stereo")
     }
 
+    /// Exact current processed-prefix facts; I/LRA reuse unchanged canonical-energy revisions.
+    /// The stop/drain path separately calls the original scalar `finalize()` before sealing.
+    pub(crate) fn intermediate_summary(&self) -> SessionSummary {
+        self.summary
+            .as_ref()
+            .expect("Record summary engine")
+            .cached_session_summary()
+    }
+
     pub(crate) fn parts(&mut self) -> (&mut MeasureEngine, &mut MeasureEngine) {
         let Self { trace, summary } = self;
         (
@@ -53,6 +64,10 @@ impl RecordMeasureEngines {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "record_summary_tests.rs"]
+mod summary_tests;
 
 #[cfg(test)]
 mod tests {

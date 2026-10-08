@@ -1142,6 +1142,11 @@ same Keep remains active. During an offline bounce/export, POST auto-runs the sa
 offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after
 10 minutes without Active signal.
 
+During Keep, intermediate I/LRA readouts reuse an exact-energy cache with a bounded auxiliary
+node budget. This avoids rescanning the complete recording after every small input block.
+Stopping Keep still drains the input and uses the original canonical finalization for the saved
+Record; True Peak and the measured time range retain their original definitions.
+
 After Stop, the final Record display remains visible until the next playback produces its first
 newly computed Watch result; that result returns the grid to Watch without showing stale Watch data
 in between. Multiple pairs record independently.

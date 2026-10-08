@@ -251,11 +251,16 @@ void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
         return;
     }
     const juce::Point<int> size (rasterArea.getWidth(), rasterArea.getHeight());
-    const bool sameState = state.domain == domainBedState.domain
+    // FREQ and SPACE do not use balance; Reference uses neither balance nor energy.
+    auto keyState = state;
+    if (state.domain == observatory::Domain::frequency || state.domain == observatory::Domain::space
+        || state.domain == observatory::Domain::reference) keyState.direction = 0.0f;
+    if (state.domain == observatory::Domain::reference) keyState.energy = 0.0f;
+    const bool sameState = keyState.domain == domainBedState.domain
         && state.density == domainBedState.density && state.active == domainBedState.active
         && state.capture == domainBedState.capture
-        && std::abs (state.energy - domainBedState.energy) <= 0.0f
-        && std::abs (state.direction - domainBedState.direction) <= 0.0f;
+        && std::abs (keyState.energy - domainBedState.energy) <= 0.0f
+        && std::abs (keyState.direction - domainBedState.direction) <= 0.0f;
     if (! domainBed.isValid() || domainBedSize != size || ! sameState
         || std::abs (domainBedPixelScale - scale) > 1.0e-6f)
     {
@@ -267,7 +272,7 @@ void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
         paintDomainBed (layer, area.withPosition (4, 4), state);
         domainBedSize = size;
         domainBedPixelScale = scale;
-        domainBedState = state;
+        domainBedState = keyState;
     }
     juce::Graphics::ScopedSaveState saved (g);
     g.setOpacity (1.0f);

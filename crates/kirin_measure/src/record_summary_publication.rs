@@ -12,7 +12,7 @@ pub(super) fn publish(
     display_generation: Option<u64>,
     latest_measure: &Option<MeasureResult>,
 ) {
-    let summary = engines.summary().finalize();
+    let summary = engines.intermediate_summary();
     if let Ok(mut slot) = summary_slot.lock() {
         *slot = Some(summary);
     }

@@ -257,9 +257,9 @@ legacy resizeの分解ではChrome描画が平均14.22 ms／frame、そのうち
 
 ### VU追加後の最終ローカルgate
 
-Rust workspaceは2,358 passed／0 failed／43 ignored、Clippyはworkspace・all-targetsでPASS。VU full locatorの3境界試験とshipping wiringの3試験を含む。必須ignored inventoryはparity 20／pairing candidates 6と実測し、20／6全件PASS（それぞれ121.385／6.207 s）。UiRender／EditorSurface／SnapshotABI／TIMEの4 native PASS、描画・文面・行数・formatの契約もPASS。以前の97 native receiptはG2の履歴であり、VU変更後はこの影響範囲のfresh build／実行で区別する。残る全機能の追加性能総点検は、2026-10-08の利用者指示で同PRの後続作業として行う。
+Rust workspaceは2,358 passed／0 failed／43 ignored、Clippyはworkspace・all-targetsでPASS。VU full locatorの3境界試験とshipping wiringの3試験を含む。必須ignored inventoryはparity 20／pairing candidates 6と実測し、20／6全件PASS（それぞれ121.385／6.207 s）。UiRender／EditorSurface／SnapshotABI／TIMEの4 native PASS、描画・文面・行数・formatの契約もPASS。以前の97 native receiptはG2の履歴であり、VU変更後はこの影響範囲のfresh build／実行で区別する。2026-10-08の利用者指示により、全機能の追加性能総点検と確認できた重複処理の修正を同PRで行った。[追加性能記録](performance_audit.md)に描画・出荷editor・解析・Record・保存の測定境界と証跡をまとめる。最終sourceの全gate結果は次節で区別する。
 
-最初のCI run `37739931478`のmacOS release-sourceはREADMEが旧DRUM／TIME画像pathを必須とするmetadata testでFAILした。現在のnative galleryをhash・signature・bytesで検証するように同期し、旧reviewed素材のhash／inventory検査も保持した。修正後のmetadataは10／10 PASS。現CMakeの限定provenance reviewと14件のdistribution gate fixtureはPASS、配布権限・実payloadの受入とは区別する。exact final tipの4必須CIはClaudeが判定し、先行runを現候補の成功へ流用しない。
+最初のCI run `37739931478`のmacOS release-sourceはREADMEが旧DRUM／TIME画像pathを必須とするmetadata testでFAILした。現在のnative galleryをhash・signature・bytesで検証するように同期し、旧reviewed素材のhash／inventory検査も保持した。修正後のmetadataは10／10 PASS。現CMakeの限定provenance reviewと14件のdistribution gate fixtureはPASS、配布権限・実payloadの受入とは区別する。同じ先行runのpublic historyとARM64 auval、補助AAX run `37739931516`は成功した。Windows jobは検証stepが成功しているがjob自体はcancelled、artifact uploadはskipであり、Windows受入のPASSにはしない。run一覧とjob logを保存し、現在のsourceへ旧runの結果を流用しない。exact final tipの4必須CIはClaudeが判定し、先行runを現候補の成功へ流用しない。
 
 | ローカル証跡 | SHA-256 |
 | --- | --- |
@@ -278,6 +278,14 @@ Rust workspaceは2,358 passed／0 failed／43 ignored、Clippyはworkspace・all
 | `release-metadata-final.log` | `a3e2c4be7c76caed4ab0062b835195b1d1c2ae5ac6d7c6dac8b355b023085f58` |
 | `vu-asset-gate.log` | `4b63a6af27faca1975ed4d1445d47cc20b9c836d7c52f28dfc232b8d72ebc985` |
 | `vu-distribution-gate-test.log` | `ae0198042b0733667dbf7fbc99e7024b98966ae53d5746b9edfd1a7a1d5d46da` |
+
+### 性能総点検後の最終source gate
+
+Record中間集計のexact cache接続、同一JSONの一回serialize、未使用入力による背景cache再生成の抑止を含む最終Rust sourceで、workspaceは2,367 passed／0 failed／43 ignored、391.463 s。Clippyは同じ全Rust／Cargo source 655 filesのhashを照合し、fresh workspace／all-targetsのPASS（78 s）を再利用した。補助cacheの毎drain canonical parity／pending尾／RESET 2試験と、保存の7境界試験を含む。必須ignoredはparity 20／pairing candidates 6を実測し、20／6全件PASS（119.699／5.020 s）。通常suiteのignoredを自動PASSにせず、26件を別に完走した。
+
+最終nativeは50 targetを186.727 sでfresh build／relinkし、現release-sourceの90件とUpdate7件のinventoryを照合した。97件を各一回serialで実行し、全件PASS／再試行0。EditorSurface 75.373 s、UiRender 68.853 s、SnapshotABI 5.660 s、TIME 2.071 s、正式ATTACK 17.193 s、Capture 0.307 s。ATTACKだけ`KIRIN_ATTACK_FRAME_BUDGET=1`を明示して、既存のlegacy changing120／resize6／BAND4とV2dense120全条件を実行した。閾値・回数は変更していない。この成功CTestは数値stdoutを抑止するため、fresh gateのPASSと先行の詳細速度receiptの数値を区別する。
+
+Reference音声runtime、AudioPages／streaming、表示component、出力所有者、live／local比較と失敗・復元、Updateの成功／失敗／取消／lifetimeもPASS。各testのchild user＋system CPUとwall、log SHAを記録した。これらはfixture／oracle／起動・複数workerのcostを含む製品試験全体の値で、出荷機能の定常CPU割合ではない。解析データを採用した出荷editor、synthetic副面描画、実音声serviceの機能gateを[追加性能記録](performance_audit.md)で分ける。最終link archiveはx86_64、28,027,912 bytes、SHA-256 `e874b75d819a95347d6e440f211198f649e55f040b6caf609ce6cae0d415aa74`。署名済みplugin payloadではない。
 
 ### Portable source fingerprint
 

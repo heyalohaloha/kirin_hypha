@@ -44,12 +44,12 @@ use serde::{Deserialize, Serialize};
 
 #[path = "plugin_data_write.rs"]
 mod write;
-use write::write_plugin_data_atomic;
 use sha2::Sha256;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use write::write_plugin_data_atomic;
 
 pub use crate::record_expected::ExpectedWavMetadata;
 

@@ -2,6 +2,8 @@
 
 2026年10月8日。G1はB-1325で統合済み。G2の実装・ローカル受入・正本同期は完了した。Rust workspace aggregate／Clippy／必須ignored 20＋6件／static ABI、TIME／Session／Capture／DRUM focusedと正式native 90件＋Update 7件の結果を[G2記録](hypha_drum_psr_g2_20261008/README.md)へ残した。先行strict legacyと独立V2 denseの速度FAILは原因計測に使い、共有stageの固定材質を容量制限付きcacheで再利用した。修正後の正式ATTACK gateはlegacy changing 120／resize 6／BAND 4とV2 dense 120／120条件、全functional・5サイズ日英の50 PNGを完走してPASS、未測定0。閾値・条件・測定回数・表示内容は維持し、先行FAILと最終数値を記録する。B-1325 original legacy baselineと既存Rust性能5件もPASS。exact final commitのCI結果は待機中で、途中確認・CI・merge・releaseはClaude担当、G3の候補freeze・技術／実DAW受入と公開前の利用者本人確認は未実施である。ローカル受入を実DAW・使いやすさ・品位・公開完了へ繰り上げない。
 
+2026年10月8日の追加指示は、VU基準の明示選択と全画面・全機能の性能点検である。VUは既存legendから−12／−14／−16／−18／−20を選び、既定−18、左右とexact PRE／POST pairで共通にする。音声、LUFS、TP、300 msの針応答は維持する。性能点検は現在の描画・解析・Record・保存・比較試聴・復元・更新を対象にし、確認した重複処理を修正する。[追加性能記録](hypha_drum_psr_g2_20261008/performance_audit.md)へ実測と測定境界を残す。最終sourceでRust2,367件／Clippy／必須ignored26件／native90＋Update7件全PASS、再試行0を確認した。新しい機能設計、別repo変更、検出の再評価へ広げず、既存の必須試験とG3／本人確認／公開後G4の分担は維持する。
+
 2026年10月7日。G0資料はPR #87でmainへ統合済み。PR #83とPR #87のmerge通知を受け、main `7b0c301c`以降を起点としてG1の観測・snapshot実装を開始する。途中確認、CI、merge、releaseはClaudeが担当する。新しい表示周期・受入値はG0で候補と校正手順を整理し、G1／G2のdevelopment検証で根拠を得て、G3 freeze前に固定する。計画の保存を、製品改善の完了とは呼ばない。
 
 ### 2026年10月7日の決定

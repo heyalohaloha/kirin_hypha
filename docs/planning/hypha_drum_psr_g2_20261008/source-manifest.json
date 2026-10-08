@@ -79,13 +79,13 @@
       ]
     }
   },
-  "file_count": 138,
+  "file_count": 148,
   "files": [
     {
       "path": "README.md",
       "status": "modified",
-      "bytes": 92865,
-      "sha256": "f91ef34b257393ade51981e5c34f233b9637d80bf4f86fb03668d80751dca32e"
+      "bytes": 93227,
+      "sha256": "656944a743e4eef235377ca6a3ba0c69a760a5f76c02b184272381e342735652"
     },
     {
       "path": "crates/kirin_hypha_ffi/include/kirin_hypha_navigation_snapshot_ffi.h",
@@ -217,13 +217,19 @@
       "path": "crates/kirin_measure/src/engine_session_summary.rs",
       "status": "added",
       "bytes": 1162,
-      "sha256": "1f06c437ffcc84ade4d563907fe5207d7f6332c6789e4c7e8f399d34fad1596e"
+      "sha256": "fcbf72b87d07009ecf9d718ef3ed50f5a857046b6c402750024e593afc30ee7c"
     },
     {
       "path": "crates/kirin_measure/src/lib.rs",
       "status": "modified",
       "bytes": 37779,
       "sha256": "875adb443a66c37b680d021d3adfb5b030c128507c2222d0923612ce4f0f2736"
+    },
+    {
+      "path": "crates/kirin_measure/src/measure_thread.rs",
+      "status": "modified",
+      "bytes": 146699,
+      "sha256": "b2d6912666fb46f20512b1630496481d384e8ab4750559c885265b341134846f"
     },
     {
       "path": "crates/kirin_measure/src/meter_delta_history.rs",
@@ -274,6 +280,42 @@
       "sha256": "703b2015f090d02117476bab8dc5106504a41b87443c3a72c4211c72cc6e3f8b"
     },
     {
+      "path": "crates/kirin_measure/src/plugin_data.rs",
+      "status": "modified",
+      "bytes": 367852,
+      "sha256": "d009b944175aa6a134a478b4f836eb8bb8d7e69079a18287cf2b0520bbaff1ec"
+    },
+    {
+      "path": "crates/kirin_measure/src/plugin_data_write.rs",
+      "status": "added",
+      "bytes": 3189,
+      "sha256": "1992a6cf6796099d01cfb5f2225e6815dd8f67e99610652b2c8eb9074aadb077"
+    },
+    {
+      "path": "crates/kirin_measure/src/plugin_data_write_tests.rs",
+      "status": "added",
+      "bytes": 6673,
+      "sha256": "9f9fc948d9254f4e4776f3a7cd3e69176dfc6ee11928be533e5bcade447f6ed1"
+    },
+    {
+      "path": "crates/kirin_measure/src/record_measure_engines.rs",
+      "status": "modified",
+      "bytes": 2546,
+      "sha256": "78aa200c6b49046426a085aa8fbe4707268563bb137a5ff8a9804f628b9250e2"
+    },
+    {
+      "path": "crates/kirin_measure/src/record_summary_publication.rs",
+      "status": "added",
+      "bytes": 866,
+      "sha256": "4d4350916e87262c853a94428c5e9e10da9b75d115bf90870e9cc38392ef2fba"
+    },
+    {
+      "path": "crates/kirin_measure/src/record_summary_tests.rs",
+      "status": "added",
+      "bytes": 3221,
+      "sha256": "0395dff64bf9e61ebe3203feb6fe8922303627d39aa6929ea0970e7fc7910c78"
+    },
+    {
       "path": "crates/kirin_measure/src/spectrum_exchange_pre.rs",
       "status": "modified",
       "bytes": 15824,
@@ -282,20 +324,20 @@
     {
       "path": "docs/hypha_invariants.md",
       "status": "modified",
-      "bytes": 155979,
-      "sha256": "a4a36206cc47f666802ea01e6e4a7a6ed7e0042ae88d6174732a60390146e1a6"
+      "bytes": 157674,
+      "sha256": "84b8b0da4368e11ccc0d26e0dc9c421a1001fc2caa4d009d8dc161e9c38d3452"
     },
     {
       "path": "docs/hypha_meter_product_contract_20260831.md",
       "status": "modified",
-      "bytes": 56701,
-      "sha256": "b804d1a7ed3ebaac56abdaca3d40a76489e13e3e5e8ef0b7459f44e2c45389d7"
+      "bytes": 57890,
+      "sha256": "f519b125fe51d20ebd8154b1fe6aa405cb3bc8fa38d27ece54f7e44d404898b6"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
       "status": "added",
-      "bytes": 43159,
-      "sha256": "8df33e5812397ef334e3706b19a8b9204bb0ba340eccd386869cd553ab31c9f7"
+      "bytes": 45743,
+      "sha256": "ca2c0576c64e346e78377721a52c4b192ce2c872e949198c8045048a862c451e"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png",
@@ -308,6 +350,12 @@
       "status": "added",
       "bytes": 112605,
       "sha256": "8df7450ac20c24d081db6a31e74c0df425fcd7d92f1b0e9243b2206ebc646246"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/performance_audit.md",
+      "status": "added",
+      "bytes": 16772,
+      "sha256": "1bd0b56465e440682f415f82c3efbb595b5d1e0d0b3b15c69cfd56ffb9667e2c"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/time-375-ja.png",
@@ -336,8 +384,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
       "status": "modified",
-      "bytes": 77997,
-      "sha256": "c7b1cbfff5bf29cf19e88f1a826e73fb5e7c45a92abcd4a7a2af9d3c8fdbab97"
+      "bytes": 78833,
+      "sha256": "5dee41dd77b21cf97e241bb678fa95b84e5fc1f39e713f22a77464ce0b5f5988"
     },
     {
       "path": "docs/provenance/asset_distribution_registry.json",
@@ -616,6 +664,12 @@
       "sha256": "9433fd2b6cd1986483eaf75debd1135a01c84582bc4931ce7a6ac2050e758516"
     },
     {
+      "path": "juce_shell/src/HyphaObservatoryWorld.cpp",
+      "status": "modified",
+      "bytes": 20241,
+      "sha256": "a793a85551bf102591deb0d08aef821514e737ce2a9b09a0caa194d8cb405482"
+    },
+    {
       "path": "juce_shell/src/HyphaSessionCoverage.cpp",
       "status": "added",
       "bytes": 3460,
@@ -796,6 +850,12 @@
       "sha256": "59fcdff873e5cad38ecec17fe2409c6ebe292360a1c77df9df353e2febd7e02c"
     },
     {
+      "path": "juce_shell/tests/ObservatoryDomainBedContract.h",
+      "status": "modified",
+      "bytes": 4289,
+      "sha256": "02174c9b357b516f74047bfc420a9873b476aa2f1e1170e6d2410b1e53b5fc6a"
+    },
+    {
       "path": "juce_shell/tests/SessionCoverageContractTest.cpp",
       "status": "added",
       "bytes": 13376,
@@ -871,7 +931,7 @@
       "path": "scripts/source_line_budget.tsv",
       "status": "modified",
       "bytes": 1298,
-      "sha256": "95ca5208d94f2745b7b751da22580da5d62aead39684a25a4cdf468afc0fa63f"
+      "sha256": "f6291b99d1b7fea0647d67cb3f819690854951d8761d7d7792e3da35e482b2f2"
     },
     {
       "path": "scripts/test_release_source.sh",

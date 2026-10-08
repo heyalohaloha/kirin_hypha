@@ -345,13 +345,17 @@ POST位置clampと長遅延の組合せは継続認定しない。host／format�
 
 ## G2 DRUM／PSRの接続契約（2026年10月8日）
 
+- Record中間表示は同じnative-rate入力・処理済みprefixのexact cached I／LRAを使い、毎小blockでの全履歴走査を避ける。Max TPは同じEBU engineから読む。Stopのtight-drainと保存は従来のcanonical `finalize()`を維持する。`intermediate_record_summary_matches_native_canonical_at_every_drain`、`record_summary_reset_drops_previous_values_and_cache_history`と既存ignored parity／pairingで確認する。
+| INV-G2-RJSON | RecordのJSONはchecksum-empty canonical bytesを同じHMACで署名し、正規最終bytes／field順序／schemaを保持する。IO writerのserializeは一回とし、未知形は旧経路へ戻る。encode失敗／unwindはchecksumを復元し、write／rename失敗は既存targetを保持する | `single_serialization_preserves_canonical_bytes_and_escaped_optional_text` / `single_serialization_preserves_large_native_trace_and_psb_payloads` / `failed_serialization_and_unwinding_restore_the_previous_checksum` / `unsupported_final_shape_uses_the_canonical_fallback` / `failed_fallback_serialization_restores_the_previous_checksum` / `failed_atomic_write_preserves_the_existing_target_and_checksum_contract` / `failed_atomic_rename_keeps_the_destination_and_complete_temporary_bytes` |
+| INV-G2-MATERIAL | FREQ／SPACE／Reference背景のcache keyは描画に使わないdirectionを除き、Referenceでは使わないenergyも除く。LEVEL／TIMEのdirection、使用energyとactive／capture／density／寸法／DPIの失効は保持する。観測値・描画内容・周期を変更しない | `verifyObservatoryDomainBedContract` / `domain_bed_key_contract::verify` |
+
 - PSRは補助情報としてlegendと同じ固定font・通常weight・secondary色を使い、M／S／TPより大きく強調しない。targetと一桁小数の値は維持し、主面の計算式は説明入口へ移す（2026-10-08利用者決定）。
 
 - BAND LIVEはcutoff時点の6秒内の直近最大8検出打音を固定する。exact／interval／N/A／unknown／pendingの合計はcohort件数と等しく、欠測の代わりに古い打音を補充しない。全体中央値・区間と確定部分中央値・件数・ageを区別する。値、平均包絡の実測mask・参加集合・断線、理由を同じtyped stampから描く。ALLとLOCKは単打snapshotを使い、終端済みの同event結果を書き換えない。
 - PSRはselected pairで自動Δ、mainのPOST／Δとは独立したtarget・cutoff・proofを持つ。source・proofが同じmainボタン切替はmainだけを空にし、PSRの値・履歴・元の完了期限を保持する。source・range・domain変更の退役条件は維持する。PLR／CORRはmainに従う。LEVELのSession集計は最新処理済みscope、TIME PLRは完全100ms point時点の処理済みprefixを使い、後続pendingを含むと称さない。TIMEはnative10 Hzで一括採用し、currentの400 ms期限は元slot完了起点。再poll／同endpoint再join、BUSY、UI停止で延長しない。確定invalid／source失効は影響componentを退役し、POST単体を比較待ちへ巻き込まない。
 - DRUM取得30 Hz、BANDまとめ250 ms、ALL／LOCK取得中はnative周期。display viewportとfacts cutoffは別で、移動時計をpublicationごとに再anchorしない。150 ms look-behind／250 ms鮮度は暫定development値で、G3実DAW校正を要する。HOLDとLOCKは別状態である。
 - PREの別request ATTACK fileは28-byte headerでidentityを確認し、別requestのbodyを繰返し読取・decodeしない。V2 Δの7,863,480-byte保持領域はgeneration ticketを取得後、Δ mutex外で確保し、reset競合では古いticketを採用しない。
-- opt-in Session exact summary cacheはI／LRA合計65,536 distinct nodesまで。上限超過で補助木を解放しcanonical exactへ戻る。丸め曖昧gateと上限後のunchanged-history結果は再利用するが、履歴更新後の初回fallback costは長さに依存する。canonical Recordとgating履歴を間引かない。
+- SessionとRecord中間表示のopt-in exact summary cacheはengineごとにI／LRA合計65,536 distinct nodesまで。上限超過で補助木を解放しcanonical exactへ戻る。丸め曖昧gateと上限後のunchanged-history結果は再利用するが、履歴更新後の初回fallback costは長さに依存する。canonical Recordとgating履歴を間引かない。
 - Capture v1がtyped意味を保持できない添付は明示unsupportedとし、同じ凍結presentationのローカルPNGを案内する。metadataを捨てて添付成功とはしない。
 
 Hybrid VUの校正（2026-10-08利用者承認）: `0 VU = −18 dBFS`は−12／−14／−16／−18／−20（既定−18）の選択入口となる。左右共通、exact project＋PRE instanceでPRE／POST共有、unpairedは自身のscope。永続正本はuser設定領域のscope hash別file、明示操作だけのatomic保存とmessage threadの250 ms読取とする。初期値は−18。identityの一時取得不能では採用済み基準を保持し選択不可、新しいscopeの取得成功後にそのfileの値を採用する。file不在／破損／未知値は−18。失敗は旧値を保持し通知、DAW restoreは共有値を上書きしない。計測されたVU dBFS、300 msの応答、TP／LUFS／clip／Session、通常A経路とRecordを書き換えない。合法64-byte identityは専用additive getterで完全に取得し、旧63-byte DTOの切詰めを共有scopeに使わない。`verifyHybridVuContract`と校正契約fixtureで確認する。

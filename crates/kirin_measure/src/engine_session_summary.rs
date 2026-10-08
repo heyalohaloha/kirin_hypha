@@ -1,4 +1,4 @@
-//! Session-only exact summary access and provenance; canonical Record finalization is separate.
+//! Exact Meter Session and intermediate Record summaries; final Record sealing stays canonical.
 use super::*;
 
 impl MeasureEngine {

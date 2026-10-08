@@ -220,7 +220,7 @@ pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
 ///   Watch→Record 遷移時は engine.reset() を明示実行してセッション開始時点で
 ///   ebur128 内部状態をクリアする。Record 中は SS-8 reset をスキップすることで
 ///   transport 停止/再開を跨いだ LUFS-I / LRA の通算性を確保する。
-/// - `session_summary` : Record 中の各ループで `engine.finalize()` の最新値を
+/// - `session_summary` : Record 中は exact cached 集計、終了 drain は canonical 集計を
 ///   注入する共有スロット。IO Thread が Record→Watch 遷移時に読み出して
 ///   `PluginDataWriter::set_session_aggregates()` 経由で JSON に焼き込む。
 #[allow(clippy::too_many_arguments)]
