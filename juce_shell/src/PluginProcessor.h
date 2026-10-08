@@ -34,6 +34,7 @@
 #include "reference_audition/ReferenceLiveALevel.h"
 #include "update/UpdateServiceOwner.h"
 
+namespace hypha::snapshots { class Source; }
 class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt fixture only
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
@@ -363,6 +364,7 @@ public:
 
 private:
     hypha::update::ServiceOwner updateServiceOwner;
+    friend class hypha::snapshots::Source;
     friend class LiveTimingFixtureAccess; // no runtime method or product policy override
     hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)

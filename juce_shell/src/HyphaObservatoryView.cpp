@@ -155,6 +155,7 @@ void View::setDomain (Domain value)
         value = Domain::level;
     if (selectedDomain == value)
         return;
+    retireTimePresentation (true);
     selectedDomain = value;
     levelInspection.clear();
     levelHistoryPointer.reset();
@@ -169,6 +170,7 @@ void View::setTimeRange (TimeRange value)
 {
     if (timeRange == value)
         return;
+    retireTimePresentation (true);
     timeRange = value;
     history.clear();
     runSummary = {};
@@ -182,6 +184,8 @@ void View::setTarget (ObservationTarget value)
 {
     if (! targetAllowed (role, value) || selectedTarget == value)
         return;
+    timePresentation.selectMainTarget (static_cast<std::uint8_t> (value == ObservationTarget::delta ? KIRIN_TIME_DELTA
+        : role == Role::pre ? KIRIN_TIME_PRE : KIRIN_TIME_POST));
     selectedTarget = value;
     levelInspection.clear();
     history.clear();

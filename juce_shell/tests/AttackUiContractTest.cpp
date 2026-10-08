@@ -16,6 +16,7 @@
 #include "AttackUiFrameBudget.h"
 #include "AttackUiShowcase.h"
 #include "PolylineGeometryContractTest.h"
+#include "AttackV2PresentationContractTest.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -198,6 +199,7 @@ int main()
     KIRIN_REQUIRE (verifyChromeCache());
     KIRIN_REQUIRE (verifyFrameGeometry());
     hypha::tests::verifyPolylineGeometryContract();
+    KIRIN_REQUIRE (verifyAttackV2PresentationContract());
     KIRIN_REQUIRE (verifyRedrawContract (events, waveform, details, pairEvents, stats));
     const auto image = renderAttack (component);
     KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_PREVIEW_PATH", image));

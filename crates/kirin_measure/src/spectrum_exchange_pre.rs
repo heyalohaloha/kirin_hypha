@@ -362,8 +362,9 @@ impl SpectrumCoordinator {
             current.last_write_attempt_at = None;
         }
         // A newer/foreign request's publication is never owned by this invalidated session.
-        if read_attack_snapshot(instance_dir)
-            .is_some_and(|snapshot| snapshot.request_id == request_id)
+        if super::attack_codec::read_attack_snapshot_request_id(instance_dir) == Some(request_id)
+            && read_attack_snapshot(instance_dir)
+                .is_some_and(|snapshot| snapshot.request_id == request_id)
         {
             remove_attack_snapshot(instance_dir);
         }

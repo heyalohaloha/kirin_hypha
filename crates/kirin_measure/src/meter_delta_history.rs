@@ -29,6 +29,8 @@ mod chain_join;
 mod content_wire;
 #[path = "time_exchange_access.rs"]
 mod time_access;
+#[path = "meter_time_retention.rs"]
+mod time_retention;
 use content_wire::ContentWirePoint;
 #[path = "meter_history_wire.rs"]
 mod wire;
@@ -242,6 +244,7 @@ impl MeterDeltaHistoryExchange {
             })
             .collect();
         drop(session);
+        let mut prepared_time_history = self.prepare_time_history(publication.time.as_ref());
         let mut delta = lock_recover(&self.delta);
         if target
             .post_binding
@@ -271,7 +274,7 @@ impl MeterDeltaHistoryExchange {
         // Keep the old poll's exact join and lifetime independent of V2 TIME authority.
         delta.ingest(&publication.points, &local, self.sample_rate);
         if publication.time.is_some() {
-            delta.ingest_time(publication.time.as_ref(), &raw);
+            delta.ingest_time(publication.time.as_ref(), &raw, &mut prepared_time_history);
         } else {
             delta.time.fail(TimeComparisonReason::Incompatible);
         }

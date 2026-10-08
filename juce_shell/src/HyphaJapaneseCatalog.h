@@ -27,6 +27,8 @@ struct Section
 
 // One section per surface, each in its own source file so it stays small enough to review.
 Section observatorySection() noexcept;
+Section timeSnapshotSection() noexcept;
+Section drumSnapshotSection() noexcept;
 Section analysisSection() noexcept;
 Section menuSection() noexcept;
 Section referenceSection() noexcept;
@@ -40,7 +42,7 @@ Section updateSection() noexcept;
 
 inline std::vector<Section> sections()
 {
-    return { observatorySection(), analysisSection(), menuSection(), referenceSection(),
+    return { observatorySection(), timeSnapshotSection(), drumSnapshotSection(), analysisSection(), menuSection(), referenceSection(),
              referenceGuideSection(), referenceAbcvSection(), blindSection(), informationSection(),
              noticeSection(), helpLineSection(), updateSection() };
 }

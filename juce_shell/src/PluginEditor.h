@@ -95,6 +95,9 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void refreshTimeSnapshot();
+    double nextTimeSnapshotMs = 0.0;
+    void saveFrozenObservatoryCapture (hypha::capture::Snapshot);
     void applyPresentationContext();
     // Beyond 300% the Observatory is the Inspection View magnified; its children lay out at the
     // logical 900 x 600, so they take their presentation from the viewport, not the window.
@@ -128,6 +131,8 @@ private:
     bool externalAnalysisBodyShowing() const noexcept;
     void updateAnalysisBodyPresentation();
     void syncAnalysisDemand();
+    void refreshDrumSnapshots (bool liveInput);
+    double nextDrumSummaryMs = 0.0;
     void configureSpectrumCallbacks();
     void updateTimePageNavigation();
     void cycleSpectrumSize();

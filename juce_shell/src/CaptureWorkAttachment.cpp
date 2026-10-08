@@ -145,6 +145,8 @@ WorkAttachmentSubmit WorkAttachmentController::submit (
 {
     if (! validReference (expectedWork))
         return WorkAttachmentSubmit::invalidReference;
+    if (! descriptor.v1MeaningPreserved)
+        return WorkAttachmentSubmit::unsupportedPresentation;
     if (! descriptor.valid() || pngBytes.getSize() < 32
         || pngBytes.getSize() > maximumCaptureBytes || root.getFullPathName().isEmpty())
         return WorkAttachmentSubmit::invalidCapture;

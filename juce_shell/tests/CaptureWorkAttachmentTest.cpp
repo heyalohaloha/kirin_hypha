@@ -1,6 +1,8 @@
 #include "../src/CaptureWorkAttachment.h"
+#include "../src/HyphaCapturePngFile.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <regex>
 
@@ -108,6 +110,44 @@ int main()
     require (root.createDirectory().wasOk(), "create isolated transport root");
 
     {
+        const auto images = root.getChildFile ("local-png");
+        require (images.createDirectory().wasOk(), "create isolated local PNG destination");
+        const auto output = images.getChildFile ("capture.png");
+        for (const auto size : { 8, 3, 12 })
+        {
+            juce::Image image (juce::Image::ARGB, size, size, true);
+            const auto colour = size == 3 ? juce::Colours::blue : juce::Colours::red;
+            image.clear (image.getBounds(), colour);
+            require (hypha::capture::saveFrozenPng (image, output), "create or replace one complete local PNG");
+            juce::MemoryOutputStream expected;
+            require (juce::PNGImageFormat().writeImageToStream (image, expected), "encode the immutable fixture");
+            juce::MemoryBlock actual;
+            require (output.loadFileAsData (actual) && actual.getSize() == expected.getDataSize()
+                     && std::memcmp (actual.getData(), expected.getData(), actual.getSize()) == 0,
+                     "replacement contains exactly the new PNG, without the old image or trailing bytes");
+            const auto decoded = juce::ImageFileFormat::loadFrom (output);
+            require (decoded.getWidth() == size && decoded.getHeight() == size
+                     && decoded.getPixelAt (0, 0) == colour,
+                     "opening the replacement shows the newly frozen pixels");
+        }
+        juce::MemoryBlock retained;
+        require (output.loadFileAsData (retained), "retain previous valid PNG");
+        require (! hypha::capture::saveFrozenPng ({}, output), "invalid image reports failure");
+        juce::MemoryBlock unchanged;
+        require (output.loadFileAsData (unchanged) && unchanged == retained,
+                 "failed image preparation preserves the previous PNG");
+        const auto blocked = images.getChildFile ("blocked-parent");
+        require (blocked.replaceWithText ("preserve"), "create file blocking the destination directory");
+        juce::Image image (juce::Image::ARGB, 3, 3, true);
+        require (! hypha::capture::saveFrozenPng (image, blocked.getChildFile ("capture.png"))
+                 && blocked.loadFileAsString() == "preserve"
+                 && ! hypha::capture::saveFrozenPng (image, images),
+                 "unwritable or directory destination fails without changing existing content");
+        require (images.findChildFiles (juce::File::findFiles, false).size() == 2,
+                 "successful and failed saves leave no temporary siblings");
+    }
+
+    {
         const auto requests = root.getChildFile ("atomic-publication-control");
         require (requests.createDirectory().wasOk(), "create atomic publication control");
         const auto target = requests.getChildFile (juce::Uuid().toDashedString() + ".json");
@@ -124,6 +164,18 @@ int main()
     {
         hypha::capture::WorkAttachmentController controller (root);
         const auto work = postWork();
+        auto typed = descriptor();
+        typed.domain = "time";
+        typed.v1MeaningPreserved = false;
+        const auto frozenPng = captureBytes();
+        const auto retained = frozenPng;
+        require (controller.submit (work, frozenPng, typed)
+                    == hypha::capture::WorkAttachmentSubmit::unsupportedPresentation,
+                 "v1 explicitly rejects independent targets/cutoffs instead of dropping meaning");
+        require (! root.getChildFile ("requests").exists()
+                 && ! root.getChildFile ("artifacts").exists()
+                 && frozenPng == retained && ! controller.takeResult().terminal(),
+                 "unsupported attachment writes nothing and preserves the immutable local PNG");
         require (controller.submit (work, captureBytes(), descriptor())
                     == hypha::capture::WorkAttachmentSubmit::accepted,
                  "accept one explicit POST Work attachment");

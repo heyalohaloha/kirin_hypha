@@ -1,0 +1,775 @@
+{
+  "schema_version": 1,
+  "baseline": {
+    "commit": "eca0b87fd680737c64a8caefea56d2bc82a5c708",
+    "build": "B-1325"
+  },
+  "scope": "Changed and new owned source, tests, documentation, configuration and screenshots relative to the baseline; includes structural preparation changes.",
+  "excluded": [
+    "this manifest",
+    "ignored validation logs and build artifacts",
+    "JUCE patched submodule checkout contents"
+  ],
+  "dependencies": {
+    "juce": {
+      "path": "juce_shell/JUCE",
+      "gitlink_commit": "4f43011b96eb0636104cb3e433894cda98243626",
+      "same_as_baseline": true,
+      "tracked_patches": [
+        {
+          "path": "juce_shell/patches/0001-macos15-sdk-cgwindowlistcreateimage-bypass.patch",
+          "bytes": 2609,
+          "sha256": "dc34669c1e517c34d5447dfd532904d28b56c009d3b3111a80e6f1675d19391c"
+        },
+        {
+          "path": "juce_shell/patches/0002-drop-webkit-osxframework-from-juce-gui-extra.patch",
+          "bytes": 481,
+          "sha256": "2c3aabd59660274cf1fc6aa96ea70ad53297a366d9cfa5f75ebf6c1bc11e9596"
+        },
+        {
+          "path": "juce_shell/patches/0003-au-preferred-channel-layout-tags-for-logic-mono.patch",
+          "bytes": 2378,
+          "sha256": "806c8a7e047595b1fe707ea4b8ff9a7c4ccb9681502a3d6a56c37e61bc3d6a79"
+        },
+        {
+          "path": "juce_shell/patches/0004-au-clock-provenance.patch",
+          "bytes": 5235,
+          "sha256": "25ba037ad4158d67f586c9cc21b43ebf5255d8eced2d142ba04b337bd01d5fd4"
+        },
+        {
+          "path": "juce_shell/patches/0005-host-presentation-clock.patch",
+          "bytes": 9605,
+          "sha256": "6d98c824093cbc5924c10c2cf0c0b554648d7449214c758103cee94422aff08b"
+        },
+        {
+          "path": "juce_shell/patches/0006-vst3-component-id-continuity.patch",
+          "bytes": 1138,
+          "sha256": "2bfdf7d1741571b1fd1f07ac473aaf28ddf84f03dcee99fb431848d0ddc90773"
+        },
+        {
+          "path": "juce_shell/patches/0007-vst3-host-component-activation.patch",
+          "bytes": 1215,
+          "sha256": "d632f217087a003c62db3c661f529bf7e72db286cbb956cfd0606e6bba6ec97e"
+        },
+        {
+          "path": "juce_shell/patches/0008-raw-auxiliary-sample-clock.patch",
+          "bytes": 3436,
+          "sha256": "8ead27a62ce6a90e4f02769004aee169c0dd77785da6b7b12c5fd1d301332d7c"
+        },
+        {
+          "path": "juce_shell/patches/0009-aax-delay-compensation-state.patch",
+          "bytes": 1373,
+          "sha256": "985f9a1f85355b70a3e21e5d46ba6b47f48f7d8d246c7fd15963b555305920e1"
+        },
+        {
+          "path": "juce_shell/patches/0010-aax-instance-group.patch",
+          "bytes": 1168,
+          "sha256": "5253f0469661c75aa3d6318beeac237bd0ce30af58c3bcfb95cd932c303ba8e5"
+        },
+        {
+          "path": "juce_shell/patches/0011-aax-engine-clock.patch",
+          "bytes": 3217,
+          "sha256": "efa8ccbfb1e6747f122e7d4f6e3e67a26d79b397cb1975b72226eb5c9305a2af"
+        },
+        {
+          "path": "juce_shell/patches/0012-au-studio-one-window-relayout.patch",
+          "bytes": 2388,
+          "sha256": "c3db6d224d19502def87215e8af534acc0592c3085788f5b41481626b8b047cb"
+        }
+      ]
+    }
+  },
+  "file_count": 115,
+  "files": [
+    {
+      "path": "README.md",
+      "status": "modified",
+      "bytes": 92279,
+      "sha256": "c5eae4a6986f6b2d780cc5a876da1c84bc8bcde9942767a2209887fddb4b688e"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/include/kirin_hypha_navigation_snapshot_ffi.h",
+      "status": "added",
+      "bytes": 1734,
+      "sha256": "97b4830c8d553d7957895484cfe16ddda53334b79838fcb00736cf6614809596"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/include/kirin_hypha_time_snapshot_ffi.h",
+      "status": "modified",
+      "bytes": 3896,
+      "sha256": "5051a616f622f5d59c00bbd0620c222739abcf5794cbe8a49f7a80daa010d221"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/attack_ffi.rs",
+      "status": "modified",
+      "bytes": 13250,
+      "sha256": "47dbf6a168d2a93b3ae827c78f8700c2ae3fa88f91f793dd6d7a4d98b2f6c6b4"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/attack_navigation_v2.rs",
+      "status": "added",
+      "bytes": 11928,
+      "sha256": "c95696e31c5bd7a34daefa2bc94b9afb02b1b7442ab1c2fdd1ed3eb0dd765def"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/attack_navigation_v2_tests.rs",
+      "status": "added",
+      "bytes": 12600,
+      "sha256": "09daf30f8ce0ae23f7a2689d6ab470a346ae2155622f1ac4fad59760df65279e"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/meter_observation_ffi.rs",
+      "status": "modified",
+      "bytes": 13212,
+      "sha256": "b9153991084a90a418528fc895d1bab78b34f2ef12598de745ca160f5e4f645c"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/meter_session_v2.rs",
+      "status": "added",
+      "bytes": 2232,
+      "sha256": "fd1de248a4f1ef7594ca8eb67ca63c06a840d886943764508eafd26c5966e893"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/meter_session_v2_tests.rs",
+      "status": "added",
+      "bytes": 1888,
+      "sha256": "1cef4517a1d6b9acd11b02aad2b92cd93ca88fbe3e5b51e88fb05692df38896c"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/tests/juce_delta_mode_wiring.rs",
+      "status": "modified",
+      "bytes": 5455,
+      "sha256": "292f73594a0d4c9401ba3de17f8225c60c042764d5898aef3a5220811ce16618"
+    },
+    {
+      "path": "crates/kirin_measure/src/analysis_exchange_prefix_tests.rs",
+      "status": "added",
+      "bytes": 2662,
+      "sha256": "f8fdc9292c0c74cac6d65a6707fa9ac2af17c649146dcf0c92fb3ea62112323f"
+    },
+    {
+      "path": "crates/kirin_measure/src/analysis_exchange_transport.rs",
+      "status": "modified",
+      "bytes": 3057,
+      "sha256": "a76274b1a8aaee8af4d87f111d5f693aa3423d3a44e4f42abf505a7b5b8e34c2"
+    },
+    {
+      "path": "crates/kirin_measure/src/analysis_exchange_windows.rs",
+      "status": "modified",
+      "bytes": 12013,
+      "sha256": "82761c7bb6ec98625030c844df72e8c5bc879b4d5ea6685b1f8386fb46c19e0e"
+    },
+    {
+      "path": "crates/kirin_measure/src/attack_exchange_codec.rs",
+      "status": "modified",
+      "bytes": 16795,
+      "sha256": "4c6c7e66fbc687084020a5376316b7262294f48da40035359628c5360f3922af"
+    },
+    {
+      "path": "crates/kirin_measure/src/attack_navigation_snapshot_tests.rs",
+      "status": "added",
+      "bytes": 2470,
+      "sha256": "e45cebbc80bf2a4ed61715b9519851dbdae9e60eae4ed6db78d531c6e8ab4c96"
+    },
+    {
+      "path": "crates/kirin_measure/src/attack_observation_worker.rs",
+      "status": "modified",
+      "bytes": 8521,
+      "sha256": "e7d7d612d70bc42e1166e121640df486a46aeca51b095fc6eb23bab18d5f0bf7"
+    },
+    {
+      "path": "crates/kirin_measure/src/engine.rs",
+      "status": "modified",
+      "bytes": 22800,
+      "sha256": "d94e909d77a8d9c81a2e2bd5171e6e517cd3af1e373ed512bf001ddb39630cb3"
+    },
+    {
+      "path": "crates/kirin_measure/src/engine_session_summary.rs",
+      "status": "added",
+      "bytes": 1162,
+      "sha256": "1f06c437ffcc84ade4d563907fe5207d7f6332c6789e4c7e8f399d34fad1596e"
+    },
+    {
+      "path": "crates/kirin_measure/src/lib.rs",
+      "status": "modified",
+      "bytes": 37779,
+      "sha256": "875adb443a66c37b680d021d3adfb5b030c128507c2222d0923612ce4f0f2736"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_delta_history.rs",
+      "status": "modified",
+      "bytes": 13529,
+      "sha256": "8c08d3ad8c10f19a64bd27a102ea3953daeebed6f712c15bac78463dec52d61b"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_pair_observation.rs",
+      "status": "modified",
+      "bytes": 8644,
+      "sha256": "158536649df7204489527d39044e40dfe8aecdcf78ae8437594d5119c4dcb546"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_session.rs",
+      "status": "modified",
+      "bytes": 16970,
+      "sha256": "c8ec4e73d9b97f04b01c34e90672cea0488450a3c61bb1806820e9ddd11ccb8b"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_session_coverage.rs",
+      "status": "added",
+      "bytes": 1573,
+      "sha256": "d2267e32a3defb6ea4f086b3ecc77738ee264be3aec1ca686c7cfb5c04addc0c"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_session_coverage_tests.rs",
+      "status": "added",
+      "bytes": 5856,
+      "sha256": "8bf27dfd63af69304040533559ea36316a28e460822bddc7e1aa099ea9da55de"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_session_public.rs",
+      "status": "added",
+      "bytes": 217,
+      "sha256": "a4e3c97aeeb4f071fcf58a4bbadbf55ee1172dbc38a38660724735a5b95cdcca"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_time_retention.rs",
+      "status": "added",
+      "bytes": 886,
+      "sha256": "25220e5ff79530e2dcbfefdec984caee90b13d4f455281d720cf0278911def45"
+    },
+    {
+      "path": "crates/kirin_measure/src/meter_time_retention_tests.rs",
+      "status": "added",
+      "bytes": 2244,
+      "sha256": "703b2015f090d02117476bab8dc5106504a41b87443c3a72c4211c72cc6e3f8b"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_exchange_pre.rs",
+      "status": "modified",
+      "bytes": 15824,
+      "sha256": "f6dfb97ef509d29744071f9b536bfe119376c81c31bfe69a51bdbd7bd4d11c30"
+    },
+    {
+      "path": "docs/hypha_invariants.md",
+      "status": "modified",
+      "bytes": 154995,
+      "sha256": "0e8a0a2ac44e7bd7df2a25bb629bfec24369022971c7517afc307cd4e17c5084"
+    },
+    {
+      "path": "docs/hypha_meter_product_contract_20260831.md",
+      "status": "modified",
+      "bytes": 54999,
+      "sha256": "c38e212ecef27bf0bccf4d5d5ee7874ae16366ff9603d9f86672f1bca5c4773c"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
+      "status": "added",
+      "bytes": 32726,
+      "sha256": "1f98bad2a413aff6937284e4a84be4150b6b977b4912a9e70de151404c33c952"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png",
+      "status": "added",
+      "bytes": 117541,
+      "sha256": "7178cb4f6da6d3646dfe2aa8a7895192efd26fafb667109112b89a9d2e8a7873"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png",
+      "status": "added",
+      "bytes": 112605,
+      "sha256": "8df7450ac20c24d081db6a31e74c0df425fcd7d92f1b0e9243b2206ebc646246"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/time-375-ja.png",
+      "status": "added",
+      "bytes": 44150,
+      "sha256": "5bd342ba5a32f3794fb7887281899379ef4fbdff46158dc189ed9cdc544cf19a"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png",
+      "status": "added",
+      "bytes": 356790,
+      "sha256": "f90acffd2d668624fcb40d2f229f9805a4ded9a0ab48887c3817d343d5ff8a27"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
+      "status": "modified",
+      "bytes": 77713,
+      "sha256": "9085f924d68f6b70bb92d9c13e9d193ac587ab649f9da0c86faeb94de3fe0939"
+    },
+    {
+      "path": "docs/provenance/asset_distribution_registry.json",
+      "status": "modified",
+      "bytes": 23836,
+      "sha256": "2047c739d845aad667931466762309a8ed1a0fb52951133cb4dc48ae6d931862"
+    },
+    {
+      "path": "docs/provenance/distribution_gate.md",
+      "status": "modified",
+      "bytes": 11162,
+      "sha256": "734234e2429cdb0212d2f3856c695f951629459662c8c0f848b45e500c635ccc"
+    },
+    {
+      "path": "juce_shell/CMakeLists.txt",
+      "status": "modified",
+      "bytes": 52892,
+      "sha256": "da4fc4719057dfa19968f35da25ae399a134a18a674cdbcc00939714b17346af"
+    },
+    {
+      "path": "juce_shell/cmake/HyphaLanguage.cmake",
+      "status": "modified",
+      "bytes": 1304,
+      "sha256": "676d85bc8cabe0f19ce7d06006d525fc7146a19f54843b64526aced7c58add32"
+    },
+    {
+      "path": "juce_shell/cmake/HyphaSnapshotSources.cmake",
+      "status": "added",
+      "bytes": 901,
+      "sha256": "b894f112f83e462ff432aa134a70b599713950cb5eb13e5e3e16b5a676f04a63"
+    },
+    {
+      "path": "juce_shell/src/CaptureWorkAttachment.cpp",
+      "status": "modified",
+      "bytes": 13043,
+      "sha256": "6fc13c0dd922956465dff0a28308647deffdf062f881dbb7a98823a79107b101"
+    },
+    {
+      "path": "juce_shell/src/CaptureWorkAttachment.h",
+      "status": "modified",
+      "bytes": 2166,
+      "sha256": "0eec088b2535434e279bbb447651ca6cce2d602ad9058d6661b7323ccc841c5c"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackBandView.cpp",
+      "status": "modified",
+      "bytes": 15110,
+      "sha256": "8c9513247cb212536f2c66c69f764ad4e3e519ec62fe2765cccc755b31a76f8f"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackComponent.cpp",
+      "status": "modified",
+      "bytes": 19888,
+      "sha256": "7bf4c31ff7b9c812ce4260779db615ede145cfd033b7e57fe997b7d78fa8ac79"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackComponent.h",
+      "status": "modified",
+      "bytes": 13759,
+      "sha256": "36b6894e5c4c605c175f267ea03937591256e1b4a9f8af7ba353ccaea6a3d1e0"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackInteraction.cpp",
+      "status": "modified",
+      "bytes": 10731,
+      "sha256": "ae8ba39f3e3c663ea18a23668c1736a1b505156dbee9736696ed2908a9e082bc"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Adapter.cpp",
+      "status": "added",
+      "bytes": 12849,
+      "sha256": "c36cfbec52abf5d116d84b2c1a37bc4e6624f5585b963ef84a6e5d6013e59b5b"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Clock.h",
+      "status": "added",
+      "bytes": 2461,
+      "sha256": "3843469a9d31e19170fcc3ac98a8a2f917dc7610767de5911756c3c892d57241"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Component.cpp",
+      "status": "added",
+      "bytes": 9346,
+      "sha256": "513aaecdd67a5316e377848a3112541a3d1d5bfcb73c77c3555dc83dc242bd2f"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2EnvelopePainter.cpp",
+      "status": "added",
+      "bytes": 6325,
+      "sha256": "bd781405aeb0475f438bbfc6cbfb504260392f3204dcc54984a0347104f140ec"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2EvidencePainter.cpp",
+      "status": "added",
+      "bytes": 5414,
+      "sha256": "a5dd5e69d2f27d517f206e05cb1fb36032710f7190055581d619ff152a25a2b4"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Formatter.cpp",
+      "status": "added",
+      "bytes": 6443,
+      "sha256": "868a5ccd49bbd35ab3632910f7953b6792db17eb9e4f4260593abcb4b1b7fe87"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Formatter.h",
+      "status": "added",
+      "bytes": 810,
+      "sha256": "8c56aeffde926e97e79e21beb8cbdd2e3e26ce192f9cea2f0d22ae86da9e06ff"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Geometry.h",
+      "status": "added",
+      "bytes": 5158,
+      "sha256": "69da9e1368415cd5f1db757887782c4b65aae09ea32251f778431fbec78cf881"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Model.h",
+      "status": "added",
+      "bytes": 1955,
+      "sha256": "46b420708f7378bf2ed14db988a3a6f342860d895ddb4ed74b3086d326a12db9"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Painter.cpp",
+      "status": "added",
+      "bytes": 14053,
+      "sha256": "c7ac58fdd3596b4dd7fc31a954987a7dc6100fa71cd5717541dd2986403d2386"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Painter.h",
+      "status": "added",
+      "bytes": 603,
+      "sha256": "07fc97f5a415a453c498093fca894ee026c0c5caf4cdfceee3c4f2dbf75d4f25"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Presentation.cpp",
+      "status": "added",
+      "bytes": 9543,
+      "sha256": "e52f253a9cdc85af3ebba0dcfdf0d3fe400b9aaa6f0e0ab6c3563dc65f4c7698"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Presentation.h",
+      "status": "added",
+      "bytes": 2104,
+      "sha256": "9e92c2e326c2d10bf306a112a28cb52a4a5f5854dd9ffe678bd9da2ed01f0580"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackV2Selection.h",
+      "status": "added",
+      "bytes": 3801,
+      "sha256": "efb798a71892b74cde493b875001b0b2ff63bb047bf96ee57f460347e26f3aad"
+    },
+    {
+      "path": "juce_shell/src/HyphaCaptureContract.h",
+      "status": "modified",
+      "bytes": 3408,
+      "sha256": "9d4e7ffeabe083f46079fd7cb0a09f5a0987b2707f217468932e69fb96f33598"
+    },
+    {
+      "path": "juce_shell/src/HyphaCapturePngFile.h",
+      "status": "added",
+      "bytes": 1086,
+      "sha256": "90aec0e2687f079d883a7267b16e0d7c2ac127f4105e35b4a2675f3365319aad"
+    },
+    {
+      "path": "juce_shell/src/HyphaHistoryInspection.h",
+      "status": "modified",
+      "bytes": 10059,
+      "sha256": "c717055e7599416418cf6343c8483c51de17d3259c41a432f14ba6a23a209daa"
+    },
+    {
+      "path": "juce_shell/src/HyphaJapaneseCatalog.h",
+      "status": "modified",
+      "bytes": 1681,
+      "sha256": "bbec61c5266bd857bf069279c9a3d1d5552cde1d74f25baddc98d248b4adcf2d"
+    },
+    {
+      "path": "juce_shell/src/HyphaJapaneseDrumSnapshot.cpp",
+      "status": "added",
+      "bytes": 2214,
+      "sha256": "ac27022c46e8231085a4633aabd5007fd203809cf75ac62ec2e5f5383f78d814"
+    },
+    {
+      "path": "juce_shell/src/HyphaJapaneseTimeSnapshot.cpp",
+      "status": "added",
+      "bytes": 3325,
+      "sha256": "5aa161f470a030122b252fd59263bea8ce3449a5b11ebf5dbdb9f1010e25446d"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryButton.cpp",
+      "status": "modified",
+      "bytes": 3085,
+      "sha256": "838220781b277d3335c50a9c4866733b2212372a4107249ec6565651c517ba76"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryButton.h",
+      "status": "added",
+      "bytes": 1457,
+      "sha256": "6a54b94f88fd57da1481f14be3409a219ae0c37570b90f79a5074a00b67c9345"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryCapture.cpp",
+      "status": "modified",
+      "bytes": 4782,
+      "sha256": "eb0cfe49a464fc54aa68d6b6f97c67b1e8e5476fb9acbcfd30f5d7b9d973d355"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryFrame.cpp",
+      "status": "modified",
+      "bytes": 12339,
+      "sha256": "bb8ca99727f5b96c370b27723a243aae3d6e0f114367d232a025a73d923be9c6"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryHistoryInteraction.cpp",
+      "status": "modified",
+      "bytes": 12240,
+      "sha256": "e277ea0677354467f8b52b2ed579e7d871426f3a2ebd12b342829579977913df"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryMetrics.cpp",
+      "status": "modified",
+      "bytes": 23984,
+      "sha256": "ddf90550cc26505967a3c2ba3f58a03cdadbfb3c1c46ef193ac140825a755f28"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryView.cpp",
+      "status": "modified",
+      "bytes": 21272,
+      "sha256": "02f7f241882f1e436ae1bf7db257b445668b6a0a79fa4aa120dbeb4d91b0ac3c"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryView.h",
+      "status": "modified",
+      "bytes": 23486,
+      "sha256": "0986aab77c6527b81a321c7e9853818da940caafeb38c3d89cce717f12ce9c74"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryViewFooter.cpp",
+      "status": "modified",
+      "bytes": 11956,
+      "sha256": "88e1d3b13fb17fe2639ea027f7d499c33e657366ea64a2c8cb8fa65ba530a227"
+    },
+    {
+      "path": "juce_shell/src/HyphaObservatoryViewState.cpp",
+      "status": "modified",
+      "bytes": 4627,
+      "sha256": "4ae52e5a1d0584cea13d3358aefbff082522d832a3a692f45d7f68a11845e756"
+    },
+    {
+      "path": "juce_shell/src/HyphaSessionCoverage.cpp",
+      "status": "added",
+      "bytes": 3460,
+      "sha256": "97726346235de7cb211cdf5f59a12c0906aed3eb7196081bbc4591e6ac0df5b7"
+    },
+    {
+      "path": "juce_shell/src/HyphaSnapshotSource.cpp",
+      "status": "added",
+      "bytes": 3423,
+      "sha256": "6aacadc17ab159e22de9e0240a97c21f188c62b1c8249340974d55eff4e602e1"
+    },
+    {
+      "path": "juce_shell/src/HyphaSnapshotSource.h",
+      "status": "added",
+      "bytes": 1156,
+      "sha256": "f0dec395d1d9d523288f1da9df85f715694ef158d8736234d79a0bbd71e2095d"
+    },
+    {
+      "path": "juce_shell/src/HyphaTimeSnapshotPainter.cpp",
+      "status": "added",
+      "bytes": 16114,
+      "sha256": "281b27cf0bcb0e8b7ccc5dacfd39946f2dce87570f7e5d365588cfb8286d7fe3"
+    },
+    {
+      "path": "juce_shell/src/HyphaTimeSnapshotPainter.h",
+      "status": "added",
+      "bytes": 1081,
+      "sha256": "0302a6a9a41a0bd9b55ec756e1c4ff3a056c3ff46f604434cfb324bb72af5cc1"
+    },
+    {
+      "path": "juce_shell/src/HyphaTimeSnapshotPresentation.cpp",
+      "status": "added",
+      "bytes": 9857,
+      "sha256": "0c0c8d1d29f316a298259aa77dc2da5bf777db4a33effa1f7d6ee860fdf00894"
+    },
+    {
+      "path": "juce_shell/src/HyphaTimeSnapshotPresentation.h",
+      "status": "added",
+      "bytes": 2170,
+      "sha256": "6417108111c0a7d5fb483e8048572f4c5502cb2f32622521f683590e9c8a183c"
+    },
+    {
+      "path": "juce_shell/src/HyphaTimeSnapshotView.cpp",
+      "status": "added",
+      "bytes": 817,
+      "sha256": "7e0c79cf178e4a87c0b56debbad2a96a1a7567670586395ba34313acef562460"
+    },
+    {
+      "path": "juce_shell/src/PluginEditor.cpp",
+      "status": "modified",
+      "bytes": 22043,
+      "sha256": "9e4d9d4bc95d9010d0f65449ad67704baa18a3b9b2b6bf4f5166178238fe035c"
+    },
+    {
+      "path": "juce_shell/src/PluginEditor.h",
+      "status": "modified",
+      "bytes": 18808,
+      "sha256": "a8d733263d125b0b38f9f4762bac648992ab541dc50926355778cb701b2c9a1f"
+    },
+    {
+      "path": "juce_shell/src/PluginEditorAnalysis.cpp",
+      "status": "modified",
+      "bytes": 10956,
+      "sha256": "12e131efc4dde64cde969383b65a32e000609673462685656f388b9fc51f277a"
+    },
+    {
+      "path": "juce_shell/src/PluginEditorCapture.cpp",
+      "status": "modified",
+      "bytes": 14990,
+      "sha256": "b241baef2e1a8d43ed9d29fe5a07b42fc031834f14623f62b0b225dcd74ba422"
+    },
+    {
+      "path": "juce_shell/src/PluginEditorDrumSnapshots.cpp",
+      "status": "added",
+      "bytes": 1974,
+      "sha256": "f8253c673b66fb7801f14c1bbbd921928704d2c9a80568e81e5d380c1f1a94ed"
+    },
+    {
+      "path": "juce_shell/src/PluginEditorLifecycle.cpp",
+      "status": "modified",
+      "bytes": 2860,
+      "sha256": "b337e1635a1273f3f8dd075c9567d401ce43f4d9007014eae2d3cdb03a8937dd"
+    },
+    {
+      "path": "juce_shell/src/PluginEditorObservatory.cpp",
+      "status": "modified",
+      "bytes": 19189,
+      "sha256": "9175b197506c145c85ebf0a0633d29ad2eb0167b200789e112dcc58176b8ca90"
+    },
+    {
+      "path": "juce_shell/src/PluginEditorTimeSnapshots.cpp",
+      "status": "added",
+      "bytes": 1955,
+      "sha256": "eacbd535fe0b3caeeaed99419a920dea3c89f105fe08cc68fd901039dfb10cec"
+    },
+    {
+      "path": "juce_shell/src/PluginProcessor.h",
+      "status": "modified",
+      "bytes": 30845,
+      "sha256": "439dd6be822a23d5037b9d09df2908d60ab133adf72068cfb78a3ba64ece4017"
+    },
+    {
+      "path": "juce_shell/tests/AttackUiContractTest.cpp",
+      "status": "modified",
+      "bytes": 16882,
+      "sha256": "383eeac33a771145ab5b4c841f311146ee2a9ec4b279dc84862add1bbb4cb10c"
+    },
+    {
+      "path": "juce_shell/tests/AttackV2Fixtures.h",
+      "status": "added",
+      "bytes": 6531,
+      "sha256": "7759e056ffd7b5e1df315e4ae453ba82fc93eb9fb94fe216f29f7181e889078b"
+    },
+    {
+      "path": "juce_shell/tests/AttackV2PresentationContractTest.cpp",
+      "status": "added",
+      "bytes": 36912,
+      "sha256": "fc2a82425c97c7de572e06bb9d888a1f7c68a27e3d93d4a6aa7f57fd4206b9f7"
+    },
+    {
+      "path": "juce_shell/tests/AttackV2PresentationContractTest.h",
+      "status": "added",
+      "bytes": 92,
+      "sha256": "2028b293aec02862b9166eec37dd0cb0b7fed13cf57580660ca9266dfc90dc99"
+    },
+    {
+      "path": "juce_shell/tests/CaptureWorkAttachmentTest.cpp",
+      "status": "modified",
+      "bytes": 11963,
+      "sha256": "e01d4ce49e6a90894833383e0f78737950c01093af9a5767ae2061622a82216a"
+    },
+    {
+      "path": "juce_shell/tests/SessionCoverageContractTest.cpp",
+      "status": "added",
+      "bytes": 13376,
+      "sha256": "7fd7179cd19acd0761585574241f74a3e5095a68fa5ad739550e1e03c8cc5093"
+    },
+    {
+      "path": "juce_shell/tests/SessionCoverageContractTest.h",
+      "status": "added",
+      "bytes": 78,
+      "sha256": "eca721b4fea3aab9a5438306dccdb3bb622810f758b4113863375fc029868571"
+    },
+    {
+      "path": "juce_shell/tests/SnapshotAbiContractTest.cpp",
+      "status": "modified",
+      "bytes": 13952,
+      "sha256": "f75d051e8fa474f25a4ef1cfc3d10e38a8909d0e6a8aef28ba0b808eb65ec196"
+    },
+    {
+      "path": "juce_shell/tests/TimeHistoryContractTest.cpp",
+      "status": "modified",
+      "bytes": 23847,
+      "sha256": "45b08cb166411e56c9e58a36f655ce870c0019cd2a59414c79fad02b366a84bf"
+    },
+    {
+      "path": "juce_shell/tests/TimeHistoryPaintProfile.h",
+      "status": "modified",
+      "bytes": 1868,
+      "sha256": "0031db9dd0b017b73d3c29fdb01816938283aa0a8098e76754268ffa78471bfc"
+    },
+    {
+      "path": "juce_shell/tests/TimeSnapshotContractTest.cpp",
+      "status": "added",
+      "bytes": 25660,
+      "sha256": "18613cd535a3befaec2c6effd309e10baa8cfb636814a8f95aba435cc74d46d9"
+    },
+    {
+      "path": "juce_shell/tests/TimeSnapshotContractTest.h",
+      "status": "added",
+      "bytes": 314,
+      "sha256": "a947c4f7ca95212336d238fd57f27fc7c1079286e7812895031d4e2f983f15be"
+    },
+    {
+      "path": "juce_shell/tests/TimeSnapshotInputContractTest.h",
+      "status": "added",
+      "bytes": 9237,
+      "sha256": "7c379c4b91f5831f116889249ef2f057b972c053d7e4dcbdfde45fe1c992376b"
+    },
+    {
+      "path": "juce_shell/tests/ui_render_contract_test.cpp",
+      "status": "modified",
+      "bytes": 25854,
+      "sha256": "72383b1f2bbb6f631ecd9c5a05b319edc8f6b03cda70008e924e60b6f44a2426"
+    },
+    {
+      "path": "scripts/source_line_budget.tsv",
+      "status": "modified",
+      "bytes": 1298,
+      "sha256": "95ca5208d94f2745b7b751da22580da5d62aead39684a25a4cdf468afc0fa63f"
+    },
+    {
+      "path": "scripts/test_release_source.sh",
+      "status": "modified",
+      "bytes": 15562,
+      "sha256": "cea91170fdf0b90031f2b8e171711702a4431c4c541611fb790dea8463f19a05"
+    },
+    {
+      "path": "vendor/ebur128/src/cached_summary.rs",
+      "status": "modified",
+      "bytes": 13413,
+      "sha256": "8247626e4b48496dd9302f3914cfa01caf8b53c70e710431d2733999152e56ff"
+    },
+    {
+      "path": "vendor/ebur128/src/cached_summary_tests.rs",
+      "status": "modified",
+      "bytes": 15319,
+      "sha256": "f8ce32bddbda72e06de28e8acac7a73987ec6718a18d8c9d2f9bd05937e53520"
+    },
+    {
+      "path": "vendor/ebur128/src/ebur128.rs",
+      "status": "modified",
+      "bytes": 81183,
+      "sha256": "a641f6601b861be1752f79aa037d51c99a53eccf127087a89f276d59b027be9f"
+    },
+    {
+      "path": "xtask/src/shell_parity.rs",
+      "status": "modified",
+      "bytes": 22335,
+      "sha256": "f9946eb1b897a2771de77b99f7d0e8d9d92939c71de321f5b656a8d17623f96f"
+    },
+    {
+      "path": "xtask/src/shell_parity/capture_tests.rs",
+      "status": "added",
+      "bytes": 4188,
+      "sha256": "87cc58561183baa6ffa7bffcebf3cd2fa021ee8bef6acdb70dca5f2b16704a26"
+    }
+  ]
+}

@@ -60,6 +60,7 @@ set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
 include(cmake/KirinHyphaAax.cmake)
 include(cmake/ObservatoryMaterial.cmake)
 include(cmake/HyphaLanguage.cmake)
+include(cmake/HyphaSnapshotSources.cmake)
 kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
 
 # B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
@@ -290,6 +291,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     endif()
 
     target_sources(${TARGET} PRIVATE
+        ${KIRIN_HYPHA_TIME_SNAPSHOT_SOURCES}
+        ${KIRIN_HYPHA_ATTACK_V2_SOURCES}
+        src/HyphaSnapshotSource.cpp
+        src/PluginEditorTimeSnapshots.cpp
+        src/PluginEditorDrumSnapshots.cpp
         src/HostExecutableIdentity.cpp
         src/PluginProcessor.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
@@ -571,6 +577,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
     juce_add_console_app(KirinHyphaReferencePreviewRenderer
         PRODUCT_NAME "Kirin Hypha Reference Preview Renderer")
     target_sources(KirinHyphaReferencePreviewRenderer PRIVATE
+        ${KIRIN_HYPHA_TIME_SNAPSHOT_SOURCES}
         tools/ReferencePreviewRenderer.cpp
         src/HyphaBlindScreen.cpp
         src/HyphaVersionBlindScreen.cpp
@@ -650,6 +657,10 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     juce_add_console_app(KirinUiRenderContractTests
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
+        ${KIRIN_HYPHA_TIME_SNAPSHOT_SOURCES}
+        ${KIRIN_HYPHA_ATTACK_V2_SOURCES}
+        tests/TimeSnapshotContractTest.cpp
+        tests/SessionCoverageContractTest.cpp
         tests/ui_render_contract_test.cpp
         src/HostExecutableIdentity.cpp
         tests/SpectrumRenderTest.cpp
@@ -859,6 +870,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     juce_add_console_app(KirinAttackUiContractTests
         PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
     target_sources(KirinAttackUiContractTests PRIVATE
+        ${KIRIN_HYPHA_ATTACK_V2_SOURCES}
+        tests/AttackV2PresentationContractTest.cpp
         tests/AttackUiContractTest.cpp
         src/HyphaAttackChrome.cpp
         src/HyphaAttackComponent.cpp
@@ -935,6 +948,7 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
     target_link_libraries(KirinCaptureWorkAttachmentTests PRIVATE
         juce::juce_core
         juce::juce_cryptography
+        juce::juce_graphics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_capture_work_attachment COMMAND KirinCaptureWorkAttachmentTests)
@@ -1029,6 +1043,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     juce_add_console_app(KirinReferenceAuditionComponentTests
         PRODUCT_NAME "Kirin Reference Audition Component Tests")
     target_sources(KirinReferenceAuditionComponentTests PRIVATE
+        ${KIRIN_HYPHA_TIME_SNAPSHOT_SOURCES}
         tests/reference_audition_component_test_main.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
         src/HyphaVersionBlindScreen.cpp

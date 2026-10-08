@@ -219,7 +219,8 @@ FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # attributes for unrelated dependency objects. It still emits the public symbol table for this
 # crate; discard those diagnostic-only failures and require our entries to be defined (`T`).
 FFI_SYMBOLS="$(nm -g "$FFI_ARCHIVE" 2>/dev/null || true)"
-for symbol in kirin_hypha_poll_time_snapshot_v2 kirin_hypha_poll_attack_band_summary_v2 \
+for symbol in kirin_hypha_poll_attack_navigation_v2 kirin_hypha_poll_meter_session_v2 \
+              kirin_hypha_poll_time_snapshot_v2 kirin_hypha_poll_attack_band_summary_v2 \
               kirin_hypha_request_attack_single_v2 kirin_hypha_poll_attack_single_v2 \
               kirin_hypha_cancel_attack_single_v2 kirin_hypha_snapshot_abi_contract kirin_hypha_restore_pair_candidate_v2 kirin_hypha_get_paired_pre_locator \
               kirin_hypha_poll_record_display \

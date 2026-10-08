@@ -45,44 +45,7 @@ mod tests {
         assert!(JUCE_CMAKE.contains("src/HyphaTypography.cpp"));
     }
 
-    #[test]
-    fn capture_freezes_the_authoritative_frame_before_the_async_save_panel() {
-        let freeze = PLUGIN_EDITOR_CAPTURE_CPP
-            .find("snapshot.image = observatoryView.createCaptureImage")
-            .expect("Capture must freeze the parent frame");
-        let chooser = PLUGIN_EDITOR_CAPTURE_CPP
-            .find("captureChooser->launchAsync")
-            .expect("Capture must use the asynchronous save panel");
-        assert!(
-            freeze < chooser,
-            "visual facts must freeze before filename selection"
-        );
-        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("[safeThis, image = snapshot.image]"));
-        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("historySnapshot = &levelHistory"));
-        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("captureHistoryEndpoint"));
-        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("capture_history::retainThrough"));
-        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("Never reuse an earlier TIME page"));
-        for forbidden in [
-            "instanceId()",
-            "pairedPreInstanceId",
-            "persistProjectUuid",
-            "persistDawSessionUuid",
-            ".workId",
-            ".bindingId",
-        ] {
-            assert!(
-                !PLUGIN_EDITOR_CAPTURE_CPP.contains(forbidden),
-                "Capture must not export implementation identity: {forbidden}"
-            );
-        }
-        assert_eq!(
-            count_occurrences(
-                PLUGIN_EDITOR_CAPTURE_CPP,
-                "observatoryView.createCaptureImage"
-            ),
-            1
-        );
-    }
+    include!("shell_parity/capture_tests.rs");
 
     #[test]
     fn shipped_post_pair_selector_has_one_geometry_source() {

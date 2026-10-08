@@ -13,6 +13,9 @@ AttackComponent::AttackComponent()
     setTitle ("DRUM Attack");
     setDescription ("Drum transient facts for TRACK/STEM; not a 2MIX onset detector.");
     setWantsKeyboardFocus (true);
+    v2->request = [this] (const auto& input, std::uint64_t& token) {
+        return singleRequestSource ? singleRequestSource (input, token) : KIRIN_SNAPSHOT_BUSY; };
+    v2->cancel = [this] (std::uint64_t token) { if (singleCancelSource) singleCancelSource (token); };
 }
 
 // HISTORY, the axis and every lane share one plot column; any point in it selects by time. With a
@@ -36,6 +39,7 @@ bool AttackComponent::selectsAt (const attack_ui::Layout& shape, juce::Point<int
 void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
     if (isShowing()) grabKeyboardFocus();
+    if (v2->enabled) { mouseDownV2 (event.getPosition()); return; }
     const auto shape = layout();
     // 100% has no VIEW button or band chips (both are chosen at 125% and above); its HOLD / LOCK
     // caption, top right in HISTORY, returns to LIVE as NOW does in the axis row at the larger sizes.
@@ -89,6 +93,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
 
 void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 {
+    if (v2->enabled) { mouseDragV2 (event.getPosition()); return; }
     if (! selectsAt (layout(), event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
         return;
     followLatest = false;
@@ -145,6 +150,7 @@ juce::String AttackComponent::tooltipAt (const attack_ui::Layout& shape, juce::P
 
 void AttackComponent::mouseMove (const juce::MouseEvent& event)
 {
+    if (v2->enabled) return;
     const auto tip = tooltipAt (layout(), event.getPosition());
     if (tip != getTooltip())
         setTooltip (tip);
@@ -224,6 +230,7 @@ void AttackComponent::selectAdjacentEvent (bool moveRight) noexcept
 
 bool AttackComponent::keyPressed (const juce::KeyPress& key)
 {
+    if (v2->enabled) return keyPressedV2 (key);
     if (key == juce::KeyPress::leftKey || key == juce::KeyPress::rightKey)
         selectAdjacentEvent (key == juce::KeyPress::rightKey);
     else if (key == juce::KeyPress::homeKey || key == juce::KeyPress::endKey)

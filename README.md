@@ -47,9 +47,9 @@ with POST is proven. <b>MATCH</b> fixes a level match; <b>AUTO</b> follows it wi
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/media/readme/drum.jpg" alt="TIME DRUM: PRE and POST envelopes with per-hit transient, strength, crest and sharpness lanes">
+<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="G2 native development fixture: DRUM per-hit transient, strength, crest and sharpness">
 <br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
-sharpness. Pick an octave band to compare each hit's delay, attack, release and level.
+sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The image is a G2 development fixture; DAW acceptance remains in G3.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
@@ -138,39 +138,69 @@ TIME directly selects **HISTORY**, **RUN** (absolute facts grouped by playback r
 selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
-![TIME HISTORY: thirty seconds of momentary and short-term loudness with true peak, and PSR below it](docs/media/readme/time.jpg)
+![G2 native development fixture: independent main HISTORY and secondary PSR](docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png)
 
-DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
+Development fixture from the G2 native renderer; actual DAW and daily-operation acceptance remain in G3.
+
+DRUM shows six seconds of the PRE/POST envelope and four facts for the selected hit:
 **TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
 **SHARPNESS** (the first 100 ms), each as POST − PRE. A matched POST hit is measured at the PRE
 onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
 or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. A hit shows
 STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPNESS follow once its
-body is complete, and stay empty for a hit cut off by a transport stop. Without PRE, the lanes show
-POST values.
+body is complete. A hit cut off before those facts can be measured keeps its reason instead of a
+value. Without PRE, the lanes show POST values.
 
 **BAND**, on DRUM's second header row, filters each hit to one ISO octave band (63 Hz to 8 kHz) on
 PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arrival, where the band
 envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band peak), **REL** (peak →
-−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. The four lanes become
-number lines: each of the last eight hits that rise in the band is a dot at its value, and the bar is
-their median. While LIVE, DRUM reads them in one steady summary: each lane's median with its
-direction in words and how many hits agree (`+2.7 ms LATER 8/8`), `SAME` when the median is inside
-what the band can tell apart, and a card or line such as `POST 2.7 ms LATER / TAIL 28 ms LONGER`.
-Hits whose band only rings on, is silent or was not kept are left out and counted. At 200 % and
-300 % HISTORY shows those hits' average **HEAD** (−5 to +40 ms) and **TAIL** (0 to 300 ms) in that
-band; at 125 % it holds four small number lines. Click a dot (or use ← → HOME) to lock that hit and
-read its own values, envelopes and place in the six seconds; the same dot, END or NOW returns to
-the summary. The band hits are the same hits as the whole-signal lanes. Each hit is measured once,
-after its ring-out, and choosing another band measures the last 7 s again, even while stopped. Every
-missing value says why at every size: `RINGING` (the previous hit still rings in the band), `NO SOUND`,
-`NEXT HIT` (the tail was cut), `LONG TAIL`, or `NOT MEASURED` (played before the band was chosen).
-A value past what was measured reads as a bound, such as `<16 ms` for an ATT shorter than the band's
-time resolution (one period of its centre), `>288 ms` for a tail still ringing, or `<-66.0 dB` when
-POST has no sound in the band. When nothing in view was measured yet, DRUM says
-`PLAY TO MEASURE 63 Hz`. **ALL** returns to the whole-signal DRUM, and while no band is chosen
-nothing extra is measured or kept. A PRE older than bands keeps pairing but sends no band: the
-lanes then show POST values and DELAY says `UPDATE PRE`.
+−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. Larger views show the
+hits on number lines. LIVE first fixes the latest eight detected hits inside the six-second window, including
+hits still being measured or unavailable. Each lane distinguishes exact values, measured limits,
+not applicable, unknown and pending; it never fills a missing hit with an older one. The main reading
+identifies the whole cohort's median or median interval. When only a confirmed subset has a scalar,
+its median is labelled with the confirmed count and age; it is not presented as the whole cohort.
+Limits keep their direction and are rounded outwards. Missing values keep their reasons. At 200 % and
+300 % HISTORY shows those hits' average **HEAD** (−20 to +40 ms) and **TAIL** (0 to 300 ms) in that
+band; smaller views keep the same readings and scope in four cards. Click a dot (or use ← → HOME) to lock that hit and
+read its own values and envelopes. LOCK keeps the selected hit when it leaves the visible window;
+LIVE returns to the current cohort. ALL LIVE reads the latest detected hit; it does not use BAND's
+eight-hit median. The band hits keep the same producer keys as the full-band navigation. Choosing
+another band analyzes the retained last 7 s again, even while stopped; ALL releases the extra band
+audio. The lanes distinguish silence, an earlier hit still ringing, a next hit cutting the tail,
+unmeasured audio, audio/worker/publication still pending, and missing comparison proof. A measured
+limit remains a limit, with its direction and reason; resolution is shown separately from the value.
+An older PRE or a band mismatch keeps the requested Δ scope and reports a reason such as
+`Update PRE` or `No mapping`. It does not substitute POST values for an unavailable Δ. An absolute
+POST snapshot is labelled POST, and its DELAY is not applicable (`No PRE`). Open **Facts** for the
+same adopted values, classification counts and measurement spans.
+
+![G2 native development fixture: eight-hit BAND cohort, typed bounds and average-envelope gaps](docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png)
+
+The BAND image is a renderer fixture showing missing observations and bounds, not a DAW measurement.
+
+TIME's PSR has its own target and cutoff: it automatically shows Δ for a selected pair, while the
+main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to its completed
+100 ms point and uses that point's processed prefix; it does not include later pending input. A comparison that is waiting or expired
+keeps the Δ label and its reason. It does not silently become POST. Current values expire from the
+original 100 ms slot's completion, with a 400 ms lifetime; repeated polls do not renew them.
+PSR is supplementary: its `Δ −3.3 dB` or `POST 10.1 dB` reading uses a small, regular-weight
+font and secondary colour, with no equation beside it. M, S and TP remain the main readings.
+
+The G2 integration uses DRUM acquisition at 30 Hz, BAND LIVE summaries at 4 Hz and TIME at 10 Hz.
+DRUM's display clock is separate from measurement and stops at the available facts. Its provisional
+150 ms look-behind and 250 ms freshness fence still require calibration in G3. Local fixtures do not
+establish actual DAW operation or the user's daily readability and quality acceptance. Those checks
+are required before release; friend feedback remains a post-release G4 step.
+
+Meter Session I, LRA and MAX TP include every EBU-processed 10 ms block, including the tail before
+Stop. A shorter unprocessed tail is reported explicitly: MAX TP shows `≥` the confirmed value and
+PLR shows `---`. I and LRA describe the processed prefix. MAX M and current meter points keep their
+100 ms update boundary. Reset clears the session; pause retains its coverage. Record semantics stay
+unchanged. Capture freezes the displayed facts for a local PNG. If Work attachment v1 cannot retain
+their typed meaning, attachment reports that limitation and offers the same frozen PNG for local save.
+Saving over an existing PNG replaces it with the complete new image; it does not append a second
+image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
 

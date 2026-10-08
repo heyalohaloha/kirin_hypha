@@ -23,6 +23,8 @@
 #include "HyphaMonoSumHistory.h"
 #include "HyphaHistoryInspection.h"
 #include "HyphaChainActionPainter.h"
+#include "HyphaTimeSnapshotPresentation.h"
+#include "kirin_hypha_navigation_snapshot_ffi.h"
 
 namespace hypha::observatory
 {
@@ -177,6 +179,18 @@ public:
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
+    bool setTimeSnapshot (const KirinTimeSnapshotV2&, std::vector<KirinTimeHistoryEntryV2>,
+                          std::vector<KirinTimeHistoryEntryV2>, double, double, bool);
+    void advanceTimePresentation (double nowMs);
+    void retireTimePresentation (bool localSourceChanged);
+    const time_snapshot::Presentation& acceptedTimePresentation() const noexcept { return timePresentation; }
+    double meterSampleRateForSnapshot() const noexcept { return frameAvailable ? observatoryFrame.meter.sample_rate : 0.0; }
+    void setSessionCoverage (const KirinMeterSessionV2&);
+    const KirinMeterSession& cumulativeMeterForDisplay() const noexcept;
+    bool sessionSummaryPending() const noexcept;
+    juce::String sessionSummaryScope() const;
+    juce::String sessionMaximumBoundText() const;
+    capture::PresentationStamp capturePresentationStamp() const noexcept;
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
     void setLevelObservation (const KirinLevelSnapshot*, std::vector<KirinMeterHistoryEntry>,
@@ -280,6 +294,7 @@ public:
     juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight,
                                             bool includeGuide = false) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
+    juce::Rectangle<int> timeHistoryBounds() const noexcept { return timeHistoryArea; }
     juce::Rectangle<int> analysisBodyBounds() const noexcept;
     juce::Rectangle<int> timeNavigationBounds() const noexcept;
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
@@ -311,6 +326,9 @@ public:
     bool historyHeldForTest() const noexcept { return levelInspection.held(); }
 
 private:
+    time_snapshot::Presentation timePresentation;
+    KirinMeterSessionV2 sessionCoverage {};
+    bool haveSessionCoverage = false;
     void cycleDomain();
     void cycleTimeRange();
     void cycleSize();

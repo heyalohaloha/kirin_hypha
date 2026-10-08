@@ -31,6 +31,7 @@ void AttackComponent::setOverlayMode (bool shouldOverlay)
 {
     if (overlayMode == shouldOverlay) return;
     overlayMode = shouldOverlay;
+    v2->overlay = shouldOverlay;
     repaint();
 }
 
@@ -48,6 +49,11 @@ void AttackComponent::advancePresentation (double nowMs) noexcept
 
 void AttackComponent::presentationTick (bool signalActive)
 {
+    if (v2->enabled)
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        v2->observeInput (signalActive, now); repaint(); return;
+    }
     const bool stateChanged = liveSignalActive != signalActive;
     liveSignalActive = signalActive;
     if (! signalActive)
@@ -71,6 +77,7 @@ void AttackComponent::presentationTick (bool signalActive)
 
 void AttackComponent::presentationTickAt (double nowMs)
 {
+    if (v2->enabled) { v2->tick (nowMs); repaint(); return; }
     const auto previousLatest = latest;
     const auto previousSelection = selectedEventSample;
     advancePresentation (nowMs);
@@ -176,6 +183,7 @@ bool AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
 
 void AttackComponent::clearSnapshot()
 {
+    retireV2(); v2->enabled = false;
     eventBatch = {};
     waveformBatch = {};
     detailBatch = {};
@@ -209,6 +217,7 @@ void AttackComponent::visibilityChanged()
 {
     if (! isVisible())
     {
+        if (v2->enabled) retireV2();
         releaseCachedChrome();
         paintedWidth = paintedHeight = 0;
     }
@@ -372,6 +381,7 @@ void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout
 void AttackComponent::paint (juce::Graphics& g)
 {
     const key_light::Scope light (*this);
+    if (v2->enabled) { paintV2 (g); return; }
     const auto shape = layout();
     const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
                       && runtimeStats.worker_running != 0;

@@ -19,6 +19,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY
+        attackView.retireV2();
         processorRef.endAnalysisUiSession (analysisOwnerToken);
         analysisOwnerToken = 0;
        #endif
@@ -27,6 +28,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);

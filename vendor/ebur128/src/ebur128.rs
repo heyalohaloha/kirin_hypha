@@ -621,7 +621,7 @@ impl EbuR128 {
                         &self.channel_map,
                     );
                     self.block_energy_history.add(energy);
-                    if let Some(cache) = self.summary_cache.as_mut() { cache.integrated.add(energy); }
+                    if let Some(cache) = self.summary_cache.as_mut() { cache.add_integrated(energy); }
                 }
 
                 if self.mode.contains(Mode::LRA) {
@@ -629,7 +629,7 @@ impl EbuR128 {
                     if self.short_term_frame_counter == self.samples_in_100ms * 30 {
                         let energy = self.energy_shortterm()?;
                         self.short_term_block_energy_history.add(energy);
-                        if let Some(cache) = self.summary_cache.as_mut() { cache.range.add(energy); }
+                        if let Some(cache) = self.summary_cache.as_mut() { cache.add_range(energy); }
                         self.short_term_frame_counter = self.samples_in_100ms * 20;
                     }
                 }

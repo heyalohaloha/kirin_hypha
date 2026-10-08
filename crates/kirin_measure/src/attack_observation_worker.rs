@@ -28,6 +28,21 @@ impl AttackRuntime {
     pub fn try_observation_snapshot_result(
         &self,
     ) -> Result<Arc<AttackObservationSnapshot>, AttackObservationReadError> {
+        self.read_observation_snapshot(true)
+    }
+
+    /// ALL navigation uses the current source through a band transition. Its keys and
+    /// waveform do not consume the previous band's scalar observations.
+    pub fn try_navigation_snapshot_result(
+        &self,
+    ) -> Result<Arc<AttackObservationSnapshot>, AttackObservationReadError> {
+        self.read_observation_snapshot(false)
+    }
+
+    fn read_observation_snapshot(
+        &self,
+        require_selected_band: bool,
+    ) -> Result<Arc<AttackObservationSnapshot>, AttackObservationReadError> {
         let guard = match self.observations.try_lock() {
             Ok(guard) => guard,
             Err(TryLockError::WouldBlock) => return Err(AttackObservationReadError::Busy),
@@ -43,7 +58,7 @@ impl AttackRuntime {
             && self.is_enabled()
             && self.worker_running.load(Ordering::Acquire)
             && source.source.generation == self.generation.load(Ordering::Acquire)
-            && snapshot.band == self.band())
+            && (!require_selected_band || snapshot.band == self.band()))
         .then_some(snapshot)
         .ok_or(AttackObservationReadError::SourceUnavailable)
     }
@@ -202,3 +217,7 @@ mod tests;
 #[cfg(test)]
 #[path = "attack_observation_cadence_tests.rs"]
 mod cadence_tests;
+
+#[cfg(test)]
+#[path = "attack_navigation_snapshot_tests.rs"]
+mod navigation_tests;

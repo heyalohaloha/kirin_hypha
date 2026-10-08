@@ -5,6 +5,7 @@ namespace hypha::observatory
 void View::setAnalysisPage (analysis_navigation::Page page)
 {
     if (analysisPage == page) return;
+    retireTimePresentation (true);
     analysisPage = page;
     history.clear(); runSummary = {};
     updateControls(); resized(); repaint();

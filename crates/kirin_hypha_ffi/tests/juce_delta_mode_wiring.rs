@@ -41,6 +41,19 @@ fn comparison_state_drives_the_shipping_observatory_without_a_hidden_delta_path(
     let editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
         + &read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    let target_action = editor
+        .split("observatoryView.onTargetChange =")
+        .nth(1)
+        .expect("shipping target action")
+        .split("observatoryView.onTimeRangeChange =")
+        .next()
+        .unwrap();
+    assert!(target_action.contains("observatoryView.setTarget (target)"));
+    assert!(target_action.contains("nextTimeSnapshotMs = 0.0"));
+    assert!(
+        !target_action.contains("retireTimePresentation"),
+        "main-target action must preserve independently observed PSR"
+    );
     let meter = read_repo("juce_shell/src/PluginEditorMeter.cpp");
     assert!(meter.contains("void KirinHyphaEditor::refreshWatchSnapshot()"));
     assert!(meter.contains("processorRef.pollWatchDisplay (watch)"));
@@ -83,7 +96,20 @@ fn comparison_state_drives_the_shipping_observatory_without_a_hidden_delta_path(
     let spectrum = read_repo("juce_shell/src/HyphaSpectrumComponent.cpp")
         + &read_repo("juce_shell/src/HyphaSpectrumChromePainter.cpp")
         + &read_repo("juce_shell/src/PluginEditorObservatory.cpp");
-    assert!(time.contains("comparison_presentation::statusText"));
+    assert!(time.contains("time_snapshot::paint"));
+    let time_packet = read_repo("juce_shell/src/HyphaTimeSnapshotPainter.cpp")
+        + &read_repo("juce_shell/src/HyphaTimeSnapshotPresentation.cpp");
+    assert!(time_packet.contains("currentReason (psr)"));
+    assert!(time_packet.contains("component.facts.reason"));
+    assert!(time_packet.contains("KIRIN_TIME_CURRENT_WAITING"));
+    let time_poll = read_repo("juce_shell/src/PluginEditorTimeSnapshots.cpp");
+    assert!(
+        time_poll.contains("presentationContext().density != hypha::observatory::Density::compact")
+    );
+    assert!(
+        !time_poll.contains("experienceFamily()"),
+        "125% shares the compact family but must acquire PSR"
+    );
     assert!(spectrum.contains("spectrumView.setComparisonStatus"));
     assert!(spectrum.contains("state.comparisonStatus"));
 }

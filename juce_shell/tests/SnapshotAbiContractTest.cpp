@@ -1,6 +1,7 @@
 // Native C-header consumer of the actual Rust archive; no GUI or real host is involved.
 #include "../src/SnapshotAbiContract.h"
 #include "kirin_hypha_ffi.h"
+#include "kirin_hypha_navigation_snapshot_ffi.h"
 
 #include <array>
 #include <cstddef>
@@ -83,6 +84,39 @@ bool attackVersionStatuses()
             &token.value) == KIRIN_SNAPSHOT_INVALID_REQUEST, "known V2 full alignment")) return false;
     return expect (unchanged(), "all version status outputs unchanged");
 }
+bool g2BoundaryCanaries()
+{
+    struct Guarded { KirinMeterSessionV2 packet; std::array<uint8_t, 16> tail; } session;
+    std::memset (&session, 0xa5, sizeof (session));
+    std::array<uint8_t, sizeof (session)> before {};
+    std::memcpy (before.data(), &session, sizeof (session));
+    for (const auto version : { 0u, 3u, UINT32_MAX })
+        if (! expect (kirin_hypha_poll_meter_session_v2 (nullptr, version, 0, &session.packet)
+                == KIRIN_SNAPSHOT_UNSUPPORTED, "Session future version before buffer validation")
+            || ! expect (std::memcmp (&session, before.data(), sizeof (session)) == 0,
+                         "Session future output unchanged")) return false;
+    if (! expect (kirin_hypha_poll_meter_session_v2 (nullptr, 2, sizeof (session), &session.packet)
+            == KIRIN_SNAPSHOT_INVALID_REQUEST, "Session null handle")
+        || ! expect (std::memcmp (&session, before.data(), sizeof (session)) == 0,
+                     "Session invalid output unchanged")) return false;
+    auto navigation = std::make_unique<KirinAttackNavigationV2>();
+    std::memset (navigation.get(), 0xa5, sizeof (*navigation));
+    std::array<uint8_t, sizeof (*navigation)> old {};
+    std::memcpy (old.data(), navigation.get(), old.size());
+    const std::array<std::uint8_t, 1> roles { KIRIN_CHANNEL_ROLE_CENTRE };
+    std::unique_ptr<KirinHypha, decltype (&kirin_hypha_destroy)> engine (
+        kirin_hypha_create (48000, roles.data(), 1), kirin_hypha_destroy);
+    if (! expect (engine != nullptr, "navigation prefix probe engine")) return false;
+    const KirinAttackNavigationRequestV2 future { 3, 999, 0, {} };
+    for (const auto size : { 4u, 8u, 15u, 16u, 99u })
+        if (! expect (kirin_hypha_poll_attack_navigation_v2 (engine.get(), size, &future, 0,
+                navigation.get()) == KIRIN_SNAPSHOT_UNSUPPORTED,
+                "navigation future version before caller sizes")
+            || ! expect (std::memcmp (navigation.get(), old.data(), old.size()) == 0,
+                         "navigation future output unchanged")) return false;
+    return true;
+}
+
 }
 
 int main()
@@ -139,6 +173,22 @@ int main()
     static_assert (offsetof (KirinTimeHistoryEntryV2, ranges) == 64);
     static_assert (offsetof (KirinTimeHistoryEntryV2, valid_count) == 208);
 
+    static_assert (sizeof (KirinAttackNavigationRequestV2) == 16);
+    static_assert (alignof (KirinAttackNavigationRequestV2) == 4);
+    static_assert (sizeof (KirinAttackNavigationV2) == 67600);
+    static_assert (alignof (KirinAttackNavigationV2) == 8);
+    static_assert (offsetof (KirinAttackNavigationV2, count) == 136);
+    static_assert (offsetof (KirinAttackNavigationV2, events) == 144);
+    static_assert (offsetof (KirinAttackNavigationV2, pair_kind) == 19344);
+    static_assert (offsetof (KirinAttackNavigationV2, post) == 19584);
+    static_assert (offsetof (KirinAttackNavigationV2, pre) == 43592);
+    static_assert (sizeof (KirinMeterSessionV2) == 1872);
+    static_assert (alignof (KirinMeterSessionV2) == 8);
+    static_assert (offsetof (KirinMeterSessionV2, session) == 8);
+    static_assert (offsetof (KirinMeterSessionV2, processed_frames) == 1848);
+    static_assert (offsetof (KirinMeterSessionV2, pending_frames) == 1856);
+    static_assert (offsetof (KirinMeterSessionV2, summary_status) == 1864);
+
     static_assert (sizeof (KirinAttackSingleSnapshotV2) == 4560);
     static_assert (sizeof (KirinAttackSingleV2Request) == 96);
     static_assert (sizeof (KirinAttackDetail) == 512);
@@ -184,7 +234,7 @@ int main()
     for (const auto byte : guarded.tail)
         if (! expect (byte == 0xa5, "oversized caller tail"))
             return 1;
-    if (! attackVersionStatuses() || ! runTimeSnapshotProbe()) return 1;
+    if (! attackVersionStatuses() || ! g2BoundaryCanaries() || ! runTimeSnapshotProbe()) return 1;
     std::puts ("snapshot ABI native contract: PASS");
     return 0;
 }

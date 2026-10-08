@@ -363,3 +363,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history_decimated(
     }))
     .unwrap_or(false)
 }
+
+#[path = "meter_session_v2.rs"]
+mod session_v2;
+pub use session_v2::*;

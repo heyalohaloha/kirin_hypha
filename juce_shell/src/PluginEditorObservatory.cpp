@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaSnapshotSource.h"
 #include "HyphaComparisonPresentation.h"
 
 #include <algorithm>
@@ -373,26 +374,16 @@ void KirinHyphaEditor::refreshObservatory()
         refreshReferenceAudition (frame, frameAvailable);
    #endif
 
+    KirinMeterSessionV2 coverage {};
+    if (hypha::snapshots::Source (processorRef).session (coverage) == KIRIN_SNAPSHOT_SUCCESS)
+        observatoryView.setSessionCoverage (coverage);
+
     const auto pairStatus = processorRef.pairStatus();
 
     if (observatoryDomain == hypha::observatory::Domain::time
         && observatoryView.capabilities().historyRange)
     {
-        const auto request = observatoryView.historyRequest();
-        std::vector<KirinMeterHistoryEntry> history;
-        const auto historyReady = observatoryView.target()
-            == hypha::observatory::ObservationTarget::absolute
-            ? processorRef.pollMeterHistory (request.resolution, history, request.maxEntries,
-                                             request.maxOutputEntries)
-            : processorRef.pollMeterDeltaHistory (request.resolution, history, request.maxEntries,
-                                                  request.maxOutputEntries);
-        if (historyReady)
-        {
-            observatoryView.setHistory (std::move (history));
-           #if ! KIRIN_HYPHA_PRE_DISPLAY
-            updateTimePageNavigation();
-           #endif
-        }
+        refreshTimeSnapshot();
     }
     else if (observatoryDomain == hypha::observatory::Domain::level
              && observatoryView.fullCockpit() && ! levelAbsolute)

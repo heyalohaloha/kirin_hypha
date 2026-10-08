@@ -270,8 +270,115 @@ fn unsupported_histogram_and_bounded_history_do_not_enable_exact_cache() {
     assert!(late.enable_cached_summary_queries().is_err());
 }
 
-// A duration-scaling benchmark: same frequent I/LRA query budget with 100 ms energy histories
-// representing one minute and ten hours. Run optimized and explicitly, not as a debug timing gate.
+fn add_raw(meter: &mut EbuR128, energy: f64, integrated: bool) {
+    if integrated {
+        meter.block_energy_history.add(energy);
+        meter.summary_cache.as_mut().unwrap().add_integrated(energy);
+    } else {
+        meter.short_term_block_energy_history.add(energy);
+        meter.summary_cache.as_mut().unwrap().add_range(energy);
+    }
+}
+
+#[test]
+fn shared_node_cap_falls_back_exactly_reuses_unchanged_history_and_reset_rearms() {
+    let mut meter = EbuR128::new(2, 48_000, Mode::I | Mode::LRA).unwrap();
+    meter.enable_cached_summary_queries().unwrap();
+    meter.summary_cache.as_mut().unwrap().node_limit = 3;
+    for (energy, integrated) in [(0.1, true), (0.2, true), (0.3, false)] {
+        add_raw(&mut meter, energy, integrated);
+    }
+    for _ in 0..100 {
+        add_raw(&mut meter, 0.1, true); // Exact duplicate consumes no additional node.
+        add_raw(&mut meter, 0.0, false); // Rejected absolute-gate energy consumes no node.
+    }
+    let cache = meter.summary_cache.as_ref().unwrap();
+    assert_eq!(cache.nodes, 3);
+    assert!(!cache.capped);
+    add_raw(&mut meter, 0.4, false);
+    let cache = meter.summary_cache.as_ref().unwrap();
+    assert!(cache.capped);
+    assert_eq!(cache.nodes, 0);
+    assert!(cache.integrated.root.is_none() && cache.range.root.is_none());
+    let reads = std::cell::Cell::new(0);
+    for _ in 0..1000 {
+        assert_eq!(
+            cache
+                .integrated
+                .canonical_query(|| {
+                    reads.set(reads.get() + 1);
+                    meter.loudness_global()
+                })
+                .unwrap()
+                .to_bits(),
+            meter.loudness_global().unwrap().to_bits()
+        );
+        assert_eq!(
+            meter.loudness_global_cached().unwrap().to_bits(),
+            meter.loudness_global().unwrap().to_bits()
+        );
+        assert_eq!(
+            meter.loudness_range_cached().unwrap().to_bits(),
+            meter.loudness_range().unwrap().to_bits()
+        );
+    }
+    assert_eq!(
+        reads.get(),
+        1,
+        "unchanged I history must not rescan per small input push"
+    );
+    add_raw(&mut meter, 7.0, true);
+    add_raw(&mut meter, 10.0, false);
+    assert_eq!(
+        meter.loudness_global_cached().unwrap().to_bits(),
+        meter.loudness_global().unwrap().to_bits()
+    );
+    assert_eq!(
+        meter.loudness_range_cached().unwrap().to_bits(),
+        meter.loudness_range().unwrap().to_bits()
+    );
+    assert_eq!(meter.summary_cache.as_ref().unwrap().nodes, 0);
+    meter.reset();
+    let cache = meter.summary_cache.as_ref().unwrap();
+    assert!(!cache.capped);
+    assert_eq!(cache.node_limit, SUMMARY_CACHE_MAX_NODES);
+    add_raw(&mut meter, 0.2, true);
+    assert_eq!(meter.summary_cache.as_ref().unwrap().nodes, 1);
+    near(
+        meter.loudness_global_cached().unwrap(),
+        meter.loudness_global().unwrap(),
+    );
+}
+
+#[test]
+fn actual_default_node_budget_never_grows_the_auxiliary_index_past_65536_nodes() {
+    let mut meter = EbuR128::new(2, 48_000, Mode::I | Mode::LRA).unwrap();
+    meter.enable_cached_summary_queries().unwrap();
+    for index in 0..SUMMARY_CACHE_MAX_NODES {
+        add_raw(&mut meter, 0.001 + index as f64 / 100_000.0, true);
+    }
+    let cache = meter.summary_cache.as_ref().unwrap();
+    assert_eq!(cache.nodes, 65_536);
+    assert!(!cache.capped);
+    near(
+        meter.loudness_global_cached().unwrap(),
+        meter.loudness_global().unwrap(),
+    );
+    add_raw(
+        &mut meter,
+        0.001 + SUMMARY_CACHE_MAX_NODES as f64 / 100_000.0,
+        true,
+    );
+    assert!(meter.summary_cache.as_ref().unwrap().capped);
+    assert_eq!(meter.summary_cache.as_ref().unwrap().nodes, 0);
+    assert_eq!(
+        meter.loudness_global_cached().unwrap().to_bits(),
+        meter.loudness_global().unwrap().to_bits()
+    );
+}
+
+// Tree-algorithm scaling benchmark; the product switches to canonical queries at its node cap.
+// The long fixture intentionally exercises the unbounded tree directly, outside that policy.
 #[test]
 #[ignore]
 fn repeated_exact_summary_queries_remain_bounded_as_duration_grows() {

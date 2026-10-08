@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaCapturePngFile.h"
 #include "HyphaSurfaceMaterial.h"
 
 namespace
@@ -156,6 +157,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     // analysis surface is rendered synchronously on the message thread before the asynchronous
     // save panel opens. Later UI/timer updates cannot alter the owned image in this snapshot.
     const auto now = juce::Time::getCurrentTime();
+    observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
     hypha::capture::Snapshot snapshot;
     snapshot.domain = observatoryView.domain();
     snapshot.target = observatoryView.target();
@@ -164,6 +166,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     snapshot.capturedAtMs = now.toMilliseconds();
     snapshot.pixelWidth = width;
     snapshot.pixelHeight = height;
+    snapshot.stamp = observatoryView.capturePresentationStamp();
    #if KIRIN_HYPHA_GUIDE_TRANSPORT
     const bool includeOsGuide = processorRef.licenseIsOs()
         && processorRef.guidePresentationSnapshot().guideAvailable
@@ -172,27 +175,9 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     const bool includeOsGuide = false;
    #endif
     const auto metadata = availableCaptureMetadata().applying (capturePrivacy);
-    std::vector<KirinMeterHistoryEntry> levelHistory;
-    const std::vector<KirinMeterHistoryEntry>* historySnapshot = nullptr;
-    if (snapshot.domain == hypha::observatory::Domain::level)
-    {
-        const auto maximumOutput = static_cast<size_t> (juce::jlimit (
-            128, 600, juce::roundToInt ((float) width
-                                       / hypha::observatory::captureRenderScale)));
-        if (snapshot.target == hypha::observatory::ObservationTarget::absolute)
-            processorRef.pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, levelHistory,
-                                           600, maximumOutput);
-        else
-            processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, levelHistory,
-                                                600, maximumOutput);
-        hypha::capture_history::retainThrough (
-            levelHistory, observatoryView.captureHistoryEndpoint());
-        // Even an empty result is authoritative for this click. Never reuse an earlier TIME page.
-        historySnapshot = &levelHistory;
-    }
     snapshot.image = observatoryView.createCaptureImage (
         width, height, includeOsGuide, snapshot.capturedAt,
-        JucePlugin_VersionString, metadata, historySnapshot);
+        JucePlugin_VersionString, metadata);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::Component* external = nullptr;
     if (externalAnalysisBodyShowing())
@@ -205,7 +190,11 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         else if (analysisPage == AnalysisPage::absolute)
             external = &absoluteView;
         else if (analysisPage == AnalysisPage::attack)
+        {
             external = &attackView;
+            attackView.advanceCapturePresentationAt (juce::Time::getMillisecondCounterHiRes());
+            snapshot.stamp = attackView.capturePresentationStamp();
+        }
     }
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
@@ -268,6 +257,7 @@ void KirinHyphaEditor::attachObservatoryCapture (
     descriptor.observationTarget = snapshot.target
         == hypha::observatory::ObservationTarget::delta ? "delta" : "absolute";
     descriptor.capturedAtMs = snapshot.capturedAtMs;
+    descriptor.v1MeaningPreserved = ! snapshot.stamp.requiresTypedMetadata;
     const auto submitted = processorRef.attachCaptureToWork (
         expectedWork, std::move (pngBytes), std::move (descriptor));
     if (submitted == hypha::capture::WorkAttachmentSubmit::accepted)
@@ -278,6 +268,11 @@ void KirinHyphaEditor::attachObservatoryCapture (
         showToast (processorRef.licenseIsOs()
             ? "Work connection changed; Capture was not attached"
             : "Kirin OS is required to attach Capture to Work");
+    else if (submitted == hypha::capture::WorkAttachmentSubmit::unsupportedPresentation)
+    {
+        showToast ("Work cannot preserve this observation; save the local PNG instead");
+        saveFrozenObservatoryCapture (snapshot);
+    }
     else
         showToast ("Capture could not be prepared");
 }
@@ -285,7 +280,11 @@ void KirinHyphaEditor::attachObservatoryCapture (
 
 void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
 {
-    const auto snapshot = freezeObservatoryCapture (width, height);
+    saveFrozenObservatoryCapture (freezeObservatoryCapture (width, height));
+}
+
+void KirinHyphaEditor::saveFrozenObservatoryCapture (hypha::capture::Snapshot snapshot)
+{
     if (! snapshot.complete())
     {
         showToast ("Capture could not be prepared");
@@ -297,7 +296,8 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
         == hypha::observatory::ObservationTarget::delta ? juce::String ("DELTA") : role;
     const auto filename = "Hypha-" + role + "-" + captureDomainName (snapshot.domain)
                         + "-" + target + "-" + snapshot.filenameStamp + "-"
-                        + juce::String (width) + "x" + juce::String (height) + ".png";
+                        + juce::String (snapshot.pixelWidth) + "x"
+                        + juce::String (snapshot.pixelHeight) + ".png";
     const auto initial = juce::File::getSpecialLocation (juce::File::userPicturesDirectory)
                              .getChildFile (filename);
     captureChooser = std::make_unique<juce::FileChooser> (
@@ -318,13 +318,7 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
             return;
         }
 
-        auto stream = outputFile.createOutputStream();
-        bool saved = false;
-        if (stream != nullptr)
-        {
-            saved = juce::PNGImageFormat().writeImageToStream (image, *stream);
-            stream->flush();
-        }
+        const auto saved = hypha::capture::saveFrozenPng (image, outputFile);
         safeThis->captureChooser.reset();
         if (! saved)
             safeThis->showToast ("Capture could not be saved");

@@ -14,4 +14,6 @@ set(KIRIN_HYPHA_LANGUAGE_SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseInformation.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseNotices.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseHelpLine.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseUpdate.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseUpdate.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseTimeSnapshot.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../src/HyphaJapaneseDrumSnapshot.cpp")

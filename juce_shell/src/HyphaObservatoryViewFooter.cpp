@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTimeSnapshotPainter.h"
 #include "HyphaComparisonPresentation.h"
 #include "HyphaRunSummary.h"
 #include "HyphaSurfaceMaterial.h"
@@ -225,7 +226,6 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     area.removeFromTop (timeControlsHeight());
     area.reduce (main_frame::inset(), main_frame::inset()); // the page's main window, in its frame
     timeHistoryArea = showRunSummary && target() == ObservationTarget::absolute ? juce::Rectangle<int>() : area;
@@ -235,17 +235,7 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                             presentationContext(),
                             frameAvailable ? &observatoryFrame.meter : nullptr, true);
     else
-        time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                             target() == ObservationTarget::delta, compact, selectedScaleMode,
-                             presentationContext(),
-                             target() == ObservationTarget::delta && frameAvailable
-                                 ? comparison_presentation::statusText (
-                                       observatoryFrame.comparison_state,
-                                       observatoryFrame.comparison_reason)
-                                 : juce::String(),
-                             currentPreset().density != Density::compact, true,
-                             target() == ObservationTarget::absolute && frameAvailable
-                                 ? observatoryFrame.meter.plr
-                                 : std::numeric_limits<double>::quiet_NaN());
+        time_snapshot::paint (g, area, timePresentation, selectedScaleMode,
+                              presentationContext(), historyRequest().label);
 }
 }

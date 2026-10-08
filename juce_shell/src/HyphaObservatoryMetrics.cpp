@@ -220,6 +220,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                        bool includeChannelStrips)
 {
     const auto& meter = observatoryFrame.meter;
+    const auto& summaryMeter = cumulativeMeterForDisplay();
     const auto& delta = observatoryFrame.delta;
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
@@ -326,8 +327,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         // maxima; MAX TP is a maximum already.
         const std::array<double, 3> compactValues {
             watch.lufs_s,
-            trackStem ? watch.crest : meter.lufs_i,
-            meter.max_true_peak
+            trackStem ? watch.crest : summaryMeter.lufs_i,
+            summaryMeter.max_true_peak
         };
         const std::array<bool, 3> compactAvailable {
             compactFactsAvailable,
@@ -353,7 +354,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
-                        compactUnits[(size_t) index], family, context);
+                        compactUnits[(size_t) index], family, context, false, 1,
+                        index == 2 ? sessionMaximumBoundText() : juce::String());
         if (! channelStrips.isEmpty())
             paintChannelStrips (g, channelStrips);
         return;
@@ -362,7 +364,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const auto metricLayout = level_metrics::layoutFor (trackStem);
     const std::array<double, 3> mainValues {
         meter.lufs_m, meter.lufs_s,
-        trackStem ? watchDisplay.current.crest : meter.lufs_i
+        trackStem ? watchDisplay.current.crest : summaryMeter.lufs_i
     };
     const std::array<bool, 3> mainAvailable {
         currentAvailable, currentAvailable,
@@ -385,10 +387,10 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
 
     const std::array<double, 5> supportValues {
         trackStem ? watchDisplay.current.psr : meter.true_peak,
-        trackStem ? meter.true_peak : meter.max_true_peak,
-        trackStem ? meter.max_true_peak : meter.lra,
-        trackStem ? meter.lufs_i : meter.plr,
-        trackStem ? meter.lra : watchDisplay.current.crest
+        trackStem ? meter.true_peak : summaryMeter.max_true_peak,
+        trackStem ? summaryMeter.max_true_peak : summaryMeter.lra,
+        trackStem ? summaryMeter.lufs_i : optionValue (summaryMeter.plr, ! sessionSummaryPending()),
+        trackStem ? summaryMeter.lra : watchDisplay.current.crest
     };
     const std::array<bool, 5> supportAvailable {
         trackStem ? currentAvailable && watchDisplayAvailable : currentAvailable,
@@ -421,7 +423,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], family, context,
-                    false, 1, warmingText,
+                    false, 1,
+                    metricLayout.support[(size_t) index] == level_metrics::Metric::maximumTruePeak
+                        && sessionMaximumBoundText().isNotEmpty() ? sessionMaximumBoundText() : warmingText,
                     isFullDensity (density) ? 0.54f : -1.0f, {},
                     true, typography::TextRole::secondaryValue);
     }
