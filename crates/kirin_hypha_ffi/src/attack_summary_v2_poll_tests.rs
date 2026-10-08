@@ -184,3 +184,55 @@ fn revision_changes_when_only_pre_facts_or_cohort_scope_change() {
     snapshot.header.cutoff_sample = 1;
     assert_ne!(original, content_revision(&snapshot, 5, 7));
 }
+
+#[test]
+fn future_summary_version_precedes_size_checks_and_preserves_all_output_bytes() {
+    #[repr(C, align(8))]
+    struct Prefix {
+        version: u32,
+        struct_size: u32,
+    }
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
+    let prefix = Prefix {
+        version: 3,
+        struct_size: 32,
+    };
+    let request = (&prefix as *const Prefix).cast::<KirinAttackBandSummaryV2Request>();
+    let mut storage = vec![0xa5a5a5a5a5a5a5a5_u64; 13528 / 8 + 2];
+    let out = storage.as_mut_ptr().cast::<KirinAttackBandSummaryV2>();
+    let before = storage.clone();
+    for size in [4, 8, 15, 16, 32] {
+        for capacity in [0, 13528] {
+            assert_eq!(
+                unsafe {
+                    kirin_hypha_poll_attack_band_summary_v2(&engine, size, request, capacity, out)
+                },
+                KIRIN_SNAPSHOT_UNSUPPORTED
+            );
+            assert_eq!(storage, before);
+        }
+    }
+    for size in [0, 3] {
+        assert_eq!(
+            unsafe { kirin_hypha_poll_attack_band_summary_v2(&engine, size, request, 13528, out) },
+            KIRIN_SNAPSHOT_INVALID_REQUEST
+        );
+        assert_eq!(storage, before);
+    }
+    let valid = KirinAttackBandSummaryV2Request {
+        version: 2,
+        struct_size: 16,
+        band: 1,
+        ..Default::default()
+    };
+    for size in [4, 8, 15, 32] {
+        assert_eq!(
+            unsafe { kirin_hypha_poll_attack_band_summary_v2(&engine, size, &valid, 13528, out) },
+            KIRIN_SNAPSHOT_INVALID_REQUEST
+        );
+        assert_eq!(storage, before);
+    }
+}

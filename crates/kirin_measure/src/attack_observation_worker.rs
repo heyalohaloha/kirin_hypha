@@ -1,10 +1,16 @@
 //! Worker publication and coverage masks, separate from the legacy drawing envelopes.
 use super::band_worker::BandWorker;
-use super::snapshot::{AttackBandObservation, AttackObservationSnapshot, AttackSourceEvidence};
+use super::snapshot::{
+    AttackBandObservation, AttackObservationReadError, AttackObservationSnapshot,
+    AttackSourceEvidence,
+};
 use super::{AttackHistory, AttackRuntime};
 use crate::attack_perception::band::span_end_for;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, TryLockError};
+use std::time::{Duration, Instant};
+
+const OBSERVATION_INTERVAL: Duration = Duration::from_millis(30);
 
 impl AttackRuntime {
     /// Audio Thread: a conservative source boundary only; never modifies audio or Record.
@@ -16,14 +22,30 @@ impl AttackRuntime {
         }
     }
     pub fn try_observation_snapshot(&self) -> Option<Arc<AttackObservationSnapshot>> {
-        let guard = self.observations.try_lock().ok()?;
+        self.try_observation_snapshot_result().ok()
+    }
+
+    pub fn try_observation_snapshot_result(
+        &self,
+    ) -> Result<Arc<AttackObservationSnapshot>, AttackObservationReadError> {
+        let guard = match self.observations.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => return Err(AttackObservationReadError::Busy),
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(AttackObservationReadError::SourceUnavailable);
+            }
+        };
         let snapshot = Arc::clone(&guard);
-        let source = snapshot.source?;
-        (self.is_enabled()
+        let source = snapshot
+            .source
+            .ok_or(AttackObservationReadError::SourceUnavailable)?;
+        (source.valid()
+            && self.is_enabled()
             && self.worker_running.load(Ordering::Acquire)
             && source.source.generation == self.generation.load(Ordering::Acquire)
             && snapshot.band == self.band())
         .then_some(snapshot)
+        .ok_or(AttackObservationReadError::SourceUnavailable)
     }
 
     pub fn request_observation_anchors(
@@ -46,12 +68,20 @@ impl AttackRuntime {
     }
 
     pub(super) fn publish_observations(&self, worker: &mut BandWorker) {
-        let history = match self.history.lock() {
-            Ok(value) => value.clone(),
-            Err(_) => return,
-        };
-        let Some((first, last)) = continuous_frames(&history) else {
+        // Source retirement is checked by every reader, independently of this publication gate.
+        // Complete/AudioEnd results are still serviced during idle and published within one gate.
+        if worker
+            .observation_published_at
+            .is_some_and(|at| at.elapsed() < OBSERVATION_INTERVAL)
+        {
             return;
+        }
+        let (first, last) = match self.history.lock() {
+            Ok(history) => match continuous_frames(&history) {
+                Some((first, last)) => (*first, *last),
+                None => return,
+            },
+            Err(_) => return,
         };
         if last.generation != self.generation.load(Ordering::Acquire) {
             return;
@@ -66,8 +96,8 @@ impl AttackRuntime {
         let cutoff = pcm_end;
         let source = AttackSourceEvidence::from_frames(
             self.incarnation,
-            first,
-            last,
+            &first,
+            &last,
             pcm_start,
             pcm_end,
             cutoff,
@@ -137,6 +167,7 @@ impl AttackRuntime {
                 }
                 *published = Arc::new(snapshot);
             }
+            worker.observation_published_at = Some(Instant::now());
         }
     }
 }
@@ -167,3 +198,7 @@ fn continuous_frames(
 #[cfg(test)]
 #[path = "attack_observation_worker_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attack_observation_cadence_tests.rs"]
+mod cadence_tests;

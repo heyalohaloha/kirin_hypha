@@ -51,7 +51,7 @@ struct EntryAggregate {
 }
 
 impl EntryAggregate {
-    fn new(point: MeterHistoryEntry) -> Self {
+    fn new(point: MeterHistoryEntry, time_counts: bool) -> Self {
         let mut result = Self {
             first: point,
             observations: 0,
@@ -64,11 +64,11 @@ impl EntryAggregate {
             correlation: RangeAggregate::default(),
             psr: RangeAggregate::default(),
         };
-        result.push(point);
+        result.push(point, time_counts);
         result
     }
 
-    fn push(&mut self, point: MeterHistoryEntry) {
+    fn push(&mut self, point: MeterHistoryEntry, time_counts: bool) {
         self.counts_overflow |= self
             .observations
             .checked_add(u32::from(point.observation_count.max(1)))
@@ -78,6 +78,10 @@ impl EntryAggregate {
             .saturating_add(u32::from(point.observation_count.max(1)));
         self.first.last_observed_frames = point.last_observed_frames;
         self.first.last_timeline_endpoint_samples = point.last_timeline_endpoint_samples;
+        if self.first.segment_id != point.segment_id {
+            self.first.segment_id = 0;
+            self.first.connects_previous = false;
+        }
         for (total, count) in self.clip_event_count.iter_mut().zip(point.clip_event_count) {
             *total = total.saturating_add(count);
         }
@@ -85,12 +89,18 @@ impl EntryAggregate {
             self.counts_overflow |= total.checked_add(count).is_none();
             *total = total.saturating_add(count);
         }
-        self.lufs_m.push(point.lufs_m, point.valid_count[0]);
-        self.lufs_s.push(point.lufs_s, point.valid_count[1]);
-        self.true_peak.push(point.true_peak, point.valid_count[2]);
-        self.correlation
-            .push(point.correlation, point.valid_count[3]);
-        self.psr.push(point.psr, point.valid_count[4]);
+        // The old poll averages retained bucket means by observation count. Only V2 TIME
+        // uses the number of finite observations for each metric's denominator.
+        let weights = if time_counts {
+            point.valid_count
+        } else {
+            [point.observation_count.max(1); 5]
+        };
+        self.lufs_m.push(point.lufs_m, weights[0]);
+        self.lufs_s.push(point.lufs_s, weights[1]);
+        self.true_peak.push(point.true_peak, weights[2]);
+        self.correlation.push(point.correlation, weights[3]);
+        self.psr.push(point.psr, weights[4]);
     }
 
     fn finish(mut self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
@@ -152,14 +162,15 @@ fn decimate_history_impl(
         return Ok(Vec::new());
     }
 
-    fn run_ranges(points: &[MeterHistoryEntry]) -> Vec<(usize, usize)> {
+    fn run_ranges(points: &[MeterHistoryEntry], time_segments: bool) -> Vec<(usize, usize)> {
         let mut ranges = Vec::new();
         let mut start = 0usize;
         for index in 1..points.len() {
             if points[index].generation != points[start].generation
                 || points[index].run_id != points[start].run_id
-                || points[index].measurement_epoch != points[start].measurement_epoch
-                || points[index].segment_id != points[start].segment_id
+                || (time_segments
+                    && (points[index].measurement_epoch != points[start].measurement_epoch
+                        || points[index].segment_id != points[start].segment_id))
             {
                 ranges.push((start, index));
                 start = index;
@@ -169,7 +180,7 @@ fn decimate_history_impl(
         ranges
     }
 
-    let all_runs = run_ranges(&points);
+    let all_runs = run_ranges(&points, checked_counts);
     // One output cannot truthfully describe two discontinuous transport runs. If the UI is
     // narrower than the number of runs, retain the newest runs rather than joining or relabelling
     // them; a shorter truthful window is preferable to a fabricated continuous one.
@@ -178,7 +189,7 @@ fn decimate_history_impl(
         .checked_sub(max_output)
         .map_or(0, |first_run| all_runs[first_run].0);
     let selected = &points[selected_start..];
-    let runs = run_ranges(selected);
+    let runs = run_ranges(selected, checked_counts);
 
     let mut allocations = vec![1usize; runs.len()];
     let mut remaining = max_output.saturating_sub(runs.len());
@@ -216,9 +227,9 @@ fn decimate_history_impl(
         for bucket in 0..bucket_count {
             let start = run_start + bucket * length / bucket_count;
             let end = run_start + (bucket + 1) * length / bucket_count;
-            let mut aggregate = EntryAggregate::new(selected[start]);
+            let mut aggregate = EntryAggregate::new(selected[start], checked_counts);
             for point in selected[start + 1..end].iter().copied() {
-                aggregate.push(point);
+                aggregate.push(point, checked_counts);
             }
             output.push(if checked_counts {
                 aggregate.finish_checked(resolution)?

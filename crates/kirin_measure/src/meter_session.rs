@@ -46,11 +46,11 @@ pub struct MeterSessionSnapshot {
     pub state: MeterSessionState,
     pub sample_rate: u32,
     pub active_frames: u64,
-    /// Session-relative endpoint shared by `current` and `summary` (100 ms engine cadence).
+    /// Session-relative endpoint of `current` (100 ms engine cadence).
     pub observed_frames: u64,
-    /// Latest complete 100 ms observation from the same engine as `summary`.
+    /// Latest complete 100 ms observation. Session summary includes later processed 10 ms audio.
     pub current: MeasureResult,
-    /// Producer-owned Session maxima. S/Crest are observed at 100 ms, M at 10 ms.
+    /// S/Crest and the engine's 10 ms M maximum are published at 100 ms; TP covers processed audio.
     pub maximum: MeasureResult,
     /// EBU Mode Maximum Momentary through the same complete 100 ms observation boundary.
     pub max_lufs_m: Option<f64>,
@@ -151,6 +151,7 @@ impl MeterSession {
             ));
         }
         let mut engine = MeasureEngine::new(sample_rate, layout)?;
+        engine.enable_session_summary_cache()?;
         engine.enable_content_grid(sample_rate);
         let stereo = StereoMeter::new(sample_rate, layout)?;
         static NEXT_HISTORY_INCARNATION: AtomicU64 = AtomicU64::new(1);
@@ -288,6 +289,10 @@ impl MeterSession {
                 self.content_revision = self.content_revision.wrapping_add(1);
             },
         );
+        // Session summary covers every EBU-processed sample, including a Stop tail below
+        // the next 100 ms TIME publication. Do not mutate any completed TIME point with this tail.
+        self.summary = self.engine.cached_session_summary();
+        self.maximum.true_peak = self.summary.max_true_peak;
         true
     }
 
@@ -403,6 +408,10 @@ mod tests;
 #[cfg(test)]
 #[path = "meter_session_maximum_tests.rs"]
 mod maximum_tests;
+
+#[cfg(test)]
+#[path = "meter_session_summary_tests.rs"]
+mod summary_tests;
 
 #[cfg(test)]
 #[path = "time_observation_tests.rs"]

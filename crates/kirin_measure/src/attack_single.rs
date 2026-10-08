@@ -3,8 +3,15 @@ use super::snapshot::{AttackBandObservation, AttackFinish, AttackSourceKey};
 use super::{AttackDetailedEvent, AttackEvent, AttackRuntime};
 use crate::attack_perception::band::{AttackBand, BandSpanEnd};
 use std::sync::atomic::Ordering;
+use std::sync::TryLockError;
 
 pub const ATTACK_SINGLE_RESPONSE_MILLIS: u64 = 1_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttackSinglePollError {
+    Busy,
+    Missing,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
@@ -184,6 +191,16 @@ fn allows_request_refinement(current: &AttackSingleRequest, reply: &AttackSingle
     restored == *current
 }
 
+fn retire_state(current: &mut AttackSingleSnapshot, reason: AttackSingleReason) {
+    if current.finish != AttackFinish::Retired || current.reason != reason {
+        current.revision += 1;
+    }
+    current.finish = AttackFinish::Retired;
+    current.reason = reason;
+    current.band_observation = None;
+    current.detail = None;
+}
+
 impl AttackRuntime {
     /// Poll may supply the original PRE's completed ALL detail while this request acquires.
     /// Identity and acceptance time stay fixed; a late or terminal update cannot change facts.
@@ -228,7 +245,32 @@ impl AttackRuntime {
         Some(token)
     }
     pub fn poll_single(&self, token: u64) -> Option<AttackSingleSnapshot> {
-        let mut selected = self.selected.try_lock().ok()?;
+        self.try_poll_single(token).ok()
+    }
+    /// A lock conflict leaves the selected request intact; only an absent/replaced token is missing.
+    pub fn try_poll_single(
+        &self,
+        token: u64,
+    ) -> Result<AttackSingleSnapshot, AttackSinglePollError> {
+        let mut selected = match self.selected.try_lock() {
+            Ok(selected) => selected,
+            Err(TryLockError::WouldBlock) => return Err(AttackSinglePollError::Busy),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let mut selected = poisoned.into_inner();
+                if let Some(current) = selected.current.as_mut() {
+                    retire_state(current, AttackSingleReason::WorkerUnavailable);
+                }
+                let result = selected
+                    .current
+                    .as_ref()
+                    .filter(|value| value.token == token)
+                    .cloned()
+                    .ok_or(AttackSinglePollError::Missing);
+                // The selected result is now closed. Future requests/cancellation can proceed.
+                self.selected.clear_poison();
+                return result;
+            }
+        };
         selected.expire(
             self.single_clock_millis(),
             self.worker_running.load(Ordering::Acquire),
@@ -236,7 +278,8 @@ impl AttackRuntime {
         let current = selected
             .current
             .as_mut()
-            .filter(|value| value.token == token)?;
+            .filter(|value| value.token == token)
+            .ok_or(AttackSinglePollError::Missing)?;
         let worker = self.worker_running.load(Ordering::Acquire);
         if !worker
             || !self.is_enabled()
@@ -248,15 +291,9 @@ impl AttackRuntime {
             } else {
                 AttackSingleReason::SourceChanged
             };
-            if current.finish != AttackFinish::Retired || current.reason != reason {
-                current.revision += 1;
-            }
-            current.finish = AttackFinish::Retired;
-            current.reason = reason;
-            current.band_observation = None;
-            current.detail = None;
+            retire_state(current, reason);
         }
-        Some(current.clone())
+        Ok(current.clone())
     }
     pub fn retire_single(
         &self,
@@ -268,13 +305,7 @@ impl AttackRuntime {
             .current
             .as_mut()
             .filter(|value| value.token == token)?;
-        if current.finish != AttackFinish::Retired || current.reason != reason {
-            current.revision += 1;
-        }
-        current.finish = AttackFinish::Retired;
-        current.reason = reason;
-        current.band_observation = None;
-        current.detail = None;
+        retire_state(current, reason);
         Some(current.clone())
     }
     pub fn try_cancel_single(&self, token: u64) -> Option<bool> {
@@ -297,3 +328,7 @@ impl AttackRuntime {
 #[cfg(test)]
 #[path = "attack_single_tests.rs"]
 mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "attack_runtime_test_support.rs"]
+pub mod test_support;

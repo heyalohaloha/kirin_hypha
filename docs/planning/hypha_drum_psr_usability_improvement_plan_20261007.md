@@ -116,6 +116,22 @@ DRUM Summary V2はBAND用、Single Snapshot V2はALL／BANDを明示する。値
 
 旧struct／pollのサイズと意味、特に `KirinAbiContract` layoutは変更しない。旧照合関数はbuffer sizeなしで版確認前に書くため、structを拡大してrevisionで拒否する方法を使わない。新境界へversion／size／count／revisionを持たせ、旧staticlib／新shellの混在は起動時に拒否する。null、短buffer、未知version、raceでは全出力不変。reserved／NaNへ状態を隠さない。
 
+#### G1レビュー後の互換性と意図した表示更新（2026年10月8日）
+
+旧pollの履歴範囲・縮約分母・bucket・C ABI layoutは維持する。10分の0.2秒信号＋0.6秒無音を600点へ縮約しても599.9秒を返し、欠測ごとの区間分割とvalid分母はV2 TIMEだけに適用する。PREのRESET／worker再起動で旧POST Δ履歴は保持し、V2の対応sourceだけを退役する。同じseekをPREが1 tick遅れて公開しても、両側の実測時計変位が一致した新runを結合する。片側seekやworker置換を同じseekへ読み替えない。
+
+次の三点はG1で意図して維持する表示更新であり、旧pollの集計式を変更する例外ではない。利用者が何を見ているかをG2でも説明できることを受入条件にする。
+
+| 操作・境界 | 従来から変わる表示の動作 | 利用者への意味と維持する境界 | 回帰の根拠 |
+| --- | --- | --- | --- |
+| 比較試聴 | Δとchainの元音声測定の取り込みを続ける | PRE／POSTの処理前後を観測し続ける。ReferenceやGain適用後の試聴コピーを測定しない。Spectrumの比較試聴時の抑止は維持する | `io_thread_post_analysis` のReference B／owner／TIME target試験 |
+| 後続PCMの到着 | 背景のNotKept／AudioEnd打音を、同じ打音の元の解析窓に必要なPCMが揃った時だけ再測定する | 不足を無音やexactとして捏造しない。event／requested窓は不変。終端済みSingleの選択結果は後から書き換えない | band workerの1 sample不足・連続再開、Single終端不変試験 |
+| 出力latency・時計の基準・Record開始 | ATTACK世代を更新し、旧世代の打音を退役する（旧DRUMも対象） | 別の時計に属す打音を再利用せず、新世代の観測を待つ。Audio Threadの変更はatomicによる退役通知だけ。音声・Record samples・0 sample latencyは維持する | capture descriptorの実FFI試験、worker／Single source退役試験 |
+
+一時的lock競合はBUSYであり、取得token・出力bytes・PRE公開fileを保持して再試行する。本当のsource喪失は退役し、同revisionで有効性が戻った場合も公開を再作成する。将来の未知版は安全に読めるversion prefixだけでUNSUPPORTEDとし、V2サイズを先に要求しない。
+
+Session I／LRA／Max TPはEBUの10 ms単位で処理済みの全音声を集計し、Stop直前の100 ms未満の尾も含める。Max M／currentとTIME pointの100 ms更新は維持し、公開済みpointを後から改変しない。Sessionだけがunquantized履歴の正確な集計cacheを選び、canonical finalize／Recordの数値定義は保持する。cacheの追加メモリは履歴に比例し、通常queryは木の深さに比例する。LRAの相対gateで浮動小数点の集計順が参加集合を変え得る場合は従来のscalar計算へ戻す。同じ履歴のfallback結果を再利用する。例外的な初回fallbackは履歴の走査・sortを要し、元のLRA energyが追加される最短1秒周期でのみ再計算する。V2 Δ履歴は各pair／reset後の最初の有効TIME publicationで非RTに確保し、旧履歴と分離する。保持entry領域の容量は7,863,480 bytes（約7.86 MB）で、allocatorとOS RSS等を含む全メモリ上限ではない。32 samplesの実worker追従、短期／長期履歴のquery時間、scalar oracleとのI／LRA parityをG1の技術検証に含める。
+
 TIME新schemaはepoch／incarnation／declared spanを含み、raw tail全pointがそのspanに属すことをpublisherで確認する。band wire v4にはactual span_endがあるため、mask導出だけを増版理由にしない。band意味identity追加は版付きで設計する。旧peer／旧schemaを新Δ authorityとして受理せず、POST絶対観測は維持して比較理由を示す。Capture consumerはG0で実schemaとv1の保存境界を確認し、採用する方式のround-tripまたは明示失敗をG1以降のfixtureで受入する。未知field保存を推定しない。
 
 通常A経路のbit identical、0 sample latency、Record／plugin_dataの測定正本を維持する。Audio Threadへ解析・alloc・lock・blocking I/Oを追加しない。解析はworker、保存／publicationは対応する非RT層。raw tail・履歴・出力・二枠leaseは固定上限とし、UIへraw PCMや全候補PCMを複製しない。

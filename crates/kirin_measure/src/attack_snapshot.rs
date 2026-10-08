@@ -7,6 +7,12 @@ use crate::attack_perception::band::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttackObservationReadError {
+    Busy,
+    SourceUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttackSourceKey {
     pub incarnation: [u8; 16],
     pub generation: u64,

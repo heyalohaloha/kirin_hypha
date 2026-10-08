@@ -226,6 +226,12 @@ impl MeasureEngine {
         self.content_grid = ContentGrid::new(sample_rate);
     }
 
+    pub(crate) fn enable_session_summary_cache(&mut self) -> Result<(), String> {
+        self.ebu
+            .enable_cached_summary_queries()
+            .map_err(|error| format!("enable_cached_summary_queries: {error:?}"))
+    }
+
     pub(crate) fn break_content_continuity(&mut self) {
         if let Some(grid) = self.content_grid.as_mut() {
             grid.break_continuity();
@@ -390,7 +396,7 @@ impl MeasureEngine {
             self.total_frames += (self.publish_target / self.n_channels) as u64;
 
             let computed = self.compute();
-            let summary = session_summary.then(|| self.finalize());
+            let summary = session_summary.then(|| self.cached_session_summary());
             observe(
                 self.total_frames,
                 &computed,
@@ -436,6 +442,25 @@ impl MeasureEngine {
             lufs_i,
             lra,
             max_true_peak,
+            layout: Some(self.layout),
+        }
+    }
+
+    /// Meter Session readout only: original gating energies, logarithmic query cost. Record's
+    /// finalization still uses the unchanged canonical scalar API above as its exact oracle.
+    pub(crate) fn cached_session_summary(&self) -> SessionSummary {
+        SessionSummary {
+            lufs_i: self
+                .ebu
+                .loudness_global_cached()
+                .ok()
+                .filter(|v| v.is_finite()),
+            lra: self
+                .ebu
+                .loudness_range_cached()
+                .ok()
+                .filter(|v| v.is_finite()),
+            max_true_peak: self.session_true_peak_dbtp(),
             layout: Some(self.layout),
         }
     }

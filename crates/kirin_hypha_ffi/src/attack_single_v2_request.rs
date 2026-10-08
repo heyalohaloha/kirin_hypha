@@ -3,8 +3,12 @@ use super::*;
 use crate::attack_snapshot_authority::AttackSnapshotAuthority;
 use crate::KirinHyphaEngine;
 use kirin_measure::attack_perception::band::{span_end_for, AttackBand, BandSpanEnd};
-use kirin_measure::attack_runtime::single::{AttackSingleRequest, AttackSingleSnapshot};
-use kirin_measure::attack_runtime::snapshot::{AttackObservationSnapshot, AttackSourceKey};
+use kirin_measure::attack_runtime::single::{
+    AttackSinglePollError, AttackSingleRequest, AttackSingleSnapshot,
+};
+use kirin_measure::attack_runtime::snapshot::{
+    AttackObservationReadError, AttackObservationSnapshot, AttackSourceKey,
+};
 use kirin_measure::{AttackDetailedEvent, AttackEvent, AttackHistory, PluginDataRole};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -247,9 +251,19 @@ impl KirinHyphaEngine {
             .attack_runtime
             .as_ref()
             .ok_or(KIRIN_SNAPSHOT_UNSUPPORTED)?;
-        let mut state: AttackSingleSnapshot =
-            runtime.poll_single(token).ok_or(KIRIN_SNAPSHOT_RETIRED)?;
-        let local = runtime.try_observation_snapshot();
+        let poll = || {
+            runtime.try_poll_single(token).map_err(|error| match error {
+                AttackSinglePollError::Busy => KIRIN_SNAPSHOT_BUSY,
+                AttackSinglePollError::Missing => KIRIN_SNAPSHOT_RETIRED,
+            })
+        };
+        let read_local = || match runtime.try_observation_snapshot_result() {
+            Ok(snapshot) => Ok(Some(snapshot)),
+            Err(AttackObservationReadError::Busy) => Err(KIRIN_SNAPSHOT_BUSY),
+            Err(AttackObservationReadError::SourceUnavailable) => Ok(None),
+        };
+        let mut state: AttackSingleSnapshot = poll()?;
+        let local = read_local()?;
         let view = self
             .spectrum
             .try_attack_observation_view()
@@ -287,13 +301,12 @@ impl KirinHyphaEngine {
                 runtime
                     .complete_single_pre(token, pre_source, state.request.proof_token, detail)
                     .ok_or(KIRIN_SNAPSHOT_BUSY)?;
-                state = runtime.poll_single(token).ok_or(KIRIN_SNAPSHOT_RETIRED)?;
+                state = poll()?;
             }
         }
         let snapshot = super::assemble::assemble(&state, source, &view, authority.signal);
         if AttackSnapshotAuthority::read(self).as_ref() != Some(&authority)
-            || runtime
-                .try_observation_snapshot()
+            || read_local()?
                 .and_then(|value| value.source)
                 .map(|source| source.source)
                 != source.map(|source| source.source)
@@ -305,7 +318,8 @@ impl KirinHyphaEngine {
 }
 
 /// # Safety
-/// Pointers must name a live engine, one readable request and a writable aligned u64.
+/// Pointers name a live engine, a readable aligned version prefix and a writable aligned u64.
+/// A V2 request additionally requires readable storage for the complete V2 request.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_request_attack_single_v2(
     handle: *const KirinHyphaEngine,
@@ -317,17 +331,23 @@ pub unsafe extern "C" fn kirin_hypha_request_attack_single_v2(
         if handle.is_null()
             || request.is_null()
             || out_token.is_null()
-            || request_size as usize != std::mem::size_of::<KirinAttackSingleV2Request>()
-            || !(request as usize)
-                .is_multiple_of(std::mem::align_of::<KirinAttackSingleV2Request>())
+            || request_size < std::mem::size_of::<u32>() as u32
+            || !(request as usize).is_multiple_of(std::mem::align_of::<u32>())
             || !(out_token as usize).is_multiple_of(std::mem::align_of::<u64>())
         {
             return KIRIN_SNAPSHOT_INVALID_REQUEST;
         }
-        let request = unsafe { request.read() };
-        if request.version != 2 {
+        // Inspect only the fixed version prefix before requiring this version's layout.
+        if unsafe { request.cast::<u32>().read() } != KIRIN_ATTACK_SINGLE_V2_VERSION {
             return KIRIN_SNAPSHOT_UNSUPPORTED;
         }
+        if request_size as usize != std::mem::size_of::<KirinAttackSingleV2Request>()
+            || !(request as usize)
+                .is_multiple_of(std::mem::align_of::<KirinAttackSingleV2Request>())
+        {
+            return KIRIN_SNAPSHOT_INVALID_REQUEST;
+        }
+        let request = unsafe { request.read() };
         match unsafe { &*handle }.request_attack_single_v2(request) {
             Ok(token) => {
                 unsafe { out_token.write(token) };

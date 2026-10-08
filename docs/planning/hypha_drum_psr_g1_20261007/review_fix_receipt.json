@@ -1,0 +1,899 @@
+{
+  "scope": "G1 merge-review fixes; technical fixture acceptance, not G2 usability/quality, G3 actual DAW or release acceptance",
+  "recorded_utc": "2026-10-08T01:36:57.282266+00:00",
+  "reviewed_base_commit": "0af0ef64745a76b7bfb68a7a0a1e0a2f553fdca4",
+  "architecture": "x86_64",
+  "source": {
+    "method": "sorted verification-input path/byte-count/SHA-256 records, serialized as compact sorted-key JSON",
+    "scope": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".cargo",
+      "crates",
+      "xtask",
+      "juce_shell/CMakeLists.txt",
+      "juce_shell/src",
+      "juce_shell/tests",
+      "juce_shell/cmake",
+      "juce_shell/patches",
+      "scripts",
+      "vendor",
+      "tests",
+      "test_signals"
+    ],
+    "file_count": 1900,
+    "combined_sha256": "1383acd1c1c2342dd67fd7db1d48b92ad404ca00bb16f93f900732ba61409ebd",
+    "juce_revision": "4f43011b96eb0636104cb3e433894cda98243626",
+    "juce_build_time_patches": "tracked 12-patch stack materialized; submodule pointer unchanged"
+  },
+  "review_delta_verification_inputs": [
+    {
+      "file": "crates/kirin_hypha_ffi/Cargo.toml",
+      "bytes": 1431,
+      "sha256": "bec6cd9899db4087b2a7f77f431c5f6706018555b2f20a18ce736d160005ff8c"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/include/kirin_hypha_attack_snapshot_ffi.h",
+      "bytes": 2094,
+      "sha256": "22bf52b0b59c64d4f89540337b3f47c198b5f25dc5a6f3580ecd5ccea2b91366"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/include/kirin_hypha_attack_summary_v2_ffi.h",
+      "bytes": 2750,
+      "sha256": "79ff4028e4b8f24e5648827ca0aaa3b75983205de7e2b643f6d01b25b4ab101b"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/attack_single_v2.rs",
+      "bytes": 2654,
+      "sha256": "c79d1c9252c8d28cfff1a60c7f010857308ce90a9032a377548b0a8913d5ecf8"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/attack_single_v2_boundary_tests.rs",
+      "bytes": 2648,
+      "sha256": "14cd9659f3e519dbdd20e4bf76bf4de252f7ac146c24d49bfb2c72cf911df71b"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/attack_single_v2_request.rs",
+      "bytes": 16532,
+      "sha256": "689c218364d0e9f010ac1d8fc5c9dc6b7ec8dcc242825af1ffa97efc2d07ded3"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/attack_single_v2_tests.rs",
+      "bytes": 14430,
+      "sha256": "78fb9038f3b0a90e13bd19a1b890f33de49b607b416ac3618b443717295ed7f7"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/attack_summary_v2_poll.rs",
+      "bytes": 16357,
+      "sha256": "fb3bd054614c3d5f8f3ce0f1a81adaa286c74c3ff54b5bf775482cabd65a858d"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/attack_summary_v2_poll_tests.rs",
+      "bytes": 7284,
+      "sha256": "319f618a83fb6ee4154f1cd77ce372de80bae9fa0072c25d1aab9d51a4089f98"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/capture_window_ffi.rs",
+      "bytes": 8347,
+      "sha256": "312572d7c10816e39a9aa940b93c1d300261089a91fdbc62ba079b1cd9da5dd2"
+    },
+    {
+      "file": "crates/kirin_hypha_ffi/src/capture_window_policy_tests.rs",
+      "bytes": 2033,
+      "sha256": "6d29d48a1e6ce254e768bb554bcdf8cb9dd3c3adbb1e06ce24ee4e650ec5b77a"
+    },
+    {
+      "file": "crates/kirin_measure/Cargo.toml",
+      "bytes": 1485,
+      "sha256": "defbf1070f75e61590bd060a55c66ae4500f8d9365c4c8ffb41da2eacbe33197"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_band_worker.rs",
+      "bytes": 16848,
+      "sha256": "b769e13a19cc38379139b02f19f169f16dbe537bf0cf781895912e5ee94c9df4"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_band_worker_tests.rs",
+      "bytes": 16408,
+      "sha256": "44e737933e38a88453279fffe85b037830f6d7649c6e2afbcd1a7ef6904fa5e8"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_observation_cadence_tests.rs",
+      "bytes": 6067,
+      "sha256": "bbe0b763e026a52503a176c2c7ed1ba7886a4f82bd7e30f04cfb6ca88d246aae"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_observation_worker.rs",
+      "bytes": 7844,
+      "sha256": "4531a94121a11fe88595bc7c273c3007408e9458220de71c4aa29ae18d5524c0"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_runtime_test_support.rs",
+      "bytes": 1915,
+      "sha256": "4bb3e7616a97d3ce9c0e1983750e6d8d30334a0d06e590cdba60f55603f57706"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_single.rs",
+      "bytes": 11343,
+      "sha256": "61ff71e3118fa08ae6d4dc4516348f8bcdf52fcada649a61230ff29b53c30cbc"
+    },
+    {
+      "file": "crates/kirin_measure/src/attack_snapshot.rs",
+      "bytes": 7202,
+      "sha256": "5f6232714bb55a5af3d84f1a4fb15bceca5d8072a04f915e273f3ef3515e3ddf"
+    },
+    {
+      "file": "crates/kirin_measure/src/engine.rs",
+      "bytes": 23673,
+      "sha256": "b1175d679236cdc44847444838ec8d702542ee5a7f77f8e516a5ec5ea8067359"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_delta_history.rs",
+      "bytes": 13351,
+      "sha256": "91d8f26859eb506dbb7736380eb08ed41bf2fe7c94004856abd7dd9bfda67d32"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_delta_legacy_tests.rs",
+      "bytes": 3991,
+      "sha256": "19d180f0312db4be1879286cf978023e8f892c4b0b2c26b9800e53f31cb66dec"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_history.rs",
+      "bytes": 13052,
+      "sha256": "c297de749332c8759f2c1d9f20fed55eb93f3d22f7b2414db768ce7c87e5c846"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_history_decimation.rs",
+      "bytes": 9236,
+      "sha256": "0fd2e9e9cb8ec9de303adf0146a6321720ffeb4ac7fcc6fd20dbeb87803931d2"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_history_legacy_tests.rs",
+      "bytes": 5510,
+      "sha256": "be9845546e9635249385433d85d87c46747f2f9e0137b9eaa9d78373f76babe9"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_history_tests.rs",
+      "bytes": 11694,
+      "sha256": "08d7585188c0e583cbb3bc292d4548a96a94170033f494f446d8e7b5b1da437b"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_pair_observation.rs",
+      "bytes": 7965,
+      "sha256": "d79ba628c4b939946d95d15fe827241735952aac123877e2f10f26c2d7891963"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_session.rs",
+      "bytes": 16624,
+      "sha256": "fde369469b3574e4eb0cd22bb0a1dbca5a8db7cd14a8fc8dfd32fde5302b7436"
+    },
+    {
+      "file": "crates/kirin_measure/src/meter_session_summary_tests.rs",
+      "bytes": 4274,
+      "sha256": "eea0cda77e56fe6c753534d2fcd0c074fbf2d95586c00065de9a3e765fc23a08"
+    },
+    {
+      "file": "crates/kirin_measure/src/spectrum_exchange_pre.rs",
+      "bytes": 15718,
+      "sha256": "6727af72441210776a097fc8e64f801e6e86ac91959b540f21a8f774b2cb3ce3"
+    },
+    {
+      "file": "crates/kirin_measure/src/spectrum_exchange_pre_tests.rs",
+      "bytes": 8551,
+      "sha256": "eae1bc7908cbd399277bb5a85133038ad4664fb715d8544c70c5d46348d12c82"
+    },
+    {
+      "file": "crates/kirin_measure/src/time_exchange_access.rs",
+      "bytes": 1657,
+      "sha256": "f3f2059c486f9da951026ac1076eb4ad810628597f626c93f56a9ab1fcaef8bf"
+    },
+    {
+      "file": "crates/kirin_measure/src/time_pair_observation.rs",
+      "bytes": 11790,
+      "sha256": "1ef5aaee476717ca204b2a826a098553188de6307b3fc5e9b81c1266cf43a443"
+    },
+    {
+      "file": "crates/kirin_measure/src/time_pair_seek.rs",
+      "bytes": 4399,
+      "sha256": "37c8a283c5b0152242dbe89f7846ae0eb7964360775c9c76e5b9d7ba223a83ec"
+    },
+    {
+      "file": "crates/kirin_measure/src/time_pair_seek_tests.rs",
+      "bytes": 7300,
+      "sha256": "c02dce1dd5f967a92d579559c128ec4438a157cd5f5b11a1dc877ba1cf149708"
+    },
+    {
+      "file": "juce_shell/tests/SnapshotAbiContractTest.cpp",
+      "bytes": 10750,
+      "sha256": "e3f487714227174bcc83edd3b8a16e03b4288d8148a2c23dce142132d1c1f3b2"
+    },
+    {
+      "file": "vendor/ebur128/HYPHA_FORK.md",
+      "bytes": 3312,
+      "sha256": "6c98286ecee88e6077ab5ec93767b672a2367b5ff8f2bf27efe158fd99cab8b7"
+    },
+    {
+      "file": "vendor/ebur128/src/cached_summary.rs",
+      "bytes": 10011,
+      "sha256": "3a717ad112bc3f8732b749bd69e3f57bdd8b09ee53d0890d1a85f2a6880d16a8"
+    },
+    {
+      "file": "vendor/ebur128/src/cached_summary_tests.rs",
+      "bytes": 11481,
+      "sha256": "a005e3351ebea1d54e0ca6fe2c3e155d362e337a47a7c20342e4096cd78abfc3"
+    },
+    {
+      "file": "vendor/ebur128/src/ebur128.rs",
+      "bytes": 81183,
+      "sha256": "a108c97ac19ec8914820bb16203402c3b5e59201f11770d1bd53083da3b719d4"
+    },
+    {
+      "file": "vendor/ebur128/src/history.rs",
+      "bytes": 19543,
+      "sha256": "d91f8a78e98af1ee36e304ab60897c07ea0275039d55e0d7143489697656bc91"
+    }
+  ],
+  "continuity": {
+    "canonical_finalize": {
+      "unchanged": true,
+      "sha256": "642eab055c516477f7c9c46ed8df34aa4cbaac9b503c556c87575eeb39c31c93"
+    },
+    "max_m_boundary_test_file_unchanged": true
+  },
+  "workspace": {
+    "suites": 38,
+    "pass": 2336,
+    "fail": 0,
+    "ignored": 42,
+    "ffi_unit_pass": 192,
+    "core_unit_pass": 1720,
+    "exit_code": 0,
+    "log": {
+      "file": "workspace.log",
+      "bytes": 364195,
+      "sha256": "75c04fa229975d72119a284e110f8ee316d5b26319cc286254c2e67e36b0dc52"
+    },
+    "timing": 522.662,
+    "later_edits": "Only a semantics-preserving Single poison-path lint rewrite, a Session doc comment, and stronger assertions in the explicitly ignored worker benchmark followed this full run. Both Single core/FFI focused suites, all Clippy/ignored/performance/native gates below use the final source."
+  },
+  "initial_workspace": {
+    "suites": 38,
+    "pass": 2331,
+    "fail": 4,
+    "ignored": 42,
+    "exit_code": 101,
+    "log": {
+      "file": "workspace-initial.log",
+      "bytes": 366857,
+      "sha256": "46dcb80d440676a9a9ae5fa9f4cbe1e48db20a0067e6e20899bfdb06f2408fb8"
+    },
+    "disposition": [
+      {
+        "test": "audio_end_background_hit_refreshes_only_its_original_window_after_contiguous_resume",
+        "cause": "New fixture inserted zeros between real decay segments and created another onset",
+        "fix": "Split one immutable waveform into contiguous prefix/tail; kept same-event/window and exactly-one-refresh expectations"
+      },
+      {
+        "test": "equal_endpoint_after_a_different_seek_or_worker_replacement_keeps_the_opposite_floor",
+        "cause": "Established V2 comparison cleared point but retained old Active reason",
+        "fix": "Retire to Missing on source-run change; initial publication wait stays Waiting"
+      },
+      {
+        "test": "session_stop_tail_keeps_peak_and_all_processed_summary_without_rewriting_time",
+        "cause": "New fixture attempted to read V2 current after pause correctly retired it",
+        "fix": "Compare immutable raw point before pause; assert retired raw current after pause"
+      },
+      {
+        "test": "maximum_momentary_never_runs_ahead_of_the_public_observation_boundary",
+        "cause": "Initial tail change also advanced Max M beyond the existing 100 ms contract",
+        "fix": "Restore Max M/current boundary without changing the existing test; extend only I/LRA/Max TP"
+      }
+    ]
+  },
+  "initial_worker_32": {
+    "exit_code": 101,
+    "log": {
+      "file": "worker-32-initial.log",
+      "bytes": 3825,
+      "sha256": "c369808269203ae782674cf65d16f9e4b110b487ffa783d65c339c41b3ddf10c"
+    },
+    "cause": "The strengthened ALL assertion inspected the band-only snapshot own list, which is intentionally empty without a selected band",
+    "fix": "Verify real onsets from raw AttackHistory in all modes; retain successful band measurements, zero drops, ODF coverage and unchanged cadence bounds"
+  },
+  "initial_clippy": {
+    "exit_code": 101,
+    "diagnostic": "manual_inspect in selected poison-path Option mapping",
+    "log": {
+      "file": "clippy-owned-initial.log",
+      "bytes": 3590,
+      "sha256": "716c1f0d9733f251027d7a556245c1af6bb27924b74a258b82b8f87ad0764b48"
+    },
+    "fix": "Separate explicit retirement from token filtering and cloning; focused core 9 and FFI 8 pass afterward"
+  },
+  "rust_gates": [
+    {
+      "name": "single-core-final",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_measure",
+        "--lib",
+        "attack_runtime::single::",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 64.433,
+      "log": {
+        "file": "single-core-final.log",
+        "bytes": 1464,
+        "sha256": "bb399f6bdd6311c82c819640ef8bcd48dab8a67d40bc1b04e99abd92bd64a7a2"
+      }
+    },
+    {
+      "name": "single-ffi-final",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--lib",
+        "attack_single_v2",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 81.057,
+      "log": {
+        "file": "single-ffi-final.log",
+        "bytes": 1640,
+        "sha256": "eba2bfe57230b3652cafadff011b105e6ee640e872062e67bcc79ec8e9eea32e"
+      }
+    },
+    {
+      "name": "clippy-owned",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kirin_measure",
+        "-p",
+        "kirin_hypha_ffi",
+        "-p",
+        "xtask",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 88.054,
+      "log": {
+        "file": "clippy-owned.log",
+        "bytes": 1354,
+        "sha256": "f8178695ac7c837b359c0c232ad786e3e89174b872c8b566893c2ae212214d05"
+      }
+    },
+    {
+      "name": "clippy-legacy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "hypha_pre",
+        "-p",
+        "hypha_post",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 65.732,
+      "log": {
+        "file": "clippy-legacy.log",
+        "bytes": 140399,
+        "sha256": "92ed0bf02ecd5df0ca3a37b8e6741877788f16aa1b23fe6f0a9185131facfd5b"
+      }
+    },
+    {
+      "name": "parity-list",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "--",
+        "--ignored",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 38.843,
+      "log": {
+        "file": "parity-list.log",
+        "bytes": 1407,
+        "sha256": "655fca2caca96a05f0925e0f6771fc6296bb07295211d090ada1339515ce12f2"
+      }
+    },
+    {
+      "name": "pairing-list",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "pairing_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.965,
+      "log": {
+        "file": "pairing-list.log",
+        "bytes": 868,
+        "sha256": "3f58c7070e4d139d91df81a09737266fb235f2865847ac80b53cd3fd76c63df3"
+      }
+    },
+    {
+      "name": "parity",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 153.545,
+      "log": {
+        "file": "parity.log",
+        "bytes": 1477,
+        "sha256": "d8424f2cef24bbd567285ec8b0bcf6399b1d91b16130f443d482e4bc3687390a"
+      }
+    },
+    {
+      "name": "pairing",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "pairing_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 9.607,
+      "log": {
+        "file": "pairing.log",
+        "bytes": 851,
+        "sha256": "c62dfdf64fe10b5c444dcf4c71fb949442f3a98287ecb882834bd46d1ff19ee5"
+      }
+    },
+    {
+      "name": "vendor-cache",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "vendor/ebur128/Cargo.toml",
+        "cached_summary",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 140.816,
+      "log": {
+        "file": "vendor-cache.log",
+        "bytes": 6168,
+        "sha256": "f5431c88dacb7f1c5275cfa80465f8df8af287b9b0286e5833352ce1e6b67d9b"
+      }
+    },
+    {
+      "name": "vendor-duration",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "vendor/ebur128/Cargo.toml",
+        "--release",
+        "repeated_exact_summary_queries",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 125.045,
+      "log": {
+        "file": "vendor-duration.log",
+        "bytes": 5078,
+        "sha256": "4282a9e2c87050122963b32a20d2aa282b8a9df181af92ff5fefe46a2bfc6ec2"
+      }
+    },
+    {
+      "name": "worker-32",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_measure",
+        "--release",
+        "observation_worker_keeps_up",
+        "--locked",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 126.513,
+      "log": {
+        "file": "worker-32.log",
+        "bytes": 5337,
+        "sha256": "27c54b11d9dfc79571428b623ab9e0fb8e37aa06ce4cd5cbbdbc9868c09dccd1"
+      }
+    },
+    {
+      "name": "release-archive",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kirin_hypha_ffi",
+        "--release",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 65.617,
+      "log": {
+        "file": "release-archive.log",
+        "bytes": 503,
+        "sha256": "274fd9a1d8e6dd74348748a84aeb6201a7cdc047346bb7ffaa206e829121caa9"
+      }
+    }
+  ],
+  "final_gates": [
+    {
+      "name": "clippy-core-final",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kirin_measure",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 26.137,
+      "log": {
+        "file": "clippy-core-final.log",
+        "bytes": 343,
+        "sha256": "7372c0b0fb16cba3a93ccd51eaa6a3caf0cb8d02e94158420f4b5c27653d62dc"
+      }
+    },
+    {
+      "name": "sharpness-performance",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_measure",
+        "--release",
+        "--locked",
+        "one_visible_pair_continuous_sharpness_worker_budget_is_quantified",
+        "--lib",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.833,
+      "log": {
+        "file": "sharpness-performance.log",
+        "bytes": 588,
+        "sha256": "3e058fe30739de617af1d4e1cdb6c40a9bce0699c6760c5d1b0923a1b40ac6e2"
+      }
+    },
+    {
+      "name": "two-post-performance",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_measure",
+        "--release",
+        "--locked",
+        "two_post_absolute_workers_fit_the_optional_analysis_budget",
+        "--lib",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.362,
+      "log": {
+        "file": "two-post-performance.log",
+        "bytes": 549,
+        "sha256": "c20249b3b5063fad3a7cda8afb6f2f63ed35da6b8922f23f2f162ee81ee2de58"
+      }
+    },
+    {
+      "name": "native-build",
+      "command": [
+        "cmake",
+        "--build",
+        "target/g1-native-inventory",
+        "--target",
+        "KirinSnapshotAbiContractTests",
+        "KirinUiRenderContractTests",
+        "-j2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 186.082,
+      "log": {
+        "file": "native-build.log",
+        "bytes": 19336,
+        "sha256": "4ca6044cc5b04f57b21699da0308866041d44735164c6e02e449c3438759cc10"
+      }
+    },
+    {
+      "name": "native-contracts",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "target/g1-native-inventory",
+        "-R",
+        "^(kirin_snapshot_abi_contract|kirin_time_history_contract)$",
+        "--output-on-failure",
+        "-V"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.893,
+      "log": {
+        "file": "native-contracts.log",
+        "bytes": 3378,
+        "sha256": "4f0ea29e5cb4840cd37b6ef31505d34f72d0c0ca272c2b009cdb2921e7a38f33"
+      }
+    },
+    {
+      "name": "normal-feature-inventory",
+      "command": [
+        "cargo",
+        "tree",
+        "-p",
+        "kirin_hypha_ffi",
+        "--locked",
+        "-e",
+        "normal,features"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.162,
+      "log": {
+        "file": "normal-feature-inventory.log",
+        "bytes": 17540,
+        "sha256": "4426332ecefd4de1ccc46ffc8536a4128bd1e14da3edffb9824ecbc0c62e1a2f"
+      }
+    },
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.417,
+      "log": {
+        "file": "format.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "name": "line-budget",
+      "command": [
+        "bash",
+        "scripts/check_source_line_budget.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.057,
+      "log": {
+        "file": "line-budget.log",
+        "bytes": 87,
+        "sha256": "71efb9f3c6ee52f4ed5f62fff704cec102b714a80a680c732fa351b0b8045c28"
+      }
+    },
+    {
+      "name": "lightweight-final",
+      "command": [
+        "bash",
+        "scripts/test_lightweight_contract.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 29.844,
+      "log": {
+        "file": "lightweight-final.log",
+        "bytes": 12151,
+        "sha256": "5b5e8cf6b997297fb0952d16ec58d2b84aea5b99376027dd8d9116b40b37b038"
+      }
+    },
+    {
+      "name": "public-text",
+      "command": [
+        "node",
+        "scripts/check_public_text.mjs"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.225,
+      "log": {
+        "file": "public-text.log",
+        "bytes": 64,
+        "sha256": "ec47780aa575f87e9179c17b940189cefc134b72543b925aec478e3660eaead5"
+      }
+    },
+    {
+      "name": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.048,
+      "log": {
+        "file": "diff-check.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "ignored_inventory": {
+    "parity": 20,
+    "pairing": 6
+  },
+  "ignored_result": {
+    "parity": {
+      "suites": 1,
+      "pass": 20,
+      "fail": 0,
+      "ignored": 0
+    },
+    "pairing_candidates": {
+      "suites": 1,
+      "pass": 6,
+      "fail": 0,
+      "ignored": 0
+    }
+  },
+  "shipping_features": {
+    "test_support_enabled": false,
+    "method": "normal-only Cargo feature graph; dev-only fixture helpers excluded"
+  },
+  "measurements": {
+    "worker_32_samples": [
+      "test attack_runtime::observation_worker::cadence_tests::observation_worker_keeps_up_with_32_sample_blocks_and_preserves_cadence ... band None: 12000 32-sample blocks, 1495 ODF frames, 16 detected hits, 0 band attempts, 0 measured hits, 242 observed publications, max gap 37.572678ms, elapsed 8.028785706s, final PCM 384000",
+      "band Some(AttackBand { index: 3 }): 12000 32-sample blocks, 1495 ODF frames, 16 detected hits, 15 band attempts, 15 measured hits, 240 observed publications, max gap 37.599878ms, elapsed 8.026016998s, final PCM 384000",
+      "band Some(AttackBand { index: 1 }): 12000 32-sample blocks, 1495 ODF frames, 16 detected hits, 15 band attempts, 15 measured hits, 240 observed publications, max gap 38.001265ms, elapsed 8.034970125s, final PCM 384000"
+    ],
+    "duration_scaling": [
+      "test ebur128::cached_summary::tests::repeated_exact_summary_queries_remain_bounded_as_duration_grows ... 600 energies: 100000 I/LRA queries 4.940552ms, tree height 11, 600 distinct nodes, Node 56 bytes, tree payload 33600 bytes (allocator overhead and canonical histories excluded)",
+      "360000 energies: 100000 I/LRA queries 5.395759ms, tree height 21, 360000 distinct nodes, Node 56 bytes, tree payload 20160000 bytes (allocator overhead and canonical histories excluded)"
+    ],
+    "sharpness-performance": [
+      "test perceptual::tests::one_visible_pair_continuous_sharpness_worker_budget_is_quantified ... 48k continuous Perceptual Delta Sharpness: median projected one visible PRE+POST worker CPU 9.649%, worst 13.244%"
+    ],
+    "two-post-performance": [
+      "test absolute_timeline::tests::two_post_absolute_workers_fit_the_optional_analysis_budget ... 48k two POST absolute workers: median projected CPU 10.196%, worst 13.385%"
+    ],
+    "native_time": [
+      "84: TIME_COMPLETION {\"supplied_frames\":192000,\"ready\":true,\"feed_wall_ms\":4708.781,\"observed_after_feed_ms\":80.704,\"poll_count\":13,\"busy_count\":0,\"last_status\":0,\"last_cutoff\":192000,\"last_current_cutoff\":192000,\"last_endpoint\":192000,\"completion_age_ms\":4.345,\"remaining_ms\":395.655}",
+      "84: TIME_PROBE {\"cutoff\":192000,\"psr\":3.003595673,\"age_first_ms\":4.345,\"remaining_first_ms\":395.655,\"age_second_ms\":37.365,\"remaining_second_ms\":362.635}"
+    ],
+    "existing_time_painter": [
+      "87: TIME five-fact steady paint: one-slot=2.29961 ms/tick, two-slot=4.62446 ms/tick",
+      "87: TIME changing live state: 2.63394 ms/tick"
+    ]
+  },
+  "artifacts": {
+    "release_ffi_archive": {
+      "file": "libkirin_hypha_ffi.a",
+      "bytes": 27925832,
+      "sha256": "8bbc52b9ce7f9bf270f87718a142cf4c453ed6cf26ecfe293ad656560996a848"
+    },
+    "native_snapshot_binary": {
+      "file": "KirinSnapshotAbiContractTests",
+      "bytes": 8939160,
+      "sha256": "b228c20a8a4af95c81fab8ea2e0bd6267960ec61724693264281bed0ed3aeab2"
+    },
+    "native_ui_binary": {
+      "file": "KirinUiRenderContractTests",
+      "bytes": 13911752,
+      "sha256": "91c3beb793aaf01ba44b419f928769619d6f9e81a05dbf230acd3da1834fdaf9"
+    }
+  },
+  "ci": {
+    "owner": "Claude",
+    "status": "new-head required CI pending after one push",
+    "manual_dispatch_or_rerun": 0,
+    "historical_green_not_reused": [
+      37704037784,
+      37704037346
+    ]
+  },
+  "remaining": [
+    "G2 display integration, Capture v1 explicit Work attachment failure, presentation speed/quality calibration",
+    "G3 technical and actual DAW acceptance plus user daily-operation/quality confirmation",
+    "G5 and existing release gates before all three 1.1.51 public distribution channels; G4 friend feedback only after publication"
+  ],
+  "session_record": {
+    "notion": "skip: project instructions prohibit every Notion write",
+    "local_record_order": [
+      "current",
+      "daily log",
+      "handoff to Claude for exact-head CI and merge"
+    ]
+  },
+  "defined_c_abi_exports": {
+    "result": "PASS",
+    "selected_count": 14,
+    "symbols": [
+      "kirin_hypha_poll_time_snapshot_v2",
+      "kirin_hypha_poll_attack_band_summary_v2",
+      "kirin_hypha_request_attack_single_v2",
+      "kirin_hypha_poll_attack_single_v2",
+      "kirin_hypha_cancel_attack_single_v2",
+      "kirin_hypha_snapshot_abi_contract",
+      "kirin_hypha_restore_pair_candidate_v2",
+      "kirin_hypha_get_paired_pre_locator",
+      "kirin_hypha_poll_record_display",
+      "kirin_hypha_publish_local_blind_pre_capture",
+      "kirin_hypha_read_local_blind_pre_capture",
+      "kirin_hypha_ack_local_blind_pre_capture",
+      "kirin_hypha_local_blind_pre_capture_was_consumed",
+      "kirin_hypha_retire_local_blind_pre_capture"
+    ],
+    "test_support_symbols_present": false,
+    "method": "Inspect all 33 owned FFI/core Mach-O objects extracted unchanged from the exact release archive; normal-only feature graph independently excludes test-support",
+    "object_count": 33,
+    "symbol_log": {
+      "file": "owned-nm.stdout",
+      "bytes": 1050152,
+      "sha256": "7cb3933e2c77939c4bec69d9c6b9c6cf15b7455760e0dcd5eba058c32afe4040"
+    },
+    "whole_archive_nm_limitation": {
+      "exit_code": 1,
+      "reason": "Apple LLVM 17 nm cannot parse Rust LLVM 21 bundled standard-library bitcode; all owned objects inspect successfully",
+      "stderr": {
+        "file": "archive-nm.stderr",
+        "bytes": 16526,
+        "sha256": "4c292e4a72f9c8fc7dfe62195a4b8acb8c8a139cb99d4c3e934b54e8fe168a10"
+      }
+    }
+  }
+}

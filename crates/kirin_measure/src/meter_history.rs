@@ -119,7 +119,6 @@ impl MeterHistoryEntry {
 
 impl MeterHistoryRange {
     fn exact(value: Option<f64>) -> Self {
-        let value = value.filter(|v| v.is_finite());
         Self {
             min: value,
             max: value,
@@ -395,3 +394,7 @@ mod tests;
 #[cfg(test)]
 #[path = "time_history_tests.rs"]
 mod time_tests;
+
+#[cfg(test)]
+#[path = "meter_history_legacy_tests.rs"]
+mod legacy_tests;

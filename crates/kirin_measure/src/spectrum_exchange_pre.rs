@@ -238,13 +238,21 @@ impl SpectrumCoordinator {
                 else {
                     return true;
                 };
-                let Some(observations) = self
+                let observations = match self
                     .attack_runtime
                     .as_ref()
-                    .and_then(|runtime| runtime.try_observation_snapshot())
-                else {
-                    remove_attack_snapshot(instance_dir);
-                    return true;
+                    .map(|runtime| runtime.try_observation_snapshot_result())
+                {
+                    Some(Ok(observations)) => observations,
+                    Some(Err(
+                        crate::attack_runtime::snapshot::AttackObservationReadError::Busy,
+                    )) => {
+                        return true;
+                    }
+                    _ => {
+                        return self
+                            .remove_unavailable_attack_publication(request_id, instance_dir);
+                    }
                 };
                 let revision = history.waveform().next_back().map(|_| {
                     let mut hash = sha2::Sha256::new();
@@ -337,6 +345,31 @@ impl SpectrumCoordinator {
         true
     }
 
+    fn remove_unavailable_attack_publication(&self, request_id: Uuid, instance_dir: &Path) -> bool {
+        {
+            // Non-RT, bounded state-only critical section. Filesystem work follows guard release.
+            let mut slot = match self.pre_session.lock() {
+                Ok(slot) => slot,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let Some(current) = slot.as_mut().filter(|current| {
+                current.request_id == request_id && current.instance_dir == instance_dir
+            }) else {
+                return false;
+            };
+            current.last_written_end = None;
+            current.last_write_attempt_end = None;
+            current.last_write_attempt_at = None;
+        }
+        // A newer/foreign request's publication is never owned by this invalidated session.
+        if read_attack_snapshot(instance_dir)
+            .is_some_and(|snapshot| snapshot.request_id == request_id)
+        {
+            remove_attack_snapshot(instance_dir);
+        }
+        true
+    }
+
     fn retire_pre_session(&self) {
         let retired = self
             .try_pre_session()
@@ -395,3 +428,7 @@ impl SpectrumCoordinator {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "spectrum_exchange_pre_tests.rs"]
+mod tests;

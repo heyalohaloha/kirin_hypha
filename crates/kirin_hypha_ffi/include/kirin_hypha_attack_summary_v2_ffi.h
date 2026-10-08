@@ -64,7 +64,9 @@ typedef struct {
     KirinAttackBandAveragePointV2 tail[KIRIN_ATTACK_BAND_SUMMARY_V2_TAIL];
 } KirinAttackBandSummaryV2;
 
-/* request_size and out_size are checked before either structure is accessed.
+/* With a readable aligned uint32_t version prefix and request_size >= 4, unknown
+ * versions return UNSUPPORTED before checking the V2 request/output sizes.
+ * Known V2 request_size and out_size are checked before either full structure is accessed.
  * Null, unknown enum/version, short buffer, contention and identity races leave
  * all output bytes unchanged. Success may contain Pending, Unknown or N/A.
  * Cohort keys are selected before measurement lookup; there is no backfill. */

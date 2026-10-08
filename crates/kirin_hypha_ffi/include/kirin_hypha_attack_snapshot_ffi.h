@@ -42,8 +42,12 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* Unknown versions with a readable aligned uint32_t prefix and request_size >= 4
+ * return UNSUPPORTED before requiring the V2 request layout. Failure preserves out_token. */
 uint8_t kirin_hypha_request_attack_single_v2(const KirinHypha* handle, uint32_t request_size,
     const KirinAttackSingleV2Request* request, uint64_t* out_token);
+/* Contention returns BUSY, preserves every output byte and keeps the selected request
+ * available for retry. A missing/replaced token returns RETIRED; source loss is a retired snapshot. */
 uint8_t kirin_hypha_poll_attack_single_v2(const KirinHypha* handle, uint64_t token,
     uint32_t out_size, KirinAttackSingleSnapshotV2* out);
 uint8_t kirin_hypha_cancel_attack_single_v2(const KirinHypha* handle, uint64_t token);

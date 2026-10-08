@@ -25,6 +25,7 @@ serde_json = { workspace = true }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
+kirin_measure = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 # kirin_measure の MoSQITo tolerance テストと同一の比較マクロ（同許容誤差で assert する）。
 approx = "0.5"

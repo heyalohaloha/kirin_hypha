@@ -321,6 +321,7 @@ fn the_preallocated_history_cost_is_measured_not_assumed() {
         entries * std::mem::size_of::<MeterHistoryEntry>(),
         7_863_480,
         "MeterHistory 1 本あたり 7.50 MiB。engine 1 台はこれを 2 本持つ \
-         (meter_session.rs:117 / meter_delta_history.rs:99)"
+         (Meter Session plus legacy delta); V2 adds one lazy bounded history on first \
+         qualified publication, outside the audio thread"
     );
 }

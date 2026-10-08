@@ -357,3 +357,45 @@ fn reports_the_worker_cost_with_and_without_a_band() {
         runtime.shutdown_and_join();
     }
 }
+
+#[test]
+fn audio_end_background_hit_refreshes_only_its_original_window_after_contiguous_resume() {
+    let runtime = AttackRuntime::new(48_000, 2).unwrap();
+    runtime.set_band(Some(band(3)));
+    assert!(runtime.set_enabled(true));
+    // Split one immutable waveform so the resumed boundary cannot invent a second onset.
+    let audio = bursts(73_600, &[40_000]);
+    feed(&runtime, &audio[..49_600 * 2], 0);
+    let partial = wait_for(Duration::from_secs(3), || {
+        own_near(&runtime, 40_000).filter(|d| {
+            d.measure
+                .is_some_and(|m| m.span_end == BandSpanEnd::AudioEnd)
+        })
+    })
+    .expect("partial background measurement at audio end");
+    let measured = runtime.stats().band_measurements;
+    feed(&runtime, &audio[49_600 * 2..61_600 * 2], 49_600);
+    let complete = wait_for(Duration::from_secs(3), || {
+        own_near(&runtime, 40_000)
+            .filter(|d| d.measure.is_some_and(|m| m.span_end == BandSpanEnd::Window))
+    })
+    .unwrap_or_else(|| {
+        panic!(
+            "same hit must complete; partial {partial:?}, latest {:?}, stats {:?}",
+            own_near(&runtime, 40_000),
+            runtime.stats()
+        )
+    });
+    assert_eq!(complete.event, partial.event);
+    assert_eq!(complete.span_end_sample, partial.span_end_sample);
+    assert_eq!(
+        complete.measure.unwrap().span_end_sample,
+        complete.span_end_sample
+    );
+    assert_eq!(runtime.stats().band_measurements, measured + 1);
+    feed(&runtime, &audio[61_600 * 2..], 61_600);
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(own_near(&runtime, 40_000).unwrap(), complete);
+    assert_eq!(runtime.stats().band_measurements, measured + 1);
+    runtime.shutdown_and_join();
+}

@@ -406,7 +406,8 @@ fn content_revision(
 }
 
 /// # Safety
-/// Non-null pointers must refer to a live engine and appropriately sized readable/writable storage.
+/// Pointers name a live engine, a readable aligned version prefix and aligned writable output.
+/// A V2 request additionally requires the complete V2 request and declared output storage.
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_poll_attack_band_summary_v2(
     handle: *const KirinHyphaEngine,
@@ -419,19 +420,24 @@ pub unsafe extern "C" fn kirin_hypha_poll_attack_band_summary_v2(
         if handle.is_null()
             || request.is_null()
             || out.is_null()
-            || request_size as usize != std::mem::size_of::<KirinAttackBandSummaryV2Request>()
-            || (out_size as usize) < std::mem::size_of::<KirinAttackBandSummaryV2>()
+            || request_size < std::mem::size_of::<u32>() as u32
             || !(request as usize)
                 .is_multiple_of(std::mem::align_of::<KirinAttackBandSummaryV2Request>())
             || !(out as usize).is_multiple_of(std::mem::align_of::<KirinAttackBandSummaryV2>())
         {
             return KIRIN_SNAPSHOT_INVALID_REQUEST;
         }
-        // SAFETY: pointer contracts, size and alignment were checked before the read.
-        let request = unsafe { request.read() };
-        if request.version != KIRIN_ATTACK_BAND_SUMMARY_V2_VERSION {
+        // Read only the fixed version prefix until this version's full layout is validated.
+        if unsafe { request.cast::<u32>().read() } != KIRIN_ATTACK_BAND_SUMMARY_V2_VERSION {
             return KIRIN_SNAPSHOT_UNSUPPORTED;
         }
+        if request_size as usize != std::mem::size_of::<KirinAttackBandSummaryV2Request>()
+            || (out_size as usize) < std::mem::size_of::<KirinAttackBandSummaryV2>()
+        {
+            return KIRIN_SNAPSHOT_INVALID_REQUEST;
+        }
+        // SAFETY: pointer contracts, size and alignment were checked before the full read.
+        let request = unsafe { request.read() };
         if !request.is_valid() {
             return KIRIN_SNAPSHOT_INVALID_REQUEST;
         }

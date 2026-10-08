@@ -35,11 +35,14 @@ impl MeterDeltaHistoryExchange {
         if binding.generation != self.time_authority_revision() {
             return Some(Ok(None));
         }
-        Some(
-            delta
-                .time
-                .view(pair, &delta.history, resolution, lower, cutoff, capacity),
-        )
+        Some(delta.time.view(
+            pair,
+            delta.time_history.as_deref(),
+            resolution,
+            lower,
+            cutoff,
+            capacity,
+        ))
     }
 }
 

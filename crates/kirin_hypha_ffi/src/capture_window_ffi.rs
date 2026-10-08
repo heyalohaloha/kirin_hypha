@@ -202,3 +202,7 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
         }
     }));
 }
+
+#[cfg(test)]
+#[path = "capture_window_policy_tests.rs"]
+mod policy_tests;

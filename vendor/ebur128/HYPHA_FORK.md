@@ -22,3 +22,21 @@ The repository S-1 WAV comparison checks M/S within 1e-9 LU and unchanged I/LRA/
 The standalone manifest has its own empty workspace only to run upstream unit tests; Hypha's
 root patch and lockfile govern product builds. The standalone lockfile and target are ignored.
 Do not attribute Hypha's local extension to an upstream release or claim upstream certification.
+
+A second opt-in extension keeps unquantized integrated and LRA energies in AVL trees.
+It is enabled only for an empty measurement session, alongside the original histories.
+Integrated gating uses the canonical insertion-order ungated sum; suffix sums and LRA
+percentile lookups use the original raw energies without histogram quantization.
+Normal queries are logarithmic in the number of retained energies; additional cache memory
+grows with that history. A conservative summation roundoff bound detects ambiguous LRA
+relative-gate membership and falls back to the original scalar calculation. The fallback is
+cached until that energy history changes, preserving quantiles at floating-point boundaries.
+An ambiguous first query after new LRA energy may still scan/sort the canonical history;
+subsequent queries of that unchanged history reuse the result. Reset clears the trees; parameter/window changes preserve their matching canonical energy
+histories. A bounded-history change disables the cache. Existing scalar
+`loudness_global`, `loudness_range`, and canonical Record finalization remain unchanged.
+Tests compare the opt-in queries against those scalar methods, including moving relative
+gates, percentile boundaries, silence, reset, reconfiguration and audio in 32-frame blocks.
+The ignored optimized benchmark compares repeated queries over short and long histories.
+Hypha uses this extension only in Session observation; it is a local fork addition, not an
+upstream behavior or an EBU certification claim.

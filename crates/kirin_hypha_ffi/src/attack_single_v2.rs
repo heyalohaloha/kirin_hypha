@@ -84,3 +84,7 @@ impl Default for KirinAttackSingleSnapshotV2 {
 #[cfg(test)]
 #[path = "attack_single_v2_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attack_single_v2_boundary_tests.rs"]
+mod boundary_tests;

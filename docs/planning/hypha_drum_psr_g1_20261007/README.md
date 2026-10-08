@@ -2,7 +2,7 @@
 
 G1はmain `7b0c301c`で開始し、保存先隔離を含むmain `f5424878`へ統合して、1.1.51へ含める観測・snapshot基盤を実装する。[改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)のG1受入を対象とする。G2の全面表示統合、G3の実DAW、公開前の本人の日常操作・品位確認は別の工程であり、基盤試験の成功で代用しない。Claudeが途中確認、CI、merge、releaseを担当する。
 
-## 最新の受入判断（2026年10月8日）
+## レビュー修正前のCI判断（2026年10月8日）
 
 [CI 37693270001](https://github.com/heyalohaloha/kirin_hypha/actions/runs/37693270001)の対象は`8b86da6fad3236d36efb7d03271caf0c5dba4900`。macOSのrelease source contract、public history、AU検証はPASSした。native89件、UPDATE実動7件、core1705件、FFI185件、Record／pairingのignored20＋6件を含み、capstoneとRecord spoolの2秒期限もPASS。CIログを読取確認し、利用者・Claudeの2026年10月8日の判定により、手元のcapstone／spoolのFAILは機械の負荷・共有Cargo targetによる揺れであり、G1の後戻りではないと記録する。ローカルFAILの実測とlogは履歴として保持する。
 
@@ -10,7 +10,27 @@ G1はmain `7b0c301c`で開始し、保存先隔離を含むmain `f5424878`へ統
 
 PR #88のmerge済main `6036eae6`を取り込み、`kirin_snapshot_abi_contract`と`kirin_live_blind_loop_stall_product`を両方含む一覧を90件にした。CMakeの実登録も90件で、通常52件と一度だけの再実行を許すlive製品38件に欠落・重複なく分かれることを確認した。試験実行はこの一覧確認に含めない。mainの再実行設定と、Windowsの対象stepも保持した。G1のRust・C header・JUCE表示sourceはCI対象から変更していないことを照合した。main統合後commitの必須4checkはClaudeが改めて確認し、旧runを更新後commitの全件PASSへ流用しない。
 
-G1の観測基盤の開発受入はレビュー可能と判断し、Draftを外して提出する。mergeと正式候補の受入・公開は別の判断である。G2の表示・Capture・動きと品位、G3の実DAW、本人確認は未完了。[CI判断の証跡](ci_review_receipt.json)と、以下のローカル履歴を分けて読む。
+この時点でG1の観測基盤の開発受入はレビュー可能と判断し、Draftを外して提出した。mergeと正式候補の受入・公開は別の判断である。G2の表示・Capture・動きと品位、G3の実DAW、本人確認は未完了。[CI判断の証跡](ci_review_receipt.json)と、以下のローカル履歴を分けて読む。
+
+## merge前レビューへの修正（2026年10月8日）
+
+レビュー対象は `0af0ef64`。同sourceのCI成功後のレビューで、旧pollの互換性、遅れて届く同じseek、BUSYの扱い、workerの公開負荷、PRE publicationの再試行、Sessionの末尾と長期集計コストの問題が判明した。これらは今回の修正対象であり、以前の環境起因FAILの分類と混同しない。修正後sourceのローカル試験と新しいCIを必要とし、以前のgreenを代用しない。
+
+旧履歴の0.2秒信号＋0.6秒無音／10分の回帰は599.9秒を保持する。区間分割・valid分母とRESET時の新source退役をV2へ分離した。同じseekの1 tickずれは時計変位で照合し、最初の新runの対応可能pointから結合する。SingleとPRE publicationは競合時に要求・出力・fileを保持し、本当のsource喪失と区別する。未知versionはサイズより先に判定する。
+
+Observation publicationは30 msで間引き、mutex内で全AttackHistoryを複製せず端点事実だけを読む。Session I／LRA／Max TPはEBUの10 ms単位で処理済みの末尾を含める。Max M／currentとTIME pointの100 ms更新は維持する。unquantized I／LRAのopt-in cacheを使う。LRA gateの参加集合が丸めで変わり得る場合はcanonicalへ戻し、同履歴で結果を再利用する。例外的な初回fallbackは履歴を走査・sortするが、元のLRA energy更新の最短1秒周期でのみ再計算する。canonical finalizeとRecordは維持する。追加cacheは元履歴に比例するメモリを要する。V2 Δの専用履歴は各pair／reset後の最初の有効TIME publicationで非RTに確保する。保持entry領域の容量は7,863,480 bytes（約7.86 MB）で、allocatorとOS RSS等を含む全メモリ上限ではない。
+
+比較試聴中の元音声Δ／chain更新、NotKept／AudioEnd背景打音の同一窓への再測定、時計基準・出力latency・Record開始でのATTACK世代更新は意図した変更として維持する。操作前後の動作・利用者への意味・退役範囲を[計画の互換性表](../hypha_drum_psr_usability_improvement_plan_20261007.md#共通abi互換性の境界)に一覧化する。PRE RESETによる旧Δ履歴全消去は維持しない。
+
+レビュー修正の最初のworkspaceは2331件PASS・4件FAIL・42件ignoredだった。二つの新fixtureの参照・波形を正し、確立済みV2比較の退役理由をMissingへ直し、既存のMax M試験を変えず100 ms更新へ戻した。再判定は38 suite・2336件PASS・0件FAIL・42件ignored。続くSingleのlint整理後もcore9件・FFI8件がPASSした。初回のFAILと修正理由を[レビュー修正の検証記録](review_fix_receipt.json)に保存し、以前の環境起因FAILと区別する。
+
+ignoredのRecord／pairingは20件＋6件を一覧で実測して全26件PASS。32 samples／48 kHzの実workerはALL／250 Hz／63 Hzで各12000 block、1495 ODF frame、16 onsetを処理し、欠落0、240～242 publication、最大公開間隔38.002 ms以内だった。帯域モードは各15打を実測した。ALLのonsetはraw historyにあり、band専用のownを使う初回の補強assertionは誤りだった。正しいonset履歴への参照に直し、測定成功・coverage・間隔の条件は維持した。
+
+unquantized履歴600件と360000件の10万回I／LRA queryは4.940552／5.395759 msで、通常queryのduration比例増加を認めなかった。tree payloadは33600／20160000 bytes、Node56 bytes。allocatorとcanonical履歴は含まない。optimizedの一組PRE／POSTはmedian9.649%／worst13.244%、二枠POSTはmedian10.196%／worst13.385%で、既存18%上限内だった。
+
+最終release archiveを使ったnative ABI・TIME履歴の2件はPASS。供給末尾192000 samplesの完了を供給終了から80.704 msで確認し、PSR3.003595673 dB、原完了age4.345→37.365 ms、残り期限395.655→362.635 msだった。再pollによる期限延長は0。既存TIME五指標の実painterは一枠2.29961／二枠4.62446 ms/tick、live状態変化2.63394 ms/tickだった。G2の新表示・動き・操作の受入には流用しない。source／archive／binaryのhashと最終component検証を同じ記録へ結び付け、正式候補の実DAWをこのfixture結果で代用しない。
+
+G2の実描画、日常操作、速度と品位の確認は未完了であり、この修正の技術試験を利用者の使いやすさのPASSとしない。
 
 ## 決定と実装境界
 
@@ -103,3 +123,9 @@ capstoneを単独で一度確認すると、packet自体は取得できたが`lu
 現在地：G1の実装と証跡を保存し、Draft PRでClaudeの途中確認・必須CIへ渡す。G1受入は未完了。日次ログ：観測基盤、停止／seekの境界、source別の検証を保存した。Handoff：Claudeは必須4checkとRecord／Δの上記blockerを確認し、問題の解決と同一sourceの受入が揃ってからmergeを判断する。G2はその後の表示・Capture・動きと品位の統合。公開・実DAW・本人確認をこの保存で完了と扱わない。
 
 2026年10月8日の現在地：PR #88のmainを保持して一覧90件と両試験を統合し、G1の開発受入の根拠を確認してレビューへ提出する。日次ログ：CIの成功とローカルFAILの環境分類を保存し、別作業の未commit変更を持ち込まず統合した。Handoff：Claudeは更新後commitの必須4checkを確認してmergeを判断する。Drop fixtureの修正は別PR。NotionのSECTION:DEV・日次ログ・Handoffは書込み禁止のため未記録。この文書に現在地と申し送りを残す。
+
+2026年10月8日10:37 JSTの現在地：merge前レビュー8点の修正と関係するローカル検証を揃え、同じPRへまとめて提出する。検証入力1900ファイルのSHA-256は `1383acd1c1c2342dd67fd7db1d48b92ad404ca00bb16f93f900732ba61409ebd`。workspace全体の後のSingle lint整理はcore9件・FFI8件で再検証し、Sessionの注記とignored worker fixtureの補強後もClippy・性能・nativeを最終sourceで確認した。通常依存ではtest-support featureを有効にせず、実release archiveのowned 33 objectにtest-support symbolがないことと選定したC ABI 14 exportを照合した。
+
+日次ログ：旧pollの範囲と分母、遅着seek、BUSY、公開負荷と再試行、Session末尾と長期cache、未知版の拒否を修正した。意図した表示更新3点と、追加メモリ・例外時のLRA計算コストを計画へ保存した。最初の製品／fixture FAILと修正後PASSは、過去の環境起因FAILと区別した。整形、500行規約、lightweight source contract、公開text、差分検査もPASS。別作業の未commit file、JUCE submoduleのbuild時patchはcommitへ含めない。
+
+Handoff：Claudeは今回の更新後headの必須CI4件とPR #89のmergeを確認する。過去のCI greenを新しいheadへ繰り上げない。G2の表示・Capture v1の添付失敗通知・動きと品位の校正、G3の技術／実DAW、その後の公開前本人確認、G5と既存release gate、三チャネル公開、公開後G4は未完了。Notionの現在地・日次ログ・Handoffは書込み禁止のため未記録で、この文書とローカル記録へ順に残す。

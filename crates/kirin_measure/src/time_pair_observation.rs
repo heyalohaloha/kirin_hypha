@@ -1,6 +1,8 @@
 //! Exact raw joins; original POST completion time is the only comparison TTL origin.
 use super::*;
 use crate::meter_session::time_observation::{TimeRawPoint, TimeSourceSpan, TimeWirePoint};
+#[path = "time_pair_seek.rs"]
+mod seek;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct TimePublication {
@@ -63,12 +65,19 @@ pub(super) struct TimeComparisonState {
     pre_admission_floor: u64,
     post_admission_floor: u64,
     joined_run: u64,
+    seeks: seek::SeekAdmission,
 }
 
 impl TimeComparisonState {
     pub(super) fn fail(&mut self, reason: TimeComparisonReason) {
         self.point = None;
         self.reason = reason;
+        if matches!(
+            reason,
+            TimeComparisonReason::Stopped | TimeComparisonReason::Incompatible
+        ) {
+            self.seeks.clear_pending();
+        }
     }
 
     pub(super) fn ingest(
@@ -102,6 +111,7 @@ impl TimeComparisonState {
             established && (self.pre_span != Some(pre.span) || self.pre_run != pre_latest.run);
         let post_changed = established
             && (self.post_span != Some(latest.wire.span) || self.post_run != latest.wire.run);
+        let common_seek = self.seeks.observe(*pre_latest, latest.wire);
         // A one-sided lifecycle change retires every opposite-side slot already published at
         // that boundary, including unconsumed suffixes. Matching endpoint numbers do not make
         // old playback/new-worker data contemporaneous. Fresh opposite slots can resume without
@@ -121,23 +131,31 @@ impl TimeComparisonState {
             self.post_admission_floor
         };
         if self.pre_span != Some(pre.span) || self.post_span != Some(latest.wire.span) {
+            let seeks = std::mem::take(&mut self.seeks);
             *self = Self::default();
+            self.seeks = seeks;
             history.reset();
             self.pre_span = Some(pre.span);
             self.post_span = Some(latest.wire.span);
         }
-        self.pre_admission_floor = if pre_changed && post_changed {
+        self.pre_admission_floor = if (pre_changed && post_changed) || common_seek {
             0
         } else {
             pre_floor
         };
-        self.post_admission_floor = if pre_changed && post_changed {
+        self.post_admission_floor = if (pre_changed && post_changed) || common_seek {
             0
         } else {
             post_floor
         };
         if self.pre_run != pre_latest.run || self.post_run != latest.wire.run {
-            self.point = None;
+            // Publication lag may preserve Active only while a proven point still exists.
+            // A changed lineage has no current comparison until a fresh pair is admitted.
+            self.fail(if established {
+                TimeComparisonReason::Missing
+            } else {
+                TimeComparisonReason::Waiting
+            });
             self.joined_run = self.joined_run.wrapping_add(1).max(1);
             self.pre_run = pre_latest.run;
             self.post_run = latest.wire.run;
@@ -227,6 +245,7 @@ impl TimeComparisonState {
             self.last_cutoff = local.wire.observed;
             self.point = Some(joined);
             self.reason = TimeComparisonReason::Active;
+            self.seeks.clear_pending();
         }
         // An endpoint beyond the newest PRE is normal publication lag. A covered but absent,
         // duplicated or incompatible endpoint is confirmed missing; never restore a finite point.
@@ -254,7 +273,7 @@ impl TimeComparisonState {
     pub(super) fn view(
         &self,
         pair: &PairKey,
-        history: &MeterHistory,
+        history: Option<&MeterHistory>,
         resolution: MeterHistoryResolution,
         lower: u64,
         cutoff: u64,
@@ -286,7 +305,10 @@ impl TimeComparisonState {
             cutoff: self.last_cutoff,
             point: self.point.clone(),
             reason: self.reason,
-            history: history.time_range(resolution, lower, endpoint, capacity)?,
+            history: history
+                .map(|history| history.time_range(resolution, lower, endpoint, capacity))
+                .transpose()?
+                .unwrap_or_default(),
         }))
     }
 }
@@ -294,3 +316,7 @@ impl TimeComparisonState {
 #[cfg(test)]
 #[path = "time_pair_observation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "time_pair_seek_tests.rs"]
+mod seek_tests;

@@ -1,11 +1,13 @@
 // Native C-header consumer of the actual Rust archive; no GUI or real host is involved.
 #include "../src/SnapshotAbiContract.h"
+#include "kirin_hypha_ffi.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 
 bool runTimeSnapshotProbe();
 
@@ -16,6 +18,70 @@ bool expect (bool result, const char* label)
     if (! result)
         std::fprintf (stderr, "snapshot ABI contract failed: %s\n", label);
     return result;
+}
+
+bool attackVersionStatuses()
+{
+    const std::array<std::uint8_t, 1> roles { KIRIN_CHANNEL_ROLE_CENTRE };
+    std::unique_ptr<KirinHypha, decltype (&kirin_hypha_destroy)> engine (
+        kirin_hypha_create (48000, roles.data(), 1), kirin_hypha_destroy);
+    if (! expect (engine != nullptr, "version probe engine")) return false;
+    struct alignas (8) Prefix { std::uint32_t version, size; } prefix { 3, 128 };
+    struct GuardedSummary { KirinAttackBandSummaryV2 value; std::array<std::uint8_t, 16> tail; } summary;
+    struct GuardedToken { std::uint64_t value; std::array<std::uint8_t, 16> tail; } token;
+    std::memset (&summary, 0xa5, sizeof (summary));
+    std::memset (&token, 0xa5, sizeof (token));
+    std::array<std::uint8_t, sizeof (summary)> summaryBefore {};
+    std::array<std::uint8_t, sizeof (token)> tokenBefore {};
+    std::memcpy (summaryBefore.data(), &summary, sizeof (summary));
+    std::memcpy (tokenBefore.data(), &token, sizeof (token));
+    const auto unchanged = [&] {
+        return std::memcmp (&summary, summaryBefore.data(), sizeof (summary)) == 0
+            && std::memcmp (&token, tokenBefore.data(), sizeof (token)) == 0;
+    };
+    // An unknown ABI has only the stable prefix in common. Its size cannot imply V2.
+    for (const auto size : { 4u, 8u, 15u, 16u, 32u, 95u, 96u, 128u })
+    {
+        if (! expect (kirin_hypha_poll_attack_band_summary_v2 (engine.get(), size,
+                reinterpret_cast<const KirinAttackBandSummaryV2Request*> (&prefix),
+                sizeof (summary.value), &summary.value) == KIRIN_SNAPSHOT_UNSUPPORTED,
+                "summary future version before size")
+            || ! expect (kirin_hypha_request_attack_single_v2 (engine.get(), size,
+                reinterpret_cast<const KirinAttackSingleV2Request*> (&prefix),
+                &token.value) == KIRIN_SNAPSHOT_UNSUPPORTED, "single future version before size")
+            || ! expect (unchanged(), "future version output canaries")) return false;
+    }
+    if (! expect (kirin_hypha_poll_attack_band_summary_v2 (engine.get(), 32,
+            reinterpret_cast<const KirinAttackBandSummaryV2Request*> (&prefix), 0,
+            &summary.value) == KIRIN_SNAPSHOT_UNSUPPORTED, "future version before output size")) return false;
+    for (const auto size : { 0u, 3u })
+    {
+        if (! expect (kirin_hypha_poll_attack_band_summary_v2 (engine.get(), size,
+                reinterpret_cast<const KirinAttackBandSummaryV2Request*> (&prefix),
+                sizeof (summary.value), &summary.value) == KIRIN_SNAPSHOT_INVALID_REQUEST,
+                "summary short version prefix")
+            || ! expect (kirin_hypha_request_attack_single_v2 (engine.get(), size,
+                reinterpret_cast<const KirinAttackSingleV2Request*> (&prefix),
+                &token.value) == KIRIN_SNAPSHOT_INVALID_REQUEST, "single short version prefix")
+            || ! expect (unchanged(), "short prefix output canaries")) return false;
+    }
+    alignas (8) std::array<std::uint32_t, 32> prefixStorage {};
+    prefixStorage[1] = 3;
+    prefixStorage[2] = 128;
+    const auto* u32Prefix = prefixStorage.data() + 1;
+    if (! expect (reinterpret_cast<std::uintptr_t> (u32Prefix) % 8 == 4,
+                  "four-byte-only aligned version prefix")) return false;
+    for (const auto size : { 4u, 8u, 95u, 96u, 128u })
+        if (! expect (kirin_hypha_request_attack_single_v2 (engine.get(), size,
+                reinterpret_cast<const KirinAttackSingleV2Request*> (u32Prefix),
+                &token.value) == KIRIN_SNAPSHOT_UNSUPPORTED, "future prefix before V2 alignment")
+            || ! expect (unchanged(), "u32 prefix output canaries")) return false;
+    prefixStorage[1] = 2;
+    prefixStorage[2] = 96;
+    if (! expect (kirin_hypha_request_attack_single_v2 (engine.get(), 96,
+            reinterpret_cast<const KirinAttackSingleV2Request*> (u32Prefix),
+            &token.value) == KIRIN_SNAPSHOT_INVALID_REQUEST, "known V2 full alignment")) return false;
+    return expect (unchanged(), "all version status outputs unchanged");
 }
 }
 
@@ -118,7 +184,7 @@ int main()
     for (const auto byte : guarded.tail)
         if (! expect (byte == 0xa5, "oversized caller tail"))
             return 1;
-    if (! runTimeSnapshotProbe()) return 1;
+    if (! attackVersionStatuses() || ! runTimeSnapshotProbe()) return 1;
     std::puts ("snapshot ABI native contract: PASS");
     return 0;
 }

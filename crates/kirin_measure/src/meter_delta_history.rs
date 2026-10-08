@@ -268,11 +268,12 @@ impl MeterDeltaHistoryExchange {
         delta
             .chain
             .ingest(&publication.content_windows, &local_content);
+        // Keep the old poll's exact join and lifetime independent of V2 TIME authority.
+        delta.ingest(&publication.points, &local, self.sample_rate);
         if publication.time.is_some() {
             delta.ingest_time(publication.time.as_ref(), &raw);
         } else {
             delta.time.fail(TimeComparisonReason::Incompatible);
-            delta.ingest(&publication.points, &local, self.sample_rate);
         }
         delta.chain.finish();
     }
@@ -377,3 +378,7 @@ mod tests;
 #[cfg(test)]
 #[path = "meter_chain_exchange_tests.rs"]
 mod chain_exchange_tests;
+
+#[cfg(test)]
+#[path = "meter_delta_legacy_tests.rs"]
+mod legacy_tests;
