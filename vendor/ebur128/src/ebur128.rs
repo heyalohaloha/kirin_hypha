@@ -150,6 +150,8 @@ pub enum Channel {
 
 #[path = "cached_window.rs"]
 mod cached_window;
+#[path = "cached_summary.rs"]
+mod cached_summary;
 
 /// EBU R128 loudness analyzer.
 pub struct EbuR128 {
@@ -166,6 +168,7 @@ pub struct EbuR128 {
     audio_data_index: usize,
     // Hypha: opt-in readout cache, not a replacement for canonical I/LRA history.
     energy_cache: Option<cached_window::EnergyCache>,
+    summary_cache: Option<cached_summary::SummaryCache>,
 
     /// How many frames are needed for a gating block. Will correspond to 400ms
     /// of audio at initialization, and 100ms after the first block (75% overlap
@@ -343,6 +346,7 @@ impl EbuR128 {
             audio_data,
             audio_data_index,
             energy_cache: None,
+            summary_cache: None,
             needed_frames,
             channel_map: channel_map.into_boxed_slice(),
             samples_in_100ms,
@@ -543,6 +547,8 @@ impl EbuR128 {
         }
 
         self.history = history as usize;
+        // A bounded-history reconfiguration uses the original queue queries.
+        self.summary_cache = None;
 
         self.block_energy_history.set_max_size(self.history / 100);
         self.short_term_block_energy_history
@@ -555,6 +561,7 @@ impl EbuR128 {
     pub fn reset(&mut self) {
         self.audio_data.fill(0.0);
         if let Some(cache) = self.energy_cache.as_mut() { cache.clear(); }
+        if let Some(cache) = self.summary_cache.as_mut() { *cache = cached_summary::SummaryCache::default(); }
 
         // the first block needs 400ms of audio data
         self.needed_frames = self.samples_in_100ms * 4;
@@ -614,6 +621,7 @@ impl EbuR128 {
                         &self.channel_map,
                     );
                     self.block_energy_history.add(energy);
+                    if let Some(cache) = self.summary_cache.as_mut() { cache.integrated.add(energy); }
                 }
 
                 if self.mode.contains(Mode::LRA) {
@@ -621,6 +629,7 @@ impl EbuR128 {
                     if self.short_term_frame_counter == self.samples_in_100ms * 30 {
                         let energy = self.energy_shortterm()?;
                         self.short_term_block_energy_history.add(energy);
+                        if let Some(cache) = self.summary_cache.as_mut() { cache.range.add(energy); }
                         self.short_term_frame_counter = self.samples_in_100ms * 20;
                     }
                 }

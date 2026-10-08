@@ -16,6 +16,10 @@ pub(super) struct DeltaHistoryState {
     last_joined_axis: Option<(u64, i64, u8)>,
     pair: Option<PairKey>,
     pub(super) history: MeterHistory,
+    /// V2 authority can retire a source without erasing the established legacy Δ history.
+    /// Allocate its bounded retention only after receiving a qualified TIME publication.
+    pub(super) time_history: Option<Box<MeterHistory>>,
+    pub(super) time: time_pair::TimeComparisonState,
     joined_order: VecDeque<JoinedPoint>,
     joined: HashSet<JoinedPoint>,
     consumed_pre_order: VecDeque<JoinedPoint>,
@@ -23,6 +27,25 @@ pub(super) struct DeltaHistoryState {
 }
 
 impl DeltaHistoryState {
+    pub(super) fn pair_key(&self) -> Option<&PairKey> {
+        self.pair.as_ref()
+    }
+
+    pub(super) fn ingest_time(
+        &mut self,
+        pre: Option<&TimePublication>,
+        post: &[crate::meter_session::TimeRawPoint],
+    ) {
+        if !pre.is_some_and(TimePublication::valid) {
+            self.time.fail(TimeComparisonReason::Incompatible);
+            return;
+        }
+        let history = self
+            .time_history
+            .get_or_insert_with(|| Box::new(MeterHistory::new()));
+        self.time.ingest(pre, post, history);
+    }
+
     pub(super) fn bind(&mut self, pair: PairKey) {
         if self.pair.as_ref() == Some(&pair) {
             return;
@@ -58,6 +81,8 @@ impl DeltaHistoryState {
         self.current_source_run = None;
         self.last_joined_axis = None;
         self.history.reset();
+        self.time_history = None;
+        self.time = time_pair::TimeComparisonState::default();
         self.joined_order.clear();
         self.joined.clear();
         self.consumed_pre_order.clear();

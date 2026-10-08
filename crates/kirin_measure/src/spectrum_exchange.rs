@@ -4,7 +4,7 @@
 #[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -14,6 +14,11 @@ use uuid::Uuid;
 mod attack_codec;
 #[path = "attack_exchange_join.rs"]
 mod attack_joining;
+#[path = "attack_snapshot_exchange.rs"]
+mod attack_observation;
+pub use attack_observation::{
+    AttackContentEvent, AttackMappingProof, AttackObservationView, AttackPairAuthority,
+};
 #[path = "spectrum_exchange_codec.rs"]
 pub(crate) mod codec;
 #[path = "spectrum_exchange_control.rs"]
@@ -51,7 +56,8 @@ use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
 use crate::spectrum_runtime::{SpectrumHistory, SpectrumRuntime};
 use crate::{AttackHistory, AttackPairEvent, AttackRuntime};
 use attack_codec::{
-    encode_attack_snapshot, read_attack_snapshot, remove_attack_snapshot, write_attack_snapshot,
+    encode_attack_observation_snapshot, read_attack_snapshot, remove_attack_snapshot,
+    write_attack_snapshot,
 };
 use attack_joining::store_joined_attack;
 #[cfg(test)]
@@ -137,6 +143,8 @@ pub struct AttackPairViewSnapshot {
 #[derive(Clone)]
 struct PostSession {
     request_id: Uuid,
+    authority_revision: u64,
+    attack_origin: Option<AttackPairAuthority>,
     target: Option<SpectrumTarget>,
     last_renewed: Option<Instant>,
     last_renewal_attempt: Option<Instant>,
@@ -176,6 +184,9 @@ pub struct SpectrumCoordinator {
     mid_side_view: Mutex<mid_side::MidSideSpectrumViewSnapshot>,
     mid_side_presentation: Mutex<mid_side::MidSidePresentation>,
     attack_view: Mutex<AttackPairViewSnapshot>,
+    pair_authority_revision: AtomicU64,
+    attack_observation_view: Mutex<AttackObservationView>,
+    attack_pair_authority: Mutex<Option<AttackPairAuthority>>,
     analysis_lease: Mutex<AnalysisLease>,
     pub(crate) exchange_worker: SpectrumExchangeWorker,
 }
@@ -249,6 +260,9 @@ impl SpectrumCoordinator {
             mid_side_view: Mutex::new(Default::default()),
             mid_side_presentation: Mutex::new(Default::default()),
             attack_view: Mutex::new(AttackPairViewSnapshot::default()),
+            pair_authority_revision: AtomicU64::new(1),
+            attack_observation_view: Mutex::new(AttackObservationView::default()),
+            attack_pair_authority: Mutex::new(None),
             analysis_lease: Mutex::new(analysis_lease),
             exchange_worker: SpectrumExchangeWorker::new(),
         })

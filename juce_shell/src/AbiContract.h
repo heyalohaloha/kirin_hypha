@@ -3,6 +3,7 @@
 #include "kirin_hypha_abi_contract.h"
 #include "kirin_hypha_channels.h"
 #include "kirin_hypha_ffi.h"
+#include "SnapshotAbiContract.h"
 
 #include <cstddef>
 
@@ -74,7 +75,7 @@ inline bool abiMatchesLinkedLibrary() noexcept
 {
     KirinAbiContract lib {};
     kirin_hypha_abi_contract (&lib);
-    return abiMatches (lib);
+    return abiMatches (lib) && snapshotAbiMatchesLinkedLibrary();
 }
 
 /** The same answer, computed once per process. The contract cannot change while it runs. */

@@ -283,7 +283,7 @@ fn two_measurement_spans_do_not_aggregate_into_one_bucket() {
 }
 
 /// Exact 5.1 support widens the internal clip counts to six product channels, making each entry
-/// 344 B. The 16-slot public ABI is deliberately not preallocated here. 3 tier はどれも
+/// 360 B with bounded TIME counts/segment metadata. The 16-slot public ABI is deliberately not preallocated here. 3 tier はどれも
 /// `VecDeque::with_capacity` で
 /// **満杯分を engine 生成時に先に確保する**（`with_config`）ので、entry の 1 バイトは
 /// 21,843 倍で効く。`hypha_surround_ingest_capacity_20260918.md` §3.1 が「history の
@@ -295,7 +295,7 @@ fn two_measurement_spans_do_not_aggregate_into_one_bucket() {
 fn the_preallocated_history_cost_is_measured_not_assumed() {
     assert_eq!(
         std::mem::size_of::<MeterHistoryEntry>(),
-        344,
+        360,
         "entry のサイズを変えたら取込容量の算定をやり直す"
     );
     // 容量 §17.4 の「Nch 化したときの増分」はこの 48 B を前提に算術している。
@@ -319,8 +319,9 @@ fn the_preallocated_history_cost_is_measured_not_assumed() {
     assert_eq!(entries, 21_843);
     assert_eq!(
         entries * std::mem::size_of::<MeterHistoryEntry>(),
-        7_513_992,
-        "MeterHistory 1 本あたり 7.17 MiB。engine 1 台はこれを 2 本持つ \
-         (meter_session.rs:117 / meter_delta_history.rs:99)"
+        7_863_480,
+        "MeterHistory 1 本あたり 7.50 MiB。engine 1 台はこれを 2 本持つ \
+         (Meter Session plus legacy delta); V2 adds one lazy bounded history on first \
+         qualified publication, outside the audio thread"
     );
 }

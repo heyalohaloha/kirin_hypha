@@ -72,8 +72,16 @@ impl HistoryPublisher {
             .try_lock()
             .map_err(|_| "meter session busy".to_string())?;
         let revision = session.history_publication_revision();
+        let span = session.time_source_span();
+        let time_key = span.valid().then(|| (span, session.time_latest_observed()));
         let unchanged = self.published.as_ref().filter(|last| {
             last.revision == revision
+                && last
+                    .publication
+                    .time
+                    .as_ref()
+                    .map(|time| (time.span, time.points.last().map(|point| point.observed)))
+                    == time_key
                 && last.publication.clock_policy == exchange.clock_policy()
                 && last.pre_instance_id == pre_instance_id
                 && last.daw_session_id == daw_session_id
@@ -97,6 +105,24 @@ impl HistoryPublisher {
             );
         }
         let snapshot = session.snapshot();
+        // Unassigned declarations belong to the unchanged legacy publication contract.
+        // A qualified raw tail must be coherent; never hide its inconsistency as legacy data.
+        let time = if span.valid() {
+            let time = TimePublication {
+                span,
+                points: session
+                    .time_raw_tail(METER_HISTORY_EXCHANGE_POINTS)
+                    .into_iter()
+                    .map(|p| p.wire)
+                    .collect(),
+            };
+            if !time.valid() {
+                return Err("TIME tail differs from its declared span".into());
+            }
+            Some(time)
+        } else {
+            None
+        };
         let points = session
             .recent_history(MeterHistoryResolution::Hz10, METER_HISTORY_EXCHANGE_POINTS)
             .into_iter()
@@ -129,10 +155,11 @@ impl HistoryPublisher {
             clock_policy: exchange.clock_policy(),
             points,
             content_windows,
+            time,
         };
         let path = instance_dir.join(METER_HISTORY_EXCHANGE_FILE);
-        // Unsupported/missing presentation clocks may advance local history without changing
-        // the exact wire tail. Do not serialize those again; RESET/new session must still publish.
+        // Legacy unsupported clocks can leave the exact wire tail unchanged. Qualified TIME
+        // still publishes completed raw absence facts even if legacy history did not advance.
         if let Some(last) = self.published.as_mut() {
             if last.path == path
                 && (last.revision.0, last.revision.1) == (revision.0, revision.1)

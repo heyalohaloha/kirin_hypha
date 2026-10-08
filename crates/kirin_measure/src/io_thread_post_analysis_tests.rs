@@ -33,12 +33,13 @@ fn confirmed_latch_builds_spectrum_and_history_targets_from_one_exact_pre() {
 }
 
 #[test]
-fn reference_b_feeds_neither_pre_derived_analysis_endpoint() {
+fn reference_b_preserves_original_time_target_and_suppresses_spectrum_only() {
     let pre_json = PathBuf::from("/tmp/kirin/project/pre-exact/pre.json");
     let exact = latch(LatchedPreReadiness::Confirmed, pre_json);
     assert!(active_analysis_targets(&exact, false).0.is_some());
     let targets = active_analysis_targets(&exact, true);
-    assert_eq!(targets, (None, None));
+    assert!(targets.0.is_none());
+    assert_eq!(targets.1, active_analysis_targets(&exact, false).1);
 }
 
 #[test]
@@ -87,6 +88,7 @@ fn analysis_requires_the_same_exact_pre_and_post_binding() {
         bound_analysis_targets(
             &exact,
             PostAnalysisBinding {
+                project_hash: "fixture-project",
                 post_instance_id: "post-exact",
                 pair_pre_name: "PRE-A",
                 paired_pre_instance_id: Some("pre-exact"),
@@ -112,6 +114,7 @@ fn analysis_requires_the_same_exact_pre_and_post_binding() {
         bound_analysis_targets(
             &exact,
             PostAnalysisBinding {
+                project_hash: "fixture-project",
                 post_instance_id: "post-exact",
                 pair_pre_name: "PRE-A",
                 paired_pre_instance_id: Some("other-pre"),
@@ -123,19 +126,19 @@ fn analysis_requires_the_same_exact_pre_and_post_binding() {
         ),
         (None, None)
     );
-    assert_eq!(
-        bound_analysis_targets(
-            &exact,
-            PostAnalysisBinding {
-                post_instance_id: "post-exact",
-                pair_pre_name: "PRE-A",
-                paired_pre_instance_id: Some("pre-exact"),
-                pair_owner_id: "pair-owner-a",
-                generation: 7,
-                claimed_at: 1.0,
-            },
-            true,
-        ),
-        (None, None)
+    let audition_targets = bound_analysis_targets(
+        &exact,
+        PostAnalysisBinding {
+            project_hash: "fixture-project",
+            post_instance_id: "post-exact",
+            pair_pre_name: "PRE-A",
+            paired_pre_instance_id: Some("pre-exact"),
+            pair_owner_id: "pair-owner-a",
+            generation: 7,
+            claimed_at: 1.0,
+        },
+        true,
     );
+    assert!(audition_targets.0.is_none());
+    assert_eq!(audition_targets.1, first.1);
 }

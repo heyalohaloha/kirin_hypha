@@ -39,6 +39,20 @@ uses are not changed. Whole-file contract drift continues to fail closed. This b
 review is not new asset permission, extraction/linkage evidence, legal certification or release
 approval. Exact-candidate linkage/NOTICE/source delivery and all release-specific gates remain.
 
+### 2026-10-07 observation snapshot native-test build-contract review
+
+Base: `7b0c301cff7d458805ccaea6c936ef84849a8b68` (B-1315). The uncommitted
+G1 candidate adds only `include(cmake/SnapshotContracts.cmake)` to the reviewed CMake file.
+An independent read-only review and the implementation session inspected that module:
+it registers two original native fixture sources, include paths, the existing Rust archive,
+system-library links, dependencies and one CTest; it adds no BinaryData or font resources.
+The `KIRIN_HYPHA_DATA_SOURCES` declaration, optional licensed-font boundary and all three
+embedded PNG bytes are identical to the base. The reviewed CMake SHA-256 is
+`0fbc71674d77f3298ecf6fa40555690026dff606418de750f96e881d4aa35fda`.
+Only the registry build-contract hash advances; material hashes, holds, rights evidence and
+allowed uses retain their prior decisions. This is a bounded source review, not exact-payload
+linkage, new asset permission or release acceptance. Distribution-specific gates still apply.
+
 Public CI continues the complete build/test matrix but suppresses new Windows UI/binary/installer/
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked
 separately from binary use. Diagnostic CI also lacks verified actual-payload NOTICE/source delivery,

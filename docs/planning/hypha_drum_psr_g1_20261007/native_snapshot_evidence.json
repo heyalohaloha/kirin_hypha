@@ -1,0 +1,61 @@
+{
+  "scope": "G1 development native evidence; not clean release candidate or G3 actual DAW acceptance",
+  "recorded_utc": "2026-10-07T16:28:27.821299+00:00",
+  "base_commit": "7b0c301cff7d458805ccaea6c936ef84849a8b68",
+  "head_at_local_build": "424d2f044269a8256f8c57e196391356f7f369bf",
+  "architecture": "x86_64",
+  "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+  "source": {
+    "file_count": 1657,
+    "combined_sha256": "c9a4a6d05f742eda821534fbf63affd953c549012fb8f6c3e94a961668347679",
+    "digest_recipe": "sorted relative path UTF-8 + NUL + raw bytes + NUL per owned file; crates/, juce_shell/ excluding JUCE gitlink, scripts/, .github/workflows/, .cargo/, Cargo.toml and Cargo.lock; development working source"
+  },
+  "native_test": "kirin_snapshot_abi_contract",
+  "result": "PASS",
+  "completion": {
+    "supplied_frames": 192000,
+    "ready": true,
+    "feed_wall_ms": 4460.684,
+    "observed_after_feed_ms": 20.799,
+    "poll_count": 5,
+    "busy_count": 0,
+    "last_status": 0,
+    "last_cutoff": 192000,
+    "last_current_cutoff": 192000,
+    "last_endpoint": 192000,
+    "completion_age_ms": 1.66,
+    "remaining_ms": 398.34
+  },
+  "time_probe": {
+    "cutoff": 192000,
+    "psr": 3.003595673,
+    "age_first_ms": 1.66,
+    "remaining_first_ms": 398.34,
+    "age_second_ms": 26.97,
+    "remaining_second_ms": 373.03
+  },
+  "completion_deadline_ms": 250,
+  "current_ttl_candidate_ms": 400,
+  "storage": "identity and IO role unassigned; no plugin_data or Watch discovery",
+  "environment": "40 unrelated CPU load processes remained active; no normal-load calibration claim",
+  "files": {
+    "target/release/libkirin_hypha_ffi.a": {
+      "bytes": 27878000,
+      "sha256": "fa7ad29986a8757a6358846b48d70aa38ab3a1dd9f7e7c858e3900adaadc417e"
+    },
+    "target/hypha-release-native-tests/KirinSnapshotAbiContractTests": {
+      "bytes": 8886616,
+      "sha256": "20c7fd8494cc98e76dcd6f6548e9614a6426e3c61e4e85d1904e83b055262726"
+    },
+    "target/hypha-release-native-tests/KirinUiRenderContractTests_artefacts/Release/KirinUiRenderContractTests": {
+      "bytes": 13911752,
+      "sha256": "c7a2d8eebe94bedb9c7d04b0b19e58e38f98da9c8cce854a2b44e93dc2590eb6"
+    }
+  },
+  "limitations": [
+    "Normal IO and two-slot completion/jitter calibration is G2.",
+    "Actual host and clean exact release candidate acceptance is G3.",
+    "Initial native gate failed 2 of 89 cases and remains distinct from this corrective test result.",
+    "Paint performance failure remains unresolved pending a normal-load test."
+  ]
+}

@@ -75,18 +75,21 @@ impl PostObservation {
             self.pair.latched_pre(),
             comparison_audition_active,
         );
-        self.analysis.service(
-            self.pair.latched_pre(),
-            PostAnalysisBinding {
-                post_instance_id: &identity.instance_id,
-                pair_pre_name: &pair.name,
-                paired_pre_instance_id: pair.pre_instance_id.as_deref(),
-                pair_owner_id: self.pair.owner_id(),
-                generation: pair.binding_generation,
-                claimed_at: pair.claimed_at,
-            },
-            comparison_audition_active,
-        );
+        if self.pair.binding_is_current(&pair) {
+            self.analysis.service(
+                self.pair.latched_pre(),
+                PostAnalysisBinding {
+                    project_hash: &identity.project_hash,
+                    post_instance_id: &identity.instance_id,
+                    pair_pre_name: &pair.name,
+                    paired_pre_instance_id: pair.pre_instance_id.as_deref(),
+                    pair_owner_id: self.pair.owner_id(),
+                    generation: pair.binding_generation,
+                    claimed_at: pair.claimed_at,
+                },
+                comparison_audition_active,
+            );
+        }
         self.pair.publish_claim(
             self.snapshot.kirin_root(),
             &location.instance_dir,

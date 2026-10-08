@@ -96,7 +96,7 @@ pub(super) fn to_c_attack_waveform_batch(history: AttackHistory) -> KirinAttackW
     batch
 }
 
-fn to_c_attack_detail(detail: &AttackDetailedEvent) -> KirinAttackDetail {
+pub(super) fn to_c_attack_detail(detail: &AttackDetailedEvent) -> KirinAttackDetail {
     let features = detail.features;
     KirinAttackDetail {
         generation: detail.event.generation,

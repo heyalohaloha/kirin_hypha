@@ -32,15 +32,17 @@ const IDLE_AFTER: Duration = Duration::from_millis(200);
 const PUBLISH_INTERVAL: Duration = Duration::from_millis(30);
 
 pub(super) struct BandWorker {
-    band: Option<AttackBand>,
+    pub(super) band: Option<AttackBand>,
     /// The run the ring, the hits and the results belong to.
-    generation: u64,
-    ring: Option<AttackBandRing>,
+    pub(super) generation: u64,
+    pub(super) ring: Option<AttackBandRing>,
     /// The run's confirmed hits while a band is chosen, oldest first.
-    events: Vec<AttackEvent>,
-    anchors: Vec<BandAnchor>,
+    pub(super) events: Vec<AttackEvent>,
+    pub(super) anchors: Vec<BandAnchor>,
     anchor_revision: Option<u64>,
-    results: AttackBandResults,
+    pub(super) results: AttackBandResults,
+    pub(super) observation_revision: u64,
+    pub(super) observation_published_at: Option<Instant>,
     dirty: bool,
     published_at: Option<Instant>,
     audio_at: Option<Instant>,
@@ -57,11 +59,35 @@ impl BandWorker {
             anchors: Vec::new(),
             anchor_revision: None,
             results: AttackBandResults::default(),
+            observation_revision: 0,
+            observation_published_at: None,
             dirty: false,
             published_at: None,
             audio_at: None,
             scratch: BandScratch::default(),
         }
+    }
+
+    /// Selected and background readers share the same physical-window cache. Pair kind and
+    /// logical requested end never trigger a second DSP measurement of identical kept PCM.
+    pub(super) fn cache_selected(&mut self, detail: AttackBandDetail) {
+        let own = self
+            .events
+            .iter()
+            .position(|event| event.event_sample == detail.event.event_sample)
+            .is_some_and(|index| {
+                span_end_for(
+                    detail.event.sample_rate,
+                    detail.event.event_sample,
+                    self.events.get(index + 1).map(|event| event.event_sample),
+                )
+                .0 == detail.span_end_sample
+            });
+        self.dirty |= if own {
+            self.results.put_own(detail)
+        } else {
+            self.results.put_anchored(detail)
+        };
     }
 
     /// A confirmed hit of the current run.
@@ -82,7 +108,7 @@ impl BandWorker {
     }
 }
 
-enum Plan {
+pub(super) enum Plan {
     Wait,
     NotKept,
     Measure(i64, BandSpanEnd),
@@ -91,7 +117,7 @@ enum Plan {
 /// What can be done now for one hit over [onset, span_end): measure it, state that its audio was
 /// not kept, or wait for its tail and audio.
 #[allow(clippy::too_many_arguments)]
-fn plan(
+pub(super) fn plan(
     ring: Option<&AttackBandRing>,
     band: AttackBand,
     sample_rate: u32,
@@ -154,14 +180,26 @@ impl AttackRuntime {
 
     /// After each block, and while no audio arrives: measure what can be measured within the
     /// budget and publish.
-    pub(super) fn service_band(&self, worker: &mut BandWorker, decided_before: Option<i64>) {
+    pub(super) fn service_band(
+        &self,
+        worker: &mut BandWorker,
+        decided_before: Option<i64>,
+        audio_processed: bool,
+    ) {
+        // Time spent computing a received block is not an audio gap. In particular, slow
+        // non-RT work must not finalize a queued tail as NotKept before it is consumed.
+        if audio_processed {
+            worker.audio_at = Some(Instant::now());
+        }
         self.sync_band(worker);
+        let idle = worker.audio_at.is_none_or(|at| at.elapsed() >= IDLE_AFTER);
+        self.service_single(worker, idle, decided_before);
         let Some(band) = worker.band else {
             self.publish_band(worker, true);
+            self.publish_observations(worker);
             return;
         };
         self.sync_anchors(worker);
-        let idle = worker.audio_at.is_none_or(|at| at.elapsed() >= IDLE_AFTER);
         let deadline = Instant::now() + WORK_BUDGET;
         let mut drained = true;
         // Anchors first: while a pair is active they are what DRUM shows.
@@ -171,7 +209,7 @@ impl AttackRuntime {
             if worker
                 .results
                 .anchored_at(onset, anchor.span_end_sample)
-                .is_some()
+                .is_some_and(|detail| !needs_refresh(detail, worker.ring.as_ref(), idle))
             {
                 continue;
             }
@@ -179,20 +217,32 @@ impl AttackRuntime {
                 drained = false;
                 break;
             }
-            let measure = match plan(
-                worker.ring.as_ref(),
-                band,
-                self.sample_rate,
-                onset,
-                anchor.span_end_sample,
-                anchor.span_end,
-                true,
-                idle,
-            ) {
-                Plan::Wait => continue,
-                Plan::NotKept => None,
-                Plan::Measure(end, reason) => {
-                    self.measure_band_at(worker, band, onset, end, reason)
+            let reusable = worker
+                .results
+                .own_at(onset)
+                .filter(|detail| {
+                    detail.span_end_sample == anchor.span_end_sample
+                        && !needs_refresh(detail, worker.ring.as_ref(), idle)
+                })
+                .copied();
+            let measure = if let Some(detail) = reusable {
+                detail.measure
+            } else {
+                match plan(
+                    worker.ring.as_ref(),
+                    band,
+                    self.sample_rate,
+                    onset,
+                    anchor.span_end_sample,
+                    anchor.span_end,
+                    true,
+                    idle,
+                ) {
+                    Plan::Wait => continue,
+                    Plan::NotKept => None,
+                    Plan::Measure(end, reason) => {
+                        self.measure_band_at(worker, band, onset, end, reason)
+                    }
                 }
             };
             worker.dirty |= worker.results.put_anchored(AttackBandDetail {
@@ -206,7 +256,11 @@ impl AttackRuntime {
         for index in (0..worker.events.len()).rev() {
             let event = worker.events[index];
             let onset = event.event_sample;
-            if worker.results.own_at(onset).is_some() {
+            if worker
+                .results
+                .own_at(onset)
+                .is_some_and(|detail| !needs_refresh(detail, worker.ring.as_ref(), idle))
+            {
                 continue;
             }
             if Instant::now() >= deadline {
@@ -217,20 +271,29 @@ impl AttackRuntime {
             let tail_known = next.is_some_and(|next| next < onset + limit)
                 || decided_before.is_some_and(|decided| decided >= onset + limit);
             let (span_end, reason) = span_end_for(self.sample_rate, onset, next);
-            let measure = match plan(
-                worker.ring.as_ref(),
-                band,
-                self.sample_rate,
-                onset,
-                span_end,
-                reason,
-                tail_known,
-                idle,
-            ) {
-                Plan::Wait => continue,
-                Plan::NotKept => None,
-                Plan::Measure(end, reason) => {
-                    self.measure_band_at(worker, band, onset, end, reason)
+            let reusable = worker
+                .results
+                .anchored_at(onset, span_end)
+                .filter(|detail| !needs_refresh(detail, worker.ring.as_ref(), idle))
+                .copied();
+            let measure = if let Some(detail) = reusable {
+                detail.measure
+            } else {
+                match plan(
+                    worker.ring.as_ref(),
+                    band,
+                    self.sample_rate,
+                    onset,
+                    span_end,
+                    reason,
+                    tail_known,
+                    idle,
+                ) {
+                    Plan::Wait => continue,
+                    Plan::NotKept => None,
+                    Plan::Measure(end, reason) => {
+                        self.measure_band_at(worker, band, onset, end, reason)
+                    }
                 }
             };
             worker.dirty |= worker.results.put_own(AttackBandDetail {
@@ -241,6 +304,7 @@ impl AttackRuntime {
             });
         }
         self.publish_band(worker, drained);
+        self.publish_observations(worker);
     }
 
     /// The worker stopped: no ring, no results.
@@ -258,7 +322,7 @@ impl AttackRuntime {
         }
     }
 
-    fn measure_band_at(
+    pub(super) fn measure_band_at(
         &self,
         worker: &mut BandWorker,
         band: AttackBand,
@@ -362,6 +426,37 @@ impl AttackRuntime {
         worker.dirty = false;
         worker.published_at = Some(Instant::now());
     }
+}
+
+pub(super) fn needs_refresh(
+    detail: &AttackBandDetail,
+    ring: Option<&AttackBandRing>,
+    _idle: bool,
+) -> bool {
+    if detail.measure.is_none() {
+        let (from, to) = analysis_range(
+            detail.band,
+            detail.event.sample_rate,
+            detail.event.event_sample,
+            detail.span_end_sample,
+        );
+        return ring
+            .is_some_and(|ring| !ring.is_empty() && ring.first() <= from && ring.end() >= to);
+    }
+    detail.measure.is_some_and(|measure| {
+        measure.span_end == BandSpanEnd::AudioEnd
+            && measure.span_end_sample < detail.span_end_sample
+            && ring.is_some_and(|ring| {
+                audio_end_span(
+                    detail.band,
+                    detail.event.sample_rate,
+                    detail.event.event_sample,
+                    detail.span_end_sample,
+                    ring.end(),
+                )
+                .is_some_and(|end| end > measure.span_end_sample)
+            })
+    })
 }
 
 #[cfg(test)]

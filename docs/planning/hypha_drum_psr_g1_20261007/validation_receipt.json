@@ -1,0 +1,440 @@
+{
+  "scope": "G1 pre-main-integration historical source; not final integrated source, G3 clean candidate or actual DAW acceptance",
+  "recorded_utc": "2026-10-07T20:55:48.049259+00:00",
+  "base_commit": "7b0c301cff7d458805ccaea6c936ef84849a8b68",
+  "architecture": "x86_64",
+  "source": {
+    "file_count": 1658,
+    "combined_sha256": "7ea3d7595f5cfabbd89204aeca56a7c54547c0479d06391b7e258252d0ea14cc",
+    "digest_recipe": "sorted relative path UTF-8 + NUL + raw bytes + NUL; crates/, juce_shell/ excluding JUCE, scripts/, .github/workflows/, .cargo/, Cargo.toml and Cargo.lock",
+    "different_files_after_all_gates": 0
+  },
+  "native": {
+    "selected": 89,
+    "pass": 89,
+    "fail": 0,
+    "elapsed_seconds": 1023.92,
+    "new_live_product_tests": 0,
+    "snapshot_abi": {
+      "TIME_COMPLETION": {
+        "supplied_frames": 192000,
+        "ready": true,
+        "feed_wall_ms": 4884.959,
+        "observed_after_feed_ms": 23.211,
+        "poll_count": 5,
+        "busy_count": 0,
+        "last_status": 0,
+        "last_cutoff": 192000,
+        "last_current_cutoff": 192000,
+        "last_endpoint": 192000,
+        "completion_age_ms": 0.243,
+        "remaining_ms": 399.757
+      },
+      "TIME_PROBE": {
+        "cutoff": 192000,
+        "psr": 3.003595673,
+        "age_first_ms": 0.243,
+        "remaining_first_ms": 399.757,
+        "age_second_ms": 28.526,
+        "remaining_second_ms": 371.474
+      }
+    },
+    "absolute_timeline_paint_ms_per_frame": [
+      0.699171,
+      1.10423,
+      1.40509,
+      2.10788,
+      4.90907
+    ],
+    "absolute_timeline_limits_ms_per_frame": [
+      1.5,
+      2.5,
+      3.5,
+      6.0,
+      9.0
+    ],
+    "sizes_percent": [
+      100,
+      125,
+      150,
+      200,
+      300
+    ],
+    "numeric_evidence": "Observed live CTest temporary output. UPDATE inventory replaced the completed CTest log; full release source log retains all 89 final PASS results."
+  },
+  "files": {
+    "target/release/libkirin_hypha_ffi.a": {
+      "bytes": 27950824,
+      "sha256": "292ef5a49530eba443bd60e967b61a8aacb25a9c897e973ebb6979ffea2caf0b"
+    },
+    "target/hypha-release-native-tests/KirinSnapshotAbiContractTests": {
+      "bytes": 8929760,
+      "sha256": "ec9ccdb4e172156ad6a5886babc05324c6298599d8dba81d6b381a1d8709d9ff"
+    },
+    "target/hypha-release-native-tests/KirinUiRenderContractTests_artefacts/Release/KirinUiRenderContractTests": {
+      "bytes": 13911752,
+      "sha256": "c7a2d8eebe94bedb9c7d04b0b19e58e38f98da9c8cce854a2b44e93dc2590eb6"
+    }
+  },
+  "normal_load_recheck": {
+    "unrelated_yes_processes_observed": 0,
+    "stopped_by_this_session": false,
+    "reason": "Previous render and two-slot wall-time failures were observed with 40 unrelated CPU load processes. Recheck after those processes were no longer present; do not infer causation from this difference."
+  },
+  "prior_results": {
+    "initial_native": {
+      "pass": 87,
+      "fail": 2,
+      "total": 89,
+      "failing_tests": [
+        "kirin_ui_render_contract",
+        "kirin_snapshot_abi_contract"
+      ]
+    },
+    "historical_native_probe": "native_snapshot_evidence.json",
+    "two_post_optimized": {
+      "result": "FAIL",
+      "median_projected_cpu_percent": 22.366,
+      "worst_projected_cpu_percent": 34.229,
+      "limit_percent": 18.0
+    },
+    "partial_resume_before_fix": {
+      "result": "FAIL",
+      "finite_mask_observed": 15,
+      "finite_mask_expected": 0
+    },
+    "partial_resume_after_fix": {
+      "result": "PASS",
+      "tests": 1,
+      "conditions": [
+        "resume then 10 frames",
+        "seek then 10 frames"
+      ]
+    },
+    "final_release_script": {
+      "exit_code": 101,
+      "stage": "kirin_measure lib",
+      "pass": 1703,
+      "fail": 1,
+      "ignored": 12,
+      "elapsed_seconds": 441.38,
+      "failure": "Record ingress spool closure did not complete in 2 seconds; subsequent components were run separately."
+    },
+    "record_spool_isolated": {
+      "result": "FAIL",
+      "elapsed_seconds": 2.28,
+      "threshold_seconds": 2
+    }
+  },
+  "limitations": [
+    "Current TTL 400 ms and completion deadline 250 ms are development candidates; normal IO/two-slot completion/jitter calibration remains G2.",
+    "No actual UI integration, motion/premium acceptance, real DAW, signing or release acceptance is claimed.",
+    "A dedicated actual FFI count-overflow fixture was not executed; core count boundary tests and FFI pre-write rejection proof are separate.",
+    "Record spool 2-second closure failed in full source gate and isolated execution, then passed in final workspace without source/criterion changes. Root cause and stability remain unconfirmed; do not replace the initial FAIL with PASS."
+  ],
+  "workspace": {
+    "exit_code": 0,
+    "suites": 38,
+    "pass": 2313,
+    "fail": 0,
+    "ignored": 41,
+    "core": {
+      "pass": 1704,
+      "fail": 0,
+      "elapsed_seconds": 256.94
+    },
+    "ffi_lib": {
+      "pass": 185,
+      "fail": 0
+    },
+    "record_spool_final_workspace": "PASS with unchanged source and 2-second threshold"
+  },
+  "update_integration": {
+    "selected": 7,
+    "pass": 7,
+    "fail": 0,
+    "elapsed_seconds": 53.96
+  },
+  "spool_diagnostic": {
+    "scope": "Separate debug RecordSpool measurement; not original fixture acceptance",
+    "samples_expected": 1572864,
+    "samples_published": 1572864,
+    "samples_read": 1572864,
+    "wrong_values": 0,
+    "closed_within_original_two_seconds": true,
+    "closure_wait_ms": 1629.015,
+    "total_close_and_read_ms": 1688.157
+  },
+  "remaining_gates": [
+    {
+      "name": "vtable",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "vst3-com",
+        "--locked",
+        "--test",
+        "vtable_expression"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.058
+    },
+    {
+      "name": "sharpness_performance",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_measure",
+        "--release",
+        "--locked",
+        "one_visible_pair_continuous_sharpness_worker_budget_is_quantified",
+        "--lib",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 52.052
+    },
+    {
+      "name": "two_post_performance",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_measure",
+        "--release",
+        "--locked",
+        "two_post_absolute_workers_fit_the_optional_analysis_budget",
+        "--lib",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.614
+    },
+    {
+      "name": "parity_inventory",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "--",
+        "--ignored",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 28.886,
+      "observed_count": 20,
+      "expected_count": 20
+    },
+    {
+      "name": "pairing_inventory",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "pairing_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.772,
+      "observed_count": 6,
+      "expected_count": 6
+    },
+    {
+      "name": "parity",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "parity",
+        "--locked",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 183.256
+    },
+    {
+      "name": "pairing",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "kirin_hypha_ffi",
+        "--test",
+        "pairing_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.972
+    },
+    {
+      "name": "ffi_debug_archive",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "kirin_hypha_ffi",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.206
+    },
+    {
+      "name": "clippy_owned",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "kirin_measure",
+        "-p",
+        "kirin_hypha_ffi",
+        "-p",
+        "xtask",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 10.882
+    },
+    {
+      "name": "clippy_legacy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "hypha_pre",
+        "-p",
+        "hypha_post",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.543
+    }
+  ],
+  "optimized_performance": {
+    "sharpness_performance": {
+      "result": "PASS",
+      "median_projected_cpu_percent": 9.904,
+      "worst_projected_cpu_percent": 13.365,
+      "limit_percent": 18.0
+    },
+    "two_post_performance": {
+      "result": "PASS",
+      "median_projected_cpu_percent": 10.492,
+      "worst_projected_cpu_percent": 15.329,
+      "limit_percent": 18.0
+    }
+  },
+  "defined_c_abi_exports": {
+    "result": "PASS",
+    "count": 14,
+    "symbols": [
+      "kirin_hypha_poll_time_snapshot_v2",
+      "kirin_hypha_poll_attack_band_summary_v2",
+      "kirin_hypha_request_attack_single_v2",
+      "kirin_hypha_poll_attack_single_v2",
+      "kirin_hypha_cancel_attack_single_v2",
+      "kirin_hypha_snapshot_abi_contract",
+      "kirin_hypha_restore_pair_candidate_v2",
+      "kirin_hypha_get_paired_pre_locator",
+      "kirin_hypha_poll_record_display",
+      "kirin_hypha_publish_local_blind_pre_capture",
+      "kirin_hypha_read_local_blind_pre_capture",
+      "kirin_hypha_ack_local_blind_pre_capture",
+      "kirin_hypha_local_blind_pre_capture_was_consumed",
+      "kirin_hypha_retire_local_blind_pre_capture"
+    ]
+  },
+  "ignored": {
+    "inventory_parity": 20,
+    "inventory_pairing_candidates": 6,
+    "pass": 26,
+    "fail": 0
+  },
+  "final_recorded_utc": "2026-10-07T21:21:07.777159+00:00",
+  "ci": {
+    "status": "pending PR",
+    "owner": "Claude",
+    "new_dispatch_or_rerun": 0
+  },
+  "local_logs": {
+    "release-source-final.log": {
+      "bytes": 240004,
+      "sha256": "252e4093b8c29d4f815e59e55acf2adc7256fd52bcd537796923bb1fcb504df8",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "workspace-final.log": {
+      "bytes": 360701,
+      "sha256": "9cc97daeec479e528cfcef10491aa6e21196bbb2587516b5e41dce69f92dcb85",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "record-spool-isolated.log": {
+      "bytes": 1027,
+      "sha256": "c3eef758f290cdcbc3d8e259518b5c542e52a827305ffc404aa68e1808450d28",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "partial-run-before.log": {
+      "bytes": 1268,
+      "sha256": "20fb1365bd92de1b192cbcbbee66c10ba2b668641c5714c1c6d05fedf3276284",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "partial-run-after.log": {
+      "bytes": 758,
+      "sha256": "79a050ab6b3ce20dc37932d59691b7ddeb2e4482ae351bb0fcb6f177f11c9f70",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "spool-progress.log": {
+      "bytes": 246,
+      "sha256": "9d8d999fad4abb732cbff9e313329f19ecf53bf2dc28fe0d9d2799f727e36843",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "parity.log": {
+      "bytes": 1462,
+      "sha256": "66ae52fd6db731823c1bf94da11848531de4608816ddb635b3f92267c9b21dce",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "pairing.log": {
+      "bytes": 836,
+      "sha256": "734921ed8951847eb501d20a97b01245727ce1b8cce075924ccb212a35b22ddd",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "clippy_owned.log": {
+      "bytes": 554,
+      "sha256": "defd2795d9b15606785b1d7beef7b9086458ab8b9df513f1c6f176f3e414e24f",
+      "scope": "ignored local diagnostic log; not distributed"
+    },
+    "clippy_legacy.log": {
+      "bytes": 136954,
+      "sha256": "0a8eb0c398350ba78ab5c4e4cce8db15a0dfb105776576ce3d2a3abe88764b5a",
+      "scope": "ignored local diagnostic log; not distributed"
+    }
+  }
+}

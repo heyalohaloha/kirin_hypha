@@ -287,6 +287,24 @@ impl AttackHistory {
         self.revision
     }
 
+    pub(crate) fn replace_wire_events(&mut self, events: &[AttackEvent]) -> Option<()> {
+        let identity = self.newest()?;
+        if events.len() > ATTACK_EVENT_HISTORY_CAPACITY
+            || events.iter().any(|event| {
+                !event.has_valid_layout()
+                    || event.generation != identity.generation
+                    || event.sample_rate != identity.sample_rate
+                    || event.channels != identity.channels
+                    || event.definition_hash != identity.definition_hash
+            })
+        {
+            return None;
+        }
+        self.events.clear();
+        self.events.extend(events.iter().copied());
+        Some(())
+    }
+
     pub fn newest(&self) -> Option<&AttackOdfFrame> {
         self.frames.back()
     }

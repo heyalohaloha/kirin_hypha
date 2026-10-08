@@ -12,6 +12,7 @@ pub(super) struct PostAnalysisEndpoints {
 
 #[derive(Clone, Copy)]
 pub(super) struct PostAnalysisBinding<'a> {
+    pub(super) project_hash: &'a str,
     pub(super) post_instance_id: &'a str,
     pub(super) pair_pre_name: &'a str,
     pub(super) paired_pre_instance_id: Option<&'a str>,
@@ -68,10 +69,13 @@ fn active_analysis_targets(
     latched_pre: &Arc<Mutex<Option<LatchedPre>>>,
     comparison_audition_active: bool,
 ) -> (Option<SpectrumTarget>, Option<MeterHistoryTarget>) {
+    // Audition changes the optional listening path, not the original PRE/POST TIME facts.
+    // Spectrum keeps its existing audition suppression while TIME retains the same latch.
+    let (spectrum, meter_history) = confirmed_analysis_targets(latched_pre);
     if comparison_audition_active {
-        (None, None)
+        (None, meter_history)
     } else {
-        confirmed_analysis_targets(latched_pre)
+        (spectrum, meter_history)
     }
 }
 
@@ -107,9 +111,33 @@ pub(super) fn service_post_analysis_endpoints(
     binding: PostAnalysisBinding<'_>,
     comparison_audition_active: bool,
 ) {
+    if binding.generation == 0 {
+        return;
+    }
     let (spectrum_target, meter_history_target) =
         bound_analysis_targets(latched_pre, binding, comparison_audition_active);
     if let Some(spectrum) = spectrum {
+        let origin = spectrum_target
+            .as_ref()
+            .filter(|target| {
+                target
+                    .instance_dir
+                    .parent()
+                    .and_then(|path| path.file_name())
+                    .and_then(|name| name.to_str())
+                    == Some(binding.project_hash)
+                    && binding.claimed_at.is_finite()
+                    && binding.claimed_at > 0.0
+            })
+            .map(|target| crate::spectrum_exchange::AttackPairAuthority {
+                generation: binding.generation,
+                project_hash: binding.project_hash.into(),
+                pre_instance_id: target.pre_instance_id.clone(),
+                post_instance_id: binding.post_instance_id.into(),
+                owner_id: binding.pair_owner_id.into(),
+                claimed_at_bits: binding.claimed_at.to_bits(),
+            });
+        spectrum.set_attack_pair_authority(binding.generation, origin);
         spectrum.service_post_endpoint(
             binding.post_instance_id,
             spectrum_target,
@@ -117,6 +145,7 @@ pub(super) fn service_post_analysis_endpoints(
         );
     }
     if let Some(meter_history) = meter_history {
+        meter_history.set_pair_authority_revision(binding.generation);
         meter_history.service_post_endpoint(meter_history_target);
     }
 }

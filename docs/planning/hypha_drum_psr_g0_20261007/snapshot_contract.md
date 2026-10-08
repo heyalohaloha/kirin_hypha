@@ -215,7 +215,7 @@ BAND LIVEまとめだけ4Hzを初期案とする。値、kind、scope、件数�
 
 DRUM facts C、到着時刻、viewport Vを分ける。Vは同runの固定anchor＋rateで進み、正常publicationごとにreanchorしない。有限look-behind Lの値はmotion probeで固定する。V未到達の最新ALL一打は同SingleKeyのlocatorへ時刻／状態を出し、shape／四値と同じ鍵を保持する。実markerが入る時に同じ鍵で強調する。Vをcohort cutoffや測定時刻へ使わない。
 
-Captureは採用PresentationSnapshotへ期限／退役を反映後freezeする。以下のmetadata保存はv2採用時の候補契約で、採否はG0を閉じる時に利用者へ提案する。v2採用なら画像とmetadataを同PresentationRevisionから作る。raw interval、表示文字列、renderKind、scope、event／cohort鍵、source／proof opaque token、cutoff C／E、V／clock、finish／reasonを保存する。旧target／Work observation_targetはmainの意味を維持し、PSR等のcomponent metadataをversion付きで追加する。
+Captureは採用PresentationSnapshotへ期限／退役を反映後freezeする。2026年10月7日に利用者がv1維持＋保持不能添付の明示失敗を採用した。以下のmetadata保存は未採用v2の候補資料であり、今回の実装・公開条件には含めない。v2採用なら画像とmetadataを同PresentationRevisionから作る。raw interval、表示文字列、renderKind、scope、event／cohort鍵、source／proof opaque token、cutoff C／E、V／clock、finish／reasonを保存する。旧target／Work observation_targetはmainの意味を維持し、PSR等のcomponent metadataをversion付きで追加する。
 
 現consumerはv1追加fieldを拒否し、Workへtype/path/notesだけ保存することを使い捨てfixtureで確認した。詳細は[TIME・Capture契約](time_capture_contract.md)。新版metadataのv2 round-tripは未検証。v2には別repoのconsumer／Work変更も必要。採用時だけround-tripを公開前に受入し、失敗は明示通知する。v1を維持する案では、表現・保持不能なsnapshotの添付を明示失敗として通知し、metadataを捨てたattached成功へ縮退しない。既存v1添付は意味を保持できる検証済み範囲だけ維持する。ローカルPNGは利用可能。private pathやowner管理情報をCaptureへ出さない。
 

@@ -43,7 +43,12 @@ pub const ATTACK_BAND_HISTORY_CAPACITY: usize = crate::ATTACK_EVENT_HISTORY_CAPA
 /// The ring reaches back as far as the bins do, so POST can be measured at a PRE onset and a
 /// band change can measure the kept hits again.
 pub const ATTACK_BAND_RETENTION_MICROS: i64 = 7_000_000;
-const SETTLE_PERIODS: i64 = 4;
+pub(crate) const SETTLE_PERIODS: i64 = 4;
+pub(crate) const BASE_CENTRE_HZ: f64 = 62.5;
+pub(crate) const NYQUIST_FRACTION: f64 = 0.475;
+pub(crate) const ARRIVAL_AMPLITUDE_RATIO: f64 = 0.1;
+pub(crate) const ATTACK_UPPER_AMPLITUDE_RATIO: f64 = 0.9;
+pub(crate) const RELEASE_AMPLITUDE_RATIO: f64 = 0.1;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct AttackBand {
@@ -63,7 +68,7 @@ impl AttackBand {
     }
 
     pub fn centre_hz(self) -> f64 {
-        62.5 * f64::from(1_u32 << (self.index - 1))
+        BASE_CENTRE_HZ * f64::from(1_u32 << (self.index - 1))
     }
 
     pub fn nominal_label(self) -> &'static str {
@@ -109,7 +114,7 @@ struct Biquad {
 
 impl Biquad {
     fn new(high_pass: bool, frequency_hz: f64, sample_rate: u32) -> Self {
-        let frequency_hz = frequency_hz.min(f64::from(sample_rate) * 0.475);
+        let frequency_hz = frequency_hz.min(f64::from(sample_rate) * NYQUIST_FRACTION);
         let w0 = std::f64::consts::TAU * frequency_hz / f64::from(sample_rate);
         let alpha = w0.sin() / (2.0 * std::f64::consts::FRAC_1_SQRT_2);
         let cos = w0.cos();
@@ -439,11 +444,7 @@ pub(crate) fn half_window_frames(band: AttackBand, sample_rate: u32) -> i64 {
 
 /// The tail end a hit measures to: 300 ms after its onset, or the next onset when that comes
 /// first.
-pub(crate) fn span_end_for(
-    sample_rate: u32,
-    onset: i64,
-    next_onset: Option<i64>,
-) -> (i64, BandSpanEnd) {
+pub fn span_end_for(sample_rate: u32, onset: i64, next_onset: Option<i64>) -> (i64, BandSpanEnd) {
     let limit = onset + frames_for_micros(sample_rate, ATTACK_BAND_TAIL_MICROS);
     next_onset
         .filter(|next| *next > onset && *next < limit)

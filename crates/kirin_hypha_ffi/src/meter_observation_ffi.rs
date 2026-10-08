@@ -1,5 +1,8 @@
 //! UI-only meter snapshots and history export. No audio processing lives here.
 use super::*;
+#[path = "time_snapshot_ffi.rs"]
+mod time_ffi;
+pub use time_ffi::*;
 #[path = "chain_observation_ffi.rs"]
 mod chain_ffi;
 pub use chain_ffi::*;

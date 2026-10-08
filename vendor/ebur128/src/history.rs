@@ -253,6 +253,13 @@ impl fmt::Debug for History {
 }
 
 impl History {
+    pub(super) fn is_empty(&self) -> bool {
+        match self {
+            History::Histogram(h) => h.0.iter().all(|count| *count == 0),
+            History::Queue(q) => q.queue.is_empty(),
+        }
+    }
+
     pub fn new(use_histogram: bool, max: usize) -> Self {
         if use_histogram {
             History::Histogram(Histogram::new())

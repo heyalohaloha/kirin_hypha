@@ -226,6 +226,12 @@ impl MeasureEngine {
         self.content_grid = ContentGrid::new(sample_rate);
     }
 
+    pub(crate) fn enable_session_summary_cache(&mut self) -> Result<(), String> {
+        self.ebu
+            .enable_cached_summary_queries()
+            .map_err(|error| format!("enable_cached_summary_queries: {error:?}"))
+    }
+
     pub(crate) fn break_content_continuity(&mut self) {
         if let Some(grid) = self.content_grid.as_mut() {
             grid.break_continuity();
@@ -280,29 +286,31 @@ impl MeasureEngine {
         self.push_observed_internal(
             samples,
             MeterClockStart::unknown(),
-            |frames, result, observed, _| observe(frames, result, observed),
+            false,
+            |frames, result, observed, _, _| observe(frames, result, observed),
             |_| {},
         )
     }
 
     /// The Meter Session's 10/100 ms facts, with the Max M confirmed up to the same boundary,
     /// and qualified content-grid candidates are read from the same EBU filter input. The latter
-    /// never changes Session time. PLR is a Session summary fact, so no per-100 ms Integrated query.
+    /// never changes Session time. The TIME raw frame also freezes the Session summary at that boundary.
     pub(crate) fn push_observed_with_session_facts_at(
         &mut self,
         samples: &[f64],
         clock: MeterClockStart,
-        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<SessionSummary>),
         observe_content: impl FnMut(ContentWindowObservation),
     ) -> Option<MeasureResult> {
-        self.push_observed_internal(samples, clock, observe, observe_content)
+        self.push_observed_internal(samples, clock, true, observe, observe_content)
     }
 
     fn push_observed_internal(
         &mut self,
         samples: &[f64],
         clock: MeterClockStart,
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+        session_summary: bool,
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<SessionSummary>),
         mut observe_content: impl FnMut(ContentWindowObservation),
     ) -> Option<MeasureResult> {
         if let Some(grid) = self.content_grid.as_mut() {
@@ -388,11 +396,13 @@ impl MeasureEngine {
             self.total_frames += (self.publish_target / self.n_channels) as u64;
 
             let computed = self.compute();
+            let summary = session_summary.then(|| self.cached_session_summary());
             observe(
                 self.total_frames,
                 &computed,
                 &self.publish_buf,
                 self.max_lufs_m,
+                summary,
             );
             result = Some(computed);
             self.publish_buf.clear();
@@ -432,6 +442,25 @@ impl MeasureEngine {
             lufs_i,
             lra,
             max_true_peak,
+            layout: Some(self.layout),
+        }
+    }
+
+    /// Meter Session readout only: original gating energies, logarithmic query cost. Record's
+    /// finalization still uses the unchanged canonical scalar API above as its exact oracle.
+    pub(crate) fn cached_session_summary(&self) -> SessionSummary {
+        SessionSummary {
+            lufs_i: self
+                .ebu
+                .loudness_global_cached()
+                .ok()
+                .filter(|v| v.is_finite()),
+            lra: self
+                .ebu
+                .loudness_range_cached()
+                .ok()
+                .filter(|v| v.is_finite()),
+            max_true_peak: self.session_true_peak_dbtp(),
             layout: Some(self.layout),
         }
     }

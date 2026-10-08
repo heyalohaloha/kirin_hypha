@@ -238,22 +238,32 @@ impl SpectrumCoordinator {
                 else {
                     return true;
                 };
-                // Details are published or completed after their waveform, so any history
-                // change, not only a new waveform end, is a new snapshot.
-                let revision = history
-                    .waveform()
-                    .next_back()
-                    .map(|_| history.revision() as i64);
-                // The band results are published apart from the history; publishing them
-                // advances the history's revision, so a new band result is a new snapshot too.
-                let (band, results) = self
+                let observations = match self
                     .attack_runtime
                     .as_ref()
-                    .map(|runtime| (runtime.band(), runtime.band_results()))
-                    .unwrap_or_default();
+                    .map(|runtime| runtime.try_observation_snapshot_result())
+                {
+                    Some(Ok(observations)) => observations,
+                    Some(Err(
+                        crate::attack_runtime::snapshot::AttackObservationReadError::Busy,
+                    )) => {
+                        return true;
+                    }
+                    _ => {
+                        return self
+                            .remove_unavailable_attack_publication(request_id, instance_dir);
+                    }
+                };
+                let revision = history.waveform().next_back().map(|_| {
+                    let mut hash = sha2::Sha256::new();
+                    use sha2::Digest;
+                    hash.update(history.revision().to_le_bytes());
+                    hash.update(observations.revision.to_le_bytes());
+                    i64::from_le_bytes(hash.finalize()[..8].try_into().unwrap())
+                });
                 (
                     revision,
-                    encode_attack_snapshot(request_id, &history, band, &results),
+                    encode_attack_observation_snapshot(request_id, &history, &observations),
                     None,
                 )
             }
@@ -335,6 +345,31 @@ impl SpectrumCoordinator {
         true
     }
 
+    fn remove_unavailable_attack_publication(&self, request_id: Uuid, instance_dir: &Path) -> bool {
+        {
+            // Non-RT, bounded state-only critical section. Filesystem work follows guard release.
+            let mut slot = match self.pre_session.lock() {
+                Ok(slot) => slot,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let Some(current) = slot.as_mut().filter(|current| {
+                current.request_id == request_id && current.instance_dir == instance_dir
+            }) else {
+                return false;
+            };
+            current.last_written_end = None;
+            current.last_write_attempt_end = None;
+            current.last_write_attempt_at = None;
+        }
+        // A newer/foreign request's publication is never owned by this invalidated session.
+        if read_attack_snapshot(instance_dir)
+            .is_some_and(|snapshot| snapshot.request_id == request_id)
+        {
+            remove_attack_snapshot(instance_dir);
+        }
+        true
+    }
+
     fn retire_pre_session(&self) {
         let retired = self
             .try_pre_session()
@@ -393,3 +428,7 @@ impl SpectrumCoordinator {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "spectrum_exchange_pre_tests.rs"]
+mod tests;

@@ -140,6 +140,12 @@ impl SpectrumCoordinator {
     pub(super) fn new_post_session(&self) -> PostSession {
         PostSession {
             request_id: Uuid::new_v4(),
+            authority_revision: self.pair_authority_revision.load(Ordering::Acquire),
+            attack_origin: self
+                .attack_pair_authority
+                .lock()
+                .ok()
+                .and_then(|origin| origin.clone()),
             target: None,
             last_renewed: None,
             last_renewal_attempt: None,

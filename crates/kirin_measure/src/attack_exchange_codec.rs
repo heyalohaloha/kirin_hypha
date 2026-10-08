@@ -22,6 +22,7 @@ const SNAPSHOT_MAGIC: &[u8; 8] = b"KHATK001";
 /// every hit's outcome in it. A POST that never requests a band keeps receiving version 3.
 const SNAPSHOT_VERSION: u16 = 3;
 const SNAPSHOT_VERSION_BAND: u16 = 4;
+const SNAPSHOT_VERSION_OBSERVATION: u16 = 5;
 const HEADER_BYTES: usize = 92;
 const FRAME_BYTES: usize = 12;
 const WAVEFORM_BYTES: usize = 24;
@@ -39,6 +40,12 @@ const _: () = assert!(ATTACK_SNAPSHOT_WORST_CASE_BYTES as u64 <= ATTACK_SNAPSHOT
 
 #[path = "attack_exchange_codec_band.rs"]
 mod band;
+#[path = "attack_exchange_codec_observation.rs"]
+mod observation;
+const _: () = assert!(
+    ATTACK_SNAPSHOT_WORST_CASE_BYTES + observation::EXTENSION_MAX_BYTES
+        <= ATTACK_SNAPSHOT_MAX_BYTES as usize
+);
 
 pub(super) struct DecodedAttackSnapshot {
     pub(super) request_id: Uuid,
@@ -46,6 +53,7 @@ pub(super) struct DecodedAttackSnapshot {
     /// Version 4: the band PRE declares and its hits in it. `None` for version 3, which a PRE
     /// that predates bands always writes.
     pub(super) band_results: Option<AttackBandResults>,
+    pub(super) observations: Option<crate::attack_runtime::snapshot::AttackObservationSnapshot>,
 }
 
 pub(super) fn read_attack_snapshot(instance_dir: &Path) -> Option<DecodedAttackSnapshot> {
@@ -149,6 +157,51 @@ pub(super) fn encode_attack_snapshot(
     bytes
 }
 
+pub(super) fn encode_attack_observation_snapshot(
+    request_id: Uuid,
+    history: &AttackHistory,
+    observations: &crate::attack_runtime::snapshot::AttackObservationSnapshot,
+) -> Vec<u8> {
+    let Some(source) = observations.source.filter(|value| value.valid()) else {
+        return Vec::new();
+    };
+    let Some(identity) = history.newest() else {
+        return Vec::new();
+    };
+    if source.source.generation != identity.generation
+        || source.source.sample_rate != identity.sample_rate
+        || source.source.channels != identity.channels
+        || source.source.odf_hash != identity.definition_hash
+    {
+        return Vec::new();
+    }
+    // Build the v4 measure records from the exact same typed publication. Separate legacy cache
+    // reads cannot attach a new physical window to an old finish/mask packet.
+    let mut observations = observations.clone();
+    observations
+        .own
+        .retain(|entry| history.events().any(|event| *event == entry.event));
+    let band = observations.band;
+    let mut results = AttackBandResults::new(band, source.source.generation);
+    if let Some(band) = band {
+        for entry in &observations.own {
+            if entry.finish != crate::attack_runtime::snapshot::AttackFinish::Acquiring {
+                results.put_own(crate::attack_runtime::AttackBandDetail {
+                    event: entry.event,
+                    band,
+                    span_end_sample: entry.requested_end,
+                    measure: entry.measure,
+                });
+            }
+        }
+    }
+    let mut bytes = encode_attack_snapshot(request_id, history, band, &results);
+    bytes[8..10].copy_from_slice(&SNAPSHOT_VERSION_OBSERVATION.to_le_bytes());
+    bytes[10] = band.map_or(0, AttackBand::index);
+    observation::encode(&mut bytes, history, &observations);
+    bytes
+}
+
 fn encode_detail(bytes: &mut Vec<u8>, detail: &AttackDetailedEvent) {
     let features = detail.features;
     bytes.extend_from_slice(&detail.event.event_sample.to_le_bytes());
@@ -181,8 +234,11 @@ pub(super) fn decode_attack_snapshot(bytes: &[u8]) -> Option<DecodedAttackSnapsh
     let mut cursor = Cursor::new(bytes);
     (cursor.take(8)? == SNAPSHOT_MAGIC).then_some(())?;
     let version = cursor.u16()?;
-    (version == SNAPSHOT_VERSION || version == SNAPSHOT_VERSION_BAND).then_some(())?;
-    let _reserved = cursor.u16()?;
+    (version == SNAPSHOT_VERSION
+        || version == SNAPSHOT_VERSION_BAND
+        || version == SNAPSHOT_VERSION_OBSERVATION)
+        .then_some(())?;
+    let flags = cursor.u16()?;
     let request_id = Uuid::from_slice(cursor.take(16)?).ok()?;
     let sample_rate = cursor.u32()?;
     let channels = cursor.u8()?;
@@ -241,7 +297,9 @@ pub(super) fn decode_attack_snapshot(bytes: &[u8]) -> Option<DecodedAttackSnapsh
         history.push_event(detail.event);
         history.push_detail(detail);
     }
-    let band_results = if version == SNAPSHOT_VERSION_BAND {
+    let band_results = if version == SNAPSHOT_VERSION_BAND
+        || (version == SNAPSHOT_VERSION_OBSERVATION && flags != 0)
+    {
         Some(band::decode_band_section(
             &mut cursor,
             &band::BandIdentity {
@@ -254,10 +312,18 @@ pub(super) fn decode_attack_snapshot(bytes: &[u8]) -> Option<DecodedAttackSnapsh
     } else {
         None
     };
+    let observations = if version == SNAPSHOT_VERSION_OBSERVATION {
+        let snapshot = observation::decode(&mut cursor, &mut history, band_results.as_ref())?;
+        (u16::from(snapshot.band.map_or(0, AttackBand::index)) == flags).then_some(())?;
+        Some(snapshot)
+    } else {
+        None
+    };
     (cursor.remaining() == 0).then_some(DecodedAttackSnapshot {
         request_id,
         history,
         band_results,
+        observations,
     })
 }
 

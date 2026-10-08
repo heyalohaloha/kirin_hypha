@@ -93,6 +93,10 @@ impl AttackBins {
         self.first + self.bins.len() as i64
     }
 
+    pub(super) fn coverage(&self) -> (i64, i64) {
+        (self.first * self.bin_frames, self.end() * self.bin_frames)
+    }
+
     /// Append the next complete bin of the current run; out-of-order bins are refused.
     pub(super) fn push_level(&mut self, index: i64, bin: Bin) {
         if index < self.end() {
