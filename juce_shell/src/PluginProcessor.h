@@ -293,19 +293,10 @@ public:
     }
     void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
     void setScaleModePreference (hypha::meter_context::ScaleMode value);
-    bool hybridVuOnRecordPreference() const noexcept
-    {
-        return preferredHybridVuOnRecord.load (std::memory_order_acquire);
-    }
+    bool hybridVuOnRecordPreference() const noexcept;
     void setHybridVuOnRecordPreference (bool enabled);
-    bool manualHybridVuSelection() const noexcept
-    {
-        return manualHybridVuSelected.load (std::memory_order_acquire);
-    }
-    void setManualHybridVuSelection (bool visible) noexcept
-    {
-        manualHybridVuSelected.store (visible, std::memory_order_release);
-    }
+    bool manualHybridVuSelection() const noexcept;
+    void setManualHybridVuSelection (bool visible) noexcept;
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
     bool isHostRecording() const noexcept
     {

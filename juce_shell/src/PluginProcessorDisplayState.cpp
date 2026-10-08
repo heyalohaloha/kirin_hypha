@@ -57,6 +57,21 @@ void KirinHyphaProcessorBase::setHybridVuOnRecordPreference (bool enabled)
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 
+bool KirinHyphaProcessorBase::hybridVuOnRecordPreference() const noexcept
+{
+    return preferredHybridVuOnRecord.load (std::memory_order_acquire);
+}
+
+bool KirinHyphaProcessorBase::manualHybridVuSelection() const noexcept
+{
+    return manualHybridVuSelected.load (std::memory_order_acquire);
+}
+
+void KirinHyphaProcessorBase::setManualHybridVuSelection (bool visible) noexcept
+{
+    manualHybridVuSelected.store (visible, std::memory_order_release);
+}
+
 bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
 {
     if (! hypha::observatory::validEditorSize (width, height))
