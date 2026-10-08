@@ -13,7 +13,7 @@ namespace hypha::tests
 {
 inline void verifyLiveCompareActionNotices()
 {
-    observatory::View post (observatory::Role::post);
+    observatory::View post (observatory::Role::post); post.setVisible (true);
     observatory::LiveCompareFooter rail;
     rail.active = rail.matched = rail.pinAvailable = true;
     rail.preGainTenthsDb = -125;

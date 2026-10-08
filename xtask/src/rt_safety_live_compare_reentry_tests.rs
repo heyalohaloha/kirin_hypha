@@ -188,10 +188,12 @@ fn live_action_boundary_separates_old_history_from_new_success_faults() {
     }
     let screen = include_str!("../../juce_shell/tests/LiveCompareActionNoticeContractTest.h");
     assert!(screen.contains("Language::japanese") && screen.contains("observatory::sizePresets"));
+    let footer = include_str!("../../juce_shell/tests/FooterNoticeContractChecks.h");
     assert!(
-        screen.contains("shownWidth")
-            && screen.contains("statusStripBounds")
-            && screen.contains("createComponentSnapshot")
+        screen.contains("footer_notice::retainedInFooter")
+            && footer.contains("getStringWidthFloat")
+            && footer.contains("statusStripBounds")
+            && footer.contains("createComponentSnapshot")
     );
     assert!(
         include_str!("../../juce_shell/tests/LiveCompareFooterContractTest.cpp")

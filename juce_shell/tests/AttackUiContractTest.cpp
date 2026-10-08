@@ -77,6 +77,9 @@ int main()
     static_assert (sizeof (KirinAttackPairEvent) == 112);
     static_assert (sizeof (KirinAttackPairEventBatch) == 26'896);
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    // Existing V2 focus requests isolate that renderer from the legacy UI's timing fixture.
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {}).isNotEmpty())
+        return verifyAttackV2PresentationContract() ? EXIT_SUCCESS : EXIT_FAILURE;
     auto componentStorage = std::make_unique<hypha::AttackComponent>();
     auto& component = *componentStorage;
     component.setPresentationContext (context);

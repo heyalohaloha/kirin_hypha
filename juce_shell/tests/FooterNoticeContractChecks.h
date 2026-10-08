@@ -68,7 +68,7 @@ inline bool guideAndChainNotices()
         const i18n::ScopedLanguage scoped (language);
         for (const auto preset : observatory::sizePresets)
         {
-            observatory::View view (observatory::Role::post);
+            observatory::View view (observatory::Role::post); view.setVisible (true);
             view.setSize (preset.width, preset.height);
             view.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
             view.setChainReadout (chain, true);

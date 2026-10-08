@@ -79,13 +79,13 @@
       ]
     }
   },
-  "file_count": 177,
+  "file_count": 181,
   "files": [
     {
       "path": "README.md",
       "status": "modified",
-      "bytes": 93962,
-      "sha256": "65465ed2486b613015bffcbcf3dc456cf5eb05f5ce090446194cdca33e8c210c"
+      "bytes": 95274,
+      "sha256": "974030b147379dfbd277bdc8be9e6ac0a075fb31befa5c32985df117cad4f4e9"
     },
     {
       "path": "crates/kirin_hypha_ffi/include/kirin_hypha_navigation_snapshot_ffi.h",
@@ -444,14 +444,20 @@
     {
       "path": "docs/hypha_invariants.md",
       "status": "modified",
-      "bytes": 159110,
-      "sha256": "e96a259b3692af60442faab97bf4fde25cdd82d3f955aa9a78814a210d606428"
+      "bytes": 159564,
+      "sha256": "4465c40bfae837b718bddeded92860c3eaf0ec92e8b5b32576fa05481c8e8951"
     },
     {
       "path": "docs/hypha_meter_product_contract_20260831.md",
       "status": "modified",
-      "bytes": 59000,
-      "sha256": "ab236e5a3fe8426ddc062eb28e5c7a788e0813ee1d8ef8cf2213495c6df51e9e"
+      "bytes": 59767,
+      "sha256": "478e473e6168cdb2f7a523d5e2fcb6d04bef7916b15fb9ce9a9539ca14936ea9"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g0_20261007/README.md",
+      "status": "modified",
+      "bytes": 16920,
+      "sha256": "2ed4e43efc513d8416d3c762b5b4771b95ed1feb2dd373052ee933abc958c108"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
@@ -462,14 +468,14 @@
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png",
       "status": "added",
-      "bytes": 117541,
-      "sha256": "7178cb4f6da6d3646dfe2aa8a7895192efd26fafb667109112b89a9d2e8a7873"
+      "bytes": 104310,
+      "sha256": "65ee009ac500710559147593d1bcfed9efc7b3fa1adeee91ba2f49db2912a01f"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png",
       "status": "added",
-      "bytes": 112605,
-      "sha256": "8df7450ac20c24d081db6a31e74c0df425fcd7d92f1b0e9243b2206ebc646246"
+      "bytes": 106349,
+      "sha256": "f9da76b079eb1ebd7ce6e7bad3637159718ae078b0e2f9c5003eeb392b945b00"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/performance_audit.md",
@@ -510,8 +516,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
       "status": "modified",
-      "bytes": 79986,
-      "sha256": "08a832cb0518b96c1d1e2170831179254625e5a490db4912adadb4593b02a63a"
+      "bytes": 80566,
+      "sha256": "277e7bd13f329475540622c0abc0986220ac10564d86c0cbf87814578476662f"
     },
     {
       "path": "docs/provenance/asset_distribution_registry.json",
@@ -612,8 +618,8 @@
     {
       "path": "juce_shell/src/HyphaAttackV2EvidencePainter.cpp",
       "status": "added",
-      "bytes": 5414,
-      "sha256": "a5dd5e69d2f27d517f206e05cb1fb36032710f7190055581d619ff152a25a2b4"
+      "bytes": 6506,
+      "sha256": "8632dd52ce2d0fdb69ff8f74dbedce93b2ecc622d9109b617ed3bd11510c536f"
     },
     {
       "path": "juce_shell/src/HyphaAttackV2Formatter.cpp",
@@ -642,8 +648,8 @@
     {
       "path": "juce_shell/src/HyphaAttackV2Painter.cpp",
       "status": "added",
-      "bytes": 14053,
-      "sha256": "c7ac58fdd3596b4dd7fc31a954987a7dc6100fa71cd5717541dd2986403d2386"
+      "bytes": 13235,
+      "sha256": "72cdd42146cf5ed38c9ffad5b411dd373e8905d4bd60e227d939f3e827f0af7e"
     },
     {
       "path": "juce_shell/src/HyphaAttackV2Painter.h",
@@ -714,8 +720,8 @@
     {
       "path": "juce_shell/src/HyphaJapaneseDrumSnapshot.cpp",
       "status": "added",
-      "bytes": 2214,
-      "sha256": "ac27022c46e8231085a4633aabd5007fd203809cf75ac62ec2e5f5383f78d814"
+      "bytes": 3364,
+      "sha256": "98433b4c5b30bbc1aa1759672c0149faa93a7c22a65f79303ec49a0896f45297"
     },
     {
       "path": "juce_shell/src/HyphaJapaneseObservatory.cpp",
@@ -942,14 +948,20 @@
     {
       "path": "juce_shell/tests/AttackUiContractTest.cpp",
       "status": "modified",
-      "bytes": 16882,
-      "sha256": "383eeac33a771145ab5b4c841f311146ee2a9ec4b279dc84862add1bbb4cb10c"
+      "bytes": 17154,
+      "sha256": "4812841dd2f269f9d200661bed7a658f0105d33571cdb8439ddf757f36efb01c"
     },
     {
       "path": "juce_shell/tests/AttackV2Fixtures.h",
       "status": "added",
       "bytes": 6531,
       "sha256": "7759e056ffd7b5e1df315e4ae453ba82fc93eb9fb94fe216f29f7181e889078b"
+    },
+    {
+      "path": "juce_shell/tests/AttackV2MainSurfaceContract.h",
+      "status": "added",
+      "bytes": 19474,
+      "sha256": "4a5d4582b191b903c02d0b1172e0bee8f661379d6b64cc383094b29fe122cdff"
     },
     {
       "path": "juce_shell/tests/AttackV2MaterialContract.h",
@@ -960,8 +972,8 @@
     {
       "path": "juce_shell/tests/AttackV2PresentationContractTest.cpp",
       "status": "added",
-      "bytes": 36947,
-      "sha256": "218b92195b3a50159747eb9f699616ba7d707415178435702571fe703efea605"
+      "bytes": 27854,
+      "sha256": "bf3563e8282271b8e8a3eca4778ae317a5e86ff4f2aec6dc6e48a0232081557f"
     },
     {
       "path": "juce_shell/tests/AttackV2PresentationContractTest.h",
@@ -976,6 +988,12 @@
       "sha256": "e01d4ce49e6a90894833383e0f78737950c01093af9a5767ae2061622a82216a"
     },
     {
+      "path": "juce_shell/tests/ChainTimingTextContract.h",
+      "status": "modified",
+      "bytes": 12997,
+      "sha256": "9f21ffd805080a373d1cd024b19746e7389adff5acd4a94709751cb6dbfe3f8b"
+    },
+    {
       "path": "juce_shell/tests/EditorProductChecks.h",
       "status": "modified",
       "bytes": 18029,
@@ -984,14 +1002,14 @@
     {
       "path": "juce_shell/tests/FooterNoticeContractChecks.h",
       "status": "added",
-      "bytes": 5211,
-      "sha256": "ae3eeefe89a7b13bf447cbf92beaa153f773ff7e5aa45f012fa778c103934cfd"
+      "bytes": 5235,
+      "sha256": "4650f4b6c8303e2a78798f0b57b33da169e2ac0ac8b7455cc05a50d5e3da93ac"
     },
     {
       "path": "juce_shell/tests/HybridVuCalibrationContract.h",
       "status": "added",
-      "bytes": 17373,
-      "sha256": "1d821097fba70f7c9c904ce5c5d0143fb54832be7a8b580315d01f7fb66d131d"
+      "bytes": 17397,
+      "sha256": "a8db63600e1f91d8e215b95c00dd91d6c38fc098f89026509be135e2b4861756"
     },
     {
       "path": "juce_shell/tests/HybridVuContractTest.cpp",
@@ -1002,14 +1020,14 @@
     {
       "path": "juce_shell/tests/LiveCompareActionNoticeContractTest.h",
       "status": "modified",
-      "bytes": 1753,
-      "sha256": "da5370f37bd2fa8922d3e02e080db42694d2e01690d85c9f61f3e93ed399a8bd"
+      "bytes": 1777,
+      "sha256": "1644560e186a281e8ac3469ee4528c37588486207f369ef47fce0d232152cbf6"
     },
     {
       "path": "juce_shell/tests/LiveCompareFooterContractTest.cpp",
       "status": "modified",
-      "bytes": 26419,
-      "sha256": "b9f06b300e1b85dd9fce6ed7b2d6f27818cdac888c8e2d16122450113f9850cb"
+      "bytes": 26443,
+      "sha256": "0e97dd324df64439696b569d7eb294dfee8d9d6aaad5c71cf3b3dee6db3de456"
     },
     {
       "path": "juce_shell/tests/ObservatoryDomainBedContract.h",
@@ -1130,6 +1148,12 @@
       "status": "modified",
       "bytes": 81183,
       "sha256": "a641f6601b861be1752f79aa037d51c99a53eccf127087a89f276d59b027be9f"
+    },
+    {
+      "path": "xtask/src/rt_safety_live_compare_reentry_tests.rs",
+      "status": "modified",
+      "bytes": 18963,
+      "sha256": "f9cb62dfe75672f9566ac38fa9bf1300ad2c399e027bab274e1e65367980821d"
     },
     {
       "path": "xtask/src/shell_parity.rs",

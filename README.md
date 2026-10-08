@@ -144,38 +144,52 @@ selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP
 
 Development fixture from the G2 native renderer; actual DAW and daily-operation acceptance remain in G3.
 
+DRUM answers one question: **how did processing change the same hit?** Put PRE before the
+processing chain and POST after it to compare POST − PRE; with POST alone, read the output hit's
+shape and level. ALL gives the full-band view, and BAND focuses that comparison on a frequency
+region. Adjust processing while LIVE shows incoming hits, then click a hit to LOCK and inspect
+its observation. Return to LIVE to see the next change. LOCK fixes the displayed hit; it does
+not loop or play audio. These readings
+support listening; they do not rate sound quality or prescribe a compressor setting.
+
 DRUM shows six seconds of the PRE/POST envelope and four facts for the selected hit:
-**TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
-**SHARPNESS** (the first 100 ms), each as POST − PRE. A matched POST hit is measured at the PRE
-onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
-or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. A hit shows
+**TRANSIENT** (first-30-ms RMS minus the body RMS), **STRENGTH** (first-30-ms RMS),
+**CREST** (sample peak minus RMS in those 30 ms), and **SHARPNESS** (loudness-weighted perceptual
+sharpness over the first 100 ms, in acum), each as POST − PRE. TRANSIENT describes the head/body
+contrast, STRENGTH its initial level, CREST its peakiness, and SHARPNESS its perceptual sharpness.
+A matched POST hit is measured at the PRE onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
+or whose body is below the −72 dBFS HISTORY floor, shows **—**, with the reason in Facts. A hit shows
 STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPNESS follow once its
-body is complete. A hit cut off before those facts can be measured keeps its reason instead of a
-value. Without PRE, the lanes show POST values.
+body is complete. A hit cut off before those facts can be measured shows **—** and keeps its reason
+in Facts. Without PRE, the lanes show POST values.
 
 **BAND**, on DRUM's second header row, filters each hit to one ISO octave band (63 Hz to 8 kHz) on
 PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arrival, where the band
 envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band peak), **REL** (peak →
-−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. Larger views show the
+−20 dB) and **LEVEL** (the peak of the band RMS envelope), each as POST − PRE of the same hit.
+ATT and REL measure the hit's envelope, not a compressor's attack/release knobs. DELAY measures
+the two band-arrival times, not the plug-in's reported audio latency. Larger views show the
 hits on number lines. LIVE first fixes the latest eight detected hits inside the six-second window, including
 hits still being measured or unavailable. Each lane distinguishes exact values, measured limits,
-not applicable, unknown and pending; it never fills a missing hit with an older one. The main reading
-identifies the whole cohort's median or median interval. When only a confirmed subset has a scalar,
-its median is labelled with the confirmed count and age; it is not presented as the whole cohort.
-Limits keep their direction and are rounded outwards. Missing values keep their reasons. At 200 % and
+not applicable, unknown and pending; it never fills a missing hit with an older one. The production
+view keeps the values and graphs: a whole-cohort median or informative median interval remains visible,
+and a lane without a whole-cohort reading shows **—**. A subset median is available in **Facts**,
+along with its count, age and reasons; it is never presented as the whole cohort. Classification and
+Age sentences and the repeated “Latest hit” or “Locked hit” lane text stay off the main view;
+the existing LIVE/LOCK control and shared caption retain the selection context. Limits keep their direction and are rounded outwards. At 200 % and
 300 % HISTORY shows those hits' average **HEAD** (−20 to +40 ms) and **TAIL** (0 to 300 ms) in that
-band; smaller views keep the same readings and scope in four cards. Click a dot (or use ← → HOME) to lock that hit and
+band; smaller views keep the same values, units and Facts access in four cards. Click a dot (or use ← → HOME) to lock that hit and
 read its own values and envelopes. LOCK keeps the selected hit when it leaves the visible window;
 LIVE returns to the current cohort. ALL LIVE reads the latest detected hit; it does not use BAND's
 eight-hit median. The band hits keep the same producer keys as the full-band navigation. Choosing
 another band analyzes the retained last 7 s again, even while stopped; ALL releases the extra band
-audio. The lanes distinguish silence, an earlier hit still ringing, a next hit cutting the tail,
+audio. Facts distinguishes silence, an earlier hit still ringing, a next hit cutting the tail,
 unmeasured audio, audio/worker/publication still pending, and missing comparison proof. A measured
-limit remains a limit, with its direction and reason; resolution is shown separately from the value.
-An older PRE or a band mismatch keeps the requested Δ scope and reports a reason such as
+limit remains a limit on the production view; its reason and resolution remain in Facts.
+An older PRE or a band mismatch keeps the requested Δ scope and preserves a reason such as
 `Update PRE` or `No mapping`. It does not substitute POST values for an unavailable Δ. An absolute
 POST snapshot is labelled POST, and its DELAY is not applicable (`No PRE`). Open **Facts** for the
-same adopted values, classification counts and measurement spans.
+same adopted values, subset medians, classification counts, per-metric age and measurement spans.
 
 ![G2 native development fixture: eight-hit BAND cohort, typed bounds and average-envelope gaps](docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png)
 

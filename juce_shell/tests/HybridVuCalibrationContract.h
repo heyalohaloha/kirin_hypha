@@ -188,7 +188,7 @@ inline void verifyRendering()
         for (const auto role : { observatory::Role::pre, observatory::Role::post })
             for (const auto preset : observatory::sizePresets)
             {
-                observatory::View view (role);
+                observatory::View view (role); view.setVisible (true);
                 view.setSize (preset.width, preset.height);
                 KirinMeterSession meter {};
                 meter.state = KIRIN_METER_SESSION_ACTIVE;

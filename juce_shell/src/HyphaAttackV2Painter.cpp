@@ -91,7 +91,6 @@ juce::String caption (const State& state)
     const auto span = p.summary && count > 1 ? static_cast<double> (p.summary->events[count - 1].event_sample
         - p.summary->events[0].event_sample) / p.header.source.sample_rate : 0.0;
     auto label = band + " " + target + " " + juce::String (count) + words (" hits ", u8"打 ") + juce::String (span, 1) + "s";
-    if (p.maximumSubsetAge > 0) label += " " + words ("Max age ", u8"確定最大古さ") + juce::String (p.maximumSubsetAge, 1) + "s";
     return label;
 }
 }
@@ -155,23 +154,15 @@ void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, cons
             attack_ui::strengthColour, attack_ui::crestColour, attack_ui::sharpnessColour }[i]);
         text (g, state.band == 0 ? allLabels[i] : bandLabels[i], area.metric, c, typography::TextRole::metricLabel, colour);
         auto unit = lane.number.unit;
-        if (lane.scope == Scope::confirmedSubset)
-            unit += words (" old", u8" 古さ") + juce::String (lane.ageSeconds, 1) + "s";
-        else if (state.band != 0 && lane.resolution > 0 && lane.number.exponent == 0)
-            unit += " RES" + juce::String (lane.resolution, lane.resolution >= 1 ? 1 : 2);
+        if (lane.scope == Scope::confirmedSubset && lane.number.exponent != 0)
+            unit = i == 3 ? state.target == KIRIN_TARGET_DELTA ? "dB" : "dBFS" : "ms";
         text (g, unit, area.unit, c, typography::TextRole::unit, COL_NORMAL, shape.cards ? juce::Justification::centredRight : juce::Justification::centredLeft);
-        const auto reason = laneReason (lane);
-        auto scope = scopeText (lane, state.selection.live);
-        if (lane.scope == Scope::single && ! state.selection.live && state.selection.selected
-            && state.selection.selected->event_sample < p.viewport - static_cast<std::int64_t> (state.selection.selected->source.sample_rate) * 6)
-            scope = words ("Past hit", u8"過去の一打");
-        if (shape.cards && lane.scope != Scope::single && lane.count > 0 && reason.isNotEmpty()) scope += " " + reason;
-        text (g, scope, area.scope, c, typography::TextRole::readout, cyan);
-        if (! shape.cards) text (g, reason, area.reason, c, typography::TextRole::readout, COL_NORMAL);
-        text (g, lane.number.value, area.value, c, typography::TextRole::primaryValue, COL_NORMAL,
+        // Production reads whole-cohort values or the chosen single. Partial statistics and
+        // classifications stay unchanged in the adopted presentation and existing Facts.
+        const auto mainValue = lane.scope == Scope::confirmedSubset || lane.scope == Scope::noScalar || ! lane.number.valid
+            ? juce::String::fromUTF8 (u8"—") : lane.number.value;
+        text (g, mainValue, area.value, c, typography::TextRole::primaryValue, COL_NORMAL,
               shape.cards ? juce::Justification::centredLeft : juce::Justification::centredRight);
-        if (shape.cards && (lane.scope == Scope::single || lane.count == 0) && ! lane.number.valid)
-            text (g, reason, area.reason, c, typography::TextRole::axis, COL_NORMAL);
         g.setColour (COL_TEXT_SECONDARY.withAlpha (.15f));
         g.drawHorizontalLine (area.value.getBottom() - 1, static_cast<float> (area.metric.getX()), static_cast<float> (area.value.getRight()));
         if (! area.axis.isEmpty() && state.cohort && state.cohort->header.target == state.target)

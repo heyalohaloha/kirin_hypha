@@ -5,6 +5,7 @@
 #include "../src/HyphaHoverHelpPreference.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
+#include "FooterNoticeContractChecks.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -67,17 +68,32 @@ inline void verifyChainTimingFooterContract()
     }
     directory.deleteRecursively();
 
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const auto guide : { false, true })
     for (const auto preset : observatory::sizePresets)
     {
-        observatory::View view (observatory::Role::post);
+        const i18n::ScopedLanguage scoped (language);
+        observatory::View view (observatory::Role::post); view.setVisible (true);
         view.setSize (preset.width, preset.height);
+        if (guide) view.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
+        const auto requireLayout = [&] (bool value, const char* message)
+        {
+            if (! value)
+                std::cerr << "Chain timing footer case: " << preset.width << 'x' << preset.height
+                          << ", guide " << guide << ", language "
+                          << (language == i18n::Language::japanese ? "ja" : "en") << '\n';
+            require (value, message);
+        };
         juce::Image image (juce::Image::ARGB, preset.width, preset.height, true);
         {
             juce::Graphics graphics (image);
             view.paintEntireComponent (graphics, true);
         }
-        require (! view.chainReadoutShownForTest(), "nothing is drawn while it is off");
-        view.setChainReadout ("CHAIN LOAD 31% / 557%", true);
+        requireLayout (! view.chainReadoutShownForTest(), "nothing is drawn while it is off");
+        const juce::String chain ("CHAIN LOAD 31% / 557%");
+        const auto compact = chain.replace (" / ", "/");
+        const auto shortest = compact.fromFirstOccurrenceOf ("CHAIN ", false, false);
+        view.setChainReadout (chain, true);
         {
             juce::Graphics graphics (image);
             view.paintEntireComponent (graphics, true);
@@ -87,27 +103,56 @@ inline void verifyChainTimingFooterContract()
         if (const auto preview = juce::SystemStats::getEnvironmentVariable (
                 "KIRIN_HYPHA_CHAIN_FOOTER_PREVIEW_DIR", {}); preview.isNotEmpty())
             if (auto output = juce::File (preview).getChildFile ("chain-footer-" + juce::String (preset.width)
-                                                                  + ".png").createOutputStream())
+                + (language == i18n::Language::japanese ? "-ja" : "-en")
+                + (guide ? "-guide" : "-plain") + ".png").createOutputStream())
             {
                 output->setPosition (0);
                 output->truncate();
                 juce::PNGImageFormat().writeImageToStream (image, *output);
             }
-        require (view.chainReadoutShownForTest() == ! folded,
-                 "the footer rail carries a measurement from 150%; the folded sizes use the strip");
-        // The timing the user keeps in the footer stays there beside any status: a short one keeps
-        // the rail, a long one moves to the strip over the body, whole.
+        const auto font = monoFont (view.presentationContext(), typography::TextRole::action);
+        const auto noNoticeFits = ! folded && text_style::shownWidth (font, shortest)
+            <= view.sessionBounds().reduced (6, 0).getWidth();
+        requireLayout (view.chainReadoutShownForTest() == noNoticeFits,
+                       "a chosen measurement is drawn only when the footer has room");
+        // A notice stays in the footer at 150% and above. The optional chain keeps its
+        // saved value and paints beside it only when the complete shortest form fits.
         for (const auto* status : { "Keeping", "PRE changed: check PAIR, then MENU > LISTEN to compare again; POST plays "
                                                "meanwhile, and the PRE you chose waits until PAIR shows it again." })
         {
             view.setFeedback (status);
+            text_style::ShownTextLog shown;
             {
                 juce::Graphics graphics (image);
                 view.paintEntireComponent (graphics, true);
             }
-            require (view.chainReadoutShownForTest() == ! folded,
-                     "the chain timing the user keeps stays in the footer beside a status");
+            const auto retained = footer_notice::retainedInFooter (view, status);
+            requireLayout (retained,
+                           "the complete status retains its footer action and tooltip");
+            requireLayout (view.chainReadoutForTest() == chain,
+                           "a status never changes the chosen chain readout");
+            const auto& notice = view.feedbackDetailsAnchor();
+            const auto room = view.sessionBounds().reduced (6, 0).withLeft (notice.getRight() + 6);
+            const auto fits = ! folded && text_style::shownWidth (font, shortest) <= room.getWidth();
+            requireLayout (view.chainReadoutShownForTest() == fits,
+                           "the chain is shown beside a status exactly when it fits");
+            if (fits)
+                requireLayout (shown.texts().contains (chain) || shown.texts().contains (compact)
+                               || shown.texts().contains (shortest),
+                               "a shown readout paints a complete, bounded form");
+            if (! folded)
+                requireLayout (! notice.getBounds().intersects (view.guideBounds())
+                               && ! room.intersects (notice.getBounds()),
+                               "the notice and readout never overlap each other or the guide");
         }
+        view.setFeedback ({});
+        {
+            juce::Graphics graphics (image);
+            view.paintEntireComponent (graphics, true);
+        }
+        requireLayout (view.chainReadoutForTest() == chain
+                       && view.chainReadoutShownForTest() == noNoticeFits,
+                       "clearing a status restores the chosen readout where it fits");
     }
 }
 

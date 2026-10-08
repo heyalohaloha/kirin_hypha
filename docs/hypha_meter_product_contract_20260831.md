@@ -327,9 +327,14 @@ Summary／Singleを取得する。これは要求済みtarget=Δの測定snapsho
 
 BAND LIVEはsnapshot cutoff時点の6秒内の直近最大8検出打音を先に固定し、
 exact／interval／N/A／unknown／pendingを五分類する。帯域が立ち上がらない打音、測定中の打音も
-cohortに数える。欠測を除いて古い打音を補充しない。四laneは全対象中央値、全対象中央値の区間、
-確定部分中央値・件数・age、数値不成立を区別する。確定部分を全体値として表示しない。
-端点のopen／closed、±∞、外向丸めを保ち、単位と測定分解能を値から区別する。
+cohortに数える。欠測を除いて古い打音を補充しない。2026年10月8日の利用者決定により、
+制作中の主面は値とグラフを優先し、全対象中央値または情報を持つ中央値区間だけを数値表示する。
+全対象の値を出せないlaneは`—`とし、確定部分中央値を全対象値に見せない。
+ALL／BANDの主面各laneには「最新の一打」等のscope文、五分類の内訳、理由、指標別ageを描かず、共有captionへ「確定最大古さ」を加えない。既存のLIVE／LOCK選択と共通captionは保持する。
+確定部分中央値・件数・age・全N区間・五分類・理由は同じ採用snapshotの既存Factsに保持する。
+Factsは処理前後の同じ打音を比較する目的と各指標の意味を示し、ATT／RELをコンプ設定値と混同させない。
+ALLで未設定のBAND用要求窓・実測窓・分解能は表示せず、ageは実際に算出した確定部分だけに添える。
+端点のopen／closed、±∞、外向丸めと主面の単位を保ち、測定分解能はFactsで確認する。
 帯域無音・前音残響はN/A、次打で切れた尾はunknown、長尾・AudioEndの測定済み端はintervalとして
 理由を残す。未取得のunknownと、受理済みでまだ音声／worker／publicationを待つpendingを混同しない。
 値・scope・件数・理由・平均HEAD／TAIL・実測mask・参加集合・接続可否は同じtyped stampで採用し、

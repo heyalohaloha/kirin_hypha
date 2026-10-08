@@ -61,7 +61,7 @@ void verifyLiveCompareFooterContract()
 {
     verifyLiveCompareActionNotices();
     require (footer_notice::guideAndChainNotices(), "Guide and chain-on keep bounded notices and chain preference at every size/language");
-    observatory::View post (observatory::Role::post);
+    observatory::View post (observatory::Role::post); post.setVisible (true);
     observatory::View pre (observatory::Role::pre);
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {

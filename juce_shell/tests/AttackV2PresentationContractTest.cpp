@@ -5,6 +5,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaTextStyle.h"
 #include "AttackV2MaterialContract.h"
+#include "AttackV2MainSurfaceContract.h"
 #include <iostream>
 #include <limits>
 
@@ -136,7 +137,7 @@ bool singleAndMotionContracts()
     {
         text_style::ShownTextLog facts;
         Q (r.view->keyPressed (juce::KeyPress ('i', {}, 'i'))); renderAttack (*r.view);
-        Q (facts.texts().contains (words ("Requested ", u8"要求窓 ") + juce::String::fromUTF8 (u8"0…0")));
+        Q (! facts.texts().joinIntoString ("\n").contains (words ("Requested ", u8"要求窓 ")));
         r.view->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
     }
     h.cutoff_sample = 900000; Q (r.nav ({}, 600, h));
@@ -381,113 +382,7 @@ bool frameBudget()
     return true;
 }
 bool sizesAndArtifacts()
-{
-    material_cache::Lifetime lifetime;
-    const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_ARTIFACT_DIR", {});
-    const std::array<int, 5> widths { 292, 363, 434, 580, 872 }, heights { 120, 158, 164, 248, 412 }, editors { 300, 375, 450, 600, 900 };
-    for (auto language : { i18n::Language::english, i18n::Language::japanese })
-    {
-        i18n::ScopedLanguage locale (language);
-        for (std::size_t size = 0; size < 5; ++size)
-        {
-            std::cout << "DRUM V2 native layout editor=" << editors[size] << " language="
-                << (language == i18n::Language::english ? "en" : "ja") << '\n';
-            Rig r; const auto c = presentation::forEditor (editors[size], editors[size] * 2 / 3);
-            r.view->setPresentationContext (c); r.view->setSize (widths[size], heights[size]); r.view->setBand (5);
-            if (output.isNotEmpty())
-            {
-                Rig all; all.view->setPresentationContext (c); all.view->setSize (widths[size], heights[size]);
-                auto h = header(); h.cutoff_sample = 520000; Q (all.nav ({key (400000, 1), key (470000, 2)}, 0, h));
-                auto one = single (all.last, all.view->singleRequestToken()); one.header.cutoff_sample = h.cutoff_sample;
-                one.has_all_pre = one.has_all_post = 1; one.all_post = laneDetail (470000); one.all_pre = laneDetail (470000, 5);
-                one.all_pre.transient_db = 7; one.all_pre.body_rms_dbfs = -24; one.all_pre.crest_db = 7; one.all_pre.sharpness_acum = 1.2f;
-                one.finish = KIRIN_FINISH_FULL; Q (all.view->setSingleSnapshotV2 (one, 0));
-                const auto file = juce::File (output).getChildFile ("drum-v2-all-" + juce::String (editors[size]) + "-"
-                    + (language == i18n::Language::english ? "en" : "ja") + ".png");
-                Q (file.getParentDirectory().createDirectory().wasOk()); juce::FileOutputStream stream (file); juce::PNGImageFormat png;
-                Q (stream.openedOk() && stream.setPosition (0) && stream.truncate().wasOk() && png.writeImageToStream (renderAttack (*all.view), stream));
-            }
-            for (const auto all : { false, true })
-            {
-                const auto roles = geometry (widths[size], heights[size], c, all);
-                const std::array<const char*, 4> labels = all
-                    ? std::array<const char*, 4> { "TRANSIENT", "STRENGTH", "CREST", "SHARPNESS" }
-                    : std::array<const char*, 4> { "DELAY", "ATT", "REL", "LEVEL" };
-                const std::array<const char*, 4> units = all
-                    ? std::array<const char*, 4> { "dB", "dBFS", "dB", "acum" }
-                    : std::array<const char*, 4> { "ms RES0.20", "ms RES2.0", "ms RES2.0", "dBFS RES0.20" };
-                for (std::size_t i = 0; i < labels.size(); ++i)
-                {
-                    Q (text_style::shownWidth (monoFont (c, typography::TextRole::metricLabel, typography::Composition::visualization), labels[i]) <= roles.lanes[i].metric.getWidth());
-                    Q (text_style::shownWidth (monoFont (c, typography::TextRole::unit, typography::Composition::visualization), units[i]) <= roles.lanes[i].unit.getWidth());
-                    Q (monoFont (c, typography::TextRole::metricLabel, typography::Composition::visualization).getHeight() <= roles.lanes[i].metric.getHeight());
-                    Q (monoFont (c, typography::TextRole::unit, typography::Composition::visualization).getHeight() <= roles.lanes[i].unit.getHeight());
-                    Q (monoFont (c, typography::TextRole::readout, typography::Composition::visualization).getHeight() <= roles.lanes[i].scope.getHeight());
-                    Q (monoFont (c, typography::TextRole::primaryValue, typography::Composition::visualization).getHeight() <= roles.lanes[i].value.getHeight());
-                }
-                if (! all && size >= 3)
-                {
-                    const auto font = monoFont (c, typography::TextRole::axis, typography::Composition::visualization);
-                    Q (text_style::shownWidth (font, juce::String::fromUTF8 (u8"HEAD −20…+40 ms"))
-                        + text_style::shownWidth (font, words ("Mean(dB)", u8"平均(dB)") + juce::String::fromUTF8 (u8" 0–8/8")) + 4 <= roles.head.getWidth() - 8);
-                }
-            }
-            auto s = std::make_unique<KirinAttackBandSummaryV2> (summary()); Q (r.nav ({ s->events, s->events + 8 }));
-            Q (r.view->setSummarySnapshotV2 (*s, 0));
-            const auto shape = geometry (widths[size], heights[size], c);
-            for (const auto& lane : shape.lanes)
-            {
-                Q (r.view->getLocalBounds().contains (lane.metric) && r.view->getLocalBounds().contains (lane.value));
-                Q (! lane.metric.intersects (lane.scope) && ! lane.scope.intersects (lane.value));
-                Q (text_style::shownWidth (monoFont (c, typography::TextRole::primaryValue, typography::Composition::visualization),
-                    juce::String::fromUTF8 (u8"[−999.9,+999.9]")) <= lane.value.getWidth());
-            }
-            text_style::ShownTextLog log; const auto image = renderAttack (*r.view);
-            Q (! log.texts().joinIntoString ("\n").containsChar (0x00e2));
-            if (size >= 3)
-            {
-                Q (log.texts().contains (juce::String::fromUTF8 (u8"HEAD −20…+40 ms")));
-                Q (log.texts().contains (juce::String::fromUTF8 (u8"TAIL 0…+300 ms")));
-            }
-            Q (log.texts().contains (juce::String::fromUTF8 (u8"≥+200")));
-            Q (log.texts().contains (scopeText (r.view->presentationSnapshotV2().lanes[0], true)
-                + " " + laneReason (r.view->presentationSnapshotV2().lanes[0])) || size >= 3);
-            if (output.isNotEmpty())
-            {
-                const auto file = juce::File (output).getChildFile ("drum-v2-" + juce::String (editors[size]) + "-"
-                    + (language == i18n::Language::english ? "en" : "ja") + ".png");
-                Q (file.getParentDirectory().createDirectory().wasOk()); juce::FileOutputStream stream (file); juce::PNGImageFormat png;
-                Q (stream.openedOk() && stream.setPosition (0) && stream.truncate().wasOk() && png.writeImageToStream (image, stream));
-            }
-            // Actual native fonts prove the full endpoint range and maximum exponent at every size.
-            for (const auto magnitude : { 999.9, 3202.6, std::numeric_limits<double>::max() })
-            {
-                auto broad = *s; broad.header.snapshot_revision += static_cast<std::uint64_t> (magnitude > 1e300 ? 4 : magnitude > 1000 ? 3 : 2);
-                auto& level = broad.lanes[3]; std::fill (std::begin (level.class_count), std::end (level.class_count), 0);
-                level.class_count[1] = 8; level.exact_count = 0; level.render_kind = KIRIN_RENDER_WHOLE_INTERVAL;
-                level.whole_interval = interval (-magnitude, magnitude); level.whole_interval.unit = KIRIN_INTERVAL_DECIBELS;
-                for (auto& row : broad.evidence) { row[3].class_code = KIRIN_SCALAR_BOUND; row[3].interval = level.whole_interval; }
-                Q (r.view->setSummarySnapshotV2 (broad, magnitude > 1e300 ? 1750 : magnitude > 1000 ? 1500 : 1250)); // force immediate publication without elapsed-value interpolation
-                const auto& lane = r.view->presentationSnapshotV2().lanes[3];
-                Q (text_style::shownWidth (monoFont (c, typography::TextRole::primaryValue, typography::Composition::visualization), lane.number.value) <= shape.lanes[3].value.getWidth());
-                Q (text_style::shownWidth (monoFont (c, typography::TextRole::unit, typography::Composition::visualization), lane.number.unit) <= shape.lanes[3].unit.getWidth());
-                if (output.isNotEmpty())
-                {
-                    const auto condition = magnitude > 1e300 ? "exp308" : magnitude > 1000 ? "exp3" : "finite999";
-                    const auto file = juce::File (output).getChildFile ("drum-v2-" + juce::String (editors[size]) + "-"
-                        + (language == i18n::Language::english ? "en-" : "ja-") + condition + ".png");
-                    juce::FileOutputStream stream (file); juce::PNGImageFormat png; Q (stream.openedOk() && stream.setPosition (0) && stream.truncate().wasOk() && png.writeImageToStream (renderAttack (*r.view), stream));
-                }
-            }
-            // Error classification and unavailable output remain three dashes, never a fabricated0.
-            for (auto& lane : s->lanes) { std::fill (std::begin (lane.class_count), std::end (lane.class_count), 0); lane.exact_count = 0; lane.class_count[3] = 8; lane.render_kind = KIRIN_RENDER_NO_SCALAR; lane.whole_median_available = lane.whole_numeric_informative = 0; }
-            for (auto& row : s->evidence) for (auto& e : row) { e.class_code = KIRIN_SCALAR_PENDING; e.has_interval = 0; }
-            s->header.snapshot_revision = 901; Q (r.view->setSummarySnapshotV2 (*s, 2000));
-            Q (r.view->presentationSnapshotV2().lanes[0].number.value == "---");
-        }
-    }
-    return true;
-}
+{ return v2_main_surface_contract::verify<Rig>(); }
 }
 bool verifyAttackV2PresentationContract()
 {

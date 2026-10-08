@@ -40,6 +40,17 @@ Section drumSnapshotSection() noexcept
         { "Pair authority ", u8"比較の検証版 " },
         { "Mean in dB; identical participants for PRE and POST. Set changes break lines and fill.", u8"dB平均。PRE/POSTは同参加集合。集合変更では線と塗りを切る。" },
         { "Scroll / Up Down for further facts", u8"スクロール / 上下キーで続き" },
+        { "Processing change to the same hit: POST - PRE.", u8"同じ打音の処理前後の変化：POST − PRE。" },
+        { "Output hit shape and level.", u8"処理後の打音の形と強さ。" },
+        { "ATT / REL measure the envelope, not compressor settings.", u8"ATT / RELは実際の打音の時間で、コンプの設定値ではありません。" },
+        { "First 30 ms RMS minus body RMS.", u8"先頭30 msと胴鳴りのRMSの差。" },
+        { "First 30 ms RMS level.", u8"先頭30 msのRMSレベル。" },
+        { "Peak minus RMS in the first 30 ms.", u8"先頭30 msのピークとRMSの差。" },
+        { "Perceptual sharpness over the first 100 ms.", u8"先頭100 msの聴覚的な鋭さ。" },
+        { "POST arrival minus PRE arrival in this band.", u8"この帯域のPOSTとPREの立ち上がり時刻の差。" },
+        { "Envelope rise time: 10 to 90 percent.", u8"立ち上がりの時間：10 → 90 %。" },
+        { "Decay time: peak to -20 dB.", u8"余韻が減衰する時間：ピーク → −20 dB。" },
+        { "Peak of the band RMS envelope.", u8"帯域のRMS包絡の最大レベル。" },
     };
     return { "DRUM snapshot", entries, sizeof (entries) / sizeof (entries[0]) };
 }
