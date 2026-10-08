@@ -25,6 +25,9 @@ use crate::{
     PsbSummary, SignalState,
 };
 
+#[path = "record_summary_publication.rs"]
+mod record_summary_publication;
+
 #[path = "measure_capture_plan.rs"]
 mod capture_plan;
 #[cfg(test)]
@@ -1130,21 +1133,14 @@ pub fn spawn_measure_thread(
                     );
                 }
 
-                // B-043: Record 中は session_summary に毎ループの最新 finalize() を反映。
-                // IO Thread が Record→Watch 遷移時に直近の値を読み出して JSON に焼く。
-                // engine.push() 後に呼ぶことで最新チャンク反映後の値を取れる。
                 if is_recording {
-                    let summary = record_engines.summary().finalize();
-                    if let Ok(mut g) = session_summary.lock() {
-                        *g = Some(summary);
-                    }
-                    if let Some(measure) = latest_record_measure.clone() {
-                        record_sm.publish_record_display_measure(
-                            record_display_generation.unwrap_or_else(|| record_sm.generation()),
-                            measure,
-                            summary,
-                        );
-                    }
+                    record_summary_publication::publish(
+                        &mut record_engines,
+                        &session_summary,
+                        &record_sm,
+                        record_display_generation,
+                        &latest_record_measure,
+                    );
                 }
             }
 
