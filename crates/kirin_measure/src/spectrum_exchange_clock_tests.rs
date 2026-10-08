@@ -40,6 +40,9 @@ impl Fixture {
     fn paired(&self) {
         feed(&self.pre_runtime, SpectrumInputClock::LegacyPresentation);
         feed(&self.post_runtime, SpectrumInputClock::LegacyPresentation);
+        // Worker completion can outlast the 1.5 s request lease on a loaded runner.
+        // Model the real POST IO heartbeat before PRE serves the request; keep the lease limit.
+        assert!(self.post.post_tick("post", Some(self.target.clone())));
         assert!(self.pre.pre_tick("pre", &self.target.instance_dir));
         assert!(self.post.post_tick("post", Some(self.target.clone())));
         assert_eq!(
@@ -90,6 +93,13 @@ fn feed_level(
         thread::sleep(Duration::from_millis(2));
     }
     panic!("actual Spectrum worker failed to publish");
+}
+
+#[test]
+fn clock_pair_fixture_renews_request_after_worker_delay() {
+    let fixture = Fixture::new();
+    thread::sleep(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
+    fixture.paired();
 }
 
 #[test]
