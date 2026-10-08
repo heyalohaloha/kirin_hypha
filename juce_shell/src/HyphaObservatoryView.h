@@ -18,6 +18,7 @@
 #include "HyphaRunSummary.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
+#include "HyphaVuCalibrationControl.h"
 #include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
@@ -91,6 +92,7 @@ public:
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
+    std::function<void()> onVuCalibrationMenu;
     std::function<void()> onClearPeakClipHolds;
     std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
@@ -206,6 +208,9 @@ public:
     bool setHybridVuOnRecordEnabled (bool enabled);
     bool dismissHybridVuForCurrentRecording();
     bool setManualHybridVuVisible (bool visible);
+    void setVuCalibration (int value, bool choiceAvailable = true);
+    int vuCalibration() const noexcept { return vuCalibrationControl.referenceDbfs(); }
+    juce::Component& vuCalibrationAnchor() noexcept { return vuCalibrationControl; }
     bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
     bool hybridVuShownByRecording() const noexcept
     {
@@ -333,6 +338,7 @@ private:
     void cycleTimeRange();
     void cycleSize();
     void toggleHybridVu();
+    void initializeVuCalibrationControl();
     bool recordingHybridVuRequested() const noexcept
     {
         return hostRecording && hybridVuOnRecordEnabled
@@ -464,6 +470,7 @@ private:
     Button guideButton { {}, false };
     Button statusButton { {}, true };
     Button hybridVuButton { "VU", false };
+    vu_calibration::Control vuCalibrationControl;
     Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };

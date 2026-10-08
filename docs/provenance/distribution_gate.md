@@ -72,13 +72,25 @@ The reviewed snapshot-source module SHA-256 is
 `b894f112f83e462ff432aa134a70b599713950cb5eb13e5e3e16b5a676f04a63`.
 The 2,178-byte embedded resource/font declaration is byte-identical to the base; all three
 embedded PNG bytes and hashes and `ObservatoryMaterial.cmake` are unchanged. No asset, font,
-license, grant, hold or allowed-use decision changes. The reviewed current CMake SHA-256 is
+license, grant, hold or allowed-use decision changes. The reviewed B-1327 CMake SHA-256 is
 `da4fc4719057dfa19968f35da25ae399a134a18a674cdbcc00939714b17346af`.
 Only the registry build-contract hash advances. Static review evidence is retained as
 `cmake-snapshot-dependencies-final.log`, SHA-256
 `62a20323294393988bf9f3e3cdb2539deaf92583d373bc4e9ed2d589505cc105`.
 This bounded review does not certify native build/fixture execution, exact-payload linkage or
 release acceptance; actual build results and distribution-specific gates remain separate.
+
+### 2026-10-08 VU calibration fixture build-contract review
+
+Relative to B-1327, the only CMake change links the existing `juce::juce_cryptography`
+module into `KirinUiRenderContractTests` for the shared VU preference scope hash.
+The shipping targets already link this module. The full difference and the existing resource/font declarations were inspected;
+the declarations, all three embedded PNGs and
+`ObservatoryMaterial.cmake` remain byte-identical to B-1325. The DRUM stage reuses
+the existing material raster and adds no resource. The current reviewed CMake SHA-256 is
+`d69822641db867e712674ce1cb539c2468b3448438df3fc2139cc1f999cb9e61`. Only the registry's build-contract hash
+advances. Existing material permissions, holds, licenses and allowed uses are retained;
+this source review does not certify actual payload linkage or release acceptance.
 
 Public CI continues the complete build/test matrix but suppresses new Windows UI/binary/installer/
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked

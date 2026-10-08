@@ -19,7 +19,7 @@ constexpr std::array<int, 18> vuTickHalves {
     -40, -35, -30, -25, -20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6
 };
 // A physical VU face is not a linear dB ruler.  These control points reproduce the attached
-// dial's engraved positions while the 300 ms measurement and 0 VU calibration remain unchanged.
+// dial's engraved positions while the 300 ms measurement and needle response remain unchanged.
 constexpr std::array<double, 10> vuScaleDb { -40.0, -20.0, -10.0, -7.0, -5.0,
                                              -3.0, -1.0, 0.0, 1.0, 3.0 };
 constexpr std::array<float, 10> vuScalePosition { 0.0f, 0.071f, 0.239f, 0.328f, 0.421f,
@@ -328,7 +328,7 @@ void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& sta
     const auto channelAvailable = state.currentAvailable && channel < state.meter.channels
         && std::isfinite (state.meter.channel_vu_dbfs[channel]);
     const auto normalized = vuNormalized (channelAvailable ? state.meter.channel_vu_dbfs[channel]
-                                                            : referenceDbfs - 40.0);
+        : std::numeric_limits<double>::quiet_NaN(), state.calibrationDbfs);
     const auto scalePoint = dialPoint (dial, normalized);
     const auto needleEnd = pivot + (scalePoint - pivot) * 1.11f;
     g.setColour (COL_FLORA_BR.withAlpha (0.20f));
@@ -403,10 +403,12 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area, const char* la
 }
 }
 
-float vuNormalized (double dbfs) noexcept
+float vuNormalized (double dbfs, int calibrationDbfs) noexcept
 {
     if (! std::isfinite (dbfs)) return 0.0f;
-    const auto vu = juce::jlimit (vuScaleDb.front(), vuScaleDb.back(), dbfs - referenceDbfs);
+    const auto reference = vu_calibration::valid (calibrationDbfs)
+        ? calibrationDbfs : vu_calibration::defaultDbfs;
+    const auto vu = juce::jlimit (vuScaleDb.front(), vuScaleDb.back(), dbfs - reference);
     for (size_t upper = 1; upper < vuScaleDb.size(); ++upper)
         if (vu <= vuScaleDb[upper])
             return juce::jmap (static_cast<float> (vu),
@@ -450,10 +452,6 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
         bounds.getX() + bounds.getWidth() * 0.021f,
         bounds.getY() + bounds.getHeight() * 0.721f,
         bounds.getWidth() * 0.958f, bounds.getHeight() * 0.151f);
-    auto calibration = juce::Rectangle<float> (
-        bounds.getX() + bounds.getWidth() * 0.021f,
-        bounds.getY() + bounds.getHeight() * 0.880f,
-        bounds.getWidth() * 0.958f, bounds.getHeight() * 0.095f);
     paintHeader (g, header, state);
     paintMeterFace (g, face, state);
 
@@ -475,8 +473,5 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
                  state.presentation);
     metrics.removeFromLeft (metricGap);
     paintMetric (g, metrics, "CREST", crest, "dB", false, state.presentation);
-    drawText (g, "0 VU = -18 dBFS", calibration, state.presentation,
-              typography::TextRole::legend, typography::Composition::instrument,
-              COL_MUTED.withAlpha (0.78f), juce::Justification::centred, true, 0.08f);
 }
 }

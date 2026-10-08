@@ -23,6 +23,7 @@
 
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
+#include "HyphaVuCalibrationPreference.h"
 #include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -297,6 +298,9 @@ public:
     void setHybridVuOnRecordPreference (bool enabled);
     bool manualHybridVuSelection() const noexcept;
     void setManualHybridVuSelection (bool visible) noexcept;
+    juce::String hybridVuCalibrationScope() const;
+    int refreshHybridVuCalibration(); // message-thread-only presentation preference
+    bool setHybridVuCalibration (int value, const juce::String& expectedScope);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
     bool isHostRecording() const noexcept
     {
@@ -467,6 +471,7 @@ private:
     std::atomic<bool> preferredHybridVuOnRecord { true }; // DisplayState v5; legacy default ON
     // Retained across editor close/reopen for this loaded instance; not a DAW-saved preference.
     std::atomic<bool> manualHybridVuSelected { false };
+    hypha::vu_calibration::Preference hybridVuCalibration;
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredAttackBand { 0 };        // editor-lifetime; not persisted

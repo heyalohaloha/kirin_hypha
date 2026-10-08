@@ -79,13 +79,13 @@
       ]
     }
   },
-  "file_count": 115,
+  "file_count": 138,
   "files": [
     {
       "path": "README.md",
       "status": "modified",
-      "bytes": 92279,
-      "sha256": "c5eae4a6986f6b2d780cc5a876da1c84bc8bcde9942767a2209887fddb4b688e"
+      "bytes": 92865,
+      "sha256": "f91ef34b257393ade51981e5c34f233b9637d80bf4f86fb03668d80751dca32e"
     },
     {
       "path": "crates/kirin_hypha_ffi/include/kirin_hypha_navigation_snapshot_ffi.h",
@@ -98,6 +98,12 @@
       "status": "modified",
       "bytes": 3896,
       "sha256": "5051a616f622f5d59c00bbd0620c222739abcf5794cbe8a49f7a80daa010d221"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/include/kirin_hypha_vu_calibration_ffi.h",
+      "status": "added",
+      "bytes": 809,
+      "sha256": "49596ebddd88f1172eddbddcdb014d37567039839da144d607259db8dc2a0da3"
     },
     {
       "path": "crates/kirin_hypha_ffi/src/attack_ffi.rs",
@@ -136,10 +142,34 @@
       "sha256": "1cef4517a1d6b9acd11b02aad2b92cd93ca88fbe3e5b51e88fb05692df38896c"
     },
     {
+      "path": "crates/kirin_hypha_ffi/src/pair_snapshot_ffi.rs",
+      "status": "modified",
+      "bytes": 6642,
+      "sha256": "abecb426f87c5468a7ee796361182a2c0ac7c24618569f68c2fe1aa59226bf52"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/vu_calibration_locator_ffi.rs",
+      "status": "added",
+      "bytes": 3265,
+      "sha256": "cdd046a1b251d0a85368b71c97008c788396efc08d8d2ff3dec1998531b61e37"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/vu_calibration_locator_tests.rs",
+      "status": "added",
+      "bytes": 6379,
+      "sha256": "bef04cc75dc1744647db21342c51ab240400feb2f212ac917c317402caefdc3b"
+    },
+    {
       "path": "crates/kirin_hypha_ffi/tests/juce_delta_mode_wiring.rs",
       "status": "modified",
       "bytes": 5455,
       "sha256": "292f73594a0d4c9401ba3de17f8225c60c042764d5898aef3a5220811ce16618"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/tests/juce_vu_calibration_wiring.rs",
+      "status": "added",
+      "bytes": 3459,
+      "sha256": "8b2f9cb6599a6e2c42e4a8dc3935acdd1036c8a82722ccab297ebd5231a9359b"
     },
     {
       "path": "crates/kirin_measure/src/analysis_exchange_prefix_tests.rs",
@@ -252,20 +282,20 @@
     {
       "path": "docs/hypha_invariants.md",
       "status": "modified",
-      "bytes": 154995,
-      "sha256": "0e8a0a2ac44e7bd7df2a25bb629bfec24369022971c7517afc307cd4e17c5084"
+      "bytes": 155979,
+      "sha256": "a4a36206cc47f666802ea01e6e4a7a6ed7e0042ae88d6174732a60390146e1a6"
     },
     {
       "path": "docs/hypha_meter_product_contract_20260831.md",
       "status": "modified",
-      "bytes": 54999,
-      "sha256": "c38e212ecef27bf0bccf4d5d5ee7874ae16366ff9603d9f86672f1bca5c4773c"
+      "bytes": 56701,
+      "sha256": "b804d1a7ed3ebaac56abdaca3d40a76489e13e3e5e8ef0b7459f44e2c45389d7"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
       "status": "added",
-      "bytes": 32726,
-      "sha256": "1f98bad2a413aff6937284e4a84be4150b6b977b4912a9e70de151404c33c952"
+      "bytes": 43159,
+      "sha256": "8df33e5812397ef334e3706b19a8b9204bb0ba340eccd386869cd553ab31c9f7"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png",
@@ -292,28 +322,40 @@
       "sha256": "f90acffd2d668624fcb40d2f229f9805a4ded9a0ab48887c3817d343d5ff8a27"
     },
     {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/vu-375-ja-20.png",
+      "status": "added",
+      "bytes": 116440,
+      "sha256": "ff9234404fe29fa1ea8a29c6b27abf9da7e3d667d317887b638cb042e307e547"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g2_20261008/vu-900-en-18.png",
+      "status": "added",
+      "bytes": 641063,
+      "sha256": "5301e3ffcae12511f244e58d04f2b19128fdd0f13ee33ee125d99030d8544823"
+    },
+    {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
       "status": "modified",
-      "bytes": 77713,
-      "sha256": "9085f924d68f6b70bb92d9c13e9d193ac587ab649f9da0c86faeb94de3fe0939"
+      "bytes": 77997,
+      "sha256": "c7b1cbfff5bf29cf19e88f1a826e73fb5e7c45a92abcd4a7a2af9d3c8fdbab97"
     },
     {
       "path": "docs/provenance/asset_distribution_registry.json",
       "status": "modified",
       "bytes": 23836,
-      "sha256": "2047c739d845aad667931466762309a8ed1a0fb52951133cb4dc48ae6d931862"
+      "sha256": "202e583333e72e367670aa10cda3b1e0679b16e87a33f1eec8e7512a12c7ec4a"
     },
     {
       "path": "docs/provenance/distribution_gate.md",
       "status": "modified",
-      "bytes": 11162,
-      "sha256": "734234e2429cdb0212d2f3856c695f951629459662c8c0f848b45e500c635ccc"
+      "bytes": 12015,
+      "sha256": "7020182320d8633195234bde705b82bcef6b7f1f95b1df75242343d87365940d"
     },
     {
       "path": "juce_shell/CMakeLists.txt",
       "status": "modified",
-      "bytes": 52892,
-      "sha256": "da4fc4719057dfa19968f35da25ae399a134a18a674cdbcc00939714b17346af"
+      "bytes": 52924,
+      "sha256": "d69822641db867e712674ce1cb539c2468b3448438df3fc2139cc1f999cb9e61"
     },
     {
       "path": "juce_shell/cmake/HyphaLanguage.cmake",
@@ -362,6 +404,12 @@
       "status": "modified",
       "bytes": 10731,
       "sha256": "ae8ba39f3e3c663ea18a23668c1736a1b505156dbee9736696ed2908a9e082bc"
+    },
+    {
+      "path": "juce_shell/src/HyphaAttackStage.cpp",
+      "status": "modified",
+      "bytes": 3622,
+      "sha256": "594a40bfe9a9fbacf1055b206f2c01478c83665bcc1560f5da23fd73a5c36e8d"
     },
     {
       "path": "juce_shell/src/HyphaAttackV2Adapter.cpp",
@@ -466,6 +514,18 @@
       "sha256": "c717055e7599416418cf6343c8483c51de17d3259c41a432f14ba6a23a209daa"
     },
     {
+      "path": "juce_shell/src/HyphaHybridVuPainter.cpp",
+      "status": "modified",
+      "bytes": 23526,
+      "sha256": "4c144f8aabdf2988774d50d6098c2f0a210b5555f6f4231841976fe74049e14a"
+    },
+    {
+      "path": "juce_shell/src/HyphaHybridVuPainter.h",
+      "status": "modified",
+      "bytes": 989,
+      "sha256": "631755c4579ef5bd08a6a76c67033b7ccfd0d80c0fa352352f24002cb5e23794"
+    },
+    {
       "path": "juce_shell/src/HyphaJapaneseCatalog.h",
       "status": "modified",
       "bytes": 1681,
@@ -476,6 +536,12 @@
       "status": "added",
       "bytes": 2214,
       "sha256": "ac27022c46e8231085a4633aabd5007fd203809cf75ac62ec2e5f5383f78d814"
+    },
+    {
+      "path": "juce_shell/src/HyphaJapaneseObservatory.cpp",
+      "status": "modified",
+      "bytes": 18036,
+      "sha256": "d5dee7dbf31320177802239fa0d49568dcbf57fe037a429e91e30e38cb6579d7"
     },
     {
       "path": "juce_shell/src/HyphaJapaneseTimeSnapshot.cpp",
@@ -498,8 +564,8 @@
     {
       "path": "juce_shell/src/HyphaObservatoryCapture.cpp",
       "status": "modified",
-      "bytes": 4782,
-      "sha256": "eb0cfe49a464fc54aa68d6b6f97c67b1e8e5476fb9acbcfd30f5d7b9d973d355"
+      "bytes": 4883,
+      "sha256": "2465b69154979cd633a8255407247fb1543c762cc47cf19d4c0ba2d1bc66e33c"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryFrame.cpp",
@@ -522,14 +588,14 @@
     {
       "path": "juce_shell/src/HyphaObservatoryView.cpp",
       "status": "modified",
-      "bytes": 21272,
-      "sha256": "02f7f241882f1e436ae1bf7db257b445668b6a0a79fa4aa120dbeb4d91b0ac3c"
+      "bytes": 21323,
+      "sha256": "8918cd088e180a9ea271251e9a2db47d40377836d0801437a8819d806f23127e"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryView.h",
       "status": "modified",
-      "bytes": 23486,
-      "sha256": "0986aab77c6527b81a321c7e9853818da940caafeb38c3d89cce717f12ce9c74"
+      "bytes": 23906,
+      "sha256": "8407ed94ce4c295952c9ce8d9a87880c323b109ed3db891fa57914491109a9d8"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryViewFooter.cpp",
@@ -538,10 +604,16 @@
       "sha256": "88e1d3b13fb17fe2639ea027f7d499c33e657366ea64a2c8cb8fa65ba530a227"
     },
     {
+      "path": "juce_shell/src/HyphaObservatoryViewLayout.cpp",
+      "status": "modified",
+      "bytes": 12954,
+      "sha256": "a8be3708b6bbcb391083e06af1ae3f2cea1e9201345249733637aaa151d778b4"
+    },
+    {
       "path": "juce_shell/src/HyphaObservatoryViewState.cpp",
       "status": "modified",
-      "bytes": 4627,
-      "sha256": "4ae52e5a1d0584cea13d3358aefbff082522d832a3a692f45d7f68a11845e756"
+      "bytes": 5140,
+      "sha256": "9433fd2b6cd1986483eaf75debd1135a01c84582bc4931ce7a6ac2050e758516"
     },
     {
       "path": "juce_shell/src/HyphaSessionCoverage.cpp",
@@ -592,6 +664,30 @@
       "sha256": "7e0c79cf178e4a87c0b56debbad2a96a1a7567670586395ba34313acef562460"
     },
     {
+      "path": "juce_shell/src/HyphaVuCalibration.h",
+      "status": "added",
+      "bytes": 473,
+      "sha256": "b0b963f38dc38393d2163e3bbc4c1d46d59f90713593ffc4f4f4765bcca03890"
+    },
+    {
+      "path": "juce_shell/src/HyphaVuCalibrationControl.h",
+      "status": "added",
+      "bytes": 2185,
+      "sha256": "863f8f3a0d9aa1c8a5c99949e519629c634c628ccb2f6999b2755a3642ba9061"
+    },
+    {
+      "path": "juce_shell/src/HyphaVuCalibrationFile.h",
+      "status": "added",
+      "bytes": 1412,
+      "sha256": "f7d3b271c0b72844a98425c845ba7a5fd8835573fe7ef9c90f9e8e98327aa9fc"
+    },
+    {
+      "path": "juce_shell/src/HyphaVuCalibrationPreference.h",
+      "status": "added",
+      "bytes": 3651,
+      "sha256": "8e1d91a879932eb0810834a748f5a242c0bcb88ced742ab37417ff491bc4d685"
+    },
+    {
       "path": "juce_shell/src/PluginEditor.cpp",
       "status": "modified",
       "bytes": 22043,
@@ -630,8 +726,8 @@
     {
       "path": "juce_shell/src/PluginEditorObservatory.cpp",
       "status": "modified",
-      "bytes": 19189,
-      "sha256": "9175b197506c145c85ebf0a0633d29ad2eb0167b200789e112dcc58176b8ca90"
+      "bytes": 21287,
+      "sha256": "7e881ce6a8e1d19d00f65fb03babadb2aecfa00f3b5119386cc385f7f782e993"
     },
     {
       "path": "juce_shell/src/PluginEditorTimeSnapshots.cpp",
@@ -642,8 +738,14 @@
     {
       "path": "juce_shell/src/PluginProcessor.h",
       "status": "modified",
-      "bytes": 30845,
-      "sha256": "439dd6be822a23d5037b9d09df2908d60ab133adf72068cfb78a3ba64ece4017"
+      "bytes": 30907,
+      "sha256": "bb4ab0f66a11be1d584a782eb7aae80b68837e3b27347cda17c4cc8d274517db"
+    },
+    {
+      "path": "juce_shell/src/PluginProcessorDisplayState.cpp",
+      "status": "modified",
+      "bytes": 4849,
+      "sha256": "732c775ed857244394051d2f3412077258bbca3f1afefd07d7a35ba0832aa250"
     },
     {
       "path": "juce_shell/tests/AttackUiContractTest.cpp",
@@ -658,10 +760,16 @@
       "sha256": "7759e056ffd7b5e1df315e4ae453ba82fc93eb9fb94fe216f29f7181e889078b"
     },
     {
+      "path": "juce_shell/tests/AttackV2MaterialContract.h",
+      "status": "added",
+      "bytes": 1743,
+      "sha256": "d0510bfdd37f36beb77c7ee10cb726d472223f7a27e3226fade3ffdb4b4dbdf5"
+    },
+    {
       "path": "juce_shell/tests/AttackV2PresentationContractTest.cpp",
       "status": "added",
-      "bytes": 36912,
-      "sha256": "fc2a82425c97c7de572e06bb9d888a1f7c68a27e3d93d4a6aa7f57fd4206b9f7"
+      "bytes": 36947,
+      "sha256": "218b92195b3a50159747eb9f699616ba7d707415178435702571fe703efea605"
     },
     {
       "path": "juce_shell/tests/AttackV2PresentationContractTest.h",
@@ -674,6 +782,18 @@
       "status": "modified",
       "bytes": 11963,
       "sha256": "e01d4ce49e6a90894833383e0f78737950c01093af9a5767ae2061622a82216a"
+    },
+    {
+      "path": "juce_shell/tests/HybridVuCalibrationContract.h",
+      "status": "added",
+      "bytes": 15129,
+      "sha256": "bf6f266e8a1e2229557881cc9d702377b0c7f3acd1b55e43c26ecb5ab29af829"
+    },
+    {
+      "path": "juce_shell/tests/HybridVuContractTest.cpp",
+      "status": "modified",
+      "bytes": 9324,
+      "sha256": "59fcdff873e5cad38ecec17fe2409c6ebe292360a1c77df9df353e2febd7e02c"
     },
     {
       "path": "juce_shell/tests/SessionCoverageContractTest.cpp",
@@ -728,6 +848,24 @@
       "status": "modified",
       "bytes": 25854,
       "sha256": "72383b1f2bbb6f631ecd9c5a05b319edc8f6b03cda70008e924e60b6f44a2426"
+    },
+    {
+      "path": "scripts/ls_release/readme_media_contract.mjs",
+      "status": "added",
+      "bytes": 4553,
+      "sha256": "8a4b5b36a3eb65dde57b8d3fd7afc720fd63a323caa565fb0d764a3c1d14dc82"
+    },
+    {
+      "path": "scripts/ls_release/release_metadata.test.mjs",
+      "status": "modified",
+      "bytes": 16876,
+      "sha256": "212750a66f5e010edc2cf092847d18862081f36f4da5da8c291ff7b2cbfdcb26"
+    },
+    {
+      "path": "scripts/screen_text_kept.tsv",
+      "status": "modified",
+      "bytes": 3597,
+      "sha256": "0e960504dd4b79464940072f819ee964362c01abb6cdbdf2768642a3a7860b04"
     },
     {
       "path": "scripts/source_line_budget.tsv",

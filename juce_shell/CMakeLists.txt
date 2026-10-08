@@ -790,6 +790,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
     target_link_libraries(KirinUiRenderContractTests PRIVATE
         KirinHyphaData
+        juce::juce_cryptography
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)

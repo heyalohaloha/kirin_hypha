@@ -36,6 +36,31 @@ DRUM clockのlook-behind 150 ms／鮮度250 ms、Singleの有限1000 ms応答案
 | `drum-v2-900-en.png` | 117,541 | `7178cb4f6da6d3646dfe2aa8a7895192efd26fafb667109112b89a9d2e8a7873` |
 | `drum-v2-all-900-en.png` | 112,605 | `8df7450ac20c24d081db6a31e74c0df425fcd7d92f1b0e9243b2206ebc646246` |
 
+
+## 利用者承認のVU基準選択（2026年10月8日）
+
+既存の`0 VU = −18 dBFS`をクリックし、−12／−14／−16／−18／−20（既定−18）を選ぶ。左右は共通値、exact project＋PRE instanceのPRE／POSTはこのcomputerで同じ設定fileを読む。unpaired POSTは自身のscopeを使う。値はuser設定領域へ完全なtemporary siblingを検証してatomic置換し、DAW restoreは共有fileを上書きしない。scope取得の一時競合では採用済み基準を保持して選択を無効にし、新しいscopeの取得成功後にその設定を採用する。file不在・破損・未知値は−18。保存失敗とメニュー中のchain失効は通知し、旧値を保持する。
+
+VU用の独立additive locator getterは合法64-byte identityを完全に返す。旧identity DTO／pollの形と意味は維持し、切詰めた63-byte prefixを共有scopeに使わない。getterは非RTのtry_lockで、BUSY／未解決／short buffer／null／出力重複では両出力を変更しない。校正は測定済みdBFSから針位置への表示換算だけで、音声・LUFS・TP・clip／Session・Record／plugin_data／work.json、300 msの測定窓と針の時間応答を変えない。Captureは採用済みの基準をコピーし、保存fileを取得し直さない。
+
+最終native buildはUiRender／EditorSurface／SnapshotABI／PRE／POSTでPASS。VU focused fixtureは8.06 sでPASS、日英×5サイズ×PRE／POST×stereo −18／stereo −20／mono −20の60 PNGを生成した。5基準の数値換算、左右共通、exact scopeの共有・合法64-byte末尾の非衝突、250 msと時計wrap、scope一時取得不能・切替、再open、破損、partial write／flush／サイズ・内容不一致の4失敗モードで旧file／cache／相手側／再openの値を保全する境界を確認した。全60枚の寸法・CRC・EOF・SHAと画素を確認し、基準legendの収まり、針0→+2 VU、mono Rの下端、TPの不変を確認した。
+
+| 修正後native gate | 結果 |
+| --- | --- |
+| `kirin_editor_surface_product` | PASS、76.10 s |
+| `kirin_ui_render_contract`（性能判定を含む） | PASS、65.07 s |
+| `kirin_snapshot_abi_contract` | PASS、5.71 s |
+| `kirin_time_history_contract` | PASS、1.99 s |
+
+4件は直列、CTestのwall timeは148.94 s、再試行0。初回buildのPopup namespace compile errorは完全修飾へ直し、最終文面を含むbuildで確認した。先行FAILは保全し、最終PASSへ加算しない。新しいCTest名は増やさず、release-sourceのnative inventoryは90件を維持する。
+
+[125%日本語POST・−20のnative fixture](vu-375-ja-20.png)、[300%英語PRE・−18のnative fixture](vu-900-en-18.png)を保存した。bytes／SHAは下表の通り。実DAW・本人の日常操作／品位の証跡とは呼ばない。300／375のPOSTヘッダは末字が切れて`POS`と見える既存描画が残る。`paintHeader`はB-1325と同一で、今回のVU基準変更では触っていない。この既存の品位項目はG3の確認資料に明示する。
+
+| 保存PNG | bytes | SHA-256 |
+| --- | --- | --- |
+| `vu-375-ja-20.png` | 116,440 | `ff9234404fe29fa1ea8a29c6b27abf9da7e3d667d317887b638cb042e307e547` |
+| `vu-900-en-18.png` | 641,063 | `5301e3ffcae12511f244e58d04f2b19128fdd0f13ee33ee125d99030d8544823` |
+
 ## G2の性能・入力coverageの判断
 
 | 指摘 | 実装した対処 | costと範囲 |
@@ -228,6 +253,31 @@ legacy resizeの分解ではChrome描画が平均14.22 ms／frame、そのうち
 | `g2-attack-frame-budget-shared-stage.log` | `ee0707e8336c04c59f5595bf1097e5ab9c20246ea7faf9364abf3d9a431982b1` |
 | `g2-drum-images-stage-cache-manifest.json` | `3dd8d49c1efc54820cedae76edceecd79eb29d5347950650e65dfc23976de556` |
 | `g2-drum-stage-cache-receipt.json` | `32c2a72201cd8d21bcdae41800fe2527936e5ed7d551a6b97369209c741d2df1` |
+
+
+### VU追加後の最終ローカルgate
+
+Rust workspaceは2,358 passed／0 failed／43 ignored、Clippyはworkspace・all-targetsでPASS。VU full locatorの3境界試験とshipping wiringの3試験を含む。必須ignored inventoryはparity 20／pairing candidates 6と実測し、20／6全件PASS（それぞれ121.385／6.207 s）。UiRender／EditorSurface／SnapshotABI／TIMEの4 native PASS、描画・文面・行数・formatの契約もPASS。以前の97 native receiptはG2の履歴であり、VU変更後はこの影響範囲のfresh build／実行で区別する。残る全機能の追加性能総点検は、2026-10-08の利用者指示で同PRの後続作業として行う。
+
+最初のCI run `37739931478`のmacOS release-sourceはREADMEが旧DRUM／TIME画像pathを必須とするmetadata testでFAILした。現在のnative galleryをhash・signature・bytesで検証するように同期し、旧reviewed素材のhash／inventory検査も保持した。修正後のmetadataは10／10 PASS。現CMakeの限定provenance reviewと14件のdistribution gate fixtureはPASS、配布権限・実payloadの受入とは区別する。exact final tipの4必須CIはClaudeが判定し、先行runを現候補の成功へ流用しない。
+
+| ローカル証跡 | SHA-256 |
+| --- | --- |
+| `vu-ffi-release-build.log` | `cf312e4c3896f9184f16873ee9b5c91b3d9842e08817d52783127f1ac4fc21de` |
+| `vu-native-exact-build.log` | `5256a1e6e8d522e71d9c28358fc255cc5c0ef248496221ee6c49b23d018d7650` |
+| `vu-native-calibration.log` | `105be42cf5bc95170a72737bfcfb295d365f9d8e0a085cc0fc8c48c7871b7595` |
+| `vu-native-formal4.log` | `cc58bf77a18b86399d4611be4e62e4e99b766dd8949db01967f3e4b27797e8da` |
+| `vu-native-receipt.json` | `8d2a85d1dcf8069faa8a25d1ea18778d385febe3aaddc9c6f5dfd3efa1054e4e` |
+| `vu-workspace-final.log` | `3a23b1757dcbf29cb716d62c14e7c68e2cbe69ae907bfcc6423c4a5f5499a46d` |
+| `vu-clippy-final.log` | `2f4bb66b5fa89387b213fa35424ab8a7c3ece5010c8f0a9eb79d742904b5a0b3` |
+| `vu-parity-inventory.log` | `b11fa2fc2a8741ae3a01eb8a480b34f8e063478ebc44b7b0bd7346f6fcd3c391` |
+| `vu-parity-ignored.log` | `b9f6f88e900e45cd1de9122c7d391c00006381d9ac4873f7a135caf5aa37c16b` |
+| `vu-pairing_candidates-inventory.log` | `38d4ac548e3270b0c3158652cec3da4fe60334e4a041af5ac588a2811929860c` |
+| `vu-pairing_candidates-ignored.log` | `a707dbdf3eecd0d3e570a4a1074c7c31ddcc2597e3c9ba0918530cf320436e3a` |
+| `vu-rust-gates.json` | `07e2ecae66ff74fc1b13d70705452d185ea7cfa8092fa2f6deed65a949da9df6` |
+| `release-metadata-final.log` | `a3e2c4be7c76caed4ab0062b835195b1d1c2ae5ac6d7c6dac8b355b023085f58` |
+| `vu-asset-gate.log` | `4b63a6af27faca1975ed4d1445d47cc20b9c836d7c52f28dfc232b8d72ebc985` |
+| `vu-distribution-gate-test.log` | `ae0198042b0733667dbf7fbc99e7024b98966ae53d5746b9edfd1a7a1d5d46da` |
 
 ### Portable source fingerprint
 

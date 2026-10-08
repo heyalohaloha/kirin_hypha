@@ -1,4 +1,5 @@
 #include "HybridVuContractTest.h"
+#include "HybridVuCalibrationContract.h"
 
 #include "../src/HyphaHybridVuPainter.h"
 #include "../src/HyphaObservatoryView.h"
@@ -85,6 +86,7 @@ void writePreview (const juce::Image& image,
 
 void verifyHybridVuContract()
 {
+    vu_calibration_contract::verify();
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) > 0.06f);
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) < 0.08f);
     KIRIN_HYBRID_VU_REQUIRE (

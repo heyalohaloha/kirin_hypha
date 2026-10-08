@@ -43,7 +43,7 @@ View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
     setMouseClickGrabsKeyboardFocus (false);
-    initializeLevelHistoryControls();
+    initializeLevelHistoryControls(); initializeVuCalibrationControl();
     addAndMakeVisible (informationButton);
     informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
@@ -403,7 +403,7 @@ void View::paint (juce::Graphics& g)
             role, observatoryFrame.meter, watchDisplay,
             currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
             selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
-            jungleAppearance, presentationContext()
+            jungleAppearance, presentationContext(), vuCalibration()
         });
         if (feedbackText.isNotEmpty())
         {

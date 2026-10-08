@@ -56,6 +56,7 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.chainPoints = chainPoints;
     frame.chainSnapshotAvailable = chainSnapshotAvailable;
     frame.selectedShortTermLoudness = selectedShortTermLoudness;
+    frame.setVuCalibration (vuCalibration(), false); // freeze the adopted value, no preference read
     frame.compactShowsMaximum = compactShowsMaximum;
     frame.connectionText = connectionText;
     frame.connectionColour = connectionColour;

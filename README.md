@@ -1120,6 +1120,14 @@ per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU n
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
 
+Click **0 VU = −18 dBFS** below the meter to choose **−12, −14, −16, −18 or −20 dBFS**
+(default −18). Both needles use the same reference, and an exact PRE/POST pair shares that
+reference on this computer. The choice is saved per chain; changing pairs selects that chain's
+reference. It changes the needle's displayed level only. Audio, LUFS, True Peak and the
+300 ms response stay unchanged. Temporary identity contention retains the adopted reference and
+disables selection until the chain is resolved. A failed save retains the previous choice and reports
+the reason.
+
 ## Record mode (Kirin OS required)
 
 With a Kirin OS license, POST can keep a session record.

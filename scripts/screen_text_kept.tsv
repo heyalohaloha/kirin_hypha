@@ -1,5 +1,6 @@
 # Screen text that stays English in Japanese (INV-S40), one per line: the literal, a tab, why.
 # Labels, legends, units and names stay as written; the rest never reaches the screen as prose.
+KIRIN_HYPHA_VU_CALIBRATION_V1\n	VU calibration preference file version marker; never screen text
 10 ms RMS / 6 S   PRE trace / POST body   bars POST - PRE	DRUM legend
 RMS / 6 S / bars POST-PRE	DRUM legend
 bars POST-PRE	DRUM legend

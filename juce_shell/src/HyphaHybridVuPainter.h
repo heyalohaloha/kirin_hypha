@@ -4,6 +4,7 @@
 
 #include "HyphaObservatoryContract.h"
 #include "HyphaPresentationContext.h"
+#include "HyphaVuCalibration.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::hybrid_vu
@@ -24,9 +25,10 @@ struct State
     juce::Colour connectionColour;
     bool jungle = false;
     presentation::Context presentation = presentation::defaultContext();
+    int calibrationDbfs = vu_calibration::defaultDbfs;
 };
 
-float vuNormalized (double dbfs) noexcept;
+float vuNormalized (double dbfs, int calibrationDbfs = vu_calibration::defaultDbfs) noexcept;
 float truePeakNormalized (double dbtp) noexcept;
 void paint (juce::Graphics&, juce::Rectangle<int>, const State&);
 }

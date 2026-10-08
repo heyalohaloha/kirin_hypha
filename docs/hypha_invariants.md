@@ -354,4 +354,6 @@ POST位置clampと長遅延の組合せは継続認定しない。host／format�
 - opt-in Session exact summary cacheはI／LRA合計65,536 distinct nodesまで。上限超過で補助木を解放しcanonical exactへ戻る。丸め曖昧gateと上限後のunchanged-history結果は再利用するが、履歴更新後の初回fallback costは長さに依存する。canonical Recordとgating履歴を間引かない。
 - Capture v1がtyped意味を保持できない添付は明示unsupportedとし、同じ凍結presentationのローカルPNGを案内する。metadataを捨てて添付成功とはしない。
 
+Hybrid VUの校正（2026-10-08利用者承認）: `0 VU = −18 dBFS`は−12／−14／−16／−18／−20（既定−18）の選択入口となる。左右共通、exact project＋PRE instanceでPRE／POST共有、unpairedは自身のscope。永続正本はuser設定領域のscope hash別file、明示操作だけのatomic保存とmessage threadの250 ms読取とする。初期値は−18。identityの一時取得不能では採用済み基準を保持し選択不可、新しいscopeの取得成功後にそのfileの値を採用する。file不在／破損／未知値は−18。失敗は旧値を保持し通知、DAW restoreは共有値を上書きしない。計測されたVU dBFS、300 msの応答、TP／LUFS／clip／Session、通常A経路とRecordを書き換えない。合法64-byte identityは専用additive getterで完全に取得し、旧63-byte DTOの切詰めを共有scopeに使わない。`verifyHybridVuContract`と校正契約fixtureで確認する。
+
 実装・fixture一覧は[G2接続と検証状況](planning/hypha_drum_psr_g2_20261008/README.md)に置く。技術fixtureの結果をG3実DAW、本人の日常操作・品位のPASSに代用しない。友人確認は公開後G4だけとする。

@@ -437,7 +437,7 @@ V2取得のBUSYは出力不変で、同じsourceの直前の整合した表示�
 | PLR | dB | MAX TP − I | 0.1 dB |
 | L/R SP | dBFS | current block and hold | 0.1 dB |
 | L/R TP | dBTP | recent 400 ms | 0.1 dB |
-| L/R VU | VU / dBFS | full-wave average、sine校正、直近300 ms、0 VU = -18 dBFS | 針 |
+| L/R VU | VU / dBFS | full-wave average、sine校正、直近300 ms、0 VU基準は−12／−14／−16／−18／−20 dBFS（既定−18） | 針 |
 | L/R INSTANT TP | dBTP | 最新のexact 100 ms観測 | 1 dB segment |
 | L/R HOLD TP | dBTP | Meter Session開始または直近CLEAR以降 | marker |
 | BAL | dB | 3 sのL/R energy差 | 0.1 dB |
@@ -556,6 +556,8 @@ DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更�
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。
 Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
+Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−14／−16／−18／−20 dBFSから選ぶ。左右は共通の一値とし、exactなPRE／POST pairは同じ基準を使う。選択中の値をcheck markで示す。新しいノブや音量操作は置かない。校正はdBFS値から針位置へ換算する表示設定で、300 msの測定窓・針の時間応答、音声、LUFS、Peak／TP、Session、Record／Keep、plugin_dataとwork.jsonは変更しない。
+校正の永続正本は、このcomputerのuser設定領域にあるexact project＋PRE instanceごとの小さい設定fileとする。識別子はlength-delimited keyのSHA-256でpath化し、別chainへ流用しない。PREは自身の解決済みidentity、POSTは選択したPREのexact locator、unpaired POSTは自身のidentityを使う。初期値は−18。identityの取得が一時的に競合する場合は採用済み基準を保持し選択を無効にする。新しいscopeの取得成功後にそのchainの設定を採用する。合法64-byte identityは専用additive getterで完全に取得し、旧DTOの切詰めを共有に使わない。message threadだけが250 ms間隔で設定を読み、明示選択だけが完全なtemporary siblingをatomic置換する。保存失敗は旧値を保持して理由を通知する。不在／破損／未知値は既定−18。pair変更と再openはそのchainの設定を読み直し、DAW state restoreは共有fileへ書かず古い値で他側を巻き戻さない。校正fileはDAW chunkへ含めないので、このcomputerのchain別表示設定として扱う。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`-1〜+3 dBTP`軸と下から立ち上がるstemを重ねる。stemはすべて-1 dBTPを超えるので、軸はstemが立つ範囲だけを持ち、0 dBTPに基準線を引く。+3を超える値は上端で止め、印を付ける（2026-10-06）。TPのstemと軸はVUのTP railと同じ水色とし、Mの金と見分ける。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。

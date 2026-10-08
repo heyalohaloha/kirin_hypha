@@ -27,6 +27,8 @@ void View::resized()
     hoveredLevelHistoryIndex.reset();
     const auto preset = currentPreset();
     const auto context = presentationContext();
+    vuCalibrationControl.setPresentationContext (context);
+    vuCalibrationControl.setVisible (hybridVuVisible());
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                           &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
@@ -83,6 +85,7 @@ void View::resized()
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
+        vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (calibration.getWidth(), buttonHeight));
         if (onBodyLayoutChanged) onBodyLayoutChanged();
         return;
     }
