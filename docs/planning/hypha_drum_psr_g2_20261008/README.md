@@ -1,6 +1,6 @@
 # G2 — DRUM／PSR実装とローカル受入receipt
 
-2026年10月8日。起点は統合済みG1、B-1325。G2はtyped snapshotを出荷JUCE shellへ接続し、表示・Capture・Session coverageと正本を同期する工程である。Rust・static ABI・source契約、TIME／Session／Capture／DRUM focused native、正式native 90件＋Update 7件の確認済みreceiptを以下へ記録する。先行strict legacyと独立V2 denseのFAILを原因調査に使い、固定stage材質の重複描画を既存の容量制限付きcacheへ移した。修正後の正式ATTACK gateはlegacy changing 120条件、resize 6条件、BAND 4条件、V2 dense 120条件を全て完走してPASS。未測定だった11条件も閉じ、G2の実装・ローカル受入・正本同期は完了した。閾値、入力条件、測定回数、表示内容は維持する。exact final commitのCI結果は待機中で、途中確認・CI・merge・releaseはClaude担当、G3の候補freeze・技術／実DAW受入と公開前の利用者本人確認は未実施である。ローカルfixtureを実DAW、使いやすさ、品位、公開完了の認定へ繰り上げない。
+2026年10月8日。起点は統合済みG1、B-1325。G2はtyped snapshotを出荷JUCE shellへ接続し、表示・Capture・Session coverageと正本を同期する工程である。Rust・static ABI・source契約、TIME／Session／Capture／DRUM focused native、正式native 90件＋Update 7件の確認済みreceiptを以下へ記録する。先行strict legacyと独立V2 denseのFAILを原因調査に使い、固定stage材質の重複描画を既存の容量制限付きcacheへ移した。修正後の正式ATTACK gateはlegacy changing 120条件、resize 6条件、BAND 4条件、V2 dense 120条件を全て完走してPASS。未測定だった11条件も閉じ、G2の実装・ローカル受入・正本同期は完了した。閾値、入力条件、測定回数、表示内容は維持する。exact final commitのCI結果は待機中で、途中確認・CI・merge・releaseはClaude担当、後続のG3実測は別候補の[G3記録](../hypha_drum_psr_g3_20261008/README.md)で区別する。公開前の利用者本人確認は未実施である。ローカルfixtureを実DAW、使いやすさ、品位、公開完了の認定へ繰り上げない。
 
 正本は[改善計画](../hypha_drum_psr_usability_improvement_plan_20261007.md)、[製品表示契約](../../hypha_meter_product_contract_20260831.md)、[不変条件](../../hypha_invariants.md)。G1の証拠は[G1記録](../hypha_drum_psr_g1_20261007/README.md)に留め、現候補の結果へ流用しない。
 
@@ -27,14 +27,14 @@ DRUM clockのlook-behind 150 ms／鮮度250 ms、Singleの有限1000 ms応答案
 
 [300%の英語TIME native development fixture](time-900-en.png)。mainボタン切替後もPSRのscope・履歴・元の完了期限を保持する回帰fixtureを含む最新native runで、20枚の再生成hashが一致した。
 
-[300%の英語BAND typed fixture](drum-v2-900-en.png)は、同じ8打cohortのexact件数、欠測・区間、下限と平均包絡のgapを表示する。[300%の英語ALL fixture](drum-v2-all-900-en.png)はfull-band historyと単打のPRE／POST形を表示する。二枚とも共有stage修正後の正式ATTACK gateで再生成した描画fixtureである。DRUM 50枚は全5サイズ・日英のALL／BAND、有限区間±999.9、共有指数3／308を画素確認し、bytes／SHA-256と寸法・CRC／IENDを照合した。全50枚のhashは先行最終catalog画像と一致した。TIME／Sessionの先行20枚と合わせ、全70枚の描画内容を維持している。実音源の検出品質や性能budgetの証拠へ読み替えない。
+[300%の英語BAND typed fixture](drum-v2-900-en.png)は、同じ8打cohortのexact件数、欠測・区間、下限と平均包絡のgapを表示する。[300%の英語ALL fixture](drum-v2-all-900-en.png)はfull-band historyと単打のPRE／POST形を表示する。二枚はB-1337で主画面の繰り返す文言を取り除いて再生成した描画fixtureである。以下のDRUM 50枚のhash照合はその前の共有stage修正時の履歴で、現二枚へ読み替えない。DRUM 50枚は全5サイズ・日英のALL／BAND、有限区間±999.9、共有指数3／308を画素確認し、bytes／SHA-256と寸法・CRC／IENDを照合した。全50枚のhashは先行最終catalog画像と一致した。TIME／Sessionの先行20枚と合わせ、全70枚の描画内容を維持している。実音源の検出品質や性能budgetの証拠へ読み替えない。
 
 | 保存PNG | bytes | SHA-256 |
 | --- | --- | --- |
 | `time-375-ja.png` | 44,150 | `5bd342ba5a32f3794fb7887281899379ef4fbdff46158dc189ed9cdc544cf19a` |
 | `time-900-en.png` | 356,790 | `f90acffd2d668624fcb40d2f229f9805a4ded9a0ab48887c3817d343d5ff8a27` |
-| `drum-v2-900-en.png` | 117,541 | `7178cb4f6da6d3646dfe2aa8a7895192efd26fafb667109112b89a9d2e8a7873` |
-| `drum-v2-all-900-en.png` | 112,605 | `8df7450ac20c24d081db6a31e74c0df425fcd7d92f1b0e9243b2206ebc646246` |
+| `drum-v2-900-en.png` | 104,310 | `65ee009ac500710559147593d1bcfed9efc7b3fa1adeee91ba2f49db2912a01f` |
+| `drum-v2-all-900-en.png` | 106,349 | `f9da76b079eb1ebd7ce6e7bad3637159718ae078b0e2f9c5003eeb392b945b00` |
 
 
 ## 利用者承認のVU基準選択（2026年10月8日）
@@ -292,3 +292,10 @@ Reference音声runtime、AudioPages／streaming、表示component、出力所有
 [source-manifest.json](source-manifest.json)はB-1325との差分となる全owned source、test、文書、config、保存PNGをrepo-relative path・bytes・SHA-256で記録する。構造抽出の準備commitも差分へ含め、manifest自身とignored検証logを除く。JUCEの同一pinとtracked patchは別のdependency欄へ記録し、patched submodule checkout全体をowned sourceとして数えない。文書へmanifestのdigestを埋め込まず、自己参照hashを作らない。最終commit後の公開文面checkは統合担当が公式入口で実行し、G3／公開の正本照合へつなぐ。
 
 G2のローカル実装・速度受入・正本同期は完了した。exact final commitのCI結果は待機中で、CI・merge・releaseはClaudeへ引き継ぐ。G3ではactual DAW、密集二枠、通常IO、clock・期限・操作応答を現候補で確認する。公開前に利用者本人の日常操作・読み取り・品位の受入が必要であり、ローカルfixtureでは未検証である。友人の初見／日常操作・品位確認は公開後G4だけで、開発工程・公開条件へ移さない。正式公開は既存release gateと同版のLS／macOS HP／Windows三チャネルを全て満たして初めて完了する。
+
+
+### B-1337の主画面と後続G3の照合
+
+利用者が選んだ「主画面は値とグラフ、全体の値が出せなければ—、部分値は詳細」をALL／BANDへ適用した。主画面のmetric行に繰り返す最新の一打・分類件数・理由・age・resolutionは描かない。部分中央値と必要な内訳は既存Factsに保持し、選択した一打と全体値・区間は同じtyped stampから表示する。ALLの窓やresolutionが未設定なら詳細にも偽の0 msを出さない。前の描画fixtureと現二枚のSHAを混ぜない。
+
+B-1337の全ATTACK正式frame budgetはlegacy changing120／resize6／BAND4／V2 changing120を一回で完走しPASS。新しい日英catalogの3対象nativeとUI描画契約もPASS。最大DPIの強制FREQは中央値26.852 msのcostが残り、実DAWの描画／非表示／無効CPUとTIME再有効化時の失敗を[G3記録](../hypha_drum_psr_g3_20261008/README.md)へ記した。G2のfixture成功をG3全体の完了や公開readyへ繰り上げない。CIは最終pushのexact commitをClaudeが確認する。

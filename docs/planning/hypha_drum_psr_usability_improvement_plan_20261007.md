@@ -8,7 +8,7 @@
 
 2026年10月8日、利用者は最大DPIのFREQ残件と実DAWの負荷・操作確認をCodexに委任した。[G3記録](hypha_drum_psr_g3_20261008/README.md)へ候補、実測、復元を残す。CI確認・merge・正式releaseはClaude担当、公開前の本人による品位承認と公開後G4の条件は維持する。
 
-2026年10月8日の実DAW検証で、正常pairのTIME／ATTACK authority拒否、optional output latency不明時のFREQ絶対観測欠落、長い通知のbody昇格とVU校正への重なりを確認した。利用者は当初計画の最小修正を承認した。通知は既に決めた最下部（LIVE／HOLDの位置）へ固定し、LR／解析図の面積を維持する。未知latencyを0と推定せず、FREQのローカル絶対観測と整列済みPRE／POST差分を分離する。新機能・追加の外観改善は行わない。修正後の同一source・実module SHAによる両OS再確認と最終統合gateをG3記録へ残す。先行native／CIの成功を、この実DAW不適合の解消とは扱わない。
+2026年10月8日の実DAW検証で、正常pairのTIME／ATTACK authority拒否、optional output latency不明時のFREQ絶対観測欠落、長い通知のbody昇格とVU校正への重なりを確認した。利用者は当初計画の最小修正を承認した。通知は既に決めた最下部（LIVE／HOLDの位置）へ固定し、LR／解析図の面積を維持する。未知latencyを0と推定せず、FREQのローカル絶対観測と整列済みPRE／POST差分を分離する。新機能・追加の外観改善は行わない。2026-10-09の利用者選択により、左下の長い通知だけ既存boundsへaction fontで収まらない場合は既存legend fontを使う。短い通知・LIVE／HOLD／CHAIN LOAD・右ボタンの既存サイズと図の面積は保持する。修正後の同一source・実module SHAによる両OS再確認と最終統合gateをG3記録へ残す。先行native／CIの成功を、この実DAW不適合の解消とは扱わない。
 
 ### 2026年10月7日の決定
 
@@ -466,3 +466,5 @@ G0の確認は、利用者決定patch適用、schema／寿命／Captureの読取
 G0は設計候補・未検証一覧・校正手順とCapture選択を記録して閉じた。G1はPR #83・#87のmerge通知後のmainから製品証拠を取得する。完了timestampを含む新APIが必要な証拠を、旧ABIや模型PASSで埋めない。G1以降は1.1.51へ含める。採用したv1添付失敗の受入、G1／G2の校正証拠、G3・本人確認・G5の公開前条件を追跡する。Claudeが途中確認／CI／merge／releaseを担当し、友人G4は今後も公開後だけとする。検出変更と追加音響評価は本計画へ戻さない。LS／HP／Windows配布準備はskip。
 
 セッション記録手順を読み、プロジェクトのNotion書込み禁止を優先してSECTION:DEV、日次ログ、Notion Handoffは未記録。[G0 READMEの現在地・日次・Handoff](hypha_drum_psr_g0_20261007/README.md)へ未記録内容を残した。製品改善完了・実host・使いやすさ・高級感を認定した記録ではない。
+
+2026-10-09の利用者方針: FREQの6秒履歴が奥へ流れる表現を保持する。計測プラグインとしての軽さを優先し、測定値・履歴長・表示cadenceを削らず、重複計算と再描画を対象に性能改善を進める。負荷が残る状態を完了とは呼ばない。

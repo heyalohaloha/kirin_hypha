@@ -79,7 +79,7 @@
       ]
     }
   },
-  "file_count": 181,
+  "file_count": 184,
   "files": [
     {
       "path": "README.md",
@@ -442,16 +442,22 @@
       "sha256": "d0448a7240d0908cfa8e867434a15dc7c8efa9dd1bd4d9d084d591bf547d9fc8"
     },
     {
+      "path": "docs/hypha_ce2226_jungle_visual_system_20260901.md",
+      "status": "modified",
+      "bytes": 35481,
+      "sha256": "e3a239b2af5a45b6f39d76c4f3c5618e4d793c1fe45f3ef98e2cee65673dce0e"
+    },
+    {
       "path": "docs/hypha_invariants.md",
       "status": "modified",
-      "bytes": 159564,
-      "sha256": "4465c40bfae837b718bddeded92860c3eaf0ec92e8b5b32576fa05481c8e8951"
+      "bytes": 159855,
+      "sha256": "b6bbd3434fed944d7e251db29f569624d4fbaa77dd9b3235ffbf9e488fd7c9b6"
     },
     {
       "path": "docs/hypha_meter_product_contract_20260831.md",
       "status": "modified",
-      "bytes": 59767,
-      "sha256": "478e473e6168cdb2f7a523d5e2fcb6d04bef7916b15fb9ce9a9539ca14936ea9"
+      "bytes": 60059,
+      "sha256": "f6bb2dc436b01269a7e00ea26643eb0f4bd50a6d314f5e08ee615a5bd7cc1a92"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g0_20261007/README.md",
@@ -462,8 +468,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
       "status": "added",
-      "bytes": 45918,
-      "sha256": "712f1add90827926948afb572cf287be6ac75d069f23db9fdf57c6c27d48304c"
+      "bytes": 47203,
+      "sha256": "d4ea6ed599e1af4e40491265a754e31075c766f7cb79f75e140dae6104ec0a59"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png",
@@ -510,14 +516,20 @@
     {
       "path": "docs/planning/hypha_drum_psr_g3_20261008/README.md",
       "status": "added",
-      "bytes": 3810,
-      "sha256": "67b501b42b6f9cb542c1626677eed415c23967b0546cedd13891bef3539c8736"
+      "bytes": 12397,
+      "sha256": "3eed958c6f8a951a1b249fa351b6611ca9440ea25c2f5940cd0a236e27fc97c8"
+    },
+    {
+      "path": "docs/planning/hypha_drum_psr_g3_20261008/validation-receipt.json",
+      "status": "added",
+      "bytes": 17011,
+      "sha256": "1ff5d1b7d45c370fd772cc4e2531be05913882a9b489d1c833e7ca592651b44c"
     },
     {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
       "status": "modified",
-      "bytes": 80566,
-      "sha256": "277e7bd13f329475540622c0abc0986220ac10564d86c0cbf87814578476662f"
+      "bytes": 81131,
+      "sha256": "411d0a23e6d2914d6752506ab6533afa5dec6a4be500e3ebfce08898cb854b54"
     },
     {
       "path": "docs/provenance/asset_distribution_registry.json",
@@ -690,8 +702,14 @@
     {
       "path": "juce_shell/src/HyphaFeedbackStrip.h",
       "status": "modified",
-      "bytes": 2033,
-      "sha256": "449b5fbcc66405542c1e02445aed7558b771d6242dd487b28d28da0adf46dfda"
+      "bytes": 2152,
+      "sha256": "3ddb8a4620b6d154bfc9d532ff1c5abbd2bd73038b5510192f39d0d2081d3e69"
+    },
+    {
+      "path": "juce_shell/src/HyphaFooterNoticeFont.h",
+      "status": "added",
+      "bytes": 667,
+      "sha256": "133fb83a5ea08dec2279ccadcec71336ef9c1dcbe7e06a3a8939abce5ff140c0"
     },
     {
       "path": "juce_shell/src/HyphaHistoryInspection.h",
@@ -738,8 +756,8 @@
     {
       "path": "juce_shell/src/HyphaObservatoryButton.cpp",
       "status": "modified",
-      "bytes": 3380,
-      "sha256": "ac5ced148bf1a666a4724f903fd29bbfbcdeda34d480c828aa7f03635326f881"
+      "bytes": 3518,
+      "sha256": "5381e9a2ea57ab82631301345cde1a5c92ff8b9bb9d080c90fd259083647b246"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryButton.h",
@@ -1002,8 +1020,8 @@
     {
       "path": "juce_shell/tests/FooterNoticeContractChecks.h",
       "status": "added",
-      "bytes": 5235,
-      "sha256": "4650f4b6c8303e2a78798f0b57b33da169e2ac0ac8b7455cc05a50d5e3da93ac"
+      "bytes": 5279,
+      "sha256": "6ab931e5e90e5f680848f316c78bbc25c85a2ba256a02771ea6804a2b5eef8e0"
     },
     {
       "path": "juce_shell/tests/HybridVuCalibrationContract.h",

@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaTextStyle.h"
+#include "HyphaFooterNoticeFont.h"
 #include "HyphaTheme.h"
 
 // At the compact sizes the footer folds into the header, whose row has no room for a sentence.
@@ -51,8 +52,10 @@ public:
         g.setColour (COL_MUTED.withAlpha (0.36f));
         g.fillRect (area.withHeight (1.0f));
         g.setColour (COL_NORMAL);
-        g.setFont (monoFont (context, typography::TextRole::action));
-        text_style::drawEllipsized (g, feedback, getLocalBounds().reduced (6, 0),
+        const auto room = getLocalBounds().reduced (6, 0);
+        g.setFont (monoFont (context,
+            footer_notice_font::roleForText (context, feedback, room.getWidth())));
+        text_style::drawEllipsized (g, feedback, room,
                                     juce::Justification::centredLeft);
     }
 
