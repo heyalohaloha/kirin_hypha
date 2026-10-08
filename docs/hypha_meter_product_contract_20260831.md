@@ -767,3 +767,5 @@ visual方向はConcept Cで確定した。
 Meter Sessionはplugin instanceの同一runtime中だけ保持し、DAW project reloadでは空のSessionから開始する。
 SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。
 Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合だけHypha対象App License確認をgateとし、未搭載を公開blockerにしない。
+
+2026-10-09の性能修正では、非RTの参照音源rate変換で左右共通係数の重複計算だけを除く。出力PCM、測定値、操作、針や曲線の応答は保持する。FREQの6秒履歴が奥へ流れる表現と表示cadenceを維持し、単体converterの改善を実DAW全体の性能受入へ読み替えない。根拠は[G3 receipt](planning/hypha_drum_psr_g3_20261008/validation-receipt.json)。

@@ -1,8 +1,12 @@
-#include "ReferenceVisualAudio.h"
+// Frozen scalar production converter from B-1337; do not update with the optimized path.
+// SHA-256 of the original source: 9187f5177883ff1598c3534b7c4049fc0cd7446d63fa497a4ab405177ac15758
+#pragma once
+#include <juce_audio_formats/juce_audio_formats.h>
+#include <functional>
 #include <cmath>
-namespace hypha::reference_audition
+namespace hypha::reference_scalar_oracle
 {
-bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pageStart,
+inline bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pageStart,
     int framesPerPage, int hostRate, int channels, juce::AudioBuffer<float>& output,
     juce::AudioBuffer<float>& conversionInput,
     const std::function<bool(const std::function<void()>&)>& conversionGuard)
@@ -36,39 +40,39 @@ bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pag
         {
             const double position = static_cast<double> (pageStart + outputFrame) * ratio;
             const auto center = static_cast<std::int64_t> (std::floor (position));
-            // The source position and sinc/window coefficients are shared by both channels.
-            // Accumulate each channel in the original tap order, preserving the exact PCM.
-            double weighted[2] { 0.0, 0.0 };
-            double weightSum = 0.0;
-            for (int tap = -halfTaps + 1; tap <= halfTaps; ++tap)
-            {
-                const auto sourceFrame = center + tap;
-                if (sourceFrame < 0 || sourceFrame >= reader.lengthInSamples)
-                    continue;
-                const double distance = position - static_cast<double> (sourceFrame);
-                const double scaled = juce::MathConstants<double>::pi * cutoff * distance;
-                const double sinc = std::abs (scaled) < 1.0e-12
-                    ? cutoff : cutoff * std::sin (scaled) / scaled;
-                const double normalizedDistance = distance / static_cast<double> (halfTaps);
-                const double window = std::abs (normalizedDistance) >= 1.0
-                    ? 0.0
-                    : 0.42 + 0.5 * std::cos (juce::MathConstants<double>::pi
-                                            * normalizedDistance)
-                           + 0.08 * std::cos (juce::MathConstants<double>::twoPi
-                                             * normalizedDistance);
-                const double weight = sinc * window;
-                const auto inputOffset = sourceFrame - readStart;
-                if (inputOffset >= 0 && inputOffset < readFrames)
-                {
-                    for (int channel = 0; channel < channels; ++channel)
-                        weighted[channel] += conversionInput.getSample (
-                            channel, static_cast<int> (inputOffset)) * weight;
-                    weightSum += weight;
-                }
-            }
             for (int channel = 0; channel < channels; ++channel)
-                output.setSample (channel, outputFrame, static_cast<float> (
-                    weightSum == 0.0 ? 0.0 : weighted[channel] / weightSum));
+            {
+                double weighted = 0.0;
+                double weightSum = 0.0;
+                for (int tap = -halfTaps + 1; tap <= halfTaps; ++tap)
+                {
+                    const auto sourceFrame = center + tap;
+                    if (sourceFrame < 0 || sourceFrame >= reader.lengthInSamples)
+                        continue;
+                    const double distance = position - static_cast<double> (sourceFrame);
+                    const double scaled = juce::MathConstants<double>::pi * cutoff * distance;
+                    const double sinc = std::abs (scaled) < 1.0e-12
+                        ? cutoff : cutoff * std::sin (scaled) / scaled;
+                    const double normalizedDistance = distance / static_cast<double> (halfTaps);
+                    const double window = std::abs (normalizedDistance) >= 1.0
+                        ? 0.0
+                        : 0.42 + 0.5 * std::cos (juce::MathConstants<double>::pi
+                                                * normalizedDistance)
+                               + 0.08 * std::cos (juce::MathConstants<double>::twoPi
+                                                 * normalizedDistance);
+                    const double weight = sinc * window;
+                    const auto inputOffset = sourceFrame - readStart;
+                    if (inputOffset >= 0 && inputOffset < readFrames)
+                    {
+                        weighted += conversionInput.getSample (
+                            channel, static_cast<int> (inputOffset)) * weight;
+                        weightSum += weight;
+                    }
+                }
+                output.setSample (channel, outputFrame,
+                                      static_cast<float> (weightSum == 0.0
+                                          ? 0.0 : weighted / weightSum));
+            }
         }
     };
     if (conversionGuard) return conversionGuard (convert);

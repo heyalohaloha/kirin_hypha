@@ -79,7 +79,7 @@
       ]
     }
   },
-  "file_count": 184,
+  "file_count": 188,
   "files": [
     {
       "path": "README.md",
@@ -450,14 +450,14 @@
     {
       "path": "docs/hypha_invariants.md",
       "status": "modified",
-      "bytes": 159855,
-      "sha256": "b6bbd3434fed944d7e251db29f569624d4fbaa77dd9b3235ffbf9e488fd7c9b6"
+      "bytes": 160287,
+      "sha256": "1d567f480bcd70132c90afdb7d1119a1c514872fc9e03c726eafca977f2c70a8"
     },
     {
       "path": "docs/hypha_meter_product_contract_20260831.md",
       "status": "modified",
-      "bytes": 60059,
-      "sha256": "f6bb2dc436b01269a7e00ea26643eb0f4bd50a6d314f5e08ee615a5bd7cc1a92"
+      "bytes": 60486,
+      "sha256": "7458a47f0d87800821561d997b18b5f5573a65e459a48e9b4be9fe7ef8c3626a"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g0_20261007/README.md",
@@ -486,8 +486,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/performance_audit.md",
       "status": "added",
-      "bytes": 16981,
-      "sha256": "b27fdc69765fd18f32d6500782960a142a9504ad49c9024587ab0e7b7e14a237"
+      "bytes": 18522,
+      "sha256": "0b0c543ac2fba5c16e492e4006a7dffb6c241b0e196958d857d0b9aec7b137ee"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/time-375-ja.png",
@@ -516,14 +516,14 @@
     {
       "path": "docs/planning/hypha_drum_psr_g3_20261008/README.md",
       "status": "added",
-      "bytes": 12397,
-      "sha256": "3eed958c6f8a951a1b249fa351b6611ca9440ea25c2f5940cd0a236e27fc97c8"
+      "bytes": 13938,
+      "sha256": "69a12914f669174a8d91044c7a3502efb3ed86936a741a88cca083ff23f1ce05"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g3_20261008/validation-receipt.json",
       "status": "added",
-      "bytes": 17011,
-      "sha256": "1ff5d1b7d45c370fd772cc4e2531be05913882a9b489d1c833e7ca592651b44c"
+      "bytes": 19468,
+      "sha256": "15aa1624869cf9c0e587bb7ffd19523dc233e902d6516e9fd7a86cd2cbcd4d4a"
     },
     {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
@@ -964,6 +964,12 @@
       "sha256": "732c775ed857244394051d2f3412077258bbca3f1afefd07d7a35ba0832aa250"
     },
     {
+      "path": "juce_shell/src/reference_audition/ReferenceVisualAudio.cpp",
+      "status": "modified",
+      "bytes": 4553,
+      "sha256": "16dae78c165627ebfbb9c139aafb3522ee45367ea1e0ed667d887ebbbfae1ad0"
+    },
+    {
       "path": "juce_shell/tests/AttackUiContractTest.cpp",
       "status": "modified",
       "bytes": 17154,
@@ -1054,6 +1060,18 @@
       "sha256": "02174c9b357b516f74047bfc420a9873b476aa2f1e1170e6d2410b1e53b5fc6a"
     },
     {
+      "path": "juce_shell/tests/ReferenceConversionParityChecks.h",
+      "status": "added",
+      "bytes": 3026,
+      "sha256": "43dfd1ad2f95aef20e3960dad36381da68960400e5910b818a68d52bcf09ffe6"
+    },
+    {
+      "path": "juce_shell/tests/ReferenceScalarConversionOracle.h",
+      "status": "added",
+      "bytes": 4708,
+      "sha256": "6bc0e4b466e5e79b9c070a22da91637a7ac58df6aa9520100611446e5aa52471"
+    },
+    {
       "path": "juce_shell/tests/SessionCoverageContractTest.cpp",
       "status": "added",
       "bytes": 13376,
@@ -1106,6 +1124,12 @@
       "status": "modified",
       "bytes": 17827,
       "sha256": "3308d61c9b3c91dcfba5f62a6d6f99f45b90f26b30663a9b7ab4a4d4622a9ae1"
+    },
+    {
+      "path": "juce_shell/tests/reference_audio_pages_test.cpp",
+      "status": "modified",
+      "bytes": 12221,
+      "sha256": "ebc313d953afe08f14cdd21b7c2381c15af842378655363ad88edefd79ff224c"
     },
     {
       "path": "juce_shell/tests/ui_render_contract_test.cpp",

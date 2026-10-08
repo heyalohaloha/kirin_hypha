@@ -1,4 +1,5 @@
 #include "../src/reference_audition/ReferenceAudioPages.h"
+#include "ReferenceConversionParityChecks.h"
 
 #include <algorithm>
 #include <cmath>
@@ -109,6 +110,7 @@ namespace
 
 int main()
 {
+    verifyReferenceConversionParity<TestReader> (require);
     ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     require (pages.installReaderForTest (
                  std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 2).isEmpty(),

@@ -118,3 +118,13 @@ raw logは環境pathを含み得るためローカル保存とし、公開文書
 実DAW、Windows／ARM64の現候補、利用者本人の日常操作・品位はG3と本人確認で受け入れる。友人確認は公開後G4だけである。fixtureのCPU値を未実施の実機確認の成功へ流用しない。
 
 最大DPIの追加修正と実DAW操作は[G3記録](../hypha_drum_psr_g3_20261008/README.md)に分ける。本記録の修正前の強制描画値を、追加修正後や実DAWの値へ置き換えない。
+
+## 参照音源の重複計算（2026-10-09）
+
+非表示hostのprofileで確認した参照音源の異なるsample rate間の変換は、左右で同じsinc／window係数を二度計算していた。各出力sampleの係数だけを共有し、各channelの加算順、cutoff、tap数、端の扱い、取消guardを保持した。Audio Threadへ処理を移していない。
+
+変更前のproduction converterを凍結したoracleと、7 rate pairs×mono／stereo×128／517 frames×先頭／途中／末尾の84条件でfloat PCMがbit identical。負の開始、layout不一致、取消も確認した。AudioPages／Streaming／AuditionRuntimeの対象3 native試験は一回ずつPASS、235.548 s、retry 0。
+
+同じ48 kHz stereo WAVを44.1 kHzへ24,000 frames変換する5組の比較では、process CPU中央値が137.226 msから75.184 msへ45.2%減った。全組の出力PCMはbit identical。これはconverter単体の比較であり、実DAW全体やFREQ描画、非表示時の25.76ポイントが同率で減ったという証拠ではない。raw CSVのSHA-256は`52c2e999c69709c76b1cee9c2939996538c6c8ddd64c922a8ec1c9386f1ed144`。
+
+FREQ全componentの画像bufferを再利用する別案は、900／DPI 2の絶対・差分の2条件で最大channel差2、変更画素24,187／42,405を生じたため採用しなかった。製品のFREQ source、6秒履歴の長さ・奥へ流れる表現・更新cadenceは変えていない。FREQの実負荷とG3の既知のTIME復帰失敗は未解決として保持する。

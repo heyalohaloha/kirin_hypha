@@ -3,7 +3,7 @@
   "measured_product_commit": "3c4c999ed880ba4cb6b87da1fdbbab89703868b2",
   "measured_product_build": "B-1337",
   "overall_acceptance": "G3_INCOMPLETE",
-  "source_binding": "The measured product and actual DAW results are B-1337. The subsequent user-approved long-notice font change has separate native tests and requires builds of its own exact commit; never relabel earlier measurements.",
+  "source_binding": "The measured product and actual DAW results are B-1337. Subsequent user-approved long-notice typography and shared Reference conversion coefficients have separate source-bound native tests. Final build and CI must bind their own exact commit; never relabel earlier measurements.",
   "footer_typography": {
     "prior_adjustment": "B-1292",
     "normal_role": "action",
@@ -523,6 +523,51 @@
         "preferences_verified": true,
         "raw_sha256": "56e8c97dad1218c696ca23fabc3ae6195848c99d96017134d114b1733ee954b1"
       }
+    },
+    "reference_conversion": {
+      "change": "Compute identical sinc/window coefficients once per output sample for both channels, retaining each channel's original accumulation order. Audio Thread, sample-rate rules and measurement behavior are unchanged.",
+      "source_sha256": "16dae78c165627ebfbb9c139aafb3522ee45367ea1e0ed667d887ebbbfae1ad0",
+      "compatibility": {
+        "scalar_oracle_original_source_sha256": "9187f5177883ff1598c3534b7c4049fc0cd7446d63fa497a4ab405177ac15758",
+        "pcm_bit_identical_cases": 84,
+        "scope": "7 rate pairs x mono/stereo x 128/517 frames x beginning/interior/truncated end; invalid layout/start and cancelled guard also pass"
+      },
+      "native_tests": {
+        "passed": 3,
+        "seconds": 235.548,
+        "retried": 0,
+        "log_sha256": "8981a0320176208fc743a4323267473bd4f70e1166d55e536ccafc277783a5f1"
+      },
+      "isolated_benchmark": {
+        "scope": "Isolated converter CPU on the same 48-kHz stereo synthetic WAV converted to 44.1 kHz, 24,000 frames each, one 5-pair run. Does not claim whole-DAW or FREQ improvement.",
+        "wall_seconds": 1.593,
+        "pairs": 5,
+        "pcm_bit_identical": true,
+        "scalar_median_cpu_ms": 137.226,
+        "shared_median_cpu_ms": 75.184,
+        "converter_cpu_reduction_percent": 45.21154883185402,
+        "wave_sha256": "c184aca89d08abe4ef5ee468cb20042c88fffc76adc9599af48b9997161d59e2",
+        "source_sha256": "16dae78c165627ebfbb9c139aafb3522ee45367ea1e0ed667d887ebbbfae1ad0",
+        "csv_sha256": "52c2e999c69709c76b1cee9c2939996538c6c8ddd64c922a8ec1c9386f1ed144"
+      },
+      "boundary": "Converter CPU only. This does not establish a reduction of whole-DAW steady-state CPU, FREQ compositing or the previous 25.76-point hidden-host difference."
+    },
+    "rejected_component_buffer": {
+      "scope": "Disposable whole-spectrum image-buffer probe; product source unchanged",
+      "cases": 2,
+      "logical_size": [
+        900,
+        600
+      ],
+      "dpi": 2,
+      "maximum_channel_difference": 2,
+      "changed_pixels": {
+        "absolute": 24187,
+        "delta": 42405
+      },
+      "adopted": false,
+      "reason": "Compositing changes text and thin-line pixels; preserve current presentation instead of accepting a new visual tolerance.",
+      "log_sha256": "c5440a9b71b46d684ccf0a6052e2efa5c743a4bd71fe1ac6a08412bc311e781a"
     }
   },
   "six_second_history": {
