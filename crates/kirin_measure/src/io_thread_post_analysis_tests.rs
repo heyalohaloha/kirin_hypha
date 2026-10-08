@@ -1,6 +1,6 @@
 use super::{
-    active_analysis_targets, bound_analysis_targets, confirmed_analysis_targets,
-    PostAnalysisBinding,
+    active_analysis_targets, attack_pair_origin, bound_analysis_targets,
+    confirmed_analysis_targets, PostAnalysisBinding,
 };
 use crate::pairing_scope::{LatchedPre, LatchedPreReadiness};
 use std::path::PathBuf;
@@ -141,4 +141,55 @@ fn analysis_requires_the_same_exact_pre_and_post_binding() {
     );
     assert!(audition_targets.0.is_none());
     assert_eq!(audition_targets.1, first.1);
+}
+
+#[test]
+fn attack_origin_uses_confirmed_pre_shelf_and_rejects_invalid_binding() {
+    let exact = latch(
+        LatchedPreReadiness::Confirmed,
+        PathBuf::from("/tmp/kirin/pre-role-project/pre-exact/pre.json"),
+    );
+    let binding = PostAnalysisBinding {
+        project_hash: "post-role-project",
+        post_instance_id: "post-exact",
+        pair_pre_name: "PRE-A",
+        paired_pre_instance_id: Some("pre-exact"),
+        pair_owner_id: "pair-owner-a",
+        generation: 7,
+        claimed_at: 1.0,
+    };
+    let (spectrum, history) = bound_analysis_targets(&exact, binding, false);
+    let target = spectrum.unwrap();
+    assert!(history.is_some());
+    let origin = attack_pair_origin(&target, binding).unwrap();
+    assert_eq!(origin.project_hash, "pre-role-project");
+    assert_eq!(origin.pre_instance_id, "pre-exact");
+    assert_eq!(origin.post_instance_id, "post-exact");
+    for changed in [
+        PostAnalysisBinding {
+            generation: 0,
+            ..binding
+        },
+        PostAnalysisBinding {
+            claimed_at: 0.0,
+            ..binding
+        },
+        PostAnalysisBinding {
+            claimed_at: f64::NAN,
+            ..binding
+        },
+        PostAnalysisBinding {
+            paired_pre_instance_id: Some("foreign-pre"),
+            ..binding
+        },
+        PostAnalysisBinding {
+            pair_owner_id: "",
+            ..binding
+        },
+    ] {
+        assert!(attack_pair_origin(&target, changed).is_none());
+    }
+    let mut wrong_directory = target;
+    wrong_directory.instance_dir = "/tmp/kirin/pre-role-project/foreign-pre".into();
+    assert!(attack_pair_origin(&wrong_directory, binding).is_none());
 }

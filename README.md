@@ -113,7 +113,9 @@ LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
 The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
-folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). The loaded
+folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). Notifications stay
+in that established bottom status area, without covering the graphs or L/R meters. Longer text
+is abbreviated to the available width; click the notice to read its full details. The loaded
 version remains in the information menu, not in the narrow status rail.
 
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
@@ -203,6 +205,10 @@ Saving over an existing PNG replaces it with the complete new image; it does not
 image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
+
+Absolute POST spectra also work when a host supplies a valid project/render sample clock but omits
+the optional output-latency callback. That local clock is kept separate from pair alignment: Hypha
+does not assume zero latency, publish it as an aligned PRE spectrum, or use it for PRE/POST Δ.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
 Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
@@ -1101,8 +1107,10 @@ Closing the GUI does not stop measurement. The audio thread continues running as
 At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
 and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
 persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
-whole in a one-line strip over the bottom edge of the measurement while they last; clicking feedback
-opens the details.
+in a bounded one-line strip over the bottom edge of the measurement while they last; clicking feedback
+opens the full details. At 150% and above, feedback stays in the footer's left status area even
+when the full text is longer than the available width. On Hybrid VU, the bottom notice and the
+centred calibration legend occupy separate parts of the existing row.
 
 100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
 and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, RAW / SHAPE, and DRUM's VIEW and BAND) are chosen at

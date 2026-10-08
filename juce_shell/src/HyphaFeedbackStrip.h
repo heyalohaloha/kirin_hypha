@@ -51,7 +51,7 @@ public:
         g.setColour (COL_MUTED.withAlpha (0.36f));
         g.fillRect (area.withHeight (1.0f));
         g.setColour (COL_NORMAL);
-        g.setFont (monoFont (context, typography::TextRole::status));
+        g.setFont (monoFont (context, typography::TextRole::action));
         text_style::drawEllipsized (g, feedback, getLocalBounds().reduced (6, 0),
                                     juce::Justification::centredLeft);
     }

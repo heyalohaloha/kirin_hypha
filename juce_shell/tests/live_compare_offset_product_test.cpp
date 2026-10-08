@@ -2,6 +2,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
+#include "FooterNoticeContractChecks.h"
 
 #include <atomic>
 #include <chrono>
@@ -39,9 +40,9 @@ juce::Component* find (juce::Component& parent, const juce::String& id)
     return nullptr;
 }
 
-const hypha::observatory::View* findView (juce::Component& parent)
+hypha::observatory::View* findView (juce::Component& parent)
 {
-    if (auto* view = dynamic_cast<const hypha::observatory::View*> (&parent)) return view;
+    if (auto* view = dynamic_cast<hypha::observatory::View*> (&parent)) return view;
     for (int i = 0; i < parent.getNumChildComponents(); ++i)
         if (auto* view = findView (*parent.getChildComponent (i))) return view;
     return nullptr;
@@ -247,8 +248,8 @@ private:
                 // PRE plays again in the new run.
                 if (! post->liveCompareStatus().preSelected && ! click ("observatory-live-pre")) break;
                 if (! post->liveCompareStatus().preAudible) break;
-                // At 600 px the sentence cannot fit beside the safety controls. At 900 px the
-                // shorter English wording can fit in the footer and legitimately needs no strip.
+                // At 600 px recovery stays at LIVE/HOLD, with bounded paint and full details.
+                // Safety controls and the actual audio refusal keep their original behavior.
                 editor->setSize (600, 400);
                 post->kirinHostDelayCompensationStateChanged (false);
                 ++stage;
@@ -260,8 +261,10 @@ private:
                 const auto status = post->liveCompareStatus();
                 if (! status.preWaiting || status.preAudible || footer() != "Compensation off: enable it (POST)") break;
                 require (! status.contentHeld, "switching compensation off is not a latency jump");
-                require (find (*editor, "feedback-strip")->isVisible(),
-                         "recovery is visible in the full-width strip, not clipped in the footer");
+                auto* view = findView (*editor);
+                require (view != nullptr && ! find (*editor, "feedback-strip")->isVisible()
+                    && hypha::tests::footer_notice::retainedInFooter (*view, footer()),
+                         "actual refusal keeps full details and bounded paint at the fixed footer");
                 std::cout << "compensation off: " << footer() << std::endl;
                 post->kirinHostDelayCompensationStateChanged (true);
                 ++stage;

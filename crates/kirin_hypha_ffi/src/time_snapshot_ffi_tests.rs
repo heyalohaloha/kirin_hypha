@@ -312,7 +312,7 @@ fn joined(now: Instant) -> (TimeRawPoint, Authority, TimeComparisonView) {
         signal: 1,
         role: Some(PluginDataRole::Post),
         post_id: "post".into(),
-        post_project: "p".into(),
+        post_project: "post-role-project".into(),
         owner: "owner".into(),
         claim: 5,
         span_token: 4,
@@ -393,13 +393,16 @@ fn original_ttl_axis_limit_latest_none_owner_claim_and_source_proof_are_independ
         0,
     );
     assert_eq!(far.current.state, KIRIN_TIME_CURRENT_MISSING);
-    for variant in 0..4 {
+    for variant in 0..7 {
         let mut changed = view.clone();
         match variant {
             0 => changed.owner_id = "other".into(),
             1 => changed.claimed_at_bits += 1,
             2 => changed.post_span.token += 1,
-            _ => changed.binding_revision += 1,
+            3 => changed.binding_revision += 1,
+            4 => changed.project_hash = "foreign-pre-project".into(),
+            5 => changed.pre_instance_id = "foreign-pre".into(),
+            _ => changed.post_instance_id = "foreign-post".into(),
         }
         assert!(!comparison_matches(&changed, &authority, point.wire.span));
         let waiting = compared(
@@ -414,6 +417,25 @@ fn original_ttl_axis_limit_latest_none_owner_claim_and_source_proof_are_independ
         assert_eq!(waiting.current.state, KIRIN_TIME_CURRENT_WAITING);
         assert_eq!(waiting.current.finite_mask, 0);
     }
+}
+
+#[test]
+fn confirmed_exact_pre_in_another_role_shelf_remains_live() {
+    let now = Instant::now();
+    let (point, authority, view) = joined(now);
+    assert_ne!(view.project_hash, authority.post_project);
+    assert!(comparison_matches(&view, &authority, point.wire.span));
+    let component = compared(
+        Some(&view),
+        &authority,
+        point.wire.span,
+        Some(&point),
+        true,
+        now,
+        0,
+    );
+    assert_eq!(component.current.state, KIRIN_TIME_CURRENT_LIVE);
+    assert!(component.current.values[3].is_finite());
 }
 
 #[path = "time_snapshot_status_tests.rs"]

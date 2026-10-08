@@ -54,6 +54,12 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
     g.setColour (textColour);
     if (mark == Mark::menuArrow)
         paintMenuArrow (g, getLocalBounds().toFloat(), presentationContext);
+    else if (mark == Mark::footerNotice)
+    {
+        g.setFont (monoFont (presentationContext, typography::TextRole::action));
+        text_style::drawEllipsized (g, getButtonText(), getLocalBounds().reduced (3, 1),
+                                    juce::Justification::centredLeft);
+    }
     else
     {
         g.setFont (labelFont (presentationContext, typography::TextRole::action));

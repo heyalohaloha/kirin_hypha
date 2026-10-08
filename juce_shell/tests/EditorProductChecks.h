@@ -6,6 +6,7 @@
 #include "../src/HyphaFeedbackStrip.h"
 #include "../src/HyphaLanguage.h"
 #include "LanguageMisses.h"
+#include "FooterNoticeContractChecks.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -134,14 +135,10 @@ inline void verifyLiveInputThroughMusicalRests()
     processor.releaseResources();
 }
 
-// Where the footer folds into the header (100% and 125%), feedback is shown whole in a strip over
-// the bottom edge of the body: above the analysis page that owns the body and receiving the
-// pointer. Without feedback the strip carries the footer's short status (WAITING here, before any
-// audio) and the domain cycle keeps its whole row. At the larger sizes the footer keeps both.
+// Compact layouts retain their existing body-bottom strip. At 150% and above a long notice
+// stays at LIVE/HOLD, with bounded paint and full tooltip/click details.
 inline void verifyFoldedFeedbackStrip()
 {
-    const juce::String message ("Jungle Mode changed for this session only");
-    // In Japanese too (INV-S40): the strip carries the translated notice whole.
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
         for (const auto role : { Processor::Role::Post, Processor::Role::Pre })
             for (const auto& preset : observatory::sizePresets)
@@ -150,7 +147,6 @@ inline void verifyFoldedFeedbackStrip()
                 const auto reviewPrefix = language == i18n::Language::japanese ? "ja_" : "";
                 juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
                 Processor processor (role);
-                // POST FREQ: an analysis page owns the body. PRE: the Observatory paints LEVEL itself.
                 processor.setObservatoryDomainPreference (observatory::stateValue (
                     role == Processor::Role::Post ? observatory::Domain::frequency : observatory::Domain::level));
                 processor.prepareToPlay (48'000, 960);
@@ -165,40 +161,45 @@ inline void verifyFoldedFeedbackStrip()
                 const bool folded = observatory::footerFolds (preset.density);
                 require (view->statusStripFolded() == folded, "the status strip folds with the footer");
                 require (! folded || view->sessionBounds().getWidth() == 0, "the cycle keeps its whole row");
-
-                (shipping->*privateMember (ShowToast {})) (message);
-                const auto body = view->bodyBounds();
-                const auto area = view->statusStripBounds();
-                const bool overflow = text_style::shownWidth (monoFont (view->presentationContext(),
-                    typography::TextRole::action), message) > view->sessionBounds().getWidth() - 14;
-                const bool usesStrip = folded || overflow;
-                require (strip->isVisible() == usesStrip, "folded or overflowing feedback uses the full-width strip");
-                require (view->feedbackDetailsAnchor().isVisible() == ! usesStrip,
-                         "fitting feedback stays in the footer");
-                if (usesStrip)
+                for (const juce::String& message : { juce::String ("Jungle Mode changed for this session only"),
+                    juce::String ("POST plays now. Check the PRE in PAIR, then MENU > LISTEN.") })
                 {
-                    require (area.getX() == body.getX() && area.getRight() == body.getRight()
-                                 && area.getBottom() == body.getBottom() && area.getY() > body.getY(),
-                             "the strip spans the bottom edge of the body");
-                    const auto context = presentation::forEditor (preset.width, preset.height);
-                    const auto needed = text_style::requiredWidth (
-                        monoFont (context, typography::TextRole::status), message,
-                        typography::resolve (context, typography::TextRole::status));
-                    std::cout << "Feedback strip " << preset.width << ": " << area.getWidth() << " wide, text "
-                              << needed << '\n';
-                    require (needed + 12 <= area.getWidth(), "the feedback reads whole");
-                    const auto centre = editor->getLocalPoint (strip, strip->getLocalBounds().getCentre());
-                    require (editor->getComponentAt (centre) == strip, "the strip is above the page and takes the pointer");
-                    writeReview (*editor, reviewPrefix + juce::String (role == Processor::Role::Post ? "post" : "pre")
-                                              + "_feedback_strip_" + juce::String (preset.width));
+                    (shipping->*privateMember (ShowToast {})) (message);
+                    const auto body = view->bodyBounds();
+                    const auto area = view->statusStripBounds();
+                    require (strip->isVisible() == folded, "only folded sizes use the body-bottom strip");
+                    require (view->feedbackDetailsAnchor().isVisible() == ! folded,
+                             "large sizes keep the details control at the fixed footer");
+                    require (footer_notice::retainedInFooter (*view, message),
+                             "notice retains full accessible details and bounded action-font paint");
+                    if (folded)
+                    {
+                        require (area.getX() == body.getX() && area.getRight() == body.getRight()
+                            && area.getBottom() == body.getBottom() && area.getY() > body.getY(),
+                            "compact strip stays on the existing bottom edge");
+                        require (strip->text() == message && strip->getTitle() == message
+                            && strip->getTooltip() == message && strip->onClick != nullptr,
+                            "the real shipping strip retains complete accessible details and a click action");
+                        require (footer_notice::boundedPaint (*strip, message, view->presentationContext(), 6, 0),
+                                 "real compact strip draws a nonempty bounded localized notice");
+                        const auto centre = editor->getLocalPoint (strip, strip->getLocalBounds().getCentre());
+                        require (editor->getComponentAt (centre) == strip, "compact strip takes the pointer");
+                    }
+                    else
+                    {
+                        auto& anchor = view->feedbackDetailsAnchor();
+                        require (area == view->sessionBounds() && ! area.intersects (body),
+                                 "long feedback never rises over the analysis body");
+                        const auto centre = editor->getLocalPoint (&anchor, anchor.getLocalBounds().getCentre());
+                        require (editor->getComponentAt (centre) == &anchor, "real footer details take the pointer");
+                    }
                 }
-                else
-                    require (area == view->sessionBounds(), "without folding, status stays in the footer");
-
+                writeReview (*editor, reviewPrefix + juce::String (role == Processor::Role::Post ? "post" : "pre")
+                    + "_feedback_strip_" + juce::String (preset.width));
                 (shipping->*privateMember (ShowToast {})) ({});
                 require (view->footerStatus() == "WAITING", "no audio yet: the status is WAITING");
                 require (strip->isVisible() == folded && (! folded || strip->text() == "WAITING"),
-                         "after the feedback the strip returns to the short status");
+                         "after feedback the strip returns to the short status");
                 processor.editorBeingDeleted (editor.get());
                 editor.reset();
                 processor.releaseResources();

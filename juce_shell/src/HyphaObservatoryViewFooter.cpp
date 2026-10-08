@@ -193,9 +193,12 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
             for (const auto& shorter : { chainReadoutText.replace (" / ", "/"),
                                          chainReadoutText.replace (" / ", "/").fromFirstOccurrenceOf ("CHAIN ", false, false) })
                 if (text_style::shownWidth (font, beside) > (float) room.getWidth()) beside = shorter;
-            g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
-            text_style::drawText (g, beside, room, juce::Justification::centredRight, false);
-            chainReadoutShown = true;
+            if (text_style::shownWidth (font, beside) <= (float) room.getWidth())
+            {
+                g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
+                text_style::drawText (g, beside, room, juce::Justification::centredRight, false);
+                chainReadoutShown = true;
+            }
         }
         return;
     }

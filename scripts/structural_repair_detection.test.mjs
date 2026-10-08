@@ -78,7 +78,8 @@ const analysisSelectionIsAtomic = (runtime, worker) => {
   const fields = between(runtime, 'pub struct SpectrumRuntime {', '// SAFETY:');
   return fields.includes('selection: AtomicU64,')
     && !/^\s+(view|generation|analysis_mode|channel_mode|mid_side_enabled): Atomic/m.test(fields)
-    && runtime.includes('selection: self.selection.load(Ordering::Acquire)')
+    && runtime.includes('let selection = self.selection.load(Ordering::Acquire);')
+    && runtime.includes('selection,\n            stream_generation,')
     && worker.includes('AnalysisSelection::decode(block.selection, self.layout)')
     && worker.includes('let channel_mode = selection.channel_mode();');
 };
@@ -86,12 +87,15 @@ const analysisSelectionIsAtomic = (runtime, worker) => {
 const analysisIdentitiesAreSeparated = (runtime) => {
   const fields = between(runtime, 'pub struct SpectrumRuntime {', '// SAFETY:');
   const ingress = between(runtime, 'struct SpectrumIngressBlock {', 'struct SpectrumConsumers');
-  const drop = between(runtime, 'fn note_drop(&self)', 'fn clear_mid_side_frame');
+  const advance = between(runtime, 'fn advance_stream_generation', 'pub(super) fn note_drop');
+  const drop = between(runtime, 'pub(super) fn note_drop(&self)', '\n}\n');
   return fields.includes('selection: AtomicU64,')
     && fields.includes('stream_generation: AtomicU64,')
     && ingress.includes('selection: u64,')
     && ingress.includes('stream_generation: u64,')
-    && drop.includes('self.stream_generation.compare_exchange(')
+    && /self\.stream_generation\s*\.compare_exchange\(/.test(advance)
+    && drop.includes('self.advance_stream_generation();')
+    && !advance.includes('advance_selection_generation')
     && !drop.includes('advance_selection_generation');
 };
 
@@ -142,7 +146,8 @@ test('structural repair detectors reject the nine known mutation classes', () =>
   const analysis = read('juce_shell/src/PluginProcessorAnalysis.cpp');
   const layout = read('juce_shell/src/HyphaTimeHistoryLayout.cpp');
   const painter = read('juce_shell/src/HyphaTimeHistoryPainter.cpp');
-  const spectrumRuntime = read('crates/kirin_measure/src/spectrum_runtime.rs');
+  const spectrumRuntime = read('crates/kirin_measure/src/spectrum_runtime.rs')
+    + read('crates/kirin_measure/src/spectrum_runtime_ingress.rs');
   const spectrumWorker = read('crates/kirin_measure/src/spectrum_runtime_worker.rs');
   const comparisonProducer = read('crates/kirin_measure/src/io_thread_post_tick.rs')
     + read('crates/kirin_measure/src/io_thread_post_delta.rs');
@@ -224,8 +229,8 @@ test('structural repair detectors reject the nine known mutation classes', () =>
   );
 
   const conflatedGeneration = spectrumRuntime.replace(
-    'self.stream_generation.compare_exchange(',
-    'self.advance_selection_generation();\n        self.stream_generation.compare_exchange(',
+    'self.stream_generation\n            .compare_exchange(',
+    'self.advance_selection_generation();\n        self.stream_generation\n            .compare_exchange(',
   );
   assert.ok(
     !analysisIdentitiesAreSeparated(conflatedGeneration),

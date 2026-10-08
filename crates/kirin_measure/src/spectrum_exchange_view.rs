@@ -3,7 +3,7 @@ use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
 use crate::spectrum::{AnalysisViewMode, SpectrumDifference};
 use crate::spectrum_runtime::SpectrumHistory;
-use std::sync::TryLockError;
+use std::sync::{atomic::Ordering, TryLockError};
 
 impl SpectrumCoordinator {
     /// Publish every retained exact match under one UI publication lock. Never synthesize missing
@@ -55,11 +55,56 @@ impl SpectrumCoordinator {
     }
 
     pub fn try_view(&self) -> Option<SpectrumViewSnapshot> {
-        match self.view.try_lock() {
-            Ok(view) => Some(view.clone()),
+        self.try_view_after_clone(|| {})
+    }
+
+    pub(crate) fn try_view_after_clone(
+        &self,
+        after_clone: impl FnOnce(),
+    ) -> Option<SpectrumViewSnapshot> {
+        let (mut view, revision) = match self.view.try_lock() {
+            Ok(view) => Some((
+                view.clone(),
+                self.post_spectrum_clock_revision.load(Ordering::Acquire),
+            )),
             Err(TryLockError::WouldBlock) => None,
-            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().clone()),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let view = poisoned.into_inner();
+                Some((
+                    view.clone(),
+                    self.post_spectrum_clock_revision.load(Ordering::Acquire),
+                ))
+            }
+        }?;
+        after_clone();
+        if view.analysis_mode == crate::AnalysisViewMode::Spectrum
+            && view.difference.is_some()
+            && (!self.runtime.presentation_clock_aligned()
+                || (revision != 0 && !self.runtime.spectrum_clock_is_current(revision)))
+        {
+            view.status = SpectrumViewStatus::Unavailable;
+            view.difference = None;
+            view.spectrum_timeline = Default::default();
         }
+        Some(view)
+    }
+
+    pub(in crate::spectrum_exchange) fn reset_spectrum_clock_view(&self, revision: u64) {
+        let mut view = match self.view.lock() {
+            Ok(view) => view,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *view = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::Unavailable,
+            analysis_mode: AnalysisViewMode::Spectrum,
+            channel_mode: self.runtime.channel_mode(),
+            channels: self.runtime.num_channels() as u8,
+            ..Default::default()
+        };
+        // Stamp and view change under the same publication lock. A cloned old view can never
+        // borrow the new producer's revision while a concurrent IO tick publishes new facts.
+        self.post_spectrum_clock_revision
+            .store(revision, Ordering::Release);
     }
 
     pub fn try_analysis_owner_names(&self) -> Option<[String; crate::ANALYSIS_SLOT_COUNT]> {

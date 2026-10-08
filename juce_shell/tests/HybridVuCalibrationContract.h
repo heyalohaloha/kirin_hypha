@@ -4,6 +4,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaVuCalibrationPreference.h"
 #include "../src/HyphaLanguage.h"
+#include "FooterNoticeContractChecks.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -213,6 +214,34 @@ inline void verifyRendering()
                 const auto baseline = render (view);
                 const auto metrics = juce::Rectangle<int> (0, juce::roundToInt (view.getHeight() * 0.72f),
                     view.getWidth(), juce::roundToInt (view.getHeight() * 0.15f));
+                const auto calibrationBounds = control->getBounds();
+                const juce::String notice ("PRE changed: check PAIR, MENU > LISTEN (POST)");
+                view.setFeedback (notice);
+                auto* feedback = dynamic_cast<juce::Button*> (&view.feedbackDetailsAnchor());
+                require (feedback != nullptr && feedback->isVisible()
+                    && feedback->getButtonText() == notice && feedback->getTooltip() == notice
+                    && view.getDescription() == notice, "VU notice preserves full accessible text");
+                require (control->getBounds() == calibrationBounds
+                    && feedback->getRight() < control->getX()
+                    && ! feedback->getBounds().intersects (control->getBounds())
+                    && ! feedback->getBounds().intersects (close->getBounds())
+                    && ! feedback->getBounds().intersects (clear->getBounds()),
+                    "VU calibration remains centred with a disjoint left notice on the same row");
+                require (view.getComponentAt (feedback->getBounds().getCentre()) == feedback
+                    && view.getComponentAt (control->getBounds().getCentre()) == control,
+                    "VU notice and calibration each retain their pointer target");
+                require (footer_notice::boundedPaint (*feedback, notice, view.presentationContext(), 3, 1),
+                         "VU notice paint is nonempty and bounded at all sizes and languages");
+                int details = 0;
+                view.onFeedbackDetails = [&details] { ++details; };
+                feedback->onClick();
+                require (details == 1, "VU notice opens the existing details callback");
+                const auto notified = render (view);
+                const auto needles = juce::Rectangle<int> (0, juce::roundToInt (view.getHeight() * 0.23f),
+                    view.getWidth(), juce::roundToInt (view.getHeight() * 0.47f));
+                require (difference (baseline, notified, metrics) == 0
+                    && difference (baseline, notified, needles) == 0, "VU notice never overlays LR needles or metrics");
+                view.setFeedback ({});
                 for (const auto reference : vu_calibration::choices)
                 {
                     view.setVuCalibration (reference);

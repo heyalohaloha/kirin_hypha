@@ -59,7 +59,8 @@ fn comparison_matches(
     view.binding_revision == exact.generation
         && view.pre_instance_id == exact.pre_instance_id
         && view.project_hash == exact.project_hash
-        && exact.project_hash == authority.post_project
+        // The confirmed exact PRE locator may be in a different role-local project shelf.
+        // Pair resolution owns scope admission; this packet must match that PRE locator.
         && view.owner_id == authority.owner
         && view.post_instance_id == authority.post_id
         && view.claimed_at_bits == authority.claim

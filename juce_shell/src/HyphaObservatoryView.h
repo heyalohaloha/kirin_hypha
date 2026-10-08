@@ -468,7 +468,7 @@ private:
     Button operationsButton { "MENU", false };
     Button stopButton { "STOP", false };
     Button guideButton { {}, false };
-    Button statusButton { {}, true };
+    Button statusButton { {}, true, Button::Mark::footerNotice };
     Button hybridVuButton { "VU", false };
     vu_calibration::Control vuCalibrationControl;
     Button clearPeakClipButton { "CLEAR", false };

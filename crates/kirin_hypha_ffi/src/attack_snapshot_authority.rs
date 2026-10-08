@@ -44,7 +44,7 @@ impl AttackSnapshotAuthority {
             && view.authority_revision == self.pair.generation
             && origin.generation == exact.generation
             && origin.project_hash == exact.project_hash
-            && origin.project_hash == self.project_hash
+            // The confirmed PRE locator, rather than POST's role-local shelf, is the source.
             && origin.pre_instance_id == exact.pre_instance_id
             && origin.post_instance_id == self.post_id
             && origin.owner_id == self.owner

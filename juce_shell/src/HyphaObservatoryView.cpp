@@ -405,21 +405,6 @@ void View::paint (juce::Graphics& g)
             selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
             jungleAppearance, presentationContext(), vuCalibration()
         });
-        if (feedbackText.isNotEmpty())
-        {
-            auto feedback = getLocalBounds();
-            feedback = { feedback.getX(), juce::roundToInt (getHeight() * 0.880f),
-                         feedback.getWidth(), juce::roundToInt (getHeight() * 0.095f) };
-            feedback.removeFromLeft (juce::roundToInt (getWidth() * 0.18f));
-            feedback.removeFromRight (juce::roundToInt (getWidth() * 0.20f));
-            g.setColour (BG.withAlpha (0.92f));
-            g.fillRoundedRectangle (feedback.toFloat(), 3.0f);
-            g.setColour (COL_NORMAL);
-            g.setFont (monoFont (presentationContext(), typography::TextRole::status));
-            text_style::draw (g, feedbackText, feedback.reduced (3, 0),
-                              presentationContext(), typography::TextRole::status,
-                              juce::Justification::centred);
-        }
         return;
     }
     const auto state = worldState();

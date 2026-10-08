@@ -85,7 +85,17 @@ void View::resized()
         clearPeakClipButton.setVisible (true);
         clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
                                           .withSizeKeepingCentre (clearWidth, buttonHeight));
-        vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (calibration.getWidth(), buttonHeight));
+        // Keep the existing calibration centred; its clickable text and the footer notice
+        // each own a disjoint part of the same row. Neither paints over the VU or LR fields.
+        const auto legendFont = labelFont (context, typography::TextRole::legend,
+                                          typography::Composition::instrument);
+        const auto legendWidth = juce::jmin (calibration.getWidth(),
+            juce::roundToInt (text_style::shownWidth (legendFont, vu_calibration::label (-20))) + 12);
+        vuCalibrationControl.setBounds (calibration.withSizeKeepingCentre (legendWidth, buttonHeight));
+        sessionArea = calibration.withRight (vuCalibrationControl.getX() - 6);
+        statusStrip = sessionArea;
+        statusButton.setBounds (sessionArea.withSizeKeepingCentre (sessionArea.getWidth(), buttonHeight));
+        statusButton.setVisible (! captureFrame && feedbackText.isNotEmpty());
         if (onBodyLayoutChanged) onBodyLayoutChanged();
         return;
     }
@@ -216,17 +226,15 @@ void View::resized()
     // The chain timing the user keeps in the footer keeps its place at the rail's right end, wide
     // enough for its shortest form in the footer buttons' size (the larger of the rail's two sizes);
     // paintFooter draws the longest form that fits there.
+    const auto chainMinimum = juce::roundToInt (text_style::shownWidth (
+        monoFont (presentationContext(), typography::TextRole::action), "LOAD 100%/100%")) + 12;
     const auto chainRoom = ! captureFrame && ! folded && chainReadoutText.isNotEmpty()
-        ? juce::roundToInt (text_style::shownWidth (monoFont (presentationContext(), typography::TextRole::action),
-                                                    "LOAD 100%/100%")) + 12 : 0;
-    // Safety guidance needs more room than the residual footer after PRE/POST/END. Reuse the
-    // full-width feedback strip when the complete sentence does not fit; never compress it.
-    const bool overflow = ! captureFrame && feedbackText.isNotEmpty()
-        && text_style::shownWidth (monoFont (presentationContext(), typography::TextRole::action), feedbackText)
-            > sessionArea.getWidth() - 14 - chainRoom;
-    statusStripOverBody = folded || overflow;
-    statusStrip = statusStripOverBody ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
-    statusButton.setVisible (! captureFrame && ! statusStripOverBody && feedbackText.isNotEmpty());
+        && sessionArea.getWidth() >= chainMinimum + 48 ? chainMinimum : 0;
+    // Status stays at LIVE/HOLD's established footer position. Long details remain in the
+    // tooltip and information action; the sentence never becomes an overlay on the plots.
+    statusStripOverBody = folded;
+    statusStrip = folded ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
+    statusButton.setVisible (! captureFrame && ! folded && feedbackText.isNotEmpty());
     statusButton.setBounds (sessionArea.reduced (1, 2).withTrimmedRight (chainRoom));
     layoutFooterActions (footerActions);
     if (onBodyLayoutChanged) onBodyLayoutChanged();

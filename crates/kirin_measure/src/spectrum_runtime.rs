@@ -35,8 +35,11 @@ use assemblers::SpectrumAssembler;
 #[path = "spectrum_runtime_worker.rs"]
 mod worker;
 
+#[path = "spectrum_runtime_ingress.rs"]
+mod ingress;
 #[path = "spectrum_runtime_state.rs"]
 mod state;
+pub use ingress::SpectrumInputClock;
 use state::StampedSnapshot;
 pub use state::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntimeStats, PERCEPTUAL_HISTORY_CAPACITY,
@@ -73,6 +76,7 @@ pub struct SpectrumRuntime {
     requested_perceptual_state_epoch: AtomicI64,
     applied_selection: AtomicU64,
     stream_generation: AtomicU64,
+    clock_definition: AtomicU64,
     enabled: AtomicBool,
     shutdown: AtomicBool,
     latest_presentation_end: AtomicI64,
@@ -126,6 +130,7 @@ impl SpectrumRuntime {
             requested_perceptual_state_epoch: AtomicI64::new(NO_PRESENTATION_POSITION),
             applied_selection: AtomicU64::new(0),
             stream_generation: AtomicU64::new(1),
+            clock_definition: AtomicU64::new(0),
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             latest_presentation_end: AtomicI64::new(NO_PRESENTATION_POSITION),
@@ -303,68 +308,6 @@ impl SpectrumRuntime {
         true
     }
 
-    /// Audio Thread only. The method never allocates, locks, sleeps, performs I/O, or runs FFT.
-    pub fn push_block_from_audio(
-        &self,
-        interleaved: &[f32],
-        num_channels: usize,
-        presentation_start_samples: Option<i64>,
-    ) -> bool {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return false;
-        }
-        let stream_generation = self.stream_generation.load(Ordering::Acquire);
-        if stream_generation == 0 {
-            return false;
-        }
-        let Some(presentation_start_samples) = presentation_start_samples else {
-            self.note_drop();
-            return false;
-        };
-        if num_channels != self.num_channels
-            || interleaved.is_empty()
-            || !interleaved.len().is_multiple_of(num_channels)
-        {
-            self.note_drop();
-            return false;
-        }
-        let frames = interleaved.len() / num_channels;
-        let Ok(frames_u32) = u32::try_from(frames) else {
-            self.note_drop();
-            return false;
-        };
-        let Some(presentation_end_samples) = presentation_start_samples.checked_add(frames as i64)
-        else {
-            self.note_drop();
-            return false;
-        };
-        self.latest_presentation_end
-            .store(presentation_end_samples, Ordering::Release);
-        // SAFETY: see the Sync contract above. Both producers belong to the one Audio Thread.
-        let sample_producer = unsafe { &mut *self.sample_producer.get() };
-        // SAFETY: same sole-producer contract.
-        let block_producer = unsafe { &mut *self.block_producer.get() };
-        if sample_producer.slots() < interleaved.len() || block_producer.slots() == 0 {
-            self.note_drop();
-            return false;
-        }
-        // Samples become visible before their descriptor. Once the worker sees a block, every
-        // sample in that block has already been committed to the companion ring.
-        for sample in interleaved {
-            let _ = sample_producer.push(*sample);
-        }
-        let block = SpectrumIngressBlock {
-            frames: frames_u32,
-            channels: num_channels as u8,
-            presentation_start_samples,
-            selection: self.selection.load(Ordering::Acquire),
-            stream_generation,
-        };
-        let _ = block_producer.push(block);
-        self.pushed_blocks.fetch_add(1, Ordering::Relaxed);
-        true
-    }
-
     pub fn shutdown_and_join(&self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
@@ -373,22 +316,6 @@ impl SpectrumRuntime {
             if let Some(handle) = worker.take() {
                 let _ = handle.join();
             }
-        }
-    }
-
-    fn note_drop(&self) {
-        self.dropped_blocks.fetch_add(1, Ordering::Relaxed);
-        let current = self.stream_generation.load(Ordering::Relaxed);
-        let next = current.checked_add(1).unwrap_or(0);
-        let _ = self.stream_generation.compare_exchange(
-            current,
-            next,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
-        );
-        if self.analysis_mode() == AnalysisViewMode::Perceptual {
-            self.perceptual_rearm_required
-                .store(true, Ordering::Release);
         }
     }
 
@@ -461,3 +388,7 @@ mod view_tests;
 #[cfg(test)]
 #[path = "spectrum_runtime_snapshot_tests.rs"]
 mod snapshot_tests;
+
+#[cfg(test)]
+#[path = "spectrum_runtime_clock_tests.rs"]
+mod clock_tests;

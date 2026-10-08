@@ -499,6 +499,8 @@ UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復
 
 FREQは画面を開いたときだけ既存Spectrum解析を取得する。
 
+FREQのPOST絶対観測は、optional output latencyが不明でも有効なproject／render sample clockがある場合に機能する。ローカル時計のauthorityは非公開identityへ分離し、PREの整列済みSpectrum公開とPRE／POST Δには使わない。既知のpresentation clock、clock source、output latencyが切り替わったら旧generation／frame／Δ leaseを退役する。未知latencyを0と推定せず、clock不正・座標overflow・非Spectrum modeは拒否する。公開SpectrumFrame／codec／C ABIと音声・Recordは維持する。
+
 TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。SHARPはpair未成立時に
 既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
 
@@ -556,6 +558,8 @@ DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更�
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。
 Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
+通知は150%以上で既存の足元左（LIVE／HOLDの位置）に固定し、長文でもLRや解析図の上へ持ち上げない。100%／125%は既存の最下部stripを維持する。通知は足元のaction fontで一行に収め、入りきらない末尾は省略表示し、既存tooltipとクリックによる詳細には全文を保持する。Hybrid VUでは同じ最下部行の左通知と中央校正のboundsを分離し、針・LR・三つの測定値の描画領域と校正の中心位置を保持する。
+
 Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−14／−16／−18／−20 dBFSから選ぶ。左右は共通の一値とし、exactなPRE／POST pairは同じ基準を使う。選択中の値をcheck markで示す。新しいノブや音量操作は置かない。校正はdBFS値から針位置へ換算する表示設定で、300 msの測定窓・針の時間応答、音声、LUFS、Peak／TP、Session、Record／Keep、plugin_dataとwork.jsonは変更しない。
 校正の永続正本は、このcomputerのuser設定領域にあるexact project＋PRE instanceごとの小さい設定fileとする。識別子はlength-delimited keyのSHA-256でpath化し、別chainへ流用しない。PREは自身の解決済みidentity、POSTは選択したPREのexact locator、unpaired POSTは自身のidentityを使う。初期値は−18。identityの取得が一時的に競合する場合は採用済み基準を保持し選択を無効にする。新しいscopeの取得成功後にそのchainの設定を採用する。合法64-byte identityは専用additive getterで完全に取得し、旧DTOの切詰めを共有に使わない。message threadだけが250 ms間隔で設定を読み、明示選択だけが完全なtemporary siblingをatomic置換する。保存失敗は旧値を保持して理由を通知する。不在／破損／未知値は既定−18。pair変更と再openはそのchainの設定を読み直し、DAW state restoreは共有fileへ書かず古い値で他側を巻き戻さない。校正fileはDAW chunkへ含めないので、このcomputerのchain別表示設定として扱う。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。

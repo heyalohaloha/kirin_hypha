@@ -180,6 +180,8 @@ pub struct SpectrumCoordinator {
     attack_band_sent_at: Mutex<Option<Instant>>,
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
+    pre_spectrum_clock_revision: AtomicU64,
+    post_spectrum_clock_revision: AtomicU64,
     view: Mutex<SpectrumViewSnapshot>,
     mid_side_view: Mutex<mid_side::MidSideSpectrumViewSnapshot>,
     mid_side_presentation: Mutex<mid_side::MidSidePresentation>,
@@ -256,6 +258,8 @@ impl SpectrumCoordinator {
             attack_band_sent_at: Mutex::new(None),
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
+            pre_spectrum_clock_revision: AtomicU64::new(0),
+            post_spectrum_clock_revision: AtomicU64::new(0),
             view: Mutex::new(SpectrumViewSnapshot::default()),
             mid_side_view: Mutex::new(Default::default()),
             mid_side_presentation: Mutex::new(Default::default()),
@@ -401,3 +405,7 @@ mod tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_view_tests.rs"]
 mod view_tests;
+
+#[cfg(test)]
+#[path = "spectrum_exchange_clock_tests.rs"]
+mod clock_tests;

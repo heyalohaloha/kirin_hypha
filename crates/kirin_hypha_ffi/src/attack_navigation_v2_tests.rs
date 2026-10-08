@@ -107,7 +107,7 @@ fn paired_fixture() -> (
         },
         role: Some(PluginDataRole::Post),
         post_id: origin.post_instance_id.clone(),
-        project_hash: origin.project_hash.clone(),
+        project_hash: "post-role-project".into(),
         owner: origin.owner_id.clone(),
         claim: origin.claimed_at_bits,
         signal: 1,
@@ -266,6 +266,29 @@ fn waveform_comparison_uses_common_contiguous_support_and_both_pcm_ranges() {
         qualified_waveform(points.iter(), proof.pre.source, 350_000, Some(&proof)).count,
         0
     );
+}
+
+#[test]
+fn confirmed_cross_shelf_attack_rejects_every_foreign_binding_component() {
+    let (authority, _, view) = paired_fixture();
+    assert_ne!(
+        authority.project_hash,
+        view.origin.as_ref().unwrap().project_hash
+    );
+    assert!(authority.matches_view(&view));
+    let changes: [fn(&mut AttackPairAuthority); 6] = [
+        |origin| origin.project_hash.push('x'),
+        |origin| origin.pre_instance_id.push('x'),
+        |origin| origin.post_instance_id.push('x'),
+        |origin| origin.owner_id.push('x'),
+        |origin| origin.generation += 1,
+        |origin| origin.claimed_at_bits += 1,
+    ];
+    for change in changes {
+        let mut foreign = view.clone();
+        change(foreign.origin.as_mut().unwrap());
+        assert!(!authority.matches_view(&foreign));
+    }
 }
 
 #[test]

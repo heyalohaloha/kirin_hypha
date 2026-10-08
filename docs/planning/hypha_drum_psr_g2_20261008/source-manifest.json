@@ -79,13 +79,13 @@
       ]
     }
   },
-  "file_count": 150,
+  "file_count": 177,
   "files": [
     {
       "path": "README.md",
       "status": "modified",
-      "bytes": 93227,
-      "sha256": "656944a743e4eef235377ca6a3ba0c69a760a5f76c02b184272381e342735652"
+      "bytes": 93962,
+      "sha256": "65465ed2486b613015bffcbcf3dc456cf5eb05f5ce090446194cdca33e8c210c"
     },
     {
       "path": "crates/kirin_hypha_ffi/include/kirin_hypha_navigation_snapshot_ffi.h",
@@ -120,8 +120,20 @@
     {
       "path": "crates/kirin_hypha_ffi/src/attack_navigation_v2_tests.rs",
       "status": "added",
-      "bytes": 12600,
-      "sha256": "09daf30f8ce0ae23f7a2689d6ab470a346ae2155622f1ac4fad59760df65279e"
+      "bytes": 13405,
+      "sha256": "178621da0708ab3e0edd63d2631839faece714f8b58dd3ed0a1db787cf332c3e"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/attack_snapshot_authority.rs",
+      "status": "modified",
+      "bytes": 2018,
+      "sha256": "650a95131e7a5c5b3f91db4d82df7e3fc4747841c8be25477a3d6c988548a7bc"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/lib.rs",
+      "status": "modified",
+      "bytes": 201194,
+      "sha256": "a40a9e3221e4586f5a5b1a3dc56ed8beaa6a737c075d07bee35120366dc3d6c1"
     },
     {
       "path": "crates/kirin_hypha_ffi/src/meter_observation_ffi.rs",
@@ -142,10 +154,34 @@
       "sha256": "1cef4517a1d6b9acd11b02aad2b92cd93ca88fbe3e5b51e88fb05692df38896c"
     },
     {
+      "path": "crates/kirin_hypha_ffi/src/optional_analysis_clock.rs",
+      "status": "added",
+      "bytes": 2625,
+      "sha256": "1acd389fcc0190e1f61571439d64fcf01b735f0978c60ab7ff74a213432dd74e"
+    },
+    {
       "path": "crates/kirin_hypha_ffi/src/pair_snapshot_ffi.rs",
       "status": "modified",
       "bytes": 6642,
       "sha256": "abecb426f87c5468a7ee796361182a2c0ac7c24618569f68c2fe1aa59226bf52"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/spectrum_clock_abi_tests.rs",
+      "status": "modified",
+      "bytes": 3106,
+      "sha256": "49124274bbab108eac2445d004cb8af77df06baaf660b4b695e01a5296d94040"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/time_snapshot_ffi.rs",
+      "status": "modified",
+      "bytes": 16557,
+      "sha256": "28018f06a88dae330a598d674ec5dbb9e7001ffa9b63f41bcce706501589f1fd"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/src/time_snapshot_ffi_tests.rs",
+      "status": "modified",
+      "bytes": 13895,
+      "sha256": "2a3d0f82e9e28af28c0c51ed9a65e19d9f1d3b1d3b7920e92c50f6a4099e5f55"
     },
     {
       "path": "crates/kirin_hypha_ffi/src/vu_calibration_locator_ffi.rs",
@@ -170,6 +206,12 @@
       "status": "added",
       "bytes": 3459,
       "sha256": "8b2f9cb6599a6e2c42e4a8dc3935acdd1036c8a82722ccab297ebd5231a9359b"
+    },
+    {
+      "path": "crates/kirin_hypha_ffi/tests/support/juce_presentation_contract.rs",
+      "status": "modified",
+      "bytes": 22317,
+      "sha256": "7c45708d033aeb093c1916c76ca3ef54641bc4029071027a1666f6bfd2a5a41d"
     },
     {
       "path": "crates/kirin_measure/src/analysis_exchange_prefix_tests.rs",
@@ -218,6 +260,18 @@
       "status": "added",
       "bytes": 1162,
       "sha256": "fcbf72b87d07009ecf9d718ef3ed50f5a857046b6c402750024e593afc30ee7c"
+    },
+    {
+      "path": "crates/kirin_measure/src/io_thread_post_analysis.rs",
+      "status": "modified",
+      "bytes": 6027,
+      "sha256": "54fdd7f20f7fac7af1b5f8f6abab357659154fe0716c269d1d0fcdc26043a8b3"
+    },
+    {
+      "path": "crates/kirin_measure/src/io_thread_post_analysis_tests.rs",
+      "status": "modified",
+      "bytes": 6774,
+      "sha256": "2d66d24a70cab98aa356fe7f036fe8cfdcd9e0e7abd05eb024ae2d36db168e76"
     },
     {
       "path": "crates/kirin_measure/src/lib.rs",
@@ -316,22 +370,88 @@
       "sha256": "0395dff64bf9e61ebe3203feb6fe8922303627d39aa6929ea0970e7fc7910c78"
     },
     {
+      "path": "crates/kirin_measure/src/spectrum_exchange.rs",
+      "status": "modified",
+      "bytes": 14373,
+      "sha256": "3649d55f5fe270607ff1aab8dd25f7a1fce073090331e019f5f64eeb5f237a64"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_exchange_clock_tests.rs",
+      "status": "added",
+      "bytes": 13108,
+      "sha256": "48b976288da44b5c76b484c3661bc0421650a636e7177511784cfeada0e17bd4"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_exchange_post.rs",
+      "status": "modified",
+      "bytes": 15026,
+      "sha256": "4be0ddac8dad3f8bfdb1361c36d808cc0c426ee57e08a24e3dbbbef5ea115118"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_exchange_post_join.rs",
+      "status": "added",
+      "bytes": 5308,
+      "sha256": "4362436e127b488ba1aa44e17d52c795cd11200361bf76f89661d2500389bc0e"
+    },
+    {
       "path": "crates/kirin_measure/src/spectrum_exchange_pre.rs",
       "status": "modified",
-      "bytes": 15824,
-      "sha256": "f6dfb97ef509d29744071f9b536bfe119376c81c31bfe69a51bdbd7bd4d11c30"
+      "bytes": 17473,
+      "sha256": "6ea64bbf4fa4965e618e56f6e61b4d8368b7e711d0f9a83920b6a054e92f252a"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_exchange_pre_clock.rs",
+      "status": "added",
+      "bytes": 1445,
+      "sha256": "5fdba4fb195cde638cc4fbf9704db4490236ce27fefdeff7a55601a8309e792c"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_exchange_view.rs",
+      "status": "modified",
+      "bytes": 12048,
+      "sha256": "22499a1d8aaf58216a5d4a73a315935423454214ca49e35df691a2fc175ee7f7"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_runtime.rs",
+      "status": "modified",
+      "bytes": 15039,
+      "sha256": "af07b09f79d8ee862d359cd65b9d0b05c2eaab82e3cd2fcfccc8f6bca80c9e23"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_runtime_clock_tests.rs",
+      "status": "added",
+      "bytes": 6128,
+      "sha256": "24d082a0c143d7b375c831d8c17c6996c691d8a4eef3042678322d4db5b16c38"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_runtime_ingress.rs",
+      "status": "added",
+      "bytes": 6077,
+      "sha256": "07e027038ac4f3425296951d639339f734977c7a8d2e97dcff07f5daa075fcc2"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_runtime_state.rs",
+      "status": "modified",
+      "bytes": 11922,
+      "sha256": "1097d3925825c145f538b0a25ffcfe6242da6d89d92d303581bc7025638b48ce"
+    },
+    {
+      "path": "crates/kirin_measure/src/spectrum_runtime_worker.rs",
+      "status": "modified",
+      "bytes": 20100,
+      "sha256": "d0448a7240d0908cfa8e867434a15dc7c8efa9dd1bd4d9d084d591bf547d9fc8"
     },
     {
       "path": "docs/hypha_invariants.md",
       "status": "modified",
-      "bytes": 157674,
-      "sha256": "84b8b0da4368e11ccc0d26e0dc9c421a1001fc2caa4d009d8dc161e9c38d3452"
+      "bytes": 159110,
+      "sha256": "e96a259b3692af60442faab97bf4fde25cdd82d3f955aa9a78814a210d606428"
     },
     {
       "path": "docs/hypha_meter_product_contract_20260831.md",
       "status": "modified",
-      "bytes": 57890,
-      "sha256": "f519b125fe51d20ebd8154b1fe6aa405cb3bc8fa38d27ece54f7e44d404898b6"
+      "bytes": 59000,
+      "sha256": "ab236e5a3fe8426ddc062eb28e5c7a788e0813ee1d8ef8cf2213495c6df51e9e"
     },
     {
       "path": "docs/planning/hypha_drum_psr_g2_20261008/README.md",
@@ -390,8 +510,8 @@
     {
       "path": "docs/planning/hypha_drum_psr_usability_improvement_plan_20261007.md",
       "status": "modified",
-      "bytes": 79247,
-      "sha256": "38adf59c72c7424e03d17cf64415490cbb121ba5e6267a602710d2fe239e1f2e"
+      "bytes": 79986,
+      "sha256": "08a832cb0518b96c1d1e2170831179254625e5a490db4912adadb4593b02a63a"
     },
     {
       "path": "docs/provenance/asset_distribution_registry.json",
@@ -562,6 +682,12 @@
       "sha256": "90aec0e2687f079d883a7267b16e0d7c2ac127f4105e35b4a2675f3365319aad"
     },
     {
+      "path": "juce_shell/src/HyphaFeedbackStrip.h",
+      "status": "modified",
+      "bytes": 2033,
+      "sha256": "449b5fbcc66405542c1e02445aed7558b771d6242dd487b28d28da0adf46dfda"
+    },
+    {
       "path": "juce_shell/src/HyphaHistoryInspection.h",
       "status": "modified",
       "bytes": 10059,
@@ -606,14 +732,14 @@
     {
       "path": "juce_shell/src/HyphaObservatoryButton.cpp",
       "status": "modified",
-      "bytes": 3085,
-      "sha256": "838220781b277d3335c50a9c4866733b2212372a4107249ec6565651c517ba76"
+      "bytes": 3380,
+      "sha256": "ac5ced148bf1a666a4724f903fd29bbfbcdeda34d480c828aa7f03635326f881"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryButton.h",
       "status": "added",
-      "bytes": 1457,
-      "sha256": "6a54b94f88fd57da1481f14be3409a219ae0c37570b90f79a5074a00b67c9345"
+      "bytes": 1471,
+      "sha256": "fff779697d223d8d726b3e78e848b7ab2fd3b2fa369c239af5ed6c06b934b344"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryCapture.cpp",
@@ -642,26 +768,26 @@
     {
       "path": "juce_shell/src/HyphaObservatoryView.cpp",
       "status": "modified",
-      "bytes": 21406,
-      "sha256": "9290cb2478710478c6e3432c3340814419526606d77b45a792a1d6756833064b"
+      "bytes": 20521,
+      "sha256": "1aa0ea79acd35c22f4c7e1ce304259d8b7571548b29c6bab1afe9b8b5660f13a"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryView.h",
       "status": "modified",
-      "bytes": 23906,
-      "sha256": "8407ed94ce4c295952c9ce8d9a87880c323b109ed3db891fa57914491109a9d8"
+      "bytes": 23934,
+      "sha256": "8731152b2de79d48037b9f4187847d143a5cc7c1ced47452b2489ed3d457ab94"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryViewFooter.cpp",
       "status": "modified",
-      "bytes": 11956,
-      "sha256": "88e1d3b13fb17fe2639ea027f7d499c33e657366ea64a2c8cb8fa65ba530a227"
+      "bytes": 12078,
+      "sha256": "1fbd12d81414d8d64a1bd98a944c09586192164eeaa65f2c2268a2fa75104fa6"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryViewLayout.cpp",
       "status": "modified",
-      "bytes": 12954,
-      "sha256": "a8be3708b6bbcb391083e06af1ae3f2cea1e9201345249733637aaa151d778b4"
+      "bytes": 13529,
+      "sha256": "41031d763060a2d7fa725e85b090afc463f0d0c000cd441c2894376c45123207"
     },
     {
       "path": "juce_shell/src/HyphaObservatoryViewState.cpp",
@@ -850,16 +976,40 @@
       "sha256": "e01d4ce49e6a90894833383e0f78737950c01093af9a5767ae2061622a82216a"
     },
     {
+      "path": "juce_shell/tests/EditorProductChecks.h",
+      "status": "modified",
+      "bytes": 18029,
+      "sha256": "01a4ec108075fe62a613b77affab569d13e31f42dbf823b273c5f933837b3873"
+    },
+    {
+      "path": "juce_shell/tests/FooterNoticeContractChecks.h",
+      "status": "added",
+      "bytes": 5211,
+      "sha256": "ae3eeefe89a7b13bf447cbf92beaa153f773ff7e5aa45f012fa778c103934cfd"
+    },
+    {
       "path": "juce_shell/tests/HybridVuCalibrationContract.h",
       "status": "added",
-      "bytes": 15129,
-      "sha256": "bf6f266e8a1e2229557881cc9d702377b0c7f3acd1b55e43c26ecb5ab29af829"
+      "bytes": 17373,
+      "sha256": "1d821097fba70f7c9c904ce5c5d0143fb54832be7a8b580315d01f7fb66d131d"
     },
     {
       "path": "juce_shell/tests/HybridVuContractTest.cpp",
       "status": "modified",
       "bytes": 9324,
       "sha256": "59fcdff873e5cad38ecec17fe2409c6ebe292360a1c77df9df353e2febd7e02c"
+    },
+    {
+      "path": "juce_shell/tests/LiveCompareActionNoticeContractTest.h",
+      "status": "modified",
+      "bytes": 1753,
+      "sha256": "da5370f37bd2fa8922d3e02e080db42694d2e01690d85c9f61f3e93ed399a8bd"
+    },
+    {
+      "path": "juce_shell/tests/LiveCompareFooterContractTest.cpp",
+      "status": "modified",
+      "bytes": 26419,
+      "sha256": "b9f06b300e1b85dd9fce6ed7b2d6f27818cdac888c8e2d16122450113f9850cb"
     },
     {
       "path": "juce_shell/tests/ObservatoryDomainBedContract.h",
@@ -916,6 +1066,12 @@
       "sha256": "7c379c4b91f5831f116889249ef2f057b972c053d7e4dcbdfde45fe1c992376b"
     },
     {
+      "path": "juce_shell/tests/live_compare_offset_product_test.cpp",
+      "status": "modified",
+      "bytes": 17827,
+      "sha256": "3308d61c9b3c91dcfba5f62a6d6f99f45b90f26b30663a9b7ab4a4d4622a9ae1"
+    },
+    {
       "path": "juce_shell/tests/ui_render_contract_test.cpp",
       "status": "modified",
       "bytes": 25854,
@@ -943,7 +1099,13 @@
       "path": "scripts/source_line_budget.tsv",
       "status": "modified",
       "bytes": 1298,
-      "sha256": "f6291b99d1b7fea0647d67cb3f819690854951d8761d7d7792e3da35e482b2f2"
+      "sha256": "b0ab44c0d9244922d0ab2a68de03bc41c9825541b9ddad9aeceb357dfd83e097"
+    },
+    {
+      "path": "scripts/structural_repair_detection.test.mjs",
+      "status": "modified",
+      "bytes": 12097,
+      "sha256": "f996eb81370adf975e76b34c0de2c8d6ceb75b5b53f5ebeb707da1fbc21dd987"
     },
     {
       "path": "scripts/test_release_source.sh",
