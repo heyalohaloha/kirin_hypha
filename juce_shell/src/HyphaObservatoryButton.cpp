@@ -1,4 +1,4 @@
-#include "HyphaObservatoryView.h"
+#include "HyphaObservatoryButton.h"
 #include "HyphaKeyLight.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
