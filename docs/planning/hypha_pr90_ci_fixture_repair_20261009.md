@@ -2,7 +2,7 @@
 
 2026-10-09. Base: `3c68902559eab631c9374b3b0b273d1d3fa1c094` (B-1340).
 Scope: test fixtures only; shipping processors, clock policy, gap thresholds, lease duration,
-PCM oracle, deadlines, test inventory, CI matrix and installed candidates are unchanged.
+PCM oracle, deadlines, native test inventory, CI matrix and installed candidates are unchanged.
 
 ## Observed failures
 
@@ -33,12 +33,34 @@ never resume PRE, expose the cause and permit END. Existing gap/content/stop fau
 held gain, offline END and ordinary bit-identical output checks remain selected.
 No fixture retries, threshold increases or deadline extensions were added.
 
-The Rust pair setup renews POST's request after worker completion before asking PRE to serve it,
-as the real IO path does. A regression intentionally waits past the unchanged lease deadline.
-It failed before the repair at the same assertion and passed after it. The existing explicitly
-expired-write and clock-cutover tests retain their original request control.
+The Rust fixture renews POST's request after worker completion before asking PRE to serve it,
+as the real IO path does. Both pair setup and subsequent PRE authority/recovery publications use
+the same helper. Paused-write tests renew before the write begins, then leave the request untouched
+while paused. The explicitly expired write still exceeds the original 1500 ms limit and must fail.
+The pair regression and recovery path intentionally wait past that limit. Each reproduced its
+PRE publication failure before the corresponding repair and passed after it.
 
-## Validation
+## Follow-up from B-1341 CI
+
+Run [37861733664](https://github.com/heyalohaloha/kirin_hypha/actions/runs/37861733664),
+head `a3454ec80027f2d08552aa34cfabcca7a0fe552b`, passed Windows preflight (including LOOP,
+pluginval and unsigned installer lifecycle), AU arm64 and public history. Its first Mac source
+attempt failed only the unchanged UI TIME scaling benchmark. The preceding candidate and the
+local exact-source benchmark passed. One Mac-only rerun tested the timing-variation hypothesis;
+Windows/AU jobs were reused. The rerun passed that UI benchmark, all 90 native product tests and
+7 update integration tests, but found a missing request heartbeat in the Rust clock-cutover
+recovery path. The initial B-1341 fix covered pair setup only. No further same-source rerun was
+started. This follow-up fixes every ordinary PRE service path and adds a deterministic expired
+lease before recovery; safety deadlines and paused-write invalidation assertions remain intact.
+
+## Local validation
+
+The follow-up request helper passed the clock suite (10 tests) and workspace (2386 passed,
+0 failed, 43 ignored including doc tests). Its forced recovery delay reproduced the exact
+PRE assertion before the helper was applied. Clippy, fmt and lightweight contracts passed.
+The 1413 production/tooling paths compared with B-1340 have no changes after excluding this
+test-only module. Native fixture code is identical to B-1341, whose Mac 90-test suite and
+Windows preflight passed; the native local evidence below is reused within that exact scope.
 
 - Rust clock suite: 10 passed, including the new delayed-worker regression.
 - Clippy workspace/all-targets, Cargo fmt, lightweight source contract, source line budget and diff check: passed.
@@ -50,7 +72,7 @@ expired-write and clock-cutover tests retain their original request control.
 - Native safety: all 8 passed in 94.04 s, including unclocked LOOP stall/POST hold/END,
   callback-gap/content/stop faults, direct and reused MATCH, and explicit attenuation approval.
 - Total affected native inventory: 10 tests; all passed without reruns.
-- Exact-commit CI is required after publishing the repair; the old failed run is not reused as PASS.
+- Exact-commit CI is required after publishing each repair; the old failed run is not reused as PASS.
 
 ## Session record
 

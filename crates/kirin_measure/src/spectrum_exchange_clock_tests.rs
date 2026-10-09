@@ -40,16 +40,24 @@ impl Fixture {
     fn paired(&self) {
         feed(&self.pre_runtime, SpectrumInputClock::LegacyPresentation);
         feed(&self.post_runtime, SpectrumInputClock::LegacyPresentation);
-        // Worker completion can outlast the 1.5 s request lease on a loaded runner.
-        // Model the real POST IO heartbeat before PRE serves the request; keep the lease limit.
-        assert!(self.post.post_tick("post", Some(self.target.clone())));
-        assert!(self.pre.pre_tick("pre", &self.target.instance_dir));
+        assert!(self.serve_pre());
         assert!(self.post.post_tick("post", Some(self.target.clone())));
         assert_eq!(
             self.post.try_view().unwrap().status,
             SpectrumViewStatus::Active
         );
         assert!(self.post.try_view().unwrap().difference.is_some());
+    }
+
+    fn renew_request(&self) {
+        // Worker completion can outlast the 1.5 s request lease on a loaded runner.
+        // Model the real POST IO heartbeat before PRE serves the request; keep the lease limit.
+        assert!(self.post.post_tick("post", Some(self.target.clone())));
+    }
+
+    fn serve_pre(&self) -> bool {
+        self.renew_request();
+        self.pre.pre_tick("pre", &self.target.instance_dir)
     }
 }
 
@@ -128,12 +136,12 @@ fn local_pre_cannot_publish_and_known_authority_rewrites_the_same_endpoint() {
     let fixture = Fixture::new();
     fixture.paired();
     feed(&fixture.pre_runtime, SpectrumInputClock::LocalProject);
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_none());
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_none());
     feed(&fixture.pre_runtime, SpectrumInputClock::LegacyPresentation);
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_some());
 }
 
@@ -142,6 +150,7 @@ fn clock_cleanup_preserves_foreign_publication_and_contention_preserves_owned_pu
     let fixture = Fixture::new();
     fixture.paired();
     let before = read_snapshot(&fixture.target.instance_dir).unwrap();
+    fixture.renew_request();
     fixture.pre_runtime.with_locked_history_for_clock_test(|| {
         assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
         assert_eq!(
@@ -158,7 +167,7 @@ fn clock_cleanup_preserves_foreign_publication_and_contention_preserves_owned_pu
     )
     .unwrap();
     feed(&fixture.pre_runtime, SpectrumInputClock::LocalRender);
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     assert_eq!(
         read_snapshot(&fixture.target.instance_dir)
             .unwrap()
@@ -202,7 +211,7 @@ fn known_clock_cutover_replaces_same_endpoint_pre_bytes_and_post_delta_timeline(
         |p| known(p, crate::PresentationLatencySource::Vst3, 2_048),
         0.5,
     );
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     let new = read_snapshot(&fixture.target.instance_dir).unwrap();
     let peak = |history: &SpectrumHistory| {
         history
@@ -297,6 +306,7 @@ fn clock_cutover_during_pre_io_retires_completed_old_authority_publication() {
     feed(&fixture.pre_runtime, |p| {
         known(p, crate::PresentationLatencySource::Vst3, 2_048)
     });
+    fixture.renew_request();
     let pause =
         crate::atomic_file::AtomicWritePause::install(snapshot_path(&fixture.target.instance_dir));
     let pre = Arc::clone(&fixture.pre);
@@ -315,7 +325,9 @@ fn clock_cutover_during_pre_io_retires_completed_old_authority_publication() {
     feed(&fixture.pre_runtime, |p| {
         known(p, crate::PresentationLatencySource::Vst3, 2_048)
     });
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    // Reproduce a worker/scheduler delay before the recovery publication deterministically.
+    thread::sleep(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
+    assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_some());
 }
 
@@ -347,6 +359,7 @@ fn clock_cutover_during_expired_pre_write_removes_old_bytes_before_early_return(
     feed(&fixture.pre_runtime, |p| {
         known(p, crate::PresentationLatencySource::Vst3, 2_048)
     });
+    fixture.renew_request();
     let pause =
         crate::atomic_file::AtomicWritePause::install(snapshot_path(&fixture.target.instance_dir));
     let pre = Arc::clone(&fixture.pre);
@@ -365,12 +378,11 @@ fn clock_cutover_during_expired_pre_write_removes_old_bytes_before_early_return(
     assert!(read_snapshot(&fixture.target.instance_dir).is_none());
     // Renew after the deliberately expired request, then verify local cleanup cannot revive
     // the retired bytes and the same endpoint can be published under current known authority.
-    assert!(fixture.post.post_tick("post", Some(fixture.target.clone())));
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_none());
     feed(&fixture.pre_runtime, |p| {
         known(p, crate::PresentationLatencySource::Vst3, 2_048)
     });
-    assert!(fixture.pre.pre_tick("pre", &fixture.target.instance_dir));
+    assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_some());
 }
