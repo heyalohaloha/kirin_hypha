@@ -79,7 +79,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     const auto live = processorRef.liveCompareStatus();
     if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported()) return;
     menu.addSectionHeader ("PRE / POST");
-    const auto recovery = hypha::live_compare_ui::namedPresentation (live, processorRef.liveCompareAdmission (false));
+    const auto recovery = hypha::live_compare_ui::currentNamedPresentation (live, processorRef.liveCompareAdmission (false));
     if (*recovery.instruction != 0) menu.addSectionHeader (recovery.instruction);
     if (! live.active) menu.addItem (40, "LISTEN", processorRef.liveCompareAdmission (false) == StartResult::started);
     else

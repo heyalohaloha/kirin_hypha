@@ -46,7 +46,7 @@ impl IdleRecordStop {
         record_sm: &Arc<RecordStateMachine>,
         signal_state: &Arc<AtomicU8>,
         writer_exists: bool,
-        record_error_message: &Arc<RwLock<Option<String>>>,
+        completion_notice: &Arc<RwLock<Option<String>>>,
         paired_pre_target: &Arc<Mutex<Option<String>>>,
         project_hash: &str,
         post_instance_id: &str,
@@ -81,7 +81,7 @@ impl IdleRecordStop {
             );
         }
         exit_record_preserve_pair(record_sm);
-        if let Ok(mut message) = record_error_message.write() {
+        if let Ok(mut message) = completion_notice.write() {
             *message = Some(idle_stop_message(timeout, writer_exists));
         }
     }

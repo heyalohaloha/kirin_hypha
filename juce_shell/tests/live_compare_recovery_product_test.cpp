@@ -1,5 +1,6 @@
 #include "EditorProductChecks.h"
 #include "ValidationStorageSandbox.h"
+#include "LiveCompareNoticeProductChecks.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
 
@@ -194,5 +195,6 @@ int main()
     hypha::tests::editor_product::verifyRecoveryGeometry();
     hypha::tests::editor_product::verifyHoldAfterEnd();
     hypha::tests::editor_product::verifyLoopPresentation();
-    std::cout << "Recovery product: PASS (50 language/size/domain cases, both REF panes, stable layout, END/stop/play)\n";
+    hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
+    std::cout << "Recovery product: PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices)\n";
 }

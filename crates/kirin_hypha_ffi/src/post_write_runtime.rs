@@ -8,7 +8,7 @@ impl KirinHyphaEngine {
     /// `kirin_measure::spawn_io_thread_post` を engine 既存の共有状態（record_sm /
     /// measure_result / signal_state / session_summary）+ POST 固有 Arc に繋いで起動する。
     /// io_thread の run_tick が `select_target_pre`（B-059 厳格）で PRE を選び post.json に
-    /// Δ を書く。**Keep/ack（write_pending）は配線しない**（trigger closures は no-op = 3d-a）。
+    /// Δ を書く。Keep/Stop broadcastはengineの共有状態へ接続する。
     ///
     /// 前提・割り切り（3d-a）:
     /// - `set_license` の後に呼ぶ（io_thread の license スナップショットは PRE と同様 / 但し
@@ -160,7 +160,9 @@ impl KirinHyphaEngine {
         // B-118 Phase 3 (③): engine 保持の Arc を共有（io が書き JUCE getter が読む / 世代跨ぎ継続）。
         let record_error_message = Arc::clone(&self.record_error_message);
         let pair_claimed_at = Arc::clone(&self.pair_claimed_at);
-        let pair_release_notice = Arc::new(RwLock::new(None));
+        // Pair release and idle Keep completion are consumed once by the shipping toast rail.
+        // Retain this engine-owned slot across IO restarts; neither is a persistent fault.
+        let pair_release_notice = Arc::clone(&self.keep_action_notice);
         let is_playing = Arc::new(AtomicBool::new(false));
         let live_license = self.license.clone();
         // B-118: io spawn を restart-closure に包む（初回 spawn も watchdog 再起動も同一経路）。

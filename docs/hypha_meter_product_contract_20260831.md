@@ -571,6 +571,8 @@ Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−1
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 Recordの中間I／LRAは同じ処理済みprefixのexact-energy cacheを使い、入力blockごとの全履歴走査を避ける。補助cacheはengineごとに65,536 distinct nodesを上限とし、上限／丸め曖昧gateではcanonical exactへ戻る。Max TPと値の有無・表示期限は変えない。Stopは従来のtight-drainとcanonical finalizeを使い、保存Recordの数値・schema・範囲を変えない。
+接続・pair変更・state復元だけでは、過去のLISTEN退役原因を足元の常設案内やMENU見出しにしない。実際に動作していたLISTENの正常音量での中断は既存の3秒通知で理由と再開先を示し、その後LIVE／HOLDへ戻す。現在の待機・content hold・終了時のaudio callback待ち・未解除の減衰とRETURNは、必要な間表示する。Keepのidle自動停止も一度だけ受け取る3秒通知とし、再pollや再openで古い完了を復活させない。
+
 Keep／Record終了の状態は既存の最下部通知領域へ示す。保持した6つの結果factは既存LEVELから確認し、TIME／FREQ／SPACEの選択面やタブへ結果見出しを重ねない。明示操作の保存失敗は従来どおり理由を通知する。
 Recordの音声対応では、主時計・presentation・source・latencyが連続し、補助時計だけが切り替わったとproducerが確認した境界を、真の音声欠落と区別する。比較時計のepochは引き続き切る。seek、強制cut、source変更、未知latencyを連続音声として承認せず、欠落の補間やcompleteの偽装を行わない。
 

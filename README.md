@@ -1045,17 +1045,20 @@ trial; it is never counted as the other Source. Stop, seek, unconfirmed loop tim
 bypass, offline render or a safety failure ends that trial without automatically restarting.
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
 Existing attenuation stays held; an END already requested continues to actual normal level.
-The first detected interruption reason survives teardown and remains on the stopped screen with
-POST's output status and recovery instructions. A later callback cannot overwrite that reason or
-attribute an old failure to a new attempt. It describes the detected condition, not an inferred
-fault in another plug-in. END clears it only after the normal-level output receipt.
+The first detected interruption reason survives teardown internally. An actual LISTEN interruption
+is explained once in the footer; at normal output level that notice clears after three seconds.
+Pairing PRE or reopening saved settings alone does not show a listening warning. A later callback
+cannot overwrite the retained reason or attribute an old failure to a new attempt. The notice
+describes the detected condition, not an inferred fault in another plug-in.
 In named LISTEN, PRE WAIT has persistent guidance: ordinary timing checks resume automatically;
 a changed content offset requires stopping and restarting DAW playback; disabled delay compensation
 requires enabling it. Selecting POST leaves the comparison's approved attenuation intact.
 The retained fault and the current recovery condition are separate: END alone does not clear a
 content-timing hold. The stop/play instruction remains until a stopped audio callback clears it.
-After an automatically ended session at normal level, the route is **MENU → LISTEN**, not a
-nonexistent END button. Held attenuation instead keeps the visible **RETURN +x dB** control.
+After an automatically ended session at normal level, the temporary notice points to **MENU → LISTEN**.
+Current waiting, timing holds and a pending audio return retain their guidance until resolved.
+Held attenuation keeps the visible **RETURN +x dB** control. Idle Keep completion also uses a
+three-second notice; opening the editor or polling again does not replay a consumed result.
 Blind interruption and its first reason are committed together for the sampled trial; named PRE
 selection uses the same command-bound rule, so a late callback cannot clear a newer selection.
 Reference and its access panel follow the parent editor's current body bounds when a recovery
