@@ -36,6 +36,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_measure/src/record_take.rs"
     ));
+    const RECORD_TAKE_CLOCK_CAPTURE_RS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/kirin_measure/src/record_take_clock_capture.rs"
+    ));
     const PRE_DISPLAY_CLOCK_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/pre_display/PreDisplayClock.h"
@@ -412,7 +416,7 @@ mod tests {
     #[test]
     fn capture_clock_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
-            RECORD_TAKE_RS,
+            RECORD_TAKE_CLOCK_CAPTURE_RS,
             "pub fn note_capture_window_with_clocks_boundary(\n        &self,",
         );
 
