@@ -127,6 +127,7 @@ pub struct RecordTakeTracker {
     record_render_epoch: AtomicU64,
     record_epoch_priority: AtomicU8,
     record_capture_epoch: AtomicU64,
+    record_audio_mapping: clock_capture::RecordAudioMapping,
     record_bounded_duration_samples: AtomicU64,
     record_bounded_range_valid: AtomicBool,
     record_bounded_start_position: AtomicI64,
@@ -154,7 +155,6 @@ impl Default for RecordTakeTracker {
 mod clock_capture;
 #[path = "record_take_mapping.rs"]
 mod mapping;
-
 impl RecordTakeTracker {
     /// Audio-thread capture clock note. Call immediately before the corresponding ring push,
     /// so Measure Thread can map its consumed native frame count back to the host transport

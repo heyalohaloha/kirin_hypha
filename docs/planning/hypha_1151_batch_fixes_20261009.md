@@ -26,6 +26,8 @@ M/TP/LEVEL CRESTは400 ms、S/PSR/CORRは3秒を双方の同じrunで処理し�
 
 Recordの補助時計cut例外はproducerで主時計と既知latencyの連続性を確認した場合だけ。serialized Record model、canonical Stop、HMAC/schema、sample範囲、比較epoch、実欠落の表現は維持する。seek/force cut/source変更/未知latencyへ適用しない。補間やcomplete偽装をしない。
 
+補助時計cutが繰り返されてpair ringが周回しても、連続する主時計と同一latencyのRecord範囲を現在・直前の選択takeの2枠に保持する。Audio Threadの固定容量atomic証拠だけを延長し、pairの過去epochは復活させない。真のcut以後にprefixを延長・復活しない。異なるlatency間の対応は既存の隣接epoch検証へ渡す。
+
 ## 表示・性能の境界
 
 FREQは6秒の奥への流れ、全観測内容、12 Hz曲線/2 Hz数値を維持する。地形scratchは既存bounded storeを使い、blend/coverageの順を変えない。非表示editorの表示取得を止めても通常計測、Record、Session、IOは独立して進む。Audio Threadへ仕事を移さない。

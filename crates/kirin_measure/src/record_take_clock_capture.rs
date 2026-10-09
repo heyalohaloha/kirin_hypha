@@ -1,6 +1,10 @@
 //! Callback clock publication and non-RT continuity checks for one captured take.
 use super::*;
 
+#[path = "record_take_audio_mapping.rs"]
+mod audio_mapping;
+pub(super) use audio_mapping::RecordAudioMapping;
+
 impl RecordTakeTracker {
     /// Full callback-local clock transaction. Auxiliary samples remain raw host evidence; they
     /// are never substituted for the established Record/WAV position mapping.
@@ -195,6 +199,11 @@ impl RecordTakeTracker {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             );
+            let index = epoch as usize % self.capture_clock_slots.len();
+            if let Some(span) = self.capture_clock_slots[index].read(epoch) {
+                self.record_audio_mapping
+                    .note(self.record_capture_epoch.load(Ordering::Acquire), span);
+            }
         }
         self.publish_record_mark_point(
             presentation_position_samples,
@@ -259,6 +268,15 @@ impl RecordTakeTracker {
     ) -> Option<(i64, i64)> {
         if first_epoch == 0 || duration_samples == 0 {
             return None;
+        }
+        // Only Record's producer-qualified audio prefix may outlive the auxiliary pair ring.
+        // The regular epoch chain remains the authority for actual latency changes.
+        if let Some(range) = self.presentation_range_for_capture_epoch(
+            first_epoch,
+            raw_start_samples,
+            raw_start_samples.checked_add(i64::try_from(duration_samples).ok()?)?,
+        ) {
+            return Some(range);
         }
         let mut span = self.capture_span_for_epoch(first_epoch)?;
         let span_raw_start = span.raw_host_position_start_samples?;

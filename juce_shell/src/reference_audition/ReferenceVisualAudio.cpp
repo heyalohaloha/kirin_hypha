@@ -32,11 +32,11 @@ bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pag
                                               readStart, true, channels > 1))
             return false;
 
+    using Weights = std::array<double, halfTaps * 2>;
     const auto convert = [&] {
         const double cutoff = juce::jmin (1.0, outputSampleRate / sourceSampleRate) * 0.94;
         // This non-RT job owns at most 512 exact phases (about 200 KiB), then computes
         // uncached phases normally. No rounding, persistent cache or rate/source sharing.
-        using Weights = std::array<double, halfTaps * 2>;
         std::unordered_map<double, Weights> phases;
         phases.reserve (128);
         for (int outputFrame = 0; outputFrame < framesPerPage; ++outputFrame)

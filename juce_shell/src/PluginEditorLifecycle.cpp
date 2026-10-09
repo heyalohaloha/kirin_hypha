@@ -30,7 +30,9 @@ void KirinHyphaEditor::timerCallback()
 {
     // Some DAWs retain a hidden editor. UI acquisition belongs only to a showing editor;
     // always-on Meter Session, Record and their workers continue independently.
-    if (!isShowing())
+    // A visible detached editor is also used by native hosts/tests before its peer is attached.
+    // Once attached, ancestor visibility and minimisation are part of the showing contract.
+    if (!isVisible() || (getPeer() != nullptr && !isShowing()))
     {
         processorRef.setReferenceViewPresented (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY

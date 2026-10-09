@@ -32,10 +32,6 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
-    const RECORD_TAKE_RS: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../crates/kirin_measure/src/record_take.rs"
-    ));
     const RECORD_TAKE_CLOCK_CAPTURE_RS: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_measure/src/record_take_clock_capture.rs"
@@ -419,6 +415,10 @@ mod tests {
             RECORD_TAKE_CLOCK_CAPTURE_RS,
             "pub fn note_capture_window_with_clocks_boundary(\n        &self,",
         );
+        let audio_mapping_body = function_body(
+            include_str!("../../crates/kirin_measure/src/record_take_audio_mapping.rs"),
+            "pub(in crate::record_take) fn note(",
+        );
 
         for forbidden in [
             "StoragePaths",
@@ -437,10 +437,12 @@ mod tests {
             "sleep",
             "join",
         ] {
-            assert!(
-                !body.contains(forbidden),
-                "capture clock core must not contain {forbidden}"
-            );
+            for core in [&body, &audio_mapping_body] {
+                assert!(
+                    !core.contains(forbidden),
+                    "capture clock core must not contain {forbidden}"
+                );
+            }
         }
 
         assert!(body.contains("capture_frames_total"));

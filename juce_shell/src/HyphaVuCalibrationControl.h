@@ -36,13 +36,13 @@ public:
         const auto colour = active ? COL_NORMAL : COL_MUTED.withAlpha (0.78f);
         g.setColour (colour);
         const auto area = getLocalBounds().reduced (2, 0).toFloat();
-        const auto text = getButtonText();
+        const auto legendText = getButtonText();
         const juce::Graphics::ScopedSaveState saved (g);
         g.reduceClipRegion (getLocalBounds());
-        g.setFont (displayTextFont (text, context, typography::TextRole::legend,
+        g.setFont (displayTextFont (legendText, context, typography::TextRole::legend,
                                    typography::Composition::instrument, area));
         const auto font = g.getCurrentFont();
-        text_style::drawText (g, text, area, juce::Justification::centred, false);
+        text_style::drawText (g, legendText, area, juce::Justification::centred, false);
         // A discreet underline reveals the click target only on hover / keyboard focus.
         if (active)
         {

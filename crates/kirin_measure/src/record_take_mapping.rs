@@ -57,6 +57,7 @@ impl RecordTakeTracker {
             record_render_epoch: AtomicU64::new(0),
             record_epoch_priority: AtomicU8::new(TakeEpochPriority::None as u8),
             record_capture_epoch: AtomicU64::new(0),
+            record_audio_mapping: clock_capture::RecordAudioMapping::new(),
             record_bounded_duration_samples: AtomicU64::new(0),
             record_bounded_range_valid: AtomicBool::new(false),
             record_bounded_start_position: AtomicI64::new(i64::MIN),
@@ -119,9 +120,7 @@ impl RecordTakeTracker {
         // (including ACK pre-roll promotion); BWF is a final exact-containment proof, never an
         // alternate epoch selector.
         let selected = self.selected_capture_epoch(expected_generation)?;
-        let index = selected as usize % self.capture_clock_slots.len();
-        self.capture_clock_slots[index]
-            .read(selected)
+        self.record_audio_span_for_epoch(selected)
             .is_some_and(contains)
             .then_some(selected)
     }
@@ -148,8 +147,7 @@ impl RecordTakeTracker {
         if epoch == 0 || raw_end_samples <= raw_start_samples {
             return None;
         }
-        let index = epoch as usize % self.capture_clock_slots.len();
-        let span = self.capture_clock_slots[index].read(epoch)?;
+        let span = self.record_audio_span_for_epoch(epoch)?;
         let (raw_start, presentation_start) = (
             span.raw_host_position_start_samples?,
             span.position_start_samples?,
@@ -184,8 +182,7 @@ impl RecordTakeTracker {
         if epoch == 0 || presentation_end_samples <= presentation_start_samples {
             return None;
         }
-        let index = epoch as usize % self.capture_clock_slots.len();
-        let span = self.capture_clock_slots[index].read(epoch)?;
+        let span = self.record_audio_span_for_epoch(epoch)?;
         let (span_presentation_start, span_raw_start) = (
             span.position_start_samples?,
             span.raw_host_position_start_samples?,
@@ -210,4 +207,16 @@ impl RecordTakeTracker {
         ))
     }
 
+    fn record_audio_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
+        // Use the longer factual prefix without changing Watch/pair span lookup or its TTL.
+        let ring = self.capture_span_for_epoch(epoch);
+        let prefix = self.record_audio_mapping.read(epoch);
+        match (ring, prefix) {
+            (Some(ring), Some(prefix)) if ring.capture_end_frame >= prefix.capture_end_frame => {
+                Some(ring)
+            }
+            (_, Some(prefix)) => Some(prefix),
+            (ring, None) => ring,
+        }
+    }
 }

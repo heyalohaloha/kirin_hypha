@@ -30,12 +30,12 @@ public:
         const juce::Component::SafePointer<SelectionControl> safe (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                             .withMinimumWidth (getWidth()).withItemThatMustBeVisible (getSelectedId()),
-            [safe, labels = std::move (labels)] (int id) {
+            [safe, offeredLabels = std::move (labels)] (int id) {
                 if (safe == nullptr) return;
                 safe->showing = false;
                 const auto index = safe->indexOfItemId (id);
-                if (index >= 0 && index < static_cast<int> (labels.size())
-                    && safe->getItemText (index) == labels[static_cast<std::size_t> (index)])
+                if (index >= 0 && index < static_cast<int> (offeredLabels.size())
+                    && safe->getItemText (index) == offeredLabels[static_cast<std::size_t> (index)])
                     safe->choose (id);
             });
     }
