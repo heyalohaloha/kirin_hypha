@@ -42,6 +42,8 @@ DRUM主面は値と図、全体値がなければ「—」。部分値・分類�
 
 対象Rust/native試験で正常・競合・欠損・再起動・境界を確認し、workspace test、clippy、実測inventoryの全ignored parity/pairing、release-source gateを通す。新しいlive製品試験を足す場合は正規inventoryとrelease-source regex/countを同時に更新する。retry条件は広げない。
 
+Windowsの全owned native targetは製品targetと同じUTF-8指定を継承する。CP932で日本語commentが行継続として解釈される試験targetのコンパイル失敗を、製品sourceの括弧変更や試験除外で隠さない。
+
 採用commitとJUCE実bytesを固定し、正規入口でMac Universal 6本とWindows x64 4本を作る。診断AAX、通常Pro Tools用PACE署名、formal installer、exact CIを区別する。署名・公証・配置を行った場合はLS用PKGとApple verification dry-runまで準備する。公開は個別candidateの承認後だけ。
 
 実hostの11現象の再確認、A01の事前固定した性能上限/host範囲、A10の実clockと全slot出力、AU PRE authority、Reference V停止時のOS publicationとHypha退役理由、VST3 offline bit identityは別の証拠が必要。process単体0.1%原則をDAW process CPUへ置き換えない。

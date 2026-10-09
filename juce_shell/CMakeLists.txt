@@ -116,6 +116,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # JUCE 7.0.12 (GPLv3 option), pinned as submodule. Does not touch crates/ or xtask.
 add_subdirectory(JUCE)
+# All owned targets, including native contracts, read the same UTF-8 source. Without this
+# directory setting MSVC may parse Japanese comments as CP932 and swallow a following line.
+add_compile_options(${KIRIN_SOURCE_ENCODING_ARGS})
 include(cmake/UpdateChecking.cmake)
 if(KIRIN_HYPHA_AAX_ENABLED)
     juce_set_aax_sdk_path("${KIRIN_HYPHA_AAX_SDK_PATH}")
