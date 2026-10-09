@@ -19,7 +19,7 @@ crates/kirin_measure/src/record_expected.rs	575
 crates/kirin_measure/src/record_ingress.rs	529
 crates/kirin_measure/src/record_signal.rs	974
 crates/kirin_measure/src/record_signal/tests.rs	855
-crates/kirin_measure/src/record_take.rs	2467
+crates/kirin_measure/src/record_take.rs	2144
 crates/kirin_measure/src/record_writer.rs	8169
 crates/kirin_measure/src/record_writer_claim.rs	659
 crates/kirin_measure/src/trace_content_clock.rs	1652
