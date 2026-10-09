@@ -30,12 +30,15 @@ mod record_summary_publication;
 
 #[path = "measure_capture_plan.rs"]
 mod capture_plan;
+#[path = "record_epoch_transition.rs"]
+mod record_epoch_transition;
 #[cfg(test)]
 use capture_plan::CaptureChunkPlan;
 use capture_plan::{
     capture_chunk_plan, observed_capture_endpoint, should_drop_unselected_record_epoch,
     trusted_pre_roll_epoch,
 };
+use record_epoch_transition::record_grid_alignment;
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
 /// 100 ms native boundary をそのまま保持する。Record の PhaseD だけ有限長 resample を行い、
@@ -89,17 +92,6 @@ fn should_process_phase_d(is_recording: bool) -> bool {
 #[inline]
 fn should_suspend_measurement(state: SignalState, is_recording: bool) -> bool {
     !is_recording && state != SignalState::Active
-}
-
-fn record_grid_alignment(position_start: i64, sample_rate: u32) -> (usize, i64) {
-    let slot_frames = (sample_rate as i64 / 10).max(1);
-    let phase_frames = position_start.rem_euclid(slot_frames) as usize;
-    let remaining = if phase_frames == 0 {
-        slot_frames
-    } else {
-        slot_frames.saturating_sub(phase_frames as i64)
-    };
-    (phase_frames, position_start.saturating_add(remaining))
 }
 
 /// B-115: POST pair 変更ロックの述語。**実再生中（playing）かつ live**（processBlock 進行中）の
@@ -858,13 +850,13 @@ pub fn spawn_measure_thread(
                         capture_plan.position_start_samples
                     );
                 }
-                if latency_epoch_transition {
-                    // Keep the DSP window continuous. Only the sample-coordinate mapping changed;
-                    // resetting here would inject artificial silence and lose 400 ms of TRACE.
-                    record_next_grid_end = None;
-                    record_capture_epoch = capture_plan.capture_epoch;
-                    record_grid_cursor = capture_plan.position_start_samples;
-                }
+                record_epoch_transition::advance_record_epoch(
+                    latency_epoch_transition,
+                    capture_plan,
+                    &mut record_next_grid_end,
+                    &mut record_capture_epoch,
+                    &mut record_grid_cursor,
+                );
                 chunk_f64.clear();
                 let mut replayed_prefix_samples = 0_usize;
                 for _ in 0..available {
