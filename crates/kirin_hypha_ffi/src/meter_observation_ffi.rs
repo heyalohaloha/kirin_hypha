@@ -173,7 +173,19 @@ fn build_observatory_frame(
     snapshot: &MeterSessionSnapshot,
     signal_before: u8,
 ) -> Option<KirinObservatoryFrame> {
-    let delta_result = engine.poll_delta().unwrap_or_default();
+    let mut delta_result = engine.poll_delta().unwrap_or_default();
+    if delta_result.mode == kirin_measure::DeltaMode::Active {
+        let (values, crest) = time_ffi::level_values(engine, snapshot).unwrap_or(([None; 6], None));
+        delta_result.lufs = values[0];
+        delta_result.lufs_s = values[1];
+        delta_result.tp = values[2];
+        delta_result.psr = values[3];
+        delta_result.crest = crest;
+        if values.iter().all(Option::is_none) {
+            delta_result.comparison.state = kirin_measure::ComparisonState::Preparing;
+            delta_result.comparison.reason = kirin_measure::ComparisonReason::AwaitingMeasurement;
+        }
+    }
     let delta = to_c_delta(&delta_result);
     let signal_after = engine.signal_state_abi();
     if signal_before != signal_after {

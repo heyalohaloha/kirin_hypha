@@ -42,6 +42,45 @@ fn authority(engine: &KirinHyphaEngine) -> Option<Authority> {
         audition_active: engine.audition.is_active(),
     })
 }
+// LEVEL uses the same cached, lifecycle-qualified point as TIME. Legacy poll_delta remains
+// unchanged; file arrival time alone never qualifies the product's four current LEVEL deltas.
+pub(super) fn level_values(
+    engine: &KirinHyphaEngine,
+    snapshot: &MeterSessionSnapshot,
+) -> Option<([Option<f64>; 6], Option<f64>)> {
+    let before = authority(engine)?;
+    if before.signal != KIRIN_SIGNAL_STATE_ACTIVE {
+        return None;
+    }
+    let view = engine
+        .meter_delta_history
+        .as_ref()?
+        .time_comparison(
+            MeterHistoryResolution::Hz10,
+            snapshot.observed_frames,
+            snapshot.observed_frames,
+            0,
+        )?
+        .ok()??;
+    let span = view.post_span;
+    if span.epoch != snapshot.measurement_epoch
+        || span.generation != snapshot.generation
+        || span.token != before.span_token
+        || !comparison_matches(&view, &before, span)
+        || view.reason != TimeComparisonReason::Active
+    {
+        return None;
+    }
+    let point = view.point?;
+    if point.wire.observed > snapshot.observed_frames
+        || point.remaining(Instant::now()).is_zero()
+        || authority(engine).as_ref() != Some(&before)
+    {
+        return None;
+    }
+    Some((point.wire.values, point.wire.crest))
+}
+
 fn opaque(value: impl Hash) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hash);

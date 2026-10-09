@@ -118,9 +118,9 @@ Guide guide (const State& state)
         result.detail = stageOf (step).detail;
         return result;
     }
+    const bool version = state.comparisonSlot == 1;
     const auto first = !state.aAvailable ? SourceStep::playDaw
-        : result.version != SourceStep::ready ? result.version : result.check;
-    const bool version = state.aAvailable && result.version != SourceStep::ready;
+        : version ? result.version : result.check;
     result.heading = stageHeading (first, version ? 1 : 2);
     result.detail = stageOf (first).detail;
     return result;

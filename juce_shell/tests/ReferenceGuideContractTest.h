@@ -51,9 +51,12 @@ inline void verifyGuideStates()
     require (! shown.shown && shown.version == Step::chooseVersion && shown.check == Step::ready,
              "one of B and C audible: the comparison stays and only the other explains itself");
     shown = guide (named ("no_check"));
-    require (shown.shown && shown.heading == "Choose a Version for V"
+    require (shown.shown && shown.heading == "No Check is enabled in Kirin OS"
                  && shown.check == Step::enableCheck,
-             "neither audible while playing: B's step first, C's step in its row");
+             "C's guide names C's available action rather than the hidden V selector");
+    state = named ("no_check"); state.comparisonSlot = 1;
+    require (guide (state).heading == "Choose a Version for V",
+             "V's guide names the Version selector shown on V");
     require (! guide (named ("ready")).shown, "B and C audible: no guide");
     for (const auto* name : { "stopped", "no_check", "no_library" })
     {

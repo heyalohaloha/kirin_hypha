@@ -104,7 +104,7 @@ void Component::configureCheckPage()
         const auto* group = currentGroup (groups, current.checkId);
         if (group == nullptr) return;
         const auto id = selectedOptionId (checkSongBox, group->songs);
-        if (id.isNotEmpty() && id != current.checkId && onSelectCheck) onSelectCheck (id);
+        if (id.isNotEmpty() && onSelectCheck) onSelectCheck (id);
     };
     addChildComponent (checkSongBox);
     matchButton.setComponentID ("reference-match");

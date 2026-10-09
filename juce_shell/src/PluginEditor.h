@@ -133,6 +133,9 @@ private:
     void syncAnalysisDemand();
     void refreshDrumSnapshots (bool liveInput);
     double nextDrumSummaryMs = 0.0;
+    std::unique_ptr<KirinAttackNavigationV2> drumNavigation;
+    std::unique_ptr<KirinAttackBandSummaryV2> drumSummary;
+    std::vector<KirinSnapshotEventKey> drumNavigationKeys;
     void configureSpectrumCallbacks();
     void updateTimePageNavigation();
     void cycleSpectrumSize();

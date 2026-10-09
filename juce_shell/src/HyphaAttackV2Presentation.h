@@ -36,6 +36,11 @@ public:
     void retire();
     void goLive();
     void observeInput (bool active, double nowMs);
+    bool holdingFinishedSingle() const noexcept {
+        return !selection.live && adopted.single
+            && adopted.single->finish != KIRIN_FINISH_ACQUIRING
+            && adopted.single->finish != KIRIN_FINISH_RETIRED;
+    }
     bool needsSingle() const noexcept { return band == 0 || ! selection.live; }
     const KirinSnapshotHeader& navigationHeader() const noexcept { return navHeader; }
 private:

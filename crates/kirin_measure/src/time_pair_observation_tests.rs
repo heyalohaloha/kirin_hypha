@@ -17,6 +17,11 @@ fn produced(epoch: u64, slots: usize) -> Vec<TimeRawPoint> {
             position_samples: Some(0),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: crate::PresentationLatencySamples {
+                source: crate::PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(0),
+            },
             ..Default::default()
         },
     );
@@ -68,6 +73,11 @@ fn paired_non_decile_rate_connects_1103_frame_slots_but_breaks_a_missing_slot() 
                     position_samples: Some(offset as i64),
                     epoch: Some(1),
                     source: CaptureClockSource::ProjectTimeline,
+                    presentation_latency: crate::PresentationLatencySamples {
+                        source: crate::PresentationLatencySource::Vst3,
+                        input: Some(0),
+                        output: Some(0)
+                    },
                     ..Default::default()
                 },
             ));
@@ -315,11 +325,13 @@ fn admission_floors_retire_with_their_source_and_fresh_opposite_slots_resume() {
         fresh_pre.observed += 4800;
         fresh_pre.endpoint = Some(2000);
         fresh_pre.values = [Some(2.0); 6];
+        fresh_pre.continuous_frames = 144000; // Synthetic steady window, independent of observation-counter restart.
         publication.points.push(fresh_pre);
         let mut fresh_post = local.last().unwrap().clone();
         fresh_post.wire.observed += 4800;
         fresh_post.wire.endpoint = Some(2000);
         fresh_post.wire.values = [Some(5.0); 6];
+        fresh_post.wire.continuous_frames = 144000;
         local.push(fresh_post);
         state.ingest(Some(&publication), &local, &mut history);
         let joined = state

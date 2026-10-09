@@ -85,6 +85,24 @@ void verify()
     KIRIN_COMPARISON_REQUIRE (post.recordDisplayShowingForTest());
     const auto recordCapture = post.createCaptureImage (600, 400);
     KIRIN_COMPARISON_REQUIRE (imageSignature (recordCapture) != imageSignature (watchCapture));
+    for (const auto phase : { KIRIN_RECORD_DISPLAY_FINALIZING,
+                             KIRIN_RECORD_DISPLAY_RESULT_HOLD,
+                             KIRIN_RECORD_DISPLAY_UNAVAILABLE })
+    {
+        record.phase = static_cast<std::uint8_t> (phase);
+        post.setRecordDisplay (record, true);
+        const auto notice = post.footerStatusForTest();
+        KIRIN_COMPARISON_REQUIRE (notice.isNotEmpty() && notice != "WAITING");
+        for (const auto domain : { observatory::Domain::time, observatory::Domain::frequency,
+                                   observatory::Domain::space })
+        {
+            post.setDomain (domain);
+            KIRIN_COMPARISON_REQUIRE (! post.recordDisplayShowingForTest());
+            KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == notice);
+        }
+        post.setDomain (observatory::Domain::level);
+        KIRIN_COMPARISON_REQUIRE (post.recordDisplayShowingForTest());
+    }
     post.setRecordDisplay ({}, false);
     KIRIN_COMPARISON_REQUIRE (! post.recordDisplayShowingForTest());
 }

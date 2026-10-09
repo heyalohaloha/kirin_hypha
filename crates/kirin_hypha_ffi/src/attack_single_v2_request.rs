@@ -41,6 +41,28 @@ pub(super) fn pre_completion(
         .then_some((proof.pre.source, detail))
 }
 
+pub(super) fn selected_mapping_changed(
+    state: &AttackSingleSnapshot,
+    view: &kirin_measure::spectrum_exchange::AttackObservationView,
+) -> bool {
+    if let Some(proof) = state.qualified_proof {
+        // Losing live six-second support is not source retirement. A real owner/source
+        // replacement or a newly bound request still retires the immutable hit.
+        view.pre
+            .as_ref()
+            .and_then(|pre| pre.source)
+            .map(|s| s.source)
+            != Some(proof.pre.source)
+            || (view.mapping_request_id != [0; 16] && view.mapping_request_id != proof.request_id)
+            || view
+                .proof
+                .is_some_and(|current| current.binding_token() != state.request.proof_token)
+    } else {
+        view.proof
+            .is_none_or(|proof| proof.binding_token() != state.request.proof_token)
+    }
+}
+
 fn own_request(
     history: &AttackHistory,
     local: &AttackObservationSnapshot,
@@ -270,13 +292,16 @@ impl KirinHyphaEngine {
             .ok_or(KIRIN_SNAPSHOT_BUSY)?;
         let source = local.as_ref().and_then(|snapshot| snapshot.source);
         let paired = state.request.proof_token != [0; 32];
+        if let Some(proof) = view.proof {
+            state = runtime
+                .qualify_single(token, proof)
+                .ok_or(KIRIN_SNAPSHOT_BUSY)?;
+        }
+        let mapping_changed =
+            !authority.matches_view(&view) || selected_mapping_changed(&state, &view);
         if (authority.pair.generation != state.request.pair_authority_revision
             || source.is_none_or(|source| source.source != state.request.local_source)
-            || (paired
-                && (!authority.matches_view(&view)
-                    || view
-                        .proof
-                        .is_none_or(|proof| proof.binding_token() != state.request.proof_token))))
+            || (paired && mapping_changed))
             && state.finish != kirin_measure::attack_runtime::snapshot::AttackFinish::Retired
         {
             state = runtime

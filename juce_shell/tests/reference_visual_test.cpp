@@ -7,6 +7,7 @@
 #include "reference_rt_probe.h"
 #include <thread>
 #include <ctime>
+#include "ReferenceVisualAudioParity.h"
 
 void testReferenceVisual (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
@@ -152,6 +153,8 @@ void testReferenceVisual (const juce::File& sandbox)
     // The display converter is the very same implementation used by audible pages.
     juce::AudioFormatManager formats; formats.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+    reference_visual_parity::verify (*reader);
+    reference_visual_parity::verifyOtherSources (root);
     // Compare the two converters with an explicitly prepared, deterministic page.
     ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     source->sourceKind = "work_version";

@@ -130,6 +130,12 @@ int View::statusStripHeight() const
 juce::String View::footerStatusText() const
 {
     if (measurementFormatHeld) return "FORMAT HELD / STOP KEEP";
+    if (recordDisplayAvailable)
+    {
+        if (recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING) return "RECORD FINALIZING";
+        if (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE) return "Final measurement unavailable";
+        if (recordDisplay.phase == KIRIN_RECORD_DISPLAY_RESULT_HOLD) return "RECORD RESULT";
+    }
     if (! frameAvailable || observatoryFrame.meter.state == KIRIN_METER_SESSION_EMPTY)
         return "WAITING";
     if (observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED)

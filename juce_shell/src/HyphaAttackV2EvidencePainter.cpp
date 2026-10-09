@@ -2,23 +2,15 @@
 #include "HyphaAttackStage.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
-#include <iomanip>
-#include <locale>
-#include <sstream>
 
 namespace hypha::attack_v2
 {
 namespace
 {
-juce::String rawNumber (double value)
-{
-    std::ostringstream s; s.imbue (std::locale::classic()); s << std::setprecision (17) << value;
-    return juce::String (s.str());
-}
 juce::String rawInterval (const KirinSnapshotInterval& i)
 {
     const auto endpoint = [] (const KirinSnapshotEndpoint& e) {
-        return e.kind == KIRIN_ENDPOINT_FINITE ? rawNumber (e.value)
+        return e.kind == KIRIN_ENDPOINT_FINITE ? factNumber (e.value)
             : juce::String::fromUTF8 (e.kind == KIRIN_ENDPOINT_NEGATIVE_INFINITY ? u8"−∞" : u8"+∞"); };
     return juce::String (i.lower.closed ? "[" : "(") + endpoint (i.lower) + ","
         + endpoint (i.upper) + (i.upper.closed ? "]" : ")");
@@ -75,7 +67,7 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
             const auto& raw = p.summary->lanes[i];
             line (words ("Whole interval ", u8"全N区間 ") + (raw.whole_median_available ? rawInterval (raw.whole_interval) : "---"));
             if (raw.exact_count)
-                line (words ("Exact median ", u8"確定部分中央値 ") + rawNumber (raw.exact_median)
+                line (words ("Exact median ", u8"確定部分中央値 ") + factNumber (raw.exact_median)
                     + (lane.scope == Scope::confirmedSubset
                         ? words (" / age ", u8" / 古さ ") + juce::String (lane.ageSeconds, 2) + "s" : juce::String {}));
             for (std::size_t reason = 1; reason < KIRIN_REASON_COUNT; ++reason)
@@ -90,7 +82,7 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
             line (words ("Measured ", u8"実測窓 ") + juce::String (raw.actual_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.actual_end));
         }
         if (p.header.band != 0 && lane.resolution > 0)
-            line (words ("Resolution ", u8"判別範囲 ") + rawNumber (lane.resolution) + " "
+            line (words ("Resolution ", u8"判別範囲 ") + factNumber (lane.resolution) + " "
                 + (i == 3 ? p.header.target == KIRIN_TARGET_DELTA ? "dB" : "dBFS" : "ms")
                 + (lane.withinResolution ? words (" / Whole within", u8" / 全Nが範囲内") : ""));
     }

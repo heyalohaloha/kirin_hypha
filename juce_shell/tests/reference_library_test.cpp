@@ -347,12 +347,29 @@ void testReferenceComparisons (const juce::File& sandbox)
                 }
                 juce::Thread::sleep (10);
             }
+            const auto s = reopened.snapshot();
+            std::cerr << "restore deadline: C=" << s.checkReady << " V=" << s.versionReady
+                << " C reason=" << (s.checkSelection ? s.checkSelection->rejectionCode : "absent")
+                << " C state=" << (s.checkSelection ? static_cast<int> (s.checkSelection->state) : -1)
+                << " cue=" << (s.checkSelection ? s.checkSelection->cueId : "absent") << '\n';
             require (false, "restored selection deadline");
         };
         awaitReopen ([] (const auto& state) { return state.versionReady && state.checkReady; });
         require (reopened.snapshot().selectedVersionId == bId
             && reopened.snapshot().checkSelection->checkLabel == "Dynamics"
             && reopened.snapshot().audibleComparisonSlot == 0, "reopen restores both choices at A");
+        auto staleCue = saved;
+        staleCue.check.cueId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        reopened.restoreSettings (staleCue);
+        awaitReopen ([] (const auto& state) { return state.checkSelection
+            && state.checkSelection->rejectionCode == "reference_selection_unavailable"; });
+        require (! reopened.selectC (-14, -2) && reopened.snapshot().audibleComparisonSlot == 0,
+                 "an unavailable saved Cue fails closed at A");
+        require (reopened.selectCheck (cId), "explicit reselection accepts the unchanged Check and song IDs");
+        awaitReopen ([] (const auto& state) { return state.checkReady; });
+        require (reopened.snapshot().checkSelection->cueId == saved.check.cueId
+            && reopened.snapshot().audibleComparisonSlot == 0,
+                 "reselection reacquires the current Cue without automatic audition");
         auto removed = saved;
         removed.check.candidateId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
         reopened.restoreSettings (removed); // Restore after preparation is also supported.

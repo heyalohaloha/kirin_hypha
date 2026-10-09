@@ -201,7 +201,7 @@ impl TimeComparisonState {
                 continue;
             }
             let values = std::array::from_fn(|i| {
-                if i == 4 {
+                if !local.wire.window_proven(i) || !remote.window_proven(i) {
                     None
                 } else {
                     difference(local.wire.values[i], remote.values[i])
@@ -210,6 +210,9 @@ impl TimeComparisonState {
             let joined = TimeRawPoint {
                 wire: TimeWirePoint {
                     values,
+                    crest: (local.wire.window_proven(0) && remote.window_proven(0))
+                        .then(|| difference(local.wire.crest, remote.crest))
+                        .flatten(),
                     ..local.wire
                 },
                 completed: local.completed,
@@ -243,8 +246,12 @@ impl TimeComparisonState {
             self.last_consumed_pre = remote.observed;
             self.last_joined = local.wire.observed;
             self.last_cutoff = local.wire.observed;
-            self.point = Some(joined);
-            self.reason = TimeComparisonReason::Active;
+            self.point = values.iter().any(Option::is_some).then_some(joined);
+            self.reason = if self.point.is_some() {
+                TimeComparisonReason::Active
+            } else {
+                TimeComparisonReason::Waiting
+            };
             self.seeks.clear_pending();
         }
         // An endpoint beyond the newest PRE is normal publication lag. A covered but absent,
@@ -320,3 +327,7 @@ mod tests;
 #[cfg(test)]
 #[path = "time_pair_seek_tests.rs"]
 mod seek_tests;
+
+#[cfg(test)]
+#[path = "time_pair_window_tests.rs"]
+mod window_tests;

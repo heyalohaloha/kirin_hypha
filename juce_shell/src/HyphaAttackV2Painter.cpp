@@ -136,7 +136,7 @@ void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, cons
     text (g, label, state.selection.clustered ? shape.cluster : shape.caption, c, typography::TextRole::readout, COL_NORMAL);
     text (g, state.selection.live ? (p.clock == ClockState::hold ? "HOLD" : "LIVE") : "LOCK",
           shape.live, c, typography::TextRole::action, cyan, juce::Justification::centred);
-    text (g, words ("Facts", u8"根拠"), shape.evidence, c, typography::TextRole::readout, COL_NORMAL, juce::Justification::centredRight);
+    text (g, words ("Facts", u8"根拠"), shape.evidence, c, typography::TextRole::action, COL_NORMAL, juce::Justification::centredRight);
     const bool panes = state.band != 0 && ! shape.head.isEmpty();
     if (panes) paintEnvelopes (g, p, shape, c, state.overlay);
     timeStrip (g, state, shape, c);

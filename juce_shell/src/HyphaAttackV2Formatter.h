@@ -6,6 +6,7 @@
 
 namespace hypha::attack_v2
 {
+juce::String factNumber (double);
 // Raw endpoints and the display exponent stay separate; display rounding never changes evidence.
 struct FormattedInterval
 {

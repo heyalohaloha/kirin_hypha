@@ -2,6 +2,7 @@
 
 #include "HyphaVuCalibration.h"
 #include "HyphaTextStyle.h"
+#include "HyphaBoundedText.h"
 
 namespace hypha::vu_calibration
 {
@@ -34,15 +35,19 @@ public:
         const bool active = isEnabled() && (highlighted || down || hasKeyboardFocus (true));
         const auto colour = active ? COL_NORMAL : COL_MUTED.withAlpha (0.78f);
         g.setColour (colour);
-        text_style::draw (g, getButtonText(), getLocalBounds(), context,
-                          typography::TextRole::legend, juce::Justification::centred,
-                          1, typography::Composition::instrument);
+        const auto area = getLocalBounds().reduced (2, 0).toFloat();
+        const auto text = getButtonText();
+        const juce::Graphics::ScopedSaveState saved (g);
+        g.reduceClipRegion (getLocalBounds());
+        g.setFont (displayTextFont (text, context, typography::TextRole::legend,
+                                   typography::Composition::instrument, area));
+        const auto font = g.getCurrentFont();
+        text_style::drawText (g, text, area, juce::Justification::centred, false);
         // A discreet underline reveals the click target only on hover / keyboard focus.
         if (active)
         {
             const auto width = text_style::shownWidth (
-                labelFont (context, typography::TextRole::legend,
-                           typography::Composition::instrument), getButtonText());
+                font, getButtonText());
             const auto inset = (getWidth() - juce::jmin (width, static_cast<float> (getWidth()))) * 0.5f;
             g.drawHorizontalLine (getHeight() - 2, inset, getWidth() - inset);
         }

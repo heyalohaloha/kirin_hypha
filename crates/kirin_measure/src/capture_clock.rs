@@ -108,6 +108,8 @@ pub struct CaptureClockPoint {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureClockSpan {
+    /// Producer proved unchanged audio mapping; only auxiliary pair evidence cut here.
+    pub auxiliary_only_cut: bool,
     pub epoch: u64,
     pub generation: u64,
     pub capture_start_frame: u64,
@@ -150,6 +152,7 @@ impl CaptureClockSpan {
 
 #[derive(Debug)]
 pub(crate) struct CaptureClockSlot {
+    auxiliary_only_cut: AtomicBool,
     version: AtomicU64,
     sequence: AtomicU64,
     generation: AtomicU64,
@@ -171,6 +174,7 @@ pub(crate) struct CaptureClockSlot {
 impl CaptureClockSlot {
     pub(crate) fn new() -> Self {
         Self {
+            auxiliary_only_cut: AtomicBool::new(false),
             version: AtomicU64::new(0),
             sequence: AtomicU64::new(0),
             generation: AtomicU64::new(0),
@@ -193,6 +197,8 @@ impl CaptureClockSlot {
     pub(crate) fn publish(&self, span: CaptureClockSpan) {
         self.version.fetch_add(1, Ordering::AcqRel);
         self.sequence.store(span.epoch, Ordering::Relaxed);
+        self.auxiliary_only_cut
+            .store(span.auxiliary_only_cut, Ordering::Relaxed);
         self.generation.store(span.generation, Ordering::Relaxed);
         self.capture_start_frame
             .store(span.capture_start_frame, Ordering::Relaxed);
@@ -263,6 +269,7 @@ impl CaptureClockSlot {
                     .then(|| value.load(Ordering::Relaxed))
             };
             let span = CaptureClockSpan {
+                auxiliary_only_cut: self.auxiliary_only_cut.load(Ordering::Relaxed),
                 epoch: sequence,
                 generation: self.generation.load(Ordering::Relaxed),
                 capture_start_frame: self.capture_start_frame.load(Ordering::Relaxed),

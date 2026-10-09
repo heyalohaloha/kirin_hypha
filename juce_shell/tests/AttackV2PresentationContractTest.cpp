@@ -37,6 +37,28 @@ struct Rig
     }
     void click (juce::Point<int> p) { view->mouseDown (mouse (*view, p.toFloat())); }
 };
+bool completedLockSurvivesLiveWindow()
+{
+    Rig r; r.view->beginSnapshotV2();
+    Q (r.nav ({ key (400000, 1) }));
+    auto& state = r.view->presentationSnapshotV2();
+    r.view->keyPressed (juce::KeyPress (juce::KeyPress::leftKey));
+    auto single = std::make_unique<KirinAttackSingleSnapshotV2> (attack_v2_test::single (r.last, r.view->singleRequestToken()));
+    single->event = r.last.event; single->request_token = r.view->singleRequestToken();
+    single->header.band = 0; single->header.target = KIRIN_TARGET_DELTA;
+    single->finish = KIRIN_FINISH_FULL;
+    Q (r.view->setSingleSnapshotV2 (*single, 100));
+    const auto held = state.single;
+    Q (held && !state.live);
+    auto nav = header(); nav.cutoff_sample += 48000 * 20; nav.target = KIRIN_TARGET_POST;
+    Q (r.nav ({}, 20000, nav));
+    Q (state.single == held && state.header.target == KIRIN_TARGET_DELTA);
+    nav.source.generation++;
+    Q (r.nav ({}, 21000, nav));
+    Q (!state.single); // Actual source retirement cannot revive the old hit.
+    Q (factNumber (.2) == "0.2" && factNumber (1) == "1" && factNumber (1e-9).contains ("e"));
+    return true;
+}
 bool intervalContracts()
 {
     Q (formatInterval (lowerBound (146.6), 0, "ms", true, false).value == juce::String::fromUTF8 (u8"≥+146"));
@@ -389,7 +411,7 @@ bool verifyAttackV2PresentationContract()
     const auto focused = juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {});
     if (focused == "cohort") return cohortPointerContracts();
     if (focused == "layout") return sizesAndArtifacts();
-    return frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && summaryContracts() && singleAndMotionContracts()
+    return completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && summaryContracts() && singleAndMotionContracts()
         && clusterContracts() && clockContracts() && placeholderContracts() && cohortPointerContracts() && sizesAndArtifacts();
 }
 }

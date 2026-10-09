@@ -23,7 +23,13 @@ void Component::syncSelectionControl (juce::ComboBox& box,
         if (options[index].id == selectedId)
             selected = static_cast<int> (index) + 1;
     box.setSelectedId (selected, juce::dontSendNotification);
-    box.setEnabled (options.size() > 1 || (options.size() == 1 && selected == 0));
+    const auto recovery = [] (SourceStep step) {
+        return step == SourceStep::savedChoiceUnavailable || step == SourceStep::sourceChanged
+            || step == SourceStep::sourceFormatChanged || step == SourceStep::sourceUnopenable
+            || step == SourceStep::sourceUnavailable || step == SourceStep::attention;
+    };
+    const bool retry = recovery (&box == &versionBox ? current.versionStep : current.checkStep);
+    box.setEnabled (options.size() > 1 || (options.size() == 1 && (selected == 0 || retry)));
 }
 
 bool Component::selectionVisible (const juce::ComboBox& box) const
@@ -41,7 +47,7 @@ void Component::layoutSelectionReadouts()
     {
         auto& box = *boxes[i]; auto& label = selectionReadouts[i];
         const bool shown = box.isVisible() || label.isVisible();
-        const bool readOnly = box.getNumItems() == 1 && box.getSelectedId() > 0;
+        const bool readOnly = ! box.isEnabled() && box.getNumItems() == 1 && box.getSelectedId() > 0;
         label.setBounds (box.getBounds());
         label.setText (box.getText(), juce::dontSendNotification);
         label.setFont (displayTextFont (box.getText(), presentationContext, typography::TextRole::readout,

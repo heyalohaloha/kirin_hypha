@@ -40,6 +40,14 @@ pub struct TimeWirePoint {
     pub endpoint: Option<i64>,
     pub clock: u8,
     pub usable: bool,
+    /// Complete input coverage in this clock run; absent older publications cannot prove windows.
+    #[serde(default)]
+    pub continuous_frames: u64,
+    #[serde(default)]
+    pub latency_known: bool,
+    /// LEVEL CREST at the same 400 ms aperture; not an extra TIME ABI value.
+    #[serde(default)]
+    pub crest: Option<f64>,
     /// M, S, TP, PSR, PLR, CORR, all at this complete 100 ms boundary.
     pub values: [Option<f64>; TIME_VALUE_COUNT],
 }
@@ -51,8 +59,20 @@ impl TimeWirePoint {
             && self.run != 0
             && self.observed != 0
             && self.values.into_iter().flatten().all(f64::is_finite)
+            && self.crest.is_none_or(f64::is_finite)
             && self.clock <= 2
             && (!self.usable || self.clock == 0 || self.endpoint.is_some())
+    }
+
+    pub fn window_proven(self, metric: usize) -> bool {
+        let milliseconds = match metric {
+            0 | 2 => 400,
+            1 | 3 | 5 => 3000,
+            _ => return false,
+        };
+        self.latency_known
+            && self.continuous_frames
+                >= (u64::from(self.span.sample_rate) * milliseconds).div_ceil(1000)
     }
 
     pub fn exact_key(self) -> Option<(u8, i64)> {

@@ -566,10 +566,13 @@ Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Sessi
 通知は150%以上で既存の足元左（LIVE／HOLDの位置）に固定し、長文でもLRや解析図の上へ持ち上げない。100%／125%は既存の最下部stripを維持する。短い通知は足元のaction fontで一行に収める。2026-10-09の利用者選択により、同じ通知boundsへaction fontで入りきらない長文だけ既存legend font（最大16 px、最小11 px）を使う。LIVE／HOLD／CHAIN LOADと右のボタンは既存action font（最大18 px）を維持する。小さい文字でも入りきらない末尾は省略表示し、既存tooltipとクリックによる詳細には全文を保持する。Hybrid VUでは同じ最下部行の左通知と中央校正のboundsを分離し、針・LR・三つの測定値の描画領域と校正の中心位置を保持する。
 
 Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−14／−16／−18／−20 dBFSから選ぶ。左右は共通の一値とし、exactなPRE／POST pairは同じ基準を使う。選択中の値をcheck markで示す。新しいノブや音量操作は置かない。校正はdBFS値から針位置へ換算する表示設定で、300 msの測定窓・針の時間応答、音声、LUFS、Peak／TP、Session、Record／Keep、plugin_dataとwork.jsonは変更しない。
+基準の全文とクリック範囲は既存のlegend領域に収める。LEVELのLRA待機文字も自身のカード内で幅・高さを合わせ、隣カードやグラフへ描かない。数値・単位の定義は変えない。
 校正の永続正本は、このcomputerのuser設定領域にあるexact project＋PRE instanceごとの小さい設定fileとする。識別子はlength-delimited keyのSHA-256でpath化し、別chainへ流用しない。PREは自身の解決済みidentity、POSTは選択したPREのexact locator、unpaired POSTは自身のidentityを使う。初期値は−18。identityの取得が一時的に競合する場合は採用済み基準を保持し選択を無効にする。新しいscopeの取得成功後にそのchainの設定を採用する。合法64-byte identityは専用additive getterで完全に取得し、旧DTOの切詰めを共有に使わない。message threadだけが250 ms間隔で設定を読み、明示選択だけが完全なtemporary siblingをatomic置換する。保存失敗は旧値を保持して理由を通知する。不在／破損／未知値は既定−18。pair変更と再openはそのchainの設定を読み直し、DAW state restoreは共有fileへ書かず古い値で他側を巻き戻さない。校正fileはDAW chunkへ含めないので、このcomputerのchain別表示設定として扱う。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 Recordの中間I／LRAは同じ処理済みprefixのexact-energy cacheを使い、入力blockごとの全履歴走査を避ける。補助cacheはengineごとに65,536 distinct nodesを上限とし、上限／丸め曖昧gateではcanonical exactへ戻る。Max TPと値の有無・表示期限は変えない。Stopは従来のtight-drainとcanonical finalizeを使い、保存Recordの数値・schema・範囲を変えない。
+Keep／Record終了の状態は既存の最下部通知領域へ示す。保持した6つの結果factは既存LEVELから確認し、TIME／FREQ／SPACEの選択面やタブへ結果見出しを重ねない。明示操作の保存失敗は従来どおり理由を通知する。
+Recordの音声対応では、主時計・presentation・source・latencyが連続し、補助時計だけが切り替わったとproducerが確認した境界を、真の音声欠落と区別する。比較時計のepochは引き続き切る。seek、強制cut、source変更、未知latencyを連続音声として承認せず、欠落の補間やcompleteの偽装を行わない。
 
 RecordのJSON保存はIO-owned writerで実行する。checksumを空にした正規JSONのbytesへ従来と同じHMACを計算し、最後のchecksum欄へ格納する。二重serializeを一回へまとめても、従来のserializerによる最終bytes、field順序、schema、HMAC、atomic write／renameの意味は維持する。未知のserializer形はcanonical経路へ戻り、encode失敗・unwindでは元のchecksumを復元する。
 

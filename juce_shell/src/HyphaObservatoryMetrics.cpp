@@ -5,6 +5,7 @@
 #include "HyphaChannelReadoutLayout.h"
 #include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
+#include "HyphaBoundedText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
@@ -79,11 +80,13 @@ void drawMetric (juce::Graphics& g,
         text_style::drawText (g, label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
-        drawTabularText (g, monoFont (presentation, valueRole,
-                                      typography::Composition::facts),
-                         textOverride.isNotEmpty() ? textOverride
-                                                   : valueText (value, decimals, signedValue),
-                         area.reduced (4, 0).toFloat(), juce::Justification::centred);
+        if (textOverride.isNotEmpty())
+            bounded_text::metricState (g, textOverride, area.reduced (4, 0).toFloat(), presentation,
+                                       valueRole, juce::Justification::centred);
+        else
+            drawTabularText (g, monoFont (presentation, valueRole, typography::Composition::facts),
+                             valueText (value, decimals, signedValue),
+                             area.reduced (4, 0).toFloat(), juce::Justification::centred);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
@@ -105,6 +108,13 @@ void drawMetric (juce::Graphics& g,
                               typography::Composition::facts));
         text_style::drawText (g, auxiliaryText, auxiliaryArea.reduced (6, 0),
                     juce::Justification::centredRight);
+    }
+    if (textOverride.isNotEmpty())
+    {
+        g.setColour (COL_MUTED);
+        bounded_text::metricState (g, textOverride, area.reduced (5, 0).toFloat(), presentation,
+                                   valueRole, juce::Justification::centred);
+        return;
     }
     if (area.getWidth() < 180)
     {
@@ -152,22 +162,6 @@ void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
         && recordDisplay.pair_matches_current != 0u
         && recordDisplay.delta.mode == KIRIN_DELTA_MODE_ACTIVE;
     const bool shortTerm = selectedShortTermLoudness;
-
-    auto statusArea = area.removeFromTop (juce::jlimit (20, 28, area.getHeight() / 5));
-    area.removeFromTop (3);
-    drawPanel (g, statusArea, family);
-    const auto phaseText = recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
-        ? juce::String ("RECORD FINALIZING")
-        : recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
-            ? juce::String ("RECORD UNAVAILABLE")
-            : juce::String ("RECORD RESULT");
-    const auto sourceText = hasDelta ? juce::String (juce::CharPointer_UTF8 (" · POST − PRE"))
-                                     : juce::String (juce::CharPointer_UTF8 (" · ABSOLUTE"));
-    g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
-                     ? COL_MUTED : COL_NORMAL);
-    g.setFont (monoFont (context, typography::TextRole::status));
-    text_style::drawEllipsized (g, phaseText + sourceText, statusArea.reduced (5, 1),
-                                juce::Justification::centred);
 
     const auto& measure = recordDisplay.measure;
     const auto& session = recordDisplay.session;

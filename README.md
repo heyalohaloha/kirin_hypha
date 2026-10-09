@@ -180,7 +180,8 @@ the existing LIVE/LOCK control and shared caption retain the selection context. 
 300 % HISTORY shows those hits' average **HEAD** (−20 to +40 ms) and **TAIL** (0 to 300 ms) in that
 band; smaller views keep the same values, units and Facts access in four cards. Click a dot (or use ← → HOME) to lock that hit and
 read its own values and envelopes. LOCK keeps the selected hit when it leaves the visible window;
-LIVE returns to the current cohort. ALL LIVE reads the latest detected hit; it does not use BAND's
+its completed values, envelope and original qualification stay together in one bounded snapshot.
+A real source or clock binding change retires it. LIVE returns to the current cohort. ALL LIVE reads the latest detected hit; it does not use BAND's
 eight-hit median. The band hits keep the same producer keys as the full-band navigation. Choosing
 another band analyzes the retained last 7 s again, even while stopped; ALL releases the extra band
 audio. Facts distinguishes silence, an earlier hit still ringing, a next hit cutting the tail,
@@ -200,6 +201,10 @@ main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to i
 100 ms point and uses that point's processed prefix; it does not include later pending input. A comparison that is waiting or expired
 keeps the Δ label and its reason. It does not silently become POST. Current values expire from the
 original 100 ms slot's completion, with a 400 ms lifetime; repeated polls do not renew them.
+After a playback boundary, current Δ requires a complete, continuous aperture on both sides:
+400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR, with known presentation latency.
+Absolute POST observations and Session statistics continue independently. A cumulative PLR
+without equivalent prefix proof stays unavailable in Δ.
 PSR is supplementary: its `Δ −3.3 dB` or `POST 10.1 dB` reading uses a small, regular-weight
 font and secondary colour, with no equation beside it. M, S and TP remain the main readings.
 

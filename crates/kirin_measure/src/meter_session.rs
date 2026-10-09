@@ -272,6 +272,12 @@ impl MeterSession {
                         endpoint: clock.timeline_endpoint_samples,
                         clock: clock.timeline_source as u8,
                         usable: clock.usable_for_history,
+                        continuous_frames: clock.continuous_frames,
+                        latency_known: clock.presentation_latency.source
+                            != crate::PresentationLatencySource::Unknown
+                            && clock.presentation_latency.input.is_some()
+                            && clock.presentation_latency.output.is_some(),
+                        crest: current.crest,
                         values: [
                             current.lufs_m,
                             current.lufs_s,

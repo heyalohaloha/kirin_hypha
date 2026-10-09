@@ -252,7 +252,7 @@ inline void verifyRendering()
                     require (difference (baseline, image, metrics) == 0, "LUFS TP and CREST pixels unchanged");
                     if (reference != -18) require (difference (baseline, image, image.getBounds()) > 12,
                                                    "only needle calibration and legend respond");
-                    if (reference == -18 || reference == -20) writePreview (image, role, language, reference, 2);
+                    writePreview (image, role, language, reference, 2);
                 }
                 meter.channels = 1;
                 view.setMeterSnapshot (meter, true);
@@ -265,6 +265,11 @@ inline void verifyRendering()
                     juce::roundToInt (view.getHeight() * 0.40f));
                 require (difference (mono, calibratedMono, parkedRight) == 0, "mono R needle remains parked");
                 writePreview (calibratedMono, role, language, -20, 1);
+                for (const auto reference : vu_calibration::choices)
+                {
+                    view.setVuCalibration (reference);
+                    writePreview (render (view), role, language, reference, 1);
+                }
                 view.setVuCalibration (-20, false);
                 require (! control->isEnabled(), "unknown identity disables selection");
                 auto* calibration = dynamic_cast<vu_calibration::Control*> (control);

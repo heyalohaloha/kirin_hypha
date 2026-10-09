@@ -5,9 +5,26 @@
 #include <iomanip>
 #include <locale>
 #include <sstream>
+#include <limits>
 
 namespace hypha::attack_v2
 {
+juce::String factNumber (double value)
+{
+    if (!std::isfinite (value)) return juce::String::fromUTF8 (u8"—");
+    if (value <= 0 && value >= 0) return "0";
+    // Shortest decimal that round-trips to the factual double. No change to intervals or precision.
+    for (int digits = 1; digits <= std::numeric_limits<double>::max_digits10; ++digits)
+    {
+        std::ostringstream output; output.imbue (std::locale::classic());
+        output << std::setprecision (digits) << value;
+        std::istringstream input (output.str()); input.imbue (std::locale::classic());
+        double parsed = 0; input >> parsed;
+        if (parsed <= value && parsed >= value) return juce::String (output.str());
+    }
+    return {};
+}
+
 juce::String words (const char* english, const char* japanese)
 {
     return juce::String::fromUTF8 (i18n::current() == i18n::Language::japanese ? japanese : english);

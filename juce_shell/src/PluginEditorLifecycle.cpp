@@ -28,6 +28,16 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    // Some DAWs retain a hidden editor. UI acquisition belongs only to a showing editor;
+    // always-on Meter Session, Record and their workers continue independently.
+    if (!isShowing())
+    {
+        processorRef.setReferenceViewPresented (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        syncAnalysisDemand();
+       #endif
+        return;
+    }
     observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
     syncLanguage();
     refreshAppearance();

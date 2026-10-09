@@ -16,6 +16,11 @@ fn feed(session: &Arc<Mutex<MeterSession>>, position: i64) {
             position_samples: Some(position),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: crate::PresentationLatencySamples {
+                source: crate::PresentationLatencySource::AudioUnitV2,
+                input: Some(0),
+                output: Some(0),
+            },
             ..Default::default()
         }
     ));

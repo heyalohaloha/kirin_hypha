@@ -227,7 +227,9 @@ void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
 
 bool View::recordDisplayShowing() const noexcept
 {
-    if (! recordDisplayAvailable)
+    // Keep completion lives on the footer. LEVEL is the existing result inspection page;
+    // TIME/FREQ/SPACE keep their selected measurement and navigation.
+    if (! recordDisplayAvailable || selectedDomain != Domain::level)
         return false;
     return recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
         || recordDisplay.phase == KIRIN_RECORD_DISPLAY_RESULT_HOLD

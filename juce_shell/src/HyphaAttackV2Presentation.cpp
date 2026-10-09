@@ -70,8 +70,10 @@ bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnaps
         || h.cutoff_sample < navHeader.cutoff_sample)) retire();
     const bool finishBandChange = awaitingBandNavigation;
     awaitingBandNavigation = false;
-    enabled = true; navHeader = h; target = h.target;
-    if (targetChanged)
+    enabled = true; navHeader = h;
+    const bool fixed = holdingFinishedSingle();
+    if (!fixed) target = h.target;
+    if (targetChanged && !fixed)
     {
         if (token != 0 && cancel) cancel (token);
         token = 0; requested.reset(); pending.reset(); appliedMs = -1;
@@ -83,7 +85,7 @@ bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnaps
     clock.observe (h.cutoff_sample, h.source.sample_rate, now, h.signal_state == 1, realtime);
     const auto old = selection.selected;
     selection.latest (events);
-    if (needsSingle() && (targetChanged || finishBandChange || old.has_value() != selection.selected.has_value()
+    if (needsSingle() && ((!fixed && targetChanged) || finishBandChange || old.has_value() != selection.selected.has_value()
         || (old && selection.selected && ! sameEvent (*old, *selection.selected)))) changedSelection();
     tick (now);
     return true;
@@ -109,7 +111,9 @@ bool State::single (const KirinAttackSingleSnapshotV2& packet, double now)
 {
     if (! validSingle (packet) || ! needsSingle() || ! requested || token == 0 || packet.request_token != token
         || ! sameEvent (packet.event, *requested) || packet.header.band != band
-        || (navHeader.source.generation != 0 && ! sameNavigationAuthority (packet.header, navHeader))) return false;
+        || (navHeader.source.generation != 0
+            && !(holdingFinishedSingle() ? sameBinding (packet.header, navHeader)
+                                         : sameNavigationAuthority (packet.header, navHeader)))) return false;
     if (adopted.single && ! sameAuthority (packet.header, adopted.header))
     { retire(); enabled = true; return false; }
     if (packet.finish == KIRIN_FINISH_RETIRED && packet.reason == KIRIN_REASON_SOURCE_CHANGED)
@@ -163,7 +167,7 @@ void State::changedSelection()
 void State::changeBand (std::uint8_t next)
 {
     if (next == band) return;
-    band = next; selection.escape();
+    band = next; target = navHeader.target; selection.escape();
     if (token != 0 && cancel) cancel (token);
     token = 0; requested.reset(); pending.reset(); cohort.reset(); appliedMs = -1;
     adopted = placeholder (KIRIN_REASON_WAITING_SERVICE);
@@ -175,7 +179,7 @@ void State::goLive()
 {
     if (selection.live && adopted.live) { selection.escape(); stamp(); return; }
     if (token != 0 && cancel) cancel (token);
-    token = 0; requested.reset(); cohort.reset(); selection.clear(); selection.latest (events);
+    token = 0; target = navHeader.target; requested.reset(); cohort.reset(); selection.clear(); selection.latest (events);
     adopted = placeholder (KIRIN_REASON_WAITING_SERVICE); adopted.revision = nextRevision++; appliedMs = -1;
     if (needsSingle()) changedSelection(); else stamp();
 }

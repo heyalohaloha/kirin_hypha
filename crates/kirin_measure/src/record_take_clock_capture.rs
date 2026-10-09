@@ -66,7 +66,7 @@ impl RecordTakeTracker {
             }
             None => !self.capture_last_auxiliary_valid.load(Ordering::Acquire),
         };
-        let mapping_contiguous = presentation_position_samples.is_some()
+        let audio_mapping_contiguous = presentation_position_samples.is_some()
             && source != CaptureClockSource::Unknown
             && self.capture_last_position_valid.load(Ordering::Acquire)
             && self
@@ -92,8 +92,8 @@ impl RecordTakeTracker {
             && self
                 .capture_last_raw_host_position_end_samples
                 .load(Ordering::Acquire)
-                == position_samples
-            && auxiliary_contiguous;
+                == position_samples;
+        let mapping_contiguous = audio_mapping_contiguous && auxiliary_contiguous;
 
         // Some hosts enter the offline render before PRE has acknowledged the Keep generation.
         // The audio is already the first WAV audio in that interval, but it is still tagged as
@@ -143,6 +143,15 @@ impl RecordTakeTracker {
                 .saturating_add(1);
             let index = sequence as usize % self.capture_clock_slots.len();
             self.capture_clock_slots[index].publish(CaptureClockSpan {
+                auxiliary_only_cut: previous_sequence > 0
+                    && previous_generation == capture_generation
+                    && audio_mapping_contiguous
+                    && presentation_latency.source != PresentationLatencySource::Unknown
+                    && presentation_latency.input.is_some()
+                    && presentation_latency.output.is_some()
+                    && !auxiliary_contiguous
+                    && !force_new_epoch
+                    && !force_watch_offline_epoch,
                 epoch: sequence,
                 generation: capture_generation,
                 capture_start_frame,
@@ -292,8 +301,9 @@ impl RecordTakeTracker {
         ))
     }
 
-    /// A presentation-latency callback may split the clock mapping while the captured audio and
-    /// raw host stream remain contiguous. Measure Thread must keep measuring across that boundary;
+    /// A latency callback or producer-qualified auxiliary-only cut may split the clock mapping while the captured audio and
+    /// raw host stream remain contiguous. Auxiliary evidence still starts a new pair epoch;
+    /// this exception belongs only to Record audio admission and the immutable WAV mapping. Measure Thread must keep measuring across that boundary;
     /// only the late WAV resolver chooses the correct mapping model.
     pub(crate) fn capture_epochs_are_latency_continuation(
         &self,
@@ -318,13 +328,21 @@ impl RecordTakeTracker {
             && previous.generation == next.generation
             && previous.capture_end_frame == next.capture_start_frame
             && previous.source == next.source
-            && previous.presentation_latency != next.presentation_latency
             && raw_shift.is_some_and(|shift| {
-                presentation_latency_shift_matches(
-                    shift,
-                    previous.presentation_latency,
-                    next.presentation_latency,
-                )
+                if next.auxiliary_only_cut {
+                    shift == 0 && previous.presentation_latency == next.presentation_latency
+                } else {
+                    previous.presentation_latency != next.presentation_latency
+                        && presentation_latency_shift_matches(
+                            shift,
+                            previous.presentation_latency,
+                            next.presentation_latency,
+                        )
+                }
             })
     }
 }
+
+#[cfg(test)]
+#[path = "record_take_auxiliary_cut_tests.rs"]
+mod tests;
