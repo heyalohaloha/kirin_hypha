@@ -128,6 +128,50 @@ void verifyHeldCoverage (KirinObservatoryFrame frame)
                  "resuming adopts the newer complete Session and proves the pixel oracle is sensitive");
     }
 }
+void verifyPlayingAndTimeCapture (KirinObservatoryFrame frame)
+{
+    using Page = analysis_navigation::Page;
+    for (const auto role : { observatory::Role::pre, observatory::Role::post })
+    {
+        observatory::View view (role);
+        view.setSize (900, 600);
+        frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+        frame.meter.state = KIRIN_METER_SESSION_ACTIVE;
+        view.setObservatoryFrame (frame, true);
+        KirinMeterSessionV2 coverage { 2, sizeof (coverage), frame.meter, 2'880'000, 479,
+                                      KIRIN_SESSION_SUMMARY_COMPLETE, {} };
+        view.setSessionCoverage (coverage);
+        require (! view.sessionSummaryPending() && view.sessionMaximumBoundText().isEmpty()
+                 && ! view.capturePresentationStamp().requiresTypedMetadata,
+                 "ordinary sub-10 ms in-flight audio permits LEVEL Capture during playback");
+        juce::Image image (juce::Image::ARGB, 900, 600, true);
+        juce::Graphics graphics (image);
+        text_style::ShownTextLog log;
+        view.paintEntireComponent (graphics, true);
+        require (log.texts().contains ("PLR"), "playing PLR card is present");
+        auto changed = coverage;
+        changed.session.plr = 26.2;
+        view.setSessionCoverage (changed);
+        juce::Image canary (juce::Image::ARGB, 900, 600, true);
+        juce::Graphics canaryGraphics (canary);
+        view.paintEntireComponent (canaryGraphics, true);
+        require (! samePixels (image, canary),
+                 "playing PLR renders its processed-prefix number rather than a fixed missing marker");
+        coverage.session.state = KIRIN_METER_SESSION_PAUSED;
+        coverage.summary_status = KIRIN_SESSION_SUMMARY_PENDING_TAIL;
+        view.setSessionCoverage (coverage);
+        require (view.sessionSummaryPending() && view.capturePresentationStamp().requiresTypedMetadata,
+                 "actual stopped unprocessed tail still requires typed LEVEL metadata");
+        view.setDomain (observatory::Domain::time);
+        for (const auto page : { Page::meters, Page::run, Page::attack, Page::perceptual, Page::absolute })
+        {
+            view.setAnalysisPage (page);
+            const bool typed = page == Page::meters || page == Page::attack;
+            require (view.capturePresentationStamp().requiresTypedMetadata == typed,
+                     "TIME requires typed Capture only for HISTORY/PSR and DRUM, even with a pending Session");
+        }
+    }
+}
 }
 void verifySessionCoverageContract()
 {
@@ -147,6 +191,7 @@ void verifySessionCoverageContract()
     KirinMeterSessionV2 coverage { 2, sizeof (coverage), frame.meter, 2'880'000, 479,
                                  KIRIN_SESSION_SUMMARY_PENDING_TAIL, {} };
     verifyHeldCoverage (frame);
+    verifyPlayingAndTimeCapture (frame);
     observatory::View rounding (observatory::Role::post);
     rounding.setObservatoryFrame (frame, true);
     const std::pair<double, const char*> endpoints[] {

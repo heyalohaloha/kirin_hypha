@@ -6,6 +6,7 @@
 #include "../src/HyphaTextStyle.h"
 #include "AttackV2MaterialContract.h"
 #include "AttackV2MainSurfaceContract.h"
+#include "../src/HyphaAttackV2Painter.h"
 #include <iostream>
 #include <limits>
 
@@ -71,6 +72,36 @@ bool intervalContracts()
     Q (huge.valid && huge.exponent == 308 && huge.value == juce::String::fromUTF8 (u8"[−1.80,+1.80]"));
     auto broken = lowerBound (1); broken.upper.closed = 1;
     Q (! formatInterval (broken, 1, "ms", true, false).valid);
+    return true;
+}
+bool evidenceLanguageContracts()
+{
+    const std::array<const char*, 5> english { "Acquiring", "Complete", "Audio ended", "Not retained", "Retired" };
+    const std::array<const char*, 5> japanese { u8"取得中", u8"完了", u8"音声終端", u8"保持外", u8"退役" };
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        i18n::ScopedLanguage scoped (language);
+        for (std::uint8_t finish = 0; finish < 5; ++finish)
+        {
+            const auto expected = juce::String::fromUTF8 ((language == i18n::Language::japanese ? japanese : english)[finish]);
+            Q (finishText (finish) == expected);
+            Presentation p; p.header.band = 5;
+            auto raw = std::make_shared<KirinAttackSingleSnapshotV2>();
+            raw->lanes[0].finish = finish; p.single = raw;
+            p.lanes[0].count = 8; p.lanes[0].scope = Scope::wholePoint;
+            Q (scopeText (p.lanes[0], true).isEmpty());
+            juce::Image image (juce::Image::ARGB, 900, 600, true);
+            juce::Graphics g (image); text_style::ShownTextLog log;
+            paintEvidence (g, p, image.getBounds(), presentation::forEditor (900, 600), 0);
+            Q (log.texts().contains (expected));
+            for (const auto& text : log.texts())
+                Q (! text.contains ("finish ") && ! text.contains ("Whole 8") && ! text.contains (juce::String::fromUTF8 (u8"全8打")));
+            p.lanes[0].number.valid = true;
+            Q (scopeText (p.lanes[0], true).isNotEmpty());
+            p.lanes[0].scope = Scope::noScalar;
+            Q (scopeText (p.lanes[0], true).isEmpty());
+        }
+    }
     return true;
 }
 bool summaryContracts()
@@ -411,7 +442,7 @@ bool verifyAttackV2PresentationContract()
     const auto focused = juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {});
     if (focused == "cohort") return cohortPointerContracts();
     if (focused == "layout") return sizesAndArtifacts();
-    return completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && summaryContracts() && singleAndMotionContracts()
+    return completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && evidenceLanguageContracts() && summaryContracts() && singleAndMotionContracts()
         && clusterContracts() && clockContracts() && placeholderContracts() && cohortPointerContracts() && sizesAndArtifacts();
 }
 }

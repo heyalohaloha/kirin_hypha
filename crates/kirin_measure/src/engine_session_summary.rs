@@ -13,6 +13,11 @@ impl MeasureEngine {
         self.analysis_frames
     }
 
+    /// The exact next EBU chunk also follows the variable cadence at nonround rates.
+    pub(crate) fn next_analysis_chunk_frames(&self) -> u64 {
+        (self.analysis_target / self.n_channels) as u64
+    }
+
     /// Original gating energies and logarithmic queries. Record keeps its scalar finalization.
     pub(crate) fn cached_session_summary(&self) -> SessionSummary {
         SessionSummary {

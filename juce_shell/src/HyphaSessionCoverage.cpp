@@ -57,7 +57,8 @@ capture::PresentationStamp View::capturePresentationStamp() const noexcept
 {
     if (selectedDomain == Domain::time)
         return { timePresentation.available() ? timePresentation.packet().revision : 0,
-                 timePresentation.revision(), true };
+                 timePresentation.revision(), analysisPage == analysis_navigation::Page::meters
+                     || analysisPage == analysis_navigation::Page::attack };
     if (selectedDomain == Domain::level && levelInspection.held()
         && levelInspection.packetFrameAvailable)
         return { levelInspection.packetFrame.meter.observed_frames,

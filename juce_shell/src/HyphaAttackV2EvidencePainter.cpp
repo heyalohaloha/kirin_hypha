@@ -47,8 +47,9 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
     for (std::size_t i = 0; i < 4; ++i)
     {
         const auto& lane = p.lanes[i];
+        const auto scope = scopeText (lane, p.live);
         line (juce::String (p.header.band == 0 ? std::array<const char*, 4> { "TRANSIENT", "STRENGTH", "CREST", "SHARPNESS" }[i] : labels[i])
-            + " / " + scopeText (lane, p.live) + " / " + lane.number.value + " " + lane.number.unit);
+            + (scope.isEmpty() ? juce::String {} : " / " + scope) + " / " + lane.number.value + " " + lane.number.unit);
         const std::array<juce::String, 4> meanings = p.header.band == 0
             ? std::array<juce::String, 4> { "First 30 ms RMS minus body RMS.",
                 "First 30 ms RMS level.",
@@ -77,7 +78,8 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
         {
             const auto& raw = p.single->lanes[i];
             if (raw.has_interval) line (words ("Raw interval ", u8"元区間 ") + rawInterval (raw.interval));
-            line (reasonText (lane.reason, true) + " / finish " + juce::String (raw.finish));
+            const auto reason = reasonText (lane.reason, true);
+            line ((reason.isEmpty() ? juce::String {} : reason + " / ") + finishText (raw.finish));
             line (words ("Requested ", u8"要求窓 ") + juce::String (raw.requested_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.requested_end));
             line (words ("Measured ", u8"実測窓 ") + juce::String (raw.actual_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.actual_end));
         }

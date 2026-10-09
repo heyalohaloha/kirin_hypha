@@ -47,9 +47,9 @@ with POST is proven. <b>MATCH</b> fixes a level match; <b>AUTO</b> follows it wi
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="G2 native development fixture: DRUM per-hit transient, strength, crest and sharpness">
+<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
 <br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
-sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The image is a G2 development fixture; DAW acceptance remains in G3.
+sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
@@ -140,9 +140,9 @@ TIME directly selects **HISTORY**, **RUN** (absolute facts grouped by playback r
 selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
-![G2 native development fixture: independent main HISTORY and secondary PSR](docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png)
+![TIME example: independent main HISTORY and secondary PSR](docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png)
 
-Development fixture from the G2 native renderer; actual DAW and daily-operation acceptance remain in G3.
+This example shows synthetic measurements.
 
 DRUM answers one question: **how did processing change the same hit?** Put PRE before the
 processing chain and POST after it to compare POST − PRE; with POST alone, read the output hit's
@@ -192,9 +192,9 @@ An older PRE or a band mismatch keeps the requested Δ scope and preserves a rea
 POST snapshot is labelled POST, and its DELAY is not applicable (`No PRE`). Open **Facts** for the
 same adopted values, subset medians, classification counts, per-metric age and measurement spans.
 
-![G2 native development fixture: eight-hit BAND cohort, typed bounds and average-envelope gaps](docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png)
+![DRUM BAND example: eight-hit cohort, bounds and average-envelope gaps](docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png)
 
-The BAND image is a renderer fixture showing missing observations and bounds, not a DAW measurement.
+The BAND example uses synthetic measurements to show missing observations and measured bounds.
 
 TIME's PSR has its own target and cutoff: it automatically shows Δ for a selected pair, while the
 main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to its completed
@@ -202,24 +202,26 @@ main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to i
 keeps the Δ label and its reason. It does not silently become POST. Current values expire from the
 original 100 ms slot's completion, with a 400 ms lifetime; repeated polls do not renew them.
 After a playback boundary, current Δ requires a complete, continuous aperture on both sides:
-400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR, with known presentation latency.
+400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR. These LEVEL and TIME
+readings also work when the DAW omits its optional presentation-latency report.
 Absolute POST observations and Session statistics continue independently. A cumulative PLR
 without equivalent prefix proof stays unavailable in Δ.
 PSR is supplementary: its `Δ −3.3 dB` or `POST 10.1 dB` reading uses a small, regular-weight
 font and secondary colour, with no equation beside it. M, S and TP remain the main readings.
 
-The G2 integration uses DRUM acquisition at 30 Hz, BAND LIVE summaries at 4 Hz and TIME at 10 Hz.
-DRUM's display clock is separate from measurement and stops at the available facts. Its provisional
-150 ms look-behind and 250 ms freshness fence still require calibration in G3. Local fixtures do not
-establish actual DAW operation or the user's daily readability and quality acceptance. Those checks
-are required before release; friend feedback remains a post-release G4 step.
+DRUM reads incoming hits at 30 Hz, updates BAND LIVE summaries at 4 Hz and updates TIME at 10 Hz.
+Its display clock is separate from measurement and stops where available observations end. The
+view looks back 150 ms; a BAND reading older than 250 ms keeps its age and missing-data reason
+visible in Facts. These readings describe the measured audio and do not judge its quality.
 
 Meter Session I, LRA and MAX TP include every EBU-processed 10 ms block, including the tail before
-Stop. A shorter unprocessed tail is reported explicitly: MAX TP shows `≥` the confirmed value and
-PLR shows `---`. I and LRA describe the processed prefix. MAX M and current meter points keep their
+Stop. During playback, the ordinary fraction of the next 10 ms chunk keeps MAX TP and PLR
+available for the processed audio. A tail left unprocessed after Stop is reported explicitly:
+MAX TP shows `≥` the confirmed value and PLR shows `---`. I and LRA describe the processed prefix. MAX M and current meter points keep their
 100 ms update boundary. Reset clears the session; pause retains its coverage. Record semantics stay
 unchanged. Capture freezes the displayed facts for a local PNG. If Work attachment v1 cannot retain
 their typed meaning, attachment reports that limitation and offers the same frozen PNG for local save.
+TIME HISTORY/PSR and DRUM require this typed meaning; RUN, SHARP and LIVE remain attachable in v1.
 Saving over an existing PNG replaces it with the complete new image; it does not append a second
 image. A failed write reports failure and preserves the previous file.
 
@@ -936,8 +938,10 @@ Saving and reopening therefore remain separate regular-host acceptance requireme
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
    MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
-   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN. These
-   values are experimental until listening tests settle them.
+   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN.
+   Hiding the editor also stops AUTO and holds its last gain; the next time you show the editor,
+   it reports the stop. Select AUTO again explicitly to resume following. These values are
+   experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
    then restores normal POST level with the existing slow ramp (500 ms for the full gain range).

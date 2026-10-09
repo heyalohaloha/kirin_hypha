@@ -20,7 +20,7 @@ G2後の実host観測に対する責務と再受入を固定する。G3、本人
 
 ## 時計・保存の境界
 
-M/TP/LEVEL CRESTは400 ms、S/PSR/CORRは3秒を双方の同じrunで処理し、既知latencyの証拠を持つ場合だけcurrent Δを作る。部分窓と完全窓を比較せず、arrival順・wall clock・再pollをproofにしない。TIMEの6値ABIは維持し、LEVEL CRESTは同時刻の内部publicationに付加する。旧publicationに追加証拠がない場合はfail closed。絶対POSTとSessionの累積統計をresetして辻褄を合わせない。累積PLRの等価prefixを証明できないΔは欠測を保持する。
+M/TP/LEVEL CRESTは400 ms、S/PSR/CORRは3秒を双方の同じrunで処理してからcurrent Δを作る。LEVEL/TIMEはoptional presentation latencyが報告されないhostでも同じ実frame窓を確認してΔを出す。この変更をFREQのexact join、live比較、Recordの既知latency条件へ適用しない。部分窓と完全窓を比較せず、arrival順・wall clock・再pollをproofにしない。TIMEの6値ABIは維持し、LEVEL CRESTは同時刻の内部publicationに付加する。旧publicationに追加証拠がない場合はfail closed。絶対POSTとSessionの累積統計をresetして辻褄を合わせない。累積PLRの等価prefixを証明できないΔは欠測を保持する。
 
 終端Singleの元proofは値・形と共に1件だけ保持する。supportの移動で破壊せず、source/owner/pair authority/request/mapping epochの変更は退役させる。LIVE、別候補、帯域変更は既存所有関係に従う。BUSYを退役と扱わない。
 
@@ -32,7 +32,7 @@ Recordの補助時計cut例外はproducerで主時計と既知latencyの連続�
 
 ## 表示・性能の境界
 
-FREQは6秒の奥への流れ、全観測内容、12 Hz曲線/2 Hz数値を維持する。地形scratchは既存bounded storeを使い、blend/coverageの順を変えない。非表示editorの表示取得を止めても通常計測、Record、Session、IOは独立して進む。Audio Threadへ仕事を移さない。
+FREQは6秒の奥への流れ、全観測内容、12 Hz曲線/2 Hz数値を維持する。地形scratchは既存bounded storeを使い、blend/coverageの順を変えない。非表示editorの表示取得を止めても通常計測、Record、Session、IOは独立して進む。AUTOは非表示になった最初のtimerで停止し、承認済みPRE gainとPOST減衰を保持する。停止通知は再表示後にfooterへ出し、AUTOを自動再開しない。先に出たKeep／Capture等の操作通知は上書きせず、表示が終わってから停止通知を出す。Keep完了とCaptureのWork添付結果のeditor通知も非表示中は消費せず、再表示時まで遅れる。Audio Threadへ仕事を移さない。
 
 Reference変換の係数cacheは1つの非RT変換jobの内部だけに保持し、同じ小数位置のbit精度を保つ。512種類を超えたら未登録係数は従来の式で計算する。rate/source間で共有せず、PCM、tap順、境界、gainを変えない。44.1/48/96 kHz source、5出力rate、mono/stereo、先頭/中間/末尾、上限後を独立した旧式oracleとbit比較する。
 
@@ -53,3 +53,13 @@ shipping editorのchain footer preference試験はshared preferenceの保存先�
 実hostの11現象の再確認、A01の事前固定した性能上限/host範囲、A10の実clockと全slot出力、AU PRE authority、Reference V停止時のOS publicationとHypha退役理由、VST3 offline bit identityは別の証拠が必要。process単体0.1%原則をDAW process CPUへ置き換えない。
 
 ARM実DAW、Windows AAX/PDC、全Reference/Blind/Exact/Capture/Record往復、長時間/低buffer/複数instance、本人の聴取・操作・品位は担当・機器・fixture・再開条件を私的matrixへ記録する。CI確認・merge・releaseはClaude担当。別sessionへ無断送信しない。友人確認は公開後G4のまま。
+
+## B-1355レビューの修正と確認範囲
+
+- LEVELのcached qualificationはbusyと実データ欠測を分ける。六つの取得mutex／authority競合では新frameを返さず、呼出し元の整合したHOLDING表示を保つ。停止時はIO側の保持publicationを待ち、MEASURINGで上書きしない。元pointの期限は延長しない。
+- 再生中の通常の次の10 ms未満のchunkはcompleteとして処理済みprefixを表示する。processed／pendingの実framesは保持し、停止後の未処理尾や丸ごと未処理chunkはpendingのまま。PLR／MAX TPとCaptureを再生中・停止後の両方で確認する。
+- Capture v1でtyped metadataを要求するTIME面はHISTORY/PSRとDRUMだけ。RUN／SHARP／LIVEはSessionのpending状態から添付拒否を引き継がない。LEVELの真の未処理尾は従来の拒否を維持し、同じ凍結PNGを保つ。
+- Factsのfinishは意味のある英日文言を使い、enum値を表示しない。全体値のないlaneにWhole件数を付けず、分類と確定部分の内訳は保持する。
+- READMEの機能説明と画像captionは利用者の操作・計測の言葉で記述する。release担当が扱うcurrent v1.1.50とAAX受入の記述は変更しない。
+
+レビューの記録のみ（今回の修正外）：VU基準はローカル設定fileに残り、別PCで設定が無ければ通知なく既定−18になる。Session I／LRAのexact cacheは65,536 distinct nodesが上限で、約55分相当以後にはMeasure threadのcanonical全体再計算へ戻り得る。spectrum ingressの実装はatomicのみだが、xtaskのRT guard対象には含まれていない。これらを解消済みとは報告しない。

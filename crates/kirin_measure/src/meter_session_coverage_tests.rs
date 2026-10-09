@@ -21,10 +21,7 @@ fn stop_tail_reports_confirmed_scope_without_inventing_true_peak_and_resume_comp
     session.push_active(&tail);
     record.push(&tail);
     let active = session.snapshot_v2();
-    assert_eq!(
-        active.summary_status,
-        MeterSessionSummaryStatus::PendingTail
-    );
+    assert_eq!(active.summary_status, MeterSessionSummaryStatus::Complete);
     assert_eq!(active.processed_frames, 48_000);
     assert_eq!(active.pending_frames, 479);
     assert_eq!(
@@ -83,6 +80,7 @@ fn partial_input_provenance_is_frame_exact_at_round_and_nonround_rates() {
                 snapshot.session.active_frames
             );
             assert!(snapshot.pending_frames < u64::from(((rate + 5) / 10).div_ceil(10)));
+            assert_eq!(snapshot.summary_status, MeterSessionSummaryStatus::Complete);
         }
         let before = session.snapshot_v2();
         assert!(!session.push_active(&[f64::NAN; 2]));

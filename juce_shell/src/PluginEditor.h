@@ -336,7 +336,7 @@ private:
     // INV-LC16: AUTO and the point the last explicit MATCH approved (PRE gain, true-peak ceiling).
     struct LiveCompareAuto
     {
-        bool on = false;
+        bool on = false, hiddenStopNoticePending = false;
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;

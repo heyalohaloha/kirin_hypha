@@ -4,6 +4,7 @@
 #include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
 #include "EditorProductChecks.h"
+#include "EditorHiddenAutoCheck.h"
 #include "EditorResizeGripCheck.h"
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
@@ -390,6 +391,7 @@ int main (int argc, char** argv)
     // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
     hypha::i18n::holdLanguage (true);
     verifyRecordBodyOwnership();
+    hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
     hypha::tests::editor_product::verifyChainTimingFooterSwitch();

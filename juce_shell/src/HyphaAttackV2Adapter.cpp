@@ -201,6 +201,7 @@ juce::String scopeText (const Lane& lane, bool live)
 {
     if (lane.scope == Scope::single) return words (live ? "Latest hit" : "Locked hit", live ? u8"最新の一打" : u8"固定した一打");
     if (lane.scope == Scope::confirmedSubset) return words ("Exact ", u8"確定") + juce::String (lane.exactCount) + "/" + juce::String (lane.count);
+    if (!lane.number.valid || (lane.scope != Scope::wholePoint && lane.scope != Scope::wholeInterval)) return {};
     return words ("Whole ", u8"全") + juce::String (lane.count) + words ("", u8"打");
 }
 juce::String laneReason (const Lane& lane)

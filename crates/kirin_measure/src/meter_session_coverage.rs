@@ -16,7 +16,8 @@ pub struct MeterSessionSnapshotV2 {
     pub processed_frames: u64,
     /// Accepted frames awaiting the next analysis chunk; retained through pause/bypass.
     pub pending_frames: u64,
-    /// Complete means input coverage, not that a silent or short signal has every metric.
+    /// Complete includes an ordinary in-flight subchunk during active playback. Counts still
+    /// describe the processed prefix; a paused tail or a full unprocessed chunk is pending.
     pub summary_status: MeterSessionSummaryStatus,
 }
 
@@ -29,7 +30,10 @@ impl MeterSession {
         let pending_frames = self.active_frames.saturating_sub(processed_frames);
         let summary_status = if self.active_frames == 0 {
             MeterSessionSummaryStatus::Empty
-        } else if pending_frames == 0 {
+        } else if pending_frames == 0
+            || (self.state == MeterSessionState::Active
+                && pending_frames < self.engine.next_analysis_chunk_frames())
+        {
             MeterSessionSummaryStatus::Complete
         } else {
             MeterSessionSummaryStatus::PendingTail

@@ -19,5 +19,6 @@ bool validInterval (const KirinSnapshotInterval&) noexcept;
 FormattedInterval formatInterval (const KirinSnapshotInterval&, int decimals,
                                   const juce::String& unit, bool signedValue, bool exact);
 juce::String reasonText (std::uint8_t reason, bool detailed = false);
+juce::String finishText (std::uint8_t finish);
 juce::String words (const char* english, const char* japanese);
 }

@@ -61,7 +61,8 @@ export function verifyReadmeMedia(repoRoot) {
     assert.ok(bytes.length > 10_000, `${relativePath} must not be empty`);
     assert.equal(sha256File(file), digest, `${relativePath} digest`);
     assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    assert.match(readme, /G2 development fixture; DAW acceptance remains in G3/);
+    assert.match(readme, /The example uses synthetic measurements\./);
+    assert.doesNotMatch(readme, /\bG[234]\b/);
   }
 
   for (const retired of [

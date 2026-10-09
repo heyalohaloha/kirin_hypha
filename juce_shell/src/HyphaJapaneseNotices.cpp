@@ -125,6 +125,7 @@ const Entry entries[] = {
     { "AUTO not started: PRE timing pending", u8"AUTO未開始：PREの時刻確認待ち" },
     { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
     { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
+    { "AUTO stopped: editor hidden", u8"AUTO停止：画面が非表示" },
     { "Delay compensation is off in Pro Tools", u8"Pro Toolsの遅延補償がOFFです" },
 };
 }

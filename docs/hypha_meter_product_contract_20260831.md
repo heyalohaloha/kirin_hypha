@@ -418,7 +418,7 @@ Session I／LRA／MaxTPはEBUで処理済みの全10 ms blockを含み、100 ms�
 Max Mとcurrent／TIME pointの更新は従来の100 ms境界を保つ。公開済みpointは後から変更しない。
 独立したsized `MeterSessionV2`でSession統計とprocessed／pending framesを同じlockから取得する。
 framesは各channelあたりのsample数で、Active入力数はprocessed＋pendingとなる。Stop／bypassでpendingを消さず、再開は同Session、RESETは全て破棄する。
-10 ms未満の未処理尾があるときは、MaxTPを確認済み下限`≥`、PLRを`---`とし、I／LRAは処理済みprefixと明示する。
+再生中の次の10 ms未満の通常chunkは処理済みprefixの通常表示を保ち、MaxTP／PLRを欠測にしない。processed／pending framesは実値のまま保持する。停止後の未処理尾、または次のchunk以上の未処理入力があるときは、MaxTPを確認済み下限`≥`、PLRを`---`とし、I／LRAは処理済みprefixと明示する。
 raw sample peakでtrue peakを代用せず、無音を追加して尾の測定完了を作らない。canonical Record／finalizeとAudio Threadは変更しない。
 LEVELのSession I／LRA／MaxTPはこのV2の最新処理済みscopeを使う。TIMEのPLRは同一packetの完全100 ms pointが持つ処理済みprefixの累積値であり、後続のpending入力を含む最新Session全体値とは呼ばない。Active中は元pointの期限内だけ残り、Stopではcurrentを退役する。Sessionを別pollしてTIME pointのPLRを組み替えない。
 V2取得のBUSYは出力不変で、同じsourceの直前の整合した表示を保持する。旧Session ABIとimmutable publicationの意味は維持する。
@@ -662,7 +662,7 @@ LEVELのObservation Plateは主値、M内のMax M補助値、その他の補助�
 
 保存とPNG encodeは非Audio Threadで行う。
 
-DRUM／TIMEのtyped snapshot、scope、cutoff、viewport／clock、未処理尾を持つ表示は、その同一presentationを固定してPNGへ描く。
+TIMEのHISTORY/PSR・DRUM、およびLEVELの真の未処理尾を持つ表示は、その同一presentationを固定してPNGへ描く。TIMEのRUN／SHARP／LIVEはtyped metadataを必須にせず、Capture v1のWork添付を維持する。
 Work添付はv1を維持し、必要なtyped metadataをv1で保持できない場合はunsupportedを明示して添付しない。
 同じ凍結PNGのローカル保存を案内し、metadataを捨てたattached成功を返さない。timeout／再試行も明示操作の結果として通知する。
 
@@ -774,3 +774,6 @@ SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め�
 Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合だけHypha対象App License確認をgateとし、未搭載を公開blockerにしない。
 
 2026-10-09の性能修正では、非RTの参照音源rate変換で左右共通係数の重複計算だけを除く。出力PCM、測定値、操作、針や曲線の応答は保持する。FREQの6秒履歴が奥へ流れる表現と表示cadenceを維持し、単体converterの改善を実DAW全体の性能受入へ読み替えない。根拠は[G3 receipt](planning/hypha_drum_psr_g3_20261008/validation-receipt.json)。
+
+LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。try-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。
+非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。

@@ -28,6 +28,7 @@ Section drumSnapshotSection() noexcept
         { "Update PRE", u8"PRE更新" },
         { "Long tail", u8"長い余韻" },
         { "Audio ended", u8"入力終了" },
+        { "Not retained", u8"保持外" },
         { "Max age ", u8"確定最大古さ" },
         { "Full-band 6s history", u8"全帯域6秒履歴" },
         { u8"Facts — frozen / ESC close / End LIVE", u8"根拠 — 固定 / ESC閉じる / End LIVE" },

@@ -36,6 +36,11 @@ void KirinHyphaEditor::timerCallback()
     {
         processorRef.setReferenceViewPresented (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (isPost && liveCompareAuto.on)
+        {
+            stopLiveCompareAuto ({});
+            liveCompareAuto.hiddenStopNoticePending = true;
+        }
         syncAnalysisDemand();
        #endif
         return;
@@ -75,6 +80,13 @@ void KirinHyphaEditor::timerCallback()
     refreshPairPreview (false);
     updateHelpLine();
     refreshUpdateChecking();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost && liveCompareAuto.hiddenStopNoticePending && toastText.isEmpty())
+    {
+        liveCompareAuto.hiddenStopNoticePending = false;
+        showToast ("AUTO stopped: editor hidden");
+    }
+   #endif
 }
 
 void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)

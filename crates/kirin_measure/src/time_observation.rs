@@ -70,9 +70,9 @@ impl TimeWirePoint {
             1 | 3 | 5 => 3000,
             _ => return false,
         };
-        self.latency_known
-            && self.continuous_frames
-                >= (u64::from(self.span.sample_rate) * milliseconds).div_ceil(1000)
+        // LEVEL/TIME retain the host-clock pairing contract even when the optional
+        // presentation-latency callback is absent. Aperture coverage is still mandatory.
+        self.continuous_frames >= (u64::from(self.span.sample_rate) * milliseconds).div_ceil(1000)
     }
 
     pub fn exact_key(self) -> Option<(u8, i64)> {
