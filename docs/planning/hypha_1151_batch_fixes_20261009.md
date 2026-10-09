@@ -46,6 +46,8 @@ Keep表示のshipping editor試験はFREQ/TIME各面/SPACE/LEVELの6面とFinali
 
 Windowsの全owned native targetは製品targetと同じUTF-8指定を継承する。CP932で日本語commentが行継続として解釈される試験targetのコンパイル失敗を、製品sourceの括弧変更や試験除外で隠さない。
 
+shipping editorのchain footer preference試験はshared preferenceの保存先を、editor生成前に使い捨てfixtureへ固定する。WindowsのJUCE既知フォルダ取得はAPPDATAの環境変数置換では隔離されないため、利用者の保存値を既定値のoracleにせず、ON/OFF試験を実設定へ書かない。製品の保存場所・既定値・共有規則は変更しない。
+
 採用commitとJUCE実bytesを固定し、正規入口でMac Universal 6本とWindows x64 4本を作る。診断AAX、通常Pro Tools用PACE署名、formal installer、exact CIを区別する。署名・公証・配置を行った場合はLS用PKGとApple verification dry-runまで準備する。公開は個別candidateの承認後だけ。
 
 実hostの11現象の再確認、A01の事前固定した性能上限/host範囲、A10の実clockと全slot出力、AU PRE authority、Reference V停止時のOS publicationとHypha退役理由、VST3 offline bit identityは別の証拠が必要。process単体0.1%原則をDAW process CPUへ置き換えない。

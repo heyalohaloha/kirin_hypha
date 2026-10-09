@@ -67,6 +67,39 @@ struct UpdatePost
 };
 template struct PrivateAccess<UpdatePost, &KirinHyphaEditor::updatePost>;
 
+struct ChainTimingPreferenceFile
+{
+    using Type = juce::File ChainTimingFooterPreference::*;
+    friend Type privateMember (ChainTimingPreferenceFile);
+};
+template struct PrivateAccess<ChainTimingPreferenceFile, &ChainTimingFooterPreference::file>;
+
+// JUCE's Windows known-folder lookup does not follow the process APPDATA override. This fixture
+// exercises the real shared switch, but its reads and writes must use only the owned sandbox.
+// Bind the existing private storage field before any editor reads it; no product hook is added.
+class ScopedChainTimingStorage final
+{
+public:
+    explicit ScopedChainTimingStorage (const juce::File& sandbox)
+        : preference (ChainTimingFooterPreference::shared()),
+          original (preference.*privateMember (ChainTimingPreferenceFile {}))
+    {
+        const auto file = sandbox.getChildFile ("ui-preferences.txt");
+        require (file.isAChildOf (sandbox) && ! file.exists(), "fresh isolated UI preference file");
+        preference.*privateMember (ChainTimingPreferenceFile {}) = file;
+        preference.refreshNowForTest();
+    }
+
+    ~ScopedChainTimingStorage()
+    {
+        preference.*privateMember (ChainTimingPreferenceFile {}) = original;
+    }
+
+private:
+    ChainTimingFooterPreference& preference;
+    juce::File original;
+};
+
 // A look review of the shipping editor, written only when KIRIN_HYPHA_COMPACT_REVIEW_DIR is set.
 inline void writeReview (juce::Component& editor, const juce::String& name)
 {
