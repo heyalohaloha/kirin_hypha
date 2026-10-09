@@ -92,6 +92,21 @@ the existing material raster and adds no resource. The current reviewed CMake SH
 advances. Existing material permissions, holds, licenses and allowed uses are retained;
 this source review does not certify actual payload linkage or release acceptance.
 
+### 2026-10-09 Windows native UTF-8 build-contract review
+
+Base: `f422c08ed42e9f3825cb112c7072a5a5e1e79f0c` (B-1350). The implementation session
+inspected the complete CMake difference: three added lines apply the already-defined source
+encoding options to every owned target. MSVC uses the existing `/utf-8`; other compilers
+receive no additional option. This repairs CP932 interpretation of Japanese native-test source
+without changing embedded resources, font selection or shipping audio behavior.
+Removing those three lines gives the exact base CMake bytes. The 1,109-byte resource/font
+assembly block, all three embedded PNG bytes/hashes and `ObservatoryMaterial.cmake` are
+byte-identical to the base. The reviewed CMake SHA-256 is
+`25e757cfbb52262328ccb95536d5760dc00d81f5a9205133323c3b1d8b87d278`.
+Only the registry build-contract hash advances; material permissions, holds, licenses and allowed
+uses retain their prior decisions. This source/material audit does not certify actual payload
+linkage, independent PR review, formal signing or release acceptance; those gates remain.
+
 Public CI continues the complete build/test matrix but suppresses new Windows UI/binary/installer/
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked
 separately from binary use. Diagnostic CI also lacks verified actual-payload NOTICE/source delivery,
