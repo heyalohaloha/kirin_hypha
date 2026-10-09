@@ -17,13 +17,7 @@ pub(super) fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
     let selected_trace_samples: Vec<&RecordTraceSample> = ctx
         .trace_samples
         .iter()
-        .filter(|sample| {
-            !has_epoch_samples
-                || sample
-                    .capture_epoch
-                    .zip(ctx.selected_capture_epoch)
-                    .is_some_and(|(sample_epoch, selected_epoch)| sample_epoch == selected_epoch)
-        })
+        .filter(|sample| !has_epoch_samples || belongs_to_selected_take(ctx, sample))
         .collect();
     let mut seen_presentation = BTreeSet::new();
     let mut presentation_latency_observations = Vec::new();
@@ -115,7 +109,7 @@ pub(super) fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         let Some(result) = measured_trace_result_for_bake(sample) else {
             continue;
         };
-        // Only the selected Record epoch enters this map. The producer take grid below chooses
+        // Only the selected Record audio take enters this map. The producer take grid below chooses
         // the exact WAV-range positions; callbacks outside that grid never become publish input.
         if let (Some(position), Some(source)) =
             (sample.position_samples, sample.clock_source.as_str())
@@ -315,14 +309,37 @@ pub(super) fn raw_trace_timeline_covers_duration(ctx: &RecordingCtx, duration_ms
         }
     }
     for sample in &ctx.trace_samples {
-        let selected_epoch = !has_epoch_samples
-            || sample
-                .capture_epoch
-                .zip(ctx.selected_capture_epoch)
-                .is_some_and(|(sample_epoch, selected_epoch)| sample_epoch == selected_epoch);
+        let selected_epoch = !has_epoch_samples || belongs_to_selected_take(ctx, sample);
         if selected_epoch && sample.t_ms <= duration_ms && sample.has_measured_core() {
             times.push(sample.t_ms);
         }
     }
     timeline_times_cover_duration(&mut times, duration_ms)
+}
+
+fn belongs_to_selected_take(ctx: &RecordingCtx, sample: &RecordTraceSample) -> bool {
+    let Some((observed, selected)) = sample.capture_epoch.zip(ctx.selected_capture_epoch) else {
+        return false;
+    };
+    if observed == selected {
+        return true;
+    } // Preserve the original same-epoch contract.
+    let Some(proof) = ctx.record_audio_prefix else {
+        return false;
+    };
+    let Some((position_samples, raw_host_position_samples)) = sample
+        .position_samples
+        .zip(sample.raw_host_position_samples)
+    else {
+        return false;
+    };
+    sample.generation == ctx.record_generation
+        && proof.span.epoch == selected
+        && proof.matches(crate::capture_clock::CaptureClockPoint {
+            position_samples,
+            raw_host_position_samples,
+            epoch: observed,
+            source: sample.clock_source,
+            presentation_latency: sample.presentation_latency,
+        })
 }

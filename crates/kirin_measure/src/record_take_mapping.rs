@@ -219,4 +219,14 @@ impl RecordTakeTracker {
             (ring, None) => ring,
         }
     }
+
+    pub(crate) fn record_audio_prefix(
+        &self,
+        epoch: u64,
+        generation: u64,
+    ) -> Option<crate::capture_clock::RecordAudioPrefixProof> {
+        self.record_audio_mapping
+            .read_proof(epoch)
+            .filter(|proof| generation > 0 && proof.span.generation == generation)
+    }
 }

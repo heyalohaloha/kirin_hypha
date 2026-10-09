@@ -6,7 +6,7 @@ pub(in crate::record_take) struct RecordAudioMapping {
     slots: [CaptureClockSlot; 2],
     current: AtomicU64,
     selected_epoch: AtomicU64,
-    last_extended_epoch: AtomicU64,
+    last_extended_epochs: [AtomicU64; 2],
 }
 
 impl RecordAudioMapping {
@@ -15,7 +15,7 @@ impl RecordAudioMapping {
             slots: [CaptureClockSlot::new(), CaptureClockSlot::new()],
             current: AtomicU64::new(0),
             selected_epoch: AtomicU64::new(0),
-            last_extended_epoch: AtomicU64::new(0),
+            last_extended_epochs: [AtomicU64::new(0), AtomicU64::new(0)],
         }
     }
 
@@ -31,17 +31,16 @@ impl RecordAudioMapping {
                 return; // Never synthesize a start whose producer span has already retired.
             }
             index ^= 1;
+            self.last_extended_epochs[index].store(span.epoch, Ordering::Release);
             self.slots[index].publish(span);
             self.current.store(index as u64, Ordering::Release);
-            self.last_extended_epoch
-                .store(span.epoch, Ordering::Release);
             self.selected_epoch.store(selected, Ordering::Release);
             return;
         }
         let Some(prefix) = self.slots[index].read(selected) else {
             return;
         };
-        let last = self.last_extended_epoch.load(Ordering::Acquire);
+        let last = self.last_extended_epochs[index].load(Ordering::Acquire);
         let same_epoch = last == span.epoch;
         let qualified_cut = last.checked_add(1) == Some(span.epoch)
             && span.auxiliary_only_cut
@@ -68,14 +67,35 @@ impl RecordAudioMapping {
             && prefix.presentation_latency == span.presentation_latency
             && span.capture_start_frame <= prefix.capture_end_frame
             && span.capture_end_frame >= prefix.capture_end_frame
-            && self.slots[index].extend(selected, span.capture_end_frame)
         {
-            self.last_extended_epoch
-                .store(span.epoch, Ordering::Release);
+            self.last_extended_epochs[index].store(span.epoch, Ordering::Release);
+            self.slots[index].extend(selected, span.capture_end_frame);
         }
     }
 
     pub(in crate::record_take) fn read(&self, epoch: u64) -> Option<CaptureClockSpan> {
         self.slots.iter().find_map(|slot| slot.read(epoch))
+    }
+
+    pub(in crate::record_take) fn read_proof(
+        &self,
+        epoch: u64,
+    ) -> Option<crate::capture_clock::RecordAudioPrefixProof> {
+        for (index, slot) in self.slots.iter().enumerate() {
+            let last = self.last_extended_epochs[index].load(Ordering::Acquire);
+            let Some(span) = slot.read(epoch) else {
+                continue;
+            };
+            if last >= epoch
+                && last == self.last_extended_epochs[index].load(Ordering::Acquire)
+                && slot.read(epoch).is_some()
+            {
+                return Some(crate::capture_clock::RecordAudioPrefixProof {
+                    span,
+                    last_epoch: last,
+                });
+            }
+        }
+        None
     }
 }

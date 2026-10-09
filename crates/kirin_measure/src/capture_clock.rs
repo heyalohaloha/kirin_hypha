@@ -122,6 +122,44 @@ pub(crate) struct CaptureClockSpan {
     pub presentation_latency: PresentationLatencySamples,
 }
 
+/// Record-only immutable prefix proof. Pair epochs and their original observations stay intact.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordAudioPrefixProof {
+    pub(crate) span: CaptureClockSpan,
+    pub(crate) last_epoch: u64,
+}
+
+impl RecordAudioPrefixProof {
+    pub(crate) fn matches(self, point: CaptureClockPoint) -> bool {
+        let Some(raw_start) = self.span.raw_host_position_start_samples else {
+            return false;
+        };
+        let Some(position_start) = self.span.position_start_samples else {
+            return false;
+        };
+        let Some(offset) = point
+            .raw_host_position_samples
+            .checked_sub(raw_start)
+            .and_then(|offset| u64::try_from(offset).ok())
+        else {
+            return false;
+        };
+        let Ok(position_offset) = i64::try_from(offset) else {
+            return false;
+        };
+        point.epoch >= self.span.epoch
+            && point.epoch <= self.last_epoch
+            && point.source == self.span.source
+            && point.presentation_latency == self.span.presentation_latency
+            && offset
+                <= self
+                    .span
+                    .capture_end_frame
+                    .saturating_sub(self.span.capture_start_frame)
+            && position_start.checked_add(position_offset) == Some(point.position_samples)
+    }
+}
+
 impl CaptureClockSpan {
     pub(crate) fn position_for_captured_frame(self, frame: u64) -> Option<i64> {
         self.offset_at(frame, false, self.position_start_samples)

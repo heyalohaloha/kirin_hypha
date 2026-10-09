@@ -574,6 +574,8 @@ Recordの中間I／LRAは同じ処理済みprefixのexact-energy cacheを使い�
 Keep／Record終了の状態は既存の最下部通知領域へ示す。保持した6つの結果factは既存LEVELから確認し、TIME／FREQ／SPACEの選択面やタブへ結果見出しを重ねない。明示操作の保存失敗は従来どおり理由を通知する。
 Recordの音声対応では、主時計・presentation・source・latencyが連続し、補助時計だけが切り替わったとproducerが確認した境界を、真の音声欠落と区別する。比較時計のepochは引き続き切る。seek、強制cut、source変更、未知latencyを連続音声として承認せず、欠落の補間やcompleteの偽装を行わない。
 
+確定TRACEは、選択takeのproducer証拠でgeneration・epoch範囲・source・latency・raw/presentation端点が一致した観測だけを継続区間へ含める。比較epochとraw観測を変更せず、現在・直前のtakeの固定2枠を超えて証拠を保持しない。WAV未結合は`expected_wav_ready=false`のままとし、producerが全sample数とTRACEを証明したrender-clock takeのcomplete判定とは分ける。sample数を証明できない場合のfallback理由を維持する。
+
 RecordのJSON保存はIO-owned writerで実行する。checksumを空にした正規JSONのbytesへ従来と同じHMACを計算し、最後のchecksum欄へ格納する。二重serializeを一回へまとめても、従来のserializerによる最終bytes、field順序、schema、HMAC、atomic write／renameの意味は維持する。未知のserializer形はcanonical経路へ戻り、encode失敗・unwindでは元のchecksumを復元する。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`-1〜+3 dBTP`軸と下から立ち上がるstemを重ねる。stemはすべて-1 dBTPを超えるので、軸はstemが立つ範囲だけを持ち、0 dBTPに基準線を引く。+3を超える値は上端で止め、印を付ける（2026-10-06）。TPのstemと軸はVUのTP railと同じ水色とし、Mの金と見分ける。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。

@@ -44,7 +44,7 @@ use chrono::TimeZone;
 
 #[path = "record_writer_trace_selection.rs"]
 mod trace_selection;
-use trace_selection::{bake_continuous_record_timeline, raw_trace_timeline_covers_duration};
+use trace_selection::bake_continuous_record_timeline;
 
 /// Frame サンプリング間隔（10 fps / G-50-17 リアルタイム Record）。
 pub const FRAME_INTERVAL_MS: u64 = 100;
@@ -556,9 +556,10 @@ pub struct RecordingCtx {
     /// Audio Thread が積んだ実レンダー長。手動 Keep/Stop の余白ではなく WAV と対応する
     /// `bounce_take` の正本として使う。
     pub clean_take: Option<RecordTakeSnapshot>,
-    /// Single producer capture epoch selected by the exact clean render range. TRACE samples from
-    /// every other transport pass are discarded before timeline baking.
+    /// Producer epoch selected by the exact clean render range. Other epochs need the qualified
+    /// Record audio prefix; unrelated transport passes are discarded before timeline baking.
     pub selected_capture_epoch: Option<u64>,
+    pub(crate) record_audio_prefix: Option<crate::capture_clock::RecordAudioPrefixProof>,
     /// Canonical output-presentation range corresponding to the selected raw render range.
     pub presentation_range: Option<(i64, i64)>,
     /// Host presentation-latency state read directly at close. This remains available even when
@@ -946,6 +947,7 @@ fn writer_start_with_base_override(
         record_generation: 0,
         clean_take: None,
         selected_capture_epoch: None,
+        record_audio_prefix: None,
         presentation_range: None,
         presentation_latency_at_close: PresentationLatencySamples::default(),
         last_trace_t_ms: None,
@@ -1013,6 +1015,7 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
     };
     ctx.presentation_latency_at_close = tracker.presentation_latency();
     ctx.selected_capture_epoch = None;
+    ctx.record_audio_prefix = None;
     ctx.presentation_range = None;
 
     let snapshot = tracker.snapshot(ctx.record_generation);
@@ -1085,6 +1088,9 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
                 });
         }
     }
+    ctx.record_audio_prefix = ctx
+        .selected_capture_epoch
+        .and_then(|epoch| tracker.record_audio_prefix(epoch, ctx.record_generation));
     ctx.clean_take = snapshot;
 }
 
@@ -3864,6 +3870,7 @@ mod tests {
             record_generation: 0,
             clean_take: None,
             selected_capture_epoch: None,
+            record_audio_prefix: None,
             presentation_range: None,
             presentation_latency_at_close: PresentationLatencySamples::default(),
             last_trace_t_ms: None,

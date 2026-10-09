@@ -256,3 +256,39 @@ fn only_current_and_previous_selected_record_prefixes_survive_ring_turnover() {
         Some((frames as i64, (frames * 2) as i64))
     );
 }
+
+#[test]
+fn retained_record_prefix_requires_exact_generation_epoch_source_latency_and_coordinates() {
+    let tracker = RecordTakeTracker::new();
+    let count = CAPTURE_CLOCK_SPAN_CAPACITY as i64 + 100;
+    let epoch = repeated_auxiliary_cuts(&tracker, 1, count, 0, None);
+    let frames = (count * 512) as u64;
+    let point = tracker.clock_point_for_captured_frame(frames).unwrap();
+    let proof = tracker.record_audio_prefix(epoch, 1).unwrap();
+    assert!(tracker.record_audio_prefix(epoch, 2).is_none());
+    assert!(proof.matches(point));
+    assert!(!proof.matches(CaptureClockPoint {
+        epoch: proof.last_epoch + 1,
+        ..point
+    }));
+    assert!(!proof.matches(CaptureClockPoint {
+        source: CaptureClockSource::Unknown,
+        ..point
+    }));
+    assert!(!proof.matches(CaptureClockPoint {
+        raw_host_position_samples: point.raw_host_position_samples + 1,
+        ..point
+    }));
+    assert!(!proof.matches(CaptureClockPoint {
+        position_samples: point.position_samples + 1,
+        ..point
+    }));
+    assert!(!proof.matches(CaptureClockPoint {
+        presentation_latency: PresentationLatencySamples::default(),
+        ..point
+    }));
+    // A frozen previous proof cannot adopt an observation from a new take at the same raw range.
+    repeated_auxiliary_cuts(&tracker, 2, count, 0, None);
+    let replacement = tracker.clock_point_for_captured_frame(frames * 2).unwrap();
+    assert!(!proof.matches(replacement));
+}
