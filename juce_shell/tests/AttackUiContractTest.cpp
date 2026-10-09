@@ -16,6 +16,7 @@
 #include "AttackUiFrameBudget.h"
 #include "AttackUiShowcase.h"
 #include "PolylineGeometryContractTest.h"
+#include "AttackV2PresentationContractTest.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -76,6 +77,9 @@ int main()
     static_assert (sizeof (KirinAttackPairEvent) == 112);
     static_assert (sizeof (KirinAttackPairEventBatch) == 26'896);
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    // Existing V2 focus requests isolate that renderer from the legacy UI's timing fixture.
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {}).isNotEmpty())
+        return verifyAttackV2PresentationContract() ? EXIT_SUCCESS : EXIT_FAILURE;
     auto componentStorage = std::make_unique<hypha::AttackComponent>();
     auto& component = *componentStorage;
     component.setPresentationContext (context);
@@ -198,6 +202,7 @@ int main()
     KIRIN_REQUIRE (verifyChromeCache());
     KIRIN_REQUIRE (verifyFrameGeometry());
     hypha::tests::verifyPolylineGeometryContract();
+    KIRIN_REQUIRE (verifyAttackV2PresentationContract());
     KIRIN_REQUIRE (verifyRedrawContract (events, waveform, details, pairEvents, stats));
     const auto image = renderAttack (component);
     KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_PREVIEW_PATH", image));

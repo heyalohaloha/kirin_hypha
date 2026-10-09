@@ -19,6 +19,7 @@
 #include "HyphaReferenceGuide.h"
 #include "HyphaReferenceStatusModel.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
+#include "HyphaReferenceSelectionControl.h"
 #include "HyphaReferenceHelp.h"
 #include "HyphaReferenceStatusStrip.h"
 #include "HyphaReferenceComparisonView.h"
@@ -355,11 +356,11 @@ private:
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;
-    juce::ComboBox presetBox;
-    juce::ComboBox versionBox;
-    juce::ComboBox checkBox;
-    juce::ComboBox candidateBox;
-    juce::ComboBox cueBox;
+    SelectionControl presetBox;
+    SelectionControl versionBox;
+    SelectionControl checkBox;
+    SelectionControl candidateBox;
+    SelectionControl cueBox;
     std::array<juce::Label, 5> selectionReadouts;
     SideButton aButton { "A" };
     SideButton bButton { "V" };   // V（Version）。ID は既存の契約のため "reference-b" のまま
@@ -368,7 +369,7 @@ private:
     juce::ComboBox songSetBox, songBox;
     SongList songList; // B の画面の左の曲の一覧
     CheckTabs checkTabs; // C の画面の Check のタブ（CHECK セットの順）
-    juce::ComboBox checkSongBox; // いまの Check の曲
+    SelectionControl checkSongBox; // いまの Check の曲
     SideButton matchButton { "MATCH" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton actionButton { "OPEN KIRIN OS" };

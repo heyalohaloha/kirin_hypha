@@ -55,8 +55,18 @@ public:
         bottom = std::min (bottom, (float) data.height);
         if (x < 0 || x >= data.width || ! (bottom > top))
             return;
-        for (int y = (int) top, last = (int) std::ceil (bottom) - 1; y <= last; ++y)
-            put (x, y, colour, weight * (std::min (bottom, (float) y + 1.0f) - std::max (top, (float) y)));
+        const auto first = (int) top;
+        const auto last = (int) std::ceil (bottom) - 1;
+        put (x, first, colour, weight * (std::min (bottom, (float) first + 1.0f) - top));
+        // Only the endpoints have fractional coverage. Interior pixels all carry `weight`, so
+        // compute its exact original 0..256 blend once per span rather than for every pixel.
+        // Painting order, premultiplied blending and the fractional endpoints stay unchanged.
+        const auto extra = (juce::uint32) juce::jlimit (0, 256, (int) (weight * 256.0f + 0.5f));
+        if (extra > 0u)
+            for (int y = first + 1; y < last; ++y)
+                reinterpret_cast<juce::PixelARGB*> (data.getPixelPointer (x, y))->blend (colour, extra);
+        if (last > first)
+            put (x, last, colour, weight * (bottom - (float) last));
     }
 
     void put (int x, int y, juce::PixelARGB colour, float coverage) noexcept
@@ -240,9 +250,10 @@ void draw (juce::Image& image, float dpi, juce::Rectangle<float> plot, const std
         {
             const auto slopeBottom = std::min (frontZeroY, toRaster (project (plot, scale, ridge.depth, 0.5f, 0.0f)).y
                                                                + curtainDepth);
+            const auto slopeColour = floor.withAlpha (curtainAlpha * fade).getPixelARGB();
             for (int x = first; x <= last; ++x)
                 raster.span (x, columns[(size_t) x].top, std::min (slopeBottom, raster.horizonAt (x)),
-                             floor.withAlpha (curtainAlpha * fade).getPixelARGB());
+                             slopeColour);
         }
         // Grid lines along time join only neighbouring ridges; a missing ridge breaks them.
         if (row + 1 < (int) ridges.size() && values[(size_t) row].joinsNearer)

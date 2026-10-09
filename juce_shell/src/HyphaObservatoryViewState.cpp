@@ -2,9 +2,24 @@
 
 namespace hypha::observatory
 {
+void View::initializeVuCalibrationControl()
+{
+    addChildComponent (vuCalibrationControl);
+    vuCalibrationControl.onClick = [this] { if (onVuCalibrationMenu) onVuCalibrationMenu(); };
+}
+
+void View::setVuCalibration (int value, bool choiceAvailable)
+{
+    const auto previous = vuCalibrationControl.referenceDbfs();
+    vuCalibrationControl.setReference (value);
+    vuCalibrationControl.setEnabled (choiceAvailable);
+    if (hybridVuVisible() && previous != vuCalibrationControl.referenceDbfs()) repaint();
+}
+
 void View::setAnalysisPage (analysis_navigation::Page page)
 {
     if (analysisPage == page) return;
+    retireTimePresentation (true);
     analysisPage = page;
     history.clear(); runSummary = {};
     updateControls(); resized(); repaint();

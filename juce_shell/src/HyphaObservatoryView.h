@@ -18,49 +18,17 @@
 #include "HyphaRunSummary.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
+#include "HyphaVuCalibrationControl.h"
+#include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
 #include "HyphaHistoryInspection.h"
 #include "HyphaChainActionPainter.h"
+#include "HyphaTimeSnapshotPresentation.h"
+#include "kirin_hypha_navigation_snapshot_ffi.h"
 
 namespace hypha::observatory
 {
-class Button final : public juce::TextButton
-{
-public:
-    // What the button shows: its text, or a drawn menu arrow. The arrow is a path because JUCE 7
-    // draws a label in one typeface with no fallback, and Windows' label fonts have no U+25BE:
-    // the glyph showed there as an empty box.
-    enum class Mark { none, menuArrow };
-    Button (juce::String text, bool tabIn, Mark markIn = Mark::none);
-    void setPresentationContext (presentation::Context next) noexcept
-    {
-        if (presentationContext == next) return;
-        presentationContext = next;
-        repaint();
-    }
-    float fontHeightForTest() const
-    {
-        return labelFont (presentationContext, typography::TextRole::action).getHeight();
-    }
-    void paintButton (juce::Graphics&, bool highlighted, bool down) override;
-    // A pending operation is readable status, not a dimmed action to press again.
-    void setStatusOnly (bool next)
-    {
-        if (statusOnly == next) return;
-        statusOnly = next;
-        setEnabled (! next);
-        setMouseCursor (next ? juce::MouseCursor::NormalCursor : juce::MouseCursor::PointingHandCursor);
-        repaint();
-    }
-    bool isStatusOnly() const noexcept { return statusOnly; }
-
-private:
-    bool tab = false, statusOnly = false;
-    Mark mark = Mark::none;
-    presentation::Context presentationContext = presentation::defaultContext();
-};
-
 // The live PRE / POST compare as the footer shows it (INV-LC4). PRE can be selected while POST
 // still sounds, until the correspondence at this position is proven: the PRE control says WAIT.
 struct LiveCompareFooter
@@ -124,6 +92,7 @@ public:
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
+    std::function<void()> onVuCalibrationMenu;
     std::function<void()> onClearPeakClipHolds;
     std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
@@ -212,6 +181,18 @@ public:
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
+    bool setTimeSnapshot (const KirinTimeSnapshotV2&, std::vector<KirinTimeHistoryEntryV2>,
+                          std::vector<KirinTimeHistoryEntryV2>, double, double, bool);
+    void advanceTimePresentation (double nowMs);
+    void retireTimePresentation (bool localSourceChanged);
+    const time_snapshot::Presentation& acceptedTimePresentation() const noexcept { return timePresentation; }
+    double meterSampleRateForSnapshot() const noexcept { return frameAvailable ? observatoryFrame.meter.sample_rate : 0.0; }
+    void setSessionCoverage (const KirinMeterSessionV2&);
+    const KirinMeterSession& cumulativeMeterForDisplay() const noexcept;
+    bool sessionSummaryPending() const noexcept;
+    juce::String sessionSummaryScope() const;
+    juce::String sessionMaximumBoundText() const;
+    capture::PresentationStamp capturePresentationStamp() const noexcept;
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
     void setLevelObservation (const KirinLevelSnapshot*, std::vector<KirinMeterHistoryEntry>,
@@ -227,6 +208,9 @@ public:
     bool setHybridVuOnRecordEnabled (bool enabled);
     bool dismissHybridVuForCurrentRecording();
     bool setManualHybridVuVisible (bool visible);
+    void setVuCalibration (int value, bool choiceAvailable = true);
+    int vuCalibration() const noexcept { return vuCalibrationControl.referenceDbfs(); }
+    juce::Component& vuCalibrationAnchor() noexcept { return vuCalibrationControl; }
     bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
     bool hybridVuShownByRecording() const noexcept
     {
@@ -315,6 +299,7 @@ public:
     juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight,
                                             bool includeGuide = false) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
+    juce::Rectangle<int> timeHistoryBounds() const noexcept { return timeHistoryArea; }
     juce::Rectangle<int> analysisBodyBounds() const noexcept;
     juce::Rectangle<int> timeNavigationBounds() const noexcept;
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
@@ -346,10 +331,14 @@ public:
     bool historyHeldForTest() const noexcept { return levelInspection.held(); }
 
 private:
+    time_snapshot::Presentation timePresentation;
+    KirinMeterSessionV2 sessionCoverage {};
+    bool haveSessionCoverage = false;
     void cycleDomain();
     void cycleTimeRange();
     void cycleSize();
     void toggleHybridVu();
+    void initializeVuCalibrationControl();
     bool recordingHybridVuRequested() const noexcept
     {
         return hostRecording && hybridVuOnRecordEnabled
@@ -479,8 +468,9 @@ private:
     Button operationsButton { "MENU", false };
     Button stopButton { "STOP", false };
     Button guideButton { {}, false };
-    Button statusButton { {}, true };
+    Button statusButton { {}, true, Button::Mark::footerNotice };
     Button hybridVuButton { "VU", false };
+    vu_calibration::Control vuCalibrationControl;
     Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };

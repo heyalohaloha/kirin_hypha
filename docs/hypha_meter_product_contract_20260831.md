@@ -66,7 +66,7 @@ R-12を維持する。
 
 通常計測時のAudio Threadは入力の読み取り、事前確保済みバッファへのコピー、atomic通知だけを行う。
 
-FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Threadで行わない。
+FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Threadで行わない。背景の固定rasterは既存の容量・editor lifetimeの制限内で再利用する。背景のcache keyには描画が実際に使う値だけを含め、使う値・寸法・DPIの変更では再生成する。CPU削減のために観測値、提示周期、画素の既存許容差を変更しない。
 
 メーター機能の追加後も、通常のA経路はレイテンシー0 samples、PREとPOSTの音声差分はbit identicalを
 合格条件とする。
@@ -312,16 +312,54 @@ TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは、POSTをPREのonsetで同
 PRE未接続時はlaneをPOST absoluteへ切り替え、PREと差分を生成しない。
 正本は`hypha_drum_lanes_20260924.md`とする。
 
-B-1097でDRUMに帯域（BAND）を加えた。見出し2行目のBANDで1オクターブ帯域（ISO 63 Hz〜8 kHz）を選ぶと、
-4laneはその帯域のDELAY／ATT／REL／LEVELになり、PAIR時はPREのonsetで測り直したPOSTとの`POST−PRE`、
-PRE未接続またはPREが帯域より古い間はPOST値を示す。4laneは帯域で立ち上がった直近8打の数直線になり、LIVEの間は
-各段の中央値・向きの語・同じ向きの打音の数と、200%以上では平均のHEAD／TAILの帯域包絡とカードでまとめて示す。
-点で打音を固定すると、その打音の値と包絡を示し、END・NOW・同じ点でまとめへ戻る（B-1104・B-1105）。
-帯域の打音は全帯域の段と同じ打音で、各打音は余韻の後に1回だけ測り、帯域を替えると直近7秒を停止中でも測り直す。
-値の無い段は全サイズで理由（`RINGING`・`NO SOUND`・`NEXT HIT`・`LONG TAIL`・`NOT MEASURED`・`UPDATE PRE`・`NO PAIR`）
-か下限・上限（`<16 ms`・`>288 ms`・`<-66.0 dB`）を示し、6秒内に測れた打音が無いときは`PLAY TO MEASURE 63 Hz`と案内する（B-1098）。
-ALLで従来のDRUMに戻り、帯域を選ばない間の負荷とメモリは従来と同じ（B-1096）。
-正本は`hypha_drum_band_view_plan_20260928.md`（§11〜§14）とINV-S44とする。
+DRUMのBANDで1オクターブ帯域（ISO 63 Hz〜8 kHz）を選ぶと、4laneはその帯域の
+DELAY／ATT／REL／LEVELとなる。snapshotのtargetをPOST／Δとして明記し、対応済みPOSTは
+PREのonset・区間で測る。Δに必要なband意味、PRE実測、対応proofが不足する場合はunknownと
+そのtyped理由（`Update PRE`、`No mapping`等）を示し、POST値で埋めない。接続なしのPOSTでは
+DELAYはN/A（`No PRE`）。Navigation・Single・Summaryはsource証拠付きの同じproducer event keyを
+共有し、UIはonsetから鍵を作らない。band切替だけで全帯域navigationの鍵を失効させない。
+
+DRUMのNavigationは現在の比較利用可否を明示する。Activeな選択pair viewと現在authority・両source・
+band意味のproofが揃えば要求Δを返し、揃わなければtarget=POSTを返す。GUIは返されたtargetで
+Summary／Singleを取得する。これは要求済みtarget=Δの測定snapshotへPOST値を代用する規則ではない。
+そのΔに必要な事実が欠ければ、Δのtargetとtyped分類・理由を維持する。同source・同ledgerの
+利用可否変更だけではLOCKのproducer keyを捨てない。
+
+BAND LIVEはsnapshot cutoff時点の6秒内の直近最大8検出打音を先に固定し、
+exact／interval／N/A／unknown／pendingを五分類する。帯域が立ち上がらない打音、測定中の打音も
+cohortに数える。欠測を除いて古い打音を補充しない。2026年10月8日の利用者決定により、
+制作中の主面は値とグラフを優先し、全対象中央値または情報を持つ中央値区間だけを数値表示する。
+全対象の値を出せないlaneは`—`とし、確定部分中央値を全対象値に見せない。
+ALL／BANDの主面各laneには「最新の一打」等のscope文、五分類の内訳、理由、指標別ageを描かず、共有captionへ「確定最大古さ」を加えない。既存のLIVE／LOCK選択と共通captionは保持する。
+確定部分中央値・件数・age・全N区間・五分類・理由は同じ採用snapshotの既存Factsに保持する。
+Factsは処理前後の同じ打音を比較する目的と各指標の意味を示し、ATT／RELをコンプ設定値と混同させない。
+ALLで未設定のBAND用要求窓・実測窓・分解能は表示せず、ageは実際に算出した確定部分だけに添える。
+端点のopen／closed、±∞、外向丸めと主面の単位を保ち、測定分解能はFactsで確認する。
+帯域無音・前音残響はN/A、次打で切れた尾はunknown、長尾・AudioEndの測定済み端はintervalとして
+理由を残す。未取得のunknownと、受理済みでまだ音声／worker／publicationを待つpendingを混同しない。
+値・scope・件数・理由・平均HEAD／TAIL・実測mask・参加集合・接続可否は同じtyped stampで採用し、
+UIで中央値を再計算しない。参加集合が変わる点、未観測区間をつながない。
+
+ALL LIVEは最新の検出打音のSingleを使い、BANDの8打中央値を流用しない。LOCKは一打の値・理由・
+包絡を保持し、6秒窓外でも同じeventを読む。BANDのpointerは最後に採用したSummary cutoff Cの
+最大8件cohortを使い、LOCK中もその表示集合を保持する。普通の←→・HOMEは現在集合を使う。
+BANDは現在Navigation cutoffの6秒内の直近最大8件を欠測込みで、ALLは現在表示窓の全Navigation
+系列（容量240件）を巡回する。clusterとactive dragは開始時の鍵集合を使い、publicationで
+差し替えない。対象窓が空ならLOCKを保持する。同じ単独点の再選択、LIVE/HOLDボタン、ENDで
+LIVEへ戻る。空所は近い打音を選び、ESCは
+候補操作／Factsを閉じてもLOCKを維持する。同source・同ledgerのPOST↔Δ利用可否だけでは選択を
+失わず、source／proof binding失効は退役する。Factsは同じ採用presentationの根拠を凍結して示す。
+
+帯域処理とPCM保持はATTACK workerが担当し、帯域を替えると直近7秒を停止中でも再解析する。
+AudioEnd後の連続入力で実測区間が延びた場合は新revisionを公開するが、終端済みSingleは凍結する。
+ALLへ戻すと帯域用PCMを解放する。旧DRUMの`--`、NOW、available-onlyまとめ、旧PREでのPOST代用は
+現行V2の表示契約に使わない。測定定義は`hypha_drum_band_view_plan_20260928.md`（§11〜§14）、
+現行presentationはINV-S44と`planning/hypha_drum_psr_usability_improvement_plan_20261007.md`を正本とする。
+
+DRUM取得は30 Hz、BAND LIVEまとめの採用は250 msごと、ALL最新一打／LOCK取得中はnative周期を使う。
+source失効と選択操作はまとめ周期を待たない。表示時計のviewportとfact cutoffを分離し、source sample clockとGUI monotonic clockをanchorする。
+暫定look-behind 150 ms、鮮度250 msはdevelopment値で、実DAWの正常jitter・提示遅延はG3で校正する。
+factsへ追いつく、stop／bypass／非実時間入力、鮮度切れではHOLDにし、毎publicationのeaseや高速catch-upで移動を作らない。
 
 ### 7.4 OS Guide layer
 
@@ -376,6 +414,20 @@ Record、Keep、Kirin OS接続の状態はMeter Sessionに影響しない。
 
 I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload前後で同じ測定事実にならないため、Meter SessionはDAW stateへ保存しない。
 
+Session I／LRA／MaxTPはEBUで処理済みの全10 ms blockを含み、100 ms公開境界より後の処理済み尾も反映する。
+Max Mとcurrent／TIME pointの更新は従来の100 ms境界を保つ。公開済みpointは後から変更しない。
+独立したsized `MeterSessionV2`でSession統計とprocessed／pending framesを同じlockから取得する。
+framesは各channelあたりのsample数で、Active入力数はprocessed＋pendingとなる。Stop／bypassでpendingを消さず、再開は同Session、RESETは全て破棄する。
+再生中の次の10 ms未満の通常chunkは処理済みprefixの通常表示を保ち、MaxTP／PLRを欠測にしない。processed／pending framesは実値のまま保持する。停止後の未処理尾、または次のchunk以上の未処理入力があるときは、MaxTPを確認済み下限`≥`、PLRを`---`とし、I／LRAは処理済みprefixと明示する。
+raw sample peakでtrue peakを代用せず、無音を追加して尾の測定完了を作らない。canonical Record／finalizeとAudio Threadは変更しない。
+LEVELのSession I／LRA／MaxTPはこのV2の最新処理済みscopeを使う。TIMEのPLRは同一packetの完全100 ms pointが持つ処理済みprefixの累積値であり、後続のpending入力を含む最新Session全体値とは呼ばない。Active中は元pointの期限内だけ残り、Stopではcurrentを退役する。Sessionを別pollしてTIME pointのPLRを組み替えない。
+V2取得のBUSYは出力不変で、同じsourceの直前の整合した表示を保持する。旧Session ABIとimmutable publicationの意味は維持する。
+
+補助exact summary cacheはI／LRA共有で65,536 distinct energy nodesまでとする。量子化・間引きを行わず、上限到達後は補助木を解放し従来のcanonical exact集計へ戻る。
+通常queryは木の深さに比例する。相対gateの丸めで参加集合が変わり得る場合と上限後は、同じ履歴のcanonical結果を再利用する。
+履歴更新後の最初のfallbackはIで走査、LRAで走査・sortを要するため、上限後のquery costは履歴長に依存する。
+上限は補助cacheだけに適用し、canonical gating履歴、Recordの保存量、allocatorやOS RSSの上限ではない。
+
 ## 9. Metric semantics
 
 | Label | Unit | Window or scope | Display precision |
@@ -390,7 +442,7 @@ I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload
 | PLR | dB | MAX TP − I | 0.1 dB |
 | L/R SP | dBFS | current block and hold | 0.1 dB |
 | L/R TP | dBTP | recent 400 ms | 0.1 dB |
-| L/R VU | VU / dBFS | full-wave average、sine校正、直近300 ms、0 VU = -18 dBFS | 針 |
+| L/R VU | VU / dBFS | full-wave average、sine校正、直近300 ms、0 VU基準は−12／−14／−16／−18／−20 dBFS（既定−18） | 針 |
 | L/R INSTANT TP | dBTP | 最新のexact 100 ms観測 | 1 dB segment |
 | L/R HOLD TP | dBTP | Meter Session開始または直近CLEAR以降 | marker |
 | BAL | dB | 3 sのL/R energy差 | 0.1 dB |
@@ -426,6 +478,10 @@ M、S、TP、PSR、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保�
 
 TIME HISTORYは主面にM、S、TPを置き、その下の一段にPSR（400 msのsample peak − S）の推移を描く。PSRは曲の中で動くので、Sessionの間ほとんど動かないPLRとCORRは同じ段の数字だけにする。CORRは3 s相関が0を下回った連続区間ごとに、主面の床へ最小点の印を一つ置く（2026-10-06）。PLRはSession全体の値であり、各履歴点には持たない。
 
+ペア時のPSRはmain POST／Δとは独立したtarget・cutoff・proofで自動Δを表示する。PLR／CORRはmainに従う。source・proofが同じmainボタンのPOST／Δ切替ではmainだけを空にして新targetを待ち、PSRのscope・値・履歴と元の完了期限を保持する。PSRを再取得したり期限を延ばしたりせず、source・range・domain変更の退役条件は維持する。
+
+2026-10-08の利用者決定により、PSRは補助情報として主面のM／S／TPを超える大きさ・太さで強調しない。全sizeでlegendと同じ固定font、通常weight、secondary色を使い、`Δ −3.3 dB`／`POST 10.1 dB`のtargetと数値を維持する。計算式は主面に置かず、意味は説明入口で読める。
+
 RUNは選択中のTIME resolutionだけを`generation + run_id`で集約し、別の履歴や永続化を作らない。表示範囲内の経過時間、M min/max、Max TP、L/R clip数を出す。見出しの下に「再生1回ごとに1行（再生から停止まで）」の一文を置き、幅のある行（520 px以上）では列の見出し（RUN、LENGTH、M RANGE LUFS、TP MAX dBTP、CLIPS）を添える。行は読める高さまでとし、少ないrunを画面全体へ引き伸ばさない。clip数の欄は表示する書体の文字幅から決め、300%でも切らない。DAW sample endpointが全点で成立する時は`RUNS IN VIEW`、clock不明のホストでは捏造した区切りを足さず`SESSION RUN`として1本を表示する。resolution混在、不完全なsample endpoint、非単調sample位置は表示しない。PRE/POST間でrun_idを同一識別子として扱わず、RUNのΔは初期契約に含めない。
 
 10 Hz層は既存Watch snapshotのexact sample endpointを保持する。
@@ -447,6 +503,8 @@ UI再描画周期と履歴sample周期を分離する。
 UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復元する。
 
 FREQは画面を開いたときだけ既存Spectrum解析を取得する。
+
+FREQのPOST絶対観測は、optional output latencyが不明でも有効なproject／render sample clockがある場合に機能する。ローカル時計のauthorityは非公開identityへ分離し、PREの整列済みSpectrum公開とPRE／POST Δには使わない。既知のpresentation clock、clock source、output latencyが切り替わったら旧generation／frame／Δ leaseを退役する。未知latencyを0と推定せず、clock不正・座標overflow・非Spectrum modeは拒否する。公開SpectrumFrame／codec／C ABIと音声・Recordは維持する。
 
 TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。SHARPはpair未成立時に
 既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
@@ -505,7 +563,20 @@ DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更�
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。
 Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
+通知は150%以上で既存の足元左（LIVE／HOLDの位置）に固定し、長文でもLRや解析図の上へ持ち上げない。100%／125%は既存の最下部stripを維持する。短い通知は足元のaction fontで一行に収める。2026-10-09の利用者選択により、同じ通知boundsへaction fontで入りきらない長文だけ既存legend font（最大16 px、最小11 px）を使う。LIVE／HOLD／CHAIN LOADと右のボタンは既存action font（最大18 px）を維持する。小さい文字でも入りきらない末尾は省略表示し、既存tooltipとクリックによる詳細には全文を保持する。Hybrid VUでは同じ最下部行の左通知と中央校正のboundsを分離し、針・LR・三つの測定値の描画領域と校正の中心位置を保持する。
+
+Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−14／−16／−18／−20 dBFSから選ぶ。左右は共通の一値とし、exactなPRE／POST pairは同じ基準を使う。選択中の値をcheck markで示す。新しいノブや音量操作は置かない。校正はdBFS値から針位置へ換算する表示設定で、300 msの測定窓・針の時間応答、音声、LUFS、Peak／TP、Session、Record／Keep、plugin_dataとwork.jsonは変更しない。
+基準の全文とクリック範囲は既存のlegend領域に収める。LEVELのLRA待機文字も自身のカード内で幅・高さを合わせ、隣カードやグラフへ描かない。数値・単位の定義は変えない。
+校正の永続正本は、このcomputerのuser設定領域にあるexact project＋PRE instanceごとの小さい設定fileとする。識別子はlength-delimited keyのSHA-256でpath化し、別chainへ流用しない。PREは自身の解決済みidentity、POSTは選択したPREのexact locator、unpaired POSTは自身のidentityを使う。初期値は−18。identityの取得が一時的に競合する場合は採用済み基準を保持し選択を無効にする。新しいscopeの取得成功後にそのchainの設定を採用する。合法64-byte identityは専用additive getterで完全に取得し、旧DTOの切詰めを共有に使わない。message threadだけが250 ms間隔で設定を読み、明示選択だけが完全なtemporary siblingをatomic置換する。保存失敗は旧値を保持して理由を通知する。不在／破損／未知値は既定−18。pair変更と再openはそのchainの設定を読み直し、DAW state restoreは共有fileへ書かず古い値で他側を巻き戻さない。校正fileはDAW chunkへ含めないので、このcomputerのchain別表示設定として扱う。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
+
+Recordの中間I／LRAは同じ処理済みprefixのexact-energy cacheを使い、入力blockごとの全履歴走査を避ける。補助cacheはengineごとに65,536 distinct nodesを上限とし、上限／丸め曖昧gateではcanonical exactへ戻る。Max TPと値の有無・表示期限は変えない。Stopは従来のtight-drainとcanonical finalizeを使い、保存Recordの数値・schema・範囲を変えない。
+Keep／Record終了の状態は既存の最下部通知領域へ示す。保持した6つの結果factは既存LEVELから確認し、TIME／FREQ／SPACEの選択面やタブへ結果見出しを重ねない。明示操作の保存失敗は従来どおり理由を通知する。
+Recordの音声対応では、主時計・presentation・source・latencyが連続し、補助時計だけが切り替わったとproducerが確認した境界を、真の音声欠落と区別する。比較時計のepochは引き続き切る。seek、強制cut、source変更、未知latencyを連続音声として承認せず、欠落の補間やcompleteの偽装を行わない。
+
+確定TRACEは、選択takeのproducer証拠でgeneration・epoch範囲・source・latency・raw/presentation端点が一致した観測だけを継続区間へ含める。比較epochとraw観測を変更せず、現在・直前のtakeの固定2枠を超えて証拠を保持しない。WAV未結合は`expected_wav_ready=false`のままとし、producerが全sample数とTRACEを証明したrender-clock takeのcomplete判定とは分ける。sample数を証明できない場合のfallback理由を維持する。
+
+RecordのJSON保存はIO-owned writerで実行する。checksumを空にした正規JSONのbytesへ従来と同じHMACを計算し、最後のchecksum欄へ格納する。二重serializeを一回へまとめても、従来のserializerによる最終bytes、field順序、schema、HMAC、atomic write／renameの意味は維持する。未知のserializer形はcanonical経路へ戻り、encode失敗・unwindでは元のchecksumを復元する。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`-1〜+3 dBTP`軸と下から立ち上がるstemを重ねる。stemはすべて-1 dBTPを超えるので、軸はstemが立つ範囲だけを持ち、0 dBTPに基準線を引く。+3を超える値は上端で止め、印を付ける（2026-10-06）。TPのstemと軸はVUのTP railと同じ水色とし、Mの金と見分ける。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
@@ -590,6 +661,10 @@ LEVELのObservation Plateは主値、M内のMax M補助値、その他の補助�
 60秒Historyは600×400以上のLEVELとLEVEL保存構図だけに置き、TIMEのrange切替や全機能は重複させない。SpectrumはLEVELへ重複搭載せずFREQを正規入口にする。
 
 保存とPNG encodeは非Audio Threadで行う。
+
+TIMEのHISTORY/PSR・DRUM、およびLEVELの真の未処理尾を持つ表示は、その同一presentationを固定してPNGへ描く。TIMEのRUN／SHARP／LIVEはtyped metadataを必須にせず、Capture v1のWork添付を維持する。
+Work添付はv1を維持し、必要なtyped metadataをv1で保持できない場合はunsupportedを明示して添付しない。
+同じ凍結PNGのローカル保存を案内し、metadataを捨てたattached成功を返さない。timeout／再試行も明示操作の結果として通知する。
 
 直接SNSへ送信せず、利用者が選んだローカル保存先だけへ書く。
 
@@ -697,3 +772,8 @@ visual方向はConcept Cで確定した。
 Meter Sessionはplugin instanceの同一runtime中だけ保持し、DAW project reloadでは空のSessionから開始する。
 SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。
 Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合だけHypha対象App License確認をgateとし、未搭載を公開blockerにしない。
+
+2026-10-09の性能修正では、非RTの参照音源rate変換で左右共通係数の重複計算だけを除く。出力PCM、測定値、操作、針や曲線の応答は保持する。FREQの6秒履歴が奥へ流れる表現と表示cadenceを維持し、単体converterの改善を実DAW全体の性能受入へ読み替えない。根拠は[G3 receipt](planning/hypha_drum_psr_g3_20261008/validation-receipt.json)。
+
+LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。再生中のtry-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。停止事実はAudio／Measure側から出し、IO比較の更新が遅れたり取得できなくてもLEVEL／observatoryの絶対frameを止めない。値の範囲・精度を保ち停止中として表示し、その間のΔには「POST停止中 — 比較更新待ち」の理由を出す。IOの保持publicationが届いた後は既存のHOLDING表示を使う。
+非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。

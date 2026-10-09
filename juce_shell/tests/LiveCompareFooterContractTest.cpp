@@ -1,5 +1,6 @@
 #include "LiveCompareFooterContractTest.h"
 #include "LiveCompareActionNoticeContractTest.h"
+#include "FooterNoticeContractChecks.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -59,9 +60,9 @@ void recoveryPreview (observatory::View& view, const juce::String& name)
 void verifyLiveCompareFooterContract()
 {
     verifyLiveCompareActionNotices();
-    observatory::View post (observatory::Role::post);
+    require (footer_notice::guideAndChainNotices(), "Guide and chain-on keep bounded notices and chain preference at every size/language");
+    observatory::View post (observatory::Role::post); post.setVisible (true);
     observatory::View pre (observatory::Role::pre);
-    bool recoveryFits = true;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
@@ -79,10 +80,8 @@ void verifyLiveCompareFooterContract()
             const auto readableRecovery = [&] (const char* instruction)
             {
                 post.setFeedback (instruction);
-                const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
-                    ? typography::TextRole::status : typography::TextRole::action);
-                require (text_style::shownWidth (font, instruction) <= post.statusStripBounds().getWidth() - 12,
-                         "fresh-proof and retained-MATCH instructions fit at every size in both languages");
+                require (footer_notice::retainedInFooter (post, instruction),
+                         "fresh-proof and retained-MATCH notices keep full details and bounded footer paint");
             };
             readableRecovery (renewing.instruction);
             recoveryPreview (post, "named-renew-" + juce::String (static_cast<int> (language))
@@ -142,19 +141,11 @@ void verifyLiveCompareFooterContract()
                         require (post.findChildWithID ("observatory-live-return")->isVisible(), "recovery RETURN exists");
                     if (! recovery.active)
                         require (! juce::String (notice).contains ("END"), "inactive recovery never points to missing END");
-                    const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
-                        ? typography::TextRole::status : typography::TextRole::action);
-                    if (text_style::shownWidth (font, notice) > post.statusStripBounds().getWidth() - 12)
-                    {
-                        std::cerr << preset.width << " recovery width=" << text_style::shownWidth (font, notice)
-                            << " available=" << post.statusStripBounds().getWidth() - 12 << ": "
-                            << text_style::shownText (notice) << '\n';
-                        recoveryFits = false;
-                    }
+                    require (footer_notice::retainedInFooter (post, notice),
+                             "recovery retains accessible details and fixed bounded footer paint");
                 }
         }
     }
-    require (recoveryFits, "persistent recovery reads whole in both languages at every size");
     post.setFeedback ({});
     post.setLiveCompareFooter ({});
     auto* entry = control (post, "observatory-live-compare");
@@ -302,13 +293,8 @@ void verifyLiveCompareFooterContract()
             post.setFeedback (notice);
             recoveryPreview (post, "held-" + juce::String (static_cast<int> (language))
                 + "-" + juce::String (preset.width));
-            const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
-                ? typography::TextRole::status : typography::TextRole::action);
-            if (text_style::shownWidth (font, notice) > post.statusStripBounds().getWidth() - 12)
-                std::cerr << preset.width << " HELD width=" << text_style::shownWidth (font, notice)
-                    << " available=" << post.statusStripBounds().getWidth() - 12 << '\n';
-            require (text_style::shownWidth (font, notice) <= post.statusStripBounds().getWidth() - 12,
-                     "held MATCH recovery reads whole at every size");
+            require (footer_notice::retainedInFooter (post, notice),
+                     "held MATCH retains full details and fixed bounded notice paint");
         }
     }
     state.matchHeld = false;
@@ -330,9 +316,8 @@ void verifyLiveCompareFooterContract()
         require (match->getButtonText() == "MATCH", "stopping AUTO reads MATCH again");
     }
 
-    // Every live notice reads whole in the 300% footer, in both languages, beside the widest rail:
-    // named PRE and POST gains, PIN and AUTO. The TP limit notice carries two values and may lose
-    // the second; TP LIMIT stays on MATCH.
+    // Long notices stay in the established footer beside the widest safety rail; complete
+    // instructions remain accessible through the existing tooltip and details action.
     post.setSize (900, 600);
     const auto plain = state;
     state.preGainTenthsDb = -125;
@@ -343,8 +328,6 @@ void verifyLiveCompareFooterContract()
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
-        const auto font = labelFont (post.presentationContext(), typography::TextRole::action);
-        const auto available = static_cast<float> (post.sessionBounds().getWidth() - 8);
         for (const char* notice : { "Closing returns to POST", "LISTEN could not start",
                                     "Choose the PRE first", "Mono / stereo only", "Paired PRE unavailable",
                                     "PRE is multi-mono: insert it as stereo",
@@ -358,9 +341,8 @@ void verifyLiveCompareFooterContract()
                                     "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB",
                                     "Delay compensation is off in Pro Tools" })
         {
-            if (text_style::shownWidth (font, notice) > available)
-                std::cerr << "too wide at 300%: " << text_style::shownText (notice) << '\n';
-            require (text_style::shownWidth (font, notice) <= available, "a live notice reads whole at 300%");
+            post.setFeedback (notice);
+            require (footer_notice::retainedInFooter (post, notice), "live notice preserves bounded paint and full details");
         }
     }
     state = plain;
@@ -448,10 +430,8 @@ void verifyLiveCompareFooterContract()
                     && ! end->isVisible() && ! blind->isVisible(), "no trial controls after END acceptance");
                 require (menu->isVisible() && ! menu->getBounds().intersects (returnButton->getBounds()),
                          "MENU is reachable while stopped END waits for audio");
-                const auto font = monoFont (post.presentationContext(), post.statusStripFolded()
-                    ? typography::TextRole::status : typography::TextRole::action);
-                require (text_style::shownWidth (font, notice) <= post.statusStripBounds().getWidth() - 12,
-                         "pending return notice reads whole in both languages at every size");
+                require (footer_notice::retainedInFooter (post, notice),
+                         "pending return notice preserves bounded paint and full accessible recovery");
                 recoveryPreview (post, "ended-return-" + juce::String (static_cast<int> (language))
                     + "-" + juce::String (rise) + "-" + juce::String (preset.width));
             }

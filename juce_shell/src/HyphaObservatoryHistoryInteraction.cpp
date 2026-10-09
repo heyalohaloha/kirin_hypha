@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTimeSnapshotPainter.h"
 
 #include "HyphaCaptureHistoryPainter.h"
 #include "HyphaCaptureHistoryGeometry.h"
@@ -150,7 +151,7 @@ void View::mouseDown (const juce::MouseEvent& event)
         {
             if (levelInspection.held()) levelInspection.selectChain (*chainHit);
             else levelInspection.pinChain (history, *chainHit, observatoryFrame.meter,
-                                           chainSnapshot, chainPoints, &observatoryFrame);
+                                           chainSnapshot, chainPoints, &observatoryFrame, haveSessionCoverage ? &sessionCoverage : nullptr);
             updateLevelHistoryControls();
             repaint (levelHistoryArea);
             return;
@@ -166,7 +167,7 @@ void View::mouseDown (const juce::MouseEvent& event)
     if (levelInspection.held()) levelInspection.select (*hit);
     else levelInspection.pin (history, *hit, observatoryFrame.meter,
         chainSnapshotAvailable ? &chainSnapshot : nullptr,
-        chainSnapshotAvailable ? &chainPoints : nullptr, &observatoryFrame);
+        chainSnapshotAvailable ? &chainPoints : nullptr, &observatoryFrame, haveSessionCoverage ? &sessionCoverage : nullptr);
     updateLevelHistoryControls();
     repaint (levelHistoryArea);
 }
@@ -178,7 +179,7 @@ void View::selectLevelHistoryEvent (int direction)
     if (levelInspection.held()) levelInspection.select (*at);
     else levelInspection.pin (history, *at, observatoryFrame.meter,
         chainSnapshotAvailable ? &chainSnapshot : nullptr,
-        chainSnapshotAvailable ? &chainPoints : nullptr, &observatoryFrame);
+        chainSnapshotAvailable ? &chainPoints : nullptr, &observatoryFrame, haveSessionCoverage ? &sessionCoverage : nullptr);
     updateLevelHistoryControls();
     repaint (levelHistoryArea);
 }
@@ -207,12 +208,8 @@ juce::String View::metricHelpAt (juce::Point<int> point) const
     if (selectedDomain == Domain::time && ! externalAnalysisBodyActive && ! hybridVuVisible() && ! captureFrame
         && timeHistoryArea.contains (point))
     {
-        const bool statusRow = difference && frameAvailable && comparison_presentation::statusText (
-            observatoryFrame.comparison_state, observatoryFrame.comparison_reason).isNotEmpty();
-        const auto help = time_history::helpAt (timeHistoryArea, difference, statusRow,
-            experienceFamily() == ExperienceFamily::compactMeter, currentPreset().density != Density::compact,
-            presentationContext(), point);
-        return help.isNotEmpty() ? side + help : juce::String();
+        return time_snapshot::helpAt (timeHistoryArea, timePresentation,
+                                      presentationContext(), point);
     }
     if (selectedDomain != Domain::level || hybridVuVisible() || captureFrame) return {};
     for (std::size_t index = 0; index < metricHelpCount; ++index)
@@ -220,6 +217,12 @@ juce::String View::metricHelpAt (juce::Point<int> point) const
         const auto& region = metricHelpRegions[index];
         if (! region.bounds.contains (point)) continue;
         auto help = side + level_metrics::scopeHelp (region.metric);
+        if (! difference && sessionSummaryPending()
+            && (region.metric == level_metrics::Metric::maximumTruePeak
+                || region.metric == level_metrics::Metric::integrated
+                || region.metric == level_metrics::Metric::loudnessRange
+                || region.metric == level_metrics::Metric::plr))
+            help += " " + sessionSummaryScope();
         if (! difference && experienceFamily() == ExperienceFamily::compactMeter && compactShowsMaximum
             && (region.metric == level_metrics::Metric::shortTerm || region.metric == level_metrics::Metric::crest))
             help += " Showing its maximum since the last Meter Session reset.";

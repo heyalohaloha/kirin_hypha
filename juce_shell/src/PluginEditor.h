@@ -95,6 +95,9 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void refreshTimeSnapshot();
+    double nextTimeSnapshotMs = 0.0;
+    void saveFrozenObservatoryCapture (hypha::capture::Snapshot);
     void applyPresentationContext();
     // Beyond 300% the Observatory is the Inspection View magnified; its children lay out at the
     // logical 900 x 600, so they take their presentation from the viewport, not the window.
@@ -128,6 +131,11 @@ private:
     bool externalAnalysisBodyShowing() const noexcept;
     void updateAnalysisBodyPresentation();
     void syncAnalysisDemand();
+    void refreshDrumSnapshots (bool liveInput);
+    double nextDrumSummaryMs = 0.0;
+    std::unique_ptr<KirinAttackNavigationV2> drumNavigation;
+    std::unique_ptr<KirinAttackBandSummaryV2> drumSummary;
+    std::vector<KirinSnapshotEventKey> drumNavigationKeys;
     void configureSpectrumCallbacks();
     void updateTimePageNavigation();
     void cycleSpectrumSize();
@@ -328,7 +336,7 @@ private:
     // INV-LC16: AUTO and the point the last explicit MATCH approved (PRE gain, true-peak ceiling).
     struct LiveCompareAuto
     {
-        bool on = false;
+        bool on = false, hiddenStopNoticePending = false;
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;

@@ -16,6 +16,8 @@ namespace hypha::capture
         juce::String domain;
         juce::String observationTarget;
         std::int64_t capturedAtMs = 0;
+        // v1 does not persist independent component targets, cutoffs or typed evidence.
+        bool v1MeaningPreserved = true;
 
         bool valid() const noexcept;
     };
@@ -26,6 +28,7 @@ namespace hypha::capture
         busy,
         invalidReference,
         invalidCapture,
+        unsupportedPresentation,
     };
 
     enum class WorkAttachmentResultState

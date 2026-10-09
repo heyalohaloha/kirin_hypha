@@ -16,6 +16,9 @@ use crate::{
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, TryLockError};
+#[path = "meter_session_coverage.rs"]
+mod coverage;
+pub use coverage::{MeterSessionSnapshotV2, MeterSessionSummaryStatus};
 #[path = "time_observation.rs"]
 pub mod time_observation;
 use time_observation::TimeObservations;
@@ -114,6 +117,7 @@ pub struct MeterSession {
     n_channels: usize,
     generation: u64,
     active_frames: u64,
+    processed_origin_frames: u64,
     state: MeterSessionState,
     current: MeasureResult,
     maximum: MeasureResult,
@@ -153,6 +157,7 @@ impl MeterSession {
         let mut engine = MeasureEngine::new(sample_rate, layout)?;
         engine.enable_session_summary_cache()?;
         engine.enable_content_grid(sample_rate);
+        let processed_origin_frames = engine.session_processed_frames();
         let stereo = StereoMeter::new(sample_rate, layout)?;
         static NEXT_HISTORY_INCARNATION: AtomicU64 = AtomicU64::new(1);
         Ok(Self {
@@ -161,6 +166,7 @@ impl MeterSession {
             n_channels,
             generation: 1,
             active_frames: 0,
+            processed_origin_frames,
             state: MeterSessionState::Empty,
             current: MeasureResult::default(),
             maximum: MeasureResult::default(),
@@ -266,6 +272,12 @@ impl MeterSession {
                         endpoint: clock.timeline_endpoint_samples,
                         clock: clock.timeline_source as u8,
                         usable: clock.usable_for_history,
+                        continuous_frames: clock.continuous_frames,
+                        latency_known: clock.presentation_latency.source
+                            != crate::PresentationLatencySource::Unknown
+                            && clock.presentation_latency.input.is_some()
+                            && clock.presentation_latency.output.is_some(),
+                        crest: current.crest,
                         values: [
                             current.lufs_m,
                             current.lufs_s,
@@ -349,6 +361,7 @@ impl MeterSession {
     pub fn reset(&mut self) {
         self.time.reset();
         self.engine.reset();
+        self.processed_origin_frames = self.engine.session_processed_frames();
         self.generation = self.generation.wrapping_add(1).max(1);
         self.active_frames = 0;
         self.state = MeterSessionState::Empty;

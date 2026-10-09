@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../src/HyphaTimeHistoryPainter.h"
+#include "../src/HyphaTimeSnapshotPainter.h"
+#include "TimeSnapshotContractTest.h"
 
 namespace hypha::tests
 {
@@ -10,7 +12,7 @@ inline void profileTimeHistoryPaint (const std::vector<KirinMeterHistoryEntry>& 
     observatory::View view (observatory::Role::post);
     view.setSize (600, 400);
     view.setDomain (observatory::Domain::time);
-    view.setHistory (history);
+    applyTimeSnapshotFixture (view, history);
     juce::Image image (juce::Image::ARGB, 600, 400, true);
     juce::Graphics graphics (image);
     observatory_world::Backdrop backdrop;
@@ -30,9 +32,8 @@ inline void profileTimeHistoryPaint (const std::vector<KirinMeterHistoryEntry>& 
     measure ("backdrop", [&] { backdrop.draw (graphics, image.getBounds(), state); });
     measure ("specimen", [&] { backdrop.drawHyphaSpecimen (graphics, view.bodyBounds(), state); });
     measure ("domain", [&] { observatory_world::paintDomainBed (graphics, view.bodyBounds(), state); });
-    measure ("graph", [&] { time_history::paint (graphics, graph, history, "", false, false,
-                                                meter_context::ScaleMode::wide,
-                                                presentation::forEditor (900, 600)); });
+    measure ("graph", [&] { time_snapshot::paint (graphics, graph, view.acceptedTimePresentation(),
+            meter_context::ScaleMode::wide, presentation::forEditor (600, 400), ""); });
     measure ("shell", [&] { view.paint (graphics); });
     measure ("children", [&] { view.paintEntireComponent (graphics, true); });
 }

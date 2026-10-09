@@ -19,6 +19,7 @@ pub(super) struct StampedSnapshot<T> {
 pub(super) struct SnapshotIdentity {
     pub(super) stream_generation: u64,
     pub(super) selection: u64,
+    pub(super) clock_definition: u64,
 }
 
 impl<T> StampedSnapshot<T> {
@@ -155,11 +156,40 @@ impl SpectrumRuntime {
         SnapshotIdentity {
             stream_generation: self.stream_generation.load(Ordering::Acquire),
             selection: self.selection.load(Ordering::Acquire),
+            clock_definition: self.clock_definition.load(Ordering::Acquire),
         }
     }
 
     pub fn try_history(&self) -> Option<SpectrumHistory> {
         self.try_current_snapshot(&self.history, |history| history.newest().is_none(), || {})
+    }
+
+    /// Clone and alignment authority belong to the same producer identity.
+    pub fn try_history_with_alignment(&self) -> Option<(SpectrumHistory, bool)> {
+        let before = self.current_snapshot_identity();
+        let history = self.try_history()?;
+        (before == self.current_snapshot_identity()).then_some((
+            history,
+            super::ingress::definition_is_aligned(before.clock_definition),
+        ))
+    }
+
+    pub fn try_aligned_history(&self) -> Option<SpectrumHistory> {
+        self.try_history_with_alignment()
+            .filter(|(_, aligned)| *aligned)
+            .map(|(history, _)| history)
+    }
+
+    pub fn presentation_clock_aligned(&self) -> bool {
+        super::ingress::definition_is_aligned(self.clock_definition.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn spectrum_clock_revision(&self) -> u64 {
+        self.stream_generation.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn spectrum_clock_is_current(&self, revision: u64) -> bool {
+        revision != 0 && revision == self.spectrum_clock_revision()
     }
 
     pub fn try_perceptual_history(&self) -> Option<PerceptualHistory> {

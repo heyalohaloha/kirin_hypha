@@ -108,6 +108,8 @@ pub struct CaptureClockPoint {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CaptureClockSpan {
+    /// Producer proved unchanged audio mapping; only auxiliary pair evidence cut here.
+    pub auxiliary_only_cut: bool,
     pub epoch: u64,
     pub generation: u64,
     pub capture_start_frame: u64,
@@ -118,6 +120,44 @@ pub(crate) struct CaptureClockSpan {
     pub source: CaptureClockSource,
     pub auxiliary_source: AuxiliaryClockSource,
     pub presentation_latency: PresentationLatencySamples,
+}
+
+/// Record-only immutable prefix proof. Pair epochs and their original observations stay intact.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordAudioPrefixProof {
+    pub(crate) span: CaptureClockSpan,
+    pub(crate) last_epoch: u64,
+}
+
+impl RecordAudioPrefixProof {
+    pub(crate) fn matches(self, point: CaptureClockPoint) -> bool {
+        let Some(raw_start) = self.span.raw_host_position_start_samples else {
+            return false;
+        };
+        let Some(position_start) = self.span.position_start_samples else {
+            return false;
+        };
+        let Some(offset) = point
+            .raw_host_position_samples
+            .checked_sub(raw_start)
+            .and_then(|offset| u64::try_from(offset).ok())
+        else {
+            return false;
+        };
+        let Ok(position_offset) = i64::try_from(offset) else {
+            return false;
+        };
+        point.epoch >= self.span.epoch
+            && point.epoch <= self.last_epoch
+            && point.source == self.span.source
+            && point.presentation_latency == self.span.presentation_latency
+            && offset
+                <= self
+                    .span
+                    .capture_end_frame
+                    .saturating_sub(self.span.capture_start_frame)
+            && position_start.checked_add(position_offset) == Some(point.position_samples)
+    }
 }
 
 impl CaptureClockSpan {
@@ -150,6 +190,7 @@ impl CaptureClockSpan {
 
 #[derive(Debug)]
 pub(crate) struct CaptureClockSlot {
+    auxiliary_only_cut: AtomicBool,
     version: AtomicU64,
     sequence: AtomicU64,
     generation: AtomicU64,
@@ -171,6 +212,7 @@ pub(crate) struct CaptureClockSlot {
 impl CaptureClockSlot {
     pub(crate) fn new() -> Self {
         Self {
+            auxiliary_only_cut: AtomicBool::new(false),
             version: AtomicU64::new(0),
             sequence: AtomicU64::new(0),
             generation: AtomicU64::new(0),
@@ -193,6 +235,8 @@ impl CaptureClockSlot {
     pub(crate) fn publish(&self, span: CaptureClockSpan) {
         self.version.fetch_add(1, Ordering::AcqRel);
         self.sequence.store(span.epoch, Ordering::Relaxed);
+        self.auxiliary_only_cut
+            .store(span.auxiliary_only_cut, Ordering::Relaxed);
         self.generation.store(span.generation, Ordering::Relaxed);
         self.capture_start_frame
             .store(span.capture_start_frame, Ordering::Relaxed);
@@ -263,6 +307,7 @@ impl CaptureClockSlot {
                     .then(|| value.load(Ordering::Relaxed))
             };
             let span = CaptureClockSpan {
+                auxiliary_only_cut: self.auxiliary_only_cut.load(Ordering::Relaxed),
                 epoch: sequence,
                 generation: self.generation.load(Ordering::Relaxed),
                 capture_start_frame: self.capture_start_frame.load(Ordering::Relaxed),

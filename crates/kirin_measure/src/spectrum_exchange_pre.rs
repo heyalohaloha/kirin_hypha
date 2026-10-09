@@ -4,6 +4,8 @@ use std::sync::{MutexGuard, TryLockError};
 use std::time::Instant;
 
 use super::*;
+#[path = "spectrum_exchange_pre_clock.rs"]
+mod clock_publication;
 
 impl SpectrumCoordinator {
     /// PRE IO-thread tick. An active exact request may be called at the 30 Hz Analysis cadence.
@@ -209,9 +211,13 @@ impl SpectrumCoordinator {
         analysis_mode: AnalysisViewMode,
         instance_dir: &Path,
     ) -> bool {
+        let clock_revision = self.runtime.spectrum_clock_revision();
         let (newest_end, bytes, expected_epoch) = match analysis_mode {
             AnalysisViewMode::Spectrum => {
-                let Some(history) = self.runtime.try_history() else {
+                if !self.runtime.presentation_clock_aligned() {
+                    return self.remove_local_spectrum_publication(request_id, instance_dir);
+                }
+                let Some(history) = self.runtime.try_aligned_history() else {
                     return true;
                 };
                 (
@@ -285,6 +291,16 @@ impl SpectrumCoordinator {
             }) else {
                 return false;
             };
+            if analysis_mode == AnalysisViewMode::Spectrum
+                && self
+                    .pre_spectrum_clock_revision
+                    .swap(clock_revision, Ordering::AcqRel)
+                    != clock_revision
+            {
+                current.last_written_end = None;
+                current.last_write_attempt_end = None;
+                current.last_write_attempt_at = None;
+            }
             if current.last_written_end == Some(newest_end) {
                 return true;
             }
@@ -300,6 +316,11 @@ impl SpectrumCoordinator {
         };
         if !publish {
             return true;
+        }
+        if analysis_mode == AnalysisViewMode::Spectrum
+            && !self.runtime.spectrum_clock_is_current(clock_revision)
+        {
+            return false;
         }
         let write_started = Instant::now();
         let write_result = match analysis_mode {
@@ -324,9 +345,17 @@ impl SpectrumCoordinator {
             }
             return false;
         }
-        if write_started.elapsed() > PRESENTATION_HOLD
-            || !self.pre_request_is_live(instance_dir, pre_instance_id, request_id)
+        let request_is_live = write_started.elapsed() <= PRESENTATION_HOLD
+            && self.pre_request_is_live(instance_dir, pre_instance_id, request_id);
+        if analysis_mode == AnalysisViewMode::Spectrum
+            && !self.runtime.spectrum_clock_is_current(clock_revision)
         {
+            // The completed IO wrote facts cloned under retired authority. Remove only this
+            // request's result; returning to the same endpoint must perform a fresh write.
+            self.remove_retired_spectrum_result(request_id, instance_dir);
+            return false;
+        }
+        if !request_is_live {
             return false;
         }
         let mut slot = match self.try_pre_session() {
@@ -340,6 +369,13 @@ impl SpectrumCoordinator {
         }) else {
             return false;
         };
+        if analysis_mode == AnalysisViewMode::Spectrum
+            && !self.runtime.spectrum_clock_is_current(clock_revision)
+        {
+            drop(slot);
+            self.remove_retired_spectrum_result(request_id, instance_dir);
+            return false;
+        }
         current.last_written_end = Some(newest_end);
         self.exchange_worker.record_published_update();
         true
@@ -362,8 +398,9 @@ impl SpectrumCoordinator {
             current.last_write_attempt_at = None;
         }
         // A newer/foreign request's publication is never owned by this invalidated session.
-        if read_attack_snapshot(instance_dir)
-            .is_some_and(|snapshot| snapshot.request_id == request_id)
+        if super::attack_codec::read_attack_snapshot_request_id(instance_dir) == Some(request_id)
+            && read_attack_snapshot(instance_dir)
+                .is_some_and(|snapshot| snapshot.request_id == request_id)
         {
             remove_attack_snapshot(instance_dir);
         }

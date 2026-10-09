@@ -276,6 +276,7 @@ impl SpectrumRuntime {
                 let identity = super::state::SnapshotIdentity {
                     stream_generation,
                     selection,
+                    clock_definition: self.clock_definition.load(Ordering::Acquire),
                 };
                 if history.identity != identity {
                     history.value = super::SpectrumHistory::with_capacity();
@@ -303,6 +304,7 @@ impl SpectrumRuntime {
                 latest.identity = super::state::SnapshotIdentity {
                     stream_generation,
                     selection,
+                    clock_definition: self.clock_definition.load(Ordering::Acquire),
                 };
             }
         }
@@ -319,6 +321,7 @@ impl SpectrumRuntime {
                 let identity = super::state::SnapshotIdentity {
                     stream_generation,
                     selection,
+                    clock_definition: self.clock_definition.load(Ordering::Acquire),
                 };
                 if history.identity != identity {
                     history.value = PerceptualHistory::with_capacity();
@@ -340,6 +343,7 @@ impl SpectrumRuntime {
                 let identity = super::state::SnapshotIdentity {
                     stream_generation,
                     selection,
+                    clock_definition: self.clock_definition.load(Ordering::Acquire),
                 };
                 if history.identity != identity {
                     history.value.clear();

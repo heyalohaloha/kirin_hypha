@@ -75,6 +75,40 @@ pub(super) fn remove(
     }
 }
 
+/// Inspect only a fixed header before deciding whether a payload belongs to this request.
+/// Foreign snapshots never need their large body copied or decoded by the PRE cleanup path.
+pub(super) fn read_prefix(
+    instance_dir: &Path,
+    fallback_path: &Path,
+    slot: AnalysisSlot,
+    prefix_bytes: usize,
+    maximum_bytes: u64,
+) -> Option<Vec<u8>> {
+    #[cfg(windows)]
+    {
+        let _ = fallback_path;
+        windows::read_prefix(instance_dir, slot, prefix_bytes, maximum_bytes)
+    }
+    #[cfg(not(windows))]
+    {
+        use std::io::Read;
+        let _ = (instance_dir, slot);
+        let file = std::fs::File::open(fallback_path).ok()?;
+        let length = file.metadata().ok()?.len();
+        if length == 0 || length > maximum_bytes {
+            return None;
+        }
+        let limit = length.min(prefix_bytes as u64);
+        let mut bytes = Vec::with_capacity(limit as usize);
+        file.take(limit).read_to_end(&mut bytes).ok()?;
+        (bytes.len() as u64 == limit).then_some(bytes)
+    }
+}
+
 #[cfg(windows)]
 #[path = "analysis_exchange_windows.rs"]
 mod windows;
+
+#[cfg(test)]
+#[path = "analysis_exchange_prefix_tests.rs"]
+mod prefix_tests;

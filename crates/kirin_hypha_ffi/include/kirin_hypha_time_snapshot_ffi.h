@@ -26,6 +26,9 @@ typedef struct {
     double values[6];
     uint8_t target, state, clock, finite_mask, reserved[4];
 } KirinTimeCurrentV2;
+enum { KIRIN_TIME_REASON_NONE = 0, KIRIN_TIME_REASON_WAITING = 1,
+       KIRIN_TIME_REASON_ACTIVE = 2, KIRIN_TIME_REASON_STOPPED = 3,
+       KIRIN_TIME_REASON_INCOMPATIBLE = 4, KIRIN_TIME_REASON_MISSING = 5 };
 typedef struct {
     KirinTimeCurrentV2 current;
     KirinTimeSourceSpanV2 pre_span;

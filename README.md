@@ -47,9 +47,9 @@ with POST is proven. <b>MATCH</b> fixes a level match; <b>AUTO</b> follows it wi
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/media/readme/drum.jpg" alt="TIME DRUM: PRE and POST envelopes with per-hit transient, strength, crest and sharpness lanes">
+<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
 <br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
-sharpness. Pick an octave band to compare each hit's delay, attack, release and level.
+sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
@@ -113,7 +113,9 @@ LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
 The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
-folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). The loaded
+folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD). Notifications stay
+in that established bottom status area, without covering the graphs or L/R meters. Longer text
+is abbreviated to the available width; click the notice to read its full details. The loaded
 version remains in the information menu, not in the narrow status rail.
 
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
@@ -138,41 +140,96 @@ TIME directly selects **HISTORY**, **RUN** (absolute facts grouped by playback r
 selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
-![TIME HISTORY: thirty seconds of momentary and short-term loudness with true peak, and PSR below it](docs/media/readme/time.jpg)
+![TIME example: independent main HISTORY and secondary PSR](docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png)
 
-DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
-**TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
-**SHARPNESS** (the first 100 ms), each as POST − PRE. A matched POST hit is measured at the PRE
-onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
-or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. A hit shows
+This example shows synthetic measurements.
+
+DRUM answers one question: **how did processing change the same hit?** Put PRE before the
+processing chain and POST after it to compare POST − PRE; with POST alone, read the output hit's
+shape and level. ALL gives the full-band view, and BAND focuses that comparison on a frequency
+region. Adjust processing while LIVE shows incoming hits, then click a hit to LOCK and inspect
+its observation. Return to LIVE to see the next change. LOCK fixes the displayed hit; it does
+not loop or play audio. These readings
+support listening; they do not rate sound quality or prescribe a compressor setting.
+
+DRUM shows six seconds of the PRE/POST envelope and four facts for the selected hit:
+**TRANSIENT** (first-30-ms RMS minus the body RMS), **STRENGTH** (first-30-ms RMS),
+**CREST** (sample peak minus RMS in those 30 ms), and **SHARPNESS** (loudness-weighted perceptual
+sharpness over the first 100 ms, in acum), each as POST − PRE. TRANSIENT describes the head/body
+contrast, STRENGTH its initial level, CREST its peakiness, and SHARPNESS its perceptual sharpness.
+A matched POST hit is measured at the PRE onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
+or whose body is below the −72 dBFS HISTORY floor, shows **—**, with the reason in Facts. A hit shows
 STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPNESS follow once its
-body is complete, and stay empty for a hit cut off by a transport stop. Without PRE, the lanes show
-POST values.
+body is complete. A hit cut off before those facts can be measured shows **—** and keeps its reason
+in Facts. Without PRE, the lanes show POST values.
 
 **BAND**, on DRUM's second header row, filters each hit to one ISO octave band (63 Hz to 8 kHz) on
 PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arrival, where the band
 envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band peak), **REL** (peak →
-−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. The four lanes become
-number lines: each of the last eight hits that rise in the band is a dot at its value, and the bar is
-their median. While LIVE, DRUM reads them in one steady summary: each lane's median with its
-direction in words and how many hits agree (`+2.7 ms LATER 8/8`), `SAME` when the median is inside
-what the band can tell apart, and a card or line such as `POST 2.7 ms LATER / TAIL 28 ms LONGER`.
-Hits whose band only rings on, is silent or was not kept are left out and counted. At 200 % and
-300 % HISTORY shows those hits' average **HEAD** (−5 to +40 ms) and **TAIL** (0 to 300 ms) in that
-band; at 125 % it holds four small number lines. Click a dot (or use ← → HOME) to lock that hit and
-read its own values, envelopes and place in the six seconds; the same dot, END or NOW returns to
-the summary. The band hits are the same hits as the whole-signal lanes. Each hit is measured once,
-after its ring-out, and choosing another band measures the last 7 s again, even while stopped. Every
-missing value says why at every size: `RINGING` (the previous hit still rings in the band), `NO SOUND`,
-`NEXT HIT` (the tail was cut), `LONG TAIL`, or `NOT MEASURED` (played before the band was chosen).
-A value past what was measured reads as a bound, such as `<16 ms` for an ATT shorter than the band's
-time resolution (one period of its centre), `>288 ms` for a tail still ringing, or `<-66.0 dB` when
-POST has no sound in the band. When nothing in view was measured yet, DRUM says
-`PLAY TO MEASURE 63 Hz`. **ALL** returns to the whole-signal DRUM, and while no band is chosen
-nothing extra is measured or kept. A PRE older than bands keeps pairing but sends no band: the
-lanes then show POST values and DELAY says `UPDATE PRE`.
+−20 dB) and **LEVEL** (the peak of the band RMS envelope), each as POST − PRE of the same hit.
+ATT and REL measure the hit's envelope, not a compressor's attack/release knobs. DELAY measures
+the two band-arrival times, not the plug-in's reported audio latency. Larger views show the
+hits on number lines. LIVE first fixes the latest eight detected hits inside the six-second window, including
+hits still being measured or unavailable. Each lane distinguishes exact values, measured limits,
+not applicable, unknown and pending; it never fills a missing hit with an older one. The production
+view keeps the values and graphs: a whole-cohort median or informative median interval remains visible,
+and a lane without a whole-cohort reading shows **—**. A subset median is available in **Facts**,
+along with its count, age and reasons; it is never presented as the whole cohort. Classification and
+Age sentences and the repeated “Latest hit” or “Locked hit” lane text stay off the main view;
+the existing LIVE/LOCK control and shared caption retain the selection context. Limits keep their direction and are rounded outwards. At 200 % and
+300 % HISTORY shows those hits' average **HEAD** (−20 to +40 ms) and **TAIL** (0 to 300 ms) in that
+band; smaller views keep the same values, units and Facts access in four cards. Click a dot (or use ← → HOME) to lock that hit and
+read its own values and envelopes. LOCK keeps the selected hit when it leaves the visible window;
+its completed values, envelope and original qualification stay together in one bounded snapshot.
+A real source or clock binding change retires it. LIVE returns to the current cohort. ALL LIVE reads the latest detected hit; it does not use BAND's
+eight-hit median. The band hits keep the same producer keys as the full-band navigation. Choosing
+another band analyzes the retained last 7 s again, even while stopped; ALL releases the extra band
+audio. Facts distinguishes silence, an earlier hit still ringing, a next hit cutting the tail,
+unmeasured audio, audio/worker/publication still pending, and missing comparison proof. A measured
+limit remains a limit on the production view; its reason and resolution remain in Facts.
+An older PRE or a band mismatch keeps the requested Δ scope and preserves a reason such as
+`Update PRE` or `No mapping`. It does not substitute POST values for an unavailable Δ. An absolute
+POST snapshot is labelled POST, and its DELAY is not applicable (`No PRE`). Open **Facts** for the
+same adopted values, subset medians, classification counts, per-metric age and measurement spans.
+
+![DRUM BAND example: eight-hit cohort, bounds and average-envelope gaps](docs/planning/hypha_drum_psr_g2_20261008/drum-v2-900-en.png)
+
+The BAND example uses synthetic measurements to show missing observations and measured bounds.
+
+TIME's PSR has its own target and cutoff: it automatically shows Δ for a selected pair, while the
+main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to its completed
+100 ms point and uses that point's processed prefix; it does not include later pending input. A comparison that is waiting or expired
+keeps the Δ label and its reason. It does not silently become POST. Current values expire from the
+original 100 ms slot's completion, with a 400 ms lifetime; repeated polls do not renew them.
+After a playback boundary, current Δ requires a complete, continuous aperture on both sides:
+400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR. These LEVEL and TIME
+readings also work when the DAW omits its optional presentation-latency report.
+Absolute POST observations and Session statistics continue independently. A cumulative PLR
+without equivalent prefix proof stays unavailable in Δ.
+PSR is supplementary: its `Δ −3.3 dB` or `POST 10.1 dB` reading uses a small, regular-weight
+font and secondary colour, with no equation beside it. M, S and TP remain the main readings.
+
+DRUM reads incoming hits at 30 Hz, updates BAND LIVE summaries at 4 Hz and updates TIME at 10 Hz.
+Its display clock is separate from measurement and stops where available observations end. The
+view looks back 150 ms; a BAND reading older than 250 ms keeps its age and missing-data reason
+visible in Facts. These readings describe the measured audio and do not judge its quality.
+
+Meter Session I, LRA and MAX TP include every EBU-processed 10 ms block, including the tail before
+Stop. During playback, the ordinary fraction of the next 10 ms chunk keeps MAX TP and PLR
+available for the processed audio. A tail left unprocessed after Stop is reported explicitly:
+MAX TP shows `≥` the confirmed value and PLR shows `---`. I and LRA describe the processed prefix. MAX M and current meter points keep their
+100 ms update boundary. Reset clears the session; pause retains its coverage. Record semantics stay
+unchanged. Capture freezes the displayed facts for a local PNG. If Work attachment v1 cannot retain
+their typed meaning, attachment reports that limitation and offers the same frozen PNG for local save.
+TIME HISTORY/PSR and DRUM require this typed meaning; RUN, SHARP and LIVE remain attachable in v1.
+Saving over an existing PNG replaces it with the complete new image; it does not append a second
+image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
+
+Absolute POST spectra also work when a host supplies a valid project/render sample clock but omits
+the optional output-latency callback. That local clock is kept separate from pair alignment: Hypha
+does not assume zero latency, publish it as an aligned PRE spectrum, or use it for PRE/POST Δ.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
 Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
@@ -881,8 +938,10 @@ Saving and reopening therefore remain separate regular-host acceptance requireme
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
    MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
-   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN. These
-   values are experimental until listening tests settle them.
+   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN.
+   Hiding the editor also stops AUTO and holds its last gain; the next time you show the editor,
+   it reports the stop. Select AUTO again explicitly to resume following. These values are
+   experimental until listening tests settle them.
 5. Press **END** once to end the comparison and clear MATCH. If POST was lowered, the button
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
    then restores normal POST level with the existing slow ramp (500 ms for the full gain range).
@@ -1071,8 +1130,10 @@ Closing the GUI does not stop measurement. The audio thread continues running as
 At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
 and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
 persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
-whole in a one-line strip over the bottom edge of the measurement while they last; clicking feedback
-opens the details.
+in a bounded one-line strip over the bottom edge of the measurement while they last; clicking feedback
+opens the full details. At 150% and above, feedback stays in the footer's left status area even
+when the full text is longer than the available width. On Hybrid VU, the bottom notice and the
+centred calibration legend occupy separate parts of the existing row.
 
 100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
 and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, RAW / SHAPE, and DRUM's VIEW and BAND) are chosen at
@@ -1090,6 +1151,14 @@ per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU n
 statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
 indicator again on the next 100 ms observation.
 
+Click **0 VU = −18 dBFS** below the meter to choose **−12, −14, −16, −18 or −20 dBFS**
+(default −18). Both needles use the same reference, and an exact PRE/POST pair shares that
+reference on this computer. The choice is saved per chain; changing pairs selects that chain's
+reference. It changes the needle's displayed level only. Audio, LUFS, True Peak and the
+300 ms response stay unchanged. Temporary identity contention retains the adopted reference and
+disables selection until the chain is resolved. A failed save retains the previous choice and reports
+the reason.
+
 ## Record mode (Kirin OS required)
 
 With a Kirin OS license, POST can keep a session record.
@@ -1103,6 +1172,11 @@ same Keep remains active. During an offline bounce/export, POST auto-runs the sa
 **Stop** when the host reports that offline processing has ended. If a host does not emit that
 offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after
 10 minutes without Active signal.
+
+During Keep, intermediate I/LRA readouts reuse an exact-energy cache with a bounded auxiliary
+node budget. This avoids rescanning the complete recording after every small input block.
+Stopping Keep still drains the input and uses the original canonical finalization for the saved
+Record; True Peak and the measured time range retain their original definitions.
 
 After Stop, the final Record display remains visible until the next playback produces its first
 newly computed Watch result; that result returns the grid to Watch without showing stale Watch data

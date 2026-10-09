@@ -43,7 +43,7 @@ View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
     setMouseClickGrabsKeyboardFocus (false);
-    initializeLevelHistoryControls();
+    initializeLevelHistoryControls(); initializeVuCalibrationControl();
     addAndMakeVisible (informationButton);
     informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
@@ -155,6 +155,7 @@ void View::setDomain (Domain value)
         value = Domain::level;
     if (selectedDomain == value)
         return;
+    retireTimePresentation (true);
     selectedDomain = value;
     levelInspection.clear();
     levelHistoryPointer.reset();
@@ -169,6 +170,7 @@ void View::setTimeRange (TimeRange value)
 {
     if (timeRange == value)
         return;
+    retireTimePresentation (true);
     timeRange = value;
     history.clear();
     runSummary = {};
@@ -182,6 +184,8 @@ void View::setTarget (ObservationTarget value)
 {
     if (! targetAllowed (role, value) || selectedTarget == value)
         return;
+    timePresentation.selectMainTarget (static_cast<std::uint8_t> (value == ObservationTarget::delta ? KIRIN_TIME_DELTA
+        : role == Role::pre ? KIRIN_TIME_PRE : KIRIN_TIME_POST));
     selectedTarget = value;
     levelInspection.clear();
     history.clear();
@@ -399,23 +403,8 @@ void View::paint (juce::Graphics& g)
             role, observatoryFrame.meter, watchDisplay,
             currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
             selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
-            jungleAppearance, presentationContext()
+            jungleAppearance, presentationContext(), vuCalibration()
         });
-        if (feedbackText.isNotEmpty())
-        {
-            auto feedback = getLocalBounds();
-            feedback = { feedback.getX(), juce::roundToInt (getHeight() * 0.880f),
-                         feedback.getWidth(), juce::roundToInt (getHeight() * 0.095f) };
-            feedback.removeFromLeft (juce::roundToInt (getWidth() * 0.18f));
-            feedback.removeFromRight (juce::roundToInt (getWidth() * 0.20f));
-            g.setColour (BG.withAlpha (0.92f));
-            g.fillRoundedRectangle (feedback.toFloat(), 3.0f);
-            g.setColour (COL_NORMAL);
-            g.setFont (monoFont (presentationContext(), typography::TextRole::status));
-            text_style::draw (g, feedbackText, feedback.reduced (3, 0),
-                              presentationContext(), typography::TextRole::status,
-                              juce::Justification::centred);
-        }
         return;
     }
     const auto state = worldState();
@@ -469,7 +458,8 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
     const auto roleFont = labelFont (context, typography::TextRole::shellTitle);
     const auto roleWidth = juce::jmin (
         titleArea.getWidth() - 20,
-        juce::roundToInt (roleFont.getStringWidthFloat (roleText)) + 2);
+        text_style::requiredWidth (roleFont, roleText,
+                                  typography::resolve (context, typography::TextRole::shellTitle)));
     auto roleArea = titleArea.removeFromLeft (juce::jmax (1, roleWidth));
     titleArea.removeFromLeft (density == Density::compact ? 3 : 5);
     g.setFont (labelFont (context, typography::TextRole::shellTitle));

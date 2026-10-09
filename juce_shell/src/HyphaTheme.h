@@ -68,6 +68,10 @@ namespace hypha
     juce::Font displayTextFont (const juce::String&, const presentation::Context&,
                                 typography::TextRole,
                                 typography::Composition = typography::Composition::shell);
+    // A long state or legend may fit its own cell without changing the role's normal font.
+    juce::Font displayTextFont (const juce::String&, const presentation::Context&,
+                                typography::TextRole, typography::Composition,
+                                juce::Rectangle<float>, bool tabular = false);
     bool requiresNativeTextFont (const juce::String& text) noexcept;
     // Japanese screen text (INV-S40): kana, kanji and full-width forms, which the label fonts do
     // not carry. Only such text changes font, so English is drawn exactly as before.

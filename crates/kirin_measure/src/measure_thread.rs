@@ -25,14 +25,20 @@ use crate::{
     PsbSummary, SignalState,
 };
 
+#[path = "record_summary_publication.rs"]
+mod record_summary_publication;
+
 #[path = "measure_capture_plan.rs"]
 mod capture_plan;
+#[path = "record_epoch_transition.rs"]
+mod record_epoch_transition;
 #[cfg(test)]
 use capture_plan::CaptureChunkPlan;
 use capture_plan::{
     capture_chunk_plan, observed_capture_endpoint, should_drop_unselected_record_epoch,
     trusted_pre_roll_epoch,
 };
+use record_epoch_transition::record_grid_alignment;
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
 /// 100 ms native boundary をそのまま保持する。Record の PhaseD だけ有限長 resample を行い、
@@ -86,17 +92,6 @@ fn should_process_phase_d(is_recording: bool) -> bool {
 #[inline]
 fn should_suspend_measurement(state: SignalState, is_recording: bool) -> bool {
     !is_recording && state != SignalState::Active
-}
-
-fn record_grid_alignment(position_start: i64, sample_rate: u32) -> (usize, i64) {
-    let slot_frames = (sample_rate as i64 / 10).max(1);
-    let phase_frames = position_start.rem_euclid(slot_frames) as usize;
-    let remaining = if phase_frames == 0 {
-        slot_frames
-    } else {
-        slot_frames.saturating_sub(phase_frames as i64)
-    };
-    (phase_frames, position_start.saturating_add(remaining))
 }
 
 /// B-115: POST pair 変更ロックの述語。**実再生中（playing）かつ live**（processBlock 進行中）の
@@ -217,7 +212,7 @@ pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
 ///   Watch→Record 遷移時は engine.reset() を明示実行してセッション開始時点で
 ///   ebur128 内部状態をクリアする。Record 中は SS-8 reset をスキップすることで
 ///   transport 停止/再開を跨いだ LUFS-I / LRA の通算性を確保する。
-/// - `session_summary` : Record 中の各ループで `engine.finalize()` の最新値を
+/// - `session_summary` : Record 中は exact cached 集計、終了 drain は canonical 集計を
 ///   注入する共有スロット。IO Thread が Record→Watch 遷移時に読み出して
 ///   `PluginDataWriter::set_session_aggregates()` 経由で JSON に焼き込む。
 #[allow(clippy::too_many_arguments)]
@@ -855,13 +850,13 @@ pub fn spawn_measure_thread(
                         capture_plan.position_start_samples
                     );
                 }
-                if latency_epoch_transition {
-                    // Keep the DSP window continuous. Only the sample-coordinate mapping changed;
-                    // resetting here would inject artificial silence and lose 400 ms of TRACE.
-                    record_next_grid_end = None;
-                    record_capture_epoch = capture_plan.capture_epoch;
-                    record_grid_cursor = capture_plan.position_start_samples;
-                }
+                record_epoch_transition::advance_record_epoch(
+                    latency_epoch_transition,
+                    capture_plan,
+                    &mut record_next_grid_end,
+                    &mut record_capture_epoch,
+                    &mut record_grid_cursor,
+                );
                 chunk_f64.clear();
                 let mut replayed_prefix_samples = 0_usize;
                 for _ in 0..available {
@@ -1130,21 +1125,14 @@ pub fn spawn_measure_thread(
                     );
                 }
 
-                // B-043: Record 中は session_summary に毎ループの最新 finalize() を反映。
-                // IO Thread が Record→Watch 遷移時に直近の値を読み出して JSON に焼く。
-                // engine.push() 後に呼ぶことで最新チャンク反映後の値を取れる。
                 if is_recording {
-                    let summary = record_engines.summary().finalize();
-                    if let Ok(mut g) = session_summary.lock() {
-                        *g = Some(summary);
-                    }
-                    if let Some(measure) = latest_record_measure.clone() {
-                        record_sm.publish_record_display_measure(
-                            record_display_generation.unwrap_or_else(|| record_sm.generation()),
-                            measure,
-                            summary,
-                        );
-                    }
+                    record_summary_publication::publish(
+                        &mut record_engines,
+                        &session_summary,
+                        &record_sm,
+                        record_display_generation,
+                        &latest_record_measure,
+                    );
                 }
             }
 

@@ -104,6 +104,39 @@ fn bound_analysis_targets(
     (spectrum, meter_history)
 }
 
+fn attack_pair_origin(
+    target: &SpectrumTarget,
+    binding: PostAnalysisBinding<'_>,
+) -> Option<crate::spectrum_exchange::AttackPairAuthority> {
+    if binding.generation == 0
+        || !binding.claimed_at.is_finite()
+        || binding.claimed_at <= 0.0
+        || !crate::is_path_safe_component(binding.project_hash)
+        || !crate::is_path_safe_component(binding.post_instance_id)
+        || !crate::is_path_safe_component(binding.pair_owner_id)
+        || Some(target.pre_instance_id.as_str()) != binding.paired_pre_instance_id
+        || target.instance_dir.file_name()?.to_str()? != target.pre_instance_id
+    {
+        return None;
+    }
+    // The latch has already passed project/session/host scope admission. PRE and POST may
+    // have separate role-local shelves, so provenance names the exact resolved PRE shelf.
+    let project_hash = target.instance_dir.parent()?.file_name()?.to_str()?;
+    if !crate::is_path_safe_component(project_hash)
+        || !crate::is_path_safe_component(&target.pre_instance_id)
+    {
+        return None;
+    }
+    Some(crate::spectrum_exchange::AttackPairAuthority {
+        generation: binding.generation,
+        project_hash: project_hash.into(),
+        pre_instance_id: target.pre_instance_id.clone(),
+        post_instance_id: binding.post_instance_id.into(),
+        owner_id: binding.pair_owner_id.into(),
+        claimed_at_bits: binding.claimed_at.to_bits(),
+    })
+}
+
 pub(super) fn service_post_analysis_endpoints(
     spectrum: Option<&Arc<SpectrumCoordinator>>,
     meter_history: Option<&Arc<MeterDeltaHistoryExchange>>,
@@ -119,24 +152,7 @@ pub(super) fn service_post_analysis_endpoints(
     if let Some(spectrum) = spectrum {
         let origin = spectrum_target
             .as_ref()
-            .filter(|target| {
-                target
-                    .instance_dir
-                    .parent()
-                    .and_then(|path| path.file_name())
-                    .and_then(|name| name.to_str())
-                    == Some(binding.project_hash)
-                    && binding.claimed_at.is_finite()
-                    && binding.claimed_at > 0.0
-            })
-            .map(|target| crate::spectrum_exchange::AttackPairAuthority {
-                generation: binding.generation,
-                project_hash: binding.project_hash.into(),
-                pre_instance_id: target.pre_instance_id.clone(),
-                post_instance_id: binding.post_instance_id.into(),
-                owner_id: binding.pair_owner_id.into(),
-                claimed_at_bits: binding.claimed_at.to_bits(),
-            });
+            .and_then(|target| attack_pair_origin(target, binding));
         spectrum.set_attack_pair_authority(binding.generation, origin);
         spectrum.service_post_endpoint(
             binding.post_instance_id,

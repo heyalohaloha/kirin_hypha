@@ -5,6 +5,7 @@
 #include "HyphaChannelReadoutLayout.h"
 #include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
+#include "HyphaBoundedText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
@@ -79,11 +80,13 @@ void drawMetric (juce::Graphics& g,
         text_style::drawText (g, label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
-        drawTabularText (g, monoFont (presentation, valueRole,
-                                      typography::Composition::facts),
-                         textOverride.isNotEmpty() ? textOverride
-                                                   : valueText (value, decimals, signedValue),
-                         area.reduced (4, 0).toFloat(), juce::Justification::centred);
+        if (textOverride.isNotEmpty())
+            bounded_text::metricState (g, textOverride, area.reduced (4, 0).toFloat(), presentation,
+                                       valueRole, juce::Justification::centred);
+        else
+            drawTabularText (g, monoFont (presentation, valueRole, typography::Composition::facts),
+                             valueText (value, decimals, signedValue),
+                             area.reduced (4, 0).toFloat(), juce::Justification::centred);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
@@ -105,6 +108,13 @@ void drawMetric (juce::Graphics& g,
                               typography::Composition::facts));
         text_style::drawText (g, auxiliaryText, auxiliaryArea.reduced (6, 0),
                     juce::Justification::centredRight);
+    }
+    if (textOverride.isNotEmpty())
+    {
+        g.setColour (COL_MUTED);
+        bounded_text::metricState (g, textOverride, area.reduced (5, 0).toFloat(), presentation,
+                                   valueRole, juce::Justification::centred);
+        return;
     }
     if (area.getWidth() < 180)
     {
@@ -152,22 +162,6 @@ void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
         && recordDisplay.pair_matches_current != 0u
         && recordDisplay.delta.mode == KIRIN_DELTA_MODE_ACTIVE;
     const bool shortTerm = selectedShortTermLoudness;
-
-    auto statusArea = area.removeFromTop (juce::jlimit (20, 28, area.getHeight() / 5));
-    area.removeFromTop (3);
-    drawPanel (g, statusArea, family);
-    const auto phaseText = recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
-        ? juce::String ("RECORD FINALIZING")
-        : recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
-            ? juce::String ("RECORD UNAVAILABLE")
-            : juce::String ("RECORD RESULT");
-    const auto sourceText = hasDelta ? juce::String (juce::CharPointer_UTF8 (" · POST − PRE"))
-                                     : juce::String (juce::CharPointer_UTF8 (" · ABSOLUTE"));
-    g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
-                     ? COL_MUTED : COL_NORMAL);
-    g.setFont (monoFont (context, typography::TextRole::status));
-    text_style::drawEllipsized (g, phaseText + sourceText, statusArea.reduced (5, 1),
-                                juce::Justification::centred);
 
     const auto& measure = recordDisplay.measure;
     const auto& session = recordDisplay.session;
@@ -220,6 +214,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                        bool includeChannelStrips)
 {
     const auto& meter = observatoryFrame.meter;
+    const auto& summaryMeter = cumulativeMeterForDisplay();
     const auto& delta = observatoryFrame.delta;
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
@@ -326,8 +321,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         // maxima; MAX TP is a maximum already.
         const std::array<double, 3> compactValues {
             watch.lufs_s,
-            trackStem ? watch.crest : meter.lufs_i,
-            meter.max_true_peak
+            trackStem ? watch.crest : summaryMeter.lufs_i,
+            summaryMeter.max_true_peak
         };
         const std::array<bool, 3> compactAvailable {
             compactFactsAvailable,
@@ -353,7 +348,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
-                        compactUnits[(size_t) index], family, context);
+                        compactUnits[(size_t) index], family, context, false, 1,
+                        index == 2 ? sessionMaximumBoundText() : juce::String());
         if (! channelStrips.isEmpty())
             paintChannelStrips (g, channelStrips);
         return;
@@ -362,7 +358,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const auto metricLayout = level_metrics::layoutFor (trackStem);
     const std::array<double, 3> mainValues {
         meter.lufs_m, meter.lufs_s,
-        trackStem ? watchDisplay.current.crest : meter.lufs_i
+        trackStem ? watchDisplay.current.crest : summaryMeter.lufs_i
     };
     const std::array<bool, 3> mainAvailable {
         currentAvailable, currentAvailable,
@@ -385,10 +381,10 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
 
     const std::array<double, 5> supportValues {
         trackStem ? watchDisplay.current.psr : meter.true_peak,
-        trackStem ? meter.true_peak : meter.max_true_peak,
-        trackStem ? meter.max_true_peak : meter.lra,
-        trackStem ? meter.lufs_i : meter.plr,
-        trackStem ? meter.lra : watchDisplay.current.crest
+        trackStem ? meter.true_peak : summaryMeter.max_true_peak,
+        trackStem ? summaryMeter.max_true_peak : summaryMeter.lra,
+        trackStem ? summaryMeter.lufs_i : optionValue (summaryMeter.plr, ! sessionSummaryPending()),
+        trackStem ? summaryMeter.lra : watchDisplay.current.crest
     };
     const std::array<bool, 5> supportAvailable {
         trackStem ? currentAvailable && watchDisplayAvailable : currentAvailable,
@@ -421,7 +417,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], family, context,
-                    false, 1, warmingText,
+                    false, 1,
+                    metricLayout.support[(size_t) index] == level_metrics::Metric::maximumTruePeak
+                        && sessionMaximumBoundText().isNotEmpty() ? sessionMaximumBoundText() : warmingText,
                     isFullDensity (density) ? 0.54f : -1.0f, {},
                     true, typography::TextRole::secondaryValue);
     }

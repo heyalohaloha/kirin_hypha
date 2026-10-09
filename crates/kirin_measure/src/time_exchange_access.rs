@@ -49,3 +49,24 @@ impl MeterDeltaHistoryExchange {
 pub(super) fn initial_span(session: &Arc<Mutex<MeterSession>>) -> Arc<AtomicU64> {
     lock_recover(session).time_span_token()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn comparison_mutex_contention_is_no_frame_but_absent_pair_is_a_readable_missing_fact() {
+        let session = Arc::new(Mutex::new(
+            MeterSession::new(48_000, crate::channel_layout::ChannelLayout::stereo()).unwrap(),
+        ));
+        let exchange = MeterDeltaHistoryExchange::new(48_000, session);
+        let guard = exchange.delta.lock().unwrap();
+        assert!(exchange
+            .time_comparison(MeterHistoryResolution::Hz10, 0, 0, 0)
+            .is_none());
+        drop(guard);
+        assert!(matches!(
+            exchange.time_comparison(MeterHistoryResolution::Hz10, 0, 0, 0),
+            Some(Ok(None))
+        ));
+    }
+}

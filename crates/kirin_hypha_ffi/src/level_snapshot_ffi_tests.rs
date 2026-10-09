@@ -1,5 +1,7 @@
 use super::*;
 use kirin_measure::{CaptureClockSource, MeterClockStart};
+#[path = "level_poll_contention_tests.rs"]
+mod contention;
 
 #[test]
 fn rejects_wrong_version_capacities_and_missing_buffers() {

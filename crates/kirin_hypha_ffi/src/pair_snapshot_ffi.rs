@@ -14,6 +14,9 @@ mod local_blind_capture_ffi;
 mod local_blind_result_ffi;
 pub use local_blind_capture_ffi::*;
 pub use local_blind_result_ffi::*;
+#[path = "vu_calibration_locator_ffi.rs"]
+mod vu_calibration_locator_ffi;
+pub use vu_calibration_locator_ffi::kirin_hypha_get_vu_calibration_locator;
 
 #[repr(C)]
 #[derive(Clone, Copy)]

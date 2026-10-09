@@ -129,7 +129,7 @@ void CheckTabs::mouseDown (const juce::MouseEvent& event)
     for (size_t index = 0; index < bounds.size(); ++index)
         if (bounds[index].contains (event.getPosition()))
         {
-            if (items[index].id != selectedId && onChoose) onChoose (items[index].id);
+            if (onChoose) onChoose (items[index].id);
             return;
         }
 }

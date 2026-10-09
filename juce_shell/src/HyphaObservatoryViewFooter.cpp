@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTimeSnapshotPainter.h"
 #include "HyphaComparisonPresentation.h"
 #include "HyphaRunSummary.h"
 #include "HyphaSurfaceMaterial.h"
@@ -129,6 +130,12 @@ int View::statusStripHeight() const
 juce::String View::footerStatusText() const
 {
     if (measurementFormatHeld) return "FORMAT HELD / STOP KEEP";
+    if (recordDisplayAvailable)
+    {
+        if (recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING) return "RECORD FINALIZING";
+        if (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE) return "Final measurement unavailable";
+        if (recordDisplay.phase == KIRIN_RECORD_DISPLAY_RESULT_HOLD) return "RECORD RESULT";
+    }
     if (! frameAvailable || observatoryFrame.meter.state == KIRIN_METER_SESSION_EMPTY)
         return "WAITING";
     if (observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED)
@@ -192,9 +199,12 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
             for (const auto& shorter : { chainReadoutText.replace (" / ", "/"),
                                          chainReadoutText.replace (" / ", "/").fromFirstOccurrenceOf ("CHAIN ", false, false) })
                 if (text_style::shownWidth (font, beside) > (float) room.getWidth()) beside = shorter;
-            g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
-            text_style::drawText (g, beside, room, juce::Justification::centredRight, false);
-            chainReadoutShown = true;
+            if (text_style::shownWidth (font, beside) <= (float) room.getWidth())
+            {
+                g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);
+                text_style::drawText (g, beside, room, juce::Justification::centredRight, false);
+                chainReadoutShown = true;
+            }
         }
         return;
     }
@@ -225,7 +235,6 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     area.removeFromTop (timeControlsHeight());
     area.reduce (main_frame::inset(), main_frame::inset()); // the page's main window, in its frame
     timeHistoryArea = showRunSummary && target() == ObservationTarget::absolute ? juce::Rectangle<int>() : area;
@@ -235,17 +244,7 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                             presentationContext(),
                             frameAvailable ? &observatoryFrame.meter : nullptr, true);
     else
-        time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                             target() == ObservationTarget::delta, compact, selectedScaleMode,
-                             presentationContext(),
-                             target() == ObservationTarget::delta && frameAvailable
-                                 ? comparison_presentation::statusText (
-                                       observatoryFrame.comparison_state,
-                                       observatoryFrame.comparison_reason)
-                                 : juce::String(),
-                             currentPreset().density != Density::compact, true,
-                             target() == ObservationTarget::absolute && frameAvailable
-                                 ? observatoryFrame.meter.plr
-                                 : std::numeric_limits<double>::quiet_NaN());
+        time_snapshot::paint (g, area, timePresentation, selectedScaleMode,
+                              presentationContext(), historyRequest().label);
 }
 }

@@ -31,6 +31,7 @@ impl MeterClockStart {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MeterObservationClock {
+    pub continuous_frames: u64,
     pub run_id: u64,
     pub run_origin: ClockRunOrigin,
     pub timeline_endpoint_samples: Option<i64>,
@@ -77,6 +78,8 @@ pub(crate) struct MeterClockTracker {
     last_input: Option<LastInputClock>,
     next_run_id: u64,
     paused_boundary: bool,
+    consumed_run: u64,
+    continuous_frames: u64,
 }
 
 impl MeterClockTracker {
@@ -86,6 +89,8 @@ impl MeterClockTracker {
             last_input: None,
             next_run_id: 1,
             paused_boundary: false,
+            consumed_run: 0,
+            continuous_frames: 0,
         }
     }
 
@@ -224,6 +229,11 @@ impl MeterClockTracker {
             run_origin.get_or_insert(front.run_origin);
             kind.get_or_insert(front.kind);
             let consumed = remaining.min(front.remaining_frames);
+            if self.consumed_run != front.run_id {
+                self.consumed_run = front.run_id;
+                self.continuous_frames = 0;
+            }
+            self.continuous_frames = self.continuous_frames.saturating_add(consumed);
             if let Some(position) = front.next_position_samples {
                 timeline_endpoint_samples = i64::try_from(consumed)
                     .ok()
@@ -248,6 +258,11 @@ impl MeterClockTracker {
         }
 
         MeterObservationClock {
+            continuous_frames: if compatible && remaining == 0 {
+                self.continuous_frames
+            } else {
+                0
+            },
             run_id: run_id.unwrap_or(0),
             run_origin: run_origin.unwrap_or(ClockRunOrigin::Initial),
             timeline_endpoint_samples: compatible.then_some(timeline_endpoint_samples).flatten(),
@@ -290,6 +305,8 @@ impl MeterClockTracker {
         self.last_input = None;
         self.next_run_id = 1;
         self.paused_boundary = false;
+        self.consumed_run = 0;
+        self.continuous_frames = 0;
     }
 
     /// Stop/resume is a provenance boundary, not a reset of session statistics.

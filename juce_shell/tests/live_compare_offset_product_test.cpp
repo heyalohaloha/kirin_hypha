@@ -2,6 +2,8 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
+#include "FooterNoticeContractChecks.h"
+#include "LiveTimingFixtureAccess.h"
 
 #include <atomic>
 #include <chrono>
@@ -39,9 +41,9 @@ juce::Component* find (juce::Component& parent, const juce::String& id)
     return nullptr;
 }
 
-const hypha::observatory::View* findView (juce::Component& parent)
+hypha::observatory::View* findView (juce::Component& parent)
 {
-    if (auto* view = dynamic_cast<const hypha::observatory::View*> (&parent)) return view;
+    if (auto* view = dynamic_cast<hypha::observatory::View*> (&parent)) return view;
     for (int i = 0; i < parent.getNumChildComponents(); ++i)
         if (auto* view = findView (*parent.getChildComponent (i))) return view;
     return nullptr;
@@ -57,6 +59,10 @@ struct Clock final : juce::AudioPlayHead
         {
             info.setTimeInSamples (position);
             info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
+            info.setKirinAuxiliaryClockSource (1);
+            info.setKirinAuxiliaryClockSamples (position);
+            info.setKirinPresentationLatencySource (1);
+            info.setKirinOutputPresentationLatencySamples (0);
         }
         return info;
     }
@@ -91,6 +97,8 @@ public:
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
+            require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
+                     "offset fixture uses the qualified synthetic VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
         editor.reset (post->createEditorIfNeeded());
@@ -146,20 +154,6 @@ private:
                       << longestCallbackMicros.load() / 1000.0 << " ms\n";
             require (false, "offset round trip timed out");
         }
-        // A stall of this machine past the callback-gap rule (2.5 blocks, 213 ms) rightly stops PRE:
-        // "Audio gap: select PRE again". While the offset settles, select PRE again as a user would.
-        // A gap reported without such a stall is a product fault and fails here.
-        if (stage == 3)
-            if (const auto status = post->liveCompareStatus(); status.active && status.interrupted
-                && status.reason == hypha::live_compare::RecoveryReason::callbackGap && ! status.preSelected)
-            {
-                require (stalls.load() > recoveredStalls, "a callback gap is reported only after a real stall");
-                recoveredStalls = stalls.load();
-                std::cout << "recovered from a test-machine stall of " << longestCallbackMicros.load() / 1000.0
-                          << " ms" << std::endl;
-                click ("observatory-live-pre");
-                return;
-            }
         switch (stage)
         {
             case 0:
@@ -247,8 +241,8 @@ private:
                 // PRE plays again in the new run.
                 if (! post->liveCompareStatus().preSelected && ! click ("observatory-live-pre")) break;
                 if (! post->liveCompareStatus().preAudible) break;
-                // At 600 px the sentence cannot fit beside the safety controls. At 900 px the
-                // shorter English wording can fit in the footer and legitimately needs no strip.
+                // At 600 px recovery stays at LIVE/HOLD, with bounded paint and full details.
+                // Safety controls and the actual audio refusal keep their original behavior.
                 editor->setSize (600, 400);
                 post->kirinHostDelayCompensationStateChanged (false);
                 ++stage;
@@ -260,9 +254,12 @@ private:
                 const auto status = post->liveCompareStatus();
                 if (! status.preWaiting || status.preAudible || footer() != "Compensation off: enable it (POST)") break;
                 require (! status.contentHeld, "switching compensation off is not a latency jump");
-                require (find (*editor, "feedback-strip")->isVisible(),
-                         "recovery is visible in the full-width strip, not clipped in the footer");
+                auto* view = findView (*editor);
+                require (view != nullptr && ! find (*editor, "feedback-strip")->isVisible()
+                    && hypha::tests::footer_notice::retainedInFooter (*view, footer()),
+                         "actual refusal keeps full details and bounded paint at the fixed footer");
                 std::cout << "compensation off: " << footer() << std::endl;
+                injectSchedulingStall.store (true);
                 post->kirinHostDelayCompensationStateChanged (true);
                 ++stage;
                 break;
@@ -271,7 +268,10 @@ private:
             {
                 // Back on: the correspondence is proven again and PRE returns by itself.
                 const auto status = post->liveCompareStatus();
+                if (! schedulingStallCompleted.load()) break;
                 if (! status.preAudible || status.preWaiting) break;
+                require (stalls.load() > 0 && longestCallbackMicros.load() >= 600000,
+                         "certified offset recovery survives the deliberate 600 ms machine stall");
                 require (footer() != "Compensation off: enable it (POST)", "the reason clears once it is on");
                 std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold, "
                              "delay compensation off)\n";
@@ -311,6 +311,8 @@ private:
         };
         while (running.load())
         {
+            const bool deliberateStall = injectSchedulingStall.exchange (false);
+            if (deliberateStall) std::this_thread::sleep_for (std::chrono::milliseconds (600));
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
@@ -329,14 +331,15 @@ private:
                 }
             countStall (previousPost);
             post->processBlock (buffer, midi);
+            if (deliberateStall) schedulingStallCompleted.store (true);
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
             std::this_thread::sleep_until (next);
         }
     }
 
-    // A host block of 4096 frames (85 ms): the callback-gap rule then tolerates test-machine stalls
-    // up to 213 ms, as a DAW's real-time thread never needs.
+    // Qualified continuous sample clocks keep scheduler lateness separate from missing audio.
+    // The offset and compensation assertions still use the real processors and content proof.
     static constexpr int blockFrames = 4096;
     Clock clock;
     std::unique_ptr<Processor> pre, post;
@@ -345,7 +348,7 @@ private:
     std::atomic<bool> running { true }, play { false };
     std::atomic<std::int64_t> longestCallbackMicros { 0 };
     std::atomic<int> stalls { 0 };
-    int recoveredStalls = 0;
+    std::atomic<bool> injectSchedulingStall { false }, schedulingStallCompleted { false };
     std::atomic<std::int64_t> delayFrames { 2000 };
     std::chrono::steady_clock::time_point started, requestedAt, heldAt;
     hypha::pair_preview::Ticket preview;

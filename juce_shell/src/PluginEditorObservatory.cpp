@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaSnapshotSource.h"
 #include "HyphaComparisonPresentation.h"
 
 #include <algorithm>
@@ -102,6 +103,35 @@ void KirinHyphaEditor::configureMeterContext()
         syncAnalysisDemand();
        #endif
     };
+    observatoryView.onVuCalibrationMenu = [this]
+    {
+        const auto scope = processorRef.hybridVuCalibrationScope();
+        if (scope.isEmpty()) return;
+        juce::PopupMenu menu;
+        menu.setLookAndFeel (&textLookAndFeel);
+        for (std::size_t index = 0; index < hypha::vu_calibration::choices.size(); ++index)
+            menu.addItem (static_cast<int> (index) + 1,
+                hypha::vu_calibration::label (hypha::vu_calibration::choices[index]), true,
+                observatoryView.vuCalibration() == hypha::vu_calibration::choices[index]);
+        const juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (
+            &observatoryView.vuCalibrationAnchor()).withDeletionCheck (*this)
+                .withStandardItemHeight (hypha::ui_contract::pairMenuItemHeight)
+                .withMinimumWidth (hypha::ui_contract::pairMenuMinimumWidth), [safe, scope] (int result)
+        {
+            if (safe == nullptr || result < 1
+                || result > static_cast<int> (hypha::vu_calibration::choices.size())) return;
+            if (scope != safe->processorRef.hybridVuCalibrationScope())
+                safe->showToast ("Chain unavailable; previous VU setting retained.");
+            else if (! safe->processorRef.setHybridVuCalibration (
+                    hypha::vu_calibration::choices[static_cast<std::size_t> (result - 1)], scope))
+                safe->showToast ("VU calibration could not be saved. Previous setting retained.");
+            safe->observatoryView.setVuCalibration (safe->processorRef.refreshHybridVuCalibration(),
+                safe->processorRef.hybridVuCalibrationScope().isNotEmpty());
+        });
+    };
+    observatoryView.setVuCalibration (processorRef.refreshHybridVuCalibration(),
+                                    processorRef.hybridVuCalibrationScope().isNotEmpty());
     observatoryView.onNote = [this] { showNoteDialog(); };
 }
 
@@ -249,6 +279,8 @@ void KirinHyphaEditor::refreshObservatory()
         && presentationNow - observedHostProcessHeartbeatAt <= hostRecordingStaleSeconds;
     const bool hybridPreferenceChanged = observatoryView.setHybridVuOnRecordEnabled (
         processorRef.hybridVuOnRecordPreference());
+    observatoryView.setVuCalibration (processorRef.refreshHybridVuCalibration(),
+                                    processorRef.hybridVuCalibrationScope().isNotEmpty());
     const bool hostRecordingChanged = observatoryView.setHostRecording (hostRecording);
     if (hybridPreferenceChanged || hostRecordingChanged)
     {
@@ -373,26 +405,16 @@ void KirinHyphaEditor::refreshObservatory()
         refreshReferenceAudition (frame, frameAvailable);
    #endif
 
+    KirinMeterSessionV2 coverage {};
+    if (hypha::snapshots::Source (processorRef).session (coverage) == KIRIN_SNAPSHOT_SUCCESS)
+        observatoryView.setSessionCoverage (coverage);
+
     const auto pairStatus = processorRef.pairStatus();
 
     if (observatoryDomain == hypha::observatory::Domain::time
         && observatoryView.capabilities().historyRange)
     {
-        const auto request = observatoryView.historyRequest();
-        std::vector<KirinMeterHistoryEntry> history;
-        const auto historyReady = observatoryView.target()
-            == hypha::observatory::ObservationTarget::absolute
-            ? processorRef.pollMeterHistory (request.resolution, history, request.maxEntries,
-                                             request.maxOutputEntries)
-            : processorRef.pollMeterDeltaHistory (request.resolution, history, request.maxEntries,
-                                                  request.maxOutputEntries);
-        if (historyReady)
-        {
-            observatoryView.setHistory (std::move (history));
-           #if ! KIRIN_HYPHA_PRE_DISPLAY
-            updateTimePageNavigation();
-           #endif
-        }
+        refreshTimeSnapshot();
     }
     else if (observatoryDomain == hypha::observatory::Domain::level
              && observatoryView.fullCockpit() && ! levelAbsolute)

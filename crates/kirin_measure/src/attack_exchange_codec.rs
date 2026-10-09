@@ -65,6 +65,21 @@ pub(super) fn read_attack_snapshot(instance_dir: &Path) -> Option<DecodedAttackS
     )?)
 }
 
+pub(super) fn read_attack_snapshot_request_id(instance_dir: &Path) -> Option<Uuid> {
+    let bytes = analysis_exchange_transport::read_prefix(
+        instance_dir,
+        &attack_snapshot_path(instance_dir),
+        AnalysisSlot::Attack,
+        28,
+        ATTACK_SNAPSHOT_MAX_BYTES,
+    )?;
+    let mut cursor = Cursor::new(&bytes);
+    (cursor.take(8)? == SNAPSHOT_MAGIC).then_some(())?;
+    matches!(cursor.u16()?, 3..=5).then_some(())?;
+    let _flags = cursor.u16()?;
+    Uuid::from_slice(cursor.take(16)?).ok()
+}
+
 pub(super) fn write_attack_snapshot(instance_dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
     analysis_exchange_transport::write(
         instance_dir,

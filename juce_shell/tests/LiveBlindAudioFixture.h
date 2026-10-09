@@ -107,7 +107,7 @@ void processAudio()
                 }
             (after.preAudible ? loopPreFrames : loopPostFrames).fetch_add (blockFrames);
         }
-        if (const auto at = stallBlock.load(); at >= 0 && audioBlocks.load() > at + 1)
+        if (const auto at = stallBlock.load(); loopStall && at >= 0 && audioBlocks.load() > at + 1)
         {
             // Skip the stall block and the one after it, where the side may fade.
             if (after.preAudible) stallPreBlocks.fetch_add (1);

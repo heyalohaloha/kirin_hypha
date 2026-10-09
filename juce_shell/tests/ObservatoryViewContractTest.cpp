@@ -4,6 +4,7 @@
 #include "SurroundObservatoryContractTest.h"
 #include "LiveCompareFooterContractTest.h"
 #include "LevelPublicationContract.h"
+#include "LraStateBoundsContract.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include <cmath>
@@ -290,6 +291,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
 }
 void verifyObservatoryViewContract()
 {
+    lra_state_bounds::verify (activeFrame());
     verifyObservatoryBackdropContract();
     verifyObservatoryDomainBedContract();
     const auto meter = activeMeter();

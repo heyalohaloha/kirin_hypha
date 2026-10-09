@@ -1,4 +1,5 @@
 #include "TimeHistoryContractTest.h"
+#include "TimeSnapshotContractTest.h"
 
 #include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaObservatoryView.h"
@@ -66,9 +67,7 @@ juce::Image render (const std::vector<KirinMeterHistoryEntry>& history,
     observatory::View view (observatory::Role::post);
     view.setSize (width, height);
     view.setDomain (observatory::Domain::time);
-    if (delta)
-        view.setTarget (observatory::ObservationTarget::delta);
-    view.setHistory (history);
+    applyTimeSnapshotFixture (view, history, delta);
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
     view.paintEntireComponent (graphics, true);
@@ -112,7 +111,7 @@ public:
     {
         view.setSize (image.getWidth(), image.getHeight());
         view.setDomain (observatory::Domain::time);
-        view.setHistory (history);
+        applyTimeSnapshotFixture (view, history);
     }
 
     void paint()
@@ -151,6 +150,7 @@ int changedPixels (const juce::Image& left, const juce::Image& right,
 
 void verifyTimeHistoryContract()
 {
+    verifyTimeSnapshotContract();
     const auto normal = fixture (false);
     profileTimeHistoryPaint (normal);
     KIRIN_TIME_HISTORY_REQUIRE (
@@ -378,7 +378,7 @@ void verifyTimeHistoryContract()
         const auto auxChanged = changedPixels (
             image, render (alternateAux, dimensions.first, dimensions.second));
         const auto compact = dimensions.first <= 375;
-        KIRIN_TIME_HISTORY_REQUIRE (compact ? auxChanged == 0 : auxChanged > 30);
+        KIRIN_TIME_HISTORY_REQUIRE (dimensions.first == 300 ? auxChanged == 0 : auxChanged > 30);
         const auto geometry = time_history::makeGeometry (
             image.getBounds(), compact,
             presentation::forEditor (dimensions.first, dimensions.second));

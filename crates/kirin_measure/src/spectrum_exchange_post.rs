@@ -13,6 +13,8 @@ use super::*;
 #[path = "spectrum_exchange_post/post_session.rs"]
 mod post_session;
 use post_session::PreparedPostSession;
+#[path = "spectrum_exchange_post_join.rs"]
+mod post_join;
 
 impl SpectrumCoordinator {
     pub(crate) fn post_tick_for_owner(
@@ -299,84 +301,6 @@ impl SpectrumCoordinator {
             current.clone()
         };
         self.publish_post_request(&armed, post_instance_id, target)
-    }
-
-    fn join_post_view(&self, session: &PostSession, target: &SpectrumTarget, now: Instant) -> bool {
-        let spectrum_local = (session.analysis_mode == AnalysisViewMode::Spectrum)
-            .then(|| self.runtime.try_history())
-            .flatten();
-        let perceptual_local = (session.analysis_mode == AnalysisViewMode::Perceptual)
-            .then(|| self.runtime.try_perceptual_history())
-            .flatten();
-        let attack_local = (session.analysis_mode == AnalysisViewMode::Attack)
-            .then(|| {
-                self.attack_runtime
-                    .as_ref()
-                    .and_then(|runtime| runtime.try_history())
-            })
-            .flatten();
-        let spectrum_remote = (session.analysis_mode == AnalysisViewMode::Spectrum)
-            .then(|| read_snapshot(&target.instance_dir))
-            .flatten()
-            .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| snapshot.history);
-        let perceptual_remote = (session.analysis_mode == AnalysisViewMode::Perceptual)
-            .then(|| read_perceptual_snapshot(&target.instance_dir))
-            .flatten()
-            .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| snapshot.history);
-        let attack_remote = (session.analysis_mode == AnalysisViewMode::Attack)
-            .then(|| read_attack_snapshot(&target.instance_dir))
-            .flatten()
-            .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| {
-                (
-                    snapshot.history,
-                    snapshot.band_results,
-                    snapshot.observations,
-                )
-            });
-        let mut slot = match self.post_session.try_lock() {
-            Ok(slot) => slot,
-            Err(TryLockError::WouldBlock) => return false,
-            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-        };
-        let Some(current) = slot.as_mut().filter(|current| {
-            self.post_visible()
-                && current.authority_revision == session.authority_revision
-                && current.attack_origin == session.attack_origin
-                && current.request_id == session.request_id
-                && current.target.as_ref() == Some(target)
-                && current.analysis_mode == session.analysis_mode
-                && current.channel_mode == session.channel_mode
-                && current.state_epoch_samples == session.state_epoch_samples
-        }) else {
-            return false;
-        };
-        if current.started_at.is_none() {
-            current.started_at = Some(now);
-        }
-        match session.analysis_mode {
-            AnalysisViewMode::Spectrum => store_joined_spectrum(
-                self,
-                current,
-                now,
-                spectrum_local.as_ref(),
-                spectrum_remote.as_ref(),
-            ),
-            AnalysisViewMode::Perceptual => store_joined_perceptual(
-                self,
-                current,
-                now,
-                perceptual_local.as_ref(),
-                perceptual_remote.as_ref(),
-            ),
-            AnalysisViewMode::Attack => {
-                store_joined_attack(self, current, now, attack_local, attack_remote)
-            }
-            AnalysisViewMode::Absolute => {}
-        }
-        true
     }
 
     fn post_session_is_current(&self, expected: &PostSession) -> bool {

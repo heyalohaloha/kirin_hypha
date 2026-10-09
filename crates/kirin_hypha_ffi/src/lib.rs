@@ -287,40 +287,8 @@ struct PendingRecordBlock {
     clock_end_samples: Option<i64>,
 }
 
-#[inline]
-fn spectrum_presentation_start(clock: PendingCaptureWindow) -> Option<i64> {
-    if !clock.position_valid
-        || !matches!(
-            clock.presentation_latency.source,
-            PresentationLatencySource::Vst3 | PresentationLatencySource::AudioUnitV2
-        )
-    {
-        return None;
-    }
-    clock
-        .presentation_latency
-        .output
-        .and_then(|latency| clock.position_samples.checked_add(i64::from(latency)))
-}
-
-/// Clock for the POST-only on-demand ATTACK worker.
-///
-/// Prefer the host's output-presentation clock when the optional VST3/AU extension is present.
-/// Studio Pro can omit that optional callback while still supplying the exact project sample
-/// position on every rendered block. The ATTACK worker may use that producer clock because it
-/// displays only relative POST event positions; it does not perform the public PRE/POST join.
-/// Unknown or invalid producer clocks remain fail-closed.
-#[inline]
-fn attack_timeline_start(clock: PendingCaptureWindow) -> Option<i64> {
-    spectrum_presentation_start(clock).or_else(|| {
-        (clock.position_valid
-            && matches!(
-                clock.clock_source,
-                CaptureClockSource::ProjectTimeline | CaptureClockSource::AudioRenderTimeline
-            ))
-        .then_some(clock.position_samples)
-    })
-}
+mod optional_analysis_clock;
+use optional_analysis_clock::{attack_timeline_start, spectrum_input_clock};
 
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
@@ -2558,12 +2526,12 @@ impl KirinHyphaEngine {
         }
         // Optional Spectrum ingress is independent from the established Watch/Record ring. Its
         // first operation is an atomic enabled check; hidden PRE/POST instances do no copy, FFT,
-        // allocation, lock, I/O, wake, or repaint. Spectrum remains strict about output
-        // presentation latency; the POST-only ATTACK worker may use an exact producer
-        // clock when the host omits that optional callback.
-        let spectrum_presentation_start = pending_clock.and_then(spectrum_presentation_start);
+        // allocation, lock, I/O, wake, or repaint. Local Spectrum/ATTACK can use a valid
+        // producer clock when optional latency is absent. Spectrum keeps that authority
+        // private and forbids it from PRE publication or an aligned PRE/POST difference.
+        let spectrum_presentation_start = pending_clock.and_then(spectrum_input_clock);
         let attack_timeline_start = pending_clock.and_then(attack_timeline_start);
-        let _ = self.spectrum_runtime.push_block_from_audio(
+        let _ = self.spectrum_runtime.push_block_from_audio_with_clock(
             interleaved,
             self.num_channels,
             spectrum_presentation_start,

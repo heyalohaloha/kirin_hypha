@@ -41,11 +41,15 @@
 
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+
+#[path = "plugin_data_write.rs"]
+mod write;
 use sha2::Sha256;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use write::write_plugin_data_atomic;
 
 pub use crate::record_expected::ExpectedWavMetadata;
 
@@ -1036,27 +1040,6 @@ impl PluginDataWriter {
     /// storage の一時消失だけで Record を止めないため、復旧可能な欠落はここで吸収する。
     pub fn flush(&mut self) -> Result<(), WriterError> {
         self.write_atomic(self.paths.staging_path.clone())
-    }
-
-    fn write_atomic(&mut self, target_path: PathBuf) -> Result<(), WriterError> {
-        self.write_atomic_with_tmp(target_path, self.paths.tmp_path.clone())
-    }
-
-    fn write_atomic_with_tmp(
-        &mut self,
-        target_path: PathBuf,
-        tmp_path: PathBuf,
-    ) -> Result<(), WriterError> {
-        if let Some(parent) = target_path.parent() {
-            if !parent.is_dir() {
-                fs::create_dir_all(parent)?;
-            }
-        }
-        self.data.checksum = compute_checksum(&self.data)?;
-        let json = serde_json::to_string(&self.data)?;
-        fs::write(&tmp_path, json.as_bytes())?;
-        fs::rename(&tmp_path, target_path)?;
-        Ok(())
     }
 
     /// status=closed に変更して最終 flush。正常終了時に呼ぶ。
@@ -3720,16 +3703,6 @@ fn read_plugin_data_file(path: &Path) -> Result<PluginDataFile, WriterError> {
     let bytes = fs::read(path)?;
     let data: PluginDataFile = serde_json::from_slice(&bytes)?;
     Ok(data)
-}
-
-fn write_plugin_data_atomic(path: &Path, data: &mut PluginDataFile) -> Result<(), WriterError> {
-    if data.commit_status.is_some() {
-        refresh_record_quality(data);
-    }
-    data.checksum = compute_checksum(data)?;
-    let json = serde_json::to_vec(data)?;
-    crate::atomic_file::write_bytes_atomic(path, &json)?;
-    Ok(())
 }
 
 fn write_pair_commit_manifest_atomic(

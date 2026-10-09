@@ -445,3 +445,7 @@ pub unsafe extern "C" fn kirin_hypha_attack_stats(
 #[cfg(test)]
 #[path = "attack_ffi_tests.rs"]
 mod tests;
+
+#[path = "attack_navigation_v2.rs"]
+pub mod attack_navigation_v2;
+pub use attack_navigation_v2::*;

@@ -19,6 +19,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY
+        attackView.retireV2();
         processorRef.endAnalysisUiSession (analysisOwnerToken);
         analysisOwnerToken = 0;
        #endif
@@ -27,6 +28,24 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    // Some DAWs retain a hidden editor. UI acquisition belongs only to a showing editor;
+    // always-on Meter Session, Record and their workers continue independently.
+    // A visible detached editor is also used by native hosts/tests before its peer is attached.
+    // Once attached, ancestor visibility and minimisation are part of the showing contract.
+    if (!isVisible() || (getPeer() != nullptr && !isShowing()))
+    {
+        processorRef.setReferenceViewPresented (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (isPost && liveCompareAuto.on)
+        {
+            stopLiveCompareAuto ({});
+            liveCompareAuto.hiddenStopNoticePending = true;
+        }
+        syncAnalysisDemand();
+       #endif
+        return;
+    }
+    observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);
@@ -61,6 +80,13 @@ void KirinHyphaEditor::timerCallback()
     refreshPairPreview (false);
     updateHelpLine();
     refreshUpdateChecking();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost && liveCompareAuto.hiddenStopNoticePending && toastText.isEmpty())
+    {
+        liveCompareAuto.hiddenStopNoticePending = false;
+        showToast ("AUTO stopped: editor hidden");
+    }
+   #endif
 }
 
 void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)

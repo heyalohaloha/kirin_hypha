@@ -219,7 +219,8 @@ FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # attributes for unrelated dependency objects. It still emits the public symbol table for this
 # crate; discard those diagnostic-only failures and require our entries to be defined (`T`).
 FFI_SYMBOLS="$(nm -g "$FFI_ARCHIVE" 2>/dev/null || true)"
-for symbol in kirin_hypha_poll_time_snapshot_v2 kirin_hypha_poll_attack_band_summary_v2 \
+for symbol in kirin_hypha_poll_attack_navigation_v2 kirin_hypha_poll_meter_session_v2 \
+              kirin_hypha_poll_time_snapshot_v2 kirin_hypha_poll_attack_band_summary_v2 \
               kirin_hypha_request_attack_single_v2 kirin_hypha_poll_attack_single_v2 \
               kirin_hypha_cancel_attack_single_v2 kirin_hypha_snapshot_abi_contract kirin_hypha_restore_pair_candidate_v2 kirin_hypha_get_paired_pre_locator \
               kirin_hypha_poll_record_display \
@@ -241,8 +242,10 @@ run cargo test -p xtask --locked
 # Pin the inventory before running it so a renamed/deleted blocker test cannot disappear silently.
 assert_ignored_count parity 20
 assert_ignored_count pairing_candidates 6
+assert_ignored_count record_auxiliary_cuts 1
 run cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
+run cargo test -p kirin_hypha_ffi --test record_auxiliary_cuts --locked -- --ignored --test-threads=1
 
 # Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
 run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings

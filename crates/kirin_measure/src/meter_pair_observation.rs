@@ -27,6 +27,10 @@ pub(super) struct DeltaHistoryState {
 }
 
 impl DeltaHistoryState {
+    pub(super) fn time_history_preparation_ticket(&self) -> Option<u64> {
+        self.time_history.is_none().then_some(self.generation)
+    }
+
     pub(super) fn pair_key(&self) -> Option<&PairKey> {
         self.pair.as_ref()
     }
@@ -35,14 +39,25 @@ impl DeltaHistoryState {
         &mut self,
         pre: Option<&TimePublication>,
         post: &[crate::meter_session::TimeRawPoint],
+        prepared: &mut Option<(u64, Box<MeterHistory>)>,
     ) {
         if !pre.is_some_and(TimePublication::valid) {
             self.time.fail(TimeComparisonReason::Incompatible);
             return;
         }
-        let history = self
-            .time_history
-            .get_or_insert_with(|| Box::new(MeterHistory::new()));
+        if self.time_history.is_none()
+            && prepared
+                .as_ref()
+                .is_some_and(|(ticket, _)| *ticket == self.generation)
+        {
+            self.time_history = prepared.take().map(|(_, history)| history);
+        }
+        let Some(history) = self.time_history.as_mut() else {
+            // A concurrent RESET/pair change retired the prepared allocation. Next IO tick
+            // prepares the new generation without reviving the old one or blocking a UI reader.
+            self.time.fail(TimeComparisonReason::Waiting);
+            return;
+        };
         self.time.ingest(pre, post, history);
     }
 

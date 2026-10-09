@@ -274,11 +274,11 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
         assert!(header.contains(required), "Spectrum ABI missing {required}");
     }
 
-    let runtime = read_repo("crates/kirin_measure/src/spectrum_runtime.rs");
+    let runtime = read_repo("crates/kirin_measure/src/spectrum_runtime_ingress.rs");
     let ingress = slice_between(
         &runtime,
-        "pub fn push_block_from_audio",
-        "pub fn shutdown_and_join",
+        "pub fn push_block_from_audio_with_clock",
+        "fn advance_stream_generation",
     );
     let enabled_check = ingress
         .find("if !self.enabled.load")

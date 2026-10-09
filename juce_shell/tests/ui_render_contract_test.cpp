@@ -41,6 +41,7 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "UiFeatureContracts.h"
+#include "TimeSnapshotContractTest.h"
 #include "ChainClockPolicyContract.h"
 #include <cmath>
 #include <cstdlib>
@@ -159,6 +160,11 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (hypha::tests::writeLightingReview());
     KIRIN_REQUIRE (hypha::tests::readme_media::write());
     if (std::getenv ("KIRIN_HYPHA_REVIEW_ONLY") != nullptr) return 0;
+    if (argc == 2 && std::string_view (argv[1]) == "--time-snapshot-only")
+    {
+        hypha::tests::verifyTimeSnapshotContract();
+        return 0;
+    }
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     KIRIN_REQUIRE (hypha::tests::verifyMaterialLight());
     hypha::tests::verifyKeyLightCoordinateContract();

@@ -11,6 +11,13 @@
 // capture code cannot silently substitute an implementation identity for unavailable metadata.
 namespace hypha::capture
 {
+struct PresentationStamp
+{
+    std::uint64_t snapshotRevision = 0;
+    std::uint64_t presentationRevision = 0;
+    bool requiresTypedMetadata = false;
+};
+
 struct PrivacyOptions
 {
     bool includeGuide = false;
@@ -95,6 +102,7 @@ struct Snapshot
     std::int64_t capturedAtMs = 0;
     int pixelWidth = 0;
     int pixelHeight = 0;
+    PresentationStamp stamp;
 
     bool complete() const noexcept
     {

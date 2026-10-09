@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "HyphaObservatoryResizeContract.h"
+#include "kirin_hypha_vu_calibration_ffi.h"
 
 void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
 {
@@ -55,6 +56,47 @@ void KirinHyphaProcessorBase::setHybridVuOnRecordPreference (bool enabled)
 {
     if (preferredHybridVuOnRecord.exchange (enabled, std::memory_order_acq_rel) != enabled)
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+bool KirinHyphaProcessorBase::hybridVuOnRecordPreference() const noexcept
+{
+    return preferredHybridVuOnRecord.load (std::memory_order_acquire);
+}
+
+bool KirinHyphaProcessorBase::manualHybridVuSelection() const noexcept
+{
+    return manualHybridVuSelected.load (std::memory_order_acquire);
+}
+
+void KirinHyphaProcessorBase::setManualHybridVuSelection (bool visible) noexcept
+{
+    manualHybridVuSelected.store (visible, std::memory_order_release);
+}
+
+juce::String KirinHyphaProcessorBase::hybridVuCalibrationScope() const
+{
+    const juce::ScopedLock lock (handleLock);
+    if (! writesEnabled.load (std::memory_order_acquire) || hyphaHandle == nullptr) return {};
+    std::array<char, 65> project {}, instance {}; // full legal 64 bytes plus the NUL
+    if (! kirin_hypha_get_vu_calibration_locator (hyphaHandle,
+            project.data(), project.size(), instance.data(), instance.size())) return {};
+    return hypha::vu_calibration::scopeKey (juce::String::fromUTF8 (project.data()),
+                                          juce::String::fromUTF8 (instance.data()));
+}
+
+int KirinHyphaProcessorBase::refreshHybridVuCalibration()
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    return hybridVuCalibration.read (hybridVuCalibrationScope(),
+                                    juce::Time::getApproximateMillisecondCounter());
+}
+
+bool KirinHyphaProcessorBase::setHybridVuCalibration (int value, const juce::String& expectedScope)
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    const auto scope = hybridVuCalibrationScope();
+    return scope.isNotEmpty() && scope == expectedScope && hybridVuCalibration.set (
+        scope, value, juce::Time::getApproximateMillisecondCounter());
 }
 
 bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)

@@ -45,6 +45,9 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.runSummary = runSummary;
     frame.observatoryFrame = observatoryFrame;
     frame.frameAvailable = frameAvailable;
+    frame.timePresentation = timePresentation;
+    frame.sessionCoverage = sessionCoverage;
+    frame.haveSessionCoverage = haveSessionCoverage;
     frame.recordDisplay = recordDisplay;
     frame.recordDisplayAvailable = recordDisplayAvailable;
     frame.watchDisplay = watchDisplay;
@@ -53,6 +56,7 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.chainPoints = chainPoints;
     frame.chainSnapshotAvailable = chainSnapshotAvailable;
     frame.selectedShortTermLoudness = selectedShortTermLoudness;
+    frame.setVuCalibration (vuCalibration(), false); // freeze the adopted value, no preference read
     frame.compactShowsMaximum = compactShowsMaximum;
     frame.connectionText = connectionText;
     frame.connectionColour = connectionColour;
@@ -66,6 +70,8 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     if (levelInspection.held() && selectedDomain == Domain::level)
     {
         frame.levelInspection = levelInspection;
+        frame.sessionCoverage = levelInspection.sessionCoverage;
+        frame.haveSessionCoverage = levelInspection.haveSessionCoverage;
         frame.history = levelInspection.snapshot;
         // A held chart must not be combined with meter scalars acquired on a later UI poll.
         if (levelInspection.packetFrameAvailable)

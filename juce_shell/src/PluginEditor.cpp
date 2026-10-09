@@ -87,6 +87,11 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                 observatoryDomain == hypha::observatory::Domain::frequency,
                 spectrumView.isPsbObservation(), spectrumView.isMidSideObservation())) return;
        #endif
+        nextTimeSnapshotMs = 0.0;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        attackView.retireV2();
+        nextDrumSummaryMs = 0.0;
+       #endif
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
         if (target == hypha::observatory::ObservationTarget::delta)

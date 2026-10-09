@@ -6,6 +6,8 @@ use crate::utils::energy_to_loudness;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 type Link = Option<Box<Node>>;
+// Shared I/LRA budget for the additional index only; canonical histories remain exact.
+const SUMMARY_CACHE_MAX_NODES: usize = 65_536;
 
 struct Node {
     energy: f64,
@@ -101,6 +103,24 @@ pub(super) struct Energies {
 }
 
 impl Energies {
+    fn needs_node(&self, energy: f64) -> bool {
+        if energy.is_nan() || energy < crate::histogram_bins::BOUNDARIES[0] {
+            return false;
+        }
+        let mut node = self.root.as_deref();
+        while let Some(current) = node {
+            if energy == current.energy {
+                return false;
+            }
+            node = if energy < current.energy {
+                current.left.as_deref()
+            } else {
+                current.right.as_deref()
+            };
+        }
+        true
+    }
+
     pub(super) fn add(&mut self, energy: f64) {
         // Same absolute gate as History::add; do not quantize into HISTOGRAM bins.
         if energy < crate::histogram_bins::BOUNDARIES[0] {
@@ -223,18 +243,89 @@ impl Energies {
         self.range_ready.store(true, Ordering::Release);
         value
     }
+
+    fn canonical_query(&self, query: impl FnOnce() -> Result<f64, Error>) -> Result<f64, Error> {
+        if self.range_ready.load(Ordering::Acquire) {
+            return Ok(f64::from_bits(self.range_bits.load(Ordering::Relaxed)));
+        }
+        let value = query()?;
+        self.range_bits.store(value.to_bits(), Ordering::Relaxed);
+        self.range_ready.store(true, Ordering::Release);
+        Ok(value)
+    }
 }
 
-#[derive(Default)]
 pub(super) struct SummaryCache {
     pub(super) integrated: Energies,
     pub(super) range: Energies,
+    nodes: usize,
+    node_limit: usize,
+    capped: bool,
+}
+
+impl Default for SummaryCache {
+    fn default() -> Self {
+        Self {
+            integrated: Energies::default(),
+            range: Energies::default(),
+            nodes: 0,
+            node_limit: SUMMARY_CACHE_MAX_NODES,
+            capped: false,
+        }
+    }
+}
+
+impl SummaryCache {
+    pub(super) fn add_integrated(&mut self, energy: f64) {
+        self.add(energy, true);
+    }
+
+    pub(super) fn add_range(&mut self, energy: f64) {
+        self.add(energy, false);
+    }
+
+    fn add(&mut self, energy: f64, integrated: bool) {
+        if self.capped {
+            // Canonical I changes only with accepted 100 ms energy; LRA at its 1 s cadence.
+            // Keep repeated 32-sample pushes from rescanning an unchanged canonical history.
+            if energy >= crate::histogram_bins::BOUNDARIES[0] || energy.is_nan() {
+                let energies = if integrated {
+                    &mut self.integrated
+                } else {
+                    &mut self.range
+                };
+                *energies.range_ready.get_mut() = false;
+            }
+            return;
+        }
+        let new_node = if integrated {
+            self.integrated.needs_node(energy)
+        } else {
+            self.range.needs_node(energy)
+        };
+        if new_node && self.nodes == self.node_limit {
+            // Never approximate/drop canonical energies. Release only the auxiliary trees;
+            // later queries use the original algorithms until explicit RESET starts fresh.
+            self.integrated = Energies::default();
+            self.range = Energies::default();
+            self.nodes = 0;
+            self.capped = true;
+            return;
+        }
+        self.nodes += usize::from(new_node);
+        if integrated {
+            self.integrated.add(energy);
+        } else {
+            self.range.add(energy);
+        }
+    }
 }
 
 impl EbuR128 {
     /// Enable exact-energy I/LRA readouts before the first input, with unlimited history only.
     /// The canonical scalar APIs remain unchanged and are the numerical oracle. Cached queries
-    /// use logarithmic tree walks; an ambiguous LRA gate uses the unchanged canonical query.
+    /// use logarithmic tree walks until the shared auxiliary node budget is exceeded. An
+    /// ambiguous LRA gate or exhausted budget uses the unchanged canonical query.
     pub fn enable_cached_summary_queries(&mut self) -> Result<(), Error> {
         if self.mode.contains(Mode::HISTOGRAM) || self.history != usize::MAX {
             return Err(Error::InvalidMode);
@@ -258,7 +349,13 @@ impl EbuR128 {
         }
         self.summary_cache.as_ref().map_or_else(
             || self.loudness_global(),
-            |cache| Ok(cache.integrated.integrated()),
+            |cache| {
+                if cache.capped {
+                    cache.integrated.canonical_query(|| self.loudness_global())
+                } else {
+                    Ok(cache.integrated.integrated())
+                }
+            },
         )
     }
 
@@ -269,6 +366,9 @@ impl EbuR128 {
         self.summary_cache.as_ref().map_or_else(
             || self.loudness_range(),
             |cache| {
+                if cache.capped {
+                    return cache.range.canonical_query(|| self.loudness_range());
+                }
                 Ok(cache
                     .range
                     .range_with_canonical(|| self.short_term_block_energy_history.loudness_range()))

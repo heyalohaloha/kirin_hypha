@@ -244,7 +244,10 @@
         assert!(body.contains("const auto recordPhase = refreshRecordPhase();"));
         assert!(PLUGIN_EDITOR_CPP.contains("observatoryView.setRecordDisplay ("));
         assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("void View::paintRecordDisplay"));
-        assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("RECORD RESULT"));
+        assert!(!HYPHA_OBSERVATORY_METRICS_CPP.contains("RECORD RESULT"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("RECORD RESULT"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("RECORD FINALIZING"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("Final measurement unavailable"));
         assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("recordDisplay.pair_matches_current"));
         assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("session.max_true_peak"));
         assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("session.lufs_i"));

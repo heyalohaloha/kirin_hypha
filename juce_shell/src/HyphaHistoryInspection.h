@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "kirin_hypha_navigation_snapshot_ffi.h"
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -45,6 +46,8 @@ struct Selection
     std::uint64_t epoch = 0, generation = 0;
     KirinObservatoryFrame packetFrame {};
     bool packetFrameAvailable = false;
+    KirinMeterSessionV2 sessionCoverage {};
+    bool haveSessionCoverage = false;
 
     bool held() const noexcept
     {
@@ -56,6 +59,7 @@ struct Selection
         snapshot.clear(); index.reset();
         chainSnapshot = {}; chainPoints.clear(); chainIndex.reset();
         packetFrame = {}; packetFrameAvailable = false;
+        sessionCoverage = {}; haveSessionCoverage = false;
     }
     bool matches (const KirinMeterSession& meter) const noexcept
     {
@@ -67,7 +71,8 @@ struct Selection
               const KirinMeterSession& meter,
               const KirinChainSnapshot* liveChain = nullptr,
               const std::vector<KirinChainPoint>* liveChainPoints = nullptr,
-              const KirinObservatoryFrame* frame = nullptr)
+              const KirinObservatoryFrame* frame = nullptr,
+              const KirinMeterSessionV2* coverage = nullptr)
     {
         if (at >= live.size() || ! std::isfinite (meter.sample_rate) || meter.sample_rate <= 0) return false;
         if (meter.state == KIRIN_METER_SESSION_EMPTY
@@ -76,6 +81,7 @@ struct Selection
         snapshot = live; index = at; sampleRate = meter.sample_rate;
         epoch = meter.measurement_epoch; generation = meter.generation;
         retainFrame (frame, live.back().last_observed_frames);
+        retainCoverage (coverage);
         copyChain (liveChain, liveChainPoints, live.back().last_observed_frames);
         selectChainAtExactEndpoint();
         return true;
@@ -83,7 +89,8 @@ struct Selection
     bool pinChain (const std::vector<KirinMeterHistoryEntry>& live, std::size_t at,
                    const KirinMeterSession& meter, const KirinChainSnapshot& liveChain,
                    const std::vector<KirinChainPoint>& liveChainPoints,
-                   const KirinObservatoryFrame* frame = nullptr)
+                   const KirinObservatoryFrame* frame = nullptr,
+              const KirinMeterSessionV2* coverage = nullptr)
     {
         if (live.empty() || at >= liveChainPoints.size()
             || ! std::isfinite (meter.sample_rate) || meter.sample_rate <= 0.0
@@ -94,6 +101,7 @@ struct Selection
         snapshot = live; index.reset(); sampleRate = meter.sample_rate;
         epoch = meter.measurement_epoch; generation = meter.generation;
         retainFrame (frame, live.back().last_observed_frames);
+        retainCoverage (coverage);
         copyChain (&liveChain, &liveChainPoints, live.back().last_observed_frames);
         const auto& wanted = liveChainPoints[at];
         for (std::size_t candidate = 0; candidate < chainPoints.size(); ++candidate)
@@ -148,6 +156,14 @@ struct Selection
     }
 
 private:
+    void retainCoverage (const KirinMeterSessionV2* coverage)
+    {
+        haveSessionCoverage = packetFrameAvailable && coverage != nullptr
+            && coverage->version == 2 && coverage->struct_size == sizeof (*coverage)
+            && coverage->session.generation == generation
+            && coverage->session.measurement_epoch == epoch;
+        sessionCoverage = haveSessionCoverage ? *coverage : KirinMeterSessionV2 {};
+    }
     void retainFrame (const KirinObservatoryFrame* frame, std::uint64_t historyCutoff)
     {
         packetFrameAvailable = frame != nullptr

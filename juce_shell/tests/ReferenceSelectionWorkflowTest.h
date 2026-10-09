@@ -43,6 +43,27 @@ inline void verifyReferenceSelectionWorkflow (reference_ui::State state)
     state.versionId = "not-in-library"; component.setState (state);
     require (version->isVisible() && version->isEnabled() && ! readout->isVisible()
         && version->getSelectedId() == 0, "missing stable ID requires an explicit selection, even with one option");
+    int reselections = 0;
+    component.onSelectVersion = [&] (const juce::String& id) {
+        require (id == "v1", "reselection retains its real parent identity"); ++reselections;
+    };
+    state.versionId = "v1"; state.versionStep = reference_ui::SourceStep::savedChoiceUnavailable;
+    for (const auto preset : observatory::sizePresets)
+    {
+        component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
+        component.setSize (preset.width, preset.height); component.setState (state);
+        auto* choice = dynamic_cast<reference_ui::SelectionControl*> (version);
+        require (choice && choice->isVisible() && choice->isEnabled() && ! readout->isVisible(),
+                 "an unavailable saved singleton is an explicit recovery control at every size");
+        const auto before = reselections; choice->choose (choice->getSelectedId());
+        require (reselections == before + 1, "choosing the same option invokes recovery once");
+        component.setState (state);
+        require (reselections == before + 1, "model refresh does not perform recovery");
+    }
+    state.versionStep = reference_ui::SourceStep::ready; component.setState (state);
+    dynamic_cast<reference_ui::SelectionControl*> (version)->choose (1);
+    require (reselections == static_cast<int> (observatory::sizePresets.size()),
+             "healthy read-only singleton cannot perform a hidden recovery action");
     state.versionId = "v1"; state.blindPhase = reference_ui::BlindPhase::active; component.setState (state);
     require (! readout->isVisible() && ! version->isVisible() && ! check->isVisible(),
              "read-only labels cannot disclose sources in Blind");

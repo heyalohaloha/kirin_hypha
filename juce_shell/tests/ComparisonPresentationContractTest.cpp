@@ -56,6 +56,14 @@ void verify()
         ! comparison_presentation::notifiesExplicitAction (
             KIRIN_COMPARISON_STATE_HOLDING,
             KIRIN_COMPARISON_REASON_STALE));
+    KIRIN_COMPARISON_REQUIRE (
+        comparison_presentation::statusText (
+            KIRIN_COMPARISON_STATE_REJECTED,
+            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE).contains ("COMPARISON UPDATE PENDING"));
+    KIRIN_COMPARISON_REQUIRE (
+        ! comparison_presentation::notifiesExplicitAction (
+            KIRIN_COMPARISON_STATE_REJECTED,
+            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE));
 
     observatory::View post (observatory::Role::post);
     post.setSize (300, 200);
@@ -85,7 +93,42 @@ void verify()
     KIRIN_COMPARISON_REQUIRE (post.recordDisplayShowingForTest());
     const auto recordCapture = post.createCaptureImage (600, 400);
     KIRIN_COMPARISON_REQUIRE (imageSignature (recordCapture) != imageSignature (watchCapture));
+    for (const auto phase : { KIRIN_RECORD_DISPLAY_FINALIZING,
+                             KIRIN_RECORD_DISPLAY_RESULT_HOLD,
+                             KIRIN_RECORD_DISPLAY_UNAVAILABLE })
+    {
+        record.phase = static_cast<std::uint8_t> (phase);
+        post.setRecordDisplay (record, true);
+        const auto notice = post.footerStatusForTest();
+        KIRIN_COMPARISON_REQUIRE (notice.isNotEmpty() && notice != "WAITING");
+        for (const auto domain : { observatory::Domain::time, observatory::Domain::frequency,
+                                   observatory::Domain::space })
+        {
+            post.setDomain (domain);
+            KIRIN_COMPARISON_REQUIRE (! post.recordDisplayShowingForTest());
+            KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == notice);
+        }
+        post.setDomain (observatory::Domain::level);
+        KIRIN_COMPARISON_REQUIRE (post.recordDisplayShowingForTest());
+    }
     post.setRecordDisplay ({}, false);
     KIRIN_COMPARISON_REQUIRE (! post.recordDisplayShowingForTest());
+    KirinObservatoryFrame stopped {};
+    stopped.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+    stopped.signal_state = KIRIN_SIGNAL_STATE_INACTIVE;
+    stopped.meter.state = KIRIN_METER_SESSION_ACTIVE; // The Audio stop can precede Measure publication.
+    stopped.meter.active_frames = stopped.meter.observed_frames = 192000;
+    stopped.meter.sample_rate = 48000;
+    stopped.meter.lufs_m = -18.2;
+    stopped.meter.lufs_i = -18.4;
+    stopped.meter.max_true_peak = -9.1;
+    stopped.comparison_state = KIRIN_COMPARISON_STATE_REJECTED;
+    stopped.comparison_reason = KIRIN_COMPARISON_REASON_LOCAL_INACTIVE;
+    post.setTarget (observatory::ObservationTarget::absolute);
+    post.setObservatoryFrame (stopped, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "HOLD");
+    stopped.signal_state = KIRIN_SIGNAL_STATE_BYPASSED;
+    post.setObservatoryFrame (stopped, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "BYPASSED");
 }
 }

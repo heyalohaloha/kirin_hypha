@@ -23,6 +23,7 @@
 
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
+#include "HyphaVuCalibrationPreference.h"
 #include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -34,6 +35,7 @@
 #include "reference_audition/ReferenceLiveALevel.h"
 #include "update/UpdateServiceOwner.h"
 
+namespace hypha::snapshots { class Source; }
 class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt fixture only
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
@@ -292,19 +294,13 @@ public:
     }
     void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
     void setScaleModePreference (hypha::meter_context::ScaleMode value);
-    bool hybridVuOnRecordPreference() const noexcept
-    {
-        return preferredHybridVuOnRecord.load (std::memory_order_acquire);
-    }
+    bool hybridVuOnRecordPreference() const noexcept;
     void setHybridVuOnRecordPreference (bool enabled);
-    bool manualHybridVuSelection() const noexcept
-    {
-        return manualHybridVuSelected.load (std::memory_order_acquire);
-    }
-    void setManualHybridVuSelection (bool visible) noexcept
-    {
-        manualHybridVuSelected.store (visible, std::memory_order_release);
-    }
+    bool manualHybridVuSelection() const noexcept;
+    void setManualHybridVuSelection (bool visible) noexcept;
+    juce::String hybridVuCalibrationScope() const;
+    int refreshHybridVuCalibration(); // message-thread-only presentation preference
+    bool setHybridVuCalibration (int value, const juce::String& expectedScope);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
     bool isHostRecording() const noexcept
     {
@@ -363,6 +359,7 @@ public:
 
 private:
     hypha::update::ServiceOwner updateServiceOwner;
+    friend class hypha::snapshots::Source;
     friend class LiveTimingFixtureAccess; // no runtime method or product policy override
     hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
@@ -474,6 +471,7 @@ private:
     std::atomic<bool> preferredHybridVuOnRecord { true }; // DisplayState v5; legacy default ON
     // Retained across editor close/reopen for this loaded instance; not a DAW-saved preference.
     std::atomic<bool> manualHybridVuSelected { false };
+    hypha::vu_calibration::Preference hybridVuCalibration;
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredAttackBand { 0 };        // editor-lifetime; not persisted

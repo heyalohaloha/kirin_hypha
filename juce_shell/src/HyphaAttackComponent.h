@@ -14,6 +14,8 @@
 #include "HyphaAttackUiContract.h"
 #include "HyphaKeyLight.h"
 #include "HyphaPresentationContext.h"
+#include "HyphaAttackV2Presentation.h"
+#include "HyphaCaptureContract.h"
 
 namespace hypha
 {
@@ -29,11 +31,27 @@ namespace hypha
     {
     public:
         AttackComponent();
+        // Shipping G2 path: immutable coherent payloads; old setters stay an independent ABI fixture.
+        bool setSummarySnapshotV2 (const KirinAttackBandSummaryV2&, double nowMs);
+        bool setSingleSnapshotV2 (const KirinAttackSingleSnapshotV2&, double nowMs);
+        bool setNavigationV2 (const KirinSnapshotHeader&, const std::vector<KirinSnapshotEventKey>&,
+                              const KirinAttackWaveformBatch&, const KirinAttackWaveformBatch&,
+                              double nowMs, bool realtime = true);
+        std::function<std::uint8_t (const KirinAttackSingleV2Request&, std::uint64_t&)> singleRequestSource;
+        std::function<void (std::uint64_t)> singleCancelSource;
+        std::uint64_t singleRequestToken() const noexcept { return v2->token; }
+        std::uint8_t snapshotTargetV2() const noexcept { return v2->target; }
+        void retireV2();
+        void beginSnapshotV2();
+        const attack_v2::Presentation& presentationSnapshotV2() const noexcept;
+        capture::PresentationStamp capturePresentationStamp() const noexcept;
+        void configureDisplayClockV2 (double lookBehindMs, double freshnessMs)
+        { v2->clock.configure (lookBehindMs, freshnessMs); }
         void setPresentationContext (presentation::Context next)
         {
             if (presentationContext == next) return;
             presentationContext = next;
-            refreshBandEnvelope(); // the panes appear at 200% and go below it
+            if (v2->enabled) resizeV2(); else refreshBandEnvelope();
             repaint();
         }
         bool setSnapshot (const KirinAttackEventBatch& events,
@@ -65,7 +83,9 @@ namespace hypha
         attack_band::PreBand preBand() const noexcept;
         void presentationTick (bool signalActive);
         void presentationTickAt (double nowMs);
-        bool pairedObservation() const noexcept { return pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE; }
+        void advanceCapturePresentationAt (double nowMs);
+        bool pairedObservation() const noexcept { return v2->enabled ? v2->target == KIRIN_TARGET_DELTA
+            : pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE; }
         // The cached structure image is rebuilt on the next paint. The editor calls this when a
         // host hides it without destroying it; leaving the page or hiding this view does it too.
         void releaseCachedChrome() noexcept { chromeImage = {}; }
@@ -76,15 +96,27 @@ namespace hypha
                                          : 0;
         }
         void paint (juce::Graphics&) override;
-        void resized() override { refreshBandEnvelope(); }
+        void resized() override { if (v2->enabled) resizeV2(); else refreshBandEnvelope(); }
         void visibilityChanged() override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseMove (const juce::MouseEvent&) override;
         void mouseExit (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
+        std::unique_ptr<attack_v2::State> v2 = std::make_unique<attack_v2::State>();
+        std::optional<attack_v2::Presentation> evidenceV2;
+        int evidenceScrollV2 = 0;
+        int selectionLaneV2 = -1;
+        juce::Rectangle<int> selectionPlotV2;
+        void paintV2 (juce::Graphics&);
+        bool mouseDownV2 (juce::Point<int>);
+        void mouseDragV2 (juce::Point<int>);
+        bool keyPressedV2 (const juce::KeyPress&);
+        void resizeV2();
         KirinAttackEventBatch eventBatch {};
         KirinAttackWaveformBatch waveformBatch {};
         KirinAttackDetailBatch detailBatch {};

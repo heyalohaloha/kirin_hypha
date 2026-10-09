@@ -42,6 +42,10 @@ fn authority(engine: &KirinHyphaEngine) -> Option<Authority> {
         audition_active: engine.audition.is_active(),
     })
 }
+#[path = "level_comparison_values.rs"]
+mod level;
+pub(super) use level::level_values;
+
 fn opaque(value: impl Hash) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hash);
@@ -59,7 +63,8 @@ fn comparison_matches(
     view.binding_revision == exact.generation
         && view.pre_instance_id == exact.pre_instance_id
         && view.project_hash == exact.project_hash
-        && exact.project_hash == authority.post_project
+        // The confirmed exact PRE locator may be in a different role-local project shelf.
+        // Pair resolution owns scope admission; this packet must match that PRE locator.
         && view.owner_id == authority.owner
         && view.post_instance_id == authority.post_id
         && view.claimed_at_bits == authority.claim

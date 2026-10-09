@@ -2,8 +2,51 @@
 
 namespace hypha::tests
 {
+namespace domain_bed_key_contract
+{
+template <class Tag, typename Tag::Type Member> struct Access
+{ friend typename Tag::Type member (Tag) { return Member; } };
+struct Raster
+{
+    using Type = juce::Image observatory_world::Backdrop::*;
+    friend Type member (Raster);
+};
+template struct Access<Raster, &observatory_world::Backdrop::domainBed>;
+inline void verify()
+{
+    for (auto domain : { observatory::Domain::frequency, observatory::Domain::space,
+                         observatory::Domain::reference, observatory::Domain::level,
+                         observatory::Domain::time })
+    {
+        observatory_world::Backdrop retained;
+        observatory_world::State state;
+        state.domain = domain;
+        state.density = observatory::Density::observatory;
+        state.active = true;
+        state.energy = 0.25f;
+        state.direction = -0.3f;
+        juce::Image output (juce::Image::ARGB, 300, 200, true);
+        juce::Graphics g (output);
+        const auto draw = [&] { retained.drawDomainBed (g, { 8, 12, 280, 170 }, state); };
+        draw();
+        const auto first = retained.*member (Raster {});
+        state.direction = 0.7f;
+        draw();
+        const auto moved = retained.*member (Raster {});
+        const bool directionUsed = domain == observatory::Domain::level || domain == observatory::Domain::time;
+        KIRIN_OBSERVATORY_REQUIRE ((first.getPixelData() != moved.getPixelData()) == directionUsed);
+        state.energy = 0.8f;
+        draw();
+        const auto energized = retained.*member (Raster {});
+        KIRIN_OBSERVATORY_REQUIRE ((moved.getPixelData() != energized.getPixelData())
+            == (domain != observatory::Domain::reference));
+    }
+}
+}
+
 inline void verifyObservatoryDomainBedContract()
 {
+    domain_bed_key_contract::verify();
     observatory_world::Backdrop retained;
     for (auto domain : { observatory::Domain::time, observatory::Domain::frequency,
                          observatory::Domain::space, observatory::Domain::level,

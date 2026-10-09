@@ -1,6 +1,14 @@
 # DRUM・PSR改善計画 — 利用者の判断から設計を組み直す
 
+2026年10月8日。G1はB-1325で統合済み。G2の実装・ローカル受入・正本同期は完了した。Rust workspace aggregate／Clippy／必須ignored 20＋6件／static ABI、TIME／Session／Capture／DRUM focusedと正式native 90件＋Update 7件の結果を[G2記録](hypha_drum_psr_g2_20261008/README.md)へ残した。先行strict legacyと独立V2 denseの速度FAILは原因計測に使い、共有stageの固定材質を容量制限付きcacheで再利用した。修正後の正式ATTACK gateはlegacy changing 120／resize 6／BAND 4とV2 dense 120／120条件、全functional・5サイズ日英の50 PNGを完走してPASS、未測定0。閾値・条件・測定回数・表示内容は維持し、先行FAILと最終数値を記録する。B-1325 original legacy baselineと既存Rust性能5件もPASS。exact final commitのCI結果は待機中で、途中確認・CI・merge・releaseはClaude担当、G3の候補freeze・技術／実DAW受入と公開前の利用者本人確認は未実施である。ローカル受入を実DAW・使いやすさ・品位・公開完了へ繰り上げない。
+
+2026年10月8日の追加指示は、VU基準の明示選択と全画面・全機能の性能点検である。VUは既存legendから−12／−14／−16／−18／−20を選び、既定−18、左右とexact PRE／POST pairで共通にする。音声、LUFS、TP、300 msの針応答は維持する。性能点検は現在の描画・解析・Record・保存・比較試聴・復元・更新を対象にし、確認した重複処理を修正する。[追加性能記録](hypha_drum_psr_g2_20261008/performance_audit.md)へ実測と測定境界を残す。最終sourceでRust2,367件／Clippy／必須ignored26件／native90＋Update7件全PASS、再試行0を確認した。新しい機能設計、別repo変更、検出の再評価へ広げず、既存の必須試験とG3／本人確認／公開後G4の分担は維持する。
+
 2026年10月7日。G0資料はPR #87でmainへ統合済み。PR #83とPR #87のmerge通知を受け、main `7b0c301c`以降を起点としてG1の観測・snapshot実装を開始する。途中確認、CI、merge、releaseはClaudeが担当する。新しい表示周期・受入値はG0で候補と校正手順を整理し、G1／G2のdevelopment検証で根拠を得て、G3 freeze前に固定する。計画の保存を、製品改善の完了とは呼ばない。
+
+2026年10月8日、利用者は最大DPIのFREQ残件と実DAWの負荷・操作確認をCodexに委任した。[G3記録](hypha_drum_psr_g3_20261008/README.md)へ候補、実測、復元を残す。CI確認・merge・正式releaseはClaude担当、公開前の本人による品位承認と公開後G4の条件は維持する。
+
+2026年10月8日の実DAW検証で、正常pairのTIME／ATTACK authority拒否、optional output latency不明時のFREQ絶対観測欠落、長い通知のbody昇格とVU校正への重なりを確認した。利用者は当初計画の最小修正を承認した。通知は既に決めた最下部（LIVE／HOLDの位置）へ固定し、LR／解析図の面積を維持する。未知latencyを0と推定せず、FREQのローカル絶対観測と整列済みPRE／POST差分を分離する。新機能・追加の外観改善は行わない。2026-10-09の利用者選択により、左下の長い通知だけ既存boundsへaction fontで収まらない場合は既存legend fontを使う。短い通知・LIVE／HOLD／CHAIN LOAD・右ボタンの既存サイズと図の面積は保持する。修正後の同一source・実module SHAによる両OS再確認と最終統合gateをG3記録へ残す。先行native／CIの成功を、この実DAW不適合の解消とは扱わない。
 
 ### 2026年10月7日の決定
 
@@ -62,41 +70,43 @@ PSRの写真の `PEAK −0.6 − S −10.7` は、ピークとShort-term loudnes
 | ペア選択済みで比較なし／期限切れ | `Δ ---`＋短い理由 | 検証済みの同source履歴のみHOLD |
 | 単体の現在PSRが不成立 | `PRE ---`／`POST ---` | 過去finite値を現在値に戻さない |
 
-ペア時のPSRは利用者指定どおり自動Δ。M／S／TPの全体POST／Δ選択は保持し、PLRの可視性とCORRのsource・軸・helpもmain targetに従う。PSR targetを別にlayout／painterへ渡し、全体ボタンの適用範囲を明示する。ペア中の比較不能をPOSTへ無表示で切り替えない。
+ペア時のPSRは利用者指定どおり自動Δ。M／S／TPの全体POST／Δ選択は保持し、PLRの可視性とCORRのsource・軸・helpもmain targetに従う。PSR targetを別にlayout／painterへ渡し、全体ボタンの適用範囲を明示する。source・proofが変わらないmain POST／Δボタンの切替はmainだけを空にして新targetの観測を待ち、独立PSRのtarget・値・履歴と元の完了期限を保持する。切替でPSRを再取得したり期限を延ばしたりしない。source・range・domain変更は対応する退役条件を維持する。ペア中の比較不能をPOSTへ無表示で切り替えない。
 
 PEAK・S・式はヘルプへ移す。短文は「ピークと短時間平均音量の開き。ΔはPOST−PRE」、詳細には400 ms／3秒／sample peakを記載する。空いた幅は対象付き数値と履歴に使い、他メーターを重複掲載しない。100%では既存どおりPSR lane非表示、PSR専用の追加poll・履歴cloneは0。
 
+2026年10月8日の利用者判断により、PSRは補助情報として扱う。対象付き数値はM／S／TP行と同じlegend固定font・通常weightと補助色で示し、main headlineへ昇格させない。全体のfont基準、値・target・履歴の可視性は変えず、数値行で空いた高さはplotへ渡す。5サイズの日英でfont階層、実寸内の収まりを検証する。
+
 ### BANDの主値は母集団を先に読ませる
 
-常時二つの数値を四laneへ並べる案を廃止する。主面は各指標に主値一つと固定scope領域を置く。scopeは値の先頭または直上に置き、末尾の小さな注記や色だけで区別しない。下記の選択はproducerが返す統計の**提示種別**であり、GUIで母集団や中央値を再計算しない。
+2026年10月8日の利用者決定は「値とグラフだけ。全体の値が出せない項目は『—』にし、部分の値は詳細で見る」。制作中の主面は各指標に主値一つを置き、scope、五分類の内訳、理由、ageを四laneへ反復しない。下記はproducerが返す統計の**提示種別**であり、GUIで母集団や中央値を再計算しない。Presentationと既存Factsの測定値は変更しない。
 
-| 全対象の状態 | 主値 | 必ず見えるscope・状態 | 詳細面 |
+| 全対象の状態 | 主面の値 | 主面に残す情報 | 既存Facts |
 | --- | --- | --- | --- |
-| 全Nの中央値が成立し、情報を持つ | 全Nの確定値／限界／区間 | `全8打`等。記号と単位を維持 | 全Nと確定n/Nの双方、五分類、理由 |
-| 全N未成立または全実数、exact部分がある | exact部分の条件付き中央値 | `確定7/8打`等＋全N未成立の短い理由・件数 | 全Nを出せない理由と確定部分の根拠 |
-| 全N未成立または全実数、exact部分もない | `---` | 対象N＋取得中／不明／不成立の内訳 | 各打音の状態 |
+| 全Nの中央値が成立し、情報を持つ | 全Nの確定値／限界／区間 | 単位と端点記号。captionの対象Nと時刻範囲 | 全Nと確定n/Nの双方、五分類、理由、分解能 |
+| 全N未成立または全実数、exact部分がある | `—` | 本来の単位。部分中央値と内訳文は描かない | 部分中央値、n/N、指標別age、全Nを出せない理由 |
+| 全N未成立または全実数、exact部分もない | `—` | 本来の単位。取得中／不明／不成立の内訳文は描かない | 各打音の状態、五分類、理由 |
 
-全Nが情報を持つ限界値として成立する場合も最優先する。全実数のmedianはavailableとinformativeを分離し、情報なしなら主数値に∞を出さず「全体不定」等の理由と明示した確定n/N、または---を使う。全実数の入力があってもmedianが有限なら除外しない（exact0×2＋全実数1は全N=0）。1打が−10 ms、7打が≥＋200 msなら主値は `全8打 ≥＋200 ms`。確定部分−10 ms（1/8）は詳細で読む。確定部分へSHORTER等の全体方向語を付けない。全N↔確定部分の切替はscopeと主値を同じrevisionで交換し、同じ数字でも意味が変わったことを省略しない。
+全Nが情報を持つ限界値として成立する場合も最優先する。全実数のmedianはavailableとinformativeを分離し、情報なしなら主数値は`—`とする。全実数の入力があってもmedianが有限なら除外しない（exact0×2＋全実数1は全N=0）。1打が−10 ms、7打が≥＋200 msなら主値は `≥＋200 ms`。確定部分−10 ms（1/8）は既存Factsで読む。確定部分へSHORTER等の全体方向語を付けない。全N↔未成立の切替は同じrevisionで値↔`—`を交換し、古い全N値を持ち越さない。
 
-正常pendingでは結果のある部分を読めるが、古い完了cohortを現在cohortへ持ち越さない。全Nと確定部分が同じ値の時に重複数値を主面へ増やさない。詳細を開く入口は全サイズで発見可能にし、scope・単位・限界・全N未成立の短い理由をhover専用にしない。
+正常pendingでも部分中央値を主面へ出さず、既存Factsで読む。古い完了cohortを現在cohortへ持ち越さない。詳細を開く入口は全サイズで発見可能にし、内訳・理由・ageをhover専用にしない。ALLの最新一打とLOCKした一打の有効な測定値は保持する。
 
-LIVE captionに対象Nと集計の最古／最新時刻または時間幅を置く。exactの古さは指標別の主値根拠へ紐づけ、同snapshot cutoff C−その指標の最新exact event時刻とする。主面の共有captionは、表示中ConfirmedSubsetのこのageの最大値を「確定部分の古さ（最大）」と明示し、detailでは指標別に示す。条件付き主値なしならageを表示せず枠だけ維持。cohort最新打ageやATTだけのfresh ageでRELまで新しいように見せない。外部調整前の打音が残ることを読めるようにし、自動の外部ノブ検出やcohort resetは追加しない。窓応答と提示遅延を別に測る。
+LIVE captionの対象Nと集計の最古／最新時刻または時間幅は保持する。主面の共有captionへ「確定最大古さ」を加えず、主unitへageを加えない。exactの古さは既存Factsで指標別に示し、同snapshot cutoff C−その指標の最新exact event時刻とする。最大ageの計算やtyped根拠は消さない。cohort最新打ageやATTだけのfresh ageでRELまで新しいように見せない。外部ノブ検出やcohort resetは追加せず、窓応答と提示遅延を別に測る。
 
 ### ALL・単打・サイズの役割を固定する
 
-ALL LIVEは6秒の全公開イベント系列と最新一打、LOCKは選んだ一打。主面の「最新／固定した一打」をBANDの「全N／確定n/N」と区別する。BAND図の平均（dB）と下段中央値も区別する。PAIR選択と帯域比較成立は別状態とし、旧PRE等でDRUMがPOSTへfallbackする場合は理由を示す。PSRのペア時Δ待ち規則へ統一しない。
+ALL LIVEは6秒の全公開イベント系列と最新一打、LOCKは選んだ一打。既存LIVE／LOCK選択と共通captionで最新／固定した一打をBANDの全N値または`—`と区別し、各laneの「最新の一打」等の反復scope文は描かない。部分n/Nは既存Factsで読む。BAND図の平均（dB）と下段中央値も区別する。PAIR選択、Navigationが返す表示target、要求された帯域Δの測定成立を別状態として扱う。Navigationが明示するPOST／Δをcaptionと取得へ渡し、Δ測定の欠測をPOST値で埋めない。PSRのペア時Δ待ち規則へ統一しない。
 
 | サイズ | 主面の優先情報 | 詳細・操作 |
 | --- | --- | --- |
-| 100% | POST／Δ、帯域、最新／固定または対象N、意味の分かる四指標、各主値・scope・単位・限界／欠測、LIVE復帰 | 全帯域の時間履歴。BAND／VIEW設定は既存どおり125%以上。根拠入口は発見可能 |
+| 100% | POST／Δ、帯域、最新／固定または対象N、四指標、全N主値または`—`・単位・限界、LIVE復帰 | 全帯域の時間履歴。BAND／VIEW設定は既存どおり125%以上。根拠入口は発見可能 |
 | 125% | 100%の内容 | BAND／VIEW、時刻順event strip、根拠表示 |
-| 150% | 主値とscopeの2×2、集計時間範囲 | event strip、件数／理由。四lane値軸と分解能は根拠面へ |
-| 200% | 同snapshotの主値、全体／確定部分の根拠、平均包絡の参加数 | 重複カードを増やさず、分類と対象を読ませる |
+| 150% | 全N主値または`—`の2×2、集計時間範囲 | event strip、件数／理由・部分中央値・age。四lane値軸と分解能は根拠面へ |
+| 200% | 同snapshotの全N主値または`—`、平均包絡の参加数 | 全体／部分の根拠と分類は既存Factsで読む |
 | 300% | 200%の内容、PRE／POST形、区間・分解能 | 選択一打の形、footer help |
 
-LOCKでは平均・中央値・n/Nを単打の指標と状態へ置き換える。100%波形は全帯域履歴と明記し、選択帯域包絡と誤認させない。ALL横軸は時間、BAND下段は測定値。全サイズに帯域ごとの分解能を残し、固定16 msを全帯域へ適用しない。
+LOCKでは平均・中央値を選択単打の有効な値と形へ置き換え、その状態と理由は既存Factsに保持する。100%波形は全帯域履歴と明記し、選択帯域包絡と誤認させない。ALL横軸は時間、BAND下段は測定値。全サイズに帯域ごとの分解能を残し、固定16 msを全帯域へ適用しない。
 
-G0の実寸wireは[配置仕様](hypha_drum_psr_g0_20261007/ui_layout_spec.md)のbody内配分を使う。100%の2×2、125%のPSR追加、150%値軸の根拠面移設、200%pane内部への枠配分、locale短名は旧契約からの変更案と明示し、G2で正本を同期する。5サイズ×日本語／英語を実寸wireにする。片側／両側無音、1確定＋7長尾、両端区間、全pending、旧PRE、窓外LOCK、最大桁を使う。locale別短名を使い日英を二重掲載しない。日本語名案はINV-S40の現行英語label契約との差を明示して同期する。font下限、contrast 4.5:1、符号・単位・scope・理由の定位置を守り、切れ／重なり／重要情報の省略0を要求する。成立しなければ面積配分を直し、文字を縮めて先へ進めない。300%超は既存Inspection拡大であり、第六layoutを追加しない。
+G0の実寸wireは[配置仕様](hypha_drum_psr_g0_20261007/ui_layout_spec.md)のbody内配分を使う。100%の2×2、125%のPSR追加、150%値軸の根拠面移設、200%pane内部への枠配分、locale短名は旧契約からの変更案と明示し、G2で正本を同期する。5サイズ×日本語／英語を実寸wireにする。片側／両側無音、1確定＋7長尾、両端区間、全pending、旧PRE、窓外LOCK、最大桁を使う。locale別短名を使い日英を二重掲載しない。日本語名案はINV-S40の現行英語label契約との差を明示して同期する。font下限、contrast 4.5:1、主面の符号・単位・targetと既存Factsのscope・理由の定位置を守り、切れ／重なり／重要情報の省略0を要求する。成立しなければ面積配分を直し、文字を縮めて先へ進めない。300%超は既存Inspection拡大であり、第六layoutを追加しない。
 
 ## 3. 共通構造 — 観測、統計、提示、操作を分離する
 
@@ -109,6 +119,8 @@ G0の実寸wireは[配置仕様](hypha_drum_psr_g0_20261007/ui_layout_spec.md)�
 | render／Capture | 同じpresentationを描画／保存 | 画像とmetadataが同じstamp |
 
 source、event、cohort、snapshot revision、presentation timeを別のidentityとして扱う。既存ALL、BAND LIVE、単打LOCK、TIME main、PSRはそれぞれ明示したsnapshot種別を使う。個別setterや別pollの最新値を寄せ集めて一画面にしない。Capture用の別計算経路も作らない。
+
+DRUMのNavigationは現在の比較利用可否をtargetとして返す。選択pairのActiveなviewと、現在authority・両source・band意味のproofが揃えば要求Δを返し、揃わなければPOSTを明示する。GUIはこのtargetでSummary／Singleを取得する。同じsource・ledgerを維持した利用可否の変化だけではLOCKの鍵を捨てない。一方、target=Δとして要求された測定snapshotはそのtargetを保持し、PRE band意味、実測、対応proofの不足をtyped分類と理由（`Update PRE`、`No mapping`等）で示す。POSTの実数をΔの代わりに返さない。この二つを「旧PREならΔ数値をPOSTへ代用する」という一つのfallback規則にまとめない。
 
 ### 共通ABI・互換性の境界
 
@@ -130,7 +142,9 @@ DRUM Summary V2はBAND用、Single Snapshot V2はALL／BANDを明示する。値
 
 一時的lock競合はBUSYであり、取得token・出力bytes・PRE公開fileを保持して再試行する。本当のsource喪失は退役し、同revisionで有効性が戻った場合も公開を再作成する。将来の未知版は安全に読めるversion prefixだけでUNSUPPORTEDとし、V2サイズを先に要求しない。
 
-Session I／LRA／Max TPはEBUの10 ms単位で処理済みの全音声を集計し、Stop直前の100 ms未満の尾も含める。Max M／currentとTIME pointの100 ms更新は維持し、公開済みpointを後から改変しない。Sessionだけがunquantized履歴の正確な集計cacheを選び、canonical finalize／Recordの数値定義は保持する。cacheの追加メモリは履歴に比例し、通常queryは木の深さに比例する。LRAの相対gateで浮動小数点の集計順が参加集合を変え得る場合は従来のscalar計算へ戻す。同じ履歴のfallback結果を再利用する。例外的な初回fallbackは履歴の走査・sortを要し、元のLRA energyが追加される最短1秒周期でのみ再計算する。V2 Δ履歴は各pair／reset後の最初の有効TIME publicationで非RTに確保し、旧履歴と分離する。保持entry領域の容量は7,863,480 bytes（約7.86 MB）で、allocatorとOS RSS等を含む全メモリ上限ではない。32 samplesの実worker追従、短期／長期履歴のquery時間、scalar oracleとのI／LRA parityをG1の技術検証に含める。
+Session I／LRA／Max TPはEBUの10 ms単位で処理済みの全音声を集計し、Stop直前の100 ms未満の尾も含める。Max M／currentとTIME pointの100 ms更新は維持し、公開済みpointを後から改変しない。Sessionだけがunquantized履歴の正確な集計cacheを選び、canonical finalize／Recordの数値定義は保持する。G2では補助cacheをI／LRA共有65,536 distinct nodesへ制限する。通常queryは木の深さに比例し、上限超過後は補助木を解放してcanonical exactへ戻る。64-bitの56-byte nodeでpayload上限3,670,016 bytes、全energyがuniqueなら10 Hz I＋1 Hz LRAの最速増加で約99分となる。allocator、canonical履歴、OS RSSはこの上限に含めない。量子化・間引きを行わず、上限後の履歴更新に伴う初回queryはI走査／LRA走査・sortのCPU costを負う。LRAの相対gateで浮動小数点の集計順が参加集合を変え得る場合は従来のscalar計算へ戻す。同じ履歴のfallback結果を再利用する。例外的な初回fallbackは履歴の走査・sortを要し、元のLRA energyが追加される最短1秒周期でのみ再計算する。V2 Δ履歴は各pair／reset後の最初の有効TIME publicationでgeneration ticketを取得し、Δ mutex外で非RTに確保する。reset競合では古いticketを拒否し、旧履歴と分離する。保持entry領域の容量は7,863,480 bytes（約7.86 MB）で、allocatorとOS RSS等を含む全メモリ上限ではない。32 samplesの実worker追従、短期／長期履歴のquery時間、scalar oracleとのI／LRA parityをG1の技術検証に含める。
+
+G2はStop直前の10 ms未満の未処理尾を独立sized Session V2へprocessed／pending framesとして載せる。統計とcoverageを同一try_lockで取得し、BUSYは出力不変とする。未処理尾がある画面はMAX TPを確認済み下限`≥`、PLRを`---`とし、I／LRAは処理済みprefixと示す。LEVELはV2の最新処理済みSession集計を使う。TIME PLRは完全100 ms pointの処理済みprefix累積値をその原期限内だけ示し、後続pending尾を含むと称さない。Sessionを別pollしてTIMEのatomic packetを組み替えない。raw sample peak代用、zero padding、canonical Record変更、Audio Threadの追加処理は行わない。PRE別requestのATTACK保持確認は28-byte headerに限定し、foreign bodyの繰返し読取・decodeを避ける。G2の表示はtyped DRUM／TIME snapshotだけをauthorityとし、旧値を新cohortのpendingへ混ぜない。Capture v1不対応時は添付失敗を通知し、同じ凍結PNGをローカル保存へ渡す。
 
 TIME新schemaはepoch／incarnation／declared spanを含み、raw tail全pointがそのspanに属すことをpublisherで確認する。band wire v4にはactual span_endがあるため、mask導出だけを増版理由にしない。band意味identity追加は版付きで設計する。旧peer／旧schemaを新Δ authorityとして受理せず、POST絶対観測は維持して比較理由を示す。Capture consumerはG0で実schemaとv1の保存境界を確認し、採用する方式のround-tripまたは明示失敗をG1以降のfixtureで受入する。未知field保存を推定しない。
 
@@ -194,20 +208,20 @@ DRUM離脱／editor closeで取得・LOCK・候補sessionを解除する。帯�
 
 ### 4.5 密集した一打を選ぶinteraction
 
-時間marker、値lane、event stripから選ぶ。欠測打に0の値座標を作らず、時刻markerを実時刻からずらさない。ALLの全markerと、BAND最大8のstripを区別する。一候補ならクリック選択、再クリックでLIVE。重なりは最初のpointer-downでevent鍵・時刻順・anchorを凍結したcluster sessionへ入る。
+時間marker、値lane、event stripから選ぶ。欠測打に0の値座標を作らず、時刻markerを実時刻からずらさない。BANDのpointer対象は最後に採用したSummaryのcutoff C・最大8件cohortであり、LOCK中もその表示集合を保持する。Navigationが進んだだけでpointerの候補を差し替えない。普通のkeyboard巡回はこの保持集合と分ける。BANDは現在Navigation cutoffの6秒内の直近最大8件を欠測込みで、ALLは現在表示窓の全Navigation系列（容量240件）を使う。一候補ならクリック選択、再クリックでLIVE。重なりは最初のpointer-downでevent鍵・時刻順・anchorを凍結したcluster sessionへ入る。
 
 | 操作 | 候補巡回中 | 通常LOCK |
 | --- | --- | --- |
-| 再クリック／前後ボタン／←→ | 凍結した候補だけ巡回。時刻＋安定event鍵順 | 現在6秒窓を欠測含め時刻順、端で循環 |
+| 再クリック／前後ボタン／←→ | 凍結した候補だけ巡回。時刻＋安定event鍵順 | 普通の←→は現在集合を時刻順、端で循環。BANDはNavigationの6秒内の直近最大8、ALLは表示窓の全系列（容量240）。active drag中は開始集合を使う |
 | pointer drag | event選択を変えない。新publication／手ぶれでcluster外へ移さない | drag開始時のevent鍵／候補集合を固定し、drag中に新しい窓のnearestを引き直さない |
-| HOME | 凍結先頭 | 窓内最古。窓外LOCKの左は窓内最新、右／HOMEは最古 |
-| ESC | clusterだけ終了、LOCK保持 | 既存規則と整合をG0で固定 |
+| HOME | 凍結先頭 | 普通の巡回対象集合の最古。窓外LOCKの左は同集合の最新、右／HOMEは最古。active drag中は開始集合の先頭 |
+| ESC | clusterだけ終了、LOCK保持 | 候補操作／Factsを閉じてもLOCK保持 |
 | 候補外クリック | 新選択session | 実位置の一打を選ぶ |
 | LIVE／END | cluster・LOCK解除 | LIVEへ一操作 |
 
 clusterは新publicationで候補を増減させず、窓外でも鍵を保持して「過去の候補」と示す。未選択候補PCMが失効したら、その鍵の欠測を示し別打へ代替しない。選んだ一打だけsnapshotを保持。source失効・帯域変更・離脱でcluster終了。resizeは鍵を保ってanchorを新geometryへ移す。空窓ではLOCKを保持し、存在しない候補を作らない。
 
-全サイズで `LIVE`／`固定した一打` を区別し、固定表示自体を常設LIVE復帰入口にする。既存NOWは同じ復帰意味へ揃える。cluster chip `候補1/3` と前後操作、根拠入口、LIVE帰還はhoverなしで発見可能。通常drag変更も含め先行input fixtureで契約を固定する。
+全サイズで `LIVE`／`固定した一打` を区別し、LIVE/HOLDボタンとENDを常設LIVE復帰入口にする。旧NOWの表記を現行操作名として残さない。cluster chip `候補1/3` と前後操作、根拠入口、LIVE帰還はhoverなしで発見可能。通常drag変更も含め先行input fixtureで契約を固定する。
 
 ## 5. TIME・PSR — 六つの整合契約
 
@@ -246,7 +260,7 @@ T6の旧Capture `target` とWork `observation_target` はmain targetの意味を
 
 BAND対象選択は数値snapshot cutoff時点の6秒窓で行い、表示時計や間引きでevent／測定／Recordを削らない。ナビゲーションは現在factsで更新し、読取まとめのsnapshot時点をcaptionで区別する。ALL一打の自動選択だけが進み数値が前打に残る構成は禁止する。
 
-8打が全exactでATT10→40 msへstep変化する例では、新打1～3件で中央値10、4件で25、5件で40になる。120 BPM四分音符では5新打まで約2.5秒かかり得る。250 ms提示gateを通っても、この窓応答を速いとは認定しない。時間幅／指標に紐づくexact ageを見せ、利用者が新打を待つか一打を選ぶ判断をU2で確認する。外部ノブ値とATT値の一致は要求しない。
+8打が全exactでATT10→40 msへstep変化する例では、新打1～3件で中央値10、4件で25、5件で40になる。120 BPM四分音符では5新打まで約2.5秒かかり得る。250 ms提示gateを通っても、この窓応答を速いとは認定しない。主面の時間幅と既存Factsの指標に紐づくexact ageを使い、利用者が新打を待つか一打を選ぶ判断をU2で確認する。外部ノブ値とATT値の一致は要求しない。
 
 ### DRUMの移動時計をpublication到着から分離する
 
@@ -262,13 +276,13 @@ Vは画面位置だけで、cohort、onset、測定cutoff、event鍵、振幅を
 
 exactは既存の最近接丸め規則で表示し、−0は正規化する。限界／区間は表示精度でも区間を狭めない。下限は−∞方向、上限は＋∞方向へ丸め、open／closedと型を保つ。例：整数表示の≥146.6 msは≥146 ms、0.1 dB表示の≤−52.06は≤−52.0、[−10.14,−9.96]は[−10.2,−9.9]。丸めた端点が同じになってもexactへ昇格しない。精度はbandのproducer分解能に合わせ、型と値を別々に変更しない。LEVELの絶対値1000以上は共有指数を固定unit欄へ出す。例：[−3202.6,+3202.6]を[−3.21,+3.21]／×10³ dB。指数は両端へ適用し、外向丸めとraw端点を保持する。全有限型の最大指数308も例外fixtureへ含め、cap・ellipsis・font縮小を使わない。
 
-同size／locale／mode／文字役割でfont、baseline、符号・桁幅、単位、scope、件数、caption anchorを固定する。tabular数字と最大桁予約を使い、値→限界→欠測や7/8→8/8でfont縮小、count追従、行高変化をしない。軸scaleはmode／bandで固定。通常pendingは予約欄の状態名を維持し、件数だけを更新する。毎pollの全文通知、点滅、色往復は0。確定不明／不成立と、明示選択の失敗は理由を読めるようにする。
+同size／locale／mode／文字役割でfont、baseline、符号・桁幅、単位、caption anchorを固定し、scope・分類件数・age・理由は既存Factsに保持する。tabular数字と最大桁予約を使い、値→限界→欠測や7/8→8/8でfont縮小、count追従、行高変化をしない。軸scaleはmode／bandで固定。通常pendingを含め全N未成立の主値は予約欄の`—`を維持し、五分類件数の更新は既存Factsへ反映する。毎pollの全文通知、点滅、色往復は0。不明／不成立の理由は既存Factsで読めるようにし、明示選択の失敗通知は保持する。
 
-CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PREの既存warm neutral、低明度素材、固定した一光源、ivoryの数値を維持する。背景の自律animation、全面発光、強い二重枠を増やさず、余白を主値・scope・curve境界へ使う。PRESENCE値は変更しない。静止画だけでなく実再生映像と実UIで評価し、測定値の平滑化や欠測の隠蔽で落ち着きを演出しない。
+CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PREの既存warm neutral、低明度素材、固定した一光源、ivoryの数値を維持する。背景の自律animation、全面発光、強い二重枠を増やさず、余白を主値・curve境界へ使い、各lane中央の反復scope文はALL／BANDとも描かない。PRESENCE値は変更しない。静止画だけでなく実再生映像と実UIで評価し、測定値の平滑化や欠測の隠蔽で落ち着きを演出しない。
 
 ## 7. 独立期待値と受入方法
 
-試験はproductionの集計を試験側へ複製せず、独立した数値と鍵を固定する。時刻／publication／raceは注入し、sleepの偶然で再現しない。以下の正式製品fixtureは未実施。G0の独立算術・時計模型と限定wire／consumer fixtureは[G0証拠](hypha_drum_psr_g0_20261007/README.md)へ区別して保存し、製品fixtureのPASSへ流用しない。
+試験はproductionの集計を試験側へ複製せず、独立した数値と鍵を固定する。時刻／publication／raceは注入し、sleepの偶然で再現しない。以下は正式候補で追跡する受入fixtureである。G2のローカル実装・development受入結果はG2記録へ結び、G3のexact候補・実hostの受入へ繰り上げない。G0の独立算術・時計模型と限定wire／consumer fixtureは[G0証拠](hypha_drum_psr_g0_20261007/README.md)へ区別して保存し、製品fixtureのPASSへ流用しない。
 
 ### 7.1 技術fixtureの反例表
 
@@ -282,10 +296,10 @@ CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PRE�
 | P6 | HOLD C=10.0→E=9.8／C=10.1秒、stop／seek | 同span軸逆行0、PSRをCへ延長0、seek境界を区別 |
 | P7 | 全体POST／ΔとPSR target組合せ、全size／日英 | PLR可視性・CORR source／軸／helpはmainだけ |
 | D1 | 10件末尾8へSilent／pending | ID3～10が対象、過去補充0、五分類合計N |
-| D2 | REL20、20、N/A | 全3なし、確定20 ms（2/3）＋不成立1 |
+| D2 | REL20、20、N/A | 主面`— ms`。既存Factsは部分20 ms（2/3）と不成立1を保持 |
 | D3 | REL10、10、≥20、および0、10、≥10 | 全3中央値は10 ms。後者の確定部分5 msは詳細、全3打exactとは表示しない |
 | D4 | ΔREL−10が1、≥＋200が7 | 主値全8≥＋200、確定−10（1/8）は詳細。SHORTER／1/1表示0 |
-| D5 | REL20が1、NextHitが7 | 全体なし、確定20（1/8）、不明7 |
+| D5 | REL20が1、NextHitが7 | 主面`— ms`。既存Factsは部分20（1/8）・不明7・NextHit理由を保持 |
 | D6 | PRE−20／実測POST≤−72、両Silent、ArrivalRinging＋Rises | 片側Silent時間lane不成立、ΔLEVEL≤−52、両Silent差不成立、Rises REL保持 |
 | D7 | A PRE−20／POST−18、B PRE−40だけ、全未観測 | 比較平均はAだけ、両count1。count0は線／塗りなし、床を含めない |
 | D8 | PREarrival[0,10,11]、POST[10,0,12]。PREpeak0＋REL100／POSTpeak10＋REL105 | per-hit Δ中央値＋1、ΔREL＋5（終了差＋15を使わない）、図／数値一致 |
@@ -293,14 +307,14 @@ CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PRE�
 | D10 | A−20／−10、B−60／−60、集合11→01、01→10 | 平均−40／−35→−20／−10を接続しない。同countの集合変更も断線 |
 | D11 | [0,1)、[0,1]、[0,1]の全順列、open端2件の上下 | [0,1]、上端open2件は[0,1)、下端open2件は(0,1]。順列不変 |
 | D12 | 偶数[0,1)／[2,3]、>10／≥20、invalid区間、表示丸め | [1,2)、>15、invalid数値0。≥146.6→≥146、≤−52.06→≤−52.0、[−10.14,−9.96]→[−10.2,−9.9] |
-| D13 | ID1～8（値1～7／8pending）→ID2～9（2～8／9pending）→9exact | 全体pending→pending→5.5。確定4（7/8）→5（7/8）→全8 5.5。旧cohort持越し0 |
+| D13 | ID1～8（値1～7／8pending）→ID2～9（2～8／9pending）→9exact | 主面`—`→`—`→全8の5.5。既存Factsは部分4（7/8）→5（7/8）とpendingを保持。旧cohort持越し0 |
 | D14 | ODF一致／band意味不一致、旧peer、双方一致 | 比較cache／Δ authority不成立、local POST cache可。両意味一致のみ比較 |
-| D15 | 8exact ATT10→40の新打1～5。別cohortでATT最新exact0.1秒前／REL exact1/8は3秒前 | median10／10／10／25／40。窓応答と提示遅延を別計測。指標別ageと共有最大3秒が正しく、RELをfreshに見せない |
+| D15 | 8exact ATT10→40の新打1～5。別cohortでATT最新exact0.1秒前／REL exact1/8は3秒前 | median10／10／10／25／40。窓応答と提示遅延を別計測。指標別ageと最大3秒のtyped根拠は保持しFactsで読める。主面の部分値・age・共有最大文は表示0 |
 | L1 | BAND単打・有効pre-roll、acquiring→late complete、onset＋150／100 ms stop、worker reply200 ms遅延 | stop単独terminal0。150 msは有効ATT／LEVEL・REL bound、100 ms不足は指標別欠測。窓外・resizeで同一打保持 |
 | L2 | cluster click→時間進行／新打→数px drag→up、keys、窓外／PCM失効、100→300% | 凍結鍵／順序不変、cluster外選択0、時刻ずらし0、選択単打形一致、LIVE一操作 |
 | L3 | source／意味／seek／Reset／帯域変更／離脱／再open | 旧snapshot復活0、選択意図と新LIVE観測を区別、明示取得失敗の理由 |
 | L4 | A−30 dBFSを0 ms、B−10を125 ms、250 ms境界前にB選択 | ALLのlocator／可視marker強調／shape／四値はBの同stamp。A値の4Hz保持0 |
-| U1 | 5size×日英、ALL／8band、全N↔確定部分、区間／欠測／最大桁、拡大表示 | 切れ／重なり0、意味・scope・単位・分解能可視、固定anchor、Capture／input座標回帰 |
+| U1 | 5size×日英、ALL／8band、全N値↔`—`、区間／欠測／最大桁、拡大表示 | 主面の判定内訳・age文0、部分値は`—`、全N値と選択単打値は保持。既存Factsのscope・五分類・部分中央値・age・理由・分解能は完全。切れ／重なり0、固定anchor、Capture／input座標回帰 |
 | F1 | Release、ALL／BAND、二枠、密集、V2、LOCK／resize、DPI | 明示有効化した既存frame budget PASS。skip／DebugをPASSにしない |
 | F2 | 値桁／件数／型の変化、native tick、summary cadence、入力応答 | 別revision混在0、位置変化0、通常pending往復0。技術的遅延・欠落を測る。利用者の高級感採点は含めない |
 | M1 | 固定clockに有界位相0.10／0.19／0.31秒arrival、L=150 ms | 通常jitter区間のV傾きrate、毎到着reanchor／停留／加減速0。source時刻／振幅不変 |
@@ -343,7 +357,7 @@ G3では、検出に関わるsourceとODF意味identityが既存評価の対象�
 
 1. POST単体／差分、PSR paired／soloを見分ける。
 2. ATT／REL／LEVELの定義とコンプレッサー設定値の違い、平均図と中央値の違いを読む。
-3. 全8≥＋200／確定1/8=−10、全N未成立→確定7/8→全8の連続切替を見て、確定部分を全体効果と誤認しない。
+3. 主面の全8≥＋200と全N未成立の`—`、既存Factsの部分1/8=−10・7/8を読み、部分値を全体効果と誤認しない。
 4. 限界／不明／不成立、分解能、ALL時間軸／BAND値軸を見分ける。
 5. 欠測打と近接候補を選び、6秒超保持して読み、LIVEへ戻る。
 
@@ -396,8 +410,8 @@ v2を選んだ場合だけ新版round-tripと別repo変更を必須にする。v
 | --- | --- | --- |
 | G0 利用場面と設計固定（完了） | 実寸wire、snapshot／clock／expiry契約候補、Capture二案、development証拠、校正手順、公開前本人rubricと公開後G4の記録方法 | 設計候補・未検証一覧・G1／G2で取る証拠を明示。Capture二案の提案とv1維持の採用を記録済み。G0で製品source・ABIを変えない |
 | G1 観測・整合snapshot | bounded TIME raw／proof／gap、DRUM固定cohort・区間・mask／集合、POST窓実測、producer finalization、V2、新timestampの証拠 | PR #83 merge通知後のmainを起点とし、P1～P4・P6、D1～D15、ABI／wire／応答不能の独立期待値を確認 |
-| G2 全面統合・development検証 | 主面／根拠面、単打／locator／cluster、提示時計／丸め、PSR／PLR／CORR、採用Capture方式、全size／locale、正本同期、負荷校正 | P5・P7・L1～L4・U1・F1・F2・M1～M3、既存回帰。数値・周期・正常jitter・採点方法をG3 freeze前に確定。友人確認は含めない |
-| G3 最終候補freeze・技術と実DAWの受入 | 同期済みclean exact commit、definition／settings hash、検出source・意味identity照合、正式候補の技術・対象host証拠 | Claudeが適合run／artifactを照合し、既存検出試験を含む必須技術・実DAW gateを確認。不足のまま公開へ進めない |
+| G2 全面統合・development検証（実装・ローカル受入完了） | 主面／根拠面、単打／locator／cluster、提示時計／丸め、PSR／PLR／CORR、採用Capture方式、全size／locale、正本同期、負荷校正 | P5・P7・L1～L4・U1・F1・F2・M1～M3、既存回帰。正式native 90＋Update 7、B-1325 baseline／既存Rust性能5件を確認。共有stage修正後の正式ATTACK gateはV2 120／120、legacy changing 120／resize 6／BAND 4全PASS。先行FAIL・原因・最終数値を保持。exact final CI待ち、CI／merge／releaseはClaude担当、G3・本人確認は未実施。数値・周期・正常jitter・採点方法はG3 freeze前に確定。友人確認は含めない |
+| G3 最終候補freeze・技術と実DAWの受入 | 同期済みclean exact commit、definition／settings hash、検出source・意味identity照合、正式候補の技術・対象host証拠 | Codexが委任された実DAWの操作・負荷・表示確認を行う。Claudeが適合run／artifactと実測を照合し、既存検出試験を含む必須技術・実DAW gateを確認。不足のまま公開へ進めない |
 | 公開前の本人確認 | G3と同じcandidateの実UI・実再生で日常操作と品位を記録 | 第7.3節の日常操作と品位rubric。初見には数えず、友人の結果で代用しない |
 | G5 公開前の同一候補照合 | read-onlyの契約／実装／画像／採用Capture／証拠一覧、未処理項目 | freeze後のdrift0、技術・実DAW・本人PASSが同candidateに一致。Claudeが正式release gateを確認して三チャネル公開へ進む |
 | G4 公開後の確認 | 友人1～2人による未見なら初見、既見なら日常操作と品位の確認 | 公開後だけ行い、開発中の工程・公開条件には今後も含めない。未実施／FAIL／未検証を個別に残し、次の改善に使う |
@@ -418,7 +432,7 @@ mainへの変更はPRで入れ、必須の試験4つ（`public history identity`
 | cluster dragで凍結候補を離れる | cluster中drag選択変更0、通常dragも開始集合固定 | L2 |
 | 技術gateに初見／品位確認が混ざる | G3技術・実DAW、公開前本人の日常操作・品位、G4友人確認は公開後のみ | F2・U2・G3・G4・G5 |
 | freeze後の正本同期でcandidateが変わる | G2正本同期→G3 freeze→G5 read-only照合 | G3～G5 |
-| ATTのfresh ageで古いREL条件付き値まで新しく見える | 指標別age、共有captionは表示中条件付き値の保守的な最大age | D15・U2 |
+| ATTのfresh ageで古いREL条件付き値まで新しく見える | 主面の部分値は`—`、指標別ageは既存Factsに保持し、共有captionへ最大ageを加えない | D15・U2 |
 | 大画面で学んだ後の100%を初見合格にできる | 公開後G4の未見参加者だけ100%主面のscope課題から開始、詳細の先見せなし | U2・G4 |
 
 以前のレビューで確定したraw PSR／完全binding／component退役／gap／Capture target、型付き全N区間／条件付き統計／参加集合、PRE-only実測／意味identity、窓外LOCK／小画面／初見の再受入も第3～7章へ、弱打個別gateは付録Aへ統合した。過去版やレビュー表を別途読まなくても実施できる一つの契約にする。
@@ -452,3 +466,5 @@ G0の確認は、利用者決定patch適用、schema／寿命／Captureの読取
 G0は設計候補・未検証一覧・校正手順とCapture選択を記録して閉じた。G1はPR #83・#87のmerge通知後のmainから製品証拠を取得する。完了timestampを含む新APIが必要な証拠を、旧ABIや模型PASSで埋めない。G1以降は1.1.51へ含める。採用したv1添付失敗の受入、G1／G2の校正証拠、G3・本人確認・G5の公開前条件を追跡する。Claudeが途中確認／CI／merge／releaseを担当し、友人G4は今後も公開後だけとする。検出変更と追加音響評価は本計画へ戻さない。LS／HP／Windows配布準備はskip。
 
 セッション記録手順を読み、プロジェクトのNotion書込み禁止を優先してSECTION:DEV、日次ログ、Notion Handoffは未記録。[G0 READMEの現在地・日次・Handoff](hypha_drum_psr_g0_20261007/README.md)へ未記録内容を残した。製品改善完了・実host・使いやすさ・高級感を認定した記録ではない。
+
+2026-10-09の利用者方針: FREQの6秒履歴が奥へ流れる表現を保持する。計測プラグインとしての軽さを優先し、測定値・履歴長・表示cadenceを削らず、重複計算と再描画を対象に性能改善を進める。負荷が残る状態を完了とは呼ばない。

@@ -20,6 +20,13 @@ void AttackComponent::setBand (std::uint8_t band)
 {
     if (band > attack_band::bandCount || band == chosenBand) return;
     chosenBand = band;
+    v2->changeBand (band);
+    if (v2->enabled)
+    {
+        evidenceV2.reset();
+        if (onBandChange) onBandChange (band);
+        repaint(); return;
+    }
     rebuildBandModel();
     if (followLatest)
         selectBoundaryEvent (true);

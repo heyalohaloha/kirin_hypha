@@ -348,6 +348,7 @@ pub(super) fn selected_fixture() -> (
     let runtime = engine.attack_runtime.as_ref().unwrap();
     runtime.fixture_publish_observation(observation.clone());
     runtime.fixture_select_single(AttackSingleSnapshot {
+        qualified_proof: None,
         request: AttackSingleRequest {
             key_source: source,
             key_event_sample: 0,

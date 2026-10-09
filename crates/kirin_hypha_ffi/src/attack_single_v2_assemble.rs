@@ -96,7 +96,7 @@ pub(super) fn assemble(
         }
         return snapshot;
     }
-    let proof = view.proof.filter(|proof| {
+    let proof = state.qualified_proof.or(view.proof).filter(|proof| {
         proof.binding_token() == request.proof_token && proof.post.source == request.local_source
     });
     if let Some(band) = request.band {

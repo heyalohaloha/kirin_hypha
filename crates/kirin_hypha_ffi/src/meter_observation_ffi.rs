@@ -173,21 +173,60 @@ fn build_observatory_frame(
     snapshot: &MeterSessionSnapshot,
     signal_before: u8,
 ) -> Option<KirinObservatoryFrame> {
-    let delta_result = engine.poll_delta().unwrap_or_default();
-    let delta = to_c_delta(&delta_result);
+    let active =
+        signal_before == KIRIN_SIGNAL_STATE_ACTIVE && snapshot.state != MeterSessionState::Paused;
+    let published_delta = engine.poll_delta();
+    let stopped_update_pending = !active
+        && published_delta
+            .as_ref()
+            .is_none_or(|delta| delta.mode == kirin_measure::DeltaMode::Active);
+    // IO failure/restart must not suppress the local Audio/Measure stop facts. During playback,
+    // comparison contention still means no coherent new frame, with caller output untouched.
+    let mut delta_result = published_delta.or_else(|| (!active).then(DeltaResult::default))?;
+    if active
+        && delta_result.mode == kirin_measure::DeltaMode::Active
+        && delta_result.comparison.state != kirin_measure::ComparisonState::Holding
+    {
+        let (values, crest) = time_ffi::level_values(engine, snapshot)
+            .ok()?
+            .unwrap_or(([None; 6], None));
+        delta_result.lufs = values[0];
+        delta_result.lufs_s = values[1];
+        delta_result.tp = values[2];
+        delta_result.psr = values[3];
+        delta_result.crest = crest;
+        if values.iter().all(Option::is_none) {
+            delta_result.comparison.state = kirin_measure::ComparisonState::Preparing;
+            delta_result.comparison.reason = kirin_measure::ComparisonReason::AwaitingMeasurement;
+        }
+    }
+    let delta = if stopped_update_pending {
+        to_c_delta(&DeltaResult::default())
+    } else {
+        to_c_delta(&delta_result)
+    };
     let signal_after = engine.signal_state_abi();
     if signal_before != signal_after {
         return None;
     }
     let (lra_state, lra_elapsed_seconds) = lra_readiness(snapshot);
-    let comparison = comparison_projection(
+    let mut comparison = comparison_projection(
         &delta_result,
         snapshot.measurement_epoch,
         snapshot.generation,
     );
+    if stopped_update_pending {
+        comparison.state = KIRIN_COMPARISON_STATE_REJECTED;
+        comparison.reason = KIRIN_COMPARISON_REASON_LOCAL_INACTIVE;
+        comparison.generation = comparison.generation.saturating_add(1);
+    }
     let frame = KirinObservatoryFrame {
         version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
-        signal_state: signal_after,
+        signal_state: if signal_after == KIRIN_SIGNAL_STATE_ACTIVE && !active {
+            KIRIN_SIGNAL_STATE_INACTIVE
+        } else {
+            signal_after
+        },
         lra_state,
         delta_available: delta_has_finite_fact(&delta) as u8,
         comparison_state: comparison.state,
@@ -363,3 +402,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history_decimated(
     }))
     .unwrap_or(false)
 }
+
+#[path = "meter_session_v2.rs"]
+mod session_v2;
+pub use session_v2::*;

@@ -1,4 +1,5 @@
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #if KIRIN_HYPHA_KIMERA_EMBEDDED
  #include "BinaryData.h"
@@ -169,6 +170,20 @@ juce::Font displayTextFont (const juce::String& text,
 {
     return requiresNativeTextFont (text) ? nativeTextFont (context, role, composition)
                                          : labelFont (context, role, composition);
+}
+
+juce::Font displayTextFont (const juce::String& text,
+                            const presentation::Context& context,
+                            typography::TextRole role,
+                            typography::Composition composition,
+                            juce::Rectangle<float> area, bool tabular)
+{
+    const auto font = displayTextFont (text, context, role, composition);
+    const auto width = tabular ? tabularTextWidth (font, text)
+                               : text_style::shownWidth (font, text, text_style::LabelPolicy::fixed);
+    const auto ratio = juce::jmin (1.0f, area.getWidth() / juce::jmax (1.0f, width),
+                                 area.getHeight() / juce::jmax (1.0f, font.getHeight()));
+    return font.withHeight (font.getHeight() * juce::jmax (0.01f, ratio));
 }
 
 float tabularTextWidth (const juce::Font& font, const juce::String& text)

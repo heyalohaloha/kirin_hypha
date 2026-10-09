@@ -36,34 +36,19 @@ using Phase = hypha::local_blind::ProductSessionPhase;
 
 #include "LiveBlindEndContractTest.h"
 
-struct Clock final : juce::AudioPlayHead
-{
-    juce::Optional<PositionInfo> getPosition() const override
-    {
-        PositionInfo info;
-        info.setIsPlaying (playing);
-        if (playing)
-        {
-            info.setTimeInSamples (position);
-            info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
-            (sharedLoop != nullptr ? *sharedLoop : loop).decorate (info, position);
-        }
-        return info;
-    }
-    std::int64_t position = 0;
-    bool playing = false;
-    LiveBlindLoopFixture loop;
-    const LiveBlindLoopFixture* sharedLoop = nullptr;
-};
+#include "LiveBlindProductClock.h"
 
 class BlindContract final : private juce::Timer
 {
 public:
     explicit BlindContract (std::vector<float> signalIn, bool reuseIn,
-                            hypha::live_compare::RecoveryReason faultIn, bool approvalIn, bool loopIn = false)
+                            hypha::live_compare::RecoveryReason faultIn, bool approvalIn, bool loopIn = false,
+                            bool loopStallIn = false)
         : signal (std::move (signalIn)), reuse (reuseIn), fault (faultIn != hypha::live_compare::RecoveryReason::none),
           approval (approvalIn), loopMode (loopIn), faultReason (faultIn)
     {
+        loopStall = loopStallIn;
+        postClock.certifiedContent = clock.certifiedContent = loopIn && ! loopStall;
         postClock.sharedLoop = &clock.loop;
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
@@ -77,6 +62,9 @@ public:
             instance->setPlayHead (role == Processor::Role::Pre ? &clock : &postClock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
+            if (clock.certifiedContent)
+                require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
+                         "nominal LOOP uses the qualified synthetic VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
         editor.reset (post->createEditorIfNeeded());
@@ -259,6 +247,11 @@ private:
             case 4:
                 if (loopMode && clock.loop.laps.load() < 200)
                 {
+                    if (! certifiedStallArmed)
+                    {
+                        stallAtLap.store (120);
+                        certifiedStallArmed = true;
+                    }
                     requireWithState (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active
                         && post->liveCompareStatus().matched && std::abs (post->liveCompareStatus().gain - reusedGain) <= 0.0f,
                         "another 100 loop laps preserve the fixed MATCH and Blind trial");
@@ -413,6 +406,8 @@ private:
                 require (rawPostErrors.load() == 0, "ordinary A output is bit identical");
                 require (! loopMode || (loopPcmErrors.load() == 0 && loopPreFrames.load() >= 95 * LiveBlindLoopFixture::length
                     && loopPostFrames.load() > 0), "full-frame delayed occurrence oracle passes for named PRE and both Blind sources");
+                require (! loopMode || (certifiedStallArmed && stallBlock.load() >= 0 && machineStalls.load() > 0),
+                         "certified LOOP preserves the trial and exact PCM across the deliberate 1.1 s scheduling stall");
                 std::cout << "Live Blind product: PASS entry=" << (reuse ? "MATCH reuse" : "direct")
                           << " one continuous playback, both receipts, reveal, END, hold and resume\n";
                 passed = true;
@@ -447,6 +442,7 @@ private:
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false, revealReady = false;
     bool loopMode = false;
+    bool certifiedStallArmed = false;
     int recoveredStalls = 0, stallRestarts = 0;
     float faultGain = 1.0f;
     hypha::live_compare::RecoveryReason faultReason;
@@ -482,8 +478,8 @@ int main (int argc, char** argv)
         : mode == "--fault-gap" ? Reason::callbackGap : mode == "--fault-content" ? Reason::contentChanged
         : mode == "--fault-stop" ? Reason::stopped : Reason::none;
     const bool loop = mode == "--loop" || mode == "--loop-stall";
-    BlindContract contract (std::move (signal), mode == "--reuse" || loop, fault, mode == "--approval", loop);
-    contract.loopStall = mode == "--loop-stall"; // timers run only inside the dispatch loop below
+    BlindContract contract (std::move (signal), mode == "--reuse" || loop, fault, mode == "--approval", loop,
+                            mode == "--loop-stall");
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

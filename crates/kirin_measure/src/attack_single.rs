@@ -47,6 +47,8 @@ pub struct AttackSingleRequest {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttackSingleSnapshot {
+    /// One immutable qualification for the finished selected hit, bounded with this snapshot.
+    pub qualified_proof: Option<crate::spectrum_exchange::AttackMappingProof>,
     pub request: AttackSingleRequest,
     pub token: u64,
     pub revision: u64,
@@ -118,6 +120,7 @@ impl AttackSingleControl {
         self.serial = self.serial.wrapping_add(1).max(1);
         self.accepted_millis = now;
         self.current = Some(AttackSingleSnapshot {
+            qualified_proof: None,
             request,
             token: self.serial,
             revision: 1,
@@ -295,6 +298,29 @@ impl AttackRuntime {
         }
         Ok(current.clone())
     }
+    pub fn qualify_single(
+        &self,
+        token: u64,
+        proof: crate::spectrum_exchange::AttackMappingProof,
+    ) -> Option<AttackSingleSnapshot> {
+        let mut selected = self.selected.try_lock().ok()?;
+        let current = selected
+            .current
+            .as_mut()
+            .filter(|value| value.token == token)?;
+        if current.qualified_proof.is_none()
+            && !matches!(
+                current.finish,
+                AttackFinish::Acquiring | AttackFinish::Retired
+            )
+            && proof.binding_token() == current.request.proof_token
+            && proof.post.source == current.request.local_source
+        {
+            current.qualified_proof = Some(proof);
+        }
+        Some(current.clone())
+    }
+
     pub fn retire_single(
         &self,
         token: u64,

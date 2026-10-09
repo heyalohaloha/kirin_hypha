@@ -20,6 +20,8 @@ pub const KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN: u8 = 7;
 pub const KIRIN_COMPARISON_REASON_AUDITION_ACTIVE: u8 = 8;
 pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW: u8 = 9;
 pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC: u8 = 10;
+/// Local input is stopped, but the IO comparison publication has not caught up.
+pub const KIRIN_COMPARISON_REASON_LOCAL_INACTIVE: u8 = 11;
 
 /// Observatory display facts returned by one non-RT poll.
 #[repr(C)]

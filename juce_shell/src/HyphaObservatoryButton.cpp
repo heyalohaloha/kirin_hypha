@@ -1,7 +1,8 @@
-#include "HyphaObservatoryView.h"
+#include "HyphaObservatoryButton.h"
 #include "HyphaKeyLight.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
+#include "HyphaFooterNoticeFont.h"
 
 #include <utility>
 
@@ -54,6 +55,14 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
     g.setColour (textColour);
     if (mark == Mark::menuArrow)
         paintMenuArrow (g, getLocalBounds().toFloat(), presentationContext);
+    else if (mark == Mark::footerNotice)
+    {
+        const auto room = getLocalBounds().reduced (3, 1);
+        g.setFont (monoFont (presentationContext,
+            footer_notice_font::roleForText (presentationContext, getButtonText(), room.getWidth())));
+        text_style::drawEllipsized (g, getButtonText(), room,
+                                    juce::Justification::centredLeft);
+    }
     else
     {
         g.setFont (labelFont (presentationContext, typography::TextRole::action));

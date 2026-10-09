@@ -18,8 +18,8 @@ namespace hypha::reference_audition
             else if (kind == "candidate") selectedId = &requestedSelection.candidateId;
             else if (kind == "cue") selectedId = &requestedSelection.cueId;
             else return false;
-            if (*selectedId == id)
-                return true;
+            if (*selectedId == id && currentSnapshot.state == RuntimeState::ready
+                && currentSnapshot.rejectionCode.isEmpty()) return true;
             *selectedId = id;
             if (requestedConfiguration.identity.library)
             {
@@ -170,7 +170,8 @@ namespace hypha::reference_audition
         std::optional<CandidatePreparationRequest> cancelled;
         {
             const juce::ScopedLock lock (stateLock);
-            if (id == currentSnapshot.checkId) return true;
+            if (requestedSelection.checkId == id && currentSnapshot.state == RuntimeState::ready
+                && currentSnapshot.rejectionCode.isEmpty()) return true;
             cancelled = pendingCandidatePreparationRequest;
             pendingCandidatePreparationRequest.reset();
             failedCandidatePreparationTarget.reset();

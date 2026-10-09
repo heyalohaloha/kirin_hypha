@@ -1,0 +1,577 @@
+{
+  "schema_version": 1,
+  "measured_product_commit": "3c4c999ed880ba4cb6b87da1fdbbab89703868b2",
+  "measured_product_build": "B-1337",
+  "overall_acceptance": "G3_INCOMPLETE",
+  "source_binding": "The measured product and actual DAW results are B-1337. Subsequent user-approved long-notice typography and shared Reference conversion coefficients have separate source-bound native tests. Final build and CI must bind their own exact commit; never relabel earlier measurements.",
+  "footer_typography": {
+    "prior_adjustment": "B-1292",
+    "normal_role": "action",
+    "normal_heights_px": [
+      11,
+      12,
+      13,
+      15,
+      18
+    ],
+    "long_notice_role": "legend",
+    "long_notice_heights_px": [
+      11,
+      11,
+      11.5,
+      13,
+      16
+    ],
+    "long_notice_condition": "Localized notice exceeds the existing notice width with the action font",
+    "changed_after_user_choice": true,
+    "preserved": "Normal notices, LIVE/HOLD/CHAIN LOAD, right buttons, footer placement, graph area and audio are unchanged",
+    "native_gates": {
+      "result": "PASS",
+      "tests": 4,
+      "source_sha256": "681a50ed3879d18477567e4786b4f32ac4112fe177c1a9e6da9c5584d6f6d476",
+      "raw": {
+        "basename": "tests.log",
+        "bytes": 636,
+        "sha256": "f3ea1c6d6cb129304073bcbec0c39108eabdf25846d89dfcf244288f5e249fcc"
+      }
+    }
+  },
+  "attack_budget": {
+    "result": "PASS",
+    "exit": 0,
+    "seconds": 18.438,
+    "retry_count": 0,
+    "source_unchanged": true,
+    "binary_unchanged": true,
+    "conditions": {
+      "legacy-changing": {
+        "conditions": 120,
+        "maximum_median_ms": 15.6776,
+        "maximum_ms": 17.0457,
+        "maximum_cold_ms": 52.1269
+      },
+      "legacy-resize": {
+        "conditions": 6,
+        "maximum_median_ms": 14.0028,
+        "maximum_ms": 36.3753
+      },
+      "band": {
+        "conditions": 4,
+        "maximum_median_ms": 5.00528,
+        "maximum_ms": 5.26369,
+        "maximum_cold_ms": 30.214
+      },
+      "v2-changing": {
+        "conditions": 120,
+        "maximum_median_ms": 10.8753,
+        "maximum_ms": 16.0783,
+        "maximum_cold_ms": 19.2227
+      }
+    },
+    "raw": {
+      "basename": "execution.log",
+      "bytes": 40519,
+      "sha256": "7c7a9bc349176147a7b80340c89fad8282b1a72a3a77e9231da0d9de65ec6989"
+    },
+    "earlier_resize_failure_preserved": {
+      "median_ms": 16.2694,
+      "median_limit_ms": 16,
+      "raw": {
+        "basename": "tests.log",
+        "bytes": 20787,
+        "sha256": "fdfcd34aee7aac3f7c4cfbd60a33c88d94085466898c8723cecabcb6e79827a3"
+      }
+    }
+  },
+  "freq_forced": {
+    "result": "MEASUREMENT_COMPLETED_WITH_RESIDUAL_COST",
+    "size_logical": [
+      900,
+      600
+    ],
+    "dpi": 2,
+    "rows": 24,
+    "summary": [
+      {
+        "case": "freq-absolute",
+        "phase": "warm-paint",
+        "median_wall_ms": "26.851737",
+        "p99_wall_ms": "33.635809",
+        "cpu_ms_per_call": "27.110617"
+      },
+      {
+        "case": "freq-absolute",
+        "phase": "changing-update-paint",
+        "median_wall_ms": "30.842456",
+        "p99_wall_ms": "68.995329",
+        "cpu_ms_per_call": "32.455000"
+      },
+      {
+        "case": "freq-delta",
+        "phase": "warm-paint",
+        "median_wall_ms": "19.404580",
+        "p99_wall_ms": "22.435986",
+        "cpu_ms_per_call": "19.519133"
+      },
+      {
+        "case": "freq-delta",
+        "phase": "changing-update-paint",
+        "median_wall_ms": "23.506750",
+        "p99_wall_ms": "29.071796",
+        "cpu_ms_per_call": "23.608583"
+      },
+      {
+        "case": "freq-shape",
+        "phase": "warm-paint",
+        "median_wall_ms": "19.770200",
+        "p99_wall_ms": "38.893362",
+        "cpu_ms_per_call": "20.835417"
+      },
+      {
+        "case": "freq-shape",
+        "phase": "changing-update-paint",
+        "median_wall_ms": "22.877835",
+        "p99_wall_ms": "28.900759",
+        "cpu_ms_per_call": "23.576583"
+      },
+      {
+        "case": "freq-mid-side",
+        "phase": "warm-paint",
+        "median_wall_ms": "17.365975",
+        "p99_wall_ms": "22.020155",
+        "cpu_ms_per_call": "17.521617"
+      },
+      {
+        "case": "freq-mid-side",
+        "phase": "changing-update-paint",
+        "median_wall_ms": "21.135806",
+        "p99_wall_ms": "25.908119",
+        "cpu_ms_per_call": "21.482950"
+      },
+      {
+        "case": "freq-psb",
+        "phase": "warm-paint",
+        "median_wall_ms": "23.187358",
+        "p99_wall_ms": "28.922956",
+        "cpu_ms_per_call": "23.057133"
+      },
+      {
+        "case": "freq-psb",
+        "phase": "changing-update-paint",
+        "median_wall_ms": "25.359492",
+        "p99_wall_ms": "30.370499",
+        "cpu_ms_per_call": "25.737550"
+      },
+      {
+        "case": "freq-missing",
+        "phase": "warm-paint",
+        "median_wall_ms": "17.767593",
+        "p99_wall_ms": "25.498119",
+        "cpu_ms_per_call": "18.177333"
+      },
+      {
+        "case": "freq-missing",
+        "phase": "changing-update-paint",
+        "median_wall_ms": "22.954529",
+        "p99_wall_ms": "52.683182",
+        "cpu_ms_per_call": "24.209883"
+      }
+    ],
+    "csv_sha256": "1ac2d21bb20709464bf723b5bbe38d5f14079389b5c568d381a357d052943cce",
+    "raw_receipt": {
+      "basename": "measurement-receipt.json",
+      "bytes": 230448,
+      "sha256": "cced21b0f8ed7b8a03c3769482290c42c3d97e71f4b1d9e5af484f8709edf99f"
+    }
+  },
+  "unsigned_builds": {
+    "macos": {
+      "result": "PASS",
+      "formats": 6,
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
+      "signed": false,
+      "notarized": false,
+      "for_distribution": false,
+      "manifest": {
+        "basename": "hypha-build.json",
+        "bytes": 7742,
+        "sha256": "60d7f4893cf6ff4156ed956ba070b60cf13451ee6c78280970eb0192c63afd57"
+      },
+      "artifacts": [
+        {
+          "role": "PRE",
+          "format": "AAX",
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "bytes": 39802336,
+          "sha256": "acbf6472e6e10f13fc1c6a4670c06c5c7fd8927f1627d5575605a6e280a992e2"
+        },
+        {
+          "role": "PRE",
+          "format": "AU",
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "bytes": 39693584,
+          "sha256": "e4fbb89be4a5ce6c8fd863e06c38f36bf7553552cb9804eeccd1770a38e8edba"
+        },
+        {
+          "role": "PRE",
+          "format": "VST3",
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "bytes": 40460896,
+          "sha256": "e2af37050da6d6cb306ca2e0febc7c01a5414ec1b0cbe2888bc482459e53e42c"
+        },
+        {
+          "role": "POST",
+          "format": "AAX",
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "bytes": 48425952,
+          "sha256": "1300eb05fe0dfcfa0364fdddb47255d000080345b878d54e46615cdfb3f0965b"
+        },
+        {
+          "role": "POST",
+          "format": "AU",
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "bytes": 48320432,
+          "sha256": "335b09bd7ec5d5f707cffda791e53ff635fdcec52b44f54b5809c3384ae2e13c"
+        },
+        {
+          "role": "POST",
+          "format": "VST3",
+          "architectures": [
+            "arm64",
+            "x86_64"
+          ],
+          "bytes": 49136608,
+          "sha256": "1aa4dd16910811a4cea652a86e8f7157664b5af4b77e920af1ae2c43060b529c"
+        }
+      ]
+    },
+    "windows": {
+      "result": "PASS",
+      "formats": 4,
+      "architecture": "x64",
+      "signed": false,
+      "for_distribution": false,
+      "manifest": {
+        "basename": "allformat-manifest.json",
+        "bytes": 3814,
+        "sha256": "6ecbd5eb2d8fd81efaa11d21f22920c5ffc85d9062014efa88e8114e3d7aed2d"
+      },
+      "artifacts": [
+        {
+          "role": "PRE",
+          "format": "AAX",
+          "architectures": [
+            "x64"
+          ],
+          "bytes": 15711744,
+          "sha256": "eff764a948a1f441faedc74e8286ede05e0c92494a686b286e28ea23bf9ed324"
+        },
+        {
+          "role": "PRE",
+          "format": "VST3",
+          "architectures": [
+            "x64"
+          ],
+          "bytes": 15864832,
+          "sha256": "caf1a55142fb4291306850eaeb179e45a45b443eb5655d980acbf7a7a00af3fd"
+        },
+        {
+          "role": "POST",
+          "format": "AAX",
+          "architectures": [
+            "x64"
+          ],
+          "bytes": 19138560,
+          "sha256": "096a1b1895526b8d24b4f15f8dbc6af1c8251bb05e01d62f0ba8b2b1fcbb33c1"
+        },
+        {
+          "role": "POST",
+          "format": "VST3",
+          "architectures": [
+            "x64"
+          ],
+          "bytes": 19296256,
+          "sha256": "a03f79a7f535109b0a5fdbbdc40b5182082e304e0b452b556fc2031ffd5e1b9a"
+        }
+      ]
+    }
+  },
+  "actual_daw": {
+    "macos": {
+      "host": "REAPER 7.71 OSX64",
+      "cpu_one_core_percent": {
+        "freq": 77.684665,
+        "hidden": 42.933552,
+        "disabled": 17.166836
+      },
+      "samples_each_seconds": 20,
+      "audio_and_media_xrun_before_after": 0,
+      "continuous_foreground_guard": false,
+      "normal_close": {
+        "normal_close_exit": 0,
+        "own_pid_closed": true,
+        "force_kill": false
+      },
+      "gui_preferences_restored": [
+        {
+          "op": "restore",
+          "result": {
+            "status": "RESTORED",
+            "count": 0
+          }
+        },
+        {
+          "op": "verify",
+          "result": {
+            "status": "PASS",
+            "mismatches": [],
+            "unclassified_new_files_preserved": []
+          }
+        }
+      ],
+      "all_observed_devices_equal": true,
+      "routing_writes": false,
+      "receipt": {
+        "basename": "actual-results.json",
+        "bytes": 1534,
+        "sha256": "9c0f199f5883acaa7dbc064229d7a9421b82be47f2ff08961413ab2153f7cfa0"
+      }
+    },
+    "windows": {
+      "host": "Studio Pro 8.1.2.113407",
+      "cpu_one_core_percent": {
+        "visible FREQ terrain at 300%": 73.08079,
+        "editor hidden; both processors enabled": 29.755665,
+        "editor hidden; both host inserts disabled": 23.977591
+      },
+      "samples_each_seconds": 20,
+      "continuous_foreground_guard": true,
+      "hard_rt_or_dropout_assertion": false,
+      "plugin_trees_restored": 2,
+      "preference_scopes_restored": 4,
+      "receipt": {
+        "basename": "actual-results.json",
+        "bytes": 8518,
+        "sha256": "67f4b10727548c3befa6ff1dc98e8ba92a5bb98f360080b594275b97f3dc2918"
+      },
+      "whole_all_report_correction": "Saved screenshots select ALL with TRANSIENT/STRENGTH/CREST/SHARPNESS. The earlier prose used BAND names and units; its wording is superseded.",
+      "all_selector_report_correction": {
+        "basename": "round3-all-selector-correction.json",
+        "bytes": 2416,
+        "sha256": "8af4b3976657390dfa0bdbff28fa392cd30a2343f9f3e794d6333ffcc4f015c3"
+      }
+    }
+  },
+  "unresolved": [
+    {
+      "condition": "Both host inserts disabled 20s, enabled, PRE TIME then POST HISTORY delta, Stop/Play and 5.5s wait",
+      "expected": "Fresh corresponding observations resume without reopening",
+      "measured": "Play green and Pair blue, PRE observation unavailable, values absent; fresh reopen recovered",
+      "cause": "Not established. PRE cadence phase changed, but failed-state POST TIME packet and span are not exposed by the current diagnostic serializer. PRE facts alone do not prove the joining failure.",
+      "status": "FAIL_NOT_RESOLVED",
+      "fresh_repeat": "Round 4 reproduced after 20s disabled and after Stop/Play. The fresh baseline had all zero deltas.",
+      "pre_publication": "Fresh within 120ms, 32 usable points; epoch/incarnation/generation/token unchanged.",
+      "pre_grid_samples": [
+        {
+          "capture": "baseline",
+          "run": 1,
+          "endpoint_mod_4800": 4560,
+          "observed_mod_4800": 0,
+          "endpoint_minus_observed": 23760
+        },
+        {
+          "capture": "re-enabled",
+          "run": 7,
+          "endpoint_mod_4800": 4608,
+          "observed_mod_4800": 0,
+          "endpoint_minus_observed": -3624192
+        },
+        {
+          "capture": "before-POST",
+          "run": 7,
+          "endpoint_mod_4800": 4608,
+          "observed_mod_4800": 0,
+          "endpoint_minus_observed": -3624192
+        },
+        {
+          "capture": "stop-play",
+          "run": 9,
+          "endpoint_mod_4800": 384,
+          "observed_mod_4800": 0,
+          "endpoint_minus_observed": -5370816
+        }
+      ],
+      "raw": [
+        {
+          "basename": "round4-results.json",
+          "bytes": 14450,
+          "sha256": "a15e6451223fba7d6c4a26bc9bebc81cb1198efd3a16b5fa99237de47e485c8d"
+        },
+        {
+          "basename": "time-grid-phase-audit.json",
+          "bytes": 61173,
+          "sha256": "3ce93ad061948afde70eb5aa4611c595f2a727cf07279c1cae5a5339638003fa"
+        },
+        {
+          "basename": "restoration-proof.json",
+          "bytes": 2466,
+          "sha256": "a6a505ff53cf365e05c49e5a6c2d8f3a14f2053b35996ba72eaeb6d3578bf854"
+        }
+      ]
+    },
+    {
+      "condition": "Repeated play and language change in the same unprocessed pair",
+      "expected": "M/TP/PSR delta 0",
+      "measured_frames": [
+        {
+          "M": 2.6,
+          "TP": 2.6,
+          "PSR": 2.5
+        },
+        {
+          "M": -3.5,
+          "TP": -5.3,
+          "PSR": -5.6
+        }
+      ],
+      "cause": "Not established",
+      "status": "FAIL_NOT_RESOLVED",
+      "fresh_repeat": "The nonzero frames were not reproduced in Round 4; the preserved earlier failure remains unqualified and unresolved."
+    }
+  ],
+  "excluded_window_jst": {
+    "from": "2026-10-08T21:50:00+09:00",
+    "through": "2026-10-08T22:03:00+09:00",
+    "reason": "Reported concurrent host operations and development app; overlapping earlier measurements excluded and retained privately."
+  },
+  "remaining_gates": [
+    "Unresolved actual TIME recovery/nonzero delta conditions",
+    "Residual maximum-DPI FREQ load evaluation",
+    "Exact final commit required CI",
+    "Signed candidate A4 host matrix",
+    "User daily-operation and quality acceptance",
+    "All three formal distribution channels"
+  ],
+  "ci_history_only": {
+    "product_build": "B-1333",
+    "required_run": 37759344861,
+    "auxiliary_run": 37759344860,
+    "usable_as_final_commit_ci": false
+  },
+  "rust_scope": {
+    "initial_pass": 2384,
+    "initial_fail": 1,
+    "initial_ignored": 41,
+    "repaired_xtask_pass": 176,
+    "unchanged_product_source_files": 619,
+    "parity_inventory_and_pass": 20,
+    "pairing_inventory_and_pass": 6,
+    "raw_reuse_receipt": {
+      "basename": "rust-suite-reuse-receipt.json",
+      "bytes": 1149,
+      "sha256": "a1f65300f04f4c0261a9d50be72a1624a555aa107fa4d9822d1b6487ed8c83e9"
+    }
+  },
+  "performance_acceptance": {
+    "status": "NOT_ACCEPTED",
+    "macos_whole_host_one_core_percentage_points": {
+      "enabled_hidden_minus_disabled": 25.76,
+      "freq_visible_minus_enabled_hidden": 34.75,
+      "freq_visible_minus_disabled": 60.51
+    },
+    "interpretation": "These whole-DAW process differences include two active plugins and UI. They are not Audio Thread percentages or exact attribution to individual workers. Zero observed xruns does not close the performance requirement.",
+    "render_profile": {
+      "purpose": "Identify hot call stacks in the existing forced absolute-FREQ fixture. Profiled timings are not acceptance measurements.",
+      "sample_seconds": 3,
+      "sample_interval_ms": 1,
+      "result": "High-resolution image compositing, terrain and curve filling are frequently sampled; worker costs require separate attribution.",
+      "raw": {
+        "basename": "sample.txt",
+        "bytes": 322770,
+        "sha256": "ba645753ba0a5d3716634507eed75a8ebf61defc29114c31b30f596409bd6baf"
+      }
+    },
+    "hidden_profile": {
+      "purpose": "One 5-second, 1-ms sample of hidden PRE/POST in a fresh disposable host; includes startup/Reference activity and waiting threads. Does not apportion the earlier steady-state CPU percentages.",
+      "findings": "Reference rate conversion computes identical sinc/window coefficients per channel; IO publication file operations were also frequently sampled. Waiting stacks are not CPU percentages.",
+      "raw": {
+        "basename": "sample.txt",
+        "bytes": 484509,
+        "sha256": "3bae23204dc0fc0acb179a83c1b203853e68156c3d28f5a852f80758b61f7f14"
+      },
+      "restoration": {
+        "normal_disposable_close": true,
+        "force_termination": false,
+        "preferences_verified": true,
+        "raw_sha256": "56e8c97dad1218c696ca23fabc3ae6195848c99d96017134d114b1733ee954b1"
+      }
+    },
+    "reference_conversion": {
+      "change": "Compute identical sinc/window coefficients once per output sample for both channels, retaining each channel's original accumulation order. Audio Thread, sample-rate rules and measurement behavior are unchanged.",
+      "source_sha256": "16dae78c165627ebfbb9c139aafb3522ee45367ea1e0ed667d887ebbbfae1ad0",
+      "compatibility": {
+        "scalar_oracle_original_source_sha256": "9187f5177883ff1598c3534b7c4049fc0cd7446d63fa497a4ab405177ac15758",
+        "pcm_bit_identical_cases": 84,
+        "scope": "7 rate pairs x mono/stereo x 128/517 frames x beginning/interior/truncated end; invalid layout/start and cancelled guard also pass"
+      },
+      "native_tests": {
+        "passed": 3,
+        "seconds": 235.548,
+        "retried": 0,
+        "log_sha256": "8981a0320176208fc743a4323267473bd4f70e1166d55e536ccafc277783a5f1"
+      },
+      "isolated_benchmark": {
+        "scope": "Isolated converter CPU on the same 48-kHz stereo synthetic WAV converted to 44.1 kHz, 24,000 frames each, one 5-pair run. Does not claim whole-DAW or FREQ improvement.",
+        "wall_seconds": 1.593,
+        "pairs": 5,
+        "pcm_bit_identical": true,
+        "scalar_median_cpu_ms": 137.226,
+        "shared_median_cpu_ms": 75.184,
+        "converter_cpu_reduction_percent": 45.21154883185402,
+        "wave_sha256": "c184aca89d08abe4ef5ee468cb20042c88fffc76adc9599af48b9997161d59e2",
+        "source_sha256": "16dae78c165627ebfbb9c139aafb3522ee45367ea1e0ed667d887ebbbfae1ad0",
+        "csv_sha256": "52c2e999c69709c76b1cee9c2939996538c6c8ddd64c922a8ec1c9386f1ed144"
+      },
+      "boundary": "Converter CPU only. This does not establish a reduction of whole-DAW steady-state CPU, FREQ compositing or the previous 25.76-point hidden-host difference."
+    },
+    "rejected_component_buffer": {
+      "scope": "Disposable whole-spectrum image-buffer probe; product source unchanged",
+      "cases": 2,
+      "logical_size": [
+        900,
+        600
+      ],
+      "dpi": 2,
+      "maximum_channel_difference": 2,
+      "changed_pixels": {
+        "absolute": 24187,
+        "delta": 42405
+      },
+      "adopted": false,
+      "reason": "Compositing changes text and thin-line pixels; preserve current presentation instead of accepting a new visual tolerance.",
+      "log_sha256": "c5440a9b71b46d684ccf0a6052e2efa5c743a4bd71fe1ac6a08412bc311e781a"
+    }
+  },
+  "six_second_history": {
+    "user_decision_date": "2026-10-09",
+    "preserve": "Six-second history moving into depth; measured values, history duration and presentation cadence remain unchanged during optimization."
+  }
+}

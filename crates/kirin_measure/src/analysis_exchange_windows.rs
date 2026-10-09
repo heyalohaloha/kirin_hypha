@@ -64,15 +64,20 @@ impl<const CAPACITY: usize> SharedSlot<CAPACITY> {
     }
 
     fn read(&self, maximum_bytes: u64) -> Option<Vec<u8>> {
+        self.read_prefix(CAPACITY, maximum_bytes)
+    }
+
+    fn read_prefix(&self, prefix_bytes: usize, maximum_bytes: u64) -> Option<Vec<u8>> {
         let limit = usize::try_from(maximum_bytes).ok()?.min(CAPACITY);
         // SAFETY: Claim::slot ties this reference to exclusive OS mutex ownership.
         let length = unsafe { *self.length.get() } as usize;
         if length == 0 || length > limit {
             return None;
         }
-        let mut bytes = vec![0; length];
+        let copied = length.min(prefix_bytes);
+        let mut bytes = vec![0; copied];
         unsafe {
-            ptr::copy_nonoverlapping(self.bytes.get().cast::<u8>(), bytes.as_mut_ptr(), length);
+            ptr::copy_nonoverlapping(self.bytes.get().cast::<u8>(), bytes.as_mut_ptr(), copied);
         }
         Some(bytes)
     }
@@ -236,6 +241,18 @@ enum SlotRef<'a> {
     LocalBlindArmed(&'a SharedSlot<LOCAL_BLIND_ARMED_CAPACITY>),
 }
 impl SlotRef<'_> {
+    fn read_prefix(&self, prefix_bytes: usize, maximum: u64) -> Option<Vec<u8>> {
+        match self {
+            Self::Request(s) => s.read_prefix(prefix_bytes, maximum),
+            Self::Ready(s) => s.read_prefix(prefix_bytes, maximum),
+            Self::Spectrum(s) => s.read_prefix(prefix_bytes, maximum),
+            Self::Perceptual(s) => s.read_prefix(prefix_bytes, maximum),
+            Self::Attack(s) => s.read_prefix(prefix_bytes, maximum),
+            Self::LocalBlindRequest(s) => s.read_prefix(prefix_bytes, maximum),
+            Self::LocalBlindArmed(s) => s.read_prefix(prefix_bytes, maximum),
+        }
+    }
+
     fn write(&self, bytes: &[u8]) -> io::Result<()> {
         match self {
             Self::Request(s) => s.write(bytes),
@@ -291,6 +308,16 @@ pub(super) fn write(instance_dir: &Path, slot: AnalysisSlot, bytes: &[u8]) -> io
 }
 pub(super) fn read(instance_dir: &Path, slot: AnalysisSlot, maximum_bytes: u64) -> Option<Vec<u8>> {
     mapping(instance_dir).ok()?.read(slot, maximum_bytes)
+}
+pub(super) fn read_prefix(
+    instance_dir: &Path,
+    slot: AnalysisSlot,
+    prefix_bytes: usize,
+    maximum_bytes: u64,
+) -> Option<Vec<u8>> {
+    let mapping = mapping(instance_dir).ok()?;
+    let claim = mapping.try_claim().ok()?;
+    claim.slot(slot).read_prefix(prefix_bytes, maximum_bytes)
 }
 pub(super) fn clear(instance_dir: &Path, slot: AnalysisSlot) -> io::Result<()> {
     mapping(instance_dir)?.write(slot, &[])

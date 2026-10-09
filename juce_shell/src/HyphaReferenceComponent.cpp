@@ -79,22 +79,22 @@ Component::Component()
     presetBox.onChange = [this]
     {
         const auto id = selectedOptionId (presetBox, current.presets);
-        if (id.isNotEmpty() && id != current.presetId && onSelectPreset) onSelectPreset (id);
+        if (id.isNotEmpty() && onSelectPreset) onSelectPreset (id);
     };
     checkBox.onChange = [this]
     {
         const auto id = selectedOptionId (checkBox, current.checks);
-        if (id.isNotEmpty() && id != current.checkId && onSelectCheck) onSelectCheck (id);
+        if (id.isNotEmpty() && onSelectCheck) onSelectCheck (id);
     };
     candidateBox.onChange = [this]
     {
         const auto id = selectedOptionId (candidateBox, current.candidates);
-        if (id.isNotEmpty() && id != current.candidateId && onSelectCandidate) onSelectCandidate (id);
+        if (id.isNotEmpty() && onSelectCandidate) onSelectCandidate (id);
     };
     cueBox.onChange = [this]
     {
         const auto id = selectedOptionId (cueBox, current.cues);
-        if (id.isNotEmpty() && id != current.cueId && onSelectCue) onSelectCue (id);
+        if (id.isNotEmpty() && onSelectCue) onSelectCue (id);
     };
     aButton.onClick = [this] { if (onSelectA) onSelectA(); };
     bButton.onClick = [this] { if (! openLarge (1) && ! explainUnavailable (true) && onSelectB) onSelectB(); };

@@ -53,6 +53,60 @@ Only the registry build-contract hash advances; material hashes, holds, rights e
 allowed uses retain their prior decisions. This is a bounded source review, not exact-payload
 linkage, new asset permission or release acceptance. Distribution-specific gates still apply.
 
+### 2026-10-08 DRUM/PSR G2 build-contract review
+
+Base: `eca0b87fd680737c64a8caefea56d2bc82a5c708` (B-1325). The uncommitted G2
+candidate adds original snapshot presentation sources and native test helpers through
+`HyphaSnapshotSources.cmake` and the existing source lists, plus the existing JUCE graphics
+module link for the Capture local-PNG fixture. The complete CMake difference, snapshot-source
+module and language-module registrations were inspected independently.
+The intermediate CMake hash `a351e73d90eba2f47720ca01a8260f9b0a7dbc2bfa67b137fdbbe44529ef37d0`
+was an asset-contract review, not final build acceptance. A subsequent native link failure
+identified the omitted TIME/Session source group in `KirinReferenceAuditionComponentTests`.
+After that registration was corrected, an independent static dependency audit checked every
+`HyphaObservatoryView.cpp` source list: five effective targets (PRE, POST, Reference Preview,
+UI Render and Reference Audition Component) include all four TIME/Session implementation
+sources. `HyphaSnapshotSource.cpp` belongs only to shipping PRE/POST, and those targets
+link the selected `KIRIN_FFI_LIB` with the existing Rust refresh dependency and native libraries.
+The reviewed snapshot-source module SHA-256 is
+`b894f112f83e462ff432aa134a70b599713950cb5eb13e5e3e16b5a676f04a63`.
+The 2,178-byte embedded resource/font declaration is byte-identical to the base; all three
+embedded PNG bytes and hashes and `ObservatoryMaterial.cmake` are unchanged. No asset, font,
+license, grant, hold or allowed-use decision changes. The reviewed B-1327 CMake SHA-256 is
+`da4fc4719057dfa19968f35da25ae399a134a18a674cdbcc00939714b17346af`.
+Only the registry build-contract hash advances. Static review evidence is retained as
+`cmake-snapshot-dependencies-final.log`, SHA-256
+`62a20323294393988bf9f3e3cdb2539deaf92583d373bc4e9ed2d589505cc105`.
+This bounded review does not certify native build/fixture execution, exact-payload linkage or
+release acceptance; actual build results and distribution-specific gates remain separate.
+
+### 2026-10-08 VU calibration fixture build-contract review
+
+Relative to B-1327, the only CMake change links the existing `juce::juce_cryptography`
+module into `KirinUiRenderContractTests` for the shared VU preference scope hash.
+The shipping targets already link this module. The full difference and the existing resource/font declarations were inspected;
+the declarations, all three embedded PNGs and
+`ObservatoryMaterial.cmake` remain byte-identical to B-1325. The DRUM stage reuses
+the existing material raster and adds no resource. The current reviewed CMake SHA-256 is
+`d69822641db867e712674ce1cb539c2468b3448438df3fc2139cc1f999cb9e61`. Only the registry's build-contract hash
+advances. Existing material permissions, holds, licenses and allowed uses are retained;
+this source review does not certify actual payload linkage or release acceptance.
+
+### 2026-10-09 Windows native UTF-8 build-contract review
+
+Base: `f422c08ed42e9f3825cb112c7072a5a5e1e79f0c` (B-1350). The implementation session
+inspected the complete CMake difference: three added lines apply the already-defined source
+encoding options to every owned target. MSVC uses the existing `/utf-8`; other compilers
+receive no additional option. This repairs CP932 interpretation of Japanese native-test source
+without changing embedded resources, font selection or shipping audio behavior.
+Removing those three lines gives the exact base CMake bytes. The 1,109-byte resource/font
+assembly block, all three embedded PNG bytes/hashes and `ObservatoryMaterial.cmake` are
+byte-identical to the base. The reviewed CMake SHA-256 is
+`25e757cfbb52262328ccb95536d5760dc00d81f5a9205133323c3b1d8b87d278`.
+Only the registry build-contract hash advances; material permissions, holds, licenses and allowed
+uses retain their prior decisions. This source/material audit does not certify actual payload
+linkage, independent PR review, formal signing or release acceptance; those gates remain.
+
 Public CI continues the complete build/test matrix but suppresses new Windows UI/binary/installer/
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked
 separately from binary use. Diagnostic CI also lacks verified actual-payload NOTICE/source delivery,

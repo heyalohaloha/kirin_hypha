@@ -49,6 +49,8 @@ void View::setLevelObservation (const KirinLevelSnapshot* packet,
     }
     if (fallback == nullptr || fallback->version != KIRIN_OBSERVATORY_FRAME_VERSION)
         return;
+    if (timePresentation.observeInput (fallback->signal_state == KIRIN_SIGNAL_STATE_ACTIVE))
+        repaint (bodyArea);
     const bool changedSession = ! frameAvailable
         || ! sameMeterSession (observatoryFrame.meter, fallback->meter)
         || fallback->meter.state == KIRIN_METER_SESSION_EMPTY;
@@ -142,6 +144,7 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
         ? KIRIN_SIGNAL_STATE_ACTIVE : KIRIN_SIGNAL_STATE_INACTIVE;
     const auto elapsed = value.sample_rate > 0
         ? static_cast<double> (value.active_frames) / static_cast<double> (value.sample_rate) : 0.0;
+    timePresentation.observeInput (observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_ACTIVE);
     observatoryFrame.lra_elapsed_seconds = elapsed;
     observatoryFrame.lra_state = value.state == KIRIN_METER_SESSION_EMPTY
         ? KIRIN_LRA_UNAVAILABLE
@@ -171,6 +174,8 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
 {
     if (! available || value.version != KIRIN_OBSERVATORY_FRAME_VERSION)
         return;
+    if (timePresentation.observeInput (value.signal_state == KIRIN_SIGNAL_STATE_ACTIVE))
+        repaint (bodyArea);
     // This is the entry point the plug-in uses. Anything a snapshot has to be stored into has to
     // be stored here, not only in setMeterSnapshot, which nothing but tests calls.
     const bool storedMono = monoSumHistory.append (value.meter);
@@ -184,6 +189,10 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
     const bool historyIdentityChanged = observatoryFrame.meter.generation != value.meter.generation
         || observatoryFrame.meter.measurement_epoch != value.meter.measurement_epoch
         || observatoryFrame.meter.state != value.meter.state;
+    if (frameAvailable && ! sameMeterSession (observatoryFrame.meter, value.meter))
+        retireTimePresentation (true);
+    else if (frameAvailable && observatoryFrame.comparison_identity != value.comparison_identity)
+        retireTimePresentation (false);
     observatoryFrame = value;
     frameAvailable = true;
     if (chainSnapshotAvailable && ! chainPoints.empty()
@@ -218,7 +227,9 @@ void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
 
 bool View::recordDisplayShowing() const noexcept
 {
-    if (! recordDisplayAvailable)
+    // Keep completion lives on the footer. LEVEL is the existing result inspection page;
+    // TIME/FREQ/SPACE keep their selected measurement and navigation.
+    if (! recordDisplayAvailable || selectedDomain != Domain::level)
         return false;
     return recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
         || recordDisplay.phase == KIRIN_RECORD_DISPLAY_RESULT_HOLD

@@ -17,6 +17,8 @@ inline juce::String statusText (uint8_t state, uint8_t reason)
             return state == KIRIN_COMPARISON_STATE_HOLDING
                 ? juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — HOLDING MATCHED Δ")
                 : juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — WAITING FOR MATCHED DATA");
+        case KIRIN_COMPARISON_REASON_LOCAL_INACTIVE:
+            return juce::CharPointer_UTF8 ("POST STOPPED — COMPARISON UPDATE PENDING");
         case KIRIN_COMPARISON_REASON_PRE_BYPASSED:
             return juce::CharPointer_UTF8 ("PRE IS OFF — ENABLE PRE TO COMPARE");
         case KIRIN_COMPARISON_REASON_PRE_INACTIVE:
@@ -44,6 +46,7 @@ inline bool notifiesExplicitAction (uint8_t state, uint8_t reason) noexcept
         return false;
     return reason != KIRIN_COMPARISON_REASON_NONE
         && reason != KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT
-        && reason != KIRIN_COMPARISON_REASON_STALE;
+        && reason != KIRIN_COMPARISON_REASON_STALE
+        && reason != KIRIN_COMPARISON_REASON_LOCAL_INACTIVE;
 }
 }

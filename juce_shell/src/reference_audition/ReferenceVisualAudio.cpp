@@ -1,5 +1,7 @@
 #include "ReferenceVisualAudio.h"
 #include <cmath>
+#include <array>
+#include <unordered_map>
 namespace hypha::reference_audition
 {
 bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pageStart,
@@ -30,45 +32,65 @@ bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pag
                                               readStart, true, channels > 1))
             return false;
 
+    using Weights = std::array<double, halfTaps * 2>;
     const auto convert = [&] {
         const double cutoff = juce::jmin (1.0, outputSampleRate / sourceSampleRate) * 0.94;
+        // This non-RT job owns at most 512 exact phases (about 200 KiB), then computes
+        // uncached phases normally. No rounding, persistent cache or rate/source sharing.
+        std::unordered_map<double, Weights> phases;
+        phases.reserve (128);
         for (int outputFrame = 0; outputFrame < framesPerPage; ++outputFrame)
         {
             const double position = static_cast<double> (pageStart + outputFrame) * ratio;
             const auto center = static_cast<std::int64_t> (std::floor (position));
-            for (int channel = 0; channel < channels; ++channel)
+            if (center - halfTaps + 1 >= reader.lengthInSamples)
             {
-                double weighted = 0.0;
-                double weightSum = 0.0;
+                for (int channel = 0; channel < channels; ++channel) output.setSample (channel, outputFrame, 0.0f);
+                continue; // The original tap loop has no source sample here and outputs exact zero.
+            }
+            const auto phase = position - static_cast<double> (center);
+            const auto found = phases.find (phase);
+            Weights uncached {};
+            const Weights* weights = found != phases.end() ? &found->second : nullptr;
+            if (weights == nullptr)
+            {
                 for (int tap = -halfTaps + 1; tap <= halfTaps; ++tap)
                 {
-                    const auto sourceFrame = center + tap;
-                    if (sourceFrame < 0 || sourceFrame >= reader.lengthInSamples)
-                        continue;
-                    const double distance = position - static_cast<double> (sourceFrame);
+                    const double distance = position - static_cast<double> (center + tap);
                     const double scaled = juce::MathConstants<double>::pi * cutoff * distance;
                     const double sinc = std::abs (scaled) < 1.0e-12
                         ? cutoff : cutoff * std::sin (scaled) / scaled;
                     const double normalizedDistance = distance / static_cast<double> (halfTaps);
                     const double window = std::abs (normalizedDistance) >= 1.0
                         ? 0.0
-                        : 0.42 + 0.5 * std::cos (juce::MathConstants<double>::pi
-                                                * normalizedDistance)
-                               + 0.08 * std::cos (juce::MathConstants<double>::twoPi
-                                                 * normalizedDistance);
-                    const double weight = sinc * window;
-                    const auto inputOffset = sourceFrame - readStart;
-                    if (inputOffset >= 0 && inputOffset < readFrames)
-                    {
-                        weighted += conversionInput.getSample (
-                            channel, static_cast<int> (inputOffset)) * weight;
-                        weightSum += weight;
-                    }
+                        : 0.42 + 0.5 * std::cos (juce::MathConstants<double>::pi * normalizedDistance)
+                               + 0.08 * std::cos (juce::MathConstants<double>::twoPi * normalizedDistance);
+                    uncached[static_cast<size_t> (tap + halfTaps - 1)] = sinc * window;
                 }
-                output.setSample (channel, outputFrame,
-                                      static_cast<float> (weightSum == 0.0
-                                          ? 0.0 : weighted / weightSum));
+                weights = phases.size() < 512u ? &phases.emplace (phase, uncached).first->second : &uncached;
             }
+            // The source position and sinc/window coefficients are shared by both channels.
+            // Accumulate each channel in the original tap order, preserving the exact PCM.
+            double weighted[2] { 0.0, 0.0 };
+            double weightSum = 0.0;
+            for (int tap = -halfTaps + 1; tap <= halfTaps; ++tap)
+            {
+                const auto sourceFrame = center + tap;
+                if (sourceFrame < 0 || sourceFrame >= reader.lengthInSamples)
+                    continue;
+                const double weight = (*weights)[static_cast<size_t> (tap + halfTaps - 1)];
+                const auto inputOffset = sourceFrame - readStart;
+                if (inputOffset >= 0 && inputOffset < readFrames)
+                {
+                    for (int channel = 0; channel < channels; ++channel)
+                        weighted[channel] += conversionInput.getSample (
+                            channel, static_cast<int> (inputOffset)) * weight;
+                    weightSum += weight;
+                }
+            }
+            for (int channel = 0; channel < channels; ++channel)
+                output.setSample (channel, outputFrame, static_cast<float> (
+                    weightSum == 0.0 ? 0.0 : weighted[channel] / weightSum));
         }
     };
     if (conversionGuard) return conversionGuard (convert);

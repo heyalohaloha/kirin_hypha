@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaSnapshotSource.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 namespace
@@ -29,7 +30,16 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
         configureSpectrumAnalysis();
     };
     // The DRUM band is the view's own state; the engine follows it and PRE follows the engine.
-    attackView.onBandChange = [this] (std::uint8_t band) { processorRef.setAttackBand (band); };
+    attackView.onBandChange = [this] (std::uint8_t band) {
+        nextDrumSummaryMs = 0.0;
+        processorRef.setAttackBand (band);
+    };
+    attackView.singleRequestSource = [this] (const KirinAttackSingleV2Request& request, std::uint64_t& token) {
+        return hypha::snapshots::Source (processorRef).requestSingle (request, token);
+    };
+    attackView.singleCancelSource = [this] (std::uint64_t token) {
+        hypha::snapshots::Source (processorRef).cancelSingle (token);
+    };
     attackView.bandEnvelopeSource = [this] (std::int64_t sample, KirinAttackBandHitEnvelope& out)
     { return processorRef.pollAttackBandEnvelope (sample, out); };
 }
@@ -45,6 +55,8 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
+    attackView.retireV2();
+    nextDrumSummaryMs = 0.0;
     attackView.clearSnapshot();
     cachedAttackEvents = {};
     cachedAttackWaveform = {};
@@ -60,7 +72,10 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     analysisPage = page;
     // A reopened editor starts at ALL while the engine may still hold an earlier choice.
     if (page == AnalysisPage::attack)
+    {
+        attackView.beginSnapshotV2();
         processorRef.setAttackBand (attackView.band());
+    }
     sharpnessUsesAbsolute = page == AnalysisPage::perceptual
         && processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED;
     absoluteView.setSharpnessOnly (sharpnessUsesAbsolute);
@@ -198,61 +213,7 @@ bool KirinHyphaEditor::refreshAnalysisViews (
     };
     if (analysisPage == AnalysisPage::attack)
     {
-        KirinAttackStats stats {};
-        const bool statsReady = processorRef.attackStats (stats);
-        if (statsReady)
-            cachedAttackStats = stats;
-
-        KirinAttackBatch raw {};
-        if (processorRef.pollAttackBatch (raw))
-        {
-            if (raw.count > 0)
-            {
-                const auto count = juce::jmin (
-                    raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
-                const auto& newest = raw.frames[count - 1];
-                cachedAttackLatest = newest.support_end_samples;
-                cachedAttackRate = newest.sample_rate;
-                cachedAttackGeneration = newest.generation;
-            }
-            else if (cachedAttackLatest >= 0)
-            {
-                cachedAttackLatest = -1;
-                cachedAttackRate = 0;
-                cachedAttackGeneration = 0;
-            }
-        }
-        // Event detail is published after its raw endpoint. Poll every bounded presentation tick;
-        // endpoint-only gating loses late detail whenever transport stops on that endpoint.
-        {
-            KirinAttackEventBatch events {};
-            KirinAttackWaveformBatch waveform {}, preWaveform {};
-            KirinAttackDetailBatch details {}, preDetails {};
-            KirinAttackPairEventBatch pairEvents {};
-            if (processorRef.pollAttackEvents (events)) cachedAttackEvents = events;
-            if (processorRef.pollAttackWaveform (waveform)) cachedAttackWaveform = waveform;
-            if (processorRef.pollAttackDetails (details)) cachedAttackDetails = details;
-            if (processorRef.pollAttackPreWaveform (preWaveform))
-                cachedAttackPreWaveform = preWaveform;
-            if (processorRef.pollAttackPreDetails (preDetails))
-                cachedAttackPreDetails = preDetails;
-            if (processorRef.pollAttackPairEvents (pairEvents))
-                cachedAttackPairEvents = pairEvents;
-        }
-        attackView.setSnapshot (
-                cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
-                cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
-                cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
-        if (attackView.band() != 0)
-        {
-            // The band's hits follow the snapshot; a failed poll keeps the last delivered batch.
-            processorRef.pollAttackBand (cachedAttackBand);
-            attackView.setBandSnapshot (cachedAttackBand);
-            processorRef.pollAttackBandSummary (cachedAttackBandSummary);
-            attackView.setBandSummary (cachedAttackBandSummary);
-        }
-        observatoryView.setAttackPaired (attackView.pairedObservation());
-        attackView.presentationTick (liveInput);
+        refreshDrumSnapshots (liveInput);
         updateLed();
         return true;
     }

@@ -188,9 +188,8 @@ pub use meter_history::{
     MeterHistoryAux, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
     HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, METER_HISTORY_CHANNELS,
 };
-pub use meter_session::{
-    MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,
-};
+mod meter_session_public;
+pub use meter_session_public::*;
 pub use pair_claim_index::{
     live_claim_owned_by_other, pair_claim_is_live, pair_claim_is_owned,
     pair_claim_owned_by_other_post, publish_pair_claim, read_pair_claim, release_pair_claim,
