@@ -115,10 +115,22 @@ fn every_level_authority_lock_contention_retains_the_callers_holding_frame() {
 }
 
 #[test]
-fn stop_waits_for_the_holding_publication_without_publishing_measuring() {
+fn stop_publishes_local_facts_before_the_io_holding_publication() {
     let engine = fixture();
     engine.set_signal_state(0);
-    assert_busy(&engine);
+    let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
+    assert!(poll(&engine, &mut packet));
+    assert_eq!(packet.frame.signal_state, KIRIN_SIGNAL_STATE_INACTIVE);
+    assert_eq!(
+        packet.frame.comparison_reason,
+        KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+    );
+    assert_eq!(
+        packet.frame.comparison_state,
+        KIRIN_COMPARISON_STATE_REJECTED
+    );
+    assert_eq!(packet.frame.delta_available, 0);
+    assert!(packet.frame.delta.lufs.is_nan());
     {
         let mut delta = engine.delta_result.lock().unwrap();
         delta.mode = DeltaMode::Stale;
@@ -139,6 +151,82 @@ fn stop_waits_for_the_holding_publication_without_publishing_measuring() {
         packet.frame.comparison_reason,
         KIRIN_COMPARISON_REASON_STALE
     );
+}
+
+#[test]
+fn stopped_absolute_frames_survive_io_unavailability_and_delta_lock_contention() {
+    let engine = fixture();
+    let input: Vec<_> = (0..192_000)
+        .flat_map(|n| {
+            let sample = 0.1 * (std::f64::consts::TAU * 997.0 * n as f64 / 48_000.0).sin();
+            [sample, sample]
+        })
+        .collect();
+    let snapshot = {
+        let mut session = engine.meter_session.as_ref().unwrap().lock().unwrap();
+        session.push_active(&input);
+        session.snapshot()
+    };
+    assert!(snapshot.current.lufs_m.is_some());
+    engine
+        .meter_session_publication
+        .as_ref()
+        .unwrap()
+        .publish(snapshot.clone());
+    for signal in [KIRIN_SIGNAL_STATE_INACTIVE, KIRIN_SIGNAL_STATE_BYPASSED] {
+        engine.set_signal_state(signal);
+        for busy in [false, true] {
+            let _io_busy = busy.then(|| engine.delta_result.lock().unwrap());
+            for _ in 0..4 {
+                let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
+                assert!(poll(&engine, &mut packet));
+                let mut frame = retained_frame();
+                assert!(unsafe {
+                    kirin_hypha_poll_observatory_frame(&engine as *const _ as *mut _, &mut frame)
+                });
+                for frame in [&packet.frame, &frame] {
+                    assert_eq!(frame.signal_state, signal);
+                    assert_eq!(
+                        frame.comparison_reason,
+                        KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+                    );
+                    assert_eq!(frame.delta_available, 0);
+                    assert!(frame.delta.lufs.is_nan());
+                    assert_eq!(frame.meter.active_frames, snapshot.active_frames);
+                    assert_eq!(frame.meter.observed_frames, snapshot.observed_frames);
+                    assert_eq!(frame.meter.lufs_m, snapshot.current.lufs_m.unwrap());
+                    assert_eq!(
+                        frame.meter.max_true_peak,
+                        snapshot.summary.max_true_peak.unwrap()
+                    );
+                }
+            }
+        }
+    }
+    engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
+    let paused = {
+        let mut session = engine.meter_session.as_ref().unwrap().lock().unwrap();
+        session.pause();
+        session.snapshot()
+    };
+    engine
+        .meter_session_publication
+        .as_ref()
+        .unwrap()
+        .publish(paused);
+    let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
+    assert!(poll(&engine, &mut packet));
+    assert_eq!(packet.frame.signal_state, KIRIN_SIGNAL_STATE_INACTIVE);
+    assert_eq!(
+        packet.frame.comparison_reason,
+        KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+    );
+    let mut frame = retained_frame();
+    assert!(unsafe {
+        kirin_hypha_poll_observatory_frame(&engine as *const _ as *mut _, &mut frame)
+    });
+    assert_eq!(frame.signal_state, KIRIN_SIGNAL_STATE_INACTIVE);
+    assert_eq!(frame.meter.lufs_m, snapshot.current.lufs_m.unwrap());
 }
 
 #[test]

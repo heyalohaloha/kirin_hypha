@@ -79,7 +79,8 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
             const auto& raw = p.single->lanes[i];
             if (raw.has_interval) line (words ("Raw interval ", u8"元区間 ") + rawInterval (raw.interval));
             const auto reason = reasonText (lane.reason, true);
-            line ((reason.isEmpty() ? juce::String {} : reason + " / ") + finishText (raw.finish));
+            const auto finish = finishText (raw.finish);
+            line (reason.isEmpty() || reason == finish ? finish : reason + " / " + finish);
             line (words ("Requested ", u8"要求窓 ") + juce::String (raw.requested_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.requested_end));
             line (words ("Measured ", u8"実測窓 ") + juce::String (raw.actual_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.actual_end));
         }

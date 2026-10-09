@@ -63,3 +63,11 @@ ARM実DAW、Windows AAX/PDC、全Reference/Blind/Exact/Capture/Record往復、�
 - READMEの機能説明と画像captionは利用者の操作・計測の言葉で記述する。release担当が扱うcurrent v1.1.50とAAX受入の記述は変更しない。
 
 レビューの記録のみ（今回の修正外）：VU基準はローカル設定fileに残り、別PCで設定が無ければ通知なく既定−18になる。Session I／LRAのexact cacheは65,536 distinct nodesが上限で、約55分相当以後にはMeasure threadのcanonical全体再計算へ戻り得る。spectrum ingressの実装はatomicのみだが、xtaskのRT guard対象には含まれていない。これらを解消済みとは報告しない。
+
+## B-1356レビューの停止表示とFacts
+
+停止時のLEVEL／observatory frameはAudioの非ActiveとMeasureのPausedから公開し、IOの停止publicationを待たない。IO比較がActiveのまま／取得mutexがbusyでも絶対値・実framesは停止中として保持し、未確認Δには既存statusでLOCAL_INACTIVE（停止中・比較更新待ち）を表示する。再生中のbusyは出力不変、IOの正常HOLDINGは既存理由を保持する。Audio／Record／serialized出力は変更せず、instance directoryをfileで塞いだ失敗→復旧、IO不在・busy・両停止authority、正常再開を試験する。
+
+FactsのAudio endedはfinish／reasonとも「入力終了」。同じ意味のfinishとreasonが同じ行に重なるときは1回だけ描く。異なる理由や内訳は保持する。
+
+記録のみ（修正外）：Session V2 pollがbusyの後に新しいobservatory frameが届くと、coverageがそのframeへ追いつくまで未確認prefixとしてPLRが一度欠測になる場合がある。正常の10ms端数とcoverage取得競合の区別は別の未処理項目とし、今回解消済みとは報告しない。

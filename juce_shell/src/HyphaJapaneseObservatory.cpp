@@ -101,6 +101,7 @@ const Entry entries[] = {
     { u8"MATCHED PAIR — MEASURING", u8"ペア一致 — 計測中" },
     { u8"PRE UPDATE DELAYED — HOLDING MATCHED Δ", u8"PRE更新待ち — 一致したΔを保持" },
     { u8"PRE UPDATE DELAYED — WAITING FOR MATCHED DATA", u8"PRE更新待ち — 一致データを待機中" },
+    { u8"POST STOPPED — COMPARISON UPDATE PENDING", u8"POST停止中 — 比較更新待ち" },
     { u8"PRE IS OFF — ENABLE PRE TO COMPARE", u8"PREがオフ — PREを有効にして比較" },
     { u8"PRE INACTIVE — START PLAYBACK", u8"PRE入力なし — 再生してください" },
     { u8"CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS", u8"チャンネル構成の不一致 — バスを揃えてください" },

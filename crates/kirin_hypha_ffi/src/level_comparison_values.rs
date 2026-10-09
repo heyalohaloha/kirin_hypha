@@ -17,7 +17,7 @@ pub(crate) fn level_values(
     };
     let before = authority(engine).ok_or(LevelBusy)?;
     if before.signal != KIRIN_SIGNAL_STATE_ACTIVE {
-        return Err(LevelBusy); // Await the IO-side stopped/holding comparison frame.
+        return Err(LevelBusy); // A stop raced an active acquisition; retry the local projection.
     }
     let Some(view) = exchange
         .time_comparison(

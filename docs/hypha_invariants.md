@@ -367,6 +367,6 @@ Hybrid VUの校正（2026-10-08利用者承認）: `0 VU = −18 dBFS`は−12�
 
 FREQのlocal-only時計境界: 有効なproducer sample clockがあるPOSTの絶対Spectrumは、optional output latencyが不明でも取得する。clock authorityはprivate SnapshotIdentityで世代・選択と一体に検証し、local-only PREを公開・差分joinしない。既知／未知とsource／latencyの変化では旧frameと旧Δ leaseを退役し、同じendpointでも混ぜない。foreign request fileやtry-lock競合は消去理由にせず、既存stream counterの容量、public frame／codec／ABI、音声・Recordを保持する。`spectrum_runtime_clock_tests`、`spectrum_exchange_clock_tests`、`spectrum_clock_abi_tests`で確認する。
 
-LEVEL/TIMEのoptional presentation latency未報告はcurrent Δの拒否理由としない。双方の同runの実frame窓（400ms／3秒）、source／pair authority、元slot期限は維持する。LEVEL取得のbusyは出力不変で直前の整合したHOLDING値を保持し、実データ欠測と区別する。
+LEVEL/TIMEのoptional presentation latency未報告はcurrent Δの拒否理由としない。双方の同runの実frame窓（400ms／3秒）、source／pair authority、元slot期限は維持する。再生中のLEVEL取得のbusyは出力不変で直前の整合したHOLDING値を保持し、実データ欠測と区別する。Audioの非ActiveまたはMeasureのPausedはIOとは独立した停止事実とし、IO比較がActiveのまま／取得不能でも絶対frameを停止中として公開する。その間の未確認Δは表示せず、既存statusにLOCAL_INACTIVE（停止中・比較更新待ち）の理由を出す。IOの保持publicationが届けば既存理由へ戻す。内部IO障害のtoastや保存出力の変更は行わない。
 Capture v1のTIME typed metadata制限はHISTORY/PSRとDRUMのみ。RUN／SHARP／LIVEへSession未処理尾の制限を波及させない。
 非表示editorのAUTOは停止し、承認済みgainを保持して再表示後にfooterで通知する。先行する操作通知は上書きしない。再表示から自動再開しない。Keep／Capture Work添付のeditor通知も再表示後に消費する。Factsのfinishは英日で意味を示し、enum生値や全体値がないlaneのWhole件数は描かない。

@@ -77,7 +77,7 @@ bool intervalContracts()
 bool evidenceLanguageContracts()
 {
     const std::array<const char*, 5> english { "Acquiring", "Complete", "Audio ended", "Not retained", "Retired" };
-    const std::array<const char*, 5> japanese { u8"取得中", u8"完了", u8"音声終端", u8"保持外", u8"退役" };
+    const std::array<const char*, 5> japanese { u8"取得中", u8"完了", u8"入力終了", u8"保持外", u8"退役" };
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
@@ -88,18 +88,28 @@ bool evidenceLanguageContracts()
             Presentation p; p.header.band = 5;
             auto raw = std::make_shared<KirinAttackSingleSnapshotV2>();
             raw->lanes[0].finish = finish; p.single = raw;
+            p.lanes[0].reason = finish == KIRIN_FINISH_AUDIO_END ? KIRIN_REASON_AUDIO_END : KIRIN_REASON_NONE;
             p.lanes[0].count = 8; p.lanes[0].scope = Scope::wholePoint;
             Q (scopeText (p.lanes[0], true).isEmpty());
             juce::Image image (juce::Image::ARGB, 900, 600, true);
             juce::Graphics g (image); text_style::ShownTextLog log;
             paintEvidence (g, p, image.getBounds(), presentation::forEditor (900, 600), 0);
             Q (log.texts().contains (expected));
+            Q (finishText (KIRIN_FINISH_AUDIO_END) == reasonText (KIRIN_REASON_AUDIO_END, true));
             for (const auto& text : log.texts())
+            {
                 Q (! text.contains ("finish ") && ! text.contains ("Whole 8") && ! text.contains (juce::String::fromUTF8 (u8"全8打")));
+                Q (! text.contains ("Audio ended / Audio ended")
+                    && ! text.contains (juce::String::fromUTF8 (u8"入力終了 / 入力終了"))
+                    && ! text.contains (juce::String::fromUTF8 (u8"音声終端")));
+            }
             p.lanes[0].number.valid = true;
             Q (scopeText (p.lanes[0], true).isNotEmpty());
             p.lanes[0].scope = Scope::noScalar;
             Q (scopeText (p.lanes[0], true).isEmpty());
+            p.lanes[0].reason = KIRIN_REASON_NEXT_HIT;
+            paintEvidence (g, p, image.getBounds(), presentation::forEditor (900, 600), 0);
+            Q (log.texts().contains (reasonText (KIRIN_REASON_NEXT_HIT, true) + " / " + expected));
         }
     }
     return true;

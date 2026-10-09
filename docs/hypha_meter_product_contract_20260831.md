@@ -775,5 +775,5 @@ Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合
 
 2026-10-09の性能修正では、非RTの参照音源rate変換で左右共通係数の重複計算だけを除く。出力PCM、測定値、操作、針や曲線の応答は保持する。FREQの6秒履歴が奥へ流れる表現と表示cadenceを維持し、単体converterの改善を実DAW全体の性能受入へ読み替えない。根拠は[G3 receipt](planning/hypha_drum_psr_g3_20261008/validation-receipt.json)。
 
-LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。try-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。
+LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。再生中のtry-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。停止事実はAudio／Measure側から出し、IO比較の更新が遅れたり取得できなくてもLEVEL／observatoryの絶対frameを止めない。値の範囲・精度を保ち停止中として表示し、その間のΔには「POST停止中 — 比較更新待ち」の理由を出す。IOの保持publicationが届いた後は既存のHOLDING表示を使う。
 非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。

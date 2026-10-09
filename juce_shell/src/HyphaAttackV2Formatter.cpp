@@ -36,7 +36,7 @@ juce::String finishText (std::uint8_t finish)
     {
         case KIRIN_FINISH_ACQUIRING: return words ("Acquiring", u8"取得中");
         case KIRIN_FINISH_FULL: return words ("Complete", u8"完了");
-        case KIRIN_FINISH_AUDIO_END: return words ("Audio ended", u8"音声終端");
+        case KIRIN_FINISH_AUDIO_END: return words ("Audio ended", u8"入力終了");
         case KIRIN_FINISH_NOT_KEPT: return words ("Not retained", u8"保持外");
         case KIRIN_FINISH_RETIRED: return words ("Retired", u8"退役");
         default: return words ("Unavailable", u8"未取得");

@@ -56,6 +56,14 @@ void verify()
         ! comparison_presentation::notifiesExplicitAction (
             KIRIN_COMPARISON_STATE_HOLDING,
             KIRIN_COMPARISON_REASON_STALE));
+    KIRIN_COMPARISON_REQUIRE (
+        comparison_presentation::statusText (
+            KIRIN_COMPARISON_STATE_REJECTED,
+            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE).contains ("COMPARISON UPDATE PENDING"));
+    KIRIN_COMPARISON_REQUIRE (
+        ! comparison_presentation::notifiesExplicitAction (
+            KIRIN_COMPARISON_STATE_REJECTED,
+            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE));
 
     observatory::View post (observatory::Role::post);
     post.setSize (300, 200);
@@ -105,5 +113,22 @@ void verify()
     }
     post.setRecordDisplay ({}, false);
     KIRIN_COMPARISON_REQUIRE (! post.recordDisplayShowingForTest());
+    KirinObservatoryFrame stopped {};
+    stopped.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+    stopped.signal_state = KIRIN_SIGNAL_STATE_INACTIVE;
+    stopped.meter.state = KIRIN_METER_SESSION_ACTIVE; // The Audio stop can precede Measure publication.
+    stopped.meter.active_frames = stopped.meter.observed_frames = 192000;
+    stopped.meter.sample_rate = 48000;
+    stopped.meter.lufs_m = -18.2;
+    stopped.meter.lufs_i = -18.4;
+    stopped.meter.max_true_peak = -9.1;
+    stopped.comparison_state = KIRIN_COMPARISON_STATE_REJECTED;
+    stopped.comparison_reason = KIRIN_COMPARISON_REASON_LOCAL_INACTIVE;
+    post.setTarget (observatory::ObservationTarget::absolute);
+    post.setObservatoryFrame (stopped, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "HOLD");
+    stopped.signal_state = KIRIN_SIGNAL_STATE_BYPASSED;
+    post.setObservatoryFrame (stopped, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "BYPASSED");
 }
 }

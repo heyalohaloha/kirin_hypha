@@ -87,6 +87,59 @@ fn bypassed_clears_even_when_pair_is_selected() {
     assert!(r.last_active.is_none());
 }
 
+#[test]
+fn blocked_instance_directory_leaves_io_delta_active_until_storage_recovers() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    let instance_dir = root.join("post-instance");
+    fs::write(&instance_dir, b"owned directory blocker").unwrap();
+    let post_file = instance_dir.join("post.json");
+    let post_result = Arc::new(Mutex::new(MeasureResult::default()));
+    let delta_result = Arc::new(Mutex::new(active_delta_fixture()));
+    let signal = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
+    let latched = Mutex::new(None);
+    let run = || {
+        run_tick(
+            root,
+            root,
+            &mut PostDiscoveryState::new(),
+            &instance_dir,
+            &post_file,
+            "post-instance",
+            "owner",
+            &post_result,
+            &crate::plugin_data::MeasurementLayout::new(
+                crate::channel_layout::ChannelLayout::stereo(),
+            ),
+            &delta_result,
+            &signal,
+            "mix",
+            12.5,
+            0,
+            None,
+            "project",
+            "daw",
+            false,
+            &latched,
+            false,
+        )
+    };
+    for _ in 0..3 {
+        assert!(run().unwrap_err().starts_with("create_dir_all:"));
+        let delta = delta_result.lock().unwrap();
+        assert_eq!(delta.mode, DeltaMode::Active);
+        assert_eq!(delta.lufs, Some(1.0));
+        assert!(!post_file.exists());
+    }
+    fs::remove_file(&instance_dir).unwrap();
+    run().unwrap();
+    let delta = delta_result.lock().unwrap();
+    assert_eq!(delta.mode, DeltaMode::Stale);
+    assert_eq!(delta.comparison.state, crate::ComparisonState::Holding);
+    assert_eq!(delta.comparison.reason, crate::ComparisonReason::Stale);
+    assert!(post_file.is_file());
+}
+
 fn active_delta_fixture() -> DeltaResult {
     DeltaResult {
         mode: DeltaMode::Active,
