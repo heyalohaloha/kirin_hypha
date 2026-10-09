@@ -73,6 +73,7 @@ void KirinHyphaEditor::chooseLiveCompareFollow()
                 if (result == 3)
                 {
                     safe->liveCompareAuto.on = true;
+                    safe->liveCompareAuto.hiddenStopNoticePending = false;
                     safe->liveCompareAuto.nextAt = safe->nowSecs() + hypha::live_compare::followIntervalSeconds;
                 }
                 safe->showToast (result == 3 ? "AUTO on: within 0.5 dB" : "AUTO off");

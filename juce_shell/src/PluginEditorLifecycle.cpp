@@ -75,16 +75,23 @@ void KirinHyphaEditor::timerCallback()
     else        updatePre();
     refreshObservatory();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (isPost) refreshLiveCompare();
+    const bool liveFault = isPost && refreshLiveCompare();
    #endif
     refreshPairPreview (false);
     updateHelpLine();
     refreshUpdateChecking();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (isPost && liveCompareAuto.hiddenStopNoticePending && toastText.isEmpty())
+    if (isPost && liveCompareAuto.hiddenStopNoticePending)
     {
-        liveCompareAuto.hiddenStopNoticePending = false;
-        showToast ("AUTO stopped: editor hidden");
+        // A queued notice describes this still-active, still-stopped AUTO. A newer action,
+        // interruption or completed session supersedes it while another toast has priority.
+        if (liveFault || ! liveCompareActiveSeen || liveCompareAuto.on)
+            liveCompareAuto.hiddenStopNoticePending = false;
+        else if (toastText.isEmpty())
+        {
+            liveCompareAuto.hiddenStopNoticePending = false;
+            showToast ("AUTO stopped: editor hidden");
+        }
     }
    #endif
 }

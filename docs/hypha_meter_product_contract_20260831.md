@@ -779,3 +779,5 @@ Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合
 
 LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。再生中のtry-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。停止事実はAudio／Measure側から出し、IO比較の更新が遅れたり取得できなくてもLEVEL／observatoryの絶対frameを止めない。値の範囲・精度を保ち停止中として表示し、その間のΔには「POST停止中 — 比較更新待ち」の理由を出す。IOの保持publicationが届いた後は既存のHOLDING表示を使う。
 非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。
+
+AUTOの非表示停止通知は、同じ比較が存続しAUTOが停止したままの場合だけ、先行する操作通知の後に一度示す。通知待ちの間に明示AUTO再開・新しい中断・比較終了があれば古い通知を破棄し、現在のAUTOや通常計測を停止中と誤表示しない。承認gainと現在の安全性の案内は維持する。

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorProductChecks.h"
+#include "EditorHiddenAutoCheck.h"
 #include "LiveTimingFixtureAccess.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include <chrono>
@@ -223,14 +224,53 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.expectOrdinaryAudio = false;
     r.advance (0.6); r.post->selectLiveComparePre (true); r.advance (1.0);
     require (r.post->liveCompareStatus().active && r.post->liveCompareStatus().preAudible, "verified PRE is audible");
+    r.advance (3.2);
+    r.view().onLiveCompareMatch(); r.advance (0.2);
+    require (r.post->liveCompareStatus().matched, "actual MATCH qualifies the AUTO notice session");
+    // A retained editor whose parent is hidden differs from its own visibilityChanged(), which
+    // ends LISTEN immediately. Exercise the native ancestor/peer path used by hidden hosts.
+    juce::Component host;
+    host.setBounds (-10'000, -10'000, 1, 1); host.addToDesktop (0);
+    host.addAndMakeVisible (*r.editor); host.setVisible (true);
+    require (r.editor->getPeer() != nullptr && r.editor->isShowing(), "native retained-editor host");
+    const auto hiddenWithAction = [&]
+    {
+        enableHiddenAuto (*r.editor, {});
+        host.setVisible (false); r.advance (0.03);
+        require (! hiddenAutoOn (*r.editor, {}) && hiddenAutoNotice (*r.editor, {}), "hidden AUTO stops and queues once");
+        require (r.editor->isVisible() && ! r.editor->isShowing() && r.post->liveCompareStatus().active,
+                 "ancestor hide retains actual LISTEN and stops only AUTO follow");
+        (r.editor.get()->*privateMember (ShowToast {})) ("Capture could not be attached");
+        host.setVisible (true); r.advance (0.03);
+        if (! hiddenAutoNotice (*r.editor, {}) || r.view().feedback() != "Capture could not be attached")
+            std::cerr << "Hidden AUTO state: pending=" << hiddenAutoNotice (*r.editor, {})
+                      << " on=" << hiddenAutoOn (*r.editor, {}) << " active=" << r.post->liveCompareStatus().active
+                      << " reason=" << static_cast<int> (r.post->liveCompareStatus().reason)
+                      << " feedback=" << r.view().feedback() << '\n';
+        require (hiddenAutoNotice (*r.editor, {}) && r.view().feedback() == "Capture could not be attached",
+                 "current hidden AUTO notice waits behind an explicit failure");
+    };
+    const auto expireAction = [&]
+    { r.editor.get()->*privateMember (HiddenToastUntil {}) = 0.0; r.advance (0.03); };
+    hiddenWithAction(); expireAction();
+    require (! hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {})
+        && r.view().feedback() == "AUTO stopped: editor hidden", "current hidden AUTO result is delivered once");
+    r.advance (3.1);
+    hiddenWithAction();
+    enableHiddenAuto (*r.editor, {}); r.advance (0.03); // eligible new AUTO command supersedes the queued result
+    require (hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {}), "resumed AUTO retires its previous stop notice");
+    expireAction();
+    require (r.view().feedback() != "AUTO stopped: editor hidden", "old AUTO stop cannot return after newer AUTO");
     r.clock.playing = false; r.advance (0.4);
     require (r.view().feedback().isNotEmpty(), "current DAW-stop remedy remains visible");
     r.clock.playing = true; r.advance (0.6);
     require (r.view().feedback().isEmpty(), "waiting remedy clears when verified PRE resumes");
     // An unexpected pair change during actual LISTEN remains a bounded terminal notice.
+    hiddenWithAction();
     r.post->clearPairCandidate(); r.advance (0.15);
     require (! r.post->liveCompareStatus().active && r.view().feedback().startsWith ("PRE changed:"),
              "actual comparison interruption is explained");
+    require (! hiddenAutoNotice (*r.editor, {}), "actual interruption supersedes the queued hidden AUTO result");
     r.expectOrdinaryAudio = true;
     r.advance (3.2); r.silentOrdinary();
     r.selectPair(); r.advance (0.15); r.silentOrdinary();
@@ -239,6 +279,7 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.post->finishLiveCompare(); r.advance (3.3);
     r.expectOrdinaryAudio = true; r.block(); r.silentOrdinary();
     r.post->clearPairCandidate(); r.advance (0.15); r.silentOrdinary();
+    host.removeChildComponent (r.editor.get()); host.setVisible (false);
     r.close(); r.open(); r.advance (0.15); r.silentOrdinary();
     require (r.pre->getLatencySamples() == 0 && r.post->getLatencySamples() == 0, "normal zero latency retained");
 }
