@@ -229,7 +229,7 @@ clusterは新publicationで候補を増減させず、窓外でも鍵を保持�
 | --- | --- |
 | T1 観測事実 | 現在PSRは未集約100 ms raw値と最新None。history mean／decimation／最後のfinite値から復元しない。同cutoffのM／S／TP／PSR／PLR／CORR frameをMeasure Threadの最大64件raw tail（既存LOCAL_JOIN_POINTS）に保持。固定multi-rate retentionを拡張しない |
 | T2 比較の証明 | main／PSR別target・cutoff・proofとselection intent、exact PRE locator、opaque binding revision、owner／POST claim、両source epoch／incarnation／generation／rate／layout／run／clockをpacketへ。generationの大小や一致を対応の証明にしない。新pair有効化前に旧比較公開を無効化 |
-| T3 時刻と期限 | main最新local cutoff C、PSR比較E≤C。global POST mainはCで更新、PRE待ちへ巻き込まない。global mainΔも独自proof／cutoffで成立判定。共通軸はCで非減少、PSR末尾はEで止める。通常pending保持はPOST slot完了から400 ms未満かつC−Eも400 ms未満、完全binding／両span／runが一致してActive、後続確定invalidなし |
+| T3 時刻と期限 | main最新local cutoff C、PSR比較E≤C。global POST mainはCで更新、PRE待ちへ巻き込まない。global mainΔも独自proof／cutoffで成立判定。共通軸はCで非減少、PSR末尾はEで止める。2026-10-10利用者選択の通常pending保持はPOST slot完了から1秒未満かつC−Eも1秒未満、完全binding／両span／runが一致してActive、後続確定invalidなし |
 | T4 component寿命 | 正常publication待ちだけ直前同pair比較を期限内保持し沈黙。None、対応不能、stop、bypass、run／clock変更は影響current即退役。pair／PRE失効は比較componentだけ、POST span／rate／layout／Resetは両component。同source過去履歴はHOLD、run／seekはsegment境界、別sourceは破棄。callback退役後にpoll失敗しても旧値を復活させない |
 | T5 履歴と提示 | gap／runを跨がず集約、valid数を平均分母とし0置換なし。TIME native10Hzでpacket一括apply、PSRの4Hz間引きなし、PLR／CORRはmain。軸・scale・font固定。main／PSR出力各1200以下、要求は既存幅予算、compact PSR capacity=0 |
 | T6 Capture | 採用presentationへ期限／退役を適用後freeze。再poll／source選択／測定再計算0。表示丸めでraw端点を変更しない。v1で測定の意味を保持できないWork添付は理由を明示して失敗とし、ローカルPNGを残す。metadataを捨てたattached成功0。private path／owner管理情報を出さない |
@@ -238,7 +238,7 @@ T2の取得順は authority前読み→session `try_lock`（raw／frame／histor
 
 authorityと比較producer bindingだけが違う場合は、新authorityの比較waiting componentを成功返却する。main target=POSTなら同POST絶対frame Cを継続し、main target=Δならmainも比較waitingとする。local Cは軸の根拠として保持するが、選択ΔをPOST値へfallbackしない。旧比較を混ぜない。既存 `build_observatory_frame()` のlegacy delta別取得を新TIME authorityに使わず、新packetでframeを構成する。GUIは一括applyし、選択callbackで影響componentを先に退役する。
 
-T3の400 msは現行4×100 ms live_windowを参照した表示期限案で、IO最大遅延保証ではない。G0の旧ABI観測ではΔ初観測の供給起点median294～340 ms、max511～539 ms、C−E max400～500 msだった。原slot完了timestampは旧ABIにないため完了起点TTLは未検証。400 msを不要な空欄の出ない保証とせず、期限を恣意的に延長しない。詳細は[TIME契約と計測限界](hypha_drum_psr_g0_20261007/time_capture_contract.md)。poll成功、IO service、同endpoint再joinで期限を延ばさない。GUI monotonic clockでも残り時間を減らし、連続poll失敗中も期限切れにする。単体currentにも測定完了起点の期限とsignal失効を適用する。
+T3の当初400 ms案は2026-10-10の利用者選択で同run比較に限り1秒未満へ改訂した。絶対currentは400 msを維持し、IO最大遅延保証にはしない。G0の旧ABI観測ではΔ初観測の供給起点median294～340 ms、max511～539 ms、C−E max400～500 msだった。原slot完了timestampは旧ABIにないため完了起点TTLは未検証。400 msを不要な空欄の出ない保証とせず、期限を恣意的に延長しない。詳細は[TIME契約と計測限界](hypha_drum_psr_g0_20261007/time_capture_contract.md)。poll成功、IO service、同endpoint再joinで期限を延ばさない。GUI monotonic clockでも残り時間を減らし、連続poll失敗中も期限切れにする。単体currentにも測定完了起点の期限とsignal失効を適用する。
 
 T5はNone、未対応endpoint、slot抜け、clock／run変更でsegmentを切り、entryにfirst／last endpoint、total／valid count、min／max／meanを持つ。decimationはsegmentを跨がず、予算超過は古いsegmentを落とす。欠測位置が復元不能な旧bucketを連続mean線にしない。共通rangeは `[max(0,C−durationFrames),C]`、データ上限は各component cutoff。疎なΔ点数で時間幅を作らない。両端を跨ぐbucketは保持exact観測から部分区間を正確に再集約できる時だけ使い、不能なら欠線。座標clampだけで将来mean／min／maxを残さない。最近prefixには既存10Hz exact historyを利用し、64件tailを全履歴へ拡張しない。
 
@@ -289,7 +289,7 @@ CE2226の暗い暖色の面、champagne goldのPOST、cyanのΔ／選択、PRE�
 | ID | 独立入力・操作 | 合格条件 |
 | --- | --- | --- |
 | P1 | raw値／Noneを全表示期間・decimationで取得 | current値は期間非依存、None即退役、last finite復元0 |
-| P2 | PRE遅れ1～3tick、age299／399／400 ms、poll失敗／再join | main C継続、PSRだけ期限内保持、元期限延長0、正常待ち文字／色往復0 |
+| P2 | PRE遅れ、age299／399／401／999／1000 ms、poll失敗／再join | main C継続、PSRだけ期限内保持、元期限延長0、正常待ち文字／色往復0 |
 | P3 | 各取得境界でpair／owner／epoch／POST spanを変更、callback直後poll失敗 | 混在0、失効span成功0、FFI出力不変、旧比較復活0、main POST選択時は同POST継続、mainΔはwaiting |
 | P4 | gap／slot抜け／range両端bucket、E後だけ極値100 | valid分母、gap維持、PSR prefixに100混入0／main Cには含む、不能bucket欠線、各1200以下 |
 | P5 | global POST＋PSR ΔのCapture、期限／失効直前直後、v1 consumer | 再poll0、誤添付0、compact追加poll0。保持不能添付の明示失敗・ローカルPNG維持。既存v1で保存できる添付の回帰 |

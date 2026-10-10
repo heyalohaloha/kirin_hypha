@@ -45,6 +45,8 @@ fn authority(engine: &KirinHyphaEngine) -> Option<Authority> {
 #[path = "level_comparison_values.rs"]
 mod level;
 pub(super) use level::level_values;
+#[path = "time_comparison_current.rs"]
+mod current;
 
 fn opaque(value: impl Hash) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -122,14 +124,13 @@ fn compared(
     component.claim_identity = opaque(view.claimed_at_bits);
     if let Some(point) = &view.point {
         component.current = KirinTimeCurrentV2::raw(point, KIRIN_TARGET_DELTA, active, now);
-        let fresh_axis = local.is_some_and(|p| {
-            p.wire.run == view.post_run
-                && p.wire.usable
-                && p.wire.observed >= point.wire.observed
-                && p.wire.observed - point.wire.observed < u64::from(span.sample_rate) * 400 / 1000
-        });
+        let fresh_axis = current::same_live_axis(view, span, local);
         if !fresh_axis || view.reason != TimeComparisonReason::Active {
-            component.current.state = KIRIN_TIME_CURRENT_MISSING;
+            component.current.state = if active {
+                KIRIN_TIME_CURRENT_MISSING
+            } else {
+                KIRIN_TIME_CURRENT_STOPPED
+            };
             component.current.values = [f64::NAN; 6];
             component.current.finite_mask = 0;
         } else if let Some(latest) = local {
@@ -455,6 +456,9 @@ pub unsafe extern "C" fn kirin_hypha_poll_time_snapshot_v2(
     .unwrap_or(KIRIN_SNAPSHOT_BUSY)
 }
 
+#[cfg(test)]
+#[path = "time_comparison_current_tests.rs"]
+mod current_tests;
 #[cfg(test)]
 #[path = "time_snapshot_ffi_tests.rs"]
 mod tests;

@@ -1,4 +1,5 @@
 //! Independent, sized TIME ABI. The old Observatory/MeterHistory/ABI layouts do not change.
+use crate::KIRIN_TARGET_DELTA;
 use kirin_measure::meter_session::{TimeRawPoint, TimeSourceSpan};
 use kirin_measure::{MeterHistoryEntry, MeterHistoryRange};
 use std::time::Instant;
@@ -73,7 +74,11 @@ impl Default for KirinTimeCurrentV2 {
 }
 impl KirinTimeCurrentV2 {
     pub(super) fn raw(point: &TimeRawPoint, target: u8, active: bool, now: Instant) -> Self {
-        let remaining = point.remaining(now);
+        let remaining = if target == KIRIN_TARGET_DELTA {
+            point.comparison_remaining(now)
+        } else {
+            point.remaining(now)
+        };
         let mut result = Self {
             span: point.wire.span.into(),
             cutoff: point.wire.observed,

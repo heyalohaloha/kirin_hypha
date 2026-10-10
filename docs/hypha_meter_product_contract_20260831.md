@@ -781,3 +781,5 @@ LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、
 非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。
 
 AUTOの非表示停止通知は、同じ比較が存続しAUTOが停止したままの場合だけ、先行する操作通知の後に一度示す。通知待ちの間に明示AUTO再開・新しい中断・比較終了があれば古い通知を破棄し、現在のAUTOや通常計測を停止中と誤表示しない。承認gainと現在の安全性の案内は維持する。
+
+2026-10-10利用者選択：LEVEL／TIMEの同run比較currentは元の一致slot完了から1秒未満、local軸の差も1秒未満の通常PRE公開遅れの間、値とActiveを保持する。1000 ms以上で既存のSTALE／HOLDING／MEASURINGへ戻り、再poll／再joinで延長しない。seek／loop頭への復帰／run変更／停止／pause／pair・authority・layout変更と後続の確定欠測は即時失効する。絶対currentの400 ms期限、M／TPの400 msとS／PSRの3秒測定窓は維持する。FREQはLEVELの計測鮮度で状態行やMARKを切り替えず、pairのNoPair／PreBypassed／PreInactive／LayoutMismatch／LayoutUnknown／AuditionActive／未対応理由だけを使用する。FREQのΔ可用性は独立したspectrum状態に従う。

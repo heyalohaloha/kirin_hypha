@@ -200,7 +200,12 @@ TIME's PSR has its own target and cutoff: it automatically shows Δ for a select
 main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to its completed
 100 ms point and uses that point's processed prefix; it does not include later pending input. A comparison that is waiting or expired
 keeps the Δ label and its reason. It does not silently become POST. Current values expire from the
-original 100 ms slot's completion, with a 400 ms lifetime; repeated polls do not renew them.
+original 100 ms slot's completion: absolute readings last 400 ms. Matched LEVEL/TIME readings
+remain active for less than 1 s while the same pair, source spans and clock run continue, and
+while the local timeline lag is also less than 1 s. Polls and rejoins do not renew this deadline.
+Seek, loop wrap, stop/pause, run, pair, authority or layout changes retire the comparison immediately.
+FREQ uses its own spectrum freshness; LEVEL warming or delayed measurement does not hide its
+Δ legend or MARK. Pair rejection reasons still appear in FREQ.
 After a playback boundary, current Δ requires a complete, continuous aperture on both sides:
 400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR. These LEVEL and TIME
 readings also work when the DAW omits its optional presentation-latency report.

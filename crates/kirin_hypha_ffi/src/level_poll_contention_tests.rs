@@ -344,4 +344,35 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
         }
     }
     assert_eq!((complete_level, complete_time), (14, 14));
+    // A local Measure lock is transient contention, never a new MEASURING frame.
+    {
+        let _busy = engine.meter_session.as_ref().unwrap().lock().unwrap();
+        assert_busy(&engine);
+    }
+    // A local seek invalidates the cached point before IO can publish the next comparison.
+    let snapshot = {
+        let mut session = engine.meter_session.as_ref().unwrap().lock().unwrap();
+        session.push_active_at(
+            &[0.1; 9600],
+            MeterClockStart {
+                position_samples: Some(0),
+                epoch: Some(1),
+                source: CaptureClockSource::ProjectTimeline,
+                ..Default::default()
+            },
+        );
+        session.snapshot()
+    };
+    engine
+        .meter_session_publication
+        .as_ref()
+        .unwrap()
+        .publish(snapshot);
+    let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
+    assert!(poll(&engine, &mut packet));
+    assert_eq!(
+        packet.frame.comparison_reason,
+        KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT
+    );
+    assert!(packet.frame.delta.lufs.is_nan());
 }

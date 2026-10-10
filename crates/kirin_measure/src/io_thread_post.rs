@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 #[cfg(test)]
-use std::time::SystemTime;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
 #[cfg(test)]
 use crate::delta::DeltaSnapshot;
@@ -162,7 +162,8 @@ use policy::{
     SELF_CHECK_RELEASE_CONFIRMATIONS,
 };
 
-const LOOP_SLEEP: Duration = Duration::from_millis(100);
+#[path = "io_thread_post_cadence.rs"]
+mod cadence;
 
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
 const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
@@ -325,6 +326,7 @@ pub fn spawn_io_thread_post(
                 break;
             }
 
+            let cycle_started = Instant::now();
             let observation_tick = observation.service();
             let project_hash_ref = observation_tick.project_hash.as_str();
             let instance_id_ref = observation_tick.instance_id.as_str();
@@ -389,7 +391,7 @@ pub fn spawn_io_thread_post(
                 &trigger_stop_resolution,
             );
 
-            thread::sleep(LOOP_SLEEP);
+            thread::sleep(cadence::remaining(cycle_started, Instant::now()));
         }
 
         // The restartable worker does not release the engine-owned exact claim. It only closes its

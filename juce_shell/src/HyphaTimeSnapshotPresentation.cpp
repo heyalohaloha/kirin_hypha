@@ -17,13 +17,14 @@ bool validComponent (const KirinTimeComponentV2& component,
                      const std::vector<KirinTimeHistoryEntryV2>& history) noexcept
 {
     const auto& current = component.current;
+    const double lifetimeMs = current.target == KIRIN_TIME_DELTA ? 1000.0 : 400.0;
     if (! validTarget (current.target) || current.state < KIRIN_TIME_CURRENT_LIVE
         || current.state > KIRIN_TIME_CURRENT_WAITING || current.finite_mask > 63u
         || component.history_count != history.size() || history.size() > KIRIN_TIME_HISTORY_CAPACITY)
         return false;
     if (current.state == KIRIN_TIME_CURRENT_LIVE
         && (! std::isfinite (current.remaining_ms) || current.remaining_ms < 0.0
-            || current.remaining_ms > 400.0 || ! std::isfinite (current.completion_age_ms)
+            || current.remaining_ms > lifetimeMs || ! std::isfinite (current.completion_age_ms)
             || current.completion_age_ms < 0.0))
         return false;
     return std::all_of (history.begin(), history.end(), [] (const auto& entry)

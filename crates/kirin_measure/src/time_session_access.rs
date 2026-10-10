@@ -1,6 +1,11 @@
 //! Non-RT TIME access and worker-span retirement, separate from measurement feeding.
 use super::*;
 impl MeterSession {
+    /// Lightweight local playback fact; reading it does not recompute Session statistics.
+    pub fn time_is_active(&self) -> bool {
+        self.state == MeterSessionState::Active
+    }
+
     pub fn time_source_span(&self) -> TimeSourceSpan {
         TimeSourceSpan {
             epoch: self.measurement_epoch,

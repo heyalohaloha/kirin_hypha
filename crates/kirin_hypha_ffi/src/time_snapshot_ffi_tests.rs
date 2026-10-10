@@ -278,7 +278,7 @@ fn ordinary_c_progress_does_not_reject_the_captured_packet_and_compact_psr_has_z
     );
 }
 
-fn joined(now: Instant) -> (TimeRawPoint, Authority, TimeComparisonView) {
+pub(super) fn joined(now: Instant) -> (TimeRawPoint, Authority, TimeComparisonView) {
     let span = TimeSourceSpan {
         epoch: 1,
         incarnation: 2,
@@ -347,7 +347,8 @@ fn original_ttl_axis_limit_latest_none_owner_claim_and_source_proof_are_independ
     let (point, authority, view) = joined(start);
     let mut latest = point.clone();
     latest.wire.observed += 9600;
-    for ms in [299, 399] {
+    latest.wire.endpoint = latest.wire.endpoint.map(|end| end + 9600);
+    for ms in [299, 399, 401, 500, 999] {
         let component = compared(
             Some(&view),
             &authority,
@@ -359,7 +360,7 @@ fn original_ttl_axis_limit_latest_none_owner_claim_and_source_proof_are_independ
         );
         assert_eq!(component.current.state, KIRIN_TIME_CURRENT_LIVE);
         assert!(component.current.values[3].is_finite());
-        assert!((component.current.remaining_ms - (400 - ms) as f64).abs() < 0.0001);
+        assert!((component.current.remaining_ms - (1000 - ms) as f64).abs() < 0.0001);
         assert_eq!(component.current.cutoff, 48000);
     }
     let expired = compared(
@@ -368,7 +369,7 @@ fn original_ttl_axis_limit_latest_none_owner_claim_and_source_proof_are_independ
         point.wire.span,
         Some(&latest),
         true,
-        start + Duration::from_millis(400),
+        start + Duration::from_millis(1000),
         0,
     );
     assert_eq!(expired.current.state, KIRIN_TIME_CURRENT_EXPIRED);
@@ -385,7 +386,8 @@ fn original_ttl_axis_limit_latest_none_owner_claim_and_source_proof_are_independ
     ));
     assert_eq!(none.current.state, KIRIN_TIME_CURRENT_MISSING);
     assert!(none.current.values[3].is_nan());
-    latest.wire.observed = point.wire.observed + 19200;
+    latest.wire.observed = point.wire.observed + 48000;
+    latest.wire.endpoint = point.wire.endpoint.map(|end| end + 48000);
     let far = compared(
         Some(&view),
         &authority,
