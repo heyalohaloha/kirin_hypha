@@ -214,15 +214,16 @@ impl SpectrumCoordinator {
         let clock_revision = self.runtime.spectrum_clock_revision();
         let (newest_end, bytes, expected_epoch) = match analysis_mode {
             AnalysisViewMode::Spectrum => {
-                if !self.runtime.presentation_clock_aligned() {
+                if self.runtime.spectrum_clock_kind().is_none() {
                     return self.remove_local_spectrum_publication(request_id, instance_dir);
                 }
-                let Some(history) = self.runtime.try_aligned_history() else {
+                let Some((history, Some(clock_kind))) = self.runtime.try_history_with_clock()
+                else {
                     return true;
                 };
                 (
                     history.newest().map(|frame| frame.presentation_end_samples),
-                    encode_snapshot(request_id, &history),
+                    encode_snapshot(request_id, clock_kind, &history),
                     None,
                 )
             }

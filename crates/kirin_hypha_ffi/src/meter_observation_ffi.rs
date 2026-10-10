@@ -176,10 +176,13 @@ fn build_observatory_frame(
     let active =
         signal_before == KIRIN_SIGNAL_STATE_ACTIVE && snapshot.state != MeterSessionState::Paused;
     let published_delta = engine.poll_delta();
-    let stopped_update_pending = !active
-        && published_delta
-            .as_ref()
-            .is_none_or(|delta| delta.mode == kirin_measure::DeltaMode::Active);
+    // Stop comes from Audio/Measure, and pair presence from the selection owner. Neither is
+    // inferred from a delayed IO delta mode (including an old NoPre publication).
+    let stopped_pair = if active {
+        None
+    } else {
+        Some(engine.pair_binding.try_observation_snapshot()?)
+    };
     // IO failure/restart must not suppress the local Audio/Measure stop facts. During playback,
     // comparison contention still means no coherent new frame, with caller output untouched.
     let mut delta_result = published_delta.or_else(|| (!active).then(DeltaResult::default))?;
@@ -200,7 +203,7 @@ fn build_observatory_frame(
             delta_result.comparison.reason = kirin_measure::ComparisonReason::AwaitingMeasurement;
         }
     }
-    let delta = if stopped_update_pending {
+    let delta = if !active {
         to_c_delta(&DeltaResult::default())
     } else {
         to_c_delta(&delta_result)
@@ -215,10 +218,20 @@ fn build_observatory_frame(
         snapshot.measurement_epoch,
         snapshot.generation,
     );
-    if stopped_update_pending {
+    if let Some(pair) = stopped_pair {
+        if engine.pair_binding.try_observation_snapshot()? != pair {
+            return None;
+        }
+        let reason = if pair.exact.is_some() {
+            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+        } else {
+            KIRIN_COMPARISON_REASON_NO_PAIR
+        };
+        if comparison.state != KIRIN_COMPARISON_STATE_REJECTED || comparison.reason != reason {
+            comparison.generation = comparison.generation.saturating_add(1);
+        }
         comparison.state = KIRIN_COMPARISON_STATE_REJECTED;
-        comparison.reason = KIRIN_COMPARISON_REASON_LOCAL_INACTIVE;
-        comparison.generation = comparison.generation.saturating_add(1);
+        comparison.reason = reason;
     }
     let frame = KirinObservatoryFrame {
         version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,

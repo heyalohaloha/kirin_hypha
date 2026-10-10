@@ -374,7 +374,7 @@ void KirinHyphaEditor::refreshObservatory()
     spectrumView.setComparisonStatus (
         frameAvailable
             && observatoryView.target() == hypha::observatory::ObservationTarget::delta
-            ? hypha::comparison_presentation::statusText (
+            ? hypha::comparison_presentation::spectrumStatusText (
                   frame.comparison_state, frame.comparison_reason)
             : juce::String());
    #endif

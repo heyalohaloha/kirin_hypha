@@ -1,8 +1,36 @@
-//! RT ingress clock authority is private; local observations never acquire pair alignment.
+//! RT ingress identity retains exact clock definitions; FREQ joins only matching clock kinds.
 use super::{AnalysisSelection, AnalysisViewMode, Ordering, SpectrumIngressBlock, SpectrumRuntime};
 use crate::PresentationLatencySource;
 
 const LOCAL_CLOCK: u64 = 1 << 63;
+
+/// Coordinate meaning carried by the private PRE Spectrum snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum SpectrumClockKind {
+    Presentation = 1,
+    ProjectTimeline = 2,
+}
+
+impl SpectrumClockKind {
+    pub(crate) fn decode(value: u16) -> Option<Self> {
+        match value {
+            1 => Some(Self::Presentation),
+            2 => Some(Self::ProjectTimeline),
+            _ => None,
+        }
+    }
+}
+
+pub(super) fn definition_clock_kind(definition: u64) -> Option<SpectrumClockKind> {
+    if definition_is_aligned(definition) {
+        Some(SpectrumClockKind::Presentation)
+    } else if definition == (LOCAL_CLOCK | 1) {
+        Some(SpectrumClockKind::ProjectTimeline)
+    } else {
+        None // Render-only coordinates do not establish a common project timeline.
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpectrumInputClock {

@@ -20,7 +20,7 @@ pub const KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN: u8 = 7;
 pub const KIRIN_COMPARISON_REASON_AUDITION_ACTIVE: u8 = 8;
 pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW: u8 = 9;
 pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC: u8 = 10;
-/// Local input is stopped, but the IO comparison publication has not caught up.
+/// Local POST input is stopped while its exact PRE binding remains selected.
 pub const KIRIN_COMPARISON_REASON_LOCAL_INACTIVE: u8 = 11;
 
 /// Observatory display facts returned by one non-RT poll.
@@ -90,6 +90,7 @@ fn reason_to_abi(reason: ComparisonReason) -> u8 {
         ComparisonReason::AuditionActive => KIRIN_COMPARISON_REASON_AUDITION_ACTIVE,
         ComparisonReason::UnsupportedView => KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW,
         ComparisonReason::UnsupportedMetric => KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC,
+        ComparisonReason::LocalInactive => KIRIN_COMPARISON_REASON_LOCAL_INACTIVE,
     }
 }
 

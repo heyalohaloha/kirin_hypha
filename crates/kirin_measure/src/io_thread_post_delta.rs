@@ -97,10 +97,12 @@ fn snapshot_from_delta(d: &DeltaResult) -> Option<DeltaSnapshot> {
 
 pub(super) fn resolve_delta_for_non_active_post(
     state: SignalState,
-    pair_pre_name: &str,
+    paired_pre_instance_id: Option<&str>,
     previous: &DeltaResult,
 ) -> DeltaResult {
-    if state != SignalState::Inactive || pair_pre_name.trim().is_empty() {
+    // Names are optional display metadata. The exact instance binding is also authoritative
+    // during stop; otherwise an unnamed PRE works while playing but becomes NoPre on pause.
+    if state != SignalState::Inactive || paired_pre_instance_id.is_none_or(|id| id.is_empty()) {
         return DeltaResult::default();
     }
 

@@ -200,7 +200,14 @@ TIME's PSR has its own target and cutoff: it automatically shows Δ for a select
 main POST/Δ choice still controls M, S, TP, PLR and CORR. TIME PLR belongs to its completed
 100 ms point and uses that point's processed prefix; it does not include later pending input. A comparison that is waiting or expired
 keeps the Δ label and its reason. It does not silently become POST. Current values expire from the
-original 100 ms slot's completion, with a 400 ms lifetime; repeated polls do not renew them.
+original 100 ms slot's completion: absolute readings last 400 ms. Matched LEVEL/TIME readings
+remain active for less than 1 s while the same pair, source spans and clock run continue, and
+while the local timeline lag is also less than 1 s. Polls and rejoins do not renew this deadline.
+Seek, loop wrap, stop/pause, run, pair, authority or layout changes retire the comparison immediately.
+FREQ uses its own spectrum freshness; LEVEL warming or delayed measurement does not hide its
+Δ legend or MARK. Pair rejection reasons still appear in FREQ. A stopped POST keeps its selected PRE and reports
+that comparison is stopped; it does not ask you to select the same PRE again. A PRE that stops
+while POST continues is shown as inactive. Clearing the selection still reports no matching PRE.
 After a playback boundary, current Δ requires a complete, continuous aperture on both sides:
 400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR. These LEVEL and TIME
 readings also work when the DAW omits its optional presentation-latency report.
@@ -227,9 +234,10 @@ image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
 
-Absolute POST spectra also work when a host supplies a valid project/render sample clock but omits
-the optional output-latency callback. That local clock is kept separate from pair alignment: Hypha
-does not assume zero latency, publish it as an aligned PRE spectrum, or use it for PRE/POST Δ.
+FREQ Δ also works when a host omits the optional output-latency callback. PRE and POST must both
+use presentation coordinates or both use the project timeline, with complete matching windows
+from the current run. Mixed clock kinds are not compared. A render-only clock supports absolute
+POST spectra; missing latency is never treated as a reported zero latency.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
 Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
@@ -1103,7 +1111,7 @@ the explicit return screen without automatically resuming playback.
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
 click. Blind inherits it when opened and keeps any override within that comparison.
 **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
-**TRACK/STEM** identifies an individual track or group bus and uses short or sparse event energy.
+**TRACK/STEM** identifies an individual track or stem and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
 Hypha does not change DAW Solo, Mute, faders, plug-in bypass, or routing. On a TRACK or STEM, only that

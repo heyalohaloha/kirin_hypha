@@ -10,13 +10,15 @@ use crate::spectrum::{
     SpectrumChannelMode, SpectrumFrame, SpectrumLayout, SPECTRUM_BAND_COUNT,
     SPECTRUM_SCHEMA_VERSION,
 };
-use crate::spectrum_runtime::{SpectrumHistory, SPECTRUM_HISTORY_CAPACITY};
+use crate::spectrum_runtime::{SpectrumClockKind, SpectrumHistory, SPECTRUM_HISTORY_CAPACITY};
 
-const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC04";
+// Old readers must reject project-clock facts instead of assuming presentation coordinates.
+const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC05";
 pub(super) const SNAPSHOT_MAX_BYTES: u64 = 16_384;
 
 pub(super) struct DecodedSnapshot {
     pub(super) request_id: Uuid,
+    pub(super) clock_kind: SpectrumClockKind,
     pub(super) history: SpectrumHistory,
 }
 
@@ -53,7 +55,11 @@ pub(crate) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
         .flatten()
 }
 
-pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Vec<u8> {
+pub(super) fn encode_snapshot(
+    request_id: Uuid,
+    clock_kind: SpectrumClockKind,
+    history: &SpectrumHistory,
+) -> Vec<u8> {
     let frame_count = history.frames().len().min(u16::MAX as usize) as u16;
     let mut bytes = Vec::with_capacity(44 + frame_count as usize * (36 + SPECTRUM_BAND_COUNT * 4));
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
@@ -78,7 +84,7 @@ pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Ve
             .to_le_bytes(),
     );
     bytes.extend_from_slice(&frame_count.to_le_bytes());
-    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes.extend_from_slice(&(clock_kind as u16).to_le_bytes());
     bytes.extend_from_slice(request_id.as_bytes());
     for frame in history.frames() {
         bytes.extend_from_slice(&frame.presentation_end_samples.to_le_bytes());
@@ -112,7 +118,7 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
     (fft_size as usize == layout.fft_size).then_some(())?;
     let frame_count = cursor.u16()? as usize;
     (frame_count <= SPECTRUM_HISTORY_CAPACITY).then_some(())?;
-    let _reserved = cursor.u16()?;
+    let clock_kind = SpectrumClockKind::decode(cursor.u16()?)?;
     let request_id = Uuid::from_slice(cursor.take(16)?).ok()?;
     let mut history = SpectrumHistory::with_capacity();
     for _ in 0..frame_count {
@@ -163,6 +169,7 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
     }
     (cursor.remaining() == 0).then_some(DecodedSnapshot {
         request_id,
+        clock_kind,
         history,
     })
 }

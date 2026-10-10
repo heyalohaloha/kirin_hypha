@@ -79,7 +79,7 @@ impl SpectrumCoordinator {
         after_clone();
         if view.analysis_mode == crate::AnalysisViewMode::Spectrum
             && view.difference.is_some()
-            && (!self.runtime.presentation_clock_aligned()
+            && (self.runtime.spectrum_clock_kind().is_none()
                 || (revision != 0 && !self.runtime.spectrum_clock_is_current(revision)))
         {
             view.status = SpectrumViewStatus::Unavailable;

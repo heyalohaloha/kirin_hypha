@@ -1,4 +1,5 @@
 #include "TimeSnapshotContractTest.h"
+#include "TimeComparisonLifetimeContractTest.h"
 #include "SessionCoverageContractTest.h"
 #include "TimeSnapshotInputContractTest.h"
 #include "../src/HyphaTimeSnapshotPainter.h"
@@ -469,6 +470,7 @@ void verifyTimeSnapshotContract()
     verifySessionCoverageContract();
     verifyFailureReasons();
     verifyRawCurrentAndLifetime();
+    verifyTimeComparisonLifetimeContract (packet(), history (480'000), history (470'400));
     verifyAxisGapsAndRetirement();
     verifyViewComparisonRetirement();
     verifyTimeSnapshotMainTargetContract (packet(), history (480'000), history (470'400));

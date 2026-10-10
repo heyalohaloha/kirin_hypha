@@ -49,6 +49,9 @@ fn local_spectrum_is_absolute_and_cannot_be_exported_as_aligned_history() {
     assert!(runtime
         .try_history_with_alignment()
         .is_some_and(|(_, aligned)| !aligned));
+    assert!(runtime
+        .try_history_with_clock()
+        .is_some_and(|(_, kind)| kind == Some(SpectrumClockKind::ProjectTimeline)));
     runtime.shutdown_and_join();
 }
 

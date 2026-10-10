@@ -247,9 +247,9 @@ const Entry entries[] = {
     { "Capture one exact four second range", u8"同じ4秒間を取り込みます" },
     { "Resolve the capture requirement", u8"取り込みに必要な条件を整えます" },
     { "Gain Match mode for this comparison", u8"この比較のGain Matchのモード" },
-    { "2MIX: continuous sections. TRACK / STEM: short or sparse events. Applies to this "
+    { "2MIX: for a mix or master bus. TRACK / STEM: for an individual track or stem. Applies to this "
       "comparison.",
-      u8"2MIX：途切れない音の区間。TRACK / STEM：短い音やまばらな音。この比較にだけ使います。" },
+      u8"2MIX：ミックスやマスターのバス向け。TRACK / STEM：個別のトラックやステム向け。この比較にだけ使います。" },
     { "Stop the comparison safely", u8"比較を安全に止めます" },
     { "Return explicitly to the live signal", u8"操作して今の音に戻ります" },
     { "Close Blind Compare", u8"Blind Compareを閉じます" },

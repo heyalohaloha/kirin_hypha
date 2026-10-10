@@ -41,15 +41,49 @@ pub(crate) fn level_values(
     {
         return Ok(None);
     }
-    let Some(point) = view.point else {
-        return Ok(None);
+    let (local_span, local) = {
+        let session = engine
+            .meter_session
+            .as_ref()
+            .ok_or(LevelBusy)?
+            .try_lock()
+            .map_err(|_| LevelBusy)?;
+        if !session.time_is_active() {
+            return Ok(None);
+        }
+        (session.time_source_span(), session.time_raw_tail(1).pop())
     };
     let after = authority(engine).ok_or(LevelBusy)?;
     if after != before {
         return Err(LevelBusy);
     }
-    if point.wire.observed > snapshot.observed_frames || point.remaining(Instant::now()).is_zero() {
+    let Some(point) = view.point.as_ref() else {
+        return Ok(None);
+    };
+    if point.wire.observed > snapshot.observed_frames {
         return Ok(None);
     }
-    Ok(Some((point.wire.values, point.wire.crest)))
+    Ok(values_for_current(
+        &view,
+        local_span,
+        local.as_ref(),
+        Instant::now(),
+    ))
+}
+
+pub(super) fn values_for_current(
+    view: &TimeComparisonView,
+    span: TimeSourceSpan,
+    local: Option<&TimeRawPoint>,
+    now: Instant,
+) -> Option<LevelValues> {
+    let point = view.point.as_ref()?;
+    if !current::same_live_axis(view, span, local) || point.comparison_remaining(now).is_zero() {
+        return None;
+    }
+    let latest = local?;
+    Some((
+        std::array::from_fn(|i| latest.wire.values[i].and(point.wire.values[i])),
+        latest.wire.crest.and(point.wire.crest),
+    ))
 }

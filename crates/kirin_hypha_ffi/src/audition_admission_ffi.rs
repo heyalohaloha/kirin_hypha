@@ -5,6 +5,21 @@ use super::*;
 mod reference_analysis;
 
 #[cfg(test)]
+#[path = "admission_test_storage.rs"]
+mod test_storage;
+
+fn admission_storage_paths() -> Option<StoragePaths> {
+    #[cfg(test)]
+    {
+        Some(test_storage::paths())
+    }
+    #[cfg(not(test))]
+    {
+        StoragePaths::default_platform().ok()
+    }
+}
+
+#[cfg(test)]
 pub(crate) static ADMISSION_TEST: Mutex<()> = Mutex::new(());
 
 pub(crate) const AUDITION_NONE: u8 = 0;
@@ -87,7 +102,7 @@ impl KirinHyphaEngine {
         if current != AUDITION_NONE || admission.is_some() {
             return None;
         }
-        let plugin_data_dir = StoragePaths::default_platform().ok()?.plugin_data_dir();
+        let plugin_data_dir = admission_storage_paths()?.plugin_data_dir();
         let mut candidate =
             kirin_measure::AuditionAdmission::for_current_project(&plugin_data_dir, &project_hash);
         let accepted = if kind == AUDITION_LOCAL_BLIND {
@@ -178,7 +193,7 @@ impl KirinHyphaEngine {
         if held.is_some() {
             return true;
         }
-        let Ok(storage) = StoragePaths::default_platform() else {
+        let Some(storage) = admission_storage_paths() else {
             return false;
         };
         let mut guard =

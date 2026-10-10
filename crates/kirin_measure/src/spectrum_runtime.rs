@@ -39,7 +39,7 @@ mod worker;
 mod ingress;
 #[path = "spectrum_runtime_state.rs"]
 mod state;
-pub use ingress::SpectrumInputClock;
+pub use ingress::{SpectrumClockKind, SpectrumInputClock};
 use state::StampedSnapshot;
 pub use state::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntimeStats, PERCEPTUAL_HISTORY_CAPACITY,

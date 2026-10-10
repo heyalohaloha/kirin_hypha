@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 pub const TIME_RAW_CAPACITY: usize = 64;
 pub const TIME_CURRENT_TTL: Duration = Duration::from_millis(400);
+/// Matched LEVEL/TIME facts may bridge PRE publication lag within the same live run.
+pub const TIME_COMPARISON_TTL: Duration = Duration::from_millis(1000);
 pub const TIME_VALUE_COUNT: usize = 6;
 pub const TIME_PSR: usize = 3;
 
@@ -90,6 +92,10 @@ pub struct TimeRawPoint {
 impl TimeRawPoint {
     pub fn remaining(&self, now: Instant) -> Duration {
         TIME_CURRENT_TTL.saturating_sub(now.saturating_duration_since(self.completed))
+    }
+
+    pub fn comparison_remaining(&self, now: Instant) -> Duration {
+        TIME_COMPARISON_TTL.saturating_sub(now.saturating_duration_since(self.completed))
     }
 }
 

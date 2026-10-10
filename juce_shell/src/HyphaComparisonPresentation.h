@@ -39,6 +39,26 @@ inline juce::String statusText (uint8_t state, uint8_t reason)
     }
 }
 
+// Spectrum owns its own current-data freshness. LEVEL freshness must not hide its
+// matched delta legend or MARK; only a pair-level rejection overrides the spectrum.
+inline juce::String spectrumStatusText (uint8_t state, uint8_t reason)
+{
+    switch (reason)
+    {
+        case KIRIN_COMPARISON_REASON_NO_PAIR:
+        case KIRIN_COMPARISON_REASON_PRE_BYPASSED:
+        case KIRIN_COMPARISON_REASON_PRE_INACTIVE:
+        case KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH:
+        case KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN:
+        case KIRIN_COMPARISON_REASON_AUDITION_ACTIVE:
+        case KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW:
+        case KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC:
+            return statusText (state, reason);
+        default:
+            return {};
+    }
+}
+
 inline bool notifiesExplicitAction (uint8_t state, uint8_t reason) noexcept
 {
     if (state != KIRIN_COMPARISON_STATE_REJECTED

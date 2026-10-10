@@ -1,5 +1,5 @@
 #include "SpectrumInteractionContractTest.h"
-
+#include "SpectrumComparisonStatusContractTest.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumUiContract.h"
@@ -232,6 +232,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
           : scale < 1.375f ? "KIRIN_UI_MARK_OUTPUT_MEDIUM"
                            : "KIRIN_UI_MARK_OUTPUT_LARGE");
 
+    verifySpectrumComparisonStatusContract (spectrum);
     const float markClearX = spectrum_geometry::markClearBoundsFor (
         markBounds, scale).getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, markClearX, controlY, eventTime));

@@ -504,7 +504,7 @@ UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復
 
 FREQは画面を開いたときだけ既存Spectrum解析を取得する。
 
-FREQのPOST絶対観測は、optional output latencyが不明でも有効なproject／render sample clockがある場合に機能する。ローカル時計のauthorityは非公開identityへ分離し、PREの整列済みSpectrum公開とPRE／POST Δには使わない。既知のpresentation clock、clock source、output latencyが切り替わったら旧generation／frame／Δ leaseを退役する。未知latencyを0と推定せず、clock不正・座標overflow・非Spectrum modeは拒否する。公開SpectrumFrame／codec／C ABIと音声・Recordは維持する。
+FREQはoptional output latency未報告でも、PRE／POST双方がproject timelineを使う場合にΔを表示する。双方presentationの場合も比較できるが、presentationとprojectの混在は即時にΔを失効させ、絶対POSTを保持する。同runの実frame窓とexact endpointの一致を確認してから公開し、欠測を0補完しない。private snapshot KHSPEC05はclock kindを明記し、旧形式・未知tagは比較しない。render-only時計は絶対POSTだけに使う。clock definition、source、output latencyが切り替わったら旧generation／frame／Δ leaseを退役する。未知latencyを報告済み0と推定せず、clock不正・座標overflow・非Spectrum modeの制限を保つ。公開SpectrumFrame／C ABIと音声・Recordは維持する。
 
 TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。SHARPはpair未成立時に
 既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
@@ -547,8 +547,8 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
 
-共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をmix／master busと連続active区間、
-`TRACK / STEM`をindividual／group busと短い・疎なeventとして説明する選択menuを開く。
+共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をミックスやマスターのバス、
+`TRACK / STEM`を個別のトラックやステムとして説明する選択menuを開く。
 PRE／POST Live Blindは現在の再生から固定MATCHを準備し、Capture操作を要求しない。
 復元で失効した試行はSource／回答を閉じ、保持減衰と明示済みENDだけを残す。減衰保持中の新規比較は
 主面とMENUで同じ開始条件を使い、上昇量付きRETURNを先に完了する。同一sessionのMATCH→BLINDは継続できる。
@@ -777,7 +777,9 @@ Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合
 
 2026-10-09の性能修正では、非RTの参照音源rate変換で左右共通係数の重複計算だけを除く。出力PCM、測定値、操作、針や曲線の応答は保持する。FREQの6秒履歴が奥へ流れる表現と表示cadenceを維持し、単体converterの改善を実DAW全体の性能受入へ読み替えない。根拠は[G3 receipt](planning/hypha_drum_psr_g3_20261008/validation-receipt.json)。
 
-LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。再生中のtry-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。停止事実はAudio／Measure側から出し、IO比較の更新が遅れたり取得できなくてもLEVEL／observatoryの絶対frameを止めない。値の範囲・精度を保ち停止中として表示し、その間のΔには「POST停止中 — 比較更新待ち」の理由を出す。IOの保持publicationが届いた後は既存のHOLDING表示を使う。
+LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。再生中のtry-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。停止事実はAudio／Measure側から出し、IO比較の更新が遅れたり取得できなくてもLEVEL／observatoryの絶対frameを止めない。値の範囲・精度を保ち停止中として表示し、その間のΔには「POST停止中 — 比較更新待ち」の理由を出す。exact pairが残る限り、IOのNoPre／Stale到着後もPOST停止はLOCAL_INACTIVEを維持し、PRE選び直しを案内しない。PREだけの停止はPRE_INACTIVE。PRE名が空でもexact instanceの選択は有効で、本当に束縛がない場合だけNO_PAIRとする。LEVEL／TIMEの停止理由とFREQ自身の停止・pair判定を合わせ、FREQをLEVELの計測鮮度で切り替えない。
 非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。
 
 AUTOの非表示停止通知は、同じ比較が存続しAUTOが停止したままの場合だけ、先行する操作通知の後に一度示す。通知待ちの間に明示AUTO再開・新しい中断・比較終了があれば古い通知を破棄し、現在のAUTOや通常計測を停止中と誤表示しない。承認gainと現在の安全性の案内は維持する。
+
+2026-10-10利用者選択：LEVEL／TIMEの同run比較currentは元の一致slot完了から1秒未満、local軸の差も1秒未満の通常PRE公開遅れの間、値とActiveを保持する。1000 ms以上で既存のSTALE／HOLDING／MEASURINGへ戻り、再poll／再joinで延長しない。seek／loop頭への復帰／run変更／停止／pause／pair・authority・layout変更と後続の確定欠測は即時失効する。絶対currentの400 ms期限、M／TPの400 msとS／PSRの3秒測定窓は維持する。FREQはLEVELの計測鮮度で状態行やMARKを切り替えず、pairのNoPair／PreBypassed／PreInactive／LayoutMismatch／LayoutUnknown／AuditionActive／未対応理由だけを使用する。FREQのΔ可用性は独立したspectrum状態に従う。
