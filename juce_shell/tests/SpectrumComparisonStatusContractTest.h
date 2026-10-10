@@ -27,8 +27,9 @@ inline void verifySpectrumComparisonStatusContract (hypha::SpectrumComponent& sp
             hypha::text_style::ShownTextLog log;
             juce::Graphics graphics (image);
             spectrum.paintEntireComponent (graphics, true);
-            for (const auto* text : { "Δ", "PRE", "POST", "MARK" })
-                require (log.texts().contains (juce::String::fromUTF8 (text)) == legend);
+            for (const auto& text : { juce::String::fromUTF8 ("Δ"), juce::String ("PRE"),
+                                      juce::String ("POST"), juce::String ("MARK") })
+                require (log.texts().contains (text) == legend);
             require (spectrum.hasMark());
             return image;
         };
