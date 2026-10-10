@@ -147,7 +147,7 @@ inline void verifyLocalBlindUiContract()
              "preflight requires an explicit capture and keeps a way back");
     choice->setSelectedId (2, juce::sendNotificationSync);
     require (component.meterContext() == meter_context::MeterContext::trackStem
-                 && choice->getText() == "TRACK / STEM" && choice->getTooltip().contains ("short or sparse"),
+                 && choice->getText() == "TRACK / STEM" && choice->getTooltip().contains ("individual track or stem"),
              "the mode choice changes this comparison and explains its purpose on demand");
     component.setActionNotice ("START PLAYBACK BEFORE CAPTURE");
     require (labelText ("local-blind-result") == "START PLAYBACK BEFORE CAPTURE",
