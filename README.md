@@ -1104,7 +1104,7 @@ the explicit return screen without automatically resuming playback.
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
 click. Blind inherits it when opened and keeps any override within that comparison.
 **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
-**TRACK/STEM** identifies an individual track or group bus and uses short or sparse event energy.
+**TRACK/STEM** identifies an individual track or stem and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
 Hypha does not change DAW Solo, Mute, faders, plug-in bypass, or routing. On a TRACK or STEM, only that

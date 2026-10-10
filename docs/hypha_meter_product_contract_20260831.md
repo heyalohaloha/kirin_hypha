@@ -547,8 +547,8 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
 
-共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をmix／master busと連続active区間、
-`TRACK / STEM`をindividual／group busと短い・疎なeventとして説明する選択menuを開く。
+共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をミックスやマスターのバス、
+`TRACK / STEM`を個別のトラックやステムとして説明する選択menuを開く。
 PRE／POST Live Blindは現在の再生から固定MATCHを準備し、Capture操作を要求しない。
 復元で失効した試行はSource／回答を閉じ、保持減衰と明示済みENDだけを残す。減衰保持中の新規比較は
 主面とMENUで同じ開始条件を使い、上昇量付きRETURNを先に完了する。同一sessionのMATCH→BLINDは継続できる。

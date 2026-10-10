@@ -214,9 +214,9 @@ void KirinHyphaEditor::showMeterContextMenu (juce::Component& anchor)
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Meter context");
-    menu.addItem (700, "2MIX / Mix or master bus / continuous sections",
+    menu.addItem (700, "2MIX / Mix or master bus",
                   true, current == hypha::meter_context::MeterContext::twoMix);
-    menu.addItem (701, "TRACK / STEM / individual or group bus / sparse events",
+    menu.addItem (701, "TRACK / STEM / Individual track or stem",
                   true, current == hypha::meter_context::MeterContext::trackStem);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&anchor).withDeletionCheck (*this)
