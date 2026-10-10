@@ -131,7 +131,10 @@ namespace
         require (controller.answerBlind (1) && controller.revealBlind(), "audible whole-song preference completes");
         controller.observeTransport (0, false, false);
         controller.endBlind();
-        juce::Thread::sleep (300);
+        const auto endDeadline = juce::Time::getMillisecondCounterHiRes() + 5000.0;
+        while (controller.snapshot().blindPhase != ref::BlindPhase::inactive
+               && juce::Time::getMillisecondCounterHiRes() < endDeadline)
+            juce::Thread::sleep (10);
         require (controller.snapshot().blindPhase == ref::BlindPhase::inactive, "END during pause returns to the normal screen without another play click");
         int starts = 0, completions = 0;
         for (const auto& file : root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json"))
@@ -172,7 +175,10 @@ namespace
                  "one reveal discloses both sources without recording a preference");
         controller.observeTransport (0, false, false);
         controller.endBlind();
-        juce::Thread::sleep (300);
+        const auto unansweredEndDeadline = juce::Time::getMillisecondCounterHiRes() + 5000.0;
+        while (controller.snapshot().blindPhase != ref::BlindPhase::inactive
+               && juce::Time::getMillisecondCounterHiRes() < unansweredEndDeadline)
+            juce::Thread::sleep (10);
         starts = completions = 0;
         for (const auto& file : root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json"))
         {

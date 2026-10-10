@@ -53,6 +53,8 @@ use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference, SpectrumFrame};
 use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
+#[cfg(test)]
+use crate::spectrum_runtime::SpectrumClockKind;
 use crate::spectrum_runtime::{SpectrumHistory, SpectrumRuntime};
 use crate::{AttackHistory, AttackPairEvent, AttackRuntime};
 use attack_codec::{

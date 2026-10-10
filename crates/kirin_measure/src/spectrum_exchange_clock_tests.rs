@@ -1,7 +1,10 @@
-//! Actual worker and transport proof: local FREQ survives without an invented aligned pair.
+//! Actual worker and transport proof: FREQ compares only compatible coordinate meanings.
 use super::*;
 use crate::spectrum_runtime::SpectrumInputClock;
 use std::thread;
+
+#[path = "spectrum_exchange_project_clock_tests.rs"]
+mod project_clock_tests;
 
 struct Fixture {
     _temp: tempfile::TempDir,
@@ -132,14 +135,24 @@ fn local_post_keeps_absolute_spectrum_and_immediately_retires_an_old_delta_lease
 }
 
 #[test]
-fn local_pre_cannot_publish_and_known_authority_rewrites_the_same_endpoint() {
+fn project_pre_publishes_its_kind_and_known_authority_rewrites_the_same_endpoint() {
     let fixture = Fixture::new();
     fixture.paired();
     feed(&fixture.pre_runtime, SpectrumInputClock::LocalProject);
     assert!(fixture.serve_pre());
-    assert!(read_snapshot(&fixture.target.instance_dir).is_none());
+    assert_eq!(
+        read_snapshot(&fixture.target.instance_dir)
+            .unwrap()
+            .clock_kind,
+        SpectrumClockKind::ProjectTimeline
+    );
     assert!(fixture.serve_pre());
-    assert!(read_snapshot(&fixture.target.instance_dir).is_none());
+    assert_eq!(
+        read_snapshot(&fixture.target.instance_dir)
+            .unwrap()
+            .clock_kind,
+        SpectrumClockKind::ProjectTimeline
+    );
     feed(&fixture.pre_runtime, SpectrumInputClock::LegacyPresentation);
     assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_some());
@@ -163,7 +176,7 @@ fn clock_cleanup_preserves_foreign_publication_and_contention_preserves_owned_pu
     let foreign = Uuid::new_v4();
     write_snapshot(
         &fixture.target.instance_dir,
-        &encode_snapshot(foreign, &before.history),
+        &encode_snapshot(foreign, SpectrumClockKind::Presentation, &before.history),
     )
     .unwrap();
     feed(&fixture.pre_runtime, SpectrumInputClock::LocalRender);
@@ -376,10 +389,18 @@ fn clock_cutover_during_expired_pre_write_removes_old_bytes_before_early_return(
     assert!(!pending.join().unwrap());
     drop(pause);
     assert!(read_snapshot(&fixture.target.instance_dir).is_none());
-    // Renew after the deliberately expired request, then verify local cleanup cannot revive
-    // the retired bytes and the same endpoint can be published under current known authority.
+    // The project clock has only one short block: expired presentation bytes stay retired
+    // until a full window exists under the new coordinate meaning.
     assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_none());
+    feed(&fixture.pre_runtime, SpectrumInputClock::LocalProject);
+    assert!(fixture.serve_pre());
+    assert_eq!(
+        read_snapshot(&fixture.target.instance_dir)
+            .unwrap()
+            .clock_kind,
+        SpectrumClockKind::ProjectTimeline
+    );
     feed(&fixture.pre_runtime, |p| {
         known(p, crate::PresentationLatencySource::Vst3, 2_048)
     });

@@ -504,7 +504,7 @@ UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復
 
 FREQは画面を開いたときだけ既存Spectrum解析を取得する。
 
-FREQのPOST絶対観測は、optional output latencyが不明でも有効なproject／render sample clockがある場合に機能する。ローカル時計のauthorityは非公開identityへ分離し、PREの整列済みSpectrum公開とPRE／POST Δには使わない。既知のpresentation clock、clock source、output latencyが切り替わったら旧generation／frame／Δ leaseを退役する。未知latencyを0と推定せず、clock不正・座標overflow・非Spectrum modeは拒否する。公開SpectrumFrame／codec／C ABIと音声・Recordは維持する。
+FREQはoptional output latency未報告でも、PRE／POST双方がproject timelineを使う場合にΔを表示する。双方presentationの場合も比較できるが、presentationとprojectの混在は即時にΔを失効させ、絶対POSTを保持する。同runの実frame窓とexact endpointの一致を確認してから公開し、欠測を0補完しない。private snapshot KHSPEC05はclock kindを明記し、旧形式・未知tagは比較しない。render-only時計は絶対POSTだけに使う。clock definition、source、output latencyが切り替わったら旧generation／frame／Δ leaseを退役する。未知latencyを報告済み0と推定せず、clock不正・座標overflow・非Spectrum modeの制限を保つ。公開SpectrumFrame／C ABIと音声・Recordは維持する。
 
 TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。SHARPはpair未成立時に
 既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
