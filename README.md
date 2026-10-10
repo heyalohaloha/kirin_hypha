@@ -205,7 +205,9 @@ remain active for less than 1 s while the same pair, source spans and clock run 
 while the local timeline lag is also less than 1 s. Polls and rejoins do not renew this deadline.
 Seek, loop wrap, stop/pause, run, pair, authority or layout changes retire the comparison immediately.
 FREQ uses its own spectrum freshness; LEVEL warming or delayed measurement does not hide its
-Δ legend or MARK. Pair rejection reasons still appear in FREQ.
+Δ legend or MARK. Pair rejection reasons still appear in FREQ. A stopped POST keeps its selected PRE and reports
+that comparison is stopped; it does not ask you to select the same PRE again. A PRE that stops
+while POST continues is shown as inactive. Clearing the selection still reports no matching PRE.
 After a playback boundary, current Δ requires a complete, continuous aperture on both sides:
 400 ms for M, TP and LEVEL CREST, and 3 s for S, PSR and CORR. These LEVEL and TIME
 readings also work when the DAW omits its optional presentation-latency report.

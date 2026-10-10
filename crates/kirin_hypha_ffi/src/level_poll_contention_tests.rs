@@ -10,6 +10,18 @@ fn fixture() -> KirinHyphaEngine {
     }
     engine.set_signal_state(1);
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+    engine.pair_binding.replace_exact(
+        String::new(),
+        kirin_measure::LatchedPre {
+            name: String::new(),
+            instance_id: "pre".into(),
+            project_dir: "/fixture/project".into(),
+            pre_json: "/fixture/project/pre/pre.json".into(),
+            daw_session_id: None,
+            host_process_id: None,
+            readiness: kirin_measure::LatchedPreReadiness::Confirmed,
+        },
+    );
     *engine.delta_result.lock().unwrap() = DeltaResult {
         mode: DeltaMode::Active,
         lufs: Some(9.0),
@@ -145,11 +157,11 @@ fn stop_publishes_local_facts_before_the_io_holding_publication() {
     assert!(poll(&engine, &mut packet));
     assert_eq!(
         packet.frame.comparison_state,
-        KIRIN_COMPARISON_STATE_HOLDING
+        KIRIN_COMPARISON_STATE_REJECTED
     );
     assert_eq!(
         packet.frame.comparison_reason,
-        KIRIN_COMPARISON_REASON_STALE
+        KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
     );
 }
 
@@ -270,7 +282,26 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
     let pre = MeterDeltaHistoryExchange::new(48_000, Arc::clone(&pre_session));
     let mut complete_level = 0;
     let mut complete_time = 0;
-    for slot in 0..44 {
+    for slot in 0..88 {
+        if slot == 44 {
+            let active_delta = engine.delta_result.lock().unwrap().clone();
+            pre_session.lock().unwrap().pause();
+            let paused = {
+                let mut session = engine.meter_session.as_ref().unwrap().lock().unwrap();
+                session.pause();
+                session.snapshot()
+            };
+            engine
+                .meter_session_publication
+                .as_ref()
+                .unwrap()
+                .publish(paused);
+            engine.set_signal_state(KIRIN_SIGNAL_STATE_INACTIVE);
+            *engine.delta_result.lock().unwrap() = DeltaResult::default();
+            stop_binding_tests::assert_stopped(&engine, KIRIN_COMPARISON_REASON_LOCAL_INACTIVE);
+            engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
+            *engine.delta_result.lock().unwrap() = active_delta;
+        }
         let input: Vec<f64> = (0..4800)
             .flat_map(|n| {
                 let v = 0.1 * (std::f64::consts::TAU * 997.0 * n as f64 / 48000.0).sin();
@@ -278,7 +309,7 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
             })
             .collect();
         let clock = MeterClockStart {
-            position_samples: Some(slot * 4800),
+            position_samples: Some((slot % 44) * 4800),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
             ..Default::default()
@@ -304,13 +335,14 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
             .service_post_endpoint(Some(target.clone()));
         let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
         assert!(poll(&engine, &mut packet));
-        if slot < 3 {
+        if slot % 44 < 3 {
             assert!(packet.frame.delta.lufs.is_nan());
         }
-        if slot < 29 {
+        if slot % 44 < 29 {
             assert!(packet.frame.delta.psr.is_nan());
         }
-        if slot >= 30 {
+        if slot % 44 >= 30 {
+            assert_eq!(packet.frame.comparison_state, KIRIN_COMPARISON_STATE_ACTIVE);
             assert!((packet.frame.delta.lufs - 6.020599913).abs() < 0.001);
             assert!((packet.frame.delta.true_peak - 6.020599913).abs() < 0.001);
             assert!(packet.frame.delta.psr.abs() < 0.001);
@@ -340,10 +372,11 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
                 KIRIN_SNAPSHOT_SUCCESS
             );
             assert!((time.main.current.values[0] - 6.020599913).abs() < 0.001);
+            assert_eq!(time.main.current.state, KIRIN_TIME_CURRENT_LIVE);
             complete_time += 1;
         }
     }
-    assert_eq!((complete_level, complete_time), (14, 14));
+    assert_eq!((complete_level, complete_time), (28, 28));
     // A local Measure lock is transient contention, never a new MEASURING frame.
     {
         let _busy = engine.meter_session.as_ref().unwrap().lock().unwrap();
@@ -376,3 +409,6 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
     );
     assert!(packet.frame.delta.lufs.is_nan());
 }
+
+#[path = "level_stop_binding_tests.rs"]
+mod stop_binding_tests;

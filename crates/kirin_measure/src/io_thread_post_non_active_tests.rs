@@ -21,7 +21,7 @@ fn inactive_with_pair_keeps_last_active_as_stale() {
         ..Default::default()
     };
 
-    let r = resolve_delta_for_non_active_post(SignalState::Inactive, "Drum", &previous);
+    let r = resolve_delta_for_non_active_post(SignalState::Inactive, Some("pre"), &previous);
 
     assert_eq!(r.mode, DeltaMode::Stale);
     let snap = r.last_active.expect("inactive pair must keep frozen delta");
@@ -42,7 +42,7 @@ fn inactive_with_pair_snapshots_previous_core_values_if_needed() {
         ..Default::default()
     };
 
-    let r = resolve_delta_for_non_active_post(SignalState::Inactive, "Music", &previous);
+    let r = resolve_delta_for_non_active_post(SignalState::Inactive, Some("pre"), &previous);
 
     assert_eq!(r.mode, DeltaMode::Stale);
     let snap = r.last_active.expect("core delta should be recoverable");
@@ -63,7 +63,7 @@ fn inactive_without_pair_clears_delta() {
         ..Default::default()
     };
 
-    let r = resolve_delta_for_non_active_post(SignalState::Inactive, "", &previous);
+    let r = resolve_delta_for_non_active_post(SignalState::Inactive, None, &previous);
 
     assert_eq!(r.mode, DeltaMode::NoPre);
     assert!(r.last_active.is_none());
@@ -81,7 +81,7 @@ fn bypassed_clears_even_when_pair_is_selected() {
         ..Default::default()
     };
 
-    let r = resolve_delta_for_non_active_post(SignalState::Bypassed, "Drum", &previous);
+    let r = resolve_delta_for_non_active_post(SignalState::Bypassed, Some("pre"), &previous);
 
     assert_eq!(r.mode, DeltaMode::NoPre);
     assert!(r.last_active.is_none());
@@ -97,7 +97,15 @@ fn blocked_instance_directory_leaves_io_delta_active_until_storage_recovers() {
     let post_result = Arc::new(Mutex::new(MeasureResult::default()));
     let delta_result = Arc::new(Mutex::new(active_delta_fixture()));
     let signal = Arc::new(AtomicU8::new(SignalState::Inactive as u8));
-    let latched = Mutex::new(None);
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "mix".into(),
+        instance_id: "pre".into(),
+        project_dir: root.join("project"),
+        pre_json: root.join("project/pre/pre.json"),
+        daw_session_id: None,
+        host_process_id: None,
+        readiness: crate::LatchedPreReadiness::Confirmed,
+    }));
     let run = || {
         run_tick(
             root,
@@ -116,7 +124,7 @@ fn blocked_instance_directory_leaves_io_delta_active_until_storage_recovers() {
             "mix",
             12.5,
             0,
-            None,
+            Some("pre"),
             "project",
             "daw",
             false,
@@ -135,8 +143,11 @@ fn blocked_instance_directory_leaves_io_delta_active_until_storage_recovers() {
     run().unwrap();
     let delta = delta_result.lock().unwrap();
     assert_eq!(delta.mode, DeltaMode::Stale);
-    assert_eq!(delta.comparison.state, crate::ComparisonState::Holding);
-    assert_eq!(delta.comparison.reason, crate::ComparisonReason::Stale);
+    assert_eq!(delta.comparison.state, crate::ComparisonState::Rejected);
+    assert_eq!(
+        delta.comparison.reason,
+        crate::ComparisonReason::LocalInactive
+    );
     assert!(post_file.is_file());
 }
 
@@ -186,7 +197,15 @@ fn run_non_active_tick(
     }));
     let delta_result = Arc::new(Mutex::new(active_delta_fixture()));
     let signal_state = Arc::new(AtomicU8::new(state as u8));
-    let latched = Mutex::new(None);
+    let latched = Mutex::new((!pair_pre_name.is_empty()).then(|| LatchedPre {
+        name: pair_pre_name.into(),
+        instance_id: "pre".into(),
+        project_dir: project_dir.clone(),
+        pre_json: project_dir.join("pre/pre.json"),
+        daw_session_id: None,
+        host_process_id: None,
+        readiness: crate::LatchedPreReadiness::Confirmed,
+    }));
 
     run_tick(
         &project_dir,
@@ -203,7 +222,7 @@ fn run_non_active_tick(
         pair_pre_name,
         12.5,
         0,
-        None,
+        (!pair_pre_name.is_empty()).then_some("pre"),
         "project",
         "daw",
         false,
@@ -251,8 +270,11 @@ fn inv_d8_inactive_exact_pair_retains_frozen_delta_and_writes_minimal_json() {
         .expect("Inactive exact pair must retain the last measured delta");
     assert_eq!(frozen.lufs, Some(1.0));
     assert_eq!(frozen.tp, Some(2.0));
-    assert_eq!(delta.comparison.state, crate::ComparisonState::Holding);
-    assert_eq!(delta.comparison.reason, crate::ComparisonReason::Stale);
+    assert_eq!(delta.comparison.state, crate::ComparisonState::Rejected);
+    assert_eq!(
+        delta.comparison.reason,
+        crate::ComparisonReason::LocalInactive
+    );
     assert_eq!(delta.comparison.generation, 1);
     assert_ne!(delta.comparison.identity, 0);
     assert_minimal_post_json(&json, "inactive", "Drum");

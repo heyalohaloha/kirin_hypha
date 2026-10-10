@@ -2,6 +2,8 @@
 
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaLanguage.h"
+#include "../src/HyphaTextStyle.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -130,5 +132,39 @@ void verify()
     stopped.signal_state = KIRIN_SIGNAL_STATE_BYPASSED;
     post.setObservatoryFrame (stopped, true);
     KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "BYPASSED");
+    // A retained exact pair is stopped, never a request to select that PRE again.
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        i18n::ScopedLanguage scoped (language);
+        for (const auto reason : { KIRIN_COMPARISON_REASON_LOCAL_INACTIVE,
+                                   KIRIN_COMPARISON_REASON_PRE_INACTIVE })
+        {
+            stopped.signal_state = KIRIN_SIGNAL_STATE_INACTIVE;
+            stopped.comparison_reason = static_cast<uint8_t> (reason);
+            post.setTarget (observatory::ObservationTarget::delta);
+            post.setObservatoryFrame (stopped, true);
+            for (const auto domain : { observatory::Domain::level, observatory::Domain::time })
+            {
+                post.setDomain (domain);
+                text_style::ShownTextLog log;
+                const auto image = post.createCaptureImage (600, 400);
+                KIRIN_COMPARISON_REQUIRE (image.isValid());
+                const auto text = log.texts().joinIntoString ("\n");
+                KIRIN_COMPARISON_REQUIRE (! text.contains ("NO MATCHING PRE"));
+                KIRIN_COMPARISON_REQUIRE (! text.contains (juce::String::fromUTF8 ("対応PREなし")));
+                if (domain == observatory::Domain::level)
+                    KIRIN_COMPARISON_REQUIRE (log.texts().contains (text_style::shownText (
+                        comparison_presentation::statusText (stopped.comparison_state,
+                                                              stopped.comparison_reason))));
+            }
+        }
+        stopped.comparison_reason = KIRIN_COMPARISON_REASON_NO_PAIR;
+        post.setDomain (observatory::Domain::level);
+        post.setObservatoryFrame (stopped, true);
+        text_style::ShownTextLog unbound;
+        post.createCaptureImage (600, 400);
+        KIRIN_COMPARISON_REQUIRE (unbound.texts().contains (text_style::shownText (
+            comparison_presentation::statusText (stopped.comparison_state, stopped.comparison_reason))));
+    }
 }
 }

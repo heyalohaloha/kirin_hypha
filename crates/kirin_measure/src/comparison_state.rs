@@ -28,6 +28,8 @@ pub enum ComparisonReason {
     AuditionActive = 8,
     UnsupportedView = 9,
     UnsupportedMetric = 10,
+    /// The local POST stopped while its exact PRE binding remains selected.
+    LocalInactive = 11,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

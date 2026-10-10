@@ -23,6 +23,7 @@ struct ComparisonContext<'a> {
     post: &'a MeasureResult,
     layout: &'a crate::plugin_data::MeasurementLayout,
     audition_active: bool,
+    local_inactive: bool,
 }
 
 fn attach_comparison_state(
@@ -51,9 +52,13 @@ fn attach_comparison_state(
         previous.comparison,
         next,
         identity.finish(),
-        context
-            .audition_active
-            .then_some(crate::ComparisonReason::AuditionActive),
+        if context.local_inactive && context.pre_instance_id.is_some_and(|id| !id.is_empty()) {
+            Some(crate::ComparisonReason::LocalInactive)
+        } else {
+            context
+                .audition_active
+                .then_some(crate::ComparisonReason::AuditionActive)
+        },
     );
 }
 
@@ -316,7 +321,8 @@ pub(super) fn run_tick(
         let mut delta_locked =
             crate::sync_recovery::lock_recover(delta_result, "POST inactive delta");
         let previous_delta = delta_locked.clone();
-        let mut next = resolve_delta_for_non_active_post(state, pair_pre_name, &previous_delta);
+        let mut next =
+            resolve_delta_for_non_active_post(state, paired_pre_instance_id, &previous_delta);
         attach_comparison_state(
             &previous_delta,
             &mut next,
@@ -329,6 +335,7 @@ pub(super) fn run_tick(
                 post: &post,
                 layout: post_layout,
                 audition_active: comparison_audition_active,
+                local_inactive: true,
             },
         );
         *delta_locked = next;
@@ -417,6 +424,7 @@ pub(super) fn run_tick(
                 post: &post,
                 layout: post_layout,
                 audition_active: comparison_audition_active,
+                local_inactive: false,
             },
         );
         *delta_locked = next;
@@ -442,3 +450,7 @@ pub(super) fn run_tick(
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "io_thread_post_stop_binding_tests.rs"]
+mod stop_binding_tests;

@@ -78,6 +78,9 @@ fn observatory_delta_requires_active_freshness_even_when_stale_values_are_finite
 #[test]
 fn observatory_frame_keeps_reason_generation_and_identity_with_the_delta() {
     let mut engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
+    // This exercises an active comparison rejection. A stopped, unbound engine must instead
+    // report NoPair from the local selection owner, independently of an old IO rejection.
+    engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
     *engine.delta_result.lock().unwrap() = DeltaResult {
         mode: DeltaMode::LayoutMismatch,
         comparison: kirin_measure::ComparisonSnapshot {
