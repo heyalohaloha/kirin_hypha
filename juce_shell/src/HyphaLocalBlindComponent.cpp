@@ -62,7 +62,7 @@ Component::Component()
     repairButton.onClick = [this] { if (onRepair) onRepair(); };
     contextChoice.setComponentID ("local-blind-context");
     contextChoice.setTitle ("Gain Match mode for this comparison");
-    contextChoice.setTooltip ("2MIX: continuous sections. TRACK / STEM: short or sparse events. Applies to this comparison.");
+    contextChoice.setTooltip ("2MIX: for a mix or master bus. TRACK / STEM: for an individual track or stem. Applies to this comparison.");
     contextChoice.setDescription (contextChoice.getTooltip());
     contextChoice.setColour (juce::ComboBox::textColourId, COL_NORMAL);
     contextChoice.setColour (juce::ComboBox::arrowColourId, COL_FLORA);
