@@ -166,4 +166,17 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
 }
 inline const char* namedRecovery (const live_compare::Status& state) noexcept
 { return namedPresentation (state).instruction; }
+
+// Retained revocation reasons protect the next admission; they are not current listening
+// activity. Only a live session, an audio return or a still-held output needs a standing remedy.
+// An actual session's terminal transition uses namedRecovery once in the existing toast rail.
+inline RecoveryPresentation currentNamedPresentation (const live_compare::Status& state,
+    live_compare::StartResult admission = live_compare::StartResult::started) noexcept
+{
+    if (state.finishing || state.contentHeld || state.active)
+        return namedPresentation (state, admission);
+    if (state.postActual < 1.0f || state.postTarget < 1.0f)
+        return { state.reason, RecoveryAction::returnLevel, "Stopped: RETURN, then LISTEN (POST)" };
+    return {};
+}
 }

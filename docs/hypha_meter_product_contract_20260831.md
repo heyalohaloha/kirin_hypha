@@ -571,6 +571,8 @@ Hybrid VU下部の`0 VU = −18 dBFS`を全sizeでクリックし、−12／−1
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 Recordの中間I／LRAは同じ処理済みprefixのexact-energy cacheを使い、入力blockごとの全履歴走査を避ける。補助cacheはengineごとに65,536 distinct nodesを上限とし、上限／丸め曖昧gateではcanonical exactへ戻る。Max TPと値の有無・表示期限は変えない。Stopは従来のtight-drainとcanonical finalizeを使い、保存Recordの数値・schema・範囲を変えない。
+接続・pair変更・state復元だけでは、過去のLISTEN退役原因を足元の常設案内やMENU見出しにしない。実際に動作していたLISTENの正常音量での中断は既存の3秒通知で理由と再開先を示し、その後LIVE／HOLDへ戻す。現在の待機・content hold・終了時のaudio callback待ち・未解除の減衰とRETURNは、必要な間表示する。Keepのidle自動停止も一度だけ受け取る3秒通知とし、再pollや再openで古い完了を復活させない。
+
 Keep／Record終了の状態は既存の最下部通知領域へ示す。保持した6つの結果factは既存LEVELから確認し、TIME／FREQ／SPACEの選択面やタブへ結果見出しを重ねない。明示操作の保存失敗は従来どおり理由を通知する。
 Recordの音声対応では、主時計・presentation・source・latencyが連続し、補助時計だけが切り替わったとproducerが確認した境界を、真の音声欠落と区別する。比較時計のepochは引き続き切る。seek、強制cut、source変更、未知latencyを連続音声として承認せず、欠落の補間やcompleteの偽装を行わない。
 
@@ -777,3 +779,5 @@ Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合
 
 LEVEL/TIMEのcurrent Δはoptional presentation latency未報告のhostでも、同じrunの双方の実frameで400 ms／3秒窓を確認して公開する。再生中のtry-lock競合は新frame無しとして整合した直前値を保持し、実データ欠測と区別する。停止事実はAudio／Measure側から出し、IO比較の更新が遅れたり取得できなくてもLEVEL／observatoryの絶対frameを止めない。値の範囲・精度を保ち停止中として表示し、その間のΔには「POST停止中 — 比較更新待ち」の理由を出す。IOの保持publicationが届いた後は既存のHOLDING表示を使う。
 非表示editorではAUTO追従を停止し、承認済みgainを保つ。再表示時に先行する操作通知の表示を保って停止を通知し、自動再開しない。KeepとCapture Work添付のeditor通知も再表示まで遅れる。
+
+AUTOの非表示停止通知は、同じ比較が存続しAUTOが停止したままの場合だけ、先行する操作通知の後に一度示す。通知待ちの間に明示AUTO再開・新しい中断・比較終了があれば古い通知を破棄し、現在のAUTOや通常計測を停止中と誤表示しない。承認gainと現在の安全性の案内は維持する。

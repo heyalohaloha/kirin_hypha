@@ -71,3 +71,13 @@ ARM実DAW、Windows AAX/PDC、全Reference/Blind/Exact/Capture/Record往復、�
 FactsのAudio endedはfinish／reasonとも「入力終了」。同じ意味のfinishとreasonが同じ行に重なるときは1回だけ描く。異なる理由や内訳は保持する。
 
 記録のみ（修正外）：Session V2 pollがbusyの後に新しいobservatory frameが届くと、coverageがそのframeへ追いつくまで未確認prefixとしてPLRが一度欠測になる場合がある。正常の10ms端数とcoverage取得競合の区別は別の未処理項目とし、今回解消済みとは報告しない。
+
+## 足元通知の寿命（2026-10-10利用者指摘）
+
+PRE選択／解除とstate復元で安全性のために保持するLISTEN退役原因を、動作中の比較状態へ投影していたため、LISTEN未使用でも案内が常駐した。現在の常設remedyはactive session・content hold・RT return待ち・保持減衰に限定する。実LISTENの終端遷移は一度の3秒通知とし、接続／復元のみでは通知しない。MENUと全文storyも同じ現在状態を使う。RT revocation、初回原因の保持、再選択guard、承認gain、A経路は変えない。
+
+idle Keep完了はpersistent Record errorへの書込みを止め、既存pair releaseの一度だけ消費するslotへ渡す。出荷FFIではengineのbounded action noticeを共有し、IO worker再起動でslotを作り直さない。旧Rust呼出引数とC ABI形、Record終端・writer・serialized outputは維持する。PRE競合で実際に選択が解除された理由も同じbounded railで通知する。
+
+再受入は、実PRE探索／選択／解除、LISTEN未使用、state restore、停止再開、hidden／visible、editor再open、実LISTEN中断／明示END／再選択、全size・domain・日英・VUと、一度のCapture／Keep結果通知の消去後の再出現を対象とする。現在のWAIT・content hold・RT return・実際／targetの保持減衰は過去理由全種と組み合わせて検証する。実paired Keepの5秒試験閾値auto-stopを通常workspace suiteで動かし、通知1回・persistent error無し・Watch／再openで復活無しを確認する。10分defaultは変更しない。fixture結果は実REAPER等のloaded module受入を代用しない。
+
+追加監査で、非表示AUTO停止通知が先行toast待ちの間のAUTO再開や比較終了後にも出る経路を確認した。再開の明示commandはpendingを退役し、timerも現在の比較存続・追従・新faultから古いpendingを破棄する。既存のinactive UI fixtureは不成立sessionで通知しないことを確認し、実PRE探索／LISTEN／MATCHを使うfixtureで現在の停止通知1回、Capture失敗の優先、AUTO再開後の古い通知無し、pair中断後の復活無しを確認する。音声／gain／RUST／ABIは変更しない。

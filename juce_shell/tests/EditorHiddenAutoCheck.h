@@ -57,14 +57,14 @@ inline void verifyHiddenAutoStops()
     editor->*privateMember (HiddenToastUntil {}) = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
     editor->setVisible (true);
     (editor->*privateMember (HiddenTimer {}))();
-    require (hiddenAutoNotice (*editor, {})
+    require (! hiddenAutoNotice (*editor, {})
              && editor->*privateMember (HiddenToast {}) == "Capture could not be attached",
-             "hidden AUTO notice waits rather than overwriting explicit Capture failure");
+             "a notice with no actual LISTEN session is discarded without overwriting Capture failure");
     editor->*privateMember (HiddenToastUntil {}) = 0.0;
     (editor->*privateMember (HiddenTimer {}))();
     require (! hiddenAutoOn (*editor, {}) && ! hiddenAutoNotice (*editor, {})
-             && editor->*privateMember (HiddenToast {}) == "AUTO stopped: editor hidden",
-             "visible timer delivers the queued notice without restarting AUTO");
+             && (editor->*privateMember (HiddenToast {})).isEmpty(),
+             "an inactive session cannot revive the hidden AUTO notice after the action toast expires");
     editor->setVisible (false);
     (editor->*privateMember (HiddenTimer {}))();
     require (! hiddenAutoNotice (*editor, {}), "hiding without AUTO adds no stop notice");

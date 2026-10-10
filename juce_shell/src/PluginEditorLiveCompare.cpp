@@ -324,12 +324,14 @@ bool KirinHyphaEditor::refreshLiveCompare()
     // a second. The final minimum is a listening decision (plan G4).
     if (processorRef.takeLiveComparePreWait() || status.preWaiting)
         liveComparePreWaitUntil = now + 0.5;
-    if (processorRef.takeLiveCompareGuardTrip())
+    const bool sessionObserved = status.active || liveCompareActiveSeen;
+    const bool guardTripped = processorRef.takeLiveCompareGuardTrip();
+    if (guardTripped && sessionObserved)
     {
         showToast (hypha::live_compare_ui::namedRecovery (status));
         newFault = true;
     }
-    else if (status.interrupted && ! liveCompareInterruptSeen)
+    else if (status.interrupted && ! liveCompareInterruptSeen && sessionObserved)
     {
         showToast (hypha::live_compare_ui::namedRecovery (status));
         newFault = true;
@@ -343,7 +345,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
     }
     liveCompareActiveSeen = status.active && ! status.finishing;
     newFault = monitorLiveCompareOffset (status, now) || newFault;
-    const auto presentation = hypha::live_compare_ui::namedPresentation (status, processorRef.liveCompareAdmission (false));
+    const auto presentation = hypha::live_compare_ui::currentNamedPresentation (status, processorRef.liveCompareAdmission (false));
     liveCompareStory.clear();
     if (*presentation.instruction != 0)
     {

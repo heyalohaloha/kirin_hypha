@@ -243,10 +243,8 @@ pub fn spawn_io_thread_post(
     trigger_stop_resolution: TriggerStopResolutionFn,
     pair_binding_generation: PairBindingGenerationFn,
     release_pair_binding_if_current: ReleasePairBindingIfCurrentFn,
-    // io_thread → GUI ステータス行への通知 channel。
-    // B-245 以降、writer flush failure は Record を止めない。
-    // 現在は idle timeout など、Record を正当に閉じた経路の説明だけを書き込む。
-    record_error_message: Arc<RwLock<Option<String>>>,
+    // Kept in the Rust caller signature; successful idle completion is not a persistent fault.
+    _record_error_message: Arc<RwLock<Option<String>>>,
     pair_claimed_at: Arc<RwLock<f64>>,
     // W-281 / G-115-249 / D-1: pair release toast 通知 channel (IO Thread → GUI)。
     // None = 通常 / Some(msg) = GUI 側 update closure 入口で take() → Toast 化。
@@ -302,7 +300,7 @@ pub fn spawn_io_thread_post(
                 pair_binding_generation,
                 release_pair_binding_if_current,
                 pair_claimed_at,
-                pair_release_notice,
+                pair_release_notice: Arc::clone(&pair_release_notice),
                 pair_owner,
                 latched_pre: Arc::clone(&latched_pre),
             },
@@ -370,7 +368,7 @@ pub fn spawn_io_thread_post(
                 &record_sm,
                 &signal_state,
                 recording.is_some(),
-                &record_error_message,
+                &pair_release_notice,
                 &paired_pre_target,
                 project_hash_ref,
                 instance_id_ref,
