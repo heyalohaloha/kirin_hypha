@@ -40,7 +40,12 @@ fn the_wire_carries_the_view_and_two_views_are_not_differenced() {
     role_frame.view = SpectrumView::Channel(ChannelRole::Right).to_abi();
     let mut history = SpectrumHistory::with_capacity();
     history.push(role_frame.clone());
-    let decoded = decode_snapshot(&encode_snapshot(Uuid::new_v4(), &history)).unwrap();
+    let decoded = decode_snapshot(&encode_snapshot(
+        Uuid::new_v4(),
+        SpectrumClockKind::Presentation,
+        &history,
+    ))
+    .unwrap();
     assert_eq!(decoded.history.newest().unwrap().view, role_frame.view);
 
     // 同じ view どうしは従来どおり引ける。

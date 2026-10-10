@@ -184,6 +184,22 @@ impl SpectrumRuntime {
         super::ingress::definition_is_aligned(self.clock_definition.load(Ordering::Acquire))
     }
 
+    /// History and coordinate meaning must come from the same producer identity.
+    pub fn try_history_with_clock(
+        &self,
+    ) -> Option<(SpectrumHistory, Option<super::SpectrumClockKind>)> {
+        let before = self.current_snapshot_identity();
+        let history = self.try_history()?;
+        (before == self.current_snapshot_identity()).then_some((
+            history,
+            super::ingress::definition_clock_kind(before.clock_definition),
+        ))
+    }
+
+    pub fn spectrum_clock_kind(&self) -> Option<super::SpectrumClockKind> {
+        super::ingress::definition_clock_kind(self.clock_definition.load(Ordering::Acquire))
+    }
+
     pub(crate) fn spectrum_clock_revision(&self) -> u64 {
         self.stream_generation.load(Ordering::Acquire)
     }

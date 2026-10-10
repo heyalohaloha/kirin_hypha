@@ -46,7 +46,7 @@ fn fixed_snapshot_roundtrip_preserves_history_and_request() {
     let mut history = SpectrumHistory::with_capacity();
     history.push(frame(4_800, -20.0));
     history.push(frame(9_600, -18.0));
-    let bytes = encode_snapshot(request_id, &history);
+    let bytes = encode_snapshot(request_id, SpectrumClockKind::Presentation, &history);
     assert_eq!(bytes.len(), 44 + 2 * (36 + SPECTRUM_BAND_COUNT * 4));
     assert!(
         44 + SPECTRUM_HISTORY_CAPACITY * (36 + SPECTRUM_BAND_COUNT * 4)
@@ -91,7 +91,7 @@ fn active_pair_30hz_analysis_transport_budget_is_quantified() {
     for index in 1..=SPECTRUM_HISTORY_CAPACITY {
         history.push(frame(index as i64 * 1_600, -20.0 + index as f32));
     }
-    let bytes = encode_snapshot(request_id, &history);
+    let bytes = encode_snapshot(request_id, SpectrumClockKind::Presentation, &history);
     assert!(bytes.len() <= SNAPSHOT_MAX_BYTES as usize);
 
     let iterations = 300;
@@ -151,7 +151,7 @@ fn perceptual_pair_10hz_analysis_transport_budget_is_quantified() {
 fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     let mut history = SpectrumHistory::with_capacity();
     history.push(frame(4_800, -20.0));
-    let bytes = encode_snapshot(Uuid::new_v4(), &history);
+    let bytes = encode_snapshot(Uuid::new_v4(), SpectrumClockKind::Presentation, &history);
     assert!(decode_snapshot(&bytes[..bytes.len() - 1]).is_none());
     let mut trailing = bytes.clone();
     trailing.push(0);
@@ -160,7 +160,7 @@ fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     let first_value = 44 + 36;
     nonfinite[first_value..first_value + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(decode_snapshot(&nonfinite).is_none());
-    let mut invalid_energy = encode_snapshot(Uuid::new_v4(), &{
+    let mut invalid_energy = encode_snapshot(Uuid::new_v4(), SpectrumClockKind::Presentation, &{
         let mut history = SpectrumHistory::with_capacity();
         history.push(frame(4_800, -20.0));
         history
@@ -173,7 +173,7 @@ fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
 fn host_rate_layout_metadata_is_exact_and_mismatch_fails_closed() {
     let mut history = SpectrumHistory::with_capacity();
     history.push(frame(4_800, -20.0));
-    let bytes = encode_snapshot(Uuid::new_v4(), &history);
+    let bytes = encode_snapshot(Uuid::new_v4(), SpectrumClockKind::Presentation, &history);
 
     let mut wrong_aperture = bytes.clone();
     wrong_aperture[16..20].copy_from_slice(&4_095_u32.to_le_bytes());

@@ -20,12 +20,11 @@ impl SpectrumCoordinator {
     ) -> bool {
         let clock_revision = self.runtime.spectrum_clock_revision();
         let spectrum_observation = (session.analysis_mode == AnalysisViewMode::Spectrum)
-            .then(|| self.runtime.try_history_with_alignment())
+            .then(|| self.runtime.try_history_with_clock())
             .flatten();
-        let spectrum_aligned = spectrum_observation.as_ref().map_or_else(
-            || self.runtime.presentation_clock_aligned(),
-            |(_, aligned)| *aligned,
-        );
+        let spectrum_clock_kind = spectrum_observation
+            .as_ref()
+            .map_or_else(|| self.runtime.spectrum_clock_kind(), |(_, kind)| *kind);
         let spectrum_local = spectrum_observation.map(|(history, _)| history);
         let perceptual_local = (session.analysis_mode == AnalysisViewMode::Perceptual)
             .then(|| self.runtime.try_perceptual_history())
@@ -38,10 +37,15 @@ impl SpectrumCoordinator {
             })
             .flatten();
         let spectrum_remote = (session.analysis_mode == AnalysisViewMode::Spectrum
-            && spectrum_aligned)
-            .then(|| read_snapshot(&target.instance_dir))
-            .flatten()
-            .filter(|snapshot| snapshot.request_id == session.request_id)
+            && spectrum_clock_kind.is_some())
+        .then(|| read_snapshot(&target.instance_dir))
+        .flatten()
+        .filter(|snapshot| snapshot.request_id == session.request_id);
+        let clock_mismatch = spectrum_remote
+            .as_ref()
+            .is_some_and(|snapshot| Some(snapshot.clock_kind) != spectrum_clock_kind);
+        let spectrum_remote = spectrum_remote
+            .filter(|snapshot| Some(snapshot.clock_kind) == spectrum_clock_kind)
             .map(|snapshot| snapshot.history);
         let perceptual_remote = (session.analysis_mode == AnalysisViewMode::Perceptual)
             .then(|| read_perceptual_snapshot(&target.instance_dir))
@@ -91,8 +95,10 @@ impl SpectrumCoordinator {
                 return false;
             }
         }
-        if session.analysis_mode == AnalysisViewMode::Spectrum && !spectrum_aligned {
-            // A prior exact fact's display lease cannot cross into local-only authority.
+        if session.analysis_mode == AnalysisViewMode::Spectrum
+            && (spectrum_clock_kind.is_none() || clock_mismatch)
+        {
+            // An old exact fact's lease cannot cross incompatible coordinate meanings.
             current.last_presented_at = None;
             current.last_presented_end_samples = None;
             self.store_spectrum_view(

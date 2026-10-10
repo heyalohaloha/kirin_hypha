@@ -2,7 +2,7 @@
 use super::{CaptureClockSource, PendingCaptureWindow, PresentationLatencySource};
 use kirin_measure::spectrum_runtime::SpectrumInputClock;
 
-/// Missing optional latency permits local FREQ observation, never pair alignment.
+/// Missing optional latency retains project coordinates; FREQ pairs only the same clock kind.
 #[inline]
 pub(super) fn spectrum_input_clock(clock: PendingCaptureWindow) -> Option<SpectrumInputClock> {
     if !clock.position_valid {

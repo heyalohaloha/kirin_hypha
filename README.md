@@ -227,9 +227,10 @@ image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
 
-Absolute POST spectra also work when a host supplies a valid project/render sample clock but omits
-the optional output-latency callback. That local clock is kept separate from pair alignment: Hypha
-does not assume zero latency, publish it as an aligned PRE spectrum, or use it for PRE/POST Δ.
+FREQ Δ also works when a host omits the optional output-latency callback. PRE and POST must both
+use presentation coordinates or both use the project timeline, with complete matching windows
+from the current run. Mixed clock kinds are not compared. A render-only clock supports absolute
+POST spectra; missing latency is never treated as a reported zero latency.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
 Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
