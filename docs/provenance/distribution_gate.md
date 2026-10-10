@@ -111,6 +111,13 @@ Public CI continues the complete build/test matrix but suppresses new Windows UI
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked
 separately from binary use. Diagnostic CI also lacks verified actual-payload NOTICE/source delivery,
 so input-rights approval alone cannot reenable binary uploads. Logs remain available.
+When that diagnostic upload is unavailable, the reviewed private factory may build the exact
+green source on `windows-latest` without signing credentials. Its immutable handoff retains
+raw PRE/POST hashes, audio transparency/pluginval results, CMake inputs, factory/source-CI identity,
+Corresponding Source and legal documents. The signing job verifies this handoff and the complete
+source CI before accepting it; it never silently treats a skipped public upload as successful.
+The private unsigned build is not public distribution approval. Actual extraction, linkage,
+host, signature and three-channel gates remain mandatory.
 This also covers generated previews and embedded resource copies, not only loose original files.
 Existing artifacts are preserved. Contributor source remains available for inspection; do not
 use repository availability as approval to package held material into a new distribution.

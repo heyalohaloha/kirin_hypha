@@ -65,6 +65,7 @@ node scripts/build_hypha.mjs --release --init \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
   --provenance-report release_state/distribution-provenance.json \
+  --source-archive /retained/private-windows-producer/Kirin-Hypha-X.Y.Z-Corresponding-Source.zip \
   --date YYYY-MM-DD
 
 # planのみ。build / 署名 / CI / 公開 / HP変更は実行しない。
@@ -107,7 +108,7 @@ AUはApple専用。Windows x64を「Universal Binary」とは呼ばない。
 ## 自動化する部分と、人による確認
 
 署名・公証・配布・GitHub・HPのコマンド接続はscriptが行うが、実DAWの聴取試験を自動PASSにしない。
-`provenance-inputs`、`ci`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
+`provenance-inputs`、`ci`、`source-delivery`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
 `provenance`、`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
 
 確認待ちは`CHECKPOINT`／exit 2。後段へは進まない。担当者は表示されたgateを確認し、
@@ -115,6 +116,7 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 
 - **CI / Windows**: exact commit、正しいworkflow、全必須job green、署名・pluginval・installer lifecycle・
   external validation・Native-only provenanceが必要。旧runは代用できない。
+- **Source / NOTICE**: `source-delivery`はcleanな採用source・承認済みJUCE bytes・依存sourceを検査し、対応source ZIPとlicense/NOTICEを準備する。Windows private factoryの未署名producerが作ったZIPを`--source-archive`で取り込み、Macでも全entryを照合して同じbytes/hashを使う。PKGの`Library/Application Support/Kirin Hypha/Legal`、ZIPの`Legal`、Windowsのインストール先`Kirin Mastering/Kirin Hypha/Legal`に同じsource配送情報を入れる。署名済みbundleは変更しない。source準備の成功はactual extraction/linkage reviewを代用しない。
 - **A4**: SDK/機器を含まないfixture結果で実host matrixを代用しない。ARM64 / Intelの各format、
   Windows両format、pair組合せ、LISTEN / Blind / Exact 4 S、通常透明性、保存、stress等を確認する。
 - **Provenance**: build/signing前に素材の用途を確認し、packaging後に実payloadのNOTICE・license・対応source配送を確認する。保持したprivate reportと実bytesを[配布gate](provenance/distribution_gate.md)で照合する。fixture PASSだけで配布readyにしない。

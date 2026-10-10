@@ -85,6 +85,7 @@ test('Windows installer arguments default to unsigned fail-safe CI mode', () => 
       commit: process.env.KIRIN_COMMIT || '',
       runUrl: process.env.KIRIN_GITHUB_RUN_URL || '',
       updatePublicKey: '',
+      legalDir: '',
       help: false,
     },
   );

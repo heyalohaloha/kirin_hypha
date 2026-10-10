@@ -79,6 +79,9 @@ Type: filesandordirs; Name: "{commoncf}\Avid\Audio\Plug-Ins\Kirin Hypha POST.aax
 #endif
 
 [Files]
+#ifdef LegalDir
+Source: "{#LegalDir}\*"; DestDir: "{autopf}\Kirin Mastering\Kirin Hypha\Legal"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 Source: "{#PreBundle}\*"; DestDir: "{autocf}\VST3\Kirin Hypha PRE.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PostBundle}\*"; DestDir: "{autocf}\VST3\Kirin Hypha POST.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 #ifdef WithAax

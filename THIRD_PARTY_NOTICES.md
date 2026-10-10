@@ -24,3 +24,17 @@ Repository history records subsequent integration, streaming, channel and displa
 The original file-level source/module references are retained. This notice restores a source name
 that was omitted from several later comments; it does not change numerical constants or DSP code.
 The relationship to public standards in those comments does not replace the OSS attribution.
+
+## Distribution component inventory
+
+Formal packages deliver `Legal/component-notices.json`, the retained component license texts,
+and `Legal/source-delivery.json` beside the signed plugin bundles. The JSON inventory identifies
+the pinned JUCE source and its tracked patches, the normal/build Rust dependency closure,
+and their source and modification notices. This conservative inventory does not replace
+review of the actual linked payload, external SDK terms, or a component's applicable license.
+
+Upstream license notices omitted from published Cargo packages are retained under
+`THIRD_PARTY_LICENSES/cargo/`. Their upstream commit, blob and file hashes are recorded in
+`provenance.json`. The r-efi upstream records its MIT terms and copyrights in `AUTHORS`.
+RealFFT's pinned upstream declares MIT in its README; the supplemental MIT standard terms
+are explicitly a reference and do not invent a copyright notice or a new grant.

@@ -122,6 +122,18 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
     copy_required("README.md", &package_root.join("README.md"))?;
     copy_required("LICENSE", &package_root.join("LICENSE"))?;
+    if let Some(legal_dir) = std::env::var_os("KIRIN_HYPHA_LEGAL_DIR") {
+        run_status(
+            Command::new("node")
+                .args(["scripts/provenance/legal_delivery.mjs", "stage"])
+                .arg(legal_dir)
+                .arg(package_root.join("Legal"))
+                .arg(aax_distribution::current_source_id()?),
+            "stage retained source/legal delivery beside signed bundles",
+        )?;
+    } else if !allow_unsigned {
+        bail!("signed distribution requires KIRIN_HYPHA_LEGAL_DIR");
+    }
     fs::write(
         package_root.join("INSTALL.txt"),
         release_package_metadata::install_text(&version, with_aax),

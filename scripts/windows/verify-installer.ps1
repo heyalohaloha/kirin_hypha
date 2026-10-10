@@ -178,6 +178,24 @@ $uninstallRoot = if ($withAax) {
 } else {
   Join-Path $env:LOCALAPPDATA "Programs\Kirin Mastering\Kirin Hypha"
 }
+function Verify-InstalledLegalDelivery {
+  if ($null -eq $manifestData.legalDelivery) {
+    if ($Signing -eq 'signed') { throw 'Signed installer legal delivery evidence is missing' }
+    return
+  }
+  $legalRoot = Join-Path $uninstallRoot 'Legal'
+  $actual = Get-Content (Join-Path $legalRoot 'legal-delivery.json') -Raw | ConvertFrom-Json
+  if ($actual.commit -ne $manifestData.source.commit -or
+      $actual.sourceSha256 -ne $manifestData.legalDelivery.sourceSha256) {
+    throw 'Installed Corresponding Source identity differs from installer'
+  }
+  foreach ($entry in $manifestData.legalDelivery.files) {
+    $file = Join-Path $legalRoot $entry.path
+    if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Sha256 $file) -ne $entry.sha256) {
+      throw "Installed notice/license/source pointer differs: $($entry.path)"
+    }
+  }
+}
 $aaxRoot = Join-Path $env:CommonProgramFiles "Avid\Audio\Plug-Ins"
 $preBundle = Join-Path $vst3Root "Kirin Hypha PRE.vst3"
 $postBundle = Join-Path $vst3Root "Kirin Hypha POST.vst3"
@@ -236,6 +254,7 @@ try {
       $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool)
     }
     $uninstallerPath = Resolve-HyphaUninstaller $uninstallRoot
+    Verify-InstalledLegalDelivery
     if ($installPass -eq 2) { $records += $passRecords }
   }
 

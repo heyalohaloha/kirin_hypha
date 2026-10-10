@@ -1,2 +1,5 @@
 * text=auto eol=lf
 crates/kirin_measure/examples/transient_development_contract/fixtures/transient_egmd_opened_b548_semantic_v1.csv -text whitespace=cr-at-eol
+
+# Retain upstream license texts byte for byte, including their terminal blank lines.
+THIRD_PARTY_LICENSES/cargo/** whitespace=-blank-at-eof

@@ -7,6 +7,7 @@ import { requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
 import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
 import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
+import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 
 export function macBundles(state, aax = false) {
   return (aax ? loadMacAaxBundleManifest({ root: state.root })
@@ -81,6 +82,11 @@ export async function verifyWindows(state, run) {
     version: state.candidate.version, commit: state.candidate.commit, bNumber: state.candidate.bNumber,
   }, { requireAax: true, updatePublicKey: state.inputs.updatePublicKey || '' });
   const manifest = readJson(`${installer}.json`);
+  const sourceHash = state.stages['source-delivery']?.facts?.[0]?.sha256;
+  if (!sourceHash || manifest.legalDelivery?.sourceSha256 !== sourceHash
+      || manifest.legalDelivery?.commit !== state.candidate.commit) {
+    throw new Error('Windows and macOS must deliver the same exact Corresponding Source archive');
+  }
   const sourceRun = manifest.source.github_actions_run.split('/').at(-1);
   if (sourceRun !== String(state.inputs.ciRun)) throw new Error('Windows source CI differs from the pinned CI run');
   const signingUrl = new URL(manifest.signing.workflow_run);
@@ -141,12 +147,16 @@ export function verifyPackages(state) {
 }
 
 export async function packageAll(state, run) {
+  const legalDir = state.stages['source-delivery']?.evidence?.legalDir;
+  if (!legalDir) throw new Checkpoint('Verified source/legal delivery stage required before packaging');
+  verifyLegalDelivery(legalDir, state.candidate.commit);
   if (artifactPaths(state).slice(0, 6).some(fs.existsSync)) {
     throw new Checkpoint('Existing package bytes must be qualified/imported, never overwritten by an automatic retry');
   }
   await run('node', ['scripts/ls_release/build_kirin_hypha_release_set.mjs', '--with-aax',
     '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)],
-    { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
+    { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '',
+      KIRIN_HYPHA_LEGAL_DIR: legalDir } });
   return verifyPackages(state);
 }
 

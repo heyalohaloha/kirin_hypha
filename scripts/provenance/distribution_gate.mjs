@@ -85,6 +85,25 @@ function resolvedLicenseDeclaration(value) {
   return !unresolved.test(value);
 }
 
+export function validateComponentInventory(components, inventory, entries) {
+  if (!Array.isArray(components) || new Set(components.map(c => c.id)).size !== components.length) throw new Error('Missing/duplicate distribution component inventory');
+  for (const c of components) {
+    if (typeof c.id !== 'string' || !c.id.trim() || !resolvedLicenseDeclaration(c.license)
+        || typeof c.source !== 'string' || !c.source.trim()
+        || typeof c.modificationNotice !== 'string' || !c.modificationNotice.trim()
+        || !Array.isArray(c.licenseFiles) || !c.licenseFiles.length) {
+      throw new Error(`Incomplete or unresolved distribution license/source inventory: ${c.id}`);
+    }
+    for (const name of c.licenseFiles) if (!entries.has(name) || !entries.get(name).length) throw new Error(`License absent from Corresponding Source: ${name}`);
+  }
+  for (const expected of [{ id: 'MoSQITo@1.2.1', license: 'Apache-2.0' }, { id: 'JUCE@7.0.12', license: null }, ...inventory.packages]) {
+    const c = components.find(row => row.id === expected.id);
+    if (!c || (expected.license && c.license !== expected.license)) {
+      throw new Error(`Incomplete distribution license/source inventory: ${expected.id}`);
+    }
+  }
+}
+
 export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts, report, requirements = sourceRequirements }) {
   if (report.schema !== 'hypha-distribution-provenance-v1' || report.commit !== commit) {
     throw new Error('Distribution provenance candidate mismatch');
@@ -113,22 +132,7 @@ export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts
     }
   }
   const components = report.components;
-  if (!Array.isArray(components) || new Set(components.map(c => c.id)).size !== components.length) throw new Error('Missing/duplicate distribution component inventory');
-  for (const c of components) {
-    if (typeof c.id !== 'string' || !c.id.trim() || !resolvedLicenseDeclaration(c.license)
-        || typeof c.source !== 'string' || !c.source.trim()
-        || typeof c.modificationNotice !== 'string' || !c.modificationNotice.trim()
-        || !Array.isArray(c.licenseFiles) || !c.licenseFiles.length) {
-      throw new Error(`Incomplete or unresolved distribution license/source inventory: ${c.id}`);
-    }
-    for (const name of c.licenseFiles) if (!entries.has(name) || !entries.get(name).length) throw new Error(`License absent from Corresponding Source: ${name}`);
-  }
-  for (const expected of [{ id: 'MoSQITo@1.2.1', license: 'Apache-2.0' }, { id: 'JUCE@7.0.12', license: null }, ...inventory.packages]) {
-    const c = components.find(row => row.id === expected.id);
-    if (!c || (expected.license && c.license !== expected.license)) {
-      throw new Error(`Incomplete distribution license/source inventory: ${expected.id}`);
-    }
-  }
+  validateComponentInventory(components, inventory, entries);
   const channels = ['macos-pkg', 'macos-zip', 'windows-exe'];
   if (!Array.isArray(report.payloads) || report.payloads.length !== channels.length) throw new Error('All three actual distribution payloads required');
   const facts = [sourceFact];

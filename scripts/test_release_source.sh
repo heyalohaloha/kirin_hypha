@@ -73,7 +73,7 @@ run node scripts/check_screen_text.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run node --test scripts/ls_release/release_metadata.test.mjs scripts/ls_release/windows_primary_metadata.test.mjs
-run node --test scripts/windows/windows_installer.test.mjs
+run node --test scripts/windows/windows_installer.test.mjs scripts/windows/unsigned_vst3_provenance.test.mjs
 run node --test scripts/windows/inno_signing.test.mjs
 run node --test scripts/updates/update_manifest.test.mjs scripts/updates/update_key_binding.test.mjs scripts/updates/update_binary_slices.test.mjs scripts/updates/winhttp_transport.test.mjs scripts/updates/macos_transport.test.mjs scripts/check_hypha_update_ui.mjs scripts/check_hypha_update_isolation.mjs
 
