@@ -147,7 +147,8 @@ struct NoticeRig
     {
         auto preview = post->createPairPreview();
         require (pair_preview::request (preview), "actual PRE discovery request");
-        for (int n = 0; n < 150; ++n)
+        // The PRE publishes on its own thread; a loaded runner can take seconds (10 s, as elsewhere).
+        for (int n = 0; n < 500; ++n)
         {
             advance (0.02); KirinPairPreviewValue value {};
             if (kirin_hypha_pair_preview_poll (preview.get(), &value) && value.complete && value.has_single)
@@ -225,7 +226,11 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.advance (0.6); r.post->selectLiveComparePre (true); r.advance (1.0);
     require (r.post->liveCompareStatus().active && r.post->liveCompareStatus().preAudible, "verified PRE is audible");
     r.advance (3.2);
+    // advance() feeds one 512-frame block per ~11 ms of wall time, so a slow runner has less audio
+    // after the same seconds. Press MATCH once a real window can be measured (bounded wait).
+    for (int n = 0; n < 100 && ! r.post->measureLiveCompare().ok(); ++n) r.advance (0.1);
     r.view().onLiveCompareMatch(); r.advance (0.2);
+    for (int n = 0; n < 20 && ! r.post->liveCompareStatus().matched; ++n) r.advance (0.1);
     require (r.post->liveCompareStatus().matched, "actual MATCH qualifies the AUTO notice session");
     // A retained editor whose parent is hidden differs from its own visibilityChanged(), which
     // ends LISTEN immediately. Exercise the native ancestor/peer path used by hidden hosts.
