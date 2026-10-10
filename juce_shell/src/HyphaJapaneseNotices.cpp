@@ -51,6 +51,11 @@ const Entry entries[] = {
     { "Official URL copied", u8"公式URLをコピーしました" },
     { "PRE preview changed. Choose the PRE again.", u8"PREの候補が変わりました。選び直してください。" },
     { "Failed to start record", u8"Recordを開始できませんでした" },
+    // Sent up by the Rust engine when a pair cannot be taken or armed.
+    { "PRE already in use", u8"このPREは使用中です" },
+    { "PRE or Blind Compare already in use", u8"PREかBlind Compareが使用中です" },
+    { "Maximum 12 pairs reached", u8"ペアは最大12組です" },
+    { "Failed to arm PRE and POST", u8"PREとPOSTのRecord準備ができませんでした" },
     { "Another Keep is active", u8"別のKeepが動作中です" },
     { "Blind Compare active", u8"Blind Compareの最中です" },
     { "All Keep failed (file write error)", u8"All Keep失敗（書き込みエラー）" },
