@@ -10,12 +10,13 @@ Kirin Hypha ships through three release surfaces. Updating only one leaves the o
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
 2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
-3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST. Public CI builds
-   and validates the VST3 source artifact; the private, approved Windows signing hosts produce and
-   verify the signed installer. AAX releases add verified PACE+Authenticode AAX to the same
+3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST. Public CI
+   validates the exact source commit. A reviewed private unsigned producer builds its VST3
+   bundles on windows-latest; approved signing hosts import that qualified output and produce
+   and verify the signed installer. AAX releases add verified PACE+Authenticode AAX to the same
    installer; the manual VST3 `.zip` is fallback-only. See **"Windows VST3 Channel"** below.
 
-The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
+The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the qualified JUCE VST3 output from that private unsigned producer; held public-CI binary uploads do not supply the formal candidate.
 
 Optional update verification uses the same explicitly approved RSA public key for every role,
 format and OS. Empty is the explicit default and disables checking; stale CMake caches do not
@@ -32,8 +33,14 @@ factory commit and promotion run in the release profile; qualify candidate and p
 artifact IDs/digests and the actual ZIP/local delivery inventory through the release entry. Promotion
 preserves the original candidate manifest; a successful run alone is not an accepted factory origin.
 Keep both candidate and signed-full artifacts available until distribution (A5) passes, including
-its pending-report resumes. Before signing, record both actual API expires_at values and planned
-A4 and A5/distribution dates as required by the [distribution gate](../provenance/distribution_gate.md).
+its pending-report resumes. Apply the two gates in the
+[distribution gate](../provenance/distribution_gate.md): before Windows eSigner signing, record
+the effective retention setting and the agreed schedule through A5; after promotion and before
+macOS signing/notarization/PACE, record both actual run/artifact IDs and API expires_at and
+confirm planned A4/A5 dates fit the earlier deadline. Recheck before resuming. The first gate
+does not require uncreated artifacts; the second cannot use a retention estimate instead of
+actual deadlines. Perform that second operator check before coordinator --execute; its input
+format check does not query artifact expiry before macOS operations.
 
 ## Files
 
@@ -126,8 +133,13 @@ LS verification, immutable GitHub Release publication, EN/JA HP updates, the HP 
 standard staged production deployment, and download read-back. It does not skip host gates,
 automate an unavailable LS upload interface, or infer publication approval from a build request.
 
-After the macOS source bundles are built/notarized and the latest green CI artifact
-`KirinHypha-Windows-signed-full` has been downloaded, run:
+Before macOS signing/notarization/PACE, qualify the candidate and promotion origins against
+the reviewed factory commit, retain the original `KirinHypha-Windows-signed-full` ZIP and its
+complete extracted inventory, and close the second expiry gate above. After the macOS source
+bundles are built/notarized, the release entry invokes the packaging helper below. A standalone
+helper call does not replace factory API/origin/archive qualification or host acceptance:
+
+Run:
 
 ```bash
 node scripts/ls_release/build_kirin_hypha_release_set.mjs \
@@ -393,6 +405,9 @@ and its exact 40-character commit. Public source validation does not establish s
 Formal signing uses a separately controlled environment holding credentials and any licensed SDK/PACE
 inputs. Review the exact source and distribution scripts before authorizing that environment to execute
 them. Verify the successful CI run belongs to the same source commit and includes all required jobs.
+Build VST3 with the reviewed private unsigned producer on windows-latest and qualify that run
+and its complete artifact before signing. Public CI binary uploads are not the formal producer.
+Close the retention-setting/schedule gate before the first Windows eSigner operation.
 Keep credentials, account/administration identifiers, machine topology and operator state outside this
 public repository. The AAX build/license/signing boundary is documented in [the AAX guide](../aax_build_signing_entry.md).
 
@@ -407,7 +422,9 @@ produce a candidate bound to that source commit, and sign all executable surface
 
 Run [external validation](../windows_external_validation.md) against that exact signed installer, retain
 the report and its SHA-256, and promote only after complete evidence. Candidate promotion must verify
-hash/source/signature and change only the readiness sidecar; never rebuild or resign accepted bytes.
+hash/source/signature, update the installer JSON's validation, readiness and factory-origin
+metadata, and add the three provenance records listed in WIN-2; never rebuild or re-sign
+accepted executable bytes. Preserve the candidate's existing evidence and the complete delivery tree.
 Keep pending evidence distinguishable from complete evidence.
 
 Verify previous-public-version upgrade, same-version reinstall and isolated uninstall, installed payload

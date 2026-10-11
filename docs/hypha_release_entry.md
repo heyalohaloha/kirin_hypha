@@ -93,8 +93,15 @@ Windowsのfactory repository/commit・promotion run・元artifact ZIPもprofile�
 展開済みfile集合、元候補manifestを照合する。これらの入力が欠ける場合は製造前に止まる。
 candidateとsigned-fullは、distribution（A5）が通るまで期限内で保持する。
 windowsとdistributionで両artifactを再照合し、A5待ちからの再開も対象になる。
-署名前に両方の実際のAPI expires_at、A4受入予定日、A5/distribution通過予定日を私的記録へ残す。
-未取得を期限確認済みとせず、[配布gate](provenance/distribution_gate.md)に従って停止する。
+期限の関門は[配布gate](provenance/distribution_gate.md)の2段に分ける。
+Windowsの最初のeSigner署名（選択したAAXも含む）の前は、factoryの保存期間設定をGETし、
+workflowの個別設定を確認して、Windows署名・A3・promotion・Mac署名・A4・A5の予定日と余裕を記録する。
+予定が有効な保存期間に収まらなければ署名しない。この段では未生成のartifact IDや実期限を要求しない。
+Windows署名とpromotionの後、coordinatorの`--execute`やMacの署名・公証・PACEへ進む前は、
+両artifactの実run/artifact ID・API expires_atを取得し、A4/A5予定日が早い方の期限内に収まると確認する。
+Mac工程の再開前にも再確認する。未取得・期限切れ・日程不足はMac工程のblockerとする。
+これは担当者の事前確認であり、provenance-inputsの入力形式確認はAPI期限確認の代用にならない。
+コードによる両artifactのAPI/ZIP照合は、その後のwindowsとdistribution工程で行う。
 
 更新通知を組み込む候補だけは`--init --update-public-key KEY`で承認済みの公開鍵を固定する。
 鍵を組み込むcandidate IDにもdigestの短縮値を含め、同commit/版の別鍵へ公開承認を流用しない。

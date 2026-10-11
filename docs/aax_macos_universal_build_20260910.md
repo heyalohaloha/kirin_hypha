@@ -153,11 +153,18 @@ node scripts/ls_release/build_kirin_hypha_pkg.mjs --with-aax
 # HP macOS zip
 cargo run --package xtask -- release-package --with-aax
 
-# All three release channels (matching Windows VST3+AAX artifact required)
+# Packaging helper (qualified same-commit Windows VST3+AAX signed-full required)
 node scripts/ls_release/build_kirin_hypha_release_set.mjs \
   --with-aax \
   --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full
 ```
+
+For a coordinated public release, follow the [release entry](hypha_release_entry.md) and its
+two expiry gates. Before Windows eSigner signing, use the effective retention setting and
+agreed schedule through A5. After Windows signing/promotion and before macOS signing/
+notarization/PACE, qualify both actual artifact origins and deadlines. Retain the complete
+signed-full ZIP/tree; this packaging helper does not replace that operator check, the
+coordinator's API/archive qualification, or host acceptance.
 
 Selecting `--with-aax` fails closed unless exactly one PRE and one POST AAX bundle are present and
 all of these checks pass:

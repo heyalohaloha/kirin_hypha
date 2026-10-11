@@ -13,8 +13,10 @@ for that commit.
 - Windows delivery target: JUCE VST3, PRE and POST.
 - Current published state: v1.1.49 is one Authenticode-signed installer containing PRE and POST.
   The payload binaries, Setup EXE, and generated uninstaller have valid signatures.
-- Per-release procedure: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval,
-  signs their PE binaries, and packages both roles in one Inno Setup installer.
+- Per-release procedure: exact-source public CI must pass. A reviewed private unsigned producer
+  builds PRE/POST Windows VST3 on windows-latest and validates them with pluginval; the same
+  reviewed factory imports that qualified artifact, signs the PE binaries and packages both roles.
+  Public CI binary uploads are not the formal source of the candidate.
 - Primary packaging: `scripts/windows/build-installer.mjs` creates the Setup EXE, SHA-256,
   and manifest. `scripts/windows/verify-installer.ps1` gates install, same-version reinstall,
   installed hashes and signatures, uninstaller signature, cleanup, and preservation of unrelated
@@ -28,11 +30,14 @@ for that commit.
 
 ## Artifact To Send
 
-For each later release, first run the private signing factory in candidate mode and validate the
+For each later release, close the Windows eSigner retention-setting/schedule gate in the
+[distribution gate](provenance/distribution_gate.md), then run the reviewed private signing
+factory in candidate mode and validate the
 `KirinHypha-Windows-signed-candidate` artifact. Its manifest must identify the exact green Hypha CI
 commit and version, and its Setup EXE and installed PRE/POST payloads must already be Authenticode
 signed. The candidate must remain `external_validation=pending` and `public_ready=false` until this
-checklist is complete.
+checklist is complete. Record its actual run/artifact ID and API expires_at after upload;
+signed-full and its deadline become available only after promotion.
 
 The handoff artifact includes these top-level distribution files:
 
@@ -50,12 +55,14 @@ with the signed-candidate run ID and report SHA-256. Promotion downloads that ex
 re-verifies its installer hash and Authenticode signature, and updates the manifest's validation,
 readiness and factory-origin metadata. It also adds `provenance/candidate-manifest.json`,
 `provenance/signed-candidate-artifact.json` and `provenance/promotion-transition.json`, while retaining
-the candidate's existing evidence. It does not rebuild or re-sign the EXE. Publish only the resulting
-`KirinHypha-Windows-signed-full` artifact after confirming its EXE SHA-256 is identical to the one
+the candidate's existing evidence. It does not rebuild or re-sign the EXE. Use only the resulting
+`KirinHypha-Windows-signed-full` as input to the release entry after confirming its EXE SHA-256 is identical to the one
 tested here. Retain and extract the entire signed-full ZIP without adding, deleting or rewriting
 files: the coordinator compares all files and hashes with the original archive. Follow
 [WIN-2](ls_release/kirin_hypha_ls_runbook.md#win-2-required-artifacts) for the private handoff and
-selected public assets. The signed candidate and fallback ZIP are not normal user-facing downloads.
+selected public assets; the complete private evidence tree is not published. After promotion,
+close the actual-artifact expiry gate before coordinator --execute or macOS signing/notarization/PACE,
+and recheck before resuming. The signed candidate and fallback ZIP are not normal user-facing downloads.
 
 ## Tester Requirements
 

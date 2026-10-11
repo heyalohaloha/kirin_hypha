@@ -85,7 +85,8 @@ GitHub Secretsの登録状態、署名成功を証明するものではない。
    workflow名は`Hypha Windows AAX signing`。public repoのAAX Phase A workflowは署名入口ではない。
    private側の所在地はローカル引継ぎを参照し、public GPL repoへ秘密値を移さない。
 4. 新規build経路にはexact full commitと、そのcommitの完了済みHypha CI runが必要。
-   workflowは`public history identity`と`windows VST3 preflight`のgreen、
+   通常経路は`public history identity`、`release source contract (macos)`、
+   `auval arm64 (AU validation)`、`windows VST3 preflight`の4 jobのgreenと、
    署名手順の承認済みhash、SDK license、専用runnerと物理PACE authorizationを確認する。
    過去のunsigned run再利用は明示された承認対象だけ。任意のローカルZIPを代入しない。
 5. factoryがGitHub Secretsを注入し、eSigner CKA証明書をロードして、PACE + Authenticodeを
@@ -94,8 +95,15 @@ GitHub Secretsの登録状態、署名成功を証明するものではない。
 6. `kirin-hypha-windows-aax-signed.json`とPRE/POST両方の署名を検証する。
    factoryは終了時に一時証明書とCKA設定をunload／removeする。
    次回の`CurrentUser`証明書storeが空でも、それだけで設定紛失とは判定しない。
-7. 同一release commitのgreenな`windows-latest`由来VST3、signed AAX provenanceを結び、
-   正規installerとinstall／同版reinstall／旧公開版upgrade／uninstallを検証する。
+7. 同一release commitの公開CI合格と、審査済みprivate factoryの`windows-latest`未署名
+   producer由来VST3、同じ審査済みfactoryのsigned AAX provenanceを結ぶ。
+   正規installerとinstall／同版reinstall／旧公開版upgrade／uninstallを検証し、
+   同じfactoryでpromotionしたsigned-full全体の出どころを照合する。
+
+統合公開では[配布gate](provenance/distribution_gate.md)の期限確認を2段で行う。
+Windowsの最初のeSigner署名（AAXを含む）の前は保存期間設定とA5までの予定日を使う。
+promotion後、Macの署名・公証・PACEの前は両artifactの実IDと実expires_atを取得して予定日を照合する。
+未生成のartifactをWindows署名前の関門にせず、Mac工程の再開前にも実期限を再確認する。
 
 private workflowのソース確認は、現在のGitHub Secret登録やjob成功の確認ではない。
 CI dispatch、artifactの外部受渡し、機器設定、配置、公開に新しい権限が必要なら、その前に確認する。

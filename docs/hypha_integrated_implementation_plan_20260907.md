@@ -365,7 +365,7 @@ GUI経路が使えない場合は、その実機工程だけを未検証とし�
 音付き動画は実候補から作り、HTMLには知覚と読み取りの判定に必要なものを追加する。
 
 配布へ進む場合は[LS Runbook](ls_release/kirin_hypha_ls_runbook.md)に従い、同版の3チャネルを揃える。
-LS用は署名とnotarize済みmacOS Universal PKG、HP用は署名とnotarize済みmacOS Universal ZIP、GitHub Releaseと英日リンク、Windows用は同一コミットのgreenなCI artifactから作る署名済みinstallerとする。
+LS用は署名とnotarize済みmacOS Universal PKG、HP用は署名とnotarize済みmacOS Universal ZIP、GitHub Releaseと英日リンク、Windows用は同一commitの公開CI合格と審査済みprivate未署名producerを結び、署名・実機検証・promotion後のsigned-fullにある署名済みInno Setup EXEを公開対象とする。現行の出どころ・期限確認は[公開runbook](ls_release/kirin_hypha_ls_runbook.md)に従う。
 Windowsはpayload、installer、uninstallerの署名と、install、同版再install、旧公開版からのupgrade、uninstallを検証する。
 release build、notarize、配置を行う実装セッションでは、AGENTS.mdに従ってLS用PKGまで準備し、証明書や外部検証の不足はblockerとして記録する。
 macOSだけで公開完了にはせず、公開操作は具体的な候補と検証結果が揃った時点で扱う。

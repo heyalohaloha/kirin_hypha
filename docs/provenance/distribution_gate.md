@@ -222,8 +222,10 @@ and signed-full delivery to the public coordinator. Promotion preserves the orig
 manifest and artifact receipt, and records candidate/promotion identity. The coordinator's private
 profile pins the reviewed factory repository/commit, promotion run and retained signed-full ZIP. Verify both
 runs, separated jobs, unique artifacts, API digests, actual archive/local-delivery bytes and the
-original manifest before accepting it. Promotion may only add provenance and mark retained
-external validation complete/public-ready; it cannot change payload or qualification metadata.
+original manifest before accepting it. Promotion updates the manifest's validation/readiness/
+factory-origin metadata and adds candidate-manifest.json, signed-candidate-artifact.json and
+promotion-transition.json under provenance/. It preserves executable bytes, signatures and
+existing payload/qualification metadata.
 
 Native evidence uses the NOTICE inventory's role mapping: PRE requires IJG JPEG/libpng/zlib;
 POST additionally requires FLAC/Ogg/Vorbis because only POST links juce_audio_formats.
@@ -238,15 +240,34 @@ Keep both candidate and signed-full artifacts available until distribution (A5) 
 The coordinator checks both artifacts through verifyWindows / verifyFactoryDelivery in
 windows and again in distribution, including every resume while the A5 report is pending.
 STAGES places hosts (A4), packages and provenance before distribution; packages is not the
-last expiry check. Plan signing through A4 and A5/distribution within the factory's 90-day
-retention and before the earlier actual API expires_at.
-Before signing, retain a private record of both run/artifact IDs, each actual API expires_at,
-the earlier deadline, the planned A4 acceptance date and the planned A5/distribution pass date.
-Missing artifacts, actual deadlines or schedule evidence remain an unresolved pre-signing gate;
-do not substitute a retention estimate for an API fact. Recheck the dates when resuming.
-Do not delete the artifacts to save storage before distribution passes. If a deadline cannot
-be met, stop before signing; after expiry retain ZIPs/receipts and obtain a new qualification
-decision rather than automatically signing again or accepting expired artifacts.
+last expiry check. Apply two separate operator gates:
+
+1. Before the first Windows eSigner operation, including selected AAX: GET the factory
+   repository's artifact-and-log-retention setting and retain the response and retrieval time.
+   Check the reviewed workflows for artifact-specific retention overrides. The current
+   candidate and signed-full uploads do not set retention-days, so the repository setting
+   applies. Use the effective days setting, not maximum_allowed_days, to plan the dates for
+   Windows signing, A3 validation, promotion, macOS signing, A4 acceptance and A5/distribution.
+   Record the owner-agreed schedule and margin; stop if that interval does not fit retention.
+   Neither artifact exists yet, so run/artifact IDs and actual expires_at are not requirements
+   at this gate. Re-read the setting and schedule before starting or resuming Windows signing.
+2. After Windows signing and promotion, before coordinator --execute or any macOS
+   signing, notarization or PACE: retain both actual run/artifact IDs and API expires_at,
+   the earlier deadline, and planned A4 and A5/distribution dates. Capture the candidate
+   deadline after its upload and add signed-full after promotion. Confirm both artifacts
+   remain available and those dates fit the earlier actual deadline with the agreed margin.
+   Missing facts or an expired/insufficient deadline block macOS paid operations. Recheck
+   both artifacts and the schedule before resuming them; a retention estimate cannot replace
+   actual API deadlines at this second gate.
+
+The repository setting is read through the official
+[artifact retention API](https://docs.github.com/en/rest/actions/permissions#get-artifact-and-log-retention-settings-for-a-repository).
+The pre-macOS check is an operator responsibility: provenance-inputs validates required input
+structure, while production API/archive qualification runs later in windows and distribution.
+Record its evidence privately; do not assume the coordinator checks expiry before macOS signing.
+Do not delete the artifacts to save storage before distribution passes. After expiry preserve
+ZIPs/receipts and obtain a new qualification decision; do not automatically sign again or
+accept expired artifacts.
 
 Preserve the original signed-full ZIP and extract its complete upload tree, including
 provenance/, without adding, deleting or rewriting files. Promotion adds the original candidate
