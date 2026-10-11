@@ -234,9 +234,22 @@ Promotion reads the preserved candidate's JSON values without timestamp conversi
 its PowerShell 7 writer through the Node coordinator, including full installer metadata and
 seven-digit timestamps ending in zero. Preserve strict payload/qualification comparisons.
 
-Keep both candidate and signed-full artifacts available until the packages stage completes.
-Plan signing through packaging within the factory's 90-day retention and before the earlier
-API expires_at; record those deadlines and the planned completion date before signing.
-Do not delete the artifacts to save storage during this interval. If a deadline cannot be met,
-stop before signing; after expiry retain ZIPs/receipts and obtain a new qualification decision
-rather than automatically signing again or accepting expired artifacts.
+Keep both candidate and signed-full artifacts available until distribution (A5) passes.
+The coordinator checks both artifacts through verifyWindows / verifyFactoryDelivery in
+windows and again in distribution, including every resume while the A5 report is pending.
+STAGES places hosts (A4), packages and provenance before distribution; packages is not the
+last expiry check. Plan signing through A4 and A5/distribution within the factory's 90-day
+retention and before the earlier actual API expires_at.
+Before signing, retain a private record of both run/artifact IDs, each actual API expires_at,
+the earlier deadline, the planned A4 acceptance date and the planned A5/distribution pass date.
+Missing artifacts, actual deadlines or schedule evidence remain an unresolved pre-signing gate;
+do not substitute a retention estimate for an API fact. Recheck the dates when resuming.
+Do not delete the artifacts to save storage before distribution passes. If a deadline cannot
+be met, stop before signing; after expiry retain ZIPs/receipts and obtain a new qualification
+decision rather than automatically signing again or accepting expired artifacts.
+
+Preserve the original signed-full ZIP and extract its complete upload tree, including
+provenance/, without adding, deleting or rewriting files. Promotion adds the original candidate
+manifest, candidate artifact receipt and transition record to the retained producer/qualification
+evidence. The coordinator compares all archive and local-delivery files and their hashes;
+the installer and its top-level sidecars alone are not the complete factory handoff.

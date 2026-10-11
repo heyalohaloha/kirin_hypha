@@ -34,19 +34,28 @@ commit and version, and its Setup EXE and installed PRE/POST payloads must alrea
 signed. The candidate must remain `external_validation=pending` and `public_ready=false` until this
 checklist is complete.
 
-The handoff artifact should include:
+The handoff artifact includes these top-level distribution files:
 
 - `Kirin-Hypha-<version>-Windows-x64-Setup.exe`
 - the matching `.exe.sha256`
 - the matching `.exe.json`, with signing `valid`, CI validation `passed`, external validation
   `pending`, and `distribution.public_ready=false`
 
+An AAX candidate also includes its matching signed-provenance sidecar. Preserve the complete
+factory ZIP and extracted tree, including `provenance/` producer, qualification, Legal/source
+and role-specific map evidence. Keep reports/logs outside that tree.
+
 Retain the completed report and calculate its SHA-256. Then run the same factory in promotion mode
 with the signed-candidate run ID and report SHA-256. Promotion downloads that exact candidate,
-re-verifies its installer hash and Authenticode signature, and changes only the JSON sidecar to mark
-external validation complete. It does not rebuild or re-sign the EXE. Publish only the resulting
+re-verifies its installer hash and Authenticode signature, and updates the manifest's validation,
+readiness and factory-origin metadata. It also adds `provenance/candidate-manifest.json`,
+`provenance/signed-candidate-artifact.json` and `provenance/promotion-transition.json`, while retaining
+the candidate's existing evidence. It does not rebuild or re-sign the EXE. Publish only the resulting
 `KirinHypha-Windows-signed-full` artifact after confirming its EXE SHA-256 is identical to the one
-tested here. The signed candidate and fallback ZIP are not normal user-facing downloads.
+tested here. Retain and extract the entire signed-full ZIP without adding, deleting or rewriting
+files: the coordinator compares all files and hashes with the original archive. Follow
+[WIN-2](ls_release/kirin_hypha_ls_runbook.md#win-2-required-artifacts) for the private handoff and
+selected public assets. The signed candidate and fallback ZIP are not normal user-facing downloads.
 
 ## Tester Requirements
 

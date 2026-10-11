@@ -31,6 +31,9 @@ Private Windows handoffs must preserve the original signed-full artifact ZIP. Pi
 factory commit and promotion run in the release profile; qualify candidate and promotion origins,
 artifact IDs/digests and the actual ZIP/local delivery inventory through the release entry. Promotion
 preserves the original candidate manifest; a successful run alone is not an accepted factory origin.
+Keep both candidate and signed-full artifacts available until distribution (A5) passes, including
+its pending-report resumes. Before signing, record both actual API expires_at values and planned
+A4 and A5/distribution dates as required by the [distribution gate](../provenance/distribution_gate.md).
 
 ## Files
 
@@ -414,7 +417,8 @@ substitute for `KirinHypha-Windows-signed-full` or for dedicated-host acceptance
 
 ### WIN-2: Required artifacts
 
-Download `KirinHypha-Windows-signed-full`. It must contain exactly:
+Retain the original `KirinHypha-Windows-signed-full` artifact ZIP and extract its complete tree
+into the private release handoff directory. Its top-level distribution files are:
 
 - `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`
 - matching `.exe.sha256`
@@ -423,6 +427,15 @@ Download `KirinHypha-Windows-signed-full`. It must contain exactly:
 For an AAX release it must additionally contain the matching
 `Kirin-Hypha-X.Y.Z-Windows-x64-AAX.json` signed-provenance sidecar. A VST3-only release must not
 claim AAX in the installer manifest.
+
+The artifact also contains the complete `provenance/` subtree uploaded by the factory, including
+retained unsigned producer/qualification evidence, Legal/source files, both role-specific link
+maps, and promotion's original candidate manifest, artifact receipt and transition record.
+These files are part of the handoff, not extra files to remove. Do not add, delete or rewrite
+files in the extracted tree; keep new logs/reports elsewhere. The coordinator verifies the
+original ZIP's API digest and compares its entire file set and each file's SHA-256 with this tree.
+Use the release entry's selected public assets for publication; retaining the private factory
+archive does not authorize publishing its complete provenance subtree.
 
 The JSON must report signing `valid`, CI validation `passed`, external validation `complete`, the
 tested installer's identical SHA-256, retained report SHA-256, signed-candidate workflow URL, and
