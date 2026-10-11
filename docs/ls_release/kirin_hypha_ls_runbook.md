@@ -20,7 +20,10 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 
 Optional update verification uses the same explicitly approved RSA public key for every role,
 format and OS. Empty is the explicit default and disables checking; stale CMake caches do not
-enable it. See the [release entry](../hypha_release_entry.md) for the input routes. Every package
+enable it. The current formal Windows producer/import route accepts only an empty key;
+do not use `--init --update-public-key` for a release including Windows. Enabling it requires
+script/factory changes, trusted-closure review and new runs first. Public CI key inputs do not
+produce a formal candidate. See the [release entry](../hypha_release_entry.md) for this boundary. Every package
 records `updateCheck` with the canonical key SHA-256 and hashes of the actual distributed
 binaries. macOS verifies expanded PKG/extracted ZIP bytes and their plist/key markers, requiring
 both ARM64/Intel fat slices to carry the same key and retaining each slice hash; Windows
@@ -32,15 +35,28 @@ Private Windows handoffs must preserve the original signed-full artifact ZIP. Pi
 factory commit and promotion run in the release profile; qualify candidate and promotion origins,
 artifact IDs/digests and the actual ZIP/local delivery inventory through the release entry. Promotion
 preserves the original candidate manifest; a successful run alone is not an accepted factory origin.
-Keep both candidate and signed-full artifacts available until distribution (A5) passes, including
-its pending-report resumes. Apply the two gates in the
-[distribution gate](../provenance/distribution_gate.md): before Windows eSigner signing, record
-the effective retention setting and the agreed schedule through A5; after promotion and before
-macOS signing/notarization/PACE, record both actual run/artifact IDs and API expires_at and
-confirm planned A4/A5 dates fit the earlier deadline. Recheck before resuming. The first gate
-does not require uncreated artifacts; the second cannot use a retention estimate instead of
-actual deadlines. Perform that second operator check before coordinator --execute; its input
-format check does not query artifact expiry before macOS operations.
+Keep both candidate and signed-full artifacts available through distribution (A5), including
+pending-report resumes. Follow the four operator gates in the
+[distribution gate](../provenance/distribution_gate.md):
+
+1. Before Windows AAX signing, and before build_only if it runs first, record effective repository
+   retention, every workflow upload's retention, the same reviewed factory commit, owner dates
+   and margin for all stages, both signing budgets and signing-host availability. Candidate signing
+   must fit both 3-day input handoffs; A5 must fit candidate signing plus effective retention.
+2. Before candidate signing, qualify both actual input artifacts, commits, digests and deadlines
+   with job-time margin; recheck repository retention, concurrency and budget. Rebuild an expired
+   unsigned VST3 input without signing; expired signed AAX needs a qualification decision.
+   Record the candidate's actual ID and deadline immediately after upload.
+3. After promotion, before coordinator --execute or macOS signing/notarization/PACE, qualify both
+   actual artifacts, original signed-full ZIP and full tree, and planned A3/A4/A5 against the earlier
+   deadline. Input format checking does not query expiry before macOS operations.
+4. Before A4 host acceptance and each A5 resume, GET both deadlines again; do not start A4 if A5
+   cannot fit the earlier deadline with margin.
+
+Public CI precedes build_only and Windows AAX signing; candidate signing, Windows external validation
+and promotion precede the coordinator. Windows external validation is not A3: A3 is freeze after
+windows and before A4. The workflows share one concurrency group; wait for each run to finish
+before dispatching the next. Expiry never authorizes automatic re-signing.
 
 ## Files
 
@@ -133,11 +149,12 @@ LS verification, immutable GitHub Release publication, EN/JA HP updates, the HP 
 standard staged production deployment, and download read-back. It does not skip host gates,
 automate an unavailable LS upload interface, or infer publication approval from a build request.
 
-Before macOS signing/notarization/PACE, qualify the candidate and promotion origins against
-the reviewed factory commit, retain the original `KirinHypha-Windows-signed-full` ZIP and its
-complete extracted inventory, and close the second expiry gate above. After the macOS source
-bundles are built/notarized, the release entry invokes the packaging helper below. A standalone
-helper call does not replace factory API/origin/archive qualification or host acceptance:
+After promotion and before coordinator --execute or macOS signing/notarization/PACE, close Gate 3
+of the distribution gate above. Qualify candidate and promotion origins against the reviewed factory
+commit and retain the original signed-full ZIP and complete extracted inventory. Gate 4 rechecks
+deadlines before A4 and each A5 resume. After the macOS bundles are built/notarized, the release entry
+invokes the packaging helper below. A standalone helper call does not replace these operator gates,
+factory API/origin/archive qualification or host acceptance:
 
 Run:
 
@@ -407,18 +424,23 @@ inputs. Review the exact source and distribution scripts before authorizing that
 them. Verify the successful CI run belongs to the same source commit and includes all required jobs.
 Build VST3 with the reviewed private unsigned producer on windows-latest and qualify that run
 and its complete artifact before signing. Public CI binary uploads are not the formal producer.
-Close the retention-setting/schedule gate before the first Windows eSigner operation.
-Keep credentials, account/administration identifiers, machine topology and operator state outside this
-public repository. The AAX build/license/signing boundary is documented in [the AAX guide](../aax_build_signing_entry.md).
+Close Gate 1 of the distribution gate before dispatching Windows AAX signing or build_only.
+Close Gate 2 before candidate signing. Keep credentials, account/administration identifiers,
+machine topology and operator state outside this public repository. The AAX build/license/signing
+boundary is documented in [the AAX guide](../aax_build_signing_entry.md).
 
-The signing workflow must verify the reviewed script hashes and pinned signing-tool/Inno Setup bytes,
-produce a candidate bound to that source commit, and sign all executable surfaces:
+The signing workflow verifies reviewed script hashes and pinned signing-tool/Inno Setup bytes.
+Its candidate job signs these executable surfaces, bound to the same source commit:
 
 - PRE VST3 PE binary
 - POST VST3 PE binary
-- PRE/POST AAX payload when selected, with PACE and Authenticode verification
 - generated uninstaller
 - Setup EXE
+
+Selected PRE/POST AAX is signed earlier by the AAX workflow with PACE and Authenticode and
+verified on import. Transparency is checked before signing in the unsigned producer and public
+CI. After signing, the candidate job runs pluginval on signed VST3 and the installer lifecycle;
+it does not rerun transparency. Preserve unsigned and signed validation evidence separately.
 
 Run [external validation](../windows_external_validation.md) against that exact signed installer, retain
 the report and its SHA-256, and promote only after complete evidence. Candidate promotion must verify

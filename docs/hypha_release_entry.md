@@ -93,29 +93,48 @@ Windowsのfactory repository/commit・promotion run・元artifact ZIPもprofile�
 展開済みfile集合、元候補manifestを照合する。これらの入力が欠ける場合は製造前に止まる。
 candidateとsigned-fullは、distribution（A5）が通るまで期限内で保持する。
 windowsとdistributionで両artifactを再照合し、A5待ちからの再開も対象になる。
-期限の関門は[配布gate](provenance/distribution_gate.md)の2段に分ける。
-Windowsの最初のeSigner署名（選択したAAXも含む）の前は、factoryの保存期間設定をGETし、
-workflowの個別設定を確認して、Windows署名・A3・promotion・Mac署名・A4・A5の予定日と余裕を記録する。
-予定が有効な保存期間に収まらなければ署名しない。この段では未生成のartifact IDや実期限を要求しない。
-Windows署名とpromotionの後、coordinatorの`--execute`やMacの署名・公証・PACEへ進む前は、
-両artifactの実run/artifact ID・API expires_atを取得し、A4/A5予定日が早い方の期限内に収まると確認する。
-Mac工程の再開前にも再確認する。未取得・期限切れ・日程不足はMac工程のblockerとする。
-これは担当者の事前確認であり、provenance-inputsの入力形式確認はAPI期限確認の代用にならない。
-コードによる両artifactのAPI/ZIP照合は、その後のwindowsとdistribution工程で行う。
+期限の関門は[配布gate](provenance/distribution_gate.md)の4段に従う。
+順序は、公開CI → 同じ審査済みfactory commitでbuild_onlyとWindows AAX署名
+（PACE＋eSigner。最初の有料署名。2つの順は問わない）→ candidate署名（eSigner）→
+Windows実機検証 → promotion → coordinator（Macの署名・公証・PACE → windows →
+A3 freeze → A4 → A5）。Windows実機検証をA3と呼ばない。
 
-更新通知を組み込む候補だけは`--init --update-public-key KEY`で承認済みの公開鍵を固定する。
-鍵を組み込むcandidate IDにもdigestの短縮値を含め、同commit/版の別鍵へ公開承認を流用しない。
-省略時は空で更新確認を無効にする。RSA-2048/65537、2048-bitの奇数modulus、正規小文字表現を要求し、
-Mac両producerとWindows factoryの全formatを同じ鍵へ揃える。CMakeはconfigureごとの
+1. AAX署名の前（build_onlyが先ならその前）: 保存期間設定のGETと取得時刻、両workflowの
+   全uploadのretention-days、全工程で使う審査済みfactory commit、各工程の予定日と余裕、
+   AAXとcandidate両方の署名予算と署名機の空きを記録する。candidate署名をAAXとbuild_onlyの
+   各uploadから3日以内（余裕を引く）に置けない、またはA5をcandidate署名＋有効保存期間
+   （余裕を引く）より前に置けないなら署名しない。未生成のartifact IDや実期限は要求しない。
+2. candidate署名の前: 両入力artifactのrun/artifact ID・digest・expires_at・commitをGETし、
+   未失効、同じfactory commit、job時間を含む余裕を確かめる。保存期間設定、共有concurrency
+   groupの空き、candidateの予算も再確認する。未署名VST3だけが切れた場合はbuild_onlyを
+   やり直す。signed AAXが切れた場合は自動で再署名せず資格判断を取る。
+   candidateのupload直後に実run/artifact IDとexpires_atを記録する。
+3. promotionの後、coordinatorの`--execute`とMac工程の前: 両artifactの実ID・expires_at、
+   signed-fullの元ZIP digestと全tree、A3・A4・A5予定日を記録し、A5が早い方の期限に余裕を
+   残して収まるか確かめる。provenance-inputsは入力形式だけを確認し、API・ZIP照合は後の
+   windowsとdistributionで行う。この関門は担当者が閉じる。
+4. A4開始前とA5再開前: 両artifactの期限をGETし直す。A5に間に合わなければA4に進まない。
+
+署名済みAAXと未署名VST3は各3日、同run内の未署名AAXは1日で保持する。
+candidateとsigned-fullはupload時のrepo設定を使う。両workflowは同じconcurrency groupなので、
+前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
+
+Mac両producerとWindowsの全formatを同じ鍵へ揃える。ただし現在の正式なWindows経路は、
+鍵が空の候補だけを作る。factoryの未署名producerは鍵を空に固定し、Hypha側の取込も空以外を
+拒否する。AAX署名とinstaller署名のworkflowにも鍵の入力は無い。
+Windowsを含む公開では`--init --update-public-key`を使わない。鍵を有効にするには、
+Hypha側script・factoryの変更、trusted closureの更新と事前レビュー、新しいrunが先に要る。
+公開CIのdispatch入力`update_public_key`は公開CI自身の未署名buildにだけ効き、正式候補を作らない。
+各公開で鍵を使うかどうかは非公開のprofileに記録する。
+
+鍵を指定できる個別scriptの入力は、正式なWindows factoryが鍵入り候補を作れる根拠にはならない。
+省略時は空で更新確認を無効にする。指定する場合はRSA-2048/65537、2048-bitの奇数modulus、
+正規小文字表現を要求する。鍵を組み込むcandidate IDにはdigestの短縮値も含め、
+同commit/版の別鍵へ公開承認を流用しない。CMakeはconfigureごとの
 `KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT`だけを採用し、古いcacheを持ち越さない。
-正規shell producer/packagerへ直接渡す場合は`KIRIN_HYPHA_UPDATE_PUBLIC_KEY`、Windows AAX buildは
-`-UpdatePublicKey`、Windows installer producerは`--update-public-key`を使う。既定はいずれも空。
 公開鍵のSHA-256はbinary内marker、Mac plist、freeze、PKG/ZIP/EXE/AAX provenanceへ記録し、
-packaging後の実payload hashと照合する。空・異なる鍵・旧provenanceを、通知有効候補として受理しない。
-Mac Universalはfat tableのARM64/Intel各sliceを個別に検証し、markerと各slice hashを保持する。
-署名scriptの変更には既存private factoryのallowlist再レビューが必要。
-Windows CI候補も同じ公開鍵が必要な場合だけ、承認済みdispatchの`update_public_key`へ明示する。
-push/PRは空のまま。通知を有効にする署名済みcandidateは、鍵が空の古いCI payloadへ差し替えない。
+packaging後の実payload hashと照合する。空・異なる鍵・旧provenanceを通知有効候補として受理しない。
+Mac UniversalはARM64/Intel各sliceを個別に検証し、markerと各slice hashを保持する。
 本番鍵の所有・rotation承認、manifest endpointの公開/readback、exact binaryの実host受入は別のgate。
 
 release coordinatorはMacで動く。Windows build/署名は既存の承認済みfactoryが行い、

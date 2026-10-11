@@ -79,6 +79,8 @@ node scripts/build_hypha.mjs --verify-only
 更新通知の鍵は`--update-public-key KEY`で明示する。既定は空で、以前のCMake cacheに鍵があっても
 毎configureで空へ戻す。承認済みRSA-2048/65537の正規公開鍵だけを受け付け、全role/formatの
 実binary内digestとMac plistを照合し、`hypha-build.json`へ記録する。鍵の違うmanifestは再利用しない。
+この個別buildの鍵入力は、正式なWindows候補を作れることを意味しない。現在の正式なWindows
+経路は空の鍵だけを受け付ける。Windowsを含む公開の制約は[release入口](hypha_release_entry.md)に従う。
 `--platform windows --dry-run`でMacからWindows用計画だけを確認できる。
 実ビルドは各OSで実行し、MacからWindows binaryを生成したとは報告しない。
 

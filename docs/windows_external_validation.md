@@ -30,14 +30,17 @@ for that commit.
 
 ## Artifact To Send
 
-For each later release, close the Windows eSigner retention-setting/schedule gate in the
-[distribution gate](provenance/distribution_gate.md), then run the reviewed private signing
-factory in candidate mode and validate the
+For each later release, close Gate 1 of the
+[distribution gate](provenance/distribution_gate.md) before Windows AAX signing or build_only.
+At the same reviewed factory commit, finish those input runs and close Gate 2 before candidate
+signing: qualify both 3-day handoffs with actual IDs, digests, commits and expiry/job-time margin,
+and recheck repository retention, concurrency and candidate budget. Then validate the
 `KirinHypha-Windows-signed-candidate` artifact. Its manifest must identify the exact green Hypha CI
 commit and version, and its Setup EXE and installed PRE/POST payloads must already be Authenticode
 signed. The candidate must remain `external_validation=pending` and `public_ready=false` until this
-checklist is complete. Record its actual run/artifact ID and API expires_at after upload;
-signed-full and its deadline become available only after promotion.
+checklist is complete. Record its actual run/artifact ID and API expires_at immediately after upload;
+signed-full and its deadline become available only after promotion. This Windows external validation
+precedes promotion; it is not A3. The coordinator's A3 is freeze after its windows stage.
 
 The handoff artifact includes these top-level distribution files:
 
@@ -61,8 +64,10 @@ tested here. Retain and extract the entire signed-full ZIP without adding, delet
 files: the coordinator compares all files and hashes with the original archive. Follow
 [WIN-2](ls_release/kirin_hypha_ls_runbook.md#win-2-required-artifacts) for the private handoff and
 selected public assets; the complete private evidence tree is not published. After promotion,
-close the actual-artifact expiry gate before coordinator --execute or macOS signing/notarization/PACE,
-and recheck before resuming. The signed candidate and fallback ZIP are not normal user-facing downloads.
+close Gate 3 before coordinator --execute or macOS signing/notarization/PACE, including actual
+candidate/full deadlines, the original ZIP and complete tree, and planned A3/A4/A5 dates.
+Close Gate 4 before A4 host acceptance and each A5 resume; stop if A5 cannot fit the earlier
+deadline with margin. The signed candidate and fallback ZIP are not normal user-facing downloads.
 
 ## Tester Requirements
 

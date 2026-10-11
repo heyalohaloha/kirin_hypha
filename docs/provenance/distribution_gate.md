@@ -236,38 +236,22 @@ Promotion reads the preserved candidate's JSON values without timestamp conversi
 its PowerShell 7 writer through the Node coordinator, including full installer metadata and
 seven-digit timestamps ending in zero. Preserve strict payload/qualification comparisons.
 
-Keep both candidate and signed-full artifacts available until distribution (A5) passes.
-The coordinator checks both artifacts through verifyWindows / verifyFactoryDelivery in
-windows and again in distribution, including every resume while the A5 report is pending.
-STAGES places hosts (A4), packages and provenance before distribution; packages is not the
-last expiry check. Apply two separate operator gates:
+Windows and macOS producers run in this order. Public CI must first be green for the exact source with all four required jobs. At one reviewed factory commit, the private factory then runs build_only (unsigned VST3, no signing secrets) and Windows AAX signing (PACE + eSigner, the first metered signing operation; either may run first), then candidate signing (eSigner for PRE/POST VST3, the uninstaller and Setup EXE), Windows external validation of that exact candidate, and promotion (no signing). Only then can the coordinator start: provenance-inputs, ci, source-delivery, the macOS AU/VST3 and AAX producers (signing, notarization, PACE), windows, A3 freeze, A4 hosts, packages, provenance, A5 distribution, LS, GitHub, HP and A7. Windows external validation is not A3; A3 is the coordinator freeze after windows.
 
-1. Before the first Windows eSigner operation, including selected AAX: GET the factory
-   repository's artifact-and-log-retention setting and retain the response and retrieval time.
-   Check the reviewed workflows for artifact-specific retention overrides. The current
-   candidate and signed-full uploads do not set retention-days, so the repository setting
-   applies. Use the effective days setting, not maximum_allowed_days, to plan the dates for
-   Windows signing, A3 validation, promotion, macOS signing, A4 acceptance and A5/distribution.
-   Record the owner-agreed schedule and margin; stop if that interval does not fit retention.
-   Neither artifact exists yet, so run/artifact IDs and actual expires_at are not requirements
-   at this gate. Re-read the setting and schedule before starting or resuming Windows signing.
-2. After Windows signing and promotion, before coordinator --execute or any macOS
-   signing, notarization or PACE: retain both actual run/artifact IDs and API expires_at,
-   the earlier deadline, and planned A4 and A5/distribution dates. Capture the candidate
-   deadline after its upload and add signed-full after promotion. Confirm both artifacts
-   remain available and those dates fit the earlier actual deadline with the agreed margin.
-   Missing facts or an expired/insufficient deadline block macOS paid operations. Recheck
-   both artifacts and the schedule before resuming them; a retention estimate cannot replace
-   actual API deadlines at this second gate.
+Retention is set per upload. The signed AAX and unsigned VST3 handoffs use 3-day workflow retention, and the in-run unsigned AAX handoff 1 day. Candidate and signed-full omit retention-days and inherit the factory repository setting at upload time. Candidate signing reads both 3-day handoffs and rejects an expired or different-factory-commit artifact before any signing secret is loaded. Promotion reads the candidate. The coordinator reads candidate and signed-full in windows and again in distribution (A5), including every resume while A5 is pending; later stages do not read them. The two factory workflows share one concurrency group: dispatch the next run only after the previous one finishes.
+
+1. Before dispatching Windows AAX signing (and before build_only if it runs first): retain the repository retention GET response and time; the retention-days of every upload in both reviewed workflows at the exact factory commit; that factory commit, used for build_only, AAX signing, candidate signing and promotion; and owner-agreed dates with margin for build_only, AAX signing, candidate signing, Windows external validation, promotion, the macOS producers, A3, A4 and A5. Confirm that the approved signing budget covers both AAX and candidate signing, and that the required signing hosts are available on those dates. Do not sign AAX unless candidate signing is planned within 3 days, minus margin, of both the AAX upload and the build_only upload, and A5 is planned before candidate signing plus the effective retention days, minus margin. Artifact IDs and actual expires_at do not exist yet and are not required here.
+2. Before dispatching candidate signing: GET both input runs and artifacts and retain run/artifact IDs, digests, expires_at and head_sha. Both must be unexpired, from the dispatch factory commit, and must expire after the planned start plus the job timeout and margin. Re-read the repository setting. Confirm that no run of the shared concurrency group is running or pending, and that the candidate budget is still approved. If only the unsigned VST3 handoff is short or expired, run build_only again; it needs no signing. If the signed AAX handoff expired, do not sign again automatically: preserve receipts and obtain a qualification decision. Immediately after the candidate upload, retain its run/artifact ID and actual expires_at.
+3. After promotion, before coordinator --execute and any macOS signing, notarization or PACE: retain both run/artifact IDs, actual expires_at, the earlier deadline, the original signed-full ZIP digest and its complete extracted tree, and planned A3, A4 and A5 dates. Stop if either artifact is missing or expired, or if A5 cannot pass before the earlier deadline with margin. provenance-inputs validates input structure only; the coordinator's API and archive checks run later, in windows and distribution.
+4. Before starting A4 host acceptance, and before each A5 resume: GET both artifacts again. Stop before spending host acceptance if A5 cannot pass before the earlier deadline with margin.
+
+Do not delete these artifacts to save storage before A5 passes. After expiry, preserve ZIPs and receipts and obtain a new qualification decision. Never sign again automatically or accept expired artifacts.
 
 The repository setting is read through the official
 [artifact retention API](https://docs.github.com/en/rest/actions/permissions#get-artifact-and-log-retention-settings-for-a-repository).
-The pre-macOS check is an operator responsibility: provenance-inputs validates required input
-structure, while production API/archive qualification runs later in windows and distribution.
-Record its evidence privately; do not assume the coordinator checks expiry before macOS signing.
-Do not delete the artifacts to save storage before distribution passes. After expiry preserve
-ZIPs/receipts and obtain a new qualification decision; do not automatically sign again or
-accept expired artifacts.
+Pending-run replacement follows the
+[GitHub concurrency specification](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency);
+workflow inspection alone does not test that platform behavior.
 
 Preserve the original signed-full ZIP and extract its complete upload tree, including
 provenance/, without adding, deleting or rewriting files. Promotion adds the original candidate

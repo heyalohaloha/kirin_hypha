@@ -1293,9 +1293,13 @@ Same-version reinstall, prior-release upgrade, isolated uninstall,
 pluginval and dedicated-host acceptance remain mandatory release gates. Signing credentials and
 operator configuration must remain outside this public GPL repository. Public CI remains unsigned
 and its held binary uploads do not supply the formal candidate. It has no signing credential or
-persistent-runner route; manual dispatch cannot enable signing. Follow the two expiry gates in
-the [distribution gate](docs/provenance/distribution_gate.md) before Windows signing and, after
-promotion, before macOS signing/notarization/PACE.
+persistent-runner route; manual dispatch cannot enable signing. Follow the four operator gates
+in the [distribution gate](docs/provenance/distribution_gate.md): before Windows AAX signing or
+build_only, before candidate signing, after promotion before coordinator/macOS operations, and
+before A4 and each A5 resume. Windows external validation precedes promotion; A3 means the
+coordinator freeze. The current formal Windows route accepts only an empty update key; public
+CI key inputs do not produce a formal candidate. See the [release entry](docs/hypha_release_entry.md).
+
 [The exposure report](docs/security/public_repo_exposure_audit_20261005.md) records the trust boundary.
 
 The legacy manual-install zip can still be built as a fallback with:
