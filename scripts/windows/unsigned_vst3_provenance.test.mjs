@@ -6,6 +6,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { RECORD, verifyUnsignedWindowsHandoff, writeUnsignedWindowsHandoff } from './unsigned_vst3_provenance.mjs';
 import { sha256 } from '../provenance/asset_gate.mjs';
+import { stageUnsignedWindowsArtifact } from './unsigned_vst3_artifact.mjs';
+import { writeSourceZip } from '../provenance/source_zip_writer.mjs';
+import { readSourceZip } from '../provenance/source_zip.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-unsigned-provenance-'));
@@ -34,7 +37,8 @@ function fixture(t) {
       const bytes = Buffer.alloc(256); bytes.write('MZ'); bytes.writeUInt32LE(128, 0x3c);
       bytes.write('PE\0\0', 128); bytes.writeUInt16LE(0x8664, 132);
       bytes.write('KirinHyphaUpdateKeySha256=disabled;', 160);
-      return { role, ...put(`bundles/Kirin Hypha ${role}.vst3/Contents/x86_64-win/Kirin Hypha ${role}.vst3`, bytes), moduleInfo: put(`bundles/Kirin Hypha ${role}.vst3/Contents/Resources/moduleinfo.json`, JSON.stringify({ Version: '1.2.3' })) };
+      const bundle = `juce_shell/build-windows/KirinHypha${role}_artefacts/Release/VST3/Kirin Hypha ${role}.vst3`;
+      return { role, ...put(`${bundle}/Contents/x86_64-win/Kirin Hypha ${role}.vst3`, bytes), moduleInfo: put(`${bundle}/Contents/Resources/moduleinfo.json`, JSON.stringify({ Version: '1.2.3' })) };
     }) };
   const snapshot = record.binaries.map(binary => [
     { path: 'Contents/Resources/moduleinfo.json', sha256: binary.moduleInfo.sha256 },
@@ -45,7 +49,9 @@ function fixture(t) {
   record.rawSource = put('raw-source.json', JSON.stringify({ schema: 'hypha-raw-source-v2', commit,
     tree: '1'.repeat(40), juceCommit: '2'.repeat(40), jucePatchedTree: '3'.repeat(40),
     rustc: 'rustc 1.94.1 (e408947bf 2026-03-25)', files: [{ path: 'fixture', blob: '4'.repeat(40), sha256: '5'.repeat(64) }] }));
-  record.nativeLinkMap = put('POST.map', 'Publics by Value\n FLAC__decode ogg_stream_reset vorbis_info_init jpeg_read png_read inflateEnd\n');
+  const map = 'Publics by Value\n FLAC__decode ogg_stream_reset vorbis_info_init jpeg_read png_read inflateEnd\n';
+  record.nativeLinkMap = put('juce_shell/build-windows/link-evidence/KirinHyphaPOST.map', map);
+  record.nativePreLinkMap = put('juce_shell/build-windows/link-evidence/KirinHyphaPRE.map', map);
   const save = () => put(RECORD, JSON.stringify(record)); save();
   const expected = { commit, factoryCommit, ciRun: '123', factoryRun: '456' };
   return { root, put, record, save, expected };
@@ -83,6 +89,24 @@ test('import rejects the old noncanonical raw record and extra shipping evidence
   f.record.rawSource = f.put('raw-source.json', JSON.stringify({ ...raw, schema: 'hypha-raw-source-v1' })); f.save();
   assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /Canonical raw source/);
   f.record.rawSource = f.put('raw-source.json', JSON.stringify(raw)); f.save();
-  f.put('bundles/Kirin Hypha PRE.vst3/Contents/x86_64-win/PRE.map', 'inert map');
+  f.put(path.posix.dirname(f.record.binaries[0].path) + '/PRE.map', 'inert map');
   assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /Unexpected VST3 shipping/);
+});
+
+test('producer record stages the exact upload tree and both external maps survive ZIP and import', t => {
+  const f = fixture(t), staging = path.join(f.root, 'upload'), archive = path.join(f.root, 'artifact.zip');
+  f.put('unrecorded-private-file', 'not uploaded');
+  const files = stageUnsignedWindowsArtifact(f.root, staging);
+  for (const key of ['nativeLinkMap','nativePreLinkMap']) assert.ok(files.some(file => file.path === f.record[key].path));
+  assert.ok(!files.some(file => file.path === 'unrecorded-private-file'));
+  writeSourceZip(archive, files.map(file => ({ archive: file.path, file: path.join(staging, file.path) })));
+  const imported = path.join(f.root, 'imported');
+  for (const [relative, bytes] of readSourceZip(archive)) {
+    const target = path.join(imported, relative); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, bytes);
+  }
+  verifyUnsignedWindowsHandoff(imported, f.expected);
+  assert.throws(() => stageUnsignedWindowsArtifact(f.root, staging), /already exists/);
+  const map = path.join(imported, f.record.nativeLinkMap.path);
+  fs.appendFileSync(map, 'changed'); assert.throws(() => verifyUnsignedWindowsHandoff(imported, f.expected), /bytes changed/);
+  fs.rmSync(map); assert.throws(() => verifyUnsignedWindowsHandoff(imported, f.expected), /ENOENT/);
 });

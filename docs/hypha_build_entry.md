@@ -5,6 +5,8 @@
 toolchainを用意した作業checkoutで、日常のGUI / DSP確認用なら次の1コマンド。
 MacはPRE/POST × AU/VST3 Universalの4本、WindowsはPRE/POST × VST3 x64の2本を作る。
 AAX SDK、署名認証、iLok USB / Cloud、公証、CI、公開操作は不要。
+公開CIと未署名診断buildはRust stableを使う。正式配布producerは、同梱するruntime通知に
+対応する固定版を製造前とfreeze時に照合する。診断buildの成功を正式配布のruntime証明としない。
 
 ```bash
 node scripts/build_hypha.mjs --without-aax

@@ -56,8 +56,10 @@ function Invoke-Checked([string]$Label, [scriptblock]$Command) {
   }
 }
 
-Invoke-Checked "qualify retained Rust runtime" {
-  node scripts/provenance/runtime_guard.mjs
+if ($Distribution) {
+  Invoke-Checked "qualify retained Rust runtime" {
+    node scripts/provenance/runtime_guard.mjs
+  }
 }
 Invoke-Checked "build kirin_hypha_ffi x64 Release" {
   cargo build --release -p kirin_hypha_ffi --locked

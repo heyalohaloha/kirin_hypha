@@ -8,6 +8,7 @@ import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
 import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
+import { verifyFactoryDelivery } from '../provenance/factory_artifact.mjs';
 
 export function macBundles(state, aax = false) {
   return (aax ? loadMacAaxBundleManifest({ root: state.root })
@@ -93,16 +94,9 @@ export async function verifyWindows(state, run) {
   }
   const sourceRun = manifest.source.github_actions_run.split('/').at(-1);
   if (sourceRun !== String(state.inputs.ciRun)) throw new Error('Windows source CI differs from the pinned CI run');
-  const signingUrl = new URL(manifest.signing.workflow_run);
-  const parts = signingUrl.pathname.split('/').filter(Boolean);
-  const factoryRun = JSON.parse(await run('gh', ['api',
-    `repos/${parts[0]}/${parts[1]}/actions/runs/${parts.at(-1)}`], { capture: true }));
-  if (factoryRun.status !== 'completed' || factoryRun.conclusion !== 'success'
-      || factoryRun.path !== '.github/workflows/hypha-windows-signing.yml') {
-    throw new Error('Windows signing/promotion workflow is not green');
-  }
+  const factoryFacts = await verifyFactoryDelivery(state, run, manifest, path.dirname(installer));
   return [installer, `${installer}.sha256`, `${installer}.json`,
-    path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact);
+    path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact).concat(factoryFacts);
 }
 
 export function artifactPaths(state) {

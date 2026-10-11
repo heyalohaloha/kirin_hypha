@@ -26,14 +26,17 @@ test('raw source is bound to committed blobs and the approved patched JUCE tree'
   fs.writeFileSync(path.join(root, 'scripts/verify_juce_patch_state.sh'), 'PATCHES=(\n  "0001-fixture.patch::"\n)\n');
   git(root, ['add', '.']); git(root, ['commit', '-m', 'pin approved patch']);
   const indexBefore = git(juce, ['ls-files', '--stage']);
-  const before = rawSourceSnapshot(root);
+  // Qualification is tested against a declared fixture runtime, independent of contributor/CI stable.
+  const snapshot = () => rawSourceSnapshot(root, { readRuntime: () => 'rustc 1.94.1 (fixture date)' });
+  assert.throws(() => rawSourceSnapshot(root, { readRuntime: () => 'rustc 1.99.0 (fixture date)' }), /retained notices/);
+  const before = snapshot();
   assert.equal(before.commit, git(root, ['rev-parse', 'HEAD']));
   assert.equal(before.files.find(f => f.path === 'source').blob, git(root, ['hash-object', '--no-filters', 'source']));
-  assertRawSourceUnchanged(before, rawSourceSnapshot(root));
+  assertRawSourceUnchanged(before, snapshot());
   assert.equal(git(juce, ['ls-files', '--stage']), indexBefore);
   for (const [directory, bytes] of [[juce, 'patched\r\n'], [juce, 'original\n'], [root, 'original\r\n']]) {
     fs.writeFileSync(path.join(directory, 'source'), bytes);
-    assert.throws(() => rawSourceSnapshot(root), /canonical Git blob/);
+    assert.throws(snapshot, /canonical Git blob/);
     fs.writeFileSync(path.join(directory, 'source'), directory === juce ? 'patched\n' : 'original\n');
   }
 });

@@ -61,6 +61,10 @@ node scripts/build_hypha.mjs --release --init \
   --sdk /external/licensed/aax-sdk --license-confirmed \
   --ci-run GREEN_EXACT_COMMIT_RUN_ID \
   --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full \
+  --windows-factory-repository REVIEWED_FACTORY_OWNER/REPOSITORY \
+  --windows-factory-commit REVIEWED_FACTORY_FULL_SHA \
+  --windows-promotion-run QUALIFIED_PROMOTION_RUN_ID \
+  --windows-artifact-archive /retained/signed-full-artifact.zip \
   --hp-root /absolute/path/to/kirin_hp \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
@@ -84,6 +88,9 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 script作成の依頼や`--execute`だけを、個別candidateの公開承認に読み替えない。
 `--init`は既存profileを上書きしない。profile、商品target、管理URL、reportはignored `release_state/`内。
 秘密値はprofileへ入れず、Keychain／private factoryから渡す。
+Windowsのfactory repository/commit・promotion run・元artifact ZIPもprofileへ固定する。
+候補署名runとpromotion runの両方を審査済みfactoryへ結び、artifactのAPI digestと実ZIP、
+展開済みfile集合、元候補manifestを照合する。これらの入力が欠ける場合は製造前に止まる。
 
 更新通知を組み込む候補だけは`--init --update-public-key KEY`で承認済みの公開鍵を固定する。
 鍵を組み込むcandidate IDにもdigestの短縮値を含め、同commit/版の別鍵へ公開承認を流用しない。

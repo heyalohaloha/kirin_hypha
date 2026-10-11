@@ -27,6 +27,11 @@ ties the signed PRE/POST VST3/AAX markers to the installer payload and signed AA
 The freeze binds the approved key, and the offline manifest producer rejects a different signer.
 Previous artifacts missing this evidence cannot qualify as a newly enabled update build.
 
+Private Windows handoffs must preserve the original signed-full artifact ZIP. Pin the reviewed
+factory commit and promotion run in the release profile; qualify candidate and promotion origins,
+artifact IDs/digests and the actual ZIP/local delivery inventory through the release entry. Promotion
+preserves the original candidate manifest; a successful run alone is not an accepted factory origin.
+
 ## Files
 
 - Runbook: `docs/ls_release/kirin_hypha_ls_runbook.md`

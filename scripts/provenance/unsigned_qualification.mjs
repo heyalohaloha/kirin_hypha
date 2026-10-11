@@ -2,13 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readRustRuntime } from './runtime_guard.mjs';
+import { readRustRuntime, assertRustRuntime } from './runtime_guard.mjs';
 import { canonicalSourceSnapshot } from './canonical_source.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const PLUGINVAL_SHA256 = 'f4ac5c31c5544a434f73e686b816861d92c22ae849d69ad693681cbc9522fcd8';
-export function rawSourceSnapshot(root) {
-  return { schema: 'hypha-raw-source-v2', rustc: readRustRuntime(root), ...canonicalSourceSnapshot(root) };
+export function rawSourceSnapshot(root, { readRuntime = readRustRuntime } = {}) {
+  return { schema: 'hypha-raw-source-v2', rustc: assertRustRuntime(readRuntime(root)), ...canonicalSourceSnapshot(root) };
 }
 
 export function assertRawSourceUnchanged(before, after) {

@@ -9,7 +9,7 @@ import { produceMac } from '../ls_release/hypha_release_local.mjs';
 import { realActions } from '../release_hypha.mjs';
 import { fileFact } from '../ls_release/hypha_release_contract.mjs';
 
-test('every producer and freeze reject a different Rust runtime before building/signing', async t => {
+test('formal producers and freeze require retained runtime while contributor diagnostics use stable', async t => {
   assertRustRuntime('rustc 1.94.1 (e408947bf 2026-03-25)');
   for (const text of ['rustc 1.94.10 (hash date)', 'rustc 1.94.1-nightly (hash date)', 'rustc 1.99.0 (hash date)', 'unknown']) {
     assert.throws(() => assertRustRuntime(text), /retained notices/);
@@ -17,11 +17,15 @@ test('every producer and freeze reject a different Rust runtime before building/
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-runtime-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(path.join(root, 'rustc'), '#!/bin/sh\nprintf "rustc 1.99.0 (fixture date)\\n"\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(root, 'cargo'), '#!/bin/sh\necho diagnostic-cargo-reached\nexit 42\n', { mode: 0o755 });
   const adopted = path.resolve(import.meta.dirname, '../..');
+  const formal = spawnSync('node', ['scripts/provenance/runtime_guard.mjs'], {
+    cwd: adopted, env: { ...process.env, PATH: `${root}:${process.env.PATH}` }, encoding: 'utf8' });
+  assert.equal(formal.status, 1); assert.match(formal.stderr, /retained notices/);
   const result = spawnSync('bash', ['scripts/build_juce_universal.sh'], {
     cwd: adopted, env: { ...process.env, PATH: `${root}:${process.env.PATH}` }, encoding: 'utf8' });
-  assert.equal(result.status, 1); assert.match(result.stderr, /retained notices/);
-  assert.doesNotMatch(result.stdout, /cargo build/);
+  assert.equal(result.status, 42); assert.match(result.stdout, /diagnostic-cargo-reached/);
+  assert.doesNotMatch(result.stderr, /retained notices/);
   for (const aax of [false, true]) {
     const calls = [];
     await assert.rejects(() => produceMac({ root }, async (tool,args) => {
@@ -37,4 +41,6 @@ test('every producer and freeze reject a different Rust runtime before building/
   const windows = fs.readFileSync(path.join(adopted, 'scripts/build_aax_windows.ps1'), 'utf8');
   const macAax = fs.readFileSync(path.join(adopted, 'scripts/build_aax_universal.sh'), 'utf8');
   for (const source of [windows, macAax]) assert.ok(source.indexOf('runtime_guard.mjs') < source.indexOf('cargo build'));
+  assert.match(windows, /if \(\$Distribution\) \{\s*Invoke-Checked "qualify retained Rust runtime"/);
+  assert.match(macAax, /if \[\[ "\$SIGN_OUTPUT" == 1 \]\]; then\s*run node scripts\/provenance\/runtime_guard.mjs/);
 });

@@ -72,6 +72,7 @@ export function verifyUnsignedWindowsHandoff(directory, expected) {
   }
   assertRustRuntime(raw.rustc || '');
   inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativeLinkMap), 'utf8'));
+  inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativePreLinkMap), 'utf8'));
   const cache = fs.readFileSync(same(directory, record.cmakeCache), 'utf8');
   if (!/^KIRIN_HYPHA_KIMERA_FONT_FILE:FILEPATH=\s*$/m.test(cache)) throw new Error('Unsigned producer must prove an empty font input');
   same(directory, record.ffiArchive);
@@ -105,6 +106,7 @@ export function writeUnsignedWindowsHandoff(ciRun) {
     pluginval: relativeFact(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/pluginval.json')),
     rawSource: relativeFact(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/raw-source.json')),
     nativeLinkMap: relativeFact(path.join(ROOT, 'juce_shell/build-windows/link-evidence/KirinHyphaPOST.map')),
+    nativePreLinkMap: relativeFact(path.join(ROOT, 'juce_shell/build-windows/link-evidence/KirinHyphaPRE.map')),
     cmakeCache: relativeFact(path.join(ROOT, 'juce_shell/build-windows/CMakeCache.txt')),
     ffiArchive: relativeFact(path.join(ROOT, 'target/release/kirin_hypha_ffi.lib')),
     sourceArchive: relativeFact(source.sourceArchive), legalDir: path.relative(ROOT, source.legalDir).split(path.sep).join('/'),

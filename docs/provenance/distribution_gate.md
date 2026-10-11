@@ -193,6 +193,10 @@ All formal Mac AU/VST3/AAX and Windows VST3/AAX producers must check Rust's actu
 runtime version against the retained standard-library notices before building, and again
 when freezing the candidate. Installing a private producer toolchain selects it within that job;
 it must not change a shared machine's default toolchain.
+Public CI and contributor diagnostics continue to use Rust stable. The runtime pin belongs
+to formal `produceMac`/freeze, Mac AAX `--sign`, Windows AAX `-Distribution` and private
+Windows producers. Raw-source qualification tests inject a declared runtime; the real producer
+reads the actual compiler and rejects a different version.
 
 The Windows raw-source record compares unfiltered working bytes to the adopted Git blobs.
 Approved JUCE patches are applied to a temporary index to derive the expected patched blobs;
@@ -203,6 +207,8 @@ JUCE desktop.ini/Plugin.ico pair. Reject extra files, absent payloads and symlin
 import and packaging boundaries. Link maps belong in an intermediate evidence directory;
 append target link options without replacing platform defaults. Check real map location and
 PE continuity in the first unsigned producer run.
+The build record defines the complete unsigned upload tree, including both external maps
+and all legal/source files. Stage and reimport that tree before upload; upload only that directory.
 
 Retain the unsigned and signed pluginval receipts under separate, exclusively created names.
 Bind imported current-factory artifacts to the same reviewed factory commit, repository,
@@ -210,3 +216,11 @@ dispatch event, workflow path and unique nonexpired artifact ID/digest. Verify d
 archive bytes before extraction. Archive and executable hashes also fix every downloaded
 runtime receiving signing secrets; compare its extracted tree to the verified archive before use.
 These checks do not replace clean-machine lifecycle, licensed-tool qualification or cost approval.
+
+Current import boundaries include unsigned VST3, signed AAX, signed-candidate promotion
+and signed-full delivery to the public coordinator. Promotion preserves the original candidate
+manifest and artifact receipt, and records candidate/promotion identity. The coordinator's private
+profile pins the reviewed factory repository/commit, promotion run and retained signed-full ZIP. Verify both
+runs, separated jobs, unique artifacts, API digests, actual archive/local-delivery bytes and the
+original manifest before accepting it. Promotion may only add provenance and mark retained
+external validation complete/public-ready; it cannot change payload or qualification metadata.

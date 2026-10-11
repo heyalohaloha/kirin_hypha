@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { STAGES, executeRelease, parseReleaseArgs, makeState } from './release_hypha.mjs';
+import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions } from './release_hypha.mjs';
 import { HOST_TESTS, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths } from './ls_release/hypha_release_local.mjs';
@@ -12,6 +12,18 @@ import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
 const options = { execute: true, until: 'hp' };
+test('reviewed factory, promotion run and retained archive are pinned before any manufacturing action', async t => {
+  const f = fixture(t);
+  const actions = realActions(f.state, {}, async () => { throw new Error('No command may run'); }, () => {});
+  await assert.rejects(actions['provenance-inputs'](), /private profile/);
+  const options = parseReleaseArgs(['--state','release_state/factory.json',
+    '--windows-factory-repository','fixture/factory','--windows-factory-commit','c'.repeat(40),'--windows-promotion-run','123','--windows-artifact-archive','artifact.zip']);
+  const state = makeState(f.root,options,() => SOURCE);
+  assert.equal(state.inputs.windowsFactoryRepository,'fixture/factory');
+  assert.equal(state.inputs.windowsFactoryCommit,'c'.repeat(40));
+  assert.equal(state.inputs.windowsPromotionRun,'123');
+  assert.equal(state.inputs.windowsArtifactArchive,path.join(f.root,'artifact.zip'));
+});
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-release-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

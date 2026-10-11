@@ -18,6 +18,7 @@ import { assetDecision, embeddedAssets } from './provenance/asset_gate.mjs';
 import { verifyReleaseProvenance } from './provenance/distribution_gate.mjs';
 import { prepareSourceDelivery } from './provenance/source_delivery.mjs';
 import { updateBinding, validatePublicKey, assertUpdateBinding } from './updates/update_key_binding.mjs';
+import { requireFactoryInputs } from './provenance/factory_artifact.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
@@ -33,6 +34,10 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --sdk PATH --license-confirmed  External AAX SDK for macOS approved signing producer
   --ci-run ID               Reuse exact-commit complete green CI, never auto-dispatch/rerun
   --windows-installer-dir DIR  Approved same-commit signed-full factory artifact
+  --windows-factory-repository OWNER/REPO  Reviewed private factory origin
+  --windows-factory-commit SHA  Reviewed exact factory commit for candidate and promotion
+  --windows-promotion-run ID    Successful promotion run containing signed-full
+  --windows-artifact-archive FILE  Retained signed-full ZIP, verified against GitHub digest
   --hp-root DIR             Existing HP main checkout (must be clean/current before publish)
   --ls-state FILE           Existing private LS product-target state
   --notes FILE              Reviewed public release notes
@@ -57,7 +62,9 @@ export function parseReleaseArgs(argv) {
     '--windows-installer-dir': 'windowsInstallerDir', '--hp-root': 'hpRoot',
     '--ls-state': 'lsState', '--notes': 'notes', '--date': 'date', '--until': 'until',
     '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport',
-    '--source-archive': 'sourceArchive', '--update-public-key': 'updatePublicKey' };
+    '--source-archive': 'sourceArchive', '--update-public-key': 'updatePublicKey',
+    '--windows-factory-commit': 'windowsFactoryCommit', '--windows-factory-repository': 'windowsFactoryRepository', '--windows-promotion-run': 'windowsPromotionRun',
+    '--windows-artifact-archive': 'windowsArtifactArchive' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (fields[arg]) {
@@ -91,6 +98,8 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
   const inputs = { date: options.date || new Date().toISOString().slice(0, 10),
     sdk: inputPath(options.sdk), licenseConfirmed: !!options.licenseConfirmed, ciRun: options.ciRun || '',
     windowsInstallerDir: inputPath(options.windowsInstallerDir), hpRoot: inputPath(options.hpRoot),
+    windowsFactoryRepository: options.windowsFactoryRepository || '', windowsFactoryCommit: options.windowsFactoryCommit || '', windowsPromotionRun: options.windowsPromotionRun || '',
+    windowsArtifactArchive: inputPath(options.windowsArtifactArchive),
     hpBaseCommit: '', hpProjectSha256: '', lsState: inputPath(options.lsState), notes: inputPath(options.notes),
     provenanceReport: inputPath(options.provenanceReport), sourceArchive: inputPath(options.sourceArchive), updatePublicKey,
     hostsReport: path.join(prefix, 'hosts.json'), distributionReport: path.join(prefix, 'distribution.json'),
@@ -129,6 +138,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
   };
   return {
     'provenance-inputs': async () => {
+      requireFactoryInputs(state);
       const decision = assetDecision(state.root, embeddedAssets(state.root));
       if (!decision.approved) throw new Checkpoint('Embedded materials have distribution holds; verify rights or review replacements before producing a release');
       return { evidence: decision };

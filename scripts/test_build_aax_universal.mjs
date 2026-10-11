@@ -84,6 +84,7 @@ try {
   assert.match(result.output, /--target aarch64-apple-darwin/);
   assert.match(result.output, /--target x86_64-apple-darwin/);
   assert.doesNotMatch(result.output, /wraptool/);
+  assert.doesNotMatch(result.output, /runtime_guard/);
 
   result = run([
     '--sdk', sdkRoot,
@@ -92,6 +93,7 @@ try {
     '--dry-run',
   ], signingEnv);
   assert.equal(result.status, 0);
+  assert.match(result.output, /runtime_guard/);
   assert.match(result.output, /\/fixture\/wraptool sign/);
   assert.match(result.output, /--account \\<redacted\\>/);
   assert.match(result.output, /--customernumber \\<redacted\\>/);
