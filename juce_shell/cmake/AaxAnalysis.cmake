@@ -10,7 +10,13 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
     target_compile_definitions(KirinAaxAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
     target_include_directories(KirinAaxAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinAaxAnalysisProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
-    add_test(NAME kirin_aax_analysis_stereo_product COMMAND KirinAaxAnalysisProductTests stereo)
-    add_test(NAME kirin_aax_analysis_mono_product COMMAND KirinAaxAnalysisProductTests mono)
-    set_tests_properties(kirin_aax_analysis_stereo_product kirin_aax_analysis_mono_product PROPERTIES TIMEOUT 90)
+    # Independent scenarios keep real-time waits from accumulating into one opaque timeout.
+    # Each condition retains its 12-second deadline and every audio/clock assertion still runs.
+    foreach(layout stereo mono)
+        foreach(scenario certified uncertified loop short_loops per_insert measured_loop)
+            add_test(NAME kirin_aax_analysis_${layout}_${scenario}_product
+                COMMAND KirinAaxAnalysisProductTests ${layout} ${scenario})
+            set_tests_properties(kirin_aax_analysis_${layout}_${scenario}_product PROPERTIES TIMEOUT 90)
+        endforeach()
+    endforeach()
 endif()
