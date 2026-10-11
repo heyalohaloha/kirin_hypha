@@ -12,6 +12,7 @@
 // is not scanned (older text predates the check).
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -115,14 +116,39 @@ function baseline() {
   try { git(['cat-file', '-e', `${sha}^{commit}`]); return sha; } catch { return null; }
 }
 
+// Retained upstream documents are scanned for byte integrity instead of private work-item shapes.
+// A path alone cannot exempt text: only the reviewed manifest's exact original bytes qualify.
+export function isRetainedUpstreamNotice(root, relative) {
+  const manifests = [
+    ['THIRD_PARTY_LICENSES/cargo/provenance.json', 'hypha-retained-dependency-license-text-v1', 'THIRD_PARTY_LICENSES/cargo/'],
+    ['THIRD_PARTY_LICENSES/rust-runtime-1.94.1/provenance.json', 'hypha-retained-rust-runtime-notices-v1', 'THIRD_PARTY_LICENSES/rust-runtime-1.94.1/'],
+  ];
+  if (relative.includes('..') || relative.includes('\\')) return false;
+  for (const [manifest, schema, prefix] of manifests) {
+    if (!relative.startsWith(prefix) || !fs.existsSync(path.join(root, manifest))) continue;
+    const record = JSON.parse(fs.readFileSync(path.join(root, manifest), 'utf8'));
+    if (record.schema !== schema || !Array.isArray(record.files)) return false;
+    const rows = record.files.filter(row => row.path === relative);
+    if (rows.length !== 1 || !/^[a-f0-9]{64}$/.test(rows[0].sha256)) return false;
+    const file = path.join(root, relative);
+    if (!fs.lstatSync(file, { throwIfNoEntry: false })?.isFile()) return false;
+    const bytes = fs.readFileSync(file);
+    return bytes.length === rows[0].bytes && crypto.createHash('sha256').update(bytes).digest('hex') === rows[0].sha256;
+  }
+  return false;
+}
+
 function main() {
   const base = baseRef();
   const listed = privateNames();
   const patterns = [...PATTERNS, ...(listed ? namePatterns(listed.names) : [])];
   const findings = [];
   const diff = git(['diff', '--unified=0', '--no-color', '--no-ext-diff', `${base}...HEAD`, '--', '.', ':(exclude)juce_shell/JUCE']);
+  const retained = new Map();
   for (const added of newLines(diff)) {
     if (SELF.has(added.file)) continue;
+    if (!retained.has(added.file)) retained.set(added.file, isRetainedUpstreamNotice(ROOT, added.file));
+    if (retained.get(added.file)) continue;
     for (const record of findRecords(added.text, patterns))
       findings.push(`${added.file}:${added.line}: ${record.kind}: ${record.text}`);
   }

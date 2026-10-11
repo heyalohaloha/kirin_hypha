@@ -1,3 +1,4 @@
+import { BUNDLED_COMPONENTS } from './bundled_components.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -42,6 +43,7 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const sources = new Map([['LICENSE', Buffer.from('GPL fixture')], ['THIRD_PARTY_NOTICES.md', Buffer.from('notice fixture')],
     ['THIRD_PARTY_LICENSES/MoSQITo-1.2.1-Apache-2.0.txt', Buffer.from('Apache fixture')], ['source.rs', Buffer.from('own fixture code')]]);
+  for (const name of new Set(BUNDLED_COMPONENTS.flatMap(c => c.licenseFiles))) sources.set(name, Buffer.from(`original notice fixture: ${name}`));
   for (const [name, bytes] of sources) put(root, name, bytes);
   put(root, 'juce_shell/CMakeLists.txt', 'set(KIRIN_HYPHA_DATA_SOURCES\n ${CMAKE_CURRENT_SOURCE_DIR}/../asset.png)\n');
   put(root, 'asset.png', 'own disposable image fixture');
@@ -56,7 +58,7 @@ function fixture(t) {
     sourceDownload: 'https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.2.3/source.zip',
     components: [{ id: 'MoSQITo@1.2.1', license: 'Apache-2.0', source: 'public fixture upstream',
       modificationNotice: 'Rust adaptation fixture', licenseFiles: ['THIRD_PARTY_LICENSES/MoSQITo-1.2.1-Apache-2.0.txt'] },
-    { id: 'JUCE@7.0.12', license: 'GPL-3.0', source: 'pinned fixture', modificationNotice: 'tracked patches fixture', licenseFiles: ['LICENSE'] }], payloads: [] };
+    { id: 'JUCE@7.0.12', license: 'GPL-3.0', source: 'pinned fixture', modificationNotice: 'tracked patches fixture', licenseFiles: ['LICENSE'] }, ...BUNDLED_COMPONENTS], payloads: [] };
   const artifacts = [];
   for (const channel of ['macos-pkg', 'macos-zip', 'windows-exe']) {
     const artifact = path.join(root, `${channel}.fixture`); put(root, `${channel}.fixture`, channel);
@@ -105,7 +107,7 @@ test('real registry aliases agree on use permission and approved embedded source
 test('all three exact payloads deliver notices, source pointer and matching source bytes', t => {
   const f = fixture(t); const result = verifyDistributionEvidence(f.args);
   assert.equal(result.publicFacts.length, 1); assert.equal(result.publicFacts[0].sha256, f.report.sourceSha256);
-  assert.equal(result.facts.length, 31);
+  assert.equal(result.facts.length, 31 + BUNDLED_COMPONENTS.flatMap(c => c.licenseFiles).length * 3);
 });
 test('JUCE license-route review cannot be satisfied by unresolved declarations', t => {
   for (const license of ['Unknown', ' NOASSERTION ', 'unknown', 'Pending', 'TBD', 'Unverified',

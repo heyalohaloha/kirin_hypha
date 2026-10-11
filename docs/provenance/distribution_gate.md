@@ -132,7 +132,7 @@ private retained JSON report. It must be schema `hypha-distribution-provenance-v
   URL. The archive is uploaded and read back alongside release artifacts, not replaced by a generic
   repository link or GitHub's automatic source ZIP, which omits submodule contents.
 - `components`: IDs, actual version/source, license expression, modification notice and archive
-  `licenseFiles`. The gate requires MoSQITo, JUCE and a conservative normal/build FFI Cargo closure;
+  `licenseFiles`. The gate requires MoSQITo, JUCE, its bundled FLAC/Ogg/Vorbis/IJG JPEG/libpng/zlib/Apple AudioUnitSDK/VST3 SDK notices, the pinned Rust runtime notices, and a conservative normal/build FFI Cargo closure;
   additional actual linked/embedded components must be identified in the retained linkage review.
   Every reported component needs a resolved license declaration and retained license files, including
   additional components and those with no manifest license. `Unknown`, `NOASSERTION`, pending markers
@@ -174,3 +174,14 @@ The accepted Stage3 audit and detailed private evidence remain outside public co
 contain only the bounded policy, attribution and gate implementation. No competitor records or
 historical commits are removed. High-risk provenance or active credential findings stop ordinary
 work and keep the implementation Freeze in place.
+
+The unsigned private Windows producer awaits the pinned GUI-subsystem pluginval process,
+requires exit code zero, and verifies the complete PRE/POST bundle file sets and SHA-256 values
+before and after validation. Its handoff retains the validator receipt, raw owned/JUCE source
+inventory and the actual POST MSVC linker map. The importer checks these bytes again before
+any signature request. CRLF/LF differences count as different source bytes. Rust 1.94.1 runtime
+notices are retained; a different compiler requires a new runtime inventory review.
+
+Legal delivery also includes `Corresponding-Source.txt` with the free exact-release source
+archive URL and hash. External AAX SDK and PACE redistribution/source conditions remain a
+separate release-specific review; the built-in JUCE inventory does not settle them.

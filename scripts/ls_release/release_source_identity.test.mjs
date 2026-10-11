@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { currentReleaseIdentity } from './build_kirin_hypha_release_set.mjs';
+import { inferBNumber as installerB } from '../windows/build-installer.mjs';
+import { inferBNumber as zipB } from './build_kirin_hypha_windows_vst3_zip.mjs';
 import { readReleaseSourceIdentity } from './release_source_identity.mjs';
 
 test('unnumbered merge uses only an identical-tree numbered commit and retains the exact HEAD', t => {
@@ -11,12 +14,26 @@ test('unnumbered merge uses only an identical-tree numbered commit and retains t
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git(['init']); git(['config', 'user.name', 'Fixture']); git(['config', 'user.email', 'fixture@example.invalid']);
+  fs.mkdirSync(path.join(root, 'crates/hypha_pre'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'crates/hypha_pre/Cargo.toml'), 'version = "1.1.51"\n');
   fs.writeFileSync(path.join(root, 'source'), 'first'); git(['add', '.']); git(['commit', '-m', '[B-100] fixture']);
   const numbered = git(['rev-parse', 'HEAD']); git(['commit', '--allow-empty', '-m', 'merge candidate']);
   const merge = git(['rev-parse', 'HEAD']);
   const identity = readReleaseSourceIdentity({ root });
   assert.equal(identity.commit, merge); assert.equal(identity.bNumber, 'B-100');
   assert.equal(identity.bNumberSourceCommit, numbered);
+  assert.equal(currentReleaseIdentity({ root }).commit, merge);
+  for (const read of [currentReleaseIdentity, installerB, zipB]) {
+    const value = read({ root });
+    assert.equal(typeof value === 'string' ? value : value.bNumber, 'B-100');
+  }
+  git(['commit', '--allow-empty', '-m', '[B-101] identical tree']);
+  git(['commit', '--allow-empty', '-m', 'second merge candidate']);
+  for (const read of [readReleaseSourceIdentity, currentReleaseIdentity, installerB, zipB]) {
+    const value = read({ root }); assert.equal(typeof value === 'string' ? value : value.bNumber, 'B-101');
+  }
   fs.writeFileSync(path.join(root, 'source'), 'different'); git(['add', '.']); git(['commit', '-m', 'different unnumbered source']);
-  assert.throws(() => readReleaseSourceIdentity({ root }), /no identical-tree/);
+  for (const read of [readReleaseSourceIdentity, currentReleaseIdentity, installerB, zipB]) {
+    assert.throws(() => read({ root }), /no identical-tree/);
+  }
 });

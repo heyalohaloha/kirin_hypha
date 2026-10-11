@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { requireCleanReleaseSource } from './release_source_identity.mjs';
+import { requireCleanReleaseSource, readReleaseSourceIdentity } from './release_source_identity.mjs';
 import { assertPackageUpdateBinding, validatePublicKey } from '../updates/update_key_binding.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -85,23 +85,11 @@ function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-function currentReleaseIdentity() {
-  const versionSource = fs.readFileSync(path.join(ROOT, 'crates', 'hypha_pre', 'Cargo.toml'), 'utf8');
+export function currentReleaseIdentity({ root = ROOT } = {}) {
+  const versionSource = fs.readFileSync(path.join(root, 'crates', 'hypha_pre', 'Cargo.toml'), 'utf8');
   const version = versionSource.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   if (!version) throw new Error('Hypha release version is missing');
-  const commitResult = childProcess.spawnSync('git', ['rev-parse', 'HEAD'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
-  if (commitResult.status !== 0) throw new Error('Unable to resolve the Hypha release commit');
-  const subjectResult = childProcess.spawnSync('git', ['log', '-1', '--pretty=%s'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
-  if (subjectResult.status !== 0) throw new Error('Unable to resolve the Hypha release B number');
-  const bNumber = subjectResult.stdout.match(/\bB-\d+\b/)?.[0];
-  if (!bNumber) throw new Error('The Hypha release commit subject has no B number');
-  return { version, commit: commitResult.stdout.trim(), bNumber };
+  return { version, ...readReleaseSourceIdentity({ root }) };
 }
 
 function requireValidSigningTargets(manifest, { requireAax }) {

@@ -1,3 +1,4 @@
+import { rawSourceSnapshot, assertRawSourceUnchanged, assertPluginvalQualification, inspectNativeLinkMap } from '../provenance/unsigned_qualification.mjs';
 // Credential-free private Windows producer handoff. This does not approve distribution.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,6 +31,21 @@ function same(root, fact) {
   return file;
 }
 
+function bundleFiles(directory, binary) {
+  const full = regular(directory, binary.path);
+  const bundle = path.resolve(path.dirname(full), '../..');
+  const entries = [];
+  const walk = (folder, prefix = '') => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      const relative = prefix + entry.name;
+      if (entry.isSymbolicLink()) throw new Error('Qualified bundle contains symlink');
+      if (entry.isDirectory()) walk(path.join(folder, entry.name), relative + '/');
+      else if (entry.isFile()) entries.push({ path: relative, sha256: fileFact(path.join(folder, entry.name)).sha256 });
+    }
+  };
+  walk(bundle); return entries;
+}
+
 export function verifyUnsignedWindowsHandoff(directory, expected) {
   const record = JSON.parse(fs.readFileSync(regular(directory, RECORD), 'utf8'));
   if (record.schema !== 'hypha-private-windows-vst3-build-v1' || record.commit !== expected.commit
@@ -51,6 +67,10 @@ export function verifyUnsignedWindowsHandoff(directory, expected) {
     const info = JSON.parse(fs.readFileSync(same(directory, binary.moduleInfo), 'utf8'));
     if (info.Version !== record.version) throw new Error('Unsigned module version mismatch');
   }
+  const qualification = JSON.parse(fs.readFileSync(same(directory, record.pluginval), 'utf8').replace(/^\uFEFF/, ''));
+  assertPluginvalQualification(qualification, record.binaries, binary => bundleFiles(directory, binary));
+  same(directory, record.rawSource);
+  inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativeLinkMap), 'utf8'));
   const cache = fs.readFileSync(same(directory, record.cmakeCache), 'utf8');
   if (!/^KIRIN_HYPHA_KIMERA_FONT_FILE:FILEPATH=\s*$/m.test(cache)) throw new Error('Unsigned producer must prove an empty font input');
   same(directory, record.ffiArchive);
@@ -63,7 +83,8 @@ export function verifyUnsignedWindowsHandoff(directory, expected) {
 
 export function writeUnsignedWindowsHandoff(ciRun) {
   if (process.platform !== 'win32' || process.arch !== 'x64' || process.env.RUNNER_OS !== 'Windows'
-      || process.env.GITHUB_REPOSITORY !== 'heyalohaloha/kirin_sense_lens') {
+      || !process.env.KIRIN_HYPHA_PRODUCER_REPOSITORY
+      || process.env.GITHUB_REPOSITORY !== process.env.KIRIN_HYPHA_PRODUCER_REPOSITORY) {
     throw new Error('Formal unsigned producer requires the private Windows x64 workflow');
   }
   const { commit, bNumber } = requireCleanReleaseSource({ root: ROOT });
@@ -73,12 +94,16 @@ export function writeUnsignedWindowsHandoff(ciRun) {
   }
   const version = fs.readFileSync(path.join(ROOT, 'crates/hypha_pre/Cargo.toml'), 'utf8')
     .match(/^version\s*=\s*"(\d+\.\d+\.\d+)"/m)?.[1];
+  assertRawSourceUnchanged(JSON.parse(fs.readFileSync(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/raw-source.json'), 'utf8')), rawSourceSnapshot(ROOT));
   const source = prepareSourceDelivery({ root: ROOT, commit, version,
     reportPath: path.join(ROOT, 'release_state/unsigned-vst3/source-report.json'),
     directory: path.join(ROOT, 'release_state/unsigned-vst3/source-delivery') });
   const relativeFact = file => ({ path: path.relative(ROOT, file).split(path.sep).join('/'), sha256: fileFact(file).sha256 });
   const record = { schema: 'hypha-private-windows-vst3-build-v1', commit, bNumber, version,
     ciRun, factoryCommit, factoryRun, platform: 'windows-x64', updatePublicKey: '', kimeraEmbedded: false,
+    pluginval: relativeFact(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/pluginval.json')),
+    rawSource: relativeFact(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/raw-source.json')),
+    nativeLinkMap: relativeFact(path.join(ROOT, 'juce_shell/build-windows/KirinHyphaPOST.map')),
     cmakeCache: relativeFact(path.join(ROOT, 'juce_shell/build-windows/CMakeCache.txt')),
     ffiArchive: relativeFact(path.join(ROOT, 'target/release/kirin_hypha_ffi.lib')),
     sourceArchive: relativeFact(source.sourceArchive), legalDir: path.relative(ROOT, source.legalDir).split(path.sep).join('/'),

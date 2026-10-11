@@ -49,12 +49,12 @@ for (const name of ['Kirin Hypha Setup.exe', 'temporary uninstaller.TMP']) {
     assert.equal(called, 1);
     assert.equal(result, f.input);
     assert.deepEqual(fs.readFileSync(f.input), signed);
-    assert.deepEqual(fs.readdirSync(f.root), [name]);
+    assert.deepEqual(fs.readdirSync(f.root).sort(), [name, 'signing-recovery'].sort());
   });
 }
 
 for (const mode of ['throw', 'missing', 'empty', 'bad header', 'unchanged', 'directory']) {
-  test(`Inno signer preserves original and cleans staging on ${mode}`, async (t) => {
+  test(`Inno signer preserves original and retains attempt outputs on ${mode}`, async (t) => {
     const f = fixture(t);
     await assert.rejects(signInnoFile(f.input, { signer: async (input, output) => {
       assert.deepEqual(fs.readFileSync(f.input), f.unsigned);
@@ -66,7 +66,7 @@ for (const mode of ['throw', 'missing', 'empty', 'bad header', 'unchanged', 'dir
       if (mode === 'directory') fs.mkdirSync(target);
     } }));
     assert.deepEqual(fs.readFileSync(f.input), f.unsigned);
-    assert.deepEqual(fs.readdirSync(f.root), [f.name]);
+    assert.deepEqual(fs.readdirSync(f.root).sort(), [f.name, 'signing-recovery'].sort());
   });
 }
 
@@ -93,5 +93,20 @@ test('concurrent input changes are not overwritten by the signing response', asy
     fs.writeFileSync(f.input, concurrent);
   } }), /input changed/);
   assert.deepEqual(fs.readFileSync(f.input), concurrent);
-  assert.deepEqual(fs.readdirSync(f.root), [f.name]);
+  assert.deepEqual(fs.readdirSync(f.root).sort(), [f.name, 'signing-recovery'].sort());
+});
+
+test('partial signed output survives failure and a second request is refused', async t => {
+  const f = fixture(t); let calls = 0;
+  const options = { signer: async (input, output) => {
+    calls++; fs.writeFileSync(path.join(output, f.name), Buffer.concat([f.unsigned, Buffer.from('partial signed')]));
+    throw new Error('uncertain response');
+  } };
+  await assert.rejects(signInnoFile(f.input, options));
+  const recovery = path.join(f.root, 'signing-recovery');
+  const attempt = path.join(recovery, fs.readdirSync(recovery)[0]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(attempt, 'attempt.json'))).state, 'failed-or-uncertain');
+  assert.ok(fs.readFileSync(path.join(attempt, 'staging/output', f.name)).includes('partial signed'));
+  await assert.rejects(signInnoFile(f.input, options), /resend refused/);
+  assert.equal(calls, 1);
 });

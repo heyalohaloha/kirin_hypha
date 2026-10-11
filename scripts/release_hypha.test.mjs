@@ -180,14 +180,18 @@ test('bundle facts include resources, permissions and symlink targets, not only 
 
 test('CI exact commit, complete matrix and workflow must agree; no dispatch route exists', async t => {
   const f = fixture(t); f.state.inputs.ciRun = '123';
-  let commit = SOURCE.commit;
+  let commit = SOURCE.commit, event = 'push', repository = 'heyalohaloha/kirin_hypha';
   const jobs = ['public history identity', 'release source contract (macos)', 'auval arm64 (AU validation)', 'windows VST3 preflight']
-    .map(name => ({ name, conclusion: 'success' }));
+    .map(name => ({ name, status: 'completed', conclusion: 'success' }));
   const run = async (tool, args) => { assert.equal(tool, 'gh'); assert.equal(args[0], 'api');
     return JSON.stringify(args[1].includes('/jobs?') ? { jobs } :
-      { head_sha: commit, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml' }); };
+      { head_sha: commit, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml', name: 'CI', event, head_repository: { full_name: repository } }); };
   await verifyCi(f.state, run); commit = 'f'.repeat(40);
   await assert.rejects(verifyCi(f.state, run), Checkpoint); commit = SOURCE.commit;
+  for (event of ['pull_request', 'pull_request_target', undefined]) await assert.rejects(verifyCi(f.state, run), Checkpoint);
+  event = 'push'; repository = 'fixture/fork'; await assert.rejects(verifyCi(f.state, run), Checkpoint);
+  repository = 'heyalohaloha/kirin_hypha';
+  jobs.push(jobs[0]); await assert.rejects(verifyCi(f.state, run), /not green/); jobs.pop();
   jobs[1].conclusion = 'skipped'; await assert.rejects(verifyCi(f.state, run), /not green/);
 });
 

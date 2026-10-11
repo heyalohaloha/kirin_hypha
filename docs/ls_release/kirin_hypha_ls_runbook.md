@@ -62,8 +62,10 @@ order for every release:
    new candidate that must repeat the preliminary product gates.
 2. Validate that product commit locally before starting release integration. Do not reuse evidence
    from an older product commit.
-3. Integrate the distribution-procedure commit into the validated product line, choose the next
-   unused version, and assign the integration commit its unique B number. The integration is required
+3. Integrate the distribution-procedure commit into the validated product line and choose the next
+   unused version. The integration commit remains the exact release source. `readReleaseSourceIdentity`
+   reads its B number, or borrows the highest B number from an identical-tree numbered commit when
+   a merge subject omits the number. A different tree never supplies the number. Integration is required
    because the pinned signing factory executes `scripts/windows/build-installer.mjs` from the checked-out
    Hypha source. If any trusted distribution file changed, review it and update the
    private factory's SHA-256 allowlist in the same integration step.

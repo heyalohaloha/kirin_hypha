@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createSigningAttempt, finishSigningAttempt } from './signing_recovery.mjs';
 import { batchSign, signingEnvironment } from './sign-codesigntool.mjs';
 import {
   loadWindowsAaxBundleManifest,
@@ -13,7 +14,7 @@ import {
   verifyWindowsAaxCopy,
 } from './windows-aax-bundles.mjs';
 import { loadWindowsAaxSignedProvenance } from './windows-aax-provenance.mjs';
-import { requireCleanReleaseSource } from '../ls_release/release_source_identity.mjs';
+import { requireCleanReleaseSource, readReleaseSourceIdentity } from '../ls_release/release_source_identity.mjs';
 import { updateBinding, validatePublicKey, inspectUpdateBinary } from '../updates/update_key_binding.mjs';
 import { stageLegalDelivery, verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import { verifyUnsignedWindowsHandoff } from './unsigned_vst3_provenance.mjs';
@@ -103,8 +104,8 @@ function git(args, fallback) {
   }
 }
 
-function inferBNumber() {
-  return git(['log', '-1', '--pretty=%s'], '').match(/\bB-\d+\b/)?.[0] || 'B-UNKNOWN';
+export function inferBNumber({ root = ROOT } = {}) {
+  return readReleaseSourceIdentity({ root }).bNumber;
 }
 
 function inferRunUrl() {
@@ -321,7 +322,10 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxPr
 export async function buildInstaller(opts) {
   validatePublicKey(opts.updatePublicKey || '');
   if (process.platform !== 'win32') throw new Error('Windows installer builds must run on Windows');
-  if (opts.signing === 'signed') signingEnvironment();
+  if (opts.signing === 'signed') {
+    run('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/windows/installer_environment.ps1']);
+    signingEnvironment();
+  }
   let aaxProvenance = null;
   if (opts.aaxArtifactDir) {
     aaxProvenance = loadWindowsAaxSignedProvenance({
@@ -351,6 +355,9 @@ export async function buildInstaller(opts) {
   const installer = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-Setup.exe`);
   const aaxManifestCopy = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-AAX.json`);
   fs.mkdirSync(outputDir, { recursive: true });
+  if (opts.signing === 'signed' && [payloadDir, installer, `${installer}.json`, path.join(outputDir, 'signing-recovery')].some(file => fs.existsSync(file))) {
+    throw new Error('Existing signing output requires reconciliation; preserve partial successes before any resend');
+  }
   fs.rmSync(payloadDir, { recursive: true, force: true });
   for (const sidecar of [installer, `${installer}.sha256`, `${installer}.json`, aaxManifestCopy]) {
     fs.rmSync(sidecar, { force: true });
@@ -379,9 +386,13 @@ export async function buildInstaller(opts) {
   }
   if (aaxProvenance) fs.copyFileSync(aaxProvenance.manifestPath, aaxManifestCopy);
   const payloadRecords = ['PRE', 'POST'].map((role) => bundleRecord(payloadDir, role));
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-installer-'));
+  const recoveryRoot = path.join(outputDir, 'signing-recovery');
+  const attempt = opts.signing === 'signed' ? createSigningAttempt(recoveryRoot, 'payload-container') : null;
+  const tempRoot = attempt?.directory || fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-installer-'));
+  let completed = false;
   const buildEnv = {
     ...process.env,
+    KIRIN_ESIGNER_RECOVERY_DIR: recoveryRoot,
     KIRIN_ESIGNER_TOTP_STATE_FILE: path.join(tempRoot, 'totp-window.state'),
   };
   try {
@@ -393,8 +404,10 @@ export async function buildInstaller(opts) {
       aaxRecords: aaxPayloadRecords,
       legalDir,
     }), { env: buildEnv });
+    completed = true;
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    if (attempt) finishSigningAttempt(attempt, completed ? 'completed' : 'failed-or-uncertain');
+    else fs.rmSync(tempRoot, { recursive: true, force: true });
   }
   if (!fs.statSync(installer, { throwIfNoEntry: false })?.isFile() || fs.statSync(installer).size <= 0) {
     throw new Error(`Inno Setup did not produce the expected installer: ${installer}`);

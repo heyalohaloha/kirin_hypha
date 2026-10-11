@@ -61,6 +61,7 @@ Compression=lzma2
 SolidCompression=yes
 #ifdef SignedBuild
 SignTool=kirin_esigner
+SignToolRetryCount=0
 SignedUninstaller=yes
 #else
 SignedUninstaller=no

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readReleaseSourceIdentity } from './release_source_identity.mjs';
 import childProcess from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -119,10 +120,8 @@ function git(args, fallback) {
   }
 }
 
-function inferBNumber() {
-  const subject = git(['log', '-1', '--pretty=%s'], '');
-  const match = subject.match(/\bB-\d+\b/);
-  return match ? match[0] : 'B-UNKNOWN';
+export function inferBNumber({ root = ROOT } = {}) {
+  return readReleaseSourceIdentity({ root }).bNumber;
 }
 
 function inferRunUrl() {

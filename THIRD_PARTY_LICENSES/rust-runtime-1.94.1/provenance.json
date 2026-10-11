@@ -1,0 +1,23 @@
+{
+  "schema": "hypha-retained-rust-runtime-notices-v1",
+  "toolchain": "1.94.1",
+  "sourceRevision": "e408947bfd200af42db322daf0fadfe7e26d3bd1",
+  "origin": "Unmodified notices from the installed Rust 1.94.1 rust-docs component.",
+  "files": [
+    {
+      "path": "THIRD_PARTY_LICENSES/rust-runtime-1.94.1/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "bytes": 1023
+    },
+    {
+      "path": "THIRD_PARTY_LICENSES/rust-runtime-1.94.1/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "bytes": 10847
+    },
+    {
+      "path": "THIRD_PARTY_LICENSES/rust-runtime-1.94.1/COPYRIGHT-library.html",
+      "sha256": "af70aaabed1b73e872f14f9130db37e09f3f4d73a5f7c598b9173697a5d2729f",
+      "bytes": 425661
+    }
+  ]
+}

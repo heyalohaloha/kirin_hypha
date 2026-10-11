@@ -1,3 +1,4 @@
+import { PLUGINVAL_SHA256 } from '../provenance/unsigned_qualification.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,8 +34,16 @@ function fixture(t) {
       const bytes = Buffer.alloc(256); bytes.write('MZ'); bytes.writeUInt32LE(128, 0x3c);
       bytes.write('PE\0\0', 128); bytes.writeUInt16LE(0x8664, 132);
       bytes.write('KirinHyphaUpdateKeySha256=disabled;', 160);
-      return { role, ...put(`${role}.vst3`, bytes), moduleInfo: put(`${role}.json`, JSON.stringify({ Version: '1.2.3' })) };
+      return { role, ...put(`bundles/Kirin Hypha ${role}.vst3/Contents/x86_64-win/Kirin Hypha ${role}.vst3`, bytes), moduleInfo: put(`bundles/Kirin Hypha ${role}.vst3/Contents/Resources/moduleinfo.json`, JSON.stringify({ Version: '1.2.3' })) };
     }) };
+  const snapshot = record.binaries.map(binary => [
+    { path: 'Contents/Resources/moduleinfo.json', sha256: binary.moduleInfo.sha256 },
+    { path: `Contents/x86_64-win/Kirin Hypha ${binary.role}.vst3`, sha256: binary.sha256 },
+  ]);
+  record.pluginval = put('pluginval.json', JSON.stringify({ schema: 'hypha-pluginval-qualification-v1', toolSha256: PLUGINVAL_SHA256,
+    before: snapshot, after: snapshot, results: record.binaries.map(b => ({bundle: `Kirin Hypha ${b.role}.vst3`, exitCode: 0})) }));
+  record.rawSource = put('raw-source.json', JSON.stringify({ schema: 'hypha-raw-source-v1', files: [] }));
+  record.nativeLinkMap = put('POST.map', 'Publics by Value\n FLAC__decode ogg_stream_reset vorbis_info_init jpeg_read png_read inflateEnd\n');
   const save = () => put(RECORD, JSON.stringify(record)); save();
   const expected = { commit, factoryCommit, ciRun: '123', factoryRun: '456' };
   return { root, put, record, save, expected };
@@ -45,7 +54,7 @@ test('private unsigned handoff binds PRE/POST bytes, exact source CI, factory an
   for (const field of ['commit', 'factoryCommit', 'ciRun', 'factoryRun']) {
     assert.throws(() => verifyUnsignedWindowsHandoff(f.root, { ...f.expected, [field]: 'wrong' }), /identity/);
   }
-  fs.appendFileSync(path.join(f.root, 'PRE.vst3'), 'altered');
+  fs.appendFileSync(path.join(f.root, f.record.binaries[0].path), 'altered');
   assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /bytes changed/);
 });
 

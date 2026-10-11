@@ -1,3 +1,4 @@
+import { BUNDLED_COMPONENTS } from './bundled_components.mjs';
 // Prepare retained source/legal bytes. This is not linkage, extraction or release acceptance.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +28,7 @@ export function distributionComponents(root, inventory) {
       source: 'https://github.com/Eomys/MoSQITo/tree/a14daeafcf0a37f36e4a29314ea42bc68b304c0e',
       modificationNotice: 'Rust adaptations and subsequent streaming changes, as described in THIRD_PARTY_NOTICES.md.',
       licenseFiles: [REQUIRED[2]] },
+    ...BUNDLED_COMPONENTS,
     { id: 'JUCE@7.0.12', license: 'GPL-3.0',
       source: 'https://github.com/juce-framework/JUCE/tree/4f43011b96eb0636104cb3e433894cda98243626',
       modificationNotice: 'Pinned JUCE source with the retained scripts/apply_juce_patches.sh patch stack.',
@@ -117,9 +119,14 @@ export function prepareSourceDelivery({ root, commit, version, reportPath, direc
   }
   atomicJson(deliveryFile, delivery);
   names.push('source-delivery.json');
+  const sourceGuide = path.join(legalDir, 'Corresponding-Source.txt');
+  const guide = `Kirin Hypha ${version} — Corresponding Source\n\nThe complete source archive for this release is available free of charge alongside the binary downloads at:\n${url}\n\nArchive SHA-256: ${fact.sha256}\nSource commit: ${commit}\n\nLicense texts and third-party acknowledgements are included in this Legal folder.\n`;
+  if (fs.existsSync(sourceGuide) && fs.readFileSync(sourceGuide, 'utf8') !== guide) throw new Error('Existing source guide differs');
+  if (!fs.existsSync(sourceGuide)) fs.writeFileSync(sourceGuide, guide, { flag: 'wx' });
+  names.push('Corresponding-Source.txt');
   const componentFile = path.join(legalDir, 'component-notices.json');
   const componentNotices = { schema: 'hypha-delivered-components-v1', commit,
-    sourceSha256: fact.sha256, scope: 'Conservative normal/build dependency inventory; actual linkage review remains required.', components };
+    sourceSha256: fact.sha256, scope: 'Conservative inventory of JUCE bundled codecs/SDKs, Rust runtime and normal/build dependencies; actual linkage and external SDK review remain required.', components };
   if (fs.existsSync(componentFile) && JSON.stringify(JSON.parse(fs.readFileSync(componentFile, 'utf8')))
       !== JSON.stringify(componentNotices)) throw new Error('Existing component notices differ');
   atomicJson(componentFile, componentNotices);

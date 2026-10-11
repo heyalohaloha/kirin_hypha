@@ -64,14 +64,17 @@ export async function verifyCi(state, run) {
   const base = 'repos/heyalohaloha/kirin_hypha/actions/runs';
   const record = JSON.parse(await run('gh', ['api', `${base}/${id}`], { capture: true }));
   if (record.head_sha !== state.candidate.commit || record.status !== 'completed'
-      || record.conclusion !== 'success' || record.path !== '.github/workflows/ci.yml') {
+      || record.conclusion !== 'success' || record.path !== '.github/workflows/ci.yml'
+      || record.name !== 'CI' || !['push', 'workflow_dispatch'].includes(record.event)
+      || record.head_repository?.full_name !== 'heyalohaloha/kirin_hypha') {
     throw new Checkpoint('CI is not a successful exact-commit ci.yml run');
   }
   const pages = JSON.parse(await run('gh', ['api', `${base}/${id}/jobs?per_page=100`], { capture: true }));
   for (const name of ['public history identity', 'release source contract (macos)',
     'auval arm64 (AU validation)', 'windows VST3 preflight']) {
-    const job = pages.jobs?.find(j => j.name === name);
-    if (!job || job.conclusion !== 'success') throw new Checkpoint(`Required CI job is not green: ${name}`);
+    const matches = pages.jobs?.filter(j => j.name === name) || [];
+    const job = matches[0];
+    if (matches.length !== 1 || job.status !== 'completed' || job.conclusion !== 'success') throw new Checkpoint(`Required CI job is not green: ${name}`);
   }
   return { runId: id, headSha: record.head_sha, workflow: record.path };
 }

@@ -1,3 +1,4 @@
+import { BUNDLED_COMPONENTS } from './bundled_components.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,15 +19,16 @@ function fixture(t) {
     fs.writeFileSync(file, text); return file;
   };
   const names = ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES/MoSQITo-1.2.1-Apache-2.0.txt', 'source.rs'];
+  names.push(...new Set(BUNDLED_COMPONENTS.flatMap(c => c.licenseFiles)));
   const files = names.map(archive => ({ archive, file: put(archive, `fixture bytes: ${archive}`) }));
   const cmake = put('juce_shell/CMakeLists.txt', 'set(KIRIN_HYPHA_DATA_SOURCES\n ${CMAKE_CURRENT_SOURCE_DIR}/../asset.png)\n');
   const asset = put('asset.png', 'owned inert fixture');
   put(REGISTRY, JSON.stringify({ schema: 'hypha-asset-distribution-registry-v1',
     embedContractSha256: sha256(fs.readFileSync(cmake)), assets: [{ path: 'asset.png',
       sha256: sha256(fs.readFileSync(asset)), status: 'verified', rightsEvidence: 'disposable fixture', allowedUses: ['binary', 'source'] }] }));
-  const components = ['MoSQITo@1.2.1', 'JUCE@7.0.12'].map(id => ({ id,
-    license: id.startsWith('MoSQITo') ? 'Apache-2.0' : 'GPL-3.0', source: 'inert fixture upstream',
-    modificationNotice: 'inert fixture only', licenseFiles: [names[0]] }));
+  const components = ['MoSQITo@1.2.1', 'JUCE@7.0.12', ...BUNDLED_COMPONENTS.map(c => c.id)].map(id => ({ id,
+    license: id.startsWith('MoSQITo') ? 'Apache-2.0' : BUNDLED_COMPONENTS.find(c => c.id === id)?.license || 'GPL-3.0', source: 'inert fixture upstream',
+    modificationNotice: 'inert fixture only', licenseFiles: BUNDLED_COMPONENTS.find(c => c.id === id)?.licenseFiles || [names[0]] }));
   const args = { root, commit, version: '1.2.3', reportPath: path.join(root, 'private/report.json'),
     directory: path.join(root, 'private/source'), requirements: () => ({ files, packages: [] }),
     checkSource: () => ({ commit }),
@@ -75,7 +77,7 @@ test('source reuse rejects changed source, missing components and unresolved gra
   f.put('source.rs', 'changed');
   assert.throws(() => prepareSourceDelivery(f.args), /no longer matches/);
   fs.rmSync(f.args.reportPath); fs.rmSync(f.args.directory, { recursive: true });
-  f.components.pop();
+  f.components.splice(1, 1);
   assert.throws(() => prepareSourceDelivery(f.args), /JUCE/);
   f.components[0].license = 'NOASSERTION';
   assert.throws(() => prepareSourceDelivery(f.args), /unresolved/);

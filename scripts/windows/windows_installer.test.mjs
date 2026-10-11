@@ -274,6 +274,7 @@ test('Inno compiler signed route uses the shared eSigner hook', () => {
 
 test('Inno recipe owns only Kirin bundle paths and signs generated uninstall surfaces', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'kirin-hypha-installer.iss'), 'utf8');
+  assert.match(source, /SignToolRetryCount=0/);
   assert.match(source, /PrivilegesRequired=lowest/);
   assert.match(source, /PrivilegesRequired=admin/);
   assert.match(source, /PrivilegesRequiredOverridesAllowed=commandline dialog/);

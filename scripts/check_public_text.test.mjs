@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
 
-import { PATTERNS, addedLines, findRecords, namePatterns, newLines } from './check_public_text.mjs';
+import { isRetainedUpstreamNotice, PATTERNS, addedLines, findRecords, namePatterns, newLines } from './check_public_text.mjs';
 
 const kinds = (text, patterns = PATTERNS) => findRecords(text, patterns).map((record) => record.kind);
 
@@ -79,4 +83,23 @@ test('a line moved unchanged to another file is not new text; an edited or extra
 test('a planted record in a commit message fails, a clean message passes', () => {
   assert.deepEqual(kinds('[B-9999] fix\n\n- closes F-H05 (owner, 2026-10-06)'), ['attribution', 'plan number']);
   assert.deepEqual(kinds('[B-9999] Reference：差の向きを一か所で決める\n\nCo-Authored-By: Claude <noreply@anthropic.com>'), []);
+});
+
+
+test('retained upstream notices require exact reviewed bytes; edited or unregistered files are scanned', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'public-upstream-fixture-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const relative = 'THIRD_PARTY_LICENSES/cargo/fixture/README.md';
+  fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+  const bytes = Buffer.from('X1 is an upstream mathematical variable.');
+  fs.writeFileSync(path.join(root, relative), bytes);
+  fs.writeFileSync(path.join(root, 'THIRD_PARTY_LICENSES/cargo/provenance.json'), JSON.stringify({
+    schema: 'hypha-retained-dependency-license-text-v1', files: [{ path: relative, bytes: bytes.length,
+      sha256: crypto.createHash('sha256').update(bytes).digest('hex') }],
+  }));
+  assert.equal(isRetainedUpstreamNotice(root, relative), true);
+  fs.appendFileSync(path.join(root, relative), ' internal record');
+  assert.equal(isRetainedUpstreamNotice(root, relative), false);
+  assert.equal(isRetainedUpstreamNotice(root, 'THIRD_PARTY_LICENSES/cargo/unregistered.md'), false);
+  assert.equal(isRetainedUpstreamNotice(root, '../secret'), false);
 });

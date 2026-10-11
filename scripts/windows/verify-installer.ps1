@@ -203,11 +203,8 @@ $preAaxBundle = Join-Path $aaxRoot "Kirin Hypha PRE.aaxplugin"
 $postAaxBundle = Join-Path $aaxRoot "Kirin Hypha POST.aaxplugin"
 $resolvedWraptool = if ($withAax) { Resolve-AaxWraptool $AaxWraptool } else { "" }
 
-if ((Test-Path -LiteralPath $preBundle) -or (Test-Path -LiteralPath $postBundle) -or
-    ($withAax -and ((Test-Path -LiteralPath $preAaxBundle) -or (Test-Path -LiteralPath $postAaxBundle))) -or
-    (Test-Path -LiteralPath $uninstallRoot) -or @(Find-HyphaUninstallEntries).Count -ne 0) {
-  throw "Refusing installer verification because Kirin Hypha is already installed for this runner"
-}
+. "$PSScriptRoot/installer_environment.ps1"
+Assert-HyphaInstallerEnvironment | Out-Null
 
 New-Item -ItemType Directory -Force -Path $vst3Root | Out-Null
 $sentinel = Join-Path $vst3Root ("kirin-hypha-preserve-" + [Guid]::NewGuid().ToString("N") + ".txt")

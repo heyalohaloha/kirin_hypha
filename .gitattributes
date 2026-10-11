@@ -3,3 +3,6 @@ crates/kirin_measure/examples/transient_development_contract/fixtures/transient_
 
 # Retain upstream license texts byte for byte, including their terminal blank lines.
 THIRD_PARTY_LICENSES/cargo/** whitespace=-blank-at-eof
+
+# Preserve the retained Rust upstream copyright text, including trailing spaces.
+THIRD_PARTY_LICENSES/rust-runtime-1.94.1/COPYRIGHT-library.html whitespace=-blank-at-eol,-blank-at-eof

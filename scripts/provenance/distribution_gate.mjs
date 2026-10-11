@@ -1,3 +1,4 @@
+import { REQUIRED_COMPONENTS } from './bundled_components.mjs';
 // Exact-artifact gate. Extraction/linkage review is retained evidence, never synthesized PASS.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -96,9 +97,10 @@ export function validateComponentInventory(components, inventory, entries) {
     }
     for (const name of c.licenseFiles) if (!entries.has(name) || !entries.get(name).length) throw new Error(`License absent from Corresponding Source: ${name}`);
   }
-  for (const expected of [{ id: 'MoSQITo@1.2.1', license: 'Apache-2.0' }, { id: 'JUCE@7.0.12', license: null }, ...inventory.packages]) {
+  for (const expected of [...REQUIRED_COMPONENTS, ...inventory.packages]) {
     const c = components.find(row => row.id === expected.id);
-    if (!c || (expected.license && c.license !== expected.license)) {
+    if (!c || (expected.license && c.license !== expected.license)
+        || expected.licenseFiles?.some(file => !c.licenseFiles.includes(file))) {
       throw new Error(`Incomplete distribution license/source inventory: ${expected.id}`);
     }
   }
