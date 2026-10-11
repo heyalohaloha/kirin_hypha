@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { NATIVE_LINK_COMPONENTS, BUNDLED_COMPONENTS } from './bundled_components.mjs';
 import { assertRawSourceUnchanged, rawSourceSnapshot, inspectNativeLinkMap,
   assertPluginvalQualification, PLUGINVAL_SHA256 } from './unsigned_qualification.mjs';
 
@@ -41,13 +42,26 @@ test('raw source is bound to committed blobs and the approved patched JUCE tree'
   }
 });
 
-test('native linker evidence requires all enabled codec families, rather than source mentions', () => {
-  const map = 'Publics by Value\n FLAC__read ogg_stream_init vorbis_info_init jpeg_read png_read inflateEnd';
-  assert.equal(inspectNativeLinkMap(map).length, 6);
-  for (const name of ['FLAC__read', 'ogg_stream_init', 'vorbis_info_init', 'jpeg_read', 'png_read', 'inflateEnd']) {
-    assert.throws(() => inspectNativeLinkMap(map.replace(name, 'absent')), /evidence missing/);
+test('native linker evidence follows role-specific actual symbol inputs and the NOTICE/CMake inventory', () => {
+  const load = role => fs.readFileSync(new URL(`./fixtures/${role}-native-symbols.map`, import.meta.url), 'utf8');
+  assert.equal(inspectNativeLinkMap(load('pre'), 'PRE').length, 3);
+  assert.equal(inspectNativeLinkMap(load('post'), 'POST').length, 6);
+  assert.throws(() => inspectNativeLinkMap(load('pre'), 'POST'), /FLAC.*POST/);
+  for (const role of ['PRE', 'POST']) {
+    for (const { pattern } of NATIVE_LINK_COMPONENTS.filter(row => row.roles.includes(role))) {
+      const missing = load(role.toLowerCase()).split('\n').filter(line => !pattern.test(line)).join('\n');
+      assert.throws(() => inspectNativeLinkMap(missing, role), /evidence missing/);
+    }
   }
-  assert.throws(() => inspectNativeLinkMap('source contains FLAC__read'), /actual MSVC/);
+  assert.throws(() => inspectNativeLinkMap(load('post'), 'unknown'), /known role/);
+  assert.throws(() => inspectNativeLinkMap('source contains FLAC__read', 'POST'), /actual MSVC/);
+  for (const row of NATIVE_LINK_COMPONENTS) assert.ok(BUNDLED_COMPONENTS.some(item => item.id === row.id));
+  const cmake = fs.readFileSync(new URL('../../juce_shell/CMakeLists.txt', import.meta.url), 'utf8');
+  const branch = cmake.split('if("${TARGET}" STREQUAL "KirinHyphaPRE")')[1].split('endif()')[0];
+  const [pre, post] = branch.split('else()');
+  assert.doesNotMatch(pre, /juce::juce_audio_formats/);
+  assert.match(post, /target_link_libraries\(\$\{TARGET\} PRIVATE juce::juce_audio_formats\)/);
+  assert.equal((cmake.match(/target_link_libraries\(\$\{TARGET\} PRIVATE juce::juce_audio_formats\)/g) || []).length, 1);
 });
 
 test('plugin qualification is bound to both complete bundle inventories and exact tool bytes', () => {

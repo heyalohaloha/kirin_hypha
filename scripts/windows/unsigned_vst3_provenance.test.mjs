@@ -49,9 +49,9 @@ function fixture(t) {
   record.rawSource = put('raw-source.json', JSON.stringify({ schema: 'hypha-raw-source-v2', commit,
     tree: '1'.repeat(40), juceCommit: '2'.repeat(40), jucePatchedTree: '3'.repeat(40),
     rustc: 'rustc 1.94.1 (e408947bf 2026-03-25)', files: [{ path: 'fixture', blob: '4'.repeat(40), sha256: '5'.repeat(64) }] }));
-  const map = 'Publics by Value\n FLAC__decode ogg_stream_reset vorbis_info_init jpeg_read png_read inflateEnd\n';
-  record.nativeLinkMap = put('juce_shell/build-windows/link-evidence/KirinHyphaPOST.map', map);
-  record.nativePreLinkMap = put('juce_shell/build-windows/link-evidence/KirinHyphaPRE.map', map);
+  const map = role => fs.readFileSync(new URL(`../provenance/fixtures/${role}-native-symbols.map`, import.meta.url), 'utf8');
+  record.nativeLinkMap = put('juce_shell/build-windows/link-evidence/KirinHyphaPOST.map', map('post'));
+  record.nativePreLinkMap = put('juce_shell/build-windows/link-evidence/KirinHyphaPRE.map', map('pre'));
   const save = () => put(RECORD, JSON.stringify(record)); save();
   const expected = { commit, factoryCommit, ciRun: '123', factoryRun: '456' };
   return { root, put, record, save, expected };
@@ -109,4 +109,17 @@ test('producer record stages the exact upload tree and both external maps surviv
   const map = path.join(imported, f.record.nativeLinkMap.path);
   fs.appendFileSync(map, 'changed'); assert.throws(() => verifyUnsignedWindowsHandoff(imported, f.expected), /bytes changed/);
   fs.rmSync(map); assert.throws(() => verifyUnsignedWindowsHandoff(imported, f.expected), /ENOENT/);
+});
+
+test('role-specific actual symbol inputs survive producer staging while missing required families fail', t => {
+  const f = fixture(t);
+  const pre = fs.readFileSync(path.join(f.root, f.record.nativePreLinkMap.path), 'utf8');
+  const post = fs.readFileSync(path.join(f.root, f.record.nativeLinkMap.path), 'utf8');
+  assert.doesNotMatch(pre, /FLAC__|ogg_stream_|vorbis_/);
+  assert.match(post, /FLAC__/);
+  f.record.nativeLinkMap = f.put(f.record.nativeLinkMap.path, pre); f.save();
+  assert.throws(() => stageUnsignedWindowsArtifact(f.root, path.join(f.root, 'bad-post')), /FLAC.*POST/);
+  f.record.nativeLinkMap = f.put(f.record.nativeLinkMap.path, post);
+  f.record.nativePreLinkMap = f.put(f.record.nativePreLinkMap.path, pre.replace(/^.*png_.*$/gm, '')); f.save();
+  assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /PNG.*PRE/);
 });

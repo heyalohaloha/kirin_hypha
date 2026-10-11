@@ -28,3 +28,14 @@ export const REQUIRED_COMPONENTS = [
   { id: 'MoSQITo@1.2.1', license: 'Apache-2.0' }, { id: 'JUCE@7.0.12', license: null },
   ...BUNDLED_COMPONENTS,
 ];
+
+// CMake links juce_audio_formats only into POST. Both roles link graphics/core.
+// Keep native-evidence identities with the NOTICE inventory above.
+export const NATIVE_LINK_COMPONENTS = [
+  { id: 'FLAC@1.4.3', component: 'FLAC', roles: ['POST'], pattern: /FLAC__/ },
+  { id: 'Ogg@JUCE-7.0.12', component: 'Ogg', roles: ['POST'], pattern: /ogg_(?:stream|sync|page|packet)_/ },
+  { id: 'Vorbis@1.3.7', component: 'Vorbis', roles: ['POST'], pattern: /vorbis_/ },
+  { id: 'IJG-libjpeg@6b', component: 'IJG', roles: ['PRE', 'POST'], pattern: /jpeg_/ },
+  { id: 'libpng@1.6.37', component: 'PNG', roles: ['PRE', 'POST'], pattern: /png_/ },
+  { id: 'zlib@1.2.3', component: 'zlib', roles: ['PRE', 'POST'], pattern: /(?:inflate|deflate)(?:End|Init|Reset|@)/ },
+];

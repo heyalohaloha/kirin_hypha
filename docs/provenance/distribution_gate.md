@@ -224,3 +224,19 @@ profile pins the reviewed factory repository/commit, promotion run and retained 
 runs, separated jobs, unique artifacts, API digests, actual archive/local-delivery bytes and the
 original manifest before accepting it. Promotion may only add provenance and mark retained
 external validation complete/public-ready; it cannot change payload or qualification metadata.
+
+Native evidence uses the NOTICE inventory's role mapping: PRE requires IJG JPEG/libpng/zlib;
+POST additionally requires FLAC/Ogg/Vorbis because only POST links juce_audio_formats.
+Tests retain distinct symbol inputs derived from existing binaries. They do not qualify MSVC
+map layout, PE continuity or uploaded bytes; confirm those in the exact unsigned producer run.
+
+Promotion reads the preserved candidate's JSON values without timestamp conversion. Exercise
+its PowerShell 7 writer through the Node coordinator, including full installer metadata and
+seven-digit timestamps ending in zero. Preserve strict payload/qualification comparisons.
+
+Keep both candidate and signed-full artifacts available until the packages stage completes.
+Plan signing through packaging within the factory's 90-day retention and before the earlier
+API expires_at; record those deadlines and the planned completion date before signing.
+Do not delete the artifacts to save storage during this interval. If a deadline cannot be met,
+stop before signing; after expiry retain ZIPs/receipts and obtain a new qualification decision
+rather than automatically signing again or accepting expired artifacts.

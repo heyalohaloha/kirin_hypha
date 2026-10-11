@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readRustRuntime, assertRustRuntime } from './runtime_guard.mjs';
 import { canonicalSourceSnapshot } from './canonical_source.mjs';
+import { NATIVE_LINK_COMPONENTS } from './bundled_components.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const PLUGINVAL_SHA256 = 'f4ac5c31c5544a434f73e686b816861d92c22ae849d69ad693681cbc9522fcd8';
@@ -34,16 +35,15 @@ export function assertPluginvalQualification(record, binaries, readFiles) {
   }
 }
 
-export function inspectNativeLinkMap(text) {
+export function inspectNativeLinkMap(text, role) {
+  if (!['PRE', 'POST'].includes(role)) throw new Error('Native linker evidence requires a known role');
   if (!/Publics by Value/.test(text)) throw new Error('Expected an actual MSVC linker map');
-  const families = { FLAC: /FLAC__/, Ogg: /ogg_(?:stream|sync|page|packet)_/,
-    Vorbis: /vorbis_/, IJG: /jpeg_/, PNG: /png_/, zlib: /(?:inflate|deflate)(?:End|Init|Reset|@)/ };
-  const matched = Object.entries(families).map(([component, pattern]) => {
-    const lines = text.split(/\r?\n/).filter(line => pattern.test(line));
-    if (!lines.length) throw new Error(`Linked component evidence missing: ${component}`);
-    return { component, symbolCount: lines.length, examples: lines.slice(0, 3) };
+  const lines = text.split(/\r?\n/);
+  return NATIVE_LINK_COMPONENTS.filter(row => row.roles.includes(role)).map(({ component, pattern }) => {
+    const matched = lines.filter(line => pattern.test(line));
+    if (!matched.length) throw new Error(`Linked component evidence missing: ${component} (${role})`);
+    return { component, symbolCount: matched.length, examples: matched.slice(0, 3) };
   });
-  return matched;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

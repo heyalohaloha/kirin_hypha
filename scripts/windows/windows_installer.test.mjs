@@ -294,7 +294,11 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
 });
 
 test('installer verifier gates prior-version upgrade, reinstall, signatures, and unrelated payload preservation', () => {
-  const source = fs.readFileSync(path.join(scriptDir, 'verify-installer.ps1'), 'utf8');
+  const main = fs.readFileSync(path.join(scriptDir, 'verify-installer.ps1'), 'utf8');
+  const writer = fs.readFileSync(path.join(scriptDir, 'installer_qualification.ps1'), 'utf8');
+  assert.match(main, /\. "\$PSScriptRoot\/installer_qualification\.ps1"/);
+  assert.match(main, /Write-HyphaInstallerQualification \$manifestData \$manifestPath/);
+  const source = main + '\n' + writer;
   assert.match(source, /foreach \(\$installPass in 1\.\.2\)/);
   assert.match(source, /-PreviousInstaller is required for signed release upgrade verification/);
   assert.match(source, /if \(\$Signing -eq "signed"\)/);

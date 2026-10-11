@@ -228,7 +228,7 @@ export function bindAaxSourceIdentity(opts, currentSource, aaxProvenance) {
   return { ...opts, commit: currentSource.commit, bNumber: currentSource.bNumber };
 }
 
-function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxProvenance }) {
+export function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxProvenance }) {
   const aaxIncluded = aaxPayloadRecords.length === 2;
   return {
     schema: 'kirin-hypha-windows-installer-v1',

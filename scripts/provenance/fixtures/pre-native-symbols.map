@@ -1,0 +1,12 @@
+Symbol names extracted from an existing macOS x86_64 build.
+MSVC envelope/address columns are illustrative; not Windows qualification.
+  Address         Publics by Value              Rva+Base       Lib:Object
+ 0001:00000000       ZN4juce11JPEGHelpersL13jpegWriteInitEPNS_16jpeglibNamespace20jpeg_compress_structE   0000000180000000 f   fixture.obj
+ 0001:00000001       ZN4juce11JPEGHelpersL14jpegWriteFlushEPNS_16jpeglibNamespace20jpeg_compress_structE   0000000180000001 f   fixture.obj
+ 0001:00000002       ZN4juce11JPEGHelpersL17fatalErrorHandlerEPNS_16jpeglibNamespace18jpeg_common_structE   0000000180000002 f   fixture.obj
+ 0001:00000003       ZN4juce10PNGHelpersL17writeDataCallbackEPNS_15pnglibNamespace14png_struct_defEPhm   0000000180000003 f   fixture.obj
+ 0001:00000004       ZN4juce15pnglibNamespace10png_callocEPKNS0_14png_struct_defEm   0000000180000004 f   fixture.obj
+ 0001:00000005       ZN4juce15pnglibNamespace10png_do_bgrEPNS0_19png_row_info_structEPh   0000000180000005 f   fixture.obj
+ 0001:00000006       ZN4juce13zlibNamespace12z_deflateEndEPNS0_10z_stream_sE   0000000180000006 f   fixture.obj
+ 0001:00000007       ZN4juce13zlibNamespace12z_inflateEndEPNS0_10z_stream_sE   0000000180000007 f   fixture.obj
+ 0001:00000008       ZN4juce13zlibNamespace14z_deflateInit_EPNS0_10z_stream_sEiPKci   0000000180000008 f   fixture.obj

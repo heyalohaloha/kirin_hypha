@@ -71,8 +71,8 @@ export function verifyUnsignedWindowsHandoff(directory, expected) {
     throw new Error('Canonical raw source qualification is missing or belongs to another commit');
   }
   assertRustRuntime(raw.rustc || '');
-  inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativeLinkMap), 'utf8'));
-  inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativePreLinkMap), 'utf8'));
+  inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativeLinkMap), 'utf8'), 'POST');
+  inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativePreLinkMap), 'utf8'), 'PRE');
   const cache = fs.readFileSync(same(directory, record.cmakeCache), 'utf8');
   if (!/^KIRIN_HYPHA_KIMERA_FONT_FILE:FILEPATH=\s*$/m.test(cache)) throw new Error('Unsigned producer must prove an empty font input');
   same(directory, record.ffiArchive);
