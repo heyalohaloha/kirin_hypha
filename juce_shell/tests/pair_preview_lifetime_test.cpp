@@ -25,7 +25,7 @@ int main(int argc,char** argv)
     require(argc==2,"module path required"); ValidationStorageSandbox sandbox;
     // dyld retains images containing Rust TLV data; this counter must outlive retained images.
     static std::atomic<int> unloaded {0};
-    const auto root=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("hypha-module-probe",{},false);
+    const auto root=sandbox.directory().getNonexistentChildFile("hypha-module-probe",{},false);
     require(root.createDirectory().wasOk(),"isolated module folder");
     std::array<juce::File,3> modules;
     for(int i=0;i<3;++i) {

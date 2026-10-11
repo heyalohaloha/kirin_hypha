@@ -5,6 +5,35 @@ use sources::read_repo;
 mod presentation;
 
 #[test]
+fn deferred_aax_analysis_serves_every_aax_host_and_only_the_paired_mode() {
+    // The route is AAX-only and the certificate is not its gate; only Perceptual is staged for
+    // it (LIVE / absolute PSB keep the project timeline). The wrapper accepts a certified K
+    // within its bound, or LISTEN's linear K outside a loop, and never a negative K.
+    let source = read_repo("juce_shell/src/PluginProcessorFormat.cpp");
+    let binding = slice_between(
+        &source,
+        "kirin_hypha_set_aax_analysis_ingress (hyphaHandle,",
+        "kirin_hypha_set_chain_clock_policy",
+    );
+    assert!(
+        binding.contains("wrapperType_AAX, role == Role::Post") && !binding.contains("bounded")
+    );
+    assert!(source.contains("liveCompare.maximumDelaySamples = liveClock.maximumDelaySamples;"));
+    let ingress = read_repo("crates/kirin_hypha_ffi/src/optional_analysis_clock.rs");
+    let staging = slice_between(
+        &ingress,
+        "pub(super) fn push_optional_analysis(",
+        "if let Some(runtime) = self.attack_runtime.as_ref()",
+    );
+    assert!(staging.contains("analysis_mode() == AnalysisViewMode::Perceptual"));
+    assert!(!staging.contains("AnalysisViewMode::Absolute"));
+    let clock = read_repo("juce_shell/src/live_compare/AaxAnalysisClock.h");
+    assert!(clock.contains("if (certifiedAaxClock (pre) && certifiedAaxClock (post))"));
+    assert!(clock.contains("evidence.kind == LoopEntryKind::linear && ! post.loop.active"));
+    assert!(clock.contains("|| evidence.k < 0)"));
+}
+
+#[test]
 fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     assert!(header.contains("kirin_hypha_drain_keep_action_notice"));
@@ -43,13 +72,20 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     let push_index = processor
-        .find("const bool blockAccepted = kirin_hypha_push_samples")
+        .find("const bool blockAccepted = feedMeasurementInput")
         .expect("JUCE must observe whole-block admission");
     let latch_index = processor[push_index..]
-        .find("if (blockAccepted && renderedRecordWindow)")
+        .find("if (renderedRecordWindow)")
         .map(|offset| push_index + offset)
         .expect("take-start latch must be conditional on admission");
     assert!(push_index < latch_index);
+    let admitted = slice_between(&processor[push_index..], "if (blockAccepted)", "else");
+    assert!(admitted.contains("if (renderedRecordWindow)"));
+    assert!(admitted.contains("recordStartWindowLatched = true"));
+    let input = read_repo("juce_shell/src/PluginProcessorMeasurementIngress.cpp");
+    assert!(
+        input.contains("return kirin_hypha_push_samples (hyphaHandle, interleaveScratch.data()")
+    );
 }
 
 #[test]
@@ -293,7 +329,11 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     assert!(host_clock.contains("getKirinInputPresentationLatencySamples"));
     assert!(host_clock.contains("getKirinOutputPresentationLatencySamples"));
     assert!(host_clock.contains("getKirinPresentationLatencySource"));
-    assert!(processor.contains("kirin_hypha_note_capture_window"));
+    assert!(processor.contains("feedMeasurementInput (buffer,"));
+    let input = read_repo("juce_shell/src/PluginProcessorMeasurementIngress.cpp");
+    assert!(input.contains("kirin_hypha_note_capture_window (hyphaHandle, clock.hasPosition"));
+    assert!(input.contains("clock.inputPresentationValid, clock.inputPresentationSamples"));
+    assert!(input.contains("clock.outputPresentationValid, clock.outputPresentationSamples"));
 
     // Both shipped formats now compile this processor and the same patched JUCE host adapter.
     let cmake = read_repo("juce_shell/CMakeLists.txt");

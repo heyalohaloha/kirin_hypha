@@ -1,3 +1,4 @@
+#include "TestTemporaryDirectory.h"
 #include "../src/update/UpdateChecker.h"
 #include "../src/update/UpdateManifest.h"
 #include "../src/update/UpdateServiceOwner.h"
@@ -49,6 +50,8 @@ void seed (const juce::File& root, const Store::State& state)
 }
 }
 
+#include "UpdateRepairChecks.h"
+
 int main (int argc, char** argv)
 {
     using namespace hypha::update;
@@ -74,7 +77,7 @@ int main (int argc, char** argv)
         Checker checker (child); request (checker, true); return 0;
     }
    #if JUCE_WINDOWS
-    const auto parent = juce::File::getSpecialLocation (juce::File::tempDirectory);
+    const auto parent = hypha::tests::temporaryParent();
    #else
     const juce::File parent ("/private/tmp"); // Avoid macOS /var symlink; never touch real user data.
    #endif
@@ -98,6 +101,8 @@ int main (int argc, char** argv)
     config.now = [&] { return now.load(); };
     config.fetch = [&] (const std::atomic<bool>&) -> std::optional<juce::String>
     { ++calls; return wire; };
+    verifyUpdateRepairs (config, root, now, calls);
+    calls = 0;
     {
         Checker checker (config);
         require (! request (checker, false).enabled && calls == 0, "default OFF makes no HTTP request");
@@ -148,7 +153,7 @@ int main (int argc, char** argv)
     {
         Checker checker (config);
         const auto before = calls.load();
-        require (request (checker, true).status == Status::unavailable && calls == before
+        require (! checker.available() && request (checker, true).status == Status::unavailable && calls == before
             && ! config.root.exists(), "unprovisioned trust means zero HTTP and zero production storage");
     }
     config.publicKey = key;
@@ -156,7 +161,7 @@ int main (int argc, char** argv)
     {
         Checker checker (config);
         const auto before = calls.load();
-        require (request (checker, true).status == Status::unavailable && calls == before,
+        require (! checker.available() && request (checker, true).status == Status::unavailable && calls == before,
                  "nonempty invalid key never reaches HTTP");
     }
     config.publicKey = key;
@@ -214,7 +219,7 @@ int main (int argc, char** argv)
     {
         Checker checker (config);
         const auto before = calls.load();
-        require (request (checker, true).status == Status::unavailable && calls == before,
+        require (checker.available() && request (checker, true).status == Status::unavailable && calls == before,
                  "corrupt cache fails closed instead of repeating HTTP");
     }
     config.root = root.getChildFile ("same-sequence"); config.version = "1.1.50"; config.format = "VST3";

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ObservationPageContractTest.h"
+#include "LanguageContract.h"
 #include "ObservatoryCompositeContractTest.h"
 #include "PerceptualHistoryContractTest.h"
 #include "TimePageNavigationContractTest.h"
@@ -41,11 +42,23 @@
 #include "AlwaysVisibleContractTest.h"
 #include "MaterialCacheContract.h"
 #include "StoppedHistoryContract.h"
+#include "ShellRepairUiContract.h"
 
 namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--absolute-analysis-help-only")
+    {
+        verifyAbsoluteAnalysisHelp();
+        language_contract::verifyCatalog();
+        language_contract::verifyWidths();
+        verifyAbsoluteTimelineContract();
+        verifyPerceptualHistoryContract();
+        return true;
+    }
+    const bool repairsOnly = argc == 2 && std::string_view (argv[1]) == "--shell-repairs-only";
+    if (repairsOnly) { shell_repairs::verify(); return true; }
     const bool entryOnly = argc == 2 && std::string_view (argv[1]) == "--product-entry-only";
     const bool updatesOnly = argc == 2 && std::string_view (argv[1]) == "--observation-update-only";
     const bool focusOnly = argc == 2 && std::string_view (argv[1]) == "--spectrum-focus-only";
@@ -117,6 +130,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         verifySpectrumFocusTrailRendering (spectrumPerformanceFixture());
         return true;
     }
+    shell_repairs::verify();
     verifyInformationContract();
     verifyChainTimingTextContract();
     verifyChainTimingFooterContract();

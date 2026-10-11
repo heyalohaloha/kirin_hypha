@@ -99,7 +99,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         if (outputRefused (hypha::output_owner::Activity::versionBlind)) return;  // A を下げている・ほかの比較のあいだは断る
         if (getWidth() < 900 || getHeight() < 600)
         {
-            setSize (900, 600);
+            if (! ensureReferenceRoom()) return;
             showToast ("Blind view opened. Press VERSION BLIND to start after checking the level.");
             return;
         }

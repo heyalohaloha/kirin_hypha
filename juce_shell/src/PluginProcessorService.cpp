@@ -1,6 +1,20 @@
 #include "PluginProcessor.h"
 #include "reference_audition/ReferenceTrackingGain.h"
 
+void KirinHyphaProcessorBase::requestServiceTimer()
+{
+    if (auto* manager = juce::MessageManager::getInstanceWithoutCreating();
+        manager != nullptr && manager->isThisTheMessageThread())
+        startTimer (50);
+    else
+        triggerAsyncUpdate();
+}
+
+void KirinHyphaProcessorBase::handleAsyncUpdate()
+{
+    startTimer (50);
+}
+
 void KirinHyphaProcessorBase::timerCallback()
 {
     // B-126 + Logic stopped-state fix: non-RT enable poll on the message thread.

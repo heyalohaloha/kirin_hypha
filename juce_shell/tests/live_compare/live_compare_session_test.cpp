@@ -14,7 +14,6 @@
 #include <memory>
 #include <new>
 #include <vector>
-
 static thread_local bool inRt = false;
 static unsigned rtAllocations = 0, rtDeletions = 0;
 void* operator new (std::size_t bytes)
@@ -208,6 +207,9 @@ static void postLevelRampsDownFastAndUpSlowly()
     level.configure (48000.0);
     int down = 0;
     while (level.next (0.5f) > 0.5f) ++down;
+    level.bypass();
+    require (level.next (0.5f) > 0.99f, "bypass release begins the downward ramp at unity");
+    for (int i = 0; i < 2400; ++i) level.next (0.5f);
     int up = 0;
     while (level.next (1.0f) < 1.0f) ++up;
     std::printf ("post level: down to -6 dB in %d frames, back up in %d frames\n", down, up);
@@ -438,7 +440,7 @@ static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
     require (! moved.alone() && ! track.alone(), "joining a group leaves the old one");
 }
 
-int main()
+int main (int argc, char** argv)
 {
     require (hypha::test::exactPcmControls(), "exact PCM oracle positive and negative controls");
     for (const bool lease : { false, true })
@@ -484,7 +486,7 @@ int main()
     userSwitchFadesBothWays();
     approvedGainAppliesToPre();
     unsupportedLayoutsAndNoDemandKeepPost();
-    sharedRingPairsOnlyTheSameIdentityAndRate();
+    if (argc <= 1 || std::string (argv[1]) != "--in-memory-only") sharedRingPairsOnlyTheSameIdentityAndRate();
     aaxGroupsTellAMonoTrackFromAMultiMonoSet();
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();

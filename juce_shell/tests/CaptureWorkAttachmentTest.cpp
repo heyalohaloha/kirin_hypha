@@ -1,3 +1,4 @@
+#include "TestTemporaryDirectory.h"
 #include "../src/CaptureWorkAttachment.h"
 #include "../src/HyphaCapturePngFile.h"
 
@@ -105,7 +106,7 @@ hypha::capture::WorkAttachmentResult waitForResult (
 
 int main()
 {
-    const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto root = hypha::tests::temporaryParent()
         .getNonexistentChildFile ("kirin-hypha-capture-attachment", {}, false);
     require (root.createDirectory().wasOk(), "create isolated transport root");
 

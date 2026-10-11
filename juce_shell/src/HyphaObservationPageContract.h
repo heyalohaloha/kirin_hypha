@@ -27,10 +27,10 @@ constexpr PageCapabilities pageCapabilities (Role role, Domain domain,
                  "Local measurements; PRE subtraction does not apply" };
     if (domain == Domain::time && page == Page::perceptual)
         return { ObservationTarget::delta, false, false, false,
-                 "SHARP: exact POST - PRE sharpness. A paired PRE is required" };
+                 "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required" };
     if (domain == Domain::time && page == Page::absolute)
         return { ObservationTarget::absolute, false, false, false,
-                 "LIVE: local POST absolute values, fixed scales, 100 ms observations" };
+                 "LIVE: POST values on fixed scales, measured every 100 ms." };
     if (domain == Domain::time && page == Page::run)
         return { ObservationTarget::absolute, false, true, false,
                  "RUN: absolute facts grouped by playback run within the selected history" };

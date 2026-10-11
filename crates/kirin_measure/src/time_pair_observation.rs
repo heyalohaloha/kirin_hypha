@@ -11,6 +11,13 @@ pub(super) struct TimePublication {
 }
 
 impl TimePublication {
+    pub(super) fn clock_compatible(&self, post: &[TimeRawPoint]) -> bool {
+        self.points
+            .last()
+            .zip(post.last())
+            .is_some_and(|(pre, post)| pre.comparison_clock_proven(post.wire))
+    }
+
     pub(super) fn valid(&self) -> bool {
         self.span.valid()
             && self.points.len() <= METER_HISTORY_EXCHANGE_POINTS
@@ -102,8 +109,10 @@ impl TimeComparisonState {
             || !latest.wire.span.valid()
             || latest.wire.span.sample_rate != pre.span.sample_rate
             || latest.wire.span.channels != pre.span.channels
+            || !pre.clock_compatible(post)
         {
             self.fail(TimeComparisonReason::Incompatible);
+            history.reset();
             return;
         }
         let established = self.pre_span.is_some() && self.post_span.is_some();
@@ -192,6 +201,9 @@ impl TimeComparisonState {
             let Some(remote) = by_key.get(&key) else {
                 continue;
             };
+            if !local.wire.comparison_clock_proven(**remote) {
+                continue;
+            }
             // A PRE slot is used once. A POST seek must not pair with the previous playback
             // merely because its endpoint occurs again before PRE publishes the new run.
             if remote.observed <= self.last_consumed_pre
@@ -331,3 +343,11 @@ mod seek_tests;
 #[cfg(test)]
 #[path = "time_pair_window_tests.rs"]
 mod window_tests;
+
+#[cfg(test)]
+#[path = "time_pair_recovery_tests.rs"]
+mod recovery_tests;
+
+#[cfg(test)]
+#[path = "time_pair_latency_tests.rs"]
+mod latency_tests;

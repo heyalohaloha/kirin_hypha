@@ -59,6 +59,7 @@ void KirinHyphaEditor::configureUpdateChecking()
     // OFF is the default. request(false) does not opt in and does not bypass the daily cap.
     updateChecker = processorRef.updateServicesForEditor().get (
         hypha::plugin_format::name (processorRef.wrapperType));
+    if (! updateChecker->available()) { updateChecker.reset(); return; }
     updateChecker->request (false);
 }
 
@@ -108,7 +109,7 @@ void KirinHyphaEditor::refreshUpdateChecking()
 
 void KirinHyphaEditor::addUpdateCheckMenu (juce::PopupMenu& menu) const
 {
-    if (updateChecker == nullptr) return;
+    if (updateChecker == nullptr || ! updateChecker->available()) return;
     const auto state = updateChecker->snapshot();
     menu.addSeparator();
     menu.addSectionHeader ("Update check");

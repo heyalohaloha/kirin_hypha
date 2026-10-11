@@ -29,7 +29,11 @@ pub(crate) fn measure_band(
 ) -> Option<AttackBandMeasure> {
     let (analysis_start, analysis_end) = analysis_range(band, sample_rate, onset, span_end);
     let frames = usize::try_from(analysis_end - analysis_start).ok()?;
-    if !matches!(channels, 1 | 2) || audio.len() != frames * channels || frames < 2 {
+    if !matches!(channels, 1 | 2)
+        || audio.len() != frames * channels
+        || frames < 2
+        || audio.iter().any(|sample| !sample.is_finite())
+    {
         return None;
     }
     let filter = BandFilter::new(band, sample_rate);

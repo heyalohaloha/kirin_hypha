@@ -65,5 +65,5 @@ bool paintLevelLandscape (juce::Graphics&, juce::Rectangle<float> plot,
 // Instrument notes on the plot: corner marks, the definition of what is drawn, and the exact
 // analysis the plot shows (aperture, FFT, bands, presentation rate), all from the snapshot.
 void paintInstrumentNotes (juce::Graphics&, juce::Rectangle<float> plot, const KirinSpectrumView&,
-                           bool delta, presentation::Context);
+                           bool delta, presentation::Context, bool shape = false);
 }

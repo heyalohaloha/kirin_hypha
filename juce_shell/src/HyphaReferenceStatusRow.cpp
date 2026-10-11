@@ -12,16 +12,17 @@ namespace hypha::reference_ui
 {
 namespace
 {
-// 状態の文は「 / 」の区切りごとに、入るところまで出す（途中で「…」にしない）。区切りは大事な順に並んでいる
+// 状態の文は日英の空白付き区切りごとに、入るところまで出す（途中で「…」にしない）。区切りは大事な順に並んでいる
 // （HyphaReferenceStatusModel.cpp）。最初の区切りも入らなければ省略記号（drawEllipsized）。2026-10-05、
 // 300% で「BはAに追従中（直近10…」「…/ Aを下…」と、言いかけで切れていた。
 juce::String fittedSegments (const juce::String& shown, const juce::Font& font, float width)
 {
     if (text_style::shownWidth (font, shown) <= width) return shown;
     juce::String fitted;
-    for (int slash = shown.indexOf (" /"); slash > 0; slash = shown.indexOf (slash + 1, " /"))
+    for (int slash = 1; slash + 1 < shown.length(); ++slash)
     {
-        if (slash + 2 >= shown.length() || shown[slash + 2] != ' ') continue;
+        if ((shown[slash] != '/' && shown[slash] != 0xff0f)
+            || shown[slash - 1] != ' ' || shown[slash + 1] != ' ') continue;
         const auto prefix = shown.substring (0, slash).trimEnd();
         if (prefix.isEmpty()) continue;
         if (text_style::shownWidth (font, prefix) > width) break;
@@ -40,7 +41,7 @@ int Component::statusRowHeight() const noexcept
 // B に 300% の欄が詰まって B SET が切れ、C・V の見出しが消えていた。
 bool Component::rolePage() const noexcept
 {
-    return presentationContext.density == observatory::Density::inspection && current.separateComparisons
+    return current.blindLargeScreen && presentationContext.density == observatory::Density::inspection && current.separateComparisons
         && ! isBlindSession (current.blindPhase);
 }
 

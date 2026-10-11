@@ -170,7 +170,8 @@ impl SpectrumRuntime {
         let history = self.try_history()?;
         (before == self.current_snapshot_identity()).then_some((
             history,
-            super::ingress::definition_is_aligned(before.clock_definition),
+            super::ingress::definition_clock_kind(before.clock_definition)
+                == Some(super::SpectrumClockKind::Presentation),
         ))
     }
 
@@ -181,7 +182,7 @@ impl SpectrumRuntime {
     }
 
     pub fn presentation_clock_aligned(&self) -> bool {
-        super::ingress::definition_is_aligned(self.clock_definition.load(Ordering::Acquire))
+        self.spectrum_clock_kind() == Some(super::SpectrumClockKind::Presentation)
     }
 
     /// History and coordinate meaning must come from the same producer identity.
@@ -201,11 +202,28 @@ impl SpectrumRuntime {
     }
 
     pub(crate) fn spectrum_clock_revision(&self) -> u64 {
-        self.stream_generation.load(Ordering::Acquire)
+        self.clock_revision.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn analysis_clock_token(&self) -> (u64, u64) {
+        (
+            self.spectrum_clock_revision(),
+            self.stream_generation.load(Ordering::Acquire),
+        )
+    }
+
+    pub fn output_latency_unavailable(&self) -> bool {
+        let selection = self.selection.load(Ordering::Acquire);
+        super::AnalysisSelection::decode(selection, self.layout)
+            .is_some_and(|selection| selection.mode == AnalysisViewMode::Perceptual)
+            && self.output_latency_unavailable.load(Ordering::Acquire) == selection
+            && self.selection.load(Ordering::Acquire) == selection
     }
 
     pub(crate) fn spectrum_clock_is_current(&self, revision: u64) -> bool {
-        revision != 0 && revision == self.spectrum_clock_revision()
+        revision != 0
+            && revision == self.spectrum_clock_revision()
+            && self.stream_generation.load(Ordering::Acquire) != 0
     }
 
     pub fn try_perceptual_history(&self) -> Option<PerceptualHistory> {
@@ -214,6 +232,23 @@ impl SpectrumRuntime {
             |history| history.newest().is_none(),
             || {},
         )
+    }
+
+    pub fn try_perceptual_history_with_clock(
+        &self,
+    ) -> Option<(PerceptualHistory, super::SpectrumClockKind)> {
+        let before = self.current_snapshot_identity();
+        let history = self.try_perceptual_history()?;
+        (before == self.current_snapshot_identity())
+            .then(|| super::ingress::definition_clock_kind(before.clock_definition))
+            .flatten()
+            .filter(|kind| {
+                matches!(
+                    kind,
+                    super::SpectrumClockKind::Presentation | super::SpectrumClockKind::AaxEngine
+                )
+            })
+            .map(|kind| (history, kind))
     }
 
     pub fn try_absolute_history(&self) -> Option<crate::AbsoluteTimeline> {

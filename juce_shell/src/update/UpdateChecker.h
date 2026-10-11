@@ -45,6 +45,7 @@ public:
     ~Checker();
     static std::shared_ptr<Checker> shared (const juce::String& format = "VST3");
     Snapshot snapshot() const;
+    bool available() const noexcept { return provisioned; }
     std::uint64_t request (bool manual);
     std::uint64_t setEnabled (bool);
     bool claimNotification();
@@ -56,6 +57,7 @@ private:
     void publish (const Snapshot&);
     std::int64_t readClock() const noexcept;
     Configuration configuration;
+    const bool provisioned;
     mutable std::mutex mutex;
     std::condition_variable wake;
     Snapshot view;

@@ -146,6 +146,7 @@ private:
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void wireReferenceRoles();  // B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
+    bool ensureReferenceRoom();
     void openReferenceLarge (int slot);
     // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
     double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）

@@ -7,7 +7,7 @@ namespace hypha::reference_audition
         // Journal observes the completed session before this worker retires its data.
         ReferenceSessionRetirement retirement;
         if (blind.completeNormalReturn (retirement)) releaseOutputGate (retirement.outputGateToken);
-        if (auditionReturnPending.exchange (false, std::memory_order_acq_rel))
+        if (auditionReturnPending.exchange (false, std::memory_order_acq_rel) && ! hasHeldSelection())
             requestAuditionReturnEvent (aAudibleConfirmations.load (std::memory_order_acquire));
         const auto pending = blindGateReleasePendingToken.exchange (0, std::memory_order_acq_rel);
         ReferenceSessionRetirement cancelled;

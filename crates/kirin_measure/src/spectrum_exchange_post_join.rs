@@ -19,6 +19,7 @@ impl SpectrumCoordinator {
         after_read: impl FnOnce(),
     ) -> bool {
         let clock_revision = self.runtime.spectrum_clock_revision();
+        let stateful_token = self.runtime.analysis_clock_token();
         let spectrum_observation = (session.analysis_mode == AnalysisViewMode::Spectrum)
             .then(|| self.runtime.try_history_with_clock())
             .flatten();
@@ -26,9 +27,14 @@ impl SpectrumCoordinator {
             .as_ref()
             .map_or_else(|| self.runtime.spectrum_clock_kind(), |(_, kind)| *kind);
         let spectrum_local = spectrum_observation.map(|(history, _)| history);
-        let perceptual_local = (session.analysis_mode == AnalysisViewMode::Perceptual)
-            .then(|| self.runtime.try_perceptual_history())
+        let perceptual_observation = (session.analysis_mode == AnalysisViewMode::Perceptual)
+            .then(|| self.runtime.try_perceptual_history_with_clock())
             .flatten();
+        let perceptual_clock_kind = perceptual_observation
+            .as_ref()
+            .map(|(_, kind)| *kind)
+            .or_else(|| self.runtime.spectrum_clock_kind());
+        let perceptual_local = perceptual_observation.map(|(history, _)| history);
         let attack_local = (session.analysis_mode == AnalysisViewMode::Attack)
             .then(|| {
                 self.attack_runtime
@@ -50,7 +56,12 @@ impl SpectrumCoordinator {
         let perceptual_remote = (session.analysis_mode == AnalysisViewMode::Perceptual)
             .then(|| read_perceptual_snapshot(&target.instance_dir))
             .flatten()
-            .filter(|snapshot| snapshot.request_id == session.request_id)
+            .filter(|snapshot| snapshot.request_id == session.request_id);
+        let perceptual_clock_mismatch = perceptual_remote
+            .as_ref()
+            .is_some_and(|snapshot| Some(snapshot.clock_kind) != perceptual_clock_kind);
+        let perceptual_remote = perceptual_remote
+            .filter(|snapshot| Some(snapshot.clock_kind) == perceptual_clock_kind)
             .map(|snapshot| snapshot.history);
         let attack_remote = (session.analysis_mode == AnalysisViewMode::Attack)
             .then(|| read_attack_snapshot(&target.instance_dir))
@@ -108,6 +119,20 @@ impl SpectrumCoordinator {
             );
             return true;
         }
+        if session.analysis_mode == AnalysisViewMode::Perceptual && perceptual_clock_mismatch {
+            current.last_presented_at = None;
+            current.last_presented_end_samples = None;
+            self.store_perceptual_view(SpectrumViewStatus::Unavailable, &[]);
+            return true;
+        }
+        if session.analysis_mode == AnalysisViewMode::Perceptual
+            && self.runtime.spectrum_clock_kind()
+                == Some(crate::spectrum_runtime::SpectrumClockKind::AaxEngine)
+            && self.stateful_clock_token() != stateful_token
+        {
+            current.last_presented_at = None;
+            current.last_presented_end_samples = None;
+        }
         match session.analysis_mode {
             AnalysisViewMode::Spectrum => store_joined_spectrum(
                 self,
@@ -127,6 +152,9 @@ impl SpectrumCoordinator {
                 store_joined_attack(self, current, now, attack_local, attack_remote)
             }
             AnalysisViewMode::Absolute => {}
+        }
+        if session.analysis_mode == AnalysisViewMode::Perceptual {
+            self.stamp_stateful_clock(stateful_token);
         }
         true
     }

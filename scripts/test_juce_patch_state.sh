@@ -19,6 +19,9 @@ git -C "$tmp/JUCE" checkout --quiet "$EXPECTED_HEAD"
 for shell in "${SHELLS[@]}"; do
   count="$(KIRIN_JUCE_DIR="$tmp/JUCE" "$shell" scripts/verify_juce_patch_state.sh --applied-count)"
   [[ "$count" == "0" ]] || { echo "error: $shell counted $count patches on an untouched JUCE" >&2; exit 1; }
+  # A nested temporary tree must not inherit this disposable repository's path prefix.
+  count="$(TMPDIR="$tmp/JUCE" KIRIN_JUCE_DIR="$tmp/JUCE" "$shell" scripts/verify_juce_patch_state.sh --applied-count)"
+  [[ "$count" == "0" ]] || { echo "error: $shell counted $count patches with nested TMPDIR" >&2; exit 1; }
   count="$("$shell" scripts/verify_juce_patch_state.sh --applied-count)"
   [[ "$count" == "0" || "$count" == "$PATCHES" ]] \
     || { echo "error: $shell counted $count of $PATCHES patches on the submodule" >&2; exit 1; }

@@ -18,6 +18,13 @@ struct LoopContext
             && std::isfinite (ppq) && std::isfinite (start) && std::isfinite (end)
             && std::isfinite (bpm) && bpm > 0.0 && end > start;
     }
+    // A host may report its loop-playback setting with an empty range (no timeline selection):
+    // nothing can wrap, so such a block is a linear one. A real wrap still breaks linearity.
+    bool hasRange() const noexcept
+    {
+        return valid && std::isfinite (start) && std::isfinite (end) && std::isfinite (bpm)
+            && bpm > 0.0 && end > start;
+    }
     bool sameRange (const LoopContext& other) const noexcept
     { return active == other.active && valid == other.valid && identical (start, other.start)
           && identical (end, other.end) && identical (bpm, other.bpm); }
@@ -71,6 +78,8 @@ public:
     TimelineStep observe (const Block& block, double rate, std::int64_t clampBudget = 0) noexcept
     {
         TimelineStep result;
+        if (block.transportRestart)
+        { havePrevious = false; observed = true; previousBreak = TimelineBreak::stopped; }
         const bool valid = block.playing && block.clockValid && block.projectValid && block.frames > 0;
         // The first valid callback after a stop/missing observation starts a fresh anchor,
         // even when the independent render clock kept advancing during the stopped callbacks.

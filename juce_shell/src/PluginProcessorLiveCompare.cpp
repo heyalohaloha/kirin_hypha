@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "live_compare/LiveCompareRendererLease.h"
 
 #include <chrono>
 #include <cmath>
@@ -64,6 +65,9 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
     {
         liveCompare.preparation.retire();
         stopLiveCompare (hypha::live_compare::RecoveryReason::formatChanged);
+        liveCompare.ring.retire();
+        collectWithin (liveCompare.ring);
+        liveCompare.preAudible.store (false, std::memory_order_release);
     }
     else
     {
@@ -89,15 +93,16 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
     if (pre.isEmpty())
         return StartResult::noPair;
     stopLiveCompare();
-    // A suspended old callback may outlive stop's bounded wait. Never resize its renderer.
-    if (! collectWithin (liveCompare.ring)) return StartResult::notReady;
+    if (! hypha::live_compare::prepareRendererAfterLease (liveCompare.ring,
+            liveCompare.preAudible.load (std::memory_order_acquire), collectWithin,
+            [&] { liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate); }))
+        return StartResult::notReady;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
     if (! mapping->open (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
         return StartResult::preUnavailable;
     if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
         return StartResult::preMultiMono;
-    liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
     liveCompare.preparation.initialRequested.store (true, std::memory_order_release);
     liveCompare.selection.select (false);
     liveCompare.observationReason.store (hypha::live_compare::RecoveryReason::none, std::memory_order_release);
@@ -121,7 +126,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
     // 仕様 A：live 比較を始めたら、停止前の Reference の選択へ自動で戻さない。
     if (referenceAuditionController != nullptr) referenceAuditionController->forgetHeldAudition();
    #endif
-    startTimer (50);
+    requestServiceTimer();
     return StartResult::started;
 }
 
@@ -155,12 +160,10 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
         liveCompare.blindStage = hypha::live_compare::BlindStage::invalidated;
     liveCompare.blind.end();
     liveCompare.selection.end();
-    if (auto* mapping = liveCompare.ring.control(); mapping != nullptr && mapping->ring() != nullptr)
-        mapping->ring()->header.demand.store (0, std::memory_order_release);
-    liveCompare.ring.retire();
-    collectWithin (liveCompare.ring);
-    liveCompare.preAudible.store (false, std::memory_order_release);
+    // Keep PRE publishing and the renderer lease until the next proven blocks have faded to POST.
+    // Failed timing still takes the renderer's immediate safe POST path.
     liveCompare.preWaiting.store (false, std::memory_order_release);
+    requestServiceTimer();
 }
 
 void KirinHyphaProcessorBase::selectLiveComparePre (bool pre) noexcept
@@ -177,7 +180,7 @@ void KirinHyphaProcessorBase::invalidateLiveComparePair() noexcept
     if (role != Role::Post) return;
     liveCompare.pairRevocationGeneration.store (liveCompare.authority.revoke(), std::memory_order_release);
     liveCompare.selection.end (hypha::live_compare::RecoveryReason::pairChanged);
-    startTimer (50); // cleanup is deferred; RT authority already rejects the old ring
+    requestServiceTimer(); // cleanup is deferred; RT authority already rejects the old ring
 }
 
 void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
@@ -311,28 +314,17 @@ bool KirinHyphaProcessorBase::takeLiveCompareGuardTrip() noexcept
     return liveCompare.guardTripped.exchange (false, std::memory_order_acq_rel);
 }
 
-// Message thread (INV-LC7): the content offset of the latest proven window.
-hypha::live_compare::OffsetEstimate KirinHyphaProcessorBase::measureLiveCompareOffset()
-{
-    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire))
-        return {};
-    const auto* mapping = liveCompare.ring.control();
-    if (mapping == nullptr || mapping->ring() == nullptr)
-        return {};
-    return hypha::live_compare::measureOffset (*mapping->ring(), liveCompare.renderer);
-}
-
-// Message thread (INV-LC10): the offset jumped with unchanged clocks, a latency change the DAW did
-// not compensate. POST sounds, PRE stays selected, until playback stops and restarts.
-void KirinHyphaProcessorBase::holdLiveCompareForContentJump (std::int64_t measuredLagFrames) noexcept
-{
-    liveCompare.contentJumpLagFrames.store (measuredLagFrames, std::memory_order_relaxed);
-    liveCompare.contentHold.store (true, std::memory_order_release);
-}
-
 std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
 {
     return liveCompare.playbackRun.load (std::memory_order_acquire);
+}
+
+// Message thread, guidance only: an AAX host without the certificate loops a range, so neither
+// LISTEN / BLIND nor the SHARP difference can prove K until loop playback is off.
+bool KirinHyphaProcessorBase::analysisPairingLoopBlocked() const noexcept
+{
+    return role == Role::Post && wrapperType == wrapperType_AAX
+        && liveCompare.loopBlocksPairing.load (std::memory_order_relaxed);
 }
 
 bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
@@ -392,9 +384,20 @@ bool KirinHyphaProcessorBase::serviceLiveCompare()
         liveCompare.blind.reset();
         liveCompare.blindPreparationReason = hypha::live_compare::RecoveryReason::none;
     }
-    if (liveCompare.blindScope != 0 && ! liveCompare.sessionActive.load (std::memory_order_acquire)
-        && ! liveCompare.completion.pending() && liveCompare.postActual.load (std::memory_order_acquire) == 1.0f
-        && liveCompare.postTarget.load (std::memory_order_acquire) == 1.0f
+    const bool inactive = ! liveCompare.sessionActive.load (std::memory_order_acquire);
+    // PRE owns its publication for the prepared format, independently of POST session/fade state.
+    // This retirement manages only POST's reader and renderer lease.
+    if (role == Role::Post && inactive && ! liveCompare.completion.pending()
+        && ! liveCompare.preAudible.load (std::memory_order_acquire))
+    {
+        if (auto* mapping = liveCompare.ring.control(); mapping != nullptr && mapping->ring() != nullptr)
+            mapping->ring()->header.demand.store (0, std::memory_order_release);
+        liveCompare.ring.retire();
+        collectWithin (liveCompare.ring);
+    }
+    if (liveCompare.blindScope != 0 && inactive
+        && ! liveCompare.completion.pending()
+        && ! liveCompare.preAudible.load (std::memory_order_acquire)
         && releaseLocalBlindProductScope (liveCompare.blindScope))
         liveCompare.blindScope = 0;
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire))
@@ -450,7 +453,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.matchReady = status.matchReady && status.verdict == hypha::live_compare::Verdict::accepted;
     status.gain = gains.pre;
     status.postTarget = gains.coherent ? gains.post : status.postActual;
-    status.contentHeld = liveCompare.contentHold.load (std::memory_order_acquire);
+    status.contentHeld = liveCompare.contentHold.held();
     if (status.contentHeld)
         status.contentJumpLagFrames = liveCompare.contentJumpLagFrames.load (std::memory_order_relaxed);
     status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
@@ -463,6 +466,14 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
         status.reason = liveCompare.authority.generation() == liveCompare.pairRevocationGeneration.load (std::memory_order_acquire)
             ? Reason::pairChanged : Reason::restored;
     status.observation = liveCompare.observationReason.load (std::memory_order_acquire);
+    status.timingUnavailable = ! status.contentHeld
+        && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable);
+    status.loopBlocksPairing = analysisPairingLoopBlocked();
+    // A missing audio clock on a host that has never supplied a continuous clock or an
+    // output-latency report is this host's ability, not a transient: stop/play cannot fix it.
+    status.clockUnavailable = status.observation == Reason::clockMissing
+        && ! liveCompare.clockSeen.load (std::memory_order_acquire)
+        && ! liveCompare.outputLatencySeen.load (std::memory_order_acquire);
     status.timingReentryPending = liveCompare.timingReentryPending.load (std::memory_order_acquire);
     std::atomic_thread_fence (std::memory_order_acquire);
     if (gains.revision != liveCompare.gainRevision.load (std::memory_order_acquire))

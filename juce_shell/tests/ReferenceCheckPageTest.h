@@ -125,10 +125,10 @@ inline void verifyReferenceCheckPage()
         require (japanese ("B CHORUS 1:02-1:24") == juce::String (juce::CharPointer_UTF8 ("B\xe3\x82\xb5\xe3\x83\x93 1:02-1:24"))
                      && japanese ("B WHOLE") == juce::String (juce::CharPointer_UTF8 ("B\xe6\x9b\xb2\xe5\x85\xa8\xe4\xbd\x93"))
                      && japanese ("A LAST 18 S / C CHORUS")
-                            == juce::String (juce::CharPointer_UTF8 ("A\xe7\x9b\xb4\xe8\xbf\x91" "18\xe7\xa7\x92 / C\xe3\x82\xb5\xe3\x83\x93"))
+                            == juce::String::fromUTF8 (u8"A直近18秒 ／ Cサビ")
                      && japanese ("B LOUDEST 30 S 0:45-1:15") != "B LOUDEST 30 S 0:45-1:15"
                      && japanese ("C LOUDEST 30 S") != "C LOUDEST 30 S" && japanese ("C WHOLE") != "C WHOLE",
-                 "the parts read in Japanese (A\u76f4\u8fd110\u79d2 / B\u30b5\u30d3)");
+                 "Japanese listening parts preserve source roles and time ranges");
         require (japanese (reference_ui::listeningGuide ('V')).contains (juce::String (juce::CharPointer_UTF8 ("\xe8\x80\xb3")))  // 耳
                      && japanese (reference_ui::listeningGuide ('C')).contains ("C")
                      && japanese ("B SET RANGE") != "B SET RANGE",

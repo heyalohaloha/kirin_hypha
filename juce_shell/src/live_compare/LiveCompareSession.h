@@ -53,6 +53,7 @@ public:
     // Audio Thread: the gain for the next frame on the way to target (at most 1).
     float next (float target) noexcept
     {
+        if (reapplyFromUnity) { if (target < 1.0f) current = 1.0f; reapplyFromUnity = false; }
         current = current > target ? std::max (target, current - downStep.load (std::memory_order_relaxed))
                                    : std::min (target, current + upStep.load (std::memory_order_relaxed));
         return current;
@@ -71,9 +72,11 @@ public:
         }
     }
 
+    void bypass() noexcept { reapplyFromUnity = true; }
     float value() const noexcept { return current; }
 
 private:
+    bool reapplyFromUnity = false; // Audio Thread only; END retains its slow upward ramp.
     float current = 1.0f; // Audio Thread only
     std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 24000.0f };
 };
@@ -199,6 +202,7 @@ public:
         const std::atomic<float>* samples = nullptr; // interleaved stereo, historyFrames long
         std::int64_t frames = 0;
         std::int64_t start = 0, end = 0, k = 0;
+        std::int32_t blockFrames = 0;
         bool kValid = false;
         std::uint64_t proof = 0, preRun = 0;
     };
@@ -212,6 +216,7 @@ public:
         view.frames = historyFrames;
         view.end = historyEnd.load (std::memory_order_acquire);
         view.start = historyStart.load (std::memory_order_acquire);
+        view.blockFrames = historyBlockFrames.load (std::memory_order_relaxed);
         view.k = matchOffset.load (std::memory_order_acquire);
         view.kValid = matchOffsetValid.load (std::memory_order_acquire);
         view.proof = historyProof.load();
@@ -426,6 +431,7 @@ private:
             history[slot].store (io[0][i], std::memory_order_relaxed);
             history[slot + 1].store (io[std::min (1, channels - 1)][i], std::memory_order_relaxed);
         }
+        historyBlockFrames.store (block.frames, std::memory_order_relaxed);
         historyEnd.store (block.clock + block.frames, std::memory_order_release);
         historySequence.fetch_add (1);
     }
@@ -446,6 +452,7 @@ private:
     float weight = 0.0f;
     std::unique_ptr<std::atomic<float>[]> history;
     std::int64_t historyFrames = 0;
+    std::atomic<std::int32_t> historyBlockFrames { 0 };
     std::atomic<std::int64_t> historyStart { 0 }, historyEnd { 0 }, matchOffset { 0 };
     std::atomic<std::int64_t> projectRunStart { 0 }, projectOffset { 0 };
     std::atomic<bool> projectKnown { false };

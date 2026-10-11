@@ -48,6 +48,16 @@ public:
         comparisonStatus = status;
         repaint();
     }
+    // An uncertified AAX host loops a range: the PSB difference waits for linear playback, as SHARP does.
+    void setPairingLoopBlocked (bool blocked)
+    {
+        if (pairingLoopBlocked == blocked) return;
+        pairingLoopBlocked = blocked;
+        repaint();
+    }
+    // The PSB window's standing text from what the editor last told this view; one rule for the
+    // paint and for tests.
+    juce::String psbStatusText() const;
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
     void setDisplaySelection (uint8_t selection);
@@ -168,6 +178,7 @@ private:
     bool psbObservation = false;
     bool shapeObservation = false;
     bool signalActive = false;
+    bool pairingLoopBlocked = false; // the host loops a range without a certified clock
     uint8_t psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;

@@ -61,7 +61,12 @@ const Catalog& japaneseCatalog()
             for (std::size_t index = 0; index < section.count; ++index)
             {
                 const auto english = juce::String::fromUTF8 (section.entries[index].english);
-                const auto japanese = juce::String::fromUTF8 (section.entries[index].japanese);
+                auto japanese = juce::String::fromUTF8 (section.entries[index].japanese)
+                    .replace ("(", juce::String::fromUTF8 (u8"（")).replace (")", juce::String::fromUTF8 (u8"）"));
+                // Catalog prose only: names inserted into patterns keep their literal spelling.
+                if (! japanese.startsWith (juce::String::fromUTF8 (u8"MID："))
+                    && ! japanese.startsWith (juce::String::fromUTF8 (u8"SIDE：")))
+                    japanese = japanese.replace (" / ", juce::String::fromUTF8 (u8" ／ "));
                 Pattern pattern;
                 if (compilePattern (english, japanese, pattern))
                     built.patterns.push_back (std::move (pattern));
@@ -196,7 +201,7 @@ juce::String translateParts (const Catalog& catalog, const juce::String& text, i
         bool found = false;
         result += exactOrPattern (catalog, text.substring (start, partEnd), found, depth);
         translatedAny = translatedAny || found;
-        result += text.substring (partEnd, nextStart);
+        result += text.substring (partEnd, nextStart).replace ("/", juce::String::fromUTF8 (u8"／"));
         start = nextStart;
     }
     if (start == 0)

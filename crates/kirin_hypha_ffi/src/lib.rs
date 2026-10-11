@@ -289,7 +289,6 @@ struct PendingRecordBlock {
 }
 
 mod optional_analysis_clock;
-use optional_analysis_clock::{attack_timeline_start, spectrum_input_clock};
 
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
@@ -310,6 +309,7 @@ pub struct KirinHyphaEngine {
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
     spectrum_runtime: Arc<SpectrumRuntime>,
+    aax_analysis: optional_analysis_clock::AaxAnalysisIngress,
     /// On-demand ATTACK measurement path. Unsupported host rates keep this absent; supported rates
     /// allocate bounded ingress at prepare time, but remain inactive until the POST page enables it.
     attack_runtime: Option<Arc<kirin_measure::AttackRuntime>>,
@@ -1125,6 +1125,7 @@ impl KirinHyphaEngine {
             pending_record_rendered: AtomicBool::new(false),
             pending_record_playing: AtomicBool::new(false),
             pending_record_offline: AtomicBool::new(false),
+            aax_analysis: Default::default(),
             pending_record_position_valid: AtomicBool::new(false),
             pending_record_position_samples: AtomicI64::new(i64::MIN),
             pending_record_num_frames: AtomicU64::new(0),
@@ -2201,6 +2202,7 @@ impl KirinHyphaEngine {
     /// Shipping Audio-Thread transaction. A non-empty callback must already have an exact host
     /// descriptor staged by the wrapper; the direct Rust shelf above is never used by JUCE.
     fn push_samples_transaction(&self, interleaved: &[f32], num_channels: u32) -> bool {
+        self.aax_analysis.begin_callback();
         // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
         if self.watch_playback_pass_id.load(Ordering::Acquire) == 0 {
@@ -2285,25 +2287,7 @@ impl KirinHyphaEngine {
                 .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
             return false;
         }
-        // Optional Spectrum ingress is independent from the established Watch/Record ring. Its
-        // first operation is an atomic enabled check; hidden PRE/POST instances do no copy, FFT,
-        // allocation, lock, I/O, wake, or repaint. Local Spectrum/ATTACK can use a valid
-        // producer clock when optional latency is absent. Spectrum keeps that authority
-        // private and forbids it from PRE publication or an aligned PRE/POST difference.
-        let spectrum_presentation_start = pending_clock.and_then(spectrum_input_clock);
-        let attack_timeline_start = pending_clock.and_then(attack_timeline_start);
-        let _ = self.spectrum_runtime.push_block_from_audio_with_clock(
-            interleaved,
-            self.num_channels,
-            spectrum_presentation_start,
-        );
-        if let Some(runtime) = self.attack_runtime.as_ref() {
-            let _ = runtime.push_block_from_audio(
-                interleaved,
-                self.num_channels,
-                attack_timeline_start,
-            );
-        }
+        self.push_optional_analysis(interleaved, pending_clock);
         let accepted_offline_mode = pending_record.map(|block| block.offline);
         let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
             && !self.capture_last_offline.load(Ordering::Acquire);
@@ -2785,16 +2769,10 @@ fn lra_readiness(snapshot: &MeterSessionSnapshot) -> (u8, f64) {
     }
 }
 
-fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
-    match status {
-        SpectrumViewStatus::Hidden => KIRIN_SPECTRUM_HIDDEN,
-        SpectrumViewStatus::NoPair => KIRIN_SPECTRUM_NO_PAIR,
-        SpectrumViewStatus::WarmingUp => KIRIN_SPECTRUM_WARMING_UP,
-        SpectrumViewStatus::Active => KIRIN_SPECTRUM_ACTIVE,
-        SpectrumViewStatus::Unavailable => KIRIN_SPECTRUM_UNAVAILABLE,
-        SpectrumViewStatus::InUse => KIRIN_SPECTRUM_IN_USE,
-    }
-}
+#[path = "spectrum_status_abi.rs"]
+mod spectrum_status_abi;
+use spectrum_status_abi::spectrum_status_to_abi;
+pub use spectrum_status_abi::KIRIN_SPECTRUM_OUTPUT_LATENCY_UNAVAILABLE;
 
 fn to_c_analysis_owners(
     owner_names: [String; kirin_measure::ANALYSIS_SLOT_COUNT],

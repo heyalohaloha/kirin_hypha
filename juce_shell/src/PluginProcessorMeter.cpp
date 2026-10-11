@@ -40,7 +40,7 @@ bool KirinHyphaProcessorBase::pollLevelSnapshot (
     const auto range = std::min (maxEntries, static_cast<size_t> (KIRIN_CHAIN_CAPACITY));
     const auto capacity = std::min (maxOutputEntries, range);
     std::vector<KirinMeterHistoryEntry> candidate (capacity);
-    KirinLevelSnapshot next {};
+    KirinLevelSnapshot next = out;
     const auto chainCapacity = role == Role::Post
         ? (latestOnly ? 1u : KIRIN_CHAIN_CAPACITY) : 0u;
     const juce::ScopedLock sl (handleLock);

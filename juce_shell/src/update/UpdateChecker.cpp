@@ -68,7 +68,8 @@ Status classify (const Manifest& manifest, const Configuration& config)
 }
 }
 
-Checker::Checker (Configuration config) : configuration (std::move (config))
+Checker::Checker (Configuration config) : configuration (std::move (config)),
+    provisioned (validPublicKey (configuration.publicKey) && configuration.now && configuration.fetch)
 {
     worker = std::thread ([this] { run(); });
 }
@@ -223,7 +224,7 @@ void Checker::perform (bool manual, std::optional<bool> preference,
     };
     // Production trust must be deliberately provisioned. Missing key means NO HTTP and
     // no production files are touched just by opening an editor/test fixture.
-    if (! validPublicKey (configuration.publicKey) || ! configuration.now || ! configuration.fetch)
+    if (! provisioned)
     {
         result.status = Status::unavailable;
         finish();
@@ -276,11 +277,25 @@ void Checker::perform (bool manual, std::optional<bool> preference,
         return;
     }
     refreshRequired = false; // Only the exclusion owner's successful read is authoritative.
+    const auto now = readClock();
+    if (now <= 0) { result.status = Status::unavailable; finish(); return; }
+    if (state.lastAttempt > now + checkIntervalSeconds)
+    {
+        if (! store.clearFutureAttempts (state, now))
+        {
+            result.status = Status::unavailable;
+            result.nextAttemptAt = now + checkIntervalSeconds;
+            finish(); return;
+        }
+        result.nextAttemptAt = 0;
+    }
     if (preference)
     {
         if (! *preference) notification.store (false);
         state.enabled = *preference;
-        if (! store.save (state)) { result.status = Status::unavailable; finish(); return; }
+        if (! store.save (state))
+        { result.status = Status::unavailable; result.nextAttemptAt = now + checkIntervalSeconds;
+          finish(); return; }
         preferenceSaved = true;
         result.enabled = state.enabled;
         result.preferenceSaved = true;
@@ -291,10 +306,9 @@ void Checker::perform (bool manual, std::optional<bool> preference,
         publish (result);
     }
     result.enabled = state.enabled;
-    const auto now = readClock();
-    if (now <= 0) { result.status = Status::unavailable; finish(); return; }
     result.checkedAt = state.lastAttempt;
-    result.nextAttemptAt = state.lastAttempt == 0 ? 0 : state.lastAttempt + checkIntervalSeconds;
+    result.nextAttemptAt = std::max (result.nextAttemptAt,
+        state.lastAttempt == 0 ? 0 : state.lastAttempt + checkIntervalSeconds);
     auto cached = verifyManifest (state.wire, configuration.publicKey, now, state.lastSequence);
     if (cached)
     {
@@ -315,7 +329,9 @@ void Checker::perform (bool manual, std::optional<bool> preference,
         // Commit the lease timestamp BEFORE starting HTTP. Failed/cancelled checks,
         // worker crashes and DAW restarts all consume this identical 24-hour budget.
         state.lastAttempt = now;
-        if (! store.save (state)) { result.status = Status::unavailable; finish(); return; }
+        if (! store.save (state))
+        { result.status = Status::unavailable; result.nextAttemptAt = now + checkIntervalSeconds;
+          finish(); return; }
         result.checkedAt = now;
         result.nextAttemptAt = now + checkIntervalSeconds;
         auto response = configuration.fetch (cancelled);

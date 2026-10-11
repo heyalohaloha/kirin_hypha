@@ -28,6 +28,8 @@ const PIN_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveCompar
 const EDITOR_AUTO_CPP: &str = include_str!("../../juce_shell/src/PluginEditorLiveCompareAuto.cpp");
 const MATCH_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareMatch.cpp");
 
+#[path = "rt_safety_content_timing_tests.rs"]
+mod content_timing_tests;
 #[path = "rt_safety_live_blind_tests.rs"]
 mod live_blind_tests;
 #[path = "rt_safety_live_compare_reentry_tests.rs"]
@@ -297,33 +299,6 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
     assert_eq!(refused(EDITOR_REFERENCE_CPP, version), 1, "VERSION BLIND");
     let controller = "Activity::audition).refused()";
     assert_eq!(refused(REFERENCE_PENDING_CPP, controller), 2, "controller");
-}
-
-// INV-LC7 / LC10: the content offset is measured off the Audio Thread and only shown; a jump the
-// monitor settles holds POST, with PRE still selected, until playback stops.
-#[test]
-fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() {
-    let rt = function_body(
-        PROCESSOR_CPP,
-        "void KirinHyphaProcessorBase::processLiveCompare",
-    );
-    assert!(rt.contains("preSelected && ! contentHeld"));
-    assert!(rt.contains("if (! block.playing)"));
-    assert!(rt.contains("liveCompare.contentHold.store (false, std::memory_order_release);"));
-    assert!(!rt.contains("measureOffset") && !rt.contains("estimateOffset"));
-    let monitor = function_body(
-        EDITOR_LIVE_COMPARE_CPP,
-        "bool KirinHyphaEditor::monitorLiveCompareOffset",
-    );
-    assert!(monitor.contains("if (step.jumped)"));
-    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump (step.lagFrames);"));
-    assert_eq!(
-        EDITOR_LIVE_COMPARE_CPP
-            .matches("holdLiveCompareForContentJump")
-            .count(),
-        1,
-        "only the settled jump holds POST"
-    );
 }
 
 // INV-LC15: PIN fixes one project range without padding or joining, goes through Local Blind's own

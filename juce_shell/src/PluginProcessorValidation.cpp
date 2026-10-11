@@ -97,6 +97,15 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
     else lines.add ("Last callback: unavailable / concurrent read");
     if (isPostRole())
     {
+        const auto offsetLine = [&] (const char* label, const hypha::live_compare::OffsetEstimate& e)
+        {
+            lines.add (juce::String (label) + ": lag " + number (e.lagFrames)
+                + " / peak " + juce::String (e.peak, 4) + " / dominance " + juce::String (e.dominance, 2)
+                + " / K " + number (e.clockK) + " / block " + number (e.blockFrames)
+                + " / Hz " + juce::String (e.sampleRate, 0));
+        };
+        offsetLine ("Content timing estimate", liveCompare.offsetFacts);
+        offsetLine ("Content timing hold", liveCompare.contentJumpFacts);
         const char* validationIssues[] {
             "not requested", "scheduled", "POST only", "exact PRE pair unavailable",
             "live clock unavailable", "previous attempt reset; retry", "request rejected"

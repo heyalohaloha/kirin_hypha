@@ -160,7 +160,7 @@ impl DeltaHistoryState {
                 post_point.generation,
                 post_point.run_id,
             );
-            let expected_step = u64::from(sample_rate / 10).max(1);
+            let expected_step = ((u64::from(sample_rate) + 5) / 10).max(1);
             let continuous = self
                 .last_joined_axis
                 .is_some_and(|(observed, endpoint, source)| {

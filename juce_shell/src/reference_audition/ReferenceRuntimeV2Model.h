@@ -143,6 +143,8 @@ namespace hypha::reference_audition
     // B の一覧と Balance に出す、曲の既定の Cue の Kirin OS の値（ranges）。無ければ NaN・空。
     struct RuntimeSongFacts
     {
+        juce::String sourcePath; // Worker-side file availability; never displayed or serialized.
+        bool sourceMissing = false;
         double lufsI = std::numeric_limits<double>::quiet_NaN();
         double maxTruePeak = std::numeric_limits<double>::quiet_NaN();
         std::vector<double> spectrumCentersHz;

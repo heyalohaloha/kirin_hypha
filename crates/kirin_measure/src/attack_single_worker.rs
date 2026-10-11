@@ -39,7 +39,7 @@ impl AttackRuntime {
             return;
         }
         let mut tail_known = true;
-        if request.pair_kind == 4 && request.proof_token == [0; 32] {
+        if request.pair_kind == 2 || (request.pair_kind == 4 && request.proof_token == [0; 32]) {
             let next = if request.band.is_some() {
                 worker
                     .events

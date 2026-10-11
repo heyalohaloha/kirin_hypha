@@ -141,8 +141,10 @@
         assert!(body
             .contains("&& (stateCode == 1 || playing || nonRealtimeMode || hasClockEnd);"));
         assert!(!body.contains("&& (stateCode == 1 || measurementTimelineActive"));
-        assert!(body.contains("windowPositionSamples,\n                                             windowNumFrames, clockSource, presentationSource"));
-        assert!(body.contains("windowAuxiliary.valid, windowAuxiliary.samples"));
+        assert!(body.contains("feedMeasurementInput (buffer, processClock"));
+        let input = include_str!("../../../juce_shell/src/PluginProcessorMeasurementIngress.cpp");
+        assert!(input.contains("windowNumFrames, clock.clockSource, clock.presentationSource"));
+        assert!(input.contains("auxiliary.valid, auxiliary.samples"));
         assert!(body
             .contains("kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive"));
         // The Session producer, not editor polling, now owns measurement/MAX time (B-705).
@@ -177,6 +179,9 @@
             "void KirinHyphaProcessorBase::processBlock",
             "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
+        assert!(process.contains("feedMeasurementInput (buffer,"));
+        let process = process.to_string()
+            + include_str!("../../../juce_shell/src/PluginProcessorMeasurementIngress.cpp");
         assert!(
             process.contains("needed <= scratchCapacitySamples")
                 && process.contains("kirin_hypha_note_oversized_drop")

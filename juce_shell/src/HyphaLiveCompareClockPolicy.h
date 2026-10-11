@@ -13,8 +13,12 @@ struct Certificate
 {
     live_compare::ClockAuthority authority = live_compare::ClockAuthority::none;
     std::uint32_t maximumDelaySamples = 0;
+    bool measured = false; // the exact host build whose clock proof was measured, not inferred
 };
 
+// Pro Tools' documented maximum delay compensation per sample-rate family. The bound is the
+// only loop-occurrence authority the engine clock has: a bounded initial-loop K is unique only
+// while the chain's delay stays within it.
 inline std::uint32_t proToolsDelayBound (double rate) noexcept
 {
     const auto equal = [rate] (double expected) { return std::abs (rate - expected) < 0.5; };
@@ -22,6 +26,24 @@ inline std::uint32_t proToolsDelayBound (double rate) noexcept
     if (equal (88200.0) || equal (96000.0)) return 32767;
     if (equal (176400.0) || equal (192000.0)) return 65534;
     return 0;
+}
+
+// Pro Tools reports its build as "YY.m.p.b" (26.4.1.179), as a marketing year "YYYY.m" or, before
+// 2018, as "12.8.3". The engine clock proof needs two host facts that hold from 12.6 on: the
+// delay-compensation bound above, and the delay-compensation-state notification (INV-LC8) without
+// which a disabled compensation could not be told apart from a proven one. Older builds and
+// anything that is not a dotted number fail closed.
+inline bool proToolsBuildCertified (const juce::String& version) noexcept
+{
+    juce::StringArray parts;
+    parts.addTokens (version, ".", {});
+    if (parts.size() < 2) return false;
+    for (const auto& part : parts)
+        if (part.isEmpty() || ! part.containsOnly ("0123456789")) return false;
+    auto major = parts[0].getIntValue();
+    const auto minor = parts[1].getIntValue();
+    if (major >= 2000) major -= 2000; // a marketing year: 2018 and later follow 12.8
+    return major > 12 || (major == 12 && minor >= 6);
 }
 
 inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
@@ -32,15 +54,16 @@ inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
     const bool studioPro812 = executableName == "Studio Pro"
         && (executableVersion == "8.1.2 Build 113407" || executableVersion == "8.1.2.113407");
     if (wrapper == juce::AudioProcessor::wrapperType_VST3 && studioPro812)
-        return { live_compare::ClockAuthority::certifiedContent, 0 };
-    // The measured Developer host reports 26.4.0.5, not Pro Tools' marketing year.
-    // Keep this exact: AddClock is useful only after the corresponding host build has qualified
-    // the bounded-engine proof, so a nearby patch or the marketing string must fail closed.
-    const bool proToolsDeveloper26405
-        = (executableName == "Pro Tools" || executableName == "ProTools")
-        && executableVersion == "26.4.0.5";
-    if (wrapper == juce::AudioProcessor::wrapperType_AAX && proToolsDeveloper26405)
-        return { live_compare::ClockAuthority::boundedAaxEngine, proToolsDelayBound (rate) };
+        return { live_compare::ClockAuthority::certifiedContent, 0, true };
+    // Pro Tools' executable is "ProTools" on Windows, "Pro Tools" in the macOS bundle and
+    // "Pro Tools Developer" inside the Developer bundle. Every build from 12.6 on carries the
+    // bounded engine clock; the measured build (26.4.0.5) is the one whose proof was verified.
+    const bool proTools = executableName == "Pro Tools" || executableName == "ProTools"
+        || executableName == "Pro Tools Developer";
+    if (wrapper == juce::AudioProcessor::wrapperType_AAX && proTools
+        && proToolsBuildCertified (executableVersion))
+        return { live_compare::ClockAuthority::boundedAaxEngine, proToolsDelayBound (rate),
+                 executableVersion == "26.4.0.5" };
     return {};
 }
 

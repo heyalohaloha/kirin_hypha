@@ -124,15 +124,23 @@ fn wrapper_latency_definition_change_invalidates_old_history_then_recovers_align
 }
 
 #[test]
-fn local_clock_cannot_enter_state_epoch_modes_and_invalid_coordinates_fail_closed() {
+fn local_clock_only_enters_absolute_and_spectrum_and_invalid_coordinates_fail_closed() {
     let runtime = runtime();
-    for mode in [AnalysisViewMode::Perceptual, AnalysisViewMode::Absolute] {
+    for mode in [AnalysisViewMode::Absolute, AnalysisViewMode::Perceptual] {
         assert!(runtime.set_analysis_mode(mode));
-        assert!(!runtime.push_block_from_audio_with_clock(
-            &[0.0; 512],
-            2,
-            Some(SpectrumInputClock::LocalProject(0))
-        ));
+        for clock in [
+            SpectrumInputClock::LocalProject(0),
+            SpectrumInputClock::LocalRender(0),
+        ] {
+            assert_eq!(
+                runtime.push_block_from_audio_with_clock(&[0.0; 512], 2, Some(clock)),
+                mode == AnalysisViewMode::Absolute
+            );
+            assert_eq!(
+                runtime.output_latency_unavailable(),
+                mode == AnalysisViewMode::Perceptual
+            );
+        }
     }
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Spectrum));
     assert!(!runtime.push_block_from_audio_with_clock(&[0.0; 512], 2, None));
@@ -174,4 +182,91 @@ impl SpectrumRuntime {
         let _guard = self.history.lock().unwrap();
         inspect()
     }
+}
+
+#[test]
+fn missing_output_latency_is_perceptual_only_and_clears_on_an_aligned_clock() {
+    let runtime = runtime();
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    for clock in [
+        SpectrumInputClock::LocalProject(0),
+        SpectrumInputClock::LocalRender(0),
+    ] {
+        assert!(!runtime.push_block_from_audio_with_clock(&[0.1; 512], 2, Some(clock)));
+        assert!(runtime.output_latency_unavailable());
+        assert!(!runtime.push_block_from_audio_with_clock(&[0.1; 512], 2, None));
+        assert!(runtime.output_latency_unavailable());
+        assert!(runtime.push_block_from_audio_with_clock(
+            &[0.1; 512],
+            2,
+            Some(SpectrumInputClock::LegacyPresentation(0))
+        ));
+        assert!(!runtime.output_latency_unavailable());
+    }
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn changing_analysis_mode_retires_missing_latency_before_the_next_audio_block() {
+    let runtime = runtime();
+    for mode in [AnalysisViewMode::Absolute, AnalysisViewMode::Spectrum] {
+        assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+        assert!(!runtime.push_block_from_audio_with_clock(
+            &[0.1; 512],
+            2,
+            Some(SpectrumInputClock::LocalProject(0))
+        ));
+        assert!(runtime.output_latency_unavailable());
+        assert!(runtime.set_analysis_mode(mode));
+        assert!(!runtime.output_latency_unavailable());
+        assert!(runtime.push_block_from_audio_with_clock(
+            &[0.1; 512],
+            2,
+            Some(SpectrumInputClock::LocalRender(0))
+        ));
+        assert!(!runtime.output_latency_unavailable());
+        assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+        assert!(!runtime.output_latency_unavailable());
+    }
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn late_latency_refusal_cannot_cross_an_analysis_selection_generation() {
+    let runtime = runtime();
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    let old_selection = runtime.selection.load(Ordering::Acquire);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
+    runtime
+        .output_latency_unavailable
+        .store(old_selection, Ordering::Release);
+    assert!(!runtime.output_latency_unavailable());
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(!runtime.output_latency_unavailable());
+    assert!(!runtime.push_block_from_audio_with_clock(
+        &[0.1; 512],
+        2,
+        Some(SpectrumInputClock::LocalProject(0))
+    ));
+    assert!(runtime.output_latency_unavailable());
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn clock_revision_overflow_cannot_reuse_an_old_definition() {
+    let runtime = runtime();
+    runtime.clock_revision.store(u64::MAX, Ordering::Release);
+    assert!(!runtime.push_block_from_audio_with_clock(
+        &[0.0; 512],
+        2,
+        Some(SpectrumInputClock::LocalProject(0))
+    ));
+    assert_eq!(runtime.spectrum_clock_revision(), 0);
+    assert!(!runtime.push_block_from_audio_with_clock(
+        &[0.0; 512],
+        2,
+        Some(SpectrumInputClock::LocalRender(0))
+    ));
+    assert_eq!(runtime.spectrum_clock_revision(), 0);
+    runtime.shutdown_and_join();
 }

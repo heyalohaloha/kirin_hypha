@@ -1,7 +1,7 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "LiveBlindLoopFixture.h"
 
@@ -274,7 +274,7 @@ private:
                 {
                     using Reason = hypha::live_compare::RecoveryReason;
                     faultGain = post->liveCompareStatus().gain;
-                    if (faultReason == Reason::contentChanged) post->holdLiveCompareForContentJump (-3000);
+                    if (faultReason == Reason::contentChanged) LiveTimingFixtureAccess::holdContent (*post, -3000);
                     else if (faultReason == Reason::callbackGap) injectGap.store (true);
                     else if (faultReason == Reason::stopped) play.store (false);
                     else post->kirinHostDelayCompensationStateChanged (false);
@@ -351,6 +351,8 @@ private:
                          "explicit END clears the retained cause only after its output receipt");
                 require (findView (*editor)->isAccessible() && findView (*editor)->isEnabled(),
                          "measurement accessibility restored only after END");
+                require (find (*editor, "observatory-live-pre")->isAccessible(),
+                         "the child PRE control returns to the accessibility tree after END");
                 require (post->startLiveCompare() == hypha::live_compare::StartResult::started,
                          "scope released; another session starts");
                 {
@@ -374,6 +376,8 @@ private:
             case 8:
                 if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (450)) break;
                 require (std::abs (post->liveCompareStatus().postActual - held) <= 0.0f, "window close holds approved attenuation");
+                require (post->outputDecision (hypha::output_owner::Activity::recordKeep).reason
+                             != hypha::output_owner::Reason::blindRunning, "closed Blind no longer owns the Keep exclusion");
                 suspendAudio.store (true);
                 ++stage;
                 break;
@@ -464,7 +468,7 @@ int main (int argc, char** argv)
 {
     require (argc >= 2, "usage: live Blind product test S-1.wav [--reuse]");
     auto signal = readFixture (argv[1]);
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

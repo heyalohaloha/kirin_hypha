@@ -118,11 +118,16 @@ void verifyLiveCompareFooterContract()
                     recovery.contentHeld = recovery.reason == live_compare::RecoveryReason::contentChanged;
                     recovery.compensationOff = recovery.reason == live_compare::RecoveryReason::compensationOff;
                     const auto* notice = live_compare_ui::namedRecovery (recovery);
-                    if (recovery.active && ! recovery.interrupted && (recovery.observation == live_compare::RecoveryReason::loopUnproven
+                    if (recovery.active && ! recovery.interrupted && (recovery.observation == live_compare::RecoveryReason::loopTooShort
                         || recovery.observation == live_compare::RecoveryReason::loopClockUnavailable))
                         require (live_compare_ui::namedPresentation (recovery).action
                             == live_compare_ui::RecoveryAction::none && juce::String (notice).contains ("POST"),
-                            "unprovable initial loop is explicit, not an instruction to wait, turn LOOP off or rematch");
+                            "an observed structural loop failure is explicit, not an instruction to wait or rematch");
+                    if (recovery.active && ! recovery.interrupted && ! recovery.contentHeld
+                        && ! recovery.compensationOff && recovery.observation == live_compare::RecoveryReason::loopUnproven)
+                        require (live_compare_ui::namedPresentation (recovery).action
+                            == live_compare_ui::RecoveryAction::automatic && juce::String (notice).contains ("POST"),
+                            "unconfirmed PRE timing gives its waiting reason without claiming structural unavailability");
                     observatory::LiveCompareFooter footer;
                     footer.active = recovery.active;
                     footer.preSelected = recovery.preSelected;

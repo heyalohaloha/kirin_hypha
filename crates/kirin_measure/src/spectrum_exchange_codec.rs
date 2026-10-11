@@ -119,6 +119,8 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
     let frame_count = cursor.u16()? as usize;
     (frame_count <= SPECTRUM_HISTORY_CAPACITY).then_some(())?;
     let clock_kind = SpectrumClockKind::decode(cursor.u16()?)?;
+    // FREQ keeps its existing two coordinate meanings. Verified AddClock is stateful-only.
+    (clock_kind != SpectrumClockKind::AaxEngine).then_some(())?;
     let request_id = Uuid::from_slice(cursor.take(16)?).ok()?;
     let mut history = SpectrumHistory::with_capacity();
     for _ in 0..frame_count {

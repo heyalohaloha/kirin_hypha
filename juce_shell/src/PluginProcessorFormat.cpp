@@ -58,7 +58,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         case kirin::PrepareAction::holdForRecord:
             heldFormat.hold (sampleRate, samplesPerBlock);
             formatChangeHeld.store (true, std::memory_order_release);
-            startTimer (50); // the held format is applied the moment Record lets go of the engine
+            requestServiceTimer(); // the held format is applied the moment Record lets go of the engine
             return;
         case kirin::PrepareAction::rebuild:
             break;
@@ -79,6 +79,12 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         hyphaHandle = nullptr;
     }
     hyphaHandle = kirin::createEngineForRoles (sampleRate, roles);
+    // Every AAX host feeds SHARP through the engine-clock route: a certified build proves K within
+    // its documented bound, any other build only through LISTEN's linear proof (AaxAnalysisClock.h).
+    // LIVE and the absolute PSB keep the project timeline, so they never wait for either proof.
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_aax_analysis_ingress (hyphaHandle,
+            wrapperType == juce::AudioProcessor::wrapperType_AAX, role == Role::Post);
     if (hyphaHandle != nullptr)
         kirin_hypha_set_chain_clock_policy (hyphaHandle,
                                            hypha::chain_clock_policy::current (wrapperType));
@@ -113,7 +119,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         const int restoreDelay = stateInformationSeen.load (std::memory_order_acquire) ? 0 : kPrepareEnableDelayTicks;
         enableDelayTicks.store (restoreDelay, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
-        startTimer (50);
+        requestServiceTimer();
     }
     // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
 }

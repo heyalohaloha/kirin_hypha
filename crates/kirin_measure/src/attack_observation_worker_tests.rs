@@ -6,7 +6,7 @@ use crate::attack_runtime::snapshot::{AttackFinish, AttackObservationAnchor};
 use std::thread;
 use std::time::{Duration, Instant};
 
-fn wait<T>(mut probe: impl FnMut() -> Option<T>) -> T {
+pub(super) fn wait<T>(mut probe: impl FnMut() -> Option<T>) -> T {
     let deadline = Instant::now() + Duration::from_secs(4);
     while Instant::now() < deadline {
         if let Some(value) = probe() {
@@ -19,7 +19,7 @@ fn wait<T>(mut probe: impl FnMut() -> Option<T>) -> T {
 fn feed(runtime: &AttackRuntime, start: i64, frames: usize, burst: bool) {
     feed_onsets(runtime, start, frames, if burst { &[20_000] } else { &[] });
 }
-fn feed_onsets(runtime: &AttackRuntime, start: i64, frames: usize, onsets: &[i64]) {
+pub(super) fn feed_onsets(runtime: &AttackRuntime, start: i64, frames: usize, onsets: &[i64]) {
     for offset in (0..frames).step_by(512) {
         let count = 512.min(frames - offset);
         let mut audio = Vec::with_capacity(count * 2);
@@ -46,7 +46,7 @@ fn feed_onsets(runtime: &AttackRuntime, start: i64, frames: usize, onsets: &[i64
     }
 }
 
-fn request(
+pub(super) fn request(
     source: snapshot::AttackSourceKey,
     event: AttackEvent,
     band: Option<AttackBand>,
@@ -235,7 +235,7 @@ fn clock_policy_force_invalid_and_same_sample_seek_retire_old_single() {
 }
 
 #[test]
-fn invalid_pcm_and_worker_stop_cannot_reuse_a_terminal_publication() {
+fn invalid_pcm_keeps_unaffected_terminal_hits_and_worker_stop_retires_them() {
     let runtime = AttackRuntime::new(48_000, 2).unwrap();
     let band = AttackBand::from_index(3).unwrap();
     runtime.set_band(Some(band));
@@ -265,13 +265,32 @@ fn invalid_pcm_and_worker_stop_cannot_reuse_a_terminal_publication() {
             .filter(|s| s.finish == AttackFinish::Full)
     });
     let before = runtime.generation.load(Ordering::Acquire);
+    let terminal = runtime.poll_single(token).unwrap();
     assert!(runtime.push_block_from_audio(&[f32::NAN; 1_024], 2, Some(48_000)));
-    wait(|| (runtime.generation.load(Ordering::Acquire) > before).then_some(()));
-    assert!(runtime.try_observation_snapshot().is_none());
-    assert_eq!(
-        runtime.poll_single(token).unwrap().finish,
-        AttackFinish::Retired
-    );
+    wait(|| {
+        runtime.try_observation_snapshot().filter(|snapshot| {
+            snapshot
+                .source
+                .is_some_and(|source| source.pcm_end >= 48512)
+        })
+    });
+    assert_eq!(runtime.generation.load(Ordering::Acquire), before);
+    assert_eq!(runtime.poll_single(token).unwrap(), terminal);
+    // A real worker stop, unlike a bad sample, retires the producer authority.
+    runtime.shutdown.store(true, Ordering::Release);
+    runtime.wake.1.notify_all();
+    wait(|| (!runtime.worker_running.load(Ordering::Acquire)).then_some(()));
+    wait(|| {
+        runtime
+            .worker
+            .lock()
+            .ok()?
+            .as_ref()?
+            .is_finished()
+            .then_some(())
+    });
+    runtime.shutdown.store(false, Ordering::Release);
+    assert!(runtime.set_enabled(true));
     feed(&runtime, 0, 48_000, true);
     let fresh = wait(|| {
         runtime.try_observation_snapshot().filter(|s| {

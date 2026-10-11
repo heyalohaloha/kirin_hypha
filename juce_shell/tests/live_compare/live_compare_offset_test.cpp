@@ -3,6 +3,7 @@
 #include "../../src/live_compare/LiveCompareOffset.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -69,6 +70,46 @@ void verifyLiveCompareOffset()
         pre[static_cast<std::size_t> (i)] = noise (i - lag);
     const auto processed = estimateOffset (post, pre, lag);
     require (processed.determined && processed.lagFrames == 0, "EQ, level and polarity do not move the peak");
+
+    // A memoryless hard clip can broaden or weaken a music-like peak. It cannot be delay
+    // proof just because the display estimator picked a lag. These fixtures contain no track
+    // recording: coloured deterministic noise, amplitude modulation and transient bursts.
+    int clippedCases = 0;
+    for (const double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+        for (const float ceiling : { 0.04f, 0.008f, 0.001f })
+        {
+            OffsetMonitor monitor;
+            for (int window = 0; window < 6; ++window)
+            {
+                const auto content = [window] (std::int64_t n) {
+                    n += window * frames;
+                    return (noise (n) + noise (n - 1) * 0.7f + noise (n - 2) * 0.4f)
+                        * (0.6f + 0.4f * std::sin (static_cast<float> (n) * 0.003f));
+                };
+                for (std::int64_t n = 0; n < frames; ++n)
+                    post[static_cast<std::size_t> (n)] = std::clamp (content (n), -ceiling, ceiling);
+                for (std::int64_t n = 0; n < frames + 2 * lag; ++n)
+                    pre[static_cast<std::size_t> (n)] = content (n - lag);
+                auto e = estimateOffset (post, pre, lag); e.sampleRate = rate;
+                require (! monitor.observe (e, false).jumped, "changing clipped content never holds without a delay change");
+            }
+            ++clippedCases;
+        }
+    // Genuine latency changes remain visible through hard clipping when the peak is strong.
+    OffsetMonitor delayedClip;
+    for (const std::int64_t delay : { 0, 0, 120, 120 })
+    {
+        for (std::int64_t n = 0; n < frames; ++n)
+            post[static_cast<std::size_t> (n)] = std::clamp (noise (n - delay), -0.03f, 0.03f);
+        for (std::int64_t n = 0; n < frames + 2 * lag; ++n)
+            pre[static_cast<std::size_t> (n)] = noise (n - lag);
+        auto e = estimateOffset (post, pre, lag); e.sampleRate = 96000;
+        const auto step = delayedClip.observe (e, false);
+        if (delay == 120 && step.settled)
+            require (step.jumped, "a known clipped delay still holds with strong evidence");
+        require (offsetCanVote (e), "the delayed clip positive control retains a strong peak");
+    }
+    std::printf ("Clipped offset: PASS %d rate/clip cases (6 windows each) + known delay\n", clippedCases);
 
     // Nothing to say: silence, a pure tone (every period looks alike), an echo as strong as the direct.
     require (! estimate ([] (std::int64_t) { return 0.0f; }, 0).determined, "silence is undetermined");

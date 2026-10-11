@@ -1,3 +1,4 @@
+#include "TestTemporaryDirectory.h"
 #include "../src/appearance/AppearanceContract.h"
 #include "../src/appearance/AppearanceFileLock.h"
 #include "../src/appearance/AppearanceService.h"
@@ -40,7 +41,7 @@ juce::String activationJson (const juce::String& id = activationId)
 
 juce::File makeRoot()
 {
-    const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto root = hypha::tests::temporaryParent()
         .getNonexistentChildFile ("kirin-hypha-appearance", {}, false);
     KIRIN_APPEARANCE_REQUIRE (root.createDirectory().wasOk());
     return root;

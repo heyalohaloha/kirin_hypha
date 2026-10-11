@@ -1,3 +1,4 @@
+#include "LiveCompareNotifiedStopTest.h"
 #include "LiveCompareHostModel.h"
 
 #include <atomic>
@@ -246,6 +247,7 @@ static void concurrentReadersNeverSeeTornBlocks()
 
 int main()
 {
+    hypha::tests::verifyNotifiedTransportStop (require);
     rawClockOriginsNeverSilentlyShareAProof();
     measuredHostsNeverAcceptWrongPre();
     postOnlySleepIsCaughtByTheGapRule();

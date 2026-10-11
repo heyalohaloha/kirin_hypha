@@ -30,6 +30,8 @@ pub enum ComparisonReason {
     UnsupportedMetric = 10,
     /// The local POST stopped while its exact PRE binding remains selected.
     LocalInactive = 11,
+    /// The host explicitly bypassed the local POST.
+    LocalBypassed = 12,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

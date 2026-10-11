@@ -221,3 +221,7 @@ mod cadence_tests;
 #[cfg(test)]
 #[path = "attack_navigation_snapshot_tests.rs"]
 mod navigation_tests;
+
+#[cfg(test)]
+#[path = "attack_post_only_single_tests.rs"]
+mod post_only_tests;

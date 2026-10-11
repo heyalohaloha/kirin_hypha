@@ -7,7 +7,7 @@
 #include "../src/PluginProcessor.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 #include "LocalBlindSignalFixture.h"
 
 #include <atomic>
@@ -285,7 +285,7 @@ int main (int argc, char** argv)
 {
     require (argc == 2, "usage: reference lower A product S-1.wav");
     auto signal = readFixture (argv[1]);
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     const auto& box = sandbox.directory();

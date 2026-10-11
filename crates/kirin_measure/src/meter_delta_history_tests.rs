@@ -340,3 +340,26 @@ fn a_different_layout_is_not_subtracted_because_the_gap_is_the_map_not_the_chain
         "違う map で測った 2 本を引き算しない"
     );
 }
+
+#[test]
+fn rounded_native_hundred_ms_cells_stay_in_one_pair_run() {
+    for rate in [44056, 48048] {
+        let step = (u64::from(rate) + 5) / 10;
+        let mut delta = DeltaHistoryState::default();
+        delta.ingest(
+            &[
+                pre_point(step as i64, -20.0),
+                pre_point((2 * step) as i64, -20.0),
+            ],
+            &[
+                post_point(step, step as i64, -18.0),
+                post_point(2 * step, (2 * step) as i64, -18.0),
+            ],
+            rate,
+        );
+        let history = delta.history.recent(MeterHistoryResolution::Hz10, 10);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].run_id, history[1].run_id);
+        assert!(history[1].connects_previous);
+    }
+}

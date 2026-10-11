@@ -45,6 +45,7 @@ pub(super) fn status_code(status: SpectrumViewStatus) -> u8 {
         SpectrumViewStatus::Active => 3,
         SpectrumViewStatus::Unavailable => 4,
         SpectrumViewStatus::InUse => 5,
+        SpectrumViewStatus::OutputLatencyUnavailable => 6,
     }
 }
 

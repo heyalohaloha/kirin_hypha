@@ -1,9 +1,11 @@
+#include "TestTemporaryDirectory.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_os_fixture.h"
 #include "reference_runtime_v2_refresh_test_support.h"
 #include "reference_runtime_lazy_presets_test_support.h"
 #include "reference_runtime_lazy_candidates_test_support.h"
 #include "reference_runtime_test_entries.h"
+#include "ReferenceRepairTestEntry.h"
 int main (int argc, char** argv)
 {
     if (testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
@@ -11,10 +13,10 @@ int main (int argc, char** argv)
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
     testRuntimeV2SourceCache();
-    const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto sandbox = hypha::tests::temporaryParent()
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
-    if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox)) return 0;
+    if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox) || runReferenceRepairTests (argc, argv, sandbox)) return 0;
     testReferenceAInput();
     testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);
@@ -59,7 +61,6 @@ int main (int argc, char** argv)
     const auto source = sandbox.getChildFile ("version-a.wav");
     require (source.replaceWithText ("immutable measured source"), "source fixture must be written");
     const auto sourceHash = juce::SHA256 (source).toHexString();
-
     const auto root = sandbox.getChildFile ("plugin_data").getChildFile ("hypha_ab")
                              .getChildFile ("v1");
     const auto receiptFile = root.getChildFile ("sources").getChildFile ("pending.json");

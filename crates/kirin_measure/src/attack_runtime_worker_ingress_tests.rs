@@ -96,3 +96,55 @@ fn missing_pcm_stops_at_empty_without_a_ghost_count_consuming_future_audio() {
         "unpublished later PCM stays outside the failed descriptor"
     );
 }
+
+#[test]
+fn nonfinite_sample_keeps_the_band_ring_and_rejects_only_intersecting_hits() {
+    use crate::attack_perception::band::{AttackBand, BandSpanEnd};
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let runtime = AttackRuntime::new(48000, 1).unwrap();
+        let band = AttackBand::from_index(3).unwrap();
+        runtime.set_band(Some(band));
+        runtime.enabled.store(true, Ordering::Release);
+        let analyzer = SuperFluxAnalyzer::new(48000, drum_config(1)).unwrap();
+        let mut assembler = AttackAssembler::new(analyzer, 1);
+        let mut detail = AttackDetailTracker::new(48000, 1);
+        let mut peaks = AttackPeakPicker::new();
+        let mut worker = BandWorker::new();
+        let mut audio: Vec<_> = (0..72000)
+            .map(|n| 0.1 * (std::f32::consts::TAU * 250.0 * n as f32 / 48000.0).sin())
+            .collect();
+        audio[30000] = invalid;
+        let (mut producer, consumer) = RingBuffer::new(audio.len() + 1);
+        let (_, blocks) = RingBuffer::new(1);
+        for sample in audio {
+            producer.push(sample).unwrap();
+        }
+        let mut consumers = AttackConsumers {
+            samples: consumer,
+            blocks,
+            current_samples_remaining: 72000,
+        };
+        assert!(assembler.begin_block(0, 1));
+        assert!(detail.begin_block(0, 1));
+        assert!(runtime.consume_block(
+            &mut consumers,
+            72000,
+            1,
+            &mut assembler,
+            &mut peaks,
+            &mut detail,
+            &mut worker
+        ));
+        assert_eq!(worker.ring.as_ref().unwrap().first(), 0);
+        assert_eq!(worker.ring.as_ref().unwrap().end(), 72000);
+        for (onset, expected) in [(5000, true), (28000, false), (50000, true)] {
+            assert_eq!(
+                runtime
+                    .measure_band_at(&mut worker, band, onset, onset + 14400, BandSpanEnd::Window)
+                    .is_some(),
+                expected
+            );
+        }
+        runtime.shutdown_and_join();
+    }
+}

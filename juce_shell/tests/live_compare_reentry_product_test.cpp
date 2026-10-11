@@ -1,5 +1,5 @@
 #include "../src/PluginProcessor.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "reference_rt_probe.h"
 #include <array>
@@ -90,7 +90,7 @@ private:
         else if (mode == "seek" || oddMode() || mode == "preparing-seek" || (mode == "failure-named" && restarted)) seek.store (true);
         else if (mode == "clock" || mode == "clock-blind" || mode == "preparing-clock" || mode == "failure-named") clockHole.store (true);
         else if (mode == "compensation" || mode == "preparing-dc") post->kirinHostDelayCompensationStateChanged (false);
-        else if (mode == "preparing-content") post->holdLiveCompareForContentJump (3000);
+        else if (mode == "preparing-content") LiveTimingFixtureAccess::holdContent (*post, 3000);
         else if (mode == "restore" || mode == "restore-blind")
         { juce::MemoryBlock saved; post->getStateInformation (saved); post->setStateInformation (saved.getData(), static_cast<int> (saved.getSize())); }
         else if (mode == "end") post->finishLiveCompare();
@@ -386,7 +386,7 @@ private:
 int main (int argc, char** argv)
 {
     require (argc == 3, "reentry-product S-1.wav stop|seek|clock|restore|end|blind-stop|compensation");
-    auto signal = readFixture (argv[1]); ValidationStorageSandbox sandbox;
+    auto signal = readFixture (argv[1]); ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

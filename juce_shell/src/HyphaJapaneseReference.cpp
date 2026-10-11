@@ -9,6 +9,13 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", u8"Reference初回公開待ち ／ Kirin OSは開いたまま" },
+    { "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND PUBLISH AGAIN", u8"Referenceの形式を読めません ／ Kirin OSを更新して再公開してください" },
+    { "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS", u8"Referenceの公開データを読めません ／ Kirin OSで再公開してください" },
+    { "KIRIN OS COULD NOT ANALYZE THE FILE / RETRY IN KIRIN OS", u8"Kirin OSで解析に失敗しました ／ Kirin OSでやり直してください" },
+    { "ANALYSIS FAILED", u8"解析失敗" },
+    { "This display cannot fit the Reference controls. Move the window to a larger display.", u8"この画面にはReferenceの操作が入りません。より広い画面へ窓を移してください。" },
+
     { "V...", u8"V待機" }, { "C...", u8"C待機" }, { "B...", u8"B待機" },
     { "V WAIT", u8"V待機" }, { "C WAIT", u8"C待機" }, { "B WAIT", u8"B待機" },
     { "V STOPPED", u8"Vへの切替中断" }, { "C STOPPED", u8"Cへの切替中断" }, { "B STOPPED", u8"Bへの切替中断" },

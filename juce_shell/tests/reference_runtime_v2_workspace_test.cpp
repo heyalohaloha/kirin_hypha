@@ -1,6 +1,7 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_v2_preset_test_support.h"
 #include "reference_runtime_v2_transaction_test_support.h"
+#include "ReferenceSourceFailureTest.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 
@@ -109,6 +110,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                  && sourceRepository.verifySourceFile (*exactSource.source).isEmpty(),
                  "receipt, identity, revision, full hash, and audio facts must verify together");
 
+        verifySourceFailureReasons (v2Root, sourceCandidate);
         auto sourceWithData = *exactSource.source;
         sourceWithData.measurementArtifact = stageRuntimeV2Artifact (
             v2Root, "measurements", makeRuntimeV2Measurement (exactFileHash, pcmHash));

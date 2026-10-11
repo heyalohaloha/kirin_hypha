@@ -9,6 +9,102 @@
 class LiveTimingFixtureAccess
 {
 public:
+    // qualified = a Pro Tools build (the measured 26.4.0.5 by default, or another build's version);
+    // otherwise an AAX host that is not Pro Tools (no certificate, no bound). All of them feed the
+    // AAX Perceptual route, as prepareToPlay does for every AAX host.
+    static void configureAaxClock (KirinHyphaProcessorBase& processor, bool qualified = true,
+                                   const char* version = "26.4.0.5")
+    {
+        const auto certificate = hypha::live_compare_clock_policy::classify (
+            juce::AudioProcessor::wrapperType_AAX, "Pro Tools", version, 48000);
+        processor.liveCompare.clockAuthority = qualified ? static_cast<std::uint8_t> (certificate.authority) : 0;
+        processor.liveCompare.maximumDelaySamples = qualified ? certificate.maximumDelaySamples : 0;
+        kirin_hypha_set_aax_analysis_ingress (processor.hyphaHandle, true,
+                                              processor.role == KirinHyphaProcessorBase::Role::Post);
+    }
+    static void enableFixtureWrites (KirinHyphaProcessorBase& processor)
+    { processor.enableWritesNow(); }
+    static void serviceTiming (KirinHyphaProcessorBase& processor)
+    { processor.serviceLiveCompare(); }
+    static void serviceProcessorTimer (KirinHyphaProcessorBase& processor)
+    { processor.timerCallback(); }
+    static void retirePreparedFormatRing (KirinHyphaProcessorBase& processor)
+    { processor.stopLiveCompareForFormatChange(); }
+    // Exercise the real publication slot and service path without requiring OS shared memory.
+    // This mapping has no PCM; it must never stand in for a successful LISTEN/BLIND test.
+    static bool publishUnmappedRing (KirinHyphaProcessorBase& processor)
+    {
+        auto& slot = processor.liveCompare.ring;
+        slot.retire();
+        return slot.collect() && slot.publish (std::make_unique<hypha::live_compare::SharedRingMapping>());
+    }
+    static void fadePending (KirinHyphaProcessorBase& processor, bool pending)
+    { processor.liveCompare.preAudible.store (pending); }
+    static const hypha::live_compare::SharedRingMapping* publishedRing (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.ring.control(); }
+    static bool timingRingPublished (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.ring.hasPublishedRealtime(); }
+    static hypha::live_compare::AnalysisClockReading aaxLocalClock (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.analysisClock.local; }
+    static hypha::live_compare::AnalysisClockReading aaxPairedClock (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.analysisClock.paired; }
+
+    // Drive the production input/timing/analysis transaction while another audition owns output.
+    static void processAaxAnalysisWithOtherOutputOwner (KirinHyphaProcessorBase& processor,
+                                                       juce::AudioBuffer<float>& buffer)
+    {
+        const auto clock = processor.readHostProcessClock();
+        const auto frames = static_cast<std::uint64_t> (buffer.getNumSamples());
+        const bool admitted = processor.feedMeasurementInput (buffer, clock, 0, buffer.getNumSamples(),
+            clock.positionSamples, frames, false);
+        processor.processLiveCompare (buffer, clock, false, false, true);
+        processor.pushAaxAnalysis (admitted ? frames : 0, static_cast<std::uint32_t> (buffer.getNumChannels()), 0);
+    }
+
+    static void timingObservation (KirinHyphaProcessorBase& processor,
+        hypha::live_compare::RecoveryReason reason, std::uint8_t authority)
+    {
+        auto& state = processor.liveCompare;
+        state.clockAuthority = authority;
+        state.sessionActive.store (true);
+        state.selection.select (true);
+        state.preWaiting.store (true);
+        state.observationReason.store (reason);
+    }
+    static hypha::live_compare::OffsetEstimate holdContent (KirinHyphaProcessorBase& processor, std::int64_t lag = 96)
+    {
+        hypha::live_compare::OffsetEstimate e;
+        e.determined = true; e.sampleRate = processor.preparedFormat.sampleRate > 0
+            ? processor.preparedFormat.sampleRate : 96000; e.peak = 0.4; e.dominance = 20;
+        e.lagFrames = lag; e.clockK = 4096; e.blockFrames = 512;
+        e.stopGeneration = processor.liveCompare.contentHold.generation();
+        e.timelineGeneration = processor.liveCompare.timelineGeneration.load();
+        processor.holdLiveCompareForContentJump (e);
+        return e;
+    }
+    static void blindWaiting (KirinHyphaProcessorBase& processor, hypha::live_compare::BlindStage stage)
+    { processor.liveCompare.blindStage = stage; }
+    static void compensationDisabled (KirinHyphaProcessorBase& processor, bool disabled)
+    { processor.liveCompare.compensationOff.store (disabled); }
+    static hypha::live_compare::OffsetEstimate jumpFacts (const KirinHyphaProcessorBase& processor)
+    { return processor.liveCompare.contentJumpFacts; }
+    static void heldGains (KirinHyphaProcessorBase& processor)
+    {
+        processor.lastPlaying.store (true);
+        processor.liveCompare.gain.store (0.75f);
+        processor.liveCompare.postTarget.store (0.5f);
+        processor.liveCompare.postActual.store (0.5f);
+    }
+    static bool serviceTimerRunning (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.isTimerRunning(); }
+    static bool serviceUpdatePending (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.isUpdatePending(); }
+    static bool retainsFadeSource (const KirinHyphaProcessorBase& processor) noexcept
+    {
+        const auto* mapping = processor.liveCompare.ring.control();
+        return processor.liveCompare.ring.hasPublishedRealtime() && mapping != nullptr
+            && mapping->ring() != nullptr && mapping->ring()->header.demand.load() == 1;
+    }
     static bool configureStudioProClock (KirinHyphaProcessorBase& processor) noexcept
     {
         const auto certificate = hypha::live_compare_clock_policy::classify (

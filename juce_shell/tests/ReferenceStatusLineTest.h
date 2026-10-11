@@ -204,6 +204,9 @@ inline void verifyReferenceStatusLine()
                      && ! i18n::translate (line.text, i18n::Language::japanese).contains ("RETRY"),
                  "a song Kirin OS cannot find says so with its fix, in Japanese too");
         preparing.referenceStep = Step::ready;
+        require (reference_ui::referenceStatusLine (preparing).kind == StatusKind::unable,
+                 "a ready marker cannot hide an explicit source failure");
+        preparing.rolePreparation = {};
         require (reference_ui::referenceStatusLine (preparing).text == "READY / A REMAINS LIVE", "a ready song reads ready");
         using P = reference_audition::RuntimeSongPreparation;
         require (reference_ui::preparationWord (P { "pending", "queued", {}, {}, "working", 3 }) == "3 AHEAD"
@@ -263,8 +266,8 @@ inline void verifyReferenceStatusLine()
     require (watch.observe (2, Step::waitingForKirinOs, false, false, false, 300.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, false, false, 320.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0).isEmpty()
-                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 331.5) == "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS",
-             "a Kirin OS that does not answer 5 s after it opens is reported (a closed one already says open it)");
+                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 331.5) == "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN",
+             "an open Kirin OS without a publication reports publication wait, not application failure");
     // MATCH に使う A の音量：B・V は再生 10 秒ぶん、C は A の直近が Cue の長さ（最長 30 秒）たまるまで待つので 35 秒ぶん。
     for (double now = 500.0; now <= 520.0; now += 0.5)
         require (watch.observe (2, Step::ready, true, true, true, now).isEmpty(), "C waits for up to 30 s of A");
@@ -279,7 +282,7 @@ inline void verifyReferenceStatusLine()
              "waiting for the user's own action has no time limit");
     for (const auto* reason : { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
                                 "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
-                                "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
+                                "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
                                 "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
                                 "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN" })
         require (i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese) != juce::String ("V: ") + reason

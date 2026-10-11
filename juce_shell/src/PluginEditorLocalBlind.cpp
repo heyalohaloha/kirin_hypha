@@ -243,21 +243,16 @@ void KirinHyphaEditor::setLocalBlindIsolation (bool active)
     if (active && localBlindUnderlyingStates.empty())
     {
         tooltip.hideTip();
-        const auto conceal = [this] (auto&& self, juce::Component* component, bool root) -> void
-        {
-            localBlindUnderlyingStates.push_back (
-                { component, component->isAccessible(), component->isEnabled(), root });
-            component->setAccessible (false);
-            for (int index = 0; index < component->getNumChildComponents(); ++index)
-                self (self, component->getChildComponent (index), false);
-            if (root) component->setEnabled (false);
-        };
         for (int index = 0; index < scaleRoot.getNumChildComponents(); ++index)
         {
             auto* component = scaleRoot.getChildComponent (index);
             if (component == &localBlindView || component == &liveBlindView || component == &versionBlindView)
                 continue;
-            conceal (conceal, component, true);
+            // Descendants inherit isolation; keep their own accessibility flags untouched.
+            localBlindUnderlyingStates.push_back (
+                { component, component->isAccessible(), component->isEnabled(), true });
+            component->setAccessible (false);
+            component->setEnabled (false);
         }
         return;
     }
@@ -270,6 +265,8 @@ void KirinHyphaEditor::setLocalBlindIsolation (bool active)
             state.component->setAccessible (state.accessible);
         }
         localBlindUnderlyingStates.clear();
+        if (auto* handler = getAccessibilityHandler())
+            handler->notifyAccessibilityEvent (juce::AccessibilityEvent::structureChanged);
     }
 }
 

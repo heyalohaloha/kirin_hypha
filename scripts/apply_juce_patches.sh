@@ -121,3 +121,13 @@ apply_patch_idempotent \
   "0012-au-studio-one-window-relayout.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0013" \
+  "0013-vst3-custom-editor-size-constraint.patch" \
+  --ignore-whitespace
+
+apply_patch_idempotent \
+  "0014" \
+  "0014-au-reset-transport-evidence.patch" \
+  --ignore-whitespace

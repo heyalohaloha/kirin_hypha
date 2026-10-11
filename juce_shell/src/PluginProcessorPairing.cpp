@@ -213,10 +213,10 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::requestLocalBlindP
             generation, static_cast<std::int64_t> (std::llround (clock.rate)) * 4, request))
     {
         localBlindProductSession.failCaptureRequest();
-        startTimer (50);
+        requestServiceTimer();
         return Admission::requestFailed;
     }
-    startTimer (50);
+    requestServiceTimer();
     return Admission::ready;
 }
 
@@ -246,13 +246,13 @@ void KirinHyphaProcessorBase::cancelLocalBlindProductSession()
 {
     localBlindProductSession.invalidate();
     localBlindCapture.requestReset();
-    startTimer (50);
+    requestServiceTimer();
 }
 
 hypha::local_blind::TrialReturnFacts KirinHyphaProcessorBase::requestLocalBlindNormalReturn()
 {
     const auto facts = localBlindProductSession.requestNormalReturn();
-    startTimer (50);
+    requestServiceTimer();
     return facts;
 }
 

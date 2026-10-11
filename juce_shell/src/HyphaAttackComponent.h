@@ -42,6 +42,7 @@ namespace hypha
         std::uint64_t singleRequestToken() const noexcept { return v2->token; }
         std::uint8_t snapshotTargetV2() const noexcept { return v2->target; }
         void retireV2();
+        void setAnalysisUnavailable (const juce::String&);
         void beginSnapshotV2();
         const attack_v2::Presentation& presentationSnapshotV2() const noexcept;
         capture::PresentationStamp capturePresentationStamp() const noexcept;
@@ -107,6 +108,7 @@ namespace hypha
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
+        juce::String analysisUnavailable;
         std::unique_ptr<attack_v2::State> v2 = std::make_unique<attack_v2::State>();
         std::optional<attack_v2::Presentation> evidenceV2;
         int evidenceScrollV2 = 0;

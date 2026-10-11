@@ -95,11 +95,11 @@ hypha::live_compare::LivePinResult KirinHyphaProcessorBase::pinLiveCompareForBli
         || ! localBlindProductSession.acceptCapturedPair (request, *post, *pre, hypha::reference_audition::secureRandomBit))
     {
         localBlindProductSession.failCaptureRequest();
-        startTimer (50);
+        requestServiceTimer();
         result.admission = Admission::requestFailed;
         return result;
     }
-    startTimer (50);
+    requestServiceTimer();
     result.pinned = true;
     return result;
 }

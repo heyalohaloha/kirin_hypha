@@ -7,12 +7,23 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "This DAW does not report output latency; this view is unavailable", u8"このDAWは出力の遅れを知らせないため使えません" },
+    { "PSB: POST loudness share in each Bark band.", u8"PSB：Bark帯域ごとのPOSTの音量の割合です。" },
+    { "PSB: POST - PRE loudness share in each Bark band. This view needs DAW output latency.",
+      u8"PSB：Bark帯域ごとの音量の割合の差（POST − PRE）です。DAWから出力の遅れの通知が必要です。" },
+    { "Sharpness Delta is POST minus PRE. Unit: acum (DIN 45692). This view needs DAW output latency.", u8"シャープネスのΔはPOST − PRE。単位はacum（DIN 45692）。DAWから出力の遅れの通知が必要です。" },
+    // An AAX host without a certified clock loops a range: the difference waits for linear playback.
+    { "Loop Playback on: turn it off to compare", u8"ループ再生がオン：オフにすると差分を出せます" },
+    { "LIVE shows POST values on fixed scales.", u8"LIVEはPOSTの値を固定の目盛りで表示します。" },
+    { "ALL: measure each hit across the full signal.", u8"ALL：打音ごとに音全体を測ります。" },
+    { "BAND: measure each hit in the selected octave band.", u8"BAND：打音ごとに選んだオクターブ帯域を測ります。" },
+    { "SHAPE(f) = POST(f) - PRE(f) - LEVEL OFFSET  dB", u8"SHAPE（f）= POST（f）− PRE（f）− 音量差  dB" },
+
     // Shared analysis states.
     { "INACTIVE", u8"入力なし" },
     { "PREPARING ANALYSIS", u8"解析を準備中" },
     { "ANALYSIS DATA UNAVAILABLE", u8"解析データがありません" },
     { "ANALYSIS IN USE", u8"解析を使用中" },
-    { "ANALYSIS SLOTS IN USE", u8"解析の枠を使用中" },
     { "PAIR PRE TO VIEW DIFFERENCE\nPOST SHARPNESS IS IN LIVE",
       u8"差分を見るにはPREとペアにしてください\nPOSTのシャープネスはLIVEにあります" },
 
@@ -50,7 +61,6 @@ const Entry entries[] = {
     { "SHAPE: spectral difference after same-window energy normalization",
       u8"SHAPE：同じ窓で全体のエネルギーをそろえてから求めたスペクトラムの差" },
     { u8"SHAPE — LOW ENERGY", u8"SHAPE — 低エネルギー" },
-    { "PSB: perceptual share by Bark band", u8"PSB：Bark帯域ごとの知覚上の割合" },
     { "Spectrum: frequency level and difference", u8"スペクトラム：周波数ごとのレベルと差分" },
     { "Return to Spectrum", u8"スペクトラムに戻ります" },
     { "Show perceptual spectral balance", u8"知覚上の帯域バランスを表示します" },
@@ -79,8 +89,6 @@ const Entry entries[] = {
     // SHARP and LIVE help.
     { "Sharpness Delta is POST minus PRE. Unit: acum (DIN 45692).",
       u8"シャープネスの差分（POST − PRE）です。単位：acum（DIN 45692）。" },
-    { "LIVE shows absolute POST facts on independent fixed scales.",
-      u8"LIVEは、POSTの絶対値をそれぞれ固定の目盛りで表示します。" },
     { "LUFS-M: 400 ms momentary loudness. Absolute POST value.",
       u8"LUFS-M：400 msのモーメンタリーラウドネスです。POSTの絶対値です。" },
     { "True Peak: highest inter-sample peak in 400 ms. Unit: dBTP.",

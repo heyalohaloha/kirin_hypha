@@ -135,3 +135,13 @@ fn unresolved_name_is_not_an_exact_pair_during_stop() {
         .store(SignalState::Inactive as u8, Ordering::Release);
     assert_eq!(f.tick().comparison.reason, ComparisonReason::NoPair);
 }
+
+#[test]
+fn local_bypass_has_its_own_reason_and_resume_drops_it() {
+    let f = Fixture::new("");
+    f.signal
+        .store(SignalState::Bypassed as u8, Ordering::Release);
+    assert_eq!(f.tick().comparison.reason, ComparisonReason::LocalBypassed);
+    f.signal.store(SignalState::Active as u8, Ordering::Release);
+    assert_eq!(f.tick().comparison.reason, ComparisonReason::None);
+}

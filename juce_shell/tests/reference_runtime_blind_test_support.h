@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reference_runtime_test_support.h"
+#include "ReferenceEventRetryTest.h"
 
 namespace
 {
@@ -116,6 +117,7 @@ namespace
         context.cueLabel = "Chorus";
         context.comparisonMode = "loudness_match";
 
+        hypha::tests::event_retry::verify (sandbox, context);
         ref::RuntimeEventTransport transport (root);
         const auto eventId = ref::RuntimeEventTransport::uuidV4();
         const auto runId = ref::RuntimeEventTransport::uuidV4();

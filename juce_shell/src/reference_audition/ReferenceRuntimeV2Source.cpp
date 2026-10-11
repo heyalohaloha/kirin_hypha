@@ -411,13 +411,15 @@ namespace hypha::reference_audition
         const auto revisionFailure = verifySourceRevision (source);
         if (revisionFailure.isNotEmpty())
             return revisionFailure;
-        if (juce::SHA256 (file).toHexString() != source.sourceFileSha256)
+        auto input = file.createInputStream();
+        if (input == nullptr || ! input->openedOk()) return "reference_source_open_failed";
+        if (juce::SHA256 (*input).toHexString() != source.sourceFileSha256)
             return "reference_source_changed";
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
         std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-        if (reader == nullptr
-            || static_cast<std::int64_t> (std::llround (reader->sampleRate)) != source.audio.sampleRateHz
+        if (reader == nullptr) return "reference_source_decode_failed";
+        if (static_cast<std::int64_t> (std::llround (reader->sampleRate)) != source.audio.sampleRateHz
             || reader->numChannels != source.audio.channels
             || reader->lengthInSamples != source.audio.totalSampleFrames)
             return "reference_source_audio_mismatch";

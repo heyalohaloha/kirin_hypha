@@ -34,6 +34,8 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
         result.status = juce::String (hypha::reference_ui::roleLetter (runtime.audibleComparisonSlot)) + " AUDITION / PRE DELTA PAUSED";
     else if (state.osAccess == Access::unowned)
         result.status = "REF REQUIRES KIRIN OS";
+    else if (runtime.state == Runtime::rejected)
+        result.status = runtime_view::rejectedStatus (runtime.rejectionCode);
     else if (state.osAccess == Access::ownedDisconnected)
         result.status = "WAITING FOR KIRIN OS REFERENCE";
     else if (runtime.state == Runtime::ready)
@@ -46,8 +48,6 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
         result.status = "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN";
     else if (runtime.state == Runtime::verifying)
         result.status = "VERIFYING SOURCE";
-    else if (runtime.state == Runtime::rejected)
-        result.status = runtime_view::rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
         result.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION V"
             : runtime.rejectionCode == "reference_alignment_waiting_for_content" ? "PLAY A / ALIGNING VERSION V"

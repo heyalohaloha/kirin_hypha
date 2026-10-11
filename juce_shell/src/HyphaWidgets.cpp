@@ -135,6 +135,8 @@ namespace hypha
     EditableName::EditableName()
     {
         setWantsKeyboardFocus (true);
+        setTitle ("PRE name");
+        setDescription ("Press Return or Space to edit the PRE name");
 
         editor = std::make_unique<juce::TextEditor>();
         editor->setWantsKeyboardFocus (true);
@@ -210,16 +212,34 @@ namespace hypha
         repaint();
     }
 
+    void EditableName::activate()
+    {
+        if (! editingEnabled || ! isEnabled()) return;
+        if (onSelect) onSelect();
+        else if (! editing) startEditing();
+    }
+
+    std::unique_ptr<juce::AccessibilityHandler> EditableName::createAccessibilityHandler()
+    {
+        class Handler final : public juce::AccessibilityHandler
+        {
+        public:
+            Handler (juce::Component& name, juce::AccessibilityActions actions)
+                : AccessibilityHandler (name, juce::AccessibilityRole::button, std::move (actions)) {}
+            juce::String getTitle() const override
+            { return text_style::shownText (getComponent().getTitle()); }
+            juce::String getDescription() const override
+            { return text_style::shownText (getComponent().getDescription()); }
+        };
+        return std::make_unique<Handler> (*this,
+            juce::AccessibilityActions().addAction (juce::AccessibilityActionType::press,
+                                                    [this] { activate(); }));
+    }
+
     void EditableName::mouseDown (const juce::MouseEvent& event)
     {
-        if (onSelect)
-        {
-            if (event.getNumberOfClicks() > 1) return;
-            onSelect();
-            return;
-        }
-        if (! editing)
-            startEditing();
+        if (onSelect && event.getNumberOfClicks() > 1) return;
+        activate();
     }
 
     bool EditableName::setSelectionPreview (const juce::String& text, std::uint64_t generation)

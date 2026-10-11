@@ -177,7 +177,15 @@ test('dry-run is read-only, permits cross-OS planning, and ignores all signing s
   executePlan(plan, options, { run: () => assert.fail('dry-run ran a tool'),
     snapshot: () => assert.fail('dry-run read source'), log: value => { printed += value; } });
   assert.match(printed, /windows-x64/); assert.ok(!fs.existsSync(plan.buildDir));
-  const output = execFileSync(process.execPath, [path.join(PROJECT_ROOT, 'scripts/build_hypha.mjs'),
+  // Run the CLI from the disposable repository: TMPDIR may itself be inside PROJECT_ROOT,
+  // where this fixture SDK must remain external to the repository being tested.
+  for (const file of ['build_hypha.mjs', 'hypha_build_source.mjs', 'hypha_build_artifacts.mjs',
+    'ls_release/release_source_identity.mjs', 'updates/update_key_binding.mjs', 'updates/update_binary_slices.mjs']) {
+    const destination = path.join(f.root, 'scripts', file);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(path.join(PROJECT_ROOT, 'scripts', file), destination);
+  }
+  const output = execFileSync(process.execPath, [path.join(f.root, 'scripts/build_hypha.mjs'),
     '--sdk', f.sdk, '--license-confirmed', '--platform', 'macos', '--dry-run'], { encoding: 'utf8',
     cwd: path.dirname(f.root),
     env: { ...process.env, KIRIN_AAX_PACE_CUSTOMER_NUMBER: 'fixture-private-input' } });

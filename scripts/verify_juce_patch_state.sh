@@ -41,6 +41,8 @@ PATCHES=(
   "0010-aax-instance-group.patch::--unidiff-zero --ignore-whitespace"
   "0011-aax-engine-clock.patch::--unidiff-zero --ignore-whitespace"
   "0012-au-studio-one-window-relayout.patch::--unidiff-zero --ignore-whitespace"
+  "0013-vst3-custom-editor-size-constraint.patch::--ignore-whitespace"
+  "0014-au-reset-transport-evidence.patch::--ignore-whitespace"
 )
 
 die() {
@@ -106,11 +108,13 @@ git -C "$JUCE_DIR" checkout-index -a --prefix="$expected_tree/"
 apply_to_expected() {
   local patch="${1%%::*}"
   local flags="${1#*::}"
+  # The extracted tree is independent, including when TMPDIR is inside this checkout.
+  # Discovering the parent repository silently skips diff --git paths outside its prefix.
   if [[ -n "$flags" ]]; then
     # shellcheck disable=SC2086
-    (cd "$expected_tree" && git apply $flags "$ROOT/juce_shell/patches/$patch")
+    (cd "$expected_tree" && GIT_CEILING_DIRECTORIES="$tmp_dir" git apply $flags "$ROOT/juce_shell/patches/$patch")
   else
-    (cd "$expected_tree" && git apply "$ROOT/juce_shell/patches/$patch")
+    (cd "$expected_tree" && GIT_CEILING_DIRECTORIES="$tmp_dir" git apply "$ROOT/juce_shell/patches/$patch")
   fi
 }
 

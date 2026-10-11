@@ -38,7 +38,7 @@ void KirinHyphaProcessorBase::setMeterContextPreference (
         // trial under a newly selected context.
         localBlindProductSession.invalidate();
         if (localBlindProductSession.needsService())
-            startTimer (50);
+            requestServiceTimer();
     }
     if (changed && notifyHost)
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));

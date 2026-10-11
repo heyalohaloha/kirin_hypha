@@ -1,4 +1,6 @@
 #include "HyphaSpectrumComponent.h"
+#include "HyphaHostAvailability.h"
+#include "HyphaAnalysisUiText.h"
 #include "HyphaKeyLight.h"
 #include "HyphaPsbPainter.h"
 #include "HyphaSpectrumChromePainter.h"
@@ -84,21 +86,29 @@ void SpectrumComponent::setSignalActive (bool active)
     repaint();
 }
 
+juce::String SpectrumComponent::psbStatusText() const
+{
+    return ! absoluteObservation && comparisonStatus.isNotEmpty()
+        ? comparisonStatus
+        : host_availability::outputLatencyUnavailable (psbStatus) ? host_availability::outputLatencyText()
+        : psbStatus == KIRIN_SPECTRUM_IN_USE ? analysis_ui::slotsInUse (analysisOwnerNames)
+        : psbStatus == KIRIN_SPECTRUM_NO_PAIR ? "PRE REQUIRED FOR DELTA"
+        : ! signalActive ? "INACTIVE"
+        // The difference waits for linear playback on an uncertified AAX host, as SHARP says.
+        : ! absoluteObservation && pairingLoopBlocked && psbStatus == KIRIN_SPECTRUM_WARMING_UP
+            ? "Loop Playback on: turn it off to compare"
+        : psbStatus == KIRIN_SPECTRUM_UNAVAILABLE ? "PSB UNAVAILABLE" : "PSB WARMING";
+}
+
 void SpectrumComponent::paint (juce::Graphics& g)
 {
     const key_light::Scope light (*this);
     if (psbObservation)
     {
         const auto& values = absoluteObservation ? absolutePsb : deltaPsb;
-        const auto status = ! absoluteObservation && comparisonStatus.isNotEmpty()
-            ? comparisonStatus
-            : psbStatus == KIRIN_SPECTRUM_IN_USE ? juce::String ("ANALYSIS SLOTS IN USE")
-            : psbStatus == KIRIN_SPECTRUM_NO_PAIR ? "PRE REQUIRED FOR DELTA"
-            : ! signalActive ? "INACTIVE"
-            : psbStatus == KIRIN_SPECTRUM_UNAVAILABLE ? "PSB UNAVAILABLE" : "PSB WARMING";
         psb_painter::paint (g, getLocalBounds().toFloat(), {
             values, signalActive && (absoluteObservation ? absolutePsbAvailable : deltaPsbAvailable),
-            ! absoluteObservation, psbHoverBand, status, presentationContext });
+            ! absoluteObservation, psbHoverBand, psbStatusText(), presentationContext });
     }
     else
     {

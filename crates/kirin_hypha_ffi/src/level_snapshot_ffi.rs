@@ -32,10 +32,12 @@ fn valid_request(
 
 /// Acquire a LEVEL frame, absolute 10 Hz history and optional exact-pair chain as one packet.
 /// On false, all caller outputs remain untouched. Never called from the audio thread.
+/// A busy additional comparison read retains the caller's frame comparison fields.
 ///
 /// # Safety
 /// The handle and packet pointer are valid. Nonzero capacities name writable arrays of that
-/// many entries. No pointer may alias another output or live engine memory.
+/// many entries. Packet comparison fields are initialized. No pointer may alias another
+/// output or live engine memory.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)] // Fixed, versioned C ABI: independently bounded output arrays.
 pub unsafe extern "C" fn kirin_hypha_poll_level_snapshot(
@@ -87,7 +89,9 @@ pub unsafe extern "C" fn kirin_hypha_poll_level_snapshot(
         }) {
             return false;
         }
-        let Some(frame) = build_observatory_frame(engine, &snapshot, signal_before) else {
+        let Some((frame, comparison_busy)) =
+            build_observatory_frame(engine, &snapshot, signal_before)
+        else {
             return false;
         };
 
@@ -180,14 +184,12 @@ pub unsafe extern "C" fn kirin_hypha_poll_level_snapshot(
             unsafe { chain.add(index).write(point) };
         }
         unsafe {
-            *out = KirinLevelSnapshot {
-                version,
-                history_count,
-                chain_updated: chain_updated as u8,
-                reserved: [0; 7],
-                frame,
-                chain: chain_snapshot,
-            };
+            std::ptr::addr_of_mut!((*out).version).write(version);
+            std::ptr::addr_of_mut!((*out).history_count).write(history_count);
+            std::ptr::addr_of_mut!((*out).chain_updated).write(chain_updated as u8);
+            std::ptr::addr_of_mut!((*out).reserved).write([0; 7]);
+            write_observatory_frame(std::ptr::addr_of_mut!((*out).frame), frame, comparison_busy);
+            std::ptr::addr_of_mut!((*out).chain).write(chain_snapshot);
         }
         true
     }))

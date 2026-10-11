@@ -1,6 +1,7 @@
 #include "../../src/live_compare/LiveCompareMatch.h"
 #include "../../src/live_compare/LiveCompareOffset.h"
 #include "live_compare_offset_test.h"
+#include "OffsetConfidenceTest.h"
 
 #include <cmath>
 #include <array>
@@ -200,18 +201,29 @@ static void theMappingShowsAnUnreportedDelay()
 
 // INV-LC7 / LC10: one estimate never decides; two agreeing ones settle the offset and the run's
 // baseline, and two agreeing ones away from it are a jump, once, while not already held.
+static void weakPeaksNeverHoldPost()
+{
+    OffsetMonitor monitor;
+    OffsetEstimate e;
+    e.determined = true; e.peak = 0.4; e.dominance = 20.0; e.sampleRate = 96000;
+    monitor.observe (e, false); monitor.observe (e, false);
+    e.lagFrames = 48; e.peak = 0.08; e.dominance = 4.0;
+    monitor.observe (e, false);
+    require (! monitor.observe (e, false).jumped, "a weak processed peak cannot hold POST");
+}
+
 static void aJumpNeedsTwoAgreeingEstimates()
 {
-    const auto at = [] (std::int64_t lag) { OffsetEstimate e; e.determined = true; e.lagFrames = lag; return e; };
+    const auto at = [] (std::int64_t lag) { OffsetEstimate e; e.determined = true; e.lagFrames = lag; e.peak = 0.4; e.dominance = 20.0; e.sampleRate = 48000.0; return e; };
     OffsetMonitor monitor;
     require (! monitor.observe (at (0), false).settled, "one estimate settles nothing");
-    require (! monitor.observe (OffsetEstimate {}, false).settled, "an undetermined estimate settles nothing");
+    require (! OffsetMonitor().observe (OffsetEstimate {}, false).settled, "an undetermined estimate settles nothing");
     const auto base = monitor.observe (at (1), false);
     require (base.settled && base.lagFrames == 1 && ! base.jumped, "two agreeing estimates set the baseline");
     require (! monitor.observe (at (480), false).jumped, "a single outlier is not a jump");
     const auto jump = monitor.observe (at (481), false);
     require (jump.settled && jump.jumped && jump.lagFrames == 481, "two agreeing estimates away from it are a jump");
-    require (! monitor.observe (at (481), false).jumped, "the jump becomes the new baseline");
+    require (! monitor.observe (at (481), true).jumped, "a held jump cannot start another hold");
     monitor.observe (at (0), true);
     require (! monitor.observe (at (0), true).jumped, "while held, nothing jumps again");
 }
@@ -304,6 +316,8 @@ int main()
     measurementProofNeverBridgesAnUnverifiedBlock();
     theMappingShowsAnUnreportedDelay();
     autoFollowsWithinReachAndStopsAtTheCeiling();
+    hypha::tests::verifyOffsetConfidence (require);
+    weakPeaksNeverHoldPost();
     aJumpNeedsTwoAgreeingEstimates();
     hypha::tests::verifyLiveCompareOffset();
     std::printf ("live compare match: all checks passed\n");

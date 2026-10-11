@@ -137,6 +137,8 @@ namespace hypha::reference_audition
             juce::String completedEventId;
             std::uint64_t bConfirmationBaseline = 0;
             std::uint64_t aConfirmationBaseline = 0;
+            std::int64_t startedAtMs = 0, completedAtMs = 0, retryAtMs = 0;
+            int retries = 0;
             bool returnRequested = false;
             bool startWritten = false;
         };
@@ -148,7 +150,8 @@ namespace hypha::reference_audition
             juce::String startedEventId;
             juce::String completedEventId;
             std::int64_t startedAtMs = 0;
-            std::int64_t completedAtMs = 0;
+            std::int64_t completedAtMs = 0, retryAtMs = 0;
+            int retries = 0;
             juce::String runtimeFingerprint;
             juce::var trialStart;
             juce::var trialCompleted;
@@ -243,6 +246,9 @@ namespace hypha::reference_audition
         CandidatePreparationTransport candidatePreparationTransport;
         PresetAdoptionTransport presetAdoptionTransport;
         RuntimeEventTransport eventTransport;
+        juce::String sourceRetryKey, sourceRetryFailure;
+        std::int64_t sourceRetryAtMs = 0;
+        int sourceRetryCount = 0;
         AudioPages pages;
         RuntimeV2Blind blind;
         mutable juce::CriticalSection stateLock;

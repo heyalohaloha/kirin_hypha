@@ -162,7 +162,8 @@ impl AttackSingleControl {
         {
             return false;
         }
-        if current.finish == reply.finish
+        if current.request == reply.request
+            && current.finish == reply.finish
             && current.reason == reply.reason
             && current.band_observation == reply.band_observation
             && current.detail == reply.detail
@@ -179,8 +180,7 @@ fn allows_request_refinement(current: &AttackSingleRequest, reply: &AttackSingle
     if current == reply {
         return true;
     }
-    if current.pair_kind != 4
-        || current.proof_token != [0; 32]
+    if (current.pair_kind != 2 && (current.pair_kind != 4 || current.proof_token != [0; 32]))
         || reply.span_end != BandSpanEnd::NextHit
         || reply.measurement_end >= current.measurement_end
         || reply.requested_end != current.requested_end

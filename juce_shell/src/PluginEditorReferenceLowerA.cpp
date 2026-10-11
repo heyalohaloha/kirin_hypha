@@ -30,7 +30,7 @@ bool KirinHyphaEditor::offerReferenceLowerA (int slot, const hypha::reference_au
     if (! needsLowerA (&role)) return false;
     processorRef.markReferenceLowerAOfferShown (slot, role.matchFailureSerial);
     processorRef.selectReferenceVisualSlot (slot);
-    if (getWidth() < 900 || getHeight() < 600) setSize (900, 600);
+    if ((getWidth() < 900 || getHeight() < 600) && ! ensureReferenceRoom()) return true;
     showToast (hypha::reference_ui::notice::lowerANeeded (slot, role.neededAttenuationDb));
     return true;
 }

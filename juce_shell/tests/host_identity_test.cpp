@@ -1,4 +1,5 @@
 #include "../src/HostExecutableIdentity.h"
+#include "TestTemporaryDirectory.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -24,8 +25,7 @@ int main (int argc, char** argv)
                   << " oldFileVersion=" << executable.getVersion() << '\n';
         return identity.version.isNotEmpty() ? EXIT_SUCCESS : EXIT_FAILURE;
     }
-    juce::TemporaryFile fixture;
-    const auto directory = fixture.getFile();
+    const auto directory = hypha::tests::temporaryParent().getNonexistentChildFile ("hypha-host-identity", {}, false);
     require (directory.createDirectory(), "create disposable fixture");
     struct Cleanup { juce::File path; ~Cleanup() { path.deleteRecursively(); } } cleanup { directory };
     const auto absent = hypha::host_identity::read (directory.getChildFile ("absent"));

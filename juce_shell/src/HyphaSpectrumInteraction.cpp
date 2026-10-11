@@ -1,4 +1,5 @@
 #include "HyphaSpectrumComponent.h"
+#include "HyphaAnalysisUiText.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumUiContract.h"
@@ -21,7 +22,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         if (onSubviewChange) onSubviewChange();
         psbHoverBand = -1;
         hoverNormalisedX = -1.0f;
-        setTooltip (psbObservation ? "PSB: perceptual share by Bark band"
+        setTooltip (psbObservation ? analysis_ui::psbOverviewTooltip (absoluteObservation)
                                    : "Spectrum: frequency level and difference");
         repaint();
         return;
@@ -79,6 +80,21 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
+    const bool expanded = scale > 1.1f;
+    if (focusFrequencyHz > 0.0f)
+    {
+        auto readout = midSideObservation
+            ? spectrum_geometry::midSideReadoutBoundsFor (outerPlot, scale, expanded)
+            : spectrum_geometry::readoutBoundsFor (outerPlot, scale, expanded, true);
+        if (spectrum_geometry::focusClearBoundsFor (
+                readout, scale).contains (event.position))
+        {
+            focusFrequencyHz = -1.0f;
+            hoverNormalisedX = -1.0f;
+            repaint();
+            return;
+        }
+    }
     if (! absoluteObservation && ! midSideObservation)
     {
         const auto selector = spectrum_geometry::deltaModeBoundsFor (outerPlot, scale);
@@ -131,21 +147,6 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
 
     if (! currentSnapshotValid())
         return;
-    const bool expanded = scale > 1.1f;
-    if (focusFrequencyHz > 0.0f)
-    {
-        auto readout = midSideObservation
-            ? spectrum_geometry::midSideReadoutBoundsFor (outerPlot, scale, expanded)
-            : spectrum_geometry::readoutBoundsFor (outerPlot, scale, expanded, true);
-        if (spectrum_geometry::focusClearBoundsFor (
-                readout, scale).contains (event.position))
-        {
-            focusFrequencyHz = -1.0f;
-            hoverNormalisedX = -1.0f;
-            repaint();
-            return;
-        }
-    }
     const float controlsBottom = outerPlot.getY() + (spectrum_geometry::viewOnly (scale) ? 0.0f
         : (float) (ui_contract::spectrumChannelModeTop + ui_contract::spectrumChannelModeHeight) * scale);
     if (! plot.contains (event.position) || event.position.y < controlsBottom)

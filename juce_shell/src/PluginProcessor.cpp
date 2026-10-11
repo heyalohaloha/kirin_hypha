@@ -63,30 +63,7 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
 }
 
-KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
-{
-    stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
-    localBlindCapture.stop();
-#if ! KIRIN_HYPHA_PRE_DISPLAY
-    referenceAuditionController.reset();
-#endif
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-    preDisplayController.reset();
-#endif
-    const juce::ScopedLock sl (handleLock);
-    preparedProductMode.store (static_cast<uint8_t> (kirin::PreparedProductMode::none), std::memory_order_release);
-    if (hyphaHandle != nullptr)
-    {
-        if (role == Role::Post)
-        {
-            kirin_hypha_set_spectrum_visible (hyphaHandle, false);
-            kirin_hypha_set_attack_enabled (hyphaHandle, false);
-        }
-        kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr;
-        analysisApplication.engineDestroyed();
-    }
-}
+
 
 void KirinHyphaProcessorBase::releaseResources()
 {
@@ -304,49 +281,23 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                     clockEndSamples);
     // push_samples advances heartbeat internally, so a 0-frame call is a heartbeat-only
     // keepalive for the non-captured Inactive / Bypassed case.
+    uint64_t optionalInputFrames = 0;
     if (pushBuffer)
     {
-        const size_t needed = (size_t) windowNumFrames * (size_t) numCh;
-        if (numCh > 0 && needed <= scratchCapacitySamples)
+        const bool blockAccepted = feedMeasurementInput (buffer, processClock, windowStartFrame,
+            windowEndFrame, windowPositionSamples, windowNumFrames, forceTakeStartEpoch);
+        if (blockAccepted)
         {
-            // Interleave [c0f0, c1f0, c0f1, c1f1, ...] — same order as nih-plug iter_samples.
-            // getReadPointer only: the input buffer is never modified (R-12).
-            size_t idx = 0;
-            for (int f = windowStartFrame; f < windowEndFrame; ++f)
-                for (int ch = 0; ch < numCh; ++ch)
-                    interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
-
-            const auto windowAuxiliary = hypha::offsetAuxiliaryClock (auxiliaryClock, (std::uint64_t) windowStartFrame);
-            kirin_hypha_note_capture_window (hyphaHandle, hasPosition, windowPositionSamples,
-                                             windowNumFrames, clockSource, presentationSource,
-                                             inputPresentationValid, inputPresentationSamples,
-                                             outputPresentationValid, outputPresentationSamples,
-                                             (std::uint8_t) windowAuxiliary.source, windowAuxiliary.valid, windowAuxiliary.samples,
-                                             forceTakeStartEpoch);
-            const bool blockAccepted = kirin_hypha_push_samples (
-                hyphaHandle, interleaveScratch.data(),
-                (size_t) windowNumFrames, (uint32_t) numCh);
+            optionalInputFrames = windowNumFrames;
             // Producer take boundaries are commit facts, not callback intentions. If the
             // complete audio+clock transaction is rejected, the next eligible callback must
             // still carry the same first-Record/native-range edge.
-            if (blockAccepted && renderedRecordWindow)
+            if (renderedRecordWindow)
             {
                 recordStartWindowLatched = true;
                 if (hasClockEnd)
                     recordNativeRangeLatched = true;
             }
-        }
-        else
-        {
-            // B-125 (c): a pathological block beyond prealloc-max (needed > scratch capacity).
-            // We do NOT reallocate on the audio thread — instead the dropped frames are recorded
-            // so the gap surfaces in dropped_samples / integrity_degraded (ZSA, no silent loss).
-            // The note call is fetch_add-only (RT-safe; alloc/lock/syscall-free). The keepalive
-            // push (nullptr,0) still advances the heartbeat; audio keeps passing through (R-12).
-            if (numCh > 0 && needed > scratchCapacitySamples)
-                kirin_hypha_note_oversized_drop (hyphaHandle, (uint64_t) needed);
-
-            kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
         }
     }
     else
@@ -355,6 +306,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     }
 
     processComparisonPaths (buffer, processClock, measurementTimelineActive, bypassed, nonRealtimeMode);
+    pushAaxAnalysis (optionalInputFrames, (uint32_t) numCh, windowStartFrame);
 }
 
 juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()

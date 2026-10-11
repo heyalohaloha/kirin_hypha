@@ -300,8 +300,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditorTimeSnapshots.cpp
         src/PluginEditorDrumSnapshots.cpp
         src/HostExecutableIdentity.cpp
-        src/PluginProcessor.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessor.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
+        src/PluginProcessorContentTiming.cpp
         src/PluginProcessorLiveCompare.cpp
         src/PluginProcessorLiveCompareRealtime.cpp
         src/PluginProcessorLiveBlind.cpp
@@ -319,6 +320,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/reference_audition/ReferenceBlindSession.cpp
         src/local_blind/HostContext.cpp
         src/PluginProcessorHostClock.cpp
+        src/PluginProcessorMeasurementIngress.cpp
         src/PluginProcessorValidation.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp src/PluginProcessorReference.cpp src/PluginProcessorReferenceLowerA.cpp
@@ -573,6 +575,7 @@ option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
 include(cmake/LocalBlind.cmake)
 include(cmake/LiveCompare.cmake)
+include(cmake/AaxAnalysis.cmake)
 option(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER
     "Build the display-only Reference preview renderer used by Kirin OS" ON)
 if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
@@ -1116,6 +1119,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
 endif()
 
 include(cmake/UpdateIntegrationTests.cmake)
+include(cmake/ShellRepairTests.cmake)
+include(cmake/ContentTimingTests.cmake)
 
 # Every native test resolves the Rust storage (Record, identity, the plug-in's temporary folder)
 # inside this build, never in the user's Kirin OS or a running plug-in's folder. Tests that use

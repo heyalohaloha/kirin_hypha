@@ -182,8 +182,8 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
         const bool replaces = chainWanted && ! both && ! measurementFormatHeld
             && (state == "LIVE" || state == "HOLD" || state == "WAITING")
             && ! chainReadoutText.endsWith ("--") && text_style::shownWidth (font, chain) <= width;
-        if (railFree && ! replaces && labelWidth <= width)
-            text_style::drawText (g, label, session, juce::Justification::centredLeft, false);
+        if (railFree && ! replaces)
+            text_style::drawEllipsized (g, label, session, juce::Justification::centredLeft);
         if (both || replaces)
         {
             g.setColour (chainReadoutCaution ? COL_FLORA_BR : COL_TEXT_SECONDARY);

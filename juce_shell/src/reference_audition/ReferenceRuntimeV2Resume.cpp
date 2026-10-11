@@ -21,9 +21,8 @@ bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const j
         prepared.valid = true;
         preparedNormalSelection = prepared;
     }
-    const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
     if (! activatePreparedB (selectionGeneration)) return false;
-    beginAuditionEventSession (bBaseline);
+    // Automatic resumption continues the same audition event session.
     return true;
 }
 

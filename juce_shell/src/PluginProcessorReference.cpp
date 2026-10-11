@@ -121,7 +121,7 @@ bool KirinHyphaProcessorBase::selectReferenceSong (const juce::String& id)
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const bool selected = licenseIsOs() && referenceAuditionController != nullptr
         && referenceAuditionController->selectSong (id);
-    if (selected && referencePendingAuditionNeedsService()) startTimer (50);
+    if (selected && referencePendingAuditionNeedsService()) requestServiceTimer();
     return selected;
    #else
     juce::ignoreUnused (id);
@@ -155,7 +155,7 @@ bool KirinHyphaProcessorBase::requestReferenceAudition (int slot)
     const auto level = referenceLiveALevel (slot == 2, blocks, hypha::reference_audition::matchMinimumBlocks (slot, blocks));
     const bool accepted = referenceAuditionController != nullptr
         && referenceAuditionController->requestAudition (slot, level.loudness, level.peak);
-    if (accepted && (referencePendingAuditionNeedsService() || referenceTrackingNeedsService())) startTimer (50);
+    if (accepted && (referencePendingAuditionNeedsService() || referenceTrackingNeedsService())) requestServiceTimer();
     return accepted;
    #else
     juce::ignoreUnused (slot);
@@ -372,7 +372,7 @@ void KirinHyphaProcessorBase::endReferenceBlind()
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaProcessorBase::createReferenceAuditionController()
 {
-    referenceAuditionController = std::make_unique<hypha::reference_audition::ReferenceComparisonController> (
+    referenceAuditionController = std::make_shared<hypha::reference_audition::ReferenceComparisonController> (
         hypha::reference_audition::RuntimeV2Repository::transportRoot(), [this] (bool active)
         {
             const juce::ScopedLock gateLock (handleLock);

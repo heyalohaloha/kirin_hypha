@@ -10,7 +10,7 @@ namespace hypha::live_compare
 enum class StartResult : std::uint8_t
 {
     started, notPost, notReady, noPair, unsupportedLayout, preUnavailable, preMultiMono,
-    comparisonBusy, returnRequired, returnPending
+    comparisonBusy, returnRequired, returnPending, contentHeld
 };
 
 // A host restore may run off the message thread. Revoke output before reading the state,

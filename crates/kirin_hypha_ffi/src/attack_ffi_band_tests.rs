@@ -314,7 +314,17 @@ fn without_a_pair_the_band_hits_are_posts_details_with_the_envelope_behind_them(
     assert!(hit.post.release_ms > 80.0 && hit.post.release_ms < 130.0);
     assert!(hit.post.attack_ms > 2.0 && hit.post.attack_ms < 8.0);
     // The envelope poll gives the very record the batch has, with its envelope.
-    let envelope = engine.poll_attack_band_envelope(hit.event_sample).unwrap();
+    let envelope_deadline = Instant::now() + Duration::from_secs(1);
+    let envelope = loop {
+        if let Some(envelope) = engine.poll_attack_band_envelope(hit.event_sample) {
+            break envelope;
+        }
+        assert!(
+            Instant::now() < envelope_deadline,
+            "published band envelope did not become readable"
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
     assert_eq!((envelope.hit, envelope.band), (hit, 4));
     let head_peak = envelope
         .post

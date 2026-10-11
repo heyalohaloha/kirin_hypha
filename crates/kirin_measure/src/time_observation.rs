@@ -47,6 +47,10 @@ pub struct TimeWirePoint {
     pub continuous_frames: u64,
     #[serde(default)]
     pub latency_known: bool,
+    /// First producer position in this clock definition, retained across local reset/pause.
+    /// A common publication grid cannot prove away a different unreported node-clock offset.
+    #[serde(default)]
+    pub clock_origin: Option<i64>,
     /// LEVEL CREST at the same 400 ms aperture; not an extra TIME ABI value.
     #[serde(default)]
     pub crest: Option<f64>,
@@ -80,6 +84,16 @@ impl TimeWirePoint {
     pub fn exact_key(self) -> Option<(u8, i64)> {
         (self.usable && matches!(self.clock, 1 | 2)).then_some((self.clock, self.endpoint?))
     }
+
+    pub(crate) fn comparison_clock_proven(self, other: Self) -> bool {
+        self.clock == other.clock
+            && matches!(self.clock, 1 | 2)
+            && ((self.latency_known && other.latency_known)
+                || self
+                    .clock_origin
+                    .zip(other.clock_origin)
+                    .is_some_and(|(a, b)| a == b))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -102,6 +116,8 @@ impl TimeRawPoint {
 pub(super) struct TimeObservations {
     pub(super) token: Arc<AtomicU64>,
     points: VecDeque<TimeRawPoint>,
+    clock_definition: Option<(crate::CaptureClockSource, crate::PresentationLatencySamples)>,
+    clock_origin: Option<i64>,
 }
 
 impl TimeObservations {
@@ -109,6 +125,8 @@ impl TimeObservations {
         Self {
             token: Arc::new(AtomicU64::new(next_token())),
             points: VecDeque::with_capacity(TIME_RAW_CAPACITY),
+            clock_definition: None,
+            clock_origin: None,
         }
     }
 
@@ -117,6 +135,21 @@ impl TimeObservations {
             self.points.pop_front();
         }
         self.points.push_back(TimeRawPoint { wire, completed });
+    }
+
+    pub(super) fn note_clock(&mut self, clock: crate::MeterClockStart) {
+        let definition = (clock.source, clock.presentation_latency);
+        if self.clock_definition != Some(definition) {
+            self.clock_definition = Some(definition);
+            self.clock_origin = None;
+        }
+        if clock.epoch.is_some() && clock.source != crate::CaptureClockSource::Unknown {
+            self.clock_origin = self.clock_origin.or(clock.position_samples);
+        }
+    }
+
+    pub(super) fn clock_origin(&self) -> Option<i64> {
+        self.clock_origin
     }
 
     pub(super) fn reset(&mut self) {

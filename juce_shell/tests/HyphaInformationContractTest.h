@@ -57,6 +57,7 @@ inline void verifyInformationContract()
             require (anchor.isVisible() && anchor.isEnabled(), "all sizes / no license / no pair");
             require (anchor.getWantsKeyboardFocus(), "keyboard entry");
             require (anchor.getTitle() == "Hypha information", "accessible name");
+            require (! anchor.getDescription().containsIgnoreCase ("hover"), "information AX description names only its available menu content");
             require (anchor.getWidth() >= 60 && anchor.getHeight() >= 20, "usable target");
             require (view.getLocalBounds().contains (anchor.getBounds()), "inside shell");
             require (! anchor.getBounds().intersects (view.connectionBounds()), "no pair overlap");

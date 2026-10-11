@@ -142,9 +142,10 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_session(
 
 /// Observatoryの測定事実を1つのversion付きフレームとして取得する。
 /// 組立前後でsignal stateが変わった場合はfalseとし、異なる時点を混ぜない。
+/// 追加の比較取得が混雑した場合は絶対値だけを更新し、outのΔ・比較欄を保持する。
 ///
 /// # Safety
-/// `handle`/`out` は有効。UI Threadから呼ぶこと。
+/// `handle`/`out` は有効。`out`の比較欄は初期化済みであること。UI Threadから呼ぶこと。
 #[no_mangle]
 pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
     handle: *mut KirinHyphaEngine,
@@ -159,10 +160,12 @@ pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
         let Some(snapshot) = engine.poll_meter_session() else {
             return false;
         };
-        let Some(frame) = build_observatory_frame(engine, &snapshot, signal_before) else {
+        let Some((frame, comparison_busy)) =
+            build_observatory_frame(engine, &snapshot, signal_before)
+        else {
             return false;
         };
-        unsafe { *out = frame };
+        unsafe { write_observatory_frame(out, frame, comparison_busy) };
         true
     }))
     .unwrap_or(false)
@@ -172,7 +175,7 @@ fn build_observatory_frame(
     engine: &KirinHyphaEngine,
     snapshot: &MeterSessionSnapshot,
     signal_before: u8,
-) -> Option<KirinObservatoryFrame> {
+) -> Option<(KirinObservatoryFrame, bool)> {
     let active =
         signal_before == KIRIN_SIGNAL_STATE_ACTIVE && snapshot.state != MeterSessionState::Paused;
     let published_delta = engine.poll_delta();
@@ -183,24 +186,46 @@ fn build_observatory_frame(
     } else {
         Some(engine.pair_binding.try_observation_snapshot()?)
     };
-    // IO failure/restart must not suppress the local Audio/Measure stop facts. During playback,
-    // comparison contention still means no coherent new frame, with caller output untouched.
+    // IO failure/restart must not suppress local stop facts. A busy extra comparison read
+    // preserves the caller's comparison fields while the independent absolute meter updates.
     let mut delta_result = published_delta.or_else(|| (!active).then(DeltaResult::default))?;
+    let mut comparison_busy = false;
+    if active
+        && matches!(
+            delta_result.comparison.reason,
+            kirin_measure::ComparisonReason::LocalInactive
+                | kirin_measure::ComparisonReason::LocalBypassed
+        )
+    {
+        delta_result = DeltaResult {
+            comparison: kirin_measure::ComparisonSnapshot {
+                state: kirin_measure::ComparisonState::Preparing,
+                reason: kirin_measure::ComparisonReason::AwaitingMeasurement,
+                generation: delta_result.comparison.generation.saturating_add(1),
+                identity: delta_result.comparison.identity,
+            },
+            ..Default::default()
+        };
+    }
     if active
         && delta_result.mode == kirin_measure::DeltaMode::Active
         && delta_result.comparison.state != kirin_measure::ComparisonState::Holding
     {
-        let (values, crest) = time_ffi::level_values(engine, snapshot)
-            .ok()?
-            .unwrap_or(([None; 6], None));
-        delta_result.lufs = values[0];
-        delta_result.lufs_s = values[1];
-        delta_result.tp = values[2];
-        delta_result.psr = values[3];
-        delta_result.crest = crest;
-        if values.iter().all(Option::is_none) {
-            delta_result.comparison.state = kirin_measure::ComparisonState::Preparing;
-            delta_result.comparison.reason = kirin_measure::ComparisonReason::AwaitingMeasurement;
+        match time_ffi::level_values(engine, snapshot) {
+            Err(_) => comparison_busy = true,
+            Ok(values) => {
+                let (values, crest) = values.unwrap_or(([None; 6], None));
+                delta_result.lufs = values[0];
+                delta_result.lufs_s = values[1];
+                delta_result.tp = values[2];
+                delta_result.psr = values[3];
+                delta_result.crest = crest;
+                if values.iter().all(Option::is_none) {
+                    delta_result.comparison.state = kirin_measure::ComparisonState::Preparing;
+                    delta_result.comparison.reason =
+                        kirin_measure::ComparisonReason::AwaitingMeasurement;
+                }
+            }
         }
     }
     let delta = if !active {
@@ -222,15 +247,26 @@ fn build_observatory_frame(
         if engine.pair_binding.try_observation_snapshot()? != pair {
             return None;
         }
-        let reason = if pair.exact.is_some() {
-            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+        let reason = if signal_before == KIRIN_SIGNAL_STATE_BYPASSED {
+            KIRIN_COMPARISON_REASON_LOCAL_BYPASSED
+        } else if pair.exact.is_some() {
+            if signal_before == KIRIN_SIGNAL_STATE_ACTIVE {
+                KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT
+            } else {
+                KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+            }
         } else {
             KIRIN_COMPARISON_REASON_NO_PAIR
         };
-        if comparison.state != KIRIN_COMPARISON_STATE_REJECTED || comparison.reason != reason {
+        let state = if reason == KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT {
+            KIRIN_COMPARISON_STATE_PREPARING
+        } else {
+            KIRIN_COMPARISON_STATE_REJECTED
+        };
+        if comparison.state != state || comparison.reason != reason {
             comparison.generation = comparison.generation.saturating_add(1);
         }
-        comparison.state = KIRIN_COMPARISON_STATE_REJECTED;
+        comparison.state = state;
         comparison.reason = reason;
     }
     let frame = KirinObservatoryFrame {
@@ -251,7 +287,27 @@ fn build_observatory_frame(
         comparison_generation: comparison.generation,
         comparison_identity: comparison.identity,
     };
-    Some(frame)
+    Some((frame, comparison_busy))
+}
+
+// Write only acquired fields on contention. Do not read caller memory or manufacture a new
+// comparison publication; this also preserves unavailable values and all comparison metadata.
+unsafe fn write_observatory_frame(
+    out: *mut KirinObservatoryFrame,
+    frame: KirinObservatoryFrame,
+    comparison_busy: bool,
+) {
+    if !comparison_busy {
+        unsafe { out.write(frame) };
+        return;
+    }
+    unsafe {
+        std::ptr::addr_of_mut!((*out).version).write(frame.version);
+        std::ptr::addr_of_mut!((*out).signal_state).write(frame.signal_state);
+        std::ptr::addr_of_mut!((*out).lra_state).write(frame.lra_state);
+        std::ptr::addr_of_mut!((*out).lra_elapsed_seconds).write(frame.lra_elapsed_seconds);
+        std::ptr::addr_of_mut!((*out).meter).write(frame.meter);
+    }
 }
 
 /// 常設Meter SessionのTIME履歴を古い順で最大`out_capacity`件取得する。

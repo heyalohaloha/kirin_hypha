@@ -20,8 +20,7 @@ inline void verifyReferenceBlauertReadout()
                  && blauertReadout ('C', { nan, 0.0 }).isEmpty() && blauertReadout ('C', {}).isEmpty(),
              "the Blauert readout says how A's 1 kHz sits against the compared side, and nothing when it cannot be read");
     require (i18n::translate (blauertReadout ('C', { 0.0, 1.24 }), i18n::Language::japanese)
-                 == juce::String (juce::CharPointer_UTF8 ("300-400\xc2\xb7" "3-4k\xe3\x81\xab\xe5\xaf\xbe\xe3\x81\x99\xe3\x82\x8b" "1k / A"
-                                                          "\xe3\x81\x8c" "1.2 dB\xe4\xbd\x8e\xe3\x81\x84")),
+                 == juce::String::fromUTF8 (u8"300-400·3-4kに対する1k ／ Aが1.2 dB低い"),
              "the Blauert readout reads in Japanese");
     require (reference_ui::blauertShown (20.0, 20'000.0) && ! reference_ui::blauertShown (20.0, 300.0)
                  && ! reference_ui::blauertShown (20.0, 250.0),

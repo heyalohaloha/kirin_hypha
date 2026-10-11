@@ -40,8 +40,11 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
         scaleModePreference()));
     xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    { const juce::ScopedLock lock (handleLock);
-      if (referenceAuditionController) referenceAuditionController->savedSettings().write (xml); }
+    {
+        std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
+        { const juce::ScopedLock lock (handleLock); controller = referenceAuditionController; }
+        if (controller) controller->savedSettings().write (xml);
+    }
    #endif
     copyXmlToBinary (xml, destData);
 }
@@ -50,7 +53,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     // Host-thread revocation precedes parsing, including malformed/legacy state. Cleanup is
     // deferred to the message thread; the next audio block independently refuses the old source.
     const auto restore = liveCompare.authority.restoringState();
-    startTimer (50);
+    requestServiceTimer();
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
     // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
     // these at enable time (enableWritesNow), deferred to the message-thread Timer.
@@ -76,9 +79,14 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
            #if ! KIRIN_HYPHA_PRE_DISPLAY
             if (role == Role::Post)
             {
-                const juce::ScopedLock lock (handleLock);
-                if (! referenceAuditionController) createReferenceAuditionController();
-                referenceAuditionController->restoreSettings (
+                std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> controller;
+                {
+                    const juce::ScopedLock lock (handleLock);
+                    if (! referenceAuditionController) createReferenceAuditionController();
+                    controller = referenceAuditionController;
+                }
+                // Controller gate callbacks acquire handleLock: never enter with it held.
+                controller->restoreSettings (
                     hypha::reference_audition::ReferenceComparisonSettings::read (*xml));
             }
            #endif

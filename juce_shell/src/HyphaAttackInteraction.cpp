@@ -5,6 +5,7 @@
 #include "HyphaAttackBandPainter.h"
 #include "HyphaAttackBandSummaryPainter.h"
 #include "HyphaAttackUiContract.h"
+#include "HyphaAttackV2Geometry.h"
 
 namespace hypha
 {
@@ -150,7 +151,17 @@ juce::String AttackComponent::tooltipAt (const attack_ui::Layout& shape, juce::P
 
 void AttackComponent::mouseMove (const juce::MouseEvent& event)
 {
-    if (v2->enabled) return;
+    if (v2->enabled)
+    {
+        const auto shape = attack_v2::geometry (getWidth(), getHeight(), presentationContext, chosenBand == 0);
+        juce::String tip;
+        for (std::size_t i = 0; i < shape.bands.size(); ++i)
+            if (shape.bands[i].contains (event.getPosition()))
+                tip = i == 0 ? "ALL: measure each hit across the full signal."
+                    : "BAND: measure each hit in the selected octave band.";
+        setTooltip (tip);
+        return;
+    }
     const auto tip = tooltipAt (layout(), event.getPosition());
     if (tip != getTooltip())
         setTooltip (tip);

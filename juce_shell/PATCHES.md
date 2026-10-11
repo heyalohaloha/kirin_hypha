@@ -274,3 +274,34 @@ release gate.
   keep the original code path. UI thread only; no audio, measurement or state path is touched.
   Confirmed on Studio Pro 8.1.2: 300% → 450% (menu and corner grip) and 450% → 300% give a
   1350 × 974 / 900 × 674 window at the same top-left with the header laid out to the right edge.
+
+## 0013 — VST3 host resize uses the editor's custom constraint
+
+- File: `modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp`
+- Patch: `patches/0013-vst3-custom-editor-size-constraint.patch`
+- The generic VST3 path applies only minimum/maximum dimensions and aspect ratio. Hypha's
+  magnified size steps were therefore applied on the next editor tick, moving a dragged window
+  twice. After the existing host/aspect policy, call the editor's virtual `checkBounds` in logical
+  editor coordinates before returning the size to the host. This retains DPI conversion and the
+  Cubase policy and uses the same custom rule as the editor's resize grip.
+- Contract: [Steinberg IPlugView sizing](https://steinbergmedia.github.io/vst3_doc/base/classSteinberg_1_1IPlugView.html)
+  and [JUCE ComponentBoundsConstrainer](https://docs.juce.com/master/classjuce_1_1ComponentBoundsConstrainer.html).
+- Reapply and byte-check with the tracked patch scripts. Native resize tests cover free sizes,
+  magnified steps, aspect ratio, and device scales. Actual host window drags need host acceptance.
+
+## 0014 — AU reset carries explicit transport evidence
+
+- Files: `modules/juce_audio_processors/processors/juce_AudioProcessor.h` and
+  `modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm`.
+- Patch: `patches/0014-au-reset-transport-evidence.patch`.
+- AU Reset reports a new timeline generation to the processor, with the success and playing
+  value from the existing host transport callback. Only successful stopped transport can release
+  a content hold without a stopped render. Reset with playing or unknown transport retains hold;
+  every reset revokes old timing, and the next render rechecks K. No timer guesses transport.
+- [Apple AudioUnitReset](https://developer.apple.com/documentation/audiotoolbox/audiounitreset(_:_:_:))
+  resets render state; [Apple AUAudioUnit.reset](https://developer.apple.com/documentation/audiotoolbox/auaudiounit/reset())
+  also describes seek discontinuities. Reset alone is therefore not stop evidence.
+- The processor hook publishes bounded lock-free atomics only. PRE also starts a fresh ring run at its next render;
+  other formats retain their existing render transport path. No state schema, gain, measurement, or Record is
+  changed. Object-only AU compilation and native notification/UI tests cover the hook; actual
+  Logic stop/reset delivery must be checked in the host before release acceptance.

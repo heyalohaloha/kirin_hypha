@@ -30,6 +30,10 @@ inline juce::String sourceLabel (const juce::String& kind)
 }
 inline juce::String rejectedStatus (const juce::String& code)
 {
+    if (code == "reference_library_rejected" || code == "reference_manifest_rejected")
+        return "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND PUBLISH AGAIN";
+    if (code.startsWith ("reference_library_") || code.startsWith ("reference_manifest_"))
+        return "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS";
     if (code == "source_changed") return "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS";
     if (code == "source_open_failed" || code == "source_decode_failed"
         || code == "reference_source_open_failed"
