@@ -9,6 +9,8 @@ import { prepareSourceDelivery } from '../provenance/source_delivery.mjs';
 import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import { inspectUpdateBinary } from '../updates/update_key_binding.mjs';
 import { readPeMachine } from './windows-aax-bundles.mjs';
+import { qualifiedWindowsVst3Files } from './windows_vst3_bundle.mjs';
+import { assertRustRuntime } from '../provenance/runtime_guard.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const RECORD = 'dist/WINDOWS_UNSIGNED/build.json';
@@ -34,16 +36,7 @@ function same(root, fact) {
 function bundleFiles(directory, binary) {
   const full = regular(directory, binary.path);
   const bundle = path.resolve(path.dirname(full), '../..');
-  const entries = [];
-  const walk = (folder, prefix = '') => {
-    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
-      const relative = prefix + entry.name;
-      if (entry.isSymbolicLink()) throw new Error('Qualified bundle contains symlink');
-      if (entry.isDirectory()) walk(path.join(folder, entry.name), relative + '/');
-      else if (entry.isFile()) entries.push({ path: relative, sha256: fileFact(path.join(folder, entry.name)).sha256 });
-    }
-  };
-  walk(bundle); return entries;
+  return qualifiedWindowsVst3Files(bundle, binary.role);
 }
 
 export function verifyUnsignedWindowsHandoff(directory, expected) {
@@ -69,7 +62,15 @@ export function verifyUnsignedWindowsHandoff(directory, expected) {
   }
   const qualification = JSON.parse(fs.readFileSync(same(directory, record.pluginval), 'utf8').replace(/^\uFEFF/, ''));
   assertPluginvalQualification(qualification, record.binaries, binary => bundleFiles(directory, binary));
-  same(directory, record.rawSource);
+  const raw = JSON.parse(fs.readFileSync(same(directory, record.rawSource), 'utf8'));
+  if (raw.schema !== 'hypha-raw-source-v2' || raw.commit !== record.commit
+      || !/^[0-9a-f]{40}$/.test(raw.tree || '') || !/^[0-9a-f]{40}$/.test(raw.juceCommit || '')
+      || !/^[0-9a-f]{40}$/.test(raw.jucePatchedTree || '') || !Array.isArray(raw.files) || !raw.files.length
+      || new Set(raw.files.map(file => file.path)).size !== raw.files.length
+      || raw.files.some(file => !/^[0-9a-f]{40}$/.test(file.blob || '') || !/^[0-9a-f]{64}$/.test(file.sha256 || ''))) {
+    throw new Error('Canonical raw source qualification is missing or belongs to another commit');
+  }
+  assertRustRuntime(raw.rustc || '');
   inspectNativeLinkMap(fs.readFileSync(same(directory, record.nativeLinkMap), 'utf8'));
   const cache = fs.readFileSync(same(directory, record.cmakeCache), 'utf8');
   if (!/^KIRIN_HYPHA_KIMERA_FONT_FILE:FILEPATH=\s*$/m.test(cache)) throw new Error('Unsigned producer must prove an empty font input');
@@ -103,7 +104,7 @@ export function writeUnsignedWindowsHandoff(ciRun) {
     ciRun, factoryCommit, factoryRun, platform: 'windows-x64', updatePublicKey: '', kimeraEmbedded: false,
     pluginval: relativeFact(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/pluginval.json')),
     rawSource: relativeFact(path.join(ROOT, 'dist/WINDOWS_UNSIGNED/raw-source.json')),
-    nativeLinkMap: relativeFact(path.join(ROOT, 'juce_shell/build-windows/KirinHyphaPOST.map')),
+    nativeLinkMap: relativeFact(path.join(ROOT, 'juce_shell/build-windows/link-evidence/KirinHyphaPOST.map')),
     cmakeCache: relativeFact(path.join(ROOT, 'juce_shell/build-windows/CMakeCache.txt')),
     ffiArchive: relativeFact(path.join(ROOT, 'target/release/kirin_hypha_ffi.lib')),
     sourceArchive: relativeFact(source.sourceArchive), legalDir: path.relative(ROOT, source.legalDir).split(path.sep).join('/'),

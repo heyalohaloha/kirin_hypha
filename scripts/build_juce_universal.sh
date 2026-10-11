@@ -13,6 +13,7 @@ ROOT="$PWD"
 # Each invocation supplies an explicit input, including empty; cached keys never enable checking.
 export KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT="${KIRIN_HYPHA_UPDATE_PUBLIC_KEY:-}"
 node scripts/updates/update_key_binding.mjs key >/dev/null
+node scripts/provenance/runtime_guard.mjs
 
 echo "==> cargo build kirin_hypha_ffi (x86_64-apple-darwin)"
 cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin

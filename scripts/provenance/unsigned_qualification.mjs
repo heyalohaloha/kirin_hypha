@@ -1,31 +1,18 @@
 // Raw source and actual linker evidence for the credential-free Windows producer.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { sha256 } from './asset_gate.mjs';
-import { RUST_RUNTIME_VERSION } from './bundled_components.mjs';
+import { readRustRuntime } from './runtime_guard.mjs';
+import { canonicalSourceSnapshot } from './canonical_source.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const PLUGINVAL_SHA256 = 'f4ac5c31c5544a434f73e686b816861d92c22ae849d69ad693681cbc9522fcd8';
 export function rawSourceSnapshot(root) {
-  const files = [];
-  for (const [directory, prefix] of [[root, ''], [path.join(root, 'juce_shell/JUCE'), 'juce_shell/JUCE/']]) {
-    for (const name of execFileSync('git', ['ls-files', '-z'], { cwd: directory, encoding: 'utf8' }).split('\0').filter(Boolean)) {
-      if (!prefix && name === 'juce_shell/JUCE') continue;
-      const file = path.join(directory, name);
-      if (!fs.lstatSync(file).isFile()) throw new Error('Raw source must be regular and present');
-      files.push({ path: prefix + name, sha256: sha256(fs.readFileSync(file)) });
-    }
-  }
-  const rustc = execFileSync('rustc', ['--version'], { cwd: root, encoding: 'utf8' }).trim();
-  if (!rustc.startsWith(`rustc ${RUST_RUNTIME_VERSION} `)) throw new Error('Rust runtime version differs from retained notices');
-  return { schema: 'hypha-raw-source-v1', rustc,
-    files: files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) };
+  return { schema: 'hypha-raw-source-v2', rustc: readRustRuntime(root), ...canonicalSourceSnapshot(root) };
 }
 
 export function assertRawSourceUnchanged(before, after) {
-  if (before.schema !== 'hypha-raw-source-v1' || JSON.stringify(before) !== JSON.stringify(after)) {
+  if (before.schema !== 'hypha-raw-source-v2' || JSON.stringify(before) !== JSON.stringify(after)) {
     throw new Error('Raw source bytes changed since qualification started');
   }
 }

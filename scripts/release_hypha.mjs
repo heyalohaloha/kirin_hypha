@@ -9,6 +9,7 @@ import { requireCleanReleaseSource } from './ls_release/release_source_identity.
 import { SCHEMA, HOST_TESTS, SAFETY_EXPECTED, DISTRIBUTION_TESTS, POST_TESTS, assertState, safeStatePath,
   atomicJson, digest, checkFacts, fileFact, treeFact, readJson, resolveInput, validateReport,
   reportTemplate, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
+import { assertRustRuntime } from './provenance/runtime_guard.mjs';
 import { produceMac, verifyMac, verifyCi, verifyWindows, packageAll, verifyPackages,
   prepareLs } from './ls_release/hypha_release_local.mjs';
 import { hpPreflight, publishGithub, publishHp, publicDownloadFacts,
@@ -152,7 +153,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
         criteriaSha256: digest({ tests: state.requiredHostTests, expected: state.expected }),
         inputs: digest(state.inputs), publicationNotes: fileFact(resolveInput(state, state.inputs.notes)), toolchain: {
           node: process.version, xcode: (await run('xcodebuild', ['-version'], { capture: true })).trim(),
-          rustc: (await run('rustc', ['--version'], { capture: true })).trim(),
+          rustc: assertRustRuntime(await run('rustc', ['--version'], { capture: true })),
           cargo: (await run('cargo', ['--version'], { capture: true })).trim(),
           cmake: (await run('cmake', ['--version'], { capture: true })).trim(),
           sdk: treeFact(state.inputs.sdk),

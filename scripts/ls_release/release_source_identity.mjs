@@ -19,7 +19,7 @@ function run(root, command, args) {
   return (result.stdout || '').trim();
 }
 
-export function readReleaseSourceIdentity({ root = DEFAULT_ROOT } = {}) {
+export function readReleaseSourceIdentity({ root = DEFAULT_ROOT, requireBNumber = true } = {}) {
   const resolvedRoot = path.resolve(root);
   const commit = run(resolvedRoot, 'git', ['rev-parse', 'HEAD']);
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`invalid release commit: ${commit}`);
@@ -34,9 +34,9 @@ export function readReleaseSourceIdentity({ root = DEFAULT_ROOT } = {}) {
       .split('\n').map(line => line.split('\t')).filter(row => row[1] === tree)
       .map(row => ({ commit: row[0], number: row[2]?.match(/\bB-(\d+)\b/)?.[1] }))
       .filter(row => row.number).sort((a, b) => Number(b.number) - Number(a.number));
-    if (!matches.length) throw new Error('release commit subject has no B number and no identical-tree numbered commit');
-    bNumber = `B-${matches[0].number}`;
-    bNumberSourceCommit = matches[0].commit;
+    if (!matches.length && requireBNumber) throw new Error('release commit subject has no B number and no identical-tree numbered commit');
+    bNumber = matches.length ? `B-${matches[0].number}` : null;
+    bNumberSourceCommit = matches[0]?.commit;
   }
   const dirtyEntries = run(resolvedRoot, 'git', [
     'status', '--porcelain=1', '--untracked-files=all', '--ignore-submodules=dirty',
@@ -45,7 +45,7 @@ export function readReleaseSourceIdentity({ root = DEFAULT_ROOT } = {}) {
     commit,
     shortCommit: commit.slice(0, 12),
     bNumber,
-    ...(bNumberSourceCommit !== commit ? { bNumberSourceCommit } : {}),
+    ...(bNumberSourceCommit && bNumberSourceCommit !== commit ? { bNumberSourceCommit } : {}),
     sourceState: dirtyEntries.length === 0 ? 'clean source' : 'modified source',
     dirtyEntries,
   };

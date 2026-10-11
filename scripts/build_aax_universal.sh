@@ -205,6 +205,7 @@ if [[ "$SIGN_OUTPUT" == 1 ]]; then
 fi
 
 echo "==> build kirin_hypha_ffi for both Apple architectures"
+run node scripts/provenance/runtime_guard.mjs
 run cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin --locked
 run cargo build --release -p kirin_hypha_ffi --target aarch64-apple-darwin --locked
 

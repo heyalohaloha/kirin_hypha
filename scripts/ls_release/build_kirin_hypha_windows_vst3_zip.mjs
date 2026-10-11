@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { readReleaseSourceIdentity } from './release_source_identity.mjs';
+import { bindWindowsSourceIdentity } from '../windows/windows_source_identity.mjs';
+import { qualifiedWindowsVst3Files } from '../windows/windows_vst3_bundle.mjs';
 import childProcess from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -33,7 +35,7 @@ Options:
 `;
 }
 
-export function parseArgs(argv) {
+export function parseArgs(argv, { root = ROOT } = {}) {
   if (argv.includes('--help') || argv.includes('-h')) return { help: true };
   const opts = {
     artifactDir: DEFAULT_ARTIFACT_DIR,
@@ -79,9 +81,8 @@ export function parseArgs(argv) {
   if (!['signed', 'unsigned'].includes(opts.payloadSigning)) {
     throw new Error(`--payload-signing must be signed or unsigned: ${opts.payloadSigning}`);
   }
-  if (!opts.bNumber) opts.bNumber = inferBNumber();
-  if (!opts.commit) opts.commit = git(['rev-parse', 'HEAD'], 'unknown');
-  return opts;
+  return bindWindowsSourceIdentity(opts, { root,
+    diagnostic: opts.releaseKind === 'ci' && opts.payloadSigning === 'unsigned' });
 }
 
 function requireValue(argv, index, name) {
@@ -176,6 +177,7 @@ function findBundle(root, bundleName) {
 }
 
 function verifyBundle(bundle) {
+  qualifiedWindowsVst3Files(bundle.dir, bundle.fileName.includes(' PRE.') ? 'PRE' : 'POST');
   if (!fs.existsSync(bundle.dir)) throw new Error(`${bundle.label} bundle missing: ${bundle.dir}`);
   if (!fs.existsSync(bundle.binary)) throw new Error(`${bundle.label} binary missing: ${bundle.binary}`);
   const size = fs.statSync(bundle.binary).size;
@@ -218,7 +220,7 @@ export function commitReceiptFor(opts) {
   const runLine = opts.runUrl ? `GitHub Actions run: ${opts.runUrl}` : 'GitHub Actions run: unknown';
   return `Kirin Hypha ${VERSION} Windows VST3
 Commit: ${opts.commit}
-B-number: ${opts.bNumber}
+B-number: ${opts.bNumber || 'unassigned (unsigned diagnostic)'}
 ${runLine}
 Artifact name: ${opts.artifactName}
 CI gates: Analysis contract, UI render, exact audio transparency, layout verify, pluginval strictness 5, artifact packaging
@@ -415,7 +417,7 @@ function runMain() {
   const artifactDir = path.resolve(ROOT, opts.artifactDir);
   const outputDir = path.resolve(ROOT, opts.outputDir);
   const shortCommit = opts.commit.slice(0, 7);
-  const packageBase = `Kirin-Hypha-${VERSION}-Windows-VST3-${opts.bNumber}-${shortCommit}`;
+  const packageBase = `Kirin-Hypha-${VERSION}-Windows-VST3-${opts.bNumber || 'DIAGNOSTIC'}-${shortCommit}`;
   const packageRoot = path.join(outputDir, packageBase);
   const zipPath = path.join(outputDir, `${packageBase}.zip`);
   const shaPath = `${zipPath}.sha256`;

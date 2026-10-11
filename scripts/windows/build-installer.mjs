@@ -18,6 +18,8 @@ import { requireCleanReleaseSource, readReleaseSourceIdentity } from '../ls_rele
 import { updateBinding, validatePublicKey, inspectUpdateBinary } from '../updates/update_key_binding.mjs';
 import { stageLegalDelivery, verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import { verifyUnsignedWindowsHandoff } from './unsigned_vst3_provenance.mjs';
+import { bindWindowsSourceIdentity } from './windows_source_identity.mjs';
+import { qualifiedWindowsVst3Files } from './windows_vst3_bundle.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
@@ -141,6 +143,7 @@ export function findUniqueBundle(root, name) {
 export function bundleRecord(root, role) {
   const name = `Kirin Hypha ${role}.vst3`;
   const bundle = findUniqueBundle(root, name);
+  qualifiedWindowsVst3Files(bundle, role);
   const binary = path.join(bundle, 'Contents', 'x86_64-win', name);
   const moduleInfo = path.join(bundle, 'Contents', 'Resources', 'moduleinfo.json');
   if (!fs.statSync(binary, { throwIfNoEntry: false })?.isFile() || fs.statSync(binary).size <= 0) {
@@ -335,8 +338,7 @@ export async function buildInstaller(opts) {
     });
     opts = bindAaxSourceIdentity(opts, requireCleanReleaseSource({ root: ROOT }), aaxProvenance);
   } else {
-    opts.commit ||= git(['rev-parse', 'HEAD'], 'unknown');
-    opts.bNumber ||= inferBNumber();
+    opts = bindWindowsSourceIdentity(opts, { root: ROOT, diagnostic: opts.signing === 'unsigned' });
   }
   opts.runUrl ||= inferRunUrl();
   if (opts.signing === 'signed' && !opts.legalDir) throw new Error('Signed distribution requires retained source/legal delivery');

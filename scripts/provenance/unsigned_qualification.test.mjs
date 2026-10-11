@@ -7,20 +7,35 @@ import test from 'node:test';
 import { assertRawSourceUnchanged, rawSourceSnapshot, inspectNativeLinkMap,
   assertPluginvalQualification, PLUGINVAL_SHA256 } from './unsigned_qualification.mjs';
 
-test('raw source qualification detects line-ending changes hidden by logical patch comparison', t => {
+test('raw source is bound to committed blobs and the approved patched JUCE tree', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'raw-juce-fixture-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const juce = path.join(root, 'juce_shell/JUCE');
   fs.mkdirSync(juce, { recursive: true });
+  const git = (directory, args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe', encoding: 'utf8' }).trim();
   for (const directory of [root, juce]) {
-    execFileSync('git', ['init'], { cwd: directory, stdio: 'ignore' });
-    fs.writeFileSync(path.join(directory, 'source'), 'original\r\n');
-    execFileSync('git', ['add', 'source'], { cwd: directory });
+    git(directory, ['init']); git(directory, ['config', 'user.name', 'Fixture']);
+    git(directory, ['config', 'user.email', 'fixture@example.invalid']);
+    fs.writeFileSync(path.join(directory, 'source'), 'original\n');
+    git(directory, ['add', 'source']); git(directory, ['commit', '-m', 'fixture source']);
   }
+  fs.mkdirSync(path.join(root, 'scripts')); fs.mkdirSync(path.join(root, 'juce_shell/patches'));
+  fs.writeFileSync(path.join(juce, 'source'), 'patched\n');
+  const patch = git(juce, ['diff', '--no-ext-diff']);
+  fs.writeFileSync(path.join(root, 'juce_shell/patches/0001-fixture.patch'), patch + '\n');
+  fs.writeFileSync(path.join(root, 'scripts/verify_juce_patch_state.sh'), 'PATCHES=(\n  "0001-fixture.patch::"\n)\n');
+  git(root, ['add', '.']); git(root, ['commit', '-m', 'pin approved patch']);
+  const indexBefore = git(juce, ['ls-files', '--stage']);
   const before = rawSourceSnapshot(root);
+  assert.equal(before.commit, git(root, ['rev-parse', 'HEAD']));
+  assert.equal(before.files.find(f => f.path === 'source').blob, git(root, ['hash-object', '--no-filters', 'source']));
   assertRawSourceUnchanged(before, rawSourceSnapshot(root));
-  fs.writeFileSync(path.join(juce, 'source'), 'original\n');
-  assert.throws(() => assertRawSourceUnchanged(before, rawSourceSnapshot(root)), /Raw source bytes changed/);
+  assert.equal(git(juce, ['ls-files', '--stage']), indexBefore);
+  for (const [directory, bytes] of [[juce, 'patched\r\n'], [juce, 'original\n'], [root, 'original\r\n']]) {
+    fs.writeFileSync(path.join(directory, 'source'), bytes);
+    assert.throws(() => rawSourceSnapshot(root), /canonical Git blob/);
+    fs.writeFileSync(path.join(directory, 'source'), directory === juce ? 'patched\n' : 'original\n');
+  }
 });
 
 test('native linker evidence requires all enabled codec families, rather than source mentions', () => {

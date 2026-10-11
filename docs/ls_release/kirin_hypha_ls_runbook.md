@@ -65,7 +65,11 @@ order for every release:
 3. Integrate the distribution-procedure commit into the validated product line and choose the next
    unused version. The integration commit remains the exact release source. `readReleaseSourceIdentity`
    reads its B number, or borrows the highest B number from an identical-tree numbered commit when
-   a merge subject omits the number. A different tree never supplies the number. Integration is required
+   a merge subject omits the number. A different tree never supplies the number.
+   Numberless shallow PR/main checkouts are allowed only for unsigned CI diagnostics:
+   their metadata records a null build number and the exact HEAD, with a DIAGNOSTIC ZIP label.
+   Signed/distribution producers require a numbered source (or an identical-tree numbered commit
+   available in their full-history checkout). A caller-supplied number cannot qualify another source. Integration is required
    because the pinned signing factory executes `scripts/windows/build-installer.mjs` from the checked-out
    Hypha source. If any trusted distribution file changed, review it and update the
    private factory's SHA-256 allowlist in the same integration step.

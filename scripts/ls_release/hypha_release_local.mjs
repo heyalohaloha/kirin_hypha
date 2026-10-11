@@ -40,6 +40,7 @@ export async function verifyMac(state, run, aax = false) {
 }
 
 export async function produceMac(state, run, aax = false) {
+  await run('node', ['scripts/provenance/runtime_guard.mjs']);
   // An interrupted or foreign signed product must never be erased by a producer on resume.
   for (const bundle of macBundles(state, aax)) {
     if (fs.existsSync(path.join(bundle.sourcePath, 'Contents/_CodeSignature'))) {

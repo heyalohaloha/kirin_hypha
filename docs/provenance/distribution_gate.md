@@ -185,3 +185,28 @@ notices are retained; a different compiler requires a new runtime inventory revi
 Legal delivery also includes `Corresponding-Source.txt` with the free exact-release source
 archive URL and hash. External AAX SDK and PACE redistribution/source conditions remain a
 separate release-specific review; the built-in JUCE inventory does not settle them.
+
+
+### Producer evidence and runtime identity
+
+All formal Mac AU/VST3/AAX and Windows VST3/AAX producers must check Rust's actual
+runtime version against the retained standard-library notices before building, and again
+when freezing the candidate. Installing a private producer toolchain selects it within that job;
+it must not change a shared machine's default toolchain.
+
+The Windows raw-source record compares unfiltered working bytes to the adopted Git blobs.
+Approved JUCE patches are applied to a temporary index to derive the expected patched blobs;
+the working submodule/index is not reset. Compare this record again after the build.
+
+A Windows VST3 bundle contains its DLL, moduleinfo.json and, if present, the complete
+JUCE desktop.ini/Plugin.ico pair. Reject extra files, absent payloads and symlinks at producer,
+import and packaging boundaries. Link maps belong in an intermediate evidence directory;
+append target link options without replacing platform defaults. Check real map location and
+PE continuity in the first unsigned producer run.
+
+Retain the unsigned and signed pluginval receipts under separate, exclusively created names.
+Bind imported current-factory artifacts to the same reviewed factory commit, repository,
+dispatch event, workflow path and unique nonexpired artifact ID/digest. Verify downloaded
+archive bytes before extraction. Archive and executable hashes also fix every downloaded
+runtime receiving signing secrets; compare its extracted tree to the verified archive before use.
+These checks do not replace clean-machine lifecycle, licensed-tool qualification or cost approval.
