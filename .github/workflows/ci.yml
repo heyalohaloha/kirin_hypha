@@ -72,7 +72,10 @@ jobs:
     # headroom; this changes no test deadline or acceptance criterion.
     # Run 37458769908 finished the gate in 54 minutes on a cold cache, then hit 55 minutes
     # while saving the Rust cache. PR caches are not shared, so every new PR starts cold.
-    timeout-minutes: 70
+    # The 1.1.51 checks split the AAX analysis product test into separate ctest items; a cold
+    # PR run then reached 70 minutes inside the final ignored parity suite after every earlier
+    # gate had passed. Raise only the job bound; no test, deadline or acceptance changes.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
