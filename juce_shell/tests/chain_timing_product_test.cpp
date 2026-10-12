@@ -1,6 +1,6 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -311,7 +311,7 @@ int main (int argc, char** argv)
 {
     require (argc == 1 || (argc == 2 && std::strcmp (argv[1], "--empty-chain") == 0),
              "usage: chain timing product test [--empty-chain]");
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // PRE と POST が公開する PRE 表示の場所も試験のフォルダへ（本物の Kirin OS の場所に書かない）。
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

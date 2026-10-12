@@ -1,6 +1,7 @@
 #include "HyphaAttackComponent.h"
 #include "HyphaAttackV2Painter.h"
 #include "HyphaLanguage.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha
 {
@@ -10,6 +11,7 @@ bool AttackComponent::setNavigationV2 (const KirinSnapshotHeader& h,
 {
     const auto before = v2->navigationHeader();
     if (! v2->navigate (h, keys, post, pre, now, realtime)) return false;
+    analysisUnavailable.clear();
     if (before.source.generation != 0 && (! attack_v2::sameSource (before.source, h.source)
         || before.authority_revision != h.authority_revision || before.target != h.target
         || h.cutoff_sample < before.cutoff_sample)) evidenceV2.reset();
@@ -19,6 +21,14 @@ bool AttackComponent::setSummarySnapshotV2 (const KirinAttackBandSummaryV2& p, d
 { const bool accepted = v2->summary (p, now); if (accepted) repaint(); return accepted; }
 bool AttackComponent::setSingleSnapshotV2 (const KirinAttackSingleSnapshotV2& p, double now)
 { const bool accepted = v2->single (p, now); if (accepted) repaint(); return accepted; }
+void AttackComponent::setAnalysisUnavailable (const juce::String& reason)
+{
+    if (analysisUnavailable == reason) return;
+    v2->retire (KIRIN_REASON_WORKER_UNAVAILABLE);
+    v2->enabled = true;
+    analysisUnavailable = reason;
+    repaint();
+}
 void AttackComponent::retireV2()
 { v2->retire(); evidenceV2.reset(); evidenceScrollV2 = 0; selectionLaneV2 = -1; selectionPlotV2 = {}; repaint(); }
 void AttackComponent::beginSnapshotV2()
@@ -38,6 +48,13 @@ capture::PresentationStamp AttackComponent::capturePresentationStamp() const noe
 void AttackComponent::paintV2 (juce::Graphics& g)
 {
     const auto shape = attack_v2::geometry (getWidth(), getHeight(), presentationContext, chosenBand == 0);
+    if (analysisUnavailable.isNotEmpty())
+    {
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (presentationContext, typography::TextRole::status));
+        text_style::drawEllipsized (g, analysisUnavailable, getLocalBounds().reduced (6), juce::Justification::centred);
+        return;
+    }
     attack_v2::paintV2 (g, *v2, shape, presentationContext);
     if (evidenceV2) attack_v2::paintEvidence (g, *evidenceV2, getLocalBounds(), presentationContext, evidenceScrollV2);
 }

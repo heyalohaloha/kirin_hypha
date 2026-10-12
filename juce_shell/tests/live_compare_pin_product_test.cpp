@@ -1,7 +1,7 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 
 #include <atomic>
 #include <chrono>
@@ -246,7 +246,7 @@ int main (int argc, char** argv)
 {
     require (argc == 2, "usage: live PIN product test S-1.wav");
     auto signal = readFixture (argv[1]);
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

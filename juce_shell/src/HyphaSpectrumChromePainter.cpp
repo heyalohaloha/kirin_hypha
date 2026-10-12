@@ -316,7 +316,7 @@ void paint (juce::Graphics& g,
                                        state.haveMark ? &state.markValid : nullptr);
     if (! state.midSideObservation)
         spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
-                                                state.presentation);
+                                                state.presentation, state.shapeObservation);
     if (focusLocked
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {

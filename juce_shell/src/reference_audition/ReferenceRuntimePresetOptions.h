@@ -83,7 +83,10 @@ namespace hypha::reference_audition
                     option.songs.push_back ({ referenceSongSelectionId (entry, song.candidateId),
                                               song.displayName, set.songSetId, ! song.prepared });
                     const auto facts = workspace.librarySets->songFacts.find (entry);
-                    option.facts.push_back (facts != workspace.librarySets->songFacts.end() ? facts->second : RuntimeSongFacts {});
+                    auto currentFacts = facts != workspace.librarySets->songFacts.end() ? facts->second : RuntimeSongFacts {};
+                    if (currentFacts.sourcePath.isNotEmpty())
+                        currentFacts.sourceMissing = ! juce::File (currentFacts.sourcePath).existsAsFile();
+                    option.facts.push_back (std::move (currentFacts));
                 }
                 snapshot.songSets.push_back (std::move (option));
             }

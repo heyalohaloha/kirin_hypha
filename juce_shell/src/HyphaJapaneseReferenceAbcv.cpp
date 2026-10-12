@@ -25,7 +25,6 @@ const Entry entries[] = {
     // 待ちが上限を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
     { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
       u8"再生10秒でAを測れません / Aを長めに再生して選び直す" },
-    { "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", u8"Kirin OSが応答しません / Kirin OSを開く" },
     { "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS", u8"10秒で音源を確認できません / Kirin OSで確認" },
     { "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", u8"10秒で読み込めません / 別の位置から再生" },
     { "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS", u8"10秒で準備できません / Kirin OSで開く" },
@@ -103,10 +102,10 @@ const Entry entries[] = {
     { "dB LOWER", u8"dB低い" },
     { "SAME SECTION %1 S", u8"同じ区間 %1秒" },
     // 範囲の帯（HyphaReferenceRangeStrips.cpp）の項目名と、V の時間の線の見出し（「CREST (TP/RMS) / OVER TIME」）。
-    { "CREST (TP/RMS)", u8"クレスト (TP/RMS)" },
-    { "LOUDNESS MOVEMENT (LUFS-S)", u8"音量の動き (LUFS-S)" },
-    { "ONSET (RISE PER HOP)", u8"立ち上がり (区間ごと)" },
-    { "ATTACK (PEAK - LUFS-M)", u8"アタック (ピーク − LUFS-M)" },
+    { "CREST (TP/RMS)", u8"CREST（TP/RMS）" },
+    { "LOUDNESS MOVEMENT (LUFS-S)", u8"音量の動き（LUFS-S）" },
+    { "ONSET (RISE PER HOP)", u8"立ち上がり（区間ごと）" },
+    { "ATTACK (PEAK - LUFS-M)", u8"ATTACK（PEAK−LUFS-M）" },
     { "OVER TIME", u8"時間の動き" },
     // Kirin OS の標準の名前（HyphaReferenceDisplayText.h が英語の名前にそろえる）。日本語の画面では Kirin OS の日本語名で出す。
     { u8"Mastering · stereo, low end, and context", u8"Mastering｜ステレオ・低域・全体の流れ" },

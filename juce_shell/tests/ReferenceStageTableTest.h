@@ -50,7 +50,7 @@ inline void verifyReferenceStageTable()
             for (const auto language : { i18n::Language::english, i18n::Language::japanese })
             {
                 juce::StringArray parts;
-                parts.addTokens (i18n::translate (line.text, language), "/", {});
+                parts.addTokens (i18n::translate (line.text, language), juce::String::fromUTF8 (u8"/／"), {});
                 parts.trim();
                 parts.removeEmptyStrings();
                 require (parts.size() == 2,

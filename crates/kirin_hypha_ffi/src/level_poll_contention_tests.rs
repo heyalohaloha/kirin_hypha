@@ -57,61 +57,110 @@ fn retained_frame() -> KirinObservatoryFrame {
     frame.version = 777;
     frame.comparison_state = KIRIN_COMPARISON_STATE_HOLDING;
     frame.comparison_reason = KIRIN_COMPARISON_REASON_STALE;
+    frame.comparison_generation = 37;
+    frame.comparison_identity = 23;
+    frame.comparison_reserved = [17; 7];
+    frame.delta_available = 1;
     frame.delta.lufs = 4.5;
+    frame.delta.lufs_s = -1.25;
+    frame.delta.true_peak = 2.0;
+    frame.delta.psr = 0.75;
+    frame.delta.crest = -0.5;
+    frame.delta.n_prime_total = f64::NAN;
+    frame.delta.sharpness = -3.0;
+    frame.delta.psb_bark = std::array::from_fn(|i| i as f64 / 20.0);
     frame
 }
 
-fn assert_busy(engine: &KirinHyphaEngine) {
+fn assert_retained_comparison(frame: &KirinObservatoryFrame) {
+    let expected = retained_frame();
+    assert_eq!(frame.comparison_state, expected.comparison_state);
+    assert_eq!(frame.comparison_reason, expected.comparison_reason);
+    assert_eq!(frame.comparison_generation, expected.comparison_generation);
+    assert_eq!(frame.comparison_identity, expected.comparison_identity);
+    assert_eq!(frame.comparison_reserved, expected.comparison_reserved);
+    assert_eq!(frame.delta_available, expected.delta_available);
+    // Compare every field's bits, including unavailable NaN facts, without reading padding.
+    let bits = |delta: &KirinDelta| {
+        [
+            delta.lufs,
+            delta.lufs_s,
+            delta.true_peak,
+            delta.crest,
+            delta.psr,
+            delta.n_prime_total,
+            delta.sharpness,
+        ]
+        .map(f64::to_bits)
+    };
+    assert_eq!(frame.delta.mode, expected.delta.mode);
+    assert_eq!(bits(&frame.delta), bits(&expected.delta));
+    assert_eq!(
+        frame.delta.psb_bark.map(f64::to_bits),
+        expected.delta.psb_bark.map(f64::to_bits)
+    );
+}
+
+fn assert_busy(engine: &KirinHyphaEngine, packet_updated: bool, frame_updated: bool) {
     let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
     packet.version = 999;
     packet.frame = retained_frame();
-    assert!(!poll(engine, &mut packet));
-    assert_eq!(packet.version, 999);
-    assert_eq!(
-        packet.frame.comparison_state,
-        KIRIN_COMPARISON_STATE_HOLDING
-    );
-    assert_eq!(packet.frame.delta.lufs, 4.5);
+    assert_eq!(poll(engine, &mut packet), packet_updated);
+    assert_retained_comparison(&packet.frame);
+    if packet_updated {
+        assert_eq!(packet.version, KIRIN_LEVEL_SNAPSHOT_VERSION);
+        assert_eq!(
+            packet.frame.version,
+            abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION
+        );
+    } else {
+        assert_eq!(packet.version, 999);
+        assert_eq!(packet.frame.version, 777);
+    }
     let mut frame = retained_frame();
-    assert!(!unsafe {
+    let updated = unsafe {
         kirin_hypha_poll_observatory_frame(
             engine as *const KirinHyphaEngine as *mut KirinHyphaEngine,
             &mut frame,
         )
-    });
-    assert_eq!(frame.version, 777);
-    assert_eq!(frame.comparison_reason, KIRIN_COMPARISON_REASON_STALE);
-    assert_eq!(frame.delta.lufs, 4.5);
+    };
+    assert_eq!(updated, frame_updated);
+    assert_retained_comparison(&frame);
+    if updated {
+        assert_eq!(frame.version, abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION);
+    } else {
+        assert_eq!(frame.version, 777);
+    }
 }
 
 #[test]
-fn every_level_authority_lock_contention_retains_the_callers_holding_frame() {
+fn delta_contention_keeps_absolute_updates_and_io_contention_keeps_the_callers_frame() {
     let engine = fixture();
     // Polling reads a shared engine; locking an interior field needs no exclusive alias.
     {
         let _g = engine.write_role.lock().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, true, true);
     }
     {
         let _g = engine.identity.lock().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, true, true);
     }
     {
         let _g = engine.pair_claimed_at.write().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, true, true);
     }
     {
         let _g = engine.project_hash_cell.write().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, true, true);
     }
     {
         let locator = engine.pair_binding.latched_pre();
         let _g = locator.lock().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, true, true);
     }
     {
         let _g = engine.delta_result.lock().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, false, false);
     }
     let mut packet: KirinLevelSnapshot = unsafe { std::mem::zeroed() };
     assert!(poll(&engine, &mut packet));
@@ -200,7 +249,11 @@ fn stopped_absolute_frames_survive_io_unavailability_and_delta_lock_contention()
                     assert_eq!(frame.signal_state, signal);
                     assert_eq!(
                         frame.comparison_reason,
-                        KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+                        if signal == KIRIN_SIGNAL_STATE_BYPASSED {
+                            KIRIN_COMPARISON_REASON_LOCAL_BYPASSED
+                        } else {
+                            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+                        }
                     );
                     assert_eq!(frame.delta_available, 0);
                     assert!(frame.delta.lufs.is_nan());
@@ -231,7 +284,7 @@ fn stopped_absolute_frames_survive_io_unavailability_and_delta_lock_contention()
     assert_eq!(packet.frame.signal_state, KIRIN_SIGNAL_STATE_INACTIVE);
     assert_eq!(
         packet.frame.comparison_reason,
-        KIRIN_COMPARISON_REASON_LOCAL_INACTIVE
+        KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT
     );
     let mut frame = retained_frame();
     assert!(unsafe {
@@ -377,10 +430,10 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
         }
     }
     assert_eq!((complete_level, complete_time), (28, 28));
-    // A local Measure lock is transient contention, never a new MEASURING frame.
+    // A busy comparison read keeps caller delta fields; the separate absolute frame updates.
     {
         let _busy = engine.meter_session.as_ref().unwrap().lock().unwrap();
-        assert_busy(&engine);
+        assert_busy(&engine, false, true);
     }
     // A local seek invalidates the cached point before IO can publish the next comparison.
     let snapshot = {
@@ -412,3 +465,6 @@ fn optional_latency_absent_still_publishes_level_and_time_after_complete_windows
 
 #[path = "level_stop_binding_tests.rs"]
 mod stop_binding_tests;
+
+#[path = "level_projection_recovery_tests.rs"]
+mod projection_recovery;

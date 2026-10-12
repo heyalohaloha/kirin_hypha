@@ -32,7 +32,6 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
             playing = pos->getIsPlaying();
             recording = pos->getIsRecording();
             looping = pos->getIsLooping();
-            loop.active = looping;
             const auto points = pos->getLoopPoints();
             const auto ppq = pos->getPpqPosition(), bpm = pos->getBpm();
             if (points && ppq && bpm)
@@ -41,6 +40,9 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
                 loop.ppq = *ppq; loop.bpm = *bpm;
                 loop.start = points->ppqStart; loop.end = points->ppqEnd;
             }
+            // The host's loop-playback setting alone names no loop: with no selection the range
+            // is empty and playback is linear, and a real wrap breaks project linearity anyway.
+            loop.active = looping && loop.hasRange();
             if (const auto timeSamples = pos->getTimeInSamples())
             {
                 hasPosition = true;

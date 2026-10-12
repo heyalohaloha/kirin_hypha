@@ -43,6 +43,8 @@ pub(super) struct AttackBins {
     sharpness_end: i64,
     /// Phase D frames of bins that are not complete yet; applied once their bin arrives.
     waiting: Vec<SharpnessFrame>,
+    /// Invalid PCM and the following Phase D settling intervals, in native samples.
+    sharpness_gaps: VecDeque<(i64, i64)>,
 }
 
 impl AttackBins {
@@ -57,6 +59,7 @@ impl AttackBins {
             sharpness_start: None,
             sharpness_end: i64::MIN,
             waiting: Vec::new(),
+            sharpness_gaps: VecDeque::new(),
         }
     }
 
@@ -71,6 +74,7 @@ impl AttackBins {
         self.sharpness_start = sharpness_from.map(|from| self.whole_bin_from(from));
         self.sharpness_end = i64::MIN;
         self.waiting.clear();
+        self.sharpness_gaps.clear();
     }
 
     pub(super) fn clear(&mut self) {
@@ -78,6 +82,7 @@ impl AttackBins {
         self.bins.clear();
         self.sharpness_start = None;
         self.waiting.clear();
+        self.sharpness_gaps.clear();
     }
 
     fn whole_bin_from(&self, sample: i64) -> i64 {
@@ -87,6 +92,14 @@ impl AttackBins {
     /// The Sharpness stream failed: windows complete without it for the rest of the run.
     pub(super) fn disable_sharpness(&mut self) {
         self.sharpness_start = None;
+    }
+
+    pub(super) fn note_sharpness_gap(&mut self, from: i64, settled: i64) {
+        if let Some(last) = self.sharpness_gaps.back_mut().filter(|last| last.1 >= from) {
+            last.1 = last.1.max(settled);
+        } else {
+            self.sharpness_gaps.push_back((from, settled));
+        }
     }
 
     fn end(&self) -> i64 {
@@ -111,6 +124,14 @@ impl AttackBins {
             self.first += 1;
         }
         self.bins.push_back(bin);
+        let retained_start = self.first * self.bin_frames;
+        while self
+            .sharpness_gaps
+            .front()
+            .is_some_and(|gap| gap.1 <= retained_start)
+        {
+            self.sharpness_gaps.pop_front();
+        }
     }
 
     /// Add Phase D frames and record the bin index before which every frame has arrived. A frame
@@ -194,6 +215,12 @@ impl AttackBins {
             None => head_end,
         };
         let complete = body_end_sample.is_some();
+        if self
+            .range(start, body_end)?
+            .any(|bin| !bin.power.is_finite())
+        {
+            return None;
+        }
         let head = self.range(start, head_end)?;
         let floor_power = 10.0_f64.powf(f64::from(ATTACK_LEVEL_FLOOR_DBFS) / 10.0);
         let rms_dbfs = |bins: Iter<'_, Bin>| {
@@ -235,7 +262,14 @@ impl AttackBins {
     /// channels that are loud enough to have one. A window that starts before the run's first
     /// Phase D frame has none.
     fn sharpness(&self, start: i64) -> Option<f32> {
-        if self.sharpness_start.is_none_or(|first| start < first) {
+        let from = start * self.bin_frames;
+        let to = (start + ATTACK_SHARPNESS_BINS) * self.bin_frames;
+        if self.sharpness_start.is_none_or(|first| start < first)
+            || self
+                .sharpness_gaps
+                .iter()
+                .any(|gap| gap.0 < to && from < gap.1)
+        {
             return None;
         }
         let bins = self.range(start, start + ATTACK_SHARPNESS_BINS)?;

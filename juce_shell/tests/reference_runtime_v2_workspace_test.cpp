@@ -1,6 +1,7 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_v2_preset_test_support.h"
 #include "reference_runtime_v2_transaction_test_support.h"
+#include "ReferenceSourceFailureTest.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 
@@ -38,6 +39,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                  && first.workspace->presets[0].checks[0].candidates[0].displayName
                       == "Reference Mix",
                  "exact v2 Manifest and Preset bytes must load as one immutable workspace");
+        verifyPresetAdoptionPublication (v2Root, { runtimeId, workId, 42 },
+            first.workspace->presets[0].sourceTemplateArtifact, first.workspace->presets[0].sourcePresetArtifact);
 
         require (presetFile.replaceWithText ("{\"partial\":true}"),
                  "partial Preset publication fixture must be written");
@@ -109,6 +112,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                  && sourceRepository.verifySourceFile (*exactSource.source).isEmpty(),
                  "receipt, identity, revision, full hash, and audio facts must verify together");
 
+        verifySourceFailureReasons (v2Root, sourceCandidate);
         auto sourceWithData = *exactSource.source;
         sourceWithData.measurementArtifact = stageRuntimeV2Artifact (
             v2Root, "measurements", makeRuntimeV2Measurement (exactFileHash, pcmHash));

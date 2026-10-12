@@ -32,10 +32,17 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
         "void KirinHyphaProcessorBase::processBlock",
         "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
     );
-    let clock = callback
+    assert!(callback.contains("feedMeasurementInput (buffer,"));
+    let measurement = read_repo("juce_shell/src/PluginProcessorMeasurementIngress.cpp");
+    let input = slice_between(
+        &measurement,
+        "bool KirinHyphaProcessorBase::feedMeasurementInput",
+        "void KirinHyphaProcessorBase::pushAaxAnalysis",
+    );
+    let clock = input
         .find("kirin_hypha_note_capture_window")
         .expect("VST callback must stage an exact clock");
-    let audio = callback
+    let audio = input
         .find("kirin_hypha_push_samples")
         .expect("VST callback must submit the same interleaved audio");
     assert!(clock < audio);
@@ -46,10 +53,17 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
         "fn push_samples_transaction",
         "pub fn note_oversized_drop",
     );
-    assert!(transaction.contains("self.attack_runtime.as_ref()"));
-    assert!(transaction.contains("runtime.push_block_from_audio("));
-    assert!(transaction.contains("spectrum_presentation_start"));
-    assert!(transaction.contains("attack_timeline_start"));
+    assert!(transaction.contains("self.push_optional_analysis(interleaved"));
+    let optional = read_repo("crates/kirin_hypha_ffi/src/optional_analysis_clock.rs");
+    let ingress = slice_between(
+        &optional,
+        "pub(super) fn push_optional_analysis",
+        "/// Prepare-thread only",
+    );
+    assert!(ingress.contains("self.attack_runtime.as_ref()"));
+    assert!(ingress.contains("runtime.push_block_from_audio("));
+    assert!(ingress.contains("clock.and_then(spectrum_input_clock)"));
+    assert!(ingress.contains("clock.and_then(attack_timeline_start)"));
 
     let runtime = read_repo("crates/kirin_measure/src/attack_runtime.rs");
     let ingress = slice_between(

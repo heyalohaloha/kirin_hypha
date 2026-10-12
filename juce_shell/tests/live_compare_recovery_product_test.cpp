@@ -1,5 +1,6 @@
+#include "LiveTimingFixtureAccess.h"
 #include "EditorProductChecks.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 #include "LiveCompareNoticeProductChecks.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
@@ -114,7 +115,7 @@ static void verifyHoldAfterEnd()
     juce::MidiBuffer midi;
     const auto process = [&]
     { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; processor.serviceLiveCompare(); };
-    processor.holdLiveCompareForContentJump (-3000);
+    LiveTimingFixtureAccess::holdContent (processor, -3000);
     processor.finishLiveCompare(); process();
     using namespace live_compare_ui;
     require (processor.isPlaying() && ! processor.liveCompareStatus().finishing, "END acknowledged during playback");
@@ -180,11 +181,60 @@ static void verifyLoopPresentation()
         processor.editorBeingDeleted (editor.get()); editor.reset(); processor.releaseResources();
     }
 }
+
+// A host that reports neither a continuous clock nor its output latency: LISTEN starts, POST plays,
+// PRE waits, and the footer names the host instead of a stop/play that would not help. Once the same
+// instance has seen a clock, a missing clock keeps its transient remedy.
+static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
+{
+    const auto storage = sandbox.getChildFile ("host-without-clock");
+    require (storage.createDirectory(), "isolated preference storage for this host");
+    ScopedChainTimingStorage preferences (storage);
+    using namespace live_compare_ui;
+    NoticeRig r;
+    r.clock.continuous = r.clock.latency = false;
+    r.advance (0.3); r.selectPair();
+    require (r.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts on a host without a clock");
+    r.expectOrdinaryAudio = false;
+    r.post->selectLiveComparePre (true); r.advance (0.6);
+    const auto waiting = r.post->liveCompareStatus();
+    require (waiting.active && waiting.preSelected && waiting.preWaiting && ! waiting.preAudible
+        && waiting.observation == Reason::clockMissing && waiting.clockUnavailable,
+        "PRE waits for a clock this host never supplies");
+    const auto notice = currentNamedPresentation (waiting);
+    require (notice.action == RecoveryAction::noOutputLatency && r.view().feedback() == notice.instruction
+        && r.editor->statusStory().joinIntoString (" ").contains ("PRE cannot be heard"),
+        "the footer and the story name the host, not a restart");
+    r.clock.playing = false; r.advance (0.2); r.clock.playing = true; r.advance (0.4);
+    require (currentNamedPresentation (r.post->liveCompareStatus()).action == RecoveryAction::noOutputLatency,
+             "stop/play on this host does not change the explanation");
+    LiveTimingFixtureAccess::blindWaiting (*r.post, live_compare::BlindStage::preparing);
+    const auto blind = r.post->liveBlindStatus();
+    require (blind.clockUnavailable && blindRecovery (blind, false).action == RecoveryAction::noOutputLatency,
+             "Blind preparation on this host explains the same boundary");
+    LiveTimingFixtureAccess::blindWaiting (*r.post, live_compare::BlindStage::idle);
+    r.post->finishLiveCompare(); r.advance (0.3);
+    require (! r.post->liveCompareStatus().active, "END still closes the session");
+    // The same instance later sees a continuous clock: from then on a missing clock is transient.
+    // A VST3 host looping a selection meanwhile never asks for loop playback off: that guidance
+    // belongs to an uncertified AAX host alone.
+    r.clock.continuous = true; r.advance (0.1);
+    r.clock.continuous = false; r.clock.loopRange = true; r.advance (0.1);
+    require (r.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts again");
+    r.post->selectLiveComparePre (true); r.advance (0.4);
+    const auto transient = r.post->liveCompareStatus();
+    const auto remedy = currentNamedPresentation (transient);
+    require (transient.active && ! transient.clockUnavailable && ! transient.loopBlocksPairing
+        && remedy.action != RecoveryAction::noOutputLatency && remedy.action != RecoveryAction::loopOff
+        && juce::String (remedy.instruction).startsWith ("Clock missing"),
+        "a host that has shown a clock keeps the transient clock remedy; VST3 loops ask for no loop change");
+    r.post->finishLiveCompare(); r.advance (0.3);
+}
 }
 
 int main()
 {
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC
@@ -196,5 +246,6 @@ int main()
     hypha::tests::editor_product::verifyHoldAfterEnd();
     hypha::tests::editor_product::verifyLoopPresentation();
     hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
-    std::cout << "Recovery product: PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices)\n";
+    hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
+    std::cout << "Recovery product: PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

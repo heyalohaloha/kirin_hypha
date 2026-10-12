@@ -215,6 +215,7 @@ pub(super) fn to_c_attack_pair_event_batch(
             SpectrumViewStatus::Active => 3,
             SpectrumViewStatus::Unavailable => 4,
             SpectrumViewStatus::InUse => 5,
+            SpectrumViewStatus::OutputLatencyUnavailable => 6,
         },
         ..Default::default()
     };

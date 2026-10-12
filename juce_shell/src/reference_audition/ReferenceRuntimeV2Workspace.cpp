@@ -262,11 +262,20 @@ namespace hypha::reference_audition
         const bool previouslyVerified = selectedSource != nullptr;
         if (! previouslyVerified)
             selectedSource = sourceLoad.source;
-        const auto sourceFailure = previouslyVerified
+        const auto retryKey = workspace->publicationHash + candidate->sourceArtifact.sha256
+            + juce::String (selection.generation);
+        if (sourceRetryKey != retryKey)
+        { sourceRetryKey = retryKey; sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0; }
+        const auto sourceFailure = nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified
             ? sourceRepository.verifySourceRevision (*selectedSource)
             : sourceRepository.verifySourceFile (*selectedSource);
         if (sourceFailure.isNotEmpty())
         {
+            if (nowMs >= sourceRetryAtMs)
+            {
+                sourceRetryFailure = sourceFailure;
+                sourceRetryAtMs = nowMs + std::min (60000, 5000 * (1 << std::min (sourceRetryCount++, 4)));
+            }
             sourceCache.forget (candidate->sourceArtifact.sha256);
             failClosedToA();
             next.state = RuntimeState::rejected;
@@ -274,6 +283,7 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
+        sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0;
         if (! previouslyVerified)
             sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
         const auto selectedCueLabel = cue->label;

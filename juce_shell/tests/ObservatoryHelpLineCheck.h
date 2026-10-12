@@ -99,8 +99,10 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
     for (const auto* text : { "RAW: exact POST - PRE spectral difference",
                               "SHAPE: spectral difference after same-window energy normalization",
                               "Return to Spectrum", "Show perceptual spectral balance",
-                              "PSB: perceptual share by Bark band", "Spectrum: frequency level and difference" })
+                              "Spectrum: frequency level and difference" })
         texts.add (text, true);
+    texts.add (psbOverviewTooltip (true), true);
+    texts.add (psbOverviewTooltip (false), true);
     for (std::uint8_t band = 0; band <= attack_band::bandCount; ++band)
         texts.add (attack_band_painter::chipTooltip (band), true);
     texts.add (attack_band_painter::predatesTooltip(), true);

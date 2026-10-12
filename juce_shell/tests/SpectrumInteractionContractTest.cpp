@@ -1,5 +1,6 @@
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumComparisonStatusContractTest.h"
+#include "SpectrumFocusClearPriorityTest.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumUiContract.h"
@@ -23,7 +24,6 @@ namespace
     }
 
    #define KIRIN_INTERACTION_REQUIRE(expression) require ((expression), #expression, __LINE__)
-
     int countDifferentPixels (const juce::Image& a, const juce::Image& b)
     {
         KIRIN_INTERACTION_REQUIRE (a.getBounds() == b.getBounds());
@@ -34,7 +34,6 @@ namespace
                     ++count;
         return count;
     }
-
     int countDifferentPixelsOutsideColumns (const juce::Image& a,
                                             const juce::Image& b,
                                             juce::Rectangle<int> requested,
@@ -53,7 +52,6 @@ namespace
                     ++count;
         return count;
     }
-
     int countWarmChangedPixels (const juce::Image& withMark,
                                 const juce::Image& withoutMark,
                                 juce::Rectangle<int> requested)
@@ -203,6 +201,8 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         snapshot.min_hz, snapshot.max_hz);
     KIRIN_INTERACTION_REQUIRE (std::abs (
         bandMappingSpectrum.focusLockFrequencyHz() - lastCentreFrequency) < 0.1f);
+
+    verifyFocusClearPriority (bandMappingSpectrum, outerPlot, scale, eventTime);
 
     KirinSpectrumView invalidLayout = snapshot;
     --invalidLayout.aperture_samples;

@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaSnapshotSource.h"
+#include "HyphaAnalysisUiText.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaEditor::refreshDrumSnapshots (bool liveInput)
 {
@@ -18,7 +19,19 @@ void KirinHyphaEditor::refreshDrumSnapshots (bool liveInput)
         observatoryView.setAttackPaired ((navigation->header.flags & 1u) != 0);
         target = navigation->header.target;
     }
-    else if (navStatus == KIRIN_SNAPSHOT_RETIRED || navStatus == KIRIN_SNAPSHOT_UNSUPPORTED)
+    else
+    {
+        KirinAttackPairEventBatch availability {};
+        if (processorRef.pollAttackPairEvents (availability) && availability.status == KIRIN_SPECTRUM_IN_USE)
+        {
+            juce::String owners;
+            processorRef.pollAnalysisOwnerNames (owners);
+            attackView.setAnalysisUnavailable (hypha::analysis_ui::slotsInUse (owners));
+            observatoryView.setAttackPaired (false);
+            return;
+        }
+    }
+    if (navStatus == KIRIN_SNAPSHOT_RETIRED || navStatus == KIRIN_SNAPSHOT_UNSUPPORTED)
     {
         attackView.retireV2();
         observatoryView.setAttackPaired (false);

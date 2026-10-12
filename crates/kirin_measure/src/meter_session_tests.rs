@@ -393,8 +393,15 @@ fn history_never_joins_one_observation_across_a_transport_jump() {
         .is_empty());
 
     assert!(session.push_active_at(&one_observation, project_clock(52_400, 2)));
+    assert!(session
+        .recent_history(MeterHistoryResolution::Hz10, 10)
+        .is_empty());
+    assert!(session.push_active_at(
+        &stereo_sine(400.0 / SR as f64, 0.5),
+        project_clock(57_200, 2)
+    ));
     let history = session.recent_history(MeterHistoryResolution::Hz10, 10);
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].run_id, 2);
-    assert_eq!(history[0].last_timeline_endpoint_samples, Some(57_200));
+    assert_eq!(history[0].last_timeline_endpoint_samples, Some(57_600));
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TestTemporaryDirectory.h"
 #include <juce_core/juce_core.h>
 #include <cstdlib>
 #include <stdexcept>
@@ -23,7 +24,7 @@ public:
        #else
         const auto processId = ::getpid();
        #endif
-        root = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        root = hypha::tests::temporaryParent()
                    .getNonexistentChildFile ("kirin-hypha-audio-transparency-"
                                              + juce::String (processId), {}, false);
         const auto result = root.createDirectory();

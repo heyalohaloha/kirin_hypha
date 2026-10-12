@@ -108,3 +108,130 @@ fn codec_preserves_each_clock_kind_and_rejects_untagged_or_unknown_publications(
         assert!(decode_snapshot(&old).is_none());
     }
 }
+
+#[test]
+fn dropped_audio_does_not_retire_the_clock_or_the_existing_difference_field() {
+    let fixture = Fixture::new();
+    fixture.paired();
+    let before = fixture.post.try_view().unwrap();
+    let revision = fixture.post_runtime.spectrum_clock_revision();
+    assert!(!fixture.post_runtime.push_block_from_audio_with_clock(
+        &[],
+        2,
+        Some(SpectrumInputClock::LegacyPresentation(10240))
+    ));
+    assert_eq!(fixture.post_runtime.spectrum_clock_revision(), revision);
+    assert!(fixture.post.post_tick("post", Some(fixture.target.clone())));
+    let after = fixture.post.try_view().unwrap();
+    assert_eq!(after.status, SpectrumViewStatus::Active);
+    assert_eq!(after.difference, before.difference);
+    assert_eq!(after.spectrum_timeline, before.spectrum_timeline);
+}
+
+#[test]
+fn perceptual_view_reports_missing_output_latency_and_clears_on_reported_clock() {
+    let fixture = Fixture::new();
+    assert!(fixture
+        .post_runtime
+        .set_analysis_mode(AnalysisViewMode::Perceptual));
+    for clock in [
+        SpectrumInputClock::LocalProject(0),
+        SpectrumInputClock::LocalRender(0),
+    ] {
+        fixture
+            .post
+            .store_view(SpectrumViewStatus::WarmingUp, None, None);
+        assert!(!fixture.post_runtime.push_block_from_audio_with_clock(
+            &[0.1; 512],
+            2,
+            Some(clock)
+        ));
+        let missing = fixture.post.try_view().unwrap();
+        assert_eq!(missing.status, SpectrumViewStatus::OutputLatencyUnavailable);
+        assert!(missing.perceptual_difference.is_none());
+        assert!(missing.absolute_timeline.newest().is_none());
+        assert!(fixture.post_runtime.push_block_from_audio_with_clock(
+            &[0.1; 512],
+            2,
+            Some(SpectrumInputClock::LegacyPresentation(0))
+        ));
+        assert_ne!(
+            fixture.post.try_view().unwrap().status,
+            SpectrumViewStatus::OutputLatencyUnavailable
+        );
+    }
+}
+
+#[test]
+fn absolute_view_publishes_local_timeline_and_psb_after_a_perceptual_latency_refusal() {
+    for clock in [
+        SpectrumInputClock::LocalProject,
+        SpectrumInputClock::LocalRender,
+    ] {
+        let fixture = Fixture::new();
+        assert!(fixture
+            .post
+            .set_post_analysis_mode(AnalysisViewMode::Perceptual));
+        assert!(fixture.post.post_tick("post", Some(fixture.target.clone())));
+        fixture
+            .post
+            .store_view(SpectrumViewStatus::WarmingUp, None, None);
+        assert!(!fixture.post_runtime.push_block_from_audio_with_clock(
+            &[0.1; 512],
+            2,
+            Some(clock(0))
+        ));
+        assert_eq!(
+            fixture.post.try_view().unwrap().status,
+            SpectrumViewStatus::OutputLatencyUnavailable
+        );
+        assert!(fixture
+            .post
+            .set_post_analysis_mode(AnalysisViewMode::Absolute));
+        assert!(fixture.post.post_tick("post", None));
+        assert_ne!(
+            fixture.post.try_view().unwrap().status,
+            SpectrumViewStatus::OutputLatencyUnavailable
+        );
+        for position in (0..9_600).step_by(256) {
+            let count = 256.min(9_600 - position);
+            let samples = (position..position + count)
+                .flat_map(|index| {
+                    let sample = (std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0).sin();
+                    [sample, sample]
+                })
+                .collect::<Vec<_>>();
+            assert!(fixture.post_runtime.push_block_from_audio_with_clock(
+                &samples,
+                2,
+                Some(clock(position))
+            ));
+            thread::sleep(Duration::from_millis(2));
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while fixture
+            .post_runtime
+            .try_absolute_history()
+            .is_none_or(|history| {
+                history
+                    .newest()
+                    .is_none_or(|frame| frame.presentation_end_samples != 9_600)
+            })
+        {
+            assert!(
+                Instant::now() < deadline,
+                "absolute worker must publish fresh local facts"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(fixture.post.post_tick("post", None));
+        let view = fixture.post.try_view().unwrap();
+        assert_eq!(view.status, SpectrumViewStatus::Active);
+        assert_eq!(view.analysis_mode, AnalysisViewMode::Absolute);
+        let frame = view.absolute_timeline.newest().unwrap();
+        assert_eq!(frame.presentation_end_samples, 9_600);
+        assert!(frame.is_valid() && frame.psb.is_some());
+        assert!(view.perceptual_difference.is_none());
+        assert!(!fixture.post_runtime.presentation_clock_aligned());
+    }
+}

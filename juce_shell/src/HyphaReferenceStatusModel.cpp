@@ -57,9 +57,11 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     const auto letter = juce::String (roleLetter (slot));
     // 見ている役の曲を Kirin OS が準備しているあいだは、Kirin OS の言う理由と進み具合を出す（確かめられない
     // 曲は「できない」と直し方）。Kirin OS が進めているので、待ちの上限より先に言う。
-    if (step != SourceStep::ready && step != SourceStep::playDaw)
+    if (preparationFailed (state.rolePreparation) || (step != SourceStep::ready && step != SourceStep::playDaw))
         if (const auto line = preparationLine (state.rolePreparation); line.isNotEmpty())
             return { preparationFailed (state.rolePreparation) ? StatusKind::unable : StatusKind::waiting, letter + ": " + line };
+    if (state.readiness == Readiness::rejected && (step == SourceStep::waitingForKirinOs || step == SourceStep::attention))
+        return { StatusKind::unable, state.status };
     const auto kind = kindOf (step);
     if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())
         return { StatusKind::unable, letter + ": " + state.preparationOverdue };
@@ -89,13 +91,14 @@ StatusLine referenceStatusLine (const State& state, bool returnInFooter)
 
 bool preparationFailed (const reference_audition::RuntimeSongPreparation& preparation) noexcept
 {
-    return preparation.state == "pending" && preparation.reason == "source_unavailable";
+    return preparation.reason == "source_unavailable" || preparation.reason == "analysis_failed";
 }
 
 juce::String preparationWord (const reference_audition::RuntimeSongPreparation& preparation)
 {
-    if (preparation.state != "pending") return {};
     if (preparation.reason == "source_unavailable") return "NOT FOUND";
+    if (preparation.reason == "analysis_failed") return "ANALYSIS FAILED";
+    if (preparation.state != "pending") return {};
     if (preparation.step == "resolving") return "CHECKING";
     if (preparation.step == "measuring") return "MEASURING";
     if (preparation.phase == "waiting") return "WAITING";
@@ -105,10 +108,12 @@ juce::String preparationWord (const reference_audition::RuntimeSongPreparation& 
 
 juce::String preparationLine (const reference_audition::RuntimeSongPreparation& preparation)
 {
-    if (preparation.state != "pending") return {};
+    if (preparation.reason == "analysis_failed")
+        return "KIRIN OS COULD NOT ANALYZE THE FILE / RETRY IN KIRIN OS";
     if (preparation.reason == "source_unavailable")
         return preparation.retry == "automatic" ? "KIRIN OS CANNOT FIND THE FILE / IT RETRIES ONCE SOON"
                                                 : "KIRIN OS CANNOT FIND THE FILE / RETRY IN KIRIN OS";
+    if (preparation.state != "pending") return {};
     if (preparation.step == "resolving") return "KIRIN OS IS CHECKING THE FILE";
     if (preparation.step == "measuring") return "KIRIN OS IS MEASURING THE SONG";
     if (preparation.phase == "waiting") return "KIRIN OS WAITS FOR ANOTHER MEASUREMENT";

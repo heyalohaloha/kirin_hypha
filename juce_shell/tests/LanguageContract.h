@@ -1,5 +1,7 @@
 #pragma once
 
+#include "TestTemporaryDirectory.h"
+#include "AbsoluteAnalysisHelpContract.h"
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaHoverHelpPreference.h"
 #include "../src/HyphaJapaneseCatalog.h"
@@ -61,21 +63,33 @@ inline void verifyLookup()
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 3 ready POSTs") == utf8 (u8"All Keep：準備済みのPOST 3"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 1 ready POST") == utf8 (u8"All Keep：準備済みのPOST 1"));
 
-    // Facts joined by " / " or "  ·  " translate one by one, keeping the separators.
-    KIRIN_LANGUAGE_REQUIRE (japanese ("INACTIVE / POST SHARPNESS") == utf8 (u8"入力なし / POST SHARPNESS"));
+    // Facts joined by " / " or "  ·  " translate one by one, using the Japanese prose separator.
+    KIRIN_LANGUAGE_REQUIRE (japanese ("INACTIVE / POST SHARPNESS") == utf8 (u8"入力なし ／ POST SHARPNESS"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("BLIND STOPPED / A HELD -3.0 dB / RETURN A EXPLICITLY")
-                            == utf8 (u8"Blindを中止 / Aを-3.0 dBで保持中 / Aは手動で戻す"));
+                            == utf8 (u8"Blindを中止 ／ Aを-3.0 dBで保持中 ／ Aは手動で戻す"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("LOADING B AT PLAYHEAD / KEEP PLAYING")
-                            == utf8 (u8"再生位置でBを読み込み中 / 再生を継続"));
+                            == utf8 (u8"再生位置でBを読み込み中 ／ 再生を継続"));
     KIRIN_LANGUAGE_REQUIRE (japanese (utf8 (u8"Legacy guide  ·  No timed items  ·  Retained"))
                             == utf8 (u8"旧形式のGuide  ·  時刻指定なし  ·  保持"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("ANALYSIS IN USE / POST Kirin") == utf8 (u8"解析を使用中 / POST Kirin"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("ANALYSIS IN USE / POST Kirin") == utf8 (u8"解析を使用中 ／ POST Kirin"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("L / R") == "L / R");
 
     // A detail of several lines translates line by line.
     KIRIN_LANGUAGE_REQUIRE (
         japanese ("ANALYSIS IN USE / POST Kirin\nWaiting for Kirin OS")
-        == utf8 (u8"解析を使用中 / POST Kirin\nKirin OSを待っています"));
+        == utf8 (u8"解析を使用中 ／ POST Kirin\nKirin OSを待っています"));
+
+    // A host that reports no output latency is described with one phrase wherever it is met: the
+    // analysis views, LISTEN's footer and its story, and Blind.
+    const auto hostPhrase = utf8 (u8"このDAWは出力の遅れを知らせないため");
+    for (const auto* english : { "This DAW does not report output latency; this view is unavailable",
+                                 "This DAW does not report output latency; PRE is unavailable (POST)",
+                                 "This DAW does not report output latency; PRE is unavailable" })
+        KIRIN_LANGUAGE_REQUIRE (i18n::hasTranslation (english) && japanese (english).startsWith (hostPhrase));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("This DAW does not report output latency; PRE is unavailable (POST)")
+                            == utf8 (u8"このDAWは出力の遅れを知らせないためPREを聴けません（今はPOST）"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("POST plays now. This DAW does not report output latency, so PRE cannot be heard.")
+                            == utf8 (u8"今はPOST。このDAWは出力の遅れを知らせないため、PREを聴けません。"));
 
     // The comparison states now reach the screen as the Unicode they are written in, so they meet
     // their catalog entries; they used to be read as ASCII and shown garbled.
@@ -165,7 +179,7 @@ inline void verifyWidths()
 inline void verifyPreference()
 {
     using i18n::Language;
-    const auto directory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto directory = hypha::tests::temporaryParent()
         .getNonexistentChildFile ("kirin-hypha-language-contract", {}, false);
     KIRIN_LANGUAGE_REQUIRE (directory.createDirectory().wasOk());
     const auto file = directory.getChildFile ("ui-preferences.txt");
@@ -353,6 +367,7 @@ inline void verifyLookAndFeel()
 
 inline void verifyLanguageContract()
 {
+    verifyAbsoluteAnalysisHelp();
     language_contract::verifyLookup();
     language_contract::verifyCatalog();
     language_contract::verifyWidths();

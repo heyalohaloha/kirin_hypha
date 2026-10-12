@@ -287,3 +287,28 @@ fn sharpness_starts_at_the_first_whole_bin_after_the_epoch() {
     assert_eq!(at(100), None, "bin 100 has no frames before 4,410");
     assert_eq!(at(101), Some(2.0));
 }
+
+#[test]
+fn invalid_level_bin_rejects_the_hit_without_fabricating_a_floor_or_clearing_other_hits() {
+    let mut bins = hit_bins(1.0, 800);
+    bins.bins[150].power = f64::NAN;
+    assert!(bins.measure(event(100, 4), Some(230)).is_none());
+    assert!(bins.measure(event(400, 4), Some(530)).is_some());
+}
+
+#[test]
+fn sharpness_gap_preserves_earlier_hits_and_waits_for_filter_settling() {
+    let mut bins = AttackBins::new(48_000, 1);
+    bins.begin_run(0, 7, Some(0));
+    for index in 0..900 {
+        bins.push_level(index, level_for(48, 0.1));
+    }
+    let frames: Vec<_> = (0..900).map(|index| frame_at(index * 48, 2.0)).collect();
+    bins.push_sharpness(&frames, 900 * 48);
+    bins.note_sharpness_gap(250 * 48, 550 * 48);
+    assert_eq!(bins.sharpness(100), Some(2.0));
+    assert_eq!(bins.sharpness(240), None);
+    assert_eq!(bins.sharpness(500), None);
+    assert_eq!(bins.sharpness(550), Some(2.0));
+    assert_eq!(bins.sharpness(650), Some(2.0));
+}

@@ -1,3 +1,4 @@
 [submodule "juce_shell/JUCE"]
 	path = juce_shell/JUCE
 	url = https://github.com/juce-framework/JUCE.git
+	ignore = dirty

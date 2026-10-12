@@ -172,6 +172,10 @@ void testReferencePendingAudition (const juce::File& sandbox)
     host (true); wait ([] (const auto& s) { return s.checkReady; });
     require (controller.requestAudition (2, -28, -12) && host (true), "matched C plays");
     const auto matched = controller.snapshot().checkSelection->appliedGainDb;
+    const auto countEvents = [&] { return root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json").size(); };
+    juce::Thread::sleep (150);
+    const auto eventsBeforePause = countEvents();
+
     require (std::abs (matched + 6.0) < 1.0e-9, "C matches A at -6 dB");
     const auto unknown = std::numeric_limits<double>::quiet_NaN();
     require (!host (false) && controller.snapshot().audibleComparisonSlot == 0 && controller.pendingAuditionNeedsService(),
@@ -184,6 +188,9 @@ void testReferencePendingAudition (const juce::File& sandbox)
     require (controller.snapshot().audibleComparisonSlot == 2 && host (true)
         && std::abs (controller.snapshot().checkSelection->appliedGainDb - matched) < 1.0e-12,
         "play resumes the same C at the same gain without measuring A again");
+    juce::Thread::sleep (200);
+    require (countEvents() == eventsBeforePause, "automatic resume continues the same audition event session");
+
     controller.selectA(); host (true); host (false); host (true);
     controller.servicePendingAudition (unknown, unknown, true);
     require (!controller.pendingAuditionNeedsService() && controller.snapshot().audibleComparisonSlot == 0 && !host (true),

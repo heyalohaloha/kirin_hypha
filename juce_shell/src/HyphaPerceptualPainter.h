@@ -20,6 +20,7 @@ namespace hypha::perceptual_painter
         uint8_t inputChannels;
         bool signalActive = true;
         presentation::Context presentation = presentation::defaultContext();
+        bool pairingLoopBlocked = false; // the host loops a range without a certified clock
     };
 
     void paint (juce::Graphics& graphics,

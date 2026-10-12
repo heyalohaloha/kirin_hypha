@@ -60,8 +60,8 @@ inline void verifyCurrentRecoveryNotHistory()
         require (currentNamedPresentation (status, admission).action == RecoveryAction::busy,
                  "END waiting for an audio callback remains explicit");
         status.finishing = false; status.contentHeld = true;
-        require (currentNamedPresentation (status, admission).action == RecoveryAction::stopPlay,
-                 "a current timing hold survives END until actual stop/play");
+        require (currentNamedPresentation (status, admission).action == RecoveryAction::none,
+                 "after END at normal POST level a timing hold has no stop/play remedy; LISTEN shows it again");
         status.contentHeld = false; status.active = true;
         const auto current = currentNamedPresentation (status, admission);
         const auto recovery = namedPresentation (status, admission);
@@ -74,13 +74,24 @@ inline void verifyCurrentRecoveryNotHistory()
 struct NoticeClock final : juce::AudioPlayHead
 {
     bool playing = true;
+    // What this VST3 host supplies: its continuous sample clock and its output-latency report. Off,
+    // the wrapper still names the sources, as it does for a host that gives neither value.
+    bool continuous = true, latency = true;
+    bool loopRange = false; // the host loops a selection (120 BPM at 48 kHz: a beat is 24000 samples)
     std::int64_t position = 0;
     juce::Optional<PositionInfo> getPosition() const override
     {
         PositionInfo info;
         info.setIsPlaying (playing); info.setTimeInSamples (position);
-        info.setKirinAuxiliaryClockSource (1); info.setKirinAuxiliaryClockSamples (position);
-        info.setKirinPresentationLatencySource (1); info.setKirinOutputPresentationLatencySamples (0);
+        info.setKirinAuxiliaryClockSource (1);
+        if (continuous) info.setKirinAuxiliaryClockSamples (position);
+        info.setKirinPresentationLatencySource (1);
+        if (latency) info.setKirinOutputPresentationLatencySamples (0);
+        if (loopRange)
+        {
+            info.setIsLooping (true); info.setLoopPoints (LoopPoints { 0.0, 64.0 });
+            info.setPpqPosition (static_cast<double> (position) / 24000.0); info.setBpm (120.0);
+        }
         return info;
     }
 };

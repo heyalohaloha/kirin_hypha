@@ -207,6 +207,7 @@ impl MeterSession {
         self.clock
             .push_span((interleaved.len() / self.n_channels) as u64, clock);
         self.time.retire_other_run(self.clock.current_input_run());
+        self.time.note_clock(clock);
         self.history
             .set_step_frames(((u64::from(self.sample_rate) + 5) / 10).max(1));
         let span = self.time_source_span();
@@ -245,9 +246,13 @@ impl MeterSession {
                 self.observed_frames = self
                     .observed_frames
                     .saturating_add((observed_samples.len() / self.n_channels) as u64);
-                let clock = self
+                let mut clock = self
                     .clock
                     .consume_observation((observed_samples.len() / self.n_channels) as u64);
+                // A startup or provenance edge may close a partial cell. Process its PCM and
+                // account for it, but never publish it as a complete 100 ms history fact.
+                clock.usable_for_history &= observed_samples.len() / self.n_channels
+                    == (self.sample_rate as usize + 5) / 10;
                 if clock.usable_for_history {
                     let correlation = stereo_snapshot.and_then(|snapshot| snapshot.correlation);
                     self.history.push(
@@ -277,6 +282,7 @@ impl MeterSession {
                             != crate::PresentationLatencySource::Unknown
                             && clock.presentation_latency.input.is_some()
                             && clock.presentation_latency.output.is_some(),
+                        clock_origin: self.time.clock_origin(),
                         crest: current.crest,
                         values: [
                             current.lufs_m,

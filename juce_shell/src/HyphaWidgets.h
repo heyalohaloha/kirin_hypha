@@ -90,7 +90,7 @@ namespace hypha
         void setPresentationContext (presentation::Context next)
         {
             presentationContext = next;
-            editor->setFont (monoFont (next, typography::TextRole::selector));
+            editor->setFont (nativeTextFont (next, typography::TextRole::selector));
             repaint();
         }
         void setLockedTooltip (const juce::String& t)  { lockedTooltip = t; }
@@ -107,13 +107,15 @@ namespace hypha
         void focusGained (FocusChangeType) override { if (onPreviewDemand) onPreviewDemand(); }
         bool keyPressed (const juce::KeyPress& key) override
         {
-            if (onSelect && (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey))
-            { onSelect(); return true; }
+            if (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey)
+            { activate(); return true; }
             return false;
         }
         void resized() override;
 
     private:
+        std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+        void activate();
         void startEditing();
         void commitEditing();
         void cancelEditing();

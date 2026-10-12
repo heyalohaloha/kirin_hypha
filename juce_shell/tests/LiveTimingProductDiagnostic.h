@@ -93,7 +93,7 @@ public:
         bit (10, consumer.kValid); bit (11, consumer.initialAdmission);
         bit (12, post.liveCompare.preparation.initialRequested.load (std::memory_order_acquire));
         bit (13, post.liveCompare.authority.permitted()); bit (14, post.liveCompare.authority.restoring());
-        bit (15, post.liveCompare.contentHold.load (std::memory_order_acquire));
+        bit (15, post.liveCompare.contentHold.held());
         bit (16, post.liveCompare.compensationOff.load (std::memory_order_acquire));
         bit (17, pre.writesEnabled.load (std::memory_order_acquire));
         bit (18, post.writesEnabled.load (std::memory_order_acquire));

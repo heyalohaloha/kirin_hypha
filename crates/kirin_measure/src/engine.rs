@@ -13,7 +13,10 @@ use crate::{MeasureResult, MeterClockStart};
 
 #[path = "content_grid.rs"]
 mod content_grid;
+use crate::meter_clock::MeterClockTracker;
 use content_grid::ContentGrid;
+#[path = "engine_input.rs"]
+mod input;
 pub(crate) use content_grid::ContentWindowObservation;
 
 /// B-205: サブサイレンス・フロア。実プログラム素材（おおむね -60..0 LUFS / dBTP）の遥か下に置く。
@@ -136,6 +139,8 @@ pub struct MeasureEngine {
     /// MeterSessionだけが有効化する、同じEBU投入を読む共通content格子。Watch/Recordには
     /// 追加のclock queueやqueryを持たせない。
     content_grid: Option<ContentGrid>,
+    /// Only Meter Session aligns publication to the native DAW grid.
+    publication_clock: Option<MeterClockTracker>,
 }
 
 impl MeasureEngine {
@@ -195,6 +200,7 @@ impl MeasureEngine {
             tp_window_frames: tp_recent_window_frames(sample_rate),
             layout,
             content_grid: None,
+            publication_clock: None,
         })
     }
 
@@ -217,6 +223,9 @@ impl MeasureEngine {
         self.publish_buf.clear();
         self.max_lufs_m = None;
         self.max_lufs_s = None;
+        if let Some(clock) = self.publication_clock.as_mut() {
+            clock.reset();
+        }
         if let Some(grid) = self.content_grid.as_mut() {
             grid.reset();
         }
@@ -224,9 +233,13 @@ impl MeasureEngine {
 
     pub(crate) fn enable_content_grid(&mut self, sample_rate: u32) {
         self.content_grid = ContentGrid::new(sample_rate);
+        self.publication_clock = Some(MeterClockTracker::new());
     }
 
     pub(crate) fn break_content_continuity(&mut self) {
+        if let Some(clock) = self.publication_clock.as_mut() {
+            clock.break_continuity();
+        }
         if let Some(grid) = self.content_grid.as_mut() {
             grid.break_continuity();
         }
@@ -284,124 +297,6 @@ impl MeasureEngine {
             |frames, result, observed, _, _| observe(frames, result, observed),
             |_| {},
         )
-    }
-
-    /// The Meter Session's 10/100 ms facts, with the Max M confirmed up to the same boundary,
-    /// and qualified content-grid candidates are read from the same EBU filter input. The latter
-    /// never changes Session time. The TIME raw frame also freezes the Session summary at that boundary.
-    pub(crate) fn push_observed_with_session_facts_at(
-        &mut self,
-        samples: &[f64],
-        clock: MeterClockStart,
-        observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<SessionSummary>),
-        observe_content: impl FnMut(ContentWindowObservation),
-    ) -> Option<MeasureResult> {
-        self.push_observed_internal(samples, clock, true, observe, observe_content)
-    }
-
-    fn push_observed_internal(
-        &mut self,
-        samples: &[f64],
-        clock: MeterClockStart,
-        session_summary: bool,
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<SessionSummary>),
-        mut observe_content: impl FnMut(ContentWindowObservation),
-    ) -> Option<MeasureResult> {
-        if let Some(grid) = self.content_grid.as_mut() {
-            grid.push_span((samples.len() / self.n_channels) as u64, clock);
-        }
-        self.accum.extend_from_slice(samples);
-
-        // 10msごとにebur128と公式maximaを更新し、10個揃った100ms境界だけを公開する。
-        let mut result: Option<MeasureResult> = None;
-        while self.accum.len() >= self.analysis_target {
-            let chunk_frames = (self.analysis_target / self.n_channels) as u64;
-            // 再利用バッファへdrainし、同じPCMを100ms公開バッファにも保持する。
-            self.chunk_buf.clear();
-            self.chunk_buf
-                .extend(self.accum.drain(..self.analysis_target));
-            self.publish_buf.extend_from_slice(&self.chunk_buf);
-
-            // Crest/PSRの400ms窓も解析時刻に合わせて10msずつ進める。
-            self.window_400ms.extend(self.chunk_buf.iter().copied());
-            while self.window_400ms.len() > self.window_400ms_cap {
-                self.window_400ms.pop_front();
-            }
-            // EBUへは各sampleを一度だけ投入する。10ms内にcontent格子やclock runの
-            // 境界があればそこだけ分割し、元の10ms maxima/100ms observer cadenceは不変。
-            let mut processed = 0;
-            let mut chunk_tp = 0.0_f64;
-            while processed < self.chunk_buf.len() {
-                let remaining_frames = (self.chunk_buf.len() - processed) / self.n_channels;
-                let segment_frames = self.content_grid.as_ref().map_or(remaining_frames, |grid| {
-                    grid.segment_frames(remaining_frames as u64) as usize
-                });
-                let end = processed + segment_frames * self.n_channels;
-                let added = self.ebu.add_frames_f64(&self.chunk_buf[processed..end]);
-                if let Err(error) = &added {
-                    log::warn!(
-                        "[engine] add_frames_f64 failed ({error:?}): segment is not measured"
-                    );
-                }
-                let segment_tp = (0..self.n_channels as u32)
-                    .filter_map(|ch| self.ebu.prev_true_peak(ch).ok())
-                    .fold(0.0_f64, f64::max);
-                chunk_tp = chunk_tp.max(segment_tp);
-                if let Some(grid) = self.content_grid.as_mut() {
-                    let observed_frames = self.analysis_frames + (end / self.n_channels) as u64;
-                    if let Some(mut point) = grid.accept_segment(
-                        segment_frames as u64,
-                        observed_frames,
-                        added.is_ok().then_some(segment_tp),
-                    ) {
-                        point.lufs_m =
-                            self.ebu.loudness_momentary_cached().ok().filter(|value| {
-                                value.is_finite() && *value > LUFS_VALID_FLOOR_LUFS
-                            });
-                        observe_content(point);
-                    }
-                }
-                processed = end;
-            }
-
-            // フレーム基準の時刻を進めてから、prev_true_peak をタイムスタンプ付きで窓に追加。
-            // prev_true_peak は直近 add_frames チャンク内のピークのみを返す（running max でない）。
-            self.analysis_frames += chunk_frames;
-            self.tp_window.push_back((chunk_tp, self.analysis_frames));
-
-            // フレーム基準で 400ms より古いエントリを前から失効させる。
-            while let Some(&(_, f)) = self.tp_window.front() {
-                if self.analysis_frames - f >= self.tp_window_frames {
-                    self.tp_window.pop_front();
-                } else {
-                    break;
-                }
-            }
-
-            self.update_loudness_maxima();
-            self.analysis_phase = (self.analysis_phase + 1) % 10;
-            self.analysis_target =
-                analysis_chunk_frames(self.publish_target / self.n_channels, self.analysis_phase)
-                    * self.n_channels;
-            if self.publish_buf.len() < self.publish_target {
-                continue;
-            }
-            debug_assert_eq!(self.publish_buf.len(), self.publish_target);
-            self.total_frames += (self.publish_target / self.n_channels) as u64;
-
-            let computed = self.compute();
-            let summary = session_summary.then(|| self.cached_session_summary());
-            observe(
-                self.total_frames,
-                &computed,
-                &self.publish_buf,
-                self.max_lufs_m,
-                summary,
-            );
-            result = Some(computed);
-            self.publish_buf.clear();
-        }
-        result
     }
 
     fn update_loudness_maxima(&mut self) {

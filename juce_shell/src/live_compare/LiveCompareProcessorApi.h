@@ -15,10 +15,12 @@ void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC
 void returnLiveComparePostToNormal() noexcept;
 bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
-void holdLiveCompareForContentJump (std::int64_t measuredLagFrames) noexcept;
+bool holdLiveCompareForContentJump (const hypha::live_compare::OffsetEstimate&) noexcept;
+void kirinHostTimelineReset (bool transportKnown, bool playing) override;
 std::uint32_t liveComparePlaybackRun() const noexcept;
 hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
 hypha::live_compare::Status liveCompareStatus() const noexcept;
+bool analysisPairingLoopBlocked() const noexcept; // AAX POST without certificate in a looped range
 bool liveCompareSupported() const noexcept;
 hypha::live_compare::ChainTimingView chainTimingView() const noexcept; // POST, display only
 bool aaxMultiMonoMember() const noexcept;

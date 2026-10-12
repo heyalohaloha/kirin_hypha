@@ -145,6 +145,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     if (isPost)
     {
+        nameField.setTitle ("PRE pair selection");
+        nameField.setDescription ("Press Return or Space to choose a PRE");
         nameField.setPrefix ("PAIR ");
         nameField.setFallback ("SELECT PRE");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
@@ -362,11 +364,11 @@ hypha::presentation::Context KirinHyphaEditor::logicalPresentationContext() cons
 
 void KirinHyphaEditor::updateResizeLimits()
 {
-    // The display the editor is on (the primary one before it is shown) sets the steps and the
+    // The display containing the editor sets the steps and the
     // largest size; host window chrome (title bar, borders) stays outside its usable area.
     const auto& displays = juce::Desktop::getInstance().getDisplays();
-    const auto* display = isShowing() ? displays.getDisplayForRect (getScreenBounds())
-                                      : displays.getPrimaryDisplay();
+    const auto* display = displays.getDisplayForRect (getScreenBounds());
+    if (display == nullptr) display = displays.getPrimaryDisplay();
     const auto scale = display != nullptr ? (float) display->scale : 1.0f;
     const auto largest = display != nullptr
         ? hypha::observatory::largestEditorSizeWithin (display->userArea.getWidth() - 32,

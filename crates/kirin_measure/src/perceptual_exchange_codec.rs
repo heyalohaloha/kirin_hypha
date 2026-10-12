@@ -6,14 +6,15 @@ use super::perceptual_snapshot_path;
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::perceptual::{PerceptualFrame, PERCEPTUAL_SCHEMA_VERSION};
 use crate::spectrum::SpectrumChannelMode;
-use crate::spectrum_runtime::{PerceptualHistory, PERCEPTUAL_HISTORY_CAPACITY};
+use crate::spectrum_runtime::{PerceptualHistory, SpectrumClockKind, PERCEPTUAL_HISTORY_CAPACITY};
 
-const SNAPSHOT_MAGIC: &[u8; 8] = b"KHPERC03";
+const SNAPSHOT_MAGIC: &[u8; 8] = b"KHPERC04";
 pub(super) const PERCEPTUAL_SNAPSHOT_MAX_BYTES: u64 = 4_096;
 
 pub(super) struct DecodedPerceptualSnapshot {
     pub(super) request_id: Uuid,
     pub(super) history: PerceptualHistory,
+    pub(super) clock_kind: SpectrumClockKind,
 }
 
 pub(super) fn read_perceptual_snapshot(instance_dir: &Path) -> Option<DecodedPerceptualSnapshot> {
@@ -42,7 +43,16 @@ pub(super) fn remove_perceptual_snapshot(instance_dir: &Path) {
     );
 }
 
+#[cfg(test)]
 pub(super) fn encode_perceptual_snapshot(request_id: Uuid, history: &PerceptualHistory) -> Vec<u8> {
+    encode_perceptual_snapshot_with_clock(request_id, history, SpectrumClockKind::Presentation)
+}
+
+pub(super) fn encode_perceptual_snapshot_with_clock(
+    request_id: Uuid,
+    history: &PerceptualHistory,
+    clock_kind: SpectrumClockKind,
+) -> Vec<u8> {
     let frame_count = history.frames().len().min(u16::MAX as usize) as u16;
     let mut bytes = Vec::with_capacity(32 + frame_count as usize * 201);
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
@@ -61,7 +71,7 @@ pub(super) fn encode_perceptual_snapshot(request_id: Uuid, history: &PerceptualH
         bytes.extend_from_slice(&frame.generation.to_le_bytes());
         bytes.push(frame.channel_mode as u8);
         bytes.push(frame.channels);
-        bytes.extend_from_slice(&0_u16.to_le_bytes());
+        bytes.extend_from_slice(&(clock_kind as u16).to_le_bytes());
         bytes.extend_from_slice(&frame.aperture_samples.to_le_bytes());
         bytes.extend_from_slice(&frame.sharpness.to_le_bytes());
         bytes.push(u8::from(frame.psb.is_some()));
@@ -85,6 +95,7 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
     .then_some(())?;
     let request_id = Uuid::from_slice(cursor.take(16)?).ok()?;
     let mut history = PerceptualHistory::with_capacity();
+    let mut clock_kind = None;
     for _ in 0..frame_count {
         let presentation_end_samples = cursor.i64()?;
         let state_epoch_samples = cursor.i64()?;
@@ -96,7 +107,14 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
         if channel_mode == SpectrumChannelMode::Side && channels != 2 {
             return None;
         }
-        (cursor.u16()? == 0).then_some(())?;
+        let kind = SpectrumClockKind::decode(cursor.u16()?)?;
+        matches!(
+            kind,
+            SpectrumClockKind::Presentation | SpectrumClockKind::AaxEngine
+        )
+        .then_some(())?;
+        (!clock_kind.is_some_and(|previous| previous != kind)).then_some(())?;
+        clock_kind = Some(kind);
         let aperture_samples = cursor.u32()?;
         (aperture_samples == sample_rate / crate::PERCEPTUAL_PRESENTATION_HZ).then_some(())?;
         (state_epoch_samples.rem_euclid(i64::from(aperture_samples)) == 0
@@ -137,6 +155,7 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
     (cursor.remaining() == 0).then_some(DecodedPerceptualSnapshot {
         request_id,
         history,
+        clock_kind: clock_kind?,
     })
 }
 

@@ -14,15 +14,29 @@ public:
     {
         setComponentID ("hypha-information");
         setTitle ("Hypha information");
-        setDescription ("Loaded version, update information, downloads, and hover help");
+        setDescription ("Loaded version, update information, and downloads");
         setTooltip ("Hypha information and downloads");
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         setWantsKeyboardFocus (true);
     }
 
+    // Focus can land here when a pressed control is hidden by a view change; only a Tab arrival
+    // shows the outline, so the title never keeps a frame the user did not ask for.
+    void focusGained (FocusChangeType cause) override
+    {
+        tabFocus = cause == focusChangedByTabKey;
+        Button::focusGained (cause);
+    }
+
+    void focusLost (FocusChangeType cause) override
+    {
+        tabFocus = false;
+        Button::focusLost (cause);
+    }
+
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
-        const bool focused = highlighted || hasKeyboardFocus (true);
+        const bool focused = highlighted || (tabFocus && hasKeyboardFocus (true));
         if (! focused && ! down)
             return;
 
@@ -35,5 +49,8 @@ public:
         g.setColour (COL_FLORA_BR.withAlpha (down ? 0.48f : 0.30f));
         g.drawRoundedRectangle (area, 3.0f, down ? 0.90f : 0.65f);
     }
+
+private:
+    bool tabFocus = false;
 };
 }

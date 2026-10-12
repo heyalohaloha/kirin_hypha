@@ -1,8 +1,13 @@
 #include "../src/PluginEditor.h"
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaTimePageNavigation.h"
+#include <algorithm>
+#include <typeinfo>
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "../src/HyphaTextStyle.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
+#include "LiveTimingFixtureAccess.h"
+#include "../src/update/UpdateBuildTrust.h"
 #include "EditorProductChecks.h"
 #include "EditorHiddenAutoCheck.h"
 #include "EditorResizeGripCheck.h"
@@ -87,6 +92,7 @@ int differentPixels (const juce::Image& first, const juce::Image& second,
 }
 
 #include "EditorRecordPresentationCheck.h"
+#include "EditorShellRepairChecks.h"
 
 struct HostClock final : juce::AudioPlayHead
 {
@@ -378,9 +384,85 @@ private:
 };
 }
 
+// TIME's tab row: one rectangle per tab decides what is drawn, what a pointer hits and what
+// accessibility reports, at every size and whether or not HISTORY's range / scale controls
+// narrow the row. A press on the right part of SHARP must never land on LIVE.
+void verifyTimeTabGeometry()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.setObservatoryDomainPreference (hypha::observatory::stateValue (Domain::time));
+    processor.prepareToPlay (48'000, 960);
+    auto editor = std::unique_ptr<KirinHyphaEditor> (
+        dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+    require (editor != nullptr, "POST editor opens for the TIME tab row");
+    editor->setVisible (true);
+    (editor.get()->*testMember (SetObservatoryDomain {})) (Domain::time);
+    for (const auto preset : hypha::observatory::sizePresets)
+        for (const auto page : { AnalysisPage::meters, AnalysisPage::perceptual, AnalysisPage::absolute })
+        {
+            editor->setSize (preset.width, preset.height);
+            (editor.get()->*testMember (SetAnalysisPage {})) (page);
+            auto* navigation = component<hypha::TimePageNavigation> (*editor);
+            auto* view = component<hypha::observatory::View> (*editor);
+            require (navigation != nullptr && view != nullptr && navigation->isVisible(), "TIME shows its tab row");
+            const auto row = editor->getLocalArea (view, view->timeNavigationBounds());
+            require (editor->getLocalArea (navigation, navigation->getLocalBounds()) == row,
+                     "the tab row is exactly the view's TIME navigation row");
+            if (! navigation->isDirect()) continue; // 100%: one cycling control, no tabs
+            juce::Array<juce::Component*> tabs;
+            for (auto* child : navigation->getChildren())
+                if (child->isVisible()) tabs.add (child);
+            std::sort (tabs.begin(), tabs.end(), [] (auto* a, auto* b) { return a->getX() < b->getX(); });
+            require (tabs.size() == navigation->visibleDirectTabCount() && tabs.size() >= 4, "every TIME tab is a visible child");
+            const auto snapshot = editor->createComponentSnapshot (editor->getLocalBounds());
+            int previousRight = row.getX();
+            for (auto* tab : tabs)
+            {
+                const auto bounds = editor->getLocalArea (tab, tab->getLocalBounds());
+                require (bounds.getX() == previousRight && bounds.getY() == row.getY()
+                         && bounds.getHeight() == row.getHeight(), "the tabs tile the row in order without gaps or overlaps");
+                previousRight = bounds.getRight();
+                for (const int x : { bounds.getX() + 1, bounds.getCentreX(), bounds.getRight() - 2 })
+                    if (auto* hit = editor->getComponentAt (x, bounds.getCentreY()); hit != tab)
+                    {
+                        const auto* other = dynamic_cast<juce::Button*> (hit);
+                        std::cerr << "TIME tab hit: " << preset.width << "x" << preset.height << " page " << static_cast<int> (page)
+                                  << " tab " << dynamic_cast<juce::Button*> (tab)->getButtonText() << " bounds " << bounds.toString()
+                                  << " at x=" << x << " hit " << (hit == nullptr ? juce::String ("none") : other ? other->getButtonText()
+                                      : hit->getComponentID().isNotEmpty() ? hit->getComponentID() : juce::String (typeid (*hit).name())) << '\n';
+                        require (false, "the pointer hits the tab whose rectangle it is in, up to its right edge");
+                    }
+                // Its label is drawn inside its own rectangle: the boundary columns stay empty.
+                const auto bright = [&] (int x, int y) { return snapshot.getPixelAt (x, y).getPerceivedBrightness() > 0.35f; };
+                int first = bounds.getRight(), last = bounds.getX();
+                for (int y = bounds.getY() + 1; y < bounds.getBottom() - 2; ++y)
+                    for (int x = bounds.getX(); x < bounds.getRight(); ++x)
+                        if (bright (x, y)) { first = std::min (first, x); last = std::max (last, x); }
+                require (first < last && first > bounds.getX() + 1 && last < bounds.getRight() - 2,
+                         "the tab's label lies inside its rectangle, clear of the neighbouring tab");
+            }
+            require (previousRight == row.getRight(), "the last tab ends where the row ends");
+            // HISTORY's range / scale controls share the row's height to its right; they never
+            // overlap the tabs and take their own hits.
+            int controls = 0;
+            for (auto* child : view->getChildren())
+            {
+                const auto bounds = editor->getLocalArea (child, child->getLocalBounds());
+                if (! child->isVisible() || dynamic_cast<juce::Button*> (child) == nullptr
+                    || bounds.getBottom() <= row.getY() || bounds.getY() >= row.getBottom()) continue;
+                require (! bounds.intersects (row) && editor->getComponentAt (bounds.getCentre()) == child,
+                         "a control beside the TIME tab row sits outside it and takes its own hits");
+                ++controls;
+            }
+            require ((page == AnalysisPage::meters) == (controls > 0),
+                     "HISTORY alone shows the range / scale controls beside the tabs");
+        }
+}
+
 int main (int argc, char** argv)
 {
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     hypha::tests::editor_product::ScopedChainTimingStorage chainTimingStorage (sandbox.directory());
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
@@ -390,6 +472,12 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI init;
     // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
     hypha::i18n::holdLanguage (true);
+    if (argc > 1 && juce::String (argv[1]) == "--shell-repairs-only")
+    {
+        verifyEditorShellRepairs();
+        std::cout << "Editor shell repairs: PASS (PRE/POST, 3 Blind screens, host-thread restore)\n";
+        return EXIT_SUCCESS;
+    }
     verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
@@ -399,6 +487,8 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyResizeGrip();
     hypha::tests::editor_product::verifyLanguageSwitch();
     verifySavedReferenceChoices();
+    verifyEditorShellRepairs();
+    verifyTimeTabGeometry();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);
     hypha::tests::editor_product::verifyObservatoryHelpLine (previews);

@@ -99,11 +99,14 @@ inline void verifyReferenceStatusFits()
             panel.footerStatusStrip().resized();
             const auto layout = panel.statusTextLayout (strip);
             const auto shown = text_style::shownText (layout.line.text);
-            const auto first = shown.upToFirstOccurrenceOf (" /", false, false).trimEnd();
+            const auto first = shown.replace (juce::String::fromUTF8 (u8" ／"), " /")
+                .upToFirstOccurrenceOf (" /", false, false).trimEnd();
             require (first.isNotEmpty() && layout.text.startsWith (first)
                          && text_style::shownWidth (readout, first) <= static_cast<float> (layout.textArea.getWidth()),
                      "the footer status shows at least its first part whole at 300% (" + juce::String (item.name) + ", "
                          + tag + "): " + shown);
+            require (text_style::shownWidth (readout, layout.text) <= static_cast<float> (layout.textArea.getWidth()),
+                     "complete English and Japanese status segments fit the footer before painting (" + tag + "): " + layout.text);
             require (! layout.line.text.contains ("A LOWERED"),
                      "the held attenuation is said by RETURN in the footer, not twice (" + juce::String (item.name) + ")");
             if (item.state.actionText.isNotEmpty())

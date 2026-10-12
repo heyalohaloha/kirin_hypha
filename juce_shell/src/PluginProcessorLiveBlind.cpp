@@ -20,7 +20,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     liveCompare.matchRetained.store (false, std::memory_order_release);
     liveCompare.selection.end();
     liveCompare.completion.request();
-    startTimer (50);
+    requestServiceTimer();
 }
 
 bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
@@ -36,6 +36,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
     using Phase = hypha::local_blind::ProductSessionPhase;
     const auto permission = liveCompare.authority.ticket();
     serviceLiveCompare();
+    if (liveCompare.contentHold.held()) return StartResult::contentHeld;
     if (! liveCompareSupported() || ! localBlindProductSupported()) return StartResult::unsupportedLayout;
     const auto admission = liveCompareAdmission (true);
     if (admission != StartResult::started) return admission;
@@ -97,14 +98,15 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
     liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
     // The only sound during preparation is POST. The match itself can be reused unchanged.
     liveCompare.selection.select (false);
-    startTimer (50);
+    requestServiceTimer();
     return StartResult::started;
 }
 
 void KirinHyphaProcessorBase::serviceLiveBlind()
 {
     serviceLiveCompare();
-    const auto preparingLoss = liveCompare.blindTiming.failure();
+    const auto preparingLoss = liveCompare.contentHold.held() ? RecoveryReason::contentChanged
+        : liveCompare.blindTiming.failure();
     if (preparingLoss != RecoveryReason::none
         && (liveCompare.blindStage == BlindStage::preparing || liveCompare.blindStage == BlindStage::settling
             || liveCompare.blindStage == BlindStage::approval))
@@ -224,6 +226,13 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
     status.compensationOff = state.compensationOff;
+    status.loopBlocksPairing = state.loopBlocksPairing;
+    status.timingUnavailable = state.timingUnavailable && ! status.contentHeld
+        && status.stage != BlindStage::active && status.stage != BlindStage::idle
+        && status.stage != BlindStage::finishing;
+    status.clockUnavailable = state.clockUnavailable && ! status.contentHeld
+        && status.stage != BlindStage::active && status.stage != BlindStage::idle
+        && status.stage != BlindStage::finishing;
     if ((status.stage == BlindStage::preparing || status.stage == BlindStage::settling || status.stage == BlindStage::approval)
         && liveCompare.blindTiming.failure() != RecoveryReason::none)
     {
@@ -268,5 +277,5 @@ void KirinHyphaProcessorBase::closeLiveBlind()
     stopLiveCompare();
     // An explicit END already in progress survives window close. A close alone holds attenuation.
     if (! liveCompare.completion.pending()) liveCompare.blindStage = BlindStage::idle;
-    startTimer (50);
+    requestServiceTimer();
 }

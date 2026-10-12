@@ -3,6 +3,7 @@ use super::{AnalysisSelection, AnalysisViewMode, Ordering, SpectrumIngressBlock,
 use crate::PresentationLatencySource;
 
 const LOCAL_CLOCK: u64 = 1 << 63;
+const VERIFIED_AAX_CLOCK: u64 = 1 << 62;
 
 /// Coordinate meaning carried by the private PRE Spectrum snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -10,6 +11,7 @@ const LOCAL_CLOCK: u64 = 1 << 63;
 pub enum SpectrumClockKind {
     Presentation = 1,
     ProjectTimeline = 2,
+    AaxEngine = 3,
 }
 
 impl SpectrumClockKind {
@@ -17,13 +19,16 @@ impl SpectrumClockKind {
         match value {
             1 => Some(Self::Presentation),
             2 => Some(Self::ProjectTimeline),
+            3 => Some(Self::AaxEngine),
             _ => None,
         }
     }
 }
 
 pub(super) fn definition_clock_kind(definition: u64) -> Option<SpectrumClockKind> {
-    if definition_is_aligned(definition) {
+    if definition & VERIFIED_AAX_CLOCK != 0 && definition_is_aligned(definition) {
+        Some(SpectrumClockKind::AaxEngine)
+    } else if definition_is_aligned(definition) {
         Some(SpectrumClockKind::Presentation)
     } else if definition == (LOCAL_CLOCK | 1) {
         Some(SpectrumClockKind::ProjectTimeline)
@@ -43,6 +48,12 @@ pub enum SpectrumInputClock {
     },
     LocalProject(i64),
     LocalRender(i64),
+    /// Native wrapper proved continuous AddClock, and for POST differences the exact pair K.
+    /// This is a separate analysis authority; it is never a zero presentation-latency report.
+    VerifiedAax {
+        start_samples: i64,
+        proof_revision: u64,
+    },
 }
 
 impl SpectrumInputClock {
@@ -65,6 +76,12 @@ impl SpectrumInputClock {
             }
             Self::LocalProject(start) => Some((start, LOCAL_CLOCK | 1)),
             Self::LocalRender(start) => Some((start, LOCAL_CLOCK | 2)),
+            Self::VerifiedAax {
+                start_samples,
+                proof_revision,
+            } if (1..VERIFIED_AAX_CLOCK).contains(&proof_revision) => {
+                Some((start_samples, VERIFIED_AAX_CLOCK | proof_revision))
+            }
             _ => None,
         }
     }
@@ -98,6 +115,7 @@ impl SpectrumRuntime {
     ) -> bool {
         if !self.enabled.load(Ordering::Relaxed)
             || self.stream_generation.load(Ordering::Acquire) == 0
+            || self.clock_revision.load(Ordering::Acquire) == 0
         {
             return false;
         }
@@ -108,14 +126,39 @@ impl SpectrumRuntime {
             return false;
         };
         // Carry the same selection checked here into the descriptor. A concurrent mode change
-        // cannot admit a local coordinate to a state-epoch Perceptual/Absolute assembler.
+        // cannot admit a local coordinate to the paired Perceptual assembler.
         let selection = self.selection.load(Ordering::Acquire);
-        if !definition_is_aligned(definition)
-            && AnalysisSelection::decode(selection, self.layout)
-                .is_none_or(|selection| selection.mode != AnalysisViewMode::Spectrum)
+        let decoded = AnalysisSelection::decode(selection, self.layout);
+        if definition & VERIFIED_AAX_CLOCK != 0
+            && decoded.is_none_or(|selection| {
+                !matches!(
+                    selection.mode,
+                    AnalysisViewMode::Perceptual | AnalysisViewMode::Absolute
+                )
+            })
         {
             self.note_drop();
             return false;
+        }
+        if !definition_is_aligned(definition) {
+            // Absolute needs a continuous local coordinate, not PRE/POST audio alignment.
+            let rejected_perceptual =
+                decoded.is_some_and(|selection| selection.mode == AnalysisViewMode::Perceptual);
+            self.output_latency_unavailable.store(
+                if rejected_perceptual { selection } else { 0 },
+                Ordering::Release,
+            );
+            if decoded.is_none_or(|selection| {
+                !matches!(
+                    selection.mode,
+                    AnalysisViewMode::Spectrum | AnalysisViewMode::Absolute
+                )
+            }) {
+                self.note_drop();
+                return false;
+            }
+        } else {
+            self.output_latency_unavailable.store(0, Ordering::Release);
         }
         if num_channels != self.num_channels
             || interleaved.is_empty()
@@ -141,7 +184,13 @@ impl SpectrumRuntime {
             if !self.advance_stream_generation() {
                 return false;
             }
+            let current = self.clock_revision.load(Ordering::Relaxed);
+            let next = current.checked_add(1).unwrap_or(0);
+            self.clock_revision.store(next, Ordering::Release);
             self.clock_definition.store(definition, Ordering::Release);
+            if next == 0 {
+                return false;
+            }
         }
         let stream_generation = self.stream_generation.load(Ordering::Acquire);
         self.latest_presentation_end
@@ -180,6 +229,13 @@ impl SpectrumRuntime {
             .compare_exchange(current, next, Ordering::AcqRel, Ordering::Relaxed)
             .is_ok()
             && next != 0
+    }
+
+    /// Audio Thread: a certified clock's temporary proof gap revokes facts and waits for re-arm.
+    /// Host support is unchanged; Watch/Record ingress is independent.
+    pub fn note_analysis_clock_drop_from_audio(&self) {
+        self.output_latency_unavailable.store(0, Ordering::Release);
+        self.note_drop();
     }
 
     pub(super) fn note_drop(&self) {

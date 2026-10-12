@@ -23,7 +23,7 @@ struct ComparisonContext<'a> {
     post: &'a MeasureResult,
     layout: &'a crate::plugin_data::MeasurementLayout,
     audition_active: bool,
-    local_inactive: bool,
+    local_state: SignalState,
 }
 
 fn attach_comparison_state(
@@ -52,7 +52,11 @@ fn attach_comparison_state(
         previous.comparison,
         next,
         identity.finish(),
-        if context.local_inactive && context.pre_instance_id.is_some_and(|id| !id.is_empty()) {
+        if context.local_state == SignalState::Bypassed {
+            Some(crate::ComparisonReason::LocalBypassed)
+        } else if context.local_state == SignalState::Inactive
+            && context.pre_instance_id.is_some_and(|id| !id.is_empty())
+        {
             Some(crate::ComparisonReason::LocalInactive)
         } else {
             context
@@ -335,7 +339,7 @@ pub(super) fn run_tick(
                 post: &post,
                 layout: post_layout,
                 audition_active: comparison_audition_active,
-                local_inactive: true,
+                local_state: state,
             },
         );
         *delta_locked = next;
@@ -424,7 +428,7 @@ pub(super) fn run_tick(
                 post: &post,
                 layout: post_layout,
                 audition_active: comparison_audition_active,
-                local_inactive: false,
+                local_state: SignalState::Active,
             },
         );
         *delta_locked = next;

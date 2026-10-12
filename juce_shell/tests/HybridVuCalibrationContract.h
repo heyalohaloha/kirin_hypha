@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TestTemporaryDirectory.h"
 #include "../src/HyphaHybridVuPainter.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaVuCalibrationPreference.h"
@@ -55,7 +56,7 @@ private:
 
 inline void verifyPreference()
 {
-    const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto root = hypha::tests::temporaryParent()
         .getChildFile ("hypha-vu-calibration-fixture-" + juce::Uuid().toString());
     require (root.createDirectory().wasOk(), "disposable directory");
     const auto a = vu_calibration::scopeKey ("project-a", "pre-a");

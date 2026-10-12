@@ -202,7 +202,7 @@ namespace hypha::reference_audition
             if (target.existsAsFile()) return target.loadFileAsString() == content;
             if (target.exists()) return false;
             const auto temporary = target.getSiblingFile (
-                "." + target.getFileName() + "." + juce::Uuid().toDashedString() + ".tmp");
+                "." + juce::Uuid().toDashedString() + ".tmp");
             auto stream = temporary.createOutputStream();
             if (stream == nullptr || ! stream->openedOk()
                 || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes))) return false;

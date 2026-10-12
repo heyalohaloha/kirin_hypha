@@ -47,6 +47,16 @@ void KirinHyphaEditor::wireReferenceRoles()
     };
 }
 
+bool KirinHyphaEditor::ensureReferenceRoom()
+{
+    updateResizeLimits();
+    const auto size = sizeConstrainer.allowedSize ({ 900, 600 });
+    setSize (size.width, size.height);
+    if (getWidth() >= 900 && getHeight() >= 600) return true;
+    showToast ("This display cannot fit the Reference controls. Move the window to a larger display.");
+    return false;
+}
+
 void KirinHyphaEditor::openReferenceLarge (int slot)
 {
     // 300% 未満で C・V を押したら 300% に広げてその役の画面を開く。鳴らすのはもう一度押したとき。
@@ -54,7 +64,7 @@ void KirinHyphaEditor::openReferenceLarge (int slot)
     const auto& state = referenceView.state();
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
                                     : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
-    setSize (900, 600);
+    if (! ensureReferenceRoom()) return;
     showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
 }
 
@@ -91,6 +101,12 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                 if (index < set.facts.size())
                 {
                     const auto& source = set.facts[index];
+                    if (source.sourceMissing)
+                    {
+                        fact.prepared = false;
+                        fact.preparation.reason = "source_unavailable";
+                        fact.preparation.retry = "manual";
+                    }
                     fact.lufsI = source.lufsI;
                     fact.centersHz = source.spectrumCentersHz;
                     fact.medianDb = source.spectrumMedianDb;

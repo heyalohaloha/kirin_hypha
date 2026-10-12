@@ -1,3 +1,4 @@
+#include "TestTemporaryDirectory.h"
 #include "../src/update/UpdateStore.h"
 
 #include <cstdlib>
@@ -90,6 +91,28 @@ void normalAndLock (const juce::File& fixture)
     require (first.acquire() && first.read (restored) && restored.lastAttempt == 1'800'000'000'000,
              "OS releases a dead owner while its attempted-check budget remains");
 }
+
+void futureStamps (const juce::File& fixture)
+{
+    constexpr juce::int64 checkIntervalSeconds = 24 * 60 * 60;
+    const auto root = fixture.getChildFile ("future/UpdateCheck/v1");
+    Store store (root); Store::State state;
+    constexpr juce::int64 now = 1800000000;
+    state.enabled = true; state.lastSequence = 23; state.wire = "verified fixture wire";
+    state.lastAttempt = state.lastSuccess = now + checkIntervalSeconds;
+    require (store.acquire() && store.save (state), "seed the future boundary");
+    require (! store.clearFutureAttempts (state, now), "a clock rollback of exactly one day keeps its reservation");
+    ++state.lastAttempt; ++state.lastSuccess;
+    require (store.save (state) && store.clearFutureAttempts (state, now), "beyond one day discards only the bad clock stamps");
+    Store::State read;
+    require (store.read (read) && read.lastAttempt == 0 && read.lastSuccess == 0
+        && read.lastSequence == 23 && read.wire == state.wire && read.enabled,
+        "clock repair preserves cached wire, opt-in and publication sequence");
+    read.lastSequence = 22;
+    require (! store.save (read), "clock repair never permits sequence rollback");
+    require (! store.clearFutureAttempts (state, 0), "an invalid current clock cannot repair state");
+}
+
 
 void rejectedStates (const juce::File& fixture)
 {
@@ -185,12 +208,13 @@ int main (int argc, char** argv)
    #if JUCE_MAC
     const auto parent = juce::File ("/private/tmp"); // Avoid the system /var symlink: parents are checked with O_NOFOLLOW.
    #else
-    const auto parent = juce::File::getSpecialLocation (juce::File::tempDirectory);
+    const auto parent = hypha::tests::temporaryParent();
    #endif
     const auto fixture = parent.getChildFile ("hypha-update-store-" + juce::Uuid().toString());
     require (fixture.createDirectory(), "create disposable test root");
     struct Cleanup { juce::File path; ~Cleanup() { path.deleteRecursively(); } } cleanup { fixture };
     normalAndLock (fixture);
+    futureStamps (fixture);
     rejectedStates (fixture);
     linkedPaths (fixture);
     std::cout << "Update store fixtures: pass\n";

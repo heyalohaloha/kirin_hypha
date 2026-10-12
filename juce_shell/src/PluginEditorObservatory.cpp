@@ -327,6 +327,7 @@ void KirinHyphaEditor::refreshObservatory()
     }
     if (processorRef.scaleModePreference() != observatoryView.scaleMode())
         observatoryView.setScaleMode (processorRef.scaleModePreference());
+    updateResizeLimits();
     const auto restoredSize = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);
@@ -343,8 +344,9 @@ void KirinHyphaEditor::refreshObservatory()
         setSize (restoredEditorSize.width, restoredEditorSize.height);
     }
 
-    KirinObservatoryFrame frame {};
+    KirinObservatoryFrame frame = observatoryView.frameForPoll();
     KirinLevelSnapshot levelSnapshot {};
+    levelSnapshot.frame = frame;
     std::vector<KirinMeterHistoryEntry> levelHistory;
     const auto levelAbsolute = observatoryDomain == hypha::observatory::Domain::level
         && observatoryView.target() == hypha::observatory::ObservationTarget::absolute;

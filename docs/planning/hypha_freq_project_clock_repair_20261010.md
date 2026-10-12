@@ -8,7 +8,7 @@
 - runtimeの履歴とclock kindを同じidentityで取得する。mutex競合は公開物の消去理由にしない。
 - PREはproject timelineの完成履歴も公開する。private snapshot KHSPEC05のheaderにPresentation=1／ProjectTimeline=2を記録する。長さ・上限は維持し、旧形式と未知tagを拒否する。
 - POSTは自分と同じkindのPREだけをexact endpointで結合する。混在したら古いΔの表示leaseも即時に失効させ、絶対POSTを保持する。
-- 同run抽出、seek／gap／失効、外部requestの保全、6秒履歴、通常A経路、Recordと既存C ABIの形は維持する。SHARP／Absoluteのpresentation-clock gateとDRUM時計を変更しない。
+- 同run抽出、seek／gap／失効、外部requestの保全、6秒履歴、通常A経路、Recordと既存C ABIの形は維持する。Perceptualの整列条件とDRUM時計は維持する。Absoluteはproject timeline／local renderも受理し、LIVE、POST単体のSharpnessと絶対PSBを表示する。状態6はPerceptualの未整列座標だけに属する。
 
 ## 回帰
 

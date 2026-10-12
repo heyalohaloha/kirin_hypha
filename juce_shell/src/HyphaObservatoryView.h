@@ -195,6 +195,7 @@ public:
     capture::PresentationStamp capturePresentationStamp() const noexcept;
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
+    const KirinObservatoryFrame& frameForPoll() const noexcept { return observatoryFrame; }
     void setLevelObservation (const KirinLevelSnapshot*, std::vector<KirinMeterHistoryEntry>,
                               const KirinChainPoint*, const KirinObservatoryFrame* fallback = nullptr);
     std::uint64_t levelChainRevision (bool latestOnly) const noexcept;

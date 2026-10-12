@@ -81,3 +81,17 @@ idle Keep完了はpersistent Record errorへの書込みを止め、既存pair r
 再受入は、実PRE探索／選択／解除、LISTEN未使用、state restore、停止再開、hidden／visible、editor再open、実LISTEN中断／明示END／再選択、全size・domain・日英・VUと、一度のCapture／Keep結果通知の消去後の再出現を対象とする。現在のWAIT・content hold・RT return・実際／targetの保持減衰は過去理由全種と組み合わせて検証する。実paired Keepの5秒試験閾値auto-stopを通常workspace suiteで動かし、通知1回・persistent error無し・Watch／再openで復活無しを確認する。10分defaultは変更しない。fixture結果は実REAPER等のloaded module受入を代用しない。
 
 追加監査で、非表示AUTO停止通知が先行toast待ちの間のAUTO再開や比較終了後にも出る経路を確認した。再開の明示commandはpendingを退役し、timerも現在の比較存続・追従・新faultから古いpendingを破棄する。既存のinactive UI fixtureは不成立sessionで通知しないことを確認し、実PRE探索／LISTEN／MATCHを使うfixtureで現在の停止通知1回、Capture失敗の優先、AUTO再開後の古い通知無し、pair中断後の復活無しを確認する。音声／gain／RUST／ABIは変更しない。
+
+## 出力の遅れを知らせないDAWのLISTEN案内（2026-10-11）
+
+REAPERはpluginへ出力の遅れ（output presentation latency）を知らせず、HyphaがPRE/POSTの対応を確かめられる音声の時計も得られない。LISTENは始まるがPOSTが鳴り、PREは聴けない。MATCHとBLINDも進まない。LIVE、POSTのPSB、FREQは使える。SHARPのΔとPSBのΔは状態6（出力の遅れ未報告）。READMEの記述もこの動きに合わせた。
+
+以前は「Clock missing: restart playback (POST)」が出続け、停止→再生しても直らなかった。POSTはguidance専用に、このinstanceで一度でも連続時計または出力の遅れの通知（`PluginProcessorHostClock.cpp`の読取経路）を見たかを保持し、観測がclockMissingで両方とも一度も無い場合だけ`clockUnavailable`とする。この場合はLISTENの足元・help line・Blindの画面で「This DAW does not report output latency; PRE is unavailable (POST)」（日本語は「このDAWは出力の遅れを知らせないためPREを聴けません（今はPOST）」）を出し、停止→再生やPREの再選択を約束しない。時計または通知を一度でも見たhostでの一時的な時計の途切れは、従来の「restart playback」／「select PRE again」のまま。対応の証明、出力、gain、A経路、Record、保存stateは変えない。
+
+確認：recovery textの単体試験（shell repair UI）、実LISTENのproduct試験（時計も通知も無いhost fixtureで足元とstoryの文、停止→再生後も同じ案内、同じinstanceが時計を見た後は従来の案内、Blind準備の同じ境界）、訳の契約。実REAPERでの受入は別に行う。
+
+## 認定のないAAXのループ再生の案内（2026-10-11）
+
+認定のないAAX hostがLoop Playback ONで範囲をループしているとき、観測は`loopClockUnavailable`になり、LISTENの足元には「This DAW cannot verify timing; comparison is unavailable」、Blindの画面にも同じ境界が出ていた。このhostではループ再生をオフにすれば比較できるので、この文は事実と違う。`namedPresentation`と`blindRecovery`では`loopBlocksPairing`の`loopOff`案内（「Loop Playback on: turn it off to compare (POST)」／「Turn off Loop Playback to compare」）をhostの境界（timingUnavailable、出力の遅れ未報告）より先に出し、Blindの画面の原因行もループ中は`timingText`を使わない。PSBのΔ（`HyphaSpectrumPsb.cpp`）はSHARPと同じ条件（準備中かつ`analysisPairingLoopBlocked`）で同じ「Loop Playback on: turn it off to compare」を出す。認定ありのAAX、VST3、AUではこの案内を出さない。出力の遅れを知らせないhostの案内（上節）とは観測が異なり同時には成立しないが、順序はループ案内が先。
+
+確認：shell repair UIの単体試験（LISTEN／Blind／PSBの三つの文、ループなしでは境界のまま、両方が立つ仮定の順序）、AAX analysis product試験（認定なし＋範囲ありのループで三つの文、認定なしの直線再生・ループ解除後・認定ありのループでは出ない）、live recovery product試験（VST3のループでは出ない）。

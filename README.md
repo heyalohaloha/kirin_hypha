@@ -250,6 +250,30 @@ to retain one temporary full-spectrum reference. The display scale is ±24 dB.
 SHARP shows six seconds of signed **Δ Sharpness** in acum; without a paired PRE it shows POST's own
 Sharpness. It reports observation only: no target, warning colour, score, or recommendation.
 
+SHARP differences and PSB differences need a reported output-presentation latency, or in Pro Tools
+AAX the verified PRE/POST timing offset. LIVE, POST-only Sharpness and absolute PSB also accept the
+project timeline or a local render clock, so they do not need an output-latency report; in AAX they
+always use the project timeline.
+Pro Tools AAX feeds SHARP through the Native engine clock. The difference uses the same PRE/POST
+timing proof that LISTEN uses to play PRE: every Pro Tools build from 12.6 on proves it within the
+documented delay-compensation bound, including an initial loop (the proof itself was measured in
+Pro Tools Developer 26.4.0.5; other builds are certified by that floor, not measured). An AAX host
+that is not Pro Tools proves it only during linear playback, so while Loop Playback loops a
+selection there the view says **Loop Playback on: turn it off to compare**. After a start, seek,
+stop/play, temporary clock gap, disabled delay compensation or another audition taking output,
+affected views show **PREPARING ANALYSIS** until fresh proof and measurements are ready. Missing
+latency is never assumed to be zero.
+
+| Clock supplied by the host | LIVE / POST Sharpness / absolute PSB | SHARP Δ / PSB Δ |
+|---|---|---|
+| VST3 or AU output-presentation clock | Available | Requires a matching PRE |
+| Project timeline without an output-latency report, as in REAPER | Available | Unavailable (state 6) |
+| Local render clock | Available | Unavailable (state 6) |
+| AAX Native engine clock, Pro Tools 12.6 or later | Project timeline | Requires the existing PRE/POST timing proof (linear or bounded initial loop) |
+| AAX Native engine clock, another AAX host | Project timeline | Requires the linear PRE/POST timing proof; waits while a selection loops |
+
+This table describes the analysis clock gate. It does not replace acceptance tests in each host.
+
 ### LIVE — three absolute POST facts on one timeline
 
 ![TIME LIVE: LUFS-M, recent True Peak and Sharpness on one six-second timeline](docs/media/readme/live.jpg)
@@ -372,7 +396,9 @@ Kirin OS, and every measurement stay the same.
 PRE displays absolute values. POST shows its own values (**POST**) or the difference from the
 paired PRE (**Δ**). If that exact PRE is explicitly bypassed, the Δ views say **PRE IS OFF — ENABLE
 PRE TO COMPARE** without releasing the pair; choose **POST** for absolute values. A stop, silence,
-stale read, or temporary absence never claims that PRE was bypassed. LUFS-M and LUFS-S each keep
+stale read, or temporary absence never claims that PRE was bypassed. An inactive PRE says
+**PRE NOT RUNNING — CHECK PRE IS ENABLED**; stopping POST pauses the comparison. A distinct
+POST-bypass reason is displayed only when supplied by the measurement ABI. LUFS-M and LUFS-S each keep
 their own MAX value for the current Watch playback pass.
 In LEVEL, the live 400 ms True Peak and its playback-pass MAX are distinct facts. Starting **Keep**
 (MENU → Keep) changes the presented result context; **Max TP** then means the maximum for the whole Keep session,
@@ -562,7 +588,9 @@ Peak is below the measurement floor remains unavailable internally and in the nu
 curve alone reaches the lower plot edge so silence does not resemble a dropped UI frame. There are no
 targets, score bands, warning colours, or verdicts.
 
-All three values are committed at the same exact 100 ms POST presentation endpoint. Measurement runs
+All three values are committed at the same exact 100 ms POST endpoint in the current clock.
+Presentation, project and local render coordinates support absolute facts; local coordinates do
+not prove PRE/POST alignment. A clock-kind change rebuilds analysis state. Measurement runs
 at 10 Hz, Rust retains 64 exact points, the curve repaints at 5 Hz, and current numbers update at 2 Hz.
 No missing measurement is interpolated or stored as a value, and no temporal smoothing delays the
 display. A short forward observation gap retains the verified points on both sides at their exact
@@ -669,6 +697,13 @@ session and plug-in data. Builds without the official update verification key de
 access. A deliberately provisioned update build additionally declares `network.client` and the
 update protocol marker; signing and packaging gates check these together.
 
+SHARP Δ and PSB Δ require reported output latency, or in AAX the PRE/POST timing proof described
+above. Their missing-latency ABI state (6) shows a fixed unavailable reason instead of an endless
+warm-up. LIVE, POST-only Sharpness and absolute PSB use the available local clock without this
+requirement.
+Switching views retires the previous view's missing-latency flag. Format support alone does not
+prove PRE/POST timing alignment.
+
 ### Optional update information
 
 The PRE / POST information menu retains explicit English/Japanese official download links. The
@@ -684,7 +719,10 @@ Invalid, expired or unsigned information cannot announce a release. Normal use w
 
 This source includes the implementation and offline tests, **not a published update service**.
 No production verification key is provisioned here: until a key and signed official endpoint are
-approved and deployed, checks make no HTTP request and the manual official links remain usable.
+approved and deployed, the information menu hides update status, automatic checking and Check now.
+No HTTP request is made; the manual official links remain usable. If saving a check timestamp
+fails, the running checker waits 24 hours before trying again. A timestamp more than 24 hours
+ahead of the current clock can be discarded without discarding the verified publication sequence.
 See [update implementation and acceptance](docs/hypha_update_check_contract_20261005.md) for
 the precise host/format, lifecycle and outstanding real-device verification boundaries.
 
@@ -764,9 +802,11 @@ it. While A is lowered, the live PRE/POST compare and Blind wait for RETURN, so 
 twice.
 
 **One comparison takes POST at a time.** Every button and every internal start asks the same rule:
-a Blind or Keep waits while B, C or V plays (press A in REF first); nothing else starts while the live
+a Blind or Keep waits while B, C or V plays (press A in REF first); other auditions wait while the live
 PRE/POST compare holds or returns POST; and B, C, V or a Blind takes over a running live compare
-session, whose PRE then needs selecting again. A refused start says why and changes nothing.
+session, whose PRE then needs selecting again. Keep remains available during held LISTEN attenuation
+when no Blind owns the output; it records the canonical measurements before that attenuation.
+A refused start says why and changes nothing.
 
 A stop or seek keeps the selection: the same source returns at the same gain once it is ready again,
 as in the live PRE/POST compare. An offline render, a local Blind or starting the live PRE/POST
@@ -917,7 +957,25 @@ and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, 
 by itself as soon as it can confirm it again. Whenever you hear POST with PRE selected, even
 briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
 
-It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Tools it is offered
+LISTEN/MATCH have platform paths for macOS VST3, AU and AAX and Windows VST3 and AAX;
+these paths do not certify every host. Logic AU can run BLIND during continuous playback,
+including preparation, level approval and settling, using runtime PRE/POST timing proof.
+A missing host certification value alone never makes LISTEN or BLIND unavailable.
+Initial loop admission is a separate check: the measured host profiles cover Studio Pro
+8.1.2.113407 VST3 (the exact executable version) and Pro Tools AAX, where the proof measured in
+Pro Tools Developer 26.4.0.5 is granted to every Pro Tools build from 12.6 on (executables
+"Pro Tools", "ProTools" and "Pro Tools Developer"; the floor is the build that reports its
+delay-compensation state). A host's loop-playback setting with no selection names no loop, so
+playback is treated as linear. In an AAX host that is not Pro Tools a looped
+selection cannot be proven, and LISTEN, BLIND, SHARP and the PSB difference say **Loop Playback on:
+turn it off to compare** while POST plays; that loop is never reported as a host that cannot verify
+timing. An observed unprovable loop or disabled delay compensation explains why
+POST plays; END remains available. Ordinary PRE timing checks wait with their reason, and a content-timing hold asks for
+stop/play. REAPER does not report output latency to the plug-in, and Hypha gets no audio clock there that
+it can verify PRE/POST timing with: LISTEN starts, but POST plays and PRE cannot be heard, and MATCH and
+BLIND do not proceed. The footer says **This DAW does not report output latency; PRE is unavailable
+(POST)** instead of asking for a stop/play that would not help. LIVE, POST PSB and FREQ work in REAPER;
+SHARP Δ and PSB Δ are unavailable there (state 6 in the clock table above). In Pro Tools it is offered
 on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
 multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
 multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.2.113407;
@@ -964,10 +1022,17 @@ LOOP-off step or per-lap approval is needed. Initial comparison needs independen
 - VST3: the measured common content clock in the exact Studio Pro 8.1.2.113407 host.
 - AU: valid presentation-latency information on both sides, with a positive PRE-to-POST
   difference and a unique occurrence within the observed loop. Equal, zero or missing values
-  do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified.
-- AAX: the measured AddClock profile of Pro Tools Developer 26.4.0.5, plus the official
-  sample-rate-specific maximum compensation bound. The loop must be longer than that bound;
-  at 48 kHz this means more than 16,383 samples. Other Pro Tools builds are not inferred from it.
+  do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified. This initial
+  loop requirement does not disable Logic AU BLIND during continuous non-loop playback.
+- AAX: the AddClock profile measured in Pro Tools Developer 26.4.0.5, granted to every Pro Tools
+  build from 12.6 on, plus the documented sample-rate-specific maximum compensation bound
+  (16,383 samples at 44.1/48 kHz, 32,767 at 88.2/96 kHz, 65,534 at 176.4/192 kHz). The loop must
+  be longer than that bound. The bound is the only occurrence authority: a chain whose delay
+  exceeds what Pro Tools compensates would pair a neighbouring lap, which no content check
+  catches, so other builds are certified by the floor rather than measured. Pro Tools reports
+  an insert's position compensated by the delay before it, so for that many samples after each
+  wrap POST's position lies before the loop start; Hypha reads it as the previous lap's tail,
+  which is the audio it carries.
 
 If proof is unavailable or the loop is too short, Hypha explains the condition, keeps POST
 playing and leaves **END** available. It does not present LOOP-off or re-MATCH as the normal
@@ -1005,7 +1070,12 @@ same channel; in Pro Tools, turn off its **Target** button.
   silence or a held tone cannot be judged; Hypha never changes the comparison because of it.
 - If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
   compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
-  you stop and restart playback.
+  you stop and restart playback. Only strong, unambiguous estimates count; a weak peak after
+  clipping cannot establish a jump. The tolerance is in time, so a higher sample rate does not
+  make this warning more sensitive. BLIND pressed during this hold explains the reason and asks
+  you to stop and play the DAW. A hold during preparation ends that preparation with the same
+  reason; use END, then start BLIND again. An AU reset clears the hold only when the host separately
+  reports stopped transport, even if POST receives no stopped render; a playing seek never clears it.
 - While delay compensation is turned off in Pro Tools, you hear POST, the PRE control reads
   **PRE WAIT** and the status line says why. PRE comes back by itself once delay compensation is
   on again.

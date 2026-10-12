@@ -89,3 +89,36 @@ fn missing_window_provenance_is_rejected_but_optional_latency_does_not_gate_delt
         .window_proven(metric));
     }
 }
+
+#[test]
+fn grid_endpoints_need_a_shared_clock_origin_when_latency_is_unreported() {
+    let mut session = MeterSession::new_in_epoch(48000, ChannelLayout::mono(), 1).unwrap();
+    for slot in 0..32 {
+        push(&mut session, slot * 4800, 0.2, false);
+    }
+    let point = session.time_raw_tail(1)[0].wire;
+    assert_eq!(point.clock_origin, Some(0));
+    assert!(point.comparison_clock_proven(point));
+    for origin in [None, Some(1), Some(4096), Some(4800)] {
+        let shifted = crate::meter_session::TimeWirePoint {
+            clock_origin: origin,
+            ..point
+        };
+        assert!(!point.comparison_clock_proven(shifted));
+        assert!(!shifted.comparison_clock_proven(point));
+    }
+    let mut old = serde_json::to_value(point).unwrap();
+    old.as_object_mut().unwrap().remove("clock_origin");
+    let old: crate::meter_session::TimeWirePoint = serde_json::from_value(old).unwrap();
+    assert_eq!(old.clock_origin, None);
+    assert!(!point.comparison_clock_proven(old));
+    session.pause();
+    session.reset();
+    push(&mut session, 192733, 0.2, false);
+    push(&mut session, 197533, 0.2, false);
+    assert!(!session.time_raw_tail(1).is_empty());
+    assert!(session
+        .time_raw_tail(1)
+        .iter()
+        .all(|p| p.wire.clock_origin == Some(0)));
+}

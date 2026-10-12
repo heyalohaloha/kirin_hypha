@@ -37,7 +37,7 @@ fn psb_codec_rejects_old_truncated_invalid_or_oversized_payloads() {
     for end in 0..bytes.len() {
         assert!(decode_perceptual_snapshot(&bytes[..end]).is_none());
     }
-    for (index, value) in [(7, b'2'), (10, 17), (32 + 40, 2), (32 + 26, 1)] {
+    for (index, value) in [(7, b'2'), (10, 17), (32 + 40, 2), (32 + 26, 99)] {
         let mut invalid = bytes.clone();
         invalid[index] = value;
         assert!(
@@ -54,4 +54,32 @@ fn psb_codec_rejects_old_truncated_invalid_or_oversized_payloads() {
     let mut duplicate = bytes.clone();
     duplicate[233..241].copy_from_slice(&4_800i64.to_le_bytes());
     assert!(decode_perceptual_snapshot(&duplicate).is_none());
+}
+
+#[test]
+fn perceptual_codec_distinguishes_aax_from_presentation_and_rejects_mixed_or_old_clocks() {
+    let bytes = encoded(2, Some([0.05; 20]));
+    let decoded = decode_perceptual_snapshot(&bytes).unwrap();
+    assert_eq!(decoded.clock_kind, SpectrumClockKind::Presentation);
+    let aax = encode_perceptual_snapshot_with_clock(
+        Uuid::nil(),
+        &decoded.history,
+        SpectrumClockKind::AaxEngine,
+    );
+    assert_eq!(
+        decode_perceptual_snapshot(&aax).unwrap().clock_kind,
+        SpectrumClockKind::AaxEngine
+    );
+    assert_eq!(aax.len(), bytes.len());
+    for tag in [0_u16, 2, 4, u16::MAX] {
+        let mut invalid = aax.clone();
+        invalid[58..60].copy_from_slice(&tag.to_le_bytes());
+        assert!(decode_perceptual_snapshot(&invalid).is_none());
+    }
+    let mut mixed = aax.clone();
+    mixed[259..261].copy_from_slice(&1_u16.to_le_bytes());
+    assert!(decode_perceptual_snapshot(&mixed).is_none());
+    let mut old = bytes;
+    old[..8].copy_from_slice(b"KHPERC03");
+    assert!(decode_perceptual_snapshot(&old).is_none());
 }

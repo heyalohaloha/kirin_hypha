@@ -1,0 +1,17 @@
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -1987,7 +1987,13 @@
+                             }
+                         }
+ 
+-                        auto constrainedRect = component->getLocalArea (editor, Rectangle<float> (width, height))
++                        // Apply the editor's custom rule during host live resize as well.
++                        auto customBounds = Rectangle<int> (0, 0, roundToInt (width), roundToInt (height));
++                        constrainer->checkBounds (customBounds, editor->getLocalBounds(),
++                                                 Rectangle<int> (constrainer->getMaximumWidth(),
++                                                                 constrainer->getMaximumHeight()),
++                                                 false, false, true, true);
++                        auto constrainedRect = component->getLocalArea (editor, customBounds.toFloat())
+                                                   .getSmallestIntegerContainer();
+ 
+                         rectToCheck->right  = rectToCheck->left + roundToInt (constrainedRect.getWidth());

@@ -10,6 +10,7 @@
 #include "../src/reference_audition/ReferenceSourceRanges.h"
 #include "../src/reference_audition/ReferenceLibrarySongs.h"
 #include "../src/reference_audition/ReferenceCueMatch.h"
+#include "../src/reference_audition/ReferenceRuntimeV2Controller.h"
 
 #include <algorithm>
 
@@ -105,6 +106,63 @@ void readsWhatKirinOsWrote (const juce::File& sandbox)
     const auto file = root.getChildFile ("ranges/" + entry->rangesArtifact.sha256 + ".json");
     require (file.appendText (" "), "a changed Cue values file");
     require (! ref::readSourceRanges (root, sets, song.sourceArtifact, *source.source).has_value(), "a changed file is refused");
+}
+
+void missingSongHasNoReadyFacts (const juce::File& sandbox)
+{
+    const auto root = copyFixture (sandbox, "missing-song");
+    ref::RuntimeV2Repository repository (root);
+    const auto loaded = repository.refreshLibrary();
+    require (loaded.usable() && loaded.workspace->librarySets.has_value(), "load isolated song set");
+    const auto& sets = *loaded.workspace->librarySets;
+    const auto& song = sets.songSets.front().songs.front();
+    const auto source = ref::RuntimeV2SourceRepository (root).load (song);
+    require (source.accepted() && juce::File (source.source->absolutePath).deleteFile(), "remove only the copied song");
+    auto refreshed = *loaded.workspace;
+    ref::applyLibrarySongEntries (root, refreshed);
+    const auto facts = refreshed.librarySets->songFacts.at (ref::referenceSongEntryId (
+        sets.songSets.front().songSetId, song.candidateId));
+    require (facts.sourceMissing && ! std::isfinite (facts.lufsI), "missing nonselected songs do not retain READY measurement facts");
+}
+
+void sourceFailureWaitsBeforeReadingAgain (const juce::File& sandbox)
+{
+    const auto root = copyFixture (sandbox, "source-retry-budget");
+    const auto loaded = ref::RuntimeV2Repository (root).refreshLibrary();
+    require (loaded.usable() && loaded.workspace->librarySets.has_value()
+        && ! loaded.workspace->librarySets->songSets.empty(), "source retry has an isolated prepared song");
+    const auto& set = loaded.workspace->librarySets->songSets.front();
+    const auto id = ref::referenceSongSelectionId (
+        ref::referenceSongEntryId (set.songSetId, set.songs.front().candidateId), set.songs.front().candidateId);
+    ref::RuntimeV2Controller controller (root);
+    controller.observeTransport (0, true, true);
+    controller.configure ({ "source-retry-post", {}, 42, true }, 48000, 2);
+    bool selected = false;
+    for (int i = 0; i < 800 && ! selected; ++i)
+    { selected = controller.selectLibrarySong (id); if (! selected) juce::Thread::sleep (10); }
+    require (selected, "select the fixture's prepared song rather than its empty default Check");
+    const auto wait = [&] (const char* reason) {
+        for (int i = 0; i < 800; ++i)
+        {
+            if (controller.snapshot().rejectionCode == reason) return;
+            juce::Thread::sleep (10);
+        }
+        const auto state = controller.snapshot();
+        std::cerr << "Source retry expected " << reason << ", actual " << state.rejectionCode
+                  << " state " << static_cast<int> (state.state) << " preset " << state.presetName << '\n';
+        require (false, "source retry fixture deadline");
+    };
+    // These metadata receipts intentionally have synthetic audio hashes. The first
+    // verification fails, then deleting the disposable file makes a new observable cause.
+    wait ("reference_source_changed");
+    const auto first = juce::Time::getMillisecondCounterHiRes();
+    require (root.getChildFile ("fixture/source.wav").deleteFile(), "remove only retry fixture audio");
+    juce::Thread::sleep (1100);
+    require (controller.snapshot().rejectionCode == "reference_source_changed",
+             "500 ms worker ticks retain the previous failure instead of reading audio again");
+    wait ("reference_source_open_failed");
+    require (juce::Time::getMillisecondCounterHiRes() - first >= 4000,
+             "a new source failure is observed only after the five-second retry reservation");
 }
 
 void followsRankChangesAndPublication (const juce::File& sandbox)
@@ -305,6 +363,8 @@ void readsKirinOsPreparation (const juce::File& sandbox)
 void testReferenceLibrarySets (const juce::File& sandbox)
 {
     readsWhatKirinOsWrote (sandbox);
+    missingSongHasNoReadyFacts (sandbox);
+    sourceFailureWaitsBeforeReadingAgain (sandbox);
     followsRankChangesAndPublication (sandbox);
     refusesWhatItCannotTrust (sandbox);
     keepsSetsUntilTheyCatchUp (sandbox);

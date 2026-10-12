@@ -7,6 +7,11 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "PRE name", u8"PREの名前" },
+    { "Press Return or Space to edit the PRE name", u8"ReturnかSpaceでPREの名前を編集します" },
+    { "PRE pair selection", u8"ペアのPREの選択" },
+    { "Press Return or Space to choose a PRE", u8"ReturnかSpaceでPREを選びます" },
+
     // Header and footer help.
     { "Choose history time range", u8"履歴の時間範囲を選びます" },
     { "Switch Momentary / Short-term loudness",
@@ -72,7 +77,7 @@ const Entry entries[] = {
     { "NOTE requires an active Keep", u8"NOTEはKeep中に使えます" },
     { "Add a note at the current sample position", u8"今の位置にメモを付けます" },
     { "Finish Keep / Record before PRE / POST Blind",
-      u8"PRE / POST Blindの前にKeep／Recordを終えてください" },
+      u8"PRE／POST Blindの前にKeep／Recordを終えてください" },
     { "Open PRE / POST Blind at 300%", u8"300%でPRE / POST Blindを開きます" },
     { "Open PRE / POST Blind", u8"PRE / POST Blindを開きます" },
     { "Pair and Keep menu", u8"ペアとKeepのメニュー" },
@@ -97,13 +102,14 @@ const Entry entries[] = {
     { "Keep is recording.", u8"Keepで記録中です。" },
     { "A kept result is available.", u8"Keepの結果があります。" },
 
+    { u8"POST BYPASSED — ENABLE POST TO COMPARE", u8"POSTをバイパス中 — POSTを有効にして比較" },
     // PRE / POST comparison states.
     { u8"MATCHED PAIR — MEASURING", u8"ペア一致 — 計測中" },
     { u8"PRE UPDATE DELAYED — HOLDING MATCHED Δ", u8"PRE更新待ち — 一致したΔを保持" },
     { u8"PRE UPDATE DELAYED — WAITING FOR MATCHED DATA", u8"PRE更新待ち — 一致データを待機中" },
-    { u8"POST STOPPED — COMPARISON UPDATE PENDING", u8"POST停止中 — 比較更新待ち" },
+    { u8"POST STOPPED — COMPARISON PAUSED", u8"POST停止中 — 比較を停止" },
     { u8"PRE IS OFF — ENABLE PRE TO COMPARE", u8"PREがオフ — PREを有効にして比較" },
-    { u8"PRE INACTIVE — START PLAYBACK", u8"PRE入力なし — 再生してください" },
+    { u8"PRE NOT RUNNING — CHECK PRE IS ENABLED", u8"PREが動いていない — PREが有効か確認" },
     { u8"CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS", u8"チャンネル構成の不一致 — バスを揃えてください" },
     { u8"PRE LAYOUT UNKNOWN — UPDATE OR REOPEN PRE", u8"PREの構成が不明 — PREを開き直してください" },
     { u8"REFERENCE AUDITION — RETURN TO A TO COMPARE", u8"Reference試聴中 — 比較はAに戻してから" },
@@ -188,10 +194,10 @@ const Entry entries[] = {
     { "PRE input measurements", u8"PREの入力の計測値" },
     { "Local measurements; PRE subtraction does not apply",
       u8"このインスタンスの計測値です。PREとの差分はありません" },
-    { "SHARP: exact POST - PRE sharpness. A paired PRE is required",
-      u8"SHARP：同じ時刻のPOSTとPREのシャープネスの差分です。ペアのPREが必要です" },
-    { "LIVE: local POST absolute values, fixed scales, 100 ms observations",
-      u8"LIVE：POSTの絶対値を、固定の目盛りで100 msごとに表示します" },
+    { "SHARP: exact POST - PRE sharpness. A paired PRE and DAW output latency are required",
+      u8"SHARP：同じ時刻のPOSTとPREのシャープネスの差分です。ペアのPREとDAWからの出力の遅れの通知が必要です" },
+    { "LIVE: POST values on fixed scales, measured every 100 ms.",
+      u8"LIVE：POSTの値を固定の目盛りで100 msごとに表示します。" },
     { "RUN: absolute facts grouped by playback run within the selected history",
       u8"RUN：選んだ履歴の範囲の絶対値を、再生1回ごとにまとめて表示します" },
     { "ATTACK: automatic paired comparison or POST-only events",
@@ -199,8 +205,8 @@ const Entry entries[] = {
 
     // Information button.
     { "Hypha information", u8"Hyphaの情報" },
-    { "Loaded version, update information, downloads, and hover help",
-      u8"読み込んだ版、更新情報、ダウンロード、ホバーヘルプ" },
+    { "Loaded version, update information, and downloads",
+      u8"読み込んだ版、更新情報、ダウンロード" },
     { "Hypha information and downloads", u8"Hyphaの情報とダウンロード" },
 };
 }

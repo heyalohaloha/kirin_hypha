@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 
 #include "kirin_hypha_ffi.h"
+#include "HyphaHostAvailability.h"
 
 namespace hypha::comparison_presentation
 {
@@ -18,11 +19,13 @@ inline juce::String statusText (uint8_t state, uint8_t reason)
                 ? juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — HOLDING MATCHED Δ")
                 : juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — WAITING FOR MATCHED DATA");
         case KIRIN_COMPARISON_REASON_LOCAL_INACTIVE:
-            return juce::CharPointer_UTF8 ("POST STOPPED — COMPARISON UPDATE PENDING");
+            return juce::CharPointer_UTF8 ("POST STOPPED — COMPARISON PAUSED");
+        case host_availability::postBypassedReason:
+            return juce::CharPointer_UTF8 ("POST BYPASSED — ENABLE POST TO COMPARE");
         case KIRIN_COMPARISON_REASON_PRE_BYPASSED:
             return juce::CharPointer_UTF8 ("PRE IS OFF — ENABLE PRE TO COMPARE");
         case KIRIN_COMPARISON_REASON_PRE_INACTIVE:
-            return juce::CharPointer_UTF8 ("PRE INACTIVE — START PLAYBACK");
+            return juce::CharPointer_UTF8 ("PRE NOT RUNNING — CHECK PRE IS ENABLED");
         case KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH:
             return juce::CharPointer_UTF8 ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
         case KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN:
@@ -47,6 +50,7 @@ inline juce::String spectrumStatusText (uint8_t state, uint8_t reason)
     {
         case KIRIN_COMPARISON_REASON_NO_PAIR:
         case KIRIN_COMPARISON_REASON_PRE_BYPASSED:
+        case host_availability::postBypassedReason:
         case KIRIN_COMPARISON_REASON_PRE_INACTIVE:
         case KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH:
         case KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN:
@@ -67,6 +71,7 @@ inline bool notifiesExplicitAction (uint8_t state, uint8_t reason) noexcept
     return reason != KIRIN_COMPARISON_REASON_NONE
         && reason != KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT
         && reason != KIRIN_COMPARISON_REASON_STALE
+        && reason != host_availability::postBypassedReason
         && reason != KIRIN_COMPARISON_REASON_LOCAL_INACTIVE;
 }
 }

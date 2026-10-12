@@ -29,6 +29,28 @@ void waitFor (const std::function<bool()>& predicate, const char* message)
     require (false, message);
 }
 
+void verifyAtomicPublication (const juce::File& root)
+{
+    // Match a CI-depth Drop receipt even when this checkout has a short path. One JUCE
+    // temporary suffix fits Windows MAX_PATH; a nested replaceWithText temporary does not.
+    const auto parent = root.getChildFile ("json-publication");
+    const juce::String name = "receipt.json";
+    const auto padding = 243 - parent.getFullPathName().length() - name.length() - 2;
+    require (padding > 0, "fixture root leaves room for the path-length boundary");
+    const auto file = parent.getChildFile (juce::String::repeatedString ("p", padding)).getChildFile (name);
+    require (atomicJson (file, object ({ { "revision", 1 } })) && juce::JSON::parse (file)["revision"] == juce::var (1),
+             "atomic JSON publishes a receipt at the CI path-length boundary");
+    require (atomicJson (file, object ({ { "revision", 2 } })) && juce::JSON::parse (file)["revision"] == juce::var (2),
+             "atomic JSON replaces the complete receipt at the same boundary");
+    juce::Array<juce::File> files;
+    file.getParentDirectory().findChildFiles (files, juce::File::findFiles, false);
+    require (files.size() == 1 && files[0] == file, "atomic publication leaves no temporary receipt");
+    const auto blockedParent = parent.getChildFile ("not-a-directory");
+    require (blockedParent.replaceWithText ("preserve"), "create disposable blocked-parent fixture");
+    require (! atomicJson (blockedParent.getChildFile (name), object ({ { "revision", 3 } }))
+        && blockedParent.loadFileAsString() == "preserve", "failed atomic publication preserves existing bytes");
+}
+
 juce::File environmentRoot (const char* name)
 {
     const auto* value = std::getenv (name);
@@ -227,6 +249,7 @@ int main (int argc, char** argv)
         || scenario == "lifetime",
              "supported isolated scenario");
     ValidationStorageSandbox sandbox;
+    verifyAtomicPublication (sandbox.directory());
    #if JUCE_WINDOWS
     const auto os = environmentRoot ("APPDATA").getChildFile ("Kirin OS");
     const auto data = environmentRoot ("LOCALAPPDATA").getChildFile ("Kirin OS/plugin_data");
@@ -313,7 +336,8 @@ int main (int argc, char** argv)
         pair.drive (30);
         const auto signal = juce::JSON::parse (data.getChildFile (
             juce::String (project) + "/record_signal/" + postId + ".json"));
-        require (signal["status"] == "acknowledged" && publishDrop (data, signal),
+        require (signal["status"] == "acknowledged", "real paired Record retains its acknowledged signal before Drop");
+        require (publishDrop (data, signal),
                  "publish real exact-generation Drop transaction and disposable four-second WAV");
         waitFor ([&] { pair.heartbeat(); return ! kirin_hypha_is_recording (pair.post.get()); },
                  "real Drop closes POST Record");

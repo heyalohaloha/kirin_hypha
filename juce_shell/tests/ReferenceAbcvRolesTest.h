@@ -69,6 +69,7 @@ inline void verifyReferenceAbcvRoles()
             state.songFacts.push_back (fact);
         }
         state.songFacts[1].preparation = { "pending", "queued", {}, {}, "working", 3 };  // Kirin OS が先に 3 曲を準備中
+        state.blindLargeScreen = size.width >= 900 && size.height >= 600;
         state.referenceReady = state.referenceArmable = true;
         state.referenceStep = reference_ui::SourceStep::ready;
         state.comparisonSlot = 3;

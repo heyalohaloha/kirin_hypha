@@ -299,7 +299,7 @@ namespace hypha::reference_audition
         try
         {
             const juce::ScopedLock lock (stateLock);
-            if (! blindEventSession || facts.trialId.isEmpty()
+            if (! blindEventSession || blindEventSession->completionPending || facts.trialId.isEmpty()
                 || blindEventSession->trialStart.getProperty ("trial_id", {}).toString()
                     != facts.trialId)
                 return;
@@ -335,41 +335,55 @@ namespace hypha::reference_audition
                     current = auditionEventSessions.erase (current);
                     continue;
                 }
+                if (now < current->retryAtMs) { ++current; continue; }
                 if (! current->startWritten && bConfirmed > current->bConfirmationBaseline)
+                {
+                    if (current->startedAtMs == 0) current->startedAtMs = now;
                     starts.push_back (*current);
+                }
                 else if (current->startWritten && current->returnRequested
                          && aConfirmed > current->aConfirmationBaseline)
+                {
+                    if (current->completedAtMs == 0) current->completedAtMs = now;
                     completions.push_back (*current);
+                }
                 ++current;
             }
         }
 
         for (const auto& session : starts)
         {
-            if (! eventTransport.writeAuditionStarted (
-                    session.context, session.startedEventId, session.runId, now).written)
-                continue;
+            const bool written = eventTransport.writeAuditionStarted (
+                session.context, session.startedEventId, session.runId, session.startedAtMs).written;
             const juce::ScopedLock lock (stateLock);
             const auto current = std::find_if (
                 auditionEventSessions.begin(), auditionEventSessions.end(),
                 [&session] (const auto& item) {
                     return item.startedEventId == session.startedEventId;
                 });
-            if (current != auditionEventSessions.end()) current->startWritten = true;
+            if (current != auditionEventSessions.end())
+            {
+                current->startWritten = written;
+                current->retryAtMs = written ? 0 : now + std::min (60000, 1000 * (1 << std::min (current->retries++, 6)));
+                if (written) current->retries = 0;
+            }
         }
         for (const auto& session : completions)
         {
-            if (! eventTransport.writeAuditionCompleted (
-                    session.context, session.completedEventId, session.runId,
-                    session.startedEventId, now, 1, 1).written)
-                continue;
+            const bool written = eventTransport.writeAuditionCompleted (
+                session.context, session.completedEventId, session.runId,
+                session.startedEventId, session.completedAtMs, 1, 1).written;
             const juce::ScopedLock lock (stateLock);
             const auto current = std::find_if (
                 auditionEventSessions.begin(), auditionEventSessions.end(),
                 [&session] (const auto& item) {
                     return item.completedEventId == session.completedEventId;
                 });
-            if (current != auditionEventSessions.end()) auditionEventSessions.erase (current);
+            if (current != auditionEventSessions.end())
+            {
+                if (written) auditionEventSessions.erase (current);
+                else current->retryAtMs = now + std::min (60000, 1000 * (1 << std::min (current->retries++, 6)));
+            }
         }
 
         const auto blindFacts = blind.snapshot();
@@ -377,15 +391,22 @@ namespace hypha::reference_audition
         std::optional<BlindEventSession> blindCompletion;
         {
             const juce::ScopedLock lock (stateLock);
-            if (blindEventSession && ! blindEventSession->startWritten
+            if (blindEventSession && now >= blindEventSession->retryAtMs && ! blindEventSession->startWritten
                 && blindFacts.sessionSequence == blindEventSession->sessionSequence
                 && blindFacts.firstCallbackSequence != 0)
                 blindStart = blindEventSession;
             else if (blindEventSession && ! blindEventSession->startWritten
                      && blindFacts.sessionSequence != blindEventSession->sessionSequence)
                 blindEventSession.reset();
-            else if (blindEventSession && blindEventSession->completionPending)
+            else if (blindEventSession && now >= blindEventSession->retryAtMs && blindEventSession->startWritten
+                     && blindEventSession->completionPending)
                 blindCompletion = blindEventSession;
+        }
+        if (blindStart || blindCompletion)
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (blindEventSession)
+                blindEventSession->retryAtMs = now + std::min (60000, 1000 * (1 << std::min (blindEventSession->retries++, 6)));
         }
         if (blindStart)
         {
@@ -397,7 +418,10 @@ namespace hypha::reference_audition
                 const juce::ScopedLock lock (stateLock);
                 if (blindEventSession
                     && blindEventSession->startedEventId == blindStart->startedEventId)
+                {
                     blindEventSession->startWritten = true;
+                    blindEventSession->retryAtMs = 0; blindEventSession->retries = 0;
+                }
             }
         }
         if (blindCompletion)

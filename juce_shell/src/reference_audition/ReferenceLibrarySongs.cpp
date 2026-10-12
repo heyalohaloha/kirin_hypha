@@ -24,6 +24,12 @@ RuntimeSongFacts readSongFacts (const juce::File& root, const RuntimeLibrarySets
     if (! song.prepared) return facts;
     const auto cue = std::find_if (song.cues.begin(), song.cues.end(), [&] (const auto& item) { return item.cueId == song.defaultCueId; });
     const auto source = RuntimeV2SourceRepository (root).load (song);
+    if (source.accepted())
+    {
+        facts.sourcePath = source.source->absolutePath;
+        facts.sourceMissing = ! juce::File (facts.sourcePath).existsAsFile();
+        if (facts.sourceMissing) return facts;
+    }
     const auto verified = source.accepted() ? readSourceRanges (root, sets, song.sourceArtifact, *source.source)
                                             : std::optional<RuntimeSourceRanges> {};
     if (cue == song.cues.end() || ! verified || cue->sampleRateHz != verified->sampleRateHz)

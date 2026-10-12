@@ -1,4 +1,5 @@
 #include "HyphaUiPreferences.h"
+#include "HyphaPreferenceFileLock.h"
 
 #include <utility>
 
@@ -46,6 +47,10 @@ bool write (const juce::File& file, const juce::String& key, const juce::String&
     if (file.getParentDirectory().createDirectory().failed())
         return false;
 
+    static juce::CriticalSection mergeLock;
+    const juce::ScopedLock guard (mergeLock);
+    FileLock processLock (file);
+    if (! processLock.acquired()) return false;
     auto lines = settingLines (file);
     bool replaced = false;
     for (auto& line : lines)

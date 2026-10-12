@@ -64,6 +64,7 @@ juce::String startFailure (StartResult result)
     {
         case StartResult::started:
         case StartResult::notPost:           return {};
+        case StartResult::contentHeld:       return "Timing changed: stop/play DAW (POST)";
         case StartResult::comparisonBusy:    return "End the current comparison first";
         case StartResult::returnPending:     return "Ended; normal level returns with audio";
         case StartResult::returnRequired:    return "Press RETURN first";
@@ -290,9 +291,8 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
         m.nextAt = now + 2.0;
         const auto estimate = processorRef.measureLiveCompareOffset();
         const auto step = m.monitor.observe (estimate, status.contentHeld);
-        if (step.jumped)
+        if (step.jumped && processorRef.holdLiveCompareForContentJump (estimate))
         {
-            processorRef.holdLiveCompareForContentJump (step.lagFrames);
             if (! liveBlindOpen) showToast ("Timing changed: stop/play DAW (POST)");
             newFault = ! liveBlindOpen;
         }

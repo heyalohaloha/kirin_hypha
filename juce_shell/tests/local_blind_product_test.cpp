@@ -1,7 +1,7 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaLocalBlindComponent.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 
 #include <algorithm>
 #include <atomic>
@@ -455,7 +455,7 @@ int main (int argc, char** argv)
     }
     auto signal = readFixture (argv[1]);
     if (trackMono) std::fill (signal.begin() + 48000, signal.end(), 0.0f);
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

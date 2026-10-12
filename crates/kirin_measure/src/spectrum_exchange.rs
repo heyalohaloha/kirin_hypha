@@ -70,8 +70,10 @@ use joining::{
     exact_perceptual_differences, newest_exact_difference, newest_exact_perceptual_difference,
 };
 use joining::{store_joined_perceptual, store_joined_spectrum};
+#[cfg(test)]
+use perceptual_codec::encode_perceptual_snapshot;
 use perceptual_codec::{
-    encode_perceptual_snapshot, read_perceptual_snapshot, remove_perceptual_snapshot,
+    encode_perceptual_snapshot_with_clock, read_perceptual_snapshot, remove_perceptual_snapshot,
     write_perceptual_snapshot,
 };
 
@@ -105,6 +107,8 @@ pub enum SpectrumViewStatus {
     Active = 3,
     Unavailable = 4,
     InUse = 5,
+    /// Stateful analysis requires a host-reported output-presentation delay.
+    OutputLatencyUnavailable = 6,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -184,6 +188,8 @@ pub struct SpectrumCoordinator {
     pre_session: Mutex<Option<PreSession>>,
     pre_spectrum_clock_revision: AtomicU64,
     post_spectrum_clock_revision: AtomicU64,
+    post_stateful_clock_revision: AtomicU64,
+    post_stateful_stream_generation: AtomicU64,
     view: Mutex<SpectrumViewSnapshot>,
     mid_side_view: Mutex<mid_side::MidSideSpectrumViewSnapshot>,
     mid_side_presentation: Mutex<mid_side::MidSidePresentation>,
@@ -262,6 +268,8 @@ impl SpectrumCoordinator {
             pre_session: Mutex::new(None),
             pre_spectrum_clock_revision: AtomicU64::new(0),
             post_spectrum_clock_revision: AtomicU64::new(0),
+            post_stateful_clock_revision: AtomicU64::new(0),
+            post_stateful_stream_generation: AtomicU64::new(0),
             view: Mutex::new(SpectrumViewSnapshot::default()),
             mid_side_view: Mutex::new(Default::default()),
             mid_side_presentation: Mutex::new(Default::default()),
@@ -383,6 +391,9 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
+#[cfg(test)]
+#[path = "spectrum_exchange_aax_clock_tests.rs"]
+mod aax_clock_tests;
 #[cfg(test)]
 #[path = "attack_exchange_integration_tests.rs"]
 mod attack_integration_tests;

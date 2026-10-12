@@ -40,7 +40,8 @@ void KirinHyphaEditor::openLiveBlind()
     {
         refreshLiveCompare(); // acknowledge older transitions before this direct refusal
         if (result == StartResult::noPair) showCandidateMenu();
-        else showToast (result == StartResult::returnPending ? "Ended; normal level returns with audio"
+        else showToast (result == StartResult::contentHeld ? "Timing changed: stop/play DAW (POST)"
+                      : result == StartResult::returnPending ? "Ended; normal level returns with audio"
                       : result == StartResult::returnRequired ? "Press RETURN first"
                       : result == StartResult::comparisonBusy ? "End the current comparison first"
                                                             : "BLIND COMPARE COULD NOT START");
@@ -91,7 +92,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     }
     if (observatoryView.localBlindEntryAvailable())
         menu.addItem (23, "BLIND", ! keepActive && processorRef.liveCompareAdmission (true) == StartResult::started
-            && (! live.active || live.matchReady));
+            && (! live.active || live.matchReady || live.contentHeld));
 }
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)

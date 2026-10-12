@@ -25,7 +25,7 @@ inline Geometry geometry (int width, int height, const presentation::Context& c,
     g.scopeFont = scope[static_cast<std::size_t> (index)]; g.unitFont = index >= 3 ? index == 4 ? 14 : 12 : 11;
     g.actionFont = std::array<float, 5> { 11, 12, 13, 15, 18 }[static_cast<std::size_t> (index)];
     auto body = juce::Rectangle<int> (0, 0, width, height);
-    const int controlHeight = std::array<int, 5> { 0, 24, 24, 22, 32 }[static_cast<std::size_t> (index)];
+    const int controlHeight = std::min (height / 8, std::array<int, 5> { 0, 24, 24, 22, 32 }[static_cast<std::size_t> (index)]);
     g.controls = body.removeFromTop (std::min (controlHeight, height));
     if (controlHeight > 0)
     {
@@ -33,9 +33,13 @@ inline Geometry geometry (int width, int height, const presentation::Context& c,
         const auto chipWidth = g.controls.getWidth() / 9;
         for (std::size_t i = 0; i < 9; ++i) g.bands[i] = g.controls.withX (static_cast<int> (i) * chipWidth).withWidth (chipWidth);
     }
-    const auto diagramHeight = std::array<int, 5> { 34, 44, 40, all ? 82 : 114, 160 }[static_cast<std::size_t> (index)];
+    const auto preferredDiagram = std::array<int, 5> { 34, 44, 40, all ? 82 : 114, 160 }[static_cast<std::size_t> (index)];
+    const int rows = index <= 2 ? 2 : 4;
+    const int minimumLane = index <= 2 ? 24 : 16;
+    const auto diagramHeight = std::min (preferredDiagram, std::max (14, body.getHeight() - rows * minimumLane));
     auto diagram = body.removeFromTop (std::min (diagramHeight, body.getHeight()));
-    g.context = diagram.removeFromTop (index == 0 ? 14 : index == 4 ? 26 : 18);
+    g.context = diagram.removeFromTop (std::min (index == 0 ? 14 : index == 4 ? 26 : 18,
+                                               std::max (10, diagramHeight / 2)));
     auto actions = g.context;
     g.evidence = actions.removeFromRight (index <= 2 ? 34 : 50);
     g.live = actions.removeFromRight (index <= 2 ? 34 : 48);
@@ -69,7 +73,9 @@ inline Geometry geometry (int width, int height, const presentation::Context& c,
         cell = cell.withTrimmedLeft (6).withTrimmedRight (6);
         if (g.cards)
         {
-            const int metricHeight = 14, scopeHeight = index == 2 ? 14 : 13;
+            const int metricHeight = std::min (14, laneHeight / 2);
+            // The main surface does not draw scope counts; reserve that row only when it fits.
+            const int scopeHeight = laneHeight >= 42 ? std::min (index == 2 ? 14 : 13, laneHeight / 3) : 0;
             auto metric = cell.removeFromTop (metricHeight);
             l.unit = metric.removeFromRight (all ? 48 : 84); l.metric = metric;
             l.scope = cell.removeFromTop (scopeHeight);
@@ -78,11 +84,11 @@ inline Geometry geometry (int width, int height, const presentation::Context& c,
         else
         {
             auto labelArea = cell.removeFromLeft (index == 3 ? 102 : 154);
-            const auto labelHeight = index == 3 ? all ? 16 : 14 : 20;
+            const auto labelHeight = std::min (index == 3 ? all ? 16 : 14 : 20, laneHeight / 2);
             l.metric = labelArea.withHeight (labelHeight);
             l.unit = labelArea.withY (labelArea.getY() + labelHeight).withHeight (labelHeight);
             auto scopeArea = cell.removeFromLeft (index == 3 ? 128 : 188);
-            l.scope = scopeArea.withHeight (labelHeight + (index == 3 && all ? 1 : 0));
+            l.scope = scopeArea.withHeight (labelHeight);
             l.reason = scopeArea.withY (scopeArea.getY() + labelHeight).withHeight (labelHeight);
             l.axis = cell.removeFromLeft (std::max (0, cell.getWidth() - (index == 3 ? 218 : 300)));
             l.value = cell;

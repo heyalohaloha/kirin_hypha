@@ -62,7 +62,11 @@ impl AttackAssembler {
             || right.is_some_and(|value| !value.is_finite())
             || (self.channels == 2 && right.is_none())
         {
+            let next = self.next_position?.checked_add(1)?;
+            let generation = self.generation;
             self.reset();
+            self.generation = generation;
+            self.next_position = Some(next);
             return None;
         }
         self.left[self.write_index] = left;

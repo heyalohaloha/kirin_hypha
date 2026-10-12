@@ -62,10 +62,11 @@ impl SpectrumCoordinator {
         &self,
         after_clone: impl FnOnce(),
     ) -> Option<SpectrumViewSnapshot> {
-        let (mut view, revision) = match self.view.try_lock() {
+        let (mut view, revision, stateful_token) = match self.view.try_lock() {
             Ok(view) => Some((
                 view.clone(),
                 self.post_spectrum_clock_revision.load(Ordering::Acquire),
+                self.stateful_clock_token(),
             )),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(poisoned)) => {
@@ -73,10 +74,26 @@ impl SpectrumCoordinator {
                 Some((
                     view.clone(),
                     self.post_spectrum_clock_revision.load(Ordering::Acquire),
+                    self.stateful_clock_token(),
                 ))
             }
         }?;
         after_clone();
+        // An AAX proof lifetime/K cut cannot lend the new authority to a cached old view.
+        if self.runtime.spectrum_clock_kind()
+            == Some(crate::spectrum_runtime::SpectrumClockKind::AaxEngine)
+            && matches!(
+                view.analysis_mode,
+                AnalysisViewMode::Perceptual | AnalysisViewMode::Absolute
+            )
+            && view.status == SpectrumViewStatus::Active
+            && stateful_token != self.runtime.analysis_clock_token()
+        {
+            view.status = SpectrumViewStatus::WarmingUp;
+            view.perceptual_difference = None;
+            view.perceptual_timeline = Default::default();
+            view.absolute_timeline = Default::default();
+        }
         if view.analysis_mode == crate::AnalysisViewMode::Spectrum
             && view.difference.is_some()
             && (self.runtime.spectrum_clock_kind().is_none()
@@ -86,7 +103,32 @@ impl SpectrumCoordinator {
             view.difference = None;
             view.spectrum_timeline = Default::default();
         }
+        if self.runtime.is_enabled()
+            && view.analysis_mode == AnalysisViewMode::Perceptual
+            && self.runtime.output_latency_unavailable()
+        {
+            view.status = SpectrumViewStatus::OutputLatencyUnavailable;
+            view.perceptual_difference = None;
+            view.perceptual_timeline = Default::default();
+            view.absolute_timeline = Default::default();
+        }
         Some(view)
+    }
+
+    pub(super) fn stateful_clock_token(&self) -> (u64, u64) {
+        (
+            self.post_stateful_clock_revision.load(Ordering::Acquire),
+            self.post_stateful_stream_generation.load(Ordering::Acquire),
+        )
+    }
+
+    pub(super) fn stamp_stateful_clock(&self, token: (u64, u64)) {
+        // Same publication lock as the cloned view; no reader borrows a concurrent new stamp.
+        let _view = self.view.lock().unwrap_or_else(|p| p.into_inner());
+        self.post_stateful_clock_revision
+            .store(token.0, Ordering::Release);
+        self.post_stateful_stream_generation
+            .store(token.1, Ordering::Release);
     }
 
     pub(in crate::spectrum_exchange) fn reset_spectrum_clock_view(&self, revision: u64) {

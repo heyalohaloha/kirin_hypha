@@ -104,3 +104,26 @@ fn psb_delta_exports_signed_shares_only_when_both_are_valid() {
     snapshot.perceptual_difference.as_mut().unwrap().pre_psb = None;
     assert_eq!(to_c_psb(snapshot).has_data, 0);
 }
+
+#[test]
+fn unavailable_output_latency_has_one_additive_status_for_sharp_live_and_psb() {
+    let snapshot = SpectrumViewSnapshot {
+        status: SpectrumViewStatus::OutputLatencyUnavailable,
+        analysis_mode: AnalysisViewMode::Perceptual,
+        ..Default::default()
+    };
+    assert_eq!(super::to_c_psb(snapshot.clone()).status, 6);
+    assert_eq!(super::to_c_perceptual(snapshot.clone()).status, 6);
+    assert_eq!(super::to_c_perceptual_batch(snapshot).latest.status, 6);
+    let absolute = SpectrumViewSnapshot {
+        status: SpectrumViewStatus::OutputLatencyUnavailable,
+        analysis_mode: AnalysisViewMode::Absolute,
+        ..Default::default()
+    };
+    assert_eq!(
+        super::to_c_absolute_batch(absolute.clone()).latest.status,
+        6
+    );
+    assert_eq!(super::to_c_psb(absolute).status, 6);
+    assert_eq!(KIRIN_SPECTRUM_IN_USE, 5);
+}

@@ -9,24 +9,35 @@ using Stage = live_compare::BlindStage;
 blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool playing, float actualPost)
 {
     blind_ui::Screen screen;
-    const bool live = current.stage == Stage::active && ! current.trial.invalidated;
+    const bool live = current.stage == Stage::active && ! current.trial.invalidated && ! current.contentHeld;
     const bool revealed = live && current.trial.revealed;
     const bool finishing = current.stage == Stage::finishing;
     const bool stopped = current.stage == Stage::invalidated || current.trial.invalidated;
     const auto guidance = live_compare_ui::blindRecovery (current, stopped);
-    const bool waiting = (current.stage == Stage::preparing || current.stage == Stage::settling)
-        && (current.contentHeld || current.compensationOff
-            || (playing && current.observation != live_compare::RecoveryReason::none));
-    screen.guidanceShown = stopped || waiting;
+    const bool waiting = current.contentHeld || (current.stage == Stage::approval && current.compensationOff)
+        || ((current.stage == Stage::preparing || current.stage == Stage::settling)
+        && (current.compensationOff || (playing && current.observation != live_compare::RecoveryReason::none)));
+    screen.guidanceShown = stopped || waiting || current.timingUnavailable || current.clockUnavailable;
     const auto visibleCause = stopped ? guidance.reason : current.contentHeld ? live_compare::RecoveryReason::contentChanged
         : current.compensationOff ? live_compare::RecoveryReason::compensationOff : guidance.reason;
-    screen.cause = live_compare_ui::cause (visibleCause);
+    // An uncertified AAX host looping a range is not the host boundary: loop playback off compares.
+    screen.cause = current.contentHeld ? live_compare_ui::cause (live_compare::RecoveryReason::contentChanged)
+                   : current.timingUnavailable && ! current.loopBlocksPairing ? host_availability::timingText()
+                                            : live_compare_ui::cause (visibleCause);
     screen.recovery = guidance.instruction;
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     juce::String instruction, explanation = returnDb > 0.05
         ? "END returns +" + juce::String (returnDb, 1) + " dB" : "END restores normal level";
-    if (current.stage == Stage::failed)
+    if (current.contentHeld)
+        instruction = "Comparison paused; POST plays";
+    else if (waiting && current.loopBlocksPairing)
+        instruction = "Loop Playback on: turn it off to compare";
+    else if (current.timingUnavailable || current.clockUnavailable)
+        instruction = "Comparison unavailable; POST plays";
+    else if (current.compensationOff)
+        instruction = "Waiting for comparison; POST plays";
+    else if (current.stage == Stage::failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange
             ? "MATCH over 24 dB" : "MATCH failed; try again";
     else if (stopped)
@@ -50,8 +61,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         instruction = current.trial.played == 3 ? "Reveal the sources when ready" : "Try both sources while playing";
     else if (! playing)
         instruction = "Play the DAW to begin";
-    else if (waiting && (current.observation == live_compare::RecoveryReason::loopUnproven
-        || current.observation == live_compare::RecoveryReason::loopTooShort
+    else if (waiting && (current.observation == live_compare::RecoveryReason::loopTooShort
         || current.observation == live_compare::RecoveryReason::loopClockUnavailable))
         instruction = current.observation == live_compare::RecoveryReason::loopTooShort
             ? "Loop is too short for verified timing" : "DAW timing is unavailable for this loop";
@@ -71,7 +81,8 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.audible = current.trial.audible;
     screen.revealShown = live && ! revealed;
     screen.revealEnabled = current.trial.played == 3;
-    screen.approveShown = current.stage == Stage::approval;
+    screen.approveShown = current.stage == Stage::approval && ! current.contentHeld
+        && ! current.timingUnavailable && ! current.clockUnavailable && ! current.compensationOff;
     screen.approveTitle = "Lower POST and begin Blind";
     screen.approveDescription = explanation;
     screen.endEnabled = ! finishing;

@@ -30,6 +30,12 @@ public:
     void presentationTick();
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
+    void setPairingLoopBlocked (bool blocked)
+    {
+        if (pairingLoopBlocked == blocked) return;
+        pairingLoopBlocked = blocked;
+        repaint();
+    }
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -56,6 +62,7 @@ private:
     perceptual_history::History history;
     bool haveSnapshot = false;
     bool signalActive = true;
+    bool pairingLoopBlocked = false;
     bool havePendingSnapshot = false;
     bool curveDirty = false;
     bool numericDirty = false;

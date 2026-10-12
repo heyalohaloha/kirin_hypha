@@ -9,7 +9,14 @@ pub(super) fn assert_stopped(engine: &KirinHyphaEngine, reason: u8) {
     });
     for frame in [&frame, &packet.frame] {
         assert_eq!(frame.signal_state, KIRIN_SIGNAL_STATE_INACTIVE);
-        assert_eq!(frame.comparison_state, KIRIN_COMPARISON_STATE_REJECTED);
+        assert_eq!(
+            frame.comparison_state,
+            if reason == KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT {
+                KIRIN_COMPARISON_STATE_PREPARING
+            } else {
+                KIRIN_COMPARISON_STATE_REJECTED
+            }
+        );
         assert_eq!(frame.comparison_reason, reason);
         assert_eq!(frame.delta_available, 0);
         assert!(frame.delta.lufs.is_nan());
@@ -66,7 +73,7 @@ fn stop_reason_uses_exact_binding_even_after_io_no_pre_or_holding() {
 }
 
 #[test]
-fn measure_pause_overrides_io_no_pre_but_pre_only_stop_keeps_its_reason() {
+fn delayed_measure_pause_waits_for_measurement_and_pre_only_stop_keeps_its_reason() {
     let engine = fixture();
     let snapshot = {
         let mut session = engine.meter_session.as_ref().unwrap().lock().unwrap();
@@ -80,7 +87,7 @@ fn measure_pause_overrides_io_no_pre_but_pre_only_stop_keeps_its_reason() {
         .unwrap()
         .publish(snapshot);
     *engine.delta_result.lock().unwrap() = DeltaResult::default();
-    assert_stopped(&engine, KIRIN_COMPARISON_REASON_LOCAL_INACTIVE);
+    assert_stopped(&engine, KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT);
     let snapshot = {
         let mut session = engine.meter_session.as_ref().unwrap().lock().unwrap();
         session.push_active(&[0.1; 9600]);

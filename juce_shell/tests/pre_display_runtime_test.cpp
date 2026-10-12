@@ -1,3 +1,4 @@
+#include "TestTemporaryDirectory.h"
 #include "../src/pre_display/PreDisplayClock.h"
 #include "../src/pre_display/PreDisplayController.h"
 #include "../src/pre_display/PreDisplayModel.h"
@@ -5,7 +6,6 @@
 #include "../src/pre_display/PreDisplayProjection.h"
 #include "../src/pre_display/PreDisplayProtocol.h"
 #include "../src/pre_display/PreDisplayRepository.h"
-
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -442,7 +442,7 @@ int main()
                                                      "wrong-post-role", rejectedPostRole),
              "reject a v3 guide addressed to PRE during the POST-only migration");
 
-    const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto root = hypha::tests::temporaryParent()
         .getNonexistentChildFile ("kirin-pre-display-runtime", {}, false);
     require (root.createDirectory(), "create isolated transport root");
 

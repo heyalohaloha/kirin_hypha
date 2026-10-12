@@ -1,0 +1,37 @@
+--- a/modules/juce_audio_processors/processors/juce_AudioProcessor.h
++++ b/modules/juce_audio_processors/processors/juce_AudioProcessor.h
+@@ -1315,6 +1315,12 @@
+         provides no group. Other formats never call it.
+     */
+     virtual void kirinHostInstanceGroup (uint64 group, bool valid) { ignoreUnused (group, valid); }
++
++    /** A wrapper timeline reset with an independently queried transport state.
++        Reset alone may mean a playing seek; unknown transport must never mean stopped.
++        Overrides must use bounded lock-free state publication only. */
++    virtual void kirinHostTimelineReset (bool transportKnown, bool playing)
++    { ignoreUnused (transportKnown, playing); }
+ 
+     //==============================================================================
+     /** Helper function that just converts an xml element into a binary blob.
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -210,8 +210,17 @@
+         if (! prepared)
+             prepareToPlay();
+ 
+-        if (juceFilter != nullptr)
+-            juceFilter->reset();
++        if (juceFilter != nullptr)
++        {
++            // Reset also accompanies a seek. Query transport separately; a reset or an
++            // unavailable callback must never be promoted to stopped playback.
++            Boolean playing = false, changed = false, looping = false;
++            double position = 0.0, cycleStart = 0.0, cycleEnd = 0.0;
++            const bool known = CallHostTransportState (&playing, &changed, &position,
++                                                       &looping, &cycleStart, &cycleEnd) == noErr;
++            juceFilter->kirinHostTimelineReset (known, playing);
++            juceFilter->reset();
++        }
+ 
+         return MusicDeviceBase::Reset (inScope, inElement);
+     }

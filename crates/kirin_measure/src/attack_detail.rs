@@ -102,10 +102,7 @@ impl AttackDetailTracker {
         left: f32,
         right: Option<f32>,
     ) -> Result<Option<AttackWaveformPoint>, ()> {
-        if !left.is_finite()
-            || right.is_some_and(|value| !value.is_finite())
-            || (self.channels == 2 && right.is_none())
-        {
+        if self.channels == 2 && right.is_none() {
             self.reset();
             return Err(());
         }
@@ -164,10 +161,30 @@ impl AttackDetailTracker {
     /// publish the head of every other hit whose head is measured.
     pub(super) fn flush(&mut self, shared: &Mutex<AttackBins>) -> Vec<AttackDetailedEvent> {
         self.frames.clear();
-        let sharpness_failed = self
-            .sharpness
-            .as_mut()
-            .is_some_and(|stream| !stream.push(self.block_start, &self.block, &mut self.frames));
+        let mut sharpness_gaps = Vec::new();
+        let sharpness_failed = self.sharpness.as_mut().is_some_and(|stream| {
+            let mut first = 0;
+            for (index, frame) in self.block.chunks_exact(self.channels).enumerate() {
+                if frame.iter().all(|sample| sample.is_finite()) {
+                    continue;
+                }
+                if !stream.push(
+                    self.block_start + first as i64,
+                    &self.block[first * self.channels..index * self.channels],
+                    &mut self.frames,
+                ) {
+                    return true;
+                }
+                first = index + 1;
+                stream.reset(self.block_start + first as i64);
+                sharpness_gaps.push((self.block_start + index as i64, stream.settled()));
+            }
+            !stream.push(
+                self.block_start + first as i64,
+                &self.block[first * self.channels..],
+                &mut self.frames,
+            )
+        });
         self.block.clear();
         let mut bins = match shared.lock() {
             Ok(bins) => bins,
@@ -176,6 +193,9 @@ impl AttackDetailTracker {
         if let Some(start) = self.restart.take() {
             let settled = self.sharpness.as_ref().map(AttackSharpnessStream::settled);
             bins.begin_run(start, self.generation, settled);
+        }
+        for (from, settled) in sharpness_gaps {
+            bins.note_sharpness_gap(from, settled);
         }
         for (index, bin) in self.completed.drain(..) {
             bins.push_level(index, bin);

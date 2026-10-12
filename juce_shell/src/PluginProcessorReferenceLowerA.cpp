@@ -14,7 +14,7 @@ hypha::reference_audition::LowerAApproval KirinHyphaProcessorBase::approveRefere
     if (! licenseIsOs() || referenceAuditionController == nullptr || role != Role::Post) return Approval::refused;
     if (outputDecision (hypha::output_owner::Activity::lowerA).refused()) return Approval::postInUse;
     const auto result = referenceAuditionController->approveLowerAAndPlay (offer);
-    if (result == Approval::lowered) startTimer (50);  // 下げ終わってから鳴らす待ちを回す
+    if (result == Approval::lowered) requestServiceTimer();  // 下げ終わってから鳴らす待ちを回す
     return result;
    #else
     juce::ignoreUnused (offer);

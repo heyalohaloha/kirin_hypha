@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TestTemporaryDirectory.h"
 #include "../src/HyphaChainTimingPreference.h"
 #include "../src/HyphaChainTimingText.h"
 #include "../src/HyphaHoverHelpPreference.h"
@@ -43,7 +44,7 @@ inline void verifyChainTimingFooterContract()
     require (i18n::translate ("CHAIN LOAD 31% / 557%", i18n::Language::japanese) == "CHAIN LOAD 31% / 557%",
              "the readout is a label and values, the same in Japanese");
 
-    const auto directory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto directory = hypha::tests::temporaryParent()
         .getNonexistentChildFile ("kirin-hypha-chain-footer", {}, false);
     require (directory.createDirectory().wasOk(), "temporary preference directory");
     const auto file = directory.getChildFile ("ui-preferences.txt");
@@ -178,8 +179,8 @@ inline void verifyChainTimingTextContract()
     require (lines[0] == "Elapsed 0.42 ms typical / 12.3 ms peak", "times keep about three places");
     require (lines[1] == "Share of a 10.7 ms block: 3.93% typical / 115.7% peak",
              "the share names the block it is a share of, and is not capped at 100%");
-    require (japanese (lines[0]) == utf8 (u8"経過時間  通常 0.42 ms / ピーク 12.3 ms"), "Japanese time line");
-    require (japanese (lines[1]) == utf8 (u8"ブロック長（10.7 ms）に対する割合  通常 3.93% / ピーク 115.7%"),
+    require (japanese (lines[0]) == utf8 (u8"経過時間  通常 0.42 ms ／ ピーク 12.3 ms"), "Japanese time line");
+    require (japanese (lines[1]) == utf8 (u8"ブロック長（10.7 ms）に対する割合  通常 3.93% ／ ピーク 115.7%"),
              "Japanese share line");
 
     measured.typicalMs = 0.0042; measured.peakMs = 0.0105;

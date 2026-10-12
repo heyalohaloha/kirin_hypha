@@ -243,3 +243,35 @@ fn paired_all_head_only_is_not_finalized_as_audio_end_when_post_is_idle() {
     );
     assert!(selected.current.as_ref().unwrap().detail.is_none());
 }
+
+#[test]
+fn paired_post_only_refines_the_window_without_changing_pair_authority() {
+    for band in [None, AttackBand::from_index(3)] {
+        let mut original = request();
+        original.band = band;
+        original.pair_kind = 2;
+        original.proof_token = [9; 32];
+        let mut control = AttackSingleControl::default();
+        control.begin(original, 0);
+        let mut reply = control.current.clone().unwrap();
+        reply.request.measurement_end = 4_800;
+        reply.request.span_end = BandSpanEnd::NextHit;
+        reply.finish = AttackFinish::Full;
+        let mut changed_proof = reply.clone();
+        changed_proof.request.proof_token = [8; 32];
+        assert!(!control.commit(changed_proof, 100));
+        let mut changed_source = reply.clone();
+        changed_source.request.local_source.generation += 1;
+        assert!(!control.commit(changed_source, 100));
+        let mut pending = reply.clone();
+        pending.finish = AttackFinish::Acquiring;
+        assert!(control.commit(pending, 50));
+        assert_eq!(
+            control.current.as_ref().unwrap().request.measurement_end,
+            4_800
+        );
+        assert!(control.commit(reply.clone(), 100));
+        reply.request.measurement_end -= 1;
+        assert!(!control.commit(reply, 101));
+    }
+}

@@ -1,4 +1,5 @@
 #include "HyphaSpectrumComponent.h"
+#include "HyphaAnalysisUiText.h"
 
 #include "HyphaSpectrumPresentation.h"
 
@@ -81,6 +82,7 @@ void SpectrumComponent::setAbsoluteObservation (bool absolute)
     if (absoluteObservation == absolute)
         return;
     absoluteObservation = absolute;
+    if (psbObservation) setTooltip (analysis_ui::psbOverviewTooltip (absolute));
     absolutePsbAvailable = deltaPsbAvailable = false;
     psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     clearInteractionState();

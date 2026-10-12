@@ -1,5 +1,5 @@
 #include "../src/PluginProcessor.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
 #include "LiveBlindLoopFixture.h"
 #include "reference_rt_probe.h"
 #include "ProcessorHeapProbe.h"
@@ -412,7 +412,7 @@ int main (int argc, char** argv)
    #if ! JUCE_MAC
     require (argc == 2, "thread CPU split is a macOS-only diagnostic");
    #endif
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

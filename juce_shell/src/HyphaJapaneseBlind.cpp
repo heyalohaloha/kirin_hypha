@@ -8,6 +8,9 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "This DAW cannot verify timing; comparison is unavailable", u8"このDAWでは時刻の対応を確かめられないため使えません" },
+    { "Comparison unavailable; POST plays", u8"比較は使えません。POSTを出力中" },
+
     // ローカル Blind の取り込みと live 比較の段階（2026-10-04 まで Reference の A の取り込みの区分にあった）。
     { "PLAY", u8"再生して" },
     // VERSION BLIND の操作の失敗（Blind の画面の原因と直し方の行）。役や gain の手がかりを入れない。
@@ -20,11 +23,12 @@ const Entry entries[] = {
     { "CAPTURE A", u8"Aを取り込む" },
     { "Ended; normal level returns with audio", u8"比較終了・音声処理の再開で通常音量へ" },
     { "RETURNING +%1 dB", u8"復帰待ち +%1 dB" },
+    { "Comparison paused; POST plays", u8"比較を保留（今はPOST）" },
     { "Waiting for comparison; POST plays", u8"比較の準備を待っています（今はPOST）" },
     { "DAW timing is unavailable for this loop", u8"このLOOPではDAWの時刻対応を確認できません" },
     { "Loop is too short for verified timing", u8"このLOOPは時刻対応を保証できる長さより短すぎます" },
-    { "The PRE loop occurrence is not verified", u8"PREのどの周回に対応するか確認できません" },
-    { "Loop boundary timing is not confirmed", u8"ループ境界の時刻対応を確認できません" },
+    { "The PRE loop occurrence is not verified", u8"PREがどの周回に対応するか未確認です" },
+    { "Loop boundary timing is not confirmed", u8"LOOP境界の時刻対応は未確認です" },
     { "The loop is shorter than the verified timing range", u8"LOOPが保証済みの時刻範囲より短すぎます" },
     { "DAW timing cannot identify this loop occurrence", u8"DAWの時刻情報ではこの周回を特定できません" },
     { "POST plays; END closes comparison", u8"POSTを出力中。「終了」で比較を閉じられます" },
@@ -98,6 +102,15 @@ const Entry entries[] = {
     { "Block too large: reduce buffer (POST)", u8"処理単位が過大：バッファを縮小（今はPOST）" },
     { "PRE changed: check pair; END (POST)", u8"PREが失効：ペア確認後に終了（今はPOST）" },
     { "Checking PRE: auto-resume; POST plays", u8"PREを確認中：確認後に自動復帰（今はPOST）" },
+    // An AAX host without a certified clock loops a range: no timing proof until loop playback is off.
+    { "Loop Playback on: turn it off to compare (POST)", u8"ループ再生がオン：オフにすると比較できます（今はPOST）" },
+    { "Turn off Loop Playback to compare", u8"ループ再生をオフにすると比較できます" },
+    { "POST plays now. Turn off the DAW's Loop Playback to compare.", u8"今はPOST。DAWのループ再生をオフにすると比較できます。" },
+    // A host that reports neither a continuous clock nor its output latency cannot verify PRE timing;
+    // the analysis views say the same of this host in HyphaJapaneseAnalysis.cpp.
+    { "This DAW does not report output latency; PRE is unavailable (POST)", u8"このDAWは出力の遅れを知らせないためPREを聴けません（今はPOST）" },
+    { "This DAW does not report output latency; PRE is unavailable", u8"このDAWは出力の遅れを知らせないためPREを聴けません" },
+    { "POST plays now. This DAW does not report output latency, so PRE cannot be heard.", u8"今はPOST。このDAWは出力の遅れを知らせないため、PREを聴けません。" },
     { "Level limit: rematch, select PRE (POST)", u8"音量上限：再MATCH後にPRE選択（今はPOST）" },
     { "Invalid audio: check chain (POST)", u8"不正な音声：チェインを確認（今はPOST）" },
     { "Bypassed: enable, select PRE (POST)", u8"バイパス中：解除後にPRE選択（今はPOST）" },

@@ -111,30 +111,7 @@ mod tests {
         calls
     }
 
-    #[test]
-    fn process_block_calls_only_rt_safe_ffi_surface() {
-        let body = function_body(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::processBlock",
-        );
-        let mut calls = ffi_calls(&body);
-        calls.extend(ffi_calls(&function_body(
-            AUDITION_OUTPUT_CPP,
-            PROCESS_COMPARISON_SIGNATURE,
-        )));
-        let expected = BTreeSet::from([
-            "kirin_hypha_get_signal_state".to_string(),
-            "kirin_hypha_is_recording".to_string(),
-            "kirin_hypha_note_capture_window".to_string(),
-            "kirin_hypha_note_transport_block".to_string(),
-            "kirin_hypha_note_record_window".to_string(),
-            "kirin_hypha_note_oversized_drop".to_string(),
-            "kirin_hypha_push_samples".to_string(),
-            "kirin_hypha_set_signal_state".to_string(),
-        ]);
-
-        assert_eq!(calls, expected);
-    }
+    include!("rt_safety_aax_analysis_tests.rs");
 
     #[test]
     fn local_blind_output_is_after_measurement_and_exclusive_of_reference() {
@@ -270,6 +247,9 @@ mod tests {
         let body = function_body(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
+        ) + &function_body(
+            MEASUREMENT_INGRESS_CPP,
+            "bool KirinHyphaProcessorBase::feedMeasurementInput",
         );
 
         for forbidden in [

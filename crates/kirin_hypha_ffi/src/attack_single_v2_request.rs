@@ -197,18 +197,22 @@ impl KirinHyphaEngine {
                         measure.span_end,
                     )
                 } else if band.is_some() {
-                    let observation = local.own_at(onset).ok_or(KIRIN_SNAPSHOT_BUSY)?;
-                    (
-                        observation.requested_end,
-                        observation.requested_end,
-                        BandSpanEnd::Window,
-                    )
+                    local.own_at(onset).ok_or(KIRIN_SNAPSHOT_BUSY)?;
+                    let (end, reason) = post_only_window(&history, source.source, onset, band);
+                    (end, end, reason)
                 } else {
-                    let logical = pre_detail
-                        .filter(|detail| detail.features.complete)
-                        .map(|detail| detail.features.body_end_sample)
-                        .unwrap_or_else(|| all_end(source.source.sample_rate, onset, None));
-                    (logical, logical, BandSpanEnd::Window)
+                    let (logical, reason) = if pre_onset.is_none() {
+                        post_only_window(&history, source.source, onset, None)
+                    } else {
+                        (
+                            pre_detail
+                                .filter(|detail| detail.features.complete)
+                                .map(|detail| detail.features.body_end_sample)
+                                .unwrap_or_else(|| all_end(source.source.sample_rate, onset, None)),
+                            BandSpanEnd::Window,
+                        )
+                    };
+                    (logical, logical, reason)
                 };
             // The public content owner may be PRE, while the measured event is explicitly
             // remapped into this POST run. Detector generations never stand in for each other.
@@ -431,4 +435,37 @@ pub unsafe extern "C" fn kirin_hypha_cancel_attack_single_v2(
         }
     }))
     .unwrap_or(KIRIN_SNAPSHOT_BUSY)
+}
+
+fn next_local_onset(history: &AttackHistory, source: AttackSourceKey, onset: i64) -> Option<i64> {
+    history
+        .events()
+        .find(|event| source.matches(event) && event.event_sample > onset)
+        .map(|event| event.event_sample)
+}
+
+#[cfg(test)]
+#[path = "attack_post_only_window_tests.rs"]
+mod post_only_window_tests;
+
+fn post_only_window(
+    history: &AttackHistory,
+    source: AttackSourceKey,
+    onset: i64,
+    band: Option<AttackBand>,
+) -> (i64, BandSpanEnd) {
+    let next = next_local_onset(history, source, onset);
+    if band.is_some() {
+        span_end_for(source.sample_rate, onset, next)
+    } else {
+        let end = all_end(source.sample_rate, onset, next);
+        (
+            end,
+            if next.is_some_and(|next| next < all_end(source.sample_rate, onset, None)) {
+                BandSpanEnd::NextHit
+            } else {
+                BandSpanEnd::Window
+            },
+        )
+    }
 }

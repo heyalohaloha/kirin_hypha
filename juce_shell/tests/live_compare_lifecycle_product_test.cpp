@@ -1,5 +1,6 @@
 #include "../src/PluginProcessor.h"
-#include "ValidationStorageSandbox.h"
+#include "ReferenceValidationStorageSandbox.h"
+#include "LiveTimingFixtureAccess.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -139,6 +140,21 @@ private:
         require (postErrors.load() == 0, "closed session stays unity POST before message cleanup");
         verifyPost.store (false);
     }
+    void closeWithFade()
+    {
+        pause.store (true);
+        waitWithoutMessageService ([this] { return paused.load(); });
+        require (ratio.load() > 0.99f, "PRE is fully audible before closing");
+        post->closeLiveBlind();
+        require (LiveTimingFixtureAccess::retainsFadeSource (*post), "closing retains the proven PRE source and demand for its fade");
+        const auto before = blocks.load();
+        verifyClose.store (true); pause.store (false);
+        waitWithoutMessageService ([&] { return blocks.load() > before; }, 1000);
+        require (fadeChecks.load() == 1 && fadeErrors.load() == 0, "first closing buffer fades from PRE to exact POST");
+        post->serviceLiveCompare();
+        require (! LiveTimingFixtureAccess::retainsFadeSource (*post), "completed fade releases its PRE source");
+        passed = true; stopTimer(); juce::MessageManager::getInstance()->stopDispatchLoop();
+    }
     void timerCallback() override
     {
         require (Steady::now() - began < std::chrono::seconds (45), "scenario timed out");
@@ -174,6 +190,11 @@ private:
                 break;
             case 2:
                 if (! post->isPlaying() || ! post->heartbeatLive()) break;
+                if (mode == "close-fade")
+                {
+                    require (post->startLiveCompare() == StartResult::started, "named fade fixture starts");
+                    post->selectLiveComparePre (true); stage = 9; break;
+                }
                 if (mode == "held" || mode == "finishing" || mode == "out-of-range"
                     || mode == "reuse-held" || mode == "restore-matched-listen")
                 {
@@ -290,6 +311,9 @@ private:
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();
                 break;
+            case 9:
+                if (post->liveCompareStatus().preAudible && ratio.load() > 0.99f) closeWithFade();
+                break;
             default: break;
         }
     }
@@ -317,6 +341,14 @@ private:
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f) buffer.setSample (c, f, processed (buffer.getSample (c, f)));
             post->processBlock (buffer, midi);
+            if (verifyClose.exchange (false))
+            {
+                const auto first = signal[static_cast<std::size_t> (clock.position + 7) % signal.size()];
+                const auto last = signal[static_cast<std::size_t> (clock.position + frames - 1) % signal.size()];
+                if (std::abs (buffer.getSample (0, 7) - first) > 0.03f
+                    || std::abs (buffer.getSample (0, frames - 1) - processed (last)) > 1.0e-6f) ++fadeErrors;
+                ++fadeChecks;
+            }
             if (verifyPost.load())
                 for (int c = 0; c < 2; ++c)
                     for (int f = 0; f < frames; ++f)
@@ -342,6 +374,8 @@ private:
     hypha::pair_preview::Ticket preview;
     std::atomic<bool> running { true }, playing { false }, pause { false }, paused { false }, verifyPost { false };
     std::atomic<int> blocks { 0 }, postErrors { 0 };
+    std::atomic<bool> verifyClose { false };
+    std::atomic<int> fadeChecks { 0 }, fadeErrors { 0 };
     std::atomic<float> ratio { 0.0f }, expectedPost { 1.0f };
     Steady::time_point began = Steady::now(), requestedAt, checkedAt;
     int stage = 0;
@@ -354,7 +388,7 @@ int main (int argc, char** argv)
 {
     require (argc == 3, "usage: lifecycle S-1.wav scenario");
     auto signal = readFixture (argv[1]);
-    ValidationStorageSandbox sandbox;
+    ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #if JUCE_MAC

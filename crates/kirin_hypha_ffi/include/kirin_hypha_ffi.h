@@ -577,5 +577,5 @@ void kirin_hypha_destroy(KirinHypha* handle);
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
-
+#include "kirin_hypha_optional_analysis_clock.h"
 #endif /* KIRIN_HYPHA_FFI_H */

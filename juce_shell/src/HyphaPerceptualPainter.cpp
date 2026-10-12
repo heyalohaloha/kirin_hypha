@@ -1,5 +1,6 @@
 #include "HyphaPerceptualPainter.h"
 #include "HyphaStoppedHistory.h"
+#include "HyphaHostAvailability.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
@@ -24,10 +25,14 @@ namespace
         return "LR";
     }
 
-    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
+    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames,
+                             bool pairingLoopBlocked)
     {
+        if (host_availability::outputLatencyUnavailable (status)) return host_availability::outputLatencyText();
         if (status == KIRIN_SPECTRUM_NO_PAIR)
             return "PAIR PRE TO VIEW DIFFERENCE\nPOST SHARPNESS IS IN LIVE";
+        if (status == KIRIN_SPECTRUM_WARMING_UP && pairingLoopBlocked)
+            return "Loop Playback on: turn it off to compare";
         if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         if (status == KIRIN_SPECTRUM_IN_USE)
@@ -317,7 +322,7 @@ void paint (juce::Graphics& g,
         if (! state.signalActive && ! state.history.empty())
             stopped_history::paintDimmed (g, [&] { paintHistory (g, plot, scale, state.history); });
         const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
-                            ? statusText (state.snapshot.status, state.analysisOwnerNames)
+                            ? statusText (state.snapshot.status, state.analysisOwnerNames, state.pairingLoopBlocked)
                                              : juce::String ("PREPARING ANALYSIS");
         if (text.isNotEmpty())
         {

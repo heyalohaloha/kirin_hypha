@@ -228,12 +228,13 @@ impl SpectrumCoordinator {
                 )
             }
             AnalysisViewMode::Perceptual => {
-                let Some(history) = self.runtime.try_perceptual_history() else {
+                let Some((history, clock_kind)) = self.runtime.try_perceptual_history_with_clock()
+                else {
                     return true;
                 };
                 (
                     history.newest().map(|frame| frame.presentation_end_samples),
-                    encode_perceptual_snapshot(request_id, &history),
+                    encode_perceptual_snapshot_with_clock(request_id, &history, clock_kind),
                     self.runtime.perceptual_state_epoch(),
                 )
             }

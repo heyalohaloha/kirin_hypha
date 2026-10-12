@@ -7,6 +7,7 @@
 // 受け取り（sha256・bytes・relative_path）を付け替える（Kirin OS が書く形と同じ）。音源の中身の値（ranges）は替えない。
 #include <juce_core/juce_core.h>
 #include <juce_cryptography/juce_cryptography.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 
 #include <map>
 #include <vector>
@@ -103,6 +104,19 @@ inline juce::File copy (const juce::File& sandbox, const juce::String& name)
     const auto root = sandbox.getChildFile (name);
     if (! root.isAChildOf (sandbox) || ! source.isDirectory() || ! source.copyDirectoryTo (root) || ! placeSources (root))
         return {};
+    // The publication fixture contains metadata only. Materialise disposable audio for
+    // existence checks; its silence is not evidence for the published measurement values.
+    const auto audio = root.getChildFile ("fixture/source.wav");
+    if (audio.getParentDirectory().createDirectory().failed()) return {};
+    auto stream = audio.createOutputStream();
+    juce::WavAudioFormat format;
+    auto writer = std::unique_ptr<juce::AudioFormatWriter> (
+        stream ? format.createWriterFor (stream.get(), 48000.0, 2, 32, {}, 0) : nullptr);
+    if (! writer) return {};
+    stream.release();
+    juce::AudioBuffer<float> silence (2, 96000);
+    silence.clear();
+    if (! writer->writeFromAudioSampleBuffer (silence, 0, silence.getNumSamples())) return {};
     return root;
 }
 }

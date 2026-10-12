@@ -22,7 +22,13 @@ void text (juce::Graphics& g, const juce::String& s, juce::Rectangle<int> area,
            const presentation::Context& c, typography::TextRole role, juce::Colour colour,
            juce::Justification alignment = juce::Justification::centredLeft)
 {
-    g.setFont (monoFont (c, role, composition));
+    if (area.isEmpty()) return;
+    juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (area);
+    // A frame squeezed below the role's glyphs (the smallest DRUM sizes) takes the smallest
+    // semantic role instead of an ad-hoc height; the clip keeps the rest inside its frame.
+    const bool squeezed = monoFont (c, role, composition).getHeight() > static_cast<float> (area.getHeight());
+    g.setFont (monoFont (c, squeezed ? typography::TextRole::axis : role, composition));
     g.setColour (colour); text_style::drawText (g, s, area, alignment, false);
 }
 void timeStrip (juce::Graphics& g, const State& state, const Geometry& shape, const presentation::Context& c)

@@ -1,5 +1,6 @@
 #include "HyphaAbsolutePainter.h"
 #include "HyphaStoppedHistory.h"
+#include "HyphaHostAvailability.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
@@ -37,6 +38,7 @@ namespace
 
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
+        if (host_availability::outputLatencyUnavailable (status)) return host_availability::outputLatencyText();
         if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
         if (status == KIRIN_SPECTRUM_IN_USE)
             return analysis_ui::slotsInUse (analysisOwnerNames);

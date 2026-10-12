@@ -1,3 +1,4 @@
+#include "TestTemporaryDirectory.h"
 #include "../src/HyphaWidgets.h"
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
@@ -146,6 +147,7 @@ using hypha::tests::renderSpectrumAtSize;
 using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
+    if (const auto child = hypha::tests::shell_repairs::preferenceWriter (argc, argv); child >= 0) return child;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     hypha::tests::verifyChainClockPolicy();
     if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
@@ -171,7 +173,7 @@ int main (int argc, char** argv)
     hypha::tests::verifyPsbLightContract();
     hypha::tests::verifySurfaceLayerOrderContract();
     hypha::tests::verifySpectrumControlLightContract();
-    const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+    const auto preferenceDirectory = hypha::tests::temporaryParent()
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
     const auto preferenceFile = preferenceDirectory.getChildFile ("ui-preferences.txt");

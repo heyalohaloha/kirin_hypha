@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaHostAvailability.h"
 
 #include "live_compare/LiveCompareProcessorState.h"
 
@@ -46,7 +47,8 @@ inline const char* cause (Reason reason) noexcept
 }
 
 enum class RecoveryAction { none, automatic, play, stopPlay, compensation, checkPre,
-                            checkLevels, selectPre, endBlind, returnLevel, listen, busy };
+                            checkLevels, selectPre, endBlind, returnLevel, listen, loopOff,
+                            noOutputLatency, busy };
 
 // After the cause: what plays now and how to go on. The short status in the footer is the same
 // story cut to fit; the help line and the status window tell it whole as "LISTEN: <cause>. <next step>"
@@ -65,6 +67,8 @@ inline const char* nextStep (RecoveryAction action) noexcept
         case RecoveryAction::endBlind: return "Press END, then start BLIND again.";
         case RecoveryAction::returnLevel: return "POST is still lowered. Press RETURN, then LISTEN.";
         case RecoveryAction::listen: return "POST plays now. MENU > LISTEN compares again.";
+        case RecoveryAction::loopOff: return "POST plays now. Turn off the DAW's Loop Playback to compare.";
+        case RecoveryAction::noOutputLatency: return "POST plays now. This DAW does not report output latency, so PRE cannot be heard.";
         case RecoveryAction::busy: case RecoveryAction::none: break;
     }
     return "";
@@ -80,13 +84,20 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
 {
     const auto reason = state.reason == Reason::none ? state.observation : state.reason;
     if (state.contentHeld)
-        return { reason, RecoveryAction::stopPlay, stopped ? "Stop/play DAW; END, then BLIND"
-                                                          : "Stop and play the DAW to continue" };
+        return { Reason::contentChanged, RecoveryAction::stopPlay, "Stop/play DAW; END, then BLIND" };
+    // An uncertified AAX host looping a range observes an unidentifiable loop too; loop playback off
+    // restores the linear proof, so this actionable remedy comes before the host boundaries below.
+    if (state.loopBlocksPairing && ! stopped)
+        return { reason, RecoveryAction::loopOff, "Turn off Loop Playback to compare" };
+    if (state.timingUnavailable)
+        return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
+    // A host that never reports a clock or its output latency: no stop/play or retry would help.
+    if (state.clockUnavailable)
+        return { reason, RecoveryAction::noOutputLatency, "This DAW does not report output latency; PRE is unavailable" };
     if (state.compensationOff)
         return { reason, RecoveryAction::compensation, stopped ? "Enable compensation; END, then BLIND"
                                                               : "Enable DAW delay compensation" };
-    if (state.observation == Reason::loopUnproven
-        || state.observation == Reason::loopTooShort
+    if (state.observation == Reason::loopTooShort
         || state.observation == Reason::loopClockUnavailable)
         return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
     if (! stopped)
@@ -111,6 +122,16 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     { return RecoveryPresentation { state.reason, action, text }; };
     if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
+    // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
+    // off restores the linear proof: this actionable remedy comes before any host boundary below.
+    if (state.active && state.loopBlocksPairing && (state.preWaiting || ! state.preAudible))
+        return result (RecoveryAction::loopOff, "Loop Playback on: turn it off to compare (POST)");
+    if (state.active && state.timingUnavailable)
+        return result (RecoveryAction::none, host_availability::timingText());
+    // The clock is missing on a host that has never reported one, nor its output latency: this is
+    // the host's ability, so neither "restart playback" nor "select PRE again" is promised.
+    if (state.active && state.clockUnavailable)
+        return result (RecoveryAction::noOutputLatency, "This DAW does not report output latency; PRE is unavailable (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
     if (state.active && state.interrupted)
@@ -125,15 +146,12 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
             return result (RecoveryAction::selectPre, "Clock missing: select PRE again (POST)");
         return result (RecoveryAction::selectPre, "Select PRE again");
     }
-    if (state.active && (state.observation == Reason::loopUnproven
-        || state.observation == Reason::loopTooShort
+    if (state.active && (state.observation == Reason::loopTooShort
         || state.observation == Reason::loopClockUnavailable))
-        return state.timingReentryPending && state.observation == Reason::loopUnproven
-            ? result (RecoveryAction::automatic, "Checking PRE: auto-resume; POST plays")
-            : result (RecoveryAction::none, state.observation == Reason::loopTooShort
+        return result (RecoveryAction::none, state.observation == Reason::loopTooShort
             ? "Loop too short for verified timing; POST plays"
             : "LOOP timing unverified; POST; END closes");
-    if (state.active && state.observation == Reason::loopWaiting)
+    if (state.active && (state.observation == Reason::loopWaiting || state.observation == Reason::loopUnproven))
         return result (RecoveryAction::automatic, state.matched || state.matchHeld
             ? "Loop timing pending; MATCH held; POST plays" : "Checking PRE: auto-resume; POST plays");
     if (! state.active && state.reason != Reason::none)
@@ -173,7 +191,7 @@ inline const char* namedRecovery (const live_compare::Status& state) noexcept
 inline RecoveryPresentation currentNamedPresentation (const live_compare::Status& state,
     live_compare::StartResult admission = live_compare::StartResult::started) noexcept
 {
-    if (state.finishing || state.contentHeld || state.active)
+    if (state.finishing || state.active)
         return namedPresentation (state, admission);
     if (state.postActual < 1.0f || state.postTarget < 1.0f)
         return { state.reason, RecoveryAction::returnLevel, "Stopped: RETURN, then LISTEN (POST)" };

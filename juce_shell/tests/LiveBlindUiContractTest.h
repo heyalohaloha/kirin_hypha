@@ -86,7 +86,7 @@ inline void verifyLiveBlindUiContract()
                 state.trial.firstPre = phase == 4;
                 state.reason = phase >= 11 ? static_cast<live_compare::RecoveryReason> (phase - 10)
                                           : live_compare::RecoveryReason::none;
-                state.observation = phase == 0 ? live_compare::RecoveryReason::loopUnproven : state.reason;
+                state.observation = phase == 0 ? live_compare::RecoveryReason::loopClockUnavailable : state.reason;
                 state.contentHeld = state.reason == live_compare::RecoveryReason::contentChanged;
                 state.compensationOff = state.reason == live_compare::RecoveryReason::compensationOff;
                 view.setSize (preset.width, preset.height);
@@ -109,8 +109,8 @@ inline void verifyLiveBlindUiContract()
                                  == (language == i18n::Language::japanese
                                      ? juce::String::fromUTF8 (u8"このLOOPではDAWの時刻対応を確認できません")
                                      : juce::String ("DAW timing is unavailable for this loop")),
-                             "unproven initial loop is unavailable, not a promise of progress");
-                if (state.observation == live_compare::RecoveryReason::loopUnproven
+                             "an observed missing loop clock explains structural unavailability");
+                if (state.observation == live_compare::RecoveryReason::loopTooShort
                     || state.observation == live_compare::RecoveryReason::loopClockUnavailable)
                     require (live_compare_ui::blindRecovery (state, phase != 0).action
                                  == live_compare_ui::RecoveryAction::none,

@@ -1,6 +1,8 @@
 //! Maps the Meter Session's fixed 100 ms observations back to DAW presentation sample time.
 
 use std::collections::VecDeque;
+#[path = "meter_publication_grid.rs"]
+mod publication_grid;
 
 use crate::{
     AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, PresentationLatencySamples,

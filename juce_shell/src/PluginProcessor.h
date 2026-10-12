@@ -48,7 +48,8 @@ class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt f
 // (B-072: set_pair_target / keep / stop / is_recording) and the Δ readout (B-073:
 // poll_delta + cached signal state); the editor uses those only for POST.
 class KirinHyphaProcessorBase : public juce::AudioProcessor,
-                                private juce::Timer
+                                private juce::Timer,
+                                private juce::AsyncUpdater
 {
 public:
     enum class Role { Pre, Post };
@@ -358,6 +359,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    #include "OptionalAnalysisProcessorApi.h"
     hypha::update::ServiceOwner updateServiceOwner;
     friend class hypha::snapshots::Source;
     friend class LiveTimingFixtureAccess; // no runtime method or product policy override
@@ -371,6 +373,8 @@ private:
     // identity into the io_thread. Hosts such as Logic may not call processBlock while stopped, so
     // the Timer publishes Inactive PRE/POST presence after either setStateInformation arrives or the
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
+    void requestServiceTimer();
+    void handleAsyncUpdate() override;
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void serviceReferencePendingAudition();
     bool referencePendingAuditionNeedsService() const;
@@ -485,7 +489,7 @@ private:
     juce::String referenceRuntimeId { juce::Uuid().toDashedString() };
     void createReferenceAuditionController();
     hypha::CaptureStateNotification captureStateNotification{[this]{ updateHostDisplay(ChangeDetails{}.withNonParameterStateChanged(true)); }};
-    std::unique_ptr<hypha::reference_audition::ReferenceComparisonController> referenceAuditionController;
+    std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> referenceAuditionController;
    #endif
 
     void configureReferenceAudition();

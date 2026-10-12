@@ -22,6 +22,8 @@ pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW: u8 = 9;
 pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC: u8 = 10;
 /// Local POST input is stopped while its exact PRE binding remains selected.
 pub const KIRIN_COMPARISON_REASON_LOCAL_INACTIVE: u8 = 11;
+/// Host bypass of the local POST, distinct from transport inactivity.
+pub const KIRIN_COMPARISON_REASON_LOCAL_BYPASSED: u8 = 12;
 
 /// Observatory display facts returned by one non-RT poll.
 #[repr(C)]
@@ -91,6 +93,7 @@ fn reason_to_abi(reason: ComparisonReason) -> u8 {
         ComparisonReason::UnsupportedView => KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW,
         ComparisonReason::UnsupportedMetric => KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC,
         ComparisonReason::LocalInactive => KIRIN_COMPARISON_REASON_LOCAL_INACTIVE,
+        ComparisonReason::LocalBypassed => KIRIN_COMPARISON_REASON_LOCAL_BYPASSED,
     }
 }
 

@@ -18,7 +18,7 @@ const std::array<Stage, stageCount> stages { {
     { K::ready, W::none, "READY / A REMAINS LIVE", "", "Ready", "", "" },
     // waitingForKirinOs
     { K::waiting, W::kirinOsResponse, "WAITING FOR KIRIN OS REFERENCE / KEEP KIRIN OS OPEN",
-      "KIRIN OS IS NOT RESPONDING / OPEN KIRIN OS", "Waiting for Kirin OS", "Receiving from Kirin OS",
+      "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", "Waiting for Kirin OS", "Receiving from Kirin OS",
       "Versions and References registered in Kirin OS arrive here automatically." },
     // registerVersion
     { K::unable, W::none, "NO VERSION FOR V / REGISTER A VERSION IN KIRIN OS", "", "Register a Version in Kirin OS",

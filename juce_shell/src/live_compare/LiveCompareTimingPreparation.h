@@ -2,6 +2,7 @@
 #include "../local_blind/RtPublicationSlot.h"
 #include "LiveCompareChainTiming.h"
 #include "LiveCompareSharedRing.h"
+#include "AaxAnalysisClock.h"
 #include <atomic>
 #include <memory>
 
@@ -44,8 +45,9 @@ public:
     // takes no reading of its own (LiveCompareChainTiming.h).
     TimingEvidence observe (const BlockClock& block, std::uint32_t rate,
                             std::uint64_t authority, bool eligible,
-                            ChainTimingMeter* chain = nullptr) noexcept
+                            ChainTimingMeter* chain = nullptr, bool* aaxQualified = nullptr) noexcept
     {
+        if (aaxQualified != nullptr) *aaxQualified = false;
         TimingEvidence evidence;
         bool chainSawPre = false;
         peers.withRealtime ([&] (Peer& peer)
@@ -70,6 +72,7 @@ public:
                 chainSawPre = true;
             }
             evidence = peer.observer.observe (snapshot, block, rate, ringCapacityFrames);
+            if (aaxQualified != nullptr) *aaxQualified = qualifiedAaxPair (snapshot.block, block, evidence);
         });
         if (chain != nullptr && ! chainSawPre)
             chain->observeWithoutPre (block);

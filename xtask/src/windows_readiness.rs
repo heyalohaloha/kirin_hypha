@@ -224,10 +224,16 @@ fn readiness_checks() -> Vec<Check> {
             &[(
                 RT_SAFETY,
                 &[
-                    "process_block_calls_only_rt_safe_ffi_surface",
+                    "include!(\"rt_safety_aax_analysis_tests.rs\")",
                     "process_block_keeps_audio_thread_free_of_blocking_work",
                     "ffi_push_samples_core_avoids_io_allocation_and_blocking_locks",
                     "audio_thread_c_abi_wrappers_remain_thin",
+                ][..],
+            ), (
+                include_str!("rt_safety_aax_analysis_tests.rs"),
+                &[
+                    "process_block_calls_only_rt_safe_ffi_surface",
+                    "aax_analysis_callees_are_rt_safe_and_consume_original_input_after_timing",
                 ][..],
             )],
         ),

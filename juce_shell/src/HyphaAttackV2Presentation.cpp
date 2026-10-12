@@ -46,13 +46,13 @@ void State::begin()
     adopted = placeholder (KIRIN_REASON_WAITING_SERVICE); adopted.revision = nextRevision++;
     stamp();
 }
-void State::retire()
+void State::retire (std::uint8_t reason)
 {
     if (token != 0 && cancel) cancel (token);
     token = 0; requested.reset(); pending.reset(); cohort.reset(); appliedMs = -1;
     selection.clear(); events.clear(); waveform = {}; preWaveform = {}; navHeader = {};
     clock.reset(); awaitingBandNavigation = false; activeInput = false;
-    adopted = placeholder (KIRIN_REASON_SOURCE_CHANGED); adopted.revision = nextRevision++;
+    adopted = placeholder (reason); adopted.revision = nextRevision++;
 }
 bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnapshotEventKey>& next,
                        const KirinAttackWaveformBatch& wave, const KirinAttackWaveformBatch& pre,

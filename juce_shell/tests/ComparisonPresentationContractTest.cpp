@@ -36,8 +36,63 @@ std::uint64_t imageSignature (const juce::Image& image)
 
 #define KIRIN_COMPARISON_REQUIRE(expression) require ((expression), #expression, __LINE__)
 
+void verifyPollRetention()
+{
+    for (const auto role : { observatory::Role::pre, observatory::Role::post })
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const auto scale : { 1.0, 1.25, 1.5 })
+    {
+        i18n::ScopedLanguage scoped (language);
+        observatory::View view (role);
+        view.setSize (static_cast<int> (300 * scale), static_cast<int> (200 * scale));
+        view.setDomain (observatory::Domain::level);
+        KirinObservatoryFrame frame {};
+        frame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+        frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+        frame.meter.state = KIRIN_METER_SESSION_ACTIVE;
+        frame.meter.generation = 1u;
+        frame.meter.measurement_epoch = 2u;
+        frame.meter.sample_rate = 48000u;
+        frame.meter.channels = 2u;
+        frame.meter.observed_frames = 192000u;
+        frame.meter.lufs_m = -20.0;
+        frame.meter.lufs_s = -19.0;
+        frame.delta_available = 1u;
+        frame.delta.mode = KIRIN_DELTA_MODE_ACTIVE;
+        frame.delta.lufs = 0.7;
+        frame.delta.lufs_s = 0.5;
+        frame.comparison_state = KIRIN_COMPARISON_STATE_ACTIVE;
+        frame.comparison_reason = KIRIN_COMPARISON_REASON_NONE;
+        frame.comparison_identity = 23u;
+        frame.comparison_generation = 37u;
+        view.setObservatoryFrame (frame, true);
+        if (role == observatory::Role::post)
+            view.setTarget (observatory::ObservationTarget::delta);
+        juce::String before;
+        {
+            text_style::ShownTextLog log;
+            KIRIN_COMPARISON_REQUIRE (view.createCaptureImage (view.getWidth(), view.getHeight()).isValid());
+            before = log.texts().joinIntoString ("\n");
+        }
+        auto next = view.frameForPoll();
+        next.meter.observed_frames += 4800u;
+        next.meter.lufs_m = -22.0; // Independent absolute update, comparison acquisition busy.
+        view.setObservatoryFrame (next, true);
+        const auto& accepted = view.frameForPoll();
+        KIRIN_COMPARISON_REQUIRE (accepted.meter.observed_frames == next.meter.observed_frames);
+        KIRIN_COMPARISON_REQUIRE (accepted.meter.lufs_m == -22.0);
+        KIRIN_COMPARISON_REQUIRE (accepted.delta.lufs == 0.7 && accepted.delta.lufs_s == 0.5);
+        KIRIN_COMPARISON_REQUIRE (accepted.comparison_identity == 23u && accepted.comparison_generation == 37u);
+        text_style::ShownTextLog log;
+        KIRIN_COMPARISON_REQUIRE (view.createCaptureImage (view.getWidth(), view.getHeight()).isValid());
+        if (role == observatory::Role::post)
+            KIRIN_COMPARISON_REQUIRE (log.texts().joinIntoString ("\n") == before);
+    }
+}
+
 void verify()
 {
+    verifyPollRetention();
     KIRIN_COMPARISON_REQUIRE (
         comparison_presentation::statusText (
             KIRIN_COMPARISON_STATE_REJECTED,
@@ -61,7 +116,7 @@ void verify()
     KIRIN_COMPARISON_REQUIRE (
         comparison_presentation::statusText (
             KIRIN_COMPARISON_STATE_REJECTED,
-            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE).contains ("COMPARISON UPDATE PENDING"));
+            KIRIN_COMPARISON_REASON_LOCAL_INACTIVE).contains ("POST STOPPED"));
     KIRIN_COMPARISON_REQUIRE (
         ! comparison_presentation::notifiesExplicitAction (
             KIRIN_COMPARISON_STATE_REJECTED,

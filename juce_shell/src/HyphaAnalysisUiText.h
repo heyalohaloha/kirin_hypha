@@ -81,12 +81,18 @@ inline juce::String focusTrailTooltip (bool clear)
 
 inline juce::String sharpnessDeltaTooltip()
 {
-    return "Sharpness Delta is POST minus PRE. Unit: acum (DIN 45692).";
+    return "Sharpness Delta is POST minus PRE. Unit: acum (DIN 45692). This view needs DAW output latency.";
 }
 
 inline juce::String liveOverviewTooltip()
 {
-    return "LIVE shows absolute POST facts on independent fixed scales.";
+    return "LIVE shows POST values on fixed scales.";
+}
+
+inline juce::String psbOverviewTooltip (bool absolute)
+{
+    return absolute ? "PSB: POST loudness share in each Bark band."
+                    : "PSB: POST - PRE loudness share in each Bark band. This view needs DAW output latency.";
 }
 
 inline juce::String liveMetricTooltip (size_t index)

@@ -121,6 +121,7 @@ impl SpectrumCoordinator {
             self.store_absolute_view(SpectrumViewStatus::Unavailable, Default::default());
             return false;
         }
+        let token = self.runtime.analysis_clock_token();
         let Some(history) = self.runtime.try_absolute_history() else {
             return true;
         };
@@ -130,6 +131,7 @@ impl SpectrumCoordinator {
             SpectrumViewStatus::WarmingUp
         };
         self.store_absolute_view(status, history);
+        self.stamp_stateful_clock(token);
         true
     }
 

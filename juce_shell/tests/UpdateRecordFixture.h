@@ -26,7 +26,9 @@ inline bool atomicJson (const juce::File& file, const juce::var& value)
 {
     if (! file.getParentDirectory().createDirectory()) return false;
     juce::TemporaryFile temporary (file);
-    return temporary.getFile().replaceWithText (juce::JSON::toString (value, true) + "\n", false, false, "\n")
+    // This file is already a new atomic-publication temporary. replaceWithText would add a
+    // second temporary suffix, exceeding Windows' path limit for a CI-depth Drop receipt.
+    return temporary.getFile().appendText (juce::JSON::toString (value, true) + "\n", false, false, "\n")
         && temporary.overwriteTargetFileWithTemporary();
 }
 

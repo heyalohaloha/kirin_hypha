@@ -46,7 +46,7 @@ use crate::{
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
 /// One same-version PRE/POST envelope for TIME and qualified content observations. An older
 /// peer is rejected as a unit; no cross-version comparison or partial TIME claim is inferred.
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 8;
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 9;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
@@ -271,8 +271,17 @@ impl MeterDeltaHistoryExchange {
         delta
             .chain
             .ingest(&publication.content_windows, &local_content);
-        // Keep the old poll's exact join and lifetime independent of V2 TIME authority.
-        delta.ingest(&publication.points, &local, self.sample_rate);
+        // Qualified publications share producer clock admission with legacy history. Bare,
+        // unassigned-epoch history retains its existing separate contract.
+        if publication
+            .time
+            .as_ref()
+            .is_none_or(|time| time.clock_compatible(&raw))
+        {
+            delta.ingest(&publication.points, &local, self.sample_rate);
+        } else {
+            delta.history.reset();
+        }
         if publication.time.is_some() {
             delta.ingest_time(publication.time.as_ref(), &raw, &mut prepared_time_history);
         } else {

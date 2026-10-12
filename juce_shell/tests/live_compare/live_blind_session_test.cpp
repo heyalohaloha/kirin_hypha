@@ -56,6 +56,15 @@ int main()
     require (blindRecovery (stopped, true).action == RecoveryAction::endBlind
         && blindRecovery (stopped, true).reason == RecoveryReason::contentChanged,
         "resolved blocker changes the action, never rewrites history");
+    status.active = true; status.timingUnavailable = true;
+    require (namedPresentation (status).action == RecoveryAction::stopPlay,
+             "a content hold keeps its explicit stop remedy even on an uncertified host");
+    status.contentHeld = false;
+    require (namedPresentation (status).action == RecoveryAction::none,
+             "unsupported timing never promises automatic admission");
+    stopped.timingUnavailable = true;
+    require (blindRecovery (stopped, false).action == RecoveryAction::none,
+             "unsupported Blind retains END rather than endless automatic progress");
     BlindSession unavailable;
     require (! unavailable.startWith ([] () -> bool { throw 1; })
         && ! unavailable.command().active(), "CSPRNG failure never publishes a fallback assignment");

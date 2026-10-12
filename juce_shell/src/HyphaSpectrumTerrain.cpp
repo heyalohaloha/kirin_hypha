@@ -365,7 +365,7 @@ bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
 
 void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
                            const KirinSpectrumView& view, bool delta,
-                           presentation::Context context)
+                           presentation::Context context, bool shape)
 {
     if (plot.getWidth() < minimumPlotWidth || plot.getHeight() < 140.0f)
         return;
@@ -389,7 +389,8 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
     g.setFont (monoFont (context, typography::TextRole::axis, typography::Composition::visualization));
     g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
     const auto notes = inner.reduced (10.0f, 6.0f).toNearestInt();
-    text_style::drawText (g, delta ? hypha::delta() + "(f) = POST(f) - PRE(f)  dB" : juce::String ("L(f) = POST(f)"),
+    text_style::drawText (g, delta ? (shape ? juce::String ("SHAPE(f) = POST(f) - PRE(f) - LEVEL OFFSET  dB")
+                                  : hypha::delta() + "(f) = POST(f) - PRE(f)  dB") : juce::String ("L(f) = POST(f)"),
                 notes, juce::Justification::topLeft, false);
     if (view.sample_rate > 0u && view.aperture_samples > 0u)
     {

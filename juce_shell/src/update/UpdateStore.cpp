@@ -264,12 +264,27 @@ bool Store::readState (Lock& access, State& result)
     return decode (juce::String::fromUTF8 (static_cast<const char*> (bytes.getData()), static_cast<int> (bytes.getSize())), result);
 }
 
-bool Store::save (const State& state)
+bool Store::clearFutureAttempts (State& state, std::int64_t now)
+{
+    State previous;
+    if (now <= 0 || ! read (previous) || previous.lastAttempt <= now + 24 * 60 * 60)
+        return false;
+    auto repaired = previous;
+    repaired.lastAttempt = repaired.lastSuccess = 0;
+    if (! saveState (repaired, true)) return false;
+    state = repaired;
+    return true;
+}
+
+bool Store::save (const State& state) { return saveState (state, false); }
+
+bool Store::saveState (const State& state, bool clearFuture)
 {
     if (heldLock == nullptr || ! valid (state)) return false;
     State previous;
     if (! read (previous)) return false; // Never silently repair damaged state or overwrite a linked file.
-    if (state.lastAttempt < previous.lastAttempt || state.lastSuccess < previous.lastSuccess
+    if ((! clearFuture && (state.lastAttempt < previous.lastAttempt
+                            || state.lastSuccess < previous.lastSuccess))
         || state.lastSequence < previous.lastSequence) return false;
     const auto text = encode (state);
     const auto length = text.getNumBytesAsUTF8();

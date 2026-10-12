@@ -27,6 +27,7 @@ public:
     bool read (State&);
     bool observe (State&);
     bool save (const State&);
+    bool clearFutureAttempts (State&, std::int64_t now);
     bool acquire();
     void release();
     juce::File root() const;
@@ -34,6 +35,7 @@ public:
 private:
     struct Lock;
     bool readState (Lock&, State&);
+    bool saveState (const State&, bool clearFuture);
     juce::File directory;
     std::unique_ptr<Lock> heldLock;
 };

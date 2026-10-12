@@ -33,6 +33,7 @@ public:
         require (! find (editor, "live-blind-screen")->isVisible(), "one END closes Blind without any callback");
         require (findView (editor)->isAccessible() && findView (editor)->isEnabled(),
                  "normal controls and accessibility return immediately on END");
+        require (find (editor, "observatory-live-pre")->isAccessible(), "END restores the PRE descendant AX state");
         actual = state.postActual;
         acceptedAt = std::chrono::steady_clock::now();
     }

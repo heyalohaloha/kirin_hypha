@@ -77,6 +77,9 @@ pub struct SpectrumRuntime {
     applied_selection: AtomicU64,
     stream_generation: AtomicU64,
     clock_definition: AtomicU64,
+    clock_revision: AtomicU64,
+    /// Exact rejected Perceptual selection; a mode edge retires even a late RT write.
+    output_latency_unavailable: AtomicU64,
     enabled: AtomicBool,
     shutdown: AtomicBool,
     latest_presentation_end: AtomicI64,
@@ -131,6 +134,8 @@ impl SpectrumRuntime {
             applied_selection: AtomicU64::new(0),
             stream_generation: AtomicU64::new(1),
             clock_definition: AtomicU64::new(0),
+            clock_revision: AtomicU64::new(1),
+            output_latency_unavailable: AtomicU64::new(0),
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             latest_presentation_end: AtomicI64::new(NO_PRESENTATION_POSITION),
@@ -390,5 +395,12 @@ mod view_tests;
 mod snapshot_tests;
 
 #[cfg(test)]
+#[path = "spectrum_runtime_aax_clock_tests.rs"]
+mod aax_clock_tests;
+#[cfg(test)]
 #[path = "spectrum_runtime_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "spectrum_runtime_absolute_clock_tests.rs"]
+mod absolute_clock_tests;

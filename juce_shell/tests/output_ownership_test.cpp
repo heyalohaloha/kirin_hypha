@@ -33,7 +33,7 @@ constexpr Column columns[] {
     { State::liveRestoring,      "RRRRRRa", "after a restore nothing takes POST until LISTEN is checked again; Keep is not an audition" },
     { State::liveFinishing,      "FFFFFFa", "INV-LC14: no other audition while POST returns after END" },
     { State::liveSessionLowered, "HaHHCHa", "INV-LC14: a session's own approved MATCH carries only into LIVE BLIND" },
-    { State::liveHeld,           "HHHHHHa", "INV-LC14: a held POST attenuation waits for RETURN" },
+    { State::liveHeld,           "HHHHHHa", "INV-LC14: held attenuation blocks auditions; Keep measures before the lowering" },
     { State::liveBlind,          "CCCCCCB", "one comparison at a time; Keep waits for Blind" },
     { State::localBlind,         "BBBBBBB", "one Blind for a POST and its project" },
     { State::versionBlind,       "BBBBBBB", "one Blind for a POST and its project, until V has returned its output" },
@@ -107,6 +107,11 @@ void decisionsCombineStates()
     require (liveStates ({ true, false, false, false, 0.5f, 0.5f }) == (bit (State::liveSessionLowered) | bit (State::liveSession)),
              "a lowered active session");
     require (liveStates ({ false, false, false, false, 1.0f, 0.5f }) == bit (State::liveHeld), "a lowering held after the session");
+    require (! decide (Activity::recordKeep, liveStates ({ false, false, false, false, 0.5f, 0.5f })).refused(),
+             "held named attenuation without Blind permits canonical Keep");
+    const auto endedBlind = decide (Activity::recordKeep, liveStates ({ false, false, false, true, 0.5f, 0.5f }));
+    require (endedBlind.refused() && endedBlind.reason == Reason::blindRunning,
+             "a retained Blind scope blocks Keep until its fade releases it");
     require (liveStates ({ false, true, true, true, 1.0f, 1.0f })
                  == (bit (State::liveRestoring) | bit (State::liveFinishing) | bit (State::liveBlind)),
              "restoring, finishing and LIVE BLIND");
