@@ -1,4 +1,5 @@
 #include "ReferenceAuditionRepository.h"
+#include "../KirinTestStorage.h"
 
 #include <utility>
 
@@ -50,6 +51,8 @@ namespace hypha::reference_audition
 
     juce::File Repository::transportRoot()
     {
+        if (const auto root = storage::testPluginDataRoot())
+            return root->getChildFile ("hypha_ab/v1");
        #if JUCE_WINDOWS
         auto local = juce::File::getSpecialLocation (juce::File::windowsLocalAppData);
         if (local == juce::File())

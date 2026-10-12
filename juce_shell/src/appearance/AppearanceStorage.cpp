@@ -1,4 +1,5 @@
 #include "AppearanceStorage.h"
+#include "../KirinTestStorage.h"
 
 #include "AppearanceFileLock.h"
 
@@ -47,6 +48,8 @@ Storage::Storage (juce::File sharedPluginDataRoot)
 
 juce::File Storage::defaultSharedPluginDataRoot()
 {
+    if (const auto root = storage::testPluginDataRoot())
+        return *root;
    #if JUCE_WINDOWS
     auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {});
     if (local.isEmpty())

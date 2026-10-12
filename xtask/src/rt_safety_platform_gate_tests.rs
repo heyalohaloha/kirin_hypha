@@ -270,6 +270,19 @@ fn every_native_test_requires_the_read_only_real_storage_fixture() {
     let modes = include_str!("../../juce_shell/cmake/LivePublicationTests.cmake");
     assert!(modes.contains("foreach(role IN ITEMS PRE POST)"));
     assert!(modes.contains("state-only shared-ring storage-only"));
+    let storage = include_str!("../../juce_shell/cmake/StoragePathsTests.cmake");
+    let release = include_str!("../../scripts/test_release_source.sh");
+    assert!(storage.contains("foreach(scenario environment sandbox defaults relative unwritable)"));
+    assert!(release.contains("KirinStoragePathsTests"));
+    for scenario in [
+        "environment",
+        "sandbox",
+        "defaults",
+        "relative",
+        "unwritable",
+    ] {
+        assert!(release.contains(&format!("kirin_storage_paths_{scenario}")));
+    }
 }
 
 #[test]

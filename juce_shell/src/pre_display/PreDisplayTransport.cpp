@@ -1,4 +1,5 @@
 #include "PreDisplayController.h"
+#include "../KirinTestStorage.h"
 
 #include <mutex>
 
@@ -7,7 +8,7 @@ namespace hypha::pre_display
     namespace
     {
         std::mutex testRootLock;
-        juce::File testRoot;  // placeUnderForTest が置いた試験の home（空なら本物の場所）
+        juce::File testRoot;  // explicit fixture override; empty selects automatic resolution
     }
 
     void Controller::placeUnderForTest (const juce::File& root)
@@ -24,6 +25,8 @@ namespace hypha::pre_display
                 return testRoot.getChildFile ("Kirin OS").getChildFile ("plugin_data")
                                .getChildFile ("pre_display").getChildFile ("v1");
         }
+        if (const auto root = storage::testPluginDataRoot())
+            return root->getChildFile ("pre_display/v1");
        #if JUCE_WINDOWS
         auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {});
         if (local.isEmpty())

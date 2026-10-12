@@ -100,8 +100,11 @@ manifestにはsource commit / B / modified state、JUCEのcommitと実bytesを�
 
 Native試験を有効にしたconfigureにはNode.jsも必要。CTestは全試験に保存先用の
 `KIRIN_HYPHA_TEST_STORAGE_ROOT`と`kirin_real_storage` fixtureを付ける。
-HOMEを付け替える独自fixtureでは、JUCEのGuide/Reference保存先も明示してからworkerを起動する。
-macOSのJUCEはHOME環境変数から利用者のホームを取得しない。
+RustとJUCEのGuide／Reference／Recovery／Capture Work／Appearanceは、このrootの同じ
+platform別`home`配下を使う。独自fixtureも環境変数を消さず、自分のrootへ替え、
+HOME／APPDATA／LOCALAPPDATA／TMPDIRを同じ配置へ揃えてからworkerを起動する。
+macOSのJUCEはHOMEだけの変更には従わない。環境変数が未指定または空なら製品の既定場所は従来どおり。
+指定rootが書けない場合は実フォルダへfallbackしない。明示的なtransport引数・試験用overrideは優先する。
 
 `kirin_native_storage_guard_setup` / `cleanup`はOSが返す実ホームのDocumentsと
 Application Support内のKirin OSを読み取りだけで確認する。WindowsではDocumentsと
@@ -115,6 +118,8 @@ build内の`real-kirin-os-before.json`へ控えて比較し、一時ファイル
 実アプリが同時に対象フォルダを更新しても不合格になるため、静止した環境で検証する。
 監視は変更を検出するもので、OSの書き込み禁止や実データの自動復元は行わない。
 
+`kirin_storage_paths_*`は実フォルダへ書く前に保存先を照合し、環境変数／個別fixture、
+未指定／空の既定値（path読取りのみ）、相対path、書けないrootとPRE／POSTのlease作成・削除を確認する。
 `kirin_live_publication_PRE_storage-only` / `POST_storage-only`は共有メモリ不要で、worker起動前の
 保存先と両roleのpresence/capabilityの作成・終了時削除を検証する。監視自体の異常系は
 `kirin_native_storage_guard_contract`が使い捨てデータだけで検証する。

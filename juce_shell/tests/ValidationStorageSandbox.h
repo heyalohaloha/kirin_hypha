@@ -30,65 +30,54 @@ public:
         const auto result = root.createDirectory();
         if (result.failed())
             throw std::runtime_error ("could not create isolated validation storage");
-       #if JUCE_WINDOWS
-        // Windows Watch snapshots use TEMP, identity uses APPDATA, Record uses
-        // LOCALAPPDATA. Isolating only the latter leaves discovery in the user's tree.
-        for (const auto* name : { "LOCALAPPDATA", "APPDATA", "TEMP", "TMP" })
+        // Keep the same layout as Rust PlatformPaths::under_test_root. Existing fixture
+        // readers using HOME/APPDATA/TMPDIR and JUCE workers using the override agree.
+        try
         {
-            SavedVariable saved { name, {}, false };
-            char* current = nullptr;
-            size_t length = 0;
-            if (::_dupenv_s (&current, &length, name) == 0 && current != nullptr)
-            {
-                saved.value = current;
-                saved.present = true;
-                std::free (current);
-            }
-            variables.push_back (std::move (saved));
-            const auto destination = root.getChildFile (
-                juce::String (name) == "TMP" ? "TEMP" : name);
-            if (destination.createDirectory().failed()
-                || ::_putenv_s (name, destination.getFullPathName().toRawUTF8()) != 0)
-                throw std::runtime_error ("could not redirect validation storage");
+           #if JUCE_WINDOWS
+            redirect ("APPDATA", root.getChildFile ("home/AppData/Roaming"));
+            redirect ("LOCALAPPDATA", root.getChildFile ("home/AppData/Local"));
+            redirect ("TEMP", root.getChildFile ("tmp"));
+            redirect ("TMP", root.getChildFile ("tmp"));
+           #else
+            redirect ("HOME", root.getChildFile ("home"));
+            redirect ("TMPDIR", root.getChildFile ("tmp"));
+           #endif
+            redirect ("KIRIN_HYPHA_TEST_STORAGE_ROOT", root);
         }
-       #else
-        // The Rust storage adapter uses HOME and TMPDIR on macOS. Redirect both before loading
-        // either bundle so validation cannot discover or modify the user's Kirin OS state.
-        for (const auto* name : { "HOME", "TMPDIR" })
+        catch (...)
         {
-            const auto* current = std::getenv (name);
-            SavedVariable saved { name, current != nullptr ? current : "", current != nullptr };
-            variables.push_back (std::move (saved));
-            const auto destination = root.getChildFile (juce::String (name));
-            if (destination.createDirectory().failed()
-                || ::setenv (name, destination.getFullPathName().toRawUTF8(), 1) != 0)
-                throw std::runtime_error ("could not redirect validation storage");
+            restore();
+            root.deleteRecursively();
+            throw;
         }
-       #endif
-        // ctest gives every test one shared folder (KIRIN_HYPHA_TEST_STORAGE_ROOT), which the Rust
-        // storage reads before HOME and TMPDIR. These tests read what the product wrote from the
-        // folders above, so the variable is cleared while the sandbox lives.
-        clear ("KIRIN_HYPHA_TEST_STORAGE_ROOT");
     }
 
     ~ValidationStorageSandbox()
     {
-        for (const auto& saved : variables)
-       #if JUCE_WINDOWS
-            ::_putenv_s (saved.name.c_str(), saved.present ? saved.value.c_str() : "");
-       #else
-            if (saved.present)
-                ::setenv (saved.name.c_str(), saved.value.c_str(), 1);
-            else
-                ::unsetenv (saved.name.c_str());
-       #endif
+        restore();
         root.deleteRecursively();
     }
 
 private:
     struct SavedVariable { std::string name, value; bool present; };
 
-    void clear (const char* name)
+    void restore() noexcept
+    {
+        for (auto it = variables.rbegin(); it != variables.rend(); ++it)
+        {
+           #if JUCE_WINDOWS
+            ::_putenv_s (it->name.c_str(), it->present ? it->value.c_str() : "");
+           #else
+            if (it->present)
+                ::setenv (it->name.c_str(), it->value.c_str(), 1);
+            else
+                ::unsetenv (it->name.c_str());
+           #endif
+        }
+    }
+
+    void redirect (const char* name, const juce::File& destination)
     {
         SavedVariable saved { name, {}, false };
        #if JUCE_WINDOWS
@@ -100,16 +89,23 @@ private:
             saved.present = true;
             std::free (current);
         }
-        ::_putenv_s (name, "");
        #else
         if (const auto* current = std::getenv (name))
         {
             saved.value = current;
             saved.present = true;
         }
-        ::unsetenv (name);
        #endif
         variables.push_back (std::move (saved));
+        if (destination.createDirectory().failed())
+            throw std::runtime_error ("could not create isolated validation storage");
+       #if JUCE_WINDOWS
+        const auto error = ::_putenv_s (name, destination.getFullPathName().toRawUTF8());
+       #else
+        const auto error = ::setenv (name, destination.getFullPathName().toRawUTF8(), 1);
+       #endif
+        if (error != 0)
+            throw std::runtime_error ("could not redirect validation storage");
     }
 
     juce::File root;

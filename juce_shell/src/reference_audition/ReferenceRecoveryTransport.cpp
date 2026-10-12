@@ -1,4 +1,5 @@
 #include "ReferenceRecoveryTransport.h"
+#include "../KirinTestStorage.h"
 
 #include <cmath>
 #include <limits>
@@ -199,6 +200,8 @@ namespace hypha::reference_audition
 
     juce::File RecoveryTransport::transportRoot()
     {
+        if (const auto root = storage::testPluginDataRoot())
+            return root->getChildFile ("reference/v2");
        #if JUCE_WINDOWS
         auto local = juce::File::getSpecialLocation (juce::File::windowsLocalAppData);
         if (local == juce::File())

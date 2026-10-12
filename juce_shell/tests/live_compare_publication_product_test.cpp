@@ -167,7 +167,7 @@ try
     ReferenceValidationStorageSandbox sandbox;
    #endif
     // Guide transport is compiled for both roles; PRE_DISPLAY only selects the PRE UI.
-    // macOS JUCE's home ignores HOME, and both sandboxes clear the CTest storage override.
+    // This fixture also exercises the explicit Guide transport override.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     hypha::tests::requirePublicationStorage (sandbox.directory());
     if (storage)

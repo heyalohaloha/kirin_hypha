@@ -1,4 +1,5 @@
 #include "CaptureWorkAttachment.h"
+#include "KirinTestStorage.h"
 
 #include <set>
 
@@ -318,6 +319,8 @@ void WorkAttachmentController::run()
 
 juce::File WorkAttachmentController::transportRoot()
 {
+    if (const auto root = storage::testPluginDataRoot())
+        return root->getChildFile ("hypha_capture/v1");
    #if JUCE_WINDOWS
     auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {});
     if (local.isEmpty())
