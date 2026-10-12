@@ -121,10 +121,17 @@ void ScreenComponent::resized()
     area.reduce (0, compact ? 5 : 12);
     approve.setBounds (area);
     auto guidance = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 90));
-    const auto causeRoom = cause.getBorderSize().subtractedFrom (guidance);
+    const auto causeWidth = juce::jmax (1, cause.getBorderSize().subtractedFrom (guidance).getWidth());
+    // The label lays its text out with its own font; on Windows that can need more height than
+    // the native-font estimate, so reserve the larger of the two.
+    juce::AttributedString causeText;
+    causeText.append (text_style::shownText (shown.cause), cause.getFont(), juce::Colours::white);
+    juce::TextLayout causeLayout;
+    causeLayout.createLayout (causeText, static_cast<float> (causeWidth));
+    const auto causeNeeded = std::max (text_style::shownWrappedHeight (shown.cause, cause.getFont(), causeWidth),
+                                       causeLayout.getHeight());
     const int causeHeight = juce::jmin (guidance.getHeight() / 2,
-        juce::roundToInt (std::ceil (text_style::shownWrappedHeight (shown.cause, cause.getFont(),
-            juce::jmax (1, causeRoom.getWidth())))) + cause.getBorderSize().getTopAndBottom());
+        juce::roundToInt (std::ceil (causeNeeded)) + cause.getBorderSize().getTopAndBottom());
     cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
