@@ -241,3 +241,56 @@ fn visible_guide_action_accepts_pending_connection_before_opening_received_guide
     assert!(action.contains("processorRef.pendingPreDisplayConnection().validAt"));
     assert!(connect < details);
 }
+
+#[test]
+fn content_analysis_gate_covers_every_independent_phase() {
+    let gate = include_str!("../../scripts/test_release_source.sh");
+    let selected: std::collections::BTreeSet<_> = gate
+        .lines()
+        .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))
+        .and_then(|line| line.strip_suffix(")$'"))
+        .unwrap()
+        .split('|')
+        .filter(|name| {
+            [
+                "kirin_content_analysis_",
+                "kirin_au_analysis_",
+                "kirin_reaper_analysis_",
+            ]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+                && name.ends_with("_product")
+        })
+        .map(str::to_owned)
+        .collect();
+    let mut expected = std::collections::BTreeSet::new();
+    for layout in ["mono", "stereo"] {
+        for host in ["content", "au", "reaper"] {
+            for scenario in ["missing", "omitted", "included", "zero"] {
+                if host == "reaper" && scenario != "missing" {
+                    continue;
+                }
+                for phase in ["linear", "loop", "recovery", "cycle_listen", "cycle_blind"] {
+                    if phase.starts_with("cycle_") && (host != "au" || scenario == "included") {
+                        continue;
+                    }
+                    expected.insert(format!(
+                        "kirin_{host}_analysis_{layout}_{scenario}_{phase}_product"
+                    ));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        selected, expected,
+        "every host/layout/latency phase must run; no old aggregate entries"
+    );
+    assert!(gate.contains("KirinAnalysisProductWaitTests"));
+    assert!(gate.contains("kirin_analysis_product_wait"));
+    let cmake = include_str!("../../juce_shell/cmake/AaxAnalysis.cmake");
+    assert!(cmake.contains("include(${CMAKE_CURRENT_LIST_DIR}/ContentAnalysisTests.cmake)"));
+    let phases = include_str!("../../juce_shell/cmake/ContentAnalysisTests.cmake");
+    assert!(phases.contains(
+        "COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} ${host} ${phase}"
+    ));
+}

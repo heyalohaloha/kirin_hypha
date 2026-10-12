@@ -55,6 +55,8 @@ void processAudio()
         }
         if (injectGap.exchange (false))
         {
+            // Deliberate wall-clock absence exercises callback-gap detection. Advancing
+            // sample positions alone cannot reproduce this fault; keep this real wait.
             std::this_thread::sleep_for (std::chrono::milliseconds (600));
             next = std::chrono::steady_clock::now();
             previousPre = previousPost = {};
@@ -134,6 +136,8 @@ void processAudio()
                 }
         if (clock.playing) clock.position += blockFrames;
         emitted += blockFrames;
+        // This fixture tests real callback gaps, MATCH worker freshness and audible Blind
+        // timing. Its host cadence must remain wall-clock paced, unlike analysis wait budgets.
         next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
         std::this_thread::sleep_until (next);
     }

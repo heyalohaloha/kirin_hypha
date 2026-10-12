@@ -23,19 +23,7 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
     target_compile_definitions(KirinContentAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
     target_include_directories(KirinContentAnalysisProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
     target_link_libraries(KirinContentAnalysisProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
-    foreach(layout stereo mono)
-        add_test(NAME kirin_reaper_analysis_${layout}_product
-            COMMAND KirinContentAnalysisProductTests ${layout} missing reaper)
-        set_tests_properties(kirin_reaper_analysis_${layout}_product PROPERTIES TIMEOUT 90)
-        foreach(scenario missing omitted included zero)
-            add_test(NAME kirin_content_analysis_${layout}_${scenario}_product
-                COMMAND KirinContentAnalysisProductTests ${layout} ${scenario})
-            set_tests_properties(kirin_content_analysis_${layout}_${scenario}_product PROPERTIES TIMEOUT 90)
-            add_test(NAME kirin_au_analysis_${layout}_${scenario}_product
-                COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} au)
-            set_tests_properties(kirin_au_analysis_${layout}_${scenario}_product PROPERTIES TIMEOUT 90)
-        endforeach()
-    endforeach()
+    include(${CMAKE_CURRENT_LIST_DIR}/ContentAnalysisTests.cmake)
     add_executable(KirinAaxAnalysisClockTests tests/analysis_clock_aax_test.cpp)
     target_compile_features(KirinAaxAnalysisClockTests PRIVATE cxx_std_17)
     target_compile_options(KirinAaxAnalysisClockTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
