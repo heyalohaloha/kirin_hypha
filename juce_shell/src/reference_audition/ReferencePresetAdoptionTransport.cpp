@@ -139,8 +139,9 @@ namespace hypha::reference_audition
             if (bytes < 1 || bytes > maximumPresetAdoptionBytes
                 || ! target.getParentDirectory().createDirectory())
                 return false;
-            const auto temporary = target.getSiblingFile (
-                "." + target.getFileName() + "." + juce::Uuid().toDashedString() + ".tmp");
+            // Keep the sibling name shorter than the receipt name so atomic publication does
+            // not exceed Windows path limits when the destination itself still fits.
+            const auto temporary = target.getSiblingFile ("." + juce::Uuid().toDashedString() + ".tmp");
             auto stream = temporary.createOutputStream();
             if (stream == nullptr || ! stream->openedOk()
                 || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes)))

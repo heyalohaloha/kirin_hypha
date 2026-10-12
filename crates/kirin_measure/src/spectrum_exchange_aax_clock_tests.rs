@@ -2,6 +2,33 @@ use super::*;
 use crate::spectrum_runtime::SpectrumInputClock;
 use std::thread;
 
+fn exchange_until(
+    pre: &SpectrumCoordinator,
+    post: &SpectrumCoordinator,
+    pre_dir: &Path,
+    target: &SpectrumTarget,
+    stage: &str,
+    ready: impl Fn() -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        // Feeding and analysis can outlast the request lease on a slow runner. These manual
+        // ticks must renew POST before PRE reads it, as the live exchange workers do.
+        if post.post_tick("post", Some(target.clone()))
+            && pre.pre_tick("pre", pre_dir)
+            && post.post_tick("post", Some(target.clone()))
+            && ready()
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "exchange did not complete: {stage}"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+}
+
 fn feed(runtime: &SpectrumRuntime, from: i64, to: i64, aax: bool) {
     let mut position = from;
     while position < to {
@@ -42,16 +69,16 @@ fn aax_perceptual_exchange_joins_the_same_clock_and_rejects_both_mixed_direction
         let target = SpectrumTarget::from_pre_json("pre".into(), &pre_json).unwrap();
         assert!(post.set_post_analysis_mode(AnalysisViewMode::Perceptual));
         post.set_post_visible(true);
-        assert!(post.post_tick("post", Some(target.clone())));
-        assert!(pre.pre_tick("pre", &pre_dir));
+        exchange_until(&pre, &post, &pre_dir, &target, "initial request", || true);
         feed(&pre_runtime, 960_000, 962_048, pre_aax);
         feed(&post_runtime, 960_000, 962_048, post_aax);
-        assert!(pre.pre_tick("pre", &pre_dir));
-        assert!(post.post_tick("post", Some(target.clone())));
+        exchange_until(&pre, &post, &pre_dir, &target, "shared epoch", || {
+            post_runtime.perceptual_state_epoch().is_some()
+                && pre_runtime.perceptual_state_epoch() == post_runtime.perceptual_state_epoch()
+        });
         let epoch = post_runtime
             .perceptual_state_epoch()
             .expect("future shared reset");
-        assert!(pre.pre_tick("pre", &pre_dir));
         assert_eq!(pre_runtime.perceptual_state_epoch(), Some(epoch));
         let end = epoch + 9_600;
         feed(&pre_runtime, 962_048, end, pre_aax);
@@ -74,8 +101,32 @@ fn aax_perceptual_exchange_joins_the_same_clock_and_rejects_both_mixed_direction
             );
             thread::sleep(Duration::from_millis(2));
         }
-        assert!(pre.pre_tick("pre", &pre_dir));
-        assert!(post.post_tick("post", Some(target.clone())));
+        // Exercise a computation pause beyond one lease instead of depending on runner speed.
+        thread::sleep(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
+        let expected_status = if pre_aax == post_aax {
+            SpectrumViewStatus::Active
+        } else {
+            SpectrumViewStatus::Unavailable
+        };
+        exchange_until(
+            &pre,
+            &post,
+            &pre_dir,
+            &target,
+            "exact window publication",
+            || {
+                read_perceptual_snapshot(&pre_dir).is_some_and(|snapshot| {
+                    snapshot
+                        .history
+                        .newest()
+                        .is_some_and(|frame| frame.presentation_end_samples == end)
+                }) && post
+                    .try_view()
+                    .is_some_and(|view| view.status == expected_status)
+            },
+        );
+        assert_eq!(pre_runtime.perceptual_state_epoch(), Some(epoch));
+        assert_eq!(post_runtime.perceptual_state_epoch(), Some(epoch));
         let view = post.try_view().unwrap();
         if pre_aax == post_aax {
             assert_eq!(view.status, SpectrumViewStatus::Active);

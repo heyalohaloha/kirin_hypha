@@ -39,6 +39,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                  && first.workspace->presets[0].checks[0].candidates[0].displayName
                       == "Reference Mix",
                  "exact v2 Manifest and Preset bytes must load as one immutable workspace");
+        verifyPresetAdoptionPublication (v2Root, { runtimeId, workId, 42 },
+            first.workspace->presets[0].sourceTemplateArtifact, first.workspace->presets[0].sourcePresetArtifact);
 
         require (presetFile.replaceWithText ("{\"partial\":true}"),
                  "partial Preset publication fixture must be written");
