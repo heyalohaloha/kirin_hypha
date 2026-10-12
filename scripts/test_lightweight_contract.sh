@@ -14,6 +14,8 @@ run() {
 run cargo fmt --all -- --check
 run node --test scripts/structural_repair_detection.test.mjs
 run node --test scripts/native_storage_guard.test.mjs
+run node --test scripts/analyze_chain_trace.test.mjs
+run node --test scripts/listen_text_inventory.test.mjs
 run node --test scripts/hypha_workflow_discovery.test.mjs
 run node --test scripts/build_hypha.test.mjs
 run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_hp.test.mjs

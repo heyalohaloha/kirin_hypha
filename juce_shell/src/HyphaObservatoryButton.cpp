@@ -58,10 +58,7 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
     else if (mark == Mark::footerNotice)
     {
         const auto room = getLocalBounds().reduced (3, 1);
-        g.setFont (monoFont (presentationContext,
-            footer_notice_font::roleForText (presentationContext, getButtonText(), room.getWidth())));
-        text_style::drawEllipsized (g, getButtonText(), room,
-                                    juce::Justification::centredLeft);
+        footer_notice_font::draw (g, presentationContext, getButtonText(), room);
     }
     else
     {

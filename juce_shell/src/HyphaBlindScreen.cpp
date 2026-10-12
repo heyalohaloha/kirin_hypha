@@ -112,26 +112,30 @@ void ScreenComponent::resized()
     cause.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     recovery.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
     auto area = getLocalBounds().reduced (compact ? 12 : 24);
-    title.setBounds (area.removeFromTop (compact ? 24 : 40));
-    status.setBounds (area.removeFromTop (compact ? 30 : 48));
-    detail.setBounds (area.removeFromBottom (compact ? 34 : 46));
+    const auto needed = [&] (const juce::Label& label)
+    {
+        const auto border = label.getBorderSize();
+        const auto width = juce::jmax (1, area.getWidth() - border.getLeftAndRight());
+        juce::AttributedString text;
+        text.append (text_style::shownText (label.getText()), label.getFont(), juce::Colours::white);
+        juce::TextLayout layout;
+        layout.createLayout (text, static_cast<float> (width));
+        return juce::roundToInt (std::ceil (std::max (layout.getHeight(),
+            text_style::shownWrappedHeight (label.getText(), label.getFont(), width)))) + border.getTopAndBottom() + 2;
+    };
+    // Waiting/interruption screens give the cause and next step their actual localized height.
+    // Normal source buttons keep their established layout; no font is compressed or shrunk.
+    title.setBounds (area.removeFromTop (shown.guidanceShown ? needed (title) : compact ? 24 : 40));
+    status.setBounds (area.removeFromTop (shown.guidanceShown ? needed (status) : compact ? 30 : 48));
+    detail.setBounds (area.removeFromBottom (shown.guidanceShown ? needed (detail) : compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
     end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
     reveal.setBounds (actions.reduced (3, 0));
     area.reduce (0, compact ? 5 : 12);
     approve.setBounds (area);
-    auto guidance = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 90));
-    const auto causeWidth = juce::jmax (1, cause.getBorderSize().subtractedFrom (guidance).getWidth());
-    // The label lays its text out with its own font; on Windows that can need more height than
-    // the native-font estimate, so reserve the larger of the two.
-    juce::AttributedString causeText;
-    causeText.append (text_style::shownText (shown.cause), cause.getFont(), juce::Colours::white);
-    juce::TextLayout causeLayout;
-    causeLayout.createLayout (causeText, static_cast<float> (causeWidth));
-    const auto causeNeeded = std::max (text_style::shownWrappedHeight (shown.cause, cause.getFont(), causeWidth),
-                                       causeLayout.getHeight());
-    const int causeHeight = juce::jmin (guidance.getHeight() / 2,
-        juce::roundToInt (std::ceil (causeNeeded)) + cause.getBorderSize().getTopAndBottom());
+    const auto causeHeight = needed (cause);
+    const auto recoveryHeight = needed (recovery);
+    auto guidance = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
     cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));

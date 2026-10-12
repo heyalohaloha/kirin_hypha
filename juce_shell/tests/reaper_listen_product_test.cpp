@@ -1,0 +1,40 @@
+#include "ContentAnalysisProductFixture.h"
+using namespace content_analysis_product;
+using namespace hypha::live_compare;
+int main (int argc, char** argv)
+try
+{
+    require (argc == 2, "explicit mono/stereo layout");
+    ReferenceValidationStorageSandbox sandbox;
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
+    juce::ScopedJuceInitialiser_GUI initialise;
+    Fixture fixture (juce::String (argv[1]) == "mono" ? 1 : 2, "missing", false, true);
+    auto& post = *fixture.post;
+    fixture.until ([&] { return post.setPairCandidate (fixture.pre->instanceId(), {}); }, "select PRE");
+    require (post.startLiveCompare() == StartResult::started, "REAPER LISTEN starts");
+    post.selectLiveComparePre (true); fixture.auditionAllowed = true;
+    fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "compensated project calibrates PRE");
+    MatchResult measured;
+    fixture.until ([&] { measured = post.measureLiveCompare(); return measured.ok(); }, "REAPER MATCH window");
+    require (std::abs (measured.measuredDb) < 0.01, "same physical content MATCH is zero dB");
+    const auto plan = planMatch (measured, 0.0);
+    require (post.applyLiveCompareMatch (plan, MatchChoice::basis), "explicit MATCH applies");
+    fixture.until ([&] { return post.liveCompareStatus().matched; }, "MATCH current receipt");
+    require (post.beginLiveBlind() == StartResult::started, "MATCH to BLIND");
+    fixture.until ([&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; }, "BLIND active");
+    require (post.selectLiveBlind (1), "anonymous source 1");
+    fixture.until ([&] { post.serviceLiveBlind(); return LiveTimingFixtureAccess::audible (post) == 1; }, "source 1 receipt");
+    require (post.selectLiveBlind (2), "anonymous source 2");
+    fixture.until ([&] { post.serviceLiveBlind(); return LiveTimingFixtureAccess::audible (post) == 2; }, "source 2 receipt");
+    fixture.postClock.positionAvailable = false;
+    fixture.block();
+    require (!post.liveCompareStatus().preAudible && post.liveBlindStatus().trial.invalidated,
+             "one missing project block immediately invalidates BLIND");
+    fixture.postClock.positionAvailable = true;
+    for (int i = 0; i < 40; ++i) fixture.block();
+    require (post.liveBlindStatus().trial.invalidated, "recovered timing never revives this trial");
+    post.finishLiveCompare();
+    fixture.until ([&] { return !post.liveCompareStatus().finishing; }, "END completes");
+    std::cout << "REAPER LISTEN/MATCH/BLIND product " << argv[1] << " PASS\n";
+}
+catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

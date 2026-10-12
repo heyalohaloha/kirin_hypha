@@ -1,10 +1,14 @@
 #include "PluginProcessor.h"
+#include "chain_trace/ChainTraceScope.h"
 
 // Explicit comparison paths stay after the canonical input measurement transaction.
 void KirinHyphaProcessorBase::processComparisonPaths (
     juce::AudioBuffer<float>& buffer, const hypha::HostProcessClock& clock,
     bool timelineActive, bool bypassed, bool nonRealtimeMode)
 {
+    hypha::chain_trace::Scope trace (liveCompare, buffer.getArrayOfReadPointers(),
+        buffer.getNumChannels(), buffer.getNumSamples(), preparedFormat.sampleRate,
+        role == Role::Post, static_cast<int> (wrapperType), clock, bypassed, nonRealtimeMode);
     // A dormant lane is one atomic null-pointer check. Once a non-RT owner arms it, the exact
     // role-local A input is copied before any audition path can replace the output buffer.
     const hypha::local_blind::CaptureClockObservation captureClock {

@@ -35,12 +35,13 @@ void View::setAttackPaired (bool paired)
 void View::setFeedback (juce::String text)
 {
     if (feedbackText == text) return;
+    const auto previousBody = bodyArea;
     feedbackText = std::move (text);
     setTooltip (feedbackText);
     setDescription (feedbackText);
     updateControls();
     resized();
-    if (hybridVuVisible()) repaint(); else repaint (sessionArea);
+    if (hybridVuVisible() || bodyArea != previousBody) repaint(); else repaint (sessionArea);
 }
 
 bool View::setHostRecording (bool recording)

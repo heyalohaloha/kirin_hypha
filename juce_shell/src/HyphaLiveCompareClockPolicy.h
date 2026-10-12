@@ -45,8 +45,8 @@ inline bool studioBuildCertified (const juce::String& name, const juce::String& 
 
 inline bool reaperBuildCertified (const juce::String& name, const juce::String& version) noexcept
 {
-    // All readable versions use the same compensated project coordinate as FREQ. This grants
-    // no audition clock: repeated timeline positions do not identify a loop occurrence.
+    // The same executable/version boundary as FREQ/SHARP/PSB. LISTEN separately identifies
+    // its local processing counter and requires a calibrated, continuous pair proof.
     return (name == "REAPER" || name == "reaper")
         && version.isNotEmpty() && version[0] >= '0' && version[0] <= '9';
 }

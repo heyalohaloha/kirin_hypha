@@ -18,6 +18,7 @@
 #include "LiveCompareContentHold.h"
 #include "CertifiedProjectAnalysisClock.h"
 #include "LiveCompareLoopGuidance.h"
+#include "../chain_trace/ChainTraceWriter.h"
 
 #include <atomic>
 #include <cstdint>
@@ -70,6 +71,7 @@ struct Status
 // Thread reads it only through the slot and publishes its observations through the atomics.
 struct ProcessorState
 {
+    std::unique_ptr<chain_trace::Recorder> trace = chain_trace::Recorder::fromEnvironment();
     Authority authority;
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
@@ -111,6 +113,7 @@ struct ProcessorState
     PostRenderer renderer;
     ContinuousClock clock;
     GapDetector gaps;
+    ReaperCallbackContinuity reaperContinuity;
     std::uint8_t clockAuthority = 0;       // prepareToPlay, host suspends Audio Thread
     std::uint32_t maximumDelaySamples = 0; // certified host bound, never a measured guess
     TimingPreparation preparation;

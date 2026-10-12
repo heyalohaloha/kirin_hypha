@@ -26,6 +26,8 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         : current.compensationOff ? live_compare::RecoveryReason::compensationOff : guidance.reason;
     // An uncertified AAX host looping a range is not the host boundary: loop playback off compares.
     screen.cause = current.contentHeld ? live_compare_ui::cause (live_compare::RecoveryReason::contentChanged)
+                   : visibleCause == live_compare::RecoveryReason::reaperLoopTooShort
+                       || visibleCause == live_compare::RecoveryReason::reaperDelayUnverified ? live_compare_ui::cause (visibleCause)
                    : current.timingUnavailable && current.loopBlock == live_compare::LoopPairingBlock::none
                        && guidance.reason != live_compare::RecoveryReason::cycleUnverified ? host_availability::timingText()
                                             : live_compare_ui::cause (visibleCause);
@@ -38,6 +40,12 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         instruction = "Comparison paused; POST plays";
     else if (waiting && current.loopBlock != live_compare::LoopPairingBlock::none)
         instruction = pairing_loop_text::status (current.loopBlock);
+    else if (!stopped && current.observation == live_compare::RecoveryReason::reaperFirstCycle)
+        instruction = "Measuring first loop; POST plays";
+    else if (!stopped && current.observation == live_compare::RecoveryReason::reaperDelayUnverified)
+        instruction = "Initial loop unverified; POST; END closes";
+    else if (!stopped && current.observation == live_compare::RecoveryReason::reaperLoopTooShort)
+        instruction = "Use a longer loop; POST plays";
     else if ((current.timingUnavailable || current.clockUnavailable) && guidance.reason != live_compare::RecoveryReason::cycleUnverified)
         instruction = "Comparison unavailable; POST plays";
     else if (current.compensationOff)

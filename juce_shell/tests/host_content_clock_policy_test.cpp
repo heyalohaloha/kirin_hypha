@@ -9,13 +9,28 @@
 #include "AuCycleGuidanceUiTest.h"
 #include "AuCycleSpectrumUiTest.h"
 #include "AuCycleSpectrumCallbackTest.h"
+#include "ReaperTimingUiTest.h"
+#include "ReaperListenFeedbackTest.h"
 
-int main()
+int main (int argc, char** argv)
 try
 {
     ValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI initialise;
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
+    hypha::i18n::holdLanguage (true);
+    if (argc == 2 && juce::String (argv[1]) == "--listen-feedback-only")
+    {
+        hypha::tests::editor_product::verifyReaperListenFeedback();
+        return 0;
+    }
+    if (argc == 2 && juce::String (argv[1]) == "--reaper-ui-only")
+    {
+        hypha::tests::verifyReaperTimingUi ([] (bool ok, const char* why) { if (!ok) throw std::runtime_error (why); });
+        return 0;
+    }
     hypha::tests::verifyAuCycleCallbackGuidance();
+    hypha::tests::editor_product::verifyReaperListenFeedback();
     hypha::tests::verifyAuCycleSpectrumUi();
     hypha::tests::verifyAuCycleSpectrumCallbacks();
     hypha::tests::verifyAuCycleGuidanceUi();
@@ -23,6 +38,8 @@ try
     hypha::tests::language_contract::verifyLookup();
     hypha::tests::verifyAbsoluteAnalysisHelp();
     hypha::tests::verifyLiveTimingAvailabilityUi ([] (bool ok, const char* why) { if (! ok) throw std::runtime_error (why); });
+    hypha::tests::verifyReaperTimingUi ([] (bool ok, const char* why) { if (! ok) throw std::runtime_error (why); });
+    hypha::tests::verifyOtherHostListenText ([] (bool ok, const char* why) { if (! ok) throw std::runtime_error (why); });
     using namespace hypha::live_compare_clock_policy;
     using Authority = hypha::live_compare::ClockAuthority;
     using Wrapper = juce::AudioProcessor;

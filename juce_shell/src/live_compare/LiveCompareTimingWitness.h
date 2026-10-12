@@ -46,6 +46,7 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
     next.ownerB = h.ownerB.load (std::memory_order_relaxed);
     const auto flags = h.flags.load (std::memory_order_relaxed);
     next.active = (flags & 1u) != 0;
+    next.block.wallGap = (flags & 8u) != 0;
     next.anchor.linearKnown = (flags & 2u) != 0;
     next.anchor.loopKnown = (flags & 4u) != 0;
     const auto cause = (flags >> 8u) & 0xffu;
@@ -127,7 +128,7 @@ public:
         std::atomic_thread_fence (std::memory_order_release);
         h.generation.store (generation, std::memory_order_release); // individual fence for an already-seeded PCM consumer
         h.flags.store ((active ? (1u | (linearKnown ? 2u : 0u) | (loopKnown ? 4u : 0u)) : 0u)
-                           | (static_cast<std::uint32_t> (generationCause) << 8u),
+                           | (block.wallGap ? 8u : 0u) | (static_cast<std::uint32_t> (generationCause) << 8u),
                        std::memory_order_relaxed);
         h.clock.store (block.clock, std::memory_order_relaxed);
         h.project.store (block.project, std::memory_order_relaxed);
@@ -194,7 +195,8 @@ public:
     TimingEvidence observe (const TimingSnapshot& pre, const BlockClock& post, double rate,
                             std::int64_t capacity, bool coherent = true) noexcept
     {
-        const bool active = pre.active && post.playing && post.clockValid && post.projectValid
+        const auto reaperLoss = coherent ? reaperContinuity.observe (pre, post) : TimelineBreak::none;
+        const bool active = reaperLoss == TimelineBreak::none && pre.active && post.playing && post.clockValid && post.projectValid
             && post.frames > 0 && ! post.afterGap;
         const bool sourceChanged = haveSource && (generation != pre.generation
             || previous.ownerA != pre.ownerA || previous.ownerB != pre.ownerB);
@@ -295,6 +297,7 @@ private:
     }
     LoopTimeline timeline;
     LoopCycleMeter postCycles;
+    ReaperPairContinuity reaperContinuity;
     CalibrationProfile profile;
     TimingSnapshot previous;
     std::uint64_t generation = 0;

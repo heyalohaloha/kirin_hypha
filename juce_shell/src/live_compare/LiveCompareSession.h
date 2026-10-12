@@ -257,7 +257,8 @@ public:
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
                          float ceilingLinear, bool blind = false,
-                         RecoveryReason timingBlock = RecoveryReason::none) noexcept
+                         RecoveryReason timingBlock = RecoveryReason::none,
+                         Decision* diagnosticDecision = nullptr) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -279,12 +280,16 @@ public:
         }
         float* scratch[] = { left.get(), right.get() };
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
+        if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
         if (timingBlock != RecoveryReason::none) invalidateHistory();
         else recordHistory (block, io, channels, decision);
         report.timelineChanged = decision.timelineChanged || decision.invalidatedByDisagreement;
         report.loss = decision.loss;
         report.verdict = decision.verdict;
         report.reason = recoveryReason (decision.verdict);
+        if (decision.loopFailure != LoopEntryFailure::none) report.reason = recoveryReason (decision.loopFailure);
+        if (reaperProcessing (block) && decision.loopFailure == LoopEntryFailure::loopTooShort)
+            report.reason = RecoveryReason::reaperLoopTooShort;
         if (report.timelineChanged)
             report.reason = recoveryReason (decision.loss);
         if (timingBlock != RecoveryReason::none)

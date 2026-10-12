@@ -380,6 +380,7 @@ void KirinHyphaEditor::updateResizeLimits()
 
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {
+    comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
     toastText = msg;
     updateFeedback (nowSecs(), false, {});
@@ -389,6 +390,15 @@ void KirinHyphaEditor::updateFeedback (
     double now, bool keeping, const juce::String& persistentError)
 {
     juce::String text;
+
+    // A queued measurement result is not a current observation of the listening producer.
+    // LISTEN owns its stopped/missing-data guidance, including while timing is unverified.
+    if (comparisonNoticeReason == KIRIN_COMPARISON_REASON_PRE_INACTIVE
+        && processorRef.liveCompareStatus().active)
+    {
+        toastText.clear();
+        comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
+    }
 
     // Direct user-action feedback must remain visible even while a persistent producer error is
     // present (R-28). After the three-second toast, the persistent error automatically returns;

@@ -7,6 +7,7 @@ namespace
 using hypha::live_compare::SharedRingMapping;
 constexpr auto aaxWrapper = juce::AudioProcessor::wrapperType_AAX;
 constexpr auto auWrapper = juce::AudioProcessor::wrapperType_AudioUnit;
+constexpr auto vst3Wrapper = juce::AudioProcessor::wrapperType_VST3;
 }
 
 // Audio Thread. Both roles advance their continuous clock and gap detector on every callback so
@@ -19,7 +20,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     using Reason = hypha::live_compare::RecoveryReason;
     const auto preparationCommand = liveCompare.blindTiming.command(); // fixed at callback opening
     const int frames = buffer.getNumSamples();
-    const auto continuous = liveCompare.clock.next (clock.auxiliary, frames);
+    const bool projectAnalysis = wrapperType == vst3Wrapper
+        && liveCompare.clockAuthority == static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedProject);
+    const auto continuous = liveCompare.clock.next (clock.auxiliary, frames, projectAnalysis);
     hypha::live_compare::BlockClock block;
     block.clock = continuous.samples;
     block.clockValid = continuous.valid;
@@ -27,6 +30,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     // A render fallback is not an independent project witness for AU linear calibration.
     block.projectValid = clock.hasPosition && (wrapperType != auWrapper
         || clock.clockSource == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE);
+    if (projectAnalysis) block.projectValid = block.projectValid && clock.clockSource == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE;
     block.playing = clock.playing;
     block.frames = frames;
     block.loop = clock.loop;
@@ -64,7 +68,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     if (continuous.valid) liveCompare.clockSeen.store (true, std::memory_order_relaxed);
     if (clock.outputPresentationValid) liveCompare.outputLatencySeen.store (true, std::memory_order_relaxed);
     const bool wallGap = liveCompare.gaps.observe (block.wallNanos, frames, preparedFormat.sampleRate);
+    block.wallGap = wallGap;
     block.afterGap = hypha::live_compare::callbackGapBreaksContinuity (wallGap, continuous.basis);
+    if (projectAnalysis) block.afterGap = liveCompare.reaperContinuity.breaks (block, wallGap, preparedFormat.sampleRate);
     const int channels = buffer.getNumChannels();
     const bool usable = ! bypassed && ! nonRealtimeMode && channels > 0 && channels <= 2;
     const auto reset = liveCompare.hostResetGeneration.load (std::memory_order_acquire);
@@ -77,8 +83,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool callbackGap = block.afterGap;
     if (hostReset) block.afterGap = true;
     block.transportRestart = hostReset && notifiedStop;
-    const bool projectAnalysis = liveCompare.clockAuthority
-        == static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedProject);
+    auto* trace = liveCompare.trace ? liveCompare.trace->row() : nullptr;
+    if (trace != nullptr)
+    {
+        trace->block = block; trace->blockSeen = true;
+        trace->wallGap = wallGap; trace->outputTaken = outputTaken;
+    }
     if (projectAnalysis)
     {
         auto analysisBlock = block;
@@ -100,7 +110,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             {
                 auto observed = block;
                 if (! usable) observed.clockValid = false;
-                liveCompare.feeder.feed (*ring, observed, usable ? buffer.getArrayOfReadPointers() : nullptr, channels);
+                const auto fed = liveCompare.feeder.feed (*ring, observed, usable ? buffer.getArrayOfReadPointers() : nullptr, channels);
+                if (trace != nullptr) trace->feed = fed;
             }
         });
         return;
@@ -127,7 +138,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const auto timing = liveCompare.preparation.observe (block,
         static_cast<std::uint32_t> (preparedFormat.sampleRate), liveCompare.authority.ticket(),
         timingEligible,
-        usable ? &liveCompare.chain : nullptr, &analysisQualified);
+        usable ? &liveCompare.chain : nullptr, &analysisQualified, trace != nullptr ? &trace->peer : nullptr);
+    if (trace != nullptr) { trace->block = block; trace->timing = timing; trace->timingSeen = true; }
     if (! projectAnalysis) liveCompare.analysisClock.observePair (block, timing, analysisQualified);
     const auto loopBlock = hypha::live_compare::pairingLoopBlock (block, wrapperType == auWrapper,
         wrapperType == aaxWrapper, timing, timingEligible);
@@ -259,9 +271,16 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    gain,
                                                    liveCompare.postLevel, postTarget,
                                                    ceiling, blindCommand.active() && ! blindRejected,
-                                                   cycleUnverified ? Reason::cycleUnverified : Reason::none);
+                                                   cycleUnverified ? Reason::cycleUnverified : Reason::none,
+                                                   trace != nullptr ? &trace->decision : nullptr);
+        if (trace != nullptr)
+        {
+            trace->render = report; trace->renderSeen = true;
+            trace->preGain = gain; trace->postGain = postTarget;
+        }
         if (report.reason == Reason::loopUnproven)
             report.reason = hypha::live_compare::recoveryReason (timing.failure);
+        if (projectAnalysis && report.reason == Reason::loopTooShort) report.reason = Reason::reaperLoopTooShort;
         liveCompare.blindTiming.observe (preparationCommand,
             report.verdict == hypha::live_compare::Verdict::accepted,
             cycleUnverified || report.guardTripped || (report.timelineChanged && report.loss != hypha::live_compare::TimelineBreak::metadataPending)

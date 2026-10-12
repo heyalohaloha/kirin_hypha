@@ -21,6 +21,9 @@ inline const char* cause (Reason reason) noexcept
         case Reason::loopWaiting: return "Loop boundary timing is not confirmed";
         case Reason::loopTooShort: return "The loop is shorter than the verified timing range";
         case Reason::loopClockUnavailable: return "DAW timing cannot identify this loop occurrence";
+        case Reason::reaperFirstCycle: return "Measuring the first loop; POST plays";
+        case Reason::reaperDelayUnverified: return "Initial loop delay is not verified; POST plays";
+        case Reason::reaperLoopTooShort: return "The loop is shorter than the verified timing range";
         case Reason::cycleUnverified: return "PRE/POST timing is unverified during Cycle.";
         case Reason::writing: return "PRE data is being written";
         case Reason::beforeRun: return "PRE continuity changed";
@@ -95,6 +98,12 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
                  stopped ? "Turn Cycle off. Press END, then start BLIND again." : "Turn Cycle off to compare" };
     if (state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && ! stopped)
         return { reason, RecoveryAction::loopOff, "Turn off Loop Playback to compare" };
+    if (!stopped && state.observation == Reason::reaperFirstCycle)
+        return { reason, RecoveryAction::none, "Keep playing to measure one loop" };
+    if (!stopped && state.observation == Reason::reaperDelayUnverified)
+        return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
+    if (!stopped && state.observation == Reason::reaperLoopTooShort)
+        return { reason, RecoveryAction::none, "Use a longer loop; POST plays" };
     if (state.timingUnavailable)
         return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
     // A host that never reports a clock or its output latency: no stop/play or retry would help.
@@ -135,6 +144,12 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         return { Reason::cycleUnverified, RecoveryAction::cycleOff, "Turn Cycle off to compare (POST)" };
     if (state.active && state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && (state.preWaiting || ! state.preAudible))
         return result (RecoveryAction::loopOff, "Loop Playback on: turn it off to compare (POST)");
+    if (state.active && state.observation == Reason::reaperFirstCycle && !state.interrupted)
+        return result (RecoveryAction::none, "Measuring first loop; POST plays");
+    if (state.active && state.observation == Reason::reaperDelayUnverified && !state.interrupted)
+        return result (RecoveryAction::none, "Initial loop unverified; POST; END closes");
+    if (state.active && state.observation == Reason::reaperLoopTooShort && !state.interrupted)
+        return result (RecoveryAction::none, "Use a longer loop; POST plays");
     if (state.active && state.timingUnavailable)
         return result (RecoveryAction::none, host_availability::timingText());
     // The clock is missing on a host that has never reported one, nor its output latency: this is

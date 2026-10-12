@@ -95,6 +95,7 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void refreshComparisonNotice (const KirinObservatoryFrame&);
     void refreshTimeSnapshot();
     double nextTimeSnapshotMs = 0.0;
     void saveFrozenObservatoryCapture (hypha::capture::Snapshot);
@@ -365,6 +366,7 @@ private:
     std::uint64_t comparisonObservedGeneration = 0;
     std::uint64_t comparisonActionAfterGeneration = 0;
     bool comparisonActionAwaitingResult = false;
+    uint8_t comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/HyphaFeedbackStrip.h"
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -19,6 +20,10 @@ inline bool boundedPaint (juce::Component& component, const juce::String& full,
     const auto expected = text_style::ellipsizedText (localized, font, static_cast<float> (room.getWidth()));
     text_style::ShownTextLog shown;
     const auto image = component.createComponentSnapshot (component.getLocalBounds());
+    if (font.getStringWidthFloat (localized) > room.getWidth()
+        && footer_notice_font::wrappedHeight (context, full, room.getWidth()) <= room.getHeight())
+        return image.isValid() && shown.texts().joinIntoString ("").removeCharacters (" \n\r\t")
+            == localized.removeCharacters (" \n\r\t");
     return ! room.isEmpty() && expected.isNotEmpty() && image.isValid()
         && shown.texts().contains (expected)
         && font.getStringWidthFloat (expected) <= room.getWidth() + 0.5f;

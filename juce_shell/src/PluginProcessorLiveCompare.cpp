@@ -472,7 +472,8 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
             ? Reason::pairChanged : Reason::restored;
     status.observation = liveCompare.observationReason.load (std::memory_order_acquire);
     status.timingUnavailable = ! status.contentHeld
-        && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable);
+        && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable
+            || status.observation == Reason::reaperDelayUnverified || status.observation == Reason::reaperLoopTooShort);
     status.loopBlock = analysisPairingLoopBlock();
     // A missing audio clock on a host that has never supplied a continuous clock or an
     // output-latency report is this host's ability, not a transient: stop/play cannot fix it.

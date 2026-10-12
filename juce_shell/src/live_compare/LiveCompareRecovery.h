@@ -13,7 +13,8 @@ enum class RecoveryReason : std::uint8_t
     calibrating, writing, beforeRun, notWritten, overwritten, torn, foreignRing,
     pairChanged, preUnavailable, formatChanged, restored, compensationOff, contentChanged,
     bypassed, offline, outputTaken, gainChanged, nonFinite, ceiling, blockTooLarge,
-    randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable, cycleUnverified
+    randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable, cycleUnverified,
+    reaperFirstCycle, reaperDelayUnverified, reaperLoopTooShort
 };
 inline RecoveryReason recoveryReason (TimelineBreak cause) noexcept
 {
@@ -65,6 +66,8 @@ inline RecoveryReason recoveryReason (LoopEntryFailure failure) noexcept
         case LoopEntryFailure::observingCycle: return RecoveryReason::loopWaiting;
         case LoopEntryFailure::clockUnavailable: return RecoveryReason::loopClockUnavailable;
         case LoopEntryFailure::loopTooShort: return RecoveryReason::loopTooShort;
+        case LoopEntryFailure::reaperFirstCycle: return RecoveryReason::reaperFirstCycle;
+        case LoopEntryFailure::reaperDelayUnverified: return RecoveryReason::reaperDelayUnverified;
     }
     return RecoveryReason::loopUnproven;
 }

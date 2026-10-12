@@ -35,6 +35,7 @@ struct Decision
     bool timelineChanged = false;
     std::uint64_t run = 0;
     TimelineBreak loss = TimelineBreak::none;
+    LoopEntryFailure loopFailure = LoopEntryFailure::none;
 };
 
 // POST, Audio Thread. Maps POST's continuous clock to PRE's through K, calibrated from steady
@@ -59,6 +60,34 @@ public:
             decision.timelineChanged = true;
             decision.loss = TimelineBreak::sourceChanged;
             return decision;
+        }
+        if (reaperProcessing (block) && block.playing && block.clockValid && block.projectValid)
+        {
+            TimingSnapshot peer;
+            if (!readTiming (ring.header.timing, peer))
+            { decision.verdict = Verdict::writing; return fill (decision); }
+            const auto loss = reaperContinuity.observe (peer, block);
+            const bool tooOld = kValid && block.loop.active
+                && peer.block.clock + peer.block.frames - (block.clock - k) > ReaperTimingLimits::age;
+            if (loss != TimelineBreak::none || tooOld)
+            {
+                const bool wasAdmitted = !initialAdmission;
+                invalidate();
+                decision.verdict = Verdict::calibrating;
+                decision.timelineChanged = wasAdmitted;
+                decision.loss = tooOld ? TimelineBreak::callbackGap : loss;
+                return fill (decision);
+            }
+            const auto cycle = reaperCycles.observe (block, sampleRate);
+            if (kValid && block.loop.active)
+            {
+                if (!cycle.known || peer.anchor.loopSamples <= 0)
+                    decision.loopFailure = LoopEntryFailure::reaperFirstCycle;
+                else if (cycle.samples != peer.anchor.loopSamples)
+                    decision.loopFailure = LoopEntryFailure::clockUnavailable;
+                else if (cycle.samples <= ReaperTimingLimits::age || ringCapacityFrames <= ReaperTimingLimits::age)
+                    decision.loopFailure = LoopEntryFailure::loopTooShort;
+            }
         }
         // A fresh entry has never authorised PRE. A startup stop/clock hole must withhold
         // output, not consume its one admission through LoopTimeline's invalid first block.
@@ -169,7 +198,7 @@ public:
             return fill (decision);
         }
         decision.preStart = block.clock - k;
-        if (block.loop.active && ! loopVerified)
+        if (block.loop.active && (! loopVerified || decision.loopFailure != LoopEntryFailure::none))
         {
             // No PRE copy or fade from an unproven boundary. A finite clamped interval may
             // recover on the same K; a broken timeline/run already invalidated it above.
@@ -201,6 +230,8 @@ public:
         initialAdmission = true;
         preparedGeneration = 0;
         timeline.reset();
+        reaperContinuity.reset();
+        reaperCycles.reset();
     }
 
     bool calibrated() const noexcept { return kValid; }
@@ -406,6 +437,8 @@ private:
     std::int64_t previousProject = 0;
     std::int32_t previousFrames = 0;
     LoopTimeline timeline;
+    ReaperPairContinuity reaperContinuity;
+    LoopCycleMeter reaperCycles;
     bool haveRun = false;
     bool initialAdmission = true;
     std::uint64_t preparedGeneration = 0;

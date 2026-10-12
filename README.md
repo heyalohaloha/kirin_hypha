@@ -293,7 +293,7 @@ latency is never assumed to be zero.
 | Certified Studio One 6–7 / Studio Pro 8 VST3 content clock | Available | Requires the existing LISTEN timing proof |
 | AU render clock with independent host project timeline | Available | Requires linear or presentation-latency loop proof |
 | Other VST3 output-presentation clock | Available | Requires a matching PRE; content alignment is not independently proven |
-| REAPER VST3 compensated project timeline (all readable versions) | Available | Available; complete matching windows, PDC required |
+| REAPER VST3 compensated project timeline (all readable versions) | Available | Available; complete matching windows, PDC required. [LISTEN / BLIND conditions](#reaper-listen-timing) |
 | Other project timelines without an output-latency report | Available | Unavailable (state 6) |
 | Local render clock | Available | Unavailable (state 6) |
 | AAX Native engine clock, Pro Tools 12.6 or later | Project timeline | Requires the existing PRE/POST timing proof (linear or bounded initial loop) |
@@ -302,7 +302,7 @@ latency is never assumed to be zero.
 REAPER differences rely on the host keeping project positions compensated for the audio. A reported
 position or latency change clears the old windows immediately. If audio latency changes while all
 clock reports stay unchanged, a brief false difference cannot be detected from those reports alone;
-its duration has not been measured for REAPER. Stop playback before changing latency-sensitive settings.
+see the measured REAPER conditions below. Plug-ins must report their latency and the host must compensate it.
 The REAPER certificate covers all versions: the native executable must be named `REAPER` or `reaper`,
 and its non-empty version string must start with an ASCII digit. Missing or unreadable versions,
 other executable names and other formats receive no REAPER certificate. FREQ already relies on
@@ -1015,11 +1015,10 @@ selection cannot be proven, and LISTEN, BLIND, SHARP and the PSB difference say 
 turn it off to compare** while POST plays; that loop is never reported as a host that cannot verify
 timing. An observed unprovable loop or disabled delay compensation explains why
 POST plays; END remains available. Ordinary PRE timing checks wait with their reason, and a content-timing hold asks for
-stop/play. In REAPER VST3 across all readable versions, the project clock enables FREQ Δ, SHARP Δ and PSB Δ,
-but it cannot independently identify which loop occurrence to audition. LISTEN still plays POST;
-PRE, MATCH and BLIND remain unavailable. The footer says **This DAW has no verified audio clock;
-PRE is unavailable (POST)**. A local frame counter alone does not remove the loop ambiguity or
-establish a bound on undetectable timing changes. In Pro Tools it is offered
+stop/play. REAPER VST3 uses its own processing counter, calibrated against compensated project
+positions, for PRE, MATCH and BLIND during linear playback. Its FREQ Δ, SHARP Δ and PSB Δ
+measurement clocks keep their existing rules. [REAPER loop limits and measured conditions](#reaper-listen-timing)
+are separate from the other host profiles. In Pro Tools it is offered
 on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
 multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
 multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.2.113407;
@@ -1027,6 +1026,38 @@ Windows unsigned AAX has been checked separately in Pro Tools Developer 26.4.0.5
 testing is not acceptance of a signed plug-in in regular Pro Tools. Avid documents that its
 [debuggable Developer builds cannot save or export sessions](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html).
 Saving and reopening therefore remain separate regular-host acceptance requirements.
+
+<a id="reaper-listen-timing"></a>
+**REAPER LISTEN timing (1.1.51 implementation; output acceptance pending).** Both PRE and POST
+must use VST3, mono or stereo, in the same compensated chain. The executable/version policy is the
+same as REAPER's measurement certificate above. Each instance counts the frames it actually
+processes; eight consecutive agreeing linear blocks establish the offset between those independent
+counters. An unverified block plays POST immediately. Named LISTEN can reacquire after an identified
+stop or seek; a broken BLIND trial never resumes automatically. Saving or reopening restores no
+selection or MATCH permission.
+
+A loop with an offset already established during linear playback can continue after both sides
+have measured its sample length in this run. The loop must exceed **73728 samples** (0.768 s at
+96 kHz; 1.536 s at 48 kHz), and the selected PRE block must fit within that verified age envelope.
+The envelope is 65536 samples of delay plus 8192 samples of scheduling allowance; it is checked
+against the established offset, not inferred from repeated project positions. Shorter loops keep
+POST playing and ask for a longer loop. The first unmeasured lap also keeps POST playing.
+**Starting comparison in an already looping run is still withheld:** no runtime host delay bound
+has been established to distinguish a candidate from the same position one whole lap earlier.
+The display says when the first lap is being measured and when the initial-loop delay remains
+unverified. A minimum loop length alone cannot grant this missing proof.
+
+Timing measurements used REAPER 7.71 on macOS, 96 kHz, stereo, 512-frame blocks, anticipative FX
+processing off and on (200 ms render-ahead). Reported 4096→0 latency changes and bypass reductions
+were detected in the same POST block in all 12 measured transitions: the observed undetected window
+was **0 ms**, at callback resolution. Reported 0→4096 increases, including bypass release, preserved
+the correspondence because REAPER processed upstream FX ahead. This is a reduced timing sample,
+not a guarantee for every host version or a completed LISTEN/BLIND output acceptance test.
+Unreported latency changes were not detected by the clocks; an independent negative test remained
+misaligned for about seven seconds until playback stopped. As required by R-12, every intervening
+plug-in must report latency correctly and REAPER must compensate it. No clock-only rule can repair
+an unreported delay. Native Windows, other rates/buffers, larger delays and FX insertion/removal
+still need host acceptance. [Timing contract and regression coverage](docs/planning/hypha_reaper_listen_timing.md).
 
 1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
    300% and above) in the footer.
@@ -1064,7 +1095,7 @@ For a DAW loop, press **LISTEN** or **BLIND** during loop playback. No Hypha LOO
 LOOP-off step or per-lap approval is needed. Initial comparison needs independent timing proof:
 
 - VST3: the common content-clock profile measured in Studio Pro 8.1.2.113407, enabled for
-  Studio One 6–7 and Studio Pro 8. The REAPER project certificate is for measurement only.
+  Studio One 6–7 and Studio Pro 8. REAPER uses the separate conditions above.
 - AU: valid presentation-latency information on both sides, with a positive PRE-to-POST
   difference and a unique occurrence within the observed loop. Equal, zero or missing values
   do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified. This initial

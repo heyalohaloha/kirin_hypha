@@ -53,10 +53,7 @@ public:
         g.fillRect (area.withHeight (1.0f));
         g.setColour (COL_NORMAL);
         const auto room = getLocalBounds().reduced (6, 0);
-        g.setFont (monoFont (context,
-            footer_notice_font::roleForText (context, feedback, room.getWidth())));
-        text_style::drawEllipsized (g, feedback, room,
-                                    juce::Justification::centredLeft);
+        footer_notice_font::draw (g, context, feedback, room);
     }
 
     void mouseUp (const juce::MouseEvent& event) override

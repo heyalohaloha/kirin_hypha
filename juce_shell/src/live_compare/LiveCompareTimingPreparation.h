@@ -45,7 +45,8 @@ public:
     // takes no reading of its own (LiveCompareChainTiming.h).
     TimingEvidence observe (const BlockClock& block, std::uint32_t rate,
                             std::uint64_t authority, bool eligible,
-                            ChainTimingMeter* chain = nullptr, bool* analysisQualified = nullptr) noexcept
+                            ChainTimingMeter* chain = nullptr, bool* analysisQualified = nullptr,
+                            TimingSnapshot* diagnosticSnapshot = nullptr) noexcept
     {
         if (analysisQualified != nullptr) *analysisQualified = false;
         TimingEvidence evidence;
@@ -66,6 +67,7 @@ public:
                 evidence = peer.observer.unavailable (block, rate, ringCapacityFrames);
                 return;
             }
+            if (diagnosticSnapshot != nullptr) *diagnosticSnapshot = snapshot;
             if (chain != nullptr)
             {
                 chain->observe (snapshot, block, ring->header.published.load (std::memory_order_acquire));

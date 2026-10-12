@@ -21,6 +21,7 @@ struct BlockClock
     // (LiveCompareChainTiming.h). Never a sample address, a proof, or an output permission.
     std::uint64_t wallNanos = 0, thread = 0;
     bool transportRestart = false; // explicit stopped host notification since the previous render
+    bool wallGap = false; // raw scheduling observation; REAPER additionally requires paired continuity
 };
 
 struct LoopAnchor

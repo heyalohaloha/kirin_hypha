@@ -66,3 +66,6 @@ POST body   bars POST values	DRUM band legend
 / POST values	DRUM band legend
 PEAK -20 dB	DRUM band TAIL caption
 Pro Tools Developer	host executable name compared by the live compare clock policy; never drawn
+KIRIN_HYPHA_CHAIN_TRACE_DIR	diagnostic trace environment variable name; never drawn
+trace reservation failed	diagnostic trace setup exception caught by Recorder::fromEnvironment; never drawn
+trace open failed	diagnostic trace setup exception caught by Recorder::fromEnvironment; never drawn

@@ -2,6 +2,7 @@
 
 #include "LiveCompareBlockClock.h"
 #include "LiveCompareClock.h"
+#include "ReaperTiming.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -10,7 +11,8 @@
 namespace hypha::live_compare
 {
 enum class LoopEntryKind : std::uint8_t { none, linear, contentClock, presentationLatency, boundedEngine };
-enum class LoopEntryFailure : std::uint8_t { none, observingCycle, clockUnavailable, loopTooShort };
+enum class LoopEntryFailure : std::uint8_t
+{ none, observingCycle, clockUnavailable, loopTooShort, reaperFirstCycle, reaperDelayUnverified };
 
 struct LoopEntryCandidate
 {
@@ -86,6 +88,17 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
                  current ? LoopEntryFailure::none : LoopEntryFailure::observingCycle, current };
     }
 
+    if (common && reaperProcessing (post))
+    {
+        if (!anchor.loopKnown || anchor.loopSamples <= 0 || postLoopSamples <= 0)
+            return { 0, LoopEntryKind::none, LoopEntryFailure::reaperFirstCycle, false };
+        if (postLoopSamples != anchor.loopSamples) return {};
+        if (postLoopSamples <= ReaperTimingLimits::age || capacity <= ReaperTimingLimits::age)
+            return { 0, LoopEntryKind::none, LoopEntryFailure::loopTooShort, false };
+        // No RT-bound host PDC proof exists yet. A modulo candidate below the experimental
+        // envelope cannot exclude an actual delay of that candidate plus one whole lap.
+        return { 0, LoopEntryKind::none, LoopEntryFailure::reaperDelayUnverified, false };
+    }
     if (! anchor.loopKnown || anchor.loopSamples <= 0 || postLoopSamples <= 0)
         return { 0, LoopEntryKind::none, LoopEntryFailure::observingCycle, false };
     const auto loopSamples = anchor.loopSamples;

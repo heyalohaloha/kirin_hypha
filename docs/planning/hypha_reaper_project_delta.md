@@ -21,19 +21,13 @@ pair observers. Record, saved state, audio output and reported plug-in latency a
 
 ## Audition boundary
 
-This certificate is not `certifiedContent`: project positions repeat in loops, whereas the existing
-Studio content clock is continuous. No fallback is added to `ContinuousClock`, and the certificate
-cannot enter `initialLoopCandidate`'s content-clock branch. Missing VST3 continuous samples continue
-to prevent PRE output, MATCH and BLIND. The bilingual notice now describes the missing verified audio
-clock, not output latency as the sole cause.
-
-A local `pluginFrames` counter with per-side gap detection could calibrate an index offset during
-linear playback under compensated-position assumptions. It cannot identify an initial loop's
-occurrence: offsets differing by one loop give the same project positions, and counter origins
-can differ. A linear proof could be retained into a loop, but INV-LC5 also requires an actual host
-bound for the interval between an audio latency change and a detectable clock change. No such bound
-is established for REAPER by periodic meter screenshots. LISTEN and BLIND therefore remain deferred.
-Neither a wall-clock age nor audio correlation is promoted to sample/occurrence authority.
+The certificate remains distinct from Studio's `certifiedContent` clock. LISTEN in 1.1.51 uses
+an explicitly selected `reaperProcessing` counter, with an independent origin on each side.
+Eight agreeing compensated linear joins establish K; project positions alone never select an
+initial loop occurrence. Measurement uses its unchanged project-coordinate ingress.
+See [REAPER LISTEN timing](hypha_reaper_listen_timing.md) for the bounded continuation, callback
+evidence, initial-loop hold and reduced real-host timing measurements. Windows acceptance is
+separate. AU/AAX and other VST3 hosts do not receive this counter.
 
 ## Detectable and undetectable changes
 
@@ -47,7 +41,7 @@ be rejected by a general clock-only test while also accepting a genuine zero-del
 a limit of the requested host certificate, not an independent proof of compensation. Unknown hosts
 are not given this certificate; their existing FREQ project fallback is intentionally unchanged.
 For the certified host, an audio-only delay change can briefly produce a false difference until
-its position changes or playback is restarted. No REAPER-specific duration is claimed.
+its position changes or playback is restarted. The reduced reported-latency measurements and the unreported negative are recorded in the LISTEN timing contract; the negative is not a finite detection guarantee.
 
 [The VST3 ProcessContext specification](https://steinbergmedia.github.io/vst3_doc/vstinterfaces/structSteinberg_1_1Vst_1_1ProcessContext.html)
 makes continuous sample validity explicit; it does not certify a host's PDC/project relationship.
@@ -76,7 +70,7 @@ outside this policy; its `studioapp` executable name is not added.
   delay switches, changing content across loop occurrences and immediate proof revocation.
 - Common processor: mono/stereo REAPER fixtures plus existing AU, Studio content and AAX suites.
   Native shared-memory support is required; compiling these fixtures is not an execution result.
-- Audition refusal: the project certificate supplies no valid continuous clock or initial-loop proof.
+- Audition: separate processing-counter provenance, linear PRE/MATCH/BLIND and bounded known-K loops; no initial-loop permission from a modulo candidate alone.
 
 These tests do not certify real-host timing transitions or rejection of an undetectable lie in a
 certified host's project clock. Real-host acceptance must check those assumptions separately.
