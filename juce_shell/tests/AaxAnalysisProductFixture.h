@@ -300,7 +300,7 @@ struct Fixture
         using namespace hypha::live_compare_ui;
         using hypha::live_compare::BlindStage;
         auto listen = post->liveCompareStatus();
-        require (listen.loopBlocksPairing == expected, "LISTEN status carries the loop guidance only when a range loops");
+        require ((listen.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected, "LISTEN status carries the loop guidance only when a range loops");
         // As during a session on this host: PRE selected and waiting on an unidentifiable loop.
         listen.active = listen.preSelected = listen.preWaiting = true;
         listen.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
@@ -317,7 +317,7 @@ struct Fixture
         blind.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
         blind.timingUnavailable = true;
         const auto screen = hypha::live_blind_ui::screenFor (blind, true, 1.0f);
-        require (blind.loopBlocksPairing == expected
+        require ((blind.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected
             && (blindRecovery (blind, false).action == RecoveryAction::loopOff) == expected
             && (screen.instruction == "Loop Playback on: turn it off to compare") == expected
             && (screen.cause == hypha::host_availability::timingText()) != expected,
@@ -331,7 +331,7 @@ struct Fixture
         hypha::SpectrumComponent psb;
         psb.setAbsoluteObservation (false); psb.setSignalActive (true);
         psb.setPsbSnapshot (frame);
-        psb.setPairingLoopBlocked (post->analysisPairingLoopBlocked());
+        psb.setPairingLoopBlock (post->analysisPairingLoopBlock());
         require ((psb.psbStatusText() == "Loop Playback on: turn it off to compare") == expected,
                  "the PSB difference asks for loop playback off exactly when the uncertified host loops a range");
     }

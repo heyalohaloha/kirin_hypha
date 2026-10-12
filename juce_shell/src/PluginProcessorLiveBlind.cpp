@@ -226,7 +226,7 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
     status.compensationOff = state.compensationOff;
-    status.loopBlocksPairing = state.loopBlocksPairing;
+    status.loopBlock = state.loopBlock;
     status.timingUnavailable = state.timingUnavailable && ! status.contentHeld
         && status.stage != BlindStage::active && status.stage != BlindStage::idle
         && status.stage != BlindStage::finishing;

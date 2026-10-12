@@ -353,7 +353,8 @@ bool KirinHyphaEditor::refreshLiveCompare()
         const auto why = presentation.reason != hypha::live_compare::RecoveryReason::none ? presentation.reason
                                                                                          : status.observation;
         if (const auto* next = hypha::live_compare_ui::nextStep (presentation.action); *next != 0)
-            liveCompareStory = { juce::String ("LISTEN: ") + hypha::live_compare_ui::cause (why) + ".", next };
+            liveCompareStory = { juce::String ("LISTEN: ") + hypha::live_compare_ui::cause (why)
+                + (why == hypha::live_compare::RecoveryReason::cycleUnverified ? "" : "."), next };
     }
     if (newFault) liveCompareAuto.on = false;
     newFault = followLiveCompare (status, now) || newFault;

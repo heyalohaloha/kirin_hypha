@@ -37,7 +37,7 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
     let input = slice_between(
         &measurement,
         "bool KirinHyphaProcessorBase::feedMeasurementInput",
-        "void KirinHyphaProcessorBase::pushAaxAnalysis",
+        "void KirinHyphaProcessorBase::pushPairedAnalysis",
     );
     let clock = input
         .find("kirin_hypha_note_capture_window")

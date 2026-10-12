@@ -102,15 +102,19 @@ const Entry entries[] = {
     { "Block too large: reduce buffer (POST)", u8"処理単位が過大：バッファを縮小（今はPOST）" },
     { "PRE changed: check pair; END (POST)", u8"PREが失効：ペア確認後に終了（今はPOST）" },
     { "Checking PRE: auto-resume; POST plays", u8"PREを確認中：確認後に自動復帰（今はPOST）" },
+    { "Turn Cycle off to compare (POST)", u8"サイクルをオフにすると比べられます（今はPOST）" },
+    { "PRE/POST timing is unverified during Cycle", u8"サイクル中のPREとPOSTの対応を確認できません" },
+    { "PRE/POST timing is unverified during Cycle.", u8"サイクル中のPREとPOSTの対応を確認できません。" },
+    { "Turn Cycle off. Press END, then start BLIND again.", u8"サイクルをオフにし、ENDの後にBLINDを始め直してください。" },
     // An AAX host without a certified clock loops a range: no timing proof until loop playback is off.
     { "Loop Playback on: turn it off to compare (POST)", u8"ループ再生がオン：オフにすると比較できます（今はPOST）" },
     { "Turn off Loop Playback to compare", u8"ループ再生をオフにすると比較できます" },
     { "POST plays now. Turn off the DAW's Loop Playback to compare.", u8"今はPOST。DAWのループ再生をオフにすると比較できます。" },
     // A host that reports neither a continuous clock nor its output latency cannot verify PRE timing;
     // the analysis views say the same of this host in HyphaJapaneseAnalysis.cpp.
-    { "This DAW does not report output latency; PRE is unavailable (POST)", u8"このDAWは出力の遅れを知らせないためPREを聴けません（今はPOST）" },
-    { "This DAW does not report output latency; PRE is unavailable", u8"このDAWは出力の遅れを知らせないためPREを聴けません" },
-    { "POST plays now. This DAW does not report output latency, so PRE cannot be heard.", u8"今はPOST。このDAWは出力の遅れを知らせないため、PREを聴けません。" },
+    { "This DAW has no verified audio clock; PRE is unavailable (POST)", u8"このDAWではPREの時刻を確かめられないため聴けません（今はPOST）" },
+    { "This DAW has no verified audio clock; PRE is unavailable", u8"このDAWではPREの時刻を確かめられないため聴けません" },
+    { "POST plays now. PRE timing cannot be verified from this DAW's audio clock.", u8"今はPOST。このDAWの時計ではPREの時刻を確かめられません。" },
     { "Level limit: rematch, select PRE (POST)", u8"音量上限：再MATCH後にPRE選択（今はPOST）" },
     { "Invalid audio: check chain (POST)", u8"不正な音声：チェインを確認（今はPOST）" },
     { "Bypassed: enable, select PRE (POST)", u8"バイパス中：解除後にPRE選択（今はPOST）" },

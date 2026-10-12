@@ -17,7 +17,12 @@ enum class ClockBasis : std::uint8_t
     aaxEngine,
     pluginFrames
 };
-enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine };
+enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine, certifiedProject };
+
+constexpr bool certifiedVst3Analysis (ClockAuthority authority) noexcept
+{
+    return authority == ClockAuthority::certifiedContent || authority == ClockAuthority::certifiedProject;
+}
 
 constexpr ClockBasis clockBasisFor (AuxiliaryClockSource source) noexcept
 {

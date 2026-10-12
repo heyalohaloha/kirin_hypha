@@ -3,6 +3,7 @@
 #include <array>
 #include <cstring>
 #include <functional>
+#include "HyphaPairingLoopText.h"
 #include <memory>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -48,11 +49,11 @@ public:
         comparisonStatus = status;
         repaint();
     }
-    // An uncertified AAX host loops a range: the PSB difference waits for linear playback, as SHARP does.
-    void setPairingLoopBlocked (bool blocked)
+    // FREQ and PSB share the callback reason with SHARP and the listening controls.
+    void setPairingLoopBlock (live_compare::LoopPairingBlock blocked)
     {
-        if (pairingLoopBlocked == blocked) return;
-        pairingLoopBlocked = blocked;
+        if (pairingLoopBlock == blocked) return;
+        pairingLoopBlock = blocked;
         repaint();
     }
     // The PSB window's standing text from what the editor last told this view; one rule for the
@@ -114,6 +115,7 @@ public:
 private:
     void clearInteractionState() noexcept;
     bool currentSnapshotValid() const noexcept;
+    bool currentPostSnapshotValid() const noexcept;
     const std::array<float, KIRIN_SPECTRUM_BAND_COUNT>& calmWeightsFor (
         float minimumHz, float maximumHz) noexcept
     {
@@ -178,7 +180,7 @@ private:
     bool psbObservation = false;
     bool shapeObservation = false;
     bool signalActive = false;
-    bool pairingLoopBlocked = false; // the host loops a range without a certified clock
+    live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
     uint8_t psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;

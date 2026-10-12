@@ -13,7 +13,7 @@ enum class RecoveryReason : std::uint8_t
     calibrating, writing, beforeRun, notWritten, overwritten, torn, foreignRing,
     pairChanged, preUnavailable, formatChanged, restored, compensationOff, contentChanged,
     bypassed, offline, outputTaken, gainChanged, nonFinite, ceiling, blockTooLarge,
-    randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable
+    randomUnavailable, unknown, loopUnproven, loopWaiting, loopTooShort, loopClockUnavailable, cycleUnverified
 };
 inline RecoveryReason recoveryReason (TimelineBreak cause) noexcept
 {

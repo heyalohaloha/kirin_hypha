@@ -110,7 +110,10 @@ pub(super) fn decode_perceptual_snapshot(bytes: &[u8]) -> Option<DecodedPerceptu
         let kind = SpectrumClockKind::decode(cursor.u16()?)?;
         matches!(
             kind,
-            SpectrumClockKind::Presentation | SpectrumClockKind::AaxEngine
+            SpectrumClockKind::Presentation
+                | SpectrumClockKind::AaxEngine
+                | SpectrumClockKind::Vst3Content
+                | SpectrumClockKind::AudioUnitRender
         )
         .then_some(())?;
         (!clock_kind.is_some_and(|previous| previous != kind)).then_some(())?;

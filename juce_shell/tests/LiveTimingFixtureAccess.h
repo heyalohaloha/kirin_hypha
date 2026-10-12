@@ -58,7 +58,7 @@ public:
         const bool admitted = processor.feedMeasurementInput (buffer, clock, 0, buffer.getNumSamples(),
             clock.positionSamples, frames, false);
         processor.processLiveCompare (buffer, clock, false, false, true);
-        processor.pushAaxAnalysis (admitted ? frames : 0, static_cast<std::uint32_t> (buffer.getNumChannels()), 0);
+        processor.pushPairedAnalysis (admitted ? frames : 0, static_cast<std::uint32_t> (buffer.getNumChannels()), 0);
     }
 
     static void timingObservation (KirinHyphaProcessorBase& processor,
@@ -106,13 +106,18 @@ public:
             && mapping->ring() != nullptr && mapping->ring()->header.demand.load() == 1;
     }
     static bool configureStudioProClock (KirinHyphaProcessorBase& processor) noexcept
+    { return configureVst3Clock (processor, "Studio Pro", "8.1.2.113407"); }
+    static bool configureVst3Clock (KirinHyphaProcessorBase& processor,
+                                    const char* name, const char* version) noexcept
     {
         const auto certificate = hypha::live_compare_clock_policy::classify (
-            juce::AudioProcessor::wrapperType_VST3, "Studio Pro", "8.1.2.113407", 48000);
-        if (certificate.authority != hypha::live_compare::ClockAuthority::certifiedContent
+            juce::AudioProcessor::wrapperType_VST3, name, version, 48000);
+        if (! hypha::live_compare::certifiedVst3Analysis (certificate.authority)
             || certificate.maximumDelaySamples != 0) return false;
         processor.liveCompare.clockAuthority = static_cast<std::uint8_t> (certificate.authority);
         processor.liveCompare.maximumDelaySamples = certificate.maximumDelaySamples;
+        kirin_hypha_set_content_analysis_ingress (processor.hyphaHandle,
+            processor.role == KirinHyphaProcessorBase::Role::Post);
         return true;
     }
 

@@ -261,6 +261,8 @@ void PerceptualComponent::mouseMove (const juce::MouseEvent& event)
         if (spectrum_geometry::channelModeBoundsFor (index, outer, scale)
                 .contains (event.position))
             tip = analysis_ui::channelModeTooltip (static_cast<uint8_t> (index));
+    if (pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
+        tip = "PRE/POST timing is unverified during Cycle.";
     if (tip != getTooltip())
         setTooltip (tip);
 }
@@ -313,8 +315,9 @@ void PerceptualComponent::paint (juce::Graphics& g)
     const key_light::Scope light (*this);
     const perceptual_painter::PaintState state {
         snapshot, history, modeActionNotice, analysisOwnerNames,
-        haveSnapshot, signalActive && haveSnapshot && validSnapshot (snapshot),
-        channelMode, inputChannels, signalActive, presentationContext, pairingLoopBlocked
+        haveSnapshot, signalActive && haveSnapshot && validSnapshot (snapshot)
+            && pairingLoopBlock != live_compare::LoopPairingBlock::auCycle,
+        channelMode, inputChannels, signalActive, presentationContext, pairingLoopBlock
     };
     perceptual_painter::paint (g, getLocalBounds().toFloat(), state);
 }

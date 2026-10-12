@@ -306,7 +306,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     }
 
     processComparisonPaths (buffer, processClock, measurementTimelineActive, bypassed, nonRealtimeMode);
-    pushAaxAnalysis (optionalInputFrames, (uint32_t) numCh, windowStartFrame);
+    pushPairedAnalysis (optionalInputFrames, (uint32_t) numCh, windowStartFrame);
 }
 
 juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()

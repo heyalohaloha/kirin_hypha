@@ -256,7 +256,8 @@ public:
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
-                         float ceilingLinear, bool blind = false) noexcept
+                         float ceilingLinear, bool blind = false,
+                         RecoveryReason timingBlock = RecoveryReason::none) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -278,14 +279,20 @@ public:
         }
         float* scratch[] = { left.get(), right.get() };
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
-        recordHistory (block, io, channels, decision);
+        if (timingBlock != RecoveryReason::none) invalidateHistory();
+        else recordHistory (block, io, channels, decision);
         report.timelineChanged = decision.timelineChanged || decision.invalidatedByDisagreement;
         report.loss = decision.loss;
         report.verdict = decision.verdict;
         report.reason = recoveryReason (decision.verdict);
         if (report.timelineChanged)
             report.reason = recoveryReason (decision.loss);
-        if (decision.verdict != Verdict::accepted)
+        if (timingBlock != RecoveryReason::none)
+        {
+            report.verdict = Verdict::loopUnproven;
+            report.reason = timingBlock;
+        }
+        if (report.verdict != Verdict::accepted)
         {
             weight = 0.0f; // switch to POST at the block start
             report.preWaiting = preSelected;

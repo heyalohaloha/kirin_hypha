@@ -55,10 +55,10 @@ inline void verifyChainClockPolicy()
         require (release.authority == ClockAuthority::boundedAaxEngine && ! release.measured,
                  "the fixed AAX version decides; a measured-looking text does not mark it measured");
     }
-    for (const auto& version : { "", "8.1.2.0", "8.1.2.113408", "8.1.2 Build 113408" })
+    for (const auto& version : { "", "8", "8.1.bad", "8.1.2 Build unknown" })
         require (live_compare_clock_policy::classify (Wrapper::wrapperType_VST3,
             "Studio Pro", version, 48000.0).authority == ClockAuthority::none,
-            "missing, fixed-only or unmeasured build identity must fail closed");
+            "missing or unreadable build identity must fail closed");
     require (live_compare_clock_policy::classify (Wrapper::wrapperType_VST3,
         "Studio Pro 8", "8.1.2 Build 113407", 48000.0).authority == ClockAuthority::none,
         "an app folder name is not an executable identity");

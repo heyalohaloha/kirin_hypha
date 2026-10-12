@@ -16,16 +16,17 @@ void verifyLiveTimingAvailabilityUi (Require require)
         for (int width : { 300, 375, 450 })
             for (auto stage : { BlindStage::preparing, BlindStage::approval, BlindStage::settling })
                 for (auto reason : { RecoveryReason::none, RecoveryReason::calibrating,
-                                     RecoveryReason::loopUnproven, RecoveryReason::loopClockUnavailable })
+                                     RecoveryReason::loopUnproven, RecoveryReason::loopClockUnavailable, RecoveryReason::clockMissing })
                 {
                     LiveBlindStatus state;
                     state.stage = stage; state.observation = reason;
                     state.lowerPostDb = -8.0;
                     state.timingUnavailable = reason == RecoveryReason::loopClockUnavailable;
+                    state.clockUnavailable = reason == RecoveryReason::clockMissing;
                     const auto screen = live_blind_ui::screenFor (state, true, 1.0f);
-                    require (screen.instruction.contains ("unavailable") == state.timingUnavailable,
+                    require (screen.instruction.contains ("unavailable") == (state.timingUnavailable || state.clockUnavailable),
                              "ordinary AU stages never show the unavailable instruction in either language");
-                    if (! state.timingUnavailable && stage == BlindStage::approval)
+                    if (! state.timingUnavailable && ! state.clockUnavailable && stage == BlindStage::approval)
                         require (screen.approveShown && screen.instruction == "Lower POST to match levels?",
                                  "approval question and button belong to the same ordinary state");
                     if (reason == RecoveryReason::loopUnproven && stage != BlindStage::approval)
@@ -56,9 +57,9 @@ void verifyLiveTimingAvailabilityUi (Require require)
                         }
                     }
                     const auto preview = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
-                    if (preview.isNotEmpty() && reason == RecoveryReason::loopUnproven)
+                    if (preview.isNotEmpty() && (reason == RecoveryReason::loopUnproven || reason == RecoveryReason::clockMissing))
                     {
-                        const auto file = juce::File (preview).getChildFile ("availability-"
+                        const auto file = juce::File (preview).getChildFile ((state.clockUnavailable ? "clock-unavailable-" : "availability-")
                             + juce::String (static_cast<int> (language)) + "-" + juce::String (width)
                             + "-" + juce::String (static_cast<int> (stage)) + ".png");
                         auto out = file.createOutputStream();

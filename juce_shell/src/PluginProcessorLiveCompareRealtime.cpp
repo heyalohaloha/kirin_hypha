@@ -6,6 +6,7 @@ namespace
 {
 using hypha::live_compare::SharedRingMapping;
 constexpr auto aaxWrapper = juce::AudioProcessor::wrapperType_AAX;
+constexpr auto auWrapper = juce::AudioProcessor::wrapperType_AudioUnit;
 }
 
 // Audio Thread. Both roles advance their continuous clock and gap detector on every callback so
@@ -23,7 +24,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     block.clock = continuous.samples;
     block.clockValid = continuous.valid;
     block.project = clock.positionSamples;
-    block.projectValid = clock.hasPosition;
+    // A render fallback is not an independent project witness for AU linear calibration.
+    block.projectValid = clock.hasPosition && (wrapperType != auWrapper
+        || clock.clockSource == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE);
     block.playing = clock.playing;
     block.frames = frames;
     block.loop = clock.loop;
@@ -74,7 +77,19 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool callbackGap = block.afterGap;
     if (hostReset) block.afterGap = true;
     block.transportRestart = hostReset && notifiedStop;
-    if (wrapperType == aaxWrapper)
+    const bool projectAnalysis = liveCompare.clockAuthority
+        == static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedProject);
+    if (projectAnalysis)
+    {
+        auto analysisBlock = block;
+        analysisBlock.afterGap = wallGap || hostReset;
+        analysisBlock.projectValid = clock.hasPosition && clock.clockSource == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE;
+        const auto reading = liveCompare.projectAnalysisClock.observe (analysisBlock, preparedFormat.sampleRate, usable);
+        liveCompare.analysisClock.local = liveCompare.analysisClock.paired = reading;
+    }
+    if (wrapperType == aaxWrapper || wrapperType == auWrapper
+        || liveCompare.clockAuthority
+        == static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::certifiedContent))
         liveCompare.analysisClock.observeLocal (block, preparedFormat.sampleRate, usable);
 
     if (role == Role::Pre)
@@ -106,19 +121,18 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         block.afterGap = true;
         liveCompare.compensationWasOff = compensationOff;
     }
-    bool aaxQualified = false;
+    const bool timingEligible = usable && ! outputTaken && ! compensationOff && ! contentHeld
+        && ! liveCompare.authority.restoring();
+    bool analysisQualified = false;
     const auto timing = liveCompare.preparation.observe (block,
         static_cast<std::uint32_t> (preparedFormat.sampleRate), liveCompare.authority.ticket(),
-        usable && ! outputTaken && ! compensationOff && ! contentHeld && ! liveCompare.authority.restoring(),
-        usable ? &liveCompare.chain : nullptr, &aaxQualified);
-    if (wrapperType == aaxWrapper)
-    {
-        liveCompare.analysisClock.observePair (block, timing, aaxQualified);
-        // Without the certificate only the linear proof exists; a looped range cannot provide it.
-        liveCompare.loopBlocksPairing.store (block.playing && block.loop.active
-            && liveCompare.clockAuthority == static_cast<std::uint8_t> (hypha::live_compare::ClockAuthority::none),
-            std::memory_order_relaxed);
-    }
+        timingEligible,
+        usable ? &liveCompare.chain : nullptr, &analysisQualified);
+    if (! projectAnalysis) liveCompare.analysisClock.observePair (block, timing, analysisQualified);
+    const auto loopBlock = hypha::live_compare::pairingLoopBlock (block, wrapperType == auWrapper,
+        wrapperType == aaxWrapper, timing, timingEligible);
+    liveCompare.loopBlock.store (loopBlock, std::memory_order_relaxed);
+    const bool cycleUnverified = loopBlock == hypha::live_compare::LoopPairingBlock::auCycle;
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
     const auto blindCommand = liveCompare.blind.command();
@@ -244,12 +258,13 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
                                                    preSelected && ! contentHeld && ! compensationOff,
                                                    gain,
                                                    liveCompare.postLevel, postTarget,
-                                                   ceiling, blindCommand.active() && ! blindRejected);
+                                                   ceiling, blindCommand.active() && ! blindRejected,
+                                                   cycleUnverified ? Reason::cycleUnverified : Reason::none);
         if (report.reason == Reason::loopUnproven)
             report.reason = hypha::live_compare::recoveryReason (timing.failure);
         liveCompare.blindTiming.observe (preparationCommand,
             report.verdict == hypha::live_compare::Verdict::accepted,
-            report.guardTripped || (report.timelineChanged && report.loss != hypha::live_compare::TimelineBreak::metadataPending)
+            cycleUnverified || report.guardTripped || (report.timelineChanged && report.loss != hypha::live_compare::TimelineBreak::metadataPending)
                 ? interruption.reason (report.reason) : interruption.reason(),
             liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
         if (report.timelineChanged && ! discontinuity)

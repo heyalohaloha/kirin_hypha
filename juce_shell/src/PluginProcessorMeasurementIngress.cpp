@@ -29,10 +29,14 @@ bool KirinHyphaProcessorBase::feedMeasurementInput (const juce::AudioBuffer<floa
     return false;
 }
 
-void KirinHyphaProcessorBase::pushAaxAnalysis (uint64_t capturedFrames, uint32_t channels,
+void KirinHyphaProcessorBase::pushPairedAnalysis (uint64_t capturedFrames, uint32_t channels,
                                              int windowStartFrame) noexcept
 {
-    if (wrapperType != juce::AudioProcessor::wrapperType_AAX) return;
+    if (wrapperType != juce::AudioProcessor::wrapperType_AudioUnit
+        && wrapperType != juce::AudioProcessor::wrapperType_AAX
+        && ! (wrapperType == juce::AudioProcessor::wrapperType_VST3
+            && hypha::live_compare::certifiedVst3Analysis (
+                static_cast<hypha::live_compare::ClockAuthority> (liveCompare.clockAuthority)))) return;
     auto local = liveCompare.analysisClock.local;
     auto paired = liveCompare.analysisClock.paired;
     if (windowStartFrame < 0
@@ -41,7 +45,7 @@ void KirinHyphaProcessorBase::pushAaxAnalysis (uint64_t capturedFrames, uint32_t
         || ! hypha::live_compare::checkedClockAdd (paired.start, windowStartFrame, paired.start)) paired.valid = false;
     // The output may now contain an explicit audition. The scratch still holds THIS callback's
     // original A. The FFI consumes its staged cardinality once; neither Watch nor Record advances.
-    kirin_hypha_push_aax_analysis (hyphaHandle, capturedFrames != 0 ? interleaveScratch.data() : nullptr,
+    kirin_hypha_push_paired_analysis (hyphaHandle, capturedFrames != 0 ? interleaveScratch.data() : nullptr,
         (size_t) capturedFrames, channels, local.valid, local.start, local.revision,
         paired.valid, paired.start, paired.revision);
 }

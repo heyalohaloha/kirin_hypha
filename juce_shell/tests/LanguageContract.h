@@ -79,17 +79,18 @@ inline void verifyLookup()
         japanese ("ANALYSIS IN USE / POST Kirin\nWaiting for Kirin OS")
         == utf8 (u8"解析を使用中 ／ POST Kirin\nKirin OSを待っています"));
 
-    // A host that reports no output latency is described with one phrase wherever it is met: the
-    // analysis views, LISTEN's footer and its story, and Blind.
-    const auto hostPhrase = utf8 (u8"このDAWは出力の遅れを知らせないため");
-    for (const auto* english : { "This DAW does not report output latency; this view is unavailable",
-                                 "This DAW does not report output latency; PRE is unavailable (POST)",
-                                 "This DAW does not report output latency; PRE is unavailable" })
-        KIRIN_LANGUAGE_REQUIRE (i18n::hasTranslation (english) && japanese (english).startsWith (hostPhrase));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("This DAW does not report output latency; PRE is unavailable (POST)")
-                            == utf8 (u8"このDAWは出力の遅れを知らせないためPREを聴けません（今はPOST）"));
-    KIRIN_LANGUAGE_REQUIRE (japanese ("POST plays now. This DAW does not report output latency, so PRE cannot be heard.")
-                            == utf8 (u8"今はPOST。このDAWは出力の遅れを知らせないため、PREを聴けません。"));
+    // Analysis may need a latency report; audition needs a verified audio clock. Keep the
+    // two boundaries distinct now that a project certificate can enable measurement alone.
+    KIRIN_LANGUAGE_REQUIRE (japanese ("This DAW does not report output latency; this view is unavailable")
+        .startsWith (utf8 (u8"このDAWは出力の遅れを知らせないため")));
+    for (const auto* english : { "This DAW has no verified audio clock; PRE is unavailable (POST)",
+                                 "This DAW has no verified audio clock; PRE is unavailable" })
+        KIRIN_LANGUAGE_REQUIRE (i18n::hasTranslation (english)
+            && japanese (english).startsWith (utf8 (u8"このDAWではPREの時刻を確かめられないため")));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("This DAW has no verified audio clock; PRE is unavailable (POST)")
+                            == utf8 (u8"このDAWではPREの時刻を確かめられないため聴けません（今はPOST）"));
+    KIRIN_LANGUAGE_REQUIRE (japanese ("POST plays now. PRE timing cannot be verified from this DAW's audio clock.")
+                            == utf8 (u8"今はPOST。このDAWの時計ではPREの時刻を確かめられません。"));
 
     // The comparison states now reach the screen as the Unicode they are written in, so they meet
     // their catalog entries; they used to be read as ASCII and shown garbled.

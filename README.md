@@ -234,10 +234,20 @@ image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
 
-FREQ Δ also works when a host omits the optional output-latency callback. PRE and POST must both
-use presentation coordinates or both use the project timeline, with complete matching windows
-from the current run. Mixed clock kinds are not compared. A render-only clock supports absolute
-POST spectra; missing latency is never treated as a reported zero latency.
+AU FREQ Δ uses the same PRE/POST timing proof as LISTEN, in a separate render coordinate.
+Certified Studio One / Studio Pro VST3 content clocks also use that proof. REAPER VST3
+uses its certified, PDC-compensated project positions directly for measurement, without adding output latency. Complete matching windows from
+the current run are required, and loss of proof clears the difference until fresh data is ready.
+Other VST3 hosts retain their presentation-coordinate or project-timeline path, including FREQ
+without an output-latency report; that path does not independently prove PDC content alignment.
+If an uncertified VST3 host compensates the project position for a delayed insert and also
+includes that same delay in PRE's output-latency report, the delay can be counted twice.
+Hypha can then compare different parts of the audio and show a false Δ. Differences across a
+delayed insert have not been verified in uncertified VST3 hosts.
+The certified or checked host paths are Pro Tools AAX, Logic AU, Studio One 6–7 / Studio Pro 8
+VST3, and REAPER VST3. The version policy and timing requirements below still apply;
+this list does not mean every version or configuration has been tested.
+Mixed clock kinds are never compared. Missing latency is never treated as reported zero latency.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
 Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
@@ -250,8 +260,18 @@ to retain one temporary full-spectrum reference. The display scale is ±24 dB.
 SHARP shows six seconds of signed **Δ Sharpness** in acum; without a paired PRE it shows POST's own
 Sharpness. It reports observation only: no target, warning colour, score, or recommendation.
 
-SHARP differences and PSB differences need a reported output-presentation latency, or in Pro Tools
-AAX the verified PRE/POST timing offset. LIVE, POST-only Sharpness and absolute PSB also accept the
+SHARP differences and PSB differences use verified PRE/POST timing in AU, AAX and certified
+Studio One / Studio Pro VST3. REAPER VST3 also supports SHARP Δ and PSB Δ using
+its compensated project positions (K = 0). At a loop wrap or position change, it discards the
+previous analysis window and waits for complete matching windows. Other VST3 hosts retain their
+output-presentation-latency requirement.
+AU needs an independent host project timeline as well as the render timestamp: ordinary linear
+playback proves K without a latency report, while an initial loop needs the existing positive
+PRE-to-POST latency difference and a unique observed occurrence. An unproven AU pair waits;
+render time alone never establishes alignment. During Cycle, an unverified AU pair shows **Turn Cycle
+off to compare** in FREQ Δ, SHARP Δ and PSB Δ. LISTEN keeps POST playing with the same guidance,
+and BLIND gives the same reason. Turning Cycle off allows fresh linear proof; an interrupted BLIND
+requires END and a new trial. Proven cycles remain available. LIVE, POST-only Sharpness and absolute PSB also accept the
 project timeline or a local render clock, so they do not need an output-latency report; in AAX they
 always use the project timeline.
 Pro Tools AAX feeds SHARP through the Native engine clock. The difference uses the same PRE/POST
@@ -266,11 +286,25 @@ latency is never assumed to be zero.
 
 | Clock supplied by the host | LIVE / POST Sharpness / absolute PSB | SHARP Δ / PSB Δ |
 |---|---|---|
-| VST3 or AU output-presentation clock | Available | Requires a matching PRE |
-| Project timeline without an output-latency report, as in REAPER | Available | Unavailable (state 6) |
+| Certified Studio One 6–7 / Studio Pro 8 VST3 content clock | Available | Requires the existing LISTEN timing proof |
+| AU render clock with independent host project timeline | Available | Requires linear or presentation-latency loop proof |
+| Other VST3 output-presentation clock | Available | Requires a matching PRE; content alignment is not independently proven |
+| REAPER VST3 compensated project timeline (all readable versions) | Available | Available; complete matching windows, PDC required |
+| Other project timelines without an output-latency report | Available | Unavailable (state 6) |
 | Local render clock | Available | Unavailable (state 6) |
 | AAX Native engine clock, Pro Tools 12.6 or later | Project timeline | Requires the existing PRE/POST timing proof (linear or bounded initial loop) |
 | AAX Native engine clock, another AAX host | Project timeline | Requires the linear PRE/POST timing proof; waits while a selection loops |
+
+REAPER differences rely on the host keeping project positions compensated for the audio. A reported
+position or latency change clears the old windows immediately. If audio latency changes while all
+clock reports stay unchanged, a brief false difference cannot be detected from those reports alone;
+its duration has not been measured for REAPER. Stop playback before changing latency-sensitive settings.
+The REAPER certificate covers all versions: the native executable must be named `REAPER` or `reaper`,
+and its non-empty version string must start with an ASCII digit. Missing or unreadable versions,
+other executable names and other formats receive no REAPER certificate. FREQ already relies on
+compensated project positions across REAPER versions; SHARP and PSB use the same assumption.
+Real-host checks used REAPER 7.71: FREQ, SHARP and PSB differences were zero during normal playback,
+loops and latency changes during playback. This does not claim testing every version.
 
 This table describes the analysis clock gate. It does not replace acceptance tests in each host.
 
@@ -697,9 +731,10 @@ session and plug-in data. Builds without the official update verification key de
 access. A deliberately provisioned update build additionally declares `network.client` and the
 update protocol marker; signing and packaging gates check these together.
 
-SHARP Δ and PSB Δ require reported output latency, or in AAX the PRE/POST timing proof described
-above. Their missing-latency ABI state (6) shows a fixed unavailable reason instead of an endless
-warm-up. LIVE, POST-only Sharpness and absolute PSB use the available local clock without this
+SHARP Δ and PSB Δ follow the clock table above. AU, AAX and certified Studio One / Studio Pro VST3 wait
+for fresh pair proof. REAPER VST3 uses its measurement-only project certificate. Other VST3
+hosts without output latency use ABI state 6, showing a fixed
+unavailable reason. LIVE, POST-only Sharpness and absolute PSB use the available local clock without this
 requirement.
 Switching views retires the previous view's missing-latency flag. Format support alone does not
 prove PRE/POST timing alignment.
@@ -961,8 +996,12 @@ LISTEN/MATCH have platform paths for macOS VST3, AU and AAX and Windows VST3 and
 these paths do not certify every host. Logic AU can run BLIND during continuous playback,
 including preparation, level approval and settling, using runtime PRE/POST timing proof.
 A missing host certification value alone never makes LISTEN or BLIND unavailable.
-Initial loop admission is a separate check: the measured host profiles cover Studio Pro
-8.1.2.113407 VST3 (the exact executable version) and Pro Tools AAX, where the proof measured in
+Initial loop admission is a separate check. The Studio Pro 8.1.2.113407 VST3 content-clock
+profile is also enabled for Studio One 6–7 (minimum 6.0.0) and Studio Pro 8. Readable native versions in dotted
+or “Build” form are required; only 8.1.2.113407 is marked measured. This is a version policy,
+not a claim of testing every build. Separate real-host measurement checks confirmed zero FREQ, SHARP
+and PSB differences with a 4096-sample delay and loops in Studio One 6.6.3 / 7.2.3 and
+Studio Pro 8.0.2 / 8.1.2. Pro Tools AAX uses the proof measured in
 Pro Tools Developer 26.4.0.5 is granted to every Pro Tools build from 12.6 on (executables
 "Pro Tools", "ProTools" and "Pro Tools Developer"; the floor is the build that reports its
 delay-compensation state). A host's loop-playback setting with no selection names no loop, so
@@ -971,11 +1010,11 @@ selection cannot be proven, and LISTEN, BLIND, SHARP and the PSB difference say 
 turn it off to compare** while POST plays; that loop is never reported as a host that cannot verify
 timing. An observed unprovable loop or disabled delay compensation explains why
 POST plays; END remains available. Ordinary PRE timing checks wait with their reason, and a content-timing hold asks for
-stop/play. REAPER does not report output latency to the plug-in, and Hypha gets no audio clock there that
-it can verify PRE/POST timing with: LISTEN starts, but POST plays and PRE cannot be heard, and MATCH and
-BLIND do not proceed. The footer says **This DAW does not report output latency; PRE is unavailable
-(POST)** instead of asking for a stop/play that would not help. LIVE, POST PSB and FREQ work in REAPER;
-SHARP Δ and PSB Δ are unavailable there (state 6 in the clock table above). In Pro Tools it is offered
+stop/play. In REAPER VST3 across all readable versions, the project clock enables FREQ Δ, SHARP Δ and PSB Δ,
+but it cannot independently identify which loop occurrence to audition. LISTEN still plays POST;
+PRE, MATCH and BLIND remain unavailable. The footer says **This DAW has no verified audio clock;
+PRE is unavailable (POST)**. A local frame counter alone does not remove the loop ambiguity or
+establish a bound on undetectable timing changes. In Pro Tools it is offered
 on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
 multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
 multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.2.113407;
@@ -1019,7 +1058,8 @@ Saving and reopening therefore remain separate regular-host acceptance requireme
 For a DAW loop, press **LISTEN** or **BLIND** during loop playback. No Hypha LOOP button,
 LOOP-off step or per-lap approval is needed. Initial comparison needs independent timing proof:
 
-- VST3: the measured common content clock in the exact Studio Pro 8.1.2.113407 host.
+- VST3: the common content-clock profile measured in Studio Pro 8.1.2.113407, enabled for
+  Studio One 6–7 and Studio Pro 8. The REAPER project certificate is for measurement only.
 - AU: valid presentation-latency information on both sides, with a positive PRE-to-POST
   difference and a unique occurrence within the observed loop. Equal, zero or missing values
   do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified. This initial

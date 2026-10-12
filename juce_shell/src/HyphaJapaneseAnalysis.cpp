@@ -9,15 +9,17 @@ namespace
 const Entry entries[] = {
     { "This DAW does not report output latency; this view is unavailable", u8"このDAWは出力の遅れを知らせないため使えません" },
     { "PSB: POST loudness share in each Bark band.", u8"PSB：Bark帯域ごとのPOSTの音量の割合です。" },
-    { "PSB: POST - PRE loudness share in each Bark band. This view needs DAW output latency.",
-      u8"PSB：Bark帯域ごとの音量の割合の差（POST − PRE）です。DAWから出力の遅れの通知が必要です。" },
-    { "Sharpness Delta is POST minus PRE. Unit: acum (DIN 45692). This view needs DAW output latency.", u8"シャープネスのΔはPOST − PRE。単位はacum（DIN 45692）。DAWから出力の遅れの通知が必要です。" },
+    { "PSB: POST - PRE loudness share in each Bark band. This view needs matching PRE/POST timing.",
+      u8"PSB：Bark帯域ごとの音量の割合の差（POST − PRE）です。PREとPOSTの同じ位置を確かめて表示します。" },
+    { "Sharpness Delta is POST minus PRE. Unit: acum (DIN 45692). This view needs matching PRE/POST timing.", u8"シャープネスのΔはPOST − PRE。単位はacum（DIN 45692）。PREとPOSTの同じ位置を確かめて表示します。" },
     // An AAX host without a certified clock loops a range: the difference waits for linear playback.
     { "Loop Playback on: turn it off to compare", u8"ループ再生がオン：オフにすると差分を出せます" },
     { "LIVE shows POST values on fixed scales.", u8"LIVEはPOSTの値を固定の目盛りで表示します。" },
     { "ALL: measure each hit across the full signal.", u8"ALL：打音ごとに音全体を測ります。" },
     { "BAND: measure each hit in the selected octave band.", u8"BAND：打音ごとに選んだオクターブ帯域を測ります。" },
     { "SHAPE(f) = POST(f) - PRE(f) - LEVEL OFFSET  dB", u8"SHAPE（f）= POST（f）− PRE（f）− 音量差  dB" },
+
+    { "Turn Cycle off to compare", u8"サイクルをオフにすると比べられます" },
 
     // Shared analysis states.
     { "INACTIVE", u8"入力なし" },

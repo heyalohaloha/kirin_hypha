@@ -20,7 +20,8 @@ void kirinHostTimelineReset (bool transportKnown, bool playing) override;
 std::uint32_t liveComparePlaybackRun() const noexcept;
 hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
 hypha::live_compare::Status liveCompareStatus() const noexcept;
-bool analysisPairingLoopBlocked() const noexcept; // AAX POST without certificate in a looped range
+bool analysisPairingLoopBlocked() const noexcept;
+hypha::live_compare::LoopPairingBlock analysisPairingLoopBlock() const noexcept;
 bool liveCompareSupported() const noexcept;
 hypha::live_compare::ChainTimingView chainTimingView() const noexcept; // POST, display only
 bool aaxMultiMonoMember() const noexcept;

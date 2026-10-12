@@ -85,6 +85,11 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     if (hyphaHandle != nullptr)
         kirin_hypha_set_aax_analysis_ingress (hyphaHandle,
             wrapperType == juce::AudioProcessor::wrapperType_AAX, role == Role::Post);
+    if (hyphaHandle != nullptr && wrapperType == juce::AudioProcessor::wrapperType_VST3
+        && hypha::live_compare::certifiedVst3Analysis (liveClock.authority))
+        kirin_hypha_set_content_analysis_ingress (hyphaHandle, role == Role::Post);
+    if (hyphaHandle != nullptr && wrapperType == juce::AudioProcessor::wrapperType_AudioUnit)
+        kirin_hypha_set_audio_unit_analysis_ingress (hyphaHandle, role == Role::Post);
     if (hyphaHandle != nullptr)
         kirin_hypha_set_chain_clock_policy (hyphaHandle,
                                            hypha::chain_clock_policy::current (wrapperType));

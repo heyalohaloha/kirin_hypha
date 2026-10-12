@@ -61,7 +61,7 @@ void ScreenComponent::setScreen (const Screen& next)
     languageRevision = i18n::revision();
     shown = next;
     apply();
-    if (languageChanged) resized();
+    resized(); // Guidance rows depend on the current localized sentence lengths.
 }
 
 void ScreenComponent::apply()
@@ -121,7 +121,11 @@ void ScreenComponent::resized()
     area.reduce (0, compact ? 5 : 12);
     approve.setBounds (area);
     auto guidance = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), 90));
-    cause.setBounds (guidance.removeFromTop (guidance.getHeight() / 2));
+    const auto causeRoom = cause.getBorderSize().subtractedFrom (guidance);
+    const int causeHeight = juce::jmin (guidance.getHeight() / 2,
+        juce::roundToInt (std::ceil (text_style::shownWrappedHeight (shown.cause, cause.getFont(),
+            juce::jmax (1, causeRoom.getWidth())))) + cause.getBorderSize().getTopAndBottom());
+    cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
     two.setBounds (area.reduced (3, 0));

@@ -28,6 +28,12 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
         bounds, ! absoluteObservation && focusFrequencyHz > 0.0f);
     const auto position = event.position;
     juce::String tip;
+    if (! absoluteObservation && pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
+        && plot.contains (position))
+    {
+        setTooltip ("PRE/POST timing is unverified during Cycle.");
+        return;
+    }
 
     if (spectrum_geometry::subviewBoundsFor (outer, scale).contains (position))
         tip = psbObservation ? "Return to Spectrum" : "Show perceptual spectral balance";

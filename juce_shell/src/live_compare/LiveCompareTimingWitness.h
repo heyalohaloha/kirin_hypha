@@ -178,6 +178,10 @@ struct TimingEvidence
     std::int64_t loopSamples = 0;
     LoopEntryKind kind = LoopEntryKind::none;
     LoopEntryFailure failure = LoopEntryFailure::none;
+
+    // K survives unavailable callback evidence until the observer actually invalidates it.
+    // This permits loop continuity, never a new PCM admission or an analysis delta.
+    bool hasEstablishedK() const noexcept { return kind != LoopEntryKind::none; }
 };
 
 // POST Audio Thread. Linear project joins can be observed without an audition or PCM copy.

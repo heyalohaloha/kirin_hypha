@@ -21,6 +21,7 @@ inline const char* cause (Reason reason) noexcept
         case Reason::loopWaiting: return "Loop boundary timing is not confirmed";
         case Reason::loopTooShort: return "The loop is shorter than the verified timing range";
         case Reason::loopClockUnavailable: return "DAW timing cannot identify this loop occurrence";
+        case Reason::cycleUnverified: return "PRE/POST timing is unverified during Cycle.";
         case Reason::writing: return "PRE data is being written";
         case Reason::beforeRun: return "PRE continuity changed";
         case Reason::notWritten: return "PRE data has not arrived";
@@ -48,7 +49,7 @@ inline const char* cause (Reason reason) noexcept
 
 enum class RecoveryAction { none, automatic, play, stopPlay, compensation, checkPre,
                             checkLevels, selectPre, endBlind, returnLevel, listen, loopOff,
-                            noOutputLatency, busy };
+                            noOutputLatency, cycleOff, cycleOffEndBlind, busy };
 
 // After the cause: what plays now and how to go on. The short status in the footer is the same
 // story cut to fit; the help line and the status window tell it whole as "LISTEN: <cause>. <next step>"
@@ -68,7 +69,9 @@ inline const char* nextStep (RecoveryAction action) noexcept
         case RecoveryAction::returnLevel: return "POST is still lowered. Press RETURN, then LISTEN.";
         case RecoveryAction::listen: return "POST plays now. MENU > LISTEN compares again.";
         case RecoveryAction::loopOff: return "POST plays now. Turn off the DAW's Loop Playback to compare.";
-        case RecoveryAction::noOutputLatency: return "POST plays now. This DAW does not report output latency, so PRE cannot be heard.";
+        case RecoveryAction::cycleOff: return "Turn Cycle off to compare (POST)";
+        case RecoveryAction::cycleOffEndBlind: return "Turn Cycle off. Press END, then start BLIND again.";
+        case RecoveryAction::noOutputLatency: return "POST plays now. PRE timing cannot be verified from this DAW's audio clock.";
         case RecoveryAction::busy: case RecoveryAction::none: break;
     }
     return "";
@@ -87,13 +90,16 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
         return { Reason::contentChanged, RecoveryAction::stopPlay, "Stop/play DAW; END, then BLIND" };
     // An uncertified AAX host looping a range observes an unidentifiable loop too; loop playback off
     // restores the linear proof, so this actionable remedy comes before the host boundaries below.
-    if (state.loopBlocksPairing && ! stopped)
+    if (reason == Reason::cycleUnverified || (! stopped && state.loopBlock == live_compare::LoopPairingBlock::auCycle))
+        return { Reason::cycleUnverified, stopped ? RecoveryAction::cycleOffEndBlind : RecoveryAction::cycleOff,
+                 stopped ? "Turn Cycle off. Press END, then start BLIND again." : "Turn Cycle off to compare" };
+    if (state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && ! stopped)
         return { reason, RecoveryAction::loopOff, "Turn off Loop Playback to compare" };
     if (state.timingUnavailable)
         return { reason, RecoveryAction::none, "POST plays; END closes comparison" };
     // A host that never reports a clock or its output latency: no stop/play or retry would help.
     if (state.clockUnavailable)
-        return { reason, RecoveryAction::noOutputLatency, "This DAW does not report output latency; PRE is unavailable" };
+        return { reason, RecoveryAction::noOutputLatency, "This DAW has no verified audio clock; PRE is unavailable" };
     if (state.compensationOff)
         return { reason, RecoveryAction::compensation, stopped ? "Enable compensation; END, then BLIND"
                                                               : "Enable DAW delay compensation" };
@@ -124,14 +130,17 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: stop/play DAW (POST)");
     // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
     // off restores the linear proof: this actionable remedy comes before any host boundary below.
-    if (state.active && state.loopBlocksPairing && (state.preWaiting || ! state.preAudible))
+    if (state.active && state.loopBlock == live_compare::LoopPairingBlock::auCycle
+        && (state.preWaiting || ! state.preAudible))
+        return { Reason::cycleUnverified, RecoveryAction::cycleOff, "Turn Cycle off to compare (POST)" };
+    if (state.active && state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && (state.preWaiting || ! state.preAudible))
         return result (RecoveryAction::loopOff, "Loop Playback on: turn it off to compare (POST)");
     if (state.active && state.timingUnavailable)
         return result (RecoveryAction::none, host_availability::timingText());
     // The clock is missing on a host that has never reported one, nor its output latency: this is
     // the host's ability, so neither "restart playback" nor "select PRE again" is promised.
     if (state.active && state.clockUnavailable)
-        return result (RecoveryAction::noOutputLatency, "This DAW does not report output latency; PRE is unavailable (POST)");
+        return result (RecoveryAction::noOutputLatency, "This DAW has no verified audio clock; PRE is unavailable (POST)");
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
     if (state.active && state.interrupted)

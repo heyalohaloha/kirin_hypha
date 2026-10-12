@@ -16,6 +16,8 @@
 #include "LiveCompareGainApproval.h"
 #include "LiveBlindPreparation.h"
 #include "LiveCompareContentHold.h"
+#include "CertifiedProjectAnalysisClock.h"
+#include "LiveCompareLoopGuidance.h"
 
 #include <atomic>
 #include <cstdint>
@@ -33,7 +35,7 @@ struct LiveBlindStatus
     RecoveryReason reason = RecoveryReason::none;
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
-    bool loopBlocksPairing = false; // an uncertified AAX host loops a range: no K until loop playback is off
+    LoopPairingBlock loopBlock = LoopPairingBlock::none;
     bool clockUnavailable = false;  // the host reports neither a continuous clock nor output latency: PRE cannot be heard
 };
 
@@ -49,7 +51,7 @@ struct Status
     bool interrupted = false; // offline render or bypass ended the session; select PRE again
     bool timingReentryPending = false;
     bool timingUnavailable = false;
-    bool loopBlocksPairing = false; // an uncertified AAX host loops a range: turn loop playback off
+    LoopPairingBlock loopBlock = LoopPairingBlock::none;
     // The audio clock is missing and this host has reported neither a continuous clock nor its
     // output latency since this instance began: PRE cannot be heard here, and stop/play will not help.
     bool clockUnavailable = false;
@@ -104,7 +106,8 @@ struct ProcessorState
     std::uint64_t blindApprovalTimeline = 0;
     local_blind::RtPublicationSlot<SharedRingMapping> ring;
     PreFeeder feeder;
-    AaxAnalysisClock analysisClock;
+    PairedAnalysisClock analysisClock;
+    CertifiedProjectAnalysisClock projectAnalysisClock;
     PostRenderer renderer;
     ContinuousClock clock;
     GapDetector gaps;
@@ -132,9 +135,8 @@ struct ProcessorState
     bool wasPlaying = false;                      // Audio Thread only
     std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
     bool compensationWasOff = false;              // Audio Thread only
-    // AAX POST: the host loops a range and carries no certificate, so no pair proof can start.
-    // Published for guidance only; it never grants or revokes a proof.
-    std::atomic<bool> loopBlocksPairing { false };
+    // Shared callback result for analysis, LISTEN and BLIND; never persisted.
+    std::atomic<LoopPairingBlock> loopBlock { LoopPairingBlock::none };
     // Host capability, for guidance only and never a proof: whether any callback of this instance
     // carried a continuous clock, and whether the host ever reported its output presentation
     // latency (the read path in PluginProcessorHostClock.cpp). A host that supplies neither

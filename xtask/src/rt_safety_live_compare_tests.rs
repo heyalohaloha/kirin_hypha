@@ -154,7 +154,10 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
 fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_thread() {
     // INV-LC4: PRE only in proven blocks; a lost proof switches at the block start.
     for required in [
-        "if (decision.verdict != Verdict::accepted)",
+        "report.verdict = decision.verdict;",
+        "if (timingBlock != RecoveryReason::none)",
+        "report.verdict = Verdict::loopUnproven;",
+        "if (report.verdict != Verdict::accepted)",
         "weight = 0.0f; // switch to POST at the block start",
         "fadeSeconds = 0.005",
         "if (ring.header.demand.load (std::memory_order_acquire) == 0)",

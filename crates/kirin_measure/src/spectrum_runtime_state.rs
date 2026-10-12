@@ -245,7 +245,10 @@ impl SpectrumRuntime {
             .filter(|kind| {
                 matches!(
                     kind,
-                    super::SpectrumClockKind::Presentation | super::SpectrumClockKind::AaxEngine
+                    super::SpectrumClockKind::Presentation
+                        | super::SpectrumClockKind::AaxEngine
+                        | super::SpectrumClockKind::Vst3Content
+                        | super::SpectrumClockKind::AudioUnitRender
                 )
             })
             .map(|kind| (history, kind))

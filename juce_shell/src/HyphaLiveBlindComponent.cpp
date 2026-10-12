@@ -1,5 +1,6 @@
 #include "HyphaLiveBlindComponent.h"
 #include "HyphaLiveCompareRecoveryText.h"
+#include "HyphaPairingLoopText.h"
 #include <cmath>
 
 namespace hypha::live_blind_ui
@@ -9,12 +10,15 @@ using Stage = live_compare::BlindStage;
 blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool playing, float actualPost)
 {
     blind_ui::Screen screen;
-    const bool live = current.stage == Stage::active && ! current.trial.invalidated && ! current.contentHeld;
+    const bool cycleUnverified = current.loopBlock == live_compare::LoopPairingBlock::auCycle;
+    const bool live = current.stage == Stage::active && ! current.trial.invalidated && ! current.contentHeld
+        && ! cycleUnverified;
     const bool revealed = live && current.trial.revealed;
     const bool finishing = current.stage == Stage::finishing;
     const bool stopped = current.stage == Stage::invalidated || current.trial.invalidated;
     const auto guidance = live_compare_ui::blindRecovery (current, stopped);
-    const bool waiting = current.contentHeld || (current.stage == Stage::approval && current.compensationOff)
+    const bool waiting = (cycleUnverified && current.stage != Stage::idle && ! finishing && ! stopped)
+        || current.contentHeld || (current.stage == Stage::approval && current.compensationOff)
         || ((current.stage == Stage::preparing || current.stage == Stage::settling)
         && (current.compensationOff || (playing && current.observation != live_compare::RecoveryReason::none)));
     screen.guidanceShown = stopped || waiting || current.timingUnavailable || current.clockUnavailable;
@@ -22,7 +26,8 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         : current.compensationOff ? live_compare::RecoveryReason::compensationOff : guidance.reason;
     // An uncertified AAX host looping a range is not the host boundary: loop playback off compares.
     screen.cause = current.contentHeld ? live_compare_ui::cause (live_compare::RecoveryReason::contentChanged)
-                   : current.timingUnavailable && ! current.loopBlocksPairing ? host_availability::timingText()
+                   : current.timingUnavailable && current.loopBlock == live_compare::LoopPairingBlock::none
+                       && guidance.reason != live_compare::RecoveryReason::cycleUnverified ? host_availability::timingText()
                                             : live_compare_ui::cause (visibleCause);
     screen.recovery = guidance.instruction;
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
@@ -31,9 +36,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
         ? "END returns +" + juce::String (returnDb, 1) + " dB" : "END restores normal level";
     if (current.contentHeld)
         instruction = "Comparison paused; POST plays";
-    else if (waiting && current.loopBlocksPairing)
-        instruction = "Loop Playback on: turn it off to compare";
-    else if (current.timingUnavailable || current.clockUnavailable)
+    else if (waiting && current.loopBlock != live_compare::LoopPairingBlock::none)
+        instruction = pairing_loop_text::status (current.loopBlock);
+    else if ((current.timingUnavailable || current.clockUnavailable) && guidance.reason != live_compare::RecoveryReason::cycleUnverified)
         instruction = "Comparison unavailable; POST plays";
     else if (current.compensationOff)
         instruction = "Waiting for comparison; POST plays";
@@ -82,7 +87,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.revealShown = live && ! revealed;
     screen.revealEnabled = current.trial.played == 3;
     screen.approveShown = current.stage == Stage::approval && ! current.contentHeld
-        && ! current.timingUnavailable && ! current.clockUnavailable && ! current.compensationOff;
+        && ! cycleUnverified && ! current.timingUnavailable && ! current.clockUnavailable && ! current.compensationOff;
     screen.approveTitle = "Lower POST and begin Blind";
     screen.approveDescription = explanation;
     screen.endEnabled = ! finishing;

@@ -64,6 +64,7 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
     if (role == Role::Post)
     {
         liveCompare.preparation.retire();
+        liveCompare.loopBlock.store (hypha::live_compare::LoopPairingBlock::none, std::memory_order_relaxed);
         stopLiveCompare (hypha::live_compare::RecoveryReason::formatChanged);
         liveCompare.ring.retire();
         collectWithin (liveCompare.ring);
@@ -319,12 +320,16 @@ std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
     return liveCompare.playbackRun.load (std::memory_order_acquire);
 }
 
-// Message thread, guidance only: an AAX host without the certificate loops a range, so neither
-// LISTEN / BLIND nor the SHARP difference can prove K until loop playback is off.
+// Message thread: all comparison surfaces read the same callback result.
 bool KirinHyphaProcessorBase::analysisPairingLoopBlocked() const noexcept
 {
-    return role == Role::Post && wrapperType == wrapperType_AAX
-        && liveCompare.loopBlocksPairing.load (std::memory_order_relaxed);
+    return analysisPairingLoopBlock() != hypha::live_compare::LoopPairingBlock::none;
+}
+
+hypha::live_compare::LoopPairingBlock KirinHyphaProcessorBase::analysisPairingLoopBlock() const noexcept
+{
+    return role == Role::Post ? liveCompare.loopBlock.load (std::memory_order_relaxed)
+                             : hypha::live_compare::LoopPairingBlock::none;
 }
 
 bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
@@ -468,7 +473,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.observation = liveCompare.observationReason.load (std::memory_order_acquire);
     status.timingUnavailable = ! status.contentHeld
         && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable);
-    status.loopBlocksPairing = analysisPairingLoopBlocked();
+    status.loopBlock = analysisPairingLoopBlock();
     // A missing audio clock on a host that has never supplied a continuous clock or an
     // output-latency report is this host's ability, not a transient: stop/play cannot fix it.
     status.clockUnavailable = status.observation == Reason::clockMissing

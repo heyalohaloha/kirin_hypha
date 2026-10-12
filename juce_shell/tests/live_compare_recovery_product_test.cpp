@@ -203,7 +203,7 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
         "PRE waits for a clock this host never supplies");
     const auto notice = currentNamedPresentation (waiting);
     require (notice.action == RecoveryAction::noOutputLatency && r.view().feedback() == notice.instruction
-        && r.editor->statusStory().joinIntoString (" ").contains ("PRE cannot be heard"),
+        && r.editor->statusStory().joinIntoString (" ").contains ("PRE timing cannot be verified"),
         "the footer and the story name the host, not a restart");
     r.clock.playing = false; r.advance (0.2); r.clock.playing = true; r.advance (0.4);
     require (currentNamedPresentation (r.post->liveCompareStatus()).action == RecoveryAction::noOutputLatency,
@@ -224,7 +224,7 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
     r.post->selectLiveComparePre (true); r.advance (0.4);
     const auto transient = r.post->liveCompareStatus();
     const auto remedy = currentNamedPresentation (transient);
-    require (transient.active && ! transient.clockUnavailable && ! transient.loopBlocksPairing
+    require (transient.active && ! transient.clockUnavailable && transient.loopBlock == hypha::live_compare::LoopPairingBlock::none
         && remedy.action != RecoveryAction::noOutputLatency && remedy.action != RecoveryAction::loopOff
         && juce::String (remedy.instruction).startsWith ("Clock missing"),
         "a host that has shown a clock keeps the transient clock remedy; VST3 loops ask for no loop change");
