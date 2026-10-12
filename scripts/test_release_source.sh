@@ -199,11 +199,13 @@ run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
 # are not sentinel files and must be present in every supported native test build.
 UPDATE_INTEGRATION_TARGETS=(KirinUpdateRuntimeIntegrationTests KirinUpdate_http_response_Tests)
 UPDATE_INTEGRATION_REGEX='^(kirin_update_runtime_(off|success|failure|cancel|lifetime)|kirin_update_http_response)$'
-UPDATE_INTEGRATION_COUNT=6
+# CTest also selects the two kirin_real_storage fixtures (setup/cleanup) that every native test
+# requires, so the inventory counts them with the selected tests.
+UPDATE_INTEGRATION_COUNT=8
 if [[ "$(uname -s)" == "Darwin" ]]; then
   UPDATE_INTEGRATION_TARGETS+=(KirinUpdate_transport_mac_Tests)
   UPDATE_INTEGRATION_REGEX='^(kirin_update_runtime_(off|success|failure|cancel|lifetime)|kirin_update_http_response|kirin_update_transport_mac)$'
-  UPDATE_INTEGRATION_COUNT=7
+  UPDATE_INTEGRATION_COUNT=9
 fi
 run cmake --build "$PRE_DISPLAY_BUILD" --target "${UPDATE_INTEGRATION_TARGETS[@]}" --config Release
 assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$UPDATE_INTEGRATION_REGEX" "$UPDATE_INTEGRATION_COUNT"
