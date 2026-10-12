@@ -48,6 +48,12 @@ public:
     { return processor.liveCompare.analysisClock.local; }
     static hypha::live_compare::AnalysisClockReading aaxPairedClock (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.analysisClock.paired; }
+    // The public shell getter is POST-only; diagnostics need both real ingress counters.
+    static bool analysisStats (const KirinHyphaProcessorBase& processor, KirinSpectrumStats& stats)
+    {
+        return processor.hyphaHandle != nullptr
+            && kirin_hypha_spectrum_stats (processor.hyphaHandle, &stats);
+    }
 
     // Drive the production input/timing/analysis transaction while another audition owns output.
     static void processAaxAnalysisWithOtherOutputOwner (KirinHyphaProcessorBase& processor,

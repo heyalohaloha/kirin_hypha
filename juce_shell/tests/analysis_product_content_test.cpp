@@ -135,7 +135,9 @@ void run (Fixture& fixture, const juce::String& phase, bool au, bool included)
 int main (int argc, char** argv)
 try
 {
-    require (argc == 5, "explicit layout, latency scenario, host and phase are required");
+    const auto started = hypha::tests::AnalysisTestClock::now();
+    require (argc == 6 || argc == 7 || argc == 8,
+             "layout, latency scenario, host, phase, CTest timeout; optional jitter or delay ms and cadence");
     const juce::String layout (argv[1]), scenario (argv[2]), host (argv[3]), phase (argv[4]);
     require (layout == "mono" || layout == "stereo", "unknown layout");
     require (scenario == "missing" || scenario == "omitted" || scenario == "included" || scenario == "zero", "unknown latency scenario");
@@ -144,11 +146,41 @@ try
     const bool cycle = phase == "cycle_listen" || phase == "cycle_blind";
     require (phase == "linear" || phase == "loop" || phase == "recovery" || cycle, "unknown phase");
     require (! cycle || (host == "au" && scenario != "included"), "Cycle guidance needs unverified AU timing");
+    const auto timeout = std::stoi (argv[5]);
+    require (timeout > 15, "CTest timeout must leave time for failure diagnostics");
+    hypha::tests::AnalysisPostDelay injectedDelay;
+    if (argc == 7)
+    {
+        require (host == "reaper" && juce::String (argv[6]) == "jitter", "REAPER jitter preset required");
+        injectedDelay = hypha::tests::reaperAnalysisJitterDelay();
+    }
+    if (argc == 8)
+    {
+        const auto milliseconds = std::stoi (argv[6]), every = std::stoi (argv[7]);
+        require (milliseconds > 0 && every > 0, "positive delay and cadence required");
+        injectedDelay = { milliseconds, static_cast<std::uint64_t> (every) };
+    }
     ReferenceValidationStorageSandbox sandbox;
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     juce::ScopedJuceInitialiser_GUI initialise;
-    Fixture fixture (layout == "mono" ? 1 : 2, scenario, host == "au", host == "reaper");
-    run (fixture, phase, host == "au", scenario == "included");
+    Fixture fixture (layout == "mono" ? 1 : 2, scenario, host == "au", host == "reaper",
+                     hypha::tests::analysisPhaseDeadline (started, timeout));
+    fixture.injectedDelay = injectedDelay;
+    try
+    {
+        run (fixture, phase, host == "au", scenario == "included");
+        require (argc == 6 || fixture.injectedDelay.injections >= 3, "jitter regression must actually inject delays");
+        require (argc != 7 || (fixture.preIntervals.gaps == 0 && fixture.postIntervals.gaps == 0),
+                 "jitter must remain below the gap threshold on both PRE and POST");
+    }
+    catch (...)
+    {
+        std::cerr << "phase wall seconds " << std::chrono::duration<double> (
+            hypha::tests::AnalysisTestClock::now() - started).count() << std::endl;
+        fixture.diagnostics();
+        throw;
+    }
+    fixture.diagnostics();
     std::cout << "Content analysis product: " << layout << " " << scenario << " " << host << " " << phase << " PASS\n";
 }
 catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

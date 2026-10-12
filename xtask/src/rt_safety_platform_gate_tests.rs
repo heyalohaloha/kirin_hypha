@@ -188,6 +188,11 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "native gate selection and expected inventory must agree"
     );
     for test in [
+        "kirin_native_storage_guard_setup",
+        "kirin_native_storage_guard_cleanup",
+        "kirin_native_storage_guard_contract",
+        "kirin_live_publication_PRE_storage-only",
+        "kirin_live_publication_POST_storage-only",
         "kirin_editor_surface_product",
         "kirin_pair_preview_lifetime",
         "kirin_reference_audio_streaming",
@@ -229,6 +234,42 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
             "native gate does not execute {test}"
         );
     }
+}
+
+#[test]
+fn every_native_test_requires_the_read_only_real_storage_fixture() {
+    let cmake = include_str!("../../juce_shell/CMakeLists.txt");
+    assert!(cmake
+        .trim_end()
+        .ends_with("include(cmake/NativeStorageGuard.cmake)"));
+    let guard = include_str!("../../juce_shell/cmake/NativeStorageGuard.cmake");
+    for contract in [
+        "get_property(kirin_hypha_native_tests DIRECTORY PROPERTY TESTS)",
+        "FIXTURES_SETUP kirin_real_storage",
+        "FIXTURES_CLEANUP kirin_real_storage",
+        "APPEND PROPERTY FIXTURES_REQUIRED kirin_real_storage",
+        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-kirin-os",
+        "native_storage_guard.test.mjs",
+    ] {
+        assert!(
+            guard.contains(contract),
+            "missing native storage guard: {contract}"
+        );
+    }
+    let fixture = include_str!("../../juce_shell/tests/live_compare_publication_product_test.cpp");
+    let isolated = fixture
+        .find("Controller::placeUnderForTest (sandbox.directory())")
+        .unwrap();
+    let checked = fixture
+        .find("requirePublicationStorage (sandbox.directory())")
+        .unwrap();
+    let processors = fixture
+        .find("juce::ScopedJuceInitialiser_GUI initialise")
+        .unwrap();
+    assert!(isolated < checked && checked < processors);
+    let modes = include_str!("../../juce_shell/cmake/LivePublicationTests.cmake");
+    assert!(modes.contains("foreach(role IN ITEMS PRE POST)"));
+    assert!(modes.contains("state-only shared-ring storage-only"));
 }
 
 #[test]
@@ -277,6 +318,11 @@ fn content_analysis_gate_covers_every_independent_phase() {
                     expected.insert(format!(
                         "kirin_{host}_analysis_{layout}_{scenario}_{phase}_product"
                     ));
+                    if host == "reaper" {
+                        expected.insert(format!(
+                            "kirin_{host}_analysis_{layout}_{scenario}_{phase}_jitter_product"
+                        ));
+                    }
                 }
             }
         }
@@ -287,10 +333,14 @@ fn content_analysis_gate_covers_every_independent_phase() {
     );
     assert!(gate.contains("KirinAnalysisProductWaitTests"));
     assert!(gate.contains("kirin_analysis_product_wait"));
+    assert!(gate.contains("KirinAnalysisProductTimingTests"));
+    assert!(gate.contains("kirin_analysis_product_timing"));
     let cmake = include_str!("../../juce_shell/cmake/AaxAnalysis.cmake");
     assert!(cmake.contains("include(${CMAKE_CURRENT_LIST_DIR}/ContentAnalysisTests.cmake)"));
     let phases = include_str!("../../juce_shell/cmake/ContentAnalysisTests.cmake");
     assert!(phases.contains(
-        "COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} ${host} ${phase}"
+        "COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} ${host} ${phase} ${phase_timeout}"
     ));
+    assert!(phases.contains("${phase_timeout} jitter"));
+    assert!(phases.contains("PROPERTIES TIMEOUT ${phase_timeout}"));
 }

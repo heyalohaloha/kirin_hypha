@@ -1,6 +1,6 @@
 #pragma once
 #include "../src/PluginProcessor.h"
-#include "AnalysisProductWait.h"
+#include "AnalysisProductTiming.h"
 #include "LiveTimingFixtureAccess.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
@@ -17,7 +17,6 @@ namespace content_analysis_product
 {
 inline void require (bool ok, const char* why) { if (! ok) throw std::runtime_error (why); }
 using Processor = KirinHyphaProcessorBase;
-constexpr int frames = 256;
 struct Clock final : juce::AudioPlayHead
 {
     juce::Optional<PositionInfo> getPosition() const override
@@ -32,7 +31,7 @@ struct Clock final : juce::AudioPlayHead
         if (reported) info.setKirinOutputPresentationLatencySamples (latency);
         if (loop)
         {
-            constexpr std::int64_t length = 96000;
+            const auto length = loopSamples;
             const auto folded = hypha::live_compare::positiveModulo (content, length);
             if (positionAvailable) info.setTimeInSamples (folded);
             info.setIsLooping (true);
@@ -50,6 +49,7 @@ struct Clock final : juce::AudioPlayHead
         return info;
     }
     std::int64_t content = 0, inputDelay = 0, latency = 512;
+    std::int64_t loopSamples = 96000;
     double rate = 48000;
     bool reaper = false, positionAvailable = true;
     bool audioUnit = false, projectWitness = true;
@@ -58,11 +58,15 @@ struct Clock final : juce::AudioPlayHead
 
 struct Fixture
 {
-    Fixture (int channelsIn, const juce::String& scenario, bool au, bool reaperIn) : channels (channelsIn), reaper (reaperIn)
+    Fixture (int channelsIn, const juce::String& scenario, bool au, bool reaperIn,
+             hypha::tests::AnalysisTestClock::time_point end)
+        : durations (reaperIn), frames (hypha::tests::analysisProductFrames (reaperIn)),
+          channels (channelsIn), reaper (reaperIn), phaseDeadline (end)
     {
         preClock.audioUnit = postClock.audioUnit = au;
         preClock.reaper = postClock.reaper = reaper;
-        preClock.rate = postClock.rate = rate = reaper ? 96000 : 48000;
+        preClock.rate = postClock.rate = rate = static_cast<double> (durations.rate);
+        preClock.loopSamples = postClock.loopSamples = static_cast<std::int64_t> (durations.samples (durations.loopMs));
         const bool zero = scenario == "zero";
         delay = zero ? 0 : hypha::pdc_validation::FixedValidationDelay::latencySamples;
         line.prepare (channels);
@@ -98,7 +102,22 @@ struct Fixture
     void process (Processor& processor, juce::AudioBuffer<float>& audio)
     {
         juce::AudioBuffer<float> original; original.makeCopyOf (audio);
-        juce::MidiBuffer midi; processor.processBlock (audio, midi);
+        juce::MidiBuffer midi;
+        KirinSpectrumStats before {}, after {};
+        const bool haveStats = reaper && LiveTimingFixtureAccess::analysisStats (processor, before);
+        (&processor == pre.get() ? preIntervals : postIntervals).observe (
+            hypha::tests::AnalysisTestClock::now(), frames, rate);
+        processor.processBlock (audio, midi);
+        if (haveStats && LiveTimingFixtureAccess::analysisStats (processor, after))
+        {
+            const auto dropped = after.dropped_blocks - before.dropped_blocks;
+            const bool valid = LiveTimingFixtureAccess::aaxLocalClock (processor).valid;
+            auto& counts = &processor == pre.get() ? preDrops : postDrops;
+            (valid ? counts.withClock : counts.withoutClock) += dropped;
+            // Clock retirement contributes to dropped_blocks too. Only loss with a valid
+            // callback is unexplained here (queue pressure or ingress rejection); never retry it.
+            require (! valid || dropped == 0, "fixture lost analysis input with a valid clock");
+        }
         for (int ch = 0; ch < channels; ++ch)
             if (auditionAllowed && &processor == post.get())
             {
@@ -107,11 +126,12 @@ struct Fixture
                              "verified PRE audition matches the physical-delay input, including its fade");
             }
             else require (std::memcmp (audio.getReadPointer (ch), original.getReadPointer (ch),
-                                      frames * sizeof (float)) == 0, "normal A must remain bit identical");
+                                      static_cast<std::size_t> (frames) * sizeof (float)) == 0, "normal A must remain bit identical");
         require (processor.getLatencySamples() == 0, "zero latency");
     }
     void block()
     {
+        require (hypha::tests::AnalysisTestClock::now() < phaseDeadline, "phase wall watchdog before callback");
         const auto started = hypha::tests::AnalysisTestClock::now();
         juce::AudioBuffer<float> audio (channels, frames);
         for (int ch = 0; ch < channels; ++ch)
@@ -123,15 +143,15 @@ struct Fixture
             }
         process (*pre, audio);
         if (delay != 0) require (line.process (audio.getArrayOfWritePointers(), channels, frames), "physical delay");
+        injectedDelay.beforePost (callbacks);
         process (*post, audio);
         preClock.content += frames; postClock.content += frames;
         LiveTimingFixtureAccess::serviceTiming (*post);
         ++callbacks;
         // Worker/IO scheduling is real, but input progress is counted independently below.
         // Do not add a fixed sleep to a slow callback, or catch up with a burst of queued audio.
-        const auto deadline = hypha::tests::analysisBlockDeadline (started);
-        if (hypha::tests::AnalysisTestClock::now() < deadline) std::this_thread::sleep_until (deadline);
-        else std::this_thread::yield();
+        hypha::tests::finishAnalysisProductBlock (started, reaper);
+        require (hypha::tests::AnalysisTestClock::now() < phaseDeadline, "phase wall watchdog after callback");
     }
     template <class Check> void until (Check check, const char* why)
     {
@@ -139,30 +159,44 @@ struct Fixture
         const auto first = callbacks;
         std::cerr << "[block " << first << "] " << why << std::endl;
         const auto result = hypha::tests::waitForAnalysis (
-            hypha::tests::analysisWaitBlocks (static_cast<std::uint64_t> (rate), frames),
+            hypha::tests::analysisWaitBlocks (durations.rate, static_cast<std::uint64_t> (frames)), phaseDeadline,
             [&] { block(); }, check, [] { return hypha::tests::AnalysisTestClock::now(); });
         const auto elapsed = std::chrono::duration<double> (hypha::tests::AnalysisTestClock::now() - started).count();
         std::cerr << "  " << callbacks - first << " blocks, " << elapsed << " wall seconds" << std::endl;
         if (result == hypha::tests::AnalysisWaitResult::ready) return;
+        std::cerr << (result == hypha::tests::AnalysisWaitResult::audioLimit ? "audio limit" : "wall watchdog") << std::endl;
+        require (false, why);
+    }
+    void diagnostics()
+    {
+        std::cerr << "frames " << frames << ", rate " << rate << ", callbacks " << callbacks
+                  << ", injected delays " << injectedDelay.injections << std::endl;
+        preIntervals.print (std::cerr, "PRE"); postIntervals.print (std::cerr, "POST");
         for (auto* processor : { pre.get(), post.get() })
         {
             KirinSpectrumStats stats {};
-            if (processor->spectrumStats (stats))
+            if (LiveTimingFixtureAccess::analysisStats (*processor, stats))
+            {
+                const auto& drops = processor == pre.get() ? preDrops : postDrops;
                 std::cerr << (processor == pre.get() ? "PRE" : "POST") << " worker: enabled "
                           << static_cast<int> (stats.enabled) << ", pushed " << stats.pushed_blocks
-                          << ", dropped " << stats.dropped_blocks << std::endl;
+                          << ", dropped " << stats.dropped_blocks << ", drops without clock "
+                          << drops.withoutClock << ", drops with clock " << drops.withClock << std::endl;
+            }
         }
-        std::cerr << (result == hypha::tests::AnalysisWaitResult::audioLimit ? "audio limit" : "wall watchdog") << std::endl;
-        require (false, why);
+        std::cerr << std::flush;
     }
 
     bool zeroDelta (bool spectrum)
     {
+        latestEndpoint = 0; latestAperture = 0;
         if (spectrum)
         {
             KirinSpectrumBatch batch {};
             if (! post->pollSpectrumBatch (batch) || batch.latest.has_data == 0) return false;
             for (auto value : batch.latest.display_db) require (std::abs (value) < 1.0e-5f, "same-content FREQ delta");
+            latestEndpoint = batch.latest.presentation_end_samples;
+            latestAperture = batch.latest.aperture_samples;
             return true;
         }
         KirinPerceptualBatch batch {}; KirinPsbView psb {};
@@ -171,6 +205,8 @@ struct Fixture
         require (std::abs (batch.latest.delta_sharpness) < 1.0e-8, "same-content SHARP delta");
         require (psb.is_delta != 0, "PSB is delta");
         for (auto value : psb.shares) require (std::abs (value) < 1.0e-8, "same-content PSB delta");
+        latestEndpoint = batch.latest.presentation_end_samples;
+        latestAperture = batch.latest.aperture_samples;
         return true;
     }
     void noDelta (bool spectrum)
@@ -186,39 +222,66 @@ struct Fixture
     void verifyAvailability (bool spectrum)
     {
         // Each wrap gets its own deadline, rather than an aggregate success count that can
-        // hide a whole missing lap. Recovery must finish within the existing 1.5 s request
-        // lease: delay tail + calibration + exchange re-arm + complete analysis aperture.
-        constexpr std::int64_t length = 96000, recovery = 72000;
+        // hide a whole missing lap. The SHARP budget includes its future epoch and two
+        // continuous 100 ms apertures at 96 kHz; see AnalysisAudioDurations::recoverySamples.
+        const auto length = static_cast<std::int64_t> (durations.samples (durations.loopMs));
+        const auto recovery = durations.recoverySamples (spectrum, static_cast<std::uint64_t> (frames),
+                                                         static_cast<std::uint64_t> (delay));
+        require (recovery < static_cast<std::uint64_t> (length), "loop must outlast its recovery budget");
         std::int64_t deadline = 0;
-        int wraps = 0, recovered = 0, observed = 0;
+        int wraps = 0, recovered = 0;
+        std::uint64_t observedSamples = 0;
         bool awaiting = false;
-        const int blocks = preClock.loop ? 2 * static_cast<int> (length / frames) : 420;
-        for (int i = 0; i < blocks; ++i)
+        hypha::tests::AnalysisWrapRecovery fresh;
+        const auto recoveredNow = [&] (bool hasData) {
+            if (! reaper) return hasData;
+            return fresh.observe (LiveTimingFixtureAccess::aaxPairedClock (*post).valid, hasData,
+                latestEndpoint, latestAperture, postClock.content % length);
+        };
+        std::cerr << "loop samples " << length << ", recovery samples " << recovery << std::endl;
+        const auto samples = durations.samples (preClock.loop ? 2 * durations.loopMs : durations.linearMs);
+        const auto blocks = hypha::tests::analysisBlocksForSamples (samples, static_cast<std::uint64_t> (frames));
+        for (std::uint64_t i = 0; i < blocks; ++i)
         {
             const auto before = preClock.content;
             block();
             const bool hasData = zeroDelta (spectrum); // EVERY published delta must be zero.
-            if (hasData) ++observed;
+            if (hasData) observedSamples += std::min (static_cast<std::uint64_t> (frames),
+                                                      samples - i * static_cast<std::uint64_t> (frames));
             if (! LiveTimingFixtureAccess::aaxPairedClock (*post).valid) noDelta (spectrum);
             if (preClock.loop && before / length != preClock.content / length)
             {
                 require (! awaiting, "preceding loop must recover before another wrap");
-                deadline = preClock.content + recovery;
+                // Anchor at the actual wrap, not the end of a larger block crossing it.
+                deadline = durations.recoveryDeadlineAfterWrap (before, recovery);
+                fresh = {};
                 awaiting = true; ++wraps;
+                std::cerr << "wrap " << wraps << " at " << deadline - static_cast<std::int64_t> (recovery)
+                          << ", deadline " << deadline << std::endl;
             }
             // A pre-wrap value does not count as recovery from the next callback's clamp.
-            if (awaiting && before % length < recovery && hasData)
-            { awaiting = false; ++recovered; }
-            require (! awaiting || preClock.content <= deadline, "delta must recover within 1.5 s after each wrap");
+            if (awaiting && before % length < static_cast<std::int64_t> (recovery)
+                && recoveredNow (hasData) && preClock.content <= deadline)
+            {
+                awaiting = false; ++recovered;
+                std::cerr << "wrap " << wraps << " recovered at " << preClock.content
+                          << ", deadline " << deadline << ", endpoint " << latestEndpoint << std::endl;
+            }
+            require (! awaiting || preClock.content <= deadline, "delta must recover within the per-wrap audio deadline");
         }
         // Complete the last wrap's deadline without skipping checks or accepting stale data.
         while (awaiting && preClock.content + frames <= deadline)
         {
             block();
             if (! LiveTimingFixtureAccess::aaxPairedClock (*post).valid) noDelta (spectrum);
-            if (zeroDelta (spectrum)) { awaiting = false; ++recovered; }
+            if (recoveredNow (zeroDelta (spectrum)))
+            {
+                awaiting = false; ++recovered;
+                std::cerr << "wrap " << wraps << " recovered at " << preClock.content
+                          << ", deadline " << deadline << ", endpoint " << latestEndpoint << std::endl;
+            }
         }
-        require (preClock.loop || observed > 300, "linear data remains available");
+        require (preClock.loop || observedSamples > durations.samples (durations.minimumDataMs), "linear data remains available");
         require (! awaiting && (! preClock.loop || (wraps >= 2 && recovered == wraps)), "every wrap recovered");
     }
     void cycleGuidance()
@@ -228,8 +291,16 @@ struct Fixture
             && pre->analysisPairingLoopBlock() == LoopPairingBlock::none, "only unverified AU POST publishes Cycle guidance");
         require (! post->liveCompareStatus().preAudible, "unverified AU Cycle never auditions PRE");
     }
+    const hypha::tests::AnalysisAudioDurations durations;
+    const int frames;
     int channels, delay = 0;
+    hypha::tests::AnalysisPostDelay injectedDelay;
     bool reaper = false, auditionAllowed = false;
+    const hypha::tests::AnalysisTestClock::time_point phaseDeadline;
+    hypha::tests::AnalysisCallbackIntervals preIntervals, postIntervals;
+    struct Drops { std::uint64_t withoutClock = 0, withClock = 0; } preDrops, postDrops;
+    std::int64_t latestEndpoint = 0;
+    std::uint64_t latestAperture = 0;
     double rate = 48000;
     Clock preClock, postClock;
     hypha::pdc_validation::FixedValidationDelay line;

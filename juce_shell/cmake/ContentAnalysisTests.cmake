@@ -21,8 +21,16 @@ foreach(layout stereo mono)
                     set(phase_timeout 120)
                 endif()
                 add_test(NAME ${test_name}
-                    COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} ${host} ${phase})
+                    COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} ${host} ${phase} ${phase_timeout})
                 set_tests_properties(${test_name} PROPERTIES TIMEOUT ${phase_timeout})
+                if(host STREQUAL "reaper")
+                    # Shared with the virtual-clock test in AnalysisProductTiming.h.
+                    # Keep the same assertions and audio budgets with sub-gap callback jitter.
+                    set(jitter_test kirin_${host}_analysis_${layout}_${scenario}_${phase}_jitter_product)
+                    add_test(NAME ${jitter_test}
+                        COMMAND KirinContentAnalysisProductTests ${layout} ${scenario} ${host} ${phase} ${phase_timeout} jitter)
+                    set_tests_properties(${jitter_test} PROPERTIES TIMEOUT ${phase_timeout})
+                endif()
             endforeach()
         endforeach()
     endforeach()
@@ -33,3 +41,9 @@ target_compile_features(KirinAnalysisProductWaitTests PRIVATE cxx_std_17)
 target_compile_options(KirinAnalysisProductWaitTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
 add_test(NAME kirin_analysis_product_wait COMMAND KirinAnalysisProductWaitTests)
 set_tests_properties(kirin_analysis_product_wait PROPERTIES TIMEOUT 10)
+
+add_executable(KirinAnalysisProductTimingTests tests/analysis_product_timing_test.cpp)
+target_compile_features(KirinAnalysisProductTimingTests PRIVATE cxx_std_17)
+target_compile_options(KirinAnalysisProductTimingTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+add_test(NAME kirin_analysis_product_timing COMMAND KirinAnalysisProductTimingTests)
+set_tests_properties(kirin_analysis_product_timing PROPERTIES TIMEOUT 90)

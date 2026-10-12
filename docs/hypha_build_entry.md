@@ -96,6 +96,29 @@ manifestにはsource commit / B / modified state、JUCEのcommitと実bytesを�
 - 既存の署名済みoutputは上書きしない。旧正規build directory、installed plug-in、公開pkgを触らない。
 - 完了manifestがあるだけでは足りない。`--verify-only`はhashと現在のsourceを再照合する。
 
+## Native試験の保存先と監視
+
+Native試験を有効にしたconfigureにはNode.jsも必要。CTestは全試験に保存先用の
+`KIRIN_HYPHA_TEST_STORAGE_ROOT`と`kirin_real_storage` fixtureを付ける。
+HOMEを付け替える独自fixtureでは、JUCEのGuide/Reference保存先も明示してからworkerを起動する。
+macOSのJUCEはHOME環境変数から利用者のホームを取得しない。
+
+`kirin_native_storage_guard_setup` / `cleanup`はOSが返す実ホームのDocumentsと
+Application Support内のKirin OSを読み取りだけで確認する。WindowsではDocumentsと
+Roaming/Local AppDataを対象にする。全階層の一覧、size、mtime、ctime、symlink情報を
+build内の`real-kirin-os-before.json`へ控えて比較し、一時ファイルの作成後の削除も検出する。
+音声ファイルの内容を読み直すバックアップではない。存在しないrootは作らず、作成された場合だけ差分とする。
+読み取り失敗も不合格となり、setup失敗時はnative本体を実行しない。cleanupは試験失敗時にも走る。
+
+`ctest -R`による部分実行にも監視は自動で付く。fixtureを除外するオプションや実行ファイルの
+直接起動ではこの監視を代用できない。同じbuildで複数のCTestを同時起動せず、必要ならbuildを分ける。
+実アプリが同時に対象フォルダを更新しても不合格になるため、静止した環境で検証する。
+監視は変更を検出するもので、OSの書き込み禁止や実データの自動復元は行わない。
+
+`kirin_live_publication_PRE_storage-only` / `POST_storage-only`は共有メモリ不要で、worker起動前の
+保存先と両roleのpresence/capabilityの作成・終了時削除を検証する。監視自体の異常系は
+`kirin_native_storage_guard_contract`が使い捨てデータだけで検証する。
+
 ## ビルドと製品化を分ける
 
 この入口は**未署名のローカル診断ビルド**。iLok USBやCloudの移動は不要。

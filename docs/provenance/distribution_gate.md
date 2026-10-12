@@ -167,3 +167,15 @@ The accepted Stage3 audit and detailed private evidence remain outside public co
 contain only the bounded policy, attribution and gate implementation. No competitor records or
 historical commits are removed. High-risk provenance or active credential findings stop ordinary
 work and keep the implementation Freeze in place.
+
+### 2026-10-13 native storage guard build-contract review
+
+The implementation review compared the uncommitted CMake change with
+`a19e2133f33f6315e901a1b1c758cd08ffb4bbea`. It extracts the existing native-test
+storage environment setup into `NativeStorageGuard.cmake` and adds read-only CTest
+setup/cleanup checks plus disposable guard tests. The module only registers tests
+and their properties; it adds no product sources, links, fonts or embedded resources.
+The embedded resource/font declaration is byte-identical and the three embedded PNG
+hashes still match the registry. Only the build-contract hash is updated to
+`0863d612d4f14eeee7939866362725dd8a10a08614313f155adb3aebc7541c1a`. Asset permissions, holds and release gates retain their prior decisions.
+This source review does not claim independent review or release acceptance.

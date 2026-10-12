@@ -1,6 +1,7 @@
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
+#include "PublicationStorageContract.h"
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -156,15 +157,25 @@ void sharedRing (juce::AudioProcessor::WrapperType format, int channels)
 int main (int argc, char** argv)
 try
 {
-    require (argc == 2, "choose --state-only or --shared-ring");
+    require (argc == 2, "choose --state-only, --shared-ring or --storage-only");
     const bool shared = juce::String (argv[1]) == "--shared-ring";
-    require (shared || juce::String (argv[1]) == "--state-only", "known test mode");
+    const bool storage = juce::String (argv[1]) == "--storage-only";
+    require (shared || storage || juce::String (argv[1]) == "--state-only", "known test mode");
    #if KIRIN_HYPHA_PRE_DISPLAY
     ValidationStorageSandbox sandbox;
-    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
    #else
     ReferenceValidationStorageSandbox sandbox;
    #endif
+    // Guide transport is compiled for both roles; PRE_DISPLAY only selects the PRE UI.
+    // macOS JUCE's home ignores HOME, and both sandboxes clear the CTest storage override.
+    hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
+    hypha::tests::requirePublicationStorage (sandbox.directory());
+    if (storage)
+    {
+        hypha::tests::verifyPublicationStorage (sandbox.directory());
+        std::cout << "Publication storage: PASS PRE/POST leases and cleanup\n";
+        return EXIT_SUCCESS;
+    }
     juce::ScopedJuceInitialiser_GUI initialise;
     int cases = 0;
     for (auto format : { juce::AudioProcessor::wrapperType_VST3,

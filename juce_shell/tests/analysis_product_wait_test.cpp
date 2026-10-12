@@ -1,4 +1,4 @@
-#include "AnalysisProductWait.h"
+#include "AnalysisProductTiming.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -14,9 +14,10 @@ void slowSchedulerKeepsTheAudioBudget()
         for (const auto slowdown : { 1, 5, 6 })
         {
             AnalysisTestClock::time_point time {};
-            const auto budget = analysisWaitBlocks (rate, 256);
+            const auto budget = analysisWaitBlocks (rate, analysisProductFrames (rate == 96000));
+            const auto deadline = analysisPhaseDeadline (time, 90);
             std::uint64_t blocks = 0;
-            const auto result = waitForAnalysis (budget, [&] {
+            const auto result = waitForAnalysis (budget, deadline, [&] {
                 ++blocks;
                 time += milliseconds (5 * slowdown);
             }, [&] { return blocks == budget; }, [&] { return time; });
@@ -29,29 +30,54 @@ void failuresStayBounded()
 {
     AnalysisTestClock::time_point time {};
     std::uint64_t blocks = 0;
-    auto result = waitForAnalysis (20, [&] { ++blocks; }, [] { return false; }, [&] { return time; });
+    auto deadline = analysisPhaseDeadline (time, 90);
+    auto result = waitForAnalysis (20, deadline, [&] { ++blocks; }, [] { return false; }, [&] { return time; });
     require (result == AnalysisWaitResult::audioLimit && blocks == 20,
              "a missing result must fail at the exact audio limit");
     blocks = 0;
-    result = waitForAnalysis (1000, [&] { ++blocks; time += seconds (1); },
+    result = waitForAnalysis (1000, deadline, [&] { ++blocks; time += seconds (1); },
                               [] { return false; }, [&] { return time; });
-    require (result == AnalysisWaitResult::wallLimit && blocks == 150,
+    require (result == AnalysisWaitResult::wallLimit && blocks == 75,
              "the wall watchdog must stop a stalled worker without granting more audio");
-    result = waitForAnalysis (1, [&] { time += seconds (150); },
+    deadline = analysisPhaseDeadline (time, 120);
+    result = waitForAnalysis (1, deadline, [&] { time += seconds (105); },
                               [] { return true; }, [&] { return time; });
     require (result == AnalysisWaitResult::wallLimit,
              "a result arriving at the wall watchdog must not turn a stall into success");
     blocks = 0;
-    result = waitForAnalysis (0, [&] { ++blocks; }, [] { return true; }, [&] { return time; });
+    deadline = analysisPhaseDeadline (time, 90);
+    result = waitForAnalysis (0, deadline, [&] { ++blocks; }, [] { return true; }, [&] { return time; });
     require (result == AnalysisWaitResult::audioLimit && blocks == 0, "zero budget cannot process a block");
     bool threw = false;
     try
     {
-        waitForAnalysis (10, [] {}, [] () -> bool { throw std::runtime_error ("bad delta"); },
+        waitForAnalysis (10, deadline, [] {}, [] () -> bool { throw std::runtime_error ("bad delta"); },
                          [&] { return time; });
     }
     catch (const std::runtime_error&) { threw = true; }
     require (threw, "assertion failures must escape immediately, never become a retry");
+}
+
+void phasesShareOneDeadline()
+{
+    for (const auto timeout : { 90, 120 })
+    {
+        AnalysisTestClock::time_point time {};
+        const auto deadline = analysisPhaseDeadline (time, timeout);
+        time += seconds (10); // Setup also consumes this item's budget.
+        auto result = waitForAnalysis (1, deadline, [&] { time += seconds (20); },
+                                       [] { return true; }, [&] { return time; });
+        require (result == AnalysisWaitResult::ready, "first wait completes inside the phase deadline");
+        int blocks = 0;
+        result = waitForAnalysis (1000, deadline, [&] { ++blocks; time += seconds (1); },
+                                  [] { return false; }, [&] { return time; });
+        require (result == AnalysisWaitResult::wallLimit && blocks == timeout - 15 - 30,
+                 "later waits cannot restart the whole-item watchdog");
+        result = waitForAnalysis (1, deadline, [&] { ++blocks; },
+                                  [] { return true; }, [&] { return time; });
+        require (result == AnalysisWaitResult::wallLimit && blocks == timeout - 15 - 30,
+                 "an expired phase must not process another callback");
+    }
 }
 
 void pacingDoesNotAddWorkOrCatchUp()
@@ -77,6 +103,7 @@ try
 {
     slowSchedulerKeepsTheAudioBudget();
     failuresStayBounded();
+    phasesShareOneDeadline();
     pacingDoesNotAddWorkOrCatchUp();
     std::cout << "Analysis wait: slow scheduler, limits, assertion propagation and pacing PASS\n";
 }

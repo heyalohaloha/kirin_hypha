@@ -14,12 +14,17 @@ constexpr std::uint64_t analysisWaitBlocks (std::uint64_t rate, std::uint64_t fr
     return (12 * rate + frames - 1) / frames;
 }
 
-template <class Block, class Check, class Now>
-AnalysisWaitResult waitForAnalysis (std::uint64_t blocks, Block block, Check check, Now now)
+inline AnalysisTestClock::time_point analysisPhaseDeadline (AnalysisTestClock::time_point started,
+                                                           int ctestTimeoutSeconds)
 {
-    // Outer deadlock watchdog only: even 4500 blocks at six times the 5 ms fixture
-    // cadence finish in 135 s. CTest separately bounds the whole selected phase.
-    const auto end = now() + std::chrono::seconds (150);
+    // One deadline for setup and ALL waits/checks in a CTest item, leaving time for diagnostics.
+    return started + std::chrono::seconds (ctestTimeoutSeconds - 15);
+}
+
+template <class Block, class Check, class Now>
+AnalysisWaitResult waitForAnalysis (std::uint64_t blocks, AnalysisTestClock::time_point end,
+                                    Block block, Check check, Now now)
+{
     for (std::uint64_t i = 0; i < blocks && now() < end; ++i)
     {
         block();
