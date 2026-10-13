@@ -32,9 +32,8 @@ int verifyTimingAvailability (Require require)
                     const auto blind = post.liveBlindStatus();
                     const auto screen = hypha::live_blind_ui::screenFor (blind, true, 1.0f);
                     require (blind.timingUnavailable == structural, "Blind preparation uses the same observed failure");
-                    require (screen.instruction.contains ("unavailable") == structural,
-                             "AU preparing, approving and settling never falsely claim unavailable");
-                    if (! structural && phase == BlindStage::approval)
+                    require (!screen.guidanceShown, "short timing loss stays quiet in every wrapper");
+                    if (phase == BlindStage::approval)
                         require (screen.approveShown && screen.instruction == "Lower POST to match levels?",
                                  "ordinary AU approval keeps its question and button together");
                     ++cases;
@@ -46,9 +45,8 @@ int verifyTimingAvailability (Require require)
             {
                 LiveTimingFixtureAccess::blindWaiting (post, phase);
                 const auto screen = hypha::live_blind_ui::screenFor (post.liveBlindStatus(), true, 1.0f);
-                require (screen.guidanceShown && ! screen.approveShown
-                    && screen.cause == hypha::live_compare_ui::cause (RecoveryReason::compensationOff)
-                    && screen.recovery == "Enable DAW delay compensation", "observed disabled compensation explains its own remedy");
+                require (!screen.guidanceShown && !screen.approveShown,
+                         "short compensation loss stays quiet without granting unsafe approval");
                 ++cases;
             }
             LiveTimingFixtureAccess::compensationDisabled (post, false);
@@ -56,15 +54,19 @@ int verifyTimingAvailability (Require require)
             LiveTimingFixtureAccess::holdContent (post);
             const auto held = post.liveCompareStatus();
             require (! held.timingUnavailable
-                && hypha::live_compare_ui::namedPresentation (held).action == hypha::live_compare_ui::RecoveryAction::stopPlay,
-                     "content hold explains stop/play instead of structural unavailability");
+                && hypha::live_compare_ui::namedPresentation (held).action == hypha::live_compare_ui::RecoveryAction::none,
+                     "short content hold stays quiet");
             for (auto phase : { BlindStage::preparing, BlindStage::approval, BlindStage::settling })
             {
                 LiveTimingFixtureAccess::blindWaiting (post, phase);
                 const auto blind = post.liveBlindStatus();
                 const auto screen = hypha::live_blind_ui::screenFor (blind, true, 1.0f);
-                require (! blind.timingUnavailable && screen.instruction == "Comparison paused; POST plays"
-                    && screen.recovery == "Stop/play DAW; END, then BLIND", "content hold retains its explicit remedy");
+                require (!blind.timingUnavailable && !screen.guidanceShown,
+                         "content hold does not interrupt the current preparation");
+                auto prolonged = blind; prolonged.prolongedWait = true;
+                const auto longScreen = hypha::live_blind_ui::screenFor (prolonged, true, 1.0f);
+                require (longScreen.guidanceShown && longScreen.recovery == "Timing changed: check chain delay (POST)",
+                         "long content loss explains the chain delay without demanding END");
                 ++cases;
             }
             juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);

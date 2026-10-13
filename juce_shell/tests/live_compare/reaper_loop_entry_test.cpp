@@ -1,8 +1,12 @@
 #include "ReaperFixture.h"
+#include "LoopReviewRegressions.h"
 #include "../ProductTestClock.h"
 using namespace reaper_fixture;
 int main()
 {
+    loop_review::reaper();
+    loop_review::otherHosts();
+    loop_review::copyOverlap();
     hypha::tests::ProductTestClock time;
     for (int channels : { 1, 2 })
     for (int delay : { 0, 4096, 65536 })
@@ -34,10 +38,10 @@ int main()
         if (fault == 2) host.postProjectAvailable = false;
         if (fault == 3) for (int i = 0; i < 750; ++i) host.publish(); // unexplained whole lap ahead
         host.consume();
-        require (!host.report.preAudible && host.blind.view().invalidated, "one unverified block interrupts BLIND");
+        require (!host.report.preAudible && !host.blind.view().invalidated, "one unverified block uses POST without ending BLIND");
         host.runtimeBound = true; host.postProjectAvailable = true;
         for (int i = 0; i < 40; ++i) host.consume();
-        require (host.blind.view().invalidated && !host.report.preAudible, "recovered evidence never restarts trial");
+        require (!host.blind.view().invalidated && (fault == 3 ? !host.report.preAudible : host.report.preAudible), "fresh proof resumes; out-of-bound PRE remains withheld");
     }
     {
         Host host; host.length = 384000; host.runtimeBound = true;

@@ -17,8 +17,8 @@ void loopStallStep()
             return;
         case 1: // the product reports the occurrence it cannot identify
             if (stallBlock.load() < 0 || status.observation != Reason::loopClockUnavailable) return;
-            require (status.active && ! status.preAudible && ! status.matched && status.reason == Reason::callbackGap,
-                     "after the stall POST plays, the MATCH is not current, and the cause is the gap");
+            require (status.active && ! status.preAudible && ! status.matched && status.preSelected,
+                     "after the stall POST plays, the MATCH is not current, and the same selection awaits genuinely new proof");
             loopStallLap = clock.loop.laps.load();
             loopStallStage = 2;
             return;

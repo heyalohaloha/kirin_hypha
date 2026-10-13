@@ -68,6 +68,7 @@ void ScreenComponent::apply()
 {
     title.setText (shown.title, juce::dontSendNotification);
     status.setText (shown.instruction, juce::dontSendNotification);
+    status.setVisible (shown.instruction.isNotEmpty());
     detail.setText (shown.detail, juce::dontSendNotification);
     cause.setText (shown.cause, juce::dontSendNotification);
     recovery.setText (shown.recovery, juce::dontSendNotification);
@@ -126,18 +127,24 @@ void ScreenComponent::resized()
     // Waiting/interruption screens give the cause and next step their actual localized height.
     // Normal source buttons keep their established layout; no font is compressed or shrunk.
     title.setBounds (area.removeFromTop (shown.guidanceShown ? needed (title) : compact ? 24 : 40));
-    status.setBounds (area.removeFromTop (shown.guidanceShown ? needed (status) : compact ? 30 : 48));
+    status.setBounds ((!shown.guidanceShown || status.isVisible())
+        ? area.removeFromTop (shown.guidanceShown ? needed (status) : compact ? 30 : 48)
+        : juce::Rectangle<int>());
     detail.setBounds (area.removeFromBottom (shown.guidanceShown ? needed (detail) : compact ? 34 : 46));
     auto actions = area.removeFromBottom (compact ? 28 : 40);
     end.setBounds (actions.removeFromRight (actions.getWidth() / 2).reduced (3, 0));
     reveal.setBounds (actions.reduced (3, 0));
     area.reduce (0, compact ? 5 : 12);
-    approve.setBounds (area);
     const auto causeHeight = needed (cause);
     const auto recoveryHeight = needed (recovery);
-    auto guidance = area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
+    // A live trial retains source controls during long timing loss. Reserve guidance above
+    // them instead of reusing the same rectangle as an ended-trial screen.
+    auto guidance = shown.guidanceShown && (shown.sourcesShown || shown.approveShown)
+        ? area.removeFromTop (causeHeight + recoveryHeight)
+        : area.withSizeKeepingCentre (area.getWidth(), juce::jmin (area.getHeight(), causeHeight + recoveryHeight));
     cause.setBounds (guidance.removeFromTop (causeHeight));
     recovery.setBounds (guidance);
+    approve.setBounds (area);
     one.setBounds (area.removeFromLeft (area.getWidth() / 2).reduced (3, 0));
     two.setBounds (area.reduced (3, 0));
 }

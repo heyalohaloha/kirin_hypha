@@ -1,6 +1,7 @@
 #pragma once
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveBlindSession.h"
+#include "../../src/live_compare/LiveCompareReentry.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +24,7 @@ struct Host
     PostRenderer renderer;
     PostLevel level;
     BlindSession blind;
+    NamedSelection selection; NamedReentry reentry;
     std::array<std::array<float, frames>, 2> input {}, output {};
     std::int64_t prePosition = 0, postPosition = 0, loopStart = 0, length = 0;
     std::uint64_t now = 1000000000;
@@ -39,9 +41,11 @@ struct Host
     int channels = 2;
     float gain = 1.0f;
     std::uint32_t runtimeDelay = 0;
-    bool runtimeBound = false;
+    bool runtimeBound = false, foreignPost = false;
+    int expiredSide = -1, missingSide = -1;
     Host()
     {
+        selection.select (true);
         ring->initialise (pair, rate); ring->header.demand.store (1);
         renderer.prepare (frames, rate); level.configure (rate);
         // Different local origins are deliberate, even with identical project coordinates.
@@ -64,6 +68,10 @@ struct Host
         b.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
         b.maximumDelaySamples = runtimeDelay;
         if (runtimeBound) { b.runtimeChainA = 12; b.runtimeChainB = 34; b.runtimeRevision = 1; }
+        const int side = &counter == &preCounter ? 0 : 1;
+        b.runtimeExpired = expiredSide == side;
+        if (missingSide == side) b.runtimeChainA = b.runtimeChainB = b.runtimeRevision = 0;
+        if (foreignPost && side == 1) b.runtimeChainA ^= 1;
         b.frames = frames; b.playing = playing;
         b.projectValid = &counter == &preCounter ? preProjectAvailable : postProjectAvailable;
         b.project = length && position >= loopStart ? loopStart + positiveModulo (position - loopStart, length) : position;
@@ -89,6 +97,7 @@ struct Host
         TimingSnapshot snapshot;
         require (readTiming (ring->header.timing, snapshot), "coherent fixture metadata");
         evidence = observer.observe (snapshot, post, rate, ringCapacityFrames);
+        if (reentry.request (selection.command(), true, renderer.needsNewAdmission())) renderer.renewNamedTiming();
         renderer.adoptInitialTiming (*ring, post, evidence);
         for (int c = 0; c < 2; ++c) for (int i = 0; i < frames; ++i)
             output[c][i] = sample (postPosition + audioOffset + i, c) * 0.5f;
@@ -97,7 +106,13 @@ struct Host
         report = renderer.render (*ring, pair, rate, post, ptr, channels,
             selected && (!cmd.active() || blind.valid (cmd)), gain, level, 1.0f, 1.0f,
             cmd.active(), RecoveryReason::none, &decision);
-        if (cmd.active() && report.verdict != Verdict::accepted) blind.invalidate (cmd, report.reason);
+        if (report.timelineChanged) reentry.lost (report.loss, true);
+        if (report.verdict == Verdict::accepted) reentry.accepted();
+        if (cmd.active() && report.verdict != Verdict::accepted)
+        {
+            if (endsComparison (report.reason)) blind.invalidate (cmd, report.reason);
+            else blind.fallback (cmd);
+        }
         if (report.stableSource && report.preAudible)
             for (int c = 0; c < channels; ++c) for (int i = 0; i < frames; ++i)
             {

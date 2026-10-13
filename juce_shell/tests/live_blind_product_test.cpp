@@ -279,6 +279,7 @@ private:
                     else if (faultReason == Reason::callbackGap) injectGap.store (true);
                     else if (faultReason == Reason::stopped) play.store (false);
                     else post->kirinHostDelayCompensationStateChanged (false);
+                    invalidatedBlock = audioBlocks.load();
                     stage = 50;
                     break;
                 }
@@ -303,45 +304,35 @@ private:
                 ++stage;
                 break;
             case 50:
-                if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::invalidated) break;
-                // The invalidation can be seen while the audio thread is still in the block that made
-                // it, before the fixture stores that block's output: judge blocks made after it.
-                if (invalidatedBlock < 0) invalidatedBlock = audioBlocks.load();
-                if (audioBlocks.load() <= invalidatedBlock + 1) break;
-                require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
-                require (post->liveBlindStatus().reason == faultReason,
-                         "the first fault survives RT invalidation and message-thread teardown");
-                if (faultReason != hypha::live_compare::RecoveryReason::contentChanged)
-                    require (! post->liveCompareStatus().matched
-                        && std::abs (post->liveCompareStatus().gain - faultGain) <= 0.0f,
-                        "an ended Blind retains numeric gain but never a valid MATCH");
-                require (lastOutputRatio.load() < 0.0f, "PDC failure falls back to original POST");
+                if (audioBlocks.load() <= invalidatedBlock + 3) break;
+                require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active,
+                         "timing interruption preserves the active BLIND trial");
+                require (std::abs (post->liveCompareStatus().gain - faultGain) <= 0.0f,
+                         "recovery never remeasures the approved fixed gain");
+                if (faultReason == hypha::live_compare::RecoveryReason::compensationOff
+                    || faultReason == hypha::live_compare::RecoveryReason::stopped
+                    || faultReason == hypha::live_compare::RecoveryReason::contentChanged)
+                    require (lastOutputRatio.load() < 0.0f, "unresolved timing holds original POST");
                 post->kirinHostDelayCompensationStateChanged (true);
                 play.store (true);
-                post->serviceLiveBlind();
-                require (post->liveBlindStatus().reason == faultReason,
-                         "later recovery does not rewrite the stopped trial's reason");
                 if (faultReason == hypha::live_compare::RecoveryReason::callbackGap)
                 {
+                    const auto epoch = post->liveBlindStatus().trial.epoch;
                     editor->giveAwayKeyboardFocus();
                     post->editorBeingDeleted (editor.get()); editor.reset();
                     editor.reset (post->createEditorIfNeeded());
                     editor->setSize (900, 600); editor->setVisible (true);
-                    require (post->liveCompareStatus().reason == faultReason,
-                             "close and reopen retain the specific Blind failure, not teardown's unknown");
-                    stage = 51; // admission and footer arrive on the new editor's first tick
-                    break;
+                    require (post->liveBlindStatus().trial.epoch == epoch,
+                             "closing and reopening the editor keeps the same trial");
                 }
-                else require (click ("live-blind-end"), "invalidated trial retains END");
-                stage = 6;
-                break;
+                stage = 51; break;
             case 51:
-                if (! click ("observatory-live-compare")) break;
-                require (post->liveCompareStatus().reason == hypha::live_compare::RecoveryReason::none,
-                         "a new explicit LISTEN clears the old trial cause");
-                require (click ("observatory-live-end"), "new named session has a real END");
-                stage = 6;
-                break;
+                if (faultReason != hypha::live_compare::RecoveryReason::contentChanged
+                    && !post->liveCompareStatus().matchReady) break;
+                require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active,
+                         "fresh proof resumes the existing trial");
+                if (!click ("live-blind-end")) break;
+                stage = 6; break;
             case 6:
                 if (! stoppedEnd.resume (*post, *editor, suspendAudio)) break;
                 post->serviceLiveCompare(); // consume the RT receipt before asserting non-RT cleanup

@@ -92,8 +92,14 @@ Reference欠損、検証失敗時はA経路を維持する。
 対応は連続時計、定常区間で較正した差K、PREの周回、各側の呼出しの空白で確かめ、時計の一致や到着
 だけでは受け入れない。確かめられない区間はPOSTを出力し、PREの選択と承認済みのgainは保持して、
 確かめられた最初のblockからPREへ戻す。PREの入力、A経路、正本のPRE/POST測定・Recordは変更せず、
-接続、読込、復元だけでBへ自動切替しない。offline render、検証失敗、説明できない欠落、pair／format
-失効ではPOSTを維持して比較を中断し、再選択まで戻さない。この対応は、PREとPOSTの間のpluginが遅延を
+接続、読込、復元だけでBへ自動切替しない。2026-10-13の利用者の決定により、LISTENとBLINDは
+同じ明示選択・承認gain・匿名割当を保持する。遅延変化、seek、停止、時計／callback欠落、情報の期限切れ、
+読取り競合では未確認blockだけPOSTを出し、現在の同じpair／owner／formatの新しいPCMと対応を確かめた
+最初のblockから自動で戻す。古いKや履歴を新しい証拠として流用しない。つまみ、fader、mute／solo、
+automation、別trackの編集、自動保存、窓の開閉では選択を解除しない。初回準備と短い再確認は表示せず、
+3秒以上戻れないときだけ理由と復帰方法を示す。BLINDの代替POSTをPREの聴取済みに数えず、REVEALで
+代替区間の存在を一言添えられる。END、保存stateの復元、pair／format／ownerの変更は旧権限を終える。
+offline render、host bypass、他の試聴の出力は加工しない。この対応は、PREとPOSTの間のpluginが遅延を
 正しく報告し、DAWが遅延を補償することを前提にする。前提が崩れた疑いは利用者に警告し、遅延が変わる
 設定変更の直後の短い区間に時計で検出できない誤対応があり得ることも示す。
 （技術契約: `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）

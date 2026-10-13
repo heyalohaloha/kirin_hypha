@@ -81,7 +81,8 @@ inline void verifyLiveBlindUiContract()
                 state.waiting = phase == 9 ? live_compare::MatchFailure::outOfRange : live_compare::MatchFailure::invalidPlan;
                 state.lowerPostDb = -24.0;
                 state.trial.played = phase >= 3 ? 3 : 1;
-                state.trial.audible = phase == 2 ? 1 : 2;
+                state.trial.selected = phase == 2 ? 1 : 2;
+                state.trial.audible = phase == 2 ? 0 : 2; // transient POST fallback keeps selected SOURCE 1
                 state.trial.revealed = phase >= 4 && phase <= 6;
                 state.trial.firstPre = phase == 4;
                 state.reason = phase >= 11 ? static_cast<live_compare::RecoveryReason> (phase - 10)
@@ -104,12 +105,8 @@ inline void verifyLiveBlindUiContract()
                     && text_style::shownText (end->getTitle()) == i18n::tr ("End and restore normal level"),
                     "fixed labels retain localized instructions and tooltips");
                 if (phase == 0)
-                    require (i18n::tr (dynamic_cast<juce::Label*> (
-                                           view.findChildWithID ("live-blind-text-2"))->getText())
-                                 == (language == i18n::Language::japanese
-                                     ? juce::String::fromUTF8 (u8"このLOOPではDAWの時刻対応を確認できません")
-                                     : juce::String ("DAW timing is unavailable for this loop")),
-                             "an observed missing loop clock explains structural unavailability");
+                    require (dynamic_cast<juce::Label*> (view.findChildWithID ("live-blind-text-2"))->getText().isEmpty(),
+                             "initial preparation and short checks are quiet");
                 if (state.observation == live_compare::RecoveryReason::loopTooShort
                     || state.observation == live_compare::RecoveryReason::loopClockUnavailable)
                     require (live_compare_ui::blindRecovery (state, phase != 0).action
@@ -117,7 +114,12 @@ inline void verifyLiveBlindUiContract()
                              "unprovable loop does not request LOOP off or promise automatic recovery");
                 require (! button ("live-blind-end")->isEnabled() == (phase == 8), "END receipt controls availability");
                 require (view.findChildWithID ("live-blind-answer") == nullptr, "no unused preference collection");
-                if (phase == 2) require (! button ("live-blind-reveal")->isEnabled(), "one source cannot reveal");
+                if (phase == 2)
+                {
+                    require (!button ("live-blind-reveal")->isEnabled(), "one source cannot reveal");
+                    require (button ("live-blind-source-1")->getToggleState()
+                        && button ("live-blind-source-1")->isEnabled(), "a missing output receipt never erases the selected source button");
+                }
                 if (phase == 3) require (button ("live-blind-reveal")->isEnabled(), "both sources can reveal");
                 if (phase >= 9) require (! button ("live-blind-source-1")->isVisible()
                     && ! button ("live-blind-reveal")->isVisible() && button ("live-blind-end")->isEnabled(),

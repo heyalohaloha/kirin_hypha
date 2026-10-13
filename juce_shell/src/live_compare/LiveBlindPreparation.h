@@ -4,8 +4,8 @@
 namespace hypha::live_compare
 {
 // One preparation epoch owns both its first established timing and its terminal reason.
-// Startup waits are not failures. After timing was established, any real discontinuity ends
-// this preparation; fresh clocks cannot silently turn it into a new anonymous trial.
+// Timing losses wait within the same request. Only loss of identity or approval ends it;
+// no old proof is reused when fresh timing becomes available.
 class BlindPreparation
 {
 public:
@@ -32,7 +32,7 @@ public:
         if ((command.word & 1u) == 0 || (command.word & 4u) != 0
             || command.requiredAdmission != admissionReceipt) return;
         auto next = command.word;
-        if ((command.word & 2u) != 0 && loss != RecoveryReason::none)
+        if (endsComparison (loss))
             next |= 4u | (static_cast<std::uint64_t> (loss) << 8);
         else if (timingProven && loss == RecoveryReason::none) next |= 2u;
         if (next != command.word) state.compare_exchange_strong (command.word, next, std::memory_order_acq_rel);

@@ -121,13 +121,12 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
                               "Measurement is active.", "Keep is recording.", "A kept result is available." })
         texts.add (text, true);
     for (const auto* text : {
-             "PRE waits while delay compensation is off in Pro Tools. Turn it on to hear PRE",
-             "PRE is held because the latency changed. Stop and restart playback",
-             "PRE is selected. POST plays until PRE is confirmed at this position",
+             "Compensation off: enable it (POST)",
+             "Timing changed: check chain delay (POST)",
+             "Timing unavailable; check PRE and play (POST)",
              "Listen to PRE, the input of this chain, at the level MATCH set",
              "Listen to PRE, the input of this chain. MATCH levels it to POST",
              "Listen to POST, lowered by the attenuation you approved", "Listen to POST, the output of this chain",
-             "MATCH held; rematch to confirm levels",
              "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO",
              "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
              "Press to MATCH again or to let PRE follow POST (AUTO)",

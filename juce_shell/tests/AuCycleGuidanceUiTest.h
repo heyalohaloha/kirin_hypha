@@ -86,6 +86,9 @@ inline void verifyAuCycleGuidanceUi()
             named.active = named.preSelected = named.preWaiting = true;
             named.loopBlock = LoopPairingBlock::auCycle;
             named.observation = RecoveryReason::loopClockUnavailable; named.timingUnavailable = true;
+            require (*live_compare_ui::currentNamedPresentation (named).instruction == 0,
+                     "short unproven Cycle stays quiet");
+            named.prolongedWait = true;
             const auto notice = live_compare_ui::currentNamedPresentation (named);
             require (juce::String (notice.instruction) == listen && juce::String (live_compare_ui::cause (notice.reason)) == cause,
                      "LISTEN uses Cycle wording before the generic timing boundary");
@@ -107,6 +110,9 @@ inline void verifyAuCycleGuidanceUi()
                 state.reason = interrupted ? RecoveryReason::cycleUnverified : RecoveryReason::none;
                 state.observation = interrupted ? RecoveryReason::none : RecoveryReason::loopClockUnavailable;
                 state.timingUnavailable = ! interrupted;
+                if (!interrupted) require (!live_blind_ui::screenFor (state, true, 1.0f).guidanceShown,
+                                          "short Blind preparation stays quiet");
+                state.prolongedWait = true;
                 const auto screen = live_blind_ui::screenFor (state, true, 1.0f);
                 require (screen.cause == cause && screen.recovery == (interrupted ? restart : status)
                     && screen.guidanceShown && screen.endEnabled && ! screen.sourcesShown && ! screen.approveShown,
@@ -137,7 +143,7 @@ inline void verifyAuCycleGuidanceUi()
             require (psb.psbStatusText() == "PSB WARMING", "absolute PSB is independent of pairing");
             named.loopBlock = LoopPairingBlock::none; named.timingUnavailable = false;
             named.observation = RecoveryReason::calibrating;
-            require (juce::String (live_compare_ui::namedRecovery (named)) == "Checking PRE: auto-resume; POST plays",
+            require (juce::String (live_compare_ui::namedRecovery (named)) == "Timing unavailable; check PRE and play (POST)",
                      "ordinary calibration is not Cycle guidance");
             named.clockUnavailable = true; named.observation = RecoveryReason::clockMissing;
             require (juce::String (live_compare_ui::namedRecovery (named)).startsWith ("This DAW has no verified audio clock"),

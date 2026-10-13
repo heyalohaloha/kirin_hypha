@@ -254,10 +254,10 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
 #[test]
 fn preparation_uses_the_existing_low_rate_service_timer() {
     let service = include_str!("../../juce_shell/src/PluginProcessorService.cpp");
-    assert!(service.contains("idleTiming && !nativeHostContext.reaper.needsService() ? 250 : 50"));
+    assert!(service.contains("idleTiming && !nativeHostContext.reaper.monitoring() ? 250 : 50"));
     assert!(
         function_body(service, "void KirinHyphaProcessorBase::timerCallback()")
-            .contains("nativeHostContext.reaper.service()")
+            .contains("nativeHostContext.reaper.service (")
     );
     assert!(!PREPARATION_H.contains("Timer") && !TIMING_H.contains("Timer"));
     let observer = function_body(TIMING_H, "TimingEvidence observe (");

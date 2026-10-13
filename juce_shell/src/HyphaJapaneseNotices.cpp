@@ -94,7 +94,6 @@ const Entry entries[] = {
     { "RESULT COULD NOT BE REVEALED", u8"答えを表示できませんでした" },
     { "CHOOSE AN ANSWER AFTER BOTH PASSES", u8"両方を聴いてから回答してください" },
     // Live PRE / POST compare: short enough to read whole in the footer at 300%.
-    { "Closing returns to POST", u8"閉じるとPOSTに戻ります" },
     { "LISTEN could not start", u8"試聴を開始できません" },
     { "Choose the PRE first", u8"先にPREを選んでください" },
     { "Mono / stereo only", u8"モノラル／ステレオのみ" },
@@ -104,9 +103,7 @@ const Entry entries[] = {
     { "MATCH: PRE %1", u8"MATCH：PRE %1" },
     { "TP limit: PRE %1, need %2", u8"TP上限：PRE %1（一致は%2）" },
     { "MATCH waits for PRE", u8"MATCHはPRE待ちです" },
-    { "MATCH needs 3 s of play", u8"MATCHには3秒の再生が必要" },
     { "MATCH failed; try again", u8"MATCHをやり直してください" },
-    { "MATCH needs more signal", u8"MATCHには信号が足りません" },
     { "MATCH over 24 dB", u8"MATCHの差が24 dBを超えています" },
     { "MATCH: POST %1", u8"MATCH：POST %1" },
     { "POST back to normal", u8"POSTを通常の音量に戻しました" },
@@ -131,7 +128,6 @@ const Entry entries[] = {
     { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
     { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
     { "AUTO stopped: editor hidden", u8"AUTO停止：画面が非表示" },
-    { "Delay compensation is off in Pro Tools", u8"Pro Toolsの遅延補償がOFFです" },
 };
 }
 

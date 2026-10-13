@@ -136,7 +136,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         block.afterGap = true;
         liveCompare.compensationWasOff = compensationOff;
     }
-    const bool timingEligible = usable && ! outputTaken && ! compensationOff && ! contentHeld
+    const bool timingEligible = usable && ! outputTaken && ! compensationOff
         && ! liveCompare.authority.restoring();
     bool analysisQualified = false;
     const auto timing = liveCompare.preparation.observe (block,
@@ -190,10 +190,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const float gain = gains.pre, ceiling = gains.ceiling;
     const bool coherent = gains.coherent;
     const bool blindRejected = blindCommand.active()
-        && (! permitted || ! liveCompare.blind.valid (blindCommand) || discontinuity || ! coherent
-            || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision
-            || contentHeld || compensationOff || ! usable || outputTaken
-            || ! liveCompare.matched.load (std::memory_order_acquire));
+        && (! permitted || ! liveCompare.blind.valid (blindCommand)
+            || (coherent && liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision));
     if (blindRejected)
     {
         const auto reason = interruption.reason (Reason::gainChanged);
@@ -218,23 +216,27 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
         if (! usable || outputTaken)
         {
-            // Offline render, bypass, a layout change or another audition keeps POST; PRE needs
-            // selecting again.
+            // Offline render, bypass and another audition leave their input untouched.
+            // The same explicit selection can renew when realtime output is available.
             liveCompare.renderer.revokeTiming();
-            liveCompare.reentry.lost (hypha::live_compare::TimelineBreak::unknown, false);
+            liveCompare.reentry.lost (hypha::live_compare::TimelineBreak::unknown,
+                permitted && !finishing && liveCompare.sessionActive.load (std::memory_order_acquire));
             const auto loss = bypassed ? Reason::bypassed : nonRealtimeMode ? Reason::offline
                 : outputTaken ? Reason::outputTaken : Reason::formatChanged;
             liveCompare.blindTiming.observe (preparationCommand, false, interruption.reason (loss),
                 liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
-            liveCompare.selection.fail (selection, loss);
+            if (hypha::live_compare::endsComparison (loss)) liveCompare.selection.fail (selection, loss);
+            liveCompare.blind.observe (blindCommand, false);
             liveCompare.preAudible.store (false, std::memory_order_release);
             liveCompare.preWaiting.store (false, std::memory_order_release);
             return;
         }
         rendered = true;
         const bool namedEligible = permitted && liveCompare.sessionActive.load (std::memory_order_acquire)
-            && ! finishing && ! blindCommand.active() && ! contentHeld && ! compensationOff
-            && ! liveCompare.blindTiming.failedAndOpen();
+            && ! finishing && ! liveCompare.blindTiming.failedAndOpen()
+            && ring->header.ownerClosed.load (std::memory_order_acquire) == 0
+            && (!coherent || !gains.retained || gains.identity.same (
+                hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket())));
         const auto freshBlind = liveCompare.blindTimingRequest.load (std::memory_order_acquire);
         if (freshBlind != liveCompare.blindTimingSeen)
         {
@@ -299,8 +301,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (report.timelineChanged)
         {
             liveCompare.reentry.lost (report.loss, namedEligible);
-            if (namedEligible && report.loss != hypha::live_compare::TimelineBreak::metadataPending
-                && ! hypha::live_compare::namedTransportRestart (report.loss))
+            if (report.loss == hypha::live_compare::TimelineBreak::sourceChanged)
                 liveCompare.selection.fail (selection, report.reason);
         }
         const bool renewed = report.verdict == hypha::live_compare::Verdict::accepted
@@ -309,7 +310,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (renewed && namedEligible && gains.retained && liveCompare.matchRetained.load (std::memory_order_acquire)
             && gains.identity.same (hypha::live_compare::gainIdentity (*ring, liveCompare.authority.ticket()))
             && liveCompare.authority.permitted() && liveCompare.sessionActive.load (std::memory_order_acquire)
-            && ! liveCompare.completion.pending() && ! liveCompare.blind.command().active()
+            && ! liveCompare.completion.pending()
             && liveCompare.gainRevision.load (std::memory_order_acquire) == revision)
         {
             liveCompare.matchRun.store (liveCompare.playbackRun.load (std::memory_order_acquire), std::memory_order_release);
@@ -321,11 +322,14 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         preRemaining = liveCompare.renderer.hasPre();
         if (blindCommand.active() && ! blindRejected)
         {
-            if (! gainCurrent || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision)
+            if (coherent && (!gainCurrent || liveCompare.blindGainRevision.load (std::memory_order_acquire) != revision))
                 liveCompare.blind.invalidate (blindCommand, Reason::gainChanged);
-            else if (report.verdict != hypha::live_compare::Verdict::accepted || report.guardTripped)
+            else if (report.verdict != hypha::live_compare::Verdict::accepted || report.guardTripped
+                || contentHeld || compensationOff || !coherent)
             {
-                liveCompare.blind.invalidate (blindCommand, report.reason);
+                if (hypha::live_compare::endsComparison (report.reason))
+                    liveCompare.blind.invalidate (blindCommand, report.reason);
+                else liveCompare.blind.fallback (blindCommand);
             }
             else
             {
@@ -337,12 +341,6 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         }
         if (gainCurrent && report.gainSettled && ! report.guardTripped)
             liveCompare.gainReceipt.store (revision, std::memory_order_release);
-        if (report.guardTripped)
-        {
-            // The guard ends PRE for this selection; the user selects it again.
-            if (! blindCommand.active()) liveCompare.selection.fail (selection, report.reason);
-            liveCompare.guardTripped.store (true, std::memory_order_release);
-        }
         liveCompare.verdict.store (static_cast<std::uint8_t> (report.verdict), std::memory_order_release);
         liveCompare.preAudible.store (report.preAudible, std::memory_order_release);
         const bool preHeldBack = report.preWaiting
@@ -362,6 +360,12 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             liveCompare.blind.invalidate (blindCommand, Reason::preUnavailable);
         }
     }
+    liveCompare.waitNotice.observe (liveCompare.sessionActive.load (std::memory_order_acquire)
+        && (!rendered || !usable || outputTaken || contentHeld || compensationOff || !coherent
+            || liveCompare.verdict.load (std::memory_order_acquire)
+                != static_cast<std::uint8_t> (hypha::live_compare::Verdict::accepted)
+            || liveCompare.observationReason.load (std::memory_order_acquire) == Reason::ceiling
+            || liveCompare.observationReason.load (std::memory_order_acquire) == Reason::nonFinite), block.wallNanos);
     if (! usable || outputTaken) liveCompare.postLevel.bypass();
     liveCompare.postActual.store (liveCompare.postLevel.value(), std::memory_order_release);
     if (finishing && usable && ! outputTaken && frames > 0)

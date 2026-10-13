@@ -21,9 +21,10 @@ inline std::vector<Notice> notices()
     };
     // Exercise the presentation for every public reason, both live and after teardown.
     for (int reason = 0; reason <= static_cast<int> (RecoveryReason::reaperLoopTooShort); ++reason)
-        for (int mode = 0; mode < 13; ++mode)
+        for (int mode = 0; mode < 14; ++mode)
         {
             Status state;
+            state.prolongedWait = mode != 13;
             state.active = mode != 2 && mode != 3 && mode != 4;
             state.preSelected = state.preWaiting = true;
             state.reason = state.observation = static_cast<RecoveryReason> (reason);
@@ -44,10 +45,10 @@ inline std::vector<Notice> notices()
         }
     // Direct action results and numeric boundaries in the LISTEN rail, including entry refusal,
     // MATCH, AUTO, PIN and END. These are transient notices, not timing verdicts.
-    for (const char* text : { "Closing returns to POST", "LISTEN could not start", "Choose the PRE first",
+    for (const char* text : { "LISTEN could not start", "Choose the PRE first",
         "Mono / stereo only", "Paired PRE unavailable", "PRE is multi-mono: insert it as stereo",
-        "Select PRE again", "LISTEN ended; POST plays", "MATCH waits for PRE", "MATCH needs 3 s of play",
-        "MATCH failed; try again", "MATCH needs more signal", "MATCH over 24 dB", "POST back to normal",
+        "Select PRE again", "LISTEN ended; POST plays",
+        "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
         "Press RETURN first", "PRE over TP ceiling", "PRE held: latency changed", "PIN waits for PRE",
         "PIN needs 4 s of play", "Last 4 s not one range", "PIN failed; try again", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB", "Delay compensation is off in Pro Tools",
@@ -82,9 +83,9 @@ inline std::vector<BlindCase> blindCases()
     };
     for (int reason = 0; reason <= static_cast<int> (RecoveryReason::reaperLoopTooShort); ++reason)
     for (int stage = 1; stage <= static_cast<int> (BlindStage::failed); ++stage)
-    for (int mode = 0; mode < 10; ++mode)
+    for (int mode = 0; mode < 12; ++mode)
     {
-        if ((stage == static_cast<int> (BlindStage::active) || stage == static_cast<int> (BlindStage::finishing))
+        if (stage == static_cast<int> (BlindStage::finishing)
             && (reason != 0 || (mode >= 1 && mode <= 6))) continue;
         LiveBlindStatus state;
         state.stage = static_cast<BlindStage> (stage);
@@ -95,7 +96,9 @@ inline std::vector<BlindCase> blindCases()
         state.timingUnavailable = mode == 4;
         state.loopBlock = mode == 5 ? LoopPairingBlock::auCycle
                         : mode == 6 ? LoopPairingBlock::aaxLoop : LoopPairingBlock::none;
-        state.trial.revealed = mode == 7;
+        state.prolongedWait = mode < 10;
+        state.trial.revealed = mode == 7 || mode == 11;
+        state.trial.usedPostFallback = mode == 11;
         state.trial.played = mode == 8 ? 3 : 0;
         state.lowerPostDb = -24.0;
         state.waiting = mode == 8 ? MatchFailure::notEnoughSignal

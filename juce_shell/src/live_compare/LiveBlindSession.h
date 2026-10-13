@@ -19,7 +19,8 @@ struct BlindCommand
 struct BlindView
 {
     bool active = false, revealed = false, invalidated = false, firstPre = false;
-    int audible = 0, played = 0;
+    int audible = 0, played = 0, selected = 0;
+    bool usedPostFallback = false;
     std::uint32_t epoch = 0;
     RecoveryReason reason = RecoveryReason::none;
 };
@@ -88,6 +89,14 @@ public:
         audible.store (cmd.word, std::memory_order_release);
     }
 
+    // The hidden assignment and played receipts survive temporary POST. A fallback is never
+    // credited as hearing PRE; the result may disclose it without revealing the current side.
+    void fallback (BlindCommand cmd) noexcept
+    {
+        observe (cmd, false);
+        if (valid (cmd) && cmd.pre()) fallbackEpoch.store (cmd.epoch(), std::memory_order_release);
+    }
+
     // Audio Thread or message thread. A concurrent reveal can be invalidated, but a newer trial
     // cannot. Bounded retries handle the single reveal transition, never wait for a UI thread.
     void invalidate (BlindCommand cmd, RecoveryReason reason) noexcept
@@ -128,6 +137,8 @@ public:
         const auto heard = played.load (std::memory_order_acquire);
         BlindView result;
         result.epoch = cmd.epoch();
+        result.selected = valid (cmd) ? cmd.stimulus() : 0;
+        result.usedPostFallback = fallbackEpoch.load (std::memory_order_acquire) == cmd.epoch();
         result.reason = (state >> 32) == cmd.epoch()
             ? static_cast<RecoveryReason> ((state >> 8) & 0xffu) : RecoveryReason::none;
         result.active = cmd.active();
@@ -143,6 +154,7 @@ private:
     static constexpr std::uint64_t revealedBit = 1u;
     static constexpr std::uint64_t invalidBit = 8u;
     static constexpr std::uint64_t endedBit = 16u;
+    std::atomic<std::uint32_t> fallbackEpoch { 0 };
     std::uint32_t serial = 0; // message thread only
     std::atomic<std::uint64_t> request { 0 }, terminal { 0 }, played { 0 }, audible { 0 };
 };

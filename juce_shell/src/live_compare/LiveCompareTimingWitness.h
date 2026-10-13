@@ -59,6 +59,7 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
     next.block.clockAuthority = static_cast<std::uint8_t> ((proof >> 8u) & 0xffu);
     next.block.presentationSource = static_cast<std::uint8_t> ((proof >> 16u) & 0xffu);
     next.block.outputPresentationValid = (proof & (1u << 24u)) != 0;
+    next.block.runtimeExpired = (proof & (1u << 25u)) != 0;
     next.block.outputPresentationSamples = h.outputPresentation.load (std::memory_order_relaxed);
     next.block.maximumDelaySamples = h.maximumDelay.load (std::memory_order_relaxed);
     next.block.runtimeChainA = h.runtimeChainA.load (std::memory_order_relaxed);
@@ -164,7 +165,7 @@ public:
         previousBlock = block;
         // The PCM run and MATCH history must end at the same proof boundary as metadata.
         // A still-continuous render counter cannot carry old samples into a new certificate.
-        if (proofChanged || cycle.changed)
+        if ((proofChanged || cycle.changed) && (reaperProcessing (block) || logicRender (block)))
             movement = { true, false, proofChanged ? TimelineBreak::clockProofChanged : TimelineBreak::loopEdited };
         return movement;
     }
@@ -174,7 +175,8 @@ private:
         return std::uint32_t (block.clockBasis)
             | (std::uint32_t (block.clockAuthority) << 8u)
             | (std::uint32_t (block.presentationSource) << 16u)
-            | (block.outputPresentationValid ? (1u << 24u) : 0u);
+            | (block.outputPresentationValid ? (1u << 24u) : 0u)
+            | (block.runtimeExpired ? (1u << 25u) : 0u);
     }
     LoopTimeline timeline;
     LoopCycleMeter cycles;
@@ -237,7 +239,7 @@ public:
         if (! active || sourceChanged || postProofChanged || movement.broken || cycle.changed)
             invalidate();
         if (coherent && active && ! sourceChanged && ! movement.broken && havePrevious
-            && !logicRender (post) && ! post.loop.active && ! pre.anchor.loopKnown && pre.anchor.linearKnown)
+            && ! post.loop.active && ! pre.anchor.loopKnown && pre.anchor.linearKnown)
         {
             std::int64_t postOrigin = 0, candidate = 0, address = 0;
             std::int64_t addressEnd = 0, availableEnd = 0;
@@ -257,7 +259,7 @@ public:
             }
         }
         LoopEntryFailure failure = LoopEntryFailure::none;
-        if (logicRender (post))
+        if (logicRender (post) && (post.loop.active || logicRenderPair (pre.block, post)))
         {
             const bool current = coherent && active && !sourceChanged && !postProofChanged
                 && !movement.broken && loopAddressIsCurrent (pre.anchor, pre.block, post, 0, rate, capacity);
@@ -303,7 +305,7 @@ public:
         if (coherent && valid && age > 0 && age < capacity) lastAge = age;
         const bool loopReady = valid && kind != LoopEntryKind::linear
             && loopAddressIsCurrent (pre.anchor, pre.block, post, k, rate, capacity);
-        const bool runtimeProof = kind == LoopEntryKind::reaperBound || logicRender (post);
+        const bool runtimeProof = kind == LoopEntryKind::reaperBound || kind == LoopEntryKind::logicPresentation;
         return { coherent && active && (runtimeProof ? loopReady
                     : (linearReady || loopReady || (corroborated && inObservedRange))),
                  k, post.clock, generation, pre.ownerA, pre.ownerB,

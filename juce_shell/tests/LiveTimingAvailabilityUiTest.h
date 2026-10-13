@@ -24,19 +24,11 @@ void verifyLiveTimingAvailabilityUi (Require require)
                     state.timingUnavailable = reason == RecoveryReason::loopClockUnavailable;
                     state.clockUnavailable = reason == RecoveryReason::clockMissing;
                     const auto screen = live_blind_ui::screenFor (state, true, 1.0f);
-                    require (screen.instruction.contains ("unavailable") == (state.timingUnavailable || state.clockUnavailable),
-                             "ordinary AU stages never show the unavailable instruction in either language");
-                    if (! state.timingUnavailable && ! state.clockUnavailable && stage == BlindStage::approval)
+                    require (!screen.guidanceShown, "short preparation has no checking notice");
+                    if (stage == BlindStage::approval)
                         require (screen.approveShown && screen.instruction == "Lower POST to match levels?",
-                                 "approval question and button belong to the same ordinary state");
-                    if (reason == RecoveryReason::loopUnproven && stage != BlindStage::approval)
-                    {
-                        require (screen.guidanceShown && screen.recovery == "Keep playing; resumes when confirmed",
-                                 "a timing check gives its reason and automatic remedy");
-                        require (i18n::tr (screen.cause).contains (language == i18n::Language::japanese
-                            ? juce::String::fromUTF8 (u8"未確認") : juce::String ("not verified")),
-                            "both languages describe an unconfirmed observation rather than an impossible comparison");
-                    }
+                                 "a real level approval is still visible");
+                    else require (screen.instruction.isEmpty(), "initial timing and level work is quiet");
                     live_blind_ui::Component view;
                     view.setSize (width, width * 2 / 3); view.setState (state, true, 1.0f);
                     const auto pixels = view.createComponentSnapshot (view.getLocalBounds());

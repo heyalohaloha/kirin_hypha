@@ -95,6 +95,8 @@ impl SpectrumRuntime {
                 thread::sleep(WORKER_IDLE);
                 continue;
             };
+            #[cfg(feature = "test-support")]
+            let _completion = self.test_receipt.begin(&self.shutdown);
             let Some(selection) = AnalysisSelection::decode(block.selection, self.layout) else {
                 discard_samples(
                     &mut consumers.samples,

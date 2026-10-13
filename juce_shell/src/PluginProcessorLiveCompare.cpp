@@ -120,6 +120,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
         stopLiveCompare();
         return StartResult::notReady;
     }
+    liveCompare.waitNotice.begin (hypha::live_compare::callbackWallNanos());
     liveCompare.sessionActive.store (true, std::memory_order_release);
     liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
     liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
@@ -150,6 +151,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
                 ? liveCompare.blindPreparationReason : reason);
     }
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.namedMatchPending = liveCompare.namedMatchReady = false;
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();
     liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
@@ -435,6 +437,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
 {
     hypha::live_compare::Status status;
     status.finishing = liveCompare.completion.pending();
+    status.prolongedWait = liveCompare.waitNotice.prolonged (hypha::live_compare::callbackWallNanos());
     status.postActual = liveCompare.postActual.load (std::memory_order_acquire);
     status.sessionGeneration = liveCompare.sessionGeneration.load (std::memory_order_acquire);
     const auto permission = liveCompare.authority.ticket();
@@ -475,6 +478,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
         && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable
             || status.observation == Reason::reaperDelayUnverified || status.observation == Reason::reaperLoopTooShort);
     status.loopBlock = analysisPairingLoopBlock();
+    status.reaperRestriction = nativeHostContext.reaper.restriction();
     // A missing audio clock on a host that has never supplied a continuous clock or an
     // output-latency report is this host's ability, not a transient: stop/play cannot fix it.
     status.clockUnavailable = status.observation == Reason::clockMissing

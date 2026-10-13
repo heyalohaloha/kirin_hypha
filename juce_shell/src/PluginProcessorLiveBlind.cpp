@@ -36,7 +36,6 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
     using Phase = hypha::local_blind::ProductSessionPhase;
     const auto permission = liveCompare.authority.ticket();
     serviceLiveCompare();
-    if (liveCompare.contentHold.held()) return StartResult::contentHeld;
     if (! liveCompareSupported() || ! localBlindProductSupported()) return StartResult::unsupportedLayout;
     const auto admission = liveCompareAdmission (true);
     if (admission != StartResult::started) return admission;
@@ -105,8 +104,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
 void KirinHyphaProcessorBase::serviceLiveBlind()
 {
     serviceLiveCompare();
-    const auto preparingLoss = liveCompare.contentHold.held() ? RecoveryReason::contentChanged
-        : liveCompare.blindTiming.failure();
+    const auto preparingLoss = liveCompare.blindTiming.failure();
     if (preparingLoss != RecoveryReason::none
         && (liveCompare.blindStage == BlindStage::preparing || liveCompare.blindStage == BlindStage::settling
             || liveCompare.blindStage == BlindStage::approval))
@@ -222,11 +220,15 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     LiveBlindStatus status { liveCompare.blindStage, liveCompare.blind.view(), liveCompare.blindWaiting,
                             liveCompare.blindPlan.lowerPostGainDb, liveCompare.blindPreparation };
     const auto state = liveCompareStatus();
+    const auto gains = readGainSnapshot (liveCompare);
+    const bool receipt = currentBlindReceipt (liveCompare);
     status.reason = state.reason;
+    status.prolongedWait = state.prolongedWait;
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
     status.compensationOff = state.compensationOff;
     status.loopBlock = state.loopBlock;
+    status.reaperRestriction = state.reaperRestriction;
     status.timingUnavailable = state.timingUnavailable && ! status.contentHeld
         && status.stage != BlindStage::active && status.stage != BlindStage::idle
         && status.stage != BlindStage::finishing;
@@ -246,8 +248,14 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
         if (status.reason == RecoveryReason::none) status.reason = RecoveryReason::restored;
         if (status.stage != BlindStage::finishing) status.stage = BlindStage::invalidated;
     }
+    else if (status.stage == BlindStage::active && status.trial.invalidated)
+    {
+        status.stage = BlindStage::invalidated;
+        status.reason = status.trial.reason;
+    }
     else if (status.stage == BlindStage::active
-        && ! currentBlindReceipt (liveCompare))
+        && gains.coherent && !receipt
+        && gains.revision == liveCompare.gainRevision.load (std::memory_order_acquire))
     {
         status.trial = {};
         status.stage = BlindStage::invalidated;

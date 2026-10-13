@@ -109,6 +109,7 @@ private:
             require (! post->applyLiveCompareMatch (oldPlan, MatchChoice::basis)
                 && ! post->selectLiveBlind (1) && ! post->revealLiveBlind(), "pair mutation immediately rejects old approvals/trials");
         }
+        oldBlindEpoch = post->liveBlindStatus().trial.epoch;
         faultBlocks = blocks.load();
         if (oddMode()) oddStart.store (faultBlocks + (mode == "seek-odd" ? 0 : 1));
         pause.store (false); checkpoint = Steady::now();
@@ -150,18 +151,22 @@ private:
                     break;
                 }
                 require (post->startLiveCompare() == StartResult::started, "named initial LOOP session starts");
-                post->selectLiveComparePre (true); stage = 2; break;
+                post->selectLiveComparePre (true);
+                post->requestLiveCompareMatch(); // accepted before a measurable window, with no editor
+                stage = 2; break;
             case 2:
             {
-                const auto measured = post->measureLiveCompare();
-                if (! measured.ok()) break;
-                require (post->applyLiveCompareMatch (planMatch (measured, 0.0), MatchChoice::basis), "one real measured MATCH");
+                post->serviceLiveCompareMatch();
+                if (!post->liveCompareStatus().matched) break;
+                MatchPlan completed; bool applied = false;
+                require (post->takeLiveCompareMatch (completed, applied) && applied && !completed.needsApproval,
+                         "queued MATCH completes on the processor while no editor exists");
                 stage = 3; break;
             }
             case 3:
                 if (! status.matchReady || ! status.preAudible) break;
                 fixedGain = status.gain; fixedPost = status.postTarget;
-                if (mode == "blind-stop" || mode == "reuse")
+                if (mode == "blind-stop" || mode == "clock-blind" || mode == "reuse")
                 { require (post->beginLiveBlind() == StartResult::started, "same MATCH enters a fresh Blind admission"); checkpoint = now; stage = 7; break; }
                 if (mode == "pending-end" && ! restarted)
                 {
@@ -182,11 +187,16 @@ private:
                 if (mode == "stop" || mode == "blind-stop" || (mode == "failure-named" && restarted && transportRound == 0))
                 { require (! status.matched, "stop revokes current MATCH proof"); playing.store (true); }
                 if (mode == "clock" || mode == "clock-blind")
+                    require (status.active && !status.interrupted, "a clock hole retains comparison authority");
+                if (mode.rfind ("preparing-", 0) == 0 || (mode == "failure-named" && !restarted))
                 {
-                    require (status.active && status.interrupted && ! status.preSelected && status.matchHeld,
-                             "unexplained clock hole seals PRE while retaining fixed gain");
-                    require (status.reason == RecoveryReason::clockMissing, "PRE clock loss remains the exact cause even with valid POST flags");
-                    checkpoint = now; stage = 8; break;
+                    if (mode == "preparing-dc") post->kirinHostDelayCompensationStateChanged (true);
+                    if (mode == "preparing-content")
+                    {
+                        require (status.contentHeld && status.active, "an unresolved content hold retains preparation");
+                        post->finishLiveCompare(); stage = 9; break;
+                    }
+                    stage = 12; break;
                 }
                 if (mode == "compensation")
                 {
@@ -197,19 +207,15 @@ private:
                 checkpoint = now; stage = 5; break;
             case 5:
                 if (mode == "stop" || mode == "seek" || oddMode() || mode == "clock" || mode == "compensation"
+                    || mode == "blind-stop" || mode == "clock-blind"
                     || (mode == "failure-named" && restarted))
                 {
                     if (! status.matchReady || ! status.preAudible) break;
                     require (juce::exactlyEqual (status.gain, fixedGain) && juce::exactlyEqual (status.postTarget, fixedPost), "fresh proof restores the exact approved MATCH without remeasurement");
+                    if (mode == "blind-stop" || mode == "clock-blind")
+                        require (post->liveBlindStatus().trial.epoch == oldBlindEpoch
+                            && post->liveBlindStatus().stage == BlindStage::active, "recovery keeps the hidden assignment");
                     checkpoint = now; stage = 6; break;
-                }
-                if (mode == "clock-blind")
-                {
-                    if (post->liveBlindStatus().stage != BlindStage::active) break;
-                    require (status.matchReady && juce::exactlyEqual (status.gain, fixedGain) && juce::exactlyEqual (status.postTarget, fixedPost),
-                             "one new explicit BLIND admission proves timing and keeps only the same approved tuple");
-                    require (post->liveBlindStatus().trial.epoch != oldBlindEpoch, "fresh admission owns a new CSPRNG trial epoch");
-                    post->finishLiveCompare(); stage = 9; break;
                 }
                 if (now - checkpoint < std::chrono::milliseconds (500)) break;
                 {
@@ -254,16 +260,6 @@ private:
                 if (! status.preAudible) { require (post->selectLiveBlind (command.firstPre() ? 1 : 2), "fixture selects anonymous PRE"); break; }
                 fault(); stage = 4; break;
             }
-            case 8:
-                if (now - checkpoint < std::chrono::milliseconds (500)) break;
-                require (! status.preAudible && ! status.matched && status.matchHeld, "new clocks alone cannot revive unexplained loss");
-                if (mode == "clock-blind")
-                {
-                    oldBlindEpoch = post->liveBlindStatus().trial.epoch;
-                    require (post->beginLiveBlind() == StartResult::started, "one explicit new BLIND starts fresh timing after unknown interruption");
-                }
-                else post->selectLiveComparePre (true);
-                stage = 5; break;
             case 9:
                 if (status.finishing) break;
                 require (! status.active && status.postActual == 1.0f, "actual END receipt returns ordinary unity POST");

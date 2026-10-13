@@ -462,7 +462,7 @@ fn shipping_ffi_never_returns_the_previous_channel_snapshot_after_selection() {
             false,
         );
         engine.push_samples(&samples, 2);
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        crate::optional_analysis_clock::test_support::analysis(&engine);
     }
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);

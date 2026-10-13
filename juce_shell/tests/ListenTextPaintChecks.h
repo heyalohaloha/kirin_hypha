@@ -33,8 +33,8 @@ inline bool previewNotice (const juce::String& text)
 {
     return text == "DAW stopped: play to resume (POST)"
         || text == "This DAW has no verified audio clock; PRE is unavailable (POST)"
-        || text == "Loop delay unverified; POST; END closes"
-        || text == "MATCH held; select PRE to check timing"
+        || text == "Timing unavailable; check PRE and play (POST)"
+        || text == "Timing changed: check chain delay (POST)"
         || text == "The capture request could not be sent. Try again after it is released.";
 }
 }

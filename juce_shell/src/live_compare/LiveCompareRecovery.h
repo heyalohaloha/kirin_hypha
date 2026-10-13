@@ -72,6 +72,16 @@ inline RecoveryReason recoveryReason (LoopEntryFailure failure) noexcept
     return RecoveryReason::loopUnproven;
 }
 
+// Identity, saved-state and approval changes end authority. Timing and sample guards only
+// withhold the current block; fresh evidence may continue the same explicit comparison.
+inline bool endsComparison (RecoveryReason reason) noexcept
+{
+    using R = RecoveryReason;
+    return reason == R::foreignRing || reason == R::pairChanged || reason == R::preUnavailable
+        || reason == R::formatChanged || reason == R::restored || reason == R::gainChanged
+        || reason == R::randomUnavailable;
+}
+
 struct SelectionCommand
 {
     std::uint64_t word = 0;

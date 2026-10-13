@@ -38,7 +38,8 @@ inline bool qualifiedAudioUnitPair (const BlockClock& pre, const BlockClock& pos
     // Logic uses its explicit render/presentation rule (including zero). Other AU hosts retain
     // their existing linear or positive-latency initial-cycle proof.
     return (evidence.kind == LoopEntryKind::logicPresentation && evidence.k == 0 && logicRenderPair (pre, post))
-        || (!logicRender (post) && evidence.kind == LoopEntryKind::linear)
+        || (evidence.kind == LoopEntryKind::linear
+            && (!logicRender (post) || (!pre.loop.active && !post.loop.active)))
         || (evidence.kind == LoopEntryKind::presentationLatency && pre.loop.active && post.loop.active
             && pre.presentationSource == 2 && post.presentationSource == 2
             && pre.outputPresentationValid && post.outputPresentationValid

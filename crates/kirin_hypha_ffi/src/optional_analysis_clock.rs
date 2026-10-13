@@ -372,3 +372,7 @@ mod content_tests;
 #[cfg(test)]
 #[path = "au_cycle_spectrum_ffi_tests.rs"]
 mod au_cycle_tests;
+
+#[cfg(test)]
+#[path = "analysis_worker_test_support.rs"]
+pub(crate) mod test_support;

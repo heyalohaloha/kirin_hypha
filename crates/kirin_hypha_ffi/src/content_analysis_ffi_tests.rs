@@ -1,8 +1,9 @@
 //! The real FFI, workers and file exchange, with disposable storage and delayed changing PCM.
+use super::test_support;
 use super::*;
 use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::spectrum_exchange::SpectrumTarget;
-use std::{collections::VecDeque, thread, time::Duration};
+use std::collections::VecDeque;
 
 const FRAMES: usize = 256;
 const DELAY: i64 = 4096;
@@ -181,9 +182,11 @@ impl Fixture {
             }
         }
         self.position += FRAMES as i64;
+        test_support::analysis(&self.pre);
+        test_support::analysis(&self.post);
         self.exchange();
-        // Pace below real time: debug psychoacoustic workers must not overflow their RT queue.
-        thread::sleep(Duration::from_millis(8));
+        test_support::exchange(&self.pre);
+        test_support::exchange(&self.post);
     }
 
     fn coordinate(&self, position: i64) -> i64 {
@@ -201,7 +204,7 @@ impl Fixture {
     }
 
     fn deltas(&self) -> Option<(f64, f64)> {
-        let view = self.post.spectrum.try_view()?;
+        let view = test_support::view(&self.post);
         if view.status != SpectrumViewStatus::Active {
             return None;
         }
@@ -262,7 +265,7 @@ fn content_clock_delayed_pcm_joins_zero_with_and_without_presentation_report() {
             );
             // A single failed callback immediately revokes the old exact view and its lease.
             fixture.block(false);
-            let view = fixture.post.spectrum.try_view().unwrap();
+            let view = test_support::view(&fixture.post);
             assert!(view.difference.is_none() && view.perceptual_difference.is_none());
             let (count, delta, psb) = fixture.observe(true);
             assert!(
@@ -299,13 +302,7 @@ fn content_clock_unproven_pair_never_publishes_delta() {
         assert_eq!(fixture.observe(false).0, 0);
         if mode == AnalysisViewMode::Spectrum {
             assert!(
-                fixture
-                    .post
-                    .spectrum
-                    .try_view()
-                    .unwrap()
-                    .post_spectrum
-                    .is_some(),
+                test_support::view(&fixture.post).post_spectrum.is_some(),
                 "unproven pairing preserves the absolute POST spectrum"
             );
         }

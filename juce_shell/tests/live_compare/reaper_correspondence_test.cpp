@@ -18,9 +18,9 @@ int main()
         host.blind.start (true);
         host.postPosition += 4096; // reported decrease / bypass: projectJump in this block
         host.consume();
-        require (!host.report.preAudible && host.blind.view().invalidated, "same-block M1 stops BLIND");
+        require (!host.report.preAudible && !host.blind.view().invalidated, "same-block project move uses POST within the same BLIND");
         for (int n = 0; n < 30; ++n) host.consume();
-        require (host.blind.view().invalidated && !host.report.preAudible, "BLIND never auto-resumes");
+        require (!host.blind.view().invalidated && host.report.preAudible, "fresh project proof automatically resumes the same BLIND");
     }
     {
         Host host; host.length = 32768;
@@ -41,7 +41,7 @@ int main()
         host.consume();
         require (host.report.preAudible, "known K accepts an entire block at the exact age bound");
         host.publish(); host.blind.start (true); host.consume();
-        require (!host.report.preAudible && host.blind.view().invalidated, "one block beyond the age bound stops Blind");
+        require (!host.report.preAudible && !host.blind.view().invalidated, "beyond the age bound plays POST without ending the trial");
     }
     {
         Host host; host.warm(); host.loopStart = host.postPosition; host.length = 384000;
@@ -53,7 +53,7 @@ int main()
         host.postPosition += host.length;
         host.blind.start (true);
         host.consume();
-        require (!host.report.preAudible && host.blind.view().invalidated, "missing whole lap cannot play old PRE");
+        require (!host.report.preAudible && !host.blind.view().invalidated, "missing whole lap cannot play old PRE or clear the choice");
     }
     std::puts ("REAPER output: mono/stereo, compensated burst, MATCH, M1, BLIND, loop bound PASS");
 }

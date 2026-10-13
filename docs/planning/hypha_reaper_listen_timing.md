@@ -1,6 +1,6 @@
 # REAPER VST3 LISTEN timing
 
-This is the 1.1.51 implementation contract. Real-host LISTEN/MATCH/BLIND output acceptance is
+This is the 1.1.51 implementation contract, updated by the user decision of 2026-10-13. Real-host LISTEN/MATCH/BLIND output acceptance is
 separate from the reduced timing measurements below. It does not expand AU/AAX, Studio One,
 Studio Pro or Logic certificates.
 
@@ -21,8 +21,8 @@ PRE address = Cpost - K
 The existing eight-block calibration, coherent PRE run/owner/sequence, selected pair/rate,
 retained PCM range and checks before/after copying still apply. A disagreement, generation change,
 stop, seek or unexplained gap removes PRE at the start of that block. Named transport re-entry
-retains only the existing approved gains and selection authority; BLIND stops after any unverified
-block and never resumes the old trial. MATCH reads only the continuous proven history. State
+retains the existing approved gains and selection authority for LISTEN and BLIND. Unverified
+blocks use POST; fresh proof automatically resumes the same selection and hidden assignment. MATCH reads only the continuous proven history. State
 serialization, audio latency and normal A/measurement/Record data are unchanged.
 
 ## Burst pauses and missing callbacks
@@ -49,7 +49,8 @@ ordered FX GUIDs, ordinary PDC mode and no oversampling is admitted. Take/input/
 routes and external hardware inserts fail closed. The same process, live project/track and complete configuration fingerprints
 must match across the selected pair. Pre-playback `chain_pdc_actual` is discarded regardless of
 its success flag. Read brackets and two progressing callback observations fence restarts and
-configuration changes. Atomic payload words plus sequence validation avoid data races.
+configuration changes. The project change count only brackets each read and is not part of the
+chain fingerprint, so unrelated faders and parameter edits do not revoke a stable chain. Atomic payload words plus sequence validation avoid data races.
 
 The single scheduling constant is `ReaperTimingLimits::scheduling` (8192 samples). Static discovery
 with anticipative processing on/off observed relative PRE age of D plus one 512-frame block.
@@ -61,17 +62,20 @@ The entire `[E-U,E)` interval must be covered by at most two native linear segme
 PRE generation. Exactly one project-to-counter address is required; no PCM correlation or newest
 arrival chooses a lap. A verified PRE callback-boundary wrap preserves both adjacent segments.
 This covers the first delayed POST tail before POST itself wraps. Once measured, L must exceed U.
-An unverified within-block wrap or short prefix waits; a BLIND trial cannot bridge that wait.
+An unverified within-block wrap or short prefix waits; BLIND retains its assignment while POST covers that wait.
 The existing eight-block calibration still applies to REAPER. The API value is an upper bound,
 never K. Without it, the previous linear-proof continuation retains its fixed 73728-sample
 verified-address envelope. REAPER's measurement-only compensated project coordinate remains K=0.
 
-The service polls at 50 ms; tokens expire after 500 ms or two seconds of processed samples.
-These fixed lifetimes revoke stale observations; they do not prove host notification freshness.
+Relevant playing instances poll at 50 ms; idle instances check callback activity at 250 ms
+without querying host APIs. Tokens expire after 500 ms or two seconds of processed samples.
+Expiry preserves the fingerprint, delay, timing generation and K but withholds PRE until the
+same proof is current again. BLIND also resumes with the same assignment after fresh proof.
+These fixed lifetimes do not prove host notification freshness.
 Prepare/context changes, stop/seek, callback gaps, configuration edits, failed reads and identity
 changes revoke the old token and timing generation. RT uses no allocation, lock, I/O or host API.
-The private ring uses version 8 and a separate name; saved plugin state and public C ABI do not
-change. Diagnostics alone use a 512-block queue, allocated only when tracing is enabled.
+The private ring uses version 9 and a separate name; saved plugin state and public C ABI do not
+change. Diagnostics alone use a 272-block queue (under 36 MiB per traced instance), allocated only when tracing is enabled.
 
 [REAPER VST3 interface](https://github.com/justinfrankel/reaper-sdk/blob/main/sdk/reaper_vst3_interfaces.h)
 and [named configuration API](https://www.reaper.fm/sdk/reascript/reascripthelp.html#TrackFX_GetNamedConfigParm)
@@ -120,7 +124,7 @@ Non-stable fades and gained output that cannot be decoded remain explicitly uncl
 trace analyzer; a zero error count with unclassified frames is not whole-output acceptance.
 
 First-loop regression targets are `kirin_reaper_loop_entry` (actual output, split wrap, burst,
-short/ambiguous coverage and BLIND interruption), `kirin_reaper_pdc_adapter` (identity, API errors,
+short/ambiguous coverage and BLIND recovery), `kirin_reaper_pdc_adapter` (identity, API errors,
 preplay values, epochs, expiry and atomic coherence), and `kirin_chain_trace_burst` (256 undrained
 callbacks). `kirin_logic_cycle_entry` separately checks Logic render/presentation proof, zero delay,
 within-block wraps, pre-roll movement, paired analysis qualification and irreversible trial loss.

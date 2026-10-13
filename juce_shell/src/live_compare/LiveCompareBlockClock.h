@@ -25,6 +25,7 @@ struct BlockClock
     bool wallGap = false; // raw scheduling observation; REAPER additionally requires paired continuity
     // Opaque non-RT chain/configuration fingerprints; no host pointer crosses into the ring.
     std::uint64_t runtimeChainA = 0, runtimeChainB = 0, runtimeRevision = 0;
+    bool runtimeExpired = false; // freshness withholds this block; identity still fences changes
 };
 
 struct LoopAnchor

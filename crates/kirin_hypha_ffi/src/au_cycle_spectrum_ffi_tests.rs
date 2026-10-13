@@ -1,7 +1,7 @@
 //! AU local FREQ facts must survive an unavailable correspondence clock.
+use super::test_support;
 use super::*;
 use kirin_measure::{channel_layout::ChannelLayout, spectrum_exchange::SpectrumTarget};
-use std::{thread, time::Duration};
 
 #[test]
 fn au_cycle_mono_post_spectrum_survives_without_pair_clock() {
@@ -72,8 +72,11 @@ fn au_render_only_pre_keeps_local_spectrum_without_publishing_delta() {
                     "render-only AU retains each role's absolute FREQ"
                 );
             }
-            thread::sleep(Duration::from_millis(6));
+            test_support::analysis(&pre);
+            test_support::analysis(&post);
             exchange(&pre, &post);
+            test_support::exchange(&pre);
+            test_support::exchange(&post);
             if let Some((history, kind)) = pre.spectrum_runtime.try_history_with_clock() {
                 assert!(kind.is_none(), "PRE local render is never a shared clock");
                 if let Some(frame) = history.newest() {
@@ -122,7 +125,7 @@ fn au_render_only_pre_retains_absolute_sharpness() {
                 .collect();
             pre.note_capture_window(true, start, 256, CaptureClockSource::AudioRenderTimeline);
             pre.push_samples(&audio, channels as u32);
-            thread::sleep(Duration::from_millis(6));
+            test_support::analysis(&pre);
         }
         let history = pre.spectrum_runtime.try_absolute_history().unwrap();
         let latest = history
@@ -137,6 +140,15 @@ fn au_render_only_pre_retains_absolute_sharpness() {
 }
 
 fn verify_cycle(layout: ChannelLayout) {
+    verify_cycle_with_delay(layout, 0);
+}
+
+#[test]
+fn au_cycle_publication_survives_a_deliberately_slow_worker() {
+    verify_cycle_with_delay(ChannelLayout::stereo(), 9);
+}
+
+fn verify_cycle_with_delay(layout: ChannelLayout, delay: u64) {
     let temp = tempfile::tempdir().unwrap();
     let pre_json = temp.path().join("pre.json");
     std::fs::write(&pre_json, b"{}").unwrap();
@@ -148,6 +160,7 @@ fn verify_cycle(layout: ChannelLayout) {
         .spectrum
         .set_post_analysis_mode(AnalysisViewMode::Spectrum));
     post.spectrum.set_post_visible(true);
+    post.spectrum_runtime.delay_worker_for_test(delay);
     // Pair presence must not decide whether the local observation is available.
     for paired in [true, false] {
         let selected = paired.then_some(target.clone());
@@ -179,14 +192,12 @@ fn verify_cycle(layout: ChannelLayout) {
                 },
                 "AU POST must accept its own host coordinate without a comparison clock"
             );
-            // Feed at host cadence; the production exchange publishes at 30 Hz.
-            thread::sleep(Duration::from_millis(6));
+            // Finish this callback before advancing the cyclic coordinate to another lap.
+            test_support::analysis(&post);
             post.spectrum
                 .service_post_endpoint("post", selected.clone(), "fixture");
-            // A concurrent nonblocking publication read leaves the UI's previous frame intact.
-            let Some(snapshot) = post.spectrum.try_view() else {
-                continue;
-            };
+            test_support::exchange(&post);
+            let snapshot = test_support::view(&post);
             let view = to_c_spectrum_batch(snapshot);
             assert_eq!(
                 view.latest.has_data, 0,

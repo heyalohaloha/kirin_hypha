@@ -15,6 +15,8 @@ void verifyReaperTimingUi (Require require)
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
+        for (auto restriction : { ReaperChainRestriction::none, ReaperChainRestriction::channels,
+                ReaperChainRestriction::inputFx, ReaperChainRestriction::pdcMode, ReaperChainRestriction::routing })
         for (bool chain : { false, true })
         for (int width : { 300, 375, 450 })
             for (auto reason : { RecoveryReason::reaperFirstCycle, RecoveryReason::reaperDelayUnverified,
@@ -25,8 +27,10 @@ void verifyReaperTimingUi (Require require)
                 named.setFeedback ({});
                 const auto originalBody = named.analysisBodyBounds();
                 Status state; state.active = state.preSelected = state.preWaiting = true;
-                state.observation = reason;
+                state.prolongedWait = true; state.observation = reason; state.reaperRestriction = restriction;
                 const auto* notice = live_compare_ui::namedRecovery (state);
+                require (language != i18n::Language::japanese || text_style::shownText (notice) != notice,
+                         "every concrete restriction has a Japanese translation");
                 observatory::LiveCompareFooter footer;
                 footer.active = footer.entryEnabled = footer.preSelected = footer.preWaiting = true;
                 footer.recoveryHelp = notice;
@@ -50,7 +54,7 @@ void verifyReaperTimingUi (Require require)
                     std::cerr << "Clipped LISTEN: language=" << static_cast<int> (language)
                               << " width=" << width << " reason=" << static_cast<int> (reason) << '\n';
                 }
-                LiveBlindStatus blind; blind.stage = BlindStage::preparing; blind.observation = reason;
+                LiveBlindStatus blind; blind.prolongedWait = true; blind.stage = BlindStage::preparing; blind.observation = reason; blind.reaperRestriction = restriction;
                 const auto screen = live_blind_ui::screenFor (blind, true, 1.0f);
                 require (!screen.sourcesShown && screen.endEnabled, "unproven REAPER waits without sources, END remains");
                 require (!screen.cause.contains ("no verified audio clock"), "REAPER no longer claims absent audio clock");
@@ -76,7 +80,7 @@ void verifyReaperTimingUi (Require require)
                 {
                     auto out = juce::File (dir).getChildFile ("reaper-" + juce::String (static_cast<int> (language))
                         + "-" + juce::String (width) + "-" + juce::String (static_cast<int> (reason))
-                        + (chain ? "-chain" : "") + ".png").createOutputStream();
+                        + "-" + juce::String (static_cast<int> (restriction)) + (chain ? "-chain" : "") + ".png").createOutputStream();
                     auto namedPixels = named.createComponentSnapshot (named.getLocalBounds());
                     if (named.statusStripFolded())
                     {
@@ -85,7 +89,7 @@ void verifyReaperTimingUi (Require require)
                     }
                     auto namedOut = juce::File (dir).getChildFile ("listen-" + juce::String (static_cast<int> (language))
                         + "-" + juce::String (width) + "-" + juce::String (static_cast<int> (reason))
-                        + (chain ? "-chain" : "") + ".png").createOutputStream();
+                        + "-" + juce::String (static_cast<int> (restriction)) + (chain ? "-chain" : "") + ".png").createOutputStream();
                     require (namedOut && namedOut->setPosition (0) && namedOut->truncate().wasOk()
                         && juce::PNGImageFormat().writeImageToStream (namedPixels, *namedOut), "LISTEN preview saved");
                     require (out && out->setPosition (0) && out->truncate().wasOk()
@@ -112,12 +116,13 @@ void verifyOtherHostListenText (Require require)
     {
         const i18n::ScopedLanguage scoped (language);
         Status state; state.active = state.preSelected = state.preWaiting = true;
-        const char* expected = "Checking PRE: auto-resume; POST plays"; // Studio One, linear
+        state.prolongedWait = true;
+        const char* expected = "Timing unavailable; check PRE and play (POST)"; // Studio One, linear
         state.observation = RecoveryReason::calibrating;
         if (host == 1) // Studio Pro, known loop with retained MATCH
         {
             state.observation = RecoveryReason::loopWaiting; state.matchHeld = true;
-            expected = "Loop timing pending; MATCH held; POST plays";
+            expected = "Loop timing unavailable; try a longer loop (POST)";
         }
         if (host == 2) // Logic AU Cycle
         {

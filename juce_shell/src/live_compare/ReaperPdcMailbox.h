@@ -57,6 +57,7 @@ public:
     {
         b.runtimeChainA = b.runtimeChainB = b.runtimeRevision = 0;
         b.maximumDelaySamples = 0;
+        b.runtimeExpired = false;
         const auto currentEpoch = epoch.load (std::memory_order_acquire);
         auto observed = b;
         observed.clockValid = observed.clockValid && usable;
@@ -68,11 +69,11 @@ public:
         callbacks.store ({ currentEpoch, run, serial, samples, b.wallNanos, wasPlaying ? 1u : 0u });
         std::array<std::uint64_t, 10> v {};
         if (!usable || !b.playing || !token.load (v) || v[0] != currentEpoch || v[1] != run
-            || serial <= v[2] || samples < v[3] || samples - v[3] > rate * 2.0
-            || b.wallNanos < v[4] || b.wallNanos - v[4] > lifetimeNanos || v[5] == 0 || v[6] == 0)
+            || serial <= v[2] || samples < v[3] || b.wallNanos < v[4] || v[5] == 0 || v[6] == 0)
             return;
         b.runtimeChainA = v[5]; b.runtimeChainB = v[6]; b.runtimeRevision = v[7];
         b.maximumDelaySamples = static_cast<std::uint32_t> (v[8]);
+        b.runtimeExpired = samples - v[3] > rate * 2.0 || b.wallNanos - v[4] > lifetimeNanos;
     }
     bool witness (ReaperCallbackWitness& out) const noexcept
     {

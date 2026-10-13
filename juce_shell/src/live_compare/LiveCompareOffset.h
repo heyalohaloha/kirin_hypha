@@ -59,7 +59,7 @@ public:
     {
         bool settled = false;
         std::int64_t lagFrames = 0;
-        bool jumped = false;
+        bool jumped = false, recovered = false;
     };
     Step observe (const OffsetEstimate& estimate, bool alreadyHeld) noexcept
     {
@@ -77,6 +77,8 @@ public:
         if (! hasBaseline) { hasBaseline = true; baseline = candidate; }
         else if (distance (candidate, baseline) >= std::ceil (rate * offsetJumpSeconds) && ! alreadyHeld)
             step.jumped = true; // retain the original run baseline while held
+        step.recovered = alreadyHeld && hasBaseline
+            && distance (candidate, baseline) <= std::floor (rate * offsetAgreementSeconds);
         return step;
     }
 private:

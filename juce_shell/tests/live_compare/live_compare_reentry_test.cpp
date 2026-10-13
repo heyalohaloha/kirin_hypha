@@ -87,8 +87,7 @@ struct Pair
         if (result.timelineChanged)
         {
             reentry.lost (result.loss, eligible);
-            if (eligible && result.loss != TimelineBreak::metadataPending
-                && ! namedTransportRestart (result.loss)) selection.fail (command, result.reason);
+            if (result.loss == TimelineBreak::sourceChanged) selection.fail (command, result.reason);
         }
         if (result.verdict == Verdict::accepted) reentry.accepted();
         inRt = false;
@@ -149,10 +148,10 @@ void unexplainedLossNeedsNewSelection()
         if (fault == 2) pair.ring->header.timing.ownerA.fetch_add (1);
         const auto loss = pair.step (true, fault == 0, fault == 1);
         require (loss.timelineChanged && ! namedTransportRestart (loss.loss), "gap/clock/owner loss never masquerades as transport");
-        require (! pair.selection.command().pre(), "the failed named command is sealed");
+        require (pair.selection.command().pre() == (fault != 2), "only owner change seals selection");
         const auto before = pair.verified;
         for (int n = 0; n < 500; ++n) pair.step();
-        require (pair.verified == before, "fresh clocks cannot revive a sealed selection");
+        require (fault == 2 ? pair.verified == before : pair.verified > before + 300, "timing recovers; owner change requires selection");
         pair.selection.select (true);
         pair.recover();
     }
@@ -190,7 +189,7 @@ void knownCompensationDiffersFromUnexplainedGap()
     pair.recover();
     require (pair.step (true, true).loss == TimelineBreak::callbackGap,
              "an unexplained gap is not a compensation notification");
-    require (! pair.selection.command().pre(), "unknown callback gap still seals PRE");
+    require (pair.selection.command().pre(), "callback gap retains PRE intent for fresh proof");
     LoopTimeline timeline;
     auto block = pair.block (1000, false, true);
     require (timeline.observe (block, 48000).cause == TimelineBreak::stopped,
@@ -272,9 +271,9 @@ void blindPreparationDistinguishesStartupWaitFromARevokedProof()
     preparation.observe (preparation.command(), true, RecoveryReason::none, admission);
     const auto established = preparation.command();
     preparation.observe (established, false, RecoveryReason::clockMissing, admission);
-    require (preparation.failure() == RecoveryReason::clockMissing, "once-established preparation retains its first real clock loss");
+    require (preparation.failure() == RecoveryReason::none, "established preparation waits through a real clock loss");
     preparation.observe (preparation.command(), true, RecoveryReason::none, admission);
-    require (preparation.failure() == RecoveryReason::clockMissing, "fresh clocks do not revive invalidated preparation");
+    require (preparation.failure() == RecoveryReason::none, "fresh clocks continue the same preparation");
     preparation.end(); preparation.begin (admission);
     preparation.observe (established, false, RecoveryReason::callbackGap, admission);
     require (preparation.failure() == RecoveryReason::none, "old preparation epoch cannot fail a new explicit admission");
@@ -284,10 +283,10 @@ void blindPreparationDistinguishesStartupWaitFromARevokedProof()
     preparation.begin (admission);
     preparation.observe (preparation.command(), true, RecoveryReason::none, admission);
     preparation.observe (preparation.command(), false, RecoveryReason::stopped, admission);
-    require (preparation.failure() == RecoveryReason::stopped, "known STOP after established preparation also ends that preparation, not its anonymous successor");
-    require (preparation.failedAndOpen(), "only the open failed trial seals its own named recovery");
+    require (preparation.failure() == RecoveryReason::none, "known STOP keeps established preparation for the next playback");
+    require (!preparation.failedAndOpen(), "timing loss never seals preparation");
     preparation.end();
-    require (! preparation.failedAndOpen() && preparation.failure() == RecoveryReason::stopped,
+    require (! preparation.failedAndOpen() && preparation.failure() == RecoveryReason::none,
              "closed first-cause history cannot disable a later named admission");
     Interruption state;
     state.compensationOff = true;
@@ -296,7 +295,7 @@ void blindPreparationDistinguishesStartupWaitFromARevokedProof()
     state.callbackGap = true;
     require (state.reason() == RecoveryReason::callbackGap, "a real simultaneous gap outranks DC notification");
     state = {}; state.contentHeld = true;
-    require (state.reason() == RecoveryReason::contentChanged, "content hold is terminal after established preparation");
+    require (state.reason() == RecoveryReason::contentChanged, "content hold carries its observed cause");
     preparation.begin (admission);
     preparation.observe (preparation.command(), true, state.reason(), admission);
     state = {}; state.playing = false;
@@ -315,7 +314,7 @@ void blindPreparationDistinguishesStartupWaitFromARevokedProof()
         state.compensationOff = expected == RecoveryReason::compensationOff; state.contentHeld = expected == RecoveryReason::contentChanged;
         preparation.begin (admission); preparation.observe (preparation.command(), true, RecoveryReason::none, admission);
         preparation.observe (preparation.command(), false, state.reason(), admission);
-        require (preparation.failure() == expected, "all established preparation losses use the active anonymous cause contract");
+        require (preparation.failure() == (endsComparison (expected) ? expected : RecoveryReason::none), "only authority losses terminate preparation");
     }
 }
 }

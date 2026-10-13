@@ -19,17 +19,15 @@ int main()
         auto& available = missingPre ? h.preProjectAvailable : h.postProjectAvailable;
         available = false;
         audioThread = true; h.consume(); audioThread = false;
-        require (! h.report.preAudible && h.blind.view().invalidated,
-                 "one PRE or POST project hole immediately stops Blind in mono and stereo");
+        require (!h.report.preAudible && !h.blind.view().invalidated,
+                 "one PRE or POST project hole uses POST and retains the trial");
         available = true;
         for (int n = 0; n < 40; ++n)
         {
             audioThread = true; h.consume(); audioThread = false;
-            require (! h.report.preAudible && h.blind.view().invalidated, "fresh proof cannot revive the trial");
-            for (int c = 0; c < channels; ++c) for (int f = 0; f < frames; ++f)
-                require (h.output[c][f] == Host::sample (h.postPosition - frames + f, c) * 0.5f,
-                         "every recovery frame stays POST even after timing recalibrates");
+            require (!h.blind.view().invalidated, "fresh proof retains the trial");
         }
+        require (h.report.preAudible, "the first fresh proof returns PRE without END");
     }
     for (int fault = 0; fault < 5; ++fault)
     {
@@ -43,7 +41,8 @@ int main()
             case 4: h.prePosition += frames; break;
         }
         audioThread = true; h.consume(); audioThread = false;
-        require (!h.report.preAudible && h.blind.view().invalidated, "stop/seek/pair/owner/PRE skip stops Blind");
+        require (!h.report.preAudible && h.blind.view().invalidated == (fault == 2 || fault == 3),
+                 "stop/seek/PRE skip retain intent; pair and owner changes retire it");
     }
     {
         Host h; h.warm();
@@ -92,7 +91,7 @@ int main()
         h.now += 4000000000; h.wallGap = true;
         h.prePosition += h.length; h.postPosition += h.length;
         h.blind.start (true); h.consume();
-        require (!h.report.preAudible && h.blind.view().invalidated, "both sides' whole-lap gap is not a normal burst");
+        require (!h.report.preAudible && !h.blind.view().invalidated, "both sides' whole-lap gap is POST within the same trial");
     }
     for (int channels : { 1, 2 })
     {

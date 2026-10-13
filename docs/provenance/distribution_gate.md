@@ -204,3 +204,13 @@ the registry. The reviewed CMake hash is
 `15754d41be3a78dbaa7a6c73d424fbeed21f0a830c5903d7ce574c8adde24e5e`. Only the registry build-contract hash advances;
 material hashes, permissions, holds and release gates keep their existing decisions. This
 implementation review does not claim independent review or release acceptance.
+
+### 2026-10-13 persistent MATCH request build-contract review
+
+Removing the added `PluginProcessorLiveMatchRequest.cpp` source entry restores the exact
+checkout-base CMake bytes. This source owns a message-thread MATCH request across editor
+closure; it adds no assets, fonts, resources or external dependencies. The embedded inventory
+and every listed material hash still match the registry. The reviewed CMake hash is
+`7bcec36e0ae3a35449a504e79c7dd8b974ecce9402c52ad7ab45dce6b3af9320`. Only the build-contract hash changes; material permissions, holds and release
+gates retain their existing decisions. This implementation review does not claim independent
+review or release acceptance.

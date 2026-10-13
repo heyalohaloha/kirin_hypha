@@ -10,8 +10,8 @@ int trackToken, projectToken;
 struct Fake
 {
     bool playing = true, valid = true, duplicate = false, fail = false, malformed = false;
-    bool container = false, off = false, external = false;
-    int input = 0, parallel = 0, mode = 1, oversample = 0, revision = 1;
+    bool container = false, off = false, external = false, changing = false;
+    int input = 0, parallel = 0, mode = 1, oversample = 0, revision = 1, channels = 2;
     std::uint32_t delay = 4096;
     std::array<std::array<unsigned char, 16>, 4> guid {};
     Fake() { for (unsigned i = 0; i < guid.size(); ++i) guid[i][0] = static_cast<unsigned char> (i + 1); }
@@ -43,8 +43,8 @@ ReaperChainApi api()
         [] (void*, int slot) -> const void* { return fake.guid[static_cast<std::size_t> (slot)].data(); },
         [] (void*) -> const void* { return fake.guid[3].data(); },
         [] (void*, int) { return !fake.off; }, [] (void*, int) { return false; },
-        [] (void*) { return fake.playing ? 1 : 0; }, [] (void*) { return fake.revision; },
-        [] (void*, const char* key) { return std::string (key) == "I_NCHAN" ? 2.0 : 0.0; },
+        [] (void*) { return fake.playing ? 1 : 0; }, [] (void*) { return fake.changing ? ++fake.revision : fake.revision; },
+        [] (void*, const char* key) { return std::string (key) == "I_NCHAN" ? static_cast<double> (fake.channels) : 0.0; },
         [] (void*) { return 1.0; }
     };
 }
@@ -53,6 +53,23 @@ void reader()
 {
     require (read().valid, "main chain including slot zero binds by class/GUID, not display name");
     const auto original = read();
+    for (auto reason : { ReaperChainRestriction::channels, ReaperChainRestriction::inputFx,
+                         ReaperChainRestriction::pdcMode, ReaperChainRestriction::routing })
+    {
+        if (reason == ReaperChainRestriction::channels) fake.channels = 4;
+        if (reason == ReaperChainRestriction::inputFx) fake.input = 1;
+        if (reason == ReaperChainRestriction::pdcMode) fake.mode = 0;
+        if (reason == ReaperChainRestriction::routing) fake.parallel = 1;
+        ReaperChainRestriction actual {};
+        require (!readReaperChain (api(), &projectToken, &trackToken, nullptr, 987, &actual).valid
+                 && actual == reason && *reaperRestrictionText (actual), "unsupported tracks have a concrete non-RT reason");
+        fake = {};
+    }
+    for (bool enabled : { false, true }) for (bool interested : { false, true }) for (bool playing : { false, true })
+        require (reaperMonitorRequired (enabled, interested, playing) == (enabled && interested && playing),
+                 "only a playing instance needed for preparation or audition polls the host API");
+    ++fake.revision; require (read().same (original), "unrelated project edits do not change the chain fingerprint"); fake = {};
+    fake.changing = true; require (!read().valid, "an edit during one read rejects that observation"); fake = {};
     fake.playing = false; require (!read().valid, "actual success before playback is rejected"); fake = {};
     fake.duplicate = true; require (!read().valid, "duplicate role rejected"); fake = {};
     fake.valid = false; require (!read().valid, "stale parent rejected"); fake = {};
@@ -101,7 +118,8 @@ void mailbox()
     require (b.runtimeChainA != 0, "128 callback burst does not fabricate elapsed wall time");
     poll(); callback(); require (b.runtimeRevision == revision, "identical polls do not change proof revision");
     time.advance (std::chrono::milliseconds (501)); callback();
-    require (b.runtimeChainA == 0, "stalled timer expires");
+    require (b.runtimeChainA == reading.chainA && b.runtimeExpired && b.runtimeRevision == revision, "expiry keeps identity but withholds permission");
+    poll(); callback(); require (!b.runtimeExpired && b.runtimeRevision == revision, "same proof after expiry retains revision");
     box.invalidate(); callback(); require (b.runtimeChainA == 0, "prepare/host epoch fences old token");
     poll(); callback(); poll(); callback(); require (b.runtimeChainA != 0, "fresh epoch can reacquire evidence only");
     auto changed = reading; changed.delay += 4096; changed.chainA ^= 8;
@@ -114,7 +132,7 @@ void mailbox()
     require (b.maximumDelaySamples == changed.delay && b.runtimeRevision != revision,
              "fresh changed bound is a different proof, never appended to old K");
     for (int i = 0; i < 400; ++i) callback (true, false);
-    require (b.runtimeChainA == 0, "processed-sample expiry also bounds an arbitrarily fast burst");
+    require (b.runtimeExpired, "processed-sample expiry also bounds an arbitrarily fast burst");
     callback (false); callback(); require (b.runtimeChainA == 0, "stop/play cannot reuse token");
 }
 void atomicSnapshot()

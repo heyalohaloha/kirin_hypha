@@ -47,11 +47,13 @@ inline bool reaperWindowAddress (const LoopAnchor& anchor, const BlockClock& pre
                                  std::int64_t& start) noexcept
 {
     const auto upper = reaperRuntimeAge (pre, post);
-    if (upper <= 0 || upper >= capacity || pre.frames <= 0 || post.frames <= 0
+    if (pre.runtimeExpired || post.runtimeExpired || upper <= 0 || upper >= capacity || pre.frames <= 0 || post.frames <= 0
         || pre.frames > ReaperTimingLimits::scheduling || post.frames > ReaperTimingLimits::scheduling
         || !pre.playing || !post.playing || !pre.clockValid || !post.clockValid
         || !pre.projectValid || !post.projectValid || pre.afterGap || post.afterGap
         || !pre.loop.usable (rate) || !post.loop.usable (rate) || !pre.loop.sameRange (post.loop)
+        || pre.loop.ppq + pre.loop.beats (pre.frames, rate) > pre.loop.end + 1.0e-9
+        || post.loop.ppq + post.loop.beats (post.frames, rate) > post.loop.end + 1.0e-9
         || (anchor.loopSamples > 0 && anchor.loopSamples <= upper)) return false;
     const auto& w = anchor.intervals;
     std::int64_t end = 0, oldest = 0;
@@ -64,7 +66,7 @@ inline bool reaperWindowAddress (const LoopAnchor& anchor, const BlockClock& pre
         std::int64_t offset = 0, address = 0, finish = 0;
         if (a >= b || !checkedClockSubtract (post.project, p, offset)
             || !checkedClockAdd (a, offset, address) || !checkedClockAdd (address, post.frames, finish)
-            || address < a || address >= b || address < oldest || finish > end) return;
+            || address < a || address >= b || address < oldest || finish > b) return;
         start = address; ++candidates;
     };
     inspect (w.start, w.project, w.split);

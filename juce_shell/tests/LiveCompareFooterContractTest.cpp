@@ -12,7 +12,7 @@
 
 // The live PRE / POST compare in the Observatory footer (INV-LC4, plan section 9): the entry beside
 // Blind at the large POST sizes, a running session's POST and END at every size, a PRE control that
-// names WAIT and its MATCH gain in text, and slots that a boundary never moves.
+// retains PRE and its MATCH gain in text, and slots that a boundary never moves.
 namespace hypha::tests
 {
 namespace
@@ -74,12 +74,12 @@ void verifyLiveCompareFooterContract()
             renewed.timingReentryPending = true;
             renewed.observation = live_compare::RecoveryReason::loopUnproven;
             const auto renewing = live_compare_ui::namedPresentation (renewed);
-            require (renewing.action == live_compare_ui::RecoveryAction::automatic
-                && ! juce::String (renewing.instruction).containsIgnoreCase ("rematch"),
-                "identified named transport recovery has no LOOP-off or rematch requirement");
+            require (renewing.action == live_compare_ui::RecoveryAction::none && *renewing.instruction == 0,
+                     "short timing renewal is quiet and needs no action");
             const auto readableRecovery = [&] (const char* instruction)
             {
                 post.setFeedback (instruction);
+                if (*instruction == 0) return;
                 require (footer_notice::retainedInFooter (post, instruction),
                          "fresh-proof and retained-MATCH notices keep full details and bounded footer paint");
             };
@@ -90,9 +90,8 @@ void verifyLiveCompareFooterContract()
             renewed.preSelected = renewed.preWaiting = false;
             renewed.observation = live_compare::RecoveryReason::none;
             const auto retained = live_compare_ui::namedPresentation (renewed);
-            require (retained.action == live_compare_ui::RecoveryAction::selectPre
-                && ! juce::String (retained.instruction).containsIgnoreCase ("rematch"),
-                "fixed approved gain may check timing without remeasurement");
+            require (retained.action == live_compare_ui::RecoveryAction::none && *retained.instruction == 0,
+                     "retained MATCH does not demand reselection or remeasurement");
             readableRecovery (retained.instruction);
             for (auto reason : { live_compare::RecoveryReason::callbackGap, live_compare::RecoveryReason::clockMissing,
                                  live_compare::RecoveryReason::offline, live_compare::RecoveryReason::bypassed })
@@ -111,6 +110,7 @@ void verifyLiveCompareFooterContract()
                     recovery.reason = static_cast<live_compare::RecoveryReason> (code);
                     recovery.observation = recovery.reason;
                     recovery.active = phase < 2;
+                    recovery.prolongedWait = true; // exhaustive long-loss text, short losses checked above
                     if (phase == 3) recovery.postTarget = recovery.postActual = 0.5f;
                     recovery.preSelected = recovery.preWaiting = phase == 0;
                     recovery.matched = recovery.reason == live_compare::RecoveryReason::loopWaiting;
@@ -230,8 +230,8 @@ void verifyLiveCompareFooterContract()
         state.preWaiting = true;
         post.setLiveCompareFooter (state);
         require (boundsOf (rail) == before, "WAIT never moves a control");
-        require (! preButton->isVisible() || preButton->getButtonText().contains ("WAIT"),
-                 "PRE selected while POST sounds reads WAIT in text");
+        require (! preButton->isVisible() || !preButton->getButtonText().contains ("WAIT"),
+                 "PRE choice stays visible during quiet recovery");
         require (preButton->getToggleState() && ! postButton->getToggleState(), "PRE is the selected source");
         state.preWaiting = false;
         post.setLiveCompareFooter (state);
@@ -291,15 +291,14 @@ void verifyLiveCompareFooterContract()
             state.matchHeld = true;
             post.setLiveCompareFooter (state);
             require (! match->isVisible() || (readable (post, *match)
-                && match->getButtonText() == "HELD"), "retained MATCH says HELD in both languages");
+                && match->getButtonText() == "MATCH"), "retained MATCH keeps its usual label in both languages");
             live_compare::Status heldMatch;
             heldMatch.active = heldMatch.matchHeld = true;
             const auto* notice = live_compare_ui::namedRecovery (heldMatch);
             post.setFeedback (notice);
             recoveryPreview (post, "held-" + juce::String (static_cast<int> (language))
                 + "-" + juce::String (preset.width));
-            require (footer_notice::retainedInFooter (post, notice),
-                     "held MATCH retains full details and fixed bounded notice paint");
+            require (*notice == 0, "short MATCH renewal has no held/waiting notice");
         }
     }
     state.matchHeld = false;

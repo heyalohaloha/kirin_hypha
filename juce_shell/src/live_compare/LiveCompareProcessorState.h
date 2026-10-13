@@ -16,8 +16,10 @@
 #include "LiveCompareGainApproval.h"
 #include "LiveBlindPreparation.h"
 #include "LiveCompareContentHold.h"
+#include "LiveCompareWaitNotice.h"
 #include "CertifiedProjectAnalysisClock.h"
 #include "LiveCompareLoopGuidance.h"
+#include "ReaperChainStatus.h"
 #include "../chain_trace/ChainTraceWriter.h"
 
 #include <atomic>
@@ -37,6 +39,8 @@ struct LiveBlindStatus
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
+    ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
+    bool prolongedWait = false;
     bool clockUnavailable = false;  // the host reports neither a continuous clock nor output latency: PRE cannot be heard
 };
 
@@ -53,8 +57,10 @@ struct Status
     bool timingReentryPending = false;
     bool timingUnavailable = false;
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
+    ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
     // The audio clock is missing and this host has reported neither a continuous clock nor its
     // output latency since this instance began: PRE cannot be heard here, and stop/play will not help.
+    bool prolongedWait = false;
     bool clockUnavailable = false;
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
@@ -76,6 +82,7 @@ struct ProcessorState
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
+    WaitNotice waitNotice;
     BlindSession blind;
     BlindPreparation blindTiming;
     NamedSelection selection;
@@ -129,6 +136,14 @@ struct ProcessorState
     std::atomic<float> postTarget { 1.0f };   // approved POST attenuation (linear, at most 1)
     std::atomic<float> ceilingLinear { 1.0f }; // PRE guard fixed at MATCH, 10^(C/20)
     std::atomic<bool> guardTripped { false };
+    // Message-thread request survives editor closure; output authority is never serialized.
+    bool namedMatchPending = false, namedMatchReady = false, namedMatchApplied = false;
+    std::uint64_t namedMatchNext = 0, namedMatchAuthority = 0;
+    MatchPlan namedMatchPlan;
+    OffsetMonitor contentMonitor;
+    OffsetMonitor::Step contentStep;
+    std::uint32_t contentMonitorRun = 0;
+    std::uint64_t contentMonitorNext = 0;
     ContentHold contentHold;      // INV-LC10: the content offset jumped
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions

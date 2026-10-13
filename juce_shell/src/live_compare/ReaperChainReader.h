@@ -1,5 +1,6 @@
 #pragma once
 #include "ReaperPdcMailbox.h"
+#include "ReaperChainStatus.h"
 #include <array>
 #include <charconv>
 #include <cstring>
@@ -54,21 +55,27 @@ struct ReaperFingerprint
 };
 
 inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* project, void* track,
-                                            void* take, std::uint64_t process)
+                                            void* take, std::uint64_t process,
+                                            ReaperChainRestriction* restriction = nullptr)
 {
+    const auto reject = [&] (ReaperChainRestriction reason) {
+        if (restriction) *restriction = reason; return ReaperPdcObservation {}; };
+    if (restriction) *restriction = ReaperChainRestriction::unavailable;
+    if (take) return reject (ReaperChainRestriction::routing);
     if (!api.complete() || !project || !track || take || process == 0
         || !api.valid (project, project, "ReaProject*") || !api.valid (project, track, "MediaTrack*")
         || (api.playing (project) & 3) != 1 || api.playRate (project) != 1.0) return {};
     const auto changes = api.changes (project);
     const auto count = api.count (track);
-    if (count < 2 || count > 256 || api.inputCount (track) != 0) return {};
+    if (api.inputCount (track) != 0) return reject (ReaperChainRestriction::inputFx);
+    if (count < 2 || count > 256) return {};
     const auto channels = api.trackInfo (track, "I_NCHAN");
-    if (!(channels <= 2 && channels >= 2)) return {}; // mono inserts on a two-channel track are allowed
+    if (!(channels <= 2 && channels >= 2)) return reject (ReaperChainRestriction::channels); // mono inserts on a two-channel track are allowed
     ReaperFingerprint hash;
     hash.number (process); hash.number (reinterpret_cast<std::uintptr_t> (project));
     const auto* trackId = api.trackGuid (track);
     if (!trackId) return {};
-    hash.append (trackId, 16); hash.number (count); hash.number (changes);
+    hash.append (trackId, 16); hash.number (count);
     for (const auto* key : { "I_PERFFLAGS", "I_RECARM", "I_RECMON" })
     {
         const auto value = api.trackInfo (track, key);
@@ -106,10 +113,10 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
         if (isPre) { if (pre >= 0) return {}; pre = i; }
         if (isPost) { if (post >= 0) return {}; post = i; }
         if (type == "Container" || type == "ReWire" || type == "ReaInsert"
-            || original.find ("ReaInsert") != std::string::npos) return {};
+            || original.find ("ReaInsert") != std::string::npos) return reject (ReaperChainRestriction::routing);
         // container_count is absent for ordinary FX. A successful container/parent response
         // is not coerced to zero; this route has no container or nested-slot proof.
-        if (read (i, "container_count", value) || read (i, "parent_container", value)) return {};
+        if (read (i, "container_count", value) || read (i, "parent_container", value)) return reject (ReaperChainRestriction::routing);
         hash.text (type); hash.text (identity); hash.text (original);
         const bool on = api.enabled (track, i), off = api.offline (track, i);
         hash.number (on); hash.number (off);
@@ -119,13 +126,15 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
         if (!integer (i, "pdc", pdc) || !integer (i, "chain_pdc_actual", delay)
             || !integer (i, "chain_pdc_reporting", reporting) || !integer (i, "chain_pdc_mode", mode)
             || !integer (i, "parallel", parallel) || !integer (i, "instance_oversample_shift", instanceOversample)
-            || !integer (i, "chain_oversample_shift", chainOversample)
-            || mode != 1 || parallel != 0 || instanceOversample != 0 || chainOversample != 0
-            || delay < reporting || delay > ReaperTimingLimits::delay || (i > 0 && delay != actual)) return {};
+            || !integer (i, "chain_oversample_shift", chainOversample)) return {};
+        if (mode != 1) return reject (ReaperChainRestriction::pdcMode);
+        if (parallel != 0 || instanceOversample != 0 || chainOversample != 0) return reject (ReaperChainRestriction::routing);
+        if (delay < reporting || delay > ReaperTimingLimits::delay || (i > 0 && delay != actual)) return {};
         actual = delay;
     }
     if (pre < 0 || post <= pre || api.count (track) != count || api.changes (project) != changes
         || (api.playing (project) & 3) != 1) return {};
+    if (restriction) *restriction = ReaperChainRestriction::none;
     return { hash.a, hash.b, actual, hash.a != 0 && hash.b != 0 };
 }
 }

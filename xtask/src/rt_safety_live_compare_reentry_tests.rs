@@ -214,16 +214,11 @@ fn live_reentry_keeps_authority_separate_from_transient_approval_readiness() {
         .split(';')
         .next()
         .unwrap();
-    for required in [
-        "permitted",
-        "sessionActive",
-        "! finishing",
-        "! blindCommand.active()",
-    ] {
+    for required in ["permitted", "sessionActive", "! finishing", "ownerClosed"] {
         assert!(eligibility.contains(required));
     }
     assert!(
-        !eligibility.contains("coherent"),
+        eligibility.contains("!coherent || !gains.retained || gains.identity.same"),
         "odd writer must not discard known named intent"
     );
     for required in [

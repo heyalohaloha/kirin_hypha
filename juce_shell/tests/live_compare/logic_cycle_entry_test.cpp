@@ -1,9 +1,11 @@
 #include "ReaperFixture.h"
+#include "LoopReviewRegressions.h"
 #include "../ProductTestClock.h"
 #include "../../src/live_compare/PairedAnalysisClock.h"
 using namespace reaper_fixture;
 int main()
 {
+    loop_review::linearLogic();
     hypha::tests::ProductTestClock time;
     for (int blockFrames : { 512, 2048 })
     for (int channels : { 1, 2 })
@@ -12,7 +14,7 @@ int main()
         auto ring = std::make_unique<Ring>(); ring->initialise (pair, rate); ring->header.demand.store (1);
         PreFeeder feeder; TimingObserver observer; PairedAnalysisClock analysis; PostRenderer renderer; PostLevel level;
         renderer.prepare (blockFrames, rate); level.configure (rate);
-        BlindSession blind;
+        BlindSession blind; NamedSelection selection; selection.select (true); NamedReentry reentry;
         std::array<std::array<float, 2048>, 2> input {}, output {};
         const float* in[] { input[0].data(), input[1].data() };
         float* out[] { output[0].data(), output[1].data() };
@@ -90,8 +92,9 @@ int main()
             const auto report = renderer.render (*ring, pair, rate, post, out, channels,
                 blind.valid (command), 1.0f, level, 1.0f, 1.0f, command.active());
             require (report.verdict != Verdict::accepted, "every injected fault rejects this block");
-            if (report.verdict != Verdict::accepted) blind.invalidate (command, report.reason);
-            require (blind.view().invalidated && !report.preAudible, "unverified Logic callback ends BLIND");
+            if (report.verdict != Verdict::accepted) blind.fallback (command);
+            if (report.timelineChanged) reentry.lost (report.loss, true);
+            require (!blind.view().invalidated && !report.preAudible, "unverified Logic callback keeps POST and the same BLIND");
             for (const auto& channel : output) for (auto sample : channel) require (sample == -0.25f, "fault block keeps original POST");
             time.advanceBlock (blockFrames, rate);
             for (int recovery = 0; recovery < 45; ++recovery)
@@ -100,10 +103,16 @@ int main()
                 publish (restoredRender + delay); auto restored = block (restoredRender, false);
                 TimingSnapshot restoredPeer; require (readTiming (ring->header.timing, restoredPeer), "recovery metadata");
                 const auto restoredProof = observer.observe (restoredPeer, restored, rate, ringCapacityFrames);
+                if (reentry.request (selection.command(), true, renderer.needsNewAdmission())) renderer.renewNamedTiming();
                 renderer.adoptInitialTiming (*ring, restored, restoredProof); fillPost();
                 const auto restoredReport = renderer.render (*ring, pair, rate, restored, out, channels,
                     blind.valid (blind.command()), 1.0f, level, 1.0f, 1.0f, true);
-                require (blind.view().invalidated && !restoredReport.preAudible, "Logic trial never resumes automatically");
+                if (restoredReport.timelineChanged) reentry.lost (restoredReport.loss, true);
+                require (!blind.view().invalidated, "Logic preserves the same trial");
+                if (recovery > 20) require (restoredReport.preAudible, "Logic resumes on fresh proof without another gesture");
+                if (restoredReport.stableSource && restoredReport.preAudible)
+                    for (int c = 0; c < channels; ++c) for (int n = 0; n < blockFrames; ++n)
+                        require (output[c][n] == Host::sample (restoredRender + n, c), "recovered PRE has the correct occurrence");
                 time.advanceBlock (blockFrames, rate);
             }
         }

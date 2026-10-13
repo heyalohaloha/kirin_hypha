@@ -21,7 +21,7 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
         add_test(NAME kirin_${contract} COMMAND Kirin_${contract}_Tests)
     endforeach()
     find_package(Threads REQUIRED)
-    foreach(contract IN ITEMS reaper_loop_entry logic_cycle_entry reaper_pdc_adapter chain_trace_burst)
+    foreach(contract IN ITEMS easy_to_try reaper_loop_entry logic_cycle_entry reaper_pdc_adapter chain_trace_burst)
         add_executable(Kirin_${contract}_Tests tests/live_compare/${contract}_test.cpp)
         target_compile_features(Kirin_${contract}_Tests PRIVATE cxx_std_17)
         target_compile_definitions(Kirin_${contract}_Tests PRIVATE KIRIN_HYPHA_TEST_WALL_CLOCK=1)

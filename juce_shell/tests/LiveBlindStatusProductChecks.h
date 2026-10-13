@@ -15,7 +15,7 @@ inline void requireInterruptedBlind (KirinHyphaProcessorBase& post,
     if (post.liveCompareStatus().preAudible || status.stage != live_compare::BlindStage::invalidated
         || status.reason != reason || post.selectLiveBlind (1) || post.selectLiveBlind (2)
         || post.revealLiveBlind())
-        throw std::runtime_error ("one missing project block immediately invalidates BLIND");
+        throw std::runtime_error ("missing PRE mapping ends old BLIND authority");
 }
 
 // Exercise the real callback -> public status -> service teardown boundary without an OS
@@ -73,16 +73,16 @@ inline void verifyBlindInterruptionStatus()
         clock.positionAvailable = false;
         block();
         const auto terminal = LiveTimingFixtureAccess::blindTrial (post);
-        if (! terminal.invalidated || terminal.reason != RecoveryReason::projectClockMissing)
-            throw std::runtime_error ("audio callback invalidates the exact trial before service");
-        requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
+        if (! terminal.invalidated || terminal.reason != RecoveryReason::preUnavailable)
+            throw std::runtime_error ("missing owner invalidates the exact trial before service");
+        requireInterruptedBlind (post, RecoveryReason::preUnavailable);
         post.serviceLiveBlind();
-        requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
+        requireInterruptedBlind (post, RecoveryReason::preUnavailable);
         clock.positionAvailable = true;
         for (int i = 0; i < 40; ++i)
         {
             block(); post.serviceLiveBlind();
-            requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
+            requireInterruptedBlind (post, RecoveryReason::preUnavailable);
         }
         post.releaseResources();
     }

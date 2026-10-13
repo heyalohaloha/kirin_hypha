@@ -9,9 +9,9 @@
 namespace hypha::chain_trace
 {
 constexpr int maximumFrames = 8192;
-// Two 128-block preroll/start bursts, plus writer scheduling headroom. Diagnostic only;
+// Two 128-block preroll/start bursts plus 16 slots of writer headroom (under 36 MiB).
 // allocated/touched once off RT, and absent unless tracing is explicitly enabled.
-constexpr std::size_t queueBlocks = 512;
+constexpr std::size_t queueBlocks = 272;
 // Diagnostic observations only. Never consumed by the alignment, meter, Record or output path.
 struct Row
 {
@@ -56,6 +56,7 @@ public:
     void pop() noexcept { read.fetch_add (1, std::memory_order_release); }
 private:
     static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
+    static_assert (Capacity * sizeof (Row) <= 36u * 1024u * 1024u);
     std::array<Row, Capacity> rows;
     std::uint64_t write = 0;
     std::atomic<std::uint64_t> read { 0 }, published { 0 };

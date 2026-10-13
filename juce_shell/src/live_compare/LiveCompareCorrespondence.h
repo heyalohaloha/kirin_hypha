@@ -7,6 +7,11 @@
 
 namespace hypha::live_compare
 {
+// Deterministic copy/publication interleavings are compiled only into native fixtures.
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+inline void (*afterCorrespondenceCopyForTest) (const Ring&) = nullptr;
+#endif
+
 enum class Verdict : std::uint8_t
 {
     accepted,
@@ -52,7 +57,7 @@ public:
     {
         Decision decision;
         TimingSnapshot runtimePeer;
-        const bool runtimeProof = preparedKind == LoopEntryKind::reaperBound || logicRender (block);
+        const bool runtimeProof = preparedKind == LoopEntryKind::reaperBound || preparedKind == LoopEntryKind::logicPresentation;
         bool runtimeVerified = false;
         if (runtimeProof && kValid)
         {
@@ -191,7 +196,7 @@ public:
         std::int64_t candidate = 0;
         // A project-time match is not unique inside a loop. Preserve an already proven K;
         // never recalibrate it onto a newer occurrence of the same project coordinate.
-        if (continuous && block.playing && ! block.loop.active && !logicRender (block)
+        if (continuous && block.playing && ! block.loop.active && preparedKind != LoopEntryKind::logicPresentation
             && joinCandidate (ring.header, block, runStart, candidate))
         {
             decision.candidateSeen = true;
@@ -227,11 +232,13 @@ public:
             return fill (decision);
         }
         decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels);
+       #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+        if (afterCorrespondenceCopyForTest) afterCorrespondenceCopyForTest (ring);
+       #endif
         // PCM seq protects the samples/run, not the separate clock-only generation. A PRE
         // stop/seek/close during this copy must not leave a completed proof audible.
         if (ring.header.run.load (std::memory_order_acquire) != run
             || ring.header.ownerClosed.load (std::memory_order_acquire) != 0
-            || (runtimeProof && runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire))
             || ! preparedTimingCurrent (ring.header))
         {
             invalidate();
@@ -241,6 +248,8 @@ public:
             decision.loss = preparedTimingLoss (ring.header);
             if (decision.loss != TimelineBreak::metadataPending) preparedGeneration = 0;
         }
+        else if (runtimeProof && runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire))
+            decision.verdict = Verdict::torn; // one overlapping metadata publication, not a new PCM run
         return fill (decision);
     }
 

@@ -15,18 +15,14 @@ fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() 
     assert!(rt.contains("liveCompare.contentHold.stopped();"));
     assert!(!rt.contains("measureOffset") && !rt.contains("estimateOffset"));
     let monitor = function_body(
-        EDITOR_LIVE_COMPARE_CPP,
-        "bool KirinHyphaEditor::monitorLiveCompareOffset",
+        CONTENT_CPP,
+        "void KirinHyphaProcessorBase::serviceLiveContentTiming",
     );
-    assert!(monitor.contains("if (step.jumped &&"));
-    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump (estimate)"));
-    assert_eq!(
-        EDITOR_LIVE_COMPARE_CPP
-            .matches("holdLiveCompareForContentJump")
-            .count(),
-        1,
-        "only the settled jump holds POST"
-    );
+    assert!(monitor.contains("if (step.jumped) holdLiveCompareForContentJump (estimate)"));
+    assert!(monitor.contains("step.recovered"));
+    assert!(monitor.contains("estimate.timelineGeneration == liveCompare.timelineGeneration.load"));
+    assert!(monitor.contains("liveCompare.contentHold.clear (estimate.stopGeneration)"));
+    assert!(!EDITOR_LIVE_COMPARE_CPP.contains("holdLiveCompareForContentJump (estimate)"));
 }
 
 #[test]
@@ -55,21 +51,15 @@ fn timeline_reset_notification_is_bounded_and_requires_explicit_stop() {
 }
 
 #[test]
-fn held_blind_is_refused_before_scope_and_preparation_cannot_wait_silently() {
+fn blind_preparation_keeps_intent_during_a_content_hold() {
     let begin = function_body(
         BLIND_CPP,
         "StartResult KirinHyphaProcessorBase::beginLiveBlind",
     );
-    let guard = begin
-        .find("if (liveCompare.contentHold.held()) return StartResult::contentHeld;")
-        .unwrap();
-    assert!(guard < begin.find("kirin_hypha_begin_local_blind").unwrap());
+    assert!(!begin.contains("return StartResult::contentHeld"));
     let service = function_body(BLIND_CPP, "void KirinHyphaProcessorBase::serviceLiveBlind");
-    assert!(service.contains("liveCompare.contentHold.held() ? RecoveryReason::contentChanged"));
-    assert!(
-        service
-            .find("liveCompare.blindStage = BlindStage::invalidated")
-            .unwrap()
-            < service.find("liveCompare.blindTimingReceipt.load").unwrap()
-    );
+    assert!(service.contains("status.contentHeld"));
+    assert!(service.contains("liveCompare.blindWaiting = MatchFailure::notProven"));
+    let preparation = include_str!("../../juce_shell/src/live_compare/LiveBlindPreparation.h");
+    assert!(preparation.contains("if (endsComparison (loss))"));
 }

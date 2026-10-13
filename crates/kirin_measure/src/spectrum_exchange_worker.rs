@@ -43,6 +43,10 @@ struct WorkerState {
     shutdown: AtomicBool,
     wake: (Mutex<()>, Condvar),
     published_updates: AtomicU64,
+    #[cfg(feature = "test-support")]
+    requested_tick: AtomicU64,
+    #[cfg(feature = "test-support")]
+    completed_tick: AtomicU64,
     #[cfg(test)]
     pause_ticks: AtomicBool,
     #[cfg(test)]
@@ -69,6 +73,10 @@ impl SpectrumExchangeWorker {
                 shutdown: AtomicBool::new(false),
                 wake: (Mutex::new(()), Condvar::new()),
                 published_updates: AtomicU64::new(0),
+                #[cfg(feature = "test-support")]
+                requested_tick: AtomicU64::new(0),
+                #[cfg(feature = "test-support")]
+                completed_tick: AtomicU64::new(0),
                 #[cfg(test)]
                 pause_ticks: AtomicBool::new(false),
                 #[cfg(test)]
@@ -232,6 +240,31 @@ impl SpectrumExchangeWorker {
 }
 
 impl SpectrumCoordinator {
+    /// Test barrier through the real worker, after the caller has awaited analysis completion.
+    /// No worker means service_*_endpoint already performed the synchronous tick.
+    #[cfg(feature = "test-support")]
+    pub fn request_exchange_tick_for_test(&self) -> Option<u64> {
+        if !self.exchange_worker.is_started() {
+            return None;
+        }
+        let ticket = self
+            .exchange_worker
+            .state
+            .requested_tick
+            .fetch_add(1, Ordering::AcqRel)
+            + 1;
+        self.exchange_worker.notify();
+        Some(ticket)
+    }
+    #[cfg(feature = "test-support")]
+    pub fn exchange_tick_completed_for_test(&self, ticket: u64) -> bool {
+        self.exchange_worker
+            .state
+            .completed_tick
+            .load(Ordering::Acquire)
+            >= ticket
+    }
+
     /// Existing POST IO thread: publish the current exact endpoint, then leave active exchange to
     /// the isolated Spectrum worker. The first tick is synchronous so startup failure stays
     /// factual and the optional worker is never created for an unpaired/hidden POST.
@@ -307,6 +340,8 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
         let Some(coordinator) = coordinator.upgrade() else {
             break;
         };
+        #[cfg(feature = "test-support")]
+        let requested_tick = state.requested_tick.load(Ordering::Acquire);
         let endpoint = match state.endpoint.lock() {
             Ok(endpoint) => endpoint.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
@@ -336,6 +371,10 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
                 } => coordinator.post_tick_for_owner(&instance_id, target, &owner_name),
             }
         };
+        #[cfg(feature = "test-support")]
+        state
+            .completed_tick
+            .store(requested_tick, Ordering::Release);
         wait = if !active {
             INACTIVE_WAIT
         } else if matches!(

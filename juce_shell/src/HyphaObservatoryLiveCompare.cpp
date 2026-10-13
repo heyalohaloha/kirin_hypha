@@ -35,9 +35,7 @@ void View::configureComparisonEntries()
 
     liveCompareButton.setComponentID ("observatory-live-compare");
     liveCompareButton.setTitle ("PRE / POST Listen");
-    liveCompareButton.setDescription ("Switch between PRE and POST of this chain while the song plays. "
-                                      "Keep this window open (pin it in Studio One / Studio Pro, turn off "
-                                      "Target in Pro Tools); closing or replacing it returns to POST");
+    liveCompareButton.setDescription ("Switch between PRE and POST while playing. Comparison continues when this window closes");
     liveCompareButton.setTooltip (liveCompareButton.getDescription());
     liveCompareButton.onClick = [this] { if (onLiveCompareStart) onLiveCompareStart(); };
     livePreButton.setComponentID ("observatory-live-pre");
@@ -79,9 +77,9 @@ void View::setLiveCompareFooter (const LiveCompareFooter& next)
 
 // PRE, POST, MATCH, BLIND, END and MENU while a session runs. Narrow rails move secondary actions
 // to MENU; END and MENU never disappear. The PRE control names what it plays: its
-// MATCH gain, or WAIT while PRE is selected and POST still sounds, never by colour alone. MATCH
+// MATCH gain and the selected source stay visible while timing renews. MATCH
 // reads TP LIMIT while its gain stopped at the true-peak ceiling, and AUTO while PRE follows POST.
-// Each slot is as wide as its longest text, so a boundary that toggles WAIT never moves a control.
+// Fixed slot widths keep controls steady across ordinary gain text changes.
 bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 {
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton,
@@ -163,14 +161,10 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
         if (total (widthsFor (set, briefWidth, false)) <= actions.getWidth()) { chosen = &set; break; }
     }
 
-    const juce::String preHelp = *state.recoveryHelp != 0 ? state.recoveryHelp : state.compensationOff
-        ? "PRE waits while delay compensation is off in Pro Tools. Turn it on to hear PRE"
-        : state.contentHeld
-        ? "PRE is held because the latency changed. Stop and restart playback"
-        : state.preWaiting ? "PRE is selected. POST plays until PRE is confirmed at this position"
+    const juce::String preHelp = *state.recoveryHelp != 0 ? state.recoveryHelp
         : state.matched ? "Listen to PRE, the input of this chain, at the level MATCH set"
                         : "Listen to PRE, the input of this chain. MATCH levels it to POST";
-    livePreButton.setButtonText (state.preWaiting ? (brief ? "WAIT" : "PRE WAIT") : brief ? "PRE" : named);
+    livePreButton.setButtonText (brief ? "PRE" : named);
     livePreButton.setDescription (preHelp);
     livePreButton.setTooltip (preHelp);
     livePreButton.setToggleState (state.preSelected, juce::dontSendNotification);
@@ -180,13 +174,13 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     livePostButton.setDescription (postHelp);
     livePostButton.setTooltip (postHelp);
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
-    const juce::String matchHelp = state.matchHeld ? "MATCH held; select PRE to check timing" : state.following
+    const juce::String matchHelp = state.following
         ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO"
         : state.matchLimited
         ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
         : state.matched ? "Press to MATCH again or to let PRE follow POST (AUTO)"
                         : "Match PRE to POST loudness over the latest four seconds";
-    liveMatchButton.setButtonText (state.matchHeld ? "HELD" : state.following ? "AUTO" : state.matchLimited ? "TP LIMIT" : "MATCH");
+    liveMatchButton.setButtonText (state.following ? "AUTO" : state.matchLimited ? "TP LIMIT" : "MATCH");
     liveMatchButton.setDescription (matchHelp);
     liveMatchButton.setTooltip (matchHelp);
     liveMatchButton.setToggleState (state.matched, juce::dontSendNotification);

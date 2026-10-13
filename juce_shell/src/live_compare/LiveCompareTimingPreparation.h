@@ -34,6 +34,8 @@ public:
         peers.publish (std::move (peer));
     }
 
+    bool hasPeer() const noexcept { return peers.control() != nullptr; } // message thread
+
     void retire() noexcept
     {
         initialRequested.store (false, std::memory_order_release);
@@ -83,8 +85,8 @@ public:
         return evidence;
     }
 
-    // A new explicit session, or the separate named re-entry authority after a known transport
-    // change, requests fresh adoption. It never revives Blind; actual PCM/owner checks remain.
+    // A new explicit session or retained LISTEN/BLIND authority requests fresh adoption.
+    // Old proof is discarded; actual PCM/owner checks remain.
     std::atomic<bool> initialRequested { false };
 private:
     local_blind::RtPublicationSlot<Peer> peers;

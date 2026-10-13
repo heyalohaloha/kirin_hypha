@@ -114,16 +114,16 @@ inline void verifyAuCycleProof()
             // No post-admission silent callback is needed (0 blocks, not an aggregate quota).
             require (longestGap == 0, "established AU Cycle PCM has no proof gap");
             require (acceptedLinear > 50, "Cycle off resumes through fresh linear proof");
-            // Blind retains the cause even after the current blocker clears.
+            // Blind retains its request across unproven Cycle and subsequent linear proof.
             BlindSession blind; blind.start (true);
             BlindPreparation preparation; preparation.begin (1);
             preparation.observe (preparation.command(), true, RecoveryReason::none, 1);
-            blind.invalidate (blind.command(), RecoveryReason::cycleUnverified);
+            blind.fallback (blind.command());
             preparation.observe (preparation.command(), false, RecoveryReason::cycleUnverified, 1);
-            blind.invalidate (blind.command(), RecoveryReason::stopped);
+            blind.fallback (blind.command());
             preparation.observe (preparation.command(), true, RecoveryReason::none, 1);
-            require (blind.view().reason == RecoveryReason::cycleUnverified && blind.view().invalidated
-                && preparation.failure() == RecoveryReason::cycleUnverified, "Cycle interruption cannot auto-restart Blind");
+            require (!blind.view().invalidated && blind.view().usedPostFallback
+                && preparation.failure() == RecoveryReason::none, "fresh Cycle proof continues the same Blind request");
             blind.reset(); preparation.end();
             require (! blind.view().invalidated, "explicit END clears the old trial");
             ++cases;

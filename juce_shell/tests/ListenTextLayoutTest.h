@@ -111,8 +111,9 @@ void verifyAllListenText (Require require)
                                 { ++clipped; failures.addIfNotAlreadyThere ("BLIND overlap " + label->getText()); }
                     }
                 }
-                if (previewDir.isNotEmpty() && item.state.stage == live_compare::BlindStage::preparing
+                if (previewDir.isNotEmpty() && ((item.state.stage == live_compare::BlindStage::preparing
                     && item.state.reason == live_compare::RecoveryReason::none && item.state.timingUnavailable)
+                    || (item.state.stage == live_compare::BlindStage::active && item.state.trial.usedPostFallback)))
                 {
                     auto out = juce::File (previewDir).getChildFile ("blind-" + juce::String (blindCount) + ".png").createOutputStream();
                     require (out && out->setPosition (0) && out->truncate().wasOk()

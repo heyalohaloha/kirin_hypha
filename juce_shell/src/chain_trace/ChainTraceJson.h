@@ -17,6 +17,7 @@ inline void blockJson (std::ostream& out, const live_compare::BlockClock& b)
         << ",\"gap\":" << b.afterGap << ",\"basis\":" << int (b.clockBasis)
         << ",\"authority\":" << int (b.clockAuthority) << ",\"presentationSource\":" << int (b.presentationSource)
         << ",\"outputValid\":" << b.outputPresentationValid << ",\"outputLatency\":" << b.outputPresentationSamples
+        << ",\"runtimeExpired\":" << b.runtimeExpired
         << ",\"maximumDelay\":" << b.maximumDelaySamples
         << ",\"runtimeChainA\":\"" << b.runtimeChainA << "\",\"runtimeChainB\":\"" << b.runtimeChainB
         << "\",\"runtimeRevision\":\"" << b.runtimeRevision << "\",\"wallNanos\":\"" << b.wallNanos

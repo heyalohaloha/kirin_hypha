@@ -303,6 +303,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorContentTiming.cpp
+        src/PluginProcessorLiveMatchRequest.cpp
         src/PluginProcessorLiveCompare.cpp
         src/PluginProcessorLiveCompareRealtime.cpp
         src/PluginProcessorLiveBlind.cpp

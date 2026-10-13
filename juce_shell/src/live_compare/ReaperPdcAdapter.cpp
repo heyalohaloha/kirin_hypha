@@ -51,8 +51,9 @@ void ReaperPdcAdapter::setHost (Steinberg::FUnknown* host)
     if (impl->host) impl->host->release();
     impl->host = host;
 }
-void ReaperPdcAdapter::service()
+void ReaperPdcAdapter::service (bool interested)
 {
+    inspecting = false;
     if (!needsService()) return;
     const auto* manager = juce::MessageManager::getInstanceWithoutCreating();
     if (!manager || !manager->isThisTheMessageThread()) return;
@@ -61,6 +62,9 @@ void ReaperPdcAdapter::service()
     ReaperPdcObservation reading;
     bool playing = false;
     mailbox.witness (before);
+    inspecting = reaperMonitorRequired (needsService(), interested, before.playing);
+    if (!inspecting) return;
+    ReaperChainRestriction reason = ReaperChainRestriction::unavailable;
     void* raw = nullptr;
     if (impl->host && impl->host->queryInterface (reaperHostId, &raw) == Steinberg::kResultOk && raw)
     {
@@ -81,12 +85,13 @@ void ReaperPdcAdapter::service()
         const auto process = processId()
             ^ static_cast<std::uint64_t> (reinterpret_cast<std::uintptr_t> (api.named));
         const auto first = readReaperChain (api, project, track, take, process);
-        const auto second = readReaperChain (api, project, track, take, process);
+        const auto second = readReaperChain (api, project, track, take, process, &reason);
         if (first.same (second) && project == host->getReaperParent (3)
             && track == host->getReaperParent (1) && take == host->getReaperParent (2))
         { reading = second; playing = true; }
         host->release();
     }
+    limitation.store (reason);
     mailbox.witness (after);
     mailbox.publish (reading, before, after, playing, callbackWallNanos());
 }
