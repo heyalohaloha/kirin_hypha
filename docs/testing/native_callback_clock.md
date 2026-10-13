@@ -26,7 +26,7 @@ the real clock, after callbacks have stopped. No product threshold or clock proo
 | `kirin_live_compare_aax_group_product` | One audio clock for all synthetic instances in the group |
 | `kirin_live_lifecycle_*`, `kirin_live_reentry_*_product` | Audio clock; handoff pauses freeze it, while stop/seek/clock loss remain explicit host events |
 | `kirin_local_blind_product*` | Audio callback clock; exact capture/transport protocol still uses real expiry time |
-| `kirin_live_recovery_product` | Explicit callback clock for its processor callback sequence |
+| `kirin_live_recovery_{presentation,notices,host}_product` | Explicit callback clock for its processor callback sequence |
 | `kirin_product_wall_clock` | Production gap/analysis policy under 0/40/80/175 ms real delays, explicit gap/recovery and threshold boundary; no shared memory |
 | `kirin_processor_wall_clock` | Actual PRE/POST processor, mono/stereo, 0/40/175 ms real delays, gap invalidation, bit identity and zero latency; no shared memory |
 | `kirin_shipping_wall_clock` | No test definition; brackets the result with real steady-clock reads |

@@ -1,3 +1,4 @@
+#include <string>
 #include "ProductTestClock.h"
 #include "LiveTimingFixtureAccess.h"
 #include "EditorProductChecks.h"
@@ -241,8 +242,18 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
 }
 }
 
-int main()
+// One CTest item per part keeps each item's real-time budget to one group of scenarios:
+// presentation (geometry, hold after END, LOOP), notices (pair/restore/LISTEN/BLIND/END), host
+// (a host without a clock). No argument runs every part for a local check.
+int main (int argc, char** argv)
 {
+    const std::string part = argc > 1 ? argv[1] : "all";
+    if (part != "all" && part != "presentation" && part != "notices" && part != "host")
+    {
+        std::cerr << "unknown recovery product part: " << part << '\n';
+        return 2;
+    }
+    const auto runs = [&] (const char* name) { return part == "all" || part == name; };
     ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
@@ -251,10 +262,13 @@ int main()
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
-    hypha::tests::editor_product::verifyRecoveryGeometry();
-    hypha::tests::editor_product::verifyHoldAfterEnd();
-    hypha::tests::editor_product::verifyLoopPresentation();
-    hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
-    hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
-    std::cout << "Recovery product: PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
+    if (runs ("presentation"))
+    {
+        hypha::tests::editor_product::verifyRecoveryGeometry();
+        hypha::tests::editor_product::verifyHoldAfterEnd();
+        hypha::tests::editor_product::verifyLoopPresentation();
+    }
+    if (runs ("notices")) hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
+    if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
+    std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }
