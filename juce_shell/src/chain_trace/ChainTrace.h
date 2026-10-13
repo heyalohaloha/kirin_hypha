@@ -9,6 +9,9 @@
 namespace hypha::chain_trace
 {
 constexpr int maximumFrames = 8192;
+// Two 128-block preroll/start bursts, plus writer scheduling headroom. Diagnostic only;
+// allocated/touched once off RT, and absent unless tracing is explicitly enabled.
+constexpr std::size_t queueBlocks = 512;
 // Diagnostic observations only. Never consumed by the alignment, meter, Record or output path.
 struct Row
 {
@@ -34,7 +37,7 @@ struct Row
 // One serialised host callback producer, one private IO worker. Host callbacks may migrate
 // threads but must not overlap for an instance (the processor itself has the same contract).
 // A slot cannot be read until publish, or reused until pop. Full/oversize drops a WHOLE callback.
-template<std::size_t Capacity = 64>
+template<std::size_t Capacity = queueBlocks>
 class Queue
 {
 public:

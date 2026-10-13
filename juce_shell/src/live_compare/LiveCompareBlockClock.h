@@ -1,6 +1,7 @@
 #pragma once
 #include "LiveCompareClock.h"
 #include "LiveCompareLoop.h"
+#include "LiveCompareIntervals.h"
 #include <cstdint>
 #include <limits>
 
@@ -17,11 +18,13 @@ struct BlockClock
     bool outputPresentationValid = false;
     std::uint32_t outputPresentationSamples = 0, maximumDelaySamples = 0;
     LoopContext loop;
-    // The callback's one wall-clock reading and its thread, for the chain timing display only
-    // (LiveCompareChainTiming.h). Never a sample address, a proof, or an output permission.
+    // One wall reading for gap/expiry rejection and the chain display, never a PCM coordinate
+    // or an independent alignment proof. Thread identity is diagnostic only.
     std::uint64_t wallNanos = 0, thread = 0;
     bool transportRestart = false; // explicit stopped host notification since the previous render
     bool wallGap = false; // raw scheduling observation; REAPER additionally requires paired continuity
+    // Opaque non-RT chain/configuration fingerprints; no host pointer crosses into the ring.
+    std::uint64_t runtimeChainA = 0, runtimeChainB = 0, runtimeRevision = 0;
 };
 
 struct LoopAnchor
@@ -29,6 +32,7 @@ struct LoopAnchor
     bool linearKnown = false, loopKnown = false;
     std::int64_t runStart = 0, runProject = 0, clock = 0, project = 0, loopSamples = 0;
     LoopContext loop;
+    LinearIntervals intervals;
 };
 
 inline bool checkedClockAdd (std::int64_t a, std::int64_t b, std::int64_t& result) noexcept
@@ -52,11 +56,36 @@ inline bool checkedClockSubtract (std::int64_t a, std::int64_t b, std::int64_t& 
 inline bool sameClockProof (const BlockClock& a, const BlockClock& b) noexcept
 {
     return a.clockBasis == b.clockBasis && a.clockAuthority == b.clockAuthority
+        && a.runtimeChainA == b.runtimeChainA && a.runtimeChainB == b.runtimeChainB
+        && a.runtimeRevision == b.runtimeRevision
         && a.maximumDelaySamples == b.maximumDelaySamples
         && a.presentationSource == b.presentationSource
         && a.outputPresentationValid == b.outputPresentationValid
         && (! a.outputPresentationValid
             || a.outputPresentationSamples == b.outputPresentationSamples);
+}
+
+inline bool logicRender (const BlockClock& b) noexcept
+{
+    return b.clockBasis == static_cast<std::uint8_t> (ClockBasis::audioUnitRender)
+        && b.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::logicRender);
+}
+
+// Logic's render stamps name the compensated content sample, including cycle occurrences.
+// The simultaneously observed PRE/POST distance must independently equal the host's output
+// presentation difference. Missing, reverse or contradictory reports grant no permission.
+inline bool logicRenderPair (const BlockClock& pre, const BlockClock& post) noexcept
+{
+    std::int64_t distance = 0;
+    return logicRender (pre) && logicRender (post) && pre.clockValid && post.clockValid
+        && pre.projectValid && post.projectValid && pre.playing && post.playing
+        && !pre.afterGap && !post.afterGap && pre.frames > 0 && pre.frames == post.frames
+        && pre.presentationSource == 2 && post.presentationSource == 2
+        && pre.outputPresentationValid && post.outputPresentationValid
+        && pre.outputPresentationSamples >= post.outputPresentationSamples
+        && checkedClockSubtract (pre.clock, post.clock, distance)
+        && distance == static_cast<std::int64_t> (pre.outputPresentationSamples - post.outputPresentationSamples)
+        && pre.loop.sameRange (post.loop);
 }
 
 // One shared rule for a previously proven K, whether observed before or during an audition.

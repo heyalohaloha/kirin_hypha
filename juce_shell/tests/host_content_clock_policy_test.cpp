@@ -97,6 +97,12 @@ try
         expect (wrapper, "Studio One", "7.2.3", Authority::none);
         expect (wrapper, "Studio Pro", "8.1.2.113407", Authority::none);
     }
+    expect (Wrapper::wrapperType_AudioUnit, "Logic Pro", "12.2", Authority::logicRender, true);
+    expect (Wrapper::wrapperType_AudioUnit, "Logic Pro", "12.3", Authority::logicRender);
+    expect (Wrapper::wrapperType_AudioUnit, "Logic Pro", "unknown", Authority::none);
+    expect (Wrapper::wrapperType_AudioUnit, "Other AU", "12.2", Authority::none);
+    expect (Wrapper::wrapperType_VST3, "Logic Pro", "12.2", Authority::none);
+    expect (Wrapper::wrapperType_AAX, "Logic Pro", "12.2", Authority::none);
     std::cout << "Host version policy: " << policyCases << " cases, " << policyFailures << " failures\n";
     require (policyFailures == 0);
     for (auto language : { hypha::i18n::Language::english, hypha::i18n::Language::japanese })

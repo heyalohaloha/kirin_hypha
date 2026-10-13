@@ -319,6 +319,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/local_blind/LocalBlindTrial.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         src/local_blind/HostContext.cpp
+        src/live_compare/ReaperPdcAdapter.cpp
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorMeasurementIngress.cpp
         src/PluginProcessorValidation.cpp

@@ -7,8 +7,11 @@ namespace hypha::live_compare
 // Supported *verified address* envelope, not a host-wide PDC guarantee. 65536 is the
 // planned delay stress limit, 8192 the supported scheduling/block allowance. The
 // measured 4096-delay maximum age (4608 at 96 kHz / 512) is not used as a bound.
-// A known linear K permits checking this envelope in PRE's own counter. An initial
-// loop has no such K and MUST NOT infer this bound from a modulo age or ring size.
+// Relative PRE advance was one block with anticipative processing on and off. 8192 is
+// the predeclared scheduling/block allowance, not a fit to that observed maximum, nor
+// the host's playhead render-ahead setting. Initial loops require the separate chain API
+// bound, complete native interval coverage and runtime age checks; D is never guessed
+// from the newest PCM or ring capacity. Other schedules remain host acceptance cases.
 struct ReaperTimingLimits
 {
     static constexpr std::int64_t delay = 65536;

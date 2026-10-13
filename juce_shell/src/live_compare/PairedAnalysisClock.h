@@ -21,8 +21,8 @@ inline bool qualifiedVst3Pair (const BlockClock& pre, const BlockClock& post,
         && (evidence.kind == LoopEntryKind::linear || evidence.kind == LoopEntryKind::contentClock);
 }
 
-// Render timestamps are local coordinates, not a certificate of content alignment. The same
-// callback's LISTEN observer must prove the offset from an independent host project timeline.
+// AU render timestamps require an independent proof in this callback: Logic output
+// presentation difference, or the existing project-based proof for other AU hosts.
 inline bool continuousAudioUnitClock (const BlockClock& block) noexcept
 {
     return block.clockBasis == static_cast<std::uint8_t> (ClockBasis::audioUnitRender)
@@ -35,9 +35,10 @@ inline bool qualifiedAudioUnitPair (const BlockClock& pre, const BlockClock& pos
     if (! continuousAudioUnitClock (pre) || ! continuousAudioUnitClock (post)
         || ! evidence.valid || evidence.postClock != post.clock || evidence.preGeneration == 0
         || (evidence.ownerA == 0 && evidence.ownerB == 0)) return false;
-    // A previously linear proof may survive a corroborated loop. Initial-loop proof requires
-    // the existing positive latency difference and unique occurrence; no AU host is certified.
-    return evidence.kind == LoopEntryKind::linear
+    // Logic uses its explicit render/presentation rule (including zero). Other AU hosts retain
+    // their existing linear or positive-latency initial-cycle proof.
+    return (evidence.kind == LoopEntryKind::logicPresentation && evidence.k == 0 && logicRenderPair (pre, post))
+        || (!logicRender (post) && evidence.kind == LoopEntryKind::linear)
         || (evidence.kind == LoopEntryKind::presentationLatency && pre.loop.active && post.loop.active
             && pre.presentationSource == 2 && post.presentationSource == 2
             && pre.outputPresentationValid && post.outputPresentationValid

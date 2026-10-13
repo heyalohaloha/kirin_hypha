@@ -130,7 +130,10 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
     }
     for required in [
         "if (! ring.matches (pairKey, sampleRate))",
-        "const bool loopVerified = kValid && block.loop.active",
+        "const bool loopVerified = runtimeProof ? runtimeVerified : kValid && block.loop.active",
+        "runtimeVerified = readTiming (ring.header.timing, runtimePeer) && runtimePeer.active",
+        "loopAddressIsCurrent (runtimePeer.anchor, runtimePeer.block, block, k,",
+        "runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire)",
         "timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,",
         "decision.preStart = block.clock - k;",
         "if (decision.timelineChanged)",

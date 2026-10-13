@@ -85,7 +85,7 @@ private:
         meta << std::boolalpha << std::setprecision (17);
         meta << "{\"type\":\"header\",\"schema\":1,\"pcm\":\""
              << (*reinterpret_cast<const unsigned char*> (&endian) == 1 ? "f32le" : "f32be")
-             << "\",\"maximumFrames\":" << maximumFrames << ",\"queueBlocks\":64}\n";
+             << "\",\"maximumFrames\":" << maximumFrames << ",\"queueBlocks\":" << queueBlocks << "}\n";
         meta.flush();
         worker = std::thread ([this] { drain(); });
     }

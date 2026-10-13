@@ -94,6 +94,14 @@ int main()
         h.blind.start (true); h.consume();
         require (!h.report.preAudible && h.blind.view().invalidated, "both sides' whole-lap gap is not a normal burst");
     }
+    for (int channels : { 1, 2 })
+    {
+        Host h; h.channels = channels; h.runtimeBound = true; h.length = 384000;
+        audioThread = true;
+        for (int n = 0; n < 1600; ++n) h.consume();
+        audioThread = false;
+        require (h.report.preAudible, "runtime bound and both split intervals remain RT safe");
+    }
     require (allocations == 0 && frees == 0, "RT alloc/free remain zero");
     std::puts ("REAPER faults: stop/seek/pair/owner/gap, bursts, negative, boundary, RT allocation PASS");
 }

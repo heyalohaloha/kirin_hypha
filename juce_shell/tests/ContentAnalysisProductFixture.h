@@ -28,13 +28,13 @@ struct Clock final : juce::AudioPlayHead
         if (positionAvailable) info.setTimeInSamples (content);
         info.setKirinAuUsesHostTransportTimeline (projectWitness);
         info.setKirinAuxiliaryClockSource (audioUnit ? 2 : 1);
-        if (available && ! reaper) info.setKirinAuxiliaryClockSamples (audioUnit ? content + inputDelay : content);
+        if (available && ! reaper) info.setKirinAuxiliaryClockSamples (audioUnit && !logic ? content + inputDelay : content);
         info.setKirinPresentationLatencySource (audioUnit ? 2 : 1);
         if (reported) info.setKirinOutputPresentationLatencySamples (latency);
         if (loop)
         {
             const auto length = loopSamples;
-            const auto folded = hypha::live_compare::positiveModulo (content, length);
+            const auto folded = hypha::live_compare::positiveModulo (content + (logic && content >= 256 ? 1 : 0), length);
             if (positionAvailable) info.setTimeInSamples (folded);
             info.setIsLooping (true);
             info.setLoopPoints (LoopPoints { 0, length / (rate / 2.0) });
@@ -54,14 +54,14 @@ struct Clock final : juce::AudioPlayHead
     std::int64_t loopSamples = 96000;
     double rate = 48000;
     bool reaper = false, positionAvailable = true;
-    bool audioUnit = false, projectWitness = true;
+    bool audioUnit = false, projectWitness = true, logic = false;
     bool reported = true, available = true, playing = true, loop = false;
 };
 
 struct Fixture
 {
     Fixture (int channelsIn, const juce::String& scenario, bool au, bool reaperIn,
-             hypha::tests::AnalysisTestClock::time_point end)
+             hypha::tests::AnalysisTestClock::time_point end, bool logic = false)
         : durations (reaperIn), frames (hypha::tests::analysisProductFrames (reaperIn)),
           channels (channelsIn), reaper (reaperIn), phaseDeadline (end)
     {
@@ -69,6 +69,12 @@ struct Fixture
         preClock.reaper = postClock.reaper = reaper;
         preClock.rate = postClock.rate = rate = static_cast<double> (durations.rate);
         preClock.loopSamples = postClock.loopSamples = static_cast<std::int64_t> (durations.samples (durations.loopMs));
+        preClock.logic = postClock.logic = logic;
+        if (logic)
+        {
+            preClock.loop = postClock.loop = true;
+            preClock.loopSamples = postClock.loopSamples = 384123;
+        }
         const bool zero = scenario == "zero";
         delay = zero ? 0 : hypha::pdc_validation::FixedValidationDelay::latencySamples;
         line.prepare (channels);
@@ -89,6 +95,7 @@ struct Fixture
             hypha::tests::prepareFixtureProcessor (*processor, rate, frames);
             if (! au) require (LiveTimingFixtureAccess::configureVst3Clock (*processor,
                 reaper ? "REAPER" : "Studio Pro", reaper ? "7.71.0_ba637e1u" : "8.1.2.113407"), "host content certificate");
+            if (logic) LiveTimingFixtureAccess::configureLogicClock (*processor);
             LiveTimingFixtureAccess::enableFixtureWrites (*processor);
             (role == Processor::Role::Pre ? pre : post) = std::move (processor);
         }

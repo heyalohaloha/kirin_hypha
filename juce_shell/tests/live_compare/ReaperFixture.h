@@ -38,6 +38,8 @@ struct Host
     std::uint64_t wrongFrames = 0;
     int channels = 2;
     float gain = 1.0f;
+    std::uint32_t runtimeDelay = 0;
+    bool runtimeBound = false;
     Host()
     {
         ring->initialise (pair, rate); ring->header.demand.store (1);
@@ -60,6 +62,8 @@ struct Host
         BlockClock b;
         b.clock = c.samples; b.clockValid = c.valid; b.clockBasis = static_cast<std::uint8_t> (c.basis);
         b.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
+        b.maximumDelaySamples = runtimeDelay;
+        if (runtimeBound) { b.runtimeChainA = 12; b.runtimeChainB = 34; b.runtimeRevision = 1; }
         b.frames = frames; b.playing = playing;
         b.projectValid = &counter == &preCounter ? preProjectAvailable : postProjectAvailable;
         b.project = length && position >= loopStart ? loopStart + positiveModulo (position - loopStart, length) : position;

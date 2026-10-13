@@ -476,7 +476,8 @@ int main (int argc, char** argv)
     if (argc == 3 && std::strcmp (argv[1], "--abandon-pre") == 0)
         return abandonPreOwner (std::strtoull (argv[2], nullptr, 16));
     require (argc == 1, "standalone timing contract arguments");
-    static_assert (sizeof (TimingHeader) <= 192 && sizeof (TimingEvidence) <= 72,
+    // Version 8 adds 3 identity words and 5 interval words; still fixed metadata, no PCM.
+    static_assert (sizeof (TimingHeader) <= 224 && sizeof (TimingEvidence) <= 72,
                    "preparation must remain fixed-size metadata, not an audio history");
     prepareWithoutCopyingPcm();
     initialLoopDoesNotInventAnOrigin();

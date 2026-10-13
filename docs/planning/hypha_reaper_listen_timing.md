@@ -38,32 +38,45 @@ Changing threads is not a discontinuity. No wall time is converted into a PCM ad
 All checks are fixed-size Audio Thread state and lock-free metadata reads; there is no new
 allocation, lock, host API call, worker, PCM capacity or blocking I/O. The existing shared timing
 header uses a previously unused flags bit for the raw gap. Saved plugin state and C ABI do not
-change. Stage 1 chain tracing remains environment-opt-in; disabled tracing creates no recorder.
+change. Chain tracing remains environment-opt-in; disabled tracing creates no recorder.
 
-## Loop envelope and the unresolved initial-loop bound
+## First-loop chain proof and interval coverage
 
-`ReaperTimingLimits` is the single source of constants: D = 65536 samples, S = 8192 samples,
-age = D + S = 73728. D is the planned stress-delay range; S is the allowed processing/block
-headroom. The reduced measurement maximum (4608) is not treated as a future upper bound.
-When linear K is already proven, the selected address can be checked at runtime against this
-envelope in PRE's own counter. Both measured loop lengths must agree and exceed the envelope;
-the ring must also exceed it. Short loops retain POST. Until L has been measured in this run,
-POST plays while the first lap is measured. A BLIND trial cannot bridge this wait.
+`ReaperPdcAdapter` reads the public `IReaperHostApplication` and `TrackFX_GetNamedConfigParm`
+interfaces from the existing message-thread service. No host call runs in the audio callback.
+Only a normal serial main track with one PRE and one POST, known VST3 class identities, unique
+ordered FX GUIDs, ordinary PDC mode and no oversampling is admitted. Take/input/container/parallel
+routes and external hardware inserts fail closed. The same process, live project/track and complete configuration fingerprints
+must match across the selected pair. Pre-playback `chain_pdc_actual` is discarded regardless of
+its success flag. Read brackets and two progressing callback observations fence restarts and
+configuration changes. Atomic payload words plus sequence validation avoid data races.
 
-For an initial loop, the admissible candidates would be `K0 + nL` with
-`frames <= E - (Cpost - K) <= D + S`, and exactly one candidate would be required. But this only
-proves the occurrence if D really bounds the chain. The current VST3 process context supplies no
-such bound. Neither a unique modulo candidate, the ring size nor a small observed age can exclude
-an actual delay one whole lap longer. Therefore the implementation **does not grant initial-loop
-admission**. It explains the missing delay proof after measuring L. This preserves INV-LC22;
-it does not label the requested initial-loop feature complete.
+The single scheduling constant is `ReaperTimingLimits::scheduling` (8192 samples). Static discovery
+with anticipative processing on/off observed relative PRE age of D plus one 512-frame block.
+The allowance was fixed before that analysis; it is neither a measured maximum promoted to a
+guarantee nor the host's render-ahead duration. Supported actual delay is 0–65536. The dynamic
+upper age is the API value plus the allowance, with complete block age and capacity checks.
 
-[REAPER's VST3 interface](https://github.com/justinfrankel/reaper-sdk/blob/main/sdk/reaper_vst3_interfaces.h)
-exposes host functions and parent objects. The documented
-[TrackFX_GetNamedConfigParm API](https://www.reaper.fm/sdk/reascript/reascripthelp.html#TrackFX_GetNamedConfigParm)
-has chain PDC observations, but no chain-bound, callback-coherent, RT-safe read path has been
-established here. Polling an unrelated/stale chain value cannot grant sound. A future initial-loop
-implementation needs that proof (including change invalidation and scheduling bounds) first.
+The entire `[E-U,E)` interval must be covered by at most two native linear segments of the same
+PRE generation. Exactly one project-to-counter address is required; no PCM correlation or newest
+arrival chooses a lap. A verified PRE callback-boundary wrap preserves both adjacent segments.
+This covers the first delayed POST tail before POST itself wraps. Once measured, L must exceed U.
+An unverified within-block wrap or short prefix waits; a BLIND trial cannot bridge that wait.
+The existing eight-block calibration still applies to REAPER. The API value is an upper bound,
+never K. Without it, the previous linear-proof continuation retains its fixed 73728-sample
+verified-address envelope. REAPER's measurement-only compensated project coordinate remains K=0.
+
+The service polls at 50 ms; tokens expire after 500 ms or two seconds of processed samples.
+These fixed lifetimes revoke stale observations; they do not prove host notification freshness.
+Prepare/context changes, stop/seek, callback gaps, configuration edits, failed reads and identity
+changes revoke the old token and timing generation. RT uses no allocation, lock, I/O or host API.
+The private ring uses version 8 and a separate name; saved plugin state and public C ABI do not
+change. Diagnostics alone use a 512-block queue, allocated only when tracing is enabled.
+
+[REAPER VST3 interface](https://github.com/justinfrankel/reaper-sdk/blob/main/sdk/reaper_vst3_interfaces.h)
+and [named configuration API](https://www.reaper.fm/sdk/reascript/reascripthelp.html#TrackFX_GetNamedConfigParm)
+are the acquisition contracts. Notification order during dynamic PDC changes and broader
+scheduling conditions still require real-host output acceptance, under R-12's existing premise.
 
 ## Reduced timing measurements and INV-LC5
 
@@ -104,4 +117,15 @@ Host acceptance must use the built candidate's hashes, complete zero-drop chain 
 independent sample-ID oracle. Check same-block fallback, normal A bit identity/zero latency,
 gain/ceiling and END/RETURN, source receipts, stop/seek/reopen and negative censoring separately.
 Non-stable fades and gained output that cannot be decoded remain explicitly unclassified by the
-Stage 1 analyzer; a zero error count with unclassified frames is not whole-output acceptance.
+trace analyzer; a zero error count with unclassified frames is not whole-output acceptance.
+
+First-loop regression targets are `kirin_reaper_loop_entry` (actual output, split wrap, burst,
+short/ambiguous coverage and BLIND interruption), `kirin_reaper_pdc_adapter` (identity, API errors,
+preplay values, epochs, expiry and atomic coherence), and `kirin_chain_trace_burst` (256 undrained
+callbacks). `kirin_logic_cycle_entry` separately checks Logic render/presentation proof, zero delay,
+within-block wraps, pre-roll movement, paired analysis qualification and irreversible trial loss.
+Callback timing fixtures use the common product test clock. `kirin_live_compare_match` also
+measures production MATCH windows across the first wrap and later cycles. The four
+`kirin_logic_analysis_{mono,stereo}_{included,zero}_cycle_product` cases exercise real processors,
+workers, cycle delta, LISTEN, MATCH and BLIND loss; they require native shared memory.
+Fixtures are not host acceptance.

@@ -30,11 +30,12 @@ void KirinHyphaProcessorBase::timerCallback()
     applyHeldFormatIfRecordReleased();
     serviceLocalBlindProductSession();
     serviceLiveCompare();
+    nativeHostContext.reaper.service();
     serviceReferencePendingAudition();
     serviceReferenceTracking();
     if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
         && ! heldFormat.held && ! liveCompareNeedsService() && ! referencePendingAuditionNeedsService()
-        && ! referenceTrackingNeedsService())
+        && ! referenceTrackingNeedsService() && !nativeHostContext.reaper.needsService())
         stopTimer();
     else
     {
@@ -45,7 +46,7 @@ void KirinHyphaProcessorBase::timerCallback()
             && ! liveCompare.sessionActive.load (std::memory_order_acquire)
             && ! liveCompare.completion.pending() && liveCompare.blindScope == 0
             && ! liveCompare.authority.restoring();
-        const int interval = idleTiming ? 250 : 50;
+        const int interval = idleTiming && !nativeHostContext.reaper.needsService() ? 250 : 50;
         if (getTimerInterval() != interval) startTimer (interval);
     }
 }

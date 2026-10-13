@@ -1,4 +1,5 @@
 #include "ContentAnalysisProductFixture.h"
+#include "LogicCycleProductTest.h"
 
 namespace
 {
@@ -141,10 +142,10 @@ try
     const juce::String layout (argv[1]), scenario (argv[2]), host (argv[3]), phase (argv[4]);
     require (layout == "mono" || layout == "stereo", "unknown layout");
     require (scenario == "missing" || scenario == "omitted" || scenario == "included" || scenario == "zero", "unknown latency scenario");
-    require (host == "content" || host == "au" || host == "reaper", "unknown host");
+    require (host == "content" || host == "au" || host == "reaper" || host == "logic", "unknown host");
     require (host != "reaper" || scenario == "missing", "REAPER has no presentation report");
     const bool cycle = phase == "cycle_listen" || phase == "cycle_blind";
-    require (phase == "linear" || phase == "loop" || phase == "recovery" || cycle, "unknown phase");
+    require (phase == "linear" || phase == "loop" || phase == "recovery" || phase == "logic_cycle" || cycle, "unknown phase");
     require (! cycle || (host == "au" && scenario != "included"), "Cycle guidance needs unverified AU timing");
     const auto timeout = std::stoi (argv[5]);
     require (timeout > 15, "CTest timeout must leave time for failure diagnostics");
@@ -163,12 +164,13 @@ try
     ReferenceValidationStorageSandbox sandbox;
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     juce::ScopedJuceInitialiser_GUI initialise;
-    Fixture fixture (layout == "mono" ? 1 : 2, scenario, host == "au", host == "reaper",
-                     hypha::tests::analysisPhaseDeadline (started, timeout));
+    Fixture fixture (layout == "mono" ? 1 : 2, scenario, host == "au" || host == "logic", host == "reaper",
+                     hypha::tests::analysisPhaseDeadline (started, timeout), host == "logic");
     fixture.injectedDelay = injectedDelay;
     try
     {
-        run (fixture, phase, host == "au", scenario == "included");
+        if (host == "logic") verifyLogicCycleProduct (fixture);
+        else run (fixture, phase, host == "au", scenario == "included");
         require (argc == 6 || fixture.injectedDelay.injections >= 3, "jitter regression must actually inject delays");
         require (argc != 7 || (fixture.preIntervals.gaps == 0 && fixture.postIntervals.gaps == 0),
                  "jitter must remain below the gap threshold on both PRE and POST");

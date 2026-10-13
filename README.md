@@ -266,10 +266,13 @@ Studio One / Studio Pro VST3. REAPER VST3 also supports SHARP Δ and PSB Δ usin
 its compensated project positions (K = 0). At a loop wrap or position change, it discards the
 previous analysis window and waits for complete matching windows. Other VST3 hosts retain their
 output-presentation-latency requirement.
-AU needs an independent host project timeline as well as the render timestamp: ordinary linear
-playback proves K without a latency report, while an initial loop needs the existing positive
-PRE-to-POST latency difference and a unique observed occurrence. An unproven AU pair waits;
-render time alone never establishes alignment. During Cycle, an unverified AU pair shows **Turn Cycle
+AU needs an independent host project timeline as well as the render timestamp. Logic AU
+uses a common render coordinate only when the same callback also confirms the PRE−POST output
+presentation-latency difference (including zero). This permits FREQ Δ, SHARP Δ, PSB Δ, LISTEN
+and BLIND during Cycle. Project positions do not select a cycle occurrence: Logic can wrap
+inside a block and move project time by one sample during pre-roll. Other AU hosts retain their
+linear proof and positive-difference, observed-loop rule. An unproven AU pair waits; render time
+alone never establishes alignment. During Cycle, an unverified AU pair shows **Turn Cycle
 off to compare** in FREQ Δ, SHARP Δ and PSB Δ. LISTEN keeps POST playing with the same guidance,
 and BLIND gives the same reason. Turning Cycle off allows fresh linear proof; an interrupted BLIND
 requires END and a new trial. Proven cycles remain available. LIVE, POST-only Sharpness and absolute PSB also accept the
@@ -994,8 +997,8 @@ by itself as soon as it can confirm it again. Whenever you hear POST with PRE se
 briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
 
 LISTEN/MATCH have platform paths for macOS VST3, AU and AAX and Windows VST3 and AAX;
-these paths do not certify every host. Logic AU can run BLIND during continuous playback,
-including preparation, level approval and settling, using runtime PRE/POST timing proof.
+these paths do not certify every host. Logic AU can run BLIND during continuous and cycle playback,
+including preparation, level approval and settling, using callback-bound PRE/POST timing proof.
 A missing host certification value alone never makes LISTEN or BLIND unavailable.
 Initial loop admission is a separate check. The Studio Pro 8.1.2.113407 VST3 content-clock
 profile is also enabled for Studio One 6–7 (minimum 6.0.0) and Studio Pro 8. Readable native versions in dotted
@@ -1032,16 +1035,31 @@ counters. An unverified block plays POST immediately. Named LISTEN can reacquire
 stop or seek; a broken BLIND trial never resumes automatically. Saving or reopening restores no
 selection or MATCH permission.
 
-A loop with an offset already established during linear playback can continue after both sides
-have measured its sample length in this run. The loop must exceed **73728 samples** (0.768 s at
-96 kHz; 1.536 s at 48 kHz), and the selected PRE block must fit within that verified age envelope.
-The envelope is 65536 samples of delay plus 8192 samples of scheduling allowance; it is checked
-against the established offset, not inferred from repeated project positions. Shorter loops keep
-POST playing and ask for a longer loop. The first unmeasured lap also keeps POST playing.
-**Starting comparison in an already looping run is still withheld:** no runtime host delay bound
-has been established to distinguish a candidate from the same position one whole lap earlier.
-The display says when the first lap is being measured and when the initial-loop delay remains
-unverified. A minimum loop length alone cannot grant this missing proof.
+The first loop can establish its offset using REAPER's live `chain_pdc_actual` observation.
+The supported route is a normal two-channel track with mono/stereo inserts, exactly one PRE and
+one POST in that order in the main serial FX chain. Input/take FX, containers, parallel FX,
+oversampling, external hardware inserts, special PDC modes and unreadable identities are withheld from this new route.
+The message thread reads the public host API, binds every FX GUID and its order to the live
+project/track/process, and discards pre-playback observations even when the API reports success.
+Two agreeing observations with callback progress are required. API/identity/configuration changes,
+stop/seek, prepare, stale callbacks or a stalled timer revoke the observation.
+
+The address limit is **actual chain delay + 8192 samples**; the supported actual delay is at most
+65536 samples. The allowance covers relative PRE processing and block boundaries, not the DAW's
+playhead render-ahead time. The complete age interval must lie in PRE's measured native linear
+segments and have exactly one matching address. At PRE's first observed block-boundary wrap,
+both the segment before the wrap and the segment after it remain available, so POST can still
+read the delayed tail. Once the loop length is measured it must exceed the limit; the ring must
+also exceed it. Incomplete coverage, ambiguous addresses and unverified wrap boundaries keep
+POST playing. This permits entry during the first lap after observation/calibration and PCM
+availability; it does not promise immediate output on the first callback. MATCH still needs
+at least three seconds of continuous proven audio. Without the API proof, the existing linear
+calibration and its 73728-sample verified-address envelope remain available.
+
+The timer normally reads at 50 ms. Evidence expires after 500 ms without refresh or two seconds
+of processed samples without a fresh observation. These are revocation limits, not a guarantee
+that a host report precedes an audible PDC change. Dynamic API notification order, scheduling
+outside the measured conditions and actual output acceptance remain host tests.
 
 Timing measurements used REAPER 7.71 on macOS, 96 kHz, stereo, 512-frame blocks, anticipative FX
 processing off and on (200 ms render-ahead). Reported 4096→0 latency changes and bypass reductions
@@ -1087,15 +1105,25 @@ still need host acceptance. [Timing contract and regression coverage](docs/plann
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
    the DAW reports, and another audition are never attenuated. Measurements remain before this path.
 
+Logic's cycle path relies on every intervening plug-in reporting its latency correctly and Logic
+compensating it, as required by R-12. Equal presentation values are accepted together with the
+render proof; they cannot distinguish zero latency from an unreported delay. A latency-changing
+setting can also leave a short interval before its change becomes observable. Hypha cannot repair
+that missing host information. The callback proof and regression fixtures do not replace actual
+host acceptance for low-latency mode, auxiliary buses, live inputs, other buffers/rates or dynamic
+PDC changes. Any unverified block ends BLIND; returning evidence never resumes that trial.
+
 For a DAW loop, press **LISTEN** or **BLIND** during loop playback. No Hypha LOOP button,
 LOOP-off step or per-lap approval is needed. Initial comparison needs independent timing proof:
 
 - VST3: the common content-clock profile measured in Studio Pro 8.1.2.113407, enabled for
   Studio One 6–7 and Studio Pro 8. REAPER uses the separate conditions above.
-- AU: valid presentation-latency information on both sides, with a positive PRE-to-POST
-  difference and a unique occurrence within the observed loop. Equal, zero or missing values
-  do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified. This initial
-  loop requirement does not disable Logic AU BLIND during continuous non-loop playback.
+- Logic AU: continuous render stamps name the same content sample, and the difference between
+  the contemporaneous PRE/POST render positions must equal their reported output presentation
+  difference, including zero. This is restricted to the native `Logic Pro` executable with a
+  readable version; the discovery measurements used 12.2. Missing, reversed or contradictory
+  reports are refused. Other AU hosts retain the positive-difference and unique observed-loop
+  rule. Initial VST3/AU mixed-clock pairs are not certified.
 - AAX: the AddClock profile measured in Pro Tools Developer 26.4.0.5, granted to every Pro Tools
   build from 12.6 on, plus the documented sample-rate-specific maximum compensation bound
   (16,383 samples at 44.1/48 kHz, 32,767 at 88.2/96 kHz, 65,534 at 176.4/192 kHz). The loop must

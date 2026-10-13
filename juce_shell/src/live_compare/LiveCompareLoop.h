@@ -1,4 +1,5 @@
 #pragma once
+#include "LiveCompareClock.h"
 #include <cmath>
 #include <cstdint>
 
@@ -93,7 +94,12 @@ public:
             : observed && ! havePrevious ? previousBreak : TimelineBreak::none;
         if (havePrevious && valid)
         {
-            const bool linear = block.project == project + frames;
+            const bool logic = block.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::logicRender)
+                && block.clockBasis == static_cast<std::uint8_t> (ClockBasis::audioUnitRender);
+            // Logic's pre-roll crossing can move project by one sample. Render continuity
+            // remains exact; project is only a transport sanity check in this profile.
+            const bool linear = block.project == project + frames
+                || (logic && std::abs (static_cast<double> (block.project) - project - frames) <= 1.0);
             result.broken = result.broken || block.clock != clock + frames;
             if (block.clock != clock + frames) result.cause = TimelineBreak::clockMoved;
             if (loop.active || block.loop.active)

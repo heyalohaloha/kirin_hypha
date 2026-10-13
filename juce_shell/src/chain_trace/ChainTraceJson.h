@@ -17,7 +17,9 @@ inline void blockJson (std::ostream& out, const live_compare::BlockClock& b)
         << ",\"gap\":" << b.afterGap << ",\"basis\":" << int (b.clockBasis)
         << ",\"authority\":" << int (b.clockAuthority) << ",\"presentationSource\":" << int (b.presentationSource)
         << ",\"outputValid\":" << b.outputPresentationValid << ",\"outputLatency\":" << b.outputPresentationSamples
-        << ",\"maximumDelay\":" << b.maximumDelaySamples << ",\"wallNanos\":\"" << b.wallNanos
+        << ",\"maximumDelay\":" << b.maximumDelaySamples
+        << ",\"runtimeChainA\":\"" << b.runtimeChainA << "\",\"runtimeChainB\":\"" << b.runtimeChainB
+        << "\",\"runtimeRevision\":\"" << b.runtimeRevision << "\",\"wallNanos\":\"" << b.wallNanos
         << "\",\"thread\":\"" << b.thread << "\",\"restart\":" << b.transportRestart
         << ",\"loopActive\":" << b.loop.active << ",\"loopValid\":" << b.loop.valid << ",\"ppq\":";
     number (out, b.loop.ppq); out << ",\"bpm\":"; number (out, b.loop.bpm);
@@ -50,7 +52,12 @@ inline void rowJson (std::ostream& out, const Row& r, std::uint64_t offset)
         << ",\"ownerA\":\"" << r.peer.ownerA << "\",\"ownerB\":\"" << r.peer.ownerB
         << "\",\"active\":" << r.peer.active << ",\"origin\":" << r.peer.origin
         << ",\"loopClock\":" << r.peer.anchor.clock << ",\"loopProject\":" << r.peer.anchor.project
-        << ",\"loopSamples\":" << r.peer.anchor.loopSamples << ",\"block\":";
+        << ",\"loopSamples\":" << r.peer.anchor.loopSamples
+        << ",\"intervalStart\":" << r.peer.anchor.intervals.start
+        << ",\"intervalProject\":" << r.peer.anchor.intervals.project
+        << ",\"intervalSplit\":" << r.peer.anchor.intervals.split
+        << ",\"intervalSplitProject\":" << r.peer.anchor.intervals.splitProject
+        << ",\"intervalEnd\":" << r.peer.anchor.intervals.end << ",\"block\":";
     blockJson (out, r.peer.block);
     out << "},\"timing\":{\"seen\":" << r.timingSeen << ",\"valid\":" << r.timing.valid
         << ",\"k\":" << r.timing.k << ",\"kind\":" << int (r.timing.kind)

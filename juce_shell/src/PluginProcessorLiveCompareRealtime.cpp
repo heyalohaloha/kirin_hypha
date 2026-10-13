@@ -83,6 +83,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     const bool callbackGap = block.afterGap;
     if (hostReset) block.afterGap = true;
     block.transportRestart = hostReset && notifiedStop;
+    if (projectAnalysis) nativeHostContext.reaper.observe (block, preparedFormat.sampleRate, usable);
     auto* trace = liveCompare.trace ? liveCompare.trace->row() : nullptr;
     if (trace != nullptr)
     {
@@ -92,6 +93,9 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     if (projectAnalysis)
     {
         auto analysisBlock = block;
+        // REAPER's measurement certificate remains independent of the audition's API token.
+        analysisBlock.runtimeChainA = analysisBlock.runtimeChainB = analysisBlock.runtimeRevision = 0;
+        analysisBlock.maximumDelaySamples = 0;
         analysisBlock.afterGap = wallGap || hostReset;
         analysisBlock.projectValid = clock.hasPosition && clock.clockSource == KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE;
         const auto reading = liveCompare.projectAnalysisClock.observe (analysisBlock, preparedFormat.sampleRate, usable);

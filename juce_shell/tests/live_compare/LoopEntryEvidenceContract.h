@@ -24,7 +24,9 @@ struct RetainedCandidate
     std::int64_t k = 0, candidate = 0;
     unsigned streak = 0;
     bool valid = false, previous = false;
-    BlockClock pre {}, post {};
+    // This prototype needs only movement, not the shipping host/chain proof payload.
+    struct Movement { std::int64_t clock = 0, project = 0; std::int32_t frames = 0; };
+    Movement pre {}, post {};
 
     void observe (const Observation& now) noexcept
     {
@@ -55,7 +57,7 @@ struct RetainedCandidate
         }
         // This prototype tests acquisition only. Keeping a value is NOT permission to play:
         // the real Consumer must still check loop movement, PRE run, range, and atomic reads.
-        pre = a; post = b; previous = true;
+        pre = { a.clock, a.project, a.frames }; post = { b.clock, b.project, b.frames }; previous = true;
     }
 };
 

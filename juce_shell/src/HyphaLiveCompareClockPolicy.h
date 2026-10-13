@@ -92,6 +92,11 @@ inline Certificate classify (juce::AudioProcessor::WrapperType wrapper,
         return { live_compare::ClockAuthority::certifiedContent, 0, studioPro812 };
     if (wrapper == juce::AudioProcessor::wrapperType_VST3 && reaperBuildCertified (executableName, executableVersion))
         return { live_compare::ClockAuthority::certifiedProject, 0, false };
+    // Logic AU only. Presentation and continuous render must agree again in each callback;
+    // this identity alone never grants PRE, MATCH, Blind or an analysis delta.
+    if (wrapper == juce::AudioProcessor::wrapperType_AudioUnit && executableName == "Logic Pro"
+        && executableVersion.isNotEmpty() && executableVersion[0] >= '0' && executableVersion[0] <= '9')
+        return { live_compare::ClockAuthority::logicRender, 0, executableVersion == "12.2" };
     // Pro Tools' executable is "ProTools" on Windows, "Pro Tools" in the macOS bundle and
     // "Pro Tools Developer" inside the Developer bundle. Every build from 12.6 on carries the
     // bounded engine clock; the measured build (26.4.0.5) is the one whose proof was verified.

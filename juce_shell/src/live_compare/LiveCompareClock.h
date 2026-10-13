@@ -18,7 +18,7 @@ enum class ClockBasis : std::uint8_t
     pluginFrames,
     reaperProcessing // certified REAPER VST3 only; independent origins, never a host content clock
 };
-enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine, certifiedProject };
+enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine, certifiedProject, logicRender };
 
 constexpr bool certifiedVst3Analysis (ClockAuthority authority) noexcept
 {

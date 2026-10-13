@@ -237,9 +237,12 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
 #[test]
 fn every_native_test_requires_the_read_only_real_storage_fixture() {
     let cmake = include_str!("../../juce_shell/CMakeLists.txt");
-    assert!(cmake
-        .trim_end()
-        .ends_with("include(cmake/NativeStorageGuard.cmake)"));
+    assert!(cmake.trim_end().ends_with(
+        "include(cmake/NativeStorageGuard.cmake)\ninclude(cmake/NativeTestTargets.cmake)"
+    ));
+    // The final include aggregates existing targets only; no test can escape the prior guard.
+    let aggregate = include_str!("../../juce_shell/cmake/NativeTestTargets.cmake");
+    assert!(!aggregate.contains("add_test("));
     let guard = include_str!("../../juce_shell/cmake/NativeStorageGuard.cmake");
     for contract in [
         "get_property(kirin_hypha_native_tests DIRECTORY PROPERTY TESTS)",

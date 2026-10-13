@@ -41,9 +41,9 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     else if (waiting && current.loopBlock != live_compare::LoopPairingBlock::none)
         instruction = pairing_loop_text::status (current.loopBlock);
     else if (!stopped && current.observation == live_compare::RecoveryReason::reaperFirstCycle)
-        instruction = "Measuring first loop; POST plays";
+        instruction = "Checking loop timing; POST plays";
     else if (!stopped && current.observation == live_compare::RecoveryReason::reaperDelayUnverified)
-        instruction = "Initial loop unverified; POST; END closes";
+        instruction = "Loop delay unverified; POST; END closes";
     else if (!stopped && current.observation == live_compare::RecoveryReason::reaperLoopTooShort)
         instruction = "Use a longer loop; POST plays";
     else if ((current.timingUnavailable || current.clockUnavailable) && guidance.reason != live_compare::RecoveryReason::cycleUnverified)

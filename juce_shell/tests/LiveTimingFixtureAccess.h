@@ -119,6 +119,12 @@ public:
         return processor.liveCompare.ring.hasPublishedRealtime() && mapping != nullptr
             && mapping->ring() != nullptr && mapping->ring()->header.demand.load() == 1;
     }
+    static void configureLogicClock (KirinHyphaProcessorBase& processor)
+    {
+        const auto policy = hypha::live_compare_clock_policy::classify (
+            juce::AudioProcessor::wrapperType_AudioUnit, "Logic Pro", "12.2", 48000);
+        processor.liveCompare.clockAuthority = static_cast<std::uint8_t> (policy.authority);
+    }
     static bool configureStudioProClock (KirinHyphaProcessorBase& processor) noexcept
     { return configureVst3Clock (processor, "Studio Pro", "8.1.2.113407"); }
     static bool configureVst3Clock (KirinHyphaProcessorBase& processor,

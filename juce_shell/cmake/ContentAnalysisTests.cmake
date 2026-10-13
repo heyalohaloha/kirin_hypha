@@ -47,3 +47,12 @@ target_compile_features(KirinAnalysisProductTimingTests PRIVATE cxx_std_17)
 target_compile_options(KirinAnalysisProductTimingTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
 add_test(NAME kirin_analysis_product_timing COMMAND KirinAnalysisProductTimingTests)
 set_tests_properties(kirin_analysis_product_timing PROPERTIES TIMEOUT 90)
+
+foreach(layout stereo mono)
+    foreach(scenario included zero)
+        set(name kirin_logic_analysis_${layout}_${scenario}_cycle_product)
+        add_test(NAME ${name} COMMAND KirinContentAnalysisProductTests
+            ${layout} ${scenario} logic logic_cycle 120)
+        set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+    endforeach()
+endforeach()
