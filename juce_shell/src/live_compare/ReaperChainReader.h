@@ -54,6 +54,17 @@ struct ReaperFingerprint
     template <typename T> void number (T value) { append (&value, sizeof (value)); }
 };
 
+// REAPER reports a VST3 fx_ident as "<path><id>{<32 hex class id>" without a closing brace
+// (measured with REAPER 7.71); a closing brace is also accepted. The class id must follow '{' and
+// end the identity or the brace, so a longer id or a path that merely contains it never matches.
+inline bool reaperIdentityNamesClass (const std::string& identity, const char* classId)
+{
+    const auto open = identity.find (std::string ("{") + classId);
+    if (open == std::string::npos) return false;
+    const auto end = open + 1 + std::strlen (classId);
+    return end == identity.size() || identity[end] == '}';
+}
+
 inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* project, void* track,
                                             void* take, std::uint64_t process,
                                             ReaperChainRestriction* restriction = nullptr)
@@ -108,8 +119,8 @@ inline ReaperPdcObservation readReaperChain (const ReaperChainApi& api, void* pr
         if (!read (i, "fx_type", type) || !read (i, "fx_ident", identity) || identity.empty()
             || !read (i, "original_name", original) || original.empty()) return {};
         // Only the actual VST3 class identifier names a role. Renamed FX labels never do.
-        const bool isPre = type == "VST3" && identity.find ("{4B6972696E4879706861505245763031}") != std::string::npos;
-        const bool isPost = type == "VST3" && identity.find ("{4B6972696E4879706861504F53547631}") != std::string::npos;
+        const bool isPre = type == "VST3" && reaperIdentityNamesClass (identity, "4B6972696E4879706861505245763031");
+        const bool isPost = type == "VST3" && reaperIdentityNamesClass (identity, "4B6972696E4879706861504F53547631");
         if (isPre) { if (pre >= 0) return {}; pre = i; }
         if (isPost) { if (post >= 0) return {}; post = i; }
         if (type == "Container" || type == "ReWire" || type == "ReaInsert"

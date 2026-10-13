@@ -10,7 +10,7 @@ int trackToken, projectToken;
 struct Fake
 {
     bool playing = true, valid = true, duplicate = false, fail = false, malformed = false;
-    bool container = false, off = false, external = false, changing = false;
+    bool container = false, off = false, external = false, changing = false, closedIdentity = false;
     int input = 0, parallel = 0, mode = 1, oversample = 0, revision = 1, channels = 2;
     std::uint32_t delay = 4096;
     std::array<std::array<unsigned char, 16>, 4> guid {};
@@ -24,9 +24,13 @@ bool named (void*, int slot, const char* key, char* out, int size)
     { if (!fake.container) return false; value = "0"; }
     else if (name == "fx_type") value = "VST3";
     else if (name == "original_name") value = fake.external ? "ReaInsert (Cockos)" : "Test effect";
+    // REAPER 7.71 reports "<path><id>{<class id>" with no closing brace; older forms close it.
     else if (name == "fx_ident") value = slot == 0 || (slot == 1 && fake.duplicate)
-        ? "arbitrary-name.vst3<1{4B6972696E4879706861505245763031}>"
-        : slot == 2 ? "other-name.vst3<2{4B6972696E4879706861504F53547631}>" : "delay.vst3";
+        ? (fake.closedIdentity ? "arbitrary-name.vst3<1{4B6972696E4879706861505245763031}>"
+                               : "/plug-ins/arbitrary-name.vst3<1618689294{4B6972696E4879706861505245763031")
+        : slot == 2 ? (fake.closedIdentity ? "other-name.vst3<2{4B6972696E4879706861504F53547631}>"
+                                           : "/plug-ins/other-name.vst3<650474387{4B6972696E4879706861504F53547631")
+                    : "delay.vst3";
     else if (name == "chain_pdc_actual") value = fake.malformed ? "4294967296" : std::to_string (fake.delay);
     else if (name == "chain_pdc_reporting" || name == "pdc") value = std::to_string (fake.delay);
     else if (name == "chain_pdc_mode") value = std::to_string (fake.mode);
@@ -52,6 +56,13 @@ auto read() { return readReaperChain (api(), &projectToken, &trackToken, nullptr
 void reader()
 {
     require (read().valid, "main chain including slot zero binds by class/GUID, not display name");
+    fake.closedIdentity = true; require (read().valid, "a closing brace after the class id is also accepted"); fake = {};
+    for (const char* other : { "/x.vst3<1{4B6972696E4879706861505245763031AB", "/4B6972696E4879706861505245763031.vst3<1{00",
+                               "/x.vst3<1{4B6972696E4879706861505245763031>", "4B6972696E4879706861505245763031" })
+        require (!reaperIdentityNamesClass (other, "4B6972696E4879706861505245763031"),
+                 "only an exact class id after '{' and before the end or '}' names a role");
+    require (reaperIdentityNamesClass ("/p/Kirin Hypha PRE.vst3<1618689294{4B6972696E4879706861505245763031",
+                                       "4B6972696E4879706861505245763031"), "REAPER's measured identity names PRE");
     const auto original = read();
     for (auto reason : { ReaperChainRestriction::channels, ReaperChainRestriction::inputFx,
                          ReaperChainRestriction::pdcMode, ReaperChainRestriction::routing })
