@@ -247,10 +247,7 @@ delayed insert have not been verified in uncertified VST3 hosts.
 The certified or checked host paths are Pro Tools AAX, Logic AU, Studio One 6–7 / Studio Pro 8
 VST3, and REAPER VST3. The version policy and timing requirements below still apply;
 this list does not mean every version or configuration has been tested.
-**Known limitation on Windows:** in Studio Pro 8.1.2 VST3 on Windows, FREQ Δ can still show a
-false difference when a plug-in that reports latency sits between PRE and POST, and SHARP Δ
-shows no data in that chain. Without such a plug-in the differences are correct. The Studio Pro
-checks above were made on macOS.
+The Studio Pro checks above were made on macOS and on Windows.
 Mixed clock kinds are never compared. Missing latency is never treated as reported zero latency.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
@@ -1005,8 +1002,7 @@ profile is also enabled for Studio One 6–7 (minimum 6.0.0) and Studio Pro 8. R
 or “Build” form are required; only 8.1.2.113407 is marked measured. This is a version policy,
 not a claim of testing every build. Separate real-host measurement checks confirmed zero FREQ, SHARP
 and PSB differences with a 4096-sample delay and loops in Studio One 6.6.3 / 7.2.3 and
-Studio Pro 8.0.2 / 8.1.2 on macOS. On Windows, Studio Pro 8.1.2 with the same delay still shows a
-false FREQ Δ (see the known limitation under FREQ). Pro Tools AAX uses the proof measured in
+Studio Pro 8.0.2 / 8.1.2 on macOS, and Studio Pro 8.1.2 on Windows. Pro Tools AAX uses the proof measured in
 Pro Tools Developer 26.4.0.5 is granted to every Pro Tools build from 12.6 on (executables
 "Pro Tools", "ProTools" and "Pro Tools Developer"; the floor is the build that reports its
 delay-compensation state). A host's loop-playback setting with no selection names no loop, so
