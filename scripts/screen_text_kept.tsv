@@ -69,3 +69,4 @@ Pro Tools Developer	host executable name compared by the live compare clock poli
 KIRIN_HYPHA_CHAIN_TRACE_DIR	diagnostic trace environment variable name; never drawn
 trace reservation failed	diagnostic trace setup exception caught by Recorder::fromEnvironment; never drawn
 trace open failed	diagnostic trace setup exception caught by Recorder::fromEnvironment; never drawn
+Logic Pro	host executable name compared by the chain clock policy; never drawn
