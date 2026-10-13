@@ -1,4 +1,5 @@
 #include "ProductTestClock.h"
+#include "LiveBlindStatusProductChecks.h"
 #include "AnalysisWorkerReceipt.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include <iostream>
@@ -69,9 +70,11 @@ try
     // The optional negative control uses the old real-clock route under exactly the same
     // assertion; it must fail with 175 ms callbacks. It is not a normal CTest item.
     if (argc > 1) { verify (Processor::Role::Pre, 2, 175, true); return 0; }
+    hypha::tests::verifyBlindInterruptionStatus();
     for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         for (int channels : { 1, 2 })
             for (int delayMs : { 0, 40, 175 }) verify (role, channels, delayMs, false);
-    std::cout << "processor clock: PRE/POST mono/stereo, 0/40/175 ms, gap, bit identity and zero latency PASS\n";
+    std::cout << "processor clock: PRE/POST mono/stereo, 0/40/175 ms, gap, bit identity, zero latency; "
+                 "Blind missing-project callback/status/teardown/recovery PASS\n";
 }
 catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

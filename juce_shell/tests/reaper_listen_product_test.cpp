@@ -1,4 +1,5 @@
 #include "ContentAnalysisProductFixture.h"
+#include "LiveBlindStatusProductChecks.h"
 using namespace content_analysis_product;
 using namespace hypha::live_compare;
 int main (int argc, char** argv)
@@ -17,6 +18,13 @@ try
     require (post.startLiveCompare() == StartResult::started, "REAPER LISTEN starts");
     post.selectLiveComparePre (true); fixture.auditionAllowed = true;
     fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "compensated project calibrates PRE");
+    fixture.postClock.positionAvailable = false;
+    fixture.auditionAllowed = false; // the entire missing block must be bit-identical POST
+    fixture.block();
+    require (! post.liveCompareStatus().preAudible, "one missing project block removes named PRE immediately");
+    fixture.postClock.positionAvailable = true;
+    post.selectLiveComparePre (true); fixture.auditionAllowed = true;
+    fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "explicit named PRE reacquires proof");
     MatchResult measured;
     fixture.until ([&] { measured = post.measureLiveCompare(); return measured.ok(); }, "REAPER MATCH window");
     require (std::abs (measured.measuredDb) < 0.01, "same physical content MATCH is zero dB");
@@ -30,12 +38,25 @@ try
     require (post.selectLiveBlind (2), "anonymous source 2");
     fixture.until ([&] { post.serviceLiveBlind(); return LiveTimingFixtureAccess::audible (post) == 2; }, "source 2 receipt");
     fixture.postClock.positionAvailable = false;
+    fixture.auditionAllowed = false;
+    const auto beforeMissing = fixture.callbacks;
+    const auto beforeNanos = fixture.wallClock.nanos();
     fixture.block();
-    require (!post.liveCompareStatus().preAudible && post.liveBlindStatus().trial.invalidated,
-             "one missing project block immediately invalidates BLIND");
+    require (fixture.callbacks == beforeMissing + 1
+        && fixture.wallClock.nanos() - beforeNanos >= 21'333'333
+        && fixture.wallClock.nanos() - beforeNanos <= 21'333'334,
+        "exactly one ordinary 2048-frame callback at 96 kHz, without a wall gap");
+    require (LiveTimingFixtureAccess::blindTrial (post).reason == RecoveryReason::projectClockMissing,
+             "the callback records the missing project witness as its first fault");
+    hypha::tests::requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
+    post.serviceLiveBlind();
+    hypha::tests::requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
     fixture.postClock.positionAvailable = true;
-    for (int i = 0; i < 40; ++i) fixture.block();
-    require (post.liveBlindStatus().trial.invalidated, "recovered timing never revives this trial");
+    for (int i = 0; i < 40; ++i)
+    {
+        fixture.block(); post.serviceLiveBlind();
+        hypha::tests::requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
+    }
     post.finishLiveCompare();
     fixture.until ([&] { return !post.liveCompareStatus().finishing; }, "END completes");
     std::cout << "REAPER LISTEN/MATCH/BLIND product " << argv[1] << " PASS\n";

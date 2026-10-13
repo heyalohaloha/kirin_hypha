@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <locale>
 #include <random>
+#include <string>
 #include <thread>
 
 namespace hypha::chain_trace

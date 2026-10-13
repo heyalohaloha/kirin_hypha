@@ -141,6 +141,27 @@ public:
     static int audible (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.blind.view().audible; }
 
+    static hypha::live_compare::BlindView blindTrial (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.blind.view(); }
+
+    // Snapshot/callback interruption test only: no pair, PCM mapping or MATCH acquisition.
+    // Successful LISTEN/MATCH/BLIND admission remains covered by the shared-memory fixtures.
+    static void seedBlindStatusFixture (KirinHyphaProcessorBase& processor)
+    {
+        auto& state = processor.liveCompare;
+        state.authority.arm (state.authority.ticket());
+        state.sessionActive.store (true);
+        state.matchRetained.store (true);
+        state.matched.store (true);
+        state.gainApproval.authority.store (state.authority.ticket());
+        state.matchGeneration.store (state.sessionGeneration.load());
+        state.matchRun.store (state.playbackRun.load());
+        state.gainReceipt.store (state.gainRevision.load());
+        state.blindGainRevision.store (state.gainRevision.load());
+        state.blind.start (true);
+        state.blindStage = hypha::live_compare::BlindStage::active;
+    }
+
     static bool initialObservationRequested (const KirinHyphaProcessorBase& processor) noexcept
     {
         return processor.liveCompare.ring.hasPublishedRealtime()

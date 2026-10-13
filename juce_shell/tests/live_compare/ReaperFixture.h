@@ -31,6 +31,7 @@ struct Host
     Decision decision;
     RenderReport report;
     bool selected = true, playing = true;
+    bool preProjectAvailable = true, postProjectAvailable = true;
     bool checkAudio = true;
     bool wallGap = false;
     std::int64_t audioOffset = 0;
@@ -59,7 +60,8 @@ struct Host
         BlockClock b;
         b.clock = c.samples; b.clockValid = c.valid; b.clockBasis = static_cast<std::uint8_t> (c.basis);
         b.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
-        b.frames = frames; b.playing = playing; b.projectValid = true;
+        b.frames = frames; b.playing = playing;
+        b.projectValid = &counter == &preCounter ? preProjectAvailable : postProjectAvailable;
         b.project = length && position >= loopStart ? loopStart + positiveModulo (position - loopStart, length) : position;
         if (length) b.loop = { true, true, b.project / 48000.0, loopStart / 48000.0,
             (loopStart + length) / 48000.0, 120 };

@@ -12,6 +12,25 @@ void operator delete[] (void* p, std::size_t) noexcept { ::operator delete (p); 
 using namespace reaper_fixture;
 int main()
 {
+    for (int channels : { 1, 2 })
+    for (bool missingPre : { false, true })
+    {
+        Host h; h.channels = channels; h.warm(); h.blind.start (true);
+        auto& available = missingPre ? h.preProjectAvailable : h.postProjectAvailable;
+        available = false;
+        audioThread = true; h.consume(); audioThread = false;
+        require (! h.report.preAudible && h.blind.view().invalidated,
+                 "one PRE or POST project hole immediately stops Blind in mono and stereo");
+        available = true;
+        for (int n = 0; n < 40; ++n)
+        {
+            audioThread = true; h.consume(); audioThread = false;
+            require (! h.report.preAudible && h.blind.view().invalidated, "fresh proof cannot revive the trial");
+            for (int c = 0; c < channels; ++c) for (int f = 0; f < frames; ++f)
+                require (h.output[c][f] == Host::sample (h.postPosition - frames + f, c) * 0.5f,
+                         "every recovery frame stays POST even after timing recalibrates");
+        }
+    }
     for (int fault = 0; fault < 5; ++fault)
     {
         Host h; h.warm(); h.blind.start (true);
