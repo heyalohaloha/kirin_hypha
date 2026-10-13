@@ -1122,5 +1122,7 @@ include(cmake/UpdateIntegrationTests.cmake)
 include(cmake/ShellRepairTests.cmake)
 include(cmake/ContentTimingTests.cmake)
 include(cmake/ProductTestClock.cmake)
+include(cmake/NativeTestLibraries.cmake)
 
 include(cmake/NativeStorageGuard.cmake)
+include(cmake/NativeTestTargets.cmake)

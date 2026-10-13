@@ -132,9 +132,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         !local_blind.contains("if(NOT WIN32)\n        add_executable(KirinLiveCompare"),
         "the live compare product tests are built on Windows too"
     );
-    assert!(
-        ci.contains("--target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests")
-    );
+    assert!(ci.contains("--target KirinWindowsPreflight"));
     assert!(
         ci.contains("-R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'")
     );
@@ -381,12 +379,12 @@ fn reaper_listen_tests_are_built_and_executed_on_both_platforms() {
         .split("- name:")
         .next()
         .unwrap();
-    let windows_targets = windows
-        .lines()
-        .find(|line| line.contains("cmake --build"))
-        .unwrap()
-        .split("--target ")
+    let windows_targets = ci
+        .split("- name: Check Windows native build inventory")
         .nth(1)
+        .unwrap()
+        .split("- name:")
+        .next()
         .unwrap();
     let windows_tests = windows
         .lines()
@@ -438,7 +436,7 @@ fn reaper_listen_tests_are_built_and_executed_on_both_platforms() {
         );
     }
     let macos = ci
-        .split("  test:\n")
+        .split("  release-source:\n")
         .nth(1)
         .unwrap()
         .split("  auval-arm64:")

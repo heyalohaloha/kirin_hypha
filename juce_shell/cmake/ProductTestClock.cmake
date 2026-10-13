@@ -24,10 +24,13 @@ else()
     set(_test_ffi "${_test_rust_dir}/release/libkirin_hypha_ffi.a")
 endif()
 add_custom_target(KirinNativeTestFFI
-    COMMAND ${KIRIN_TEST_CARGO} build --release --locked -j4 -p kirin_hypha_ffi
+    COMMAND ${KIRIN_TEST_CARGO} build --release --locked -p kirin_hypha_ffi
         --features native-test-support --target-dir "${_test_rust_dir}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     BYPRODUCTS "${_test_ffi}" VERBATIM)
+if(TARGET KirinHyphaRustFFI)
+    add_dependencies(KirinNativeTestFFI KirinHyphaRustFFI)
+endif()
 
 add_library(KirinNativeTestProcessor STATIC)
 foreach(property SOURCES INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES)

@@ -108,7 +108,16 @@ fn require_unconditional_public_history_job(body: &str) -> Result<()> {
 }
 
 fn require_exact_job_usage_gate(name: &str, body: &str) -> Result<()> {
-    let expected = format!("    {FULL_CI_JOB_IF}");
+    let expected = if name == "test" {
+        format!(
+            "    {}",
+            FULL_CI_JOB_IF
+                .replace("if: ${{ ", "if: ${{ always() && (")
+                .replace(" }}", ") }}")
+        )
+    } else {
+        format!("    {FULL_CI_JOB_IF}")
+    };
     let if_lines: Vec<_> = body
         .lines()
         .map(str::trim_end)

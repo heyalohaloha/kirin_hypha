@@ -309,7 +309,7 @@ fn readiness_checks() -> Vec<Check> {
                         "verify_windows_ci_job",
                         "verify_ffi_staticlib_docs",
                         "verify_ci_uses_layout_artifact_paths",
-                        "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
+                        "--target KirinWindowsPreflight",
                     ][..],
                 ),
                 (

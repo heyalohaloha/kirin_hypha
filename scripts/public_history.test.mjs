@@ -83,7 +83,7 @@ test('only strict public SemVer tags must reach candidate main', () => {
 test('CI runs the public history contract without an event condition', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
   const start = workflow.indexOf('  public-history:\n');
-  const end = workflow.indexOf('\n  test:\n', start);
+  const end = workflow.indexOf('\n  release-source:\n', start);
   assert.ok(start >= 0 && end > start, 'public-history job must precede the release-source job');
   const job = workflow.slice(start, end);
   assert.match(job, /name: public history identity/);

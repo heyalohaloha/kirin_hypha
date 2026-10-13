@@ -23,6 +23,7 @@ env:
   # The full product contract also builds the common processor. Bound native build
   # concurrency on each runner; timing-sensitive tests continue to run serially.
   CMAKE_BUILD_PARALLEL_LEVEL: "2"
+  CARGO_BUILD_JOBS: "2"
   KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.update_public_key || '' }}
 
 jobs:
@@ -63,19 +64,28 @@ jobs:
           node --test scripts/public_history.test.mjs
           node scripts/check_public_history.mjs --tip HEAD
 
-  test:
-    name: release source contract (macos)
+  release-source:
+    name: release source ${{ matrix.phase }} (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: macos-14
-    # Run 36959880727 passed all then-required native and 26 ignored tests but reached
-    # 45 minutes in final clippy. Keep the complete gate and bounded cold-build
-    # headroom; this changes no test deadline or acceptance criterion.
-    # Run 37458769908 finished the gate in 54 minutes on a cold cache, then hit 55 minutes
-    # while saving the Rust cache. PR caches are not shared, so every new PR starts cold.
-    # The 1.1.51 checks split the AAX analysis product test into separate ctest items; a cold
-    # PR run then reached 70 minutes inside the final ignored parity suite after every earlier
-    # gate had passed. Raise only the job bound; no test, deadline or acceptance changes.
-    timeout-minutes: 90
+    # Independent jobs: no native compilation competes with real-time Rust fixtures.
+    # Cold-run budgets: checks 15 + 10 min, Rust 20 + 10, ignored FFI 20 + 10,
+    # native 35 + 15. Native modules/sources are shared per compile profile;
+    # adding a test no longer recompiles JUCE. Bounds include setup/cache saving.
+    # These are conservative estimates; measure hosted runs before revising them.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - phase: checks
+            minutes: 25
+          - phase: rust
+            minutes: 30
+          - phase: ffi
+            minutes: 30
+          - phase: native
+            minutes: 50
+    timeout-minutes: ${{ matrix.minutes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,9 +104,27 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-source-${{ matrix.phase }}
 
       - name: Test shipping source contract
-        run: bash scripts/test_release_source.sh
+        env:
+          RELEASE_SOURCE_PHASE: ${{ matrix.phase }}
+        run: bash scripts/test_release_source.sh --phase "$RELEASE_SOURCE_PHASE"
+
+  test:
+    # Preserve the protected check name and release provenance consumer. A skipped,
+    # cancelled or failed shard must fail this aggregate, never look green.
+    name: release source contract (macos)
+    needs: [release-source]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]')) }}
+    runs-on: macos-14
+    timeout-minutes: 5
+    steps:
+      - name: Require every release source phase
+        env:
+          RELEASE_SOURCE_RESULT: ${{ needs.release-source.result }}
+        run: test "$RELEASE_SOURCE_RESULT" = success
 
   auval-arm64:
     name: auval arm64 (AU validation)
@@ -196,10 +224,11 @@ jobs:
     name: windows VST3 preflight
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: windows-latest
-    # A cold hosted runner completed every validation/build/package step in 45m03s before the
-    # former 45-minute job cap terminated post-job cleanup. Preserve the complete gate and leave
-    # bounded headroom for runner variance instead of weakening or duplicating the preflight.
-    timeout-minutes: 55
+    # One parallel native build shares JUCE and compatible product objects across tests.
+    # Estimate: <=35 min for cold builds + serial tests/packaging, 15 min setup,
+    # runner variance and cache-save margin. Test deadlines and coverage are unchanged.
+    # Confirm this estimate on the next authorized hosted run, not by raising the cap.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -247,14 +276,37 @@ jobs:
           -DKIRIN_HYPHA_BUILD_UPDATE_TESTS=ON
           -DKIRIN_FFI_LIB="$env:KIRIN_FFI_LIB_PATH"
 
+      - name: Check Windows native build inventory
+        run: >
+          node scripts/check_native_build_targets.mjs
+          --build-dir juce_shell/build-windows --config Release --targets
+          KirinUpdate_manifest_Tests KirinUpdate_store_Tests KirinUpdate_checker_Tests KirinUpdate_http_response_Tests
+          KirinUpdateRuntimeIntegrationTests KirinUiRenderContractTests KirinHostIdentityTests KirinSnapshotAbiContractTests
+          KirinAttackUiContractTests KirinHyphaReferencePreviewRenderer KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests
+          KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests
+          KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests KirinLiveCompareCorrespondenceTests
+          KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests
+          KirinLiveCompareLoopFeasibilityTests KirinLiveCompare_reentry_Tests KirinLiveCompare_gain_snapshot_Tests Kirin_live_blind_session_Tests
+          Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests Kirin_reaper_clock_Tests Kirin_reaper_correspondence_Tests
+          Kirin_reaper_fault_Tests KirinReaperListenProductTests KirinChainTraceTests KirinListenTextLayoutTests
+          KirinHostContentClockPolicyTests KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests
+          KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests
+          KirinLiveChainTimingProductTests KirinLiveReentryProductTests KirinCaptureWorkAttachmentTests KirinReferenceAuditionRuntimeTests
+          KirinReferenceAudioPagesTests KirinReferenceAudioStreamingTests KirinReferenceContentCorrelationTests KirinOutputOwnershipTests
+          KirinPairPreviewLifetimeTests KirinAudioTransparencyContractTests
+
+      - name: Build JUCE VST3 shell (Windows)
+        run: >
+          cmake --build juce_shell/build-windows --config Release
+          --target KirinWindowsPreflight
+          --parallel 2
+
       - name: Validate Windows offline update services
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinUpdate_manifest_Tests KirinUpdate_store_Tests KirinUpdate_checker_Tests KirinUpdate_http_response_Tests KirinUpdateRuntimeIntegrationTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_update_((manifest|store|checker|http_response)$|runtime_)'
 
       - name: Validate Windows UI render contract
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests KirinHostIdentityTests KirinSnapshotAbiContractTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^(kirin_ui_render_contract|kirin_host_identity|kirin_snapshot_abi_contract)$'
 
       # The DRUM (TIME > ATTACK) surface is rendered by the Windows JUCE graphics stack as well, and
@@ -274,7 +326,6 @@ jobs:
           KIRIN_ATTACK_UI_IDENTITY_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\identity.png
         run: |
           New-Item -ItemType Directory -Force -Path drum-ui-preview | Out-Null
-          cmake --build juce_shell/build-windows --config Release --target KirinAttackUiContractTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_attack_ui_contract$'
 
       - name: Check embedded material distribution permissions
@@ -292,22 +343,18 @@ jobs:
 
       - name: Validate Kirin OS Reference preview renderer (Windows)
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinHyphaReferencePreviewRenderer
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
 
       - name: Validate local PRE/POST Blind and complete product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
 
       - name: Validate live PRE/POST compare correspondence
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLiveCompareCorrespondenceTests KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests KirinLiveCompareLoopFeasibilityTests KirinLiveCompare_reentry_Tests KirinLiveCompare_gain_snapshot_Tests Kirin_live_blind_session_Tests Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority|reentry|gain_snapshot)|kirin_live_blind_session)$'
 
       - name: Validate REAPER LISTEN contracts and product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target Kirin_reaper_clock_Tests Kirin_reaper_correspondence_Tests Kirin_reaper_fault_Tests KirinReaperListenProductTests KirinChainTraceTests KirinListenTextLayoutTests KirinHostContentClockPolicyTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reaper_clock|kirin_reaper_correspondence|kirin_reaper_fault|kirin_reaper_listen_mono_product|kirin_reaper_listen_stereo_product|kirin_chain_trace|kirin_listen_text_layout|kirin_host_content_clock_policy)$'
 
       # The Windows live ring end to end: the real PRE and POST processors, pair discovery, the
@@ -316,31 +363,20 @@ jobs:
       # more on failure, and failing twice fails. kirin_live_blind_loop_stall_product tests a stall on purpose.
       - name: Validate live PRE/POST compare product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests KirinLiveChainTimingProductTests KirinLiveReentryProductTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error --repeat until-pass:2 -R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'
 
       - name: Validate Work attachment transport
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinCaptureWorkAttachmentTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_capture_work_attachment$'
 
       - name: Validate Reference audition session contract
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinReferenceAuditionRuntimeTests KirinReferenceAudioPagesTests KirinReferenceAudioStreamingTests KirinReferenceContentCorrelationTests KirinOutputOwnershipTests KirinPairPreviewLifetimeTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_pair_preview_lifetime)$'
-
-      - name: Build JUCE VST3 shell (Windows)
-        run: >
-          cmake --build juce_shell/build-windows
-          --config Release
-          --target KirinHyphaPRE_VST3 KirinHyphaPOST_VST3
-          --parallel 2
 
       - name: Validate Windows VST3 audio transparency
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          cmake --build juce_shell/build-windows --config Release --target KirinAudioTransparencyContractTests
           $exe = (Get-ChildItem -Path juce_shell/build-windows -Recurse -File -Filter 'KirinAudioTransparencyContractTests.exe' | Select-Object -First 1).FullName
           if (-not $exe) { throw 'audio transparency contract executable not found' }
           $bundles = @(Get-ChildItem -Path juce_shell/build-windows -Recurse -Directory -Filter *.vst3 | Sort-Object FullName)

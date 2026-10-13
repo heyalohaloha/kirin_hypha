@@ -191,3 +191,16 @@ source inventory and all three PNG hashes still match the registry. The reviewed
 `2a5a89aedc32944b58a07cc6f58fa7ce0f17b3b8c27bfdbdb87924c078f021bd`. Only the registry build-contract hash changes; asset
 permissions, holds and distribution gates retain their prior decisions. This bounded source
 review does not claim independent review, new material rights or release acceptance.
+
+### Native test compilation sharing build-contract review
+
+The implementation review compared the CMake change with its base: removing the two new
+`NativeTestLibraries.cmake` and `NativeTestTargets.cmake` includes restores the exact base bytes.
+The former moves existing native test translation units into static libraries partitioned by
+compile context; the latter creates aggregate build dependencies. Shipping source lists,
+resource declarations and optional font selection are unchanged. Both modules reuse existing
+`KirinHyphaData` and introduce no embedded inputs. The three embedded PNG hashes still match
+the registry. The reviewed CMake hash is
+`15754d41be3a78dbaa7a6c73d424fbeed21f0a830c5903d7ce574c8adde24e5e`. Only the registry build-contract hash advances;
+material hashes, permissions, holds and release gates keep their existing decisions. This
+implementation review does not claim independent review or release acceptance.

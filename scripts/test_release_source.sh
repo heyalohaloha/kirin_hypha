@@ -3,6 +3,22 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+
+# The local entry and CI dispatch the same phase functions, with no duplicated command lists.
+RELEASE_PHASES=(checks rust ffi native)
+PHASE=all
+PLAN=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --phase) PHASE="${2:?--phase needs a name}"; shift 2 ;;
+    --plan) PLAN=true; shift ;;
+    --list-phases) printf '%s\n' "${RELEASE_PHASES[@]}"; exit 0 ;;
+    *) echo "unknown release-source argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$PHASE" in all|checks|rust|ffi|native) ;; *) echo "unknown release-source phase: $PHASE" >&2; exit 2 ;; esac
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
@@ -12,6 +28,7 @@ ABI_INCLUDE_DIR="$ROOT/crates/kirin_hypha_ffi/include"
 # independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
 PRE_DISPLAY_BUILD="${KIRIN_HYPHA_NATIVE_TEST_BUILD:-${CARGO_TARGET_DIR:-$ROOT/target}/hypha-release-native-tests}"
 cleanup() {
+  if [[ "$PLAN" == true ]]; then return; fi
   cmake -E rm -f "$UI_CONTRACT_BIN"
   cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
 }
@@ -19,7 +36,7 @@ trap cleanup EXIT
 
 run() {
   echo "==> $*"
-  "$@"
+  if [[ "$PLAN" == false ]]; then "$@"; fi
 }
 
 count_ignored() {
@@ -40,6 +57,7 @@ assert_ignored_count() {
   fi
 }
 
+phase_checks() {
 # Shipping producer/consumer contract. This includes measurement, Record writer, generation,
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
@@ -77,6 +95,12 @@ run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
 run "$OBSERVATORY_CONTRACT_BIN"
 
+# Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
+run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
+run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
+}
+
+phase_native() {
 # The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
 # build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
 # materialize that exact state here instead of relying on a developer's existing submodule tree.
@@ -93,6 +117,7 @@ PRE_DISPLAY_CMAKE_ARGS=(
   -DKIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS=ON
   -DKIRIN_HYPHA_BUILD_UPDATE_TESTS=ON
   -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
@@ -203,22 +228,36 @@ run node scripts/check_native_test_inventory.mjs --build-dir "$PRE_DISPLAY_BUILD
   --exclusions scripts/release_native_test_exclusions.json \
   --group "$JUCE_TEST_COUNT" "$JUCE_TEST_REGEX" \
   --group "$UPDATE_INTEGRATION_COUNT" "$UPDATE_INTEGRATION_REGEX"
+run node scripts/check_native_build_targets.mjs --build-dir "$PRE_DISPLAY_BUILD" --config Release \
+  --targets "${JUCE_TEST_TARGETS[@]}" "${UPDATE_INTEGRATION_TARGETS[@]}"
+run node scripts/check_native_compile_sharing.mjs "$PRE_DISPLAY_BUILD/compile_commands.json"
 
-run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
+# The aggregate owns every configured native target (also compile-only contracts).
+# Keep the selected target list above as the explicit release inventory.
+run cmake --build "$PRE_DISPLAY_BUILD" --target KirinNativeTests --config Release \
+  --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 # Keep the existing one-retry policy for real GUI/IPC deadlines. Callback continuity now uses
 # the fixture clock; deliberate host gaps remain explicit clock advances and must still pass
 # kirin_live_blind_loop_stall_product. Two failures still fail the gate.
+if [[ "$PLAN" == true ]]; then
+  LIVE_RETRY_REGEX='live-product-tests-from-ctest-inventory'
+else
 LIVE_RETRY_REGEX="^($(ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release -N -R "$JUCE_TEST_REGEX" \
   | sed -n 's/^ *Test *#[0-9]*: \(kirin_live_[^ ]*_product\)$/\1/p' | paste -sd '|' -))\$"
+fi
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
   --output-on-failure --no-tests=error -R "$JUCE_TEST_REGEX" -E "$LIVE_RETRY_REGEX"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
   --output-on-failure --no-tests=error --repeat until-pass:2 -R "$LIVE_RETRY_REGEX"
 
-run cmake --build "$PRE_DISPLAY_BUILD" --target "${UPDATE_INTEGRATION_TARGETS[@]}" --config Release
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
   --output-on-failure --no-tests=error -R "$UPDATE_INTEGRATION_REGEX"
 
+}
+
+phase_rust() {
+# xtask checks the patched wrapper source even when this phase runs on its own runner.
+run bash scripts/apply_juce_patches.sh
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
 # Keep legacy VST3 identity and Record styling covered without using these editors as shipping
@@ -237,6 +276,13 @@ run cargo test -p kirin_measure --release --locked \
 # The C++ shell consumes the static C ABI, not Rust's rlib symbols. Build that exact archive and
 # require the restart locator entry points to be exported definitions before any plugin bundle.
 run cargo build -p kirin_hypha_ffi --locked
+run check_ffi_symbols
+
+# Static contracts for the common JUCE AU/VST3 shell, audio-thread safety, packaging, and CI.
+run cargo test -p xtask --locked
+}
+
+check_ffi_symbols() {
 FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # Apple nm from the installed Xcode can be older than rustc's LLVM and report unsupported debug
 # attributes for unrelated dependency objects. It still emits the public symbol table for this
@@ -258,20 +304,23 @@ for symbol in kirin_hypha_poll_attack_navigation_v2 kirin_hypha_poll_meter_sessi
   fi
 done
 
-# Static contracts for the common JUCE AU/VST3 shell, audio-thread safety, packaging, and CI.
-run cargo test -p xtask --locked
+}
 
+phase_ffi() {
 # These real-time filesystem suites are deliberately ignored by the normal cargo test command.
 # Pin the inventory before running it so a renamed/deleted blocker test cannot disappear silently.
-assert_ignored_count parity 20
-assert_ignored_count pairing_candidates 6
-assert_ignored_count record_auxiliary_cuts 1
+run assert_ignored_count parity 20
+run assert_ignored_count pairing_candidates 6
+run assert_ignored_count record_auxiliary_cuts 1
 run cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test record_auxiliary_cuts --locked -- --ignored --test-threads=1
 
-# Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
-run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
-run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
+}
 
-echo "release source contract: PASS"
+if [[ "$PHASE" == all ]]; then
+  for phase in "${RELEASE_PHASES[@]}"; do "phase_$phase"; done
+else
+  "phase_$PHASE"
+fi
+if [[ "$PLAN" == false ]]; then echo "release source contract ($PHASE): PASS"; fi

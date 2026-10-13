@@ -198,8 +198,8 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
-        "KirinHyphaPRE_VST3 KirinHyphaPOST_VST3",
-        "Windows preflight job must build PRE/POST VST3 targets",
+        "--target KirinWindowsPreflight",
+        "Windows preflight job must build the aggregate PRE/POST and native targets",
     )?;
     for required in [
         "-DKIRIN_HYPHA_BUILD_UPDATE_TESTS=ON",
@@ -223,7 +223,7 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
-        "--target KirinAudioTransparencyContractTests",
+        "KirinAudioTransparencyContractTests",
         "Windows preflight job must build the audio transparency host contract",
     )?;
     require(

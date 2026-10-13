@@ -98,6 +98,36 @@ manifestにはsource commit / B / modified state、JUCEのcommitと実bytesを�
 
 ## Native試験の保存先と監視
 
+### 共通ビルドとrelease-sourceの分割
+
+`bash scripts/test_release_source.sh`は全検査を順に実行する。CIでは同じ入口を
+`--phase checks`（軽量検査とclippy）、`--phase rust`（通常Rust試験・CPU予算・ABI・xtask）、
+`--phase ffi`（件数を照合したignored suite）、`--phase native`（native buildとCTest）に分ける。
+`--list-phases`で一覧、`--plan`で実行予定を確認できる。planは検査成功を表さない。
+軽量契約の`ci_build_structure.test.mjs`が全実行と各phaseのコマンド列、CI matrixと集約条件を照合する。
+既存の必須チェック名`release source contract (macos)`は、全phase成功時だけ成功する。
+
+Nativeの`KirinNativeTests`はconfigure済みの全試験実行ファイルとcompile-only targetを一つの
+依存グラフでbuildする。`cmake --build BUILD --target KirinNativeTests --parallel 2`で実行する。
+Windowsの`KirinWindowsPreflight`はそれにPRE/POST VST3を加え、後続の検証工程で再buildしない。
+公開・署名・実host受入を代用するtargetではない。`CMAKE_BUILD_PARALLEL_LEVEL`と
+`CARGO_BUILD_JOBS`で各compilerの並列数を指定し、時間に敏感なCTestは直列のままとする。
+
+単独native試験のJUCE moduleは、standalone等の定義ごとに静的ライブラリへまとめる。
+共通の製品ソースもcompile定義・options・features・include・linkの組が一致する場合に共有する。
+ページ試験hookやtransport注入の定義が異なるソース、PRE/POST、試験時計付きprocessor、
+format wrapperは別のcompile条件を維持する。JUCEの`INTERFACE_SOURCES`は実行ファイルへ
+再伝播させず、header用のusage requirementとlink依存だけを渡す。
+根拠は[CMakeのPRIVATE依存](https://cmake.org/cmake/help/latest/command/target_link_libraries.html)と
+[JUCEのmodule target](https://github.com/juce-framework/JUCE/blob/7.0.12/docs/CMake%20API.md)を参照。
+
+Native phaseではCTestの全登録と選択の照合に加え、生成したbuild target一覧と
+実際の`compile_commands.json`を検査する。試験ごとのJUCE／製品ソース再compileや
+出荷targetへの試験定義の漏入を検出する。試験件数、除外理由、再試行方針、下記の保存先監視と
+パス予算は共有ライブラリ化やjob分割で変えない。
+
+### 保存先と監視
+
 Native試験を有効にしたconfigureにはNode.jsも必要。CTestは全試験に保存先用の
 `KIRIN_HYPHA_TEST_STORAGE_ROOT`と`kirin_real_storage` fixtureを付ける。
 RustとJUCEのGuide／Reference／Recovery／Capture Work／Appearanceは、このrootの同じ
