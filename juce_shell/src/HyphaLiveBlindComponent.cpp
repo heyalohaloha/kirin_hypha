@@ -16,15 +16,13 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     const bool stopped = current.stage == Stage::invalidated || current.trial.invalidated;
     const auto guidance = live_compare_ui::blindRecovery (current, stopped);
     screen.guidanceShown = stopped || current.prolongedWait;
-    screen.cause = screen.guidanceShown ? live_compare_ui::cause (guidance.reason) : "";
+    screen.cause = screen.guidanceShown && !current.signalWait ? live_compare_ui::cause (guidance.reason) : "";
     screen.recovery = screen.guidanceShown ? guidance.instruction : "";
     screen.title = revealed ? "BLIND RESULT" : "LIVE BLIND";
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     juce::String instruction, explanation = returnDb > 0.05
         ? "END returns +" + juce::String (returnDb, 1) + " dB" : "END restores normal level";
-    if (!stopped && current.prolongedWait)
-        instruction = guidance.instruction;
-    else if (current.stage == Stage::failed)
+    if (current.stage == Stage::failed)
         instruction = current.waiting == live_compare::MatchFailure::outOfRange
             ? "MATCH over 24 dB" : "MATCH failed; try again";
     else if (stopped)
@@ -58,8 +56,7 @@ blind_ui::Screen screenFor (const live_compare::LiveBlindStatus& current, bool p
     screen.audible = current.trial.selected; // selected button, not an audio receipt
     screen.revealShown = live && ! revealed;
     screen.revealEnabled = current.trial.played == 3;
-    screen.approveShown = current.stage == Stage::approval && ! current.contentHeld
-        && !current.compensationOff;
+    screen.approveShown = current.stage == Stage::approval && !current.compensationOff;
     screen.approveTitle = "Lower POST and begin Blind";
     screen.approveDescription = explanation;
     screen.endEnabled = ! finishing;

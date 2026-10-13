@@ -226,8 +226,6 @@ void KirinHyphaEditor::visibilityChanged()
         commitEditorSizeStateIfSettled (true);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
-        if (liveBlindOpen) processorRef.closeLiveBlind();
-        else processorRef.stopLiveCompare();
         // Pro Tools can hide an editor without destroying it when another insert is opened.
         // The editor owns one typed optional-analysis request and releases it at this boundary.
         syncAnalysisDemand();

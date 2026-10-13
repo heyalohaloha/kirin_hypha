@@ -5,6 +5,9 @@
 namespace hypha::live_compare
 {
 // Guidance only. The callback supplies its existing timestamp; no new RT clock or syscall.
+inline bool guidanceDue (std::uint64_t since, std::uint64_t now) noexcept
+{ return since != 0 && now >= since && now - since >= 3'000'000'000; }
+
 class WaitNotice
 {
 public:
@@ -21,7 +24,7 @@ public:
         const auto start = since.load (std::memory_order_acquire);
         const auto last = lastBlock.load (std::memory_order_acquire);
         const auto older = start != 0 ? start : last;
-        return older != 0 && now >= older && now - older >= 3'000'000'000;
+        return guidanceDue (older, now);
     }
 private:
     std::atomic<std::uint64_t> since { 0 }, lastBlock { 0 };

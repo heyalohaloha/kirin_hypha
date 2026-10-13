@@ -119,8 +119,8 @@ inline void run()
         {
             const auto observations = pair.delta;
             pair.knob = i % 3 == 0 ? 0.0f : i % 3 == 1 ? 0.25f : 0.8f;
-            require (pair.step().preAudible, "knob, fader, mute and automation do not change timing");
-            require (pair.delta == observations + 1, "knob, fader and mute do not stop delta timing");
+            require (pair.step().preAudible, "changed POST level does not change clock correspondence");
+            require (pair.delta == observations + 1, "changed POST level retains paired clock observations");
         }
         bool ceilingSeen = false;
         pair.inputLevel = 8.0f;

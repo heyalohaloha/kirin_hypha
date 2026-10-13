@@ -35,6 +35,7 @@ static void require (bool ok, const char* message)
     if (! ok) { std::cerr << "FAIL: " << message << '\n'; std::abort(); }
 }
 
+#include "GuardRecoveryTest.h"
 namespace
 {
 constexpr int frames = 512;
@@ -221,8 +222,6 @@ static void postLevelRampsDownFastAndUpSlowly()
     require (samples[0] == 0.3f && samples[1] == -0.2f && samples[2] == 0.1f, "settled unity is bit-identical");
 }
 
-// INV-LC14: PRE raised above the ceiling fixed at MATCH never sounds; the block is POST from its
-// start and the report ends the selection. A non-finite PRE sample trips the guard at any gain.
 static void guardKeepsPreUnderTheCeiling()
 {
     Pair raised;
@@ -490,6 +489,7 @@ int main (int argc, char** argv)
     aaxGroupsTellAMonoTrackFromAMultiMonoSet();
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
+    guardRecoveryEpisode<Pair>();
     guardKeepsPreUnderTheCeiling();
     finiteGainAndCeilingBoundaries();
     preGainRampsOverFiftyMilliseconds();

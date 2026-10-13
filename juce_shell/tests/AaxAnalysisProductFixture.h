@@ -197,7 +197,8 @@ struct Fixture
         LiveTimingFixtureAccess::serviceTiming (*post);
         ++callbacks;
         wallClock.advanceBlock (frames, 48000);
-        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        hypha::tests::awaitAnalysisExchange (*pre);
+        hypha::tests::awaitAnalysisExchange (*post, true);
     }
     template <typename Check> void until (Check check, const char* why)
     {
@@ -222,7 +223,7 @@ struct Fixture
             block();
             if (check()) continue;
             // A poll can meet the exchange worker's lock; the editor skips that tick, so may this.
-            std::this_thread::sleep_for (std::chrono::milliseconds (2));
+            hypha::tests::awaitAnalysisExchange (*post);
             if (check()) continue;
             KirinPerceptualBatch perceptual {}; KirinPsbView psb {};
             post->pollPerceptualBatch (perceptual); post->pollPsb (psb);
@@ -270,7 +271,7 @@ struct Fixture
     void preparing (bool sharp)
     {
         if (analysisPreparing (sharp) && psbPreparing()) return;
-        std::this_thread::sleep_for (std::chrono::milliseconds (2)); // one contended poll is not a fact
+        hypha::tests::awaitAnalysisExchange (*post); // one contended poll is not a fact
         if (analysisPreparing (sharp) && psbPreparing()) return;
         KirinPerceptualBatch perceptual {}; KirinAbsoluteBatch absolute {}; KirinPsbView psb {};
         post->pollPerceptualBatch (perceptual); post->pollAbsoluteBatch (absolute); post->pollPsb (psb);
@@ -312,6 +313,9 @@ struct Fixture
         listen.active = listen.preSelected = listen.preWaiting = true;
         listen.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
         listen.timingUnavailable = true;
+        require (juce::String (currentNamedPresentation (listen).instruction).isEmpty(),
+                 "short LISTEN wait has no guidance");
+        listen.prolongedWait = true;
         const auto notice = currentNamedPresentation (listen);
         require ((notice.action == RecoveryAction::loopOff) == expected
             && (juce::String (notice.instruction) == "Loop Playback on: turn it off to compare (POST)") == expected
@@ -323,16 +327,19 @@ struct Fixture
         blind.stage = BlindStage::preparing;
         blind.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
         blind.timingUnavailable = true;
+        require (!hypha::live_blind_ui::screenFor (blind, true, 1.0f).guidanceShown,
+                 "short BLIND wait has no guidance");
+        blind.prolongedWait = true;
         const auto screen = hypha::live_blind_ui::screenFor (blind, true, 1.0f);
         require ((blind.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected
             && (blindRecovery (blind, false).action == RecoveryAction::loopOff) == expected
-            && (screen.instruction == "Loop Playback on: turn it off to compare") == expected
-            && (screen.cause == hypha::host_availability::timingText()) != expected,
+            && (screen.recovery == "Turn off Loop Playback to compare") == expected
+            && (screen.recovery == "Timing unavailable; check PRE and play (POST)") != expected,
             "Blind asks for loop playback off exactly when the uncertified host loops a range");
         KirinPsbView frame {};
         if (! post->pollPsb (frame)) // one contended poll is not a fact; the editor skips that tick
         {
-            std::this_thread::sleep_for (std::chrono::milliseconds (2));
+            hypha::tests::awaitAnalysisExchange (*post);
             require (post->pollPsb (frame), "the PSB frame is published");
         }
         hypha::SpectrumComponent psb;

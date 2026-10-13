@@ -16,7 +16,8 @@ void verifyOffsetConfidence (Require require)
     {
         OffsetMonitor monitor;
         auto e = at (rate, 0);
-        monitor.observe (e, false); monitor.observe (e, false);
+        monitor.observe (e, false);
+        require (monitor.observe (e, false).sampleRate == rate, "settled offset retains the measurement rate for display");
         e.lagFrames = static_cast<std::int64_t> (std::ceil (rate * offsetJumpSeconds)) - 1;
         monitor.observe (e, false);
         require (! monitor.observe (e, false).jumped, "below the time threshold never holds");

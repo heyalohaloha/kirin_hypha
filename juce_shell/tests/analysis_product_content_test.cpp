@@ -49,9 +49,12 @@ void cycleListenRecovery (Fixture& fixture, bool spectrum, bool blind)
     for (int i = 0; i < 16; ++i)
     {
         fixture.block(); fixture.noDelta (spectrum); fixture.cycleGuidance();
-        require (juce::String (hypha::live_compare_ui::namedRecovery (post.liveCompareStatus()))
-            == "Turn Cycle off to compare (POST)", "LISTEN has the same callback's Cycle reason");
+        require (juce::String (hypha::live_compare_ui::namedRecovery (post.liveCompareStatus())).isEmpty(),
+                 "short Cycle wait is silent while the same callback refuses PRE");
     }
+    fixture.until ([&] { return post.liveCompareStatus().prolongedWait; }, "Cycle wait reaches guidance boundary");
+    require (juce::String (hypha::live_compare_ui::namedRecovery (post.liveCompareStatus()))
+        == "Turn Cycle off to compare (POST)", "prolonged LISTEN has the callback's Cycle reason");
     if (blind)
     {
         require (post.beginLiveBlind() == StartResult::started, "BLIND may prepare but not audition an unverified Cycle");
@@ -61,7 +64,7 @@ void cycleListenRecovery (Fixture& fixture, bool spectrum, bool blind)
             const auto state = post.liveBlindStatus();
             require (state.stage == BlindStage::preparing && ! state.trial.active,
                      "initial Cycle wait never starts an anonymous trial");
-            require (hypha::live_blind_ui::screenFor (state, true, 1.0f).instruction == "Turn Cycle off to compare",
+            require (hypha::live_blind_ui::screenFor (state, true, 1.0f).recovery == "Turn Cycle off to compare",
                      "BLIND preparing has Cycle guidance");
         }
     }

@@ -240,31 +240,6 @@ impl SpectrumExchangeWorker {
 }
 
 impl SpectrumCoordinator {
-    /// Test barrier through the real worker, after the caller has awaited analysis completion.
-    /// No worker means service_*_endpoint already performed the synchronous tick.
-    #[cfg(feature = "test-support")]
-    pub fn request_exchange_tick_for_test(&self) -> Option<u64> {
-        if !self.exchange_worker.is_started() {
-            return None;
-        }
-        let ticket = self
-            .exchange_worker
-            .state
-            .requested_tick
-            .fetch_add(1, Ordering::AcqRel)
-            + 1;
-        self.exchange_worker.notify();
-        Some(ticket)
-    }
-    #[cfg(feature = "test-support")]
-    pub fn exchange_tick_completed_for_test(&self, ticket: u64) -> bool {
-        self.exchange_worker
-            .state
-            .completed_tick
-            .load(Ordering::Acquire)
-            >= ticket
-    }
-
     /// Existing POST IO thread: publish the current exact endpoint, then leave active exchange to
     /// the isolated Spectrum worker. The first tick is synchronous so startup failure stays
     /// factual and the optional worker is never created for an unpaired/hidden POST.
@@ -288,9 +263,17 @@ impl SpectrumCoordinator {
             }
             return;
         }
+        #[cfg(feature = "test-support")]
+        let requested = self
+            .exchange_worker
+            .state
+            .requested_tick
+            .load(Ordering::Acquire);
         if self.post_tick_for_owner(post_instance_id, target, owner_name) {
             let _ = self.exchange_worker.ensure_started(self);
         }
+        #[cfg(feature = "test-support")]
+        self.complete_endpoint_tick_for_test(requested);
     }
 
     /// Existing PRE IO thread: discover a valid request at its unchanged 10 Hz cadence. Once
@@ -310,11 +293,23 @@ impl SpectrumCoordinator {
             }
             return;
         }
+        #[cfg(feature = "test-support")]
+        let requested = self
+            .exchange_worker
+            .state
+            .requested_tick
+            .load(Ordering::Acquire);
         if self.pre_tick(pre_instance_id, instance_dir) {
             let _ = self.exchange_worker.ensure_started(self);
         }
+        #[cfg(feature = "test-support")]
+        self.complete_endpoint_tick_for_test(requested);
     }
 }
+
+#[cfg(feature = "test-support")]
+#[path = "spectrum_exchange_test_barrier.rs"]
+mod test_barrier;
 
 impl Drop for SpectrumExchangeWorker {
     fn drop(&mut self) {
@@ -330,7 +325,15 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let (_guard, _timeout) = match state.wake.1.wait_timeout(guard, wait) {
+        #[cfg(not(feature = "test-support"))]
+        let waited = state.wake.1.wait_timeout(guard, wait);
+        #[cfg(feature = "test-support")]
+        let waited = state.wake.1.wait_timeout_while(guard, wait, |_| {
+            state.requested_tick.load(Ordering::Acquire)
+                <= state.completed_tick.load(Ordering::Acquire)
+                && !state.shutdown.load(Ordering::Acquire)
+        });
+        let (_guard, _timeout) = match waited {
             Ok(result) => result,
             Err(poisoned) => poisoned.into_inner(),
         };
@@ -372,9 +375,12 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
             }
         };
         #[cfg(feature = "test-support")]
-        state
-            .completed_tick
-            .store(requested_tick, Ordering::Release);
+        {
+            state
+                .completed_tick
+                .store(requested_tick, Ordering::Release);
+            state.wake.1.notify_all();
+        }
         wait = if !active {
             INACTIVE_WAIT
         } else if matches!(

@@ -438,6 +438,10 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     hypha::live_compare::Status status;
     status.finishing = liveCompare.completion.pending();
     status.prolongedWait = liveCompare.waitNotice.prolonged (hypha::live_compare::callbackWallNanos());
+    status.signalWait = liveCompare.namedMatchPending
+        && (liveCompare.namedMatchWaiting == hypha::live_compare::MatchFailure::tooShort
+            || liveCompare.namedMatchWaiting == hypha::live_compare::MatchFailure::notEnoughSignal)
+        && hypha::live_compare::guidanceDue (liveCompare.namedMatchSince, hypha::live_compare::callbackWallNanos());
     status.postActual = liveCompare.postActual.load (std::memory_order_acquire);
     status.sessionGeneration = liveCompare.sessionGeneration.load (std::memory_order_acquire);
     const auto permission = liveCompare.authority.ticket();

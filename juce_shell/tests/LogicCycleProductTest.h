@@ -19,28 +19,40 @@ inline void verifyLogicCycleProduct (content_analysis_product::Fixture& fixture)
         require (post.startLiveCompare() == StartResult::started, "Logic cycle LISTEN");
         fixture.auditionAllowed = true; post.selectLiveComparePre (true);
         fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "Logic correct PRE");
-        require (post.beginLiveBlind() == StartResult::started, "Logic cycle BLIND prepares MATCH");
-        fixture.until ([&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
-                       "Logic real MATCH and BLIND");
         int deltaBlocks = 0;
-        // Span a complete non-block-aligned cycle; the anonymous trial stays uninterrupted.
+        // The actual paired delta must survive a complete non-block-aligned cycle in LISTEN.
         for (int n = 0; n < 1600; ++n)
         {
             fixture.block(); post.serviceLiveBlind();
-            require (post.liveBlindStatus().stage == BlindStage::active, "cycle must not interrupt proven BLIND");
+            require (post.liveCompareStatus().preAudible, "cycle keeps verified named PRE");
             if (fixture.zeroDelta (spectrum)) ++deltaBlocks;
         }
         require (deltaBlocks > 1500, "delta persists through the block-internal wrap");
-        fixture.postClock.reported = false;
-        fixture.block(); post.serviceLiveBlind(); fixture.noDelta (spectrum);
-        require (post.liveBlindStatus().stage == BlindStage::invalidated, "one missing callback proof ends BLIND");
-        fixture.postClock.reported = true;
-        for (int n = 0; n < 32; ++n)
+        require (post.beginLiveBlind() == StartResult::started, "Logic cycle BLIND prepares MATCH");
+        fixture.until ([&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
+                       "Logic real MATCH and BLIND");
+        const auto command = LiveTimingFixtureAccess::command (post);
+        require (post.selectLiveBlind (command.firstPre() ? 1 : 2), "select anonymous PRE");
+        fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "Logic anonymous PRE");
+        const auto trial = post.liveBlindStatus().trial;
+        // Blind deliberately suppresses paired analysis; the independent PCM oracle still runs
+        // on every callback. Do not mistake that existing admission boundary for lost timing.
+        for (int n = 0; n < 1600; ++n)
         {
             fixture.block(); post.serviceLiveBlind();
-            require (post.liveBlindStatus().stage == BlindStage::invalidated
-                && !post.liveCompareStatus().preAudible, "recovery never restarts BLIND");
+            require (post.liveBlindStatus().stage == BlindStage::active
+                && post.liveBlindStatus().trial.epoch == trial.epoch, "cycle keeps the same anonymous trial");
         }
+        fixture.postClock.reported = false;
+        fixture.auditionAllowed = false;
+        fixture.block(); post.serviceLiveBlind(); fixture.noDelta (spectrum);
+        require (post.liveBlindStatus().stage == BlindStage::active && !post.liveCompareStatus().preAudible,
+                 "missing presentation proof uses bit-identical POST without ending BLIND");
+        fixture.postClock.reported = true; fixture.auditionAllowed = true;
+        fixture.until ([&] { post.serviceLiveBlind(); return post.liveCompareStatus().preAudible; },
+                       "fresh Logic proof automatically resumes anonymous PRE");
+        require (post.liveBlindStatus().trial.epoch == trial.epoch
+            && post.liveBlindStatus().trial.usedPostFallback, "Logic recovery preserves assignment and fallback fact");
         post.finishLiveCompare();
         fixture.until ([&] { return !post.liveCompareStatus().finishing; }, "Logic END");
         fixture.auditionAllowed = false;

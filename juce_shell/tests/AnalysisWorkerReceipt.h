@@ -1,8 +1,6 @@
 #pragma once
 #include "LiveTimingFixtureAccess.h"
-#include <chrono>
 #include <stdexcept>
-#include <thread>
 
 namespace hypha::tests
 {
@@ -10,12 +8,12 @@ namespace hypha::tests
 // existing delta, warmup, drop, bit-identity and PCM assertion still runs after this handoff.
 inline void awaitAnalysisInput (KirinHyphaProcessorBase& processor)
 {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (5);
-    while (! LiveTimingFixtureAccess::analysisInputDrained (processor))
-    {
-        if (std::chrono::steady_clock::now() >= deadline)
-            throw std::runtime_error ("analysis worker did not receive queued input");
-        std::this_thread::sleep_for (std::chrono::milliseconds (1));
-    }
+    if (!LiveTimingFixtureAccess::waitAnalysisInput (processor, 5000))
+        throw std::runtime_error ("analysis worker did not complete queued input");
+}
+inline void awaitAnalysisExchange (KirinHyphaProcessorBase& processor, bool endpoint = false)
+{
+    if (!LiveTimingFixtureAccess::waitAnalysisExchange (processor, 5000, endpoint))
+        throw std::runtime_error ("analysis exchange did not complete its tick");
 }
 }

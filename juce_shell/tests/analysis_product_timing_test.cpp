@@ -93,7 +93,7 @@ void durationBudgetsAndGapBoundaries()
     for (std::uint64_t i = 0; i < 10; ++i)
     {
         require (! disabled.due (i), "delay injection defaults off");
-        disabled.beforePost (i);
+        disabled.beforePost (i, [] (auto) { require (false, "disabled jitter never waits"); });
     }
     require (disabled.injections == 0, "default runs never inject delays");
     const auto enabled = reaperAnalysisJitterDelay();
@@ -113,7 +113,7 @@ void workConsumesThePeriodWithoutCatchUp()
             auto now = start + work;
             int sleeps = 0, yields = 0;
             const auto finish = [&] (auto began) {
-                finishAnalysisProductBlock (began, reaper, [&] { return now; },
+                modelHostCallbackCadence (began, reaper, [&] { return now; },
                     [&] (auto deadline) {
                         require (deadline > now, "never sleep to an expired deadline");
                         now = deadline; ++sleeps;
@@ -182,7 +182,7 @@ void reaperJitterKeepsAnAnalysisAperture()
                 contiguous += frames;
                 pre.project += frames; post.project += frames;
                 now += milliseconds (slowdown);
-                finishAnalysisProductBlock (started, true, [&] { return now; },
+                modelHostCallbackCadence (started, true, [&] { return now; },
                     [&] (auto deadline) { now = deadline + milliseconds (wakeMs); }, [] {});
             }
             require (delay.injections == (blocks - 1) / 3, "retain every third-block delay across the full input budget");

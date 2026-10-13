@@ -23,8 +23,9 @@ try
     fixture.block();
     require (! post.liveCompareStatus().preAudible, "one missing project block removes named PRE immediately");
     fixture.postClock.positionAvailable = true;
-    post.selectLiveComparePre (true); fixture.auditionAllowed = true;
-    fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "explicit named PRE reacquires proof");
+    fixture.auditionAllowed = true;
+    require (post.liveCompareStatus().preSelected, "missing position retains explicit PRE selection");
+    fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "named PRE automatically reacquires proof");
     MatchResult measured;
     fixture.until ([&] { measured = post.measureLiveCompare(); return measured.ok(); }, "REAPER MATCH window");
     require (std::abs (measured.measuredDb) < 0.01, "same physical content MATCH is zero dB");
@@ -37,6 +38,11 @@ try
     fixture.until ([&] { post.serviceLiveBlind(); return LiveTimingFixtureAccess::audible (post) == 1; }, "source 1 receipt");
     require (post.selectLiveBlind (2), "anonymous source 2");
     fixture.until ([&] { post.serviceLiveBlind(); return LiveTimingFixtureAccess::audible (post) == 2; }, "source 2 receipt");
+    const auto command = LiveTimingFixtureAccess::command (post);
+    require (post.selectLiveBlind (command.firstPre() ? 1 : 2), "choose anonymous PRE before proof loss");
+    fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "anonymous PRE audible");
+    const auto trial = post.liveBlindStatus().trial;
+    const auto gain = post.liveCompareStatus().gain;
     fixture.postClock.positionAvailable = false;
     fixture.auditionAllowed = false;
     const auto beforeMissing = fixture.callbacks;
@@ -46,17 +52,25 @@ try
         && fixture.wallClock.nanos() - beforeNanos >= 21'333'333
         && fixture.wallClock.nanos() - beforeNanos <= 21'333'334,
         "exactly one ordinary 2048-frame callback at 96 kHz, without a wall gap");
-    require (LiveTimingFixtureAccess::blindTrial (post).reason == RecoveryReason::projectClockMissing,
-             "the callback records the missing project witness as its first fault");
-    hypha::tests::requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
-    post.serviceLiveBlind();
-    hypha::tests::requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
-    fixture.postClock.positionAvailable = true;
-    for (int i = 0; i < 40; ++i)
+    require (post.liveCompareStatus().observation == RecoveryReason::projectClockMissing,
+             "the callback records the missing project witness as a recoverable observation");
+    for (int i = 0; i < 2; ++i)
     {
-        fixture.block(); post.serviceLiveBlind();
-        hypha::tests::requireInterruptedBlind (post, RecoveryReason::projectClockMissing);
+        const auto waiting = post.liveBlindStatus();
+        require (waiting.stage == BlindStage::active && waiting.trial.epoch == trial.epoch
+            && waiting.trial.selected == trial.selected && waiting.trial.firstPre == trial.firstPre
+            && waiting.trial.usedPostFallback && !post.liveCompareStatus().preAudible,
+            "missing proof outputs POST while preserving the anonymous assignment and fallback fact");
+        post.serviceLiveBlind();
     }
+    fixture.postClock.positionAvailable = true;
+    fixture.auditionAllowed = true;
+    fixture.until ([&] { post.serviceLiveBlind(); return post.liveCompareStatus().preAudible; },
+                   "fresh proof automatically restores anonymous PRE");
+    const auto recoveredGain = post.liveCompareStatus().gain;
+    require (post.liveBlindStatus().trial.epoch == trial.epoch
+        && std::memcmp (&recoveredGain, &gain, sizeof (gain)) == 0,
+             "recovered BLIND keeps its epoch and approved gain");
     post.finishLiveCompare();
     fixture.until ([&] { return !post.liveCompareStatus().finishing; }, "END completes");
     std::cout << "REAPER LISTEN/MATCH/BLIND product " << argv[1] << " PASS\n";

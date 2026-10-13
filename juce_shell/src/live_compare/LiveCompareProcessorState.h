@@ -40,7 +40,7 @@ struct LiveBlindStatus
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
     LoopPairingBlock loopBlock = LoopPairingBlock::none;
     ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
-    bool prolongedWait = false;
+    bool prolongedWait = false, signalWait = false;
     bool clockUnavailable = false;  // the host reports neither a continuous clock nor output latency: PRE cannot be heard
 };
 
@@ -60,7 +60,7 @@ struct Status
     ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
     // The audio clock is missing and this host has reported neither a continuous clock nor its
     // output latency since this instance began: PRE cannot be heard here, and stop/play will not help.
-    bool prolongedWait = false;
+    bool prolongedWait = false, signalWait = false;
     bool clockUnavailable = false;
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
@@ -138,7 +138,8 @@ struct ProcessorState
     std::atomic<bool> guardTripped { false };
     // Message-thread request survives editor closure; output authority is never serialized.
     bool namedMatchPending = false, namedMatchReady = false, namedMatchApplied = false;
-    std::uint64_t namedMatchNext = 0, namedMatchAuthority = 0;
+    std::uint64_t namedMatchNext = 0, namedMatchAuthority = 0, namedMatchSince = 0, blindMatchSince = 0;
+    MatchFailure namedMatchWaiting = MatchFailure::none;
     MatchPlan namedMatchPlan;
     OffsetMonitor contentMonitor;
     OffsetMonitor::Step contentStep;

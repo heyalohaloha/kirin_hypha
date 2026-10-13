@@ -15,7 +15,7 @@ void verifyReaperTimingUi (Require require)
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
-        for (auto restriction : { ReaperChainRestriction::none, ReaperChainRestriction::channels,
+        for (auto restriction : { ReaperChainRestriction::none, ReaperChainRestriction::unavailable, ReaperChainRestriction::channels,
                 ReaperChainRestriction::inputFx, ReaperChainRestriction::pdcMode, ReaperChainRestriction::routing })
         for (bool chain : { false, true })
         for (int width : { 300, 375, 450 })
@@ -52,7 +52,10 @@ void verifyReaperTimingUi (Require require)
                 {
                     ++clipped;
                     std::cerr << "Clipped LISTEN: language=" << static_cast<int> (language)
-                              << " width=" << width << " reason=" << static_cast<int> (reason) << '\n';
+                              << " width=" << width << " reason=" << static_cast<int> (reason)
+                              << " restriction=" << static_cast<int> (restriction)
+                              << " wanted=" << text_style::shownText (notice)
+                              << " painted=" << actual.texts().joinIntoString (" | ") << '\n';
                 }
                 LiveBlindStatus blind; blind.prolongedWait = true; blind.stage = BlindStage::preparing; blind.observation = reason; blind.reaperRestriction = restriction;
                 const auto screen = live_blind_ui::screenFor (blind, true, 1.0f);
@@ -122,7 +125,7 @@ void verifyOtherHostListenText (Require require)
         if (host == 1) // Studio Pro, known loop with retained MATCH
         {
             state.observation = RecoveryReason::loopWaiting; state.matchHeld = true;
-            expected = "Loop timing unavailable; try a longer loop (POST)";
+            expected = "Waiting for the first loop pass (POST)";
         }
         if (host == 2) // Logic AU Cycle
         {
@@ -135,7 +138,7 @@ void verifyOtherHostListenText (Require require)
             expected = "Compensation off: enable it (POST)";
         }
         const auto* notice = live_compare_ui::namedRecovery (state);
-        require (juce::String (notice) == expected, "other host LISTEN text is unchanged");
+        require (juce::String (notice) == expected, "each host has an applicable LISTEN recovery instruction");
         require (language != i18n::Language::japanese || text_style::shownText (notice) != notice,
                  "other host notices retain Japanese translations");
         observatory::View view (observatory::Role::post); view.setVisible (true);

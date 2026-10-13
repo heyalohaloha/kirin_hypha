@@ -105,7 +105,7 @@ struct NoticeRig
     std::unique_ptr<KirinHyphaEditor> editor;
     juce::AudioBuffer<float> preAudio { 2, 512 }, postAudio { 2, 512 };
     juce::MidiBuffer midi;
-    bool expectOrdinaryAudio = true;
+    bool expectOrdinaryAudio = true, bypassed = false;
     NoticeRig()
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
@@ -140,7 +140,9 @@ struct NoticeRig
             const auto value = 0.05f * std::sin (float (clock.position + n) * 0.071f);
             preAudio.setSample (c, n, value); postAudio.setSample (c, n, value);
         }
-        pre->processBlock (preAudio, midi); post->processBlock (postAudio, midi);
+        pre->processBlock (preAudio, midi);
+        if (bypassed) post->processBlockBypassed (postAudio, midi);
+        else post->processBlock (postAudio, midi);
         wallClock.advanceBlock (512, 48000);
         if (expectOrdinaryAudio)
             for (int c = 0; c < 2; ++c)
@@ -212,6 +214,34 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.editor->setVisible (false); r.advance (0.1);
     r.editor->setVisible (true); r.advance (0.1); r.silentOrdinary();
     r.close(); r.open(); r.advance (0.1); r.silentOrdinary();
+    r.expectOrdinaryAudio = false;
+    require (r.post->startLiveCompare() == live_compare::StartResult::started, "hide test starts real LISTEN");
+    r.post->selectLiveComparePre (true); r.advance (0.3);
+    require (r.post->liveCompareStatus().preAudible, "PRE actually plays before hide");
+    r.editor->setVisible (false); r.advance (0.1);
+    require (r.post->liveCompareStatus().active && r.post->liveCompareStatus().preSelected
+        && r.post->liveCompareStatus().preAudible, "hide preserves LISTEN and verified output");
+    r.editor->setVisible (true); r.advance (0.1);
+    require (r.post->beginLiveBlind() == live_compare::StartResult::started, "hide test begins real BLIND");
+    r.advance (4.0);
+    require (r.post->liveBlindStatus().stage == live_compare::BlindStage::active, "real MATCH establishes BLIND");
+    const auto trial = r.post->liveBlindStatus().trial;
+    r.editor->setVisible (false); r.advance (0.1);
+    const auto hidden = r.post->liveBlindStatus();
+    require (hidden.stage == live_compare::BlindStage::active && hidden.trial.epoch == trial.epoch
+        && hidden.trial.firstPre == trial.firstPre && hidden.trial.selected == trial.selected,
+        "hide preserves the anonymous assignment and selection");
+    r.editor->setVisible (true); r.advance (0.1);
+    require (r.post->liveBlindStatus().trial.epoch == trial.epoch, "show preserves the same BLIND epoch");
+    require (r.post->selectLiveBlind (trial.firstPre ? 1 : 2), "bypass test selects anonymous PRE");
+    r.advance (0.1);
+    r.bypassed = r.expectOrdinaryAudio = true; r.advance (0.05);
+    require (r.post->liveBlindStatus().trial.usedPostFallback && !r.post->liveCompareStatus().preAudible
+        && r.post->liveBlindStatus().trial.epoch == trial.epoch, "bypass retains the trial and records actual POST fallback");
+    r.bypassed = r.expectOrdinaryAudio = false; r.advance (0.3);
+    require (r.post->liveCompareStatus().preAudible && r.post->liveBlindStatus().trial.epoch == trial.epoch,
+             "fresh timing after bypass automatically returns to the same anonymous PRE");
+    r.post->finishLiveCompare(); r.advance (0.6); r.expectOrdinaryAudio = true;
     r.post->clearPairCandidate(); r.advance (0.15); r.silentOrdinary();
     r.selectPair(); r.advance (0.15); r.silentOrdinary();
     juce::MemoryBlock saved; r.post->getStateInformation (saved);
@@ -246,8 +276,8 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.view().onLiveCompareMatch(); r.advance (0.2);
     for (int n = 0; n < 20 && ! r.post->liveCompareStatus().matched; ++n) r.advance (0.1);
     require (r.post->liveCompareStatus().matched, "actual MATCH qualifies the AUTO notice session");
-    // A retained editor whose parent is hidden differs from its own visibilityChanged(), which
-    // ends LISTEN immediately. Exercise the native ancestor/peer path used by hidden hosts.
+    // Exercise the native ancestor/peer path as well as the editor visibilityChanged path.
+    // Both preserve LISTEN; hidden AUTO still stops following as before.
     juce::Component host;
     host.setBounds (-10'000, -10'000, 1, 1); host.addToDesktop (0);
     host.addAndMakeVisible (*r.editor); host.setVisible (true);

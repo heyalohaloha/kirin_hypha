@@ -66,7 +66,7 @@ inline const char* nextStep (RecoveryAction action) noexcept
         case RecoveryAction::stopPlay: return "POST plays now. Stop and play the DAW to continue.";
         case RecoveryAction::compensation: return "POST plays now. Turn on the DAW's delay compensation.";
         case RecoveryAction::checkPre: return "POST plays now. Check the PRE in PAIR, then MENU > LISTEN.";
-        case RecoveryAction::checkLevels: return "POST plays now. Check the chain's levels, then MATCH again.";
+        case RecoveryAction::checkLevels: return "POST plays now. Check chain levels; PRE resumes when safe.";
         case RecoveryAction::selectPre: return "POST plays now. Select PRE to compare again.";
         case RecoveryAction::endBlind: return "Press END, then start BLIND again.";
         case RecoveryAction::returnLevel: return "POST is still lowered. Press RETURN, then LISTEN.";
@@ -86,9 +86,33 @@ struct RecoveryPresentation
     const char* instruction = "";
 };
 
+// One message for both named and anonymous listening. A first pass is an observation,
+// whereas an unavailable host API cannot be repaired by extending the loop.
+inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperChainRestriction restriction) noexcept
+{
+    if (reason == Reason::reaperFirstCycle || reason == Reason::reaperDelayUnverified)
+    {
+        if (const auto* text = live_compare::reaperRestrictionText (restriction); *text)
+            return { reason, RecoveryAction::none, text };
+        if (reason == Reason::reaperDelayUnverified)
+            return { reason, RecoveryAction::loopOff, "Loop timing unavailable; turn loop off to compare (POST)" };
+    }
+    if (reason == Reason::loopWaiting || reason == Reason::reaperFirstCycle)
+        return { reason, RecoveryAction::automatic, "Waiting for the first loop pass (POST)" };
+    if (reason == Reason::reaperLoopTooShort || reason == Reason::loopTooShort)
+        return { reason, RecoveryAction::none, "Use a longer loop; POST plays" };
+    if (reason == Reason::loopClockUnavailable)
+        return { reason, RecoveryAction::none, "Timing unavailable; check PRE and play (POST)" };
+    if (reason == Reason::loopUnproven)
+        return { reason, RecoveryAction::automatic, "Timing unavailable; check PRE and play (POST)" };
+    return {};
+}
+
 inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& state, bool stopped) noexcept
 {
     const auto reason = state.reason == Reason::none ? state.observation : state.reason;
+    if (!stopped && state.signalWait)
+        return { Reason::none, RecoveryAction::none, "MATCH waits for more signal" };
     if (!stopped && !state.prolongedWait) return {};
     if (!stopped && reason == Reason::stopped)
         return { reason, RecoveryAction::play, "DAW stopped: play to resume (POST)" };
@@ -103,15 +127,9 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
                  stopped ? "Turn Cycle off. Press END, then start BLIND again." : "Turn Cycle off to compare" };
     if (state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && ! stopped)
         return { reason, RecoveryAction::loopOff, "Turn off Loop Playback to compare" };
-    if (!stopped && (state.observation == Reason::reaperFirstCycle || state.observation == Reason::reaperDelayUnverified)
-        && *live_compare::reaperRestrictionText (state.reaperRestriction))
-        return { reason, RecoveryAction::none, live_compare::reaperRestrictionText (state.reaperRestriction) };
-    if (!stopped && state.observation == Reason::reaperFirstCycle)
-        return { reason, RecoveryAction::none, "Loop timing unavailable; try a longer loop (POST)" };
-    if (!stopped && state.observation == Reason::reaperDelayUnverified)
-        return { reason, RecoveryAction::none, "Timing unavailable; check PRE and play (POST)" };
-    if (!stopped && state.observation == Reason::reaperLoopTooShort)
-        return { reason, RecoveryAction::none, "Use a longer loop; POST plays" };
+    if (!stopped)
+        if (const auto loop = loopRecovery (state.observation, state.reaperRestriction); *loop.instruction)
+            return loop;
     if (state.timingUnavailable)
         return { reason, RecoveryAction::none, "Timing unavailable; check PRE and play (POST)" };
     // A host that never reports a clock or its output latency: no stop/play or retry would help.
@@ -143,7 +161,11 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
 {
     const auto result = [&] (RecoveryAction action, const char* text)
     { return RecoveryPresentation { state.reason, action, text }; };
+    if (state.active && state.signalWait) return result (RecoveryAction::none, "MATCH waits for more signal");
     if (state.active && !state.interrupted && !state.prolongedWait) return {};
+    if (state.active && !state.interrupted && !state.preSelected
+        && (state.loopBlock != live_compare::LoopPairingBlock::none
+            || *loopRecovery (state.observation, state.reaperRestriction).instruction)) return {};
     if (state.finishing) return result (RecoveryAction::busy, "Ended; normal level returns with audio");
     if (state.contentHeld) return result (RecoveryAction::stopPlay, "Timing changed: check chain delay (POST)");
     // An uncertified AAX host looping a range observes an unidentifiable loop too, but loop playback
@@ -153,16 +175,11 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         return { Reason::cycleUnverified, RecoveryAction::cycleOff, "Turn Cycle off to compare (POST)" };
     if (state.active && state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && (state.preWaiting || ! state.preAudible))
         return result (RecoveryAction::loopOff, "Loop Playback on: turn it off to compare (POST)");
-    if (state.active && !state.interrupted
-        && (state.observation == Reason::reaperFirstCycle || state.observation == Reason::reaperDelayUnverified)
-        && *live_compare::reaperRestrictionText (state.reaperRestriction))
-        return result (RecoveryAction::none, live_compare::reaperRestrictionText (state.reaperRestriction));
-    if (state.active && state.observation == Reason::reaperFirstCycle && !state.interrupted)
-        return result (RecoveryAction::none, "Loop timing unavailable; try a longer loop (POST)");
-    if (state.active && state.observation == Reason::reaperDelayUnverified && !state.interrupted)
-        return result (RecoveryAction::none, "Loop timing unavailable; try a longer loop (POST)");
-    if (state.active && state.observation == Reason::reaperLoopTooShort && !state.interrupted)
-        return result (RecoveryAction::none, "Use a longer loop; POST plays");
+    if (state.active && state.timingUnavailable && state.observation == Reason::loopClockUnavailable)
+        return result (RecoveryAction::none, host_availability::timingText());
+    if (state.active && !state.interrupted)
+        if (const auto loop = loopRecovery (state.observation, state.reaperRestriction); *loop.instruction)
+            return loop;
     if (state.active && state.timingUnavailable)
         return result (RecoveryAction::none, host_availability::timingText());
     // The clock is missing on a host that has never reported one, nor its output latency: this is
@@ -172,25 +189,7 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
     if (state.compensationOff && (state.active || state.reason != Reason::none))
         return result (RecoveryAction::compensation, "Compensation off: enable it (POST)");
     if (state.active && state.interrupted)
-    {
-        if (state.reason == Reason::ceiling) return result (RecoveryAction::checkLevels, "Level limit: rematch, select PRE (POST)");
-        if (state.reason == Reason::nonFinite) return result (RecoveryAction::checkLevels, "Invalid audio: check chain (POST)");
-        if (state.reason == Reason::bypassed) return result (RecoveryAction::selectPre, "Bypassed: enable, select PRE (POST)");
-        if (state.reason == Reason::offline) return result (RecoveryAction::selectPre, "Offline: play, select PRE (POST)");
-        if (state.reason == Reason::outputTaken) return result (RecoveryAction::selectPre, "Other audition: end it, select PRE");
-        if (state.reason == Reason::callbackGap) return result (RecoveryAction::selectPre, "Audio gap: select PRE again (POST)");
-        if (state.reason == Reason::clockMissing || state.reason == Reason::projectClockMissing)
-            return result (RecoveryAction::selectPre, "Clock missing: select PRE again (POST)");
-        return result (RecoveryAction::selectPre, "Select PRE again");
-    }
-    if (state.active && (state.observation == Reason::loopTooShort
-        || state.observation == Reason::loopClockUnavailable))
-        return result (RecoveryAction::none, state.observation == Reason::loopTooShort
-            ? "Loop too short for verified timing; POST plays"
-            : "Loop timing unavailable; try a longer loop (POST)");
-    if (state.active && (state.observation == Reason::loopWaiting || state.observation == Reason::loopUnproven))
-        return result (RecoveryAction::automatic, state.matched || state.matchHeld
-            ? "Loop timing unavailable; try a longer loop (POST)" : "Timing unavailable; check PRE and play (POST)");
+        return result (RecoveryAction::checkPre, "PRE changed: check pair; END (POST)");
     if (! state.active && state.reason != Reason::none)
     {
         if (state.postActual < 1.0f || state.postTarget < 1.0f)

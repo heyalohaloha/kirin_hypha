@@ -96,10 +96,20 @@ void verifyLiveCompareFooterContract()
             for (auto reason : { live_compare::RecoveryReason::callbackGap, live_compare::RecoveryReason::clockMissing,
                                  live_compare::RecoveryReason::offline, live_compare::RecoveryReason::bypassed })
             {
+                renewed.interrupted = false; renewed.preSelected = renewed.preWaiting = true;
+                renewed.prolongedWait = true; renewed.observation = reason;
+                const auto waiting = live_compare_ui::namedPresentation (renewed);
+                require (waiting.action != live_compare_ui::RecoveryAction::checkPre
+                            && *waiting.instruction != 0 && ! juce::String (waiting.instruction).contains ("END"),
+                         "transient loss keeps the selected PRE without ending the comparison");
+                readableRecovery (waiting.instruction);
+            }
+            for (auto reason : { live_compare::RecoveryReason::foreignRing, live_compare::RecoveryReason::formatChanged })
+            {
                 renewed.reason = reason; renewed.interrupted = true;
                 renewed.observation = live_compare::RecoveryReason::loopUnproven;
                 const auto interrupted = live_compare_ui::namedPresentation (renewed);
-                require (interrupted.reason == reason && interrupted.action == live_compare_ui::RecoveryAction::selectPre,
+                require (interrupted.reason == reason && interrupted.action == live_compare_ui::RecoveryAction::checkPre,
                          "retained actual interruption outranks generic LOOP-unproven and keeps its recovery action");
                 readableRecovery (interrupted.instruction);
             }

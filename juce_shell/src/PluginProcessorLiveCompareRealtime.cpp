@@ -226,7 +226,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             liveCompare.blindTiming.observe (preparationCommand, false, interruption.reason (loss),
                 liveCompare.blindTimingReceipt.load (std::memory_order_acquire));
             if (hypha::live_compare::endsComparison (loss)) liveCompare.selection.fail (selection, loss);
-            liveCompare.blind.observe (blindCommand, false);
+            liveCompare.blind.fallback (blindCommand);
             liveCompare.preAudible.store (false, std::memory_order_release);
             liveCompare.preWaiting.store (false, std::memory_order_release);
             return;

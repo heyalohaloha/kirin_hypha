@@ -158,6 +158,8 @@ private:
             {
                 post->serviceLiveCompareMatch();
                 if (!post->liveCompareStatus().matched) break;
+                // A real timing reset after application cannot erase delivery of the approved tuple.
+                if (mode == "failure-named") post->kirinHostTimelineReset (true, true);
                 MatchPlan completed; bool applied = false;
                 require (post->takeLiveCompareMatch (completed, applied) && applied && !completed.needsApproval,
                          "queued MATCH completes on the processor while no editor exists");
@@ -269,7 +271,7 @@ private:
                     if (mode == "pending-end")
                     { require (post->beginLiveBlind() == StartResult::started, "new explicit trial after canceled request begins cleanly"); stage = 12; }
                     else
-                    { require (post->startLiveCompare() == StartResult::started, "new named LISTEN ignores only closed Blind failure history"); post->selectLiveComparePre (true); stage = 2; }
+                    { require (post->startLiveCompare() == StartResult::started, "new named LISTEN ignores only closed Blind failure history"); post->selectLiveComparePre (true); post->requestLiveCompareMatch(); stage = 2; }
                     break;
                 }
                 post->selectLiveComparePre (true);

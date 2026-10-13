@@ -2,6 +2,7 @@
 
 #include "LiveCompareCorrespondence.h"
 #include "LiveCompareRecovery.h"
+#include "LiveCompareGuardRecovery.h"
 
 #include <algorithm>
 #include <atomic>
@@ -166,6 +167,7 @@ public:
         right = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         fadeFrames = std::max (1, static_cast<int> (sampleRate * fadeSeconds + 0.5));
         preLevel.configure (sampleRate);
+        guardRecovery.configure (sampleRate);
         std::int64_t frames = 1;
         while (static_cast<double> (frames) < sampleRate * historySeconds)
             frames <<= 1;
@@ -299,6 +301,7 @@ public:
         }
         if (report.verdict != Verdict::accepted)
         {
+            guardRecovery.discontinuity();
             weight = 0.0f; // switch to POST at the block start
             report.preWaiting = preSelected;
             post.apply (io, channels, block.frames, postTarget);
@@ -317,8 +320,10 @@ public:
         report.reason = ! finitePost || ! validGain ? RecoveryReason::nonFinite
             : (blind || preSelected || weight > 0.0f)
                 ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
+        report.reason = guardRecovery.observe (report.reason, block.frames);
         if (report.reason != RecoveryReason::none)
         {
+            report.preWaiting = preSelected;
             weight = 0.0f;
             report.guardTripped = true;
             post.apply (io, channels, block.frames, postTarget);
@@ -379,6 +384,7 @@ public:
     bool hasPre() const noexcept { return weight > 0.0f; } // Audio Thread only
 
 private:
+    GuardRecovery guardRecovery;
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
     static constexpr double historySeconds = 8.0; // MATCH reads up to 4 s of it
 

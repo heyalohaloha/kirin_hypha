@@ -3,12 +3,12 @@
 #include "../src/live_compare/LiveCompareClock.h"
 #include <algorithm>
 #include <ostream>
-#include <thread>
 
 namespace hypha::tests
 {
 // Preserve the existing host callback sizes and audio budgets. ProductTestClock, not the
-// scheduler, supplies their callback intervals. Real pacing below only schedules workers.
+// scheduler, supplies their callback intervals. The cadence model below is only for
+// synthetic jitter/gap regressions; real fixtures await worker receipts without a timer.
 constexpr int analysisProductFrames (bool reaper) { return reaper ? 2048 : 256; }
 
 inline AnalysisTestClock::time_point analysisProductBlockDeadline (
@@ -24,18 +24,12 @@ inline AnalysisTestClock::time_point analysisProductBlockDeadline (
 }
 
 template <class Now, class SleepUntil, class Yield>
-void finishAnalysisProductBlock (AnalysisTestClock::time_point started, bool reaper,
+void modelHostCallbackCadence (AnalysisTestClock::time_point started, bool reaper,
                                  Now now, SleepUntil sleepUntil, Yield yield)
 {
     const auto deadline = analysisProductBlockDeadline (started, reaper);
     if (now() < deadline) sleepUntil (deadline);
     else yield();
-}
-
-inline void finishAnalysisProductBlock (AnalysisTestClock::time_point started, bool reaper)
-{
-    finishAnalysisProductBlock (started, reaper, [] { return AnalysisTestClock::now(); },
-        [] (auto deadline) { std::this_thread::sleep_until (deadline); }, [] { std::this_thread::yield(); });
 }
 
 constexpr std::uint64_t analysisBlocksForSamples (std::uint64_t samples, std::uint64_t frames)
@@ -105,9 +99,6 @@ struct AnalysisPostDelay
         sleep (std::chrono::milliseconds (milliseconds));
         ++injections;
     }
-
-    void beforePost (std::uint64_t callbacks)
-    { beforePost (callbacks, [] (auto delay) { std::this_thread::sleep_for (delay); }); }
 
     std::uint64_t injections = 0;
 };

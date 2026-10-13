@@ -7,7 +7,7 @@ export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 
 # The local entry and CI dispatch the same phase functions, with no duplicated command lists.
-RELEASE_PHASES=(checks rust ffi native)
+RELEASE_PHASES=(checks rust ffi native1 native2 native3 native4)
 PHASE=all
 PLAN=false
 while [[ $# -gt 0 ]]; do
@@ -18,7 +18,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown release-source argument: $1" >&2; exit 2 ;;
   esac
 done
-case "$PHASE" in all|checks|rust|ffi|native) ;; *) echo "unknown release-source phase: $PHASE" >&2; exit 2 ;; esac
+case "$PHASE" in all|checks|rust|ffi|native|native1|native2|native3|native4) ;; *) echo "unknown release-source phase: $PHASE" >&2; exit 2 ;; esac
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
@@ -100,7 +100,14 @@ run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --lo
 run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
 }
 
+phase_native1() { phase_native 1; }
+phase_native2() { phase_native 2; }
+phase_native3() { phase_native 3; }
+phase_native4() { phase_native 4; }
 phase_native() {
+local shard="${1:-0}"
+local shard_args=()
+if [[ "$shard" != 0 ]]; then shard_args=(-I "$shard,,4"); fi
 # The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
 # build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
 # materialize that exact state here instead of relying on a developer's existing submodule tree.
@@ -250,13 +257,19 @@ else
 LIVE_RETRY_REGEX="^($(ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release -N -R "$JUCE_TEST_REGEX" \
   | sed -n 's/^ *Test *#[0-9]*: \(kirin_live_[^ ]*_product\)$/\1/p' | paste -sd '|' -))\$"
 fi
+run node scripts/check_native_shards.mjs --build-dir "$PRE_DISPLAY_BUILD" --config Release --shards 4 \
+  --group "$JUCE_TEST_REGEX" "$LIVE_RETRY_REGEX" \
+  --group "$LIVE_RETRY_REGEX" '' --group "$UPDATE_INTEGRATION_REGEX" ''
+# A failed selection must not hide failures in later groups. Preserve each CTest exit status
+# in the final phase result; cancellation/build/inventory failures still stop before tests.
+local failed=0
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure --no-tests=error -R "$JUCE_TEST_REGEX" -E "$LIVE_RETRY_REGEX"
+  --output-on-failure --no-tests=error ${shard_args[@]+"${shard_args[@]}"} -R "$JUCE_TEST_REGEX" -E "$LIVE_RETRY_REGEX" || failed=1
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure --no-tests=error --repeat until-pass:2 -R "$LIVE_RETRY_REGEX"
-
+  --output-on-failure --no-tests=error ${shard_args[@]+"${shard_args[@]}"} --repeat until-pass:2 -R "$LIVE_RETRY_REGEX" || failed=1
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure --no-tests=error -R "$UPDATE_INTEGRATION_REGEX"
+  --output-on-failure --no-tests=error ${shard_args[@]+"${shard_args[@]}"} -R "$UPDATE_INTEGRATION_REGEX" || failed=1
+return "$failed"
 
 }
 
@@ -308,6 +321,10 @@ for symbol in kirin_hypha_poll_attack_navigation_v2 kirin_hypha_poll_meter_sessi
     exit 1
   fi
 done
+if grep -Eq '[[:space:]]_?kirin_hypha_test_' <<<"$FFI_SYMBOLS"; then
+  echo "release archive contains a native test symbol" >&2
+  exit 1
+fi
 
 }
 

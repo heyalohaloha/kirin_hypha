@@ -10,6 +10,8 @@ void KirinHyphaProcessorBase::requestLiveCompareMatch()
     liveCompare.namedMatchPending = true;
     liveCompare.namedMatchReady = false;
     liveCompare.namedMatchNext = 0;
+    liveCompare.namedMatchSince = hypha::live_compare::callbackWallNanos();
+    liveCompare.namedMatchWaiting = hypha::live_compare::MatchFailure::none;
     liveCompare.namedMatchAuthority = liveCompare.authority.ticket();
     requestServiceTimer();
 }
@@ -28,6 +30,7 @@ void KirinHyphaProcessorBase::serviceLiveCompareMatch()
     if (now < liveCompare.namedMatchNext) return;
     liveCompare.namedMatchNext = now + 500'000'000;
     const auto measured = measureLiveCompare();
+    liveCompare.namedMatchWaiting = measured.failure;
     if (!measured.ok())
     {
         if (measured.failure == MatchFailure::outOfRange || measured.failure == MatchFailure::invalidPlan)
@@ -58,7 +61,7 @@ bool KirinHyphaProcessorBase::takeLiveCompareMatch (hypha::live_compare::MatchPl
     serviceLiveCompareMatch();
     if (!liveCompare.namedMatchReady) return false;
     const auto state = liveCompareStatus();
-    if (liveCompare.namedMatchPlan.generationBound
+    if (!liveCompare.namedMatchApplied && liveCompare.namedMatchPlan.generationBound
         && liveCompare.namedMatchPlan.generation != state.sessionGeneration)
     {
         liveCompare.namedMatchReady = false;

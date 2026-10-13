@@ -210,7 +210,7 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
     }
 }
 
-// INV-LC12: a session never outlives the screen that controls it, never overlaps Blind, never
+// INV-LC12: a session survives its editor, never overlaps another audition, never
 // follows a changed pair or a closed PRE ring, and AAX offers it only where no multi-mono channel
 // takes part (INV-LC9).
 #[test]
@@ -218,6 +218,10 @@ fn live_compare_sessions_survive_window_close_but_not_authority_changes() {
     let destructor = function_body(EDITOR_LIFECYCLE_CPP, "KirinHyphaEditor::~KirinHyphaEditor");
     assert!(!destructor.contains("processorRef.stopLiveCompare();"));
     assert!(!destructor.contains("processorRef.closeLiveBlind();"));
+    let editor = include_str!("../../juce_shell/src/PluginEditorObservatory.cpp");
+    let visibility = function_body(editor, "void KirinHyphaEditor::visibilityChanged");
+    assert!(!visibility.contains("processorRef.stopLiveCompare();"));
+    assert!(!visibility.contains("processorRef.closeLiveBlind();"));
     let blind = function_body(
         EDITOR_LOCAL_BLIND_CPP,
         "void KirinHyphaEditor::openLocalBlindProduct",

@@ -60,6 +60,7 @@ public:
         bool settled = false;
         std::int64_t lagFrames = 0;
         bool jumped = false, recovered = false;
+        double sampleRate = 0.0;
     };
     Step observe (const OffsetEstimate& estimate, bool alreadyHeld) noexcept
     {
@@ -74,6 +75,7 @@ public:
         if (candidateCount < 2) return step;
         step.settled = true;
         step.lagFrames = candidate;
+        step.sampleRate = estimate.sampleRate;
         if (! hasBaseline) { hasBaseline = true; baseline = candidate; }
         else if (distance (candidate, baseline) >= std::ceil (rate * offsetJumpSeconds) && ! alreadyHeld)
             step.jumped = true; // retain the original run baseline while held

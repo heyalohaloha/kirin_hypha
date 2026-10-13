@@ -4,6 +4,8 @@
 
 #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
 extern "C" bool kirin_hypha_test_analysis_input_drained (KirinHypha*);
+extern "C" bool kirin_hypha_test_wait_analysis_input (KirinHypha*, std::uint32_t);
+extern "C" bool kirin_hypha_test_wait_analysis_exchange (KirinHypha*, std::uint32_t, bool);
 #endif
 
 // Non-shipping synthetic host. Both compilers must model the SAME measured clock policy;
@@ -14,6 +16,10 @@ class LiveTimingFixtureAccess
 {
 public:
    #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    static bool waitAnalysisInput (KirinHyphaProcessorBase& processor, std::uint32_t timeoutMillis)
+    { return kirin_hypha_test_wait_analysis_input (processor.hyphaHandle, timeoutMillis); }
+    static bool waitAnalysisExchange (KirinHyphaProcessorBase& processor, std::uint32_t timeoutMillis, bool endpoint)
+    { return kirin_hypha_test_wait_analysis_exchange (processor.hyphaHandle, timeoutMillis, endpoint); }
     static bool analysisInputDrained (KirinHyphaProcessorBase& processor)
     { return kirin_hypha_test_analysis_input_drained (processor.hyphaHandle); }
    #endif

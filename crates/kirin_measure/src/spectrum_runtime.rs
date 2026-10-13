@@ -327,6 +327,11 @@ impl SpectrumRuntime {
     pub fn shutdown_and_join(&self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
+        #[cfg(feature = "test-support")]
+        {
+            self.test_receipt.notify();
+            self.wake_worker_for_test();
+        }
         self.wake.1.notify_all();
         if let Ok(mut worker) = self.worker.lock() {
             if let Some(handle) = worker.take() {
@@ -389,6 +394,11 @@ impl Drop for SpectrumRuntime {
     fn drop(&mut self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
+        #[cfg(feature = "test-support")]
+        {
+            self.test_receipt.notify();
+            self.wake_worker_for_test();
+        }
         self.wake.1.notify_all();
     }
 }

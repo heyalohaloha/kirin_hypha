@@ -68,11 +68,13 @@ jobs:
     name: release source ${{ matrix.phase }} (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: macos-14
-    # Independent jobs: no native compilation competes with real-time Rust fixtures.
-    # Cold-run budgets: checks 15 + 10 min, Rust 20 + 10, ignored FFI 20 + 10,
-    # native 35 + 15. Native modules/sources are shared per compile profile;
-    # adding a test no longer recompiles JUCE. Bounds include setup/cache saving.
-    # These are conservative estimates; measure hosted runs before revising them.
+    # Independent jobs; every native shard builds the identical graph before its selection.
+    # Hosted macOS measurements: native build 21-22 min; serial tests projected at 80-110
+    # min before notification waits. The observed test durations put at most 33% in one
+    # of four stride shards (42% with three). Budget 22 build + 37 tests + 16 setup,
+    # variance/cache-save = 75 min each (tests estimated from 110 * .33, no speedup assumed).
+    # Three shards would need ~46 min of tests per job. Keep checks 15+10, Rust 20+10,
+    # ignored FFI 20+10 min estimates until the next authorized hosted measurements.
     strategy:
       fail-fast: false
       matrix:
@@ -83,8 +85,14 @@ jobs:
             minutes: 30
           - phase: ffi
             minutes: 30
-          - phase: native
-            minutes: 50
+          - phase: native1
+            minutes: 75
+          - phase: native2
+            minutes: 75
+          - phase: native3
+            minutes: 75
+          - phase: native4
+            minutes: 75
     timeout-minutes: ${{ matrix.minutes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -224,11 +232,11 @@ jobs:
     name: windows VST3 preflight
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: windows-latest
-    # One parallel native build shares JUCE and compatible product objects across tests.
-    # Estimate: <=35 min for cold builds + serial tests/packaging, 15 min setup,
-    # runner variance and cache-save margin. Test deadlines and coverage are unchanged.
-    # Confirm this estimate on the next authorized hosted run, not by raising the cap.
-    timeout-minutes: 50
+    # Measured local cold build at 4 CPUs: 33.2 min; serial tests: 16.3 min.
+    # Estimate 34 build + 17 tests + 9 verification/packaging + 15 setup/runner/cache margin
+    # = 75 min. Hosted runtime must be checked on the next authorized run; no deadline
+    # or matrix coverage is relaxed by this job budget.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -245,9 +253,11 @@ jobs:
       # Windows remains VST3-only. AU, Apple signing, notarization, and macOS LS packaging stay
       # on macOS. Public CI produces only unsigned candidates; release signing is isolated.
       - name: Build kirin_hypha_ffi staticlib (MSVC)
+        id: ffi-build
         run: cargo build --release -p kirin_hypha_ffi --locked
 
       - name: Validate two-slot continuous Analysis contract
+        if: ${{ !cancelled() && steps.ffi-build.outcome == 'success' }}
         run: |
           cargo test -p kirin_measure --locked exactly_two_post_analysis_runtimes_are_active_per_process_lease
           cargo test -p kirin_measure --locked absolute_mode_
@@ -256,13 +266,18 @@ jobs:
           cargo test -p kirin_measure --locked --test perceptual_delta_mosqito_golden
 
       - name: Windows preflight gate
+        if: ${{ !cancelled() && steps.ffi-build.outcome == 'success' }}
         run: cargo run -p xtask --locked -- windows-preflight
 
       - name: Apply tracked JUCE patches
+        id: juce-patch
+        if: ${{ !cancelled() && steps.ffi-build.outcome == 'success' }}
         shell: bash
         run: bash scripts/apply_juce_patches.sh
 
       - name: Configure JUCE VST3 shell (Windows)
+        id: native-configure
+        if: ${{ !cancelled() && steps.juce-patch.outcome == 'success' }}
         shell: pwsh
         env:
           KIRIN_FFI_LIB_PATH: ${{ github.workspace }}\target\release\kirin_hypha_ffi.lib
@@ -277,6 +292,8 @@ jobs:
           -DKIRIN_FFI_LIB="$env:KIRIN_FFI_LIB_PATH"
 
       - name: Check Windows native build inventory
+        id: native-inventory
+        if: ${{ !cancelled() && steps.native-configure.outcome == 'success' }}
         run: >
           node scripts/check_native_build_targets.mjs
           --build-dir juce_shell/build-windows --config Release --targets
@@ -296,22 +313,28 @@ jobs:
           KirinPairPreviewLifetimeTests KirinAudioTransparencyContractTests
 
       - name: Build JUCE VST3 shell (Windows)
+        id: native-build
+        if: ${{ !cancelled() && steps.native-inventory.outcome == 'success' }}
+        shell: pwsh
         run: >
           cmake --build juce_shell/build-windows --config Release
           --target KirinWindowsPreflight
-          --parallel 2
+          --parallel $env:NUMBER_OF_PROCESSORS
 
       - name: Validate Windows offline update services
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_update_((manifest|store|checker|http_response)$|runtime_)'
 
       - name: Validate Windows UI render contract
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^(kirin_ui_render_contract|kirin_host_identity|kirin_snapshot_abi_contract)$'
 
       # The DRUM (TIME > ATTACK) surface is rendered by the Windows JUCE graphics stack as well, and
       # its previews are kept so the Windows screen can be inspected for every change.
       - name: Validate Windows DRUM UI contract
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         shell: pwsh
         env:
           KIRIN_ATTACK_UI_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\preview.png
@@ -342,18 +365,22 @@ jobs:
           if-no-files-found: warn
 
       - name: Validate Kirin OS Reference preview renderer (Windows)
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
 
       - name: Validate local PRE/POST Blind and complete product flow
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
 
       - name: Validate live PRE/POST compare correspondence
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority|reentry|gain_snapshot)|kirin_live_blind_session)$'
 
       - name: Validate REAPER LISTEN contracts and product flow
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reaper_clock|kirin_reaper_correspondence|kirin_reaper_fault|kirin_reaper_listen_mono_product|kirin_reaper_listen_stereo_product|kirin_chain_trace|kirin_listen_text_layout|kirin_host_content_clock_policy)$'
 
@@ -362,18 +389,22 @@ jobs:
       # They run in real time, so a stall of the shared runner can fail one by chance: each runs once
       # more on failure, and failing twice fails. kirin_live_blind_loop_stall_product tests a stall on purpose.
       - name: Validate live PRE/POST compare product flow
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error --repeat until-pass:2 -R '^kirin_live_.*(product|restore-active|restore-invalid|restore-preparing|restore-approval|held|finishing|out-of-range|reuse-held|restore-matched-listen)$'
 
       - name: Validate Work attachment transport
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^kirin_capture_work_attachment$'
 
       - name: Validate Reference audition session contract
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_pair_preview_lifetime)$'
 
       - name: Validate Windows VST3 audio transparency
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -433,6 +464,7 @@ jobs:
       # block and expects the audit to fail, so the path must appear only there. (Note: that audit's
       # section_after scan is unbounded and does NOT itself enforce uniqueness — see windows_preflight.rs.)
       - name: Validate Windows VST3 with pluginval
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'

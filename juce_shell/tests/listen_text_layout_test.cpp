@@ -1,5 +1,6 @@
 #include "ValidationStorageSandbox.h"
 #include "ListenTextLayoutTest.h"
+#include "RecoveryGuidanceTest.h"
 #include "LiveCompareFooterContractTest.h"
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
@@ -11,6 +12,8 @@ try
     ValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI initialise;
     hypha::i18n::holdLanguage (true);
+    hypha::tests::verifyRecoveryGuidance ([] (bool ok, const char* why)
+        { if (!ok) throw std::runtime_error (why); });
     hypha::tests::verifyLiveCompareFooterContract();
     hypha::tests::verifyLiveBlindUiContract();
     hypha::tests::verifyVersionBlindScreen();

@@ -28,7 +28,7 @@ void verifyLiveContentHoldUi (Require require)
                     const auto screen = live_blind_ui::screenFor (state, playing, 0.5f);
                     require (screen.guidanceShown == (stage == BlindStage::invalidated)
                         && screen.endEnabled && screen.sourcesShown == (stage == BlindStage::active)
-                        && !screen.approveShown && !screen.revealShown,
+                        && screen.approveShown == (stage == BlindStage::approval) && !screen.revealShown,
                         "short hold keeps the trial and source controls without a waiting notice");
                     state.prolongedWait = true;
                     const auto prolonged = live_blind_ui::screenFor (state, playing, 0.5f);

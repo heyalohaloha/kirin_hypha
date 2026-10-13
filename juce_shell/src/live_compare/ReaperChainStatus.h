@@ -12,7 +12,8 @@ inline const char* reaperRestrictionText (ReaperChainRestriction reason) noexcep
         case ReaperChainRestriction::inputFx: return "Loop cannot verify input FX (POST)";
         case ReaperChainRestriction::pdcMode: return "Loop needs default PDC mode (POST)";
         case ReaperChainRestriction::routing: return "Loop needs a plain serial chain (POST)";
-        case ReaperChainRestriction::none: case ReaperChainRestriction::unavailable: return "";
+        case ReaperChainRestriction::unavailable: return "Track setup cannot verify the loop; turn loop off (POST)";
+        case ReaperChainRestriction::none: return "";
     }
     return "";
 }

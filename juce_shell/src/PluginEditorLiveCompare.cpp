@@ -288,7 +288,7 @@ bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
     liveCompareWarning = status.prolongedWait && status.contentHeld
         ? "Timing changed: check chain delay (POST)"
         : status.active && observed.settled && std::llabs (observed.lagFrames) > 1
-            ? offsetText (observed.lagFrames, processorRef.getSampleRate()) : juce::String();
+            ? offsetText (observed.lagFrames, observed.sampleRate) : juce::String();
     return false;
 }
 

@@ -81,19 +81,18 @@ inline void verify()
     require (live_compare_ui::currentNamedPresentation (named).action == live_compare_ui::RecoveryAction::returnLevel,
              "ended unavailable comparison retains the safe explicit volume return");
     // A missing audio clock reads by host ability: a host that has shown a clock or an output-latency
-    // report keeps the transient stop/play (or select PRE again) remedy; a host that never has is
-    // told that PRE cannot be heard there, whether PRE waits or the selection was interrupted.
+    // report keeps its transient remedy. A previous fault does not revoke the selection.
+    // A host that never supplied a clock explains that PRE cannot be heard there.
     live_compare::Status clock;
     clock.active = clock.preSelected = clock.preWaiting = clock.prolongedWait = true;
     clock.observation = live_compare::RecoveryReason::clockMissing;
-    for (bool interrupted : { false, true })
+    for (bool priorFault : { false, true })
     {
-        clock.interrupted = interrupted;
-        clock.reason = interrupted ? live_compare::RecoveryReason::clockMissing : live_compare::RecoveryReason::none;
+        clock.interrupted = false;
+        clock.reason = priorFault ? live_compare::RecoveryReason::clockMissing : live_compare::RecoveryReason::none;
         clock.clockUnavailable = false;
         const auto transient = live_compare_ui::currentNamedPresentation (clock);
-        require (interrupted ? transient.action == live_compare_ui::RecoveryAction::selectPre
-            : transient.action == live_compare_ui::RecoveryAction::stopPlay
+        require (transient.action == live_compare_ui::RecoveryAction::stopPlay
                 && juce::String (transient.instruction) == "Clock missing: restart playback (POST)",
             "a clock that was present keeps its transient remedy");
         clock.clockUnavailable = true;

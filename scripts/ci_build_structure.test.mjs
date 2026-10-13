@@ -42,6 +42,8 @@ test('CI phases exactly partition the local release gate command inventory', () 
     'assert_ignored_count record_auxiliary_cuts 1', 'check_ffi_symbols', 'check_native_test_inventory.mjs',
     'check_native_build_targets.mjs', '--repeat until-pass:2']) assert.ok(all.includes(needle), needle);
   assert.doesNotMatch(all, /: PASS/);
+  assert.equal((plan('--phase', 'native', '--plan').match(/==> ctest /g) ?? []).length, 3);
+  assert.doesNotMatch(plan('--phase', 'native', '--plan'), / -I /);
 });
 
 test('missing, duplicate and ungated phases fail the partition contract', () => {
@@ -59,7 +61,7 @@ test('missing, duplicate and ungated phases fail the partition contract', () => 
 test('Windows builds one aggregate graph before every existing CTest selection', () => {
   const windows = ci.split('  windows-vst3-preflight:\n')[1];
   assert.equal((windows.match(/cmake --build/g) ?? []).length, 1);
-  assert.match(windows, /--target KirinWindowsPreflight\s+--parallel 2/);
+  assert.match(windows, /--target KirinWindowsPreflight\s+--parallel \$env:NUMBER_OF_PROCESSORS/);
   assert.ok(windows.indexOf('cmake --build') < windows.indexOf('ctest --test-dir'));
   const aggregate = read('juce_shell/cmake/NativeTestTargets.cmake');
   assert.match(aggregate, /DEPENDS KirinNativeTests KirinHyphaPRE_VST3 KirinHyphaPOST_VST3/);
@@ -100,4 +102,44 @@ test('shared native libraries retain definitions and keep JUCE sources private',
   assert.match(source, /COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES INCLUDE_DIRECTORIES LINK_LIBRARIES/);
   assert.match(source, /string\(SHA256 profile "\$\{signature}"\)/);
   assert.doesNotMatch(read('juce_shell/cmake/ProductTestClock.cmake'), /--locked -j\d/);
+});
+
+test('all native groups run after any group fails, and the phase still fails', () => {
+  const source = read('scripts/test_release_source.sh').split('if [[ "$PHASE" == all ]]')[0];
+  for (const failingGroup of [0, 1, 2, 3]) {
+    const stub = `
+PLAN=true
+calls=0
+run() {
+  if [[ "$1" == ctest ]]; then
+    calls=$((calls+1))
+    echo "GROUP:$calls"
+    if [[ "$calls" == ${failingGroup} ]]; then return 7; fi
+  fi
+  return 0
+}
+phase_native 1
+`;
+    const result = spawnSync('/bin/bash', [], { encoding: 'utf8', input: source + stub });
+    assert.equal(result.status, failingGroup === 0 ? 0 : 1, result.stderr);
+    assert.deepEqual(result.stdout.trim().split('\n'), ['GROUP:1', 'GROUP:2', 'GROUP:3']);
+  }
+});
+
+test('native shards use the checked stride; Windows test failures do not skip later groups', () => {
+  const phases = phaseInventory(ci).filter(p => p.startsWith('native'));
+  assert.deepEqual(phases, ['native1', 'native2', 'native3', 'native4']);
+  const script = read('scripts/test_release_source.sh');
+  assert.match(script, /shard_args=\(-I "\$shard,,4"\)/);
+  assert.match(script, /check_native_shards\.mjs.*--shards 4/);
+  const windows = ci.split('  windows-vst3-preflight:\n')[1];
+  for (const step of windows.split('      - name: ').slice(1)) {
+    if (!step.includes('ctest --test-dir')) continue;
+    assert.match(step, /if: \$\{\{ !cancelled\(\) && steps\.native-build\.outcome == 'success' }}/);
+    assert.doesNotMatch(step, /continue-on-error:/);
+  }
+  for (const [id, previous] of [['juce-patch', 'ffi-build'], ['native-configure', 'juce-patch'],
+    ['native-inventory', 'native-configure'], ['native-build', 'native-inventory']]) {
+    assert.ok(windows.includes(`id: ${id}\n        if: \${{ !cancelled() && steps.${previous}.outcome == 'success' }}`));
+  }
 });

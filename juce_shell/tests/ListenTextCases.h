@@ -43,6 +43,14 @@ inline std::vector<Notice> notices()
                                                                                     : StartResult::started).instruction, state);
             add (live_compare_ui::currentNamedPresentation (state).instruction, state);
         }
+    for (auto restriction : { ReaperChainRestriction::unavailable, ReaperChainRestriction::channels,
+            ReaperChainRestriction::inputFx, ReaperChainRestriction::pdcMode, ReaperChainRestriction::routing })
+    {
+        Status state; state.active = state.preSelected = state.prolongedWait = true;
+        state.observation = RecoveryReason::reaperDelayUnverified; state.reaperRestriction = restriction;
+        add (live_compare_ui::namedPresentation (state).instruction, state);
+    }
+    add ("MATCH waits for more signal");
     // Direct action results and numeric boundaries in the LISTEN rail, including entry refusal,
     // MATCH, AUTO, PIN and END. These are transient notices, not timing verdicts.
     for (const char* text : { "LISTEN could not start", "Choose the PRE first",
@@ -81,6 +89,15 @@ inline std::vector<BlindCase> blindCases()
         for (const auto& previous : seen) if (previous == screen) return;
         seen.push_back (screen); result.push_back ({ state, playing, post });
     };
+    for (auto restriction : { ReaperChainRestriction::unavailable, ReaperChainRestriction::channels,
+            ReaperChainRestriction::inputFx, ReaperChainRestriction::pdcMode, ReaperChainRestriction::routing })
+    {
+        LiveBlindStatus state; state.stage = BlindStage::preparing; state.prolongedWait = true;
+        state.observation = RecoveryReason::reaperDelayUnverified; state.reaperRestriction = restriction;
+        add (state, true, 1.0f);
+    }
+    { LiveBlindStatus state; state.stage = BlindStage::preparing;
+      state.signalWait = state.prolongedWait = true; add (state, true, 1.0f); }
     for (int reason = 0; reason <= static_cast<int> (RecoveryReason::reaperLoopTooShort); ++reason)
     for (int stage = 1; stage <= static_cast<int> (BlindStage::failed); ++stage)
     for (int mode = 0; mode < 12; ++mode)

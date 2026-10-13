@@ -211,11 +211,11 @@ private:
             case 4:
             {
                 // The latency changed with the clocks unchanged: POST is held (INV-LC10).
-                heldNoticeSeen = heldNoticeSeen || footer() == "Timing changed: stop/play DAW (POST)";
+                heldNoticeSeen = heldNoticeSeen || footer() == "Timing changed: check chain delay (POST)";
                 if (! post->liveCompareStatus().contentHeld || ! heldNoticeSeen) break;
                 if (heldAt == std::chrono::steady_clock::time_point()) heldAt = std::chrono::steady_clock::now();
                 if (std::chrono::steady_clock::now() - heldAt < std::chrono::milliseconds (3500)) break;
-                require (footer() == "Timing changed: stop/play DAW (POST)", "recovery persists beyond the toast timeout");
+                require (footer() == "Timing changed: check chain delay (POST)", "recovery persists beyond the toast timeout");
                 // The exact settled measurement that triggered the hold is retained. Re-reading
                 // a moving RT history here can be undetermined and is not the jump evidence.
                 require (post->liveCompareStatus().contentJumpLagFrames == -3000,

@@ -153,13 +153,13 @@ static void verifyLoopPresentation()
         {
             editor->setSize (preset.width, preset.height);
             live_compare::Status status;
-            status.active = true;
+            status.active = status.prolongedWait = true;
             status.matchHeld = scenario >= 2;
             status.matched = scenario == 1;
-            status.preSelected = status.preWaiting = scenario < 2 || scenario == 3;
+            status.preSelected = status.preWaiting = true;
             status.timingReentryPending = scenario == 3;
             status.interrupted = scenario == 4;
-            if (status.interrupted) status.reason = live_compare::RecoveryReason::callbackGap;
+            if (status.interrupted) status.reason = live_compare::RecoveryReason::foreignRing;
             status.observation = scenario == 0 ? live_compare::RecoveryReason::loopUnproven
                 : scenario == 1 ? live_compare::RecoveryReason::loopWaiting
                 : scenario >= 3 ? live_compare::RecoveryReason::loopUnproven : live_compare::RecoveryReason::none;

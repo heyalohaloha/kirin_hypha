@@ -85,6 +85,7 @@ StartResult KirinHyphaProcessorBase::beginLiveBlind()
     liveCompare.blindPreparationReason = RecoveryReason::none;
     ++liveCompare.blindPreparation;
     liveCompare.blindMeasuredEnd = 0;
+    liveCompare.blindMatchSince = callbackWallNanos();
     liveCompare.blindWaiting = MatchFailure::notProven;
     liveCompare.blindStage = BlindStage::preparing;
     // Every explicit trial owns a new timing admission. A current named MATCH tuple is kept,
@@ -223,7 +224,10 @@ LiveBlindStatus KirinHyphaProcessorBase::liveBlindStatus() const
     const auto gains = readGainSnapshot (liveCompare);
     const bool receipt = currentBlindReceipt (liveCompare);
     status.reason = state.reason;
-    status.prolongedWait = state.prolongedWait;
+    status.signalWait = status.stage == BlindStage::preparing
+        && (status.waiting == MatchFailure::tooShort || status.waiting == MatchFailure::notEnoughSignal)
+        && guidanceDue (liveCompare.blindMatchSince, callbackWallNanos());
+    status.prolongedWait = state.prolongedWait || status.signalWait;
     status.observation = state.observation;
     status.contentHeld = state.contentHeld;
     status.compensationOff = state.compensationOff;

@@ -40,7 +40,6 @@ const Entry entries[] = {
     { "MATCH stopped at the true-peak ceiling", u8"MATCHはTPの上限で止まりました" },
     { "Press to MATCH again or follow (AUTO)", u8"押すと再MATCH、またはAUTOで追従" },
     { "Match PRE to POST over the latest 4 s", u8"直近4秒でPREの音量をPOSTに合わせます" },
-    { "POST plays until PRE is confirmed here", u8"PREを確かめるまでPOSTが鳴ります" },
     { "Listen to PRE at the MATCH level", u8"MATCHの音量でPREを聴きます" },
     { "Listen to PRE, the input of this chain", u8"このチェーンの入力、PREを聴きます" },
 };
