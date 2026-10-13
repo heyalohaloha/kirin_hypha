@@ -43,9 +43,9 @@ struct WorkerState {
     shutdown: AtomicBool,
     wake: (Mutex<()>, Condvar),
     published_updates: AtomicU64,
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     requested_tick: AtomicU64,
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     completed_tick: AtomicU64,
     #[cfg(test)]
     pause_ticks: AtomicBool,
@@ -73,9 +73,9 @@ impl SpectrumExchangeWorker {
                 shutdown: AtomicBool::new(false),
                 wake: (Mutex::new(()), Condvar::new()),
                 published_updates: AtomicU64::new(0),
-                #[cfg(feature = "test-support")]
+                #[cfg(any(test, feature = "test-support"))]
                 requested_tick: AtomicU64::new(0),
-                #[cfg(feature = "test-support")]
+                #[cfg(any(test, feature = "test-support"))]
                 completed_tick: AtomicU64::new(0),
                 #[cfg(test)]
                 pause_ticks: AtomicBool::new(false),
@@ -263,7 +263,7 @@ impl SpectrumCoordinator {
             }
             return;
         }
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         let requested = self
             .exchange_worker
             .state
@@ -272,7 +272,7 @@ impl SpectrumCoordinator {
         if self.post_tick_for_owner(post_instance_id, target, owner_name) {
             let _ = self.exchange_worker.ensure_started(self);
         }
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         self.complete_endpoint_tick_for_test(requested);
     }
 
@@ -293,7 +293,7 @@ impl SpectrumCoordinator {
             }
             return;
         }
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         let requested = self
             .exchange_worker
             .state
@@ -302,12 +302,12 @@ impl SpectrumCoordinator {
         if self.pre_tick(pre_instance_id, instance_dir) {
             let _ = self.exchange_worker.ensure_started(self);
         }
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         self.complete_endpoint_tick_for_test(requested);
     }
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "spectrum_exchange_test_barrier.rs"]
 mod test_barrier;
 
@@ -325,9 +325,9 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        #[cfg(not(feature = "test-support"))]
+        #[cfg(not(any(test, feature = "test-support")))]
         let waited = state.wake.1.wait_timeout(guard, wait);
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         let waited = state.wake.1.wait_timeout_while(guard, wait, |_| {
             state.requested_tick.load(Ordering::Acquire)
                 <= state.completed_tick.load(Ordering::Acquire)
@@ -343,7 +343,7 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
         let Some(coordinator) = coordinator.upgrade() else {
             break;
         };
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         let requested_tick = state.requested_tick.load(Ordering::Acquire);
         let endpoint = match state.endpoint.lock() {
             Ok(endpoint) => endpoint.clone(),
@@ -374,7 +374,7 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
                 } => coordinator.post_tick_for_owner(&instance_id, target, &owner_name),
             }
         };
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         {
             state
                 .completed_tick

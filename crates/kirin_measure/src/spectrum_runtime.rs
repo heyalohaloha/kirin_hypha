@@ -32,7 +32,7 @@ use crate::spectrum::{SpectrumAnalyzer, SpectrumFrame};
 #[cfg(test)]
 use assemblers::SpectrumAssembler;
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "spectrum_test_receipt.rs"]
 mod test_receipt;
 #[path = "spectrum_runtime_worker.rs"]
@@ -68,7 +68,7 @@ struct SpectrumConsumers {
     blocks: Consumer<SpectrumIngressBlock>,
 }
 
-#[cfg(all(test, feature = "test-support"))]
+#[cfg(test)]
 #[path = "spectrum_input_receipt_tests.rs"]
 mod input_receipt_tests;
 
@@ -101,7 +101,7 @@ pub struct SpectrumRuntime {
     absolute_history: Mutex<StampedSnapshot<AbsoluteTimeline>>,
     latest_mid_side: Mutex<StampedSnapshot<Option<MidSideSpectrumFrame>>>,
     worker_running: AtomicBool,
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     test_receipt: test_receipt::WorkerReceipt,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
@@ -164,7 +164,7 @@ impl SpectrumRuntime {
             absolute_history: Mutex::new(StampedSnapshot::new(AbsoluteTimeline::default())),
             latest_mid_side: Mutex::new(StampedSnapshot::new(None)),
             worker_running: AtomicBool::new(false),
-            #[cfg(feature = "test-support")]
+            #[cfg(any(test, feature = "test-support"))]
             test_receipt: test_receipt::WorkerReceipt::default(),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
@@ -327,7 +327,7 @@ impl SpectrumRuntime {
     pub fn shutdown_and_join(&self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         {
             self.test_receipt.notify();
             self.wake_worker_for_test();
@@ -394,7 +394,7 @@ impl Drop for SpectrumRuntime {
     fn drop(&mut self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
-        #[cfg(feature = "test-support")]
+        #[cfg(any(test, feature = "test-support"))]
         {
             self.test_receipt.notify();
             self.wake_worker_for_test();

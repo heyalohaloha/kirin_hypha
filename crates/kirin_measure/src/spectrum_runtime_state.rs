@@ -330,7 +330,7 @@ impl SpectrumRuntime {
     /// # Safety
     /// Call on the sole producer thread between callbacks, without another producer or
     /// concurrent destruction. `slots()` updates the producer's thread-local cached head.
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     pub unsafe fn input_drained_for_test(&self) -> bool {
         let samples = unsafe { &*self.sample_producer.get() };
         let blocks = unsafe { &*self.block_producer.get() };
