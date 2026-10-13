@@ -157,9 +157,18 @@ struct NoticeRig
     }
     void advance (double seconds)
     {
+        // Keep wall time with audio time for the real worker/IO threads, without adding each
+        // sleep's overshoot: a virtual CI machine or background QoS can stretch an 11 ms sleep to
+        // ~100 ms. Sleep only while ahead of the audio; a late block is followed without a sleep.
         const auto blocks = static_cast<int> (std::ceil (seconds * 48000 / 512));
+        const auto period = std::chrono::nanoseconds (512LL * 1'000'000'000LL / 48000);
+        auto due = std::chrono::steady_clock::now();
         for (int i = 0; i < blocks; ++i)
-        { block(); std::this_thread::sleep_for (std::chrono::milliseconds (11)); }
+        {
+            block();
+            due += period;
+            if (std::chrono::steady_clock::now() < due) std::this_thread::sleep_until (due);
+        }
     }
     void selectPair()
     {
