@@ -3,22 +3,28 @@
 
 // Full processor, real workers, actual MATCH and shared-memory transport. The portable clock
 // fixture separately checks every PCM sample and all malformed callback combinations.
-inline void verifyLogicCycleProduct (content_analysis_product::Fixture& fixture)
+// One CTest item runs one part, so each item's wall watchdog bounds one cycle-spanning pass:
+// LISTEN with the FREQ delta, LISTEN with the SHARP delta, or BLIND. Every part crosses the
+// non-block-aligned cycle wrap at least once (the cycle is 1500.5 blocks, each loop 1600).
+enum class LogicCyclePart { freqListen, sharpListen, blind };
+
+inline void verifyLogicCycleProduct (content_analysis_product::Fixture& fixture, LogicCyclePart part)
 {
     using namespace content_analysis_product;
     using namespace hypha::live_compare;
     auto& post = *fixture.post;
+    const bool spectrum = part != LogicCyclePart::sharpListen;
     fixture.until ([&] { return post.setPairCandidate (fixture.pre->instanceId(), {}); }, "Logic pair");
-    for (bool spectrum : { true, false })
+    hypha::analysis::Demand demand;
+    demand.kind = spectrum ? hypha::analysis::Kind::spectrum : hypha::analysis::Kind::sharpDelta;
+    require (post.setAnalysisDemand (fixture.owner, demand), "Logic analysis demand");
+    fixture.until ([&] { return fixture.zeroDelta (spectrum); }, "Logic cycle delta");
+    require (!post.analysisPairingLoopBlocked(), "proven cycle has no off guidance");
+    require (post.startLiveCompare() == StartResult::started, "Logic cycle LISTEN");
+    fixture.auditionAllowed = true; post.selectLiveComparePre (true);
+    fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "Logic correct PRE");
+    if (part != LogicCyclePart::blind)
     {
-        hypha::analysis::Demand demand;
-        demand.kind = spectrum ? hypha::analysis::Kind::spectrum : hypha::analysis::Kind::sharpDelta;
-        require (post.setAnalysisDemand (fixture.owner, demand), "Logic analysis demand");
-        fixture.until ([&] { return fixture.zeroDelta (spectrum); }, "Logic cycle delta");
-        require (!post.analysisPairingLoopBlocked(), "proven cycle has no off guidance");
-        require (post.startLiveCompare() == StartResult::started, "Logic cycle LISTEN");
-        fixture.auditionAllowed = true; post.selectLiveComparePre (true);
-        fixture.until ([&] { return post.liveCompareStatus().preAudible; }, "Logic correct PRE");
         int deltaBlocks = 0;
         // The actual paired delta must survive a complete non-block-aligned cycle in LISTEN.
         for (int n = 0; n < 1600; ++n)
@@ -28,6 +34,9 @@ inline void verifyLogicCycleProduct (content_analysis_product::Fixture& fixture)
             if (fixture.zeroDelta (spectrum)) ++deltaBlocks;
         }
         require (deltaBlocks > 1500, "delta persists through the block-internal wrap");
+    }
+    else
+    {
         require (post.beginLiveBlind() == StartResult::started, "Logic cycle BLIND prepares MATCH");
         fixture.until ([&] { post.serviceLiveBlind(); return post.liveBlindStatus().stage == BlindStage::active; },
                        "Logic real MATCH and BLIND");
@@ -53,8 +62,8 @@ inline void verifyLogicCycleProduct (content_analysis_product::Fixture& fixture)
                        "fresh Logic proof automatically resumes anonymous PRE");
         require (post.liveBlindStatus().trial.epoch == trial.epoch
             && post.liveBlindStatus().trial.usedPostFallback, "Logic recovery preserves assignment and fallback fact");
-        post.finishLiveCompare();
-        fixture.until ([&] { return !post.liveCompareStatus().finishing; }, "Logic END");
-        fixture.auditionAllowed = false;
     }
+    post.finishLiveCompare();
+    fixture.until ([&] { return !post.liveCompareStatus().finishing; }, "Logic END");
+    fixture.auditionAllowed = false;
 }

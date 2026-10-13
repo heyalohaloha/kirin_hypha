@@ -148,7 +148,9 @@ try
     require (host == "content" || host == "au" || host == "reaper" || host == "logic", "unknown host");
     require (host != "reaper" || scenario == "missing", "REAPER has no presentation report");
     const bool cycle = phase == "cycle_listen" || phase == "cycle_blind";
-    require (phase == "linear" || phase == "loop" || phase == "recovery" || phase == "logic_cycle" || cycle, "unknown phase");
+    const bool logicPart = phase == "logic_freq_listen" || phase == "logic_sharp_listen" || phase == "logic_blind";
+    require (phase == "linear" || phase == "loop" || phase == "recovery" || logicPart || cycle, "unknown phase");
+    require ((host == "logic") == logicPart, "Logic cycle parts run only on the Logic host");
     require (! cycle || (host == "au" && scenario != "included"), "Cycle guidance needs unverified AU timing");
     const auto timeout = std::stoi (argv[5]);
     require (timeout > 15, "CTest timeout must leave time for failure diagnostics");
@@ -172,7 +174,9 @@ try
     fixture.injectedDelay = injectedDelay;
     try
     {
-        if (host == "logic") verifyLogicCycleProduct (fixture);
+        if (host == "logic")
+            verifyLogicCycleProduct (fixture, phase == "logic_blind" ? LogicCyclePart::blind
+                : phase == "logic_sharp_listen" ? LogicCyclePart::sharpListen : LogicCyclePart::freqListen);
         else run (fixture, phase, host == "au", scenario == "included");
         require (argc == 6 || fixture.injectedDelay.injections >= 3, "jitter regression must actually inject delays");
         require (argc != 7 || (fixture.preIntervals.gaps == 0 && fixture.postIntervals.gaps == 0),

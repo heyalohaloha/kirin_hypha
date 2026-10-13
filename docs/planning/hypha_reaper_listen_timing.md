@@ -129,7 +129,7 @@ preplay values, epochs, expiry and atomic coherence), and `kirin_chain_trace_bur
 callbacks). `kirin_logic_cycle_entry` separately checks Logic render/presentation proof, zero delay,
 within-block wraps, pre-roll movement, paired analysis qualification and irreversible trial loss.
 Callback timing fixtures use the common product test clock. `kirin_live_compare_match` also
-measures production MATCH windows across the first wrap and later cycles. The four
-`kirin_logic_analysis_{mono,stereo}_{included,zero}_cycle_product` cases exercise real processors,
+measures production MATCH windows across the first wrap and later cycles. The twelve
+`kirin_logic_analysis_{mono,stereo}_{included,zero}_cycle_{freq_listen,sharp_listen,blind}_product` cases exercise real processors,
 workers, cycle delta, LISTEN, MATCH and BLIND loss; they require native shared memory.
 Fixtures are not host acceptance.
