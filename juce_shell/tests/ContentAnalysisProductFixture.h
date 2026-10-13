@@ -142,6 +142,7 @@ struct Fixture
     void block()
     {
         require (hypha::tests::AnalysisTestClock::now() < phaseDeadline, "phase wall watchdog before callback");
+        const auto started = hypha::tests::AnalysisTestClock::now();
         juce::AudioBuffer<float> audio (channels, frames);
         for (int ch = 0; ch < channels; ++ch)
             for (int i = 0; i < frames; ++i)
@@ -162,6 +163,7 @@ struct Fixture
         // before the optional worker exists. Audio time never depends on timer wake precision.
         hypha::tests::awaitAnalysisExchange (*pre);
         hypha::tests::awaitAnalysisExchange (*post, true);
+        hypha::tests::paceAnalysisProductBlock (started, reaper);
         require (hypha::tests::AnalysisTestClock::now() < phaseDeadline, "phase wall watchdog after callback");
     }
     template <class Check> void until (Check check, const char* why)

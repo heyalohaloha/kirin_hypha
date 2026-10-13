@@ -203,7 +203,10 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
     require (waiting.active && waiting.preSelected && waiting.preWaiting && ! waiting.preAudible
         && waiting.observation == Reason::clockMissing && waiting.clockUnavailable,
         "PRE waits for a clock this host never supplies");
-    const auto notice = currentNamedPresentation (waiting);
+    require (juce::String (currentNamedPresentation (waiting).instruction).isEmpty() && r.view().feedback().isEmpty(),
+             "a short wait on this host shows no guidance (2026-10-13 decision)");
+    r.advance (2.7);
+    const auto notice = currentNamedPresentation (r.post->liveCompareStatus());
     require (notice.action == RecoveryAction::noOutputLatency && r.view().feedback() == notice.instruction
         && r.editor->statusStory().joinIntoString (" ").contains ("PRE timing cannot be verified"),
         "the footer and the story name the host, not a restart");
@@ -211,7 +214,8 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
     require (currentNamedPresentation (r.post->liveCompareStatus()).action == RecoveryAction::noOutputLatency,
              "stop/play on this host does not change the explanation");
     LiveTimingFixtureAccess::blindWaiting (*r.post, live_compare::BlindStage::preparing);
-    const auto blind = r.post->liveBlindStatus();
+    auto blind = r.post->liveBlindStatus();
+    blind.prolongedWait = true; // the same boundary once the wait passes 3 seconds
     require (blind.clockUnavailable && blindRecovery (blind, false).action == RecoveryAction::noOutputLatency,
              "Blind preparation on this host explains the same boundary");
     LiveTimingFixtureAccess::blindWaiting (*r.post, live_compare::BlindStage::idle);
@@ -224,6 +228,9 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
     r.clock.continuous = false; r.clock.loopRange = true; r.advance (0.1);
     require (r.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts again");
     r.post->selectLiveComparePre (true); r.advance (0.4);
+    require (juce::String (currentNamedPresentation (r.post->liveCompareStatus()).instruction).isEmpty(),
+             "a short transient clock wait shows no guidance");
+    r.advance (2.8);
     const auto transient = r.post->liveCompareStatus();
     const auto remedy = currentNamedPresentation (transient);
     require (transient.active && ! transient.clockUnavailable && transient.loopBlock == hypha::live_compare::LoopPairingBlock::none

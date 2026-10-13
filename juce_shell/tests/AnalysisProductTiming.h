@@ -3,12 +3,15 @@
 #include "../src/live_compare/LiveCompareClock.h"
 #include <algorithm>
 #include <ostream>
+#include <thread>
 
 namespace hypha::tests
 {
 // Preserve the existing host callback sizes and audio budgets. ProductTestClock, not the
-// scheduler, supplies their callback intervals. The cadence model below is only for
-// synthetic jitter/gap regressions; real fixtures await worker receipts without a timer.
+// scheduler, supplies their callback intervals. Worker receipts and exchange ticks are awaited
+// by notification, never by polling. The product's PRE/POST exchange and its future epochs still
+// run on WALL time, so real fixtures keep synthetic audio near real time with one start-to-start
+// period per block (paceAnalysisProductBlock); without it audio-time deadlines lose their meaning.
 constexpr int analysisProductFrames (bool reaper) { return reaper ? 2048 : 256; }
 
 inline AnalysisTestClock::time_point analysisProductBlockDeadline (
@@ -30,6 +33,12 @@ void modelHostCallbackCadence (AnalysisTestClock::time_point started, bool reape
     const auto deadline = analysisProductBlockDeadline (started, reaper);
     if (now() < deadline) sleepUntil (deadline);
     else yield();
+}
+
+inline void paceAnalysisProductBlock (AnalysisTestClock::time_point started, bool reaper)
+{
+    modelHostCallbackCadence (started, reaper, [] { return AnalysisTestClock::now(); },
+        [] (auto deadline) { std::this_thread::sleep_until (deadline); }, [] { std::this_thread::yield(); });
 }
 
 constexpr std::uint64_t analysisBlocksForSamples (std::uint64_t samples, std::uint64_t frames)

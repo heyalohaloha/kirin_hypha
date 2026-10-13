@@ -141,8 +141,10 @@ struct NoticeRig
             preAudio.setSample (c, n, value); postAudio.setSample (c, n, value);
         }
         pre->processBlock (preAudio, midi);
-        if (bypassed) post->processBlockBypassed (postAudio, midi);
-        else post->processBlock (postAudio, midi);
+        // A processor with a bypass parameter is never sent processBlockBypassed by the JUCE
+        // AU/VST3/AAX wrappers: the host sets the parameter and processBlock still runs.
+        if (auto* bypass = post->getBypassParameter()) bypass->setValue (bypassed ? 1.0f : 0.0f);
+        post->processBlock (postAudio, midi);
         wallClock.advanceBlock (512, 48000);
         if (expectOrdinaryAudio)
             for (int c = 0; c < 2; ++c)
@@ -233,10 +235,24 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
         "hide preserves the anonymous assignment and selection");
     r.editor->setVisible (true); r.advance (0.1);
     require (r.post->liveBlindStatus().trial.epoch == trial.epoch, "show preserves the same BLIND epoch");
-    require (r.post->selectLiveBlind (trial.firstPre ? 1 : 2), "bypass test selects anonymous PRE");
-    r.advance (0.1);
-    r.bypassed = r.expectOrdinaryAudio = true; r.advance (0.05);
-    require (r.post->liveBlindStatus().trial.usedPostFallback && !r.post->liveCompareStatus().preAudible
+    // The view keeps the assignment anonymous until REVEAL, so find the PRE source by listening.
+    const auto selectAudiblePre = [&]
+    {
+        for (int source = 1; source <= 2; ++source)
+        {
+            require (r.post->selectLiveBlind (source), "bypass test selects an anonymous source");
+            r.advance (0.2);
+            for (int n = 0; n < 20 && ! r.post->liveCompareStatus().preAudible; ++n) r.advance (0.05);
+            if (r.post->liveCompareStatus().preAudible) return true;
+        }
+        return false;
+    };
+    require (selectAudiblePre(), "one anonymous source actually plays PRE before bypass");
+    // Every bypassed block is checked bit identical (POST) by advance(); the realtime path marks
+    // the substituted PRE for REVEAL and keeps the same anonymous trial.
+    r.bypassed = r.expectOrdinaryAudio = true; r.advance (0.1);
+    require (r.post->liveBlindStatus().trial.usedPostFallback && ! r.post->liveCompareStatus().preAudible
+        && r.post->liveBlindStatus().stage == live_compare::BlindStage::active
         && r.post->liveBlindStatus().trial.epoch == trial.epoch, "bypass retains the trial and records actual POST fallback");
     r.bypassed = r.expectOrdinaryAudio = false; r.advance (0.3);
     require (r.post->liveCompareStatus().preAudible && r.post->liveBlindStatus().trial.epoch == trial.epoch,
@@ -310,8 +326,12 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     require (hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {}), "resumed AUTO retires its previous stop notice");
     expireAction();
     require (r.view().feedback() != "AUTO stopped: editor hidden", "old AUTO stop cannot return after newer AUTO");
+    // 2026-10-13 decision: a short stop plays POST silently; only a wait beyond 3 seconds explains
+    // the cause and how to return.
     r.clock.playing = false; r.advance (0.4);
-    require (r.view().feedback().isNotEmpty(), "current DAW-stop remedy remains visible");
+    require (r.view().feedback().isEmpty(), "a short DAW stop shows no waiting notice");
+    r.advance (2.8);
+    require (r.view().feedback().isNotEmpty(), "a DAW stop beyond 3 seconds shows its remedy");
     r.clock.playing = true; r.advance (0.6);
     require (r.view().feedback().isEmpty(), "waiting remedy clears when verified PRE resumes");
     // An unexpected pair change during actual LISTEN remains a bounded terminal notice.

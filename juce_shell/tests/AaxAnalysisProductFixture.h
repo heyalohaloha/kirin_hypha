@@ -7,6 +7,7 @@
 #include "LiveTimingFixtureAccess.h"
 #include "ProductTestClock.h"
 #include "AnalysisProductWait.h"
+#include "AnalysisProductTiming.h"
 #include "AnalysisWorkerReceipt.h"
 #include <chrono>
 #include <cmath>
@@ -140,6 +141,7 @@ struct Fixture
     }
     void block (bool otherOutputOwner = false)
     {
+        const auto started = hypha::tests::AnalysisTestClock::now();
         for (auto* processor : { pre.get(), post.get() })
         {
             juce::AudioBuffer<float> audio (channels, frames), input (channels, frames);
@@ -199,6 +201,7 @@ struct Fixture
         wallClock.advanceBlock (frames, 48000);
         hypha::tests::awaitAnalysisExchange (*pre);
         hypha::tests::awaitAnalysisExchange (*post, true);
+        hypha::tests::paceAnalysisProductBlock (started, false);
     }
     template <typename Check> void until (Check check, const char* why)
     {
