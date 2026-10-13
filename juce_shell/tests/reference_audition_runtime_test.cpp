@@ -14,11 +14,11 @@ int main (int argc, char** argv)
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
     testRuntimeV2SourceCache();
     const auto sandbox = hypha::tests::temporaryParent()
-                             .getNonexistentChildFile ("hypha-reference-audition", {}, false);
+                             .getNonexistentChildFile ("ref", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
     if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox) || runReferenceRepairTests (argc, argv, sandbox)) return 0;
     testReferenceAInput();
-    testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; }
+    testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (hypha::tests::removeFixtureDirectory (sandbox), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
     testReferenceAbcv (sandbox);
@@ -29,26 +29,26 @@ int main (int argc, char** argv)
     if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
     {
         verifyLazyPresets (sandbox);
-        require (sandbox.deleteRecursively(), "lazy Preset fixtures must be removed");
+        require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Preset fixtures must be removed");
         return 0;
     }
     if (argc == 2 && juce::String (argv[1]) == "--lazy-candidates-only")
     {
         verifyLazyCandidates (sandbox);
-        require (sandbox.deleteRecursively(), "lazy Candidate fixtures must be removed");
+        require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Candidate fixtures must be removed");
         return 0;
     }
     if (argc == 2 && juce::String (argv[1]) == "--blind-refresh-only")
     {
         verifyIsolatedBlindRefresh (sandbox);
-        require (sandbox.deleteRecursively(), "isolated Blind fixtures must be removed");
+        require (hypha::tests::removeFixtureDirectory (sandbox), "isolated Blind fixtures must be removed");
         return 0;
     }
     if (argc == 2 && juce::String (argv[1]) == "--workspace-only")
     {
         require (writeStereoWav (sandbox.getChildFile ("version-a.wav")), "workspace source must exist");
         testRuntimeV2Workspace (sandbox);
-        require (sandbox.deleteRecursively(), "temporary workspace fixtures must be removed");
+        require (hypha::tests::removeFixtureDirectory (sandbox), "temporary workspace fixtures must be removed");
         std::cout << "Reference workspace runtime: pass\n";
         return 0;
     }
@@ -59,7 +59,7 @@ int main (int argc, char** argv)
     testRuntimeACapture (sandbox.getChildFile ("plugin_data").getChildFile ("reference")
                                 .getChildFile ("v2"));
     const auto source = sandbox.getChildFile ("version-a.wav");
-    require (source.replaceWithText ("immutable measured source"), "source fixture must be written");
+    require (hypha::storage::writeText (source, "immutable measured source"), "source fixture must be written");
     const auto sourceHash = juce::SHA256 (source).toHexString();
     const auto root = sandbox.getChildFile ("plugin_data").getChildFile ("hypha_ab")
                              .getChildFile ("v1");
@@ -73,17 +73,17 @@ int main (int argc, char** argv)
     require (writeJson (preparationFile,
                         makePreparation (source, sourceHash, receiptHash, finalReceipt.getSize())),
              "preparation fixture must be written");
-
+#include "../src/AtomicFile.h"
     ref::Repository repository (root);
     const auto loaded = repository.load (workId);
     require (loaded.accepted(), "exact preparation and receipt must load");
     require (loaded.receipt.matches (loaded.preparation), "source summary must match receipt");
     require (repository.verifySourceFile (loaded.receipt).isEmpty(),
              "exact immutable source must verify");
-    require (source.replaceWithText ("changed source"), "source mutation must succeed");
+    require (hypha::storage::writeText (source, "changed source"), "source mutation must succeed");
     require (repository.verifySourceFile (loaded.receipt) == "source_changed",
              "changed source must fail closed");
-
+#include "TestPathBudget.h"
     auto malformed = makePreparation (source, sourceHash, receiptHash, finalReceipt.getSize());
     malformed.getDynamicObject()->setProperty ("unexpected", true);
     require (writeJson (preparationFile, malformed), "malformed preparation must be written");
@@ -494,7 +494,7 @@ int main (int argc, char** argv)
 
     testRuntimeV2Workspace (sandbox);
 
-    require (sandbox.deleteRecursively(), "sandbox must be removed");
+    require (hypha::tests::removeFixtureDirectory (sandbox), "sandbox must be removed");
     std::cout << "Reference audition runtime contract tests passed\n";
     return 0;
 }

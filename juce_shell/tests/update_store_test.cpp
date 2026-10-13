@@ -1,10 +1,10 @@
 #include "TestTemporaryDirectory.h"
 #include "../src/update/UpdateStore.h"
-
+#include "../src/AtomicFile.h"
 #include <cstdlib>
 #include <iostream>
 #include <thread>
-
+#include "TestPathBudget.h"
 #if ! JUCE_WINDOWS
  #include <sys/stat.h>
  #include <unistd.h>
@@ -84,7 +84,7 @@ void normalAndLock (const juce::File& fixture)
     require (! second.save (rollback), "publication sequence cannot regress in storage");
     rollback = restored; rollback.lastAttempt = 1233; rollback.lastSuccess = 1233;
     require (! second.save (rollback), "attempt and success stamps cannot regress in storage");
-    require (root.findChildFiles (juce::File::findFiles, false, "pending-*.tmp").isEmpty(),
+    require (root.findChildFiles (juce::File::findFiles, false, ".h*").isEmpty(),
              "atomic writes leave no temporary files");
     second.release();
     runChild ("--reserve-and-exit", root);
@@ -134,12 +134,12 @@ void rejectedStates (const juce::File& fixture)
     };
     for (const auto& bytes : bad)
     {
-        require (file.replaceWithText (bytes), "write malformed disposable state");
+        require (hypha::storage::writeText (file, bytes), "write malformed disposable state");
         Store::State result;
         require (! store.read (result) && ! store.observe (result) && ! store.save ({}),
                  "damaged state cannot be read, observed or silently repaired");
     }
-    require (file.replaceWithText (valid), "restore valid disposable state");
+    require (hypha::storage::writeText (file, valid), "restore valid disposable state");
     Store::State oversized;
     oversized.wire = juce::String::repeatedString ("a", 16 * 1024 + 1);
     require (! store.save (oversized), "oversized cached response cannot be saved");
@@ -151,7 +151,7 @@ void rejectedStates (const juce::File& fixture)
     require (store.acquire() && ! store.read (oversized) && ! store.observe (oversized)
         && ! store.save ({}), "non-regular state fails closed");
     const auto notDirectory = fixture.getChildFile ("not-a-directory");
-    require (notDirectory.replaceWithText ("fixture"), "make unusable root");
+    require (hypha::storage::writeText (notDirectory, "fixture"), "make unusable root");
     Store denied (notDirectory.getChildFile ("UpdateCheck"));
     require (! denied.acquire(), "root access failure cannot claim a check");
     const auto absent = fixture.getChildFile ("observation-must-not-create/UpdateCheck/v1");
@@ -166,7 +166,7 @@ void linkedPaths (const juce::File& fixture)
     const auto unrelated = fixture.getChildFile ("unrelated");
     require (unrelated.createDirectory(), "create unrelated sentinel directory");
     const auto sentinel = unrelated.getChildFile ("sentinel");
-    require (sentinel.replaceWithText ("unchanged"), "write unrelated sentinel");
+    require (hypha::storage::writeText (sentinel, "unchanged"), "write unrelated sentinel");
     const auto linked = fixture.getChildFile ("linked-root");
     require (::symlink (unrelated.getFullPathName().toRawUTF8(), linked.getFullPathName().toRawUTF8()) == 0,
              "create disposable directory symlink");
@@ -205,14 +205,12 @@ int main (int argc, char** argv)
 {
     const auto outcome = child (argc, argv);
     if (outcome >= 0) return outcome;
-   #if JUCE_MAC
-    const auto parent = juce::File ("/private/tmp"); // Avoid the system /var symlink: parents are checked with O_NOFOLLOW.
-   #else
-    const auto parent = hypha::tests::temporaryParent();
-   #endif
-    const auto fixture = parent.getChildFile ("hypha-update-store-" + juce::Uuid().toString());
+    // Resolve aliases without escaping the audited fixture root; native storage rejects symlink parents.
+    const auto parent = juce::File (juce::String (std::filesystem::canonical (
+        std::filesystem::u8path (hypha::tests::temporaryParent().getFullPathName().toStdString())).u8string()));
+    const auto fixture = parent.getChildFile ("us-" + juce::Uuid().toString().substring (0, 8));
     require (fixture.createDirectory(), "create disposable test root");
-    struct Cleanup { juce::File path; ~Cleanup() { path.deleteRecursively(); } } cleanup { fixture };
+    struct Cleanup { juce::File path; ~Cleanup() { hypha::tests::removeFixtureDirectory (path); } } cleanup { fixture };
     normalAndLock (fixture);
     futureStamps (fixture);
     rejectedStates (fixture);

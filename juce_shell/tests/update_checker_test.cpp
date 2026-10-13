@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <array>
 #include <stdexcept>
-
+#include "../src/AtomicFile.h"
 namespace
 {
 using namespace hypha::update;
@@ -49,7 +49,7 @@ void seed (const juce::File& root, const Store::State& state)
     require (store.acquire() && store.save (state), "seed disposable cache");
 }
 }
-
+#include "TestPathBudget.h"
 #include "UpdateRepairChecks.h"
 
 int main (int argc, char** argv)
@@ -76,12 +76,10 @@ int main (int argc, char** argv)
         };
         Checker checker (child); request (checker, true); return 0;
     }
-   #if JUCE_WINDOWS
-    const auto parent = hypha::tests::temporaryParent();
-   #else
-    const juce::File parent ("/private/tmp"); // Avoid macOS /var symlink; never touch real user data.
-   #endif
-    const auto root = parent.getChildFile ("hypha-update-checker-" + juce::Uuid().toString());
+    // Resolve aliases without escaping the audited fixture root; native storage rejects symlink parents.
+    const auto parent = juce::File (juce::String (std::filesystem::canonical (
+        std::filesystem::u8path (hypha::tests::temporaryParent().getFullPathName().toStdString())).u8string()));
+    const auto root = parent.getChildFile ("uc-" + juce::Uuid().toString().substring (0, 8));
     require (root.createDirectory(), "create disposable root");
     const std::array<juce::File, 4> protectedFiles {
         root.getChildFile ("KirinOS/identity.json"),
@@ -90,7 +88,7 @@ int main (int argc, char** argv)
         root.getChildFile ("KirinOS/plugin_data/records/fixture.json") };
     constexpr auto protectedBytes = "{\"fixture\":true,\"license\":\"os\",\"keep\":\"unchanged\"}";
     for (const auto& file : protectedFiles)
-        require (file.getParentDirectory().createDirectory() && file.replaceWithText (protectedBytes),
+        require (file.getParentDirectory().createDirectory() && hypha::storage::writeText (file, protectedBytes),
                  "create disposable entitlement, Reference lease and Record sentinels");
     std::atomic<int> calls { 0 };
     std::atomic<juce::int64> now { initialNow };
@@ -214,7 +212,7 @@ int main (int argc, char** argv)
                  "same/newer build, unavailable format and sequence rollback are not updates");
     }
     config.root = root.getChildFile ("damaged");
-    require (config.root.createDirectory() && config.root.getChildFile ("state.json").replaceWithText ("{"),
+    require (config.root.createDirectory() && hypha::storage::writeText (config.root.getChildFile ("state.json"), "{"),
              "make damaged disposable state");
     {
         Checker checker (config);
@@ -418,7 +416,7 @@ int main (int argc, char** argv)
     for (const auto& file : protectedFiles)
         require (file.loadFileAsString() == protectedBytes,
                  "update success/failure/cancel/restart never alter OS integration files");
-    require (root.deleteRecursively(), "remove only this disposable fixture");
+    require (hypha::tests::removeFixtureDirectory (root), "remove only this disposable fixture");
     std::cout << "Update checker daily budget, OFF, failure, restart, cancellation, signature and cache PASS\n";
     return 0;
 }

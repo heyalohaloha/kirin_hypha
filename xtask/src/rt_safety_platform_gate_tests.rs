@@ -248,7 +248,7 @@ fn every_native_test_requires_the_read_only_real_storage_fixture() {
         "FIXTURES_SETUP kirin_real_storage",
         "FIXTURES_CLEANUP kirin_real_storage",
         "APPEND PROPERTY FIXTURES_REQUIRED kirin_real_storage",
-        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-kirin-os",
+        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${kirin_path_root}",
         "native_storage_guard.test.mjs",
     ] {
         assert!(
@@ -356,4 +356,118 @@ fn content_analysis_gate_covers_every_independent_phase() {
     ));
     assert!(phases.contains("${phase_timeout} jitter"));
     assert!(phases.contains("PROPERTIES TIMEOUT ${phase_timeout}"));
+}
+
+#[test]
+fn reaper_listen_tests_are_built_and_executed_on_both_platforms() {
+    let gate = include_str!("../../scripts/test_release_source.sh");
+    let ci = include_str!("../../.github/workflows/ci.yml");
+    let targets = gate
+        .split("JUCE_TEST_TARGETS=(")
+        .nth(1)
+        .unwrap()
+        .split(')')
+        .next()
+        .unwrap();
+    let selection = gate
+        .lines()
+        .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))
+        .unwrap()
+        .trim_end_matches(")$'");
+    let windows = ci
+        .split("- name: Validate REAPER LISTEN contracts and product flow")
+        .nth(1)
+        .expect("Windows runs the same REAPER contracts")
+        .split("- name:")
+        .next()
+        .unwrap();
+    let windows_targets = windows
+        .lines()
+        .find(|line| line.contains("cmake --build"))
+        .unwrap()
+        .split("--target ")
+        .nth(1)
+        .unwrap();
+    let windows_tests = windows
+        .lines()
+        .find(|line| line.contains("ctest --test-dir"))
+        .unwrap()
+        .split("-R '^(")
+        .nth(1)
+        .unwrap()
+        .trim_end_matches(")$'");
+    for (target, test) in [
+        ("Kirin_reaper_clock_Tests", "kirin_reaper_clock"),
+        (
+            "Kirin_reaper_correspondence_Tests",
+            "kirin_reaper_correspondence",
+        ),
+        ("Kirin_reaper_fault_Tests", "kirin_reaper_fault"),
+        (
+            "KirinReaperListenProductTests",
+            "kirin_reaper_listen_mono_product",
+        ),
+        (
+            "KirinReaperListenProductTests",
+            "kirin_reaper_listen_stereo_product",
+        ),
+        ("KirinChainTraceTests", "kirin_chain_trace"),
+        ("KirinListenTextLayoutTests", "kirin_listen_text_layout"),
+        (
+            "KirinHostContentClockPolicyTests",
+            "kirin_host_content_clock_policy",
+        ),
+    ] {
+        assert!(
+            targets.split_whitespace().any(|name| name == target),
+            "release build misses {target}"
+        );
+        assert!(
+            selection.split('|').any(|name| name == test),
+            "release execution misses {test}"
+        );
+        assert!(
+            windows_targets
+                .split_whitespace()
+                .any(|name| name == target),
+            "Windows build misses {target}"
+        );
+        assert!(
+            windows_tests.split('|').any(|name| name == test),
+            "Windows execution misses {test}"
+        );
+    }
+    let macos = ci
+        .split("  test:\n")
+        .nth(1)
+        .unwrap()
+        .split("  auval-arm64:")
+        .next()
+        .unwrap();
+    assert!(macos.contains("bash scripts/test_release_source.sh"));
+    let lightweight = include_str!("../../scripts/test_lightweight_contract.sh");
+    for script in [
+        "analyze_chain_trace.test.mjs",
+        "listen_text_inventory.test.mjs",
+    ] {
+        assert!(lightweight.contains(script));
+    }
+}
+
+#[test]
+fn release_inventory_checks_all_registered_tests_before_the_selective_build() {
+    let gate = include_str!("../../scripts/test_release_source.sh");
+    let check = gate
+        .find("run node scripts/check_native_test_inventory.mjs")
+        .unwrap();
+    assert!(check < gate.find("run cmake --build").unwrap());
+    for argument in [
+        "--group \"$JUCE_TEST_COUNT\" \"$JUCE_TEST_REGEX\"",
+        "--group \"$UPDATE_INTEGRATION_COUNT\" \"$UPDATE_INTEGRATION_REGEX\"",
+        "--exclusions scripts/release_native_test_exclusions.json",
+    ] {
+        assert!(gate.contains(argument));
+    }
+    let lightweight = include_str!("../../scripts/test_lightweight_contract.sh");
+    assert!(lightweight.contains("node --test scripts/check_native_test_inventory.test.mjs"));
 }

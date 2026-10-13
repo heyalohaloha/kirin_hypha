@@ -2,7 +2,7 @@
 #include "../src/PluginProcessor.h"
 #include <cstring>
 #include <stdexcept>
-
+#include "TestProcessorStorage.h"
 namespace hypha::tests
 {
 // A callback without a PRE witness must never manufacture a pair. This small processor test
@@ -34,7 +34,7 @@ inline void verifyAuCycleCallbackGuidance()
         juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_AudioUnit);
         Processor processor (role);
         processor.setPlayHead (&clock);
-        processor.prepareToPlay (48000, 256);
+        hypha::tests::prepareFixtureProcessor (processor, 48000, 256);
         for (bool cycle : { true, false })
         {
             clock.cycle = cycle;

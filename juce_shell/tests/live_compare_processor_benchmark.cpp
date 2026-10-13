@@ -22,7 +22,7 @@
  #include <pthread/qos.h>
  #include <time.h>
 #endif
-
+#include "TestProcessorStorage.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -150,7 +150,7 @@ public:
             require (instance->setBusesLayout (layout), "stereo host layout");
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (&host);
-            instance->prepareToPlay (48000, frames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, frames);
             require (instance->getLatencySamples() == 0, "normal path reports zero latency");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
@@ -184,7 +184,7 @@ private:
         switch (stage)
         {
             case 0:
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview) preview = post->createPairPreview();
                 if (! demanded || Steady::now() - requestedAt >= std::chrono::milliseconds (1050))
                     if (hypha::pair_preview::request (preview))

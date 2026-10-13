@@ -2,6 +2,10 @@
 use super::*;
 use kirin_measure::spectrum_runtime::SpectrumInputClock;
 
+#[cfg(feature = "native-test-support")]
+#[path = "native_test_support.rs"]
+mod native_test_support;
+
 /// The wrapper defers AAX Perceptual and AU/certified VST3 FREQ/Perceptual until its existing
 /// timing observer has run, or the measurement-only host project certificate has supplied its
 /// coordinate. The latter never grants LISTEN permission. Absolute analysis (LIVE, absolute PSB) keeps the ordinary project-timeline route on

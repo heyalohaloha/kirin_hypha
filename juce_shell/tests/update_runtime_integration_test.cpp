@@ -7,7 +7,7 @@
 #include <functional>
 #include <filesystem>
 #include <iostream>
-
+#include "../src/AtomicFile.h"
 namespace
 {
 using namespace update_integration;
@@ -29,32 +29,10 @@ void waitFor (const std::function<bool()>& predicate, const char* message)
     require (false, message);
 }
 
-void verifyAtomicPublication (const juce::File& root)
-{
-    // Match a CI-depth Drop receipt even when this checkout has a short path. One JUCE
-    // temporary suffix fits Windows MAX_PATH; a nested replaceWithText temporary does not.
-    const auto parent = root.getChildFile ("json-publication");
-    const juce::String name = "receipt.json";
-    const auto padding = 243 - parent.getFullPathName().length() - name.length() - 2;
-    require (padding > 0, "fixture root leaves room for the path-length boundary");
-    const auto file = parent.getChildFile (juce::String::repeatedString ("p", padding)).getChildFile (name);
-    require (atomicJson (file, object ({ { "revision", 1 } })) && juce::JSON::parse (file)["revision"] == juce::var (1),
-             "atomic JSON publishes a receipt at the CI path-length boundary");
-    require (atomicJson (file, object ({ { "revision", 2 } })) && juce::JSON::parse (file)["revision"] == juce::var (2),
-             "atomic JSON replaces the complete receipt at the same boundary");
-    juce::Array<juce::File> files;
-    file.getParentDirectory().findChildFiles (files, juce::File::findFiles, false);
-    require (files.size() == 1 && files[0] == file, "atomic publication leaves no temporary receipt");
-    const auto blockedParent = parent.getChildFile ("not-a-directory");
-    require (blockedParent.replaceWithText ("preserve"), "create disposable blocked-parent fixture");
-    require (! atomicJson (blockedParent.getChildFile (name), object ({ { "revision", 3 } }))
-        && blockedParent.loadFileAsString() == "preserve", "failed atomic publication preserves existing bytes");
-}
-
 juce::File environmentRoot (const char* name)
 {
     const auto* value = std::getenv (name);
-    require (value != nullptr && juce::String (value).contains ("kirin-hypha-audio-transparency-"),
+    require (value != nullptr && juce::File (value).isAChildOf (juce::File (juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_TEST_STORAGE_ROOT", {}))),
              "existing validation sandbox redirects every FFI storage path before engine creation");
     return juce::File (value);
 }
@@ -91,7 +69,7 @@ juce::File publishLibrary (const juce::File& root)
     const auto bytes = juce::JSON::toString (preset, true) + "\n";
     const auto hash = juce::SHA256 (bytes.toRawUTF8(), bytes.getNumBytesAsUTF8()).toHexString();
     const auto file = root.getChildFile ("library/presets/" + hash + ".json");
-    require (file.getParentDirectory().createDirectory() && file.replaceWithText (bytes, false, false, "\n"),
+    require (file.getParentDirectory().createDirectory() && hypha::storage::writeText (file, bytes, false, false, "\n"),
              "publish content-addressed Reference preset fixture");
     const auto receipt = object ({
         { "preset_id", presetId }, { "revision_id", revisionId },
@@ -127,11 +105,11 @@ void receiveReference (const juce::File& root)
         && ! receiver.libraryOnline (static_cast<juce::int64> (presence["expires_at_ms"])),
         "real receiver keeps the five-second presence lease boundary");
     const auto saved = presetFile.loadFileAsString();
-    require (presetFile.replaceWithText ("{broken"), "damage only disposable Reference fixture");
+    require (hypha::storage::writeText (presetFile, "{broken"), "damage only disposable Reference fixture");
     const auto rejected = receiver.refreshLibrary();
     require (! rejected.usable() && rejected.rejectionCode == "reference_library_preset_rejected",
              "damaged Reference payload is rejected while updater is running");
-    require (presetFile.replaceWithText (saved, false, false, "\n") && receiver.refreshLibrary().usable(),
+    require (hypha::storage::writeText (presetFile, saved, false, false, "\n") && receiver.refreshLibrary().usable(),
              "restored exact Reference publication remains receivable");
 }
 
@@ -249,7 +227,6 @@ int main (int argc, char** argv)
         || scenario == "lifetime",
              "supported isolated scenario");
     ValidationStorageSandbox sandbox;
-    verifyAtomicPublication (sandbox.directory());
    #if JUCE_WINDOWS
     const auto os = environmentRoot ("APPDATA").getChildFile ("Kirin OS");
     const auto data = environmentRoot ("LOCALAPPDATA").getChildFile ("Kirin OS/plugin_data");
@@ -304,7 +281,7 @@ int main (int argc, char** argv)
     require (kirin_hypha_load_license() == 2, "missing disposable identity resolves Unknown");
     // On Windows identity.json lives in APPDATA, apart from plugin_data in LOCALAPPDATA.
     require (identity.getParentDirectory().createDirectory().wasOk(), "create disposable Kirin OS folder");
-    require (identity.replaceWithText ("{"), "publish malformed disposable identity");
+    require (hypha::storage::writeText (identity, "{"), "publish malformed disposable identity");
     require (kirin_hypha_load_license() == 2, "real license recheck rejects malformed identity");
     writeLicense (identity, "sense");
     require (kirin_hypha_load_license() == 1, "real license recheck observes Sense");

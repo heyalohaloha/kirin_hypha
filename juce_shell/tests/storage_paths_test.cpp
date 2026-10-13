@@ -1,4 +1,5 @@
 #include "ValidationStorageSandbox.h"
+#include "TestProcessorStorageContract.h"
 #include "../src/pre_display/PreDisplayController.h"
 #include "../src/pre_display/PreDisplayPresence.h"
 #include "../src/reference_audition/ReferenceAuditionRepository.h"
@@ -9,7 +10,7 @@
 #include <chrono>
 #include <iostream>
 #include <thread>
-
+#include "../src/AtomicFile.h"
 namespace
 {
 constexpr auto variable = "KIRIN_HYPHA_TEST_STORAGE_ROOT";
@@ -91,7 +92,7 @@ void verifyLeases (const juce::File& data)
         require (! exists (kind, "fixture-pre") && ! exists (kind, "fixture-post"), "own leases removed on teardown");
 }
 }
-
+#include "TestPathBudget.h"
 int main (int argc, char** argv)
 try
 {
@@ -99,8 +100,8 @@ try
     const juce::String mode (argv[1]);
     const auto inherited = juce::SystemStats::getEnvironmentVariable (variable, {});
     require (inherited.isNotEmpty(), "CTest storage root required");
-    const auto root = juce::File (inherited).getChildFile (juce::String::fromUTF8 (u8"storage paths 測定-")
-                                                        + juce::Uuid().toString());
+    const auto root = juce::File (inherited).getChildFile (juce::String::fromUTF8 (u8"s 測定-")
+                                                        + juce::Uuid().toString().substring (0, 8));
     if (mode == "environment")
     {
         setRoot (root.getFullPathName().toRawUTF8());
@@ -120,6 +121,7 @@ try
     {
         {
             ValidationStorageSandbox sandbox;
+            hypha::tests::verifyFixtureProcessorStorage();
             require (juce::SystemStats::getEnvironmentVariable (variable, {}) == sandbox.directory().getFullPathName(),
                      "sandbox must retain a per-fixture test storage root");
             verifyLeases (pluginData (sandbox.directory()));
@@ -167,7 +169,7 @@ try
     {
         setRoot (root.getFullPathName().toRawUTF8());
         verifyPaths (pluginData (root));
-        require (root.getParentDirectory().createDirectory().wasOk() && root.replaceWithText ("fixture"), "blocked root fixture");
+        require (root.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (root, "fixture"), "blocked root fixture");
         hypha::pre_display::RuntimeIdentity identity;
         identity.instanceId = "fixture-instance";
         identity.projectUuid = "fixture-project";
@@ -179,7 +181,7 @@ try
         require (root.loadFileAsString() == "fixture", "blocked root retained");
     }
     else throw std::runtime_error ("unknown storage scenario");
-    require (root.deleteRecursively(), "remove only the owned fixture");
+    require (hypha::tests::removeFixtureDirectory (root), "remove only the owned fixture");
     std::cout << "Storage paths " << mode << " PASS\n";
 }
 catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

@@ -124,6 +124,33 @@ build内の`real-kirin-os-before.json`へ控えて比較し、一時ファイル
 保存先と両roleのpresence/capabilityの作成・終了時削除を検証する。監視自体の異常系は
 `kirin_native_storage_guard_contract`が使い捨てデータだけで検証する。
 
+試験用rootはbuild内の`t`、個別sandboxは`s-<PID>`とする。製品の保存先とplatform別の
+相対配置は変更しない。processor fixtureの未指定instance IDも短いopaque IDに揃える。
+明示ID・保存stateから復元したIDは保持し、製品のID生成は変えない。`kirin_path_budget`も全native試験の必須CTest fixtureであり、
+`kirin_native_path_budget_cleanup`が残存ツリーと削除前の相対path記録を検査する。
+fixtureのディレクトリ削除は`TestPathBudget.h`を通し、Rustが作ったfileも削除前に記録する。
+読み取り・記録失敗は合格にせず、symlinkの参照先へは進まない。
+
+全platformで、相対pathをWindows CIの`juce_shell/build-windows/t`配下へ投影する。
+UTF-16単位で259文字を上限とし、40文字の余裕とJUCEの`_temp<8桁>`の13文字を確保する
+（一時名分を含め219文字以下）。macOSの試験用`home/Library/Application Support/Kirin OS`だけは、
+製品と同じWindows配置（`plugin_data`は`home/AppData/Local/Kirin OS`、それ以外はRoaming）へ
+対応させる。他の相対pathは短縮せず、報告には元の相対pathを残す。
+結果は件数、最長値、長い相対pathを出す。`path-ledger`は失敗・中断時の証跡を保持するため、
+setupで過去の記録を消さない。古い失敗記録を除いて再検証するときは、別のbuildを使うか、
+対象buildの停止を確かめてfixture用の`t`と`path-ledger`だけを整理する。
+
+原子的な保存は`AtomicFile.h`の短い同階層一時名を使う。最終filename、保存内容、rename、
+各writerの権限・flush・lockの契約は維持する。`kirin_atomic_file`は内容、失敗、並行保存、
+後片付けを検査する。`kirin_atomic_file_boundaries`だけは意図的に長い独立fixtureを作り、
+246・247・249・259文字で実際に保存・置換する。既存の243文字のPreset adoption試験も
+同じ境界fixtureへ移し、同一receiptの再送・競合・書込み失敗の検査を維持する。
+これは通常fixtureの予算内合格には数えない。
+予算検査自身の超過・破損・失敗後cleanupの試験は`kirin_native_path_budget_contract`で実行する。
+境界の根拠は[Windowsのpath上限](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation)、
+同階層の置換と後片付けは[JUCE TemporaryFile](https://docs.juce.com/master/classjuce_1_1TemporaryFile.html)、
+部分実行と失敗後の実行順序は[CTest fixture cleanup](https://cmake.org/cmake/help/latest/prop_test/FIXTURES_CLEANUP.html)を参照する。
+
 ## ビルドと製品化を分ける
 
 この入口は**未署名のローカル診断ビルド**。iLok USBやCloudの移動は不要。

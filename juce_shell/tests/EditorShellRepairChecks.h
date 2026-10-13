@@ -1,7 +1,7 @@
 #pragma once
 #include <thread>
 #include <atomic>
-
+#include "TestProcessorStorage.h"
 struct SetIsolation
 {
     using Type = void (KirinHyphaEditor::*) (bool);
@@ -23,7 +23,7 @@ void verifyEditorShellRepairs()
         juce::MemoryBlock saved; processor.getStateInformation (saved);
         std::thread host ([&] {
             processor.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
-            processor.prepareToPlay (48000, 256);
+            hypha::tests::prepareFixtureProcessor (processor, 48000, 256);
         });
         host.join(); // No message dispatch: timer setup must be posted, never synchronous here.
         require (! LiveTimingFixtureAccess::serviceTimerRunning (processor)

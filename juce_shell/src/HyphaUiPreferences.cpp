@@ -1,6 +1,6 @@
 #include "HyphaUiPreferences.h"
 #include "HyphaPreferenceFileLock.h"
-
+#include "AtomicFile.h"
 #include <utility>
 
 namespace hypha::ui_preferences
@@ -62,11 +62,8 @@ bool write (const juce::File& file, const juce::String& key, const juce::String&
     if (! replaced)
         lines.add (key + "=" + value);
 
-    juce::TemporaryFile temporary (file);
     const auto text = juce::String (kHeader) + "\n" + lines.joinIntoString ("\n") + "\n";
-    if (! temporary.getFile().replaceWithText (text, false, false, "\n"))
-        return false;
-    return temporary.overwriteTargetFileWithTemporary();
+    return hypha::storage::writeText (file, text, false, false, "\n");
 }
 }
 

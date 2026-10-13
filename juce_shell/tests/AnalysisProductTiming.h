@@ -7,8 +7,8 @@
 
 namespace hypha::tests
 {
-// REAPER uses its compensated project clock: wall gaps invalidate analysis continuity.
-// At 96 kHz, 2048 frames give the unchanged 2.5-block rule 53.3 ms of scheduling room.
+// Preserve the existing host callback sizes and audio budgets. ProductTestClock, not the
+// scheduler, supplies their callback intervals. Real pacing below only schedules workers.
 constexpr int analysisProductFrames (bool reaper) { return reaper ? 2048 : 256; }
 
 inline AnalysisTestClock::time_point analysisProductBlockDeadline (
@@ -112,12 +112,8 @@ struct AnalysisPostDelay
     std::uint64_t injections = 0;
 };
 
-// CI AU phases took about 4-5x local wall time; that is not a measured per-callback
-// slowdown. Keep a conservative scheduling reserve instead of spending it all on injection:
-// 2048 / 96 kHz + 12 ms = 33.333 ms, 62.5% of the unchanged 53.333 ms gap threshold.
-// The remaining 20 ms accommodates work and wake-up variation. The virtual-clock test
-// scales synthetic work by 4/5 and delays each wake-up by up to 5 ms. The former 25 ms
-// used 87% before any load. Jitter must retain continuity; true gaps are tested separately.
+// Deliberate 12 ms inter-side jitter every third callback. The product fixture advances
+// ProductTestClock by this amount; real scheduler load adds no unrequested host gap.
 constexpr AnalysisPostDelay reaperAnalysisJitterDelay() { return { 12, 3 }; }
 
 // Observe at the fixture's callback boundary using the unchanged production gap rule.

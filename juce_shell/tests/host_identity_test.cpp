@@ -2,7 +2,7 @@
 #include "TestTemporaryDirectory.h"
 #include <cstdlib>
 #include <iostream>
-
+#include "../src/AtomicFile.h"
 namespace
 {
 void require (bool ok, const char* what)
@@ -12,7 +12,7 @@ void require (bool ok, const char* what)
     std::exit (EXIT_FAILURE);
 }
 }
-
+#include "TestPathBudget.h"
 int main (int argc, char** argv)
 {
     // Read-only inspection uses the production reader on an installed host.
@@ -25,17 +25,17 @@ int main (int argc, char** argv)
                   << " oldFileVersion=" << executable.getVersion() << '\n';
         return identity.version.isNotEmpty() ? EXIT_SUCCESS : EXIT_FAILURE;
     }
-    const auto directory = hypha::tests::temporaryParent().getNonexistentChildFile ("hypha-host-identity", {}, false);
+    const auto directory = hypha::tests::temporaryParent().getNonexistentChildFile ("host", {}, false);
     require (directory.createDirectory(), "create disposable fixture");
-    struct Cleanup { juce::File path; ~Cleanup() { path.deleteRecursively(); } } cleanup { directory };
+    struct Cleanup { juce::File path; ~Cleanup() { hypha::tests::removeFixtureDirectory (path); } } cleanup { directory };
     const auto absent = hypha::host_identity::read (directory.getChildFile ("absent"));
     require (absent.name.isEmpty() && absent.version.isEmpty(), "missing file fails closed");
    #if JUCE_MAC
     const auto app = directory.getChildFile ("Renamed Application.app");
     const auto executable = app.getChildFile ("Contents/MacOS/Studio Pro");
     require (executable.getParentDirectory().createDirectory(), "create macOS bundle layout");
-    require (executable.replaceWithText ("fixture"), "create executable fixture");
-    require (app.getChildFile ("Contents/Info.plist").replaceWithText (
+    require (hypha::storage::writeText (executable, "fixture"), "create executable fixture");
+    require (hypha::storage::writeText (app.getChildFile ("Contents/Info.plist"),
         "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>"
         "<key>CFBundleIdentifier</key><string>test.hypha.identity</string>"
         "<key>CFBundleExecutable</key><string>Studio Pro</string>"
@@ -47,11 +47,11 @@ int main (int argc, char** argv)
                  && identity.fileVersion == identity.version,
              "read containing bundle version without using its renamed folder name");
     const auto plain = directory.getChildFile ("Studio Pro");
-    require (plain.replaceWithText ("fixture"), "create unbundled fixture");
+    require (hypha::storage::writeText (plain, "fixture"), "create unbundled fixture");
     require (hypha::host_identity::read (plain).version.isEmpty(), "no unrelated bundle fallback");
     const auto unversioned = directory.getChildFile ("Unversioned.app/Contents/MacOS/Studio Pro");
     require (unversioned.getParentDirectory().createDirectory(), "create unversioned bundle");
-    require (unversioned.replaceWithText ("fixture"), "create unversioned executable");
+    require (hypha::storage::writeText (unversioned, "fixture"), "create unversioned executable");
     require (hypha::host_identity::read (unversioned).version.isEmpty(),
              "missing bundle metadata cannot borrow a different app's identity");
    #elif JUCE_WINDOWS
@@ -64,7 +64,7 @@ int main (int argc, char** argv)
                  && identity.fileVersion == "8.1.2.0",
              "read exact build from native FileVersion string resource");
     const auto plain = directory.getChildFile ("no-resource.exe");
-    require (plain.replaceWithText ("fixture"), "create invalid version resource");
+    require (hypha::storage::writeText (plain, "fixture"), "create invalid version resource");
     require (hypha::host_identity::read (plain).version.isEmpty(), "no fixed-version fallback");
    #endif
     std::cout << "Host identity native boundary PASS\n";

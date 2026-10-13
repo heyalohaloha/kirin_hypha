@@ -1,3 +1,5 @@
+#include "ProductTestClock.h"
+#include "TestProcessorStorage.h"
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
@@ -58,7 +60,7 @@ public:
             require (instance->setBusesLayout (layout), "actual processors negotiate stereo");
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (role == Processor::Role::Pre ? &preClock : &postClock);
-            instance->prepareToPlay (48000, frames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, frames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*instance), "exact existing qualified clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
@@ -67,7 +69,7 @@ public:
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
             alternate = std::make_unique<Processor> (Processor::Role::Pre);
             require (alternate->setBusesLayout (pre->getBusesLayout()), "alternate actual PRE negotiates stereo");
-            alternate->setPlayHead (&preClock); alternate->prepareToPlay (48000, frames);
+            alternate->setPlayHead (&preClock); hypha::tests::prepareFixtureProcessor (*alternate, 48000, frames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*alternate), "alternate has the same exact clock policy");
         }
         audio = std::thread ([this] { processAudio(); }); startTimer (20);
@@ -124,7 +126,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview) preview = post->createPairPreview();
                 if (! demanded)
                 { if (! hypha::pair_preview::request (preview)) break; demanded = true; checkpoint = now; }
@@ -316,6 +318,7 @@ private:
     }
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (2, frames); juce::MidiBuffer midi;
         std::array<std::array<float, delay>, 2> physical {}; std::size_t head = 0;
         std::int64_t emitted = 0, shift = 0;
@@ -367,6 +370,7 @@ private:
             }
             emitted += frames; blocks.fetch_add (1);
             next += std::chrono::nanoseconds (static_cast<long long> (frames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (frames, 48000);
             std::this_thread::sleep_until (next);
         }
     }

@@ -1,5 +1,5 @@
 #include "UpdateStore.h"
-
+#include "../AtomicFile.h"
 #include <cerrno>
 #include <cstring>
 #include <set>
@@ -289,7 +289,7 @@ bool Store::saveState (const State& state, bool clearFuture)
     const auto text = encode (state);
     const auto length = text.getNumBytesAsUTF8();
     if (length == 0 || length > maximumBytes) return false;
-    const auto temporaryName = "pending-" + juce::Uuid().toString() + ".tmp";
+    const auto temporaryName = hypha::storage::temporaryName();
    #if JUCE_WINDOWS
     const auto temporary = directory.getChildFile (temporaryName);
     const auto file = CreateFileW (temporary.getFullPathName().toWideCharPointer(), GENERIC_WRITE, 0,

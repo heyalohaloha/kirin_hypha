@@ -8,7 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 namespace
 {
 using Processor = KirinHyphaProcessorBase;
@@ -44,7 +44,7 @@ std::unique_ptr<Processor> prepare (Processor::Role role, juce::AudioProcessor::
     if (format == juce::AudioProcessor::wrapperType_AAX)
         processor->kirinHostInstanceGroup (role == Processor::Role::Pre ? 101 : 102, true);
     processor->setPlayHead (&clock);
-    processor->prepareToPlay (48000, frames);
+    hypha::tests::prepareFixtureProcessor (*processor, 48000, frames);
     require (! LiveTimingFixtureAccess::timingRingPublished (*processor), "no ring before identity/writes are enabled");
     LiveTimingFixtureAccess::enableFixtureWrites (*processor);
     require (processor->instanceId().isNotEmpty() && processor->stereoWorkflowsSupported(),

@@ -1,6 +1,8 @@
 #pragma once
 #include "../src/PluginProcessor.h"
 #include "AnalysisProductTiming.h"
+#include "ProductTestClock.h"
+#include "AnalysisWorkerReceipt.h"
 #include "LiveTimingFixtureAccess.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
@@ -12,7 +14,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 namespace content_analysis_product
 {
 inline void require (bool ok, const char* why) { if (! ok) throw std::runtime_error (why); }
@@ -84,7 +86,7 @@ struct Fixture
             layout.inputBuses.set (0, set); layout.outputBuses.set (0, set);
             require (processor->setBusesLayout (layout), "fixture layout");
             processor->setPlayHead (role == Processor::Role::Pre ? &preClock : &postClock);
-            processor->prepareToPlay (rate, frames);
+            hypha::tests::prepareFixtureProcessor (*processor, rate, frames);
             if (! au) require (LiveTimingFixtureAccess::configureVst3Clock (*processor,
                 reaper ? "REAPER" : "Studio Pro", reaper ? "7.71.0_ba637e1u" : "8.1.2.113407"), "host content certificate");
             LiveTimingFixtureAccess::enableFixtureWrites (*processor);
@@ -106,8 +108,9 @@ struct Fixture
         KirinSpectrumStats before {}, after {};
         const bool haveStats = reaper && LiveTimingFixtureAccess::analysisStats (processor, before);
         (&processor == pre.get() ? preIntervals : postIntervals).observe (
-            hypha::tests::AnalysisTestClock::now(), frames, rate);
+            wallClock.now(), frames, rate);
         processor.processBlock (audio, midi);
+        hypha::tests::awaitAnalysisInput (processor);
         if (haveStats && LiveTimingFixtureAccess::analysisStats (processor, after))
         {
             const auto dropped = after.dropped_blocks - before.dropped_blocks;
@@ -143,11 +146,12 @@ struct Fixture
             }
         process (*pre, audio);
         if (delay != 0) require (line.process (audio.getArrayOfWritePointers(), channels, frames), "physical delay");
-        injectedDelay.beforePost (callbacks);
+        injectedDelay.beforePost (callbacks, [&] (auto delayTime) { wallClock.advance (delayTime); });
         process (*post, audio);
         preClock.content += frames; postClock.content += frames;
         LiveTimingFixtureAccess::serviceTiming (*post);
         ++callbacks;
+        wallClock.advanceBlock (frames, rate);
         // Worker/IO scheduling is real, but input progress is counted independently below.
         // Do not add a fixed sleep to a slow callback, or catch up with a burst of queued audio.
         hypha::tests::finishAnalysisProductBlock (started, reaper);
@@ -291,6 +295,7 @@ struct Fixture
             && pre->analysisPairingLoopBlock() == LoopPairingBlock::none, "only unverified AU POST publishes Cycle guidance");
         require (! post->liveCompareStatus().preAudible, "unverified AU Cycle never auditions PRE");
     }
+    hypha::tests::ProductTestClock wallClock;
     const hypha::tests::AnalysisAudioDurations durations;
     const int frames;
     int channels, delay = 0;

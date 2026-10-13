@@ -65,6 +65,10 @@ struct SpectrumConsumers {
     blocks: Consumer<SpectrumIngressBlock>,
 }
 
+#[cfg(all(test, feature = "test-support"))]
+#[path = "spectrum_input_receipt_tests.rs"]
+mod input_receipt_tests;
+
 pub struct SpectrumRuntime {
     sample_rate: u32,
     num_channels: usize,

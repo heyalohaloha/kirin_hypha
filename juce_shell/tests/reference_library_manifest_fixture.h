@@ -1,4 +1,5 @@
 #pragma once
+#include "../src/AtomicFile.h"
 #include "../src/reference_audition/ReferenceLibraryVersions.h"
 namespace {
 juce::var libraryManifest (const juce::File& root, juce::var preset, std::int64_t revision)
@@ -9,7 +10,7 @@ juce::var libraryManifest (const juce::File& root, juce::var preset, std::int64_
     const auto json = ref::RuntimeEventTransport::canonicalJson (preset);
     const auto hash = juce::SHA256 (json.toRawUTF8(), json.getNumBytesAsUTF8()).toHexString();
     const auto presetFile = root.getChildFile ("library/presets/" + hash + ".json");
-    require (presetFile.getParentDirectory().createDirectory().wasOk() && presetFile.replaceWithText (json), "canonical library preset must be written");
+    require (presetFile.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (presetFile, json), "canonical library preset must be written");
     item->setProperty ("preset_id", presetId);
     item->setProperty ("revision_id", templateObject->getProperty ("revision_id"));
     item->setProperty ("relative_path", "plugin_data/reference/v2/library/presets/" + hash + ".json");

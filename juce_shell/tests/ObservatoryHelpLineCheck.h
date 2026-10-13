@@ -1,5 +1,5 @@
 #pragma once
-
+#include "TestProcessorStorage.h"
 // 2026-10-04：300% 以上ではどの画面も同じ説明の行を使い、項目が何で、どう使うかまで言う。
 // 300% 以上の LEVEL・TIME・FREQ・SPACE で項目を指すと、その説明を足元に一行で
 // 出す（PluginEditorHelpLine.cpp・HyphaHelpLineBar.h）。図・値・タブの説明は足元の段の全幅に、足元のボタンの説明は左の
@@ -152,7 +152,7 @@ inline void verifyObservatoryHelpLine (const juce::File& previews)
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditorIfNeeded());
     auto* editor = dynamic_cast<KirinHyphaEditor*> (base.get());
     auto* view = editor != nullptr ? component<observatory::View> (*editor) : nullptr;

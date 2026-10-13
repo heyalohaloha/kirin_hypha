@@ -9,7 +9,7 @@
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceRuntimeEventTransport.h"
 #include "../src/reference_audition/ReferenceTextEdges.h"
-
+#include "../src/AtomicFile.h"
 void testReferenceLibrarySkipped (const juce::File&);
 
 namespace
@@ -27,7 +27,7 @@ void rewriteArtifact (const juce::File& root, juce::var& receipt, const char* fo
     const auto json = ref::RuntimeEventTransport::canonicalJson (content);
     const auto hash = juce::SHA256 (json.toRawUTF8(), json.getNumBytesAsUTF8()).toHexString();
     const auto file = root.getChildFile ("library/" + juce::String (folder) + "/" + hash + ".json");
-    require (file.isAChildOf (root) && file.replaceWithText (json), "the changed item is written inside the copy");
+    require (file.isAChildOf (root) && hypha::storage::writeText (file, json), "the changed item is written inside the copy");
     auto* object = receipt.getDynamicObject();
     object->setProperty ("sha256", hash);
     object->setProperty ("bytes", static_cast<juce::int64> (json.getNumBytesAsUTF8()));
@@ -141,7 +141,7 @@ void testReferenceLibrarySkipped (const juce::File& sandbox)
     // JSON writer would split each into two \u escapes, which its reader does not join again).
     const auto kanji = juce::String::charToString (0x2000b) + "Song" + juce::String::charToString (0x20020);
     sets["song_sets"][0]["songs"][1].getDynamicObject()->setProperty ("display_name", kanji);
-    require (root.getChildFile ("library/sets.json").replaceWithText (ref::RuntimeEventTransport::canonicalJson (sets)),
+    require (hypha::storage::writeText (root.getChildFile ("library/sets.json"), ref::RuntimeEventTransport::canonicalJson (sets)),
              "a renamed set song inside the copy, in raw UTF-8");
     rejection.clear();
     skipped.clear();

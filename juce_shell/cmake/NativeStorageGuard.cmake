@@ -23,9 +23,10 @@ if(kirin_hypha_native_tests)
         FIXTURES_CLEANUP kirin_real_storage RUN_SERIAL TRUE TIMEOUT 120)
     set_tests_properties(kirin_native_storage_guard_contract PROPERTIES
         TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    include(${CMAKE_CURRENT_LIST_DIR}/NativePathBudget.cmake)
     set_property(TEST ${kirin_hypha_native_tests} APPEND PROPERTY FIXTURES_REQUIRED kirin_real_storage)
     # Rust and JUCE Kirin OS transports follow this root. Per-test sandboxes replace it with
     # their own root and keep HOME/APPDATA/TMPDIR in the same platform layout.
     set_property(TEST ${kirin_hypha_native_tests} APPEND PROPERTY ENVIRONMENT
-        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-kirin-os")
+        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${kirin_path_root}")
 endif()

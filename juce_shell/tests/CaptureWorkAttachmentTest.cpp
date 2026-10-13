@@ -1,12 +1,12 @@
 #include "TestTemporaryDirectory.h"
 #include "../src/CaptureWorkAttachment.h"
 #include "../src/HyphaCapturePngFile.h"
-
+#include "../src/AtomicFile.h"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <regex>
-
+#include "TestPathBudget.h"
 namespace
 {
 void require (bool condition, const char* message)
@@ -45,9 +45,9 @@ juce::File publishedRequest (const juce::File& requests)
     for (const auto& file : requests.findChildFiles (juce::File::findFiles, false, "*.json"))
     {
         const auto id = file.getFileNameWithoutExtension();
-        // JUCE's atomic-write sibling also ends in .json, but is named
-        // <UUID>_temp<random>.json. submit() uses the canonical dashed UUID that
-        // Kirin OS requires. Only that committed path is a request.
+        // A staging sibling is never a request. Also retain canonical UUID validation
+        // for stale files from writers that used a target-derived JSON temporary.
+        // Only the committed path is a request.
         if (id.length() != 36 || juce::Uuid (id).toDashedString() != id) continue;
         if (result != juce::File()) return {}; // more than one final request is invalid
         result = file;
@@ -85,7 +85,7 @@ bool writeReceipt (const juce::File& target,
     receipt->setProperty ("status", status);
     receipt->setProperty ("code", std::move (code));
     receipt->setProperty ("observed_at_ms", static_cast<juce::int64> (1'788'256'800'100));
-    return target.replaceWithText (juce::JSON::toString (juce::var (receipt), true) + "\n");
+    return hypha::storage::writeText (target, juce::JSON::toString (juce::var (receipt), true) + "\n");
 }
 
 hypha::capture::WorkAttachmentResult waitForResult (
@@ -107,7 +107,7 @@ hypha::capture::WorkAttachmentResult waitForResult (
 int main()
 {
     const auto root = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("kirin-hypha-capture-attachment", {}, false);
+        .getNonexistentChildFile ("cap", {}, false);
     require (root.createDirectory().wasOk(), "create isolated transport root");
 
     {
@@ -138,7 +138,7 @@ int main()
         require (output.loadFileAsData (unchanged) && unchanged == retained,
                  "failed image preparation preserves the previous PNG");
         const auto blocked = images.getChildFile ("blocked-parent");
-        require (blocked.replaceWithText ("preserve"), "create file blocking the destination directory");
+        require (hypha::storage::writeText (blocked, "preserve"), "create file blocking the destination directory");
         juce::Image image (juce::Image::ARGB, 3, 3, true);
         require (! hypha::capture::saveFrozenPng (image, blocked.getChildFile ("capture.png"))
                  && blocked.loadFileAsString() == "preserve"
@@ -152,9 +152,10 @@ int main()
         const auto requests = root.getChildFile ("atomic-publication-control");
         require (requests.createDirectory().wasOk(), "create atomic publication control");
         const auto target = requests.getChildFile (juce::Uuid().toDashedString() + ".json");
-        juce::TemporaryFile pending (target);
-        require (pending.getFile().replaceWithText ("{}"), "create actual atomic-write sibling");
-        require (requests.findChildFiles (juce::File::findFiles, false, "*.json").size() == 1
+        juce::TemporaryFile pending (target, hypha::storage::temporarySibling (target));
+        require (pending.getFile().appendText ("{}"), "create actual atomic-write sibling");
+        require (requests.findChildFiles (juce::File::findFiles, false).size() == 1
+                 && requests.findChildFiles (juce::File::findFiles, false, "*.json").isEmpty()
                  && publishedRequest (requests) == juce::File(),
                  "one temporary JSON is not a committed request");
         require (pending.overwriteTargetFileWithTemporary()
@@ -233,6 +234,6 @@ int main()
                  "reject dimensions outside the high-resolution CAPTURE contract");
     }
 
-    root.deleteRecursively();
+    hypha::tests::removeFixtureDirectory (root);
     return EXIT_SUCCESS;
 }

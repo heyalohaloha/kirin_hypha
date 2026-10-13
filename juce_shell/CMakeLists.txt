@@ -1121,5 +1121,6 @@ endif()
 include(cmake/UpdateIntegrationTests.cmake)
 include(cmake/ShellRepairTests.cmake)
 include(cmake/ContentTimingTests.cmake)
+include(cmake/ProductTestClock.cmake)
 
 include(cmake/NativeStorageGuard.cmake)

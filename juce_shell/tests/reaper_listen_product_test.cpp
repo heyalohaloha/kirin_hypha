@@ -4,11 +4,14 @@ using namespace hypha::live_compare;
 int main (int argc, char** argv)
 try
 {
+    const auto started = hypha::tests::AnalysisTestClock::now();
     require (argc == 2, "explicit mono/stereo layout");
     ReferenceValidationStorageSandbox sandbox;
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
     juce::ScopedJuceInitialiser_GUI initialise;
-    Fixture fixture (juce::String (argv[1]) == "mono" ? 1 : 2, "missing", false, true);
+    // Match this CTest item's 90-second watchdog, including setup and all waits.
+    Fixture fixture (juce::String (argv[1]) == "mono" ? 1 : 2, "missing", false, true,
+                     hypha::tests::analysisPhaseDeadline (started, 90));
     auto& post = *fixture.post;
     fixture.until ([&] { return post.setPairCandidate (fixture.pre->instanceId(), {}); }, "select PRE");
     require (post.startLiveCompare() == StartResult::started, "REAPER LISTEN starts");

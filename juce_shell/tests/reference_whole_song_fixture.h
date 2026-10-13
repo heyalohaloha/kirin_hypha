@@ -1,7 +1,7 @@
 #pragma once
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceProbeAudio.h"
-
+#include "../src/AtomicFile.h"
 namespace
 {
     ref::RuntimeContentReceipt stageWholeSongArtifact (const juce::File& root, const juce::String& bucket, const juce::var& value)
@@ -9,7 +9,7 @@ namespace
         const auto json = ref::RuntimeEventTransport::canonicalJson (value);
         const auto hash = juce::SHA256 (json.toRawUTF8(), json.getNumBytesAsUTF8()).toHexString();
         const auto file = root.getChildFile (bucket + "/" + hash + ".json");
-        require (file.getParentDirectory().createDirectory().wasOk() && file.replaceWithText (json), "canonical whole-song source artifact");
+        require (file.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (file, json), "canonical whole-song source artifact");
         return { "plugin_data/reference/v2/" + bucket + "/" + hash + ".json", hash,
                  static_cast<std::int64_t> (json.getNumBytesAsUTF8()) };
     }

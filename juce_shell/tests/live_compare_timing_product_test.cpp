@@ -1,3 +1,4 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
@@ -15,7 +16,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 static void require (bool ok, const char* why)
 {
     if (! ok) { std::cerr << "timing preparation product: " << why << '\n'; std::exit (EXIT_FAILURE); }
@@ -127,7 +128,7 @@ public:
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (role == Processor::Role::Pre ? &preClock : &postClock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
                      "portable synthetic host carries the exact qualified VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
@@ -211,7 +212,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview) preview = post->createPairPreview();
                 if (! requested)
                 {
@@ -326,6 +327,7 @@ private:
     }
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (2, blockFrames);
         juce::MidiBuffer midi;
         std::array<std::array<float, 4096>, 2> physicalDelay {};
@@ -416,6 +418,7 @@ private:
             minimumGain.store (dynamics.minimum); maximumGain.store (dynamics.maximum);
             blocks.fetch_add (1); emitted += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (blockFrames, 48000);
             std::this_thread::sleep_until (next);
         }
     }

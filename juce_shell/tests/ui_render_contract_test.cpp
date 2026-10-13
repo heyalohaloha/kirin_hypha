@@ -80,7 +80,7 @@ namespace
                     ++count;
         return count;
     }
-
+#include "../src/AtomicFile.h"
     int countExactPixels (const juce::Image& image, juce::Colour colour)
     {
         int count = 0;
@@ -90,7 +90,7 @@ namespace
                     ++count;
         return count;
     }
-
+#include "TestPathBudget.h"
     bool nearRgb (juce::Colour pixel, juce::Colour target)
     {
         return hypha::tests::isReferenceCurveInk (pixel, target);
@@ -174,7 +174,7 @@ int main (int argc, char** argv)
     hypha::tests::verifySurfaceLayerOrderContract();
     hypha::tests::verifySpectrumControlLightContract();
     const auto preferenceDirectory = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
+        .getNonexistentChildFile ("help", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
     const auto preferenceFile = preferenceDirectory.getChildFile ("ui-preferences.txt");
     {
@@ -190,13 +190,13 @@ int main (int argc, char** argv)
         KIRIN_REQUIRE (first.isEnabled());
 
         const auto blockedParent = preferenceDirectory.getChildFile ("not-a-directory");
-        KIRIN_REQUIRE (blockedParent.replaceWithText ("blocker"));
+        KIRIN_REQUIRE (hypha::storage::writeText (blockedParent, "blocker"));
         hypha::HoverHelpPreference fallback (blockedParent.getChildFile ("ui-preferences.txt"));
         KIRIN_REQUIRE (! fallback.setEnabled (false));
         fallback.refreshNowForTest();
         KIRIN_REQUIRE (! fallback.isEnabled()); // failed persistence keeps the session choice
     }
-    KIRIN_REQUIRE (preferenceDirectory.deleteRecursively());
+    KIRIN_REQUIRE (hypha::tests::removeFixtureDirectory (preferenceDirectory));
     hypha::tests::verifyLanguageContract();
 
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);

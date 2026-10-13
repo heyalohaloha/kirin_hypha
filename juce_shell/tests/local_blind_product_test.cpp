@@ -1,8 +1,9 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaLocalBlindComponent.h"
 #include "ReferenceValidationStorageSandbox.h"
-
+#include "TestProcessorStorage.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -74,7 +75,7 @@ public:
             instance->setScaleModePreference (hypha::meter_context::ScaleMode::focus);
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             require (instance->getLatencySamples() == 0, "processor latency stays zero");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
@@ -155,7 +156,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! pairPreview)
                 {
                     pairPreview = post->createPairPreview();
@@ -369,6 +370,7 @@ private:
 
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (channelCount, blockFrames);
         juce::MidiBuffer midi;
         auto next = std::chrono::steady_clock::now();
@@ -415,6 +417,7 @@ private:
             }
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (blockFrames, 48000);
             std::this_thread::sleep_until (next);
         }
     }

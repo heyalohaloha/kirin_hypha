@@ -21,6 +21,9 @@ rtrb = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
 
+[features]
+native-test-support = ["kirin_measure/test-support"]
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader"] }
 

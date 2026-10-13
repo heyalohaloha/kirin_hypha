@@ -1,5 +1,5 @@
 #include "ReferencePresetSelectionTransport.h"
-
+#include "../AtomicFile.h"
 #include <algorithm>
 #include <cmath>
 #include <regex>
@@ -183,8 +183,8 @@ namespace hypha::reference_audition
                 return target.loadFileAsString() == content;
             if (target.exists())
                 return false;
-            const auto temporary = target.getSiblingFile (
-                "." + juce::Uuid().toDashedString() + ".tmp");
+            juce::TemporaryFile staged (target, hypha::storage::temporarySibling (target));
+            const auto temporary = staged.getFile();
             auto stream = temporary.createOutputStream();
             if (stream == nullptr || ! stream->openedOk()
                 || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes)))

@@ -1,6 +1,6 @@
 #include "ReferenceRecoveryTransport.h"
 #include "../KirinTestStorage.h"
-
+#include "../AtomicFile.h"
 #include <cmath>
 #include <limits>
 #include <regex>
@@ -141,7 +141,7 @@ namespace hypha::reference_audition
             if (bytes < 1 || bytes > maximumBytes
                 || ! target.getParentDirectory().createDirectory())
                 return false;
-            juce::TemporaryFile temporary (target);
+            juce::TemporaryFile temporary (target, hypha::storage::temporarySibling (target));
             {
                 auto stream = temporary.getFile().createOutputStream();
                 if (stream == nullptr || ! stream->openedOk()

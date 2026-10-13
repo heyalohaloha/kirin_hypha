@@ -1,12 +1,12 @@
 #pragma once
-
+#include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "../src/HyphaHybridVuPainter.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaVuCalibrationPreference.h"
 #include "../src/HyphaLanguage.h"
 #include "FooterNoticeContractChecks.h"
-
+#include "TestPathBudget.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -57,7 +57,7 @@ private:
 inline void verifyPreference()
 {
     const auto root = hypha::tests::temporaryParent()
-        .getChildFile ("hypha-vu-calibration-fixture-" + juce::Uuid().toString());
+        .getChildFile ("vu-" + juce::Uuid().toString().substring (0, 8));
     require (root.createDirectory().wasOk(), "disposable directory");
     const auto a = vu_calibration::scopeKey ("project-a", "pre-a");
     const auto b = vu_calibration::scopeKey ("project-a", "pre-b");
@@ -97,20 +97,20 @@ inline void verifyPreference()
     require (pre.fileFor (a).getSize() < 256, "small complete shared record");
     for (const auto malformed : { "", "-14", "KIRIN_HYPHA_VU_CALIBRATION_V2\n", "extra" })
     {
-        require (pre.fileFor (a).replaceWithText (malformed), "fixture corruption");
+        require (hypha::storage::writeText (pre.fileFor (a), malformed), "fixture corruption");
         vu_calibration::Preference damaged (root);
         require (damaged.read (a, 0) == -18, "corrupt file safely defaults");
     }
     require (pre.set (a, -16, 1000), "recover by explicit choice");
     auto text = pre.fileFor (a).loadFileAsString();
-    require (pre.fileFor (b).replaceWithText (text), "wrong-owner fixture");
+    require (hypha::storage::writeText (pre.fileFor (b), text), "wrong-owner fixture");
     vu_calibration::Preference wrongOwner (root);
     require (wrongOwner.read (b, 0) == -18, "wrong scope cannot publish calibration");
     require (pre.set (a, -18, std::numeric_limits<juce::uint32>::max() - 100u), "clock wrap setup");
     require (post.set (a, -12, 0), "other side after clock wrap");
     require (pre.read (a, 148) == -18 && pre.read (a, 149) == -12, "cache handles uint32 wrap");
     const auto blocker = root.getChildFile ("blocked");
-    require (blocker.replaceWithText ("not a directory"), "write-failure fixture");
+    require (hypha::storage::writeText (blocker, "not a directory"), "write-failure fixture");
     vu_calibration::Preference unavailable (blocker);
     require (unavailable.read (a, 0) == -18 && ! unavailable.set (a, -14, 1)
              && unavailable.read (a, 251) == -18, "failed write retains old setting");
@@ -133,7 +133,7 @@ inline void verifyPreference()
         vu_calibration::Preference afterFailure (root);
         require (afterFailure.read (a, 0) == -14, "reopen after failed/partial writer keeps old choice");
     }
-    require (root.deleteRecursively(), "dispose fixtures");
+    require (hypha::tests::removeFixtureDirectory (root), "dispose fixtures");
 }
 
 inline juce::Image render (observatory::View& view)

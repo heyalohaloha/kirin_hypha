@@ -2,7 +2,7 @@
 #include "reference_runtime_v2_preset_test_support.h"
 #include "reference_runtime_v2_transaction_test_support.h"
 #include "ReferenceSourceFailureTest.h"
-
+#include "../src/AtomicFile.h"
 void testRuntimeV2Workspace (const juce::File& sandbox);
 
 void testRuntimeV2Workspace (const juce::File& sandbox)
@@ -39,10 +39,10 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                  && first.workspace->presets[0].checks[0].candidates[0].displayName
                       == "Reference Mix",
                  "exact v2 Manifest and Preset bytes must load as one immutable workspace");
-        verifyPresetAdoptionPublication (v2Root, { runtimeId, workId, 42 },
+        hypha::tests::verifyPresetAdoptionPublication (v2Root, { runtimeId, workId, 42 },
             first.workspace->presets[0].sourceTemplateArtifact, first.workspace->presets[0].sourcePresetArtifact);
 
-        require (presetFile.replaceWithText ("{\"partial\":true}"),
+        require (hypha::storage::writeText (presetFile, "{\"partial\":true}"),
                  "partial Preset publication fixture must be written");
         const auto unchanged = v2Repository.refresh (workId, first.workspace);
         require (unchanged.state == ref::RuntimeWorkspaceLoadState::unchanged
@@ -485,7 +485,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 presetId, revisionId, alignedBFrames, alignedA->startSample + 1, output);
         }
 
-        require (source.replaceWithText ("changed after receipt")
+        require (hypha::storage::writeText (source, "changed after receipt")
                  && sourceRepository.verifySourceRevision (*exactSource.source)
                       == "reference_source_changed"
                  && sourceRepository.verifySourceFile (*exactSource.source)

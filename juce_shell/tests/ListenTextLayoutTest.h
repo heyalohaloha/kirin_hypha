@@ -2,7 +2,7 @@
 #include <iostream>
 #include "ListenTextCases.h"
 #include "ListenTextPaintChecks.h"
-
+#include "../src/AtomicFile.h"
 namespace hypha::tests
 {
 inline juce::String withoutWhitespace (juce::String text)
@@ -123,7 +123,7 @@ void verifyAllListenText (Require require)
         }
     }
     if (previewDir.isNotEmpty())
-        require (juce::File (previewDir).getChildFile ("notices.tsv").replaceWithText (inventory), "notice inventory saved");
+        require (hypha::storage::writeText (juce::File (previewDir).getChildFile ("notices.tsv"), inventory), "notice inventory saved");
     for (const auto& failure : failures) std::cerr << "Clipped " << failure << '\n';
     std::cout << "All LISTEN text: " << notices.size() << " notices / " << namedCount << " cases; BLIND: "
               << blindCases.size() << " screens / " << blindCount << " cases; " << clipped << " clipped\n";

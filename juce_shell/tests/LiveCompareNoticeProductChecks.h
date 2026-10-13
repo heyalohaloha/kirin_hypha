@@ -1,8 +1,9 @@
 #pragma once
-
+#include "TestProcessorStorage.h"
 #include "EditorProductChecks.h"
 #include "EditorHiddenAutoCheck.h"
 #include "LiveTimingFixtureAccess.h"
+#include "ProductTestClock.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include <chrono>
 #include <cstring>
@@ -98,6 +99,7 @@ struct NoticeClock final : juce::AudioPlayHead
 
 struct NoticeRig
 {
+    ProductTestClock wallClock;
     NoticeClock clock;
     std::unique_ptr<Processor> pre, post;
     std::unique_ptr<KirinHyphaEditor> editor;
@@ -114,7 +116,7 @@ struct NoticeRig
             layout.inputBuses.set (0, juce::AudioChannelSet::stereo());
             layout.outputBuses.set (0, juce::AudioChannelSet::stereo());
             require (p->setBusesLayout (layout), "notice fixture uses actual stereo");
-            p->setPlayHead (&clock); p->prepareToPlay (48000, 512);
+            p->setPlayHead (&clock); hypha::tests::prepareFixtureProcessor (*p, 48000, 512);
             require (LiveTimingFixtureAccess::configureStudioProClock (*p), "qualified fixture clock");
             (p.get()->*privateMember (NoticeEnableWrites {}))();
             (role == Processor::Role::Pre ? pre : post) = std::move (p);
@@ -139,6 +141,7 @@ struct NoticeRig
             preAudio.setSample (c, n, value); postAudio.setSample (c, n, value);
         }
         pre->processBlock (preAudio, midi); post->processBlock (postAudio, midi);
+        wallClock.advanceBlock (512, 48000);
         if (expectOrdinaryAudio)
             for (int c = 0; c < 2; ++c)
                 require (std::memcmp (preAudio.getReadPointer (c), postAudio.getReadPointer (c),
@@ -150,8 +153,8 @@ struct NoticeRig
     }
     void advance (double seconds)
     {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double> (seconds);
-        while (std::chrono::steady_clock::now() < end)
+        const auto blocks = static_cast<int> (std::ceil (seconds * 48000 / 512));
+        for (int i = 0; i < blocks; ++i)
         { block(); std::this_thread::sleep_for (std::chrono::milliseconds (11)); }
     }
     void selectPair()

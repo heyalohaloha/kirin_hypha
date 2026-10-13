@@ -1,5 +1,5 @@
 #pragma once
-
+#include "TestPathBudget.h"
 #include "TestTemporaryDirectory.h"
 #include <juce_core/juce_core.h>
 #include <cstdlib>
@@ -25,7 +25,7 @@ public:
         const auto processId = ::getpid();
        #endif
         root = hypha::tests::temporaryParent()
-                   .getNonexistentChildFile ("kirin-hypha-audio-transparency-"
+                   .getNonexistentChildFile ("s-"
                                              + juce::String (processId), {}, false);
         const auto result = root.createDirectory();
         if (result.failed())
@@ -48,7 +48,7 @@ public:
         catch (...)
         {
             restore();
-            root.deleteRecursively();
+            hypha::tests::removeFixtureDirectory (root);
             throw;
         }
     }
@@ -56,7 +56,7 @@ public:
     ~ValidationStorageSandbox()
     {
         restore();
-        root.deleteRecursively();
+        hypha::tests::removeFixtureDirectory (root);
     }
 
 private:

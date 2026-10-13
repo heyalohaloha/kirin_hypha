@@ -1,6 +1,6 @@
 #include "CaptureWorkAttachment.h"
 #include "KirinTestStorage.h"
-
+#include "AtomicFile.h"
 #include <set>
 
 #include <juce_cryptography/juce_cryptography.h>
@@ -68,7 +68,7 @@ bool writeMemoryAtomically (const juce::File& target, const juce::MemoryBlock& b
 {
     if (! target.getParentDirectory().createDirectory())
         return false;
-    juce::TemporaryFile temporary (target);
+    juce::TemporaryFile temporary (target, hypha::storage::temporarySibling (target));
     {
         auto stream = temporary.getFile().createOutputStream();
         if (stream == nullptr || ! stream->openedOk()

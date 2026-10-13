@@ -1,3 +1,5 @@
+// This elapsed-time integration oracle intentionally uses steady_clock: it measures actual
+// work between callbacks against an independent host timer. It is not a gap/analysis fixture.
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "ReferenceValidationStorageSandbox.h"
@@ -9,7 +11,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 static void require (bool ok, const char* why)
 {
     if (! ok) { std::cerr << "chain timing product: " << why << '\n'; std::exit (EXIT_FAILURE); }
@@ -74,7 +76,7 @@ public:
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             require (instance->getLatencySamples() == 0, "the measurement adds no latency");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
@@ -123,7 +125,7 @@ private:
             case 0:
             {
                 require (view.state != View::State::measuring, "an unpaired POST measures nothing");
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview) preview = post->createPairPreview();
                 if (! requested)
                 {

@@ -1,6 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceLibraryOpenOutcome.h"
-
+#include "../AtomicFile.h"
 namespace hypha::reference_audition
 {
 bool RuntimeV2Controller::requestLibraryRecovery()
@@ -39,9 +39,7 @@ bool RuntimeV2Controller::requestLibraryRecovery()
     object->setProperty ("check_id", currentSnapshot.checkId);
     const auto file = root.getChildFile ("library/open").getChildFile (id + ".json");
     if (! file.getParentDirectory().createDirectory()) return false;
-    juce::TemporaryFile temporary (file);
-    if (! temporary.getFile().replaceWithText (juce::JSON::toString (juce::var (object)))
-        || ! temporary.overwriteTargetFileWithTemporary()) return false;
+    if (! hypha::storage::writeText (file, juce::JSON::toString (juce::var (object)))) return false;
     pendingLibraryOpen = file;
     libraryOpenRequestedAt = requestedAt;
     currentSnapshot.recoveryStatus = "pending";

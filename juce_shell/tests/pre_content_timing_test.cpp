@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-
+#include "TestProcessorStorage.h"
 struct Clock : juce::AudioPlayHead
 {
     juce::Optional<PositionInfo> getPosition() const override
@@ -32,7 +32,7 @@ static void verifyAaxReset()
                 layout.inputBuses.set (0, channelSet); layout.outputBuses.set (0, channelSet);
                 require (processor.setBusesLayout (layout), "AAX reset fixture negotiates mono/stereo");
                 Clock clock; clock.source = 3; clock.position = 960000;
-                processor.setPlayHead (&clock); processor.prepareToPlay (48000, 256);
+                processor.setPlayHead (&clock); hypha::tests::prepareFixtureProcessor (processor, 48000, 256);
                 LiveTimingFixtureAccess::configureAaxClock (processor);
                 juce::AudioBuffer<float> buffer (channels, 256), original (channels, 256);
                 for (int channel = 0; channel < channels; ++channel)
@@ -71,7 +71,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI initialise;
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_AudioUnit);
     KirinHyphaProcessorBase pre (KirinHyphaProcessorBase::Role::Pre);
-    Clock clock; pre.setPlayHead (&clock); pre.prepareToPlay (96000, 512);
+    Clock clock; pre.setPlayHead (&clock); hypha::tests::prepareFixtureProcessor (pre, 96000, 512);
     hypha::live_compare::OffsetEstimate e;
     e.determined = true; e.sampleRate = 96000; e.peak = 0.4; e.dominance = 20;
     require (! pre.holdLiveCompareForContentJump (e), "PRE can never acquire a POST content hold");

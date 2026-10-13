@@ -326,6 +326,18 @@ impl SpectrumRuntime {
         }
     }
 
+    /// Fixture receipt only; does not change ingress, clocks, worker scheduling or results.
+    /// # Safety
+    /// Call on the sole producer thread between callbacks, without another producer or
+    /// concurrent destruction. `slots()` updates the producer's thread-local cached head.
+    #[cfg(feature = "test-support")]
+    pub unsafe fn input_drained_for_test(&self) -> bool {
+        let samples = unsafe { &*self.sample_producer.get() };
+        let blocks = unsafe { &*self.block_producer.get() };
+        samples.slots() == samples.buffer().capacity()
+            && blocks.slots() == blocks.buffer().capacity()
+    }
+
     pub fn latest_presentation_end(&self) -> Option<i64> {
         let value = self.latest_presentation_end.load(Ordering::Acquire);
         (value != NO_PRESENTATION_POSITION).then_some(value)

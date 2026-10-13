@@ -305,6 +305,11 @@ jobs:
           cmake --build juce_shell/build-windows --config Release --target KirinLiveCompareCorrespondenceTests KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests KirinLiveCompareLoopFeasibilityTests KirinLiveCompare_reentry_Tests KirinLiveCompare_gain_snapshot_Tests Kirin_live_blind_session_Tests Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_live_compare_(correspondence|timing|session|match|loop|loop_feasibility|completion|authority|reentry|gain_snapshot)|kirin_live_blind_session)$'
 
+      - name: Validate REAPER LISTEN contracts and product flow
+        run: |
+          cmake --build juce_shell/build-windows --config Release --target Kirin_reaper_clock_Tests Kirin_reaper_correspondence_Tests Kirin_reaper_fault_Tests KirinReaperListenProductTests KirinChainTraceTests KirinListenTextLayoutTests KirinHostContentClockPolicyTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_reaper_clock|kirin_reaper_correspondence|kirin_reaper_fault|kirin_reaper_listen_mono_product|kirin_reaper_listen_stereo_product|kirin_chain_trace|kirin_listen_text_layout|kirin_host_content_clock_policy)$'
+
       # The Windows live ring end to end: the real PRE and POST processors, pair discovery, the
       # named section, the product editor, PIN to Blind and the offset warning.
       # They run in real time, so a stall of the shared runner can fail one by chance: each runs once

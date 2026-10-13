@@ -152,6 +152,7 @@ test('CTest filtered runs include the guard; cleanup detects writes even after n
     `import { run } from ${JSON.stringify(new URL('./native_storage_guard.mjs', import.meta.url).href)};
      run(process.argv[2], process.argv[3], ${JSON.stringify(f.roots)});`);
   fs.writeFileSync(path.join(scripts, 'native_storage_guard.test.mjs'), '');
+  fs.copyFileSync(new URL('./native_path_budget.mjs', import.meta.url), path.join(scripts, 'native_path_budget.mjs'));
   fs.writeFileSync(path.join(scripts, 'fail.mjs'),
     `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(path.join(f.protectedRoot, 'lease'))}, '{}'); process.exit(7);`);
   const cmakePath = value => value.replaceAll('\\', '/');
@@ -168,7 +169,8 @@ include("${cmakePath(cmakeGuard)}")
   const inventory = invoke('ctest', ['--test-dir', build, '--show-only=json-v1', '-R', '^native_ok$']);
   assert.equal(inventory.status, 0, inventory.stderr);
   assert.deepEqual(JSON.parse(inventory.stdout).tests.map(item => item.name).sort(),
-    ['kirin_native_storage_guard_cleanup', 'kirin_native_storage_guard_setup', 'native_ok']);
+    ['kirin_native_path_budget_cleanup', 'kirin_native_path_budget_setup',
+      'kirin_native_storage_guard_cleanup', 'kirin_native_storage_guard_setup', 'native_ok']);
   const pass = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_ok$']);
   assert.equal(pass.status, 0, pass.stdout + pass.stderr);
   const fail = invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', '^native_failure$']);

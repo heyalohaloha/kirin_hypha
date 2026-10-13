@@ -1,5 +1,5 @@
 #pragma once
-
+#include "../src/AtomicFile.h"
 // Kirin OS の書き出しの写し（tests/fixtures/kirin_os_library_abcv）を試験のフォルダへ写す。
 // 写しは Mac の Kirin OS が書いたもので、音源の記述（sources/<sha256>.json）の場所は POSIX の絶対パス。Windows は
 // それを絶対パスと認めない（Kirin OS も Windows では Windows の絶対パスを書く）。どの環境でも同じ道を通るよう、
@@ -60,7 +60,7 @@ inline bool rewrite (const juce::File& folder, bool rename, Hashes& hashes, std:
         auto json = juce::JSON::parse (file);
         if (json.isVoid()) return false;
         retarget (json, earlier, sizes);
-        if (! file.replaceWithText (juce::JSON::toString (json, true))) return false;
+        if (! hypha::storage::writeText (file, juce::JSON::toString (json, true))) return false;
         if (! rename) continue;
         const auto now = sha256Of (file);
         if (now == file.getFileNameWithoutExtension()) continue;
@@ -85,7 +85,7 @@ inline bool placeSources (const juce::File& root)
         auto* place = json["file"].getDynamicObject();
         if (place == nullptr || ! place->hasProperty ("absolute_path")) return false;
         place->setProperty ("absolute_path", audio);
-        if (! file.replaceWithText (juce::JSON::toString (json, true))) return false;
+        if (! hypha::storage::writeText (file, juce::JSON::toString (json, true))) return false;
         const auto now = sha256Of (file);
         hashes[file.getFileNameWithoutExtension()] = now;
         sizes[now] = file.getSize();

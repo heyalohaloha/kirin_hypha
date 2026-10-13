@@ -1,5 +1,5 @@
 #include "ReferenceRuntimeACapture.h"
-
+#include "../AtomicFile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -45,7 +45,7 @@ namespace hypha::reference_audition
             const auto contents = juce::JSON::toString (value, true) + "\n";
             if (contents.getNumBytesAsUTF8() > 8'192)
                 return false;
-            juce::TemporaryFile temporary (target);
+            juce::TemporaryFile temporary (target, hypha::storage::temporarySibling (target));
             {
                 auto stream = temporary.getFile().createOutputStream();
                 if (stream == nullptr || ! stream->openedOk()

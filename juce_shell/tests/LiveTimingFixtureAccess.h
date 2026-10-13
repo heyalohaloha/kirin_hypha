@@ -2,6 +2,10 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLiveCompareClockPolicy.h"
 
+#if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+extern "C" bool kirin_hypha_test_analysis_input_drained (KirinHypha*);
+#endif
+
 // Non-shipping synthetic host. Both compilers must model the SAME measured clock policy;
 // opt-in macOS tracing must not secretly supply a prerequisite missing from the Windows test.
 // There is no exported hook, new product field, or run-time certificate bypass. Configuration
@@ -9,6 +13,10 @@
 class LiveTimingFixtureAccess
 {
 public:
+   #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    static bool analysisInputDrained (KirinHyphaProcessorBase& processor)
+    { return kirin_hypha_test_analysis_input_drained (processor.hyphaHandle); }
+   #endif
     // qualified = a Pro Tools build (the measured 26.4.0.5 by default, or another build's version);
     // otherwise an AAX host that is not Pro Tools (no certificate, no bound). All of them feed the
     // AAX Perceptual route, as prepareToPlay does for every AAX host.

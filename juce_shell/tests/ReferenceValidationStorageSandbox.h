@@ -7,7 +7,7 @@ class ReferenceValidationStorageSandbox : public ValidationStorageSandbox
 public:
     ReferenceValidationStorageSandbox()
     {
-        referenceRoot = directory().getChildFile ("reference-fixture");
+        referenceRoot = directory().getChildFile ("ref");
         if (referenceRoot.createDirectory().failed())
             throw std::runtime_error ("could not create Reference fixture");
         hypha::reference_audition::RuntimeV2Repository::setTransportRootForTesting (referenceRoot);

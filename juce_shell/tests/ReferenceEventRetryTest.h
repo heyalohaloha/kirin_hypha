@@ -1,8 +1,9 @@
 #pragma once
+#include "TestPathBudget.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Controller.h"
 #include <cstdlib>
 #include <iostream>
-
+#include "../src/AtomicFile.h"
 namespace hypha::tests::event_retry
 {
 using Runtime = reference_audition::RuntimeV2Controller;
@@ -50,7 +51,7 @@ inline void verify (const juce::File& fixture, const Context& context)
 {
     const auto root = fixture.getChildFile ("immutable-event-retry");
     const auto events = root.getChildFile (context.identity.library ? "library/events" : "events");
-    check (events.getParentDirectory().createDirectory() && events.replaceWithText ("blocked fixture"), "block fixture event directory");
+    check (events.getParentDirectory().createDirectory() && hypha::storage::writeText (events, "blocked fixture"), "block fixture event directory");
     Runtime runtime (root);
     contextFor (runtime, context, {});
     (runtime.*method (BeginTag {})) (0); confirmB (runtime, {});
@@ -78,7 +79,7 @@ inline void verify (const juce::File& fixture, const Context& context)
     const auto completionSecond = wait ([] (const Facts& f) { return f.attempts == 2; });
     check (completionSecond.completed == completionFirst.completed
         && completionSecond.retry >= completionFirst.retry + 2000, "completion timestamp and retry interval are stable");
-    check (completion.deleteRecursively(), "remove only the empty fixture blocker");
+    check (hypha::tests::removeFixtureDirectory (completion), "remove only the empty fixture blocker");
     wait ([] (const Facts& f) { return f.startId.isEmpty(); });
     check (transport.eventFile (context.identity.runtimeInstanceId, written.startId).loadFileAsString() == bytes,
            "completion never changes the immutable start bytes");

@@ -1,10 +1,11 @@
+#include "ProductTestClock.h"
 #include "LiveTimingFixtureAccess.h"
 #include "EditorProductChecks.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveCompareNoticeProductChecks.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
-
+#include "TestProcessorStorage.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -49,7 +50,7 @@ static void verifyRecoveryGeometry()
         const i18n::ScopedLanguage scoped (language);
         juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
         Processor processor (Processor::Role::Post);
-        processor.prepareToPlay (48000, 512);
+        hypha::tests::prepareFixtureProcessor (processor, 48000, 512);
         std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
         editor->setVisible (true);
         auto* view = component<observatory::View> (*editor);
@@ -107,14 +108,15 @@ static void verifyRecoveryGeometry()
 
 static void verifyHoldAfterEnd()
 {
+    hypha::tests::ProductTestClock wallClock;
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48000, 512);
+    hypha::tests::prepareFixtureProcessor (processor, 48000, 512);
     Clock clock;
     processor.setPlayHead (&clock);
     juce::AudioBuffer<float> buffer (2, 512);
     juce::MidiBuffer midi;
     const auto process = [&]
-    { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; processor.serviceLiveCompare(); };
+    { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; wallClock.advanceBlock (512, 48000); processor.serviceLiveCompare(); };
     LiveTimingFixtureAccess::holdContent (processor, -3000);
     processor.finishLiveCompare(); process();
     using namespace live_compare_ui;
@@ -140,7 +142,7 @@ static void verifyLoopPresentation()
     {
         const i18n::ScopedLanguage scoped (language);
         Processor processor (Processor::Role::Post);
-        processor.prepareToPlay (48000, 512);
+        hypha::tests::prepareFixtureProcessor (processor, 48000, 512);
         std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
         editor->setVisible (true);
         auto* view = component<observatory::View> (*editor);

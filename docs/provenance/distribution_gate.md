@@ -179,3 +179,15 @@ The embedded resource/font declaration is byte-identical and the three embedded 
 hashes still match the registry. Only the build-contract hash is updated to
 `0863d612d4f14eeee7939866362725dd8a10a08614313f155adb3aebc7541c1a`. Asset permissions, holds and release gates retain their prior decisions.
 This source review does not claim independent review or release acceptance.
+
+### 2026-10-13 native callback clock build-contract review
+
+The implementation review compared the complete CMake difference with the checkout base.
+Removing the single `ProductTestClock.cmake` include restores the exact base bytes. That module
+compiles existing processor sources into a separate native-test library, links a separate
+fixture Rust archive and registers clock tests. Its resource dependency reuses the existing
+`KirinHyphaData`; it adds no embedded images, fonts or resource declarations. The embedded
+source inventory and all three PNG hashes still match the registry. The reviewed CMake hash is
+`2a5a89aedc32944b58a07cc6f58fa7ce0f17b3b8c27bfdbdb87924c078f021bd`. Only the registry build-contract hash changes; asset
+permissions, holds and distribution gates retain their prior decisions. This bounded source
+review does not claim independent review, new material rights or release acceptance.

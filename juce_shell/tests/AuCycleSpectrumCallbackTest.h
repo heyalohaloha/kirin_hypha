@@ -6,7 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 namespace hypha::tests
 {
 inline void verifyAuCycleSpectrumCallbacks()
@@ -39,7 +39,7 @@ inline void verifyAuCycleSpectrumCallbacks()
         const auto set = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
         layout.inputBuses.set (0, set); layout.outputBuses.set (0, set);
         require (post.setBusesLayout (layout), "AU FREQ fixture layout");
-        post.setPlayHead (&clock); post.prepareToPlay (48000, 256);
+        post.setPlayHead (&clock); hypha::tests::prepareFixtureProcessor (post, 48000, 256);
         LiveTimingFixtureAccess::enableFixtureWrites (post);
         const auto owner = post.beginAnalysisUiSession();
         require (post.setAnalysisDemand (owner, { analysis::Kind::spectrum, 0 }), "AU FREQ demand");

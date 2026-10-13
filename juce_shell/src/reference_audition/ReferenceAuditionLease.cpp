@@ -1,5 +1,5 @@
 #include "ReferenceAuditionLease.h"
-
+#include "../AtomicFile.h"
 #include "ReferenceAuditionProtocol.h"
 
 namespace hypha::reference_audition
@@ -18,7 +18,7 @@ namespace hypha::reference_audition
         {
             if (! target.getParentDirectory().createDirectory())
                 return false;
-            juce::TemporaryFile temporary (target);
+            juce::TemporaryFile temporary (target, hypha::storage::temporarySibling (target));
             {
                 auto stream = temporary.getFile().createOutputStream();
                 if (stream == nullptr || ! stream->openedOk()

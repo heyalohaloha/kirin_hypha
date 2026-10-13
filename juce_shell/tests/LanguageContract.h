@@ -1,5 +1,5 @@
 #pragma once
-
+#include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "AbsoluteAnalysisHelpContract.h"
 #include "../src/HyphaComparisonPresentation.h"
@@ -9,7 +9,7 @@
 #include "../src/HyphaTextLookAndFeel.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaUiPreferences.h"
-
+#include "TestPathBudget.h"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -181,7 +181,7 @@ inline void verifyPreference()
 {
     using i18n::Language;
     const auto directory = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("kirin-hypha-language-contract", {}, false);
+        .getNonexistentChildFile ("lang", {}, false);
     KIRIN_LANGUAGE_REQUIRE (directory.createDirectory().wasOk());
     const auto file = directory.getChildFile ("ui-preferences.txt");
     {
@@ -210,13 +210,13 @@ inline void verifyPreference()
 
         // A choice that cannot be saved still holds for the session.
         const auto blocker = directory.getChildFile ("not-a-directory");
-        KIRIN_LANGUAGE_REQUIRE (blocker.replaceWithText ("blocker"));
+        KIRIN_LANGUAGE_REQUIRE (hypha::storage::writeText (blocker, "blocker"));
         LanguagePreference unsaved (blocker.getChildFile ("ui-preferences.txt"), "en-US");
         KIRIN_LANGUAGE_REQUIRE (! unsaved.setLanguage (Language::japanese));
         unsaved.refreshNowForTest();
         KIRIN_LANGUAGE_REQUIRE (unsaved.language() == Language::japanese);
     }
-    KIRIN_LANGUAGE_REQUIRE (directory.deleteRecursively());
+    KIRIN_LANGUAGE_REQUIRE (hypha::tests::removeFixtureDirectory (directory));
 }
 
 inline juce::Image drawn (const std::function<void (juce::Graphics&)>& paint)

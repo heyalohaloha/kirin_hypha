@@ -11,7 +11,7 @@
 #include "../src/reference_audition/ReferenceLibrarySongs.h"
 #include "../src/reference_audition/ReferenceCueMatch.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Controller.h"
-
+#include "../src/AtomicFile.h"
 #include <algorithm>
 
 void testReferenceLibrarySets (const juce::File&);
@@ -203,7 +203,7 @@ void followsRankChangesAndPublication (const juce::File& sandbox)
              "a missing sets file is not a rejection");
 
     // 形の壊れた sets は理由つきで読まないが、library は使える。
-    require (root.getChildFile ("library/sets.json").replaceWithText ("{\"format\":\"kirin_hypha_reference_library_sets\"}"),
+    require (hypha::storage::writeText (root.getChildFile ("library/sets.json"), "{\"format\":\"kirin_hypha_reference_library_sets\"}"),
              "a broken sets file");
     ref::RuntimeV2Repository broken (root);
     const auto withBroken = broken.refreshLibrary();

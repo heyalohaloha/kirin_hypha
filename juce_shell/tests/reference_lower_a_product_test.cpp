@@ -9,12 +9,12 @@
 #include "reference_library_manifest_fixture.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LocalBlindSignalFixture.h"
-
+#include "../src/AtomicFile.h"
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -112,7 +112,7 @@ public:
         layout.outputBuses.set (0, juce::AudioChannelSet::stereo());
         require (post->setBusesLayout (layout), "stereo layout");
         post->setPlayHead (&clock);
-        post->prepareToPlay (48000, frames);
+        hypha::tests::prepareFixtureProcessor (*post, 48000, frames);
         post->refreshLicenseForUserAction();
         require (post->licenseIsOs(), "the sandbox identity grants the Kirin OS license");
         clock.playing.store (true);
@@ -302,7 +302,7 @@ int main (int argc, char** argv)
                  && ref::RuntimeV2Repository::transportRoot() == reference,
              "every write stays inside the sandbox");
     std::cout << "Reference lower A product: sandbox " << box.getFullPathName() << '\n';
-    require (identity.getParentDirectory().createDirectory().wasOk() && identity.replaceWithText ("{\"license\":\"os\"}"),
+    require (identity.getParentDirectory().createDirectory().wasOk() && hypha::storage::writeText (identity, "{\"license\":\"os\"}"),
              "sandbox Kirin OS identity");
     writeLibrary (reference);
    #if JUCE_MAC

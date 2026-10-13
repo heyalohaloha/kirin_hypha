@@ -15,7 +15,7 @@
 #include "../src/HyphaWidgets.h"
 #include <cstdlib>
 #include <iostream>
-
+#include "TestPathBudget.h"
 namespace hypha::tests::shell_repairs
 {
 inline void verifyPaint();
@@ -34,7 +34,7 @@ inline int preferenceWriter (int argc, char** argv)
 inline void verifyPreferences()
 {
     const auto folder = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("hypha-preference-merge", {}, false);
+        .getNonexistentChildFile ("pref", {}, false);
     require (folder.createDirectory(), "create isolated preference directory");
     const auto file = folder.getChildFile ("ui-preferences.txt");
     require (ui_preferences::write (file, "sentinel", "preserve"), "seed unrelated preference");
@@ -53,7 +53,7 @@ inline void verifyPreferences()
     require (ui_preferences::read (file, "language") == "99"
         && ui_preferences::read (file, "hover_help") == "99"
         && ui_preferences::read (file, "sentinel") == "preserve", "both keys and unrelated data survive concurrent writes");
-    require (folder.deleteRecursively(), "remove only disposable preferences");
+    require (hypha::tests::removeFixtureDirectory (folder), "remove only disposable preferences");
 }
 inline void verify()
 {

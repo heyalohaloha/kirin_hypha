@@ -1,10 +1,11 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "LiveBlindLoopFixture.h"
-
+#include "TestProcessorStorage.h"
 #include <atomic>
 #include <array>
 #include <chrono>
@@ -61,7 +62,7 @@ public:
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (role == Processor::Role::Pre ? &clock : &postClock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             if (clock.certifiedContent)
                 require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
                          "nominal LOOP uses the qualified synthetic VST3 clock policy");
@@ -146,7 +147,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview)
                     preview = post->createPairPreview();
                 if (! demanded)
@@ -181,7 +182,7 @@ private:
                     if (! click ("observatory-live-compare")) break;
                 }
                 else if (! click ("observatory-local-blind")) break;
-                listenedAt = std::chrono::steady_clock::now();
+                listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
             case 3:
@@ -194,7 +195,7 @@ private:
                 }
                 if (reuse && ! reused)
                 {
-                    if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (4500)) break;
+                    if (hypha::live_compare::callbackWallNanos() - listenedAt < 4500000000ULL) break;
                     const auto measured = post->measureLiveCompare();
                     if (! measured.ok()) break;
                     require (std::abs (measured.measuredDb + 6.0206) < 0.002, "MATCH measures -6.02 dB");
@@ -370,11 +371,11 @@ private:
                 if (std::abs (post->liveCompareStatus().postActual - std::pow (10.0f, -8.0f / 20.0f)) > 0.0001f) break;
                 held = post->liveCompareStatus().postActual;
                 post->closeLiveBlind();
-                listenedAt = std::chrono::steady_clock::now();
+                listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
             case 8:
-                if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (450)) break;
+                if (hypha::live_compare::callbackWallNanos() - listenedAt < 450000000ULL) break;
                 require (std::abs (post->liveCompareStatus().postActual - held) <= 0.0f, "window close holds approved attenuation");
                 require (post->outputDecision (hypha::output_owner::Activity::recordKeep).reason
                              != hypha::output_owner::Reason::blindRunning, "closed Blind no longer owns the Keep exclusion");
@@ -385,11 +386,12 @@ private:
                 if (! suspended.load()) break;
                 post->finishLiveCompare();
                 post->finishLiveCompare(); // idempotent while pending
-                listenedAt = std::chrono::steady_clock::now();
+                pendingAt = std::chrono::steady_clock::now();
                 ++stage;
                 break;
             case 10:
-                if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (250)) break;
+                // No callbacks: audio time is frozen. Observe END across real message-thread ticks.
+                if (std::chrono::steady_clock::now() - pendingAt < std::chrono::milliseconds (250)) break;
                 require (post->liveCompareStatus().finishing && std::abs (post->liveCompareStatus().postActual - held) <= 0.0f,
                          "without callbacks END stays pending and never claims unity");
                 offline.store (true);
@@ -431,9 +433,7 @@ private:
    #include "LiveBlindAudioFixture.h"
    #include "LiveBlindLoopStallStep.h"
 
-    // A host block of 8192 frames (171 ms): the callback-gap rule then tolerates test-machine stalls
-    // up to 427 ms. This product test checks the flow, not DAW scheduling or a low-buffer load
-    // budget; those require the separate real-host matrix.
+    // Retain the 8192-frame host block; the synthetic clock defines callback cadence.
     static constexpr int blockFrames = 8192;
     Clock clock, postClock;
     std::vector<float> signal;
@@ -441,7 +441,8 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
-    std::chrono::steady_clock::time_point started, listenedAt, requestedAt, revealReadyAt;
+    std::chrono::steady_clock::time_point started, requestedAt, revealReadyAt, pendingAt;
+    std::uint64_t listenedAt = 0;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false, revealReady = false;

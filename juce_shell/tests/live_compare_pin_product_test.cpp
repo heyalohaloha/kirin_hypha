@@ -1,8 +1,9 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ReferenceValidationStorageSandbox.h"
-
+#include "TestProcessorStorage.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -78,7 +79,7 @@ public:
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
         editor.reset (post->createEditorIfNeeded());
@@ -126,7 +127,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview)
                     preview = post->createPairPreview();
                 if (! demanded)
@@ -157,11 +158,11 @@ private:
             case 2:
                 if (! post->isPlaying() || ! post->heartbeatLive() || ! click ("observatory-live-compare")) break;
                 require (post->liveCompareStatus().active, "LISTEN starts a live session");
-                listenedAt = std::chrono::steady_clock::now();
+                listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
             case 3:
-                if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (4600)
+                if (hypha::live_compare::callbackWallNanos() - listenedAt < 4'600'000'000ULL
                     || post->liveCompareStatus().verdict != hypha::live_compare::Verdict::accepted)
                     break;
                 if (const auto* view = findView (*editor); view && view->onLiveComparePin)
@@ -169,12 +170,11 @@ private:
                 else break;
                 if (post->liveCompareStatus().active)
                 {
-                    // A scheduling stall of the test machine longer than the callback-gap rule
-                    // allows starts a new PRE run, and PIN rightly refuses a window across it
-                    // (INV-LC15). Say why and try again once four seconds of one run have passed.
+                    // A pending worker result may refuse PIN; retry only after another full
+                    // audio window, retaining the bounded attempts and exact capture oracle.
                     std::cout << "PIN refused, retrying: " << footer() << std::endl;
                     require (++pinAttempts < 6, "PIN ends the live session");
-                    listenedAt = std::chrono::steady_clock::now();
+                    listenedAt = hypha::live_compare::callbackWallNanos();
                     break;
                 }
                 ++stage;
@@ -205,6 +205,7 @@ private:
 
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (2, blockFrames);
         juce::MidiBuffer midi;
         auto next = std::chrono::steady_clock::now();
@@ -221,13 +222,12 @@ private:
             post->processBlock (buffer, midi);
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (blockFrames, 48000);
             std::this_thread::sleep_until (next);
         }
     }
 
-    // A host block of 8192 frames (171 ms): the callback-gap rule then tolerates test-machine stalls
-    // up to 427 ms, as a DAW's real-time thread never needs. PIN needs four seconds of one run; with
-    // 4096 frames a loaded macOS runner refused six windows in a row (2026-09-28).
+    // Retain the host block size and four-second PIN window; the test clock defines cadence.
     static constexpr int blockFrames = 8192;
     Clock clock;
     std::vector<float> signal;
@@ -235,7 +235,8 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
-    std::chrono::steady_clock::time_point started, listenedAt, requestedAt;
+    std::chrono::steady_clock::time_point started, requestedAt;
+    std::uint64_t listenedAt = 0;
     hypha::pair_preview::Ticket preview;
     int stage = 0, pinAttempts = 0;
     bool demanded = false;

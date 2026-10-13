@@ -1,3 +1,4 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
@@ -8,7 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 static void require (bool ok, const char* message)
 {
     if (! ok) { std::cerr << "Live lifecycle: " << message << '\n'; std::exit (EXIT_FAILURE); }
@@ -55,7 +56,7 @@ public:
             require (instance->setBusesLayout (layout), "stereo layout");
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (&clock);
-            instance->prepareToPlay (48000, frames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, frames);
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
         audio = std::thread ([this] { processAudio(); });
@@ -162,7 +163,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview) preview = post->createPairPreview();
                 if (! demanded)
                 {
@@ -321,6 +322,7 @@ private:
     { return mode == "restore-approval" ? -std::max (-0.8f, std::min (0.8f, input * 8.0f)) : input * -0.5f; }
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (2, frames);
         juce::MidiBuffer midi;
         auto next = Steady::now();
@@ -362,6 +364,7 @@ private:
             if (clock.playing) clock.position += frames;
             blocks.fetch_add (1);
             next += std::chrono::nanoseconds (static_cast<long long> (frames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (frames, 48000);
             std::this_thread::sleep_until (next);
         }
     }
