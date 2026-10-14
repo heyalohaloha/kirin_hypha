@@ -13,6 +13,10 @@ use super::*;
 #[path = "spectrum_exchange_post/post_session.rs"]
 mod post_session;
 use post_session::PreparedPostSession;
+
+#[cfg(test)]
+#[path = "spectrum_exchange_epoch_transaction_tests.rs"]
+mod epoch_tests;
 #[path = "spectrum_exchange_post_join.rs"]
 mod post_join;
 
@@ -59,11 +63,8 @@ impl SpectrumCoordinator {
         };
 
         let channel_mode = self.runtime.channel_mode();
-        let rearm_required = analysis_mode == AnalysisViewMode::Perceptual
-            && self.runtime.take_perceptual_rearm_required();
         let now = Instant::now();
-        let Some(prepared) =
-            self.prepare_post_session(&target, analysis_mode, channel_mode, rearm_required, now)
+        let Some(prepared) = self.prepare_post_session(&target, analysis_mode, channel_mode, now)
         else {
             return false;
         };
@@ -71,29 +72,37 @@ impl SpectrumCoordinator {
             session,
             renewal,
             retired,
-            reset_runtime,
         } = prepared;
         if let Some((retired_target, retired_id)) = retired {
             cleanup_owned_request(retired_target.as_ref(), retired_id);
-        }
-        if reset_runtime {
-            self.restart_session_runtimes(analysis_mode);
         }
         if renewal && !self.publish_post_request(&session, post_instance_id, &target) {
             return false;
         }
         if !self.post_session_is_current(&session) {
-            cleanup_owned_request(Some(&target), session.request_id);
+            self.cleanup_retired_post_request(&session);
             return false;
         }
-        if !self.set_active_runtime_enabled(analysis_mode, true) {
-            cleanup_owned_request(Some(&target), session.request_id);
-            self.clear_post_renewal(session.request_id);
-            self.store_view(SpectrumViewStatus::Unavailable, None, None);
+        if self.enable_current_post_runtime(&session) != Some(true) {
+            self.cleanup_retired_post_request(&session);
             return false;
         }
-        if analysis_mode == AnalysisViewMode::Perceptual && session.state_epoch_samples.is_none() {
-            return self.arm_perceptual_session(&session, post_instance_id, &target, now);
+        if analysis_mode == AnalysisViewMode::Perceptual {
+            if session.state_epoch_samples.is_none() {
+                return self.arm_perceptual_session(&session, post_instance_id, &target, now);
+            }
+            // PRE can lose its clock independently. An armed POST must serve that exact
+            // owner's request for a new epoch instead of renewing the retired one forever.
+            if read_ready(&target.instance_dir).is_some_and(|ready| {
+                ready.matches(
+                    session.request_id,
+                    &target.pre_instance_id,
+                    self.sample_rate,
+                    unix_ms_now(),
+                ) && ready.rearm_required()
+            }) {
+                return self.rotate_perceptual_request(&session);
+            }
         }
         self.join_post_view(&session, &target, now)
     }
@@ -197,13 +206,19 @@ impl SpectrumCoordinator {
         target: &SpectrumTarget,
         analysis_mode: AnalysisViewMode,
         channel_mode: SpectrumChannelMode,
-        rearm_required: bool,
         now: Instant,
     ) -> Option<PreparedPostSession> {
         let mut slot = self.try_post_session()?;
+        if self.runtime.analysis_mode() != analysis_mode
+            || self.runtime.channel_mode() != channel_mode
+        {
+            return None;
+        }
+        let origin = self.attack_pair_authority.try_lock().ok()?.clone();
         let session = slot.get_or_insert_with(|| self.new_post_session());
         let authority = self.pair_authority_revision.load(Ordering::Acquire);
-        let origin = self.attack_pair_authority.try_lock().ok()?.clone();
+        let rearm_required = analysis_mode == AnalysisViewMode::Perceptual
+            && self.runtime.take_perceptual_rearm_required();
         let definition_changed = session.authority_revision != authority
             || session.attack_origin != origin
             || session.target.as_ref() != Some(target)
@@ -216,6 +231,9 @@ impl SpectrumCoordinator {
         }
         let mut retired = None;
         if definition_changed || rearm_required {
+            // Session identity and its runtime reset form one non-RT transaction. A rescue
+            // tick must not reset the epoch committed by another tick after this lock ends.
+            self.restart_session_runtimes(analysis_mode);
             retired = Some((session.target.clone(), session.request_id));
             session.request_id = Uuid::new_v4();
             session.authority_revision = authority;
@@ -244,7 +262,6 @@ impl SpectrumCoordinator {
             session: session.clone(),
             renewal,
             retired,
-            reset_runtime: definition_changed || rearm_required,
         })
     }
 
@@ -255,7 +272,17 @@ impl SpectrumCoordinator {
         target: &SpectrumTarget,
         now: Instant,
     ) -> bool {
-        self.store_view(SpectrumViewStatus::WarmingUp, None, None);
+        self.arm_perceptual_session_observed(session, post_instance_id, target, now, |_| {})
+    }
+
+    fn arm_perceptual_session_observed(
+        &self,
+        session: &PostSession,
+        post_instance_id: &str,
+        target: &SpectrumTarget,
+        now: Instant,
+        after_epoch: impl FnOnce(i64),
+    ) -> bool {
         let ready = read_ready(&target.instance_dir).filter(|ready| {
             ready.matches(
                 session.request_id,
@@ -264,38 +291,41 @@ impl SpectrumCoordinator {
                 unix_ms_now(),
             )
         });
-        let Some(ready) = ready else { return true };
-        if ready.rearm_required() {
-            let retired = self.rotate_perceptual_request(session.request_id);
+        if ready.as_ref().is_some_and(AnalysisReady::rearm_required) {
+            let retired = self.rotate_perceptual_request(session);
             if retired {
                 cleanup_owned_request(Some(target), session.request_id);
-                let _ = self.runtime.set_perceptual_state_epoch(None);
             }
-            return true;
+            return retired;
         }
-        let Some(local_end) = self.runtime.latest_presentation_end() else {
-            return true;
-        };
+        let local_end = self.runtime.latest_presentation_end();
         let aperture = i64::from(self.sample_rate / crate::PERCEPTUAL_PRESENTATION_HZ);
-        let Some(epoch) = common_future_epoch(local_end, ready.observed_end(), aperture) else {
-            self.store_view(SpectrumViewStatus::Unavailable, None, None);
-            return false;
-        };
-        if !self.runtime.set_perceptual_state_epoch(Some(epoch)) {
-            self.store_view(SpectrumViewStatus::Unavailable, None, None);
-            return false;
-        }
         let armed = {
             let mut slot = match self.post_session.lock() {
                 Ok(slot) => slot,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            let Some(current) = slot
-                .as_mut()
-                .filter(|current| current.request_id == session.request_id)
-            else {
+            let Some(current) = slot.as_mut().filter(|current| {
+                self.post_definition_is_current(current, session)
+                    && current.state_epoch_samples.is_none()
+                    && session.state_epoch_samples.is_none()
+            }) else {
                 return false;
             };
+            self.store_view(SpectrumViewStatus::WarmingUp, None, None);
+            let (Some(ready), Some(local_end)) = (ready, local_end) else {
+                return true;
+            };
+            let Some(epoch) = common_future_epoch(local_end, ready.observed_end(), aperture) else {
+                self.store_view(SpectrumViewStatus::Unavailable, None, None);
+                return false;
+            };
+            if !self.runtime.set_perceptual_state_epoch(Some(epoch)) {
+                self.store_view(SpectrumViewStatus::Unavailable, None, None);
+                return false;
+            }
+            // No-op in production. The adversarial unit fixture pauses this transaction.
+            after_epoch(epoch);
             current.state_epoch_samples = Some(epoch);
             current.last_renewed = None;
             current.last_renewal_attempt = Some(now);
@@ -310,53 +340,54 @@ impl SpectrumCoordinator {
             Ok(slot) => slot,
             Err(poisoned) => poisoned.into_inner(),
         };
-        self.post_visible()
-            && slot.as_ref().is_some_and(|current| {
-                current.request_id == expected.request_id
-                    && current.target == expected.target
-                    && current.analysis_mode == expected.analysis_mode
-                    && current.channel_mode == expected.channel_mode
-                    && current.state_epoch_samples == expected.state_epoch_samples
-            })
+        slot.as_ref().is_some_and(|current| {
+            self.post_definition_is_current(current, expected)
+                && current.state_epoch_samples == expected.state_epoch_samples
+        })
     }
 
-    fn clear_post_renewal(&self, request_id: Uuid) {
-        let mut slot = match self.post_session.lock() {
-            Ok(slot) => slot,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if let Some(current) = slot
-            .as_mut()
-            .filter(|current| current.request_id == request_id)
-        {
+    fn enable_current_post_runtime(&self, expected: &PostSession) -> Option<bool> {
+        let mut slot = self.post_session.lock().unwrap_or_else(|e| e.into_inner());
+        let current = slot.as_mut().filter(|current| {
+            self.post_definition_is_current(current, expected)
+                && current.state_epoch_samples == expected.state_epoch_samples
+        })?;
+        let enabled = self.set_active_runtime_enabled(expected.analysis_mode, true);
+        if !enabled {
             current.last_renewed = None;
             current.last_renewal_attempt = None;
+            self.store_view(SpectrumViewStatus::Unavailable, None, None);
         }
+        Some(enabled)
     }
 
-    fn rotate_perceptual_request(&self, request_id: Uuid) -> bool {
+    fn rotate_perceptual_request(&self, expected: &PostSession) -> bool {
         let mut slot = match self.post_session.lock() {
             Ok(slot) => slot,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let Some(current) = slot
-            .as_mut()
-            .filter(|current| current.request_id == request_id)
-        else {
+        let Some(current) = slot.as_mut().filter(|current| {
+            self.post_definition_is_current(current, expected)
+                && current.state_epoch_samples == expected.state_epoch_samples
+        }) else {
             return false;
         };
+        if !self.runtime.set_perceptual_state_epoch(None) {
+            return false;
+        }
         current.request_id = Uuid::new_v4();
         current.last_renewed = None;
         current.last_renewal_attempt = None;
         current.state_epoch_samples = None;
         current.started_at = None;
+        self.store_view(SpectrumViewStatus::WarmingUp, None, None);
         true
     }
 
     fn retire_hidden_post_session(&self) {
         let retired = self
             .try_post_session()
-            .and_then(|mut slot| slot.take())
+            .and_then(|mut slot| (!self.post_visible()).then(|| slot.take()).flatten())
             .map(|session| (session.target, session.request_id));
         if let Some((target, request_id)) = retired {
             cleanup_owned_request(target.as_ref(), request_id);
@@ -365,6 +396,7 @@ impl SpectrumCoordinator {
 
     fn retire_unpaired_post_session(&self) {
         let retired = self.try_post_session().map(|mut slot| {
+            self.disable_analysis_runtimes();
             let session = slot.get_or_insert_with(|| self.new_post_session());
             let retired = (session.target.take(), session.request_id);
             session.last_renewed = None;
@@ -377,7 +409,6 @@ impl SpectrumCoordinator {
         if let Some((target, request_id)) = retired {
             cleanup_owned_request(target.as_ref(), request_id);
         }
-        self.disable_analysis_runtimes();
         self.store_view(SpectrumViewStatus::NoPair, None, None);
     }
 

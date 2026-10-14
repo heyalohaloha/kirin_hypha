@@ -41,6 +41,7 @@ fn fixture() -> (
         last_ready_written_at: None,
         instance_dir: temp.path().to_path_buf(),
         state_epoch_samples: None,
+        awaiting_rearm: false,
     });
     let source = AttackSourceKey {
         incarnation: [4; 16],

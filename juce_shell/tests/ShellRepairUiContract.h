@@ -12,6 +12,7 @@
 #include "../src/HyphaReferenceRuntimeStatus.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaUiPreferences.h"
+#include "../src/HyphaPreferenceFileLock.h"
 #include "../src/HyphaWidgets.h"
 #include <cstdlib>
 #include <iostream>
@@ -19,17 +20,70 @@
 namespace hypha::tests::shell_repairs
 {
 inline void verifyPaint();
+inline constexpr int preferenceBatchSize = 5;
+inline constexpr int preferenceRounds = 100 / preferenceBatchSize;
 inline void require (bool condition, const char* message)
 {
     if (! condition) { std::cerr << "Shell repairs: " << message << '\n'; std::exit (1); }
 }
+inline int preferenceRemaining (juce::uint32 deadline)
+{
+    return std::max (0, static_cast<int> (static_cast<juce::int32> (
+        deadline - juce::Time::getMillisecondCounter())));
+}
+inline bool preferenceByte (juce::NamedPipe& pipe, char& byte, bool writing, juce::uint32 deadline)
+{
+    const auto remaining = preferenceRemaining (deadline);
+    return remaining > 0 && (writing ? pipe.write (&byte, 1, remaining)
+                                     : pipe.read (&byte, 1, remaining)) == 1;
+}
 inline int preferenceWriter (int argc, char** argv)
 {
-    if (argc != 4 || juce::String (argv[1]) != "--preference-writer") return -1;
+    if (argc < 4) return -1;
+    const auto mode = juce::String (argv[1]);
+    if (mode != "--preference-writer" && mode != "--preference-writer-blocked") return -1;
     const juce::File file (juce::String::fromUTF8 (argv[2]));
-    for (int i = 0; i < 100; ++i)
-        require (ui_preferences::write (file, argv[3], juce::String (i)), "child merges its preference");
-    return 0;
+    if (mode == "--preference-writer-blocked" && argc == 4)
+        return ui_preferences::write (file, argv[3], "blocked") ? 1 : 0;
+    if (argc != 8) return 1;
+    const auto deadline = static_cast<juce::uint32> (juce::String (argv[7]).getLargeIntValue());
+    const bool server = juce::String (argv[5]) == "server";
+    if (! server && juce::String (argv[5]) != "client") return 1;
+    juce::NamedPipe peer;
+    const auto name = juce::String::fromUTF8 (argv[4]);
+    if (! (server ? peer.createNewPipe (name, true) : peer.openExisting (name))) return 1;
+    if (server)
+    {
+        juce::NamedPipe ready;
+        char signal = 'R';
+        if (! ready.openExisting (juce::String::fromUTF8 (argv[6]))
+            || ! preferenceByte (ready, signal, true, deadline)) return 1;
+    }
+    char start = server ? 0 : 'P';
+    if (! preferenceByte (peer, start, ! server, deadline) || start != 'P') return 1;
+    for (int round = 0; round < preferenceRounds; ++round)
+    {
+        bool saved = true;
+        for (int offset = 0; saved && offset < preferenceBatchSize; ++offset)
+        {
+            const int index = round * preferenceBatchSize + offset;
+            saved = ui_preferences::write (file, argv[3], juce::String (index));
+            if (! saved) std::cerr << "Preference child write: " << argv[3] << " index=" << index << '\n';
+        }
+        // Both children save concurrently, then rendezvous directly without a parent relay.
+        char ack = saved ? 'Y' : 'N', other = 0;
+        const bool sent = preferenceByte (peer, ack, true, deadline);
+        const bool received = saved && sent && preferenceByte (peer, other, false, deadline);
+        if (! saved || ! sent || ! received || other != 'Y')
+        { std::cerr << "Preference peer barrier: " << argv[3] << " round=" << round
+                    << " saved=" << saved << " sent=" << sent
+                    << " received=" << received << " ack=" << static_cast<int> (other) << '\n'; return 1; }
+    }
+    // The Windows server must not disconnect while its final acknowledgment is unread.
+    char finished = server ? 0 : 'F';
+    if (! preferenceByte (peer, finished, ! server, deadline) || finished != 'F')
+    { std::cerr << "Preference final receipt: " << argv[3] << '\n'; return 1; }
+    return preferenceRemaining (deadline) > 0 ? 0 : 1;
 }
 inline void verifyPreferences()
 {
@@ -38,18 +92,60 @@ inline void verifyPreferences()
     require (folder.createDirectory(), "create isolated preference directory");
     const auto file = folder.getChildFile ("ui-preferences.txt");
     require (ui_preferences::write (file, "sentinel", "preserve"), "seed unrelated preference");
-    juce::ChildProcess first, second;
-    const auto arguments = [&] (const char* key) {
+    const auto arguments = [&] (const char* mode, const char* key) {
         return juce::StringArray { juce::File::getSpecialLocation (
-            juce::File::currentExecutableFile).getFullPathName(), "--preference-writer", file.getFullPathName(), key }; };
-    require (first.start (arguments ("language")) && second.start (arguments ("hover_help")), "start separate modules");
-    const bool firstDone = first.waitForProcessToFinish (10000);
-    const bool secondDone = second.waitForProcessToFinish (10000);
-    if (! firstDone || ! secondDone || first.getExitCode() != 0 || second.getExitCode() != 0)
-        std::cerr << "Preference children: " << first.getExitCode() << ", " << second.getExitCode()
-                  << "\n" << first.readAllProcessOutput() << second.readAllProcessOutput();
-    require (firstDone && secondDone && first.getExitCode() == 0 && second.getExitCode() == 0,
-             "concurrent processes finish");
+            juce::File::currentExecutableFile).getFullPathName(), mode, file.getFullPathName(), key }; };
+    const auto originalBytes = file.loadFileAsString();
+    {
+        ui_preferences::FileLock held (file);
+        require (held.acquired(), "hold the real preference lock for the rejection case");
+        juce::ChildProcess blocked;
+        const auto deadline = juce::Time::getMillisecondCounter() + 10000u;
+        require (blocked.start (arguments ("--preference-writer-blocked", "hover_help")), "start blocked writer");
+        const bool done = blocked.waitForProcessToFinish (preferenceRemaining (deadline));
+        if (! done) blocked.kill();
+        require (done && blocked.getExitCode() == 0 && file.loadFileAsString() == originalBytes,
+                 "held lock rejects a save without changing preference bytes");
+    }
+    bool completed = false;
+    {
+        const auto pipeName = [&] (const char* key) {
+           #if JUCE_WINDOWS
+            return "KirinHyphaPref-" + juce::Uuid().toString() + "-" + key;
+           #else
+            return folder.getChildFile (juce::String (key) + "-pipe").getFullPathName();
+           #endif
+        };
+        juce::NamedPipe ready;
+        const auto peerName = pipeName ("peer");
+        completed = ready.createNewPipe (pipeName ("ready"), true);
+        juce::ChildProcess first, second;
+        const auto deadline = juce::Time::getMillisecondCounter() + 10000u;
+        auto languageArgs = arguments ("--preference-writer", "language");
+        languageArgs.addArray ({ peerName, "server", ready.getName(), juce::String (deadline) });
+        auto helpArgs = arguments ("--preference-writer", "hover_help");
+        helpArgs.addArray ({ peerName, "client", "unused", juce::String (deadline) });
+        char signal = 0;
+        // The server owns the peer pipe. Start its peer only after its creation notification.
+        completed = completed && first.start (languageArgs)
+            && preferenceByte (ready, signal, false, deadline) && signal == 'R'
+            && second.start (helpArgs)
+            && first.waitForProcessToFinish (preferenceRemaining (deadline))
+            && second.waitForProcessToFinish (preferenceRemaining (deadline))
+            && first.getExitCode() == 0 && second.getExitCode() == 0
+            && preferenceRemaining (deadline) > 0;
+        if (! completed)
+        {
+            if (first.isRunning()) first.kill();
+            if (second.isRunning()) second.kill();
+            std::cerr << "Preference children: " << first.getExitCode() << ", " << second.getExitCode()
+                      << " ready=" << static_cast<int> (signal) << '\n';
+            // Reading a live child's captured stream can block, even if termination failed.
+            if (! first.isRunning()) std::cerr << first.readAllProcessOutput();
+            if (! second.isRunning()) std::cerr << second.readAllProcessOutput();
+        }
+    } // Close owned pipes before deleting this fixture directory.
+    require (completed, "concurrent processes finish all 200 saves within one deadline");
     require (ui_preferences::read (file, "language") == "99"
         && ui_preferences::read (file, "hover_help") == "99"
         && ui_preferences::read (file, "sentinel") == "preserve", "both keys and unrelated data survive concurrent writes");

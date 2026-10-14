@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn lease_enables_exact_pre_and_close_disables_it() {
+fn lease_enables_exact_pre_and_close_disables_post_then_pre_at_expiry() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
@@ -20,10 +20,16 @@ fn lease_enables_exact_pre_and_close_disables_it() {
 
     post.set_post_visible(false);
     post.post_tick("post", Some(target));
-    pre.pre_tick("pre", &pre_dir);
     assert!(!post_runtime.is_enabled());
+    assert_eq!(post.try_view().unwrap().status, SpectrumViewStatus::Hidden);
+    let expires = read_request(&pre_dir).unwrap().expires_at_unix_ms;
+    let remaining = expires.saturating_sub(unix_ms_now()).saturating_add(1);
+    if remaining > 0 {
+        std::thread::sleep(Duration::from_millis(remaining as u64));
+    }
+    assert!(validated_request(&pre_dir, "pre", 48_000, unix_ms_now()).is_none());
+    assert!(!pre.pre_tick("pre", &pre_dir));
     assert!(!pre_runtime.is_enabled());
-    assert!(!request_path(&pre_dir).exists());
 
     pre.shutdown();
     post.shutdown();

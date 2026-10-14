@@ -456,11 +456,12 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
     post.set_post_visible(false);
     let cleanup_deadline = Instant::now() + EVENTUAL;
     while Instant::now() < cleanup_deadline
-        && (request_path(&pre_dir).exists() || pre_runtime.is_enabled())
+        && (validated_request(&pre_dir, "pre", 48_000, unix_ms_now()).is_some()
+            || pre_runtime.is_enabled())
     {
         thread::sleep(Duration::from_millis(5));
     }
-    assert!(!request_path(&pre_dir).exists());
+    assert!(validated_request(&pre_dir, "pre", 48_000, unix_ms_now()).is_none());
     assert!(!pre_runtime.is_enabled());
 
     pre.shutdown();

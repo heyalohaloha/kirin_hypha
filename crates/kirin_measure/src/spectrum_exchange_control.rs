@@ -130,9 +130,10 @@ impl SpectrumCoordinator {
             };
             let _ = pre_session.take();
         }
-        // The normal close edge already notified the exchange worker to remove its exact request.
+        // The normal close edge already stopped its runtime and request renewal.
         // If Windows is retaining that filesystem operation, teardown must not start another
-        // blocking read/remove. Any unpublished request expires after its bounded lease.
+        // blocking read/remove. Retired requests expire after their existing bounded lease;
+        // exact-ID readers never lend their retained snapshots to a successor.
         self.disable_analysis_runtimes();
         self.release_analysis_lease();
     }

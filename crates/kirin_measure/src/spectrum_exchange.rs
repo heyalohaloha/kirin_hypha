@@ -39,13 +39,13 @@ mod view_state;
 
 use crate::absolute_timeline::AbsoluteTimeline;
 #[cfg(test)]
-use crate::analysis_exchange_protocol::request_path;
-#[cfg(test)]
 use crate::analysis_exchange_protocol::JSON_MAX_BYTES as REQUEST_MAX_BYTES;
 use crate::analysis_exchange_protocol::{
-    common_future_epoch, read_ready, read_request, remove_ready, remove_request, validated_request,
-    write_ready, write_request, AnalysisReady, AnalysisRequest, ValidatedRequest, REQUEST_SCHEMA,
+    common_future_epoch, read_ready, validated_request, write_ready, write_request, AnalysisReady,
+    AnalysisRequest, ValidatedRequest, REQUEST_SCHEMA,
 };
+#[cfg(test)]
+use crate::analysis_exchange_protocol::{read_request, remove_request, request_path};
 use crate::analysis_lease::AnalysisLease;
 use crate::attack_perception::band::AttackBand;
 use crate::attack_runtime::{AttackBandResults, AttackPreBand};
@@ -73,8 +73,7 @@ use joining::{store_joined_perceptual, store_joined_spectrum};
 #[cfg(test)]
 use perceptual_codec::encode_perceptual_snapshot;
 use perceptual_codec::{
-    encode_perceptual_snapshot_with_clock, read_perceptual_snapshot, remove_perceptual_snapshot,
-    write_perceptual_snapshot,
+    encode_perceptual_snapshot_with_clock, read_perceptual_snapshot, write_perceptual_snapshot,
 };
 
 const REQUEST_RENEW_INTERVAL: Duration = Duration::from_millis(500);
@@ -171,6 +170,8 @@ struct PreSession {
     last_ready_written_at: Option<Instant>,
     instance_dir: PathBuf,
     state_epoch_samples: Option<i64>,
+    /// Clock rearm can only end when POST supplies a new request ID.
+    awaiting_rearm: bool,
 }
 
 pub struct SpectrumCoordinator {
@@ -186,6 +187,7 @@ pub struct SpectrumCoordinator {
     attack_band_sent_at: Mutex<Option<Instant>>,
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
+    pre_request_read_revision: AtomicU64,
     pre_spectrum_clock_revision: AtomicU64,
     post_spectrum_clock_revision: AtomicU64,
     post_stateful_clock_revision: AtomicU64,
@@ -266,6 +268,7 @@ impl SpectrumCoordinator {
             attack_band_sent_at: Mutex::new(None),
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
+            pre_request_read_revision: AtomicU64::new(0),
             pre_spectrum_clock_revision: AtomicU64::new(0),
             post_spectrum_clock_revision: AtomicU64::new(0),
             post_stateful_clock_revision: AtomicU64::new(0),
@@ -370,17 +373,11 @@ fn renew_request(
     )
 }
 
-fn cleanup_owned_request(target: Option<&SpectrumTarget>, request_id: Uuid) {
-    let Some(target) = target else { return };
-    if read_request(&target.instance_dir)
-        .is_some_and(|request| request.request_id == request_id.to_string())
-    {
-        remove_request(&target.instance_dir);
-        remove_snapshot(&target.instance_dir);
-        remove_perceptual_snapshot(&target.instance_dir);
-        remove_attack_snapshot(&target.instance_dir);
-        remove_ready(&target.instance_dir);
-    }
+fn cleanup_owned_request(_target: Option<&SpectrumTarget>, _request_id: Uuid) {
+    // Shared slots cannot be unlinked conditionally by owner: read-then-remove can delete
+    // a successor published between those calls. Retired request/ready leases expire under
+    // the existing 1.5 s bound; exact-ID readers reject their snapshots. Atomic publication
+    // replaces them. Never remove a current successor or hold a session lock over I/O.
 }
 
 fn unix_ms_now() -> i64 {
