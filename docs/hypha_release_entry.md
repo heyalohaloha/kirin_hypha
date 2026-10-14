@@ -39,7 +39,7 @@ node scripts/build_hypha.mjs --release --help
 1. 同一候補のMac 6本とWindows署名済みinstallerを確認する。
 2. A3のsource/JUCE/SDK/toolchain/payloadと、受入matrix・期待値を固定する。
 3. exact signed candidateのA4実host受入を確認する。
-4. 既存release-set producerでLS PKG、HP ZIPを作り、Windows EXEと合わせてA5を確認する。
+4. 既存release-set producerでLS / HP通常導線のPKGと、公開Releaseに必須の復旧用ZIPを作り、Windows EXEと合わせてA5を確認する。
 5. LSの全対象への配送を確認する。
 6. exact commitへGitHub Releaseを作り、全配布物をdownloadしてhash照合後にdraftを公開する。
 7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、英日template・対応formatと両関連testを一括更新する。

@@ -146,16 +146,19 @@ Blind 中はこの入口から browser を開かず、試聴終了後に操作�
 
 HP の二言語に、公開 version、公開日、変更内容、対応 OS、PRE/POST 同梱、適切な配布物、更新手順を揃える。
 配布物を選ぶ前に、その版へ実際に含まれる機能を確認できるようにする。
-今回の生 HTML 照合はリンクの版を確認しただけで、専用の更新説明欄が完成していることの確認ではない。
+4節の2026-09-06の生HTML照合は当時のリンクの版を確認した記録であり、現行の配布物選択や更新説明欄の完成を証明しない。
+現行の導線・配布物・検証は[公開Runbook](ls_release/kirin_hypha_ls_runbook.md)に従い、通常PKGと必須の復旧ZIPを分けて確認する。
 
 | 利用者の選択 | 案内するもの | 避けること |
 | --- | --- | --- |
-| macOS 無料配布 | 現行 HP の signed / notarized Universal ZIP と対応する導入手順 | 無断で ZIP チャネルを廃止しない |
-| macOS Installer | 公式 release または既存購入者の正当な入手先にある signed / notarized PKG | 更新のために再購入が必要だと誤認させない |
+| macOS 無料配布（通常） | 英日HPの固定download routeが案内するsigned / notarized Universal PKGと導入手順 | 復旧ZIPを通常のinstaller導線へ戻さない |
+| macOS 手動復旧 | 同じGitHub Releaseへ必ず添付するsigned / notarized Universal ZIPと手動導入手順 | 必須の復旧ZIPを省略しない |
+| 既存購入者 | 正当なLS入手先にある通常無料配布と同じsigned / notarized Universal PKG | 更新のために再購入が必要だと誤認させない |
 | Windows | PRE/POST 同梱の Authenticode 署名済み Setup EXE | 診断用 VST3 ZIP を主導線にしない |
 | 非対応 OS / architecture | 対応条件と利用可能な公式情報 | 非対応 installer を「更新できます」と勧めない |
 
-更新手順は、作業の保存、DAW 終了、公式配布物の導入、DAW 再起動、必要時の rescan、ロードした PRE と POST の版確認までを一続きにする。
+英日HPは中央release recordの版・日付・変更内容とPKG / EXEのURL・実bytes・SHAを揃え、固定download routeの302転送先・no-storeと、導線から取得した実配布物を照合する。ZIPは同じReleaseの復旧物として検証する。
+通常の更新手順は、作業の保存、DAW 終了、公式installerの導入、DAW 再起動、必要時の rescan、ロードした PRE と POST の版確認までを一続きにする。
 メモリ内の旧 plugin とディスク上の新 plugin を混同しない。
 PRE と POST の片側だけを更新した場合、新機能の capability 不一致を示し、同版の両方を導入する入口へ戻す。
 版確認だけのために音声 callback、Record、pair を変更しない。

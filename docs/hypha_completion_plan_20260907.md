@@ -258,7 +258,8 @@ HTMLへ載せる動画は実際の候補を録画し、音声と映像の時刻�
 公開準備へ進んだ場合は、[LSリリースRunbook](ls_release/kirin_hypha_ls_runbook.md)に従う。
 
 1. LS用の署名済み、notarize済みmacOS Universal `.pkg`と検証情報。
-2. HP無料配布用の署名済み、notarize済みmacOS Universal `.zip`、GitHub Release、英日HPリンク。
+2. HP無料配布の通常導線へ結ぶ署名済み、notarize済みmacOS Universal `.pkg`（LSと同じもの）、
+   同じGitHub Releaseへ必ず添付する署名済み、notarize済みUniversal `.zip`（手動復旧用）、英日HPリンク。
 3. Windows用は同一commitの公開CI合格と審査済みprivate未署名producerを結び、署名・実機検証・promotion後のsigned-fullにある署名済みInno Setup EXEを公開対象とする。現行の出どころ・期限確認は[公開runbook](ls_release/kirin_hypha_ls_runbook.md)に従う。PRE/POST payload、installer、uninstallerの署名とinstall、同版再install、旧公開版からのupgrade、uninstallの合格。
 
 Windowsの手動VST3 zipを公開installerの代用にしない。

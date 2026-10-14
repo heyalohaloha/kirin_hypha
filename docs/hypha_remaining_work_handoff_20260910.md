@@ -252,7 +252,8 @@ PR #22はB-787まで32 commitsを含み、HEADのCIはgreenである。
 mainへ合流した一つのrelease commitから、同じversionの三チャネルを作る。
 
 1. Lemon Squeezy用の署名、公証済みmacOS Universal PKG。
-2. HP無料配布用の署名、公証済みmacOS Universal ZIP、GitHub Release、英日HPリンク。
+2. HP無料配布の通常導線へ結ぶ署名、公証済みmacOS Universal PKG（LSと同じもの）、
+   同じGitHub Releaseへ必ず添付する署名、公証済みUniversal ZIP（手動復旧用）、英日HPリンク。
 3. Windows用は同一commitの公開CI合格と審査済みprivate未署名producerを結び、署名・実機検証・promotion後のsigned-fullにある署名済みInno Setup EXEを公開対象とする。現行の出どころ・期限確認は[公開runbook](ls_release/kirin_hypha_ls_runbook.md)に従う。
 
 WindowsはPREとPOST payload、installer、uninstallerの全署名を確認する。

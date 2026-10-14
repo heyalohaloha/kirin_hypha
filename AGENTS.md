@@ -23,7 +23,8 @@ helpはSDK・認証・USB不要。未署名buildにもiLok不要。既存の成�
 Hyphaの公開リリースは、以下の3チャネルを同じバージョンで揃えて初めて完了とする。
 
 1. Lemon Squeezy: signed / notarized済みmacOS Universal `.pkg`
-2. HP無料配布: signed / notarized済みmacOS Universal `.zip` + GitHub Release + 英日HPリンク
+2. HP無料配布: signed / notarized済みmacOS Universal `.pkg`を英日HPの通常導線へ結び、
+   同じGitHub Releaseへ必須のsigned / notarized済みUniversal `.zip`を手動復旧用として添付する
 3. Windows: 同一コミットのgreenな公開CIと、審査済みprivate factoryの`windows-latest`未署名producerを結ぶ、PRE/POST同梱・
    Authenticode署名済みInno Setup `.exe`（payload / installer / uninstallerの全署名と
    install → 同版再install → 旧公開版からのupgrade → uninstall検証がgreenであること）。

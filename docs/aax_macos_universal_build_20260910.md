@@ -150,7 +150,7 @@ without possessing the licensed SDK or PACE tools.
 # Lemon Squeezy macOS pkg
 node scripts/ls_release/build_kirin_hypha_pkg.mjs --with-aax
 
-# HP macOS zip
+# Required macOS recovery ZIP in the public GitHub Release
 cargo run --package xtask -- release-package --with-aax
 
 # Packaging helper (qualified same-commit Windows VST3+AAX signed-full required)
@@ -183,7 +183,7 @@ all of these checks pass:
   archive, full content manifest, Apple log, and PRE/POST bundle manifests;
 - fresh online `notarytool info` and `notarytool log` confirmation of the recorded submission
   during packaging;
-- an exact copy of that receipt in the HP zip under `AAX/`, preserving the submission ID and
+- an exact copy of that receipt in the required macOS recovery ZIP under `AAX/`, preserving the submission ID and
   PRE/POST hash binding with the distributed artifact;
 - PACE compatibility signature symlink exists, resolves inside the bundle, and survives copying;
 - packager input materialized from the verified submission archive, never reread from the mutable

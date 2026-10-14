@@ -9,14 +9,20 @@ Release-operator state is local-only and ignored by Git. Public artifact facts a
 Kirin Hypha ships through three release surfaces. Updating only one leaves the others on the old version.
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
-2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
+2. **HP free download** — the EN/JA "Download for macOS — Free" buttons use
+   `/downloads/kirin-hypha/macos`, which redirects to the signed/notarized Universal `.pkg`
+   selected by the central release record. The same GitHub Release must also contain the
+   signed/notarized Universal `.zip` for manual recovery. See **"HP Free Download Channel"** below.
 3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST. Public CI
    validates the exact source commit. A reviewed private unsigned producer builds its VST3
    bundles on windows-latest; approved signing hosts import that qualified output and produce
    and verify the signed installer. AAX releases add verified PACE+Authenticode AAX to the same
    installer; the manual VST3 `.zip` is fallback-only. See **"Windows VST3 Channel"** below.
 
-The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the qualified JUCE VST3 output from that private unsigned producer; held public-CI binary uploads do not supply the formal candidate.
+The macOS LS and normal HP downloads use the same signed/notarized Universal `.pkg`. The
+required recovery `.zip` packages the same signed/notarized bundles from Phase 1. Windows uses
+the qualified JUCE VST3 output from that private unsigned producer; held public-CI binary
+uploads do not supply the formal candidate.
 
 Optional update verification uses the same explicitly approved RSA public key for every role,
 format and OS. Empty is the explicit default and disables checking; stale CMake caches do not
@@ -164,7 +170,8 @@ node scripts/ls_release/build_kirin_hypha_release_set.mjs \
 ```
 
 This verifies the downloaded signed Windows installer and its sidecars, runs Windows static gates,
-builds the macOS LS `.pkg`, and builds the macOS HP `.zip`.
+builds the macOS `.pkg` shared by LS and the normal HP download, and builds the required
+macOS recovery `.zip` for the same GitHub Release.
 
 If the Windows artifact is missing, the script fails before reporting release ready. Do not use `--skip-windows-package` for a public release.
 
@@ -231,7 +238,7 @@ writes `build-aax-universal/kirin-hypha-macos-aax-notarization.json` only after 
 The archive, manifest, and log remain under `build-aax-universal/aax-notarization/<sha256>/`.
 A v1, signature-only, or diagnostic receipt is never accepted by either macOS packaging path.
 
-The HP zip also carries an exact copy of the accepted receipt at
+The required macOS recovery ZIP also carries an exact copy of the accepted receipt at
 `AAX/kirin-hypha-macos-aax-notarization.json`. Post-extraction verification rejects a missing or
 different copy, so the public artifact retains the notarization submission and PRE/POST hash binding.
 
@@ -347,12 +354,17 @@ on the release page for manual recovery. Update the actual EN/JA PKG and Windows
 version/date/format labels and their tests together; do not regress that established installer
 entry to ZIP-only.
 
-The homepage `kirinmastering.com/hypha` has a "Download for macOS — Free" button that links to a GitHub Release asset:
-`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`
+The EN/JA "Download for macOS — Free" buttons use `/downloads/kirin-hypha/macos`. The
+central `updates/hypha.json` record selects the GitHub Release PKG URL, actual bytes and SHA-256:
+`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`.
+The stable route must return a 302 to that exact URL with `no-store`; the public download is
+read back through the same route and checked against the selected bytes and SHA-256.
 
-This is a SEPARATE channel from Lemon Squeezy and MUST be updated on every release. Run these AFTER Phase 1 (the bundles are already signed+notarized — the `.zip` reuses them).
+This is a SEPARATE delivery channel from Lemon Squeezy and MUST be updated on every release.
+The normal download uses the verified Phase 2 PKG. The recovery ZIP reuses the signed/notarized
+Phase 1 bundles and remains a required asset in the same Release; it is not the normal HP link.
 
-### HP-1: Build the free `.zip` (signed bundles → universal zip)
+### HP-1: Build the required recovery `.zip` (signed bundles → Universal ZIP)
 
 ```bash
 cargo run --package xtask -- release-package
