@@ -29,6 +29,9 @@ run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_
 run node --test scripts/provenance/*.test.mjs
 run bash scripts/test_source_line_budget.sh
 run bash scripts/check_source_line_budget.sh
+# Tests wait for notifications or follow audio time; short sleeps only shrink (CI stretches them).
+run node --test scripts/check_test_sleep_budget.test.mjs
+run node scripts/check_test_sleep_budget.mjs
 # Public text: what a change adds and its commit messages carry no internal records.
 run node --test scripts/check_public_text.test.mjs
 run node scripts/check_public_text.mjs
