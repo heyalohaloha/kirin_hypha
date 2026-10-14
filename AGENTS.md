@@ -170,6 +170,10 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 全owned sourceを500行以下へ収束させることは長期目標であり、現在のUI着手ゲートではない。
 
 - Rust: `cargo clippy` + `cargo test` を毎回実行
+- 実threadやworkerを待つ試験は、短く眠って見回らない。通知で待つか、音声の時間に追いつくまでだけ眠る（遅れたblockは眠らない）。
+  CIの仮想のmacOSでは短い眠りが約10倍に伸び、手元で通る試験がCIだけで落ちる。試験の短い眠り（50 ms以下）は
+  `scripts/test_sleep_budget.tsv`の記録より増やさない（軽量契約で検査し、減らしたら記録も下げる）。
+  このような試験を変えたらpushの前に`bash scripts/test_slow_host.sh`（macOSのbackground QoSでCIの遅さを再現）を流す。
 - **kirin_hypha_ffi の検証ゲート**: `cargo test --workspace` の green だけでは Record/pairing を検証しない（Record finalize・PRE-POST ペアリング・plugin_data 実出力のテストは realtime で遅いため全て `#[ignore]`）。kirin_hypha_ffi を変更したら `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1`（parity.rs 20 件）と `cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-threads=1`（pairing_candidates.rs 6 件）の #[ignore] スイート（計 26 件）の pass も検証ゲートに含める。件数は `-- --ignored --list | grep -c ': test'` で実測のこと（loose grep は散文中の `#[ignore]` を誤カウントする）。これらは CI（ci.yml）では PR / workflow_dispatch / `[ci full]` 時のみ走る（通常 push は test job ごとスキップ）。
 - エラーログは作業前に必ず読む
 - 同じアプローチは最大2回。3回目は別手法
