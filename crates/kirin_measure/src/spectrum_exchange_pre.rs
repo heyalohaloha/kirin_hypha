@@ -21,14 +21,9 @@ impl SpectrumCoordinator {
         instance_dir: &Path,
         after_read: impl FnOnce(),
     ) -> bool {
-        let Ok(previous) = self.pre_request_read_revision.fetch_update(
-            Ordering::AcqRel,
-            Ordering::Acquire,
-            |revision| revision.checked_add(1),
-        ) else {
+        let Some(read_revision) = self.next_pre_read_revision() else {
             return false;
         };
-        let read_revision = previous + 1;
         let request = validated_request(
             instance_dir,
             pre_instance_id,
@@ -68,6 +63,22 @@ impl SpectrumCoordinator {
             }
         }
         self.publish_pre_snapshot(request_id, pre_instance_id, analysis_mode, instance_dir)
+    }
+
+    fn next_pre_read_revision(&self) -> Option<u64> {
+        let mut revision = self.pre_request_read_revision.load(Ordering::Acquire);
+        loop {
+            let next = revision.checked_add(1)?;
+            match self.pre_request_read_revision.compare_exchange_weak(
+                revision,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Some(next),
+                Err(current) => revision = current,
+            }
+        }
     }
 
     fn prepare_pre_session(
