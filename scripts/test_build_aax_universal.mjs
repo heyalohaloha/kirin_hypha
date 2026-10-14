@@ -85,24 +85,30 @@ try {
   assert.match(result.output, /--target aarch64-apple-darwin/);
   assert.match(result.output, /--target x86_64-apple-darwin/);
   assert.match(result.output, /--parallel 2/);
+  assert.doesNotMatch(result.output, /wraptool/);
+  assert.doesNotMatch(result.output, /runtime_guard/);
 
   result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run'],
     { CMAKE_BUILD_PARALLEL_LEVEL: '1' });
   assert.equal(result.status, 0);
   assert.match(result.output, /--parallel 1/);
+  assert.doesNotMatch(result.output, /wraptool/);
+  assert.doesNotMatch(result.output, /runtime_guard/);
   result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run'],
     { CMAKE_BUILD_PARALLEL_LEVEL: '64' });
   assert.equal(result.status, 0);
   assert.match(result.output, /--parallel 64/);
+  assert.doesNotMatch(result.output, /wraptool/);
+  assert.doesNotMatch(result.output, /runtime_guard/);
   for (const jobs of ['0', '-1', '1.5', '65', '18446744073709551617', 'unlimited']) {
     result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run'],
       { CMAKE_BUILD_PARALLEL_LEVEL: jobs });
     assert.notEqual(result.status, 0);
     assert.match(result.output, /CMAKE_BUILD_PARALLEL_LEVEL must be an integer/);
     assert.doesNotMatch(result.output, /\+ cargo build/);
+    assert.doesNotMatch(result.output, /wraptool/);
+    assert.doesNotMatch(result.output, /runtime_guard/);
   }
-  assert.doesNotMatch(result.output, /wraptool/);
-  assert.doesNotMatch(result.output, /runtime_guard/);
 
   result = run([
     '--sdk', sdkRoot,
