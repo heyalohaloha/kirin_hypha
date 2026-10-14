@@ -5,16 +5,53 @@ import path from 'node:path';
 import test from 'node:test';
 import { updateHpDocuments, publishGithub, checkTag, publicDownloadFacts, verifyPublicHp,
   hpPreflight, publishHp, HP_FILES } from './hypha_release_hp.mjs';
+import { makeHpRecord, renderHpPage, validateHpRecord, installerFilename } from './hypha_release_hp_data.mjs';
 import { fileFact, hash, Checkpoint } from './hypha_release_contract.mjs';
 
 const base = 'https://github.com/heyalohaloha/kirin_hypha/releases';
 function page(lang, version = '1.1.49') {
-  return `<html lang="${lang}"><section id="downloads"><h2 id="hypha-download-title">Hypha ${version}</h2>
-<time datetime="2026-09-02">2026-09-02</time>
-<a href="${base}/download/v${version}/Kirin-Hypha-${version}-macOS-Universal.pkg">PKG</a>
-<a href="${base}/download/v${version}/Kirin-Hypha-${version}-Windows-x64-Setup.exe">Download for Windows VST3</a>
+  return `<html lang="${lang}"><section id="downloads"><h2 id="hypha-download-title">Hypha {{KIRIN_HYPHA_LATEST_VERSION}}</h2>
+<time datetime="{{KIRIN_HYPHA_PUBLISHED_AT}}">{{KIRIN_HYPHA_PUBLISHED_AT}}</time>
+<a href="/downloads/kirin-hypha/macos">PKG</a>
+<a href="/downloads/kirin-hypha/windows">Download for Windows VST3</a>
 macOS 12+ (VST3 + Audio Unit) / Windows 10/11 (VST3)
-<a href="${base}/tag/v${version}">${version}</a></section></html>`;
+<a href="{{KIRIN_HYPHA_RELEASE_NOTES_URL}}">Read {{KIRIN_HYPHA_LATEST_VERSION}}</a>
+${version}</section></html>`;
+}
+function facts(version = '1.2.3') {
+  return ['macos','windows'].map((target,i) => ({ path: installerFilename(version,target), bytes:10+i, sha256:String(i+1).repeat(64) }));
+}
+function documents(version = '1.1.49') {
+  return [page('en',version),page('ja',version),`v${version} /${version.replaceAll('.', '\\.')} / 2026-09-02`,
+    `URL version v${version}`, JSON.stringify(makeHpRecord(version,'2026-09-02',facts(version)))];
+}
+function hpFixture(f) {
+  const installerFacts = ['macos','windows'].map((target,i) => {
+    const file = path.join(f.root,installerFilename(f.state.candidate.version,target));
+    fs.writeFileSync(file,`signed ${target} fixture ${i}`); return fileFact(file);
+  });
+  f.state.stages.packages.facts=installerFacts;
+  return installerFacts;
+}
+function writeHpFixture(root) {
+  for (const [i,file] of HP_FILES.entries()) {
+    fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true});
+    fs.writeFileSync(path.join(root,file),documents()[i]);
+  }
+}
+function publicHpFetcher(state,root,{deployed=()=>true,head=()=>state.hpCommit}={}) {
+  return async (url,options={}) => {
+    if (!deployed()) return new Response('not deployed',{status:503});
+    if (url.includes('/downloads/kirin-hypha/')) {
+      const target=url.endsWith('/macos')?'macos':'windows';
+      const record=makeHpRecord(state.candidate.version,state.inputs.date,state.stages.packages.facts);
+      if(options.redirect==='manual')return new Response(null,{status:302,headers:{Location:record.downloads[target].url,'Cache-Control':'no-store'}});
+      return new Response(fs.readFileSync(state.stages.packages.facts.find(f=>path.basename(f.path)===installerFilename(state.candidate.version,target)).path));
+    }
+    if (url.includes('deployment-source')) return new Response(head());
+    const record=JSON.parse(fs.readFileSync(path.join(root,'updates/hypha.json'),'utf8'));
+    return new Response(renderHpPage(fs.readFileSync(path.join(root,url.includes('/ja/')?'ja/hypha.html':'hypha.html'),'utf8'),record));
+  };
 }
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-hp-test-'));
@@ -27,22 +64,46 @@ function fixture(t) {
       provenance: { status: 'PASS', facts: [fileFact(source)], publicFacts: [fileFact(source)] } } } };
 }
 
-test('HP transforms both real-shaped languages, installer links, version/date tests and AAX formats together', () => {
-  const docs = [page('en'), page('ja'), 'v1.1.49 /1\\.1\\.49/ 2026-09-02'];
-  const result = updateHpDocuments(docs, '1.2.3', '2026-10-01');
-  assert.ok(result.every(s => !s.includes('1.1.49') && !s.includes('2026-09-02')));
-  assert.match(result[2], /1\\\.2\\\.3/);
-  for (const html of result.slice(0, 2)) {
-    assert.match(html, /Audio Unit \+ AAX/); assert.match(html, /Windows 10\/11 \(VST3 \+ AAX\)/);
-    assert.match(html, /macOS-Universal\.pkg/); assert.match(html, /Windows-x64-Setup\.exe/);
+test('HP updates both templates, tests and central installer integrity record together', () => {
+  const docs=documents(); const result=updateHpDocuments(docs,'1.2.3','2026-10-01',facts());
+  assert.ok(result.every(s=>!s.includes('1.1.49')&&!s.includes('2026-09-02')));
+  assert.match(result[2],/1\\\.2\\\.3/);
+  const record=validateHpRecord(JSON.parse(result[4]));
+  for(const html of result.slice(0,2)){
+    assert.match(html,/Audio Unit \+ AAX/);assert.match(html,/Windows 10\/11 \(VST3 \+ AAX\)/);
+    assert.match(html,/\{\{KIRIN_HYPHA_LATEST_VERSION\}\}/);
+    assert.match(renderHpPage(html,record),/Hypha 1\.2\.3/);
   }
-  assert.deepEqual(docs, [page('en'), page('ja'), 'v1.1.49 /1\\.1\\.49/ 2026-09-02']);
+  assert.deepEqual(docs,documents());
 });
 
-test('changed/mixed HP markup or zip-only primary channels require review', () => {
-  assert.throws(() => updateHpDocuments([page('en'), page('ja', '1.1.50'), 'test'], '1.2.3', '2026-10-01'), /version mismatch/);
-  assert.throws(() => updateHpDocuments([page('en').replace('.pkg', '.zip'), page('ja'), 'test'], '1.2.3', '2026-10-01'), /PKG/);
-  assert.throws(() => updateHpDocuments([page('en'), page('ja'), 'test'], 'latest', '2026-10-01'), /Invalid/);
+test('changed templates, missing integrity and wrong targets stop the HP update', () => {
+  for(const change of [d=>d[0]=d[0].replace('{{KIRIN_HYPHA_LATEST_VERSION}}','1.1.49'),
+      d=>d[1]=d[1].replace('/downloads/kirin-hypha/macos','/downloads/kirin-hypha/zip')]){
+    const d=documents();change(d);assert.throws(()=>updateHpDocuments(d,'1.2.3','2026-10-01',facts()));
+  }
+  assert.throws(()=>updateHpDocuments(documents(),'latest','2026-10-01',facts()),/Invalid/);
+  assert.throws(()=>updateHpDocuments(documents(),'1.2.3','2026-02-31',facts()),/Invalid/);
+  for(const invalid of [[],facts().slice(0,1),[...facts(),facts()[0]],facts().map(f=>({...f,sha256:'bad'}))]){
+    assert.throws(()=>updateHpDocuments(documents(),'1.2.3','2026-10-01',invalid));
+  }
+});
+
+test('central release records reject unknown keys, foreign or mismatched URLs and malformed integrity', () => {
+  const valid=makeHpRecord('1.1.49','2026-09-02',facts('1.1.49'));
+  for(const change of [r=>r.downloads.arm64=r.downloads.macos,r=>delete r.downloads.windows,
+      r=>r.downloads.macos.url+='?redirect=evil',r=>r.downloads.macos.url=r.downloads.macos.url.replace('v1.1.49','v1.1.48'),
+      r=>r.downloads.windows.bytes=0,r=>r.downloads.windows.sha256='A'.repeat(64),
+      r=>r.published_at='2026-02-31',r=>r.unreviewed=true]){
+    const record=structuredClone(valid);change(record);assert.throws(()=>validateHpRecord(record));
+  }
+});
+
+test('own planned update is idempotent while downgrade or changed same-version integrity stops', () => {
+  const first=updateHpDocuments(documents(),'1.2.3','2026-10-01',facts());
+  assert.deepEqual(updateHpDocuments(first,'1.2.3','2026-10-01',facts()),first);
+  assert.throws(()=>updateHpDocuments(first,'1.2.2','2026-10-01',facts('1.2.2')),/downgrade/);
+  assert.throws(()=>updateHpDocuments(first,'1.2.3','2026-10-01',facts().map(f=>({...f,bytes:f.bytes+1}))),/same-version/);
 });
 
 function githubMock(f, { published = false, existingAsset = false, corrupt = false } = {}) {
@@ -133,21 +194,35 @@ test('Corresponding Source public readback detects missing or altered source ind
   assert.ok(visited[1].endsWith('/source.zip'));
 });
 
-test('HP public check validates both languages, both platforms and exact deployed source', async t => {
-  const f = fixture(t); f.state.hpCommit = 'c'.repeat(40);
-  const docs = updateHpDocuments([page('en'), page('ja'), 'test'], '1.2.3', '2026-10-01');
-  const responses = url => url.includes('deployment-source') ? f.state.hpCommit : docs[url.includes('/ja/') ? 1 : 0];
-  await verifyPublicHp(f.state, async url => new Response(responses(url)));
-  await assert.rejects(verifyPublicHp(f.state, async url => new Response(url.includes('/ja/') ? docs[0] : responses(url))), /language/);
-  await assert.rejects(verifyPublicHp(f.state, async url => new Response(url.includes('deployment-source') ? 'old' : responses(url))), /source commit/);
+test('HP public check validates both rendered languages/date/notes, redirects, bytes and deployed source', async t => {
+  const f=fixture(t);hpFixture(f);f.state.hpCommit='c'.repeat(40);
+  const root=path.join(f.root,'public-hp');fs.mkdirSync(root);writeHpFixture(root);
+  const docs=updateHpDocuments(documents(),'1.2.3','2026-10-01',f.state.stages.packages.facts);
+  for(const [i,file]of HP_FILES.entries())fs.writeFileSync(path.join(root,file),docs[i]);
+  const fetcher=publicHpFetcher(f.state,root);await verifyPublicHp(f.state,fetcher);
+  for(const [label,mutate]of [
+    ['language',r=>new Response('wrong language')],
+    ['date',r=>new Response(renderHpPage(docs[1],makeHpRecord('1.2.3','2026-10-01',f.state.stages.packages.facts)).replaceAll('2026-10-01','2026-10-02'))],
+    ['notes',r=>new Response(renderHpPage(docs[1],makeHpRecord('1.2.3','2026-10-01',f.state.stages.packages.facts)).replace('/tag/v1.2.3','/tag/v1.2.2'))],
+    ['redirect',r=>new Response(null,{status:302,headers:{Location:'https://evil.example','Cache-Control':'no-store'}})],
+    ['cache',r=>new Response(null,{status:302,headers:{Location:makeHpRecord('1.2.3','2026-10-01',f.state.stages.packages.facts).downloads.macos.url,'Cache-Control':'public'}})],
+    ['bytes',r=>new Response('wrong bytes')],
+    ['source',r=>new Response('old source')],
+  ]){
+    const bad=async(url,options={})=>{
+      const match=['language','date','notes'].includes(label)?url.includes('/ja/hypha'):label==='source'?url.includes('deployment-source'):
+        url.endsWith('/macos')&&(label==='bytes'?options.redirect==='follow':options.redirect==='manual');
+      return match?mutate():fetcher(url,options);
+    };
+    await assert.rejects(verifyPublicHp(f.state,bad),undefined,label);
+  }
 });
 
 test('HP dirtiness, target drift and wrong baseline stop before any production command', async t => {
   const f = fixture(t); const root = path.join(f.root, 'hp'); fs.mkdirSync(path.join(root, '.vercel'), { recursive: true });
   fs.writeFileSync(path.join(root, 'README_DEPLOY.md'), 'standard clean deploy');
   fs.writeFileSync(path.join(root, '.vercel/project.json'), JSON.stringify({ projectName: 'expected', projectId: 'expected-id' }));
-  for (const [i, file] of HP_FILES.entries()) { fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-    fs.writeFileSync(path.join(root, file), i < 2 ? page(i === 0 ? 'en' : 'ja') : 'test'); }
+  hpFixture(f); writeHpFixture(root);
   f.state.inputs.hpRoot = root; f.state.inputs.hpBaseCommit = 'c'.repeat(40);
   f.state.inputs.hpProjectSha256 = fileFact(path.join(root, '.vercel/project.json')).sha256;
   let dirty = ''; let target = 'expected expected-id';
@@ -166,10 +241,7 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
   const f = fixture(t); const root = path.join(f.root, 'hp'); fs.mkdirSync(path.join(root, '.vercel'), { recursive: true });
   fs.writeFileSync(path.join(root, 'README_DEPLOY.md'), 'standard clean deployment');
   fs.writeFileSync(path.join(root, '.vercel/project.json'), JSON.stringify({ projectName: 'expected', projectId: 'expected-id' }));
-  for (const [i, file] of HP_FILES.entries()) {
-    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-    fs.writeFileSync(path.join(root, file), i < 2 ? page(i === 0 ? 'en' : 'ja') : 'v1.1.49 2026-09-02');
-  }
+  hpFixture(f); writeHpFixture(root);
   f.state.inputs.hpRoot = root; f.state.inputs.hpBaseCommit = 'c'.repeat(40);
   f.state.inputs.hpProjectSha256 = fileFact(path.join(root, '.vercel/project.json')).sha256;
   let head = f.state.inputs.hpBaseCommit; let remote = head; let failTests = true; let deployed = false;
@@ -190,11 +262,7 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
     if (args[0] === 'push') { assert.ok(!args.includes('--force')); remote = head; }
     return '';
   };
-  const fetcher = async url => {
-    if (!deployed) return new Response('not deployed', { status: 503 });
-    return new Response(url.includes('deployment-source') ? head : fs.readFileSync(path.join(root,
-      url.includes('/ja/') ? 'ja/hypha.html' : 'hypha.html'), 'utf8'));
-  };
+  const fetcher=publicHpFetcher(f.state,root,{deployed:()=>deployed,head:()=>head});
   await assert.rejects(publishHp(f.state, run, () => {}, fetcher), /tests failed/);
   assert.ok(f.state.hpPlanned); assert.equal(f.state.hpCommit, undefined);
   failTests = false;

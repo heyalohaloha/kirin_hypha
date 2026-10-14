@@ -42,9 +42,9 @@ node scripts/build_hypha.mjs --release --help
 4. 既存release-set producerでLS PKG、HP ZIPを作り、Windows EXEと合わせてA5を確認する。
 5. LSの全対象への配送を確認する。
 6. exact commitへGitHub Releaseを作り、全配布物をdownloadしてhash照合後にdraftを公開する。
-7. HPの英語・日本語のMac PKG / Windows EXEリンク、版、日付、対応formatと関連testを更新する。
+7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、英日template・対応formatと両関連testを一括更新する。
 8. HPの標準手順でtest → commit/push → clean staged deploy → 検証 → production promotionを行う。
-9. 英日公開ページ、配布物の実bytes/hash、HPのdeployment-sourceを確認する。
+9. 英日公開ページの版・日付・notes、通常download routeの302転送先とno-store、導線から取得した配布物の実bytes/hash、HPのdeployment-sourceを確認する。
 
 HPは現行サイトの**PKGを通常導線、ZIPを公開Releaseの復旧用**とする運用を維持する。
 LSだけ、Macだけ、Windowsだけで公開リリース完了としない。

@@ -386,14 +386,21 @@ hashed before the HP update. See [the complete entry](../hypha_release_entry.md)
 
 ### HP-3: Bump the website download links
 
-Update BOTH files (EN + JA) to the same current Mac PKG and Windows EXE URLs:
+HP keeps the stable `/downloads/kirin-hypha/macos` and `/downloads/kirin-hypha/windows`
+entry routes. The release coordinator updates five source files together:
 
-- `hypha.html` (EN, the `Download for macOS — Free` link)
-- `ja/hypha.html` (JA, the `macOS版を無料ダウンロード` link)
+- `hypha.html` and `ja/hypha.html`: release tokens, AAX format copy and update guidance.
+- `updates/hypha.json`: exact version/date/notes plus the official PKG/EXE URL, actual bytes and SHA-256
+  from the frozen package facts. Missing, duplicated, malformed or different-version installer facts fail.
+- `scripts/__tests__/hypha-entry-links.test.mjs` and `api/__tests__/download-security.test.mjs`:
+  the current version/date expectations and the negative URL/version guard.
 
-Update the version, release date, platform/format copy and
-`scripts/__tests__/hypha-entry-links.test.mjs` together. The coordinator handles these three files
-as one planned change, refuses unrelated dirty changes, and runs the HP tests before commit/push.
+The source templates retain version/date/notes tokens; the HP build renders the central record.
+Do not replace its download routes with direct links or invent integrity values. The coordinator
+refuses unrelated dirty changes, altered planned edits, an unreviewed downgrade or different
+same-version integrity, and runs the HP tests before commit/push. After the standard deployment,
+it verifies both rendered languages/date/notes, each exact302 redirect and no-store, and the
+actual streamed bytes/hash through each public download route, plus deployment-source.
 
 The website repository and deployment credentials are maintained separately from this public source repository. Update both language variants through that repository's documented release workflow.
 
