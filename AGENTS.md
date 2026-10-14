@@ -157,6 +157,8 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - ソース、テスト、ライセンス、公開検証方法を保持する。秘密値・個人PC情報・運用stateをcommitしない。
 - PR検証は署名credential不要の環境で行う。署名・公証・正式配布はレビュー済みexact sourceと
   独立した権限境界で行い、CI成功だけで公開承認を推定しない。
+- 実host受入の必須platformはIntel macOSのAU / VST3 / AAXとWindows x64のVST3 / AAX。
+  macOS Universalの両slice検証とARM64の自動CIは維持する。その他の実hostは追加検証として扱う。
 
 ## 開発ルール
 

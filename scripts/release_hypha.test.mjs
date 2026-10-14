@@ -174,6 +174,12 @@ test('reports bind candidate and exact artifact set; SKIP/missing evidence/old c
 
 test('matrix minimum and private ignored state paths are mandatory', t => {
   const f = fixture(t); assertState(f.state);
+  for (const format of ['AU', 'VST3', 'AAX']) {
+    assert.ok(f.state.requiredHostTests.includes(`macOS/x86_64/${format}`));
+    assert.ok(!f.state.requiredHostTests.includes(`macOS/arm64/${format}`));
+  }
+  assert.ok(f.state.requiredHostTests.includes('Windows/x64/VST3'));
+  assert.ok(f.state.requiredHostTests.includes('Windows/x64/AAX'));
   f.state.candidate.commit = 'f'.repeat(40);
   assert.throws(() => assertState(f.state), /source identity/);
   f.state.candidate.commit = SOURCE.commit;
@@ -182,6 +188,17 @@ test('matrix minimum and private ignored state paths are mandatory', t => {
   const dir = path.join(f.root, 'release_state/link'); fs.mkdirSync(path.dirname(dir), { recursive: true });
   fs.symlinkSync(os.tmpdir(), dir, 'junction');
   assert.throws(() => safeStatePath(f.root, `${dir}/state.json`), /symlinks/);
+});
+
+test('an added host remains a real evidence checkpoint while the default minimum stays intact', t => {
+  const f = fixture(t), optional = 'macOS/arm64/AAX';
+  f.state.requiredHostTests.push(optional);
+  f.state.expected[optional] = { passed: true };
+  assertState(f.state);
+  const file = path.join(f.root, 'additional-host.json');
+  const report = reportTemplate(f.state, 'A4', 'd'.repeat(64), [optional]);
+  fs.writeFileSync(file, JSON.stringify(report));
+  assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), [optional]), Checkpoint);
 });
 
 test('bundle facts include resources, permissions and symlink targets, not only the executable', t => {

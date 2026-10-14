@@ -154,8 +154,9 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 - **CI / Windows**: exact commit、正しいworkflow、全必須job green、署名・pluginval・installer lifecycle・
   external validation・Native-only provenanceが必要。旧runは代用できない。
 - **Source / NOTICE**: `source-delivery`はcleanな採用source・承認済みJUCE bytes・依存sourceを検査し、対応source ZIPとlicense/NOTICEを準備する。Windows private factoryの未署名producerが作ったZIPを`--source-archive`で取り込み、Macでも全entryを照合して同じbytes/hashを使う。PKGの`Library/Application Support/Kirin Hypha/Legal`、ZIPの`Legal`、Windowsのインストール先`Kirin Mastering/Kirin Hypha/Legal`に同じsource配送情報を入れる。署名済みbundleは変更しない。source準備の成功はactual extraction/linkage reviewを代用しない。
-- **A4**: SDK/機器を含まないfixture結果で実host matrixを代用しない。ARM64 / Intelの各format、
-  Windows両format、pair組合せ、LISTEN / Blind / Exact 4 S、通常透明性、保存、stress等を確認する。
+- **A4**: SDK/機器を含まないfixture結果で実host matrixを代用しない。Intel macOSのAU / VST3 / AAX、
+  Windows x64のVST3 / AAX、pair組合せ、LISTEN / Blind / Exact 4 S、通常透明性、保存、stress等を必須とする。
+  macOS Universalの両slice検証とARM64の自動CIは維持する。その他の実hostは追加検証として扱う。
 - **Provenance**: build/signing前に素材の用途を確認し、packaging後に実payloadのNOTICE・license・対応source配送を確認する。保持したprivate reportと実bytesを[配布gate](provenance/distribution_gate.md)で照合する。fixture PASSだけで配布readyにしない。
 - **A5**: packaging前後のpayload連続性、両OSのclean install、全署名、Rollback準備の証跡が必要。
 - **LS**: 現行Runbookのauthenticated uploadはoperator工程。scriptはPKG/stateを揃え、各商品の

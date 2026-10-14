@@ -159,8 +159,12 @@ namespace
         require (ref::runtimePresetDisplaySelection (controller.snapshot()) == secondOption
                  && ! controller.snapshot().bSelected, "pending menu selection must show the exact saved Work option on A");
         acknowledgeLazyPreset (root, requestFile);
-        require (waitFor ([] (const auto& s) { return s.presetSelectionStatus == "source_unavailable"; }),
-                 "an explicit failed preparation must surface a typed recovery instead of silent success");
+        const auto completedAcknowledgement = ref::PresetSelectionTransport (root)
+            .acknowledgementFile (runtimeId, requestFile.getFileNameWithoutExtension());
+        require (waitFor ([&] (const auto& s) {
+                     return s.presetSelectionStatus == "source_unavailable"
+                         && ! requestFile.existsAsFile() && ! completedAcknowledgement.existsAsFile();
+                 }), "failed preparation must publish recovery and remove its completed exchange before retry");
         require (controller.retryPresetSelection(), "the same saved revision must remain retryable");
         requestFile = pendingPresetRequestFile (root);
         assertExactTemplate();

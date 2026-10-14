@@ -127,6 +127,8 @@ order for every release:
    pluginval, signature, and payload-hash verification against the exact signed installer. Do not
    substitute an older commit's evidence or an unsigned binary where the final signed binary is
    required.
+   The required actual hosts are Intel macOS AU/VST3/AAX and Windows x64 VST3/AAX; other actual
+   hosts are additional checks. Both macOS Universal slices and arm64 automated CI remain required.
 7. After every release-candidate gate is green, package and publish all three channels using the
    already verified signed bundle/installer hashes. Do not rebuild, resign, change source, or change
    version after validation; any byte change creates a new candidate and repeats the affected gates.

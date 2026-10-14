@@ -17,6 +17,12 @@ int main (int argc, char** argv)
                              .getNonexistentChildFile ("ref", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
     if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox) || runReferenceRepairTests (argc, argv, sandbox)) return 0;
+    if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
+    {
+        verifyLazyPresets (sandbox);
+        require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Preset fixtures must be removed");
+        return 0;
+    }
     testReferenceAInput();
     testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (hypha::tests::removeFixtureDirectory (sandbox), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);
@@ -26,12 +32,6 @@ int main (int argc, char** argv)
     testReferencePendingAudition (sandbox);
     testReferenceCalibrationRegressions (sandbox);
     if (finishReferenceAbcMode (argc, argv, sandbox)) return 0;
-    if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
-    {
-        verifyLazyPresets (sandbox);
-        require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Preset fixtures must be removed");
-        return 0;
-    }
     if (argc == 2 && juce::String (argv[1]) == "--lazy-candidates-only")
     {
         verifyLazyCandidates (sandbox);
