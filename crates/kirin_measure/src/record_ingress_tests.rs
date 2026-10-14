@@ -4,8 +4,12 @@ use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
+// Match the real Measure finalization budget (measure_thread.rs), rather than requiring a
+// background spool to finish faster only in fixtures. Sample and generation oracles stay exact.
+const SPOOL_COMPLETION_WAIT: Duration = Duration::from_secs(10);
+
 fn wait_for_slots(consumer: &MeasureSampleConsumer, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + SPOOL_COMPLETION_WAIT;
     while consumer.slots() != expected && Instant::now() < deadline {
         std::thread::yield_now();
     }
@@ -17,7 +21,7 @@ fn finish_and_mark_drained(
     generation: u64,
     consumer: &mut MeasureSampleConsumer,
 ) {
-    assert!(ingress.finish_capture_from_measure(generation, Duration::from_secs(2)));
+    assert!(ingress.finish_capture_from_measure(generation, SPOOL_COMPLETION_WAIT));
     while consumer.pop().is_ok() {}
     ingress.mark_drained_from_measure(generation);
 }
@@ -36,7 +40,7 @@ fn three_max_blocks_are_preserved_by_the_spool_before_measure_consumes_any_sampl
         // SAFETY: same single-thread test contract.
         assert_eq!(unsafe { ingress.push_from_audio(1, &block) }, block.len());
     }
-    assert!(ingress.finish_capture_from_measure(1, Duration::from_secs(2)));
+    assert!(ingress.finish_capture_from_measure(1, SPOOL_COMPLETION_WAIT));
     wait_for_slots(&consumer, block_samples * 3);
     while consumer.pop().is_ok() {}
     ingress.mark_drained_from_measure(1);
@@ -83,7 +87,7 @@ fn twenty_four_instances_spool_twelve_seconds_without_measure_consumption() {
     }
 
     for (ingress, reader) in &lanes {
-        assert!(ingress.finish_capture_from_measure(1, Duration::from_secs(10)));
+        assert!(ingress.finish_capture_from_measure(1, SPOOL_COMPLETION_WAIT));
         assert_eq!(reader.slots(), expected_samples);
     }
 }
@@ -142,7 +146,7 @@ fn premature_drain_ack_keeps_the_generation_and_spool_owned() {
     assert!(unsafe { ingress.adopt_from_audio() });
     let mut consumer = ingress.take_consumer_for_measure(1).unwrap();
     assert_eq!(unsafe { ingress.push_from_audio(1, &[0.5; 8]) }, 8);
-    assert!(ingress.finish_capture_from_measure(1, Duration::from_secs(2)));
+    assert!(ingress.finish_capture_from_measure(1, SPOOL_COMPLETION_WAIT));
 
     ingress.mark_drained_from_measure(1);
     assert!(
@@ -266,7 +270,7 @@ fn measure_restart_replays_the_live_spool_from_sample_zero() {
         observed.push(sample);
     }
     assert_eq!(observed, vec![1.0, 2.0, 3.0, 4.0]);
-    assert!(ingress.finish_capture_from_measure(1, Duration::from_secs(2)));
+    assert!(ingress.finish_capture_from_measure(1, SPOOL_COMPLETION_WAIT));
     ingress.mark_drained_from_measure(1);
 }
 
@@ -294,7 +298,7 @@ fn stop_seal_waits_for_the_last_audio_copy_and_rejects_late_audio() {
 
     let finish_ingress = Arc::clone(&ingress);
     let finish = std::thread::spawn(move || {
-        finish_ingress.finish_capture_from_measure(1, Duration::from_secs(2))
+        finish_ingress.finish_capture_from_measure(1, SPOOL_COMPLETION_WAIT)
     });
     std::thread::sleep(Duration::from_millis(20));
     assert!(
