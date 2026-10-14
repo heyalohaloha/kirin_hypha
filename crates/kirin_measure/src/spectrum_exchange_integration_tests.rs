@@ -15,7 +15,7 @@ fn await_worker(runtime: &SpectrumRuntime) {
     );
 }
 
-fn push_stereo_pair_in_blocks(
+pub(super) fn push_stereo_pair_in_blocks(
     pre_runtime: &SpectrumRuntime,
     post_runtime: &SpectrumRuntime,
     pre_samples: &[f32],
@@ -40,6 +40,17 @@ fn push_stereo_pair_in_blocks(
         await_worker(pre_runtime);
         await_worker(post_runtime);
     }
+}
+
+/// Manual exchange fixtures model the POST heartbeat before PRE serves the request. Feeding or
+/// waiting for a real worker can outlast the production lease; the lease itself stays unchanged.
+pub(super) fn serve_pre(
+    pre: &SpectrumCoordinator,
+    post: &SpectrumCoordinator,
+    target: &SpectrumTarget,
+) -> bool {
+    assert!(post.post_tick("post", Some(target.clone())));
+    pre.pre_tick("pre", &target.instance_dir)
 }
 
 fn push_tone_pair_segment(
@@ -135,7 +146,7 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
 
     post.set_post_visible(true);
     post.post_tick("post", Some(target.clone()));
-    pre.pre_tick("pre", &pre_dir);
+    assert!(serve_pre(&pre, &post, &target));
 
     let frames = 9_600_usize;
     let mut pre_samples = Vec::with_capacity(frames * 2);
@@ -173,7 +184,7 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
         Some(9_600)
     );
 
-    pre.pre_tick("pre", &pre_dir);
+    assert!(serve_pre(&pre, &post, &target));
     post.post_tick("post", Some(target));
     let view = post.try_view().unwrap();
     assert_eq!(view.status, SpectrumViewStatus::Active);
@@ -213,7 +224,7 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
 
     post.set_post_visible(true);
     assert!(post.post_tick("post", Some(target.clone())));
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     push_tone_pair_segment(
         &pre_runtime,
         &post_runtime,
@@ -235,7 +246,7 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
     {
         thread::sleep(Duration::from_millis(2));
     }
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     assert!(post.post_tick("post", Some(target.clone())));
     assert_eq!(
         post.try_view()
@@ -262,7 +273,7 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
     {
         thread::sleep(Duration::from_millis(2));
     }
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     assert!(post.post_tick("post", Some(target)));
     let restarted = post.try_view().unwrap();
     assert_eq!(restarted.status, SpectrumViewStatus::Active);
@@ -305,19 +316,19 @@ fn perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state() {
     assert!(post.set_post_analysis_mode(AnalysisViewMode::Perceptual));
     post.set_post_visible(true);
     assert!(post.post_tick("post", Some(target.clone())));
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     assert_eq!(pre_runtime.perceptual_state_epoch(), None);
     assert_eq!(post_runtime.perceptual_state_epoch(), None);
 
     push_tone_pair_segment(&pre_runtime, &post_runtime, 0, 2_048, 1_000.0, 6_000.0);
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     assert!(post.post_tick("post", Some(target.clone())));
     let epoch = post_runtime
         .perceptual_state_epoch()
         .expect("POST commits a future epoch after PRE readiness");
     assert!(epoch >= 2_048 + 9_600);
     assert_eq!(epoch % 4_800, 0);
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     assert_eq!(pre_runtime.perceptual_state_epoch(), Some(epoch));
 
     let final_endpoint = epoch + 9_600;
@@ -370,7 +381,7 @@ fn perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state() {
         !post_runtime.take_perceptual_rearm_required(),
         "POST requested re-arm after publishing {post_frames:?}"
     );
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
     let remote = read_perceptual_snapshot(&pre_dir).expect("PRE perceptual snapshot");
     let local = post_runtime.try_perceptual_history().unwrap();
     assert!(

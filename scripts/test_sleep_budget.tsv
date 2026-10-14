@@ -28,7 +28,6 @@ crates/kirin_measure/src/spectrum_exchange_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_exchange_integration_tests.rs	7
 crates/kirin_measure/src/spectrum_exchange_lock_tests.rs	3
 crates/kirin_measure/src/spectrum_exchange_project_clock_tests.rs	2
-crates/kirin_measure/src/spectrum_exchange_recovery_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_aax_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_absolute_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_clock_tests.rs	2
