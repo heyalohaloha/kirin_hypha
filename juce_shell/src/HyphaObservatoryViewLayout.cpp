@@ -1,5 +1,6 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaTextStyle.h"
+#include "HyphaFooterNoticeFont.h"
 namespace hypha::observatory
 {
 namespace {
@@ -223,6 +224,24 @@ void View::resized()
             sessionArea.setRight (footerActions.getX() - 4);
         }
     }
+    // Every footer notice owns enough room for its localized text, including direct action
+    // failures and notices after END. Host/reason allowlists miss existing and future sentences.
+    // Keep all action slots, and reserve a full-width row only when the rail cannot fit it.
+    if (!captureFrame && !folded && feedbackText.isNotEmpty())
+    {
+        const auto font = monoFont (context, typography::TextRole::legend);
+        const int reservedChain = chainReadoutText.isEmpty() ? 0 : juce::roundToInt (text_style::shownWidth (
+            monoFont (context, typography::TextRole::action), "LOAD 100%/100%")) + 12;
+        if (text_style::shownWidth (font, feedbackText) > sessionArea.getWidth() - reservedChain - 8)
+        {
+            const auto width = footerArea.getWidth() - reservedChain - 8;
+            const auto rowHeight = juce::jmax (statusStripHeight() + 4,
+                footer_notice_font::wrappedHeight (context, feedbackText, width) + 6);
+            sessionArea = footerArea.withY (footerArea.getY() - rowHeight).withHeight (rowHeight);
+            footerArea.setTop (sessionArea.getY());
+            bodyArea.setBottom (bodyArea.getBottom() - rowHeight);
+        }
+    }
     // The chain timing the user keeps in the footer keeps its place at the rail's right end, wide
     // enough for its shortest form in the footer buttons' size (the larger of the rail's two sizes);
     // paintFooter draws the longest form that fits there.
@@ -230,8 +249,7 @@ void View::resized()
         monoFont (presentationContext(), typography::TextRole::action), "LOAD 100%/100%")) + 12;
     const auto chainRoom = ! captureFrame && ! folded && chainReadoutText.isNotEmpty()
         && sessionArea.getWidth() >= chainMinimum + 48 ? chainMinimum : 0;
-    // Status stays at LIVE/HOLD's established footer position. Long details remain in the
-    // tooltip and information action; the sentence never becomes an overlay on the plots.
+    // Status keeps the rail when it fits; the details action and tooltip retain the same text.
     statusStripOverBody = folded;
     statusStrip = folded ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
     statusButton.setVisible (! captureFrame && ! folded && feedbackText.isNotEmpty());

@@ -3,6 +3,22 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+
+# The local entry and CI dispatch the same phase functions, with no duplicated command lists.
+RELEASE_PHASES=(checks rust ffi native1 native2 native3 native4)
+PHASE=all
+PLAN=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --phase) PHASE="${2:?--phase needs a name}"; shift 2 ;;
+    --plan) PLAN=true; shift ;;
+    --list-phases) printf '%s\n' "${RELEASE_PHASES[@]}"; exit 0 ;;
+    *) echo "unknown release-source argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$PHASE" in all|checks|rust|ffi|native|native1|native2|native3|native4) ;; *) echo "unknown release-source phase: $PHASE" >&2; exit 2 ;; esac
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
@@ -12,6 +28,7 @@ ABI_INCLUDE_DIR="$ROOT/crates/kirin_hypha_ffi/include"
 # independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
 PRE_DISPLAY_BUILD="${KIRIN_HYPHA_NATIVE_TEST_BUILD:-${CARGO_TARGET_DIR:-$ROOT/target}/hypha-release-native-tests}"
 cleanup() {
+  if [[ "$PLAN" == true ]]; then return; fi
   cmake -E rm -f "$UI_CONTRACT_BIN"
   cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
 }
@@ -19,7 +36,7 @@ trap cleanup EXIT
 
 run() {
   echo "==> $*"
-  "$@"
+  if [[ "$PLAN" == false ]]; then "$@"; fi
 }
 
 count_ignored() {
@@ -40,20 +57,7 @@ assert_ignored_count() {
   fi
 }
 
-assert_ctest_inventory() {
-  local build_dir="$1"
-  local build_config="$2"
-  local test_regex="$3"
-  local expected="$4"
-  local actual
-  actual="$(ctest --test-dir "$build_dir" --build-config "$build_config" -N -R "$test_regex" \
-    | awk '/Total Tests:/ { print $3 }')"
-  if [[ "$actual" != "$expected" ]]; then
-    echo "release gate CTest inventory mismatch: selected=$actual expected=$expected regex=$test_regex" >&2
-    exit 1
-  fi
-}
-
+phase_checks() {
 # Shipping producer/consumer contract. This includes measurement, Record writer, generation,
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
@@ -91,6 +95,19 @@ run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
 run "$OBSERVATORY_CONTRACT_BIN"
 
+# Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
+run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
+run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
+}
+
+phase_native1() { phase_native 1; }
+phase_native2() { phase_native 2; }
+phase_native3() { phase_native 3; }
+phase_native4() { phase_native 4; }
+phase_native() {
+local shard="${1:-0}"
+local shard_args=()
+if [[ "$shard" != 0 ]]; then shard_args=(-I "$shard,,4"); fi
 # The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
 # build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
 # materialize that exact state here instead of relying on a developer's existing submodule tree.
@@ -107,6 +124,7 @@ PRE_DISPLAY_CMAKE_ARGS=(
   -DKIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS=ON
   -DKIRIN_HYPHA_BUILD_UPDATE_TESTS=ON
   -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
@@ -116,6 +134,24 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 JUCE_TEST_TARGETS=(
+  Kirin_easy_to_try_Tests
+  Kirin_reaper_loop_entry_Tests
+  Kirin_logic_cycle_entry_Tests
+  Kirin_reaper_pdc_adapter_Tests
+  Kirin_chain_trace_burst_Tests
+  Kirin_reaper_clock_Tests
+  Kirin_reaper_correspondence_Tests
+  Kirin_reaper_fault_Tests
+  KirinReaperListenProductTests
+  KirinAppearanceContractTests
+  KirinGuideFrequencyOverlayContractTests
+  KirinRendererLeaseTests
+  KirinFutureHostStatusTests
+  KirinIntegratedHostStatusTests
+  KirinAuTransportResetTests
+  KirinPreContentTimingTests
+  KirinPostContentTimingTests
+  KirinContentTimingProductTests
   KirinUpdate_manifest_Tests
   KirinUpdate_store_Tests
   KirinUpdate_checker_Tests
@@ -143,6 +179,7 @@ JUCE_TEST_TARGETS=(
   KirinReferenceAuditionComponentTests
   KirinHyphaReferencePreviewRenderer
   KirinLiveCompareCorrespondenceTests
+  KirinChainTraceTests
   KirinLiveCompareTimingTests
   KirinLiveTimingProductTests
   KirinLiveCompareLoopTests
@@ -159,47 +196,86 @@ JUCE_TEST_TARGETS=(
   KirinLiveCompareLifecycleTests
   KirinLivePublicationPRETests
   KirinLivePublicationPOSTTests
+  KirinStoragePathsTests KirinAtomicFileTests
   KirinReferenceLowerAProductTests
   KirinLiveCompareSessionTests
   KirinLiveCompareMatchTests
   KirinLiveComparePinProductTests
   KirinLiveCompareOffsetProductTests
   KirinLiveCompareAaxGroupProductTests
+  KirinAudioUnitAnalysisClockTests
+  KirinReaperAnalysisClockTests
+  KirinHostContentClockPolicyTests
+  KirinListenTextLayoutTests
+  KirinContentAnalysisClockTests
+  KirinContentAnalysisProductTests
+  KirinProductWallClockTests
+  KirinShippingWallClockTests
+  KirinProcessorWallClockTests
+  KirinAnalysisProductWaitTests
+  KirinAnalysisProductTimingTests
   KirinAaxAnalysisClockTests
   KirinAaxAnalysisProductTests
 )
-JUCE_TEST_REGEX='^(kirin_aax_analysis_clock|kirin_aax_analysis_stereo_certified_product|kirin_aax_analysis_stereo_uncertified_product|kirin_aax_analysis_stereo_loop_product|kirin_aax_analysis_stereo_short_loops_product|kirin_aax_analysis_stereo_per_insert_product|kirin_aax_analysis_stereo_measured_loop_product|kirin_aax_analysis_mono_certified_product|kirin_aax_analysis_mono_uncertified_product|kirin_aax_analysis_mono_loop_product|kirin_aax_analysis_mono_short_loops_product|kirin_aax_analysis_mono_per_insert_product|kirin_aax_analysis_mono_measured_loop_product|kirin_snapshot_abi_contract|kirin_update_manifest|kirin_update_store|kirin_update_checker|kirin_host_identity|kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audition_component|kirin_hypha_reference_preview_renderer|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_local_blind_product_aax|kirin_local_blind_product_aax_track|kirin_editor_surface_product|kirin_pair_preview_lifetime|kirin_live_compare_correspondence|kirin_live_compare_timing|kirin_live_timing_product|kirin_live_chain_timing_product|kirin_live_initial_loop_product|kirin_live_compare_session|kirin_live_compare_match|kirin_live_compare_pin_product|kirin_live_compare_offset_product|kirin_live_compare_aax_group_product|kirin_live_compare_loop|kirin_live_compare_loop_feasibility|kirin_live_blind_session|kirin_live_compare_completion|kirin_live_compare_authority|kirin_live_recovery_product|kirin_live_blind_product|kirin_live_blind_reuse_product|kirin_live_blind_loop_product|kirin_live_blind_loop_stall_product|kirin_live_blind_fault_product|kirin_live_blind_fault_gap_product|kirin_live_blind_fault_content_product|kirin_live_blind_fault_stop_product|kirin_live_blind_approval_product|kirin_live_lifecycle_restore-active|kirin_live_lifecycle_restore-invalid|kirin_live_lifecycle_restore-preparing|kirin_live_lifecycle_restore-approval|kirin_live_lifecycle_held|kirin_live_lifecycle_finishing|kirin_live_lifecycle_out-of-range|kirin_live_lifecycle_reuse-held|kirin_live_lifecycle_restore-matched-listen|kirin_reference_lower_a_product|kirin_live_compare_reentry|kirin_live_compare_gain_snapshot|kirin_live_reentry_stop_product|kirin_live_reentry_seek_product|kirin_live_reentry_clock_product|kirin_live_reentry_restore_product|kirin_live_reentry_end_product|kirin_live_reentry_blind-stop_product|kirin_live_reentry_compensation_product|kirin_live_reentry_seek-odd_product|kirin_live_reentry_pending-odd_product|kirin_live_reentry_proof-odd_product|kirin_live_reentry_pair-clear_product|kirin_live_reentry_pair-set_product|kirin_live_reentry_clock-blind_product|kirin_live_reentry_preparing-clock_product|kirin_live_reentry_preparing-stop_product|kirin_live_reentry_reuse_product|kirin_live_reentry_pending-end_product|kirin_live_reentry_restore-blind_product|kirin_live_reentry_failure-named_product|kirin_live_reentry_preparing-dc_product|kirin_live_reentry_preparing-content_product|kirin_live_reentry_preparing-seek_product|kirin_live_publication_PRE_state-only|kirin_live_publication_PRE_shared-ring|kirin_live_publication_POST_state-only|kirin_live_publication_POST_shared-ring)$'
+JUCE_TEST_REGEX='^(kirin_native_path_budget_setup|kirin_native_path_budget_cleanup|kirin_atomic_file|kirin_atomic_file_boundaries|kirin_native_path_budget_contract|kirin_product_wall_clock|kirin_shipping_wall_clock|kirin_processor_wall_clock|kirin_reaper_loop_entry|kirin_logic_cycle_entry|kirin_reaper_pdc_adapter|kirin_chain_trace_burst|kirin_reaper_clock|kirin_reaper_correspondence|kirin_reaper_fault|kirin_reaper_listen_mono_product|kirin_reaper_listen_stereo_product|kirin_product_entry_contract|kirin_ui_typography_contract|kirin_appearance_contract|kirin_guide_frequency_overlay_contract|kirin_renderer_lease|kirin_future_host_status|kirin_integrated_host_status|kirin_shell_repair_ui|kirin_reference_source_repairs|kirin_reference_event_repairs|kirin_editor_shell_repair|kirin_live_compare_memory|kirin_live_close_fade|kirin_au_reset_transport|kirin_pre_content_timing|kirin_post_content_timing|kirin_content_timing_product|kirin_listen_text_layout|kirin_chain_trace|kirin_storage_paths_environment|kirin_storage_paths_sandbox|kirin_storage_paths_defaults|kirin_storage_paths_relative|kirin_storage_paths_unwritable|kirin_reaper_analysis_clock|kirin_host_content_clock_policy|kirin_content_analysis_stereo_missing_linear_product|kirin_content_analysis_stereo_missing_loop_product|kirin_content_analysis_stereo_missing_recovery_product|kirin_content_analysis_stereo_omitted_linear_product|kirin_content_analysis_stereo_omitted_loop_product|kirin_content_analysis_stereo_omitted_recovery_product|kirin_content_analysis_stereo_included_linear_product|kirin_content_analysis_stereo_included_loop_product|kirin_content_analysis_stereo_included_recovery_product|kirin_content_analysis_stereo_zero_linear_product|kirin_content_analysis_stereo_zero_loop_product|kirin_content_analysis_stereo_zero_recovery_product|kirin_au_analysis_stereo_missing_linear_product|kirin_au_analysis_stereo_missing_loop_product|kirin_au_analysis_stereo_missing_recovery_product|kirin_au_analysis_stereo_missing_cycle_listen_product|kirin_au_analysis_stereo_missing_cycle_blind_product|kirin_au_analysis_stereo_omitted_linear_product|kirin_au_analysis_stereo_omitted_loop_product|kirin_au_analysis_stereo_omitted_recovery_product|kirin_au_analysis_stereo_omitted_cycle_listen_product|kirin_au_analysis_stereo_omitted_cycle_blind_product|kirin_au_analysis_stereo_included_linear_product|kirin_au_analysis_stereo_included_loop_product|kirin_au_analysis_stereo_included_recovery_product|kirin_au_analysis_stereo_zero_linear_product|kirin_au_analysis_stereo_zero_loop_product|kirin_au_analysis_stereo_zero_recovery_product|kirin_au_analysis_stereo_zero_cycle_listen_product|kirin_au_analysis_stereo_zero_cycle_blind_product|kirin_reaper_analysis_stereo_missing_linear_product|kirin_reaper_analysis_stereo_missing_linear_jitter_product|kirin_reaper_analysis_stereo_missing_loop_product|kirin_reaper_analysis_stereo_missing_loop_jitter_product|kirin_reaper_analysis_stereo_missing_recovery_product|kirin_reaper_analysis_stereo_missing_recovery_jitter_product|kirin_content_analysis_mono_missing_linear_product|kirin_content_analysis_mono_missing_loop_product|kirin_content_analysis_mono_missing_recovery_product|kirin_content_analysis_mono_omitted_linear_product|kirin_content_analysis_mono_omitted_loop_product|kirin_content_analysis_mono_omitted_recovery_product|kirin_content_analysis_mono_included_linear_product|kirin_content_analysis_mono_included_loop_product|kirin_content_analysis_mono_included_recovery_product|kirin_content_analysis_mono_zero_linear_product|kirin_content_analysis_mono_zero_loop_product|kirin_content_analysis_mono_zero_recovery_product|kirin_au_analysis_mono_missing_linear_product|kirin_au_analysis_mono_missing_loop_product|kirin_au_analysis_mono_missing_recovery_product|kirin_au_analysis_mono_missing_cycle_listen_product|kirin_au_analysis_mono_missing_cycle_blind_product|kirin_au_analysis_mono_omitted_linear_product|kirin_au_analysis_mono_omitted_loop_product|kirin_au_analysis_mono_omitted_recovery_product|kirin_au_analysis_mono_omitted_cycle_listen_product|kirin_au_analysis_mono_omitted_cycle_blind_product|kirin_au_analysis_mono_included_linear_product|kirin_au_analysis_mono_included_loop_product|kirin_au_analysis_mono_included_recovery_product|kirin_au_analysis_mono_zero_linear_product|kirin_au_analysis_mono_zero_loop_product|kirin_au_analysis_mono_zero_recovery_product|kirin_au_analysis_mono_zero_cycle_listen_product|kirin_au_analysis_mono_zero_cycle_blind_product|kirin_reaper_analysis_mono_missing_linear_product|kirin_reaper_analysis_mono_missing_linear_jitter_product|kirin_reaper_analysis_mono_missing_loop_product|kirin_reaper_analysis_mono_missing_loop_jitter_product|kirin_reaper_analysis_mono_missing_recovery_product|kirin_reaper_analysis_mono_missing_recovery_jitter_product|kirin_analysis_product_wait|kirin_analysis_product_timing|kirin_au_analysis_clock|kirin_content_analysis_clock|kirin_aax_analysis_clock|kirin_aax_analysis_stereo_certified_product|kirin_aax_analysis_stereo_uncertified_product|kirin_aax_analysis_stereo_loop_product|kirin_aax_analysis_stereo_short_loops_product|kirin_aax_analysis_stereo_per_insert_product|kirin_aax_analysis_stereo_measured_loop_product|kirin_aax_analysis_mono_certified_product|kirin_aax_analysis_mono_uncertified_product|kirin_aax_analysis_mono_loop_product|kirin_aax_analysis_mono_short_loops_product|kirin_aax_analysis_mono_per_insert_product|kirin_aax_analysis_mono_measured_loop_product|kirin_snapshot_abi_contract|kirin_update_manifest|kirin_update_store|kirin_update_checker|kirin_host_identity|kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audition_component|kirin_hypha_reference_preview_renderer|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_local_blind_product_aax|kirin_local_blind_product_aax_track|kirin_editor_surface_product|kirin_pair_preview_lifetime|kirin_live_compare_correspondence|kirin_live_compare_timing|kirin_live_timing_product|kirin_live_chain_timing_product|kirin_live_initial_loop_product|kirin_live_compare_session|kirin_live_compare_match|kirin_live_compare_pin_product|kirin_live_compare_offset_product|kirin_live_compare_aax_group_product|kirin_live_compare_loop|kirin_live_compare_loop_feasibility|kirin_live_blind_session|kirin_live_compare_completion|kirin_live_compare_authority|kirin_live_recovery_presentation_product|kirin_live_recovery_notices_product|kirin_live_recovery_host_product|kirin_live_blind_product|kirin_live_blind_reuse_product|kirin_live_blind_loop_product|kirin_live_blind_loop_stall_product|kirin_live_blind_fault_product|kirin_live_blind_fault_gap_product|kirin_live_blind_fault_content_product|kirin_live_blind_fault_stop_product|kirin_live_blind_approval_product|kirin_live_lifecycle_restore-active|kirin_live_lifecycle_restore-invalid|kirin_live_lifecycle_restore-preparing|kirin_live_lifecycle_restore-approval|kirin_live_lifecycle_held|kirin_live_lifecycle_finishing|kirin_live_lifecycle_out-of-range|kirin_live_lifecycle_reuse-held|kirin_live_lifecycle_restore-matched-listen|kirin_reference_lower_a_product|kirin_easy_to_try|kirin_live_compare_reentry|kirin_live_compare_gain_snapshot|kirin_live_reentry_stop_product|kirin_live_reentry_seek_product|kirin_live_reentry_clock_product|kirin_live_reentry_restore_product|kirin_live_reentry_end_product|kirin_live_reentry_blind-stop_product|kirin_live_reentry_compensation_product|kirin_live_reentry_seek-odd_product|kirin_live_reentry_pending-odd_product|kirin_live_reentry_proof-odd_product|kirin_live_reentry_pair-clear_product|kirin_live_reentry_pair-set_product|kirin_live_reentry_clock-blind_product|kirin_live_reentry_preparing-clock_product|kirin_live_reentry_preparing-stop_product|kirin_live_reentry_reuse_product|kirin_live_reentry_pending-end_product|kirin_live_reentry_restore-blind_product|kirin_live_reentry_failure-named_product|kirin_live_reentry_preparing-dc_product|kirin_live_reentry_preparing-content_product|kirin_live_reentry_preparing-seek_product|kirin_live_publication_PRE_state-only|kirin_live_publication_PRE_shared-ring|kirin_live_publication_POST_state-only|kirin_live_publication_POST_shared-ring|kirin_live_publication_PRE_storage-only|kirin_live_publication_POST_storage-only|kirin_native_storage_guard_setup|kirin_native_storage_guard_cleanup|kirin_native_storage_guard_contract|kirin_logic_analysis_mono_included_cycle_freq_listen_product|kirin_logic_analysis_mono_included_cycle_sharp_listen_product|kirin_logic_analysis_mono_included_cycle_blind_product|kirin_logic_analysis_mono_zero_cycle_freq_listen_product|kirin_logic_analysis_mono_zero_cycle_sharp_listen_product|kirin_logic_analysis_mono_zero_cycle_blind_product|kirin_logic_analysis_stereo_included_cycle_freq_listen_product|kirin_logic_analysis_stereo_included_cycle_sharp_listen_product|kirin_logic_analysis_stereo_included_cycle_blind_product|kirin_logic_analysis_stereo_zero_cycle_freq_listen_product|kirin_logic_analysis_stereo_zero_cycle_sharp_listen_product|kirin_logic_analysis_stereo_zero_cycle_blind_product)$'
 # Include every live comparison contract, including LOOP and invalidation/recovery, not only
 # the original named-listen fixtures. Inventory is asserted rather than silently skipping one.
-JUCE_TEST_COUNT=107
-run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
-assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "$JUCE_TEST_COUNT"
-# The live comparison product tests run in real time against this machine's scheduler, and a stall
-# of a shared CI runner can fail one by chance. Each of them runs once more on failure; failing
-# twice fails. Stall robustness itself is tested on purpose (kirin_live_blind_loop_stall_product),
-# so the retry does not hide it.
-LIVE_RETRY_REGEX="^($(ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release -N -R "$JUCE_TEST_REGEX" \
-  | sed -n 's/^ *Test *#[0-9]*: \(kirin_live_[^ ]*_product\)$/\1/p' | paste -sd '|' -))\$"
-run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure --no-tests=error -R "$JUCE_TEST_REGEX" -E "$LIVE_RETRY_REGEX"
-run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure --no-tests=error --repeat until-pass:2 -R "$LIVE_RETRY_REGEX"
+JUCE_TEST_COUNT=246
 
 # Actual receiver/license/paired Record run while the update worker is held. These
 # are not sentinel files and must be present in every supported native test build.
 UPDATE_INTEGRATION_TARGETS=(KirinUpdateRuntimeIntegrationTests KirinUpdate_http_response_Tests)
 UPDATE_INTEGRATION_REGEX='^(kirin_update_runtime_(off|success|failure|cancel|lifetime)|kirin_update_http_response)$'
-UPDATE_INTEGRATION_COUNT=6
+# CTest also selects real-storage and path-budget setup/cleanup for every native test;
+# the inventory counts all four fixture tests with the selected native bodies.
+UPDATE_INTEGRATION_COUNT=10
 if [[ "$(uname -s)" == "Darwin" ]]; then
   UPDATE_INTEGRATION_TARGETS+=(KirinUpdate_transport_mac_Tests)
   UPDATE_INTEGRATION_REGEX='^(kirin_update_runtime_(off|success|failure|cancel|lifetime)|kirin_update_http_response|kirin_update_transport_mac)$'
-  UPDATE_INTEGRATION_COUNT=7
+  UPDATE_INTEGRATION_COUNT=11
 fi
-run cmake --build "$PRE_DISPLAY_BUILD" --target "${UPDATE_INTEGRATION_TARGETS[@]}" --config Release
-assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$UPDATE_INTEGRATION_REGEX" "$UPDATE_INTEGRATION_COUNT"
-run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure --no-tests=error -R "$UPDATE_INTEGRATION_REGEX"
+# Compare the entire configured CTest registry before building or running any selected test.
+# Exclusions are exact names with reasons, never a broad regex that could hide new tests.
+run node scripts/check_native_test_inventory.mjs --build-dir "$PRE_DISPLAY_BUILD" --config Release \
+  --exclusions scripts/release_native_test_exclusions.json \
+  --group "$JUCE_TEST_COUNT" "$JUCE_TEST_REGEX" \
+  --group "$UPDATE_INTEGRATION_COUNT" "$UPDATE_INTEGRATION_REGEX"
+run node scripts/check_native_build_targets.mjs --build-dir "$PRE_DISPLAY_BUILD" --config Release \
+  --targets "${JUCE_TEST_TARGETS[@]}" "${UPDATE_INTEGRATION_TARGETS[@]}"
+run node scripts/check_native_compile_sharing.mjs "$PRE_DISPLAY_BUILD/compile_commands.json"
 
+# The aggregate owns every configured native target (also compile-only contracts).
+# Keep the selected target list above as the explicit release inventory.
+run cmake --build "$PRE_DISPLAY_BUILD" --target KirinNativeTests --config Release \
+  --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
+# Keep the existing one-retry policy for real GUI/IPC deadlines. Callback continuity now uses
+# the fixture clock; deliberate host gaps remain explicit clock advances and must still pass
+# kirin_live_blind_loop_stall_product. Two failures still fail the gate.
+if [[ "$PLAN" == true ]]; then
+  LIVE_RETRY_REGEX='live-product-tests-from-ctest-inventory'
+else
+LIVE_RETRY_REGEX="^($(ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release -N -R "$JUCE_TEST_REGEX" \
+  | sed -n 's/^ *Test *#[0-9]*: \(kirin_live_[^ ]*_product\)$/\1/p' | paste -sd '|' -))\$"
+fi
+run node scripts/check_native_shards.mjs --build-dir "$PRE_DISPLAY_BUILD" --config Release --shards 4 \
+  --group "$JUCE_TEST_REGEX" "$LIVE_RETRY_REGEX" \
+  --group "$LIVE_RETRY_REGEX" '' --group "$UPDATE_INTEGRATION_REGEX" ''
+# A failed selection must not hide failures in later groups. Preserve each CTest exit status
+# in the final phase result; cancellation/build/inventory failures still stop before tests.
+local failed=0
+run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
+  --output-on-failure --no-tests=error ${shard_args[@]+"${shard_args[@]}"} -R "$JUCE_TEST_REGEX" -E "$LIVE_RETRY_REGEX" || failed=1
+run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
+  --output-on-failure --no-tests=error ${shard_args[@]+"${shard_args[@]}"} --repeat until-pass:2 -R "$LIVE_RETRY_REGEX" || failed=1
+run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
+  --output-on-failure --no-tests=error ${shard_args[@]+"${shard_args[@]}"} -R "$UPDATE_INTEGRATION_REGEX" || failed=1
+return "$failed"
+
+}
+
+phase_rust() {
+# xtask checks the patched wrapper source even when this phase runs on its own runner.
+run bash scripts/apply_juce_patches.sh
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
 # Keep legacy VST3 identity and Record styling covered without using these editors as shipping
@@ -218,6 +294,13 @@ run cargo test -p kirin_measure --release --locked \
 # The C++ shell consumes the static C ABI, not Rust's rlib symbols. Build that exact archive and
 # require the restart locator entry points to be exported definitions before any plugin bundle.
 run cargo build -p kirin_hypha_ffi --locked
+run check_ffi_symbols
+
+# Static contracts for the common JUCE AU/VST3 shell, audio-thread safety, packaging, and CI.
+run cargo test -p xtask --locked
+}
+
+check_ffi_symbols() {
 FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # Apple nm from the installed Xcode can be older than rustc's LLVM and report unsupported debug
 # attributes for unrelated dependency objects. It still emits the public symbol table for this
@@ -238,21 +321,28 @@ for symbol in kirin_hypha_poll_attack_navigation_v2 kirin_hypha_poll_meter_sessi
     exit 1
   fi
 done
+if grep -Eq '[[:space:]]_?kirin_hypha_test_' <<<"$FFI_SYMBOLS"; then
+  echo "release archive contains a native test symbol" >&2
+  exit 1
+fi
 
-# Static contracts for the common JUCE AU/VST3 shell, audio-thread safety, packaging, and CI.
-run cargo test -p xtask --locked
+}
 
+phase_ffi() {
 # These real-time filesystem suites are deliberately ignored by the normal cargo test command.
 # Pin the inventory before running it so a renamed/deleted blocker test cannot disappear silently.
-assert_ignored_count parity 20
-assert_ignored_count pairing_candidates 6
-assert_ignored_count record_auxiliary_cuts 1
+run assert_ignored_count parity 20
+run assert_ignored_count pairing_candidates 6
+run assert_ignored_count record_auxiliary_cuts 1
 run cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test record_auxiliary_cuts --locked -- --ignored --test-threads=1
 
-# Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
-run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
-run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
+}
 
-echo "release source contract: PASS"
+if [[ "$PHASE" == all ]]; then
+  for phase in "${RELEASE_PHASES[@]}"; do "phase_$phase"; done
+else
+  "phase_$PHASE"
+fi
+if [[ "$PLAN" == false ]]; then echo "release source contract ($PHASE): PASS"; fi

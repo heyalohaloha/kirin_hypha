@@ -34,24 +34,14 @@ const Entry entries[] = {
     { "Clear True Peak and Clip holds", u8"トゥルーピークとClipの保持を消去" },
     { "Clear held channel True Peak and Clip indicators; keep current values and history",
       u8"チャンネルごとに保持したトゥルーピークとClipの表示を消します。現在値と履歴は残ります" },
-    { "Switch between PRE and POST of this chain while the song plays. "
-      "Keep this window open (pin it in Studio One / Studio Pro, turn off "
-      "Target in Pro Tools); closing or replacing it returns to POST",
-      u8"曲を再生したまま、このチェーンのPREとPOSTを切り替えます。"
-      u8"この画面は開いたままにしてください（Studio One／Studio Proではピン留め、"
-      u8"Pro ToolsではTargetをオフ）。閉じたり置き換えたりするとPOSTに戻ります" },
+    { "Switch between PRE and POST while playing. Comparison continues when this window closes",
+      u8"再生しながらPREとPOSTを聴き比べます。窓を閉じても比較は続きます" },
     { "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
       u8"MATCHはトゥルーピークの上限で止まりました。PREはまだPOSTより小さい音です。押すと測り直します" },
     { "Listen to PRE, the input of this chain. MATCH levels it to POST",
       u8"このチェーンの入力、PREを聴きます。MATCHでPOSTと音量を揃えます" },
     { "Listen to PRE, the input of this chain, at the level MATCH set",
       u8"MATCHで揃えた音量で、このチェーンの入力、PREを聴きます" },
-    { "PRE waits while delay compensation is off in Pro Tools. Turn it on to hear PRE",
-      u8"Pro Toolsの遅延補償がOFFの間はPREを待ちます。ONにするとPREが鳴ります" },
-    { "PRE is held because the latency changed. Stop and restart playback",
-      u8"遅延が変わったためPREを保留中です。再生を止めてから再開してください" },
-    { "PRE is selected. POST plays until PRE is confirmed at this position",
-      u8"PREを選択中です。この位置でPREを確かめられるまでPOSTが鳴ります" },
     { "Listen to POST, the output of this chain", u8"このチェーンの出力、POSTを聴きます" },
     { "Fix the last four seconds of PRE and POST and open them in PRE / POST Blind",
       u8"直前4秒のPREとPOSTを固定し、PRE／POST Blindで開きます" },

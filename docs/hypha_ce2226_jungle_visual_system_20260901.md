@@ -267,6 +267,8 @@ hover／固定表示の`HOST ~`はTP計測窓のhost clock終端であり、現�
 不明時は`ELAPSED`を使う。`COPY`はこの制約も含めて明示操作でコピーする。host seekは行わない。
 150%以上のFooterはLIVE/HOLD/WAITING/BYPASSEDを表示し、100%と125%の折りたたみ帯は短い状態（WAITING、BYPASSED、FORMAT HELD）だけを示す。Footerの状態とCHAIN LOADは、同じ行のボタンと同じaction roleの文字の大きさで描く（2026-10-06）。2026-10-09の利用者選択により、左下の長い通知だけ、既存boundsへaction fontで収まらない場合はlegend roleの高さで描く（最大16 px、最小11 px）。短い通知・状態・CHAIN LOAD・右のボタンは最大18 pxを保持し、図の面積、通知の位置、色、全文を読む既存操作は変えない。versionは情報メニューに置く。狭い幅で`development`等を省略表示しない。
 
+2026-10-13: LISTENの通知は日英とも100%・125%・150%で全文を表示する。1行に収まらない文は既存の文字サイズで折り返し、150%以上では操作ボタンを保ったまま足元に通知の段を確保する。通知を消すと解析面を元の高さへ戻す。BLINDの案内は原因と次の操作に必要な行高をそれぞれ割り当てる。
+
 LEVELのΔ HistoryはM差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
 
 各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。

@@ -11,7 +11,7 @@ juce::Image stableRecordEditorImage (KirinHyphaEditor& editor)
                               image.getBounds()) == 0, "warmed editor render is reproducible");
     return image;
 }
-
+#include "TestProcessorStorage.h"
 juce::Image stableRecordCaptureImage (KirinHyphaEditor& editor, juce::Rectangle<int> body)
 {
     (editor.*testMember (FreezeCapture {})) (1'200, 800);
@@ -28,7 +28,7 @@ void verifyRecordBodyOwnership()
     Processor processor (Processor::Role::Post);
     processor.setMeterContextPreference (hypha::meter_context::MeterContext::trackStem, false);
     processor.setObservatoryDomainPreference (hypha::observatory::stateValue (Domain::frequency));
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     auto editor = std::unique_ptr<KirinHyphaEditor> (
         dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
     require (editor != nullptr, "Record presentation shipping editor opens");

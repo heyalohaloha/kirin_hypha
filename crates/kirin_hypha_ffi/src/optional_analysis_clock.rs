@@ -2,26 +2,45 @@
 use super::*;
 use kirin_measure::spectrum_runtime::SpectrumInputClock;
 
-/// The AAX wrapper supplies the paired (Perceptual) analysis after its existing timing observer
-/// has run. Absolute analysis (LIVE, absolute PSB) keeps the ordinary project-timeline route on
+#[cfg(feature = "native-test-support")]
+#[path = "native_test_support.rs"]
+mod native_test_support;
+
+/// The wrapper defers AAX Perceptual and AU/certified VST3 FREQ/Perceptual until its existing
+/// timing observer has run, or the measurement-only host project certificate has supplied its
+/// coordinate. The latter never grants LISTEN permission. Absolute analysis (LIVE, absolute PSB) keeps the ordinary project-timeline route on
 /// every AAX host, so it never waits for a pair proof or a certified engine clock.
 /// Watch/Record/ATTACK retain their original, independently staged clocks and audio ingress.
 #[derive(Default)]
 pub(super) struct AaxAnalysisIngress {
     enabled: AtomicBool,
+    content: AtomicBool,
+    audio_unit: AtomicBool,
     post: AtomicBool,
     frames: AtomicU64,
+    local_spectrum_start: AtomicI64,
+    local_spectrum_valid: AtomicBool,
 }
 
 impl AaxAnalysisIngress {
     pub(super) fn configure(&self, enabled: bool, post: bool) {
+        self.content.store(false, Ordering::Release);
+        self.audio_unit.store(false, Ordering::Release);
         self.frames.store(0, Ordering::Release);
+        self.local_spectrum_valid.store(false, Ordering::Release);
         self.post.store(post, Ordering::Release);
         self.enabled.store(enabled, Ordering::Release);
     }
 
+    fn deferred(&self, mode: AnalysisViewMode) -> bool {
+        self.enabled.load(Ordering::Acquire)
+            && (mode == AnalysisViewMode::Perceptual
+                || (self.content.load(Ordering::Acquire) && mode == AnalysisViewMode::Spectrum))
+    }
+
     pub(super) fn begin_callback(&self) {
         self.frames.store(0, Ordering::Relaxed);
+        self.local_spectrum_valid.store(false, Ordering::Relaxed);
     }
 }
 
@@ -31,9 +50,32 @@ impl KirinHyphaEngine {
         interleaved: &[f32],
         clock: Option<PendingCaptureWindow>,
     ) {
-        if self.aax_analysis.enabled.load(Ordering::Acquire)
-            && self.spectrum_runtime.analysis_mode() == AnalysisViewMode::Perceptual
+        if self
+            .aax_analysis
+            .deferred(self.spectrum_runtime.analysis_mode())
         {
+            // AU's local observation needs only this admitted callback's own clock. The
+            // correspondence observer also checks PRE/POST and loop movement, so its local
+            // validity must not gate either role's local FREQ. Keep it strictly unjoinable.
+            if self.aax_analysis.audio_unit.load(Ordering::Acquire)
+                && self.spectrum_runtime.analysis_mode() == AnalysisViewMode::Spectrum
+            {
+                if let Some(clock) = clock.filter(|clock| {
+                    clock.position_valid
+                        && matches!(
+                            clock.clock_source,
+                            CaptureClockSource::ProjectTimeline
+                                | CaptureClockSource::AudioRenderTimeline
+                        )
+                }) {
+                    self.aax_analysis
+                        .local_spectrum_start
+                        .store(clock.position_samples, Ordering::Relaxed);
+                    self.aax_analysis
+                        .local_spectrum_valid
+                        .store(true, Ordering::Relaxed);
+                }
+            }
             self.aax_analysis.frames.store(
                 (interleaved.len() / self.num_channels) as u64,
                 Ordering::Release,
@@ -72,18 +114,55 @@ pub unsafe extern "C" fn kirin_hypha_set_aax_analysis_ingress(
     }
 }
 
+/// Prepare-thread only. Enable the separate certified VST3 content-coordinate route for FREQ
+/// and Perceptual. Uncertified VST3, Absolute and Record retain their own clocks.
+/// # Safety
+/// Same suspended-audio contract as `kirin_hypha_set_aax_analysis_ingress`.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_content_analysis_ingress(
+    handle: *mut KirinHyphaEngine,
+    post: bool,
+) {
+    if let Some(engine) = unsafe { handle.as_ref() } {
+        engine.aax_analysis.configure(true, post);
+        engine.aax_analysis.content.store(true, Ordering::Release);
+    }
+}
+
+/// Prepare-thread only. AU FREQ/Perceptual use a distinct render coordinate with the callback's
+/// LISTEN pair proof. A render timestamp alone grants no PRE/POST correspondence.
+/// # Safety
+/// Same suspended-audio contract as `kirin_hypha_set_aax_analysis_ingress`.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_audio_unit_analysis_ingress(
+    handle: *mut KirinHyphaEngine,
+    post: bool,
+) {
+    if let Some(engine) = unsafe { handle.as_ref() } {
+        engine.aax_analysis.configure(true, post);
+        engine.aax_analysis.content.store(true, Ordering::Release);
+        engine
+            .aax_analysis
+            .audio_unit
+            .store(true, Ordering::Release);
+    }
+}
+
 /// Audio Thread only. Feed the original, pre-audition scratch exactly once after timing preparation.
-/// Only the Perceptual mode arrives here: a POST difference requires the current PRE
-/// lifetime/generation/K proof, and PRE's own publication uses its local continuous AddClock.
+/// A POST difference requires the current PRE
+/// lifetime/generation/K proof, or the certified measurement-only project coordinate; PRE publishes
+/// the corresponding local AddClock, AU render or certified content coordinate.
 /// `revision` changes whenever that proof changes, and never wraps. Neither coordinate is an
-/// output-presentation latency or a Record clock. Absolute analysis never uses this route.
+/// output-presentation latency or a Record clock. Absolute analysis never uses this route;
+/// unproven POST FREQ and AU PRE FREQ retain a local, unjoinable spectrum. AU takes its position from
+/// this callback's admitted capture window, independently of the correspondence observer.
 ///
 /// # Safety
 /// `handle` is null or live. A non-null `interleaved` spans `num_frames * num_channels` floats from
 /// this callback's admitted capture transaction. Only its single Audio Thread calls this function.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn kirin_hypha_push_aax_analysis(
+pub unsafe extern "C" fn kirin_hypha_push_paired_analysis(
     handle: *mut KirinHyphaEngine,
     interleaved: *const f32,
     num_frames: usize,
@@ -98,22 +177,55 @@ pub unsafe extern "C" fn kirin_hypha_push_aax_analysis(
     let Some(engine) = (unsafe { handle.as_ref() }) else {
         return false;
     };
-    if !engine.aax_analysis.enabled.load(Ordering::Acquire)
+    if !engine
+        .aax_analysis
+        .deferred(engine.spectrum_runtime.analysis_mode())
         || !engine.spectrum_runtime.is_enabled()
-        || engine.spectrum_runtime.analysis_mode() != AnalysisViewMode::Perceptual
     {
         return false;
     }
     let staged = engine.aax_analysis.frames.swap(0, Ordering::AcqRel);
-    let (valid, start, revision) = if engine.aax_analysis.post.load(Ordering::Acquire) {
+    let content = engine.aax_analysis.content.load(Ordering::Acquire);
+    let post = engine.aax_analysis.post.load(Ordering::Acquire);
+    let audio_unit = engine.aax_analysis.audio_unit.load(Ordering::Acquire);
+    // Local FREQ needs no correspondence proof. AU PRE may lack an independent project clock;
+    // LocalRender retains its observation but cannot be published by the PRE exchange.
+    let local_spectrum = content
+        && if post {
+            !paired_valid
+        } else {
+            audio_unit && !local_valid
+        }
+        && engine.spectrum_runtime.analysis_mode() == AnalysisViewMode::Spectrum;
+    let (valid, start, revision) = if audio_unit && local_spectrum {
+        (
+            engine
+                .aax_analysis
+                .local_spectrum_valid
+                .load(Ordering::Relaxed),
+            engine
+                .aax_analysis
+                .local_spectrum_start
+                .load(Ordering::Relaxed),
+            1,
+        )
+    } else if post && !local_spectrum {
         (paired_valid, paired_start, paired_revision)
     } else {
         (local_valid, local_start, local_revision)
     };
+    let revision_limit = 1_u64
+        << if audio_unit {
+            60
+        } else if content {
+            61
+        } else {
+            62
+        };
     let samples = num_frames.checked_mul(num_channels as usize);
     if !valid
         || revision == 0
-        || revision >= (1_u64 << 62)
+        || revision >= revision_limit
         || interleaved.is_null()
         || num_frames == 0
         || num_frames > MAX_AUDIO_BLOCK_FRAMES
@@ -132,11 +244,58 @@ pub unsafe extern "C" fn kirin_hypha_push_aax_analysis(
     engine.spectrum_runtime.push_block_from_audio_with_clock(
         audio,
         engine.num_channels,
-        Some(SpectrumInputClock::VerifiedAax {
-            start_samples: start,
-            proof_revision: revision,
+        Some(if local_spectrum {
+            SpectrumInputClock::LocalRender(start)
+        } else if audio_unit {
+            SpectrumInputClock::VerifiedAudioUnit {
+                start_samples: start,
+                proof_revision: revision,
+            }
+        } else if content {
+            SpectrumInputClock::VerifiedVst3 {
+                start_samples: start,
+                proof_revision: revision,
+            }
+        } else {
+            SpectrumInputClock::VerifiedAax {
+                start_samples: start,
+                proof_revision: revision,
+            }
         }),
     )
+}
+
+/// Compatibility entry for callers of the original AAX-only ABI.
+/// # Safety
+/// Same original-input and single Audio Thread contract as `kirin_hypha_push_paired_analysis`.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn kirin_hypha_push_aax_analysis(
+    handle: *mut KirinHyphaEngine,
+    interleaved: *const f32,
+    num_frames: usize,
+    num_channels: u32,
+    local_valid: bool,
+    local_start: i64,
+    local_revision: u64,
+    paired_valid: bool,
+    paired_start: i64,
+    paired_revision: u64,
+) -> bool {
+    unsafe {
+        kirin_hypha_push_paired_analysis(
+            handle,
+            interleaved,
+            num_frames,
+            num_channels,
+            local_valid,
+            local_start,
+            local_revision,
+            paired_valid,
+            paired_start,
+            paired_revision,
+        )
+    }
 }
 
 /// Missing optional latency retains project coordinates; FREQ pairs only the same clock kind.
@@ -205,3 +364,15 @@ pub(super) fn attack_timeline_start(clock: PendingCaptureWindow) -> Option<i64> 
 #[cfg(test)]
 #[path = "aax_analysis_ffi_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "content_analysis_ffi_tests.rs"]
+mod content_tests;
+
+#[cfg(test)]
+#[path = "au_cycle_spectrum_ffi_tests.rs"]
+mod au_cycle_tests;
+
+#[cfg(test)]
+#[path = "analysis_worker_test_support.rs"]
+pub(crate) mod test_support;

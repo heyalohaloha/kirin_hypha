@@ -234,10 +234,21 @@ image. A failed write reports failure and preserves the previous file.
 
 ### FREQ — where the chain changed
 
-FREQ Δ also works when a host omits the optional output-latency callback. PRE and POST must both
-use presentation coordinates or both use the project timeline, with complete matching windows
-from the current run. Mixed clock kinds are not compared. A render-only clock supports absolute
-POST spectra; missing latency is never treated as a reported zero latency.
+AU FREQ Δ uses the same PRE/POST timing proof as LISTEN, in a separate render coordinate.
+Certified Studio One / Studio Pro VST3 content clocks also use that proof. REAPER VST3
+uses its certified, PDC-compensated project positions directly for measurement, without adding output latency. Complete matching windows from
+the current run are required, and loss of proof clears the difference until fresh data is ready.
+Other VST3 hosts retain their presentation-coordinate or project-timeline path, including FREQ
+without an output-latency report; that path does not independently prove PDC content alignment.
+If an uncertified VST3 host compensates the project position for a delayed insert and also
+includes that same delay in PRE's output-latency report, the delay can be counted twice.
+Hypha can then compare different parts of the audio and show a false Δ. Differences across a
+delayed insert have not been verified in uncertified VST3 hosts.
+The certified or checked host paths are Pro Tools AAX, Logic AU, Studio One 6–7 / Studio Pro 8
+VST3, and REAPER VST3. The version policy and timing requirements below still apply;
+this list does not mean every version or configuration has been tested.
+The Studio Pro checks above were made on macOS and on Windows.
+Mixed clock kinds are never compared. Missing latency is never treated as reported zero latency.
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
 Choose LR, MID, or SIDE; click a frequency to keep its exact six-second **Focus Trail**; use **MARK**
@@ -250,8 +261,22 @@ to retain one temporary full-spectrum reference. The display scale is ±24 dB.
 SHARP shows six seconds of signed **Δ Sharpness** in acum; without a paired PRE it shows POST's own
 Sharpness. It reports observation only: no target, warning colour, score, or recommendation.
 
-SHARP differences and PSB differences need a reported output-presentation latency, or in Pro Tools
-AAX the verified PRE/POST timing offset. LIVE, POST-only Sharpness and absolute PSB also accept the
+SHARP differences and PSB differences use verified PRE/POST timing in AU, AAX and certified
+Studio One / Studio Pro VST3. REAPER VST3 also supports SHARP Δ and PSB Δ using
+its compensated project positions (K = 0). At a loop wrap or position change, it discards the
+previous analysis window and waits for complete matching windows. Other VST3 hosts retain their
+output-presentation-latency requirement.
+AU needs an independent host project timeline as well as the render timestamp. Logic AU
+uses a common render coordinate only when the same callback also confirms the PRE−POST output
+presentation-latency difference (including zero). This permits FREQ Δ, SHARP Δ, PSB Δ, LISTEN
+and BLIND during Cycle. Project positions do not select a cycle occurrence: Logic can wrap
+inside a block and move project time by one sample during pre-roll. Other AU hosts retain their
+linear proof and positive-difference, observed-loop rule. With Cycle off, Logic also retains
+project-based linear calibration when presentation reports are unavailable. An unproven AU pair waits; render time
+alone never establishes alignment. During Cycle, an unverified AU pair shows **Turn Cycle
+off to compare** in FREQ Δ, SHARP Δ and PSB Δ. LISTEN keeps POST playing with the same guidance,
+and BLIND keeps its selection. Turning Cycle off allows fresh linear proof; the same BLIND
+requires END and a new trial. Proven cycles remain available. LIVE, POST-only Sharpness and absolute PSB also accept the
 project timeline or a local render clock, so they do not need an output-latency report; in AAX they
 always use the project timeline.
 Pro Tools AAX feeds SHARP through the Native engine clock. The difference uses the same PRE/POST
@@ -266,11 +291,25 @@ latency is never assumed to be zero.
 
 | Clock supplied by the host | LIVE / POST Sharpness / absolute PSB | SHARP Δ / PSB Δ |
 |---|---|---|
-| VST3 or AU output-presentation clock | Available | Requires a matching PRE |
-| Project timeline without an output-latency report, as in REAPER | Available | Unavailable (state 6) |
+| Certified Studio One 6–7 / Studio Pro 8 VST3 content clock | Available | Requires the existing LISTEN timing proof |
+| AU render clock with independent host project timeline | Available | Requires linear or presentation-latency loop proof |
+| Other VST3 output-presentation clock | Available | Requires a matching PRE; content alignment is not independently proven |
+| REAPER VST3 compensated project timeline (all readable versions) | Available | Available; complete matching windows, PDC required. [LISTEN / BLIND conditions](#reaper-listen-timing) |
+| Other project timelines without an output-latency report | Available | Unavailable (state 6) |
 | Local render clock | Available | Unavailable (state 6) |
 | AAX Native engine clock, Pro Tools 12.6 or later | Project timeline | Requires the existing PRE/POST timing proof (linear or bounded initial loop) |
 | AAX Native engine clock, another AAX host | Project timeline | Requires the linear PRE/POST timing proof; waits while a selection loops |
+
+REAPER differences rely on the host keeping project positions compensated for the audio. A reported
+position or latency change clears the old windows immediately. If audio latency changes while all
+clock reports stay unchanged, a brief false difference cannot be detected from those reports alone;
+see the measured REAPER conditions below. Plug-ins must report their latency and the host must compensate it.
+The REAPER certificate covers all versions: the native executable must be named `REAPER` or `reaper`,
+and its non-empty version string must start with an ASCII digit. Missing or unreadable versions,
+other executable names and other formats receive no REAPER certificate. FREQ already relies on
+compensated project positions across REAPER versions; SHARP and PSB use the same assumption.
+Real-host checks used REAPER 7.71: FREQ, SHARP and PSB differences were zero during normal playback,
+loops and latency changes during playback. This does not claim testing every version.
 
 This table describes the analysis clock gate. It does not replace acceptance tests in each host.
 
@@ -697,9 +736,10 @@ session and plug-in data. Builds without the official update verification key de
 access. A deliberately provisioned update build additionally declares `network.client` and the
 update protocol marker; signing and packaging gates check these together.
 
-SHARP Δ and PSB Δ require reported output latency, or in AAX the PRE/POST timing proof described
-above. Their missing-latency ABI state (6) shows a fixed unavailable reason instead of an endless
-warm-up. LIVE, POST-only Sharpness and absolute PSB use the available local clock without this
+SHARP Δ and PSB Δ follow the clock table above. AU, AAX and certified Studio One / Studio Pro VST3 wait
+for fresh pair proof. REAPER VST3 uses its measurement-only project certificate. Other VST3
+hosts without output latency use ABI state 6, showing a fixed
+unavailable reason. LIVE, POST-only Sharpness and absolute PSB use the available local clock without this
 requirement.
 Switching views retires the previous view's missing-latency flag. Format support alone does not
 prove PRE/POST timing alignment.
@@ -951,31 +991,38 @@ the display nor uses analysis) and is dropped at the next save.
 
 ## Live PRE/POST compare
 
+The user decision of 2026-10-13 makes ordinary experimentation continuous: adjust intervening
+plug-ins, track faders, mute/solo or automation, edit loop ranges, and open or close windows while
+comparing. Unrelated project edits do not change the chain proof. Unverified PRE is never played;
+LISTEN and BLIND retain your choice and return automatically when fresh proof is available.
+
 Switch between PRE and POST of the same chain while the song keeps playing. When you select PRE,
 POST plays the input that PRE received, lined up with what POST is processing by the DAW's timing
 and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, and PRE comes back
-by itself as soon as it can confirm it again. Whenever you hear POST with PRE selected, even
-briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
+by itself as soon as it can confirm it again. Short checks are quiet and the selected PRE button
+stays selected. Measurement and Records are never changed.
 
 LISTEN/MATCH have platform paths for macOS VST3, AU and AAX and Windows VST3 and AAX;
-these paths do not certify every host. Logic AU can run BLIND during continuous playback,
-including preparation, level approval and settling, using runtime PRE/POST timing proof.
+these paths do not certify every host. Logic AU can run BLIND during continuous and cycle playback,
+including preparation, level approval and settling, using callback-bound PRE/POST timing proof.
 A missing host certification value alone never makes LISTEN or BLIND unavailable.
-Initial loop admission is a separate check: the measured host profiles cover Studio Pro
-8.1.2.113407 VST3 (the exact executable version) and Pro Tools AAX, where the proof measured in
+Initial loop admission is a separate check. The Studio Pro 8.1.2.113407 VST3 content-clock
+profile is also enabled for Studio One 6–7 (minimum 6.0.0) and Studio Pro 8. Readable native versions in dotted
+or “Build” form are required; only 8.1.2.113407 is marked measured. This is a version policy,
+not a claim of testing every build. Separate real-host measurement checks confirmed zero FREQ, SHARP
+and PSB differences with a 4096-sample delay and loops in Studio One 6.6.3 / 7.2.3 and
+Studio Pro 8.0.2 / 8.1.2 on macOS, and Studio Pro 8.1.2 on Windows. Pro Tools AAX uses the proof measured in
 Pro Tools Developer 26.4.0.5 is granted to every Pro Tools build from 12.6 on (executables
 "Pro Tools", "ProTools" and "Pro Tools Developer"; the floor is the build that reports its
 delay-compensation state). A host's loop-playback setting with no selection names no loop, so
 playback is treated as linear. In an AAX host that is not Pro Tools a looped
 selection cannot be proven, and LISTEN, BLIND, SHARP and the PSB difference say **Loop Playback on:
 turn it off to compare** while POST plays; that loop is never reported as a host that cannot verify
-timing. An observed unprovable loop or disabled delay compensation explains why
-POST plays; END remains available. Ordinary PRE timing checks wait with their reason, and a content-timing hold asks for
-stop/play. REAPER does not report output latency to the plug-in, and Hypha gets no audio clock there that
-it can verify PRE/POST timing with: LISTEN starts, but POST plays and PRE cannot be heard, and MATCH and
-BLIND do not proceed. The footer says **This DAW does not report output latency; PRE is unavailable
-(POST)** instead of asking for a stop/play that would not help. LIVE, POST PSB and FREQ work in REAPER;
-SHARP Δ and PSB Δ are unavailable there (state 6 in the clock table above). In Pro Tools it is offered
+timing. Short checks keep the selected controls and stay quiet. After three seconds without
+recovery, a brief instruction explains the observed cause and remedy; END remains available. REAPER VST3 uses its own processing counter, calibrated against compensated project
+positions, for PRE, MATCH and BLIND during linear playback. Its FREQ Δ, SHARP Δ and PSB Δ
+measurement clocks keep their existing rules. [REAPER loop limits and measured conditions](#reaper-listen-timing)
+are separate from the other host profiles. In Pro Tools it is offered
 on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
 multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
 multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.2.113407;
@@ -983,6 +1030,57 @@ Windows unsigned AAX has been checked separately in Pro Tools Developer 26.4.0.5
 testing is not acceptance of a signed plug-in in regular Pro Tools. Avid documents that its
 [debuggable Developer builds cannot save or export sessions](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html).
 Saving and reopening therefore remain separate regular-host acceptance requirements.
+
+<a id="reaper-listen-timing"></a>
+**REAPER LISTEN timing (1.1.51 implementation; output acceptance pending).** Both PRE and POST
+must use VST3, mono or stereo, in the same compensated chain. The executable/version policy is the
+same as REAPER's measurement certificate above. Each instance counts the frames it actually
+processes; eight consecutive agreeing linear blocks establish the offset between those independent
+counters. An unverified block plays POST immediately. Named LISTEN can reacquire after an identified
+stop or seek; BLIND keeps the same hidden assignment and resumes after fresh proof. Saving or reopening restores no
+selection or MATCH permission.
+
+The first loop can establish its offset using REAPER's live `chain_pdc_actual` observation.
+The supported route is a normal two-channel track with mono/stereo inserts, exactly one PRE and
+one POST in that order in the main serial FX chain. Input/take FX, containers, parallel FX,
+oversampling, external hardware inserts, special PDC modes and unreadable identities are withheld from this new route.
+The message thread reads the public host API, binds every FX GUID and its order to the live
+project/track/process, and discards pre-playback observations even when the API reports success.
+Two agreeing observations with callback progress are required. API/identity/configuration changes,
+stop/seek, prepare or stale audio callbacks revoke the observation. Project-wide edit counts only
+reject edits during a read; unrelated track edits do not change the chain fingerprint.
+
+The address limit is **actual chain delay + 8192 samples**; the supported actual delay is at most
+65536 samples. The allowance covers relative PRE processing and block boundaries, not the DAW's
+playhead render-ahead time. The complete age interval must lie in PRE's measured native linear
+segments and have exactly one matching address. At PRE's first observed block-boundary wrap,
+both the segment before the wrap and the segment after it remain available, so POST can still
+read the delayed tail. Once the loop length is measured it must exceed the limit; the ring must
+also exceed it. Incomplete coverage, ambiguous addresses and unverified wrap boundaries keep
+POST playing. This permits entry during the first lap after observation/calibration and PCM
+availability; it does not promise immediate output on the first callback. MATCH still needs
+at least three seconds of continuous proven audio. Without the API proof, the existing linear
+calibration and its 73728-sample verified-address envelope remain available.
+
+The timer normally reads at 50 ms. Evidence expires after 500 ms without refresh or two seconds
+of processed samples without a fresh observation. Expiry withholds PRE for that block; the same
+fingerprint and delay in the same run can resume LISTEN or BLIND with its approved gain. A changed
+proof still revokes K; both LISTEN and BLIND resume only after new proof. Idle instances check at 250 ms;
+only relevant playing instances inspect the API at 50 ms. These are freshness limits, not a guarantee
+that a host report precedes an audible PDC change. Dynamic API notification order, scheduling
+outside the measured conditions and actual output acceptance remain host tests.
+
+Timing measurements used REAPER 7.71 on macOS, 96 kHz, stereo, 512-frame blocks, anticipative FX
+processing off and on (200 ms render-ahead). Reported 4096→0 latency changes and bypass reductions
+were detected in the same POST block in all 12 measured transitions: the observed undetected window
+was **0 ms**, at callback resolution. Reported 0→4096 increases, including bypass release, preserved
+the correspondence because REAPER processed upstream FX ahead. This is a reduced timing sample,
+not a guarantee for every host version or a completed LISTEN/BLIND output acceptance test.
+Unreported latency changes were not detected by the clocks; an independent negative test remained
+misaligned for about seven seconds until playback stopped. As required by R-12, every intervening
+plug-in must report latency correctly and REAPER must compensate it. No clock-only rule can repair
+an unreported delay. Native Windows, other rates/buffers, larger delays and FX insertion/removal
+still need host acceptance. [Timing contract and regression coverage](docs/planning/hypha_reaper_listen_timing.md).
 
 1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
    300% and above) in the footer.
@@ -998,8 +1096,8 @@ Saving and reopening therefore remain separate regular-host acceptance requireme
 
    Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
    press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
-   would still peak above the ceiling later in the song, Hypha stops PRE at that block and asks you
-   to select it again. A new gain while PRE plays glides over 50 ms instead of jumping.
+   would still peak above the ceiling later in the song, that block plays POST. PRE returns
+   automatically when it is safe at the approved gain. A new gain while PRE plays glides over 50 ms instead of jumping.
 4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
@@ -1012,18 +1110,32 @@ Saving and reopening therefore remain separate regular-host acceptance requireme
    names the rise in advance, for example **END +7.0 dB**. Hypha first returns from PRE to POST,
    then restores normal POST level with the existing slow ramp (500 ms for the full gain range).
    Completion waits for actual audio output at unity; without callbacks it stays pending.
-6. Closing the window or a fault is different: it stops PRE but holds approved POST attenuation.
+6. Closing and reopening the window keeps LISTEN, MATCH and the same BLIND trial running.
+   A changed pair, format or restored saved state ends the old comparison and holds approved attenuation.
    **RETURN +7.0 dB**, for example, explicitly restores normal level. Offline render, a bypass
    the DAW reports, and another audition are never attenuated. Measurements remain before this path.
+
+Logic's cycle path relies on every intervening plug-in reporting its latency correctly and Logic
+compensating it, as required by R-12. Set Logic’s Plug-in Latency Compensation to **All**.
+Off, Audio and Instrument Tracks on auxiliary/output chains, and Low Latency Mode require
+separate host acceptance; an unreported bypass or delay cannot be inferred from clock equality. Equal presentation values are accepted together with the
+render proof; they cannot distinguish zero latency from an unreported delay. A latency-changing
+setting can also leave a short interval before its change becomes observable. Hypha cannot repair
+that missing host information. The callback proof and regression fixtures do not replace actual
+host acceptance for low-latency mode, auxiliary buses, live inputs, other buffers/rates or dynamic
+PDC changes. An unverified block plays POST; fresh proof resumes the same BLIND trial.
 
 For a DAW loop, press **LISTEN** or **BLIND** during loop playback. No Hypha LOOP button,
 LOOP-off step or per-lap approval is needed. Initial comparison needs independent timing proof:
 
-- VST3: the measured common content clock in the exact Studio Pro 8.1.2.113407 host.
-- AU: valid presentation-latency information on both sides, with a positive PRE-to-POST
-  difference and a unique occurrence within the observed loop. Equal, zero or missing values
-  do not prove zero latency. Initial VST3/AU mixed-clock pairs are not certified. This initial
-  loop requirement does not disable Logic AU BLIND during continuous non-loop playback.
+- VST3: the common content-clock profile measured in Studio Pro 8.1.2.113407, enabled for
+  Studio One 6–7 and Studio Pro 8. REAPER uses the separate conditions above.
+- Logic AU: continuous render stamps name the same content sample, and the difference between
+  the contemporaneous PRE/POST render positions must equal their reported output presentation
+  difference, including zero. This is restricted to the native `Logic Pro` executable with a
+  readable version; the discovery measurements used 12.2. Missing, reversed or contradictory
+  reports are refused. Other AU hosts retain the positive-difference and unique observed-loop
+  rule. Initial VST3/AU mixed-clock pairs are not certified.
 - AAX: the AddClock profile measured in Pro Tools Developer 26.4.0.5, granted to every Pro Tools
   build from 12.6 on, plus the documented sample-rate-specific maximum compensation bound
   (16,383 samples at 44.1/48 kHz, 32,767 at 88.2/96 kHz, 65,534 at 176.4/192 kHz). The loop must
@@ -1034,18 +1146,17 @@ LOOP-off step or per-lap approval is needed. Initial comparison needs independen
   wrap POST's position lies before the loop start; Hypha reads it as the previous lap's tail,
   which is the audio it carries.
 
-If proof is unavailable or the loop is too short, Hypha explains the condition, keeps POST
+If proof stays unavailable for three seconds or the loop is too short, Hypha explains the condition and keeps POST
 playing and leaves **END** available. It does not present LOOP-off or re-MATCH as the normal
 workflow. The rules also allow ordinary **LISTEN → MATCH** playback followed by LOOP, while
 retaining the fixed gain and selection at confirmed wraps. Short loops can accumulate real
 playback time for **MATCH again**; Hypha does not duplicate recorded samples.
 
-**HELD** means the approved gain and ceiling remain, not that current levels have been measured
-equal again. In named comparison, an identified stop, position move or re-enabled delay
-compensation renews the timing proof before PRE returns, without an automatic re-MATCH.
-An unexplained gap, missing clock or changed source requires an explicit PRE selection; state
-restore, pair or format changes cannot inherit the old approval. Interrupted BLIND trials never
-resume automatically. A failed or cancelled rematch never discards the previous gain.
+The approved MATCH gain and ceiling stay fixed during timing recovery. A stop, seek, latency
+change, missing clock, callback gap or brief API expiry withholds only unverified PRE. Both LISTEN
+and BLIND resume automatically after fresh timing and PCM proof. This is not a new level match.
+State restore and pair, format or PRE-owner changes end the old authority. A failed or cancelled
+rematch never discards the previous gain.
 
 Some hosts hold POST's reported position at the loop start while delayed audio is still arriving.
 That interval stays on POST until the occurrence is proven, not on unverified PRE. Native
@@ -1059,33 +1170,28 @@ seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise 
 PIN ends the live session, and Blind's own RETURN brings back POST.
 
 While a session runs, **END** and **MENU** stay at every size; MENU includes any controls that
-do not fit the footer. Keep POST's window
-open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
-same channel; in Pro Tools, turn off its **Target** button.
+do not fit the footer. You can close Hypha or open another plug-in while comparing; reopening
+Hypha shows the existing comparison, including the same BLIND assignment. MATCH accepts a request
+before enough audio is available and completes on the processor, including while its editor is
+closed. If lowering POST is needed, it still asks for approval when the editor is available.
 
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
   two seconds of playback Hypha also compares the audio itself. When PRE is off, the status line
   says so, for example **PRE 2.31 ms early** (a plug-in between that under-reports its latency) or
   **late**. An intentional delay, reverb or heavy processing can cause the same message, and
   silence or a held tone cannot be judged; Hypha never changes the comparison because of it.
-- If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
-  compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
-  you stop and restart playback. Only strong, unambiguous estimates count; a weak peak after
-  clipping cannot establish a jump. The tolerance is in time, so a higher sample rate does not
-  make this warning more sensitive. BLIND pressed during this hold explains the reason and asks
-  you to stop and play the DAW. A hold during preparation ends that preparation with the same
-  reason; use END, then start BLIND again. An AU reset clears the hold only when the host separately
-  reports stopped transport, even if POST receives no stopped render; a playing seek never clears it.
-- While delay compensation is turned off in Pro Tools, you hear POST, the PRE control reads
-  **PRE WAIT** and the status line says why. PRE comes back by itself once delay compensation is
-  on again.
+- If a strong, unambiguous content offset changes, Hypha uses POST while preserving the
+  comparison. Two fresh estimates back at the original baseline clear the hold automatically;
+  stopping and restarting also resets it. Weak peaks caused by processing do not create a hold.
+- While Pro Tools reports delay compensation off, POST plays. Enable compensation to resume
+  automatically. A brief interruption is quiet; a condition lasting three seconds gets guidance.
 - If the chosen PRE is one channel of a multi-mono plug-in in Pro Tools, LISTEN does not start
   and the status line says so.
 - Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
   blocks while Hypha confirms the line-up.
 - Silence does not require a new MATCH. PRE returns automatically when independent timing
   evidence still establishes continuity. If the DAW leaves an unexplained clock or callback gap,
-  Hypha keeps POST playing, shows the interruption reason and asks you to select PRE again.
+  Hypha uses POST while proving new timing, then returns automatically.
   An inactive meter alone cannot distinguish silence from host suspension or bypass.
 - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear
   phase) while comparing, PRE can be misaligned for a moment right after the change: a few audio
@@ -1111,16 +1217,18 @@ another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full m
 requires lowering POST, approval names both the reduction and the rise on END before applying it.
 END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
 END, ramped, and confirmed by the Audio Thread. Closing the window alone never raises the level.
-If closing or restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before
+If restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before
 starting a new LISTEN or BLIND session. Only a still-active session can carry its own approved
 attenuation into BLIND. A match outside the final ±24 dB range reports why it cannot start;
 it does not remain in preparation without an explanation.
 
 Live Blind compares different moments within one continuous playback; it does not claim identical
 sample ranges, an ABX identification test, or proof of better sound. A confirmed loop may continue
-the same trial only while every block remains verified. Even one POST fallback invalidates the
-trial; it is never counted as the other Source. Stop, seek, unconfirmed loop timing, clock failure,
-bypass, offline render or a safety failure ends that trial without automatically restarting.
+the same trial across timing interruptions. Each unverified block plays POST, and fresh proof
+returns to the same hidden assignment without END or reselection. A fallback is never counted
+as hearing PRE; REVEAL adds one short note if a PRE interval used POST. Source buttons show your
+selection, while internal played receipts count only the source that actually sounded.
+
 Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
 Existing attenuation stays held; an END already requested continues to actual normal level.
 The first detected interruption reason survives teardown internally. An actual LISTEN interruption
@@ -1128,15 +1236,11 @@ is explained once in the footer; at normal output level that notice clears after
 Pairing PRE or reopening saved settings alone does not show a listening warning. A later callback
 cannot overwrite the retained reason or attribute an old failure to a new attempt. The notice
 describes the detected condition, not an inferred fault in another plug-in.
-In named LISTEN, PRE WAIT has persistent guidance: ordinary timing checks resume automatically;
-a changed content offset requires stopping and restarting DAW playback; disabled delay compensation
-requires enabling it. Selecting POST leaves the comparison's approved attenuation intact.
-The retained fault and the current recovery condition are separate: END alone does not clear a
-content-timing hold. The stop/play instruction remains until a stopped audio callback clears it.
-After an automatically ended session at normal level, the temporary notice points to **MENU → LISTEN**.
-Current waiting, timing holds and a pending audio return retain their guidance until resolved.
-Held attenuation keeps the visible **RETURN +x dB** control. Idle Keep completion also uses a
-three-second notice; opening the editor or polling again does not replay a consumed result.
+Initial calibration and level preparation are quiet. LISTEN, MATCH and BLIND accept the request
+and use fresh, complete evidence when ready. Short recovery has no WAIT, HELD or checking notice.
+After three seconds without usable evidence, a brief reason and recovery action appear. END and
+any held attenuation keep their existing explicit level-return controls.
+
 Blind interruption and its first reason are committed together for the sampled trial; named PRE
 selection uses the same command-bound rule, so a late callback cannot clear a newer selection.
 Reference and its access panel follow the parent editor's current body bounds when a recovery

@@ -13,7 +13,7 @@
 #include "EditorResizeGripCheck.h"
 #include "ObservatoryHelpLineCheck.h"
 #include "ReferenceStatusPlacementCheck.h"
-
+#include "TestProcessorStorage.h"
 #include <array>
 #include <chrono>
 #include <cstdlib>
@@ -133,7 +133,7 @@ void verifyPairHeaderAtEverySize (const juce::File& previews)
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     auto editor = std::unique_ptr<KirinHyphaEditor> (
         dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
     require (editor != nullptr, "POST editor opens for pair-header geometry");
@@ -240,7 +240,7 @@ private:
         processor->setHybridVuOnRecordPreference (true);
         processor->setPlayHead (&clock);
         processor->setNonRealtime (false);
-        processor->prepareToPlay (48000, 960);
+        hypha::tests::prepareFixtureProcessor (*processor, 48000, 960);
         openEditor();
         stage = 0;
         changed = std::chrono::steady_clock::now();
@@ -392,7 +392,7 @@ void verifyTimeTabGeometry()
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
     processor.setObservatoryDomainPreference (hypha::observatory::stateValue (Domain::time));
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     auto editor = std::unique_ptr<KirinHyphaEditor> (
         dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
     require (editor != nullptr, "POST editor opens for the TIME tab row");

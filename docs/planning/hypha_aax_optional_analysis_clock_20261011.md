@@ -1,5 +1,9 @@
 # AAX の SHARP / LIVE / PSB と解析時計
 
+2026-10-12追記: 認定済みStudio Pro VST3のFREQ / SHARP / 差分PSBは、
+[PDC比較時計の修正](hypha_vst3_pdc_delta_20261012.md)で独立したcontent時計へ移した。
+以下のAAX規則、AU、未認定VST3の規則は維持する。
+
 ## 原因
 
 AAX の通常 Native callback は、既存の `0011-aax-engine-clock.patch` により

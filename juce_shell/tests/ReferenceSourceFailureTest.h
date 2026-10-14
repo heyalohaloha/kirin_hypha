@@ -1,10 +1,11 @@
 #pragma once
+#include "../src/AtomicFile.h"
 namespace
 {
 void verifySourceFailureReasons (const juce::File& root, ref::RuntimeCandidate candidate)
 {
     const auto file = root.getChildFile ("undecodable-fixture.wav");
-    require (file.replaceWithText ("fixture bytes that are not encoded audio"), "write disposable undecodable source");
+    require (hypha::storage::writeText (file, "fixture bytes that are not encoded audio"), "write disposable undecodable source");
     const auto hash = juce::SHA256 (file).toHexString();
     const auto pcm = juce::String::repeatedString ("f", 64);
     candidate.sourceIdentityKey = "catalog:source-test:" + hash + ":" + pcm;

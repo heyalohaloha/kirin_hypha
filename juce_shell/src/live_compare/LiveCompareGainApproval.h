@@ -100,7 +100,14 @@ template <typename State>
 bool currentBlindReceipt (const State& state) noexcept
 {
     const auto gains = readGainSnapshot (state);
-    return state.blindGainRevision.load (std::memory_order_acquire) == gains.revision
-        && currentGainReceipt (state, gains);
+    const auto ticket = state.authority.ticket();
+    return state.authority.permitted() && state.sessionActive.load (std::memory_order_acquire)
+        && gains.coherent && gains.retained && !gains.limited
+        && gains.identity.authority == ticket
+        && state.blindGainRevision.load (std::memory_order_acquire) == gains.revision
+        && state.gainReceipt.load (std::memory_order_acquire) == gains.revision
+        && ticket == state.authority.ticket() && state.authority.permitted()
+        && gains.revision == state.gainRevision.load (std::memory_order_acquire)
+        && state.sessionActive.load (std::memory_order_acquire);
 }
 }

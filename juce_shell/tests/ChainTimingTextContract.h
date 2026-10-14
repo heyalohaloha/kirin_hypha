@@ -1,5 +1,5 @@
 #pragma once
-
+#include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "../src/HyphaChainTimingPreference.h"
 #include "../src/HyphaChainTimingText.h"
@@ -7,7 +7,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "FooterNoticeContractChecks.h"
-
+#include "TestPathBudget.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -45,7 +45,7 @@ inline void verifyChainTimingFooterContract()
              "the readout is a label and values, the same in Japanese");
 
     const auto directory = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("kirin-hypha-chain-footer", {}, false);
+        .getNonexistentChildFile ("chain", {}, false);
     require (directory.createDirectory().wasOk(), "temporary preference directory");
     const auto file = directory.getChildFile ("ui-preferences.txt");
     {
@@ -62,12 +62,12 @@ inline void verifyChainTimingFooterContract()
         first.refreshNowForTest();
         require (! first.isEnabled(), "the other POST follows within its refresh");
         const auto blocker = directory.getChildFile ("not-a-directory");
-        require (blocker.replaceWithText ("blocker"), "blocking file");
+        require (hypha::storage::writeText (blocker, "blocker"), "blocking file");
         ChainTimingFooterPreference unsaved (blocker.getChildFile ("ui-preferences.txt"));
         require (! unsaved.setEnabled (true) && unsaved.isEnabled(),
                  "a choice that cannot be saved still holds for the session");
     }
-    directory.deleteRecursively();
+    hypha::tests::removeFixtureDirectory (directory);
 
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     for (const auto guide : { false, true })

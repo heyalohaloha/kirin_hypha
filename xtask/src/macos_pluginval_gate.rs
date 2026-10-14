@@ -146,6 +146,11 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
     );
     require(
         PLUGINVAL_SCRIPT,
+        "KIRIN_HYPHA_TEST_STORAGE_ROOT=\"$RUNTIME_DIR\"",
+        "JUCE and Rust must share pluginval's isolated runtime root",
+    );
+    require(
+        PLUGINVAL_SCRIPT,
         "--vst3validator \"$VST3_VALIDATOR_BIN\"",
         "script must allow Steinberg VST3 validator injection when available",
     );

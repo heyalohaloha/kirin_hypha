@@ -43,6 +43,10 @@ struct WorkerState {
     shutdown: AtomicBool,
     wake: (Mutex<()>, Condvar),
     published_updates: AtomicU64,
+    #[cfg(any(test, feature = "test-support"))]
+    requested_tick: AtomicU64,
+    #[cfg(any(test, feature = "test-support"))]
+    completed_tick: AtomicU64,
     #[cfg(test)]
     pause_ticks: AtomicBool,
     #[cfg(test)]
@@ -69,6 +73,10 @@ impl SpectrumExchangeWorker {
                 shutdown: AtomicBool::new(false),
                 wake: (Mutex::new(()), Condvar::new()),
                 published_updates: AtomicU64::new(0),
+                #[cfg(any(test, feature = "test-support"))]
+                requested_tick: AtomicU64::new(0),
+                #[cfg(any(test, feature = "test-support"))]
+                completed_tick: AtomicU64::new(0),
                 #[cfg(test)]
                 pause_ticks: AtomicBool::new(false),
                 #[cfg(test)]
@@ -255,9 +263,17 @@ impl SpectrumCoordinator {
             }
             return;
         }
+        #[cfg(any(test, feature = "test-support"))]
+        let requested = self
+            .exchange_worker
+            .state
+            .requested_tick
+            .load(Ordering::Acquire);
         if self.post_tick_for_owner(post_instance_id, target, owner_name) {
             let _ = self.exchange_worker.ensure_started(self);
         }
+        #[cfg(any(test, feature = "test-support"))]
+        self.complete_endpoint_tick_for_test(requested);
     }
 
     /// Existing PRE IO thread: discover a valid request at its unchanged 10 Hz cadence. Once
@@ -277,11 +293,23 @@ impl SpectrumCoordinator {
             }
             return;
         }
+        #[cfg(any(test, feature = "test-support"))]
+        let requested = self
+            .exchange_worker
+            .state
+            .requested_tick
+            .load(Ordering::Acquire);
         if self.pre_tick(pre_instance_id, instance_dir) {
             let _ = self.exchange_worker.ensure_started(self);
         }
+        #[cfg(any(test, feature = "test-support"))]
+        self.complete_endpoint_tick_for_test(requested);
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "spectrum_exchange_test_barrier.rs"]
+mod test_barrier;
 
 impl Drop for SpectrumExchangeWorker {
     fn drop(&mut self) {
@@ -297,7 +325,15 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let (_guard, _timeout) = match state.wake.1.wait_timeout(guard, wait) {
+        #[cfg(not(any(test, feature = "test-support")))]
+        let waited = state.wake.1.wait_timeout(guard, wait);
+        #[cfg(any(test, feature = "test-support"))]
+        let waited = state.wake.1.wait_timeout_while(guard, wait, |_| {
+            state.requested_tick.load(Ordering::Acquire)
+                <= state.completed_tick.load(Ordering::Acquire)
+                && !state.shutdown.load(Ordering::Acquire)
+        });
+        let (_guard, _timeout) = match waited {
             Ok(result) => result,
             Err(poisoned) => poisoned.into_inner(),
         };
@@ -307,6 +343,8 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
         let Some(coordinator) = coordinator.upgrade() else {
             break;
         };
+        #[cfg(any(test, feature = "test-support"))]
+        let requested_tick = state.requested_tick.load(Ordering::Acquire);
         let endpoint = match state.endpoint.lock() {
             Ok(endpoint) => endpoint.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
@@ -336,6 +374,13 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
                 } => coordinator.post_tick_for_owner(&instance_id, target, &owner_name),
             }
         };
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            state
+                .completed_tick
+                .store(requested_tick, Ordering::Release);
+            state.wake.1.notify_all();
+        }
         wait = if !active {
             INACTIVE_WAIT
         } else if matches!(

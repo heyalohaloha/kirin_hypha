@@ -1,5 +1,5 @@
 #pragma once
-
+#include "../src/AtomicFile.h"
 #include "../src/reference_audition/ReferenceAuditionLease.h"
 #include "../src/reference_audition/ReferenceAuditionController.h"
 #include "../src/reference_audition/ReferenceAuditionProtocol.h"
@@ -177,7 +177,7 @@ namespace
     {
         if (! file.getParentDirectory().createDirectory())
             return false;
-        juce::TemporaryFile temporary (file);
+        juce::TemporaryFile temporary (file, hypha::storage::temporarySibling (file));
         {
             auto stream = temporary.getFile().createOutputStream();
             if (stream == nullptr || ! stream->openedOk()

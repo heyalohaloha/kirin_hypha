@@ -7,6 +7,11 @@
 
 namespace hypha::live_compare
 {
+// Deterministic copy/publication interleavings are compiled only into native fixtures.
+#ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+inline void (*afterCorrespondenceCopyForTest) (const Ring&) = nullptr;
+#endif
+
 enum class Verdict : std::uint8_t
 {
     accepted,
@@ -35,6 +40,7 @@ struct Decision
     bool timelineChanged = false;
     std::uint64_t run = 0;
     TimelineBreak loss = TimelineBreak::none;
+    LoopEntryFailure loopFailure = LoopEntryFailure::none;
 };
 
 // POST, Audio Thread. Maps POST's continuous clock to PRE's through K, calibrated from steady
@@ -50,6 +56,22 @@ public:
                       const BlockClock& block, float* const* out, int outChannels) noexcept
     {
         Decision decision;
+        TimingSnapshot runtimePeer;
+        const bool runtimeProof = preparedKind == LoopEntryKind::reaperBound || preparedKind == LoopEntryKind::logicPresentation;
+        bool runtimeVerified = false;
+        if (runtimeProof && kValid)
+        {
+            if (!sameClockProof (admittedPostProof, block))
+            {
+                invalidate(); initialAdmission = false;
+                decision.timelineChanged = true; decision.loss = TimelineBreak::clockProofChanged;
+                decision.verdict = Verdict::calibrating; return fill (decision);
+            }
+            runtimeVerified = readTiming (ring.header.timing, runtimePeer) && runtimePeer.active
+                && (preparedKind != LoopEntryKind::reaperBound || reaperRuntimeAge (runtimePeer.block, block) > 0)
+                && loopAddressIsCurrent (runtimePeer.anchor, runtimePeer.block, block, k,
+                                         sampleRate, ringCapacityFrames);
+        }
         if (! ring.matches (pairKey, sampleRate))
         {
             invalidate();
@@ -59,6 +81,39 @@ public:
             decision.timelineChanged = true;
             decision.loss = TimelineBreak::sourceChanged;
             return decision;
+        }
+        if (reaperProcessing (block) && block.playing && block.clockValid && block.projectValid)
+        {
+            TimingSnapshot peer;
+            if (!readTiming (ring.header.timing, peer))
+            { decision.verdict = Verdict::writing; return fill (decision); }
+            const auto loss = reaperContinuity.observe (peer, block);
+            const auto runtimeAge = reaperRuntimeAge (peer.block, block);
+            std::int64_t preEnd = 0, address = 0, age = 0;
+            const bool tooOld = kValid && block.loop.active
+                && (!checkedClockAdd (peer.block.clock, peer.block.frames, preEnd)
+                    || !checkedClockSubtract (block.clock, k, address)
+                    || !checkedClockSubtract (preEnd, address, age)
+                    || age > (runtimeAge > 0 ? runtimeAge : ReaperTimingLimits::age));
+            if (loss != TimelineBreak::none || tooOld)
+            {
+                const bool wasAdmitted = !initialAdmission;
+                invalidate();
+                decision.verdict = Verdict::calibrating;
+                decision.timelineChanged = wasAdmitted;
+                decision.loss = tooOld ? TimelineBreak::callbackGap : loss;
+                return fill (decision);
+            }
+            const auto cycle = reaperCycles.observe (block, sampleRate);
+            if (kValid && block.loop.active && !runtimeProof)
+            {
+                if (!cycle.known || peer.anchor.loopSamples <= 0)
+                    decision.loopFailure = LoopEntryFailure::reaperFirstCycle;
+                else if (cycle.samples != peer.anchor.loopSamples)
+                    decision.loopFailure = LoopEntryFailure::clockUnavailable;
+                else if (cycle.samples <= ReaperTimingLimits::age || ringCapacityFrames <= ReaperTimingLimits::age)
+                    decision.loopFailure = LoopEntryFailure::loopTooShort;
+            }
         }
         // A fresh entry has never authorised PRE. A startup stop/clock hole must withhold
         // output, not consume its one admission through LoopTimeline's invalid first block.
@@ -118,7 +173,7 @@ public:
         const auto writeEnd = ring.header.writeEnd.load (std::memory_order_acquire);
         const auto age = kValid ? writeEnd - (block.clock - k) : 0;
         auto verifiedBlock = block;
-        const bool loopVerified = kValid && block.loop.active
+        const bool loopVerified = runtimeProof ? runtimeVerified : kValid && block.loop.active
             && loopJoin (ring.header, block, block.clock - k, sampleRate, verifiedBlock);
         const auto timelineStep = timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,
             age > 0 && age < ringCapacityFrames ? age : 0);
@@ -141,7 +196,7 @@ public:
         std::int64_t candidate = 0;
         // A project-time match is not unique inside a loop. Preserve an already proven K;
         // never recalibrate it onto a newer occurrence of the same project coordinate.
-        if (continuous && block.playing && ! block.loop.active
+        if (continuous && block.playing && ! block.loop.active && preparedKind != LoopEntryKind::logicPresentation
             && joinCandidate (ring.header, block, runStart, candidate))
         {
             decision.candidateSeen = true;
@@ -169,7 +224,7 @@ public:
             return fill (decision);
         }
         decision.preStart = block.clock - k;
-        if (block.loop.active && ! loopVerified)
+        if ((block.loop.active || runtimeProof) && (! loopVerified || decision.loopFailure != LoopEntryFailure::none))
         {
             // No PRE copy or fade from an unproven boundary. A finite clamped interval may
             // recover on the same K; a broken timeline/run already invalidated it above.
@@ -177,6 +232,9 @@ public:
             return fill (decision);
         }
         decision.verdict = read (ring, decision.preStart, block.frames, out, outChannels);
+       #ifdef KIRIN_HYPHA_TEST_WALL_CLOCK
+        if (afterCorrespondenceCopyForTest) afterCorrespondenceCopyForTest (ring);
+       #endif
         // PCM seq protects the samples/run, not the separate clock-only generation. A PRE
         // stop/seek/close during this copy must not leave a completed proof audible.
         if (ring.header.run.load (std::memory_order_acquire) != run
@@ -190,6 +248,8 @@ public:
             decision.loss = preparedTimingLoss (ring.header);
             if (decision.loss != TimelineBreak::metadataPending) preparedGeneration = 0;
         }
+        else if (runtimeProof && runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire))
+            decision.verdict = Verdict::torn; // one overlapping metadata publication, not a new PCM run
         return fill (decision);
     }
 
@@ -200,7 +260,10 @@ public:
         haveRun = false;
         initialAdmission = true;
         preparedGeneration = 0;
+        preparedKind = LoopEntryKind::none;
         timeline.reset();
+        reaperContinuity.reset();
+        reaperCycles.reset();
     }
 
     bool calibrated() const noexcept { return kValid; }
@@ -245,6 +308,8 @@ public:
         preparedGeneration = evidence.preGeneration;
         preparedOwnerA = evidence.ownerA;
         preparedOwnerB = evidence.ownerB;
+        preparedKind = evidence.kind;
+        admittedPostProof = block;
         return true;
     }
 
@@ -353,7 +418,7 @@ private:
         std::atomic_thread_fence (std::memory_order_acquire);
         if (h.seq.load (std::memory_order_relaxed) != seq) return false;
         LoopAnchor anchor { (flags & 1u) != 0, (flags & 2u) != 0,
-            runStart, runProject, anchorClock, project, 0, context };
+            runStart, runProject, anchorClock, project, 0, context, {} };
         if (corroborateLoop (anchor, block, start, rate, verified)) return true;
         // Only the exceptional boundary needs the separate clock snapshot. Normal blocks
         // keep the cheap PCM-anchor path; the snapshot must belong to this exact PCM run.
@@ -406,10 +471,14 @@ private:
     std::int64_t previousProject = 0;
     std::int32_t previousFrames = 0;
     LoopTimeline timeline;
+    ReaperPairContinuity reaperContinuity;
+    LoopCycleMeter reaperCycles;
     bool haveRun = false;
     bool initialAdmission = true;
     std::uint64_t preparedGeneration = 0;
     std::uint64_t preparedOwnerA = 0, preparedOwnerB = 0;
     std::uint64_t previousRun = 0;
+    LoopEntryKind preparedKind = LoopEntryKind::none;
+    BlockClock admittedPostProof;
 };
 }

@@ -70,6 +70,8 @@ inline void verifyPaint()
         {
             live_compare::LiveBlindStatus unavailable;
             unavailable.stage = live_compare::BlindStage::preparing; unavailable.timingUnavailable = true;
+            unavailable.prolongedWait = true;
+            unavailable.observation = live_compare::RecoveryReason::loopClockUnavailable;
             live_blind_ui::Component blind;
             blind.setSize (width, width * 2 / 3); blind.setState (unavailable, true, 0.5f);
             juce::Image image (juce::Image::ARGB, width, width * 2 / 3, true);

@@ -7,6 +7,7 @@
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "HyphaPresentationContext.h"
+#include "HyphaPairingLoopText.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::spectrum_chrome
@@ -45,6 +46,8 @@ namespace hypha::spectrum_chrome
         uint8_t inputChannels;
         bool signalActive = true;
         presentation::Context presentation = presentation::defaultContext();
+        live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
+        bool postSnapshotValid = false;
     };
 
     void paint (juce::Graphics& graphics,

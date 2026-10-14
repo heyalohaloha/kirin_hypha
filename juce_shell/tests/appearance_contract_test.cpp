@@ -3,11 +3,11 @@
 #include "../src/appearance/AppearanceFileLock.h"
 #include "../src/appearance/AppearanceService.h"
 #include "../src/appearance/AppearanceStorage.h"
-
+#include "../src/AtomicFile.h"
 #include <cstdlib>
 #include <iostream>
 #include <thread>
-
+#include "TestPathBudget.h"
 namespace
 {
 constexpr auto activationId = "123e4567-e89b-42d3-a456-426614174000";
@@ -42,7 +42,7 @@ juce::String activationJson (const juce::String& id = activationId)
 juce::File makeRoot()
 {
     const auto root = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("kirin-hypha-appearance", {}, false);
+        .getNonexistentChildFile ("app", {}, false);
     KIRIN_APPEARANCE_REQUIRE (root.createDirectory().wasOk());
     return root;
 }
@@ -52,10 +52,10 @@ void writeActivation (hypha::appearance::Storage& storage,
 {
     KIRIN_APPEARANCE_REQUIRE (
         storage.activationFile().getParentDirectory().createDirectory().wasOk());
-    KIRIN_APPEARANCE_REQUIRE (storage.activationFile().replaceWithText (activationJson (id)));
+    KIRIN_APPEARANCE_REQUIRE (hypha::storage::writeText (storage.activationFile(), activationJson (id)));
     KIRIN_APPEARANCE_REQUIRE (
-        storage.activationFile().getSiblingFile (
-            storage.activationFile().getFileName() + ".bak").replaceWithText (activationJson (id)));
+        hypha::storage::writeText (storage.activationFile().getSiblingFile (
+            storage.activationFile().getFileName() + ".bak"), activationJson (id)));
 }
 
 void verifyDecoding()
@@ -107,7 +107,7 @@ void verifyStorageAndRecovery()
         KIRIN_APPEARANCE_REQUIRE (projected.preference.revision == 1);
         KIRIN_APPEARANCE_REQUIRE (projected.preference.firstActivationId == activationId);
 
-        KIRIN_APPEARANCE_REQUIRE (storage.preferenceFile().replaceWithText ("{ broken"));
+        KIRIN_APPEARANCE_REQUIRE (hypha::storage::writeText (storage.preferenceFile(), "{ broken"));
         const auto recovered = storage.readPreference();
         KIRIN_APPEARANCE_REQUIRE (recovered.state == StoredState::valid && recovered.fromBackup);
         const auto off = storage.updatePreference (std::nullopt, Choice::off, false);
@@ -122,7 +122,7 @@ void verifyStorageAndRecovery()
         KIRIN_APPEARANCE_REQUIRE (unchanged.preference.firstActivationId == activationId);
         KIRIN_APPEARANCE_REQUIRE (unchanged.preference.choice == Choice::off);
     }
-    KIRIN_APPEARANCE_REQUIRE (root.deleteRecursively());
+    KIRIN_APPEARANCE_REQUIRE (hypha::tests::removeFixtureDirectory (root));
 }
 
 void verifyConcurrentFieldUpdates()
@@ -159,7 +159,7 @@ void verifyConcurrentFieldUpdates()
     KIRIN_APPEARANCE_REQUIRE (preference->revision == 3);
     KIRIN_APPEARANCE_REQUIRE (preference->choice == Choice::off);
     KIRIN_APPEARANCE_REQUIRE (preference->noticeAcknowledged);
-    KIRIN_APPEARANCE_REQUIRE (root.deleteRecursively());
+    KIRIN_APPEARANCE_REQUIRE (hypha::tests::removeFixtureDirectory (root));
 }
 
 void verifyService()
@@ -196,7 +196,7 @@ void verifyService()
         KIRIN_APPEARANCE_REQUIRE (! service.snapshot().persistent);
         KIRIN_APPEARANCE_REQUIRE (setup.readPreference().value->choice == Choice::off);
     }
-    KIRIN_APPEARANCE_REQUIRE (root.deleteRecursively());
+    KIRIN_APPEARANCE_REQUIRE (hypha::tests::removeFixtureDirectory (root));
 }
 
 void verifyFuturePreferenceIsPreserved()
@@ -209,7 +209,7 @@ void verifyFuturePreferenceIsPreserved()
         + "  \"future\": true\n}\n";
     KIRIN_APPEARANCE_REQUIRE (
         setup.preferenceFile().getParentDirectory().createDirectory().wasOk());
-    KIRIN_APPEARANCE_REQUIRE (setup.preferenceFile().replaceWithText (future));
+    KIRIN_APPEARANCE_REQUIRE (hypha::storage::writeText (setup.preferenceFile(), future));
     const auto preserved = setup.preferenceFile().loadFileAsString();
 
     KIRIN_APPEARANCE_REQUIRE (
@@ -223,7 +223,7 @@ void verifyFuturePreferenceIsPreserved()
         KIRIN_APPEARANCE_REQUIRE (! snapshot.activationSeen);
         KIRIN_APPEARANCE_REQUIRE (! snapshot.enabled);
     }
-    KIRIN_APPEARANCE_REQUIRE (root.deleteRecursively());
+    KIRIN_APPEARANCE_REQUIRE (hypha::tests::removeFixtureDirectory (root));
 }
 
 int runLockChild (const juce::String& rootPath)
@@ -231,7 +231,7 @@ int runLockChild (const juce::String& rootPath)
     hypha::appearance::FileLock lock (juce::File (rootPath).getChildFile ("test.lock"));
     if (! lock.tryAcquire())
         return EXIT_FAILURE;
-    juce::File (rootPath).getChildFile ("child-ready").replaceWithText ("ready");
+    hypha::storage::writeText (juce::File (rootPath).getChildFile ("child-ready"), "ready");
     juce::Thread::sleep (500);
     return EXIT_SUCCESS;
 }
@@ -262,7 +262,7 @@ void verifyOperatingSystemLock()
         hypha::appearance::FileLock afterExit (root.getChildFile ("test.lock"));
         KIRIN_APPEARANCE_REQUIRE (afterExit.tryAcquire());
     }
-    KIRIN_APPEARANCE_REQUIRE (root.deleteRecursively());
+    KIRIN_APPEARANCE_REQUIRE (hypha::tests::removeFixtureDirectory (root));
 }
 }
 

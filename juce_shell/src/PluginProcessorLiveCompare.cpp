@@ -64,6 +64,7 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
     if (role == Role::Post)
     {
         liveCompare.preparation.retire();
+        liveCompare.loopBlock.store (hypha::live_compare::LoopPairingBlock::none, std::memory_order_relaxed);
         stopLiveCompare (hypha::live_compare::RecoveryReason::formatChanged);
         liveCompare.ring.retire();
         collectWithin (liveCompare.ring);
@@ -119,6 +120,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
         stopLiveCompare();
         return StartResult::notReady;
     }
+    liveCompare.waitNotice.begin (hypha::live_compare::callbackWallNanos());
     liveCompare.sessionActive.store (true, std::memory_order_release);
     liveCompare.blindTimingAuthority.store (permission, std::memory_order_relaxed);
     liveCompare.blindTimingRequest.fetch_add (1, std::memory_order_release);
@@ -149,6 +151,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
                 ? liveCompare.blindPreparationReason : reason);
     }
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.namedMatchPending = liveCompare.namedMatchReady = false;
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();
     liveCompare.preparation.initialRequested.store (false, std::memory_order_release);
@@ -319,12 +322,16 @@ std::uint32_t KirinHyphaProcessorBase::liveComparePlaybackRun() const noexcept
     return liveCompare.playbackRun.load (std::memory_order_acquire);
 }
 
-// Message thread, guidance only: an AAX host without the certificate loops a range, so neither
-// LISTEN / BLIND nor the SHARP difference can prove K until loop playback is off.
+// Message thread: all comparison surfaces read the same callback result.
 bool KirinHyphaProcessorBase::analysisPairingLoopBlocked() const noexcept
 {
-    return role == Role::Post && wrapperType == wrapperType_AAX
-        && liveCompare.loopBlocksPairing.load (std::memory_order_relaxed);
+    return analysisPairingLoopBlock() != hypha::live_compare::LoopPairingBlock::none;
+}
+
+hypha::live_compare::LoopPairingBlock KirinHyphaProcessorBase::analysisPairingLoopBlock() const noexcept
+{
+    return role == Role::Post ? liveCompare.loopBlock.load (std::memory_order_relaxed)
+                             : hypha::live_compare::LoopPairingBlock::none;
 }
 
 bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
@@ -430,6 +437,11 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
 {
     hypha::live_compare::Status status;
     status.finishing = liveCompare.completion.pending();
+    status.prolongedWait = liveCompare.waitNotice.prolonged (hypha::live_compare::callbackWallNanos());
+    status.signalWait = liveCompare.namedMatchPending
+        && (liveCompare.namedMatchWaiting == hypha::live_compare::MatchFailure::tooShort
+            || liveCompare.namedMatchWaiting == hypha::live_compare::MatchFailure::notEnoughSignal)
+        && hypha::live_compare::guidanceDue (liveCompare.namedMatchSince, hypha::live_compare::callbackWallNanos());
     status.postActual = liveCompare.postActual.load (std::memory_order_acquire);
     status.sessionGeneration = liveCompare.sessionGeneration.load (std::memory_order_acquire);
     const auto permission = liveCompare.authority.ticket();
@@ -467,8 +479,10 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
             ? Reason::pairChanged : Reason::restored;
     status.observation = liveCompare.observationReason.load (std::memory_order_acquire);
     status.timingUnavailable = ! status.contentHeld
-        && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable);
-    status.loopBlocksPairing = analysisPairingLoopBlocked();
+        && (status.observation == Reason::loopTooShort || status.observation == Reason::loopClockUnavailable
+            || status.observation == Reason::reaperDelayUnverified || status.observation == Reason::reaperLoopTooShort);
+    status.loopBlock = analysisPairingLoopBlock();
+    status.reaperRestriction = nativeHostContext.reaper.restriction();
     // A missing audio clock on a host that has never supplied a continuous clock or an
     // output-latency report is this host's ability, not a transient: stop/play cannot fix it.
     status.clockUnavailable = status.observation == Reason::clockMissing

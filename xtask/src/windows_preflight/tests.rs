@@ -131,8 +131,8 @@ fn preflight_requires_windows_ci_job_static_guard() {
 #[test]
 fn preflight_requires_windows_audio_transparency_contract() {
     let bad = CI_WORKFLOW.replace(
-        "--target KirinAudioTransparencyContractTests",
-        "--target KirinUiRenderContractTests",
+        "KirinAudioTransparencyContractTests",
+        "KirinUiRenderContractTests",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
     assert!(err

@@ -8,6 +8,9 @@ void invalidateLiveComparePair() noexcept;
 void selectLiveComparePre (bool pre) noexcept;
 void setLiveCompareGain (float linear) noexcept;
 hypha::live_compare::MatchResult measureLiveCompare();
+void requestLiveCompareMatch();
+void serviceLiveCompareMatch();
+bool takeLiveCompareMatch (hypha::live_compare::MatchPlan&, bool& applied);
 hypha::live_compare::MatchApplication applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
 bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
 void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
@@ -15,12 +18,15 @@ void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC
 void returnLiveComparePostToNormal() noexcept;
 bool takeLiveCompareGuardTrip() noexcept;
 hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
+void serviceLiveContentTiming();
+hypha::live_compare::OffsetMonitor::Step liveContentTimingObservation() const noexcept;
 bool holdLiveCompareForContentJump (const hypha::live_compare::OffsetEstimate&) noexcept;
 void kirinHostTimelineReset (bool transportKnown, bool playing) override;
 std::uint32_t liveComparePlaybackRun() const noexcept;
 hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
 hypha::live_compare::Status liveCompareStatus() const noexcept;
-bool analysisPairingLoopBlocked() const noexcept; // AAX POST without certificate in a looped range
+bool analysisPairingLoopBlocked() const noexcept;
+hypha::live_compare::LoopPairingBlock analysisPairingLoopBlock() const noexcept;
 bool liveCompareSupported() const noexcept;
 hypha::live_compare::ChainTimingView chainTimingView() const noexcept; // POST, display only
 bool aaxMultiMonoMember() const noexcept;

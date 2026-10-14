@@ -46,3 +46,35 @@ void KirinHyphaProcessorBase::kirinHostTimelineReset (bool transportKnown, bool 
     liveCompare.matched.store (false, std::memory_order_release);
     liveCompare.hostResetGeneration.fetch_add (1, std::memory_order_release);
 }
+
+// The processor owns the content warning across window closure and live Blind. A changed
+// spectrum alone never votes. Two strong estimates returning to the original baseline clear
+// the hold; timing/PCM validation still independently gates every subsequent PRE block.
+void KirinHyphaProcessorBase::serviceLiveContentTiming()
+{
+    if (role != Role::Post) return;
+    const auto state = liveCompareStatus();
+    const auto run = liveComparePlaybackRun();
+    if (!state.active || state.compensationOff || run != liveCompare.contentMonitorRun)
+    {
+        liveCompare.contentMonitor = {};
+        liveCompare.contentStep = {};
+        liveCompare.contentMonitorRun = run;
+        liveCompare.contentMonitorNext = 0;
+    }
+    const auto now = hypha::live_compare::callbackWallNanos();
+    if (!state.active || state.compensationOff || state.verdict != hypha::live_compare::Verdict::accepted
+        || now < liveCompare.contentMonitorNext) return;
+    liveCompare.contentMonitorNext = now + 2'000'000'000;
+    const auto estimate = measureLiveCompareOffset();
+    const auto step = liveCompare.contentMonitor.observe (estimate, state.contentHeld);
+    if (step.settled) liveCompare.contentStep = step;
+    if (step.jumped) holdLiveCompareForContentJump (estimate);
+    if (step.recovered && estimate.timelineGeneration == liveCompare.timelineGeneration.load (std::memory_order_acquire))
+        liveCompare.contentHold.clear (estimate.stopGeneration);
+}
+
+hypha::live_compare::OffsetMonitor::Step KirinHyphaProcessorBase::liveContentTimingObservation() const noexcept
+{
+    return liveCompare.contentStep; // message thread only, the same service-owned observation
+}

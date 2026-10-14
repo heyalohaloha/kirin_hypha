@@ -97,7 +97,7 @@ bool KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& sta
     auto& a = liveCompareAuto;
     if (! a.on)
         return false;
-    if (! status.active || status.finishing || liveBlindOpen || ! status.matched || status.matchLimited
+    if (! status.active || status.finishing || liveBlindOpen || (!status.matched && !status.matchHeld) || status.matchLimited
         || status.interrupted)
     {
         a.on = false;

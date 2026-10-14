@@ -125,13 +125,18 @@ impl SpectrumCoordinator {
             self.store_perceptual_view(SpectrumViewStatus::Unavailable, &[]);
             return true;
         }
-        if session.analysis_mode == AnalysisViewMode::Perceptual
-            && self.runtime.spectrum_clock_kind()
-                == Some(crate::spectrum_runtime::SpectrumClockKind::AaxEngine)
-            && self.stateful_clock_token() != stateful_token
+        if matches!(
+            self.runtime.spectrum_clock_kind(),
+            Some(
+                crate::spectrum_runtime::SpectrumClockKind::AaxEngine
+                    | crate::spectrum_runtime::SpectrumClockKind::Vst3Content
+                    | crate::spectrum_runtime::SpectrumClockKind::AudioUnitRender
+            )
+        ) && self.stateful_clock_token() != stateful_token
         {
             current.last_presented_at = None;
             current.last_presented_end_samples = None;
+            self.store_view(SpectrumViewStatus::WarmingUp, None, None);
         }
         match session.analysis_mode {
             AnalysisViewMode::Spectrum => store_joined_spectrum(
@@ -153,7 +158,10 @@ impl SpectrumCoordinator {
             }
             AnalysisViewMode::Absolute => {}
         }
-        if session.analysis_mode == AnalysisViewMode::Perceptual {
+        if matches!(
+            session.analysis_mode,
+            AnalysisViewMode::Perceptual | AnalysisViewMode::Spectrum
+        ) {
             self.stamp_stateful_clock(stateful_token);
         }
         true

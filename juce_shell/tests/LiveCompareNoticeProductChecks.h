@@ -1,8 +1,9 @@
 #pragma once
-
+#include "TestProcessorStorage.h"
 #include "EditorProductChecks.h"
 #include "EditorHiddenAutoCheck.h"
 #include "LiveTimingFixtureAccess.h"
+#include "ProductTestClock.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include <chrono>
 #include <cstring>
@@ -98,12 +99,13 @@ struct NoticeClock final : juce::AudioPlayHead
 
 struct NoticeRig
 {
+    ProductTestClock wallClock;
     NoticeClock clock;
     std::unique_ptr<Processor> pre, post;
     std::unique_ptr<KirinHyphaEditor> editor;
     juce::AudioBuffer<float> preAudio { 2, 512 }, postAudio { 2, 512 };
     juce::MidiBuffer midi;
-    bool expectOrdinaryAudio = true;
+    bool expectOrdinaryAudio = true, bypassed = false;
     NoticeRig()
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
@@ -114,7 +116,7 @@ struct NoticeRig
             layout.inputBuses.set (0, juce::AudioChannelSet::stereo());
             layout.outputBuses.set (0, juce::AudioChannelSet::stereo());
             require (p->setBusesLayout (layout), "notice fixture uses actual stereo");
-            p->setPlayHead (&clock); p->prepareToPlay (48000, 512);
+            p->setPlayHead (&clock); hypha::tests::prepareFixtureProcessor (*p, 48000, 512);
             require (LiveTimingFixtureAccess::configureStudioProClock (*p), "qualified fixture clock");
             (p.get()->*privateMember (NoticeEnableWrites {}))();
             (role == Processor::Role::Pre ? pre : post) = std::move (p);
@@ -138,7 +140,12 @@ struct NoticeRig
             const auto value = 0.05f * std::sin (float (clock.position + n) * 0.071f);
             preAudio.setSample (c, n, value); postAudio.setSample (c, n, value);
         }
-        pre->processBlock (preAudio, midi); post->processBlock (postAudio, midi);
+        pre->processBlock (preAudio, midi);
+        // A processor with a bypass parameter is never sent processBlockBypassed by the JUCE
+        // AU/VST3/AAX wrappers: the host sets the parameter and processBlock still runs.
+        if (auto* bypass = post->getBypassParameter()) bypass->setValue (bypassed ? 1.0f : 0.0f);
+        post->processBlock (postAudio, midi);
+        wallClock.advanceBlock (512, 48000);
         if (expectOrdinaryAudio)
             for (int c = 0; c < 2; ++c)
                 require (std::memcmp (preAudio.getReadPointer (c), postAudio.getReadPointer (c),
@@ -150,9 +157,18 @@ struct NoticeRig
     }
     void advance (double seconds)
     {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double> (seconds);
-        while (std::chrono::steady_clock::now() < end)
-        { block(); std::this_thread::sleep_for (std::chrono::milliseconds (11)); }
+        // Keep wall time with audio time for the real worker/IO threads, without adding each
+        // sleep's overshoot: a virtual CI machine or background QoS can stretch an 11 ms sleep to
+        // ~100 ms. Sleep only while ahead of the audio; a late block is followed without a sleep.
+        const auto blocks = static_cast<int> (std::ceil (seconds * 48000 / 512));
+        const auto period = std::chrono::nanoseconds (512LL * 1'000'000'000LL / 48000);
+        auto due = std::chrono::steady_clock::now();
+        for (int i = 0; i < blocks; ++i)
+        {
+            block();
+            due += period;
+            if (std::chrono::steady_clock::now() < due) std::this_thread::sleep_until (due);
+        }
     }
     void selectPair()
     {
@@ -209,6 +225,48 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.editor->setVisible (false); r.advance (0.1);
     r.editor->setVisible (true); r.advance (0.1); r.silentOrdinary();
     r.close(); r.open(); r.advance (0.1); r.silentOrdinary();
+    r.expectOrdinaryAudio = false;
+    require (r.post->startLiveCompare() == live_compare::StartResult::started, "hide test starts real LISTEN");
+    r.post->selectLiveComparePre (true); r.advance (0.3);
+    require (r.post->liveCompareStatus().preAudible, "PRE actually plays before hide");
+    r.editor->setVisible (false); r.advance (0.1);
+    require (r.post->liveCompareStatus().active && r.post->liveCompareStatus().preSelected
+        && r.post->liveCompareStatus().preAudible, "hide preserves LISTEN and verified output");
+    r.editor->setVisible (true); r.advance (0.1);
+    require (r.post->beginLiveBlind() == live_compare::StartResult::started, "hide test begins real BLIND");
+    r.advance (4.0);
+    require (r.post->liveBlindStatus().stage == live_compare::BlindStage::active, "real MATCH establishes BLIND");
+    const auto trial = r.post->liveBlindStatus().trial;
+    r.editor->setVisible (false); r.advance (0.1);
+    const auto hidden = r.post->liveBlindStatus();
+    require (hidden.stage == live_compare::BlindStage::active && hidden.trial.epoch == trial.epoch
+        && hidden.trial.firstPre == trial.firstPre && hidden.trial.selected == trial.selected,
+        "hide preserves the anonymous assignment and selection");
+    r.editor->setVisible (true); r.advance (0.1);
+    require (r.post->liveBlindStatus().trial.epoch == trial.epoch, "show preserves the same BLIND epoch");
+    // The view keeps the assignment anonymous until REVEAL, so find the PRE source by listening.
+    const auto selectAudiblePre = [&]
+    {
+        for (int source = 1; source <= 2; ++source)
+        {
+            require (r.post->selectLiveBlind (source), "bypass test selects an anonymous source");
+            r.advance (0.2);
+            for (int n = 0; n < 20 && ! r.post->liveCompareStatus().preAudible; ++n) r.advance (0.05);
+            if (r.post->liveCompareStatus().preAudible) return true;
+        }
+        return false;
+    };
+    require (selectAudiblePre(), "one anonymous source actually plays PRE before bypass");
+    // Every bypassed block is checked bit identical (POST) by advance(); the realtime path marks
+    // the substituted PRE for REVEAL and keeps the same anonymous trial.
+    r.bypassed = r.expectOrdinaryAudio = true; r.advance (0.1);
+    require (r.post->liveBlindStatus().trial.usedPostFallback && ! r.post->liveCompareStatus().preAudible
+        && r.post->liveBlindStatus().stage == live_compare::BlindStage::active
+        && r.post->liveBlindStatus().trial.epoch == trial.epoch, "bypass retains the trial and records actual POST fallback");
+    r.bypassed = r.expectOrdinaryAudio = false; r.advance (0.3);
+    require (r.post->liveCompareStatus().preAudible && r.post->liveBlindStatus().trial.epoch == trial.epoch,
+             "fresh timing after bypass automatically returns to the same anonymous PRE");
+    r.post->finishLiveCompare(); r.advance (0.6); r.expectOrdinaryAudio = true;
     r.post->clearPairCandidate(); r.advance (0.15); r.silentOrdinary();
     r.selectPair(); r.advance (0.15); r.silentOrdinary();
     juce::MemoryBlock saved; r.post->getStateInformation (saved);
@@ -243,8 +301,8 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.view().onLiveCompareMatch(); r.advance (0.2);
     for (int n = 0; n < 20 && ! r.post->liveCompareStatus().matched; ++n) r.advance (0.1);
     require (r.post->liveCompareStatus().matched, "actual MATCH qualifies the AUTO notice session");
-    // A retained editor whose parent is hidden differs from its own visibilityChanged(), which
-    // ends LISTEN immediately. Exercise the native ancestor/peer path used by hidden hosts.
+    // Exercise the native ancestor/peer path as well as the editor visibilityChanged path.
+    // Both preserve LISTEN; hidden AUTO still stops following as before.
     juce::Component host;
     host.setBounds (-10'000, -10'000, 1, 1); host.addToDesktop (0);
     host.addAndMakeVisible (*r.editor); host.setVisible (true);
@@ -277,8 +335,12 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     require (hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {}), "resumed AUTO retires its previous stop notice");
     expireAction();
     require (r.view().feedback() != "AUTO stopped: editor hidden", "old AUTO stop cannot return after newer AUTO");
+    // 2026-10-13 decision: a short stop plays POST silently; only a wait beyond 3 seconds explains
+    // the cause and how to return.
     r.clock.playing = false; r.advance (0.4);
-    require (r.view().feedback().isNotEmpty(), "current DAW-stop remedy remains visible");
+    require (r.view().feedback().isEmpty(), "a short DAW stop shows no waiting notice");
+    r.advance (2.8);
+    require (r.view().feedback().isNotEmpty(), "a DAW stop beyond 3 seconds shows its remedy");
     r.clock.playing = true; r.advance (0.6);
     require (r.view().feedback().isEmpty(), "waiting remedy clears when verified PRE resumes");
     // An unexpected pair change during actual LISTEN remains a bounded terminal notice.

@@ -1,5 +1,8 @@
 # FREQ: optional latency未報告hostのPRE／POST比較
 
+2026-10-12追記: 認定済みStudio Pro VST3には、[PDC比較時計の修正](hypha_vst3_pdc_delta_20261012.md)で
+別種のcontent時計とLISTENの対応証明を使う。それ以外のhostには以下の規則を維持する。
+
 2026-10-10の表示契約。PREとPOSTが同じ時計の種類を使うときだけ、同runの完成したnative窓を比較する。presentation同士、project timeline同士を許可し、種類の混在とrender-onlyを比較しない。latencyを0と推定したり、欠測を補完したりしない。
 
 ## 修正境界

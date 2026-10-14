@@ -1,7 +1,7 @@
 #pragma once
 #include <juce_core/juce_core.h>
 #include <memory>
-
+#include "AtomicFile.h"
 namespace hypha::vu_calibration
 {
 // A complete, checked sibling must exist before the one atomic replacement. The injectable
@@ -12,7 +12,7 @@ bool writeAtomicText (const juce::File& target, const juce::String& text, OpenSt
     if (target == juce::File {} || target.isDirectory()) return false;
     const auto bytes = text.getNumBytesAsUTF8();
     if (bytes == 0 || bytes > 256) return false;
-    juce::TemporaryFile temporary (target, juce::TemporaryFile::useHiddenFile);
+    juce::TemporaryFile temporary (target, hypha::storage::temporarySibling (target));
     {
         auto stream = open (temporary.getFile());
         if (! stream || ! stream->openedOk() || ! stream->write (text.toRawUTF8(), bytes)) return false;

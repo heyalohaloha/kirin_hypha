@@ -15,7 +15,7 @@
 #include "../src/HyphaWidgets.h"
 #include <cstdlib>
 #include <iostream>
-
+#include "TestPathBudget.h"
 namespace hypha::tests::shell_repairs
 {
 inline void verifyPaint();
@@ -34,7 +34,7 @@ inline int preferenceWriter (int argc, char** argv)
 inline void verifyPreferences()
 {
     const auto folder = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("hypha-preference-merge", {}, false);
+        .getNonexistentChildFile ("pref", {}, false);
     require (folder.createDirectory(), "create isolated preference directory");
     const auto file = folder.getChildFile ("ui-preferences.txt");
     require (ui_preferences::write (file, "sentinel", "preserve"), "seed unrelated preference");
@@ -53,7 +53,7 @@ inline void verifyPreferences()
     require (ui_preferences::read (file, "language") == "99"
         && ui_preferences::read (file, "hover_help") == "99"
         && ui_preferences::read (file, "sentinel") == "preserve", "both keys and unrelated data survive concurrent writes");
-    require (folder.deleteRecursively(), "remove only disposable preferences");
+    require (hypha::tests::removeFixtureDirectory (folder), "remove only disposable preferences");
 }
 inline void verify()
 {
@@ -61,6 +61,9 @@ inline void verify()
     hypha::tests::verifyLiveTimingAvailabilityUi (require);
     live_compare::Status named;
     named.active = named.preSelected = named.preWaiting = named.timingUnavailable = true;
+    require (juce::String (live_compare_ui::currentNamedPresentation (named).instruction).isEmpty(),
+             "short timing loss has no preparation notice");
+    named.prolongedWait = true;
     for (bool held : { false, true })
     {
         named.contentHeld = held;
@@ -68,7 +71,7 @@ inline void verify()
         require (held ? notice.action == live_compare_ui::RecoveryAction::stopPlay
             : notice.action == live_compare_ui::RecoveryAction::none
                 && juce::String (notice.instruction) == host_availability::timingText(),
-            "a content hold has its explicit stop remedy; unavailable clocks never promise progress");
+            "long content loss explains delay; unavailable clocks do not promise progress");
     }
     named.contentHeld = false;
     named.active = false;
@@ -78,27 +81,26 @@ inline void verify()
     require (live_compare_ui::currentNamedPresentation (named).action == live_compare_ui::RecoveryAction::returnLevel,
              "ended unavailable comparison retains the safe explicit volume return");
     // A missing audio clock reads by host ability: a host that has shown a clock or an output-latency
-    // report keeps the transient stop/play (or select PRE again) remedy; a host that never has is
-    // told that PRE cannot be heard there, whether PRE waits or the selection was interrupted.
+    // report keeps its transient remedy. A previous fault does not revoke the selection.
+    // A host that never supplied a clock explains that PRE cannot be heard there.
     live_compare::Status clock;
-    clock.active = clock.preSelected = clock.preWaiting = true;
+    clock.active = clock.preSelected = clock.preWaiting = clock.prolongedWait = true;
     clock.observation = live_compare::RecoveryReason::clockMissing;
-    for (bool interrupted : { false, true })
+    for (bool priorFault : { false, true })
     {
-        clock.interrupted = interrupted;
-        clock.reason = interrupted ? live_compare::RecoveryReason::clockMissing : live_compare::RecoveryReason::none;
+        clock.interrupted = false;
+        clock.reason = priorFault ? live_compare::RecoveryReason::clockMissing : live_compare::RecoveryReason::none;
         clock.clockUnavailable = false;
         const auto transient = live_compare_ui::currentNamedPresentation (clock);
-        require (interrupted ? transient.action == live_compare_ui::RecoveryAction::selectPre
-            : transient.action == live_compare_ui::RecoveryAction::stopPlay
+        require (transient.action == live_compare_ui::RecoveryAction::stopPlay
                 && juce::String (transient.instruction) == "Clock missing: restart playback (POST)",
             "a clock that was present keeps its transient remedy");
         clock.clockUnavailable = true;
         const auto absent = live_compare_ui::currentNamedPresentation (clock);
         const juce::String story = live_compare_ui::nextStep (absent.action);
         require (absent.action == live_compare_ui::RecoveryAction::noOutputLatency
-            && juce::String (absent.instruction) == "This DAW does not report output latency; PRE is unavailable (POST)"
-            && story.contains ("PRE cannot be heard") && ! story.containsIgnoreCase ("stop"),
+            && juce::String (absent.instruction) == "This DAW has no verified audio clock; PRE is unavailable (POST)"
+            && story.contains ("PRE timing cannot be verified") && ! story.containsIgnoreCase ("stop"),
             "a host without a clock or an output-latency report never promises PRE after stop/play");
     }
     for (auto stage : { live_compare::BlindStage::preparing, live_compare::BlindStage::approval,
@@ -106,6 +108,7 @@ inline void verify()
     {
         const bool stopped = stage == live_compare::BlindStage::invalidated;
         live_compare::LiveBlindStatus blind;
+        blind.prolongedWait = true;
         blind.stage = stage; blind.observation = live_compare::RecoveryReason::clockMissing;
         if (stopped) blind.reason = live_compare::RecoveryReason::clockMissing;
         const auto transient = live_compare_ui::blindRecovery (blind, stopped);
@@ -116,23 +119,24 @@ inline void verify()
         const auto absent = live_compare_ui::blindRecovery (blind, stopped);
         const auto screen = live_blind_ui::screenFor (blind, true, 1.0f);
         require (absent.action == live_compare_ui::RecoveryAction::noOutputLatency
-            && juce::String (absent.instruction) == "This DAW does not report output latency; PRE is unavailable"
-            && screen.guidanceShown && screen.recovery == absent.instruction && ! screen.approveShown
+            && juce::String (absent.instruction) == "This DAW has no verified audio clock; PRE is unavailable"
+            && screen.guidanceShown && screen.recovery == absent.instruction
+            && screen.approveShown == (stage == live_compare::BlindStage::approval)
             && screen.cause == live_compare_ui::cause (live_compare::RecoveryReason::clockMissing)
-            && screen.instruction == "Comparison unavailable; POST plays" && screen.endEnabled,
+            && screen.instruction.isEmpty() && screen.endEnabled,
             "Blind on a host without a clock explains the host instead of waiting or retrying");
     }
     // An uncertified AAX host looping a range observes an unidentifiable loop as well, but loop
     // playback off compares: LISTEN, Blind and the PSB difference ask for that before any host
     // boundary; without the loop the same observation remains the host boundary.
     live_compare::Status looped;
-    looped.active = looped.preSelected = looped.preWaiting = true;
+    looped.active = looped.preSelected = looped.preWaiting = looped.prolongedWait = true;
     looped.observation = live_compare::RecoveryReason::loopClockUnavailable;
     looped.timingUnavailable = true;
     require (live_compare_ui::currentNamedPresentation (looped).action == live_compare_ui::RecoveryAction::none
         && juce::String (live_compare_ui::currentNamedPresentation (looped).instruction) == host_availability::timingText(),
         "a loop no host rule can identify is the host boundary where loop playback is not the cause");
-    looped.loopBlocksPairing = true;
+    looped.loopBlock = hypha::live_compare::LoopPairingBlock::aaxLoop;
     for (bool hostClock : { false, true })
     {
         looped.clockUnavailable = hostClock; // never both on a real host; the actionable remedy comes first
@@ -144,29 +148,33 @@ inline void verify()
     for (auto stage : { live_compare::BlindStage::preparing, live_compare::BlindStage::settling })
     {
         live_compare::LiveBlindStatus blind;
+        blind.prolongedWait = true;
         blind.stage = stage; blind.observation = live_compare::RecoveryReason::loopClockUnavailable;
-        blind.timingUnavailable = blind.loopBlocksPairing = true;
+        blind.timingUnavailable = true;
+        blind.loopBlock = hypha::live_compare::LoopPairingBlock::aaxLoop;
         const auto guidance = live_compare_ui::blindRecovery (blind, false);
         const auto screen = live_blind_ui::screenFor (blind, true, 1.0f);
         require (guidance.action == live_compare_ui::RecoveryAction::loopOff
             && screen.recovery == "Turn off Loop Playback to compare"
-            && screen.instruction == "Loop Playback on: turn it off to compare"
+            && screen.instruction.isEmpty()
             && screen.cause != host_availability::timingText() && screen.guidanceShown && screen.endEnabled,
             "Blind on an uncertified AAX host looping a range asks for loop playback off");
-        blind.loopBlocksPairing = false;
-        require (live_blind_ui::screenFor (blind, true, 1.0f).cause == host_availability::timingText()
+        blind.loopBlock = hypha::live_compare::LoopPairingBlock::none;
+        require (live_blind_ui::screenFor (blind, true, 1.0f).cause
+                == live_compare_ui::cause (live_compare::RecoveryReason::loopClockUnavailable)
+            && live_blind_ui::screenFor (blind, true, 1.0f).recovery == "Timing unavailable; check PRE and play (POST)"
             && live_compare_ui::blindRecovery (blind, false).action == live_compare_ui::RecoveryAction::none,
             "without loop playback the same observation is the host boundary");
     }
     SpectrumComponent psb;
     psb.setAbsoluteObservation (false); psb.setSignalActive (true);
     require (psb.psbStatusText() == "PSB WARMING", "the PSB difference prepares while the pair proof is pending");
-    psb.setPairingLoopBlocked (true);
+    psb.setPairingLoopBlock (hypha::live_compare::LoopPairingBlock::aaxLoop);
     require (psb.psbStatusText() == "Loop Playback on: turn it off to compare",
              "the PSB difference asks for loop playback off, as SHARP does");
     psb.setAbsoluteObservation (true);
     require (psb.psbStatusText() == "PSB WARMING", "the absolute PSB never asks for a loop change");
-    psb.setAbsoluteObservation (false); psb.setPairingLoopBlocked (false);
+    psb.setAbsoluteObservation (false); psb.setPairingLoopBlock (hypha::live_compare::LoopPairingBlock::none);
     require (psb.psbStatusText() == "PSB WARMING", "loop playback off restores the ordinary preparation text");
     require (comparison_presentation::statusText (KIRIN_COMPARISON_STATE_REJECTED,
         KIRIN_COMPARISON_REASON_PRE_INACTIVE).contains ("CHECK PRE IS ENABLED"), "inactive PRE has an actionable reason");
@@ -193,14 +201,17 @@ inline void verify()
                 unavailable.stage = live_compare::BlindStage::preparing;
                 unavailable.timingUnavailable = ! hostClock;
                 unavailable.clockUnavailable = hostClock;
-                if (hostClock) unavailable.observation = live_compare::RecoveryReason::clockMissing;
+                unavailable.observation = hostClock ? live_compare::RecoveryReason::clockMissing
+                    : live_compare::RecoveryReason::loopClockUnavailable;
+                require (!live_blind_ui::screenFor (unavailable, playing, 0.5f).guidanceShown,
+                         "short host uncertainty is silent at every size");
+                unavailable.prolongedWait = true;
                 const auto screen = live_blind_ui::screenFor (unavailable, playing, 0.5f);
                 require (screen.guidanceShown && screen.endEnabled && ! screen.sourcesShown
-                    && screen.cause == (hostClock ? live_compare_ui::cause (live_compare::RecoveryReason::clockMissing)
-                                                  : juce::String (host_availability::timingText()))
+                    && screen.cause == live_compare_ui::cause (unavailable.observation)
                     && ! screen.recovery.containsIgnoreCase ("automatically")
-                    && screen.recovery.contains ("output latency") == hostClock,
-                    "unsupported host always explains the boundary and allows END");
+                    && screen.recovery.contains ("verified audio clock") == hostClock,
+                    "long host uncertainty explains its observed cause and allows END");
                 live_blind_ui::Component view;
                 view.setSize (width, height); view.setState (unavailable, playing, 0.5f);
                 juce::Image image (juce::Image::ARGB, width, height, true);

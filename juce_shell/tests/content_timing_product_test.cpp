@@ -2,6 +2,7 @@
 #include "LiveTimingFixtureAccess.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingAvailabilityTest.h"
+#include "TestProcessorStorage.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -25,11 +26,21 @@ int main()
     {
         juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);
         Processor post (Processor::Role::Post);
+        auto layout = post.getBusesLayout();
+        layout.inputBuses.set (0, juce::AudioChannelSet::stereo());
+        layout.outputBuses.set (0, juce::AudioChannelSet::stereo());
+        require (post.setBusesLayout (layout), "each wrapper negotiates stereo, not an unknown AAX multi-mono group");
+        hypha::tests::prepareFixtureProcessor (post, 48000, 512);
         LiveTimingFixtureAccess::heldGains (post);
         auto estimate = LiveTimingFixtureAccess::holdContent (post);
         require (post.liveCompareStatus().contentHeld, "strong content change holds POST");
-        require (post.beginLiveBlind() == StartResult::contentHeld,
-                 "held BLIND is refused immediately with a distinct recoverable reason");
+        const auto start = post.beginLiveBlind();
+        if (start != StartResult::returnRequired)
+            std::cerr << "wrapper=" << int (wrapper) << " admission=" << int (start)
+                      << " supported=" << post.liveCompareSupported() << "," << post.localBlindProductSupported()
+                      << " held=" << post.liveCompareStatus().postTarget << "\n";
+        require (start == StartResult::returnRequired,
+                 "an ended session's held attenuation needs RETURN; content timing is not an entry refusal");
         require (post.liveBlindStatus().stage == BlindStage::idle, "refusal never starts an anonymous preparation");
         auto facts = LiveTimingFixtureAccess::jumpFacts (post);
         require (facts.lagFrames == 96 && std::abs (facts.peak - 0.4) < 1.0e-12 && std::abs (facts.dominance - 20.0) < 1.0e-12
@@ -56,12 +67,12 @@ int main()
             LiveTimingFixtureAccess::blindWaiting (post, phase);
             post.serviceLiveBlind();
             const auto blind = post.liveBlindStatus();
-            require (blind.stage == BlindStage::invalidated && blind.reason == RecoveryReason::contentChanged,
-                     "hold while preparing/settling/approving terminates immediately with its reason");
+            require (blind.stage == phase && blind.reason != RecoveryReason::contentChanged,
+                     "content hold keeps the preparation stage instead of terminating it");
             require (post.liveCompareStatus().postTarget == 0.5f, "failed preparation never raises POST");
             post.kirinHostTimelineReset (true, false);
-            require (post.liveBlindStatus().stage == BlindStage::invalidated,
-                     "stop does not silently restart an invalidated anonymous trial");
+            require (post.liveBlindStatus().stage == phase,
+                     "stop retains the same preparation request");
         }
         juce::AudioProcessor::setTypeOfNextNewPlugin (wrapper);
         Processor pre (Processor::Role::Pre);

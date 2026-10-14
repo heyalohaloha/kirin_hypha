@@ -1,5 +1,5 @@
 #pragma once
-
+#include "TestProcessorStorage.h"
 // 2026-10-04：300% 以上ではどの画面も同じ説明の行を使い、項目が何で、どう使うかまで言う。
 // 300% 以上の LEVEL・TIME・FREQ・SPACE で項目を指すと、その説明を足元に一行で
 // 出す（PluginEditorHelpLine.cpp・HyphaHelpLineBar.h）。図・値・タブの説明は足元の段の全幅に、足元のボタンの説明は左の
@@ -121,13 +121,12 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
                               "Measurement is active.", "Keep is recording.", "A kept result is available." })
         texts.add (text, true);
     for (const auto* text : {
-             "PRE waits while delay compensation is off in Pro Tools. Turn it on to hear PRE",
-             "PRE is held because the latency changed. Stop and restart playback",
-             "PRE is selected. POST plays until PRE is confirmed at this position",
+             "Compensation off: enable it (POST)",
+             "Timing changed: check chain delay (POST)",
+             "Timing unavailable; check PRE and play (POST)",
              "Listen to PRE, the input of this chain, at the level MATCH set",
              "Listen to PRE, the input of this chain. MATCH levels it to POST",
              "Listen to POST, lowered by the attenuation you approved", "Listen to POST, the output of this chain",
-             "MATCH held; rematch to confirm levels",
              "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO",
              "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
              "Press to MATCH again or to let PRE follow POST (AUTO)",
@@ -152,7 +151,7 @@ inline void verifyObservatoryHelpLine (const juce::File& previews)
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditorIfNeeded());
     auto* editor = dynamic_cast<KirinHyphaEditor*> (base.get());
     auto* view = editor != nullptr ? component<observatory::View> (*editor) : nullptr;

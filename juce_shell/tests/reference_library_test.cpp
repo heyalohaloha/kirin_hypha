@@ -7,7 +7,7 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 #include "ReferenceVisualSourceEvidenceTest.h"
-
+#include "../src/AtomicFile.h"
 namespace
 {
 bool waitFor (ref::RuntimeV2Controller& controller, const std::function<bool(const ref::Snapshot&)>& predicate)
@@ -119,7 +119,7 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     require (writeJson (file, conflict), "same-revision conflict fixture");
     require (repository.refreshLibrary (first.workspace).rejectionCode == "reference_library_revision_conflict",
              "a changed body at the same revision must not replace accepted content");
-    require (file.replaceWithText ("{"), "partial manifest fixture");
+    require (hypha::storage::writeText (file, "{"), "partial manifest fixture");
     require (repository.refreshLibrary (first.workspace).workspace == first.workspace, "partial writes retain immutable accepted data");
     require (! repository.refreshLibrary().usable(), "restart must reject partial data");
     check->setProperty ("candidates", juce::var (juce::Array<juce::var> {}));
@@ -127,7 +127,7 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     require (writeJson (file, manifest), "empty check fixture");
     require (repository.refreshLibrary().usable(), "empty check remains a usable setting");
     const auto receipt = manifest["presets"].getArray()->getReference (0);
-    root.getChildFile ("library/presets/" + receipt["sha256"].toString() + ".json").replaceWithText ("{}");
+    hypha::storage::writeText (root.getChildFile ("library/presets/" + receipt["sha256"].toString() + ".json"), "{}");
     require (! repository.refreshLibrary().usable(), "preset tampering must fail closed");
 }
 

@@ -227,7 +227,7 @@ bool KirinHyphaEditor::refreshAnalysisViews (
         if (haveOwners) spectrumView.setAnalysisOwnerNames (ownerNames);
         spectrumView.presentationTick();
         spectrumView.setSignalActive (liveInput);
-        spectrumView.setPairingLoopBlocked (processorRef.analysisPairingLoopBlocked());
+        spectrumView.setPairingLoopBlock (processorRef.analysisPairingLoopBlock());
         if (spectrumView.isPsbObservation())
         {
             KirinPsbView frame {};
@@ -261,7 +261,7 @@ bool KirinHyphaEditor::refreshAnalysisViews (
         {
             perceptualView.setSignalActive (liveInput);
             if (haveOwners) perceptualView.setAnalysisOwnerNames (ownerNames);
-            perceptualView.setPairingLoopBlocked (processorRef.analysisPairingLoopBlocked());
+            perceptualView.setPairingLoopBlock (processorRef.analysisPairingLoopBlock());
             perceptualView.presentationTick();
             KirinPerceptualBatch batch {};
             if (processorRef.pollPerceptualBatch (batch)) perceptualView.setBatch (batch);

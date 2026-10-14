@@ -1,10 +1,11 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "LiveBlindLoopFixture.h"
-
+#include "TestProcessorStorage.h"
 #include <atomic>
 #include <array>
 #include <chrono>
@@ -61,7 +62,7 @@ public:
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (role == Processor::Role::Pre ? &clock : &postClock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             if (clock.certifiedContent)
                 require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
                          "nominal LOOP uses the qualified synthetic VST3 clock policy");
@@ -146,7 +147,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview)
                     preview = post->createPairPreview();
                 if (! demanded)
@@ -181,7 +182,7 @@ private:
                     if (! click ("observatory-live-compare")) break;
                 }
                 else if (! click ("observatory-local-blind")) break;
-                listenedAt = std::chrono::steady_clock::now();
+                listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
             case 3:
@@ -194,7 +195,7 @@ private:
                 }
                 if (reuse && ! reused)
                 {
-                    if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (4500)) break;
+                    if (hypha::live_compare::callbackWallNanos() - listenedAt < 4500000000ULL) break;
                     const auto measured = post->measureLiveCompare();
                     if (! measured.ok()) break;
                     require (std::abs (measured.measuredDb + 6.0206) < 0.002, "MATCH measures -6.02 dB");
@@ -278,6 +279,7 @@ private:
                     else if (faultReason == Reason::callbackGap) injectGap.store (true);
                     else if (faultReason == Reason::stopped) play.store (false);
                     else post->kirinHostDelayCompensationStateChanged (false);
+                    invalidatedBlock = audioBlocks.load();
                     stage = 50;
                     break;
                 }
@@ -302,45 +304,35 @@ private:
                 ++stage;
                 break;
             case 50:
-                if (post->liveBlindStatus().stage != hypha::live_compare::BlindStage::invalidated) break;
-                // The invalidation can be seen while the audio thread is still in the block that made
-                // it, before the fixture stores that block's output: judge blocks made after it.
-                if (invalidatedBlock < 0) invalidatedBlock = audioBlocks.load();
-                if (audioBlocks.load() <= invalidatedBlock + 1) break;
-                require (! post->revealLiveBlind() && ! post->selectLiveBlind (1), "PDC loss invalidates instead of restarting");
-                require (post->liveBlindStatus().reason == faultReason,
-                         "the first fault survives RT invalidation and message-thread teardown");
-                if (faultReason != hypha::live_compare::RecoveryReason::contentChanged)
-                    require (! post->liveCompareStatus().matched
-                        && std::abs (post->liveCompareStatus().gain - faultGain) <= 0.0f,
-                        "an ended Blind retains numeric gain but never a valid MATCH");
-                require (lastOutputRatio.load() < 0.0f, "PDC failure falls back to original POST");
+                if (audioBlocks.load() <= invalidatedBlock + 3) break;
+                require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active,
+                         "timing interruption preserves the active BLIND trial");
+                require (std::abs (post->liveCompareStatus().gain - faultGain) <= 0.0f,
+                         "recovery never remeasures the approved fixed gain");
+                if (faultReason == hypha::live_compare::RecoveryReason::compensationOff
+                    || faultReason == hypha::live_compare::RecoveryReason::stopped
+                    || faultReason == hypha::live_compare::RecoveryReason::contentChanged)
+                    require (lastOutputRatio.load() < 0.0f, "unresolved timing holds original POST");
                 post->kirinHostDelayCompensationStateChanged (true);
                 play.store (true);
-                post->serviceLiveBlind();
-                require (post->liveBlindStatus().reason == faultReason,
-                         "later recovery does not rewrite the stopped trial's reason");
                 if (faultReason == hypha::live_compare::RecoveryReason::callbackGap)
                 {
+                    const auto epoch = post->liveBlindStatus().trial.epoch;
                     editor->giveAwayKeyboardFocus();
                     post->editorBeingDeleted (editor.get()); editor.reset();
                     editor.reset (post->createEditorIfNeeded());
                     editor->setSize (900, 600); editor->setVisible (true);
-                    require (post->liveCompareStatus().reason == faultReason,
-                             "close and reopen retain the specific Blind failure, not teardown's unknown");
-                    stage = 51; // admission and footer arrive on the new editor's first tick
-                    break;
+                    require (post->liveBlindStatus().trial.epoch == epoch,
+                             "closing and reopening the editor keeps the same trial");
                 }
-                else require (click ("live-blind-end"), "invalidated trial retains END");
-                stage = 6;
-                break;
+                stage = 51; break;
             case 51:
-                if (! click ("observatory-live-compare")) break;
-                require (post->liveCompareStatus().reason == hypha::live_compare::RecoveryReason::none,
-                         "a new explicit LISTEN clears the old trial cause");
-                require (click ("observatory-live-end"), "new named session has a real END");
-                stage = 6;
-                break;
+                if (faultReason != hypha::live_compare::RecoveryReason::contentChanged
+                    && !post->liveCompareStatus().matchReady) break;
+                require (post->liveBlindStatus().stage == hypha::live_compare::BlindStage::active,
+                         "fresh proof resumes the existing trial");
+                if (!click ("live-blind-end")) break;
+                stage = 6; break;
             case 6:
                 if (! stoppedEnd.resume (*post, *editor, suspendAudio)) break;
                 post->serviceLiveCompare(); // consume the RT receipt before asserting non-RT cleanup
@@ -370,11 +362,11 @@ private:
                 if (std::abs (post->liveCompareStatus().postActual - std::pow (10.0f, -8.0f / 20.0f)) > 0.0001f) break;
                 held = post->liveCompareStatus().postActual;
                 post->closeLiveBlind();
-                listenedAt = std::chrono::steady_clock::now();
+                listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
             case 8:
-                if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (450)) break;
+                if (hypha::live_compare::callbackWallNanos() - listenedAt < 450000000ULL) break;
                 require (std::abs (post->liveCompareStatus().postActual - held) <= 0.0f, "window close holds approved attenuation");
                 require (post->outputDecision (hypha::output_owner::Activity::recordKeep).reason
                              != hypha::output_owner::Reason::blindRunning, "closed Blind no longer owns the Keep exclusion");
@@ -385,11 +377,12 @@ private:
                 if (! suspended.load()) break;
                 post->finishLiveCompare();
                 post->finishLiveCompare(); // idempotent while pending
-                listenedAt = std::chrono::steady_clock::now();
+                pendingAt = std::chrono::steady_clock::now();
                 ++stage;
                 break;
             case 10:
-                if (std::chrono::steady_clock::now() - listenedAt < std::chrono::milliseconds (250)) break;
+                // No callbacks: audio time is frozen. Observe END across real message-thread ticks.
+                if (std::chrono::steady_clock::now() - pendingAt < std::chrono::milliseconds (250)) break;
                 require (post->liveCompareStatus().finishing && std::abs (post->liveCompareStatus().postActual - held) <= 0.0f,
                          "without callbacks END stays pending and never claims unity");
                 offline.store (true);
@@ -431,9 +424,7 @@ private:
    #include "LiveBlindAudioFixture.h"
    #include "LiveBlindLoopStallStep.h"
 
-    // A host block of 8192 frames (171 ms): the callback-gap rule then tolerates test-machine stalls
-    // up to 427 ms. This product test checks the flow, not DAW scheduling or a low-buffer load
-    // budget; those require the separate real-host matrix.
+    // Retain the 8192-frame host block; the synthetic clock defines callback cadence.
     static constexpr int blockFrames = 8192;
     Clock clock, postClock;
     std::vector<float> signal;
@@ -441,7 +432,8 @@ private:
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     std::thread audio;
     std::atomic<bool> running { true }, play { false };
-    std::chrono::steady_clock::time_point started, listenedAt, requestedAt, revealReadyAt;
+    std::chrono::steady_clock::time_point started, requestedAt, revealReadyAt, pendingAt;
+    std::uint64_t listenedAt = 0;
     hypha::pair_preview::Ticket preview;
     int stage = 0;
     bool reuse = false, fault = false, approval = false, reused = false, approved = false, revealReady = false;

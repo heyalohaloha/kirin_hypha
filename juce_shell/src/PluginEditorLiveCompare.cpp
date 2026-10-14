@@ -10,7 +10,7 @@
 
 // The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC16). It starts and
 // ends the session, forwards PRE / POST, MATCH and AUTO, asks before lowering POST, and shows RT
-// receipts. Explicit END restores unity; unexpected window close holds attenuation until RETURN.
+// receipts. Explicit END restores unity; window closure keeps the processor-owned comparison.
 namespace
 {
 namespace ui = hypha::ui_contract;
@@ -64,7 +64,7 @@ juce::String startFailure (StartResult result)
     {
         case StartResult::started:
         case StartResult::notPost:           return {};
-        case StartResult::contentHeld:       return "Timing changed: stop/play DAW (POST)";
+        case StartResult::contentHeld:       return "Timing changed: check chain delay (POST)";
         case StartResult::comparisonBusy:    return "End the current comparison first";
         case StartResult::returnPending:     return "Ended; normal level returns with audio";
         case StartResult::returnRequired:    return "Press RETURN first";
@@ -82,10 +82,10 @@ juce::String matchFailure (MatchFailure failure)
     switch (failure)
     {
         case MatchFailure::none:            return {};
-        case MatchFailure::notProven:       return "MATCH waits for PRE";
-        case MatchFailure::tooShort:        return "MATCH needs 3 s of play";
-        case MatchFailure::overwritten:     return "MATCH failed; try again";
-        case MatchFailure::notEnoughSignal: return "MATCH needs more signal";
+        case MatchFailure::notProven:
+        case MatchFailure::tooShort:
+        case MatchFailure::overwritten:
+        case MatchFailure::notEnoughSignal: return {};
         case MatchFailure::outOfRange:      return "MATCH over 24 dB";
         case MatchFailure::stale:
         case MatchFailure::invalidPlan:     return "MATCH failed; try again";
@@ -115,7 +115,7 @@ void KirinHyphaEditor::configureLiveCompare()
             { return hypha::live_compare_ui::currentNamedAction (processorRef.liveCompareStatus(), generation, false); },
             [this, &result]
             {
-                showToast (result == StartResult::started ? "Closing returns to POST" : startFailure (result));
+                if (result != StartResult::started) showToast (startFailure (result));
                 if (result == StartResult::noPair) showCandidateMenu();
             });
     };
@@ -166,8 +166,11 @@ void KirinHyphaEditor::matchLiveCompare (std::uint64_t menuGeneration)
     const auto result = processorRef.measureLiveCompare();
     if (! result.ok())
     {
-        refreshLiveCompare();
-        showToast (matchFailure (result.failure));
+        const bool waiting = result.failure == MatchFailure::notProven
+            || result.failure == MatchFailure::notEnoughSignal || result.failure == MatchFailure::stale
+            || result.failure == MatchFailure::tooShort || result.failure == MatchFailure::overwritten;
+        if (waiting) processorRef.requestLiveCompareMatch();
+        else showToast (matchFailure (result.failure));
         return;
     }
     if (menuGeneration != UINT64_MAX && (! result.generationBound || result.generation != menuGeneration))
@@ -222,6 +225,11 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
         {
             generation = processorRef.liveCompareStatus().sessionGeneration;
             applied = processorRef.applyLiveCompareMatch (plan, choice);
+            if (applied.failure == MatchFailure::stale)
+            {
+                processorRef.requestLiveCompareMatch();
+                return hypha::live_compare_ui::ActionOutcome::stale;
+            }
             if (! applied) return hypha::live_compare_ui::ActionOutcome::refusal;
             liveCompareMatched = true;
             liveCompareLimited = choice == MatchChoice::limitPre;
@@ -275,37 +283,13 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
 bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Status& status, double now)
 {
-    bool newFault = false;
-    auto& m = liveCompareOffset;
-    const auto run = processorRef.liveComparePlaybackRun();
-    // INV-LC8: while the host's delay compensation is off, the content offset is the chain's
-    // uncompensated latency, not a jump; the estimates start again once it is on.
-    if (! status.active || run != m.run || status.compensationOff)
-    {
-        m = {};
-        m.run = run;
-    }
-    if (status.active && ! status.compensationOff && status.verdict == hypha::live_compare::Verdict::accepted
-        && now >= m.nextAt)
-    {
-        m.nextAt = now + 2.0;
-        const auto estimate = processorRef.measureLiveCompareOffset();
-        const auto step = m.monitor.observe (estimate, status.contentHeld);
-        if (step.jumped && processorRef.holdLiveCompareForContentJump (estimate))
-        {
-            if (! liveBlindOpen) showToast ("Timing changed: stop/play DAW (POST)");
-            newFault = ! liveBlindOpen;
-        }
-        if (step.settled)
-        {
-            m.lag = step.lagFrames;
-            m.rate = estimate.sampleRate;
-            m.warningUntil = std::llabs (m.lag) > 1 ? now + 10.0 : 0.0;
-        }
-    }
-    liveCompareWarning = status.active && status.compensationOff ? juce::String ("Delay compensation is off in Pro Tools")
-                       : status.active && now < m.warningUntil ? offsetText (m.lag, m.rate) : juce::String();
-    return newFault;
+    juce::ignoreUnused (now);
+    const auto observed = processorRef.liveContentTimingObservation();
+    liveCompareWarning = status.prolongedWait && status.contentHeld
+        ? "Timing changed: check chain delay (POST)"
+        : status.active && observed.settled && std::llabs (observed.lagFrames) > 1
+            ? offsetText (observed.lagFrames, observed.sampleRate) : juce::String();
+    return false;
 }
 
 bool KirinHyphaEditor::refreshLiveCompare()
@@ -320,10 +304,20 @@ bool KirinHyphaEditor::refreshLiveCompare()
     liveCompareMatched = status.matched;
     liveCompareLimited = status.matchLimited;
     const auto now = nowSecs();
-    // Any waiting block since the last refresh reads, however short: WAIT stays for at least half
-    // a second. The final minimum is a listening decision (plan G4).
-    if (processorRef.takeLiveComparePreWait() || status.preWaiting)
-        liveComparePreWaitUntil = now + 0.5;
+    MatchPlan pendingPlan; bool applied = false;
+    if (processorRef.takeLiveCompareMatch (pendingPlan, applied))
+    {
+        if (pendingPlan.failure != MatchFailure::none) showToast (matchFailure (pendingPlan.failure));
+        else if (!applied) chooseLiveCompareMatch (pendingPlan);
+        else
+        {
+            liveCompareAuto.approvedPreDb = pendingPlan.preGainDb;
+            liveCompareAuto.ceilingDbtp = pendingPlan.ceilingDbtp;
+            showToast ("MATCH: PRE " + signedDb (pendingPlan.preGainDb));
+        }
+    }
+    processorRef.takeLiveComparePreWait(); // diagnostic receipt; short waits have no UI state
+    liveComparePreWaitUntil = 0;
     const bool sessionObserved = status.active || liveCompareActiveSeen;
     const bool guardTripped = processorRef.takeLiveCompareGuardTrip();
     if (guardTripped && sessionObserved)
@@ -353,7 +347,8 @@ bool KirinHyphaEditor::refreshLiveCompare()
         const auto why = presentation.reason != hypha::live_compare::RecoveryReason::none ? presentation.reason
                                                                                          : status.observation;
         if (const auto* next = hypha::live_compare_ui::nextStep (presentation.action); *next != 0)
-            liveCompareStory = { juce::String ("LISTEN: ") + hypha::live_compare_ui::cause (why) + ".", next };
+            liveCompareStory = { juce::String ("LISTEN: ") + hypha::live_compare_ui::cause (why)
+                + (why == hypha::live_compare::RecoveryReason::cycleUnverified ? "" : "."), next };
     }
     if (newFault) liveCompareAuto.on = false;
     newFault = followLiveCompare (status, now) || newFault;
@@ -362,17 +357,16 @@ bool KirinHyphaEditor::refreshLiveCompare()
         && processorRef.liveCompareAdmission (false) == StartResult::started;
     footer.active = status.active;
     footer.finishing = status.finishing;
-    footer.blindAvailable = status.matchReady
-        && processorRef.liveCompareAdmission (true) == StartResult::started;
+    footer.blindAvailable = processorRef.liveCompareAdmission (true) == StartResult::started;
     footer.preSelected = status.active && status.preSelected;
-    footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
+    footer.preWaiting = false; // selected PRE remains selected during quiet timing recovery
     footer.contentHeld = status.active && status.contentHeld;
     footer.compensationOff = status.active && status.compensationOff;
     footer.recoveryHelp = presentation.instruction;
     footer.pinAvailable = processorRef.localBlindProductSupported()
         && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && (liveCompareMatched || status.matchHeld);
-    footer.matchHeld = status.active && status.matchHeld;
+    footer.matchHeld = false; // the approved MATCH stays visible across timing recovery
     footer.matchLimited = footer.matched && liveCompareLimited;
     footer.following = status.active && liveCompareAuto.on;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;

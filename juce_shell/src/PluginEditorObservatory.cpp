@@ -226,8 +226,6 @@ void KirinHyphaEditor::visibilityChanged()
         commitEditorSizeStateIfSettled (true);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
-        if (liveBlindOpen) processorRef.closeLiveBlind();
-        else processorRef.stopLiveCompare();
         // Pro Tools can hide an editor without destroying it when another insert is opened.
         // The editor owns one typed optional-analysis request and releases it at this boundary.
         syncAnalysisDemand();
@@ -380,25 +378,7 @@ void KirinHyphaEditor::refreshObservatory()
                   frame.comparison_state, frame.comparison_reason)
             : juce::String());
    #endif
-    if (frameAvailable)
-    {
-        comparisonObservedGeneration = juce::jmax (
-            comparisonObservedGeneration, frame.comparison_generation);
-        if (comparisonActionAwaitingResult
-            && frame.comparison_generation > comparisonActionAfterGeneration)
-        {
-            if (frame.comparison_state == KIRIN_COMPARISON_STATE_ACTIVE)
-                comparisonActionAwaitingResult = false;
-            else if (hypha::comparison_presentation::notifiesExplicitAction (
-                         frame.comparison_state, frame.comparison_reason))
-            {
-                showToast (hypha::comparison_presentation::statusText (
-                    frame.comparison_state,
-                    frame.comparison_reason));
-                comparisonActionAwaitingResult = false;
-            }
-        }
-    }
+    if (frameAvailable) refreshComparisonNotice (frame);
     if (! levelAbsolute || levelReady)
         observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
@@ -464,4 +444,33 @@ void KirinHyphaEditor::refreshObservatory()
 #endif
     if (previousBody != observatoryView.bodyBounds())
         resized();
+}
+
+void KirinHyphaEditor::refreshComparisonNotice (const KirinObservatoryFrame& frame)
+{
+    comparisonObservedGeneration = juce::jmax (
+        comparisonObservedGeneration, frame.comparison_generation);
+    if (comparisonActionAwaitingResult
+        && frame.comparison_generation > comparisonActionAfterGeneration)
+    {
+        if (frame.comparison_state == KIRIN_COMPARISON_STATE_ACTIVE)
+            comparisonActionAwaitingResult = false;
+        else if (hypha::comparison_presentation::notifiesExplicitAction (
+                     frame.comparison_state, frame.comparison_reason))
+        {
+            // Inactive measurement snapshots can lag PRE's timing/PCM publication at startup.
+            // Do not turn that independent measurement state into a LISTEN producer diagnosis.
+            if (frame.comparison_reason == KIRIN_COMPARISON_REASON_PRE_INACTIVE
+                && processorRef.liveCompareStatus().active)
+            {
+                comparisonActionAwaitingResult = false; // LISTEN owns the remedy; do not defer it past END.
+                return;
+            }
+            showToast (hypha::comparison_presentation::statusText (
+                frame.comparison_state,
+                frame.comparison_reason));
+            comparisonNoticeReason = frame.comparison_reason;
+            comparisonActionAwaitingResult = false;
+        }
+    }
 }

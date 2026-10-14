@@ -4,6 +4,7 @@
 
 #include "HyphaPerceptualHistory.h"
 #include "HyphaPresentationContext.h"
+#include "HyphaPairingLoopText.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::perceptual_painter
@@ -20,7 +21,7 @@ namespace hypha::perceptual_painter
         uint8_t inputChannels;
         bool signalActive = true;
         presentation::Context presentation = presentation::defaultContext();
-        bool pairingLoopBlocked = false; // the host loops a range without a certified clock
+        live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
     };
 
     void paint (juce::Graphics& graphics,

@@ -78,7 +78,20 @@ impl SpectrumRuntime {
         let mut applied_stream_generation = 0;
         while !self.shutdown.load(Ordering::Acquire) {
             if !self.enabled.load(Ordering::Acquire) {
+                #[cfg(not(any(test, feature = "test-support")))]
                 drain_consumers(consumers);
+                #[cfg(any(test, feature = "test-support"))]
+                {
+                    let mut completed = 0;
+                    while let Ok(block) = consumers.blocks.pop() {
+                        discard_samples(
+                            &mut consumers.samples,
+                            block.frames as usize * block.channels as usize,
+                        );
+                        completed += 1;
+                    }
+                    self.test_receipt.complete(completed);
+                }
                 reset_assemblers(
                     &mut assemblers.spectrum,
                     assemblers.perceptual.as_mut(),
@@ -92,9 +105,14 @@ impl SpectrumRuntime {
                 continue;
             }
             let Ok(block) = consumers.blocks.pop() else {
+                #[cfg(not(any(test, feature = "test-support")))]
                 thread::sleep(WORKER_IDLE);
+                #[cfg(any(test, feature = "test-support"))]
+                thread::park_timeout(WORKER_IDLE);
                 continue;
             };
+            #[cfg(any(test, feature = "test-support"))]
+            let _completion = self.test_receipt.begin(&self.shutdown);
             let Some(selection) = AnalysisSelection::decode(block.selection, self.layout) else {
                 discard_samples(
                     &mut consumers.samples,
@@ -450,6 +468,7 @@ fn reset_assemblers(
     }
 }
 
+#[cfg(not(any(test, feature = "test-support")))]
 fn drain_consumers(consumers: &mut SpectrumConsumers) {
     while consumers.blocks.pop().is_ok() {}
     while consumers.samples.pop().is_ok() {}

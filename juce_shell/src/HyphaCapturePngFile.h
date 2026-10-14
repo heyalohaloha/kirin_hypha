@@ -1,6 +1,6 @@
 #pragma once
 #include <juce_graphics/juce_graphics.h>
-
+#include "AtomicFile.h"
 namespace hypha::capture
 {
 // The chooser has already confirmed replacement. Write a complete sibling first so
@@ -11,7 +11,7 @@ inline bool saveFrozenPng (const juce::Image& image, const juce::File& target)
     juce::MemoryOutputStream encoded;
     if (! juce::PNGImageFormat().writeImageToStream (image, encoded)
         || encoded.getDataSize() == 0) return false;
-    juce::TemporaryFile temporary (target, juce::TemporaryFile::useHiddenFile);
+    juce::TemporaryFile temporary (target, hypha::storage::temporarySibling (target));
     {
         juce::FileOutputStream stream (temporary.getFile(), 0);
         if (! stream.openedOk() || ! stream.write (encoded.getData(), encoded.getDataSize())) return false;

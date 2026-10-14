@@ -22,6 +22,8 @@ struct TimingHeader
     std::atomic<double> ppq { 0 }, loopStart { 0 }, loopEnd { 0 }, bpm { 0 };
     // PRE's wall-clock reading and thread for this callback (LiveCompareChainTiming.h).
     std::atomic<std::uint64_t> wallNanos { 0 }, thread { 0 };
+    std::atomic<std::uint64_t> runtimeChainA { 0 }, runtimeChainB { 0 }, runtimeRevision { 0 };
+    AtomicIntervals intervals;
 };
 
 struct TimingSnapshot
@@ -46,6 +48,7 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
     next.ownerB = h.ownerB.load (std::memory_order_relaxed);
     const auto flags = h.flags.load (std::memory_order_relaxed);
     next.active = (flags & 1u) != 0;
+    next.block.wallGap = (flags & 8u) != 0;
     next.anchor.linearKnown = (flags & 2u) != 0;
     next.anchor.loopKnown = (flags & 4u) != 0;
     const auto cause = (flags >> 8u) & 0xffu;
@@ -56,8 +59,13 @@ inline bool readTiming (const TimingHeader& h, TimingSnapshot& result) noexcept
     next.block.clockAuthority = static_cast<std::uint8_t> ((proof >> 8u) & 0xffu);
     next.block.presentationSource = static_cast<std::uint8_t> ((proof >> 16u) & 0xffu);
     next.block.outputPresentationValid = (proof & (1u << 24u)) != 0;
+    next.block.runtimeExpired = (proof & (1u << 25u)) != 0;
     next.block.outputPresentationSamples = h.outputPresentation.load (std::memory_order_relaxed);
     next.block.maximumDelaySamples = h.maximumDelay.load (std::memory_order_relaxed);
+    next.block.runtimeChainA = h.runtimeChainA.load (std::memory_order_relaxed);
+    next.block.runtimeChainB = h.runtimeChainB.load (std::memory_order_relaxed);
+    next.block.runtimeRevision = h.runtimeRevision.load (std::memory_order_relaxed);
+    next.anchor.intervals = h.intervals.load();
     next.origin = h.origin.load (std::memory_order_relaxed);
     next.anchor.runStart = h.start.load (std::memory_order_relaxed);
     if (! checkedClockSubtract (next.anchor.runStart, next.origin, next.anchor.runProject))
@@ -95,10 +103,12 @@ public:
             havePrevious = false;
         }
         const bool active = block.playing && block.clockValid && block.projectValid && block.frames > 0;
-        const auto movement = timeline.observe (block, rate);
-        const auto cycle = cycles.observe (block, rate);
+        auto movement = timeline.observe (block, rate);
+        const auto cycle = logicRender (block) ? LoopCycleReading {} : cycles.observe (block, rate);
         const auto proof = proofWord (block);
         const bool proofChanged = havePrevious && ! sameClockProof (previousBlock, block);
+        observeReaperIntervals (intervals, previousBlock, block, rate,
+            !havePrevious || movement.broken || cycle.changed || proofChanged);
         if (! havePrevious || movement.broken || cycle.changed || proofChanged)
         {
             ++generation;
@@ -127,7 +137,7 @@ public:
         std::atomic_thread_fence (std::memory_order_release);
         h.generation.store (generation, std::memory_order_release); // individual fence for an already-seeded PCM consumer
         h.flags.store ((active ? (1u | (linearKnown ? 2u : 0u) | (loopKnown ? 4u : 0u)) : 0u)
-                           | (static_cast<std::uint32_t> (generationCause) << 8u),
+                           | (block.wallGap ? 8u : 0u) | (static_cast<std::uint32_t> (generationCause) << 8u),
                        std::memory_order_relaxed);
         h.clock.store (block.clock, std::memory_order_relaxed);
         h.project.store (block.project, std::memory_order_relaxed);
@@ -135,6 +145,10 @@ public:
         h.proof.store (proof, std::memory_order_relaxed);
         h.outputPresentation.store (block.outputPresentationSamples, std::memory_order_relaxed);
         h.maximumDelay.store (block.maximumDelaySamples, std::memory_order_relaxed);
+        h.runtimeChainA.store (block.runtimeChainA, std::memory_order_relaxed);
+        h.runtimeChainB.store (block.runtimeChainB, std::memory_order_relaxed);
+        h.runtimeRevision.store (block.runtimeRevision, std::memory_order_relaxed);
+        h.intervals.store (intervals);
         h.origin.store (origin, std::memory_order_relaxed);
         h.start.store (start, std::memory_order_relaxed);
         h.loopClock.store (loopClock, std::memory_order_relaxed);
@@ -149,6 +163,10 @@ public:
         h.sequence.store (seq + 2, std::memory_order_release);
         havePrevious = active;
         previousBlock = block;
+        // The PCM run and MATCH history must end at the same proof boundary as metadata.
+        // A still-continuous render counter cannot carry old samples into a new certificate.
+        if ((proofChanged || cycle.changed) && (reaperProcessing (block) || logicRender (block)))
+            movement = { true, false, proofChanged ? TimelineBreak::clockProofChanged : TimelineBreak::loopEdited };
         return movement;
     }
 private:
@@ -157,7 +175,8 @@ private:
         return std::uint32_t (block.clockBasis)
             | (std::uint32_t (block.clockAuthority) << 8u)
             | (std::uint32_t (block.presentationSource) << 16u)
-            | (block.outputPresentationValid ? (1u << 24u) : 0u);
+            | (block.outputPresentationValid ? (1u << 24u) : 0u)
+            | (block.runtimeExpired ? (1u << 25u) : 0u);
     }
     LoopTimeline timeline;
     LoopCycleMeter cycles;
@@ -167,6 +186,7 @@ private:
     TimelineBreak generationCause = TimelineBreak::unknown;
     std::int64_t origin = 0, start = 0, loopClock = 0, loopProject = 0;
     LoopContext loop;
+    LinearIntervals intervals;
 };
 
 struct TimingEvidence
@@ -178,11 +198,15 @@ struct TimingEvidence
     std::int64_t loopSamples = 0;
     LoopEntryKind kind = LoopEntryKind::none;
     LoopEntryFailure failure = LoopEntryFailure::none;
+
+    // K survives unavailable callback evidence until the observer actually invalidates it.
+    // This permits loop continuity, never a new PCM admission or an analysis delta.
+    bool hasEstablishedK() const noexcept { return kind != LoopEntryKind::none; }
 };
 
 // POST Audio Thread. Linear project joins can be observed without an audition or PCM copy.
 // An initial loop may create K only from an explicit host certificate, a documented delay bound,
-// or a positive presentation-latency proof; repeated musical positions alone never create it.
+// or a same-callback render/presentation proof; repeated musical positions alone never create it.
 class TimingObserver
 {
 public:
@@ -190,7 +214,8 @@ public:
     TimingEvidence observe (const TimingSnapshot& pre, const BlockClock& post, double rate,
                             std::int64_t capacity, bool coherent = true) noexcept
     {
-        const bool active = pre.active && post.playing && post.clockValid && post.projectValid
+        const auto reaperLoss = coherent ? reaperContinuity.observe (pre, post) : TimelineBreak::none;
+        const bool active = reaperLoss == TimelineBreak::none && pre.active && post.playing && post.clockValid && post.projectValid
             && post.frames > 0 && ! post.afterGap;
         const bool sourceChanged = haveSource && (generation != pre.generation
             || previous.ownerA != pre.ownerA || previous.ownerB != pre.ownerB);
@@ -207,7 +232,8 @@ public:
             && corroborateLoop (pre.anchor, post, start, rate, verified, &pre.block);
         // Cycle and timeline observers must consume the SAME corroborated coordinates.
         // Feeding the raw clamp into the cycle meter would revoke a proven K every wrap.
-        const auto cycle = postCycles.observe (corroborated ? verified : post, rate);
+        const auto cycle = logicRender (post) ? LoopCycleReading {}
+            : postCycles.observe (corroborated ? verified : post, rate);
         const auto movement = timeline.observe (corroborated ? verified : post, rate,
                                                 coherent ? (age > 0 && age < capacity ? age : 0) : lastAge);
         if (! active || sourceChanged || postProofChanged || movement.broken || cycle.changed)
@@ -233,8 +259,15 @@ public:
             }
         }
         LoopEntryFailure failure = LoopEntryFailure::none;
+        if (logicRender (post) && (post.loop.active || logicRenderPair (pre.block, post)))
+        {
+            const bool current = coherent && active && !sourceChanged && !postProofChanged
+                && !movement.broken && loopAddressIsCurrent (pre.anchor, pre.block, post, 0, rate, capacity);
+            if (current) { k = 0; valid = true; kind = LoopEntryKind::logicPresentation; }
+            else { invalidate(); failure = LoopEntryFailure::clockUnavailable; }
+        }
         if (coherent && active && ! sourceChanged && ! postProofChanged && ! movement.broken
-            && havePrevious && post.loop.active && ! valid)
+            && !logicRender (post) && havePrevious && post.loop.active && ! valid)
         {
             const auto entry = initialLoopCandidate (pre.anchor, pre.block, post,
                                                      cycle.known ? cycle.samples : 0,
@@ -272,7 +305,9 @@ public:
         if (coherent && valid && age > 0 && age < capacity) lastAge = age;
         const bool loopReady = valid && kind != LoopEntryKind::linear
             && loopAddressIsCurrent (pre.anchor, pre.block, post, k, rate, capacity);
-        return { coherent && active && (linearReady || loopReady || (corroborated && inObservedRange)),
+        const bool runtimeProof = kind == LoopEntryKind::reaperBound || kind == LoopEntryKind::logicPresentation;
+        return { coherent && active && (runtimeProof ? loopReady
+                    : (linearReady || loopReady || (corroborated && inObservedRange))),
                  k, post.clock, generation, pre.ownerA, pre.ownerB,
                  cycle.known ? cycle.samples : 0, kind,
                  valid ? LoopEntryFailure::none : failure };
@@ -291,6 +326,7 @@ private:
     }
     LoopTimeline timeline;
     LoopCycleMeter postCycles;
+    ReaperPairContinuity reaperContinuity;
     CalibrationProfile profile;
     TimingSnapshot previous;
     std::uint64_t generation = 0;

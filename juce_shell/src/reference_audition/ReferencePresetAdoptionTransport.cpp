@@ -1,5 +1,5 @@
 #include "ReferencePresetAdoptionTransport.h"
-
+#include "../AtomicFile.h"
 #include <regex>
 
 #include "ReferenceRuntimeEventTransport.h"
@@ -141,7 +141,8 @@ namespace hypha::reference_audition
                 return false;
             // Keep the sibling name shorter than the receipt name so atomic publication does
             // not exceed Windows path limits when the destination itself still fits.
-            const auto temporary = target.getSiblingFile ("." + juce::Uuid().toDashedString() + ".tmp");
+            juce::TemporaryFile staged (target, hypha::storage::temporarySibling (target));
+            const auto temporary = staged.getFile();
             auto stream = temporary.createOutputStream();
             if (stream == nullptr || ! stream->openedOk()
                 || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes)))

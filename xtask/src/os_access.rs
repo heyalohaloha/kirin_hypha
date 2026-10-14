@@ -129,36 +129,43 @@ mod tests {
         assert!(EDITOR_CAPTURE.contains("osOwned && guideAvailable"));
         assert!(EDITOR_CAPTURE.contains("chooseObservatoryCapture"));
     }
-    // A test that builds real processors shares macOS's PRE display transport, whose JUCE home
-    // ignores HOME. Every such test places that transport under its own sandbox, so no test
-    // reads or writes the user's real Kirin OS folder (and no stale file links two test runs).
+    // Cover the path-owning production modules, independent of how a test includes or loads
+    // processors (headers and dynamic plug-in modules must be isolated too).
     #[test]
-    fn processor_tests_keep_pre_display_files_in_their_sandbox() {
-        let tests = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../juce_shell/tests");
+    fn all_juce_kirin_os_defaults_honor_the_shared_test_root() {
+        let mut pending =
+            vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../juce_shell/src")];
         let mut checked = 0;
-        for entry in std::fs::read_dir(&tests).expect("juce_shell/tests is readable") {
-            let path = entry.expect("test entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("cpp") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).expect("test source is UTF-8");
-            let builds_processors = source.contains("ValidationStorageSandbox sandbox")
-                && (source.contains("PluginProcessor.h")
-                    || source.contains("EditorProductChecks.h"));
-            if builds_processors {
-                checked += 1;
-                assert!(
-                    source.contains(
-                        "hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());"
-                    ),
-                    "{} builds processors without placing PRE display under its sandbox",
-                    path.display()
-                );
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(directory).expect("source directory") {
+                let path = entry.expect("source entry").path();
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                if !matches!(path.extension().and_then(|e| e.to_str()), Some("cpp" | "h")) {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("UTF-8 source");
+                if source.contains("getSpecialLocation")
+                    && source.contains("Kirin OS")
+                    && source.contains("plugin_data")
+                {
+                    checked += 1;
+                    assert!(
+                        source.contains("storage::testPluginDataRoot()"),
+                        "{} resolves Kirin OS storage without the shared test root",
+                        path.display()
+                    );
+                }
             }
         }
-        assert!(
-            checked >= 12,
-            "the processor product tests are still found ({checked})"
-        );
+        assert!(checked >= 6, "all Kirin OS path owners are covered");
+        let sandbox = include_str!("../../juce_shell/tests/ValidationStorageSandbox.h");
+        assert!(sandbox.contains("redirect (\"KIRIN_HYPHA_TEST_STORAGE_ROOT\", root)"));
+        assert!(!sandbox.contains("clear (\"KIRIN_HYPHA_TEST_STORAGE_ROOT\")"));
+        for directory in ["home/AppData/Roaming", "home/AppData/Local", "tmp", "home"] {
+            assert!(sandbox.contains(&format!("getChildFile (\"{directory}\")")));
+        }
     }
 }

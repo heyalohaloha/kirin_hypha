@@ -1,4 +1,4 @@
-#include "../src/live_compare/AaxAnalysisClock.h"
+#include "../src/live_compare/PairedAnalysisClock.h"
 #undef NDEBUG
 #include <cassert>
 #include <iostream>
@@ -8,7 +8,7 @@ namespace
 {
 // Twenty linear callbacks of one PRE/POST pair; returns the last evidence.
 TimingEvidence proveLinear (BlockClock& pre, BlockClock& post, TimingHeader& header,
-                            TimingPublisher& publisher, TimingObserver& observer, AaxAnalysisClock& analysis)
+                            TimingPublisher& publisher, TimingObserver& observer, PairedAnalysisClock& analysis)
 {
     TimingEvidence evidence;
     for (int i = 0; i < 20; ++i)
@@ -35,7 +35,7 @@ int main()
     auto post = pre; post.project = -1024;
     TimingHeader header; header.ownerA.store (7); header.ownerB.store (11);
     TimingPublisher publisher; TimingObserver observer;
-    AaxAnalysisClock analysis;
+    PairedAnalysisClock analysis;
     auto evidence = proveLinear (pre, post, header, publisher, observer, analysis);
     assert (evidence.valid && evidence.k == 1024 && evidence.kind == LoopEntryKind::linear);
     assert (analysis.local.valid && analysis.paired.valid);

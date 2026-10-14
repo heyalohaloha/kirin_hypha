@@ -38,9 +38,15 @@ namespace
         return "LR";
     }
 
-    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
+    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames,
+                             live_compare::LoopPairingBlock loopBlock)
     {
         if (status == KIRIN_SPECTRUM_NO_PAIR) return juce::CharPointer_UTF8 ("PAIR —");
+        if (status == KIRIN_SPECTRUM_UNAVAILABLE
+            && loopBlock == live_compare::LoopPairingBlock::auCycle)
+            return pairing_loop_text::status (loopBlock);
+        if (*pairing_loop_text::analysisStatus (status, loopBlock) != 0)
+            return pairing_loop_text::analysisStatus (status, loopBlock);
         if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         if (status == KIRIN_SPECTRUM_IN_USE)
@@ -278,6 +284,11 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid)
     {
+        // A Cycle correspondence failure hides only the paired facts. POST remains a
+        // separately validated local observation, on the same magnitude axis as before.
+        if (! state.absoluteObservation && state.postSnapshotValid
+            && state.pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
+            spectrum_painter::paintPostCurve (g, plot, scale, state.post);
         // Stopped: the six seconds already measured stay, dimmed, under the status.
         if (state.absoluteObservation && ! state.midSideObservation && ! state.signalActive
             && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
@@ -285,8 +296,12 @@ void paint (juce::Graphics& g,
                 spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory); });
         const auto text = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
-                            : ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
-                            ? statusText (state.snapshot.status, state.analysisOwnerNames)
+                            : ! state.signalActive ? juce::String ("INACTIVE")
+                            : ! state.absoluteObservation && ! state.haveSnapshot
+                                && state.pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
+                                ? juce::String (pairing_loop_text::status (state.pairingLoopBlock)) : state.haveSnapshot
+                            ? statusText (state.snapshot.status, state.analysisOwnerNames,
+                                state.absoluteObservation ? live_compare::LoopPairingBlock::none : state.pairingLoopBlock)
                                              : juce::String ("PREPARING ANALYSIS");
         if (text.isNotEmpty())
         {

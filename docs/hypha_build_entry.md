@@ -96,6 +96,91 @@ manifestにはsource commit / B / modified state、JUCEのcommitと実bytesを�
 - 既存の署名済みoutputは上書きしない。旧正規build directory、installed plug-in、公開pkgを触らない。
 - 完了manifestがあるだけでは足りない。`--verify-only`はhashと現在のsourceを再照合する。
 
+## Native試験の保存先と監視
+
+### 共通ビルドとrelease-sourceの分割
+
+`bash scripts/test_release_source.sh`は全検査を順に実行する。CIでは同じ入口を
+`--phase checks`（軽量検査とclippy）、`--phase rust`（通常Rust試験・CPU予算・ABI・xtask）、
+`--phase ffi`（件数を照合したignored suite）、`--phase native`（native buildとCTest）に分ける。
+`--list-phases`で一覧、`--plan`で実行予定を確認できる。planは検査成功を表さない。
+軽量契約の`ci_build_structure.test.mjs`が全実行と各phaseのコマンド列、CI matrixと集約条件を照合する。
+既存の必須チェック名`release source contract (macos)`は、全phase成功時だけ成功する。
+
+Nativeの`KirinNativeTests`はconfigure済みの全試験実行ファイルとcompile-only targetを一つの
+依存グラフでbuildする。`cmake --build BUILD --target KirinNativeTests --parallel 2`で実行する。
+Windowsの`KirinWindowsPreflight`はそれにPRE/POST VST3を加え、後続の検証工程で再buildしない。
+公開・署名・実host受入を代用するtargetではない。`CMAKE_BUILD_PARALLEL_LEVEL`と
+`CARGO_BUILD_JOBS`で各compilerの並列数を指定し、時間に敏感なCTestは直列のままとする。
+
+単独native試験のJUCE moduleは、standalone等の定義ごとに静的ライブラリへまとめる。
+共通の製品ソースもcompile定義・options・features・include・linkの組が一致する場合に共有する。
+ページ試験hookやtransport注入の定義が異なるソース、PRE/POST、試験時計付きprocessor、
+format wrapperは別のcompile条件を維持する。JUCEの`INTERFACE_SOURCES`は実行ファイルへ
+再伝播させず、header用のusage requirementとlink依存だけを渡す。
+根拠は[CMakeのPRIVATE依存](https://cmake.org/cmake/help/latest/command/target_link_libraries.html)と
+[JUCEのmodule target](https://github.com/juce-framework/JUCE/blob/7.0.12/docs/CMake%20API.md)を参照。
+
+Native phaseではCTestの全登録と選択の照合に加え、生成したbuild target一覧と
+実際の`compile_commands.json`を検査する。試験ごとのJUCE／製品ソース再compileや
+出荷targetへの試験定義の漏入を検出する。試験件数、除外理由、再試行方針、下記の保存先監視と
+パス予算は共有ライブラリ化やjob分割で変えない。
+
+### 保存先と監視
+
+Native試験を有効にしたconfigureにはNode.jsも必要。CTestは全試験に保存先用の
+`KIRIN_HYPHA_TEST_STORAGE_ROOT`と`kirin_real_storage` fixtureを付ける。
+RustとJUCEのGuide／Reference／Recovery／Capture Work／Appearanceは、このrootの同じ
+platform別`home`配下を使う。独自fixtureも環境変数を消さず、自分のrootへ替え、
+HOME／APPDATA／LOCALAPPDATA／TMPDIRを同じ配置へ揃えてからworkerを起動する。
+macOSのJUCEはHOMEだけの変更には従わない。環境変数が未指定または空なら製品の既定場所は従来どおり。
+指定rootが書けない場合は実フォルダへfallbackしない。明示的なtransport引数・試験用overrideは優先する。
+
+`kirin_native_storage_guard_setup` / `cleanup`はOSが返す実ホームのDocumentsと
+Application Support内のKirin OSを読み取りだけで確認する。WindowsではDocumentsと
+Roaming/Local AppDataを対象にする。全階層の一覧、size、mtime、ctime、symlink情報を
+build内の`real-kirin-os-before.json`へ控えて比較し、一時ファイルの作成後の削除も検出する。
+音声ファイルの内容を読み直すバックアップではない。存在しないrootは作らず、作成された場合だけ差分とする。
+読み取り失敗も不合格となり、setup失敗時はnative本体を実行しない。cleanupは試験失敗時にも走る。
+
+`ctest -R`による部分実行にも監視は自動で付く。fixtureを除外するオプションや実行ファイルの
+直接起動ではこの監視を代用できない。同じbuildで複数のCTestを同時起動せず、必要ならbuildを分ける。
+実アプリが同時に対象フォルダを更新しても不合格になるため、静止した環境で検証する。
+監視は変更を検出するもので、OSの書き込み禁止や実データの自動復元は行わない。
+
+`kirin_storage_paths_*`は実フォルダへ書く前に保存先を照合し、環境変数／個別fixture、
+未指定／空の既定値（path読取りのみ）、相対path、書けないrootとPRE／POSTのlease作成・削除を確認する。
+`kirin_live_publication_PRE_storage-only` / `POST_storage-only`は共有メモリ不要で、worker起動前の
+保存先と両roleのpresence/capabilityの作成・終了時削除を検証する。監視自体の異常系は
+`kirin_native_storage_guard_contract`が使い捨てデータだけで検証する。
+
+試験用rootはbuild内の`t`、個別sandboxは`s-<PID>`とする。製品の保存先とplatform別の
+相対配置は変更しない。processor fixtureの未指定instance IDも短いopaque IDに揃える。
+明示ID・保存stateから復元したIDは保持し、製品のID生成は変えない。`kirin_path_budget`も全native試験の必須CTest fixtureであり、
+`kirin_native_path_budget_cleanup`が残存ツリーと削除前の相対path記録を検査する。
+fixtureのディレクトリ削除は`TestPathBudget.h`を通し、Rustが作ったfileも削除前に記録する。
+読み取り・記録失敗は合格にせず、symlinkの参照先へは進まない。
+
+全platformで、相対pathをWindows CIの`juce_shell/build-windows/t`配下へ投影する。
+UTF-16単位で259文字を上限とし、40文字の余裕とJUCEの`_temp<8桁>`の13文字を確保する
+（一時名分を含め219文字以下）。macOSの試験用`home/Library/Application Support/Kirin OS`だけは、
+製品と同じWindows配置（`plugin_data`は`home/AppData/Local/Kirin OS`、それ以外はRoaming）へ
+対応させる。他の相対pathは短縮せず、報告には元の相対pathを残す。
+結果は件数、最長値、長い相対pathを出す。`path-ledger`は失敗・中断時の証跡を保持するため、
+setupで過去の記録を消さない。古い失敗記録を除いて再検証するときは、別のbuildを使うか、
+対象buildの停止を確かめてfixture用の`t`と`path-ledger`だけを整理する。
+
+原子的な保存は`AtomicFile.h`の短い同階層一時名を使う。最終filename、保存内容、rename、
+各writerの権限・flush・lockの契約は維持する。`kirin_atomic_file`は内容、失敗、並行保存、
+後片付けを検査する。`kirin_atomic_file_boundaries`だけは意図的に長い独立fixtureを作り、
+246・247・249・259文字で実際に保存・置換する。既存の243文字のPreset adoption試験も
+同じ境界fixtureへ移し、同一receiptの再送・競合・書込み失敗の検査を維持する。
+これは通常fixtureの予算内合格には数えない。
+予算検査自身の超過・破損・失敗後cleanupの試験は`kirin_native_path_budget_contract`で実行する。
+境界の根拠は[Windowsのpath上限](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation)、
+同階層の置換と後片付けは[JUCE TemporaryFile](https://docs.juce.com/master/classjuce_1_1TemporaryFile.html)、
+部分実行と失敗後の実行順序は[CTest fixture cleanup](https://cmake.org/cmake/help/latest/prop_test/FIXTURES_CLEANUP.html)を参照する。
+
 ## ビルドと製品化を分ける
 
 この入口は**未署名のローカル診断ビルド**。iLok USBやCloudの移動は不要。

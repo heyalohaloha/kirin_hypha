@@ -4,14 +4,14 @@
 #include "reference_rt_probe.h"
 #include "ReferenceSelectionSafetyTest.h"
 #include "ReferenceAutoVersionSafetyTest.h"
-
+#include "TestPathBudget.h"
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
 {
     if (argc != 2 || juce::String (argv[1]) != "--pending-only") return false;
     testReferencePendingAudition (sandbox);
-    require (sandbox.deleteRecursively(), "pending fixture cleanup");
+    require (hypha::tests::removeFixtureDirectory (sandbox), "pending fixture cleanup");
     return true;
 }
 void testReferencePendingAudition (const juce::File& sandbox)

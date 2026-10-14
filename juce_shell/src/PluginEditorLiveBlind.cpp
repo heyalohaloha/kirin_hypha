@@ -24,6 +24,8 @@ void KirinHyphaEditor::configureLiveBlind()
         processorRef.approveLiveBlindMatch (liveBlindView.state().generation);
         refreshLiveBlind();
     };
+    const auto stage = processorRef.liveBlindStatus().stage;
+    liveBlindOpen = stage != BlindStage::idle && stage != BlindStage::finishing;
     liveBlindView.onReveal = [this]
     {
         processorRef.revealLiveBlind();
@@ -40,7 +42,7 @@ void KirinHyphaEditor::openLiveBlind()
     {
         refreshLiveCompare(); // acknowledge older transitions before this direct refusal
         if (result == StartResult::noPair) showCandidateMenu();
-        else showToast (result == StartResult::contentHeld ? "Timing changed: stop/play DAW (POST)"
+        else showToast (result == StartResult::contentHeld ? "Timing changed: check chain delay (POST)"
                       : result == StartResult::returnPending ? "Ended; normal level returns with audio"
                       : result == StartResult::returnRequired ? "Press RETURN first"
                       : result == StartResult::comparisonBusy ? "End the current comparison first"
@@ -57,7 +59,13 @@ void KirinHyphaEditor::openLiveBlind()
 
 void KirinHyphaEditor::refreshLiveBlind()
 {
-    if (! liveBlindOpen) return;
+    if (!liveBlindOpen)
+    {
+        const auto stage = processorRef.liveBlindStatus().stage;
+        if (stage == BlindStage::idle || stage == BlindStage::finishing) return;
+        liveBlindOpen = true;
+        layoutLocalBlindProduct();
+    }
     monitorLiveCompareOffset (processorRef.liveCompareStatus(), nowSecs());
     processorRef.serviceLiveBlind();
     const auto status = processorRef.liveCompareStatus();
@@ -91,8 +99,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         menu.addItem (44, "PIN 4 S", ! live.finishing);
     }
     if (observatoryView.localBlindEntryAvailable())
-        menu.addItem (23, "BLIND", ! keepActive && processorRef.liveCompareAdmission (true) == StartResult::started
-            && (! live.active || live.matchReady || live.contentHeld));
+        menu.addItem (23, "BLIND", ! keepActive && processorRef.liveCompareAdmission (true) == StartResult::started);
 }
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)

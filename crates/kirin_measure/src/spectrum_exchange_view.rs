@@ -79,17 +79,23 @@ impl SpectrumCoordinator {
             }
         }?;
         after_clone();
-        // An AAX proof lifetime/K cut cannot lend the new authority to a cached old view.
-        if self.runtime.spectrum_clock_kind()
-            == Some(crate::spectrum_runtime::SpectrumClockKind::AaxEngine)
-            && matches!(
-                view.analysis_mode,
-                AnalysisViewMode::Perceptual | AnalysisViewMode::Absolute
+        // A pair proof lifetime/K cut cannot lend new authority to a cached old view.
+        if matches!(
+            self.runtime.spectrum_clock_kind(),
+            Some(
+                crate::spectrum_runtime::SpectrumClockKind::AaxEngine
+                    | crate::spectrum_runtime::SpectrumClockKind::Vst3Content
+                    | crate::spectrum_runtime::SpectrumClockKind::AudioUnitRender
             )
-            && view.status == SpectrumViewStatus::Active
+        ) && matches!(
+            view.analysis_mode,
+            AnalysisViewMode::Perceptual | AnalysisViewMode::Absolute | AnalysisViewMode::Spectrum
+        ) && view.status == SpectrumViewStatus::Active
             && stateful_token != self.runtime.analysis_clock_token()
         {
             view.status = SpectrumViewStatus::WarmingUp;
+            view.difference = None;
+            view.spectrum_timeline = Default::default();
             view.perceptual_difference = None;
             view.perceptual_timeline = Default::default();
             view.absolute_timeline = Default::default();

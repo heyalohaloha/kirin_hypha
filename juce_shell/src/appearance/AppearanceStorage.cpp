@@ -1,5 +1,6 @@
 #include "AppearanceStorage.h"
-
+#include "../KirinTestStorage.h"
+#include "../AtomicFile.h"
 #include "AppearanceFileLock.h"
 
 #include <utility>
@@ -47,6 +48,8 @@ Storage::Storage (juce::File sharedPluginDataRoot)
 
 juce::File Storage::defaultSharedPluginDataRoot()
 {
+    if (const auto root = storage::testPluginDataRoot())
+        return *root;
    #if JUCE_WINDOWS
     auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {});
     if (local.isEmpty())
@@ -179,10 +182,7 @@ bool Storage::writeAtomic (const juce::File& target, const juce::String& text) c
 {
     if (target.getParentDirectory().createDirectory().failed())
         return false;
-    juce::TemporaryFile temporary (target);
-    if (! temporary.getFile().replaceWithText (text, false, false, "\n"))
-        return false;
-    return temporary.overwriteTargetFileWithTemporary();
+    return hypha::storage::writeText (target, text, false, false, "\n");
 }
 
 void Storage::invalidatePreferenceCache()

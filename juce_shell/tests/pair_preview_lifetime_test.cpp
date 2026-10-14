@@ -1,4 +1,5 @@
 #include "ValidationStorageSandbox.h"
+#include "TestPathBudget.h"
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -25,7 +26,7 @@ int main(int argc,char** argv)
     require(argc==2,"module path required"); ValidationStorageSandbox sandbox;
     // dyld retains images containing Rust TLV data; this counter must outlive retained images.
     static std::atomic<int> unloaded {0};
-    const auto root=sandbox.directory().getNonexistentChildFile("hypha-module-probe",{},false);
+    const auto root=sandbox.directory().getNonexistentChildFile("mod",{},false);
     require(root.createDirectory().wasOk(),"isolated module folder");
     std::array<juce::File,3> modules;
     for(int i=0;i<3;++i) {
@@ -76,7 +77,7 @@ int main(int argc,char** argv)
         for(const auto& module:modules) require(mapped(module),"dyld retains TLV-bearing Rust module");
        #endif
     }
-    require(root.deleteRecursively(),"module fixture cleanup");
+    require(hypha::tests::removeFixtureDirectory (root),"module fixture cleanup");
    #if JUCE_MAC
     std::cout<<"Pair preview lifetime: 36 non-RT guard drains and close/reopen cycles, 3 independent modules PASS; actual unmap SKIP (dyld retains Rust TLV images)\n";
    #else

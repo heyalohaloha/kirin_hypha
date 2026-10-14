@@ -1,7 +1,7 @@
 #pragma once
 #include "EditorProductChecks.h"
 #include <cstring>
-
+#include "TestProcessorStorage.h"
 namespace hypha::tests::editor_product
 {
 struct HiddenAutoAccess {};
@@ -39,7 +39,7 @@ inline void verifyHiddenAutoStops()
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48'000, 512);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 512);
     std::unique_ptr<juce::AudioProcessorEditor> owner (processor.createEditor());
     auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
     require (editor != nullptr, "shipping editor for hidden AUTO fixture");

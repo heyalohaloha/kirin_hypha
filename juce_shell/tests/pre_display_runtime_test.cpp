@@ -9,9 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-
+#include "../src/AtomicFile.h"
 #include <juce_cryptography/juce_cryptography.h>
-
+#include "TestPathBudget.h"
 namespace pre = hypha::pre_display;
 
 namespace
@@ -217,7 +217,7 @@ namespace
     bool writeJson (const juce::File& file, const juce::var& value)
     {
         return file.getParentDirectory().createDirectory()
-            && file.replaceWithText (juce::JSON::toString (value, true) + "\n");
+            && hypha::storage::writeText (file, juce::JSON::toString (value, true) + "\n");
     }
 
     juce::var activePointer (const juce::File& guideFile,
@@ -443,7 +443,7 @@ int main()
              "reject a v3 guide addressed to PRE during the POST-only migration");
 
     const auto root = hypha::tests::temporaryParent()
-        .getNonexistentChildFile ("kirin-pre-display-runtime", {}, false);
+        .getNonexistentChildFile ("pd", {}, false);
     require (root.createDirectory(), "create isolated transport root");
 
     const auto fixtureArtifact = root.getChildFile ("guides").getChildFile (
@@ -722,7 +722,7 @@ int main()
     repository.refresh (retained);
     require (retained.guideId == testUuid ("masking_guide"),
              "pointer without canonical instant retains last valid guide");
-    require (pointerFile.replaceWithText ("{broken"), "corrupt pointer fixture");
+    require (hypha::storage::writeText (pointerFile, "{broken"), "corrupt pointer fixture");
     const auto corruptPointerReceipt = repository.refresh (retained);
     require (corruptPointerReceipt.state == pre::GuideRefreshState::unavailable
              && retained.guideId == testUuid ("masking_guide"),
@@ -1165,7 +1165,7 @@ int main()
     }
     require (true, "an unresolved transport root disables delivery instead of using a relative path");
 
-    require (root.deleteRecursively(), "remove isolated transport root");
+    require (hypha::tests::removeFixtureDirectory (root), "remove isolated transport root");
     std::cout << "PRE display runtime contract: PASS\n";
     return 0;
 }

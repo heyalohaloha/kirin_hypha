@@ -12,6 +12,7 @@ float sourceSample (int channel, std::int64_t frame) const
 
 void processAudio()
 {
+    hypha::tests::ProductTestClock wallClock;
     juce::AudioBuffer<float> buffer (2, blockFrames);
     juce::MidiBuffer midi;
     std::array<std::array<float, 4096>, 2> physicalDelay {};
@@ -20,11 +21,11 @@ void processAudio()
     auto next = std::chrono::steady_clock::now();
     auto previousPre = std::chrono::steady_clock::time_point();
     auto previousPost = std::chrono::steady_clock::time_point();
-    // The test machine's own stalls, apart from the deliberate gaps below. The product calls an
+    // Synthetic host stalls, independent of the machine running the fixture. The product calls an
     // interval longer than 2.5 blocks a callback gap, so each side is measured where its callback
     // starts, before the call, and a failure report carries the longest interval.
-    const auto countStall = [this] (std::chrono::steady_clock::time_point& previous) {
-        const auto callbackAt = std::chrono::steady_clock::now();
+    const auto countStall = [this, &wallClock] (std::chrono::steady_clock::time_point& previous) {
+        const auto callbackAt = wallClock.now();
         if (previous != std::chrono::steady_clock::time_point())
         {
             const auto interval = static_cast<std::int64_t> (
@@ -47,15 +48,16 @@ void processAudio()
         suspended.store (false);
         if (const auto lap = stallAtLap.load(); lap >= 0 && clock.loop.laps.load() >= lap)
         {
-            // A deliberate stall of this machine, as CI runners sometimes have: both callbacks
+            // A deliberate host stall: both callbacks
             // arrive 1.1 s late, and the interval counts like any other stall.
             stallAtLap.store (-1);
             stallBlock.store (audioBlocks.load());
-            std::this_thread::sleep_for (std::chrono::milliseconds (1100));
+            wallClock.advance (std::chrono::milliseconds (1100));
         }
         if (injectGap.exchange (false))
         {
-            std::this_thread::sleep_for (std::chrono::milliseconds (600));
+            // Advance the callback clock, not sample positions, to reproduce absence.
+            wallClock.advance (std::chrono::milliseconds (600));
             next = std::chrono::steady_clock::now();
             previousPre = previousPost = {};
         }
@@ -134,7 +136,9 @@ void processAudio()
                 }
         if (clock.playing) clock.position += blockFrames;
         emitted += blockFrames;
+        // Real pacing gives workers/UI time to run; only wallClock defines callback gaps.
         next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
+        wallClock.advanceBlock (blockFrames, 48000);
         std::this_thread::sleep_until (next);
     }
 }

@@ -407,3 +407,6 @@ fn clock_cutover_during_expired_pre_write_removes_old_bytes_before_early_return(
     assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_some());
 }
+
+#[path = "spectrum_exchange_content_clock_tests.rs"]
+mod content_clock_tests;

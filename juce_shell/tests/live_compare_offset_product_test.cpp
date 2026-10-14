@@ -1,10 +1,11 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "FooterNoticeContractChecks.h"
 #include "LiveTimingFixtureAccess.h"
-
+#include "TestProcessorStorage.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -96,7 +97,7 @@ public:
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
-            instance->prepareToPlay (48000, blockFrames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*instance),
                      "offset fixture uses the qualified synthetic VST3 clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
@@ -158,7 +159,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview)
                     preview = post->createPairPreview();
                 if (! demanded)
@@ -210,11 +211,11 @@ private:
             case 4:
             {
                 // The latency changed with the clocks unchanged: POST is held (INV-LC10).
-                heldNoticeSeen = heldNoticeSeen || footer() == "Timing changed: stop/play DAW (POST)";
+                heldNoticeSeen = heldNoticeSeen || footer() == "Timing changed: check chain delay (POST)";
                 if (! post->liveCompareStatus().contentHeld || ! heldNoticeSeen) break;
                 if (heldAt == std::chrono::steady_clock::time_point()) heldAt = std::chrono::steady_clock::now();
                 if (std::chrono::steady_clock::now() - heldAt < std::chrono::milliseconds (3500)) break;
-                require (footer() == "Timing changed: stop/play DAW (POST)", "recovery persists beyond the toast timeout");
+                require (footer() == "Timing changed: check chain delay (POST)", "recovery persists beyond the toast timeout");
                 // The exact settled measurement that triggered the hold is retained. Re-reading
                 // a moving RT history here can be undetermined and is not the jump evidence.
                 require (post->liveCompareStatus().contentJumpLagFrames == -3000,
@@ -287,6 +288,7 @@ private:
 
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (2, blockFrames);
         juce::MidiBuffer midi;
         constexpr std::size_t lineFrames = 4096;
@@ -297,8 +299,8 @@ private:
         auto previousPost = std::chrono::steady_clock::time_point();
         // Each side's gap is measured where that side's callback starts, before the call, so a stall
         // inside PRE is counted before POST can report it.
-        const auto countStall = [this] (std::chrono::steady_clock::time_point& previous) {
-            const auto callbackAt = std::chrono::steady_clock::now();
+        const auto countStall = [this, &wallClock] (std::chrono::steady_clock::time_point& previous) {
+            const auto callbackAt = wallClock.now();
             if (previous != std::chrono::steady_clock::time_point())
             {
                 const auto interval = static_cast<std::int64_t> (
@@ -312,7 +314,7 @@ private:
         while (running.load())
         {
             const bool deliberateStall = injectSchedulingStall.exchange (false);
-            if (deliberateStall) std::this_thread::sleep_for (std::chrono::milliseconds (600));
+            if (deliberateStall) wallClock.advance (std::chrono::milliseconds (600));
             clock.playing = play.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < blockFrames; ++f)
@@ -334,6 +336,7 @@ private:
             if (deliberateStall) schedulingStallCompleted.store (true);
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (blockFrames, 48000);
             std::this_thread::sleep_until (next);
         }
     }

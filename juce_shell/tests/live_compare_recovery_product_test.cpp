@@ -1,10 +1,12 @@
+#include <string>
+#include "ProductTestClock.h"
 #include "LiveTimingFixtureAccess.h"
 #include "EditorProductChecks.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveCompareNoticeProductChecks.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaReferenceAccessPanel.h"
-
+#include "TestProcessorStorage.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -49,7 +51,7 @@ static void verifyRecoveryGeometry()
         const i18n::ScopedLanguage scoped (language);
         juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
         Processor processor (Processor::Role::Post);
-        processor.prepareToPlay (48000, 512);
+        hypha::tests::prepareFixtureProcessor (processor, 48000, 512);
         std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
         editor->setVisible (true);
         auto* view = component<observatory::View> (*editor);
@@ -107,14 +109,15 @@ static void verifyRecoveryGeometry()
 
 static void verifyHoldAfterEnd()
 {
+    hypha::tests::ProductTestClock wallClock;
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48000, 512);
+    hypha::tests::prepareFixtureProcessor (processor, 48000, 512);
     Clock clock;
     processor.setPlayHead (&clock);
     juce::AudioBuffer<float> buffer (2, 512);
     juce::MidiBuffer midi;
     const auto process = [&]
-    { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; processor.serviceLiveCompare(); };
+    { buffer.clear(); processor.processBlock (buffer, midi); clock.position += 512; wallClock.advanceBlock (512, 48000); processor.serviceLiveCompare(); };
     LiveTimingFixtureAccess::holdContent (processor, -3000);
     processor.finishLiveCompare(); process();
     using namespace live_compare_ui;
@@ -140,7 +143,7 @@ static void verifyLoopPresentation()
     {
         const i18n::ScopedLanguage scoped (language);
         Processor processor (Processor::Role::Post);
-        processor.prepareToPlay (48000, 512);
+        hypha::tests::prepareFixtureProcessor (processor, 48000, 512);
         std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
         editor->setVisible (true);
         auto* view = component<observatory::View> (*editor);
@@ -151,13 +154,13 @@ static void verifyLoopPresentation()
         {
             editor->setSize (preset.width, preset.height);
             live_compare::Status status;
-            status.active = true;
+            status.active = status.prolongedWait = true;
             status.matchHeld = scenario >= 2;
             status.matched = scenario == 1;
-            status.preSelected = status.preWaiting = scenario < 2 || scenario == 3;
+            status.preSelected = status.preWaiting = true;
             status.timingReentryPending = scenario == 3;
             status.interrupted = scenario == 4;
-            if (status.interrupted) status.reason = live_compare::RecoveryReason::callbackGap;
+            if (status.interrupted) status.reason = live_compare::RecoveryReason::foreignRing;
             status.observation = scenario == 0 ? live_compare::RecoveryReason::loopUnproven
                 : scenario == 1 ? live_compare::RecoveryReason::loopWaiting
                 : scenario >= 3 ? live_compare::RecoveryReason::loopUnproven : live_compare::RecoveryReason::none;
@@ -201,15 +204,19 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
     require (waiting.active && waiting.preSelected && waiting.preWaiting && ! waiting.preAudible
         && waiting.observation == Reason::clockMissing && waiting.clockUnavailable,
         "PRE waits for a clock this host never supplies");
-    const auto notice = currentNamedPresentation (waiting);
+    require (juce::String (currentNamedPresentation (waiting).instruction).isEmpty() && r.view().feedback().isEmpty(),
+             "a short wait on this host shows no guidance (2026-10-13 decision)");
+    r.advance (2.7);
+    const auto notice = currentNamedPresentation (r.post->liveCompareStatus());
     require (notice.action == RecoveryAction::noOutputLatency && r.view().feedback() == notice.instruction
-        && r.editor->statusStory().joinIntoString (" ").contains ("PRE cannot be heard"),
+        && r.editor->statusStory().joinIntoString (" ").contains ("PRE timing cannot be verified"),
         "the footer and the story name the host, not a restart");
     r.clock.playing = false; r.advance (0.2); r.clock.playing = true; r.advance (0.4);
     require (currentNamedPresentation (r.post->liveCompareStatus()).action == RecoveryAction::noOutputLatency,
              "stop/play on this host does not change the explanation");
     LiveTimingFixtureAccess::blindWaiting (*r.post, live_compare::BlindStage::preparing);
-    const auto blind = r.post->liveBlindStatus();
+    auto blind = r.post->liveBlindStatus();
+    blind.prolongedWait = true; // the same boundary once the wait passes 3 seconds
     require (blind.clockUnavailable && blindRecovery (blind, false).action == RecoveryAction::noOutputLatency,
              "Blind preparation on this host explains the same boundary");
     LiveTimingFixtureAccess::blindWaiting (*r.post, live_compare::BlindStage::idle);
@@ -222,9 +229,12 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
     r.clock.continuous = false; r.clock.loopRange = true; r.advance (0.1);
     require (r.post->startLiveCompare() == live_compare::StartResult::started, "LISTEN starts again");
     r.post->selectLiveComparePre (true); r.advance (0.4);
+    require (juce::String (currentNamedPresentation (r.post->liveCompareStatus()).instruction).isEmpty(),
+             "a short transient clock wait shows no guidance");
+    r.advance (2.8);
     const auto transient = r.post->liveCompareStatus();
     const auto remedy = currentNamedPresentation (transient);
-    require (transient.active && ! transient.clockUnavailable && ! transient.loopBlocksPairing
+    require (transient.active && ! transient.clockUnavailable && transient.loopBlock == hypha::live_compare::LoopPairingBlock::none
         && remedy.action != RecoveryAction::noOutputLatency && remedy.action != RecoveryAction::loopOff
         && juce::String (remedy.instruction).startsWith ("Clock missing"),
         "a host that has shown a clock keeps the transient clock remedy; VST3 loops ask for no loop change");
@@ -232,8 +242,18 @@ static void verifyHostWithoutOutputLatency (const juce::File& sandbox)
 }
 }
 
-int main()
+// One CTest item per part keeps each item's real-time budget to one group of scenarios:
+// presentation (geometry, hold after END, LOOP), notices (pair/restore/LISTEN/BLIND/END), host
+// (a host without a clock). No argument runs every part for a local check.
+int main (int argc, char** argv)
 {
+    const std::string part = argc > 1 ? argv[1] : "all";
+    if (part != "all" && part != "presentation" && part != "notices" && part != "host")
+    {
+        std::cerr << "unknown recovery product part: " << part << '\n';
+        return 2;
+    }
+    const auto runs = [&] (const char* name) { return part == "all" || part == name; };
     ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
@@ -242,10 +262,13 @@ int main()
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
-    hypha::tests::editor_product::verifyRecoveryGeometry();
-    hypha::tests::editor_product::verifyHoldAfterEnd();
-    hypha::tests::editor_product::verifyLoopPresentation();
-    hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
-    hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
-    std::cout << "Recovery product: PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
+    if (runs ("presentation"))
+    {
+        hypha::tests::editor_product::verifyRecoveryGeometry();
+        hypha::tests::editor_product::verifyHoldAfterEnd();
+        hypha::tests::editor_product::verifyLoopPresentation();
+    }
+    if (runs ("notices")) hypha::tests::editor_product::verifyNoticeLifecycle (sandbox.directory());
+    if (runs ("host")) hypha::tests::editor_product::verifyHostWithoutOutputLatency (sandbox.directory());
+    std::cout << "Recovery product (" << part << "): PASS (geometry, current recovery, actual pair/restore/LISTEN/END, bounded notices, host without a clock)\n";
 }

@@ -130,7 +130,10 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
     }
     for required in [
         "if (! ring.matches (pairKey, sampleRate))",
-        "const bool loopVerified = kValid && block.loop.active",
+        "const bool loopVerified = runtimeProof ? runtimeVerified : kValid && block.loop.active",
+        "runtimeVerified = readTiming (ring.header.timing, runtimePeer) && runtimePeer.active",
+        "loopAddressIsCurrent (runtimePeer.anchor, runtimePeer.block, block, k,",
+        "runtimePeer.sequence != ring.header.timing.sequence.load (std::memory_order_acquire)",
         "timeline.observe (loopVerified ? verifiedBlock : block, sampleRate,",
         "decision.preStart = block.clock - k;",
         "if (decision.timelineChanged)",
@@ -154,7 +157,10 @@ fn live_compare_shared_state_is_atomic_and_proven_before_output() {
 fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_thread() {
     // INV-LC4: PRE only in proven blocks; a lost proof switches at the block start.
     for required in [
-        "if (decision.verdict != Verdict::accepted)",
+        "report.verdict = decision.verdict;",
+        "if (timingBlock != RecoveryReason::none)",
+        "report.verdict = Verdict::loopUnproven;",
+        "if (report.verdict != Verdict::accepted)",
         "weight = 0.0f; // switch to POST at the block start",
         "fadeSeconds = 0.005",
         "if (ring.header.demand.load (std::memory_order_acquire) == 0)",
@@ -204,13 +210,18 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
     }
 }
 
-// INV-LC12: a session never outlives the screen that controls it, never overlaps Blind, never
+// INV-LC12: a session survives its editor, never overlaps another audition, never
 // follows a changed pair or a closed PRE ring, and AAX offers it only where no multi-mono channel
 // takes part (INV-LC9).
 #[test]
-fn live_compare_sessions_end_where_the_user_cannot_see_them() {
+fn live_compare_sessions_survive_window_close_but_not_authority_changes() {
     let destructor = function_body(EDITOR_LIFECYCLE_CPP, "KirinHyphaEditor::~KirinHyphaEditor");
-    assert!(destructor.contains("processorRef.stopLiveCompare();"));
+    assert!(!destructor.contains("processorRef.stopLiveCompare();"));
+    assert!(!destructor.contains("processorRef.closeLiveBlind();"));
+    let editor = include_str!("../../juce_shell/src/PluginEditorObservatory.cpp");
+    let visibility = function_body(editor, "void KirinHyphaEditor::visibilityChanged");
+    assert!(!visibility.contains("processorRef.stopLiveCompare();"));
+    assert!(!visibility.contains("processorRef.closeLiveBlind();"));
     let blind = function_body(
         EDITOR_LOCAL_BLIND_CPP,
         "void KirinHyphaEditor::openLocalBlindProduct",
@@ -265,7 +276,8 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
         .unwrap();
     assert!(ring_section < held);
     assert!(rt.contains("liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, postTarget);"));
-    assert!(rt.contains("if (report.guardTripped)"));
+    assert!(rt.contains("|| report.guardTripped"));
+    assert!(rt.contains("liveCompare.blind.fallback (blindCommand)"));
     let apply = function_body(
         PROCESSOR_CPP,
         "hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch",
@@ -413,12 +425,14 @@ fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
     assert!(rt.contains("block.afterGap = true;"));
     assert!(rt.contains("preSelected && ! contentHeld && ! compensationOff"));
     assert!(rt.contains("(contentHeld || compensationOff)"));
+    let content = include_str!("../../juce_shell/src/PluginProcessorContentTiming.cpp");
     let monitor = function_body(
-        EDITOR_LIVE_COMPARE_CPP,
-        "bool KirinHyphaEditor::monitorLiveCompareOffset",
+        content,
+        "void KirinHyphaProcessorBase::serviceLiveContentTiming",
     );
-    assert!(monitor.contains("|| status.compensationOff)"));
-    assert!(monitor.contains("\"Delay compensation is off in Pro Tools\""));
+    assert!(monitor.contains("state.compensationOff"));
+    let recovery = include_str!("../../juce_shell/src/HyphaLiveCompareRecoveryText.h");
+    assert!(recovery.contains("Compensation off: enable it (POST)"));
 }
 
 // INV-LC9: Pro Tools processes the channels of a multi-mono set on parallel threads, so AAX offers

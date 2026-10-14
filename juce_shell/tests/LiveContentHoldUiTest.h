@@ -26,11 +26,15 @@ void verifyLiveContentHoldUi (Require require)
                     state.stage = stage; state.contentHeld = state.timingUnavailable = true;
                     state.trial.played = 3; state.trial.revealed = true;
                     const auto screen = live_blind_ui::screenFor (state, playing, 0.5f);
-                    require (screen.guidanceShown && screen.endEnabled && ! screen.sourcesShown
-                        && ! screen.approveShown && ! screen.revealShown, "hold cannot approve, reveal, or leave an anonymous source active");
-                    require (screen.cause == live_compare_ui::cause (RecoveryReason::contentChanged)
-                        && screen.recovery == "Stop/play DAW; END, then BLIND",
-                        "content hold overrides generic clock unavailability and gives its immediate remedy");
+                    require (screen.guidanceShown == (stage == BlindStage::invalidated)
+                        && screen.endEnabled && screen.sourcesShown == (stage == BlindStage::active)
+                        && screen.approveShown == (stage == BlindStage::approval) && !screen.revealShown,
+                        "short hold keeps the trial and source controls without a waiting notice");
+                    state.prolongedWait = true;
+                    const auto prolonged = live_blind_ui::screenFor (state, playing, 0.5f);
+                    require (prolonged.guidanceShown && prolonged.cause == live_compare_ui::cause (RecoveryReason::contentChanged)
+                        && prolonged.recovery == "Timing changed: check chain delay (POST)",
+                        "long content hold gives its remedy without requiring END");
                     live_blind_ui::Component view;
                     view.setSize (width, width * 2 / 3); view.setState (state, playing, 0.5f);
                     const auto image = view.createComponentSnapshot (view.getLocalBounds());

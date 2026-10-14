@@ -32,6 +32,9 @@ use crate::spectrum::{SpectrumAnalyzer, SpectrumFrame};
 #[cfg(test)]
 use assemblers::SpectrumAssembler;
 
+#[cfg(any(test, feature = "test-support"))]
+#[path = "spectrum_test_receipt.rs"]
+mod test_receipt;
 #[path = "spectrum_runtime_worker.rs"]
 mod worker;
 
@@ -65,6 +68,10 @@ struct SpectrumConsumers {
     blocks: Consumer<SpectrumIngressBlock>,
 }
 
+#[cfg(test)]
+#[path = "spectrum_input_receipt_tests.rs"]
+mod input_receipt_tests;
+
 pub struct SpectrumRuntime {
     sample_rate: u32,
     num_channels: usize,
@@ -94,6 +101,8 @@ pub struct SpectrumRuntime {
     absolute_history: Mutex<StampedSnapshot<AbsoluteTimeline>>,
     latest_mid_side: Mutex<StampedSnapshot<Option<MidSideSpectrumFrame>>>,
     worker_running: AtomicBool,
+    #[cfg(any(test, feature = "test-support"))]
+    test_receipt: test_receipt::WorkerReceipt,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
     analyzed_frames: AtomicU64,
@@ -155,6 +164,8 @@ impl SpectrumRuntime {
             absolute_history: Mutex::new(StampedSnapshot::new(AbsoluteTimeline::default())),
             latest_mid_side: Mutex::new(StampedSnapshot::new(None)),
             worker_running: AtomicBool::new(false),
+            #[cfg(any(test, feature = "test-support"))]
+            test_receipt: test_receipt::WorkerReceipt::default(),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
             analyzed_frames: AtomicU64::new(0),
@@ -316,6 +327,11 @@ impl SpectrumRuntime {
     pub fn shutdown_and_join(&self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.test_receipt.notify();
+            self.wake_worker_for_test();
+        }
         self.wake.1.notify_all();
         if let Ok(mut worker) = self.worker.lock() {
             if let Some(handle) = worker.take() {
@@ -378,6 +394,11 @@ impl Drop for SpectrumRuntime {
     fn drop(&mut self) {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.test_receipt.notify();
+            self.wake_worker_for_test();
+        }
         self.wake.1.notify_all();
     }
 }

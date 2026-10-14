@@ -4,6 +4,8 @@ use crate::PresentationLatencySource;
 
 const LOCAL_CLOCK: u64 = 1 << 63;
 const VERIFIED_AAX_CLOCK: u64 = 1 << 62;
+const VERIFIED_VST3_CLOCK: u64 = 1 << 61;
+const VERIFIED_AUDIO_UNIT_CLOCK: u64 = 1 << 60;
 
 /// Coordinate meaning carried by the private PRE Spectrum snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -12,6 +14,8 @@ pub enum SpectrumClockKind {
     Presentation = 1,
     ProjectTimeline = 2,
     AaxEngine = 3,
+    Vst3Content = 4,
+    AudioUnitRender = 5,
 }
 
 impl SpectrumClockKind {
@@ -20,6 +24,8 @@ impl SpectrumClockKind {
             1 => Some(Self::Presentation),
             2 => Some(Self::ProjectTimeline),
             3 => Some(Self::AaxEngine),
+            4 => Some(Self::Vst3Content),
+            5 => Some(Self::AudioUnitRender),
             _ => None,
         }
     }
@@ -28,6 +34,10 @@ impl SpectrumClockKind {
 pub(super) fn definition_clock_kind(definition: u64) -> Option<SpectrumClockKind> {
     if definition & VERIFIED_AAX_CLOCK != 0 && definition_is_aligned(definition) {
         Some(SpectrumClockKind::AaxEngine)
+    } else if definition & VERIFIED_VST3_CLOCK != 0 && definition_is_aligned(definition) {
+        Some(SpectrumClockKind::Vst3Content)
+    } else if definition & VERIFIED_AUDIO_UNIT_CLOCK != 0 && definition_is_aligned(definition) {
+        Some(SpectrumClockKind::AudioUnitRender)
     } else if definition_is_aligned(definition) {
         Some(SpectrumClockKind::Presentation)
     } else if definition == (LOCAL_CLOCK | 1) {
@@ -48,6 +58,16 @@ pub enum SpectrumInputClock {
     },
     LocalProject(i64),
     LocalRender(i64),
+    /// Certified VST3 content clock with the current LISTEN pair proof on POST.
+    VerifiedVst3 {
+        start_samples: i64,
+        proof_revision: u64,
+    },
+    /// AU render coordinate; POST requires the callback's PRE lifetime/generation/K proof.
+    VerifiedAudioUnit {
+        start_samples: i64,
+        proof_revision: u64,
+    },
     /// Native wrapper proved continuous AddClock, and for POST differences the exact pair K.
     /// This is a separate analysis authority; it is never a zero presentation-latency report.
     VerifiedAax {
@@ -76,6 +96,18 @@ impl SpectrumInputClock {
             }
             Self::LocalProject(start) => Some((start, LOCAL_CLOCK | 1)),
             Self::LocalRender(start) => Some((start, LOCAL_CLOCK | 2)),
+            Self::VerifiedVst3 {
+                start_samples,
+                proof_revision,
+            } if (1..VERIFIED_VST3_CLOCK).contains(&proof_revision) => {
+                Some((start_samples, VERIFIED_VST3_CLOCK | proof_revision))
+            }
+            Self::VerifiedAudioUnit {
+                start_samples,
+                proof_revision,
+            } if (1..VERIFIED_AUDIO_UNIT_CLOCK).contains(&proof_revision) => {
+                Some((start_samples, VERIFIED_AUDIO_UNIT_CLOCK | proof_revision))
+            }
             Self::VerifiedAax {
                 start_samples,
                 proof_revision,

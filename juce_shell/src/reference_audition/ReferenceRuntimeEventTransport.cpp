@@ -1,5 +1,5 @@
 #include "ReferenceRuntimeEventTransport.h"
-
+#include "../AtomicFile.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -192,8 +192,8 @@ namespace hypha::reference_audition
                 return false;
             if (target.existsAsFile())
                 return target.loadFileAsString() == content;
-            const auto temporary = target.getSiblingFile (
-                "." + juce::Uuid().toDashedString() + ".tmp");
+            juce::TemporaryFile staged (target, hypha::storage::temporarySibling (target));
+            const auto temporary = staged.getFile();
             auto stream = temporary.createOutputStream();
             if (stream == nullptr || ! stream->openedOk()
                 || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes)))

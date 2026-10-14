@@ -171,7 +171,8 @@ while IFS= read -r BUNDLE; do
   if [[ -n "${VST3_VALIDATOR_BIN:-}" ]]; then
     PLUGINVAL_ARGS+=(--vst3validator "$VST3_VALIDATOR_BIN")
   fi
-  env HOME="$RUN_HOME" TMPDIR="$RUN_TMP" "$PLUGINVAL_EXE" "${PLUGINVAL_ARGS[@]}" "$BUNDLE"
+  env HOME="$RUN_HOME" TMPDIR="$RUN_TMP" KIRIN_HYPHA_TEST_STORAGE_ROOT="$RUNTIME_DIR" \
+    "$PLUGINVAL_EXE" "${PLUGINVAL_ARGS[@]}" "$BUNDLE"
 done < <(printf '%s\n' "${BUNDLES[@]}")
 
 echo "==> pluginval OK: ${#BUNDLES[@]} role-first installed-layout VST3 bundles"

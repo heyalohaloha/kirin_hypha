@@ -1,6 +1,6 @@
 // ABCV（A／B／C／V）の Hypha 側の契約テストをまとめて呼ぶ。入口の main の行数を増やさないため。
 #include <juce_core/juce_core.h>
-
+#include "TestPathBudget.h"
 void testReferenceLibrarySets (const juce::File&);
 void testReferenceLibrarySkipped (const juce::File&);
 void testReferenceLiveWindow();
@@ -39,6 +39,6 @@ bool runReferenceAbcvTests (int argc, char** argv, const juce::File& sandbox)
 {
     if (argc != 2 || juce::String (argv[1]) != "--abcv-only") return false;
     testReferenceAbcv (sandbox);
-    sandbox.deleteRecursively();
+    hypha::tests::removeFixtureDirectory (sandbox);
     return true;
 }

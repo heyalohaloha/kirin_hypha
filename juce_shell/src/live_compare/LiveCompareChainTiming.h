@@ -1,9 +1,9 @@
 #pragma once
 #include "LiveCompareRing.h"
+#include "CallbackWallClock.h"
 
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
@@ -29,14 +29,6 @@ namespace hypha::live_compare
 // Each side uses the one wall-clock reading its callback already takes, and PRE's travels in the
 // timing header it already writes, so the measurement adds no clock reading, thread, queue or
 // mapping to either Audio Thread.
-
-// steady_clock is one system-wide monotonic clock on macOS and Windows, so readings taken by two
-// instances compare.
-inline std::uint64_t callbackWallNanos() noexcept
-{
-    return static_cast<std::uint64_t> (std::chrono::duration_cast<std::chrono::nanoseconds> (
-        std::chrono::steady_clock::now().time_since_epoch()).count());
-}
 
 // A system-wide thread identity read without a kernel call, so that equal values mean one thread
 // of one process.

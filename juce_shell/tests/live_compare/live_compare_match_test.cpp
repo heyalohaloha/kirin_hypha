@@ -2,6 +2,7 @@
 #include "../../src/live_compare/LiveCompareOffset.h"
 #include "live_compare_offset_test.h"
 #include "OffsetConfidenceTest.h"
+#include "LoopRuntimeMatchTest.h"
 
 #include <cmath>
 #include <array>
@@ -308,6 +309,7 @@ static void measurementProofNeverBridgesAnUnverifiedBlock()
 
 int main()
 {
+    verifyRuntimeLoopMatch();
     matchesALevelDifference();
     aBoostAboveTheCeilingAsksToLowerPost();
     aHeldAttenuationCarriesIntoTheNextMatch();

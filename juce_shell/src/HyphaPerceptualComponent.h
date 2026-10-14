@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include "HyphaPairingLoopText.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -30,10 +31,10 @@ public:
     void presentationTick();
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
-    void setPairingLoopBlocked (bool blocked)
+    void setPairingLoopBlock (live_compare::LoopPairingBlock blocked)
     {
-        if (pairingLoopBlocked == blocked) return;
-        pairingLoopBlocked = blocked;
+        if (pairingLoopBlock == blocked) return;
+        pairingLoopBlock = blocked;
         repaint();
     }
     void paint (juce::Graphics&) override;
@@ -62,7 +63,7 @@ private:
     perceptual_history::History history;
     bool haveSnapshot = false;
     bool signalActive = true;
-    bool pairingLoopBlocked = false;
+    live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
     bool havePendingSnapshot = false;
     bool curveDirty = false;
     bool numericDirty = false;

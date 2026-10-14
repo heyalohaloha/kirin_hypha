@@ -15,9 +15,15 @@ enum class ClockBasis : std::uint8_t
     vst3Continuous,
     audioUnitRender,
     aaxEngine,
-    pluginFrames
+    pluginFrames,
+    reaperProcessing // certified REAPER VST3 only; independent origins, never a host content clock
 };
-enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine };
+enum class ClockAuthority : std::uint8_t { none, certifiedContent, boundedAaxEngine, certifiedProject, logicRender };
+
+constexpr bool certifiedVst3Analysis (ClockAuthority authority) noexcept
+{
+    return authority == ClockAuthority::certifiedContent || authority == ClockAuthority::certifiedProject;
+}
 
 constexpr ClockBasis clockBasisFor (AuxiliaryClockSource source) noexcept
 {
@@ -38,17 +44,29 @@ struct ContinuousReading
 class ContinuousClock
 {
 public:
-    ContinuousReading next (const HostAuxiliaryClock& auxiliary, std::int32_t frames) noexcept
+    ContinuousReading next (const HostAuxiliaryClock& auxiliary, std::int32_t frames,
+                            bool certifiedReaper = false) noexcept
     {
         ContinuousReading reading;
         if (frames <= 0)
             return reading;
         reading.basis = clockBasisFor (auxiliary.source);
+        if (certifiedReaper && auxiliary.source == AuxiliaryClockSource::vst3Continuous)
+            reading.basis = ClockBasis::reaperProcessing;
         // Equal numbers must not carry K between unrelated clock origins. One invalid block
         // fences Publisher/Consumer's existing run/proof; normal reacquisition is unchanged.
         const bool changed = haveBasis && reading.basis != previousBasis;
         previousBasis = reading.basis;
         haveBasis = true;
+        if (certifiedReaper && auxiliary.source == AuxiliaryClockSource::unavailable) return reading;
+        if (reading.basis == ClockBasis::reaperProcessing)
+        {
+            reading.samples = pluginFrames;
+            if (pluginFrames > std::numeric_limits<std::int64_t>::max() - frames) return reading;
+            reading.valid = ! changed;
+            pluginFrames += frames;
+            return reading;
+        }
         if (reading.basis != ClockBasis::pluginFrames)
         {
             reading.samples = auxiliary.samples;

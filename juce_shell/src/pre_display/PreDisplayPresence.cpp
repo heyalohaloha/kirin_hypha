@@ -1,5 +1,5 @@
 #include "PreDisplayPresence.h"
-
+#include "../AtomicFile.h"
 #include "PreDisplayProtocol.h"
 
 #if JUCE_WINDOWS
@@ -99,8 +99,7 @@ namespace hypha::pre_display
         {
             if (! target.getParentDirectory().createDirectory())
                 return false;
-            const auto temporaryPath = target.getSiblingFile (
-                "." + target.getFileName() + ".tmp").getNonexistentSibling (false);
+            const auto temporaryPath = hypha::storage::temporarySibling (target);
             juce::TemporaryFile temporary (target, temporaryPath);
             {
                 auto stream = temporary.getFile().createOutputStream();

@@ -1,19 +1,20 @@
 #pragma once
-
+#include "../src/AtomicFile.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_capture_clock.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_cryptography/juce_cryptography.h>
 #include <cmath>
+#include <iostream>
 #include <memory>
 #include <vector>
 
 namespace update_integration
 {
 constexpr int rate = 48000, blockFrames = 4800, recordFrames = 4 * rate;
-inline constexpr auto project = "update-fixture-project";
-inline constexpr auto preId = "update-fixture-pre";
-inline constexpr auto postId = "update-fixture-post";
+inline constexpr auto project = "up";
+inline constexpr auto preId = "pre";
+inline constexpr auto postId = "post";
 
 inline juce::var object (std::initializer_list<std::pair<const char*, juce::var>> fields)
 {
@@ -22,14 +23,21 @@ inline juce::var object (std::initializer_list<std::pair<const char*, juce::var>
     return juce::var (result);
 }
 
+inline bool publicationFailure (const char* stage, const juce::File& file)
+{
+    std::cerr << "Update fixture publication failed: " << stage
+              << "; file=" << file.getFileName()
+              << "; path characters=" << file.getFullPathName().length() << '\n';
+    return false;
+}
+
 inline bool atomicJson (const juce::File& file, const juce::var& value)
 {
-    if (! file.getParentDirectory().createDirectory()) return false;
-    juce::TemporaryFile temporary (file);
-    // This file is already a new atomic-publication temporary. replaceWithText would add a
-    // second temporary suffix, exceeding Windows' path limit for a CI-depth Drop receipt.
-    return temporary.getFile().appendText (juce::JSON::toString (value, true) + "\n", false, false, "\n")
-        && temporary.overwriteTargetFileWithTemporary();
+    if (! file.getParentDirectory().createDirectory())
+        return publicationFailure ("create JSON parent", file);
+    if (! hypha::storage::writeText (file, juce::JSON::toString (value, true) + "\n", false, false, "\n"))
+        return publicationFailure ("publish JSON", file);
+    return true;
 }
 
 inline std::vector<float> audioBlock (float gain)
@@ -104,28 +112,30 @@ struct RecordPair
 // The same real Drop wire contract as the parity capstone, with a real disposable WAV/hash.
 inline bool publishDrop (const juce::File& data, const juce::var& signal)
 {
-    const auto wav = data.getParentDirectory().getChildFile ("update-fixture-bounce.wav");
+    const auto wav = data.getParentDirectory().getChildFile ("bounce.wav");
     auto stream = wav.createOutputStream();
-    if (! stream) return false;
+    if (! stream) return publicationFailure ("open Drop WAV", wav);
     juce::WavAudioFormat format;
     std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (
         stream.release(), rate, 2, 16, {}, 0));
-    if (! writer) return false;
+    if (! writer) return publicationFailure ("create Drop WAV writer", wav);
     juce::AudioBuffer<float> audio (2, recordFrames);
     const auto block = audioBlock (0.25f);
     for (int frame = 0; frame < recordFrames; ++frame)
         for (int channel = 0; channel < 2; ++channel)
             audio.setSample (channel, frame, block[static_cast<size_t> ((frame % blockFrames) * 2 + channel)]);
-    if (! writer->writeFromAudioSampleBuffer (audio, 0, recordFrames)) return false;
+    if (! writer->writeFromAudioSampleBuffer (audio, 0, recordFrames))
+        return publicationFailure ("write Drop WAV samples", wav);
     writer.reset();
     const auto now = juce::Time::currentTimeMillis();
     const auto session = signal["session_id"].toString();
     const auto generation = signal["capture_generation_id"].toString();
     const auto started = signal["generation_started_at_ms"];
     const auto hash = juce::SHA256 (wav).toHexString();
-    const juce::String commitId = "update-fixture-drop", bounceId = "update-fixture-bounce";
+    const juce::String commitId = "drop", bounceId = "bounce";
     const auto sessions = juce::var (juce::Array<juce::var> { session });
-    if (session.isEmpty() || generation.isEmpty()) return false;
+    if (session.isEmpty() || generation.isEmpty())
+        return publicationFailure ("missing Drop session or generation", wav);
     const auto metadata = object ({
         { "expected_duration_samples", juce::int64 (recordFrames) }, { "expected_sample_rate", rate },
         { "wav_path", wav.getFullPathName() }, { "bounce_id", bounceId }, { "created_at_ms", now },

@@ -71,6 +71,24 @@ void verifyLiveCompareOffset()
     const auto processed = estimateOffset (post, pre, lag);
     require (processed.determined && processed.lagFrames == 0, "EQ, level and polarity do not move the peak");
 
+    // The actual content estimator sees each level change (including mute). A delayed
+    // positive control makes this falsifiable; timing-only fixtures cannot test this boundary.
+    OffsetMonitor knob;
+    for (const float gain : { 0.5f, 0.5f, 0.25f, 0.0f, 0.8f, 0.8f })
+    {
+        for (std::int64_t n = 0; n < frames; ++n) post[static_cast<std::size_t> (n)] = gain * noise (n);
+        auto e = estimateOffset (post, pre, lag); e.sampleRate = 48000;
+        require (gain == 0.0f ? !e.determined : offsetCanVote (e), "mute removes content proof; level changes retain strong proof");
+        require (!knob.observe (e, false).jumped, "level, fader and mute cannot manufacture a delay change");
+    }
+    for (int n = 0; n < 2; ++n)
+    {
+        for (std::int64_t i = 0; i < frames; ++i) post[static_cast<std::size_t> (i)] = 0.8f * noise (i - 120);
+        auto e = estimateOffset (post, pre, lag); e.sampleRate = 48000;
+        require (offsetCanVote (e), "changed-delay positive control is strong");
+        require (knob.observe (e, false).jumped == (n == 1), "real delay change requires two content windows");
+    }
+
     // A memoryless hard clip can broaden or weaken a music-like peak. It cannot be delay
     // proof just because the display estimator picked a lag. These fixtures contain no track
     // recording: coloured deterministic noise, amplitude modulation and transient bursts.

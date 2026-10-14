@@ -1,3 +1,5 @@
+#include "ProductTestClock.h"
+#include "TestProcessorStorage.h"
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
@@ -58,7 +60,7 @@ public:
             require (instance->setBusesLayout (layout), "actual processors negotiate stereo");
             instance->setMeterContextPreference (hypha::meter_context::MeterContext::twoMix, false);
             instance->setPlayHead (role == Processor::Role::Pre ? &preClock : &postClock);
-            instance->prepareToPlay (48000, frames);
+            hypha::tests::prepareFixtureProcessor (*instance, 48000, frames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*instance), "exact existing qualified clock policy");
             (role == Processor::Role::Pre ? pre : post) = std::move (instance);
         }
@@ -67,7 +69,7 @@ public:
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
             alternate = std::make_unique<Processor> (Processor::Role::Pre);
             require (alternate->setBusesLayout (pre->getBusesLayout()), "alternate actual PRE negotiates stereo");
-            alternate->setPlayHead (&preClock); alternate->prepareToPlay (48000, frames);
+            alternate->setPlayHead (&preClock); hypha::tests::prepareFixtureProcessor (*alternate, 48000, frames);
             require (LiveTimingFixtureAccess::configureStudioProClock (*alternate), "alternate has the same exact clock policy");
         }
         audio = std::thread ([this] { processAudio(); }); startTimer (20);
@@ -107,6 +109,7 @@ private:
             require (! post->applyLiveCompareMatch (oldPlan, MatchChoice::basis)
                 && ! post->selectLiveBlind (1) && ! post->revealLiveBlind(), "pair mutation immediately rejects old approvals/trials");
         }
+        oldBlindEpoch = post->liveBlindStatus().trial.epoch;
         faultBlocks = blocks.load();
         if (oddMode()) oddStart.store (faultBlocks + (mode == "seek-odd" ? 0 : 1));
         pause.store (false); checkpoint = Steady::now();
@@ -124,7 +127,7 @@ private:
         {
             case 0:
             {
-                if (pre->instanceId().isEmpty()) break;
+                if (! hypha::tests::fixtureStorageReady (*pre) || ! hypha::tests::fixtureStorageReady (*post)) break;
                 if (! preview) preview = post->createPairPreview();
                 if (! demanded)
                 { if (! hypha::pair_preview::request (preview)) break; demanded = true; checkpoint = now; }
@@ -148,18 +151,24 @@ private:
                     break;
                 }
                 require (post->startLiveCompare() == StartResult::started, "named initial LOOP session starts");
-                post->selectLiveComparePre (true); stage = 2; break;
+                post->selectLiveComparePre (true);
+                post->requestLiveCompareMatch(); // accepted before a measurable window, with no editor
+                stage = 2; break;
             case 2:
             {
-                const auto measured = post->measureLiveCompare();
-                if (! measured.ok()) break;
-                require (post->applyLiveCompareMatch (planMatch (measured, 0.0), MatchChoice::basis), "one real measured MATCH");
+                post->serviceLiveCompareMatch();
+                if (!post->liveCompareStatus().matched) break;
+                // A real timing reset after application cannot erase delivery of the approved tuple.
+                if (mode == "failure-named") post->kirinHostTimelineReset (true, true);
+                MatchPlan completed; bool applied = false;
+                require (post->takeLiveCompareMatch (completed, applied) && applied && !completed.needsApproval,
+                         "queued MATCH completes on the processor while no editor exists");
                 stage = 3; break;
             }
             case 3:
                 if (! status.matchReady || ! status.preAudible) break;
                 fixedGain = status.gain; fixedPost = status.postTarget;
-                if (mode == "blind-stop" || mode == "reuse")
+                if (mode == "blind-stop" || mode == "clock-blind" || mode == "reuse")
                 { require (post->beginLiveBlind() == StartResult::started, "same MATCH enters a fresh Blind admission"); checkpoint = now; stage = 7; break; }
                 if (mode == "pending-end" && ! restarted)
                 {
@@ -180,11 +189,16 @@ private:
                 if (mode == "stop" || mode == "blind-stop" || (mode == "failure-named" && restarted && transportRound == 0))
                 { require (! status.matched, "stop revokes current MATCH proof"); playing.store (true); }
                 if (mode == "clock" || mode == "clock-blind")
+                    require (status.active && !status.interrupted, "a clock hole retains comparison authority");
+                if (mode.rfind ("preparing-", 0) == 0 || (mode == "failure-named" && !restarted))
                 {
-                    require (status.active && status.interrupted && ! status.preSelected && status.matchHeld,
-                             "unexplained clock hole seals PRE while retaining fixed gain");
-                    require (status.reason == RecoveryReason::clockMissing, "PRE clock loss remains the exact cause even with valid POST flags");
-                    checkpoint = now; stage = 8; break;
+                    if (mode == "preparing-dc") post->kirinHostDelayCompensationStateChanged (true);
+                    if (mode == "preparing-content")
+                    {
+                        require (status.contentHeld && status.active, "an unresolved content hold retains preparation");
+                        post->finishLiveCompare(); stage = 9; break;
+                    }
+                    stage = 12; break;
                 }
                 if (mode == "compensation")
                 {
@@ -195,19 +209,15 @@ private:
                 checkpoint = now; stage = 5; break;
             case 5:
                 if (mode == "stop" || mode == "seek" || oddMode() || mode == "clock" || mode == "compensation"
+                    || mode == "blind-stop" || mode == "clock-blind"
                     || (mode == "failure-named" && restarted))
                 {
                     if (! status.matchReady || ! status.preAudible) break;
                     require (juce::exactlyEqual (status.gain, fixedGain) && juce::exactlyEqual (status.postTarget, fixedPost), "fresh proof restores the exact approved MATCH without remeasurement");
+                    if (mode == "blind-stop" || mode == "clock-blind")
+                        require (post->liveBlindStatus().trial.epoch == oldBlindEpoch
+                            && post->liveBlindStatus().stage == BlindStage::active, "recovery keeps the hidden assignment");
                     checkpoint = now; stage = 6; break;
-                }
-                if (mode == "clock-blind")
-                {
-                    if (post->liveBlindStatus().stage != BlindStage::active) break;
-                    require (status.matchReady && juce::exactlyEqual (status.gain, fixedGain) && juce::exactlyEqual (status.postTarget, fixedPost),
-                             "one new explicit BLIND admission proves timing and keeps only the same approved tuple");
-                    require (post->liveBlindStatus().trial.epoch != oldBlindEpoch, "fresh admission owns a new CSPRNG trial epoch");
-                    post->finishLiveCompare(); stage = 9; break;
                 }
                 if (now - checkpoint < std::chrono::milliseconds (500)) break;
                 {
@@ -252,16 +262,6 @@ private:
                 if (! status.preAudible) { require (post->selectLiveBlind (command.firstPre() ? 1 : 2), "fixture selects anonymous PRE"); break; }
                 fault(); stage = 4; break;
             }
-            case 8:
-                if (now - checkpoint < std::chrono::milliseconds (500)) break;
-                require (! status.preAudible && ! status.matched && status.matchHeld, "new clocks alone cannot revive unexplained loss");
-                if (mode == "clock-blind")
-                {
-                    oldBlindEpoch = post->liveBlindStatus().trial.epoch;
-                    require (post->beginLiveBlind() == StartResult::started, "one explicit new BLIND starts fresh timing after unknown interruption");
-                }
-                else post->selectLiveComparePre (true);
-                stage = 5; break;
             case 9:
                 if (status.finishing) break;
                 require (! status.active && status.postActual == 1.0f, "actual END receipt returns ordinary unity POST");
@@ -271,7 +271,7 @@ private:
                     if (mode == "pending-end")
                     { require (post->beginLiveBlind() == StartResult::started, "new explicit trial after canceled request begins cleanly"); stage = 12; }
                     else
-                    { require (post->startLiveCompare() == StartResult::started, "new named LISTEN ignores only closed Blind failure history"); post->selectLiveComparePre (true); stage = 2; }
+                    { require (post->startLiveCompare() == StartResult::started, "new named LISTEN ignores only closed Blind failure history"); post->selectLiveComparePre (true); post->requestLiveCompareMatch(); stage = 2; }
                     break;
                 }
                 post->selectLiveComparePre (true);
@@ -316,6 +316,7 @@ private:
     }
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (2, frames); juce::MidiBuffer midi;
         std::array<std::array<float, delay>, 2> physical {}; std::size_t head = 0;
         std::int64_t emitted = 0, shift = 0;
@@ -367,6 +368,7 @@ private:
             }
             emitted += frames; blocks.fetch_add (1);
             next += std::chrono::nanoseconds (static_cast<long long> (frames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (frames, 48000);
             std::this_thread::sleep_until (next);
         }
     }

@@ -98,6 +98,30 @@ namespace
             if (keep[index]) curve.lineTo (x[index], y[index]);
         return curve;
     }
+    void strokePostCurve (juce::Graphics& g, const juce::Path& curve, float scale)
+    {
+        g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostGlowAlpha));
+        g.strokePath (curve, juce::PathStrokeType (
+            ui_contract::spectrumPostGlowStrokeWidth * ui_contract::spectrumGlowScale (scale),
+            juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostCurveAlpha));
+        g.strokePath (curve, juce::PathStrokeType (
+            ui_contract::spectrumPostStrokeWidth * ui_contract::spectrumStrokeScale (scale),
+            juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+}
+
+void paintPostCurve (juce::Graphics& g, juce::Rectangle<float> plot,
+                     float visualScale, const SpectrumBins& post)
+{
+    SpectrumBins x {}, y {};
+    for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
+                              plot.getX(), plot.getRight());
+        y[index] = yForMagnitudeDbfs (post[index], plot);
+    }
+    strokePostCurve (g, makeCurve (x, y), visualScale);
 }
 
 void paintCurves (juce::Graphics& g,
@@ -205,16 +229,7 @@ void paintCurves (juce::Graphics& g,
                   juce::PathStrokeType (scaledStroke (ui_contract::spectrumPreStrokeWidth),
                                         juce::PathStrokeType::curved,
                                         juce::PathStrokeType::rounded));
-    g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostGlowAlpha));
-    g.strokePath (postCurve,
-                  juce::PathStrokeType (scaledGlow (ui_contract::spectrumPostGlowStrokeWidth),
-                                        juce::PathStrokeType::curved,
-                                        juce::PathStrokeType::rounded));
-    g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostCurveAlpha));
-    g.strokePath (postCurve,
-                  juce::PathStrokeType (scaledStroke (ui_contract::spectrumPostStrokeWidth),
-                                        juce::PathStrokeType::curved,
-                                        juce::PathStrokeType::rounded));
+    strokePostCurve (g, postCurve, visualScale);
 
     juce::Path deltaFill;
     deltaFill.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 9u));

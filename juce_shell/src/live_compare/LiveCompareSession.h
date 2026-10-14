@@ -2,6 +2,7 @@
 
 #include "LiveCompareCorrespondence.h"
 #include "LiveCompareRecovery.h"
+#include "LiveCompareGuardRecovery.h"
 
 #include <algorithm>
 #include <atomic>
@@ -166,6 +167,7 @@ public:
         right = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         fadeFrames = std::max (1, static_cast<int> (sampleRate * fadeSeconds + 0.5));
         preLevel.configure (sampleRate);
+        guardRecovery.configure (sampleRate);
         std::int64_t frames = 1;
         while (static_cast<double> (frames) < sampleRate * historySeconds)
             frames <<= 1;
@@ -256,7 +258,9 @@ public:
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
                          bool preSelected, float preGain, PostLevel& post, float postTarget,
-                         float ceilingLinear, bool blind = false) noexcept
+                         float ceilingLinear, bool blind = false,
+                         RecoveryReason timingBlock = RecoveryReason::none,
+                         Decision* diagnosticDecision = nullptr) noexcept
     {
         RenderReport report;
         if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
@@ -278,15 +282,26 @@ public:
         }
         float* scratch[] = { left.get(), right.get() };
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
-        recordHistory (block, io, channels, decision);
+        if (diagnosticDecision != nullptr) *diagnosticDecision = decision;
+        if (timingBlock != RecoveryReason::none) invalidateHistory();
+        else recordHistory (block, io, channels, decision);
         report.timelineChanged = decision.timelineChanged || decision.invalidatedByDisagreement;
         report.loss = decision.loss;
         report.verdict = decision.verdict;
         report.reason = recoveryReason (decision.verdict);
+        if (decision.loopFailure != LoopEntryFailure::none) report.reason = recoveryReason (decision.loopFailure);
+        if (reaperProcessing (block) && decision.loopFailure == LoopEntryFailure::loopTooShort)
+            report.reason = RecoveryReason::reaperLoopTooShort;
         if (report.timelineChanged)
             report.reason = recoveryReason (decision.loss);
-        if (decision.verdict != Verdict::accepted)
+        if (timingBlock != RecoveryReason::none)
         {
+            report.verdict = Verdict::loopUnproven;
+            report.reason = timingBlock;
+        }
+        if (report.verdict != Verdict::accepted)
+        {
+            guardRecovery.discontinuity();
             weight = 0.0f; // switch to POST at the block start
             report.preWaiting = preSelected;
             post.apply (io, channels, block.frames, postTarget);
@@ -305,8 +320,10 @@ public:
         report.reason = ! finitePost || ! validGain ? RecoveryReason::nonFinite
             : (blind || preSelected || weight > 0.0f)
                 ? guardFailure (block.frames, preLevel.peak (preGain), ceilingLinear) : RecoveryReason::none;
+        report.reason = guardRecovery.observe (report.reason, block.frames);
         if (report.reason != RecoveryReason::none)
         {
+            report.preWaiting = preSelected;
             weight = 0.0f;
             report.guardTripped = true;
             post.apply (io, channels, block.frames, postTarget);
@@ -367,6 +384,7 @@ public:
     bool hasPre() const noexcept { return weight > 0.0f; } // Audio Thread only
 
 private:
+    GuardRecovery guardRecovery;
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
     static constexpr double historySeconds = 8.0; // MATCH reads up to 4 s of it
 

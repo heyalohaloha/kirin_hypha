@@ -30,8 +30,8 @@ namespace hypha::pre_display
         juce::String connectedWorkTitle() const;
 
         static juce::File transportRoot();
-        // 試験だけが使う：これから作る Controller の書き先を home の代わりに root の下にする（空の File で本物の
-        // 場所に戻す）。macOS の JUCE のホームは HOME に従わないので、試験の保存先の付け替えだけでは届かない。製品は呼ばない。
+        // Explicit fixture override, before KIRIN_HYPHA_TEST_STORAGE_ROOT and the platform default.
+        // An empty File restores automatic resolution. Set only before starting controllers.
         static void placeUnderForTest (const juce::File& root);
 
     private:

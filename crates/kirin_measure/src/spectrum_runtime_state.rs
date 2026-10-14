@@ -245,7 +245,10 @@ impl SpectrumRuntime {
             .filter(|kind| {
                 matches!(
                     kind,
-                    super::SpectrumClockKind::Presentation | super::SpectrumClockKind::AaxEngine
+                    super::SpectrumClockKind::Presentation
+                        | super::SpectrumClockKind::AaxEngine
+                        | super::SpectrumClockKind::Vst3Content
+                        | super::SpectrumClockKind::AudioUnitRender
                 )
             })
             .map(|kind| (history, kind))
@@ -321,6 +324,18 @@ impl SpectrumRuntime {
             analyzed_absolute_frames: self.analyzed_absolute_frames.load(Ordering::Relaxed),
             analyzed_mid_side_frames: self.analyzed_mid_side_frames.load(Ordering::Relaxed),
         }
+    }
+
+    /// Fixture receipt only; does not change ingress, clocks, worker scheduling or results.
+    /// # Safety
+    /// Call on the sole producer thread between callbacks, without another producer or
+    /// concurrent destruction. `slots()` updates the producer's thread-local cached head.
+    #[cfg(any(test, feature = "test-support"))]
+    pub unsafe fn input_drained_for_test(&self) -> bool {
+        let samples = unsafe { &*self.sample_producer.get() };
+        let blocks = unsafe { &*self.block_producer.get() };
+        samples.slots() == samples.buffer().capacity()
+            && blocks.slots() == blocks.buffer().capacity()
     }
 
     pub fn latest_presentation_end(&self) -> Option<i64> {

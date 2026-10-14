@@ -1,5 +1,5 @@
 #pragma once
-
+#include "TestProcessorStorage.h"
 // 2026-10-04: the editor's own corner grip (on Mac and Windows). Studio on
 // Windows and Pro Tools give a plug-in window no frame to drag, so this is the corner a user holds.
 #include "EditorProductChecks.h"
@@ -11,7 +11,7 @@ inline void verifyResizeGrip()
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
     auto* grip = dynamic_cast<EditorResizeGrip*> (find (*editor, "editor-resize-grip"));
     auto* view = component<observatory::View> (*editor);

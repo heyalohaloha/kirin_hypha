@@ -2,6 +2,12 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLiveCompareClockPolicy.h"
 
+#if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+extern "C" bool kirin_hypha_test_analysis_input_drained (KirinHypha*);
+extern "C" bool kirin_hypha_test_wait_analysis_input (KirinHypha*, std::uint32_t);
+extern "C" bool kirin_hypha_test_wait_analysis_exchange (KirinHypha*, std::uint32_t, bool);
+#endif
+
 // Non-shipping synthetic host. Both compilers must model the SAME measured clock policy;
 // opt-in macOS tracing must not secretly supply a prerequisite missing from the Windows test.
 // There is no exported hook, new product field, or run-time certificate bypass. Configuration
@@ -9,6 +15,14 @@
 class LiveTimingFixtureAccess
 {
 public:
+   #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    static bool waitAnalysisInput (KirinHyphaProcessorBase& processor, std::uint32_t timeoutMillis)
+    { return kirin_hypha_test_wait_analysis_input (processor.hyphaHandle, timeoutMillis); }
+    static bool waitAnalysisExchange (KirinHyphaProcessorBase& processor, std::uint32_t timeoutMillis, bool endpoint)
+    { return kirin_hypha_test_wait_analysis_exchange (processor.hyphaHandle, timeoutMillis, endpoint); }
+    static bool analysisInputDrained (KirinHyphaProcessorBase& processor)
+    { return kirin_hypha_test_analysis_input_drained (processor.hyphaHandle); }
+   #endif
     // qualified = a Pro Tools build (the measured 26.4.0.5 by default, or another build's version);
     // otherwise an AAX host that is not Pro Tools (no certificate, no bound). All of them feed the
     // AAX Perceptual route, as prepareToPlay does for every AAX host.
@@ -48,6 +62,12 @@ public:
     { return processor.liveCompare.analysisClock.local; }
     static hypha::live_compare::AnalysisClockReading aaxPairedClock (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.analysisClock.paired; }
+    // The public shell getter is POST-only; diagnostics need both real ingress counters.
+    static bool analysisStats (const KirinHyphaProcessorBase& processor, KirinSpectrumStats& stats)
+    {
+        return processor.hyphaHandle != nullptr
+            && kirin_hypha_spectrum_stats (processor.hyphaHandle, &stats);
+    }
 
     // Drive the production input/timing/analysis transaction while another audition owns output.
     static void processAaxAnalysisWithOtherOutputOwner (KirinHyphaProcessorBase& processor,
@@ -58,7 +78,7 @@ public:
         const bool admitted = processor.feedMeasurementInput (buffer, clock, 0, buffer.getNumSamples(),
             clock.positionSamples, frames, false);
         processor.processLiveCompare (buffer, clock, false, false, true);
-        processor.pushAaxAnalysis (admitted ? frames : 0, static_cast<std::uint32_t> (buffer.getNumChannels()), 0);
+        processor.pushPairedAnalysis (admitted ? frames : 0, static_cast<std::uint32_t> (buffer.getNumChannels()), 0);
     }
 
     static void timingObservation (KirinHyphaProcessorBase& processor,
@@ -105,14 +125,25 @@ public:
         return processor.liveCompare.ring.hasPublishedRealtime() && mapping != nullptr
             && mapping->ring() != nullptr && mapping->ring()->header.demand.load() == 1;
     }
+    static void configureLogicClock (KirinHyphaProcessorBase& processor)
+    {
+        const auto policy = hypha::live_compare_clock_policy::classify (
+            juce::AudioProcessor::wrapperType_AudioUnit, "Logic Pro", "12.2", 48000);
+        processor.liveCompare.clockAuthority = static_cast<std::uint8_t> (policy.authority);
+    }
     static bool configureStudioProClock (KirinHyphaProcessorBase& processor) noexcept
+    { return configureVst3Clock (processor, "Studio Pro", "8.1.2.113407"); }
+    static bool configureVst3Clock (KirinHyphaProcessorBase& processor,
+                                    const char* name, const char* version) noexcept
     {
         const auto certificate = hypha::live_compare_clock_policy::classify (
-            juce::AudioProcessor::wrapperType_VST3, "Studio Pro", "8.1.2.113407", 48000);
-        if (certificate.authority != hypha::live_compare::ClockAuthority::certifiedContent
+            juce::AudioProcessor::wrapperType_VST3, name, version, 48000);
+        if (! hypha::live_compare::certifiedVst3Analysis (certificate.authority)
             || certificate.maximumDelaySamples != 0) return false;
         processor.liveCompare.clockAuthority = static_cast<std::uint8_t> (certificate.authority);
         processor.liveCompare.maximumDelaySamples = certificate.maximumDelaySamples;
+        kirin_hypha_set_content_analysis_ingress (processor.hyphaHandle,
+            processor.role == KirinHyphaProcessorBase::Role::Post);
         return true;
     }
 
@@ -121,6 +152,27 @@ public:
 
     static int audible (const KirinHyphaProcessorBase& processor) noexcept
     { return processor.liveCompare.blind.view().audible; }
+
+    static hypha::live_compare::BlindView blindTrial (const KirinHyphaProcessorBase& processor) noexcept
+    { return processor.liveCompare.blind.view(); }
+
+    // Snapshot/callback interruption test only: no pair, PCM mapping or MATCH acquisition.
+    // Successful LISTEN/MATCH/BLIND admission remains covered by the shared-memory fixtures.
+    static void seedBlindStatusFixture (KirinHyphaProcessorBase& processor)
+    {
+        auto& state = processor.liveCompare;
+        state.authority.arm (state.authority.ticket());
+        state.sessionActive.store (true);
+        state.matchRetained.store (true);
+        state.matched.store (true);
+        state.gainApproval.authority.store (state.authority.ticket());
+        state.matchGeneration.store (state.sessionGeneration.load());
+        state.matchRun.store (state.playbackRun.load());
+        state.gainReceipt.store (state.gainRevision.load());
+        state.blindGainRevision.store (state.gainRevision.load());
+        state.blind.start (true);
+        state.blindStage = hypha::live_compare::BlindStage::active;
+    }
 
     static bool initialObservationRequested (const KirinHyphaProcessorBase& processor) noexcept
     {

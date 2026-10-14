@@ -1,5 +1,5 @@
 #pragma once
-
+#include "TestProcessorStorage.h"
 #include "../src/PluginEditor.h"
 #include "../src/HyphaChainTimingPreference.h"
 #include "../src/HyphaEditorSizeConstrainer.h"
@@ -133,7 +133,7 @@ inline void verifyLiveInputThroughMusicalRests()
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
     constexpr int block = 480;
-    processor.prepareToPlay (48'000, block);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, block);
     processor.setPlayHead (&transport);
     juce::AudioBuffer<float> buffer (2, block);
     juce::MidiBuffer midi;
@@ -182,7 +182,7 @@ inline void verifyFoldedFeedbackStrip()
                 Processor processor (role);
                 processor.setObservatoryDomainPreference (observatory::stateValue (
                     role == Processor::Role::Post ? observatory::Domain::frequency : observatory::Domain::level));
-                processor.prepareToPlay (48'000, 960);
+                hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
                 std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
                 require (editor != nullptr, "shipping editor opens");
                 editor->setSize (preset.width, preset.height);
@@ -253,7 +253,7 @@ inline void verifyChainTimingFooterSwitch()
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
             Processor processor (role);
-            processor.prepareToPlay (48'000, 960);
+            hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
             std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
             auto* shipping = dynamic_cast<KirinHyphaEditor*> (editor.get());
             auto* view = component<observatory::View> (*editor);
@@ -299,7 +299,7 @@ inline void verifyLanguageSwitch()
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
             Processor processor (Processor::Role::Post);
             processor.setObservatoryDomainPreference (observatory::stateValue (domain));
-            processor.prepareToPlay (48'000, 960);
+            hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
             std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
             editor->setSize (preset.width, preset.height);
             editor->setVisible (true);
@@ -333,7 +333,7 @@ inline void verifyMagnifiedEditor()
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
-    processor.prepareToPlay (48'000, 960);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
     auto* rule = dynamic_cast<EditorSizeConstrainer*> (editor->getConstrainer());
     require (rule != nullptr, "the editor sizes itself by the step rule");

@@ -14,7 +14,7 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-constexpr std::uint32_t ringVersion = 7;
+constexpr std::uint32_t ringVersion = 9;
 constexpr std::uint32_t ringChannels = 2;
 constexpr std::uint32_t ringCapacityFrames = 1u << 19; // power of two: about 10.9 s at 48 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
@@ -102,6 +102,10 @@ struct Ring
         h.timing.proof.store (0, std::memory_order_relaxed);
         h.timing.outputPresentation.store (0, std::memory_order_relaxed);
         h.timing.maximumDelay.store (0, std::memory_order_relaxed);
+        h.timing.runtimeChainA.store (0, std::memory_order_relaxed);
+        h.timing.runtimeChainB.store (0, std::memory_order_relaxed);
+        h.timing.runtimeRevision.store (0, std::memory_order_relaxed);
+        h.timing.intervals.store ({});
         h.timing.loopSamples.store (0, std::memory_order_relaxed);
         h.timing.generation.store (0, std::memory_order_relaxed);
         h.timing.sequence.store (0, std::memory_order_relaxed);

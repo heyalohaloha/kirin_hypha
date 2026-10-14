@@ -2,6 +2,8 @@
 
 #include "LiveCompareBlockClock.h"
 #include "LiveCompareClock.h"
+#include "ReaperTiming.h"
+#include "ReaperLoopEntry.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -9,8 +11,10 @@
 
 namespace hypha::live_compare
 {
-enum class LoopEntryKind : std::uint8_t { none, linear, contentClock, presentationLatency, boundedEngine };
-enum class LoopEntryFailure : std::uint8_t { none, observingCycle, clockUnavailable, loopTooShort };
+enum class LoopEntryKind : std::uint8_t { none, linear, contentClock, presentationLatency, boundedEngine,
+                                        reaperBound, logicPresentation };
+enum class LoopEntryFailure : std::uint8_t
+{ none, observingCycle, clockUnavailable, loopTooShort, reaperFirstCycle, reaperDelayUnverified };
 
 struct LoopEntryCandidate
 {
@@ -47,6 +51,16 @@ inline bool loopAddressIsCurrent (const LoopAnchor& anchor, const BlockClock& pr
                                   double rate, std::int64_t capacity) noexcept
 {
     if (capacity <= 0 || pre.frames <= 0 || post.frames <= 0) return false;
+    if (logicRender (post))
+        return k == 0 && logicRenderPair (pre, post) && post.clock >= anchor.runStart
+            && static_cast<std::int64_t> (pre.outputPresentationSamples - post.outputPresentationSamples)
+                + pre.frames <= capacity;
+    if (reaperRuntimeAge (pre, post) > 0)
+    {
+        std::int64_t address = 0, expected = 0;
+        return reaperWindowAddress (anchor, pre, post, rate, capacity, address)
+            && checkedClockSubtract (post.clock, k, expected) && address == expected;
+    }
     if ((k < 0 && post.clock > std::numeric_limits<std::int64_t>::max() + k)
         || (k > 0 && post.clock < std::numeric_limits<std::int64_t>::min() + k)
         || pre.clock > std::numeric_limits<std::int64_t>::max() - pre.frames) return false;
@@ -68,6 +82,12 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
                                                 double rate,
                                                 std::int64_t capacity) noexcept
 {
+    if (logicRender (post))
+    {
+        const bool current = loopAddressIsCurrent (anchor, pre, post, 0, rate, capacity);
+        return { 0, LoopEntryKind::logicPresentation,
+            current ? LoopEntryFailure::none : LoopEntryFailure::clockUnavailable, current };
+    }
     // Wrapper clocks have different origins and lifetimes. Once both sides expose explicit but
     // different bases, another lap cannot turn them into a common content clock. Fail before the
     // cycle-observation wait so a VST3/AU pair never promises automatic progress indefinitely.
@@ -86,6 +106,28 @@ inline LoopEntryCandidate initialLoopCandidate (const LoopAnchor& anchor,
                  current ? LoopEntryFailure::none : LoopEntryFailure::observingCycle, current };
     }
 
+    if (common && reaperProcessing (post))
+    {
+        if (reaperRuntimeAge (pre, post) > 0)
+        {
+            std::int64_t address = 0, candidate = 0;
+            const auto upper = reaperRuntimeAge (pre, post);
+            if (capacity <= upper || (anchor.loopSamples > 0 && anchor.loopSamples <= upper))
+                return { 0, LoopEntryKind::none, LoopEntryFailure::loopTooShort, false };
+            const bool current = reaperWindowAddress (anchor, pre, post, rate, capacity, address)
+                && checkedClockSubtract (post.clock, address, candidate);
+            return { candidate, LoopEntryKind::reaperBound,
+                current ? LoopEntryFailure::none : LoopEntryFailure::observingCycle, current };
+        }
+        if (!anchor.loopKnown || anchor.loopSamples <= 0 || postLoopSamples <= 0)
+            return { 0, LoopEntryKind::none, LoopEntryFailure::reaperFirstCycle, false };
+        if (postLoopSamples != anchor.loopSamples) return {};
+        if (postLoopSamples <= ReaperTimingLimits::age || capacity <= ReaperTimingLimits::age)
+            return { 0, LoopEntryKind::none, LoopEntryFailure::loopTooShort, false };
+        // No RT-bound host PDC proof exists yet. A modulo candidate below the experimental
+        // envelope cannot exclude an actual delay of that candidate plus one whole lap.
+        return { 0, LoopEntryKind::none, LoopEntryFailure::reaperDelayUnverified, false };
+    }
     if (! anchor.loopKnown || anchor.loopSamples <= 0 || postLoopSamples <= 0)
         return { 0, LoopEntryKind::none, LoopEntryFailure::observingCycle, false };
     const auto loopSamples = anchor.loopSamples;

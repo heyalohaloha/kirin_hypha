@@ -4,8 +4,8 @@
 namespace hypha::live_compare
 {
 // Audio Thread only. New timing admission is not new output authority or a new MATCH.
-// Only named comparison can renew after an identified transport change. Any unexplained
-// loss seals the sampled selection; a later explicit PRE command owns its own admission.
+// LISTEN and BLIND retain intent across timing loss. Renewal discards old proof and history;
+// current owner, authority and PCM must still be proved independently before output.
 class NamedReentry
 {
 public:
@@ -24,7 +24,7 @@ public:
     {
         if (cause == TimelineBreak::metadataPending && namedEligible) return;
         renewing = false;
-        pending = namedEligible && namedTransportRestart (cause);
+        pending = namedEligible && cause != TimelineBreak::sourceChanged;
     }
     void explicitlyRenew() noexcept { pending = false; renewing = true; }
     bool accepted (bool approvalReady = true) noexcept

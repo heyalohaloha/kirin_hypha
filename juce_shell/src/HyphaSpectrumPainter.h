@@ -15,6 +15,11 @@ namespace hypha::spectrum_painter
     using SpectrumValidity = std::array<uint8_t, KIRIN_SPECTRUM_BAND_COUNT>;
 
     // Pure presentation helper. It has no timer, interaction, pair, FFT, or audio state.
+    void paintPostCurve (juce::Graphics& graphics,
+                         juce::Rectangle<float> plot,
+                         float visualScale,
+                         const SpectrumBins& post);
+
     void paintCurves (juce::Graphics& graphics,
                       juce::Rectangle<float> plot,
                       float visualScale,

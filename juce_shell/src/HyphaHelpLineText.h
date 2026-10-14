@@ -52,11 +52,10 @@ inline constexpr std::array<Shortened, 10> row {{
 }};
 
 // The footer's own controls: only the status at the left of the footer is theirs.
-inline constexpr std::array<Shortened, 15> footer {{
+inline constexpr std::array<Shortened, 12> footer {{
     { "Finish Keep / Record before PRE / POST Blind", "Finish Keep / Record before Blind" },
     { "Fix the last four seconds of PRE and POST and open them in PRE / POST Blind", "Open the last 4 s of PRE and POST in Blind" },
-    { "Switch between PRE and POST of this chain while the song plays. Keep this window open (pin it in Studio One "
-      "/ Studio Pro, turn off Target in Pro Tools); closing or replacing it returns to POST",
+    { "Switch between PRE and POST while playing. Comparison continues when this window closes",
       "Switch PRE and POST while the song plays" },
     { "Return POST to its normal level; it rises by the amount shown", "Return POST to its normal level" },
     { "End Blind Compare and return to live A. / END returns to A", "End Blind Compare and return to live A." },
@@ -68,10 +67,6 @@ inline constexpr std::array<Shortened, 15> footer {{
       "MATCH stopped at the true-peak ceiling" },
     { "Press to MATCH again or to let PRE follow POST (AUTO)", "Press to MATCH again or follow (AUTO)" },
     { "Match PRE to POST loudness over the latest four seconds", "Match PRE to POST over the latest 4 s" },
-    { "PRE is held because the latency changed. Stop and restart playback", "Latency changed: stop and restart playback" },
-    { "PRE is selected. POST plays until PRE is confirmed at this position", "POST plays until PRE is confirmed here" },
-    { "PRE waits while delay compensation is off in Pro Tools. Turn it on to hear PRE",
-      "Turn on delay compensation to hear PRE" },
     { "Listen to PRE, the input of this chain, at the level MATCH set", "Listen to PRE at the MATCH level" },
     { "Listen to PRE, the input of this chain. MATCH levels it to POST", "Listen to PRE, the input of this chain" },
 }};

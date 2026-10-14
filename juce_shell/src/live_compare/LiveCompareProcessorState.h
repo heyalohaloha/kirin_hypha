@@ -16,6 +16,11 @@
 #include "LiveCompareGainApproval.h"
 #include "LiveBlindPreparation.h"
 #include "LiveCompareContentHold.h"
+#include "LiveCompareWaitNotice.h"
+#include "CertifiedProjectAnalysisClock.h"
+#include "LiveCompareLoopGuidance.h"
+#include "ReaperChainStatus.h"
+#include "../chain_trace/ChainTraceWriter.h"
 
 #include <atomic>
 #include <cstdint>
@@ -33,7 +38,9 @@ struct LiveBlindStatus
     RecoveryReason reason = RecoveryReason::none;
     RecoveryReason observation = RecoveryReason::none;
     bool contentHeld = false, compensationOff = false, timingUnavailable = false;
-    bool loopBlocksPairing = false; // an uncertified AAX host loops a range: no K until loop playback is off
+    LoopPairingBlock loopBlock = LoopPairingBlock::none;
+    ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
+    bool prolongedWait = false, signalWait = false;
     bool clockUnavailable = false;  // the host reports neither a continuous clock nor output latency: PRE cannot be heard
 };
 
@@ -49,9 +56,11 @@ struct Status
     bool interrupted = false; // offline render or bypass ended the session; select PRE again
     bool timingReentryPending = false;
     bool timingUnavailable = false;
-    bool loopBlocksPairing = false; // an uncertified AAX host loops a range: turn loop playback off
+    LoopPairingBlock loopBlock = LoopPairingBlock::none;
+    ReaperChainRestriction reaperRestriction = ReaperChainRestriction::none;
     // The audio clock is missing and this host has reported neither a continuous clock nor its
     // output latency since this instance began: PRE cannot be heard here, and stop/play will not help.
+    bool prolongedWait = false, signalWait = false;
     bool clockUnavailable = false;
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
@@ -68,10 +77,12 @@ struct Status
 // Thread reads it only through the slot and publishes its observations through the atomics.
 struct ProcessorState
 {
+    std::unique_ptr<chain_trace::Recorder> trace = chain_trace::Recorder::fromEnvironment();
     Authority authority;
     std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     std::atomic<std::uint64_t> pairRevocationGeneration { 0 };
     Completion completion;
+    WaitNotice waitNotice;
     BlindSession blind;
     BlindPreparation blindTiming;
     NamedSelection selection;
@@ -104,10 +115,12 @@ struct ProcessorState
     std::uint64_t blindApprovalTimeline = 0;
     local_blind::RtPublicationSlot<SharedRingMapping> ring;
     PreFeeder feeder;
-    AaxAnalysisClock analysisClock;
+    PairedAnalysisClock analysisClock;
+    CertifiedProjectAnalysisClock projectAnalysisClock;
     PostRenderer renderer;
     ContinuousClock clock;
     GapDetector gaps;
+    ReaperCallbackContinuity reaperContinuity;
     std::uint8_t clockAuthority = 0;       // prepareToPlay, host suspends Audio Thread
     std::uint32_t maximumDelaySamples = 0; // certified host bound, never a measured guess
     TimingPreparation preparation;
@@ -123,6 +136,15 @@ struct ProcessorState
     std::atomic<float> postTarget { 1.0f };   // approved POST attenuation (linear, at most 1)
     std::atomic<float> ceilingLinear { 1.0f }; // PRE guard fixed at MATCH, 10^(C/20)
     std::atomic<bool> guardTripped { false };
+    // Message-thread request survives editor closure; output authority is never serialized.
+    bool namedMatchPending = false, namedMatchReady = false, namedMatchApplied = false;
+    std::uint64_t namedMatchNext = 0, namedMatchAuthority = 0, namedMatchSince = 0, blindMatchSince = 0;
+    MatchFailure namedMatchWaiting = MatchFailure::none;
+    MatchPlan namedMatchPlan;
+    OffsetMonitor contentMonitor;
+    OffsetMonitor::Step contentStep;
+    std::uint32_t contentMonitorRun = 0;
+    std::uint64_t contentMonitorNext = 0;
     ContentHold contentHold;      // INV-LC10: the content offset jumped
     std::atomic<std::int64_t> contentJumpLagFrames { 0 }; // published before contentHold
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
@@ -132,9 +154,8 @@ struct ProcessorState
     bool wasPlaying = false;                      // Audio Thread only
     std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
     bool compensationWasOff = false;              // Audio Thread only
-    // AAX POST: the host loops a range and carries no certificate, so no pair proof can start.
-    // Published for guidance only; it never grants or revokes a proof.
-    std::atomic<bool> loopBlocksPairing { false };
+    // Shared callback result for analysis, LISTEN and BLIND; never persisted.
+    std::atomic<LoopPairingBlock> loopBlock { LoopPairingBlock::none };
     // Host capability, for guidance only and never a proof: whether any callback of this instance
     // carried a continuous clock, and whether the host ever reported its output presentation
     // latency (the read path in PluginProcessorHostClock.cpp). A host that supplies neither

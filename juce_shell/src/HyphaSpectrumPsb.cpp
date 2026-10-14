@@ -94,9 +94,8 @@ juce::String SpectrumComponent::psbStatusText() const
         : psbStatus == KIRIN_SPECTRUM_IN_USE ? analysis_ui::slotsInUse (analysisOwnerNames)
         : psbStatus == KIRIN_SPECTRUM_NO_PAIR ? "PRE REQUIRED FOR DELTA"
         : ! signalActive ? "INACTIVE"
-        // The difference waits for linear playback on an uncertified AAX host, as SHARP says.
-        : ! absoluteObservation && pairingLoopBlocked && psbStatus == KIRIN_SPECTRUM_WARMING_UP
-            ? "Loop Playback on: turn it off to compare"
+        : ! absoluteObservation && *pairing_loop_text::analysisStatus (psbStatus, pairingLoopBlock) != 0
+            ? pairing_loop_text::analysisStatus (psbStatus, pairingLoopBlock)
         : psbStatus == KIRIN_SPECTRUM_UNAVAILABLE ? "PSB UNAVAILABLE" : "PSB WARMING";
 }
 
@@ -107,7 +106,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
     {
         const auto& values = absoluteObservation ? absolutePsb : deltaPsb;
         psb_painter::paint (g, getLocalBounds().toFloat(), {
-            values, signalActive && (absoluteObservation ? absolutePsbAvailable : deltaPsbAvailable),
+            values, signalActive && (absoluteObservation ? absolutePsbAvailable
+                : deltaPsbAvailable && pairingLoopBlock != live_compare::LoopPairingBlock::auCycle),
             ! absoluteObservation, psbHoverBand, psbStatusText(), presentationContext });
     }
     else
@@ -119,9 +119,12 @@ void SpectrumComponent::paint (juce::Graphics& g)
             focusTrail.get(), modeActionNotice, comparisonStatus, analysisOwnerNames, guideOverlay,
             &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
             midSideObservation, shapeObservation,
-            haveSnapshot, signalActive && currentSnapshotValid(),
+            haveSnapshot, signalActive && currentSnapshotValid()
+                && (absoluteObservation || pairingLoopBlock != live_compare::LoopPairingBlock::auCycle),
             haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
-            presentationContext
+            presentationContext, pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
+                ? pairingLoopBlock : live_compare::LoopPairingBlock::none,
+            signalActive && currentPostSnapshotValid()
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }

@@ -88,6 +88,11 @@ bool SpectrumComponent::currentSnapshotValid() const noexcept
         : validSnapshot (snapshot, absoluteObservation));
 }
 
+bool SpectrumComponent::currentPostSnapshotValid() const noexcept
+{
+    return haveSnapshot && ! midSideObservation && validSnapshot (snapshot, true);
+}
+
 void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
 {
     if (analysisOwnerNames == names)
@@ -124,12 +129,17 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         inputChannels = next.channels;
     modeActionNotice.clear();
     modeActionNoticeUntilMs = 0.0;
-    if (nextValid)
+    // Retain validated POST bins independently of delta readiness. The callback's Cycle
+    // reason may reach the editor before the next spectrum publication.
+    if (nextValid || validSnapshot (next, true))
     {
-        interactionDefinition = next;
-        haveInteractionDefinition = true;
+        if (nextValid)
+        {
+            interactionDefinition = next;
+            haveInteractionDefinition = true;
+        }
         const auto& calmWeights = calmWeightsFor (snapshot.min_hz, snapshot.max_hz);
-        if (snapshot.has_data != 0)
+        if (nextValid && snapshot.has_data != 0)
             displayedPre = spectrum_presentation::calmLowFrequencies (
                 snapshot.pre_dbfs, calmWeights);
         else
@@ -148,8 +158,9 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         pendingPost = displayedPost;
         pendingDelta = displayedDelta;
         pendingDeltaValid = displayedDeltaValid;
-        absoluteHistory.append (snapshot);
-        if (! absoluteObservation)
+        if (nextValid || pairingLoopBlock == live_compare::LoopPairingBlock::auCycle)
+            absoluteHistory.append (snapshot);
+        if (nextValid && ! absoluteObservation)
         {
             if (focusTrail == nullptr)
                 focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();

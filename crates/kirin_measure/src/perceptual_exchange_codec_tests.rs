@@ -71,7 +71,7 @@ fn perceptual_codec_distinguishes_aax_from_presentation_and_rejects_mixed_or_old
         SpectrumClockKind::AaxEngine
     );
     assert_eq!(aax.len(), bytes.len());
-    for tag in [0_u16, 2, 4, u16::MAX] {
+    for tag in [0_u16, 2, 6, u16::MAX] {
         let mut invalid = aax.clone();
         invalid[58..60].copy_from_slice(&tag.to_le_bytes());
         assert!(decode_perceptual_snapshot(&invalid).is_none());
@@ -82,4 +82,27 @@ fn perceptual_codec_distinguishes_aax_from_presentation_and_rejects_mixed_or_old
     let mut old = bytes;
     old[..8].copy_from_slice(b"KHPERC03");
     assert!(decode_perceptual_snapshot(&old).is_none());
+}
+
+#[test]
+fn perceptual_content_clock_is_distinct_and_round_trips() {
+    let decoded = decode_perceptual_snapshot(&encoded(2, Some([0.05; 20]))).unwrap();
+    for kind in [
+        SpectrumClockKind::Vst3Content,
+        SpectrumClockKind::AudioUnitRender,
+    ] {
+        let content = encode_perceptual_snapshot_with_clock(Uuid::nil(), &decoded.history, kind);
+        assert_eq!(
+            decode_perceptual_snapshot(&content).unwrap().clock_kind,
+            kind
+        );
+        for other in [1_u16, 3, 4, 5]
+            .into_iter()
+            .filter(|other| *other != kind as u16)
+        {
+            let mut mixed = content.clone();
+            mixed[259..261].copy_from_slice(&other.to_le_bytes());
+            assert!(decode_perceptual_snapshot(&mixed).is_none());
+        }
+    }
 }

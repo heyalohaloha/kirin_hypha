@@ -12,6 +12,8 @@ public:
     std::uint64_t generation() const noexcept { return stops.load (std::memory_order_acquire); }
     void hold (std::uint64_t measuredGeneration) noexcept
     { heldAt.store (measuredGeneration, std::memory_order_release); }
+    void clear (std::uint64_t measuredGeneration) noexcept
+    { heldAt.compare_exchange_strong (measuredGeneration, 0, std::memory_order_acq_rel); }
     void stopped() noexcept { stops.fetch_add (1, std::memory_order_acq_rel); }
     bool held() const noexcept
     {

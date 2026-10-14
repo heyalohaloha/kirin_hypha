@@ -103,6 +103,7 @@ void KirinHyphaEditor::updatePost()
     const auto keepNotice = processorRef.drainKeepActionNotice();
     if (keepNotice.isNotEmpty())
     {
+        comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
         toastText = keepNotice;
         toastUntil = now + 3.0;
     }

@@ -1,6 +1,6 @@
 #pragma once
 void testReferenceLibrarySets (const juce::File&);
-
+#include "TestPathBudget.h"
 inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sandbox)
 {
     if (argc != 2) return false;
@@ -14,6 +14,6 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
     }
     else if (mode == "--event-repairs-only") testRuntimeEventTransport (sandbox);
     else return false;
-    require (sandbox.deleteRecursively(), "remove only the Reference repair fixture");
+    require (hypha::tests::removeFixtureDirectory (sandbox), "remove only the Reference repair fixture");
     return true;
 }

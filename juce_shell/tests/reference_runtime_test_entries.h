@@ -1,6 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
-
+#include "TestPathBudget.h"
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
 void testReferenceLibraryContract (const juce::File&);
@@ -20,7 +20,7 @@ inline void finishReferenceRegressionFixture (const juce::File& sandbox)
 {
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_KEEP_FIXTURE", {}).isNotEmpty())
         std::cout << "Reference regression fixture: " << sandbox.getFullPathName() << '\n';
-    else require (sandbox.deleteRecursively(), "ABC fixtures must be removed");
+    else require (hypha::tests::removeFixtureDirectory (sandbox), "ABC fixtures must be removed");
 }
 
 inline bool finishReferenceAbcMode (int argc, char** argv, const juce::File& sandbox)

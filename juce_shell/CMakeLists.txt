@@ -303,6 +303,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorContentTiming.cpp
+        src/PluginProcessorLiveMatchRequest.cpp
         src/PluginProcessorLiveCompare.cpp
         src/PluginProcessorLiveCompareRealtime.cpp
         src/PluginProcessorLiveBlind.cpp
@@ -319,6 +320,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/local_blind/LocalBlindTrial.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         src/local_blind/HostContext.cpp
+        src/live_compare/ReaperPdcAdapter.cpp
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorMeasurementIngress.cpp
         src/PluginProcessorValidation.cpp
@@ -1121,12 +1123,8 @@ endif()
 include(cmake/UpdateIntegrationTests.cmake)
 include(cmake/ShellRepairTests.cmake)
 include(cmake/ContentTimingTests.cmake)
+include(cmake/ProductTestClock.cmake)
+include(cmake/NativeTestLibraries.cmake)
 
-# Every native test resolves the Rust storage (Record, identity, the plug-in's temporary folder)
-# inside this build, never in the user's Kirin OS or a running plug-in's folder. Tests that use
-# ValidationStorageSandbox clear it and keep their own HOME / TMPDIR.
-get_property(kirin_hypha_native_tests DIRECTORY PROPERTY TESTS)
-if(kirin_hypha_native_tests)
-    set_property(TEST ${kirin_hypha_native_tests} APPEND PROPERTY ENVIRONMENT
-        "KIRIN_HYPHA_TEST_STORAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-kirin-os")
-endif()
+include(cmake/NativeStorageGuard.cmake)
+include(cmake/NativeTestTargets.cmake)

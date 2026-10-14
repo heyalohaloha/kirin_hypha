@@ -35,6 +35,7 @@ static void require (bool ok, const char* message)
     if (! ok) { std::cerr << "FAIL: " << message << '\n'; std::abort(); }
 }
 
+#include "GuardRecoveryTest.h"
 namespace
 {
 constexpr int frames = 512;
@@ -221,8 +222,6 @@ static void postLevelRampsDownFastAndUpSlowly()
     require (samples[0] == 0.3f && samples[1] == -0.2f && samples[2] == 0.1f, "settled unity is bit-identical");
 }
 
-// INV-LC14: PRE raised above the ceiling fixed at MATCH never sounds; the block is POST from its
-// start and the report ends the selection. A non-finite PRE sample trips the guard at any gain.
 static void guardKeepsPreUnderTheCeiling()
 {
     Pair raised;
@@ -367,7 +366,7 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc7-", 0) == 0, "versioned name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc9-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");
@@ -490,6 +489,7 @@ int main (int argc, char** argv)
     aaxGroupsTellAMonoTrackFromAMultiMonoSet();
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
+    guardRecoveryEpisode<Pair>();
     guardKeepsPreUnderTheCeiling();
     finiteGainAndCeilingBoundaries();
     preGainRampsOverFiftyMilliseconds();

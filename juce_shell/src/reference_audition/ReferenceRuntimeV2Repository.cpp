@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Repository.h"
+#include "../KirinTestStorage.h"
 #include "ReferenceRuntimeRepositoryParsing.h"
 #include "ReferenceRuntimeV2PresetParsing.h"
 #include "ReferenceRuntimePendingPresets.h"
@@ -38,6 +39,8 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (testingRootLock);
             if (testingRoot != juce::File()) return testingRoot;
         }
+        if (const auto root = storage::testPluginDataRoot())
+            return root->getChildFile ("reference/v2");
        #if JUCE_WINDOWS
         auto local = juce::File::getSpecialLocation (juce::File::windowsLocalAppData);
         return local.getChildFile ("Kirin OS").getChildFile ("plugin_data")

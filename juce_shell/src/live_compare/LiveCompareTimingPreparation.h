@@ -2,7 +2,7 @@
 #include "../local_blind/RtPublicationSlot.h"
 #include "LiveCompareChainTiming.h"
 #include "LiveCompareSharedRing.h"
-#include "AaxAnalysisClock.h"
+#include "PairedAnalysisClock.h"
 #include <atomic>
 #include <memory>
 
@@ -34,6 +34,8 @@ public:
         peers.publish (std::move (peer));
     }
 
+    bool hasPeer() const noexcept { return peers.control() != nullptr; } // message thread
+
     void retire() noexcept
     {
         initialRequested.store (false, std::memory_order_release);
@@ -45,9 +47,10 @@ public:
     // takes no reading of its own (LiveCompareChainTiming.h).
     TimingEvidence observe (const BlockClock& block, std::uint32_t rate,
                             std::uint64_t authority, bool eligible,
-                            ChainTimingMeter* chain = nullptr, bool* aaxQualified = nullptr) noexcept
+                            ChainTimingMeter* chain = nullptr, bool* analysisQualified = nullptr,
+                            TimingSnapshot* diagnosticSnapshot = nullptr) noexcept
     {
-        if (aaxQualified != nullptr) *aaxQualified = false;
+        if (analysisQualified != nullptr) *analysisQualified = false;
         TimingEvidence evidence;
         bool chainSawPre = false;
         peers.withRealtime ([&] (Peer& peer)
@@ -66,21 +69,24 @@ public:
                 evidence = peer.observer.unavailable (block, rate, ringCapacityFrames);
                 return;
             }
+            if (diagnosticSnapshot != nullptr) *diagnosticSnapshot = snapshot;
             if (chain != nullptr)
             {
                 chain->observe (snapshot, block, ring->header.published.load (std::memory_order_acquire));
                 chainSawPre = true;
             }
             evidence = peer.observer.observe (snapshot, block, rate, ringCapacityFrames);
-            if (aaxQualified != nullptr) *aaxQualified = qualifiedAaxPair (snapshot.block, block, evidence);
+            if (analysisQualified != nullptr) *analysisQualified = qualifiedAaxPair (snapshot.block, block, evidence)
+                || qualifiedVst3Pair (snapshot.block, block, evidence)
+                || qualifiedAudioUnitPair (snapshot.block, block, evidence);
         });
         if (chain != nullptr && ! chainSawPre)
             chain->observeWithoutPre (block);
         return evidence;
     }
 
-    // A new explicit session, or the separate named re-entry authority after a known transport
-    // change, requests fresh adoption. It never revives Blind; actual PCM/owner checks remain.
+    // A new explicit session or retained LISTEN/BLIND authority requests fresh adoption.
+    // Old proof is discarded; actual PCM/owner checks remain.
     std::atomic<bool> initialRequested { false };
 private:
     local_blind::RtPublicationSlot<Peer> peers;

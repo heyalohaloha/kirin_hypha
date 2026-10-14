@@ -5,6 +5,10 @@
 #include "../src/HyphaLiveCompareRecoveryText.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "LiveTimingFixtureAccess.h"
+#include "ProductTestClock.h"
+#include "AnalysisProductWait.h"
+#include "AnalysisProductTiming.h"
+#include "AnalysisWorkerReceipt.h"
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -14,7 +18,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-
+#include "TestProcessorStorage.h"
 namespace aax_analysis_product
 {
 static void require (bool ok, const char* message)
@@ -79,7 +83,7 @@ struct Fixture
             // track's instance is alone in its group; without this a mono PRE publishes a
             // multi-mono timing ring and POST can never prove the pair for SHARP / delta PSB.
             processor->kirinHostInstanceGroup (role == Processor::Role::Pre ? 1u : 2u, true);
-            processor->prepareToPlay (48000, frames);
+            hypha::tests::prepareFixtureProcessor (*processor, 48000, frames);
             LiveTimingFixtureAccess::configureAaxClock (*processor);
             LiveTimingFixtureAccess::enableFixtureWrites (*processor);
             (role == Processor::Role::Pre ? pre : post) = std::move (processor);
@@ -137,6 +141,7 @@ struct Fixture
     }
     void block (bool otherOutputOwner = false)
     {
+        const auto started = hypha::tests::AnalysisTestClock::now();
         for (auto* processor : { pre.get(), post.get() })
         {
             juce::AudioBuffer<float> audio (channels, frames), input (channels, frames);
@@ -156,6 +161,7 @@ struct Fixture
                 LiveTimingFixtureAccess::processAaxAnalysisWithOtherOutputOwner (*processor, audio);
             else
                 processor->processBlock (audio, midi);
+            hypha::tests::awaitAnalysisInput (*processor);
             // The explicit LISTEN audition may replace POST's output with PRE; ordinary A stays exact.
             const bool auditioning = processor == post.get() && post->liveCompareStatus().active;
             for (int ch = 0; ch < channels && ! auditioning; ++ch)
@@ -192,13 +198,18 @@ struct Fixture
         else postClock.advance (frames);
         LiveTimingFixtureAccess::serviceTiming (*post);
         ++callbacks;
-        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        wallClock.advanceBlock (frames, 48000);
+        hypha::tests::awaitAnalysisExchange (*pre);
+        hypha::tests::awaitAnalysisExchange (*post, true);
+        hypha::tests::paceAnalysisProductBlock (started, false);
     }
     template <typename Check> void until (Check check, const char* why)
     {
         trace (why);
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (12);
-        do { block(); if (check()) return; } while (std::chrono::steady_clock::now() < deadline);
+        const auto result = hypha::tests::waitForAnalysis (
+            hypha::tests::analysisWaitBlocks (48000, frames), phaseDeadline,
+            [&] { block(); }, check, [] { return std::chrono::steady_clock::now(); });
+        if (result == hypha::tests::AnalysisWaitResult::ready) return;
         KirinPerceptualBatch perceptual {}; KirinAbsoluteBatch absolute {}; KirinPsbView psb {};
         post->pollPerceptualBatch (perceptual); post->pollAbsoluteBatch (absolute); post->pollPsb (psb);
         const juce::String message = juce::String (why) + " [SHARP status " + juce::String (perceptual.latest.status)
@@ -215,7 +226,7 @@ struct Fixture
             block();
             if (check()) continue;
             // A poll can meet the exchange worker's lock; the editor skips that tick, so may this.
-            std::this_thread::sleep_for (std::chrono::milliseconds (2));
+            hypha::tests::awaitAnalysisExchange (*post);
             if (check()) continue;
             KirinPerceptualBatch perceptual {}; KirinPsbView psb {};
             post->pollPerceptualBatch (perceptual); post->pollPsb (psb);
@@ -263,7 +274,7 @@ struct Fixture
     void preparing (bool sharp)
     {
         if (analysisPreparing (sharp) && psbPreparing()) return;
-        std::this_thread::sleep_for (std::chrono::milliseconds (2)); // one contended poll is not a fact
+        hypha::tests::awaitAnalysisExchange (*post); // one contended poll is not a fact
         if (analysisPreparing (sharp) && psbPreparing()) return;
         KirinPerceptualBatch perceptual {}; KirinAbsoluteBatch absolute {}; KirinPsbView psb {};
         post->pollPerceptualBatch (perceptual); post->pollAbsoluteBatch (absolute); post->pollPsb (psb);
@@ -300,11 +311,14 @@ struct Fixture
         using namespace hypha::live_compare_ui;
         using hypha::live_compare::BlindStage;
         auto listen = post->liveCompareStatus();
-        require (listen.loopBlocksPairing == expected, "LISTEN status carries the loop guidance only when a range loops");
+        require ((listen.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected, "LISTEN status carries the loop guidance only when a range loops");
         // As during a session on this host: PRE selected and waiting on an unidentifiable loop.
         listen.active = listen.preSelected = listen.preWaiting = true;
         listen.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
         listen.timingUnavailable = true;
+        require (juce::String (currentNamedPresentation (listen).instruction).isEmpty(),
+                 "short LISTEN wait has no guidance");
+        listen.prolongedWait = true;
         const auto notice = currentNamedPresentation (listen);
         require ((notice.action == RecoveryAction::loopOff) == expected
             && (juce::String (notice.instruction) == "Loop Playback on: turn it off to compare (POST)") == expected
@@ -316,25 +330,33 @@ struct Fixture
         blind.stage = BlindStage::preparing;
         blind.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
         blind.timingUnavailable = true;
+        require (!hypha::live_blind_ui::screenFor (blind, true, 1.0f).guidanceShown,
+                 "short BLIND wait has no guidance");
+        blind.prolongedWait = true;
         const auto screen = hypha::live_blind_ui::screenFor (blind, true, 1.0f);
-        require (blind.loopBlocksPairing == expected
+        require ((blind.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected
             && (blindRecovery (blind, false).action == RecoveryAction::loopOff) == expected
-            && (screen.instruction == "Loop Playback on: turn it off to compare") == expected
-            && (screen.cause == hypha::host_availability::timingText()) != expected,
+            && (screen.recovery == "Turn off Loop Playback to compare") == expected
+            && (screen.recovery == "Timing unavailable; check PRE and play (POST)") != expected,
             "Blind asks for loop playback off exactly when the uncertified host loops a range");
         KirinPsbView frame {};
         if (! post->pollPsb (frame)) // one contended poll is not a fact; the editor skips that tick
         {
-            std::this_thread::sleep_for (std::chrono::milliseconds (2));
+            hypha::tests::awaitAnalysisExchange (*post);
             require (post->pollPsb (frame), "the PSB frame is published");
         }
         hypha::SpectrumComponent psb;
         psb.setAbsoluteObservation (false); psb.setSignalActive (true);
         psb.setPsbSnapshot (frame);
-        psb.setPairingLoopBlocked (post->analysisPairingLoopBlocked());
+        psb.setPairingLoopBlock (post->analysisPairingLoopBlock());
         require ((psb.psbStatusText() == "Loop Playback on: turn it off to compare") == expected,
                  "the PSB difference asks for loop playback off exactly when the uncertified host loops a range");
     }
+    // A real watchdog bounds a stuck worker; it does not decide the amount of audio supplied.
+    static constexpr int phaseTimeoutSeconds = 90;
+    const std::chrono::steady_clock::time_point phaseDeadline = hypha::tests::analysisPhaseDeadline (
+        std::chrono::steady_clock::now(), phaseTimeoutSeconds);
+    hypha::tests::ProductTestClock wallClock;
     int channels;
     int callbacks = 0;
     bool pairedWasValid = false;

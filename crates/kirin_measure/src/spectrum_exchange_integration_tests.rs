@@ -1,6 +1,20 @@
 use super::*;
 use std::thread;
 
+/// Upper bound for an eventual state produced by real worker threads. Each wait returns as soon as
+/// the state holds; the bound only catches a stalled worker. A virtual CI machine can stretch
+/// short sleeps tenfold, so the bound is not a performance budget.
+const EVENTUAL: Duration = Duration::from_secs(30);
+
+/// Sole producer, between blocks: wake the analysis worker and wait until it has completed (and
+/// published) every accepted block, instead of sleeping and hoping its ring has room.
+fn await_worker(runtime: &SpectrumRuntime) {
+    assert!(
+        runtime.wait_for_input_for_test(EVENTUAL),
+        "analysis worker did not complete its accepted blocks"
+    );
+}
+
 fn push_stereo_pair_in_blocks(
     pre_runtime: &SpectrumRuntime,
     post_runtime: &SpectrumRuntime,
@@ -23,7 +37,8 @@ fn push_stereo_pair_in_blocks(
             2,
             Some(start as i64),
         ));
-        thread::sleep(Duration::from_millis(1));
+        await_worker(pre_runtime);
+        await_worker(post_runtime);
     }
 }
 
@@ -51,7 +66,8 @@ fn push_tone_pair_segment(
         assert!(pre_runtime.push_block_from_audio(&pre_samples, 2, Some(position)));
         assert!(post_runtime.push_block_from_audio(&post_samples, 2, Some(position)));
         position += frames as i64;
-        thread::sleep(Duration::from_millis(1));
+        await_worker(pre_runtime);
+        await_worker(post_runtime);
     }
 }
 
@@ -68,7 +84,7 @@ fn push_tone_segment(runtime: &SpectrumRuntime, start_frame: i64, end_frame: i64
         }
         assert!(runtime.push_block_from_audio(&samples, 2, Some(position)));
         position += frames as i64;
-        thread::sleep(Duration::from_millis(1));
+        await_worker(runtime);
     }
 }
 
@@ -80,7 +96,7 @@ fn unpaired_post_publishes_absolute_spectrum_without_inventing_a_difference() {
     assert!(coordinator.post_tick("post", None));
 
     push_tone_segment(&runtime, 0, 9_600, 1_000.0);
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + EVENTUAL;
     while Instant::now() < deadline
         && runtime
             .try_history()
@@ -131,7 +147,7 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
     }
     push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &pre_samples, &post_samples);
 
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + EVENTUAL;
     while Instant::now() < deadline
         && (pre_runtime
             .try_history()
@@ -206,7 +222,7 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
         1_000.0,
         1_000.0,
     );
-    let initial_deadline = Instant::now() + Duration::from_secs(2);
+    let initial_deadline = Instant::now() + EVENTUAL;
     while Instant::now() < initial_deadline
         && (pre_runtime
             .try_history()
@@ -233,7 +249,7 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
     // The two workers re-enter the earlier transport run one 1,600-sample cadence apart.
     push_tone_segment(&pre_runtime, 0, 9_600, 1_000.0);
     push_tone_segment(&post_runtime, 0, 8_000, 1_000.0);
-    let backwards_deadline = Instant::now() + Duration::from_secs(2);
+    let backwards_deadline = Instant::now() + EVENTUAL;
     while Instant::now() < backwards_deadline
         && (pre_runtime
             .try_history()
@@ -313,7 +329,7 @@ fn perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state() {
         1_000.0,
         6_000.0,
     );
-    let deadline = Instant::now() + Duration::from_secs(4);
+    let deadline = Instant::now() + EVENTUAL;
     while Instant::now() < deadline
         && (pre_runtime
             .try_perceptual_history()
@@ -406,7 +422,7 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
     }
     push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &pre_samples, &post_samples);
 
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + EVENTUAL;
     while Instant::now() < deadline
         && post.try_view().is_none_or(|view| {
             view.status != SpectrumViewStatus::Active || view.difference.is_none()
@@ -427,7 +443,7 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
     assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
 
     post.set_post_visible(false);
-    let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+    let cleanup_deadline = Instant::now() + EVENTUAL;
     while Instant::now() < cleanup_deadline
         && (request_path(&pre_dir).exists() || pre_runtime.is_enabled())
     {

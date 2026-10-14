@@ -21,7 +21,7 @@ inline void verifyAbsoluteAnalysisHelp()
         observatory::ObservationTarget::delta).help;
     require (! live.containsIgnoreCase ("latency") && ! page.containsIgnoreCase ("latency"),
              "absolute LIVE help must not require output latency");
-    require (analysis_ui::sharpnessDeltaTooltip().contains ("output latency"),
+    require (analysis_ui::sharpnessDeltaTooltip().contains ("matching PRE/POST timing"),
              "Sharpness Delta must keep its timing requirement");
     int cases = 0;
     for (const auto size : { observatory::sizePresets[0], observatory::sizePresets[1],
@@ -43,7 +43,7 @@ inline void verifyAbsoluteAnalysisHelp()
         const auto absolutePsb = spectrum.getTooltip();
         require (! absolutePsb.containsIgnoreCase ("latency"), "absolute PSB help needs no latency");
         spectrum.setAbsoluteObservation (false);
-        require (spectrum.getTooltip().contains ("output latency"), "Delta PSB must retain its timing requirement on target change");
+        require (spectrum.getTooltip().contains ("matching PRE/POST timing"), "Delta PSB must retain its timing requirement on target change");
         const auto deltaPsb = spectrum.getTooltip();
         spectrum.setAbsoluteObservation (true);
         require (spectrum.getTooltip() == absolutePsb, "PSB help must follow the current target");

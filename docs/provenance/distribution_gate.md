@@ -167,3 +167,50 @@ The accepted Stage3 audit and detailed private evidence remain outside public co
 contain only the bounded policy, attribution and gate implementation. No competitor records or
 historical commits are removed. High-risk provenance or active credential findings stop ordinary
 work and keep the implementation Freeze in place.
+
+### 2026-10-13 native storage guard build-contract review
+
+The implementation review compared the uncommitted CMake change with
+`a19e2133f33f6315e901a1b1c758cd08ffb4bbea`. It extracts the existing native-test
+storage environment setup into `NativeStorageGuard.cmake` and adds read-only CTest
+setup/cleanup checks plus disposable guard tests. The module only registers tests
+and their properties; it adds no product sources, links, fonts or embedded resources.
+The embedded resource/font declaration is byte-identical and the three embedded PNG
+hashes still match the registry. Only the build-contract hash is updated to
+`0863d612d4f14eeee7939866362725dd8a10a08614313f155adb3aebc7541c1a`. Asset permissions, holds and release gates retain their prior decisions.
+This source review does not claim independent review or release acceptance.
+
+### 2026-10-13 native callback clock build-contract review
+
+The implementation review compared the complete CMake difference with the checkout base.
+Removing the single `ProductTestClock.cmake` include restores the exact base bytes. That module
+compiles existing processor sources into a separate native-test library, links a separate
+fixture Rust archive and registers clock tests. Its resource dependency reuses the existing
+`KirinHyphaData`; it adds no embedded images, fonts or resource declarations. The embedded
+source inventory and all three PNG hashes still match the registry. The reviewed CMake hash is
+`2a5a89aedc32944b58a07cc6f58fa7ce0f17b3b8c27bfdbdb87924c078f021bd`. Only the registry build-contract hash changes; asset
+permissions, holds and distribution gates retain their prior decisions. This bounded source
+review does not claim independent review, new material rights or release acceptance.
+
+### Native test compilation sharing build-contract review
+
+The implementation review compared the CMake change with its base: removing the two new
+`NativeTestLibraries.cmake` and `NativeTestTargets.cmake` includes restores the exact base bytes.
+The former moves existing native test translation units into static libraries partitioned by
+compile context; the latter creates aggregate build dependencies. Shipping source lists,
+resource declarations and optional font selection are unchanged. Both modules reuse existing
+`KirinHyphaData` and introduce no embedded inputs. The three embedded PNG hashes still match
+the registry. The reviewed CMake hash is
+`15754d41be3a78dbaa7a6c73d424fbeed21f0a830c5903d7ce574c8adde24e5e`. Only the registry build-contract hash advances;
+material hashes, permissions, holds and release gates keep their existing decisions. This
+implementation review does not claim independent review or release acceptance.
+
+### 2026-10-13 persistent MATCH request build-contract review
+
+Removing the added `PluginProcessorLiveMatchRequest.cpp` source entry restores the exact
+checkout-base CMake bytes. This source owns a message-thread MATCH request across editor
+closure; it adds no assets, fonts, resources or external dependencies. The embedded inventory
+and every listed material hash still match the registry. The reviewed CMake hash is
+`7bcec36e0ae3a35449a504e79c7dd8b974ecce9402c52ad7ab45dce6b3af9320`. Only the build-contract hash changes; material permissions, holds and release
+gates retain their existing decisions. This implementation review does not claim independent
+review or release acceptance.

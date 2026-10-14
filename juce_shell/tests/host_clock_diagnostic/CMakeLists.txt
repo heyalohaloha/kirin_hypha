@@ -6,6 +6,27 @@ if(NOT DEFINED HYPHA_DIAGNOSTIC_JUCE_ROOT)
     message(FATAL_ERROR "Explicit verified patched JUCE source is required")
 endif()
 add_subdirectory("${HYPHA_DIAGNOSTIC_JUCE_ROOT}" JUCE)
+foreach(kind IN ITEMS Source Delay)
+    if(kind STREQUAL "Source")
+        set(trace_code Khts)
+        set(trace_source 1)
+    else()
+        set(trace_code Khtd)
+        set(trace_source 0)
+    endif()
+    juce_add_plugin(HyphaChainTrace${kind}
+        PLUGIN_MANUFACTURER_CODE Kirn PLUGIN_CODE ${trace_code} FORMATS VST3
+        PRODUCT_NAME "Kirin Chain Trace ${kind} - Not Product"
+        COMPANY_NAME Kirin BUNDLE_ID com.kirinmastering.chaintrace.${kind}
+        VST3_CATEGORIES Fx Tools IS_SYNTH FALSE NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE IS_MIDI_EFFECT FALSE COPY_PLUGIN_AFTER_BUILD FALSE)
+    target_sources(HyphaChainTrace${kind} PRIVATE ChainTraceFixture.cpp)
+    target_compile_definitions(HyphaChainTrace${kind} PUBLIC
+        KIRIN_CHAIN_TRACE_SOURCE=${trace_source} JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0 NOMINMAX=1)
+    target_link_libraries(HyphaChainTrace${kind} PRIVATE juce::juce_audio_processors
+        juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+endforeach()
 set(HYPHA_DIAGNOSTIC_AAX_SDK "" CACHE PATH "External licensed AAX SDK; diagnostics only")
 option(HYPHA_DIAGNOSTIC_AAX_LICENSE_CONFIRMED "Confirm external SDK license for diagnostic build" OFF)
 if(HYPHA_DIAGNOSTIC_AAX_SDK)

@@ -254,7 +254,11 @@ fn chain_timing_is_display_only_and_adds_no_clock_reading() {
 #[test]
 fn preparation_uses_the_existing_low_rate_service_timer() {
     let service = include_str!("../../juce_shell/src/PluginProcessorService.cpp");
-    assert!(service.contains("idleTiming ? 250 : 50"));
+    assert!(service.contains("idleTiming && !nativeHostContext.reaper.monitoring() ? 250 : 50"));
+    assert!(
+        function_body(service, "void KirinHyphaProcessorBase::timerCallback()")
+            .contains("nativeHostContext.reaper.service (")
+    );
     assert!(!PREPARATION_H.contains("Timer") && !TIMING_H.contains("Timer"));
     let observer = function_body(TIMING_H, "TimingEvidence observe (");
     assert!(observer.contains("! post.loop.active"));
@@ -297,10 +301,10 @@ fn synthetic_clock_policy_and_first_loop_are_portable_not_diagnostic_side_effect
     assert!(timing.contains("LiveTimingFixtureAccess::initialObservationRequested (*post)"));
     assert!(!timing.contains("#if defined (KIRIN_HYPHA_TIMING_PRODUCT_DIAGNOSTIC)"));
     assert!(fixture.contains("hypha::live_compare_clock_policy::classify ("));
-    assert!(fixture.contains("\"Studio Pro\", \"8.1.2.113407\", 48000"));
-    assert!(fixture.contains(
-        "certificate.authority != hypha::live_compare::ClockAuthority::certifiedContent"
-    ));
+    assert!(fixture.contains("configureVst3Clock (processor, \"Studio Pro\", \"8.1.2.113407\")"));
+    assert!(
+        fixture.contains("! hypha::live_compare::certifiedVst3Analysis (certificate.authority)")
+    );
     assert!(fixture.contains("processor.liveCompare.blind.command()"));
     assert!(cmake.contains("add_test(NAME kirin_live_initial_loop_product"));
     let start = cmake

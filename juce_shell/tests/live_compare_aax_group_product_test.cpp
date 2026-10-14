@@ -1,9 +1,10 @@
+#include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "ExactPcmOracle.h"
-
+#include "TestProcessorStorage.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -115,7 +116,7 @@ private:
         instance->setPlayHead (&clock);
         instance->setNonRealtime (false);
         instance->kirinHostInstanceGroup (group, true); // as the AAX wrapper does before prepare
-        instance->prepareToPlay (48000, blockFrames);
+        hypha::tests::prepareFixtureProcessor (*instance, 48000, blockFrames);
         return instance;
     }
 
@@ -143,7 +144,7 @@ private:
     // Discovery lists every PRE; the test chooses one by its identity, as the pair menu does.
     bool pairWith (Processor& pre)
     {
-        if (pre.instanceId().isEmpty()) return false;
+        if (! hypha::tests::fixtureStorageReady (pre) || ! hypha::tests::fixtureStorageReady (*post)) return false;
         if (! preview) preview = post->createPairPreview();
         if (std::chrono::steady_clock::now() - requestedAt >= std::chrono::milliseconds (1050)
             && hypha::pair_preview::request (preview))
@@ -240,6 +241,7 @@ private:
 
     void processAudio()
     {
+        hypha::tests::ProductTestClock wallClock;
         juce::AudioBuffer<float> buffer (1, blockFrames), spare (1, blockFrames);
         juce::MidiBuffer midi;
         auto next = std::chrono::steady_clock::now();
@@ -274,12 +276,12 @@ private:
             }
             if (clock.playing) clock.position += blockFrames;
             next += std::chrono::nanoseconds (static_cast<long long> (blockFrames) * 1'000'000'000 / 48000);
+            wallClock.advanceBlock (blockFrames, 48000);
             std::this_thread::sleep_until (next);
         }
     }
 
-    // A host block of 4096 frames (85 ms), as in the other live product tests: the callback-gap rule
-    // then tolerates test-machine stalls up to 213 ms.
+    // Preserve the established 4096-frame host format. The test clock defines callback cadence.
     static constexpr int blockFrames = 4096;
     Clock clock;
     std::unique_ptr<Processor> preTrack, preLeft, preRight, post, postRight;

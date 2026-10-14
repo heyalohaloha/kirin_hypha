@@ -5,6 +5,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaTextStyle.h"
+#include "HyphaFooterNoticeFont.h"
 
 #include <cmath>
 #include <utility>
@@ -13,11 +14,6 @@ namespace hypha::observatory
 {
 namespace
 {
-juce::Rectangle<int> toJuce (Rect value)
-{
-    return { value.x, value.y, value.width, value.height };
-}
-
 void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 ExperienceFamily family, float corner)
 {
@@ -124,7 +120,10 @@ void View::placeFooterButtons (const juce::Array<juce::Button*>& visible,
 
 int View::statusStripHeight() const
 {
-    return juce::roundToInt (monoFont (presentationContext(), typography::TextRole::status).getHeight()) + 5;
+    const auto context = presentationContext();
+    const int minimum = juce::roundToInt (monoFont (context, typography::TextRole::status).getHeight()) + 5;
+    return feedbackText.isEmpty() ? minimum : juce::jmax (minimum,
+        footer_notice_font::wrappedHeight (context, feedbackText, bodyArea.getWidth() - 12) + 6);
 }
 
 juce::String View::footerStatusText() const
@@ -144,9 +143,9 @@ juce::String View::footerStatusText() const
     return measurementOnlySurround ? juce::String ("5.1 MEASURE") : juce::String ("LIVE");
 }
 
-void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
+void View::paintFooter (juce::Graphics& g, const ShellLayout&)
 {
-    drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
+    drawPanel (g, footerArea, experienceFamily(), 4.0f);
     auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
     const auto state = footerStatusText();

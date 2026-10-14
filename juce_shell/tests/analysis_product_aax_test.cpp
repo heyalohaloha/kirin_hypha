@@ -104,7 +104,7 @@ void loop (Fixture& fixture)
                              && status.verdict == hypha::live_compare::Verdict::accepted; },
                    "LISTEN plays PRE through a looped range on a regular Pro Tools build");
     fixture.throughout (400, [&] { const auto status = fixture.post->liveCompareStatus();
-                                   return status.preAudible && ! status.contentHeld && ! status.loopBlocksPairing; },
+                                   return status.preAudible && ! status.contentHeld && status.loopBlock == hypha::live_compare::LoopPairingBlock::none; },
                         "PRE stays audible across the loop wraps without a hold or loop guidance");
     fixture.post->stopLiveCompare();
     fixture.loopPlayback (false);
