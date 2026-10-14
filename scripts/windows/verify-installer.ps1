@@ -18,6 +18,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/installer_qualification.ps1"
 
 function Resolve-RequiredFile([string]$Value, [string]$Label) {
   $resolved = Resolve-Path -LiteralPath $Value -ErrorAction SilentlyContinue
@@ -178,6 +179,24 @@ $uninstallRoot = if ($withAax) {
 } else {
   Join-Path $env:LOCALAPPDATA "Programs\Kirin Mastering\Kirin Hypha"
 }
+function Verify-InstalledLegalDelivery {
+  if ($null -eq $manifestData.legalDelivery) {
+    if ($Signing -eq 'signed') { throw 'Signed installer legal delivery evidence is missing' }
+    return
+  }
+  $legalRoot = Join-Path $uninstallRoot 'Legal'
+  $actual = Get-Content (Join-Path $legalRoot 'legal-delivery.json') -Raw | ConvertFrom-Json
+  if ($actual.commit -ne $manifestData.source.commit -or
+      $actual.sourceSha256 -ne $manifestData.legalDelivery.sourceSha256) {
+    throw 'Installed Corresponding Source identity differs from installer'
+  }
+  foreach ($entry in $manifestData.legalDelivery.files) {
+    $file = Join-Path $legalRoot $entry.path
+    if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Sha256 $file) -ne $entry.sha256) {
+      throw "Installed notice/license/source pointer differs: $($entry.path)"
+    }
+  }
+}
 $aaxRoot = Join-Path $env:CommonProgramFiles "Avid\Audio\Plug-Ins"
 $preBundle = Join-Path $vst3Root "Kirin Hypha PRE.vst3"
 $postBundle = Join-Path $vst3Root "Kirin Hypha POST.vst3"
@@ -185,11 +204,8 @@ $preAaxBundle = Join-Path $aaxRoot "Kirin Hypha PRE.aaxplugin"
 $postAaxBundle = Join-Path $aaxRoot "Kirin Hypha POST.aaxplugin"
 $resolvedWraptool = if ($withAax) { Resolve-AaxWraptool $AaxWraptool } else { "" }
 
-if ((Test-Path -LiteralPath $preBundle) -or (Test-Path -LiteralPath $postBundle) -or
-    ($withAax -and ((Test-Path -LiteralPath $preAaxBundle) -or (Test-Path -LiteralPath $postAaxBundle))) -or
-    (Test-Path -LiteralPath $uninstallRoot) -or @(Find-HyphaUninstallEntries).Count -ne 0) {
-  throw "Refusing installer verification because Kirin Hypha is already installed for this runner"
-}
+. "$PSScriptRoot/installer_environment.ps1"
+Assert-HyphaInstallerEnvironment | Out-Null
 
 New-Item -ItemType Directory -Force -Path $vst3Root | Out-Null
 $sentinel = Join-Path $vst3Root ("kirin-hypha-preserve-" + [Guid]::NewGuid().ToString("N") + ".txt")
@@ -236,6 +252,7 @@ try {
       $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool)
     }
     $uninstallerPath = Resolve-HyphaUninstaller $uninstallRoot
+    Verify-InstalledLegalDelivery
     if ($installPass -eq 2) { $records += $passRecords }
   }
 
@@ -270,36 +287,7 @@ try {
   if ((Get-Sha256 $installerPath) -ne $expectedInstallerHash) {
     throw "Installer no longer matches its build manifest"
   }
-  $manifestData.signing.status = if ($Signing -eq "signed") { "valid" } else { "verified_unsigned_ci_candidate" }
-  $manifestData.signing | Add-Member -NotePropertyName verification -NotePropertyValue ([ordered]@{
-    method = "Get-AuthenticodeSignature after repeat install"
-    targets = $records
-  }) -Force
-  $manifestData.ci_validation.status = "passed"
-  $manifestData.ci_validation | Add-Member -NotePropertyName verified_at -NotePropertyValue ((Get-Date).ToUniversalTime().ToString("o")) -Force
-  $facts = @(
-    $(if ($withAax) { "all-users silent install passed" } else { "per-user silent install passed" }),
-    $(if ($null -ne $previousInstallerPath) { "upgrade from $previousVersion passed" }),
-    "same-version repeat install passed",
-    "installed PRE/POST hashes match packaged payload",
-    $(if ($withAax) { "installed PRE/POST AAX passed Authenticode and PACE verification" }),
-    "silent uninstall removed both owned bundles",
-    "unrelated VST3 sentinel survived uninstall",
-    $(if ($withAax) { "unrelated AAX sentinel survived uninstall" }),
-    "uninstall registry entry was removed"
-  ) | Where-Object { $null -ne $_ }
-  $manifestData.ci_validation | Add-Member -NotePropertyName facts -NotePropertyValue $facts -Force
-  if ($null -ne $previousInstallerPath) {
-    $manifestData.ci_validation | Add-Member -NotePropertyName prior_public_upgrade -NotePropertyValue ([ordered]@{
-      installer = [System.IO.Path]::GetFileName($previousInstallerPath)
-      version = $previousVersion
-      status = "passed"
-    }) -Force
-  }
-  $manifestData.distribution.public_ready = (
-    $Signing -eq "signed" -and $manifestData.external_validation.status -eq "complete"
-  )
-  $manifestData | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+  Write-HyphaInstallerQualification $manifestData $manifestPath $Signing $records $withAax $previousInstallerPath $previousVersion
   Write-Host "[hypha-installer] repeat install/uninstall verification passed"
 } finally {
   if ($null -ne $uninstallerPath -and (Test-Path -LiteralPath $uninstallerPath -PathType Leaf)) {

@@ -16,6 +16,11 @@ KIMERA_LICENSE_CONFIRMED=0
 DEFAULT_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool"
 FALLBACK_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool"
 NOTARY_PROFILE="${KIRIN_NOTARY_PROFILE:-kirin-notarize}"
+BUILD_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
+if [[ ! "$BUILD_JOBS" =~ ^[1-9][0-9]?$ ]] || (( BUILD_JOBS > 64 )); then
+  echo "ERROR: CMAKE_BUILD_PARALLEL_LEVEL must be an integer from 1 to 64" >&2
+  exit 1
+fi
 export KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT="${KIRIN_HYPHA_UPDATE_PUBLIC_KEY:-}"
 node scripts/updates/update_key_binding.mjs key >/dev/null
 
@@ -33,6 +38,8 @@ Options:
   --kimera-font PATH     Licensed KMR Waldenburg Book OTF kept outside the repository
   --kimera-license-confirmed
                          Confirm the font is covered by the Kirin Hypha App License
+
+Build environment: CMAKE_BUILD_PARALLEL_LEVEL (1..64, default 2), CARGO_BUILD_JOBS.
 
 Signing environment (required with --sign or --diagnostic-sign):
   KIRIN_AAX_PACE_ACCOUNT       Optional account ID; passed to wraptool when set
@@ -205,6 +212,9 @@ if [[ "$SIGN_OUTPUT" == 1 ]]; then
 fi
 
 echo "==> build kirin_hypha_ffi for both Apple architectures"
+if [[ "$SIGN_OUTPUT" == 1 ]]; then
+  run node scripts/provenance/runtime_guard.mjs
+fi
 run cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin --locked
 run cargo build --release -p kirin_hypha_ffi --target aarch64-apple-darwin --locked
 
@@ -243,7 +253,7 @@ for role in PRE POST; do
 done
 run cmake -E rm -f build-aax-universal/kirin-hypha-macos-aax-notarization.json
 run cmake --build build-aax-universal --config Release \
-  --target KirinHyphaPRE_AAX KirinHyphaPOST_AAX --parallel 2
+  --target KirinHyphaPRE_AAX KirinHyphaPOST_AAX --parallel "$BUILD_JOBS"
 
 for role in PRE POST; do
   bundle="build-aax-universal/KirinHypha${role}_artefacts/Release/AAX/Kirin Hypha ${role}.aaxplugin"

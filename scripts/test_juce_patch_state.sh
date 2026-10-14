@@ -25,5 +25,26 @@ for shell in "${SHELLS[@]}"; do
   count="$("$shell" scripts/verify_juce_patch_state.sh --applied-count)"
   [[ "$count" == "0" || "$count" == "$PATCHES" ]] \
     || { echo "error: $shell counted $count of $PATCHES patches on the submodule" >&2; exit 1; }
+  # Sparse expected-tree reconstruction must retain every rejection of the full-tree guard.
+  target="modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h"
+  printf '\nfixture tamper\n' >> "$tmp/JUCE/$target"
+  if KIRIN_JUCE_DIR="$tmp/JUCE" "$shell" scripts/verify_juce_patch_state.sh --applied-count >/dev/null 2>&1; then
+    echo "error: $shell accepted altered patch target" >&2; exit 1
+  fi
+  git -C "$tmp/JUCE" add "$target"
+  if KIRIN_JUCE_DIR="$tmp/JUCE" "$shell" scripts/verify_juce_patch_state.sh --applied-count >/dev/null 2>&1; then
+    echo "error: $shell accepted staged changes" >&2; exit 1
+  fi
+  git -C "$tmp/JUCE" restore --staged --worktree -- "$target"
+  printf 'fixture\n' > "$tmp/JUCE/fixture-untracked.txt"
+  if KIRIN_JUCE_DIR="$tmp/JUCE" "$shell" scripts/verify_juce_patch_state.sh --applied-count >/dev/null 2>&1; then
+    echo "error: $shell accepted untracked file" >&2; exit 1
+  fi
+  rm "$tmp/JUCE/fixture-untracked.txt"
+  printf '\nfixture tamper\n' >> "$tmp/JUCE/LICENSE.md"
+  if KIRIN_JUCE_DIR="$tmp/JUCE" "$shell" scripts/verify_juce_patch_state.sh --applied-count >/dev/null 2>&1; then
+    echo "error: $shell accepted unrelated tracked changes" >&2; exit 1
+  fi
+  git -C "$tmp/JUCE" restore --worktree -- LICENSE.md
 done
 echo "JUCE patch state test: PASS (${SHELLS[*]})"

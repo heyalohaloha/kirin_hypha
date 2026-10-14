@@ -44,6 +44,7 @@ function run(args, env = {}) {
         KIRIN_AAX_PACE_CUSTOMER_NAME: '',
         KIRIN_AAX_APPLE_SIGN_IDENTITY: '',
         KIRIN_AAX_WRAPTOOL: '',
+        CMAKE_BUILD_PARALLEL_LEVEL: '',
         ...env,
       },
     });
@@ -83,7 +84,25 @@ try {
   assert.match(result.output, /KIRIN_HYPHA_REQUIRE_AAX=ON/);
   assert.match(result.output, /--target aarch64-apple-darwin/);
   assert.match(result.output, /--target x86_64-apple-darwin/);
+  assert.match(result.output, /--parallel 2/);
+
+  result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run'],
+    { CMAKE_BUILD_PARALLEL_LEVEL: '1' });
+  assert.equal(result.status, 0);
+  assert.match(result.output, /--parallel 1/);
+  result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run'],
+    { CMAKE_BUILD_PARALLEL_LEVEL: '64' });
+  assert.equal(result.status, 0);
+  assert.match(result.output, /--parallel 64/);
+  for (const jobs of ['0', '-1', '1.5', '65', '18446744073709551617', 'unlimited']) {
+    result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run'],
+      { CMAKE_BUILD_PARALLEL_LEVEL: jobs });
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /CMAKE_BUILD_PARALLEL_LEVEL must be an integer/);
+    assert.doesNotMatch(result.output, /\+ cargo build/);
+  }
   assert.doesNotMatch(result.output, /wraptool/);
+  assert.doesNotMatch(result.output, /runtime_guard/);
 
   result = run([
     '--sdk', sdkRoot,
@@ -92,6 +111,7 @@ try {
     '--dry-run',
   ], signingEnv);
   assert.equal(result.status, 0);
+  assert.match(result.output, /runtime_guard/);
   assert.match(result.output, /\/fixture\/wraptool sign/);
   assert.match(result.output, /--account \\<redacted\\>/);
   assert.match(result.output, /--customernumber \\<redacted\\>/);

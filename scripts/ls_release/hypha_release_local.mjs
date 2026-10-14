@@ -7,6 +7,8 @@ import { requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
 import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
 import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
+import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
+import { verifyFactoryDelivery } from '../provenance/factory_artifact.mjs';
 
 export function macBundles(state, aax = false) {
   return (aax ? loadMacAaxBundleManifest({ root: state.root })
@@ -39,6 +41,7 @@ export async function verifyMac(state, run, aax = false) {
 }
 
 export async function produceMac(state, run, aax = false) {
+  await run('node', ['scripts/provenance/runtime_guard.mjs']);
   // An interrupted or foreign signed product must never be erased by a producer on resume.
   for (const bundle of macBundles(state, aax)) {
     if (fs.existsSync(path.join(bundle.sourcePath, 'Contents/_CodeSignature'))) {
@@ -63,14 +66,17 @@ export async function verifyCi(state, run) {
   const base = 'repos/heyalohaloha/kirin_hypha/actions/runs';
   const record = JSON.parse(await run('gh', ['api', `${base}/${id}`], { capture: true }));
   if (record.head_sha !== state.candidate.commit || record.status !== 'completed'
-      || record.conclusion !== 'success' || record.path !== '.github/workflows/ci.yml') {
+      || record.conclusion !== 'success' || record.path !== '.github/workflows/ci.yml'
+      || record.name !== 'CI' || !['push', 'workflow_dispatch'].includes(record.event)
+      || record.head_repository?.full_name !== 'heyalohaloha/kirin_hypha') {
     throw new Checkpoint('CI is not a successful exact-commit ci.yml run');
   }
   const pages = JSON.parse(await run('gh', ['api', `${base}/${id}/jobs?per_page=100`], { capture: true }));
   for (const name of ['public history identity', 'release source contract (macos)',
     'auval arm64 (AU validation)', 'windows VST3 preflight']) {
-    const job = pages.jobs?.find(j => j.name === name);
-    if (!job || job.conclusion !== 'success') throw new Checkpoint(`Required CI job is not green: ${name}`);
+    const matches = pages.jobs?.filter(j => j.name === name) || [];
+    const job = matches[0];
+    if (matches.length !== 1 || job.status !== 'completed' || job.conclusion !== 'success') throw new Checkpoint(`Required CI job is not green: ${name}`);
   }
   return { runId: id, headSha: record.head_sha, workflow: record.path };
 }
@@ -81,18 +87,16 @@ export async function verifyWindows(state, run) {
     version: state.candidate.version, commit: state.candidate.commit, bNumber: state.candidate.bNumber,
   }, { requireAax: true, updatePublicKey: state.inputs.updatePublicKey || '' });
   const manifest = readJson(`${installer}.json`);
+  const sourceHash = state.stages['source-delivery']?.facts?.[0]?.sha256;
+  if (!sourceHash || manifest.legalDelivery?.sourceSha256 !== sourceHash
+      || manifest.legalDelivery?.commit !== state.candidate.commit) {
+    throw new Error('Windows and macOS must deliver the same exact Corresponding Source archive');
+  }
   const sourceRun = manifest.source.github_actions_run.split('/').at(-1);
   if (sourceRun !== String(state.inputs.ciRun)) throw new Error('Windows source CI differs from the pinned CI run');
-  const signingUrl = new URL(manifest.signing.workflow_run);
-  const parts = signingUrl.pathname.split('/').filter(Boolean);
-  const factoryRun = JSON.parse(await run('gh', ['api',
-    `repos/${parts[0]}/${parts[1]}/actions/runs/${parts.at(-1)}`], { capture: true }));
-  if (factoryRun.status !== 'completed' || factoryRun.conclusion !== 'success'
-      || factoryRun.path !== '.github/workflows/hypha-windows-signing.yml') {
-    throw new Error('Windows signing/promotion workflow is not green');
-  }
+  const factoryFacts = await verifyFactoryDelivery(state, run, manifest, path.dirname(installer));
   return [installer, `${installer}.sha256`, `${installer}.json`,
-    path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact);
+    path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact).concat(factoryFacts);
 }
 
 export function artifactPaths(state) {
@@ -141,12 +145,16 @@ export function verifyPackages(state) {
 }
 
 export async function packageAll(state, run) {
+  const legalDir = state.stages['source-delivery']?.evidence?.legalDir;
+  if (!legalDir) throw new Checkpoint('Verified source/legal delivery stage required before packaging');
+  verifyLegalDelivery(legalDir, state.candidate.commit);
   if (artifactPaths(state).slice(0, 6).some(fs.existsSync)) {
     throw new Checkpoint('Existing package bytes must be qualified/imported, never overwritten by an automatic retry');
   }
   await run('node', ['scripts/ls_release/build_kirin_hypha_release_set.mjs', '--with-aax',
     '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)],
-    { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '' } });
+    { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '',
+      KIRIN_HYPHA_LEGAL_DIR: legalDir } });
   return verifyPackages(state);
 }
 

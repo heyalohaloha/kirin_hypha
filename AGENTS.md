@@ -24,10 +24,11 @@ Hyphaの公開リリースは、以下の3チャネルを同じバージョン�
 
 1. Lemon Squeezy: signed / notarized済みmacOS Universal `.pkg`
 2. HP無料配布: signed / notarized済みmacOS Universal `.zip` + GitHub Release + 英日HPリンク
-3. Windows: 同一コミットのgreenな`windows-latest` CI artifactから作る、PRE/POST同梱・
+3. Windows: 同一コミットのgreenな公開CIと、審査済みprivate factoryの`windows-latest`未署名producerを結ぶ、PRE/POST同梱・
    Authenticode署名済みInno Setup `.exe`（payload / installer / uninstallerの全署名と
    install → 同版再install → 旧公開版からのupgrade → uninstall検証がgreenであること）。
-   手動VST3 `.zip`は診断・復旧用fallbackのみ
+   signed candidateを実機検証後に同じ審査済みfactoryでpromotionし、signed-full全体の出どころを照合する。
+   保留中の公開CI binary uploadを正式producerの代用にしない。手動VST3 `.zip`は診断・復旧用fallbackのみ
 
 Windows版を暗黙に外すこと、macOSだけを先に公開してリリース完了とすることは禁止。
 同一コミットの署名済みWindows installer artifactが無い、CI / pluginval / installer実動検証が未完了、

@@ -17,7 +17,7 @@ const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, byte) => {
 });
 
 function fail(message) { throw new Error(`Source ZIP: ${message}`); }
-function crc32(bytes) {
+export function crc32(bytes) {
   let value = 0xffffffff;
   for (const byte of bytes) value = (value >>> 8) ^ CRC_TABLE[(value ^ byte) & 0xff];
   return (value ^ 0xffffffff) >>> 0;

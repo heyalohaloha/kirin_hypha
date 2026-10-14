@@ -103,7 +103,10 @@ trap cleanup EXIT
 
 expected_tree="$tmp_dir/expected"
 mkdir -p "$expected_tree"
-git -C "$JUCE_DIR" checkout-index -a --prefix="$expected_tree/"
+# The full tracked tree is checked above for staged, untracked or unexpected dirty files.
+# Reconstruct only the seven allowed patch targets; copying all JUCE files adds I/O without
+# strengthening the byte comparison below.
+git -C "$JUCE_DIR" checkout-index --prefix="$expected_tree/" -- "${EXPECTED_FILES[@]}"
 
 apply_to_expected() {
   local patch="${1%%::*}"

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createSigningAttempt, finishSigningAttempt } from './signing_recovery.mjs';
 import { batchSign } from './sign-codesigntool.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -35,6 +36,9 @@ export async function signInnoFile(inputFile, options = {}) {
   const original = path.resolve(inputFile);
   const unsigned = readPe(original, 'Inno signing input');
   const mode = fs.statSync(original).mode;
+  const recoveryRoot = options.recoveryRoot || process.env.KIRIN_ESIGNER_RECOVERY_DIR || path.join(path.dirname(original), 'signing-recovery');
+  const attempt = createSigningAttempt(recoveryRoot, path.extname(original).toLowerCase() === '.tmp' ? 'inno-uninstaller' : 'inno-installer');
+  let completed = false;
   const staging = fs.mkdtempSync(path.join(path.dirname(original), 'kirin-inno-sign-'));
   try {
     const inputDir = path.join(staging, 'input');
@@ -44,7 +48,7 @@ export async function signInnoFile(inputFile, options = {}) {
     const name = path.extname(original).toLowerCase() === '.tmp'
       ? 'uninstaller.exe' : path.basename(original);
     fs.writeFileSync(path.join(inputDir, name), unsigned);
-    const { signer = batchSign, ...signingOptions } = options;
+    const { signer = batchSign, recoveryRoot: _recoveryRoot, ...signingOptions } = options;
     await signer(inputDir, outputDir, signingOptions);
     const output = path.join(outputDir, name);
     const signed = readPe(output, 'Signed Inno output');
@@ -56,10 +60,19 @@ export async function signInnoFile(inputFile, options = {}) {
     }
     fs.chmodSync(output, mode);
     // Same-filesystem rename avoids truncating the original on a failed copy.
+    fs.copyFileSync(output, path.join(attempt.directory, name));
     fs.renameSync(output, original);
+    completed = true;
     return original;
   } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
+    let preserved = false;
+    try {
+      if (!completed) fs.cpSync(staging, path.join(attempt.directory, 'staging'), { recursive: true, errorOnExist: true, force: false });
+      finishSigningAttempt(attempt, completed ? 'completed' : 'failed-or-uncertain');
+      preserved = true;
+    } finally {
+      if (preserved) fs.rmSync(staging, { recursive: true, force: true });
+    }
   }
 }
 

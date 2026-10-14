@@ -61,10 +61,15 @@ node scripts/build_hypha.mjs --release --init \
   --sdk /external/licensed/aax-sdk --license-confirmed \
   --ci-run GREEN_EXACT_COMMIT_RUN_ID \
   --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full \
+  --windows-factory-repository REVIEWED_FACTORY_OWNER/REPOSITORY \
+  --windows-factory-commit REVIEWED_FACTORY_FULL_SHA \
+  --windows-promotion-run QUALIFIED_PROMOTION_RUN_ID \
+  --windows-artifact-archive /retained/signed-full-artifact.zip \
   --hp-root /absolute/path/to/kirin_hp \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
   --provenance-report release_state/distribution-provenance.json \
+  --source-archive /retained/private-windows-producer/Kirin-Hypha-X.Y.Z-Corresponding-Source.zip \
   --date YYYY-MM-DD
 
 # planのみ。build / 署名 / CI / 公開 / HP変更は実行しない。
@@ -83,20 +88,53 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 script作成の依頼や`--execute`だけを、個別candidateの公開承認に読み替えない。
 `--init`は既存profileを上書きしない。profile、商品target、管理URL、reportはignored `release_state/`内。
 秘密値はprofileへ入れず、Keychain／private factoryから渡す。
+Windowsのfactory repository/commit・promotion run・元artifact ZIPもprofileへ固定する。
+候補署名runとpromotion runの両方を審査済みfactoryへ結び、artifactのAPI digestと実ZIP、
+展開済みfile集合、元候補manifestを照合する。これらの入力が欠ける場合は製造前に止まる。
+candidateとsigned-fullは、distribution（A5）が通るまで期限内で保持する。
+windowsとdistributionで両artifactを再照合し、A5待ちからの再開も対象になる。
+期限の関門は[配布gate](provenance/distribution_gate.md)の4段に従う。
+順序は、公開CI → 同じ審査済みfactory commitでbuild_onlyとWindows AAX署名
+（PACE＋eSigner。最初の有料署名。2つの順は問わない）→ candidate署名（eSigner）→
+Windows実機検証 → promotion → coordinator（Macの署名・公証・PACE → windows →
+A3 freeze → A4 → A5）。Windows実機検証をA3と呼ばない。
 
-更新通知を組み込む候補だけは`--init --update-public-key KEY`で承認済みの公開鍵を固定する。
-鍵を組み込むcandidate IDにもdigestの短縮値を含め、同commit/版の別鍵へ公開承認を流用しない。
-省略時は空で更新確認を無効にする。RSA-2048/65537、2048-bitの奇数modulus、正規小文字表現を要求し、
-Mac両producerとWindows factoryの全formatを同じ鍵へ揃える。CMakeはconfigureごとの
+1. AAX署名の前（build_onlyが先ならその前）: 保存期間設定のGETと取得時刻、両workflowの
+   全uploadのretention-days、全工程で使う審査済みfactory commit、各工程の予定日と余裕、
+   AAXとcandidate両方の署名予算と署名機の空きを記録する。candidate署名をAAXとbuild_onlyの
+   各uploadから3日以内（余裕を引く）に置けない、またはA5をcandidate署名＋有効保存期間
+   （余裕を引く）より前に置けないなら署名しない。未生成のartifact IDや実期限は要求しない。
+2. candidate署名の前: 両入力artifactのrun/artifact ID・digest・expires_at・commitをGETし、
+   未失効、同じfactory commit、job時間を含む余裕を確かめる。保存期間設定、共有concurrency
+   groupの空き、candidateの予算も再確認する。未署名VST3だけが切れた場合はbuild_onlyを
+   やり直す。signed AAXが切れた場合は自動で再署名せず資格判断を取る。
+   candidateのupload直後に実run/artifact IDとexpires_atを記録する。
+3. promotionの後、coordinatorの`--execute`とMac工程の前: 両artifactの実ID・expires_at、
+   signed-fullの元ZIP digestと全tree、A3・A4・A5予定日を記録し、A5が早い方の期限に余裕を
+   残して収まるか確かめる。provenance-inputsは入力形式だけを確認し、API・ZIP照合は後の
+   windowsとdistributionで行う。この関門は担当者が閉じる。
+4. A4開始前とA5再開前: 両artifactの期限をGETし直す。A5に間に合わなければA4に進まない。
+
+署名済みAAXと未署名VST3は各3日、同run内の未署名AAXは1日で保持する。
+candidateとsigned-fullはupload時のrepo設定を使う。両workflowは同じconcurrency groupなので、
+前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
+
+Mac両producerとWindowsの全formatを同じ鍵へ揃える。ただし現在の正式なWindows経路は、
+鍵が空の候補だけを作る。factoryの未署名producerは鍵を空に固定し、Hypha側の取込も空以外を
+拒否する。AAX署名とinstaller署名のworkflowにも鍵の入力は無い。
+Windowsを含む公開では`--init --update-public-key`を使わない。鍵を有効にするには、
+Hypha側script・factoryの変更、trusted closureの更新と事前レビュー、新しいrunが先に要る。
+公開CIのdispatch入力`update_public_key`は公開CI自身の未署名buildにだけ効き、正式候補を作らない。
+各公開で鍵を使うかどうかは非公開のprofileに記録する。
+
+鍵を指定できる個別scriptの入力は、正式なWindows factoryが鍵入り候補を作れる根拠にはならない。
+省略時は空で更新確認を無効にする。指定する場合はRSA-2048/65537、2048-bitの奇数modulus、
+正規小文字表現を要求する。鍵を組み込むcandidate IDにはdigestの短縮値も含め、
+同commit/版の別鍵へ公開承認を流用しない。CMakeはconfigureごとの
 `KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT`だけを採用し、古いcacheを持ち越さない。
-正規shell producer/packagerへ直接渡す場合は`KIRIN_HYPHA_UPDATE_PUBLIC_KEY`、Windows AAX buildは
-`-UpdatePublicKey`、Windows installer producerは`--update-public-key`を使う。既定はいずれも空。
 公開鍵のSHA-256はbinary内marker、Mac plist、freeze、PKG/ZIP/EXE/AAX provenanceへ記録し、
-packaging後の実payload hashと照合する。空・異なる鍵・旧provenanceを、通知有効候補として受理しない。
-Mac Universalはfat tableのARM64/Intel各sliceを個別に検証し、markerと各slice hashを保持する。
-署名scriptの変更には既存private factoryのallowlist再レビューが必要。
-Windows CI候補も同じ公開鍵が必要な場合だけ、承認済みdispatchの`update_public_key`へ明示する。
-push/PRは空のまま。通知を有効にする署名済みcandidateは、鍵が空の古いCI payloadへ差し替えない。
+packaging後の実payload hashと照合する。空・異なる鍵・旧provenanceを通知有効候補として受理しない。
+Mac UniversalはARM64/Intel各sliceを個別に検証し、markerと各slice hashを保持する。
 本番鍵の所有・rotation承認、manifest endpointの公開/readback、exact binaryの実host受入は別のgate。
 
 release coordinatorはMacで動く。Windows build/署名は既存の承認済みfactoryが行い、
@@ -107,7 +145,7 @@ AUはApple専用。Windows x64を「Universal Binary」とは呼ばない。
 ## 自動化する部分と、人による確認
 
 署名・公証・配布・GitHub・HPのコマンド接続はscriptが行うが、実DAWの聴取試験を自動PASSにしない。
-`provenance-inputs`、`ci`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
+`provenance-inputs`、`ci`、`source-delivery`、`macos-au-vst3`、`macos-aax`、`windows`、`freeze`、`hosts`、`packages`、
 `provenance`、`distribution`、`ls`、`github`、`hp`、`postrelease`の順にreceiptを保存する。
 
 確認待ちは`CHECKPOINT`／exit 2。後段へは進まない。担当者は表示されたgateを確認し、
@@ -115,6 +153,7 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 
 - **CI / Windows**: exact commit、正しいworkflow、全必須job green、署名・pluginval・installer lifecycle・
   external validation・Native-only provenanceが必要。旧runは代用できない。
+- **Source / NOTICE**: `source-delivery`はcleanな採用source・承認済みJUCE bytes・依存sourceを検査し、対応source ZIPとlicense/NOTICEを準備する。Windows private factoryの未署名producerが作ったZIPを`--source-archive`で取り込み、Macでも全entryを照合して同じbytes/hashを使う。PKGの`Library/Application Support/Kirin Hypha/Legal`、ZIPの`Legal`、Windowsのインストール先`Kirin Mastering/Kirin Hypha/Legal`に同じsource配送情報を入れる。署名済みbundleは変更しない。source準備の成功はactual extraction/linkage reviewを代用しない。
 - **A4**: SDK/機器を含まないfixture結果で実host matrixを代用しない。ARM64 / Intelの各format、
   Windows両format、pair組合せ、LISTEN / Blind / Exact 4 S、通常透明性、保存、stress等を確認する。
 - **Provenance**: build/signing前に素材の用途を確認し、packaging後に実payloadのNOTICE・license・対応source配送を確認する。保持したprivate reportと実bytesを[配布gate](provenance/distribution_gate.md)で照合する。fixture PASSだけで配布readyにしない。

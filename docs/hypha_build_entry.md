@@ -5,6 +5,8 @@
 toolchainを用意した作業checkoutで、日常のGUI / DSP確認用なら次の1コマンド。
 MacはPRE/POST × AU/VST3 Universalの4本、WindowsはPRE/POST × VST3 x64の2本を作る。
 AAX SDK、署名認証、iLok USB / Cloud、公証、CI、公開操作は不要。
+公開CIと未署名診断buildはRust stableを使う。正式配布producerは、同梱するruntime通知に
+対応する固定版を製造前とfreeze時に照合する。診断buildの成功を正式配布のruntime証明としない。
 
 ```bash
 node scripts/build_hypha.mjs --without-aax
@@ -74,9 +76,14 @@ node scripts/build_hypha.mjs --verify-only
 ```
 
 別候補を分けるときは`--build-id name`、並列数は`--jobs N`。
+他のビルドと並行する場合は`CARGO_BUILD_JOBS=1`と`--jobs 1`を指定する。
+正式Mac producerも`CARGO_BUILD_JOBS=1 CMAKE_BUILD_PARALLEL_LEVEL=1`で並列数を制限できる。
+macOSでは外側を`taskpolicy -b -d throttle nice -n 15`で実行すると子processも低優先度になる。
 更新通知の鍵は`--update-public-key KEY`で明示する。既定は空で、以前のCMake cacheに鍵があっても
 毎configureで空へ戻す。承認済みRSA-2048/65537の正規公開鍵だけを受け付け、全role/formatの
 実binary内digestとMac plistを照合し、`hypha-build.json`へ記録する。鍵の違うmanifestは再利用しない。
+この個別buildの鍵入力は、正式なWindows候補を作れることを意味しない。現在の正式なWindows
+経路は空の鍵だけを受け付ける。Windowsを含む公開の制約は[release入口](hypha_release_entry.md)に従う。
 `--platform windows --dry-run`でMacからWindows用計画だけを確認できる。
 実ビルドは各OSで実行し、MacからWindows binaryを生成したとは報告しない。
 

@@ -253,7 +253,7 @@ mainへ合流した一つのrelease commitから、同じversionの三チャネ�
 
 1. Lemon Squeezy用の署名、公証済みmacOS Universal PKG。
 2. HP無料配布用の署名、公証済みmacOS Universal ZIP、GitHub Release、英日HPリンク。
-3. 同じcommitのgreenなWindows CI artifactから作るAuthenticode署名済みInno Setup EXE。
+3. Windows用は同一commitの公開CI合格と審査済みprivate未署名producerを結び、署名・実機検証・promotion後のsigned-fullにある署名済みInno Setup EXEを公開対象とする。現行の出どころ・期限確認は[公開runbook](ls_release/kirin_hypha_ls_runbook.md)に従う。
 
 WindowsはPREとPOST payload、installer、uninstallerの全署名を確認する。
 専用機で新規install、同版reinstall、v1.1.49からのupgrade、uninstallを実行し、DAW scanとPRE/POST読込を確認する。
