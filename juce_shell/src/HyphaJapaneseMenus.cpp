@@ -67,7 +67,6 @@ const Entry entries[] = {
 
     // Hypha information.
     { "Loaded v%1", u8"読み込んだ版：v%1" },
-    { "Official release identity not verified", u8"公式リリースであることを確認していません" },
     { "Update information and downloads (English)", u8"更新情報とダウンロード（英語）" },
     { "Release notes", u8"リリースノート" },
     { "Downloads (English)", u8"ダウンロード（英語）" },

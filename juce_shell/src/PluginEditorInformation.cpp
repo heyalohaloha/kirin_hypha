@@ -43,7 +43,6 @@ void KirinHyphaEditor::showInformationMenu()
                       + juce::SystemStats::getOperatingSystemName(), false);
     menu.addItem (3, juce::String ("Source ") + HYPHA_SOURCE_ID + " / "
                       + HYPHA_SOURCE_STATE, false);
-    menu.addItem (4, "Official release identity not verified", false);
     if (isPost)
     {
         // Read as the menu opens; a reading that is not measured states its reason instead.
