@@ -7,7 +7,6 @@ crates/kirin_hypha_ffi/src/attack_post_only_window_tests.rs	2
 crates/kirin_hypha_ffi/src/level_snapshot_ffi_tests.rs	5
 crates/kirin_hypha_ffi/src/meter_session_abi_tests.rs	3
 crates/kirin_hypha_ffi/src/pair_preview_service_tests.rs	1
-crates/kirin_hypha_ffi/src/spectrum_abi_tests.rs	1
 crates/kirin_hypha_ffi/tests/idle_keep_notice.rs	4
 crates/kirin_hypha_ffi/tests/measurement_pair_recovery.rs	2
 crates/kirin_hypha_ffi/tests/pairing_candidates.rs	4
