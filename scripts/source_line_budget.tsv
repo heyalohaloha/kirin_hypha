@@ -23,6 +23,6 @@ crates/kirin_measure/src/record_take.rs	1938
 crates/kirin_measure/src/record_writer.rs	7773
 crates/kirin_measure/src/record_writer_claim.rs	659
 crates/kirin_measure/src/trace_content_clock.rs	1652
-juce_shell/src/PluginProcessor.cpp	577
+juce_shell/src/PluginProcessor.cpp	544
 juce_shell/src/pre_display/PreDisplayProtocol.cpp	583
 juce_shell/tests/pre_display_runtime_test.cpp	1171

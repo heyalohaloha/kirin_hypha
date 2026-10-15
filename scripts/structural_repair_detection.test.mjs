@@ -142,7 +142,8 @@ test('structural repair detectors reject the nine known mutation classes', () =>
   const adapter = read('juce_shell/src/HyphaAnalysisFfiAdapter.h');
   const demand = read('juce_shell/src/HyphaAnalysisDemand.h');
   const format = read('juce_shell/src/PluginProcessorFormat.cpp');
-  const processor = read('juce_shell/src/PluginProcessor.cpp');
+  const processor = read('juce_shell/src/PluginProcessor.cpp')
+    + read('juce_shell/src/PluginProcessorIdentity.cpp');
   const analysis = read('juce_shell/src/PluginProcessorAnalysis.cpp');
   const layout = read('juce_shell/src/HyphaTimeHistoryLayout.cpp');
   const painter = read('juce_shell/src/HyphaTimeHistoryPainter.cpp');
