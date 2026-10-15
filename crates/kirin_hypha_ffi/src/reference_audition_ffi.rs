@@ -33,6 +33,7 @@ pub unsafe extern "C" fn kirin_hypha_set_reference_audition_active(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn reference_and_local_blind_share_one_owner() {

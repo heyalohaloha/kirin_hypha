@@ -11,6 +11,9 @@ use kirin_measure::{
 
 #[path = "pair_preview_ffi.rs"]
 mod pair_preview_ffi;
+#[path = "pair_candidates_v2.rs"]
+mod v2;
+pub use v2::*;
 
 use super::identity_registry::read_shared_id;
 use super::{write_c_buf, KirinHyphaEngine, ID_BUF_LEN};
@@ -119,7 +122,14 @@ pub unsafe extern "C" fn kirin_hypha_enumerate_post_pair_claims(
         if handle.is_null() || out.is_null() || cap == 0 {
             return 0;
         }
-        let claims = unsafe { (*handle).enumerate_post_pair_claims() };
+        // Legacy DTOs cannot represent 64-byte IDs. Exclude them rather than return the ID of
+        // a different 63-byte-prefix instance. The shipping shell uses the complete V2 ABI.
+        let claims: Vec<_> = unsafe { (*handle).enumerate_post_pair_claims() }
+            .into_iter()
+            .filter(|(id, _, pre)| {
+                id.len() < ID_BUF_LEN && pre.as_ref().is_none_or(|id| id.len() < ID_BUF_LEN)
+            })
+            .collect();
         let count = claims.len().min(cap);
         let out = unsafe { std::slice::from_raw_parts_mut(out, count) };
         for (destination, (instance_id, pair_pre_name, paired_pre_instance_id)) in
@@ -161,7 +171,10 @@ pub unsafe extern "C" fn kirin_hypha_enumerate_pre_candidates(
         if handle.is_null() || out.is_null() || cap == 0 {
             return 0;
         }
-        let candidates = unsafe { (*handle).enumerate_pre_candidates() };
+        let candidates: Vec<_> = unsafe { (*handle).enumerate_pre_candidates() }
+            .into_iter()
+            .filter(|(id, _)| id.len() < ID_BUF_LEN)
+            .collect();
         let count = candidates.len().min(cap);
         let out = unsafe { std::slice::from_raw_parts_mut(out, count) };
         for (destination, (instance_id, name)) in

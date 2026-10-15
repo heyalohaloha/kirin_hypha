@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "kirin_hypha_identity_v2.h"
 
 juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enumeratePreCandidates() const
 {
@@ -8,8 +9,8 @@ juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enum
         return out;
 
     constexpr size_t kCap = 32; // generous; FFI truncates beyond this
-    KirinPreCandidate buf[kCap];
-    const size_t n = kirin_hypha_enumerate_pre_candidates (hyphaHandle, buf, kCap);
+    KirinPreCandidateV2 buf[kCap];
+    const size_t n = kirin_hypha_enumerate_pre_candidates_v2 (hyphaHandle, buf, kCap);
     for (size_t i = 0; i < n; ++i)
     {
         PreCandidate c;
@@ -29,8 +30,8 @@ juce::Array<KirinHyphaProcessorBase::PostPairClaim> KirinHyphaProcessorBase::enu
         return out;
 
     constexpr size_t kCap = 32; // same cap as PRE candidates; FFI truncates beyond this
-    KirinPostPairClaim buf[kCap];
-    const size_t n = kirin_hypha_enumerate_post_pair_claims (hyphaHandle, buf, kCap);
+    KirinPostPairClaimV2 buf[kCap];
+    const size_t n = kirin_hypha_enumerate_post_pair_claims_v2 (hyphaHandle, buf, kCap);
     for (size_t i = 0; i < n; ++i)
     {
         PostPairClaim c;

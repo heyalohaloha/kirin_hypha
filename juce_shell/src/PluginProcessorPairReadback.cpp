@@ -11,7 +11,7 @@ juce::String KirinHyphaProcessorBase::pairedPreInstanceId() const
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return {};
-    char out[64] = { 0 };
+    char out[65] = { 0 };
     return kirin_hypha_get_paired_pre_instance_id (hyphaHandle, out, sizeof (out))
              ? juce::String::fromUTF8 (out)
              : juce::String();
@@ -23,8 +23,8 @@ bool KirinHyphaProcessorBase::pairedPreLocator (juce::String& projectHash,
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
-    char projectOut[64] = { 0 };
-    char instanceOut[64] = { 0 };
+    char projectOut[65] = { 0 };
+    char instanceOut[65] = { 0 };
     if (! kirin_hypha_get_paired_pre_locator (
             hyphaHandle, projectOut, sizeof (projectOut), instanceOut, sizeof (instanceOut)))
         return false;
@@ -32,4 +32,3 @@ bool KirinHyphaProcessorBase::pairedPreLocator (juce::String& projectHash,
     instanceId = juce::String::fromUTF8 (instanceOut);
     return true;
 }
-

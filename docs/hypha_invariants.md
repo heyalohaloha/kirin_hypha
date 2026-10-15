@@ -104,6 +104,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-P8 | bypassed PRE は候補スキャンから除外。legacy(no signal_state) は active 扱い | `scan_pre_candidates_in_filters_only_bypassed` / `scan_pre_candidates_in_keeps_legacy_no_signal_state` / `scan_pre_candidates_in_keeps_active` |
 | INV-P9 | 名前一致は exact・日本語対応・空名は pass-through | `filter_candidates_by_name_keeps_match` / `filter_candidates_by_name_matches_japanese` / `filter_candidates_by_name_drops_mismatch` / `filter_candidates_by_name_empty_passes_through` |
 | INV-P10 | 保存済みDAW stateはpair名とexact PRE locator（`project_hash` + `instance_id`）を同一snapshotで保持する。再起動時はregistryを再走査せず固定`{pre_project}/{pre_instance}/pre.json`だけを待つ。前プロセスのlease切れ残骸では解除せず、同じpath・instance・現hostのlive ownerを確認してから通常latchへ昇格する。exact fieldのない旧stateだけ一意名reconnectを使う | `saved_exact_pre_reconstructs_one_fixed_waiting_path_without_discovery` / `restored_exact_latch_waits_for_pre_loaded_later_without_name_rescan` / `restored_latch_blocks_name_fallback_until_exact_current_runtime_is_proven` / `saved_daw_state_restores_the_exact_pre_without_registry_rescan` |
+| INV-P11 | PRE／POSTの保存済みinstance IDは、IO・live transportの公開前にrole別の非RT kernel leaseで所有する。同じ保存stateの生存コピーは新IDへ分岐し、複製POSTの保存pair権限は破棄して明示選択を待つ。通常再読込・format再生成では空いた元IDを保持し、IO worker再起動は同じengineのleaseを使う。取得I/O失敗を衝突と扱わず、未取得のidentityで公開しない。leaseは全worker join後に解放し、lock inodeを削除・置換しない | `instance_identity_lease::tests` / `kirin_live_publication_PRE_duplicate` / `kirin_live_publication_POST_duplicate` |
 
 ---
 

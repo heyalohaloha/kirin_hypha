@@ -71,7 +71,6 @@ use kirin_measure::{
     PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
-use uuid::Uuid;
 
 pub mod abi_contract;
 mod analysis_display_ffi;
@@ -107,7 +106,7 @@ use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual
 pub use attack_ffi::*;
 pub use audition_admission_ffi::{kirin_hypha_begin_local_blind, kirin_hypha_end_local_blind};
 use identity_ffi::IdentityState;
-pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
+pub use identity_ffi::*;
 pub use identity_registry::__reset_shared_ids_for_tests;
 use identity_registry::{
     clear_role_scoped_cells, read_shared_id, resolve_post_identity, resolve_pre_identity,
@@ -116,10 +115,7 @@ use identity_registry::{
 pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
 use meter_session_ffi::to_c_meter_session;
 use pair_binding::{PairBinding, PairTargetTransition};
-pub use pair_candidates_ffi::{
-    kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
-    kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
-};
+pub use pair_candidates_ffi::*;
 pub use pair_snapshot_ffi::*;
 pub use record_note_ffi::*;
 pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;

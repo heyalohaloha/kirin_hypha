@@ -58,12 +58,16 @@ impl KirinHyphaEngine {
     }
 }
 
-fn copy_truncated(value: &str, out: *mut c_char, out_len: usize) {
+fn copy_complete(value: &str, out: *mut c_char, out_len: usize) -> bool {
     let bytes = value.as_bytes();
-    let count = bytes.len().min(out_len - 1);
+    if bytes.len() >= out_len {
+        return false;
+    }
+    let count = bytes.len();
     let destination = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
     destination[..count].copy_from_slice(&bytes[..count]);
     destination[count] = 0;
+    true
 }
 
 fn copy_exact<const CAPACITY: usize>(value: &str, out: &mut [c_char; CAPACITY]) -> bool {
@@ -112,8 +116,7 @@ pub unsafe extern "C" fn kirin_hypha_get_paired_pre_instance_id(
         let Some(instance_id) = (unsafe { (*handle).paired_pre_instance_id() }) else {
             return false;
         };
-        copy_truncated(&instance_id, out, out_len);
-        true
+        copy_complete(&instance_id, out, out_len)
     }))
     .unwrap_or(false)
 }
@@ -144,8 +147,11 @@ pub unsafe extern "C" fn kirin_hypha_get_paired_pre_locator(
         let Some((project_hash, instance_id)) = (unsafe { (*handle).paired_pre_locator() }) else {
             return false;
         };
-        copy_truncated(&project_hash, project_out, project_out_len);
-        copy_truncated(&instance_id, instance_out, instance_out_len);
+        if project_hash.len() >= project_out_len || instance_id.len() >= instance_out_len {
+            return false; // Validate both capacities before changing either output.
+        }
+        copy_complete(&project_hash, project_out, project_out_len);
+        copy_complete(&instance_id, instance_out, instance_out_len);
         true
     }))
     .unwrap_or(false)
@@ -182,6 +188,18 @@ pub unsafe extern "C" fn kirin_hypha_get_local_blind_pair_binding(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_locator_buffer_never_returns_a_different_prefix_identity() {
+        let full = "x".repeat(64);
+        let mut short = [42 as c_char; 64];
+        assert!(!copy_complete(&full, short.as_mut_ptr(), short.len()));
+        assert!(short.iter().all(|value| *value == 42));
+        let mut complete = [0 as c_char; 65];
+        assert!(copy_complete(&full, complete.as_mut_ptr(), complete.len()));
+        assert_eq!(complete[63], b'x' as c_char);
+        assert_eq!(complete[64], 0);
+    }
 
     #[test]
     fn exact_binding_encoding_rejects_truncation() {

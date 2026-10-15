@@ -34,9 +34,18 @@ impl KirinHyphaEngine {
                 Ok(g) => g,
                 Err(_) => return,
             };
-            if id.instance_id.is_empty() {
-                id.instance_id = Uuid::new_v4().to_string();
+            let restored_instance = id.instance_id.clone();
+            if !id.claim_for_writes("post") {
+                return;
             }
+            // A copied POST must not seed legacy name-based pairing even during the interval
+            // between IO spawn and the shell's final identity readback/cleared exact restore.
+            let pair_name = if !restored_instance.is_empty() && restored_instance != id.instance_id
+            {
+                String::new()
+            } else {
+                id.name.clone()
+            };
             // B-106/B-301/B-302: enable_pre_writes と同一規約。空/legacy session は runtime daw
             // を空にして host fallback、非空 session は saved-document group で解決する。
             let (resolved_project, resolved_daw) =
@@ -54,7 +63,7 @@ impl KirinHyphaEngine {
             set_daw_session_id(resolved_daw);
             (
                 id.instance_id.clone(),
-                id.name.clone(),
+                pair_name,
                 id.project_hash.clone(),
                 id.daw_session_uuid.clone(),
             )

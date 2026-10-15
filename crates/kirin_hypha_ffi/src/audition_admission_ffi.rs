@@ -261,6 +261,7 @@ pub unsafe extern "C" fn kirin_hypha_end_local_blind(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     fn post_engine(project: &str) -> KirinHyphaEngine {
         let engine = KirinHyphaEngine::new(

@@ -1,5 +1,17 @@
 # Exact-distribution provenance gate
 
+### 2026-10-16 processor identity extraction build-contract review
+
+An independent read-only review compared the CMake difference from
+`1cbe7f7b43f69690781a73665dba05d0e7b433dd`: only the registrations of
+`PluginProcessorIdentity.cpp` and `PluginProcessorPairReadback.cpp` were added. Removing
+these entries restores the previous CMake bytes. The DATA_SOURCES declaration, optional
+font conditions, BinaryData processing, included modules and all three embedded PNG hashes
+retain their reviewed bytes and uses. The CMake SHA-256 is
+`44da76b60f8eba7a33162d061d25a1e0934f2f7a9be1de6e9d27915ef1cae534`.
+Only the registry build-contract hash advances. This bounded review grants no new material
+rights and does not qualify the processor change, actual payload linkage or release acceptance.
+
 This adds to the existing source, signature, notarization, host and three-channel release gates.
 It does not change GPLv3 or dependency licenses, certify legal compliance, or qualify an existing
 Release retrospectively. Local fixtures and CI success are not actual distribution evidence.

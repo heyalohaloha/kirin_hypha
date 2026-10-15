@@ -12,6 +12,10 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
+    // The host has quiesced callbacks for destruction. Retire the C++ PRE mapping before the
+    // Rust engine releases its identity claim, so a new owner can create the same ring at once.
+    stopLiveCompareForFormatChange();
+    jassert (! liveCompare.ring.hasStorage());
     preparedProductMode.store (static_cast<uint8_t> (kirin::PreparedProductMode::none), std::memory_order_release);
     if (hyphaHandle != nullptr)
     {

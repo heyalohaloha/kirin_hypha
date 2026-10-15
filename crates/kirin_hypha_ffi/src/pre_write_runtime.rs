@@ -41,8 +41,8 @@ impl KirinHyphaEngine {
                 Ok(g) => g,
                 Err(_) => return,
             };
-            if id.instance_id.is_empty() {
-                id.instance_id = Uuid::new_v4().to_string();
+            if !id.claim_for_writes("pre") {
+                return;
             }
             // B-106/B-301/B-302: chunk 復元値（id.*）を candidate に渡し、空/legacy session は
             // runtime daw を空にして host fallback、非空 session は saved-document group で解決する。
@@ -146,5 +146,4 @@ impl KirinHyphaEngine {
             *rs = Some(restart);
         }
     }
-
 }

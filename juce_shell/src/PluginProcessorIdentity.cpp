@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "kirin_hypha_identity_v2.h"
 
 void KirinHyphaProcessorBase::enableWritesNow()
 {
@@ -25,7 +26,6 @@ void KirinHyphaProcessorBase::enableWritesNow()
     if (role == Role::Post)
     {
         kirin_hypha_enable_post_writes (hyphaHandle);
-        restorePersistedPairUnderHandleLock();
     }
     else
     {
@@ -34,12 +34,26 @@ void KirinHyphaProcessorBase::enableWritesNow()
 
     // Read back the final (restored or freshly generated) identity so getStateInformation
     // persists it across DAW save/load.
-    KirinIdentity id;
-    kirin_hypha_get_identity (hyphaHandle, &id);
+    KirinIdentityV2 id {};
+    if (! kirin_hypha_get_identity_v2 (hyphaHandle, &id))
+        return; // No complete, claimed identity: do not publish shell transports.
+    const auto resolvedInstance = juce::String::fromUTF8 (id.instance_id);
+    if (resolvedInstance.isEmpty())
+        return; // Identity IO failed: do not publish an unclaimed Watch/live transport.
+    if (role == Role::Post && persistInstanceId.isNotEmpty()
+        && persistInstanceId != resolvedInstance)
+    {
+        persistPairName.clear();
+        persistPairProjectHash.clear();
+        persistPairInstanceId.clear();
+    }
     persistInstanceId     = juce::String::fromUTF8 (id.instance_id);
     persistProjectUuid    = juce::String::fromUTF8 (id.project_uuid);
     persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
     persistName           = juce::String::fromUTF8 (id.name);
+
+    if (role == Role::Post)
+        restorePersistedPairUnderHandleLock();
 
     configureWorkTransports();
     configureReferenceAudition();

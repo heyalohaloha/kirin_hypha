@@ -326,6 +326,25 @@ fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a 
 }
 
 #[test]
+fn processor_retires_live_transport_before_releasing_runtime_identity() {
+    let source = read_repo("juce_shell/src/PluginProcessorLifecycle.cpp");
+    let retire = source.find("stopLiveCompareForFormatChange();").unwrap();
+    let release = source.find("kirin_hypha_destroy (hyphaHandle)").unwrap();
+    assert!(
+        retire < release,
+        "old ring must be closed before a new identity owner can publish"
+    );
+    let identity = read_repo("juce_shell/src/PluginProcessorIdentity.cpp");
+    assert!(identity.contains("KirinIdentityV2 id"));
+    assert!(
+        identity.find("kirin_hypha_get_identity_v2").unwrap()
+            < identity
+                .find("restorePersistedPairUnderHandleLock()")
+                .unwrap()
+    );
+}
+
+#[test]
 fn juce_prepare_does_not_destroy_engine_while_recording() {
     // B-961: format binding moved to its own translation unit; the guard's order is unchanged.
     let src = read_repo("juce_shell/src/PluginProcessorFormat.cpp");
