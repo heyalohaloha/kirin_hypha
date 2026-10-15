@@ -2,11 +2,21 @@
 #include "reference_runtime_v2_preset_test_support.h"
 #include "reference_runtime_v2_transaction_test_support.h"
 #include "ReferenceSourceFailureTest.h"
+#include "reference_runtime_test_entries.h"
 #include "../src/AtomicFile.h"
-void testRuntimeV2Workspace (const juce::File& sandbox);
+
+bool runReferenceWorkspaceContract (int argc, char** argv, const juce::File& sandbox)
+{
+    if (argc != 2 || juce::String (argv[1]) != "--workspace-reset-only") return false;
+    require (writeStereoWav (sandbox.getChildFile ("version-a.wav")), "workspace source must exist");
+    testRuntimeV2Workspace (sandbox);
+    require (hypha::tests::removeFixtureDirectory (sandbox), "workspace contract fixture cleanup");
+    return true;
+}
 
 void testRuntimeV2Workspace (const juce::File& sandbox)
 {
+    namespace control = hypha::tests::reference_control;
     verifyGlobalPresetCatalogOrder();
     const auto source = sandbox.getChildFile ("version-a.wav");
     const auto v2Root = sandbox.getChildFile ("plugin_data").getChildFile ("reference").getChildFile ("v2");
@@ -245,11 +255,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             std::atomic<bool> gateReleasedOnCallingThread { false };
             std::function<void()> beforeGateActivation;
             const auto callingThread = std::this_thread::get_id();
-            const auto controllerNow = juce::Time::currentTimeMillis();
-            require (writeJson (aBindingFile, makeRuntimeABinding (
-                         { runtimeId, workId, 42 }, recordingId,
-                         controllerNow, controllerNow + 9'000)),
-                     "live controller A binding must be staged");
+            const ref::RuntimeIdentity v2Identity { runtimeId, workId, 42 };
+            LiveRuntimeAuthority liveAuthority (aBindingFile, v2Identity, recordingId);
             ref::RuntimeV2Controller controller (v2Root,
                 [&comparisonSuspended, &gateReleasedOnCallingThread,
                  &beforeGateActivation, callingThread] (bool bSelected)
@@ -261,16 +268,13 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                     comparisonSuspended.store (bSelected);
                     return true;
                 });
-            const ref::RuntimeIdentity v2Identity { runtimeId, workId, 42 };
             controller.observeTransport (128, true, true);
             controller.configure (v2Identity, 48'000.0, 2);
-            for (int attempt = 0; attempt < 400; ++attempt)
-            {
+            require (control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (4), [&] {
                 const auto state = controller.snapshot();
-                if (state.state == ref::RuntimeState::ready && state.auditionBuffered)
-                    break;
-                juce::Thread::sleep (10);
-            }
+                return state.state == ref::RuntimeState::ready && state.auditionBuffered
+                    && state.hostSampleRateHz == 48'000 && state.manifestRevision == 4;
+            }), "the first configuration publishes its exact rate and workspace within four seconds");
             auto runtime = controller.snapshot();
             require (runtime.state == ref::RuntimeState::ready
                      && runtime.auditionBuffered
@@ -321,16 +325,22 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             controller.selectA();
 
             // サンプルレートが違っても承認を待たず、試聴コピーだけを変換する（元のファイルは変えない）。
+            const auto conversionTarget = controller.snapshot();
             controller.configure (v2Identity, 44'100.0, 2);
-            for (int attempt = 0; attempt < 400; ++attempt)
-            {
+            const auto converted = control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (4), [&] {
                 const auto state = controller.snapshot();
-                if (state.state == ref::RuntimeState::ready && state.auditionBuffered)
-                    break;
-                juce::Thread::sleep (10);
-            }
-            runtime = controller.snapshot();
-            require (runtime.state == ref::RuntimeState::ready
+                if (state.state != ref::RuntimeState::ready || ! state.auditionBuffered
+                    || state.sourceSampleRateHz != 48'000 || state.hostSampleRateHz != 44'100
+                    || state.manifestRevision != conversionTarget.manifestRevision || state.presetId != conversionTarget.presetId
+                    || state.candidateId != conversionTarget.candidateId || state.cueId != conversionTarget.cueId) return false;
+                runtime = state;
+                return true;
+            });
+            if (! converted)
+                std::cerr << "CONFIGURATION_FINAL rate=" << runtime.hostSampleRateHz << " source=" << runtime.sourceSampleRateHz
+                          << " state=" << static_cast<int> (runtime.state) << " buffered=" << runtime.auditionBuffered
+                          << " B=" << runtime.bSelected << '\n';
+            require (converted && runtime.state == ref::RuntimeState::ready
                      && runtime.auditionBuffered
                      && runtime.sourceSampleRateHz == 48'000
                      && runtime.hostSampleRateHz == 44'100
@@ -348,14 +358,14 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                                    makeRuntimeV2Manifest (presetId, revisionId, presetFile, 5)),
                      "measured v2 Source replacement must publish child artifacts before Manifest");
             controller.configure (v2Identity, 48'000.0, 2);
-            for (int attempt = 0; attempt < 400; ++attempt)
-            {
+            require (control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (4), [&] {
                 const auto state = controller.snapshot();
-                if (state.state == ref::RuntimeState::ready && state.auditionBuffered
-                    && std::isfinite (state.sourceIntegratedLoudness))
-                    break;
-                juce::Thread::sleep (10);
-            }
+                return state.state == ref::RuntimeState::ready && state.auditionBuffered
+                    && state.hostSampleRateHz == 48'000 && state.manifestRevision == 5
+                    && std::abs (state.sourceIntegratedLoudness + 14.0) < 1.0e-12
+                    && std::abs (state.sourceMaximumTruePeakDbtp + 3.0) < 1.0e-12;
+            }), "the measured replacement configuration publishes the exact rate and revision within four seconds");
+            require (! controller.snapshot().bSelected, "preparing the measured replacement never starts B");
             require (!controller.selectB (-11.0, -2.0), "a headroom-limited match must not choose original volume");
             runtime = controller.snapshot();
             require (!runtime.bSelected && runtime.matchFailure == ref::MatchFailure::ceilingExceeded,
@@ -410,16 +420,12 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 presetId, revisionId, alignedSourceReceipt, alignedBFileHash,
                 alignedBPcmHash, recordingId, alignedVersionId, alignedBFrames);
             alignedPreset["checks"][0].getDynamicObject()->setProperty ("comparison_mode", "original");
+            const auto alignedRevision = controller.snapshot().manifestRevision + 1;
             require (writeJson (presetFile, alignedPreset)
                      && writeJson (manifestFile,
                                    makeRuntimeV2Manifest (
-                                       presetId, revisionId, presetFile, controller.snapshot().manifestRevision + 1)),
+                                       presetId, revisionId, presetFile, alignedRevision)),
                      "same-recording Work Version must publish before alignment testing");
-            const auto alignmentNow = juce::Time::currentTimeMillis();
-            require (writeJson (aBindingFile, makeRuntimeABinding (
-                         { runtimeId, workId, 42 }, recordingId,
-                         alignmentNow, alignmentNow + 9'000)),
-                     "content alignment requires a renewed live A binding");
             controller.disconnect();
             for (int attempt = 0; attempt < 200
                  && controller.snapshot().state != ref::RuntimeState::disconnected; ++attempt)
@@ -430,34 +436,15 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             controller.configure (v2Identity, 48'000.0, 2);
             for (int attempt = 0; attempt < 400
                  && (controller.snapshot().state != ref::RuntimeState::ready
-                     || controller.snapshot().sourceKind != "work_version"); ++attempt)
+                     || controller.snapshot().sourceKind != "work_version"
+                     || controller.snapshot().manifestRevision != alignedRevision); ++attempt)
                 juce::Thread::sleep (10);
             require (controller.snapshot().state == ref::RuntimeState::ready
-                     && controller.snapshot().sourceKind == "work_version",
+                     && controller.snapshot().sourceKind == "work_version"
+                     && controller.snapshot().manifestRevision == alignedRevision
+                     && ! controller.snapshot().bSelected,
                      "same-recording Work Version must become ready before A capture");
-            constexpr int captureBlockFrames = 8'192;
-            for (std::int64_t offset = 0; offset < alignedA->frameCount;
-                 offset += captureBlockFrames)
-            {
-                const auto frames = static_cast<int> (std::min<std::int64_t> (
-                    captureBlockFrames, alignedA->frameCount - offset));
-                juce::AudioBuffer<float> input (2, frames);
-                for (int frame = 0; frame < frames; ++frame)
-                    for (int channel = 0; channel < 2; ++channel)
-                        input.setSample (channel, frame, alignedA->interleaved[static_cast<size_t> (
-                            (offset + frame) * 2 + channel)]);
-                const auto hostPosition = alignedA->startSample + offset;
-                controller.observeTransport (hostPosition, true, true);
-                controller.observeAInput (input, hostPosition, true, true, true);
-                juce::Thread::sleep (12);
-            }
-            for (int attempt = 0; attempt < 1'200 && ! controller.snapshot().blindEligible; ++attempt)
-            {
-                if (attempt % 200 == 0)
-                    require (renewRuntimeABinding (aBindingFile, v2Identity, recordingId),
-                             "live A binding must renew while the captured cue is prepared");
-                juce::Thread::sleep (10);
-            }
+            feedFreshBlindCapture (controller, v2Root, v2Identity, *alignedA, "initial_alignment");
             const auto alignedSnapshot = controller.snapshot();
             require (alignedSnapshot.blindEligible,
                      "DAW content at bar five must establish the shared normal/Blind alignment");
@@ -482,7 +469,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 controller, beforeGateActivation, comparisonSuspended,
                 v2Root, presetFile, manifestFile,
                 alignedBFile, alignedBFileHash, alignedBPcmHash, recordingId,
-                presetId, revisionId, alignedBFrames, alignedA->startSample + 1, output);
+                presetId, revisionId, alignedBFrames, *alignedA, alignedA->startSample + 1, output);
+            liveAuthority.stopAndCheck();
         }
 
         require (hypha::storage::writeText (source, "changed after receipt")

@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeACapture.h"
+#include "ReferenceTestCommitObserver.h"
 #include "../AtomicFile.h"
 #include <algorithm>
 #include <cmath>
@@ -155,8 +156,15 @@ namespace hypha::reference_audition
 
     void RuntimeACapture::discardQueued() noexcept
     {
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        const auto previousRead = readSlot.load (std::memory_order_relaxed);
+       #endif
         readSlot.store (writeSlot.load (std::memory_order_acquire),
                         std::memory_order_release);
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        if (previousRead != readSlot.load (std::memory_order_relaxed))
+            KIRIN_REFERENCE_COMMIT_FOR_TEST();
+       #endif
     }
 
     void RuntimeACapture::resetAccumulator (bool preservePublished)
@@ -327,6 +335,7 @@ namespace hypha::reference_audition
         collecting = false;
         complete = true;
         nextPublishAtMs = 0;
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
     }
 
     void RuntimeACapture::publishReceipt (const RuntimeABinding& binding,
@@ -434,6 +443,7 @@ namespace hypha::reference_audition
             consumeBlock (block, samples, targetFrames, nowMs);
             readSlot.store ((currentRead + 1u) % queueSlotCount,
                             std::memory_order_release);
+            KIRIN_REFERENCE_COMMIT_FOR_TEST();
         }
         if (receipt && nowMs > receipt->capturedAtMs + maximumReceiptAgeMs)
         {

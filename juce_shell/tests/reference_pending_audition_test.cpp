@@ -5,6 +5,7 @@
 #include "ReferenceSelectionSafetyTest.h"
 #include "ReferenceAutoVersionSafetyTest.h"
 #include "TestPathBudget.h"
+#include "ReferenceControllerTestAccess.h"
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
@@ -170,10 +171,34 @@ void testReferencePendingAudition (const juce::File& sandbox)
         "publish a matched C for resume");
     wait ([] (const auto& s) { return s.checkArmable && s.checkSelection->comparisonMode == "loudness_match"; });
     host (true); wait ([] (const auto& s) { return s.checkReady; });
+    namespace control = hypha::tests::reference_control;
+    const auto eventDeadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    const auto allEventsDrained = [&] {
+        for (int slot : { 1, 2, 3 }) if (! control::eventsFor (control::roleFor (controller, { slot }), {}).empty()) return false;
+        return true;
+    };
+    require (control::waitUntil (eventDeadline(), allEventsDrained),
+             "the actual A callback drains all earlier runtime event sessions before a new C starts");
     require (controller.requestAudition (2, -28, -12) && host (true), "matched C plays");
     const auto matched = controller.snapshot().checkSelection->appliedGainDb;
     const auto countEvents = [&] { return root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json").size(); };
-    juce::Thread::sleep (150);
+    auto& checkRuntime = control::roleFor (controller, { 2 });
+    control::EventFact current;
+    require (control::waitUntil (eventDeadline(), [&] {
+        const auto sessions = control::eventsFor (checkRuntime, {});
+        if (sessions.size() != 1 || ! sessions.front().startWritten) return false;
+        current = sessions.front(); return true;
+    }), "the real worker stores this C's one start before the event-count baseline");
+    require (! current.returnRequested && current.startedAt > 0 && current.completedAt == 0,
+             "the stored C session is open and has not requested a return");
+    const auto eventFile = [&] (const juce::String& id) {
+        return root.getChildFile ("library/events").getChildFile (current.instanceId).getChildFile (id + ".json");
+    };
+    const auto startBytes = eventFile (current.startedId).loadFileAsString();
+    const auto start = juce::JSON::parse (startBytes);
+    require (start["event_id"].toString() == current.startedId && start["run_id"].toString() == current.runId
+                 && start["event_type"].toString() == "audition_started" && ! eventFile (current.completedId).exists(),
+             "the immutable start belongs to the captured runtime session, without a completion");
     const auto eventsBeforePause = countEvents();
 
     require (std::abs (matched + 6.0) < 1.0e-9, "C matches A at -6 dB");
@@ -188,13 +213,26 @@ void testReferencePendingAudition (const juce::File& sandbox)
     require (controller.snapshot().audibleComparisonSlot == 2 && host (true)
         && std::abs (controller.snapshot().checkSelection->appliedGainDb - matched) < 1.0e-12,
         "play resumes the same C at the same gain without measuring A again");
-    juce::Thread::sleep (200);
-    require (countEvents() == eventsBeforePause, "automatic resume continues the same audition event session");
+    const auto resumed = control::eventsFor (checkRuntime, {});
+    require (resumed.size() == 1 && resumed.front().runId == current.runId
+        && resumed.front().startedId == current.startedId && resumed.front().completedId == current.completedId
+        && resumed.front().startedAt == current.startedAt && resumed.front().completedAt == 0
+        && resumed.front().startWritten && ! resumed.front().returnRequested
+        && ! eventFile (current.completedId).exists() && eventFile (current.startedId).loadFileAsString() == startBytes
+        && countEvents() == eventsBeforePause, "automatic resume continues the same immutable audition event session");
 
     controller.selectA(); host (true); host (false); host (true);
     controller.servicePendingAudition (unknown, unknown, true);
     require (!controller.pendingAuditionNeedsService() && controller.snapshot().audibleComparisonSlot == 0 && !host (true),
         "after A the choice is not resumed");
+    require (control::waitUntil (eventDeadline(), allEventsDrained),
+             "the explicit A return drains the worker's completion before checking all event files");
+    const auto completed = juce::JSON::parse (eventFile (current.completedId).loadFileAsString());
+    require (completed["event_id"].toString() == current.completedId && completed["run_id"].toString() == current.runId
+        && completed["event_type"].toString() == "audition_completed"
+        && completed["payload"]["started_event_id"].toString() == current.startedId
+        && countEvents() == eventsBeforePause + 1 && eventFile (current.startedId).loadFileAsString() == startBytes,
+        "one explicit A return completes the original session once, with no delayed extra resume session");
     host (false);
     require (juce::SHA256 (file).toHexString() == hash, "all auditions preserve the OS source file");
     require (controller.requestAudition (2, -14, -2), "queue before source removal");

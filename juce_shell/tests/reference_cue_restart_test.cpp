@@ -6,6 +6,8 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
+#include "ReferenceControllerTestAccess.h"
+#include <thread>
 
 void testReferenceCueRestart (const juce::File&);
 
@@ -80,9 +82,11 @@ juce::var restartSets (const juce::String& setId, const juce::File& song, const 
 }
 }
 
-void testReferenceCueRestart (const juce::File& sandbox)
+namespace
 {
-    const auto root = sandbox.getChildFile ("cue-restart");
+void verifyReferenceCueRestart (const juce::File& sandbox, bool forcePending)
+{
+    const auto root = sandbox.getChildFile (forcePending ? "cue-restart-pending" : "cue-restart");
     require (root.createDirectory().wasOk(), "cue restart fixture directory");
     const auto file = root.getChildFile ("ramp.wav");
     {
@@ -129,42 +133,79 @@ void testReferenceCueRestart (const juce::File& sandbox)
         if (playing) position += block.getNumSamples();
         return rendered;
     };
-    for (int attempt = 0; attempt < 1500 && ! controller.snapshot().referenceReady; ++attempt)
-    { host (true); juce::Thread::sleep (10); }
-    if (! controller.snapshot().referenceReady)
-    {
-        const auto s = controller.snapshot();
-        std::cerr << "cue restart: B " << (s.referenceSelection ? s.referenceSelection->rejectionCode : "-")
-                  << " sets " << s.songSets.size() << " issue " << s.songSetsIssue << '\n';
-    }
-    require (controller.snapshot().referenceReady, "the B song prepares");
+    namespace control = hypha::tests::reference_control;
+    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    host (true);
+    require (control::waitUntil (deadline(), [&] { return controller.snapshot().referenceReady; }),
+             "the B song prepares within the original deadline");
     const auto nearCueStart = [&] { const auto value = block.getSample (0, 479); return value > 0.1f && value < rampAt (4'800); };
 
     // 選んでから曲の終わりまで再生し、Cue を過ぎた。範囲外とは言わず、Cue の頭は読んだままで（周回して頭へ戻る役）
     // 「準備できた」になり、押せば今の位置から Cue の頭が鳴る。
-    while (position < songFrames + 48'000)
-    { host (true); if (position % 48'000 < 480) juce::Thread::sleep (20); }  // 1 秒ごとに読み込みを待つ（頭を追い出す）
-    for (int attempt = 0; attempt < 1500 && ! (controller.snapshot().referenceSelection != nullptr
-                                              && controller.snapshot().referenceSelection->auditionBuffered); ++attempt)
-    { host (true); juce::Thread::sleep (10); }
+    auto nextBlock = std::chrono::steady_clock::now();
+    const auto pace = [&] {
+        nextBlock += std::chrono::milliseconds (10); // 480 frames at 48 kHz; overdue blocks do not sleep.
+        std::this_thread::sleep_until (nextBlock);
+    };
+    while (position < songFrames + 48'000) { host (true); pace(); }
+    require (control::waitUntil (deadline(), [&] {
+        const auto s = controller.snapshot();
+        return s.referenceSelection != nullptr && s.referenceSelection->auditionBuffered;
+    }), "the Cue head is buffered within the original deadline");
     const auto beyond = controller.snapshot();
     require (beyond.referenceSelection != nullptr && ! beyond.referenceSelection->auditionOutsideCue
                  && beyond.referenceSelection->auditionBuffered,
              "past the Cue, B is not reported outside its Cue; it is ready to start at the Cue's head");
     const auto pressedAt = position - 480;  // B の起点は、押したときに見えていた最後のブロックの位置
-    require (controller.requestAudition (3, -14.0, -6.0), "B plays past the Cue");
-    host (true); host (true);
-    require (controller.snapshot().audibleComparisonSlot == 3 && nearCueStart(), "B starts at the head of its Cue");
+    auto& reference = control::roleFor (controller, { 3 });
+    auto expectedGeneration = reference.requestedGeneration();
+    if (forcePending)
+    {
+        const auto songId = controller.snapshot().selectedSongId;
+        const juce::ScopedLock publicationBarrier (control::lockFor (reference, {}));
+        require (controller.snapshot().audibleComparisonSlot == 0 && controller.selectSong (songId),
+                 "reselect the same real song while A plays, before the worker can publish it");
+        expectedGeneration = reference.requestedGeneration();
+        require (expectedGeneration > reference.snapshot().selectionGeneration
+                     && controller.requestAudition (3, -14.0, -6.0)
+                     && controller.snapshot().audibleComparisonSlot == 0 && controller.pendingAuditionNeedsService(),
+                 "one B request is accepted pending, without fabricated readiness or output");
+    } // Release the publication barrier before any wait or control service.
+    else require (controller.requestAudition (3, -14.0, -6.0), "B plays past the Cue");
+    const auto finishSelection = [&] (double loudness, double peak)
+    {
+        return control::waitUntil (deadline(), [&] {
+            const auto state = controller.snapshot();
+            const auto role = state.referenceSelection;
+            require (role != nullptr && role->state != ref::RuntimeState::rejected
+                         && role->state != ref::RuntimeState::disconnected,
+                     "selection preparation cannot fail silently");
+            const auto stage = state.pendingAudition.stage;
+            require (stage == ref::PendingAuditionView::Stage::none || state.pendingAudition.waiting(),
+                     "a terminal pending failure cannot be retried away");
+            if (role->selectionGeneration != expectedGeneration) return false;
+            controller.servicePendingAudition (loudness, peak, true);
+            return controller.snapshot().audibleComparisonSlot == 3;
+        });
+    };
+    require (finishSelection (-14.0, -6.0) && position == pressedAt + 480,
+             "control service completes the accepted request without advancing host time or clicking again");
+    require (host (true) && nearCueStart() && std::abs (block.getSample (0, 479) - rampAt (959)) < 1.0e-4f,
+             "the first selected callback renders the Cue head at the original playhead anchor");
+    require (host (true) && controller.snapshot().audibleComparisonSlot == 3 && nearCueStart()
+                 && std::abs (block.getSample (0, 479) - rampAt (1439)) < 1.0e-4f,
+             "B starts at the head of its Cue in the original second callback");
 
     // 鳴っている B が Cue の終わりを越えても、A へ切らずに Cue の頭へ周回して鳴り続ける（鳴らない間を作らない・Rust の
     // 試聴を作り直さない）。背景の読み込みに 1 ページずつ追いつかせ、どのブロックも鳴ったかを確かめる。
     const auto auditionsBefore = auditions;
     const auto cueEndAt = pressedAt + songFrames;
     int gaps = 0;
+    nextBlock = std::chrono::steady_clock::now();
     while (position < cueEndAt + 48'000)
     {
         if (! host (true)) ++gaps;
-        juce::Thread::sleep (position % 48'000 < 480 ? 20 : 1);
+        pace();
     }
     require (gaps == 0 && auditions == auditionsBefore && controller.snapshot().audibleComparisonSlot == 3
                  && std::abs (block.getSample (0, 479) - rampAt (position - 1 - cueEndAt)) < 1.0e-4f,
@@ -175,11 +216,11 @@ void testReferenceCueRestart (const juce::File& sandbox)
     require (! host (false) && controller.auditionHeld(), "stopping keeps B");
     controller.servicePendingAudition (unknown, unknown, false);
     position = 0;
-    for (int attempt = 0; attempt < 1500 && ! controller.snapshot().referenceReady; ++attempt)
-    { host (true); juce::Thread::sleep (10); }
-    require (controller.snapshot().referenceReady && ! controller.snapshot().referenceSelection->auditionOutsideCue,
+    host (true);
+    require (control::waitUntil (deadline(), [&] { return controller.snapshot().referenceReady; })
+                 && ! controller.snapshot().referenceSelection->auditionOutsideCue,
              "before the start point, B is ready again and not outside its Cue");
-    controller.servicePendingAudition (unknown, unknown, true);
+    require (finishSelection (unknown, unknown), "the held selection resumes through control service");
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && nearCueStart(),
              "after returning before the start point, B comes back at the head of its Cue");
@@ -187,11 +228,20 @@ void testReferenceCueRestart (const juce::File& sandbox)
     // 準備中（Kirin OS がまだ確かめられていない）の曲を選んでも、見出しは役の名前ではなくその曲の名前。
     const auto songs = controller.snapshot().songSets[0].songs;
     require (songs.size() == 2 && controller.selectSong (songs[1].id), "choose the song Kirin OS has not verified");
-    for (int attempt = 0; attempt < 1500 && ! (controller.snapshot().referenceSelection != nullptr
-            && controller.snapshot().referenceSelection->rejectionCode == "reference_source_unavailable"); ++attempt)
-    { host (true); juce::Thread::sleep (10); }
+    require (control::waitUntil (deadline(), [&] {
+        const auto s = controller.snapshot();
+        return s.referenceSelection != nullptr && s.referenceSelection->rejectionCode == "reference_source_unavailable";
+    }), "the missing fixture song is rejected within the original deadline");
     require (controller.snapshot().referenceSelection->rejectionCode == "reference_source_unavailable"
                  && controller.snapshot().referenceSelection->title == "Pending song",
              "a song still being prepared keeps its name as the B title");
-    std::cout << "Reference B restarts its Cue at the playhead after seeks and past its end PASS\n";
+    std::cout << "Reference B Cue restart (" << (forcePending ? "forced pending" : "ordinary") << ") PASS\n";
+}
+
+}
+
+void testReferenceCueRestart (const juce::File& sandbox)
+{
+    verifyReferenceCueRestart (sandbox, false);
+    verifyReferenceCueRestart (sandbox, true);
 }

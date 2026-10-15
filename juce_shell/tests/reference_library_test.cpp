@@ -5,6 +5,7 @@
 #include "reference_rt_probe.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
+#include "ReferenceWholeSongInputClock.h"
 #include "reference_library_manifest_fixture.h"
 #include "ReferenceVisualSourceEvidenceTest.h"
 #include "../src/AtomicFile.h"
@@ -191,15 +192,15 @@ void testReferenceComparisons (const juce::File& sandbox)
     const auto wait = [&] (const auto& predicate)
     {
         int cursor = 0;
-        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 30'000.0;
-        do
+        WholeSongInputClock clock (std::chrono::steady_clock::now() + std::chrono::seconds (30));
+        while (clock.observeNext (controller, fixture, cursor))
         {
-            observeWholeSongFixture (controller, fixture, cursor);
-            if (predicate (controller.snapshot())) {
+            const bool ready = predicate (controller.snapshot());
+            if (clock.expired()) break;
+            if (ready) {
                 controller.observeTransport (0, true, true); juce::Thread::sleep (200); return;
             }
-            juce::Thread::sleep (10);
-        } while (juce::Time::getMillisecondCounterHiRes() < deadline);
+        }
         const auto last = controller.snapshot();
         std::cerr << "ABC state " << static_cast<int> (last.state) << " " << last.rejectionCode
                   << " capture " << last.aCaptureAvailable << " measurement " << last.measurementAvailable << '\n';

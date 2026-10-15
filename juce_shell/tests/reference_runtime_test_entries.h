@@ -10,6 +10,8 @@ void testReferenceComparisons (const juce::File&);
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
 bool testReferenceLibraryOsFixture();
+bool prepareReferenceRuntimeInvocation (int argc, char** argv);
+bool runReferenceWorkspaceContract (int argc, char** argv, const juce::File& sandbox);
 
 void testReferenceContentAlignment (const juce::File&);
 void testReferenceRealContentAlignment();

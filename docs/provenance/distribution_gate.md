@@ -233,6 +233,19 @@ archive URL and hash. External AAX SDK and PACE redistribution/source conditions
 separate release-specific review; the built-in JUCE inventory does not settle them.
 
 
+### 2026-10-15 Reference commit-wait fixture build-contract review
+
+An independent read-only review inspected the complete CMake difference from
+`f8726ebd86ff29ac42993a2d6f67f52b09865f4b`: registration of the original
+`ReferenceCommitWait.cpp` fixture and a PRIVATE observer define for its runtime-test target.
+Reversing these two changes restores the previously pinned CMake bytes exactly.
+The 2,178-byte resource/font declaration, `ObservatoryMaterial.cmake`, all three embedded
+PNGs and the documentation alias retain their approved bytes and uses. No embedding or
+font input is added. The reviewed CMake SHA-256 is
+`88709e21ae713e978cf1e8744073a590e7283e35cb3eed83135086130182ab6a`.
+Only the registry build-contract hash advances. Existing material grants and holds remain;
+this bounded review does not replace exact-payload linkage, source delivery or release gates.
+
 ### Producer evidence and runtime identity
 
 All formal Mac AU/VST3/AAX and Windows VST3/AAX producers must check Rust's actual
