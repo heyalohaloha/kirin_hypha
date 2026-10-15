@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { RECORD, verifyUnsignedWindowsHandoff, writeUnsignedWindowsHandoff } from './unsigned_vst3_provenance.mjs';
+import { RECORD, parseJuceModuleInfo, verifyUnsignedWindowsHandoff, writeUnsignedWindowsHandoff } from './unsigned_vst3_provenance.mjs';
 import { sha256 } from '../provenance/asset_gate.mjs';
 import { stageUnsignedWindowsArtifact } from './unsigned_vst3_artifact.mjs';
 import { writeSourceZip } from '../provenance/source_zip_writer.mjs';
@@ -122,4 +122,65 @@ test('role-specific actual symbol inputs survive producer staging while missing 
   f.record.nativeLinkMap = f.put(f.record.nativeLinkMap.path, post);
   f.record.nativePreLinkMap = f.put(f.record.nativePreLinkMap.path, pre.replace(/^.*png_.*$/gm, '')); f.save();
   assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /PNG.*PRE/);
+});
+
+test('actual JUCE PRE/POST moduleinfo keeps its bytes and parses with LF or Windows CRLF', () => {
+  for (const role of ['PRE', 'POST']) {
+    const bytes = fs.readFileSync(new URL(`./fixtures/juce-moduleinfo-${role}.json5`, import.meta.url));
+    const before = sha256(bytes);
+    for (const newline of ['\n', '\r\n']) {
+      const text = bytes.toString('utf8').replace(/\r\n|\n/g, newline);
+      assert.throws(() => JSON.parse(text));
+      const info = parseJuceModuleInfo(text);
+      assert.equal(info.Name, `Kirin Hypha ${role}`);
+      assert.equal(info.Version, '1.1.51');
+      assert.equal(info.Classes.length, 3);
+      assert.deepEqual(info.Classes[0]['Sub Categories'], ['Fx', 'Analyzer']);
+      assert.equal(info['Factory Info'].Flags['Component Non Discardable'], false);
+    }
+    assert.equal(sha256(bytes), before);
+  }
+});
+
+test('JUCE metadata parsing preserves quoted punctuation, escapes and ordinary JSON', () => {
+  const value = { Version: '1.1.51', text: 'comma,} quote" slash\\ and bracket,]', list: [true, false, null, {}, []] };
+  assert.deepEqual(parseJuceModuleInfo(JSON.stringify(value)), value);
+  assert.deepEqual(parseJuceModuleInfo('{"Version":"1.1.51","text":"comma,} bracket,]","list":[1,{"x":2,},],}'),
+    { Version: '1.1.51', text: 'comma,} bracket,]', list: [1, { x: 2 }] });
+  for (const suffix of ['"', '\\', '\\"', '\\\\"']) {
+    const quoted = { text: `comma,} escape${suffix}` };
+    assert.deepEqual(parseJuceModuleInfo(JSON.stringify(quoted).slice(0, -1) + ',}'), quoted);
+  }
+});
+
+test('JUCE metadata parsing rejects malformed input rather than repairing missing values', () => {
+  for (const text of ['{,}', '{"a":[,]}', '{"a":,}', '{"a":1,,}', '{"a":[1,,]}',
+    '{"a":"unterminated}', '{"a":true false,}', '{"a":1', '{"a":1} extra',
+    '{/*comment*/"a":1}', '{bare:1}', 'null', '[]', '42']) {
+    assert.throws(() => parseJuceModuleInfo(text), /Invalid JUCE moduleinfo/, text);
+  }
+  assert.throws(() => parseJuceModuleInfo(null), /text required/);
+});
+
+test('actual JUCE metadata survives exact staging while version and hash mismatches still fail', t => {
+  const f = fixture(t);
+  f.record.version = '1.1.51';
+  const qualification = JSON.parse(fs.readFileSync(path.join(f.root, f.record.pluginval.path), 'utf8'));
+  f.record.binaries.forEach((binary, index) => {
+    const bytes = fs.readFileSync(new URL(`./fixtures/juce-moduleinfo-${binary.role}.json5`, import.meta.url));
+    binary.moduleInfo = f.put(binary.moduleInfo.path, bytes);
+    for (const phase of ['before', 'after']) {
+      qualification[phase][index].find(file => file.path === 'Contents/Resources/moduleinfo.json').sha256 = binary.moduleInfo.sha256;
+    }
+  });
+  f.record.pluginval = f.put(f.record.pluginval.path, JSON.stringify(qualification)); f.save();
+  verifyUnsignedWindowsHandoff(f.root, f.expected);
+  const staging = path.join(f.root, 'actual-metadata-upload');
+  stageUnsignedWindowsArtifact(f.root, staging);
+  for (const binary of f.record.binaries) assert.equal(sha256(fs.readFileSync(path.join(staging, binary.moduleInfo.path))), binary.moduleInfo.sha256);
+  f.record.version = '1.1.50'; f.save();
+  assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /version mismatch/);
+  f.record.version = '1.1.51'; f.save();
+  fs.appendFileSync(path.join(f.root, f.record.binaries[0].moduleInfo.path), ' ');
+  assert.throws(() => verifyUnsignedWindowsHandoff(f.root, f.expected), /bytes changed/);
 });

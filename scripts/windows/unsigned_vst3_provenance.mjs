@@ -39,6 +39,39 @@ function bundleFiles(directory, binary) {
   return qualifiedWindowsVst3Files(bundle, binary.role);
 }
 
+// JUCE's pinned JSON5Writer emits double-quoted JSON with trailing commas.
+// Accept that output without rewriting the bundle or relaxing other receipts.
+// This is deliberately not a general JSON5 parser (no comments or bare keys).
+export function parseJuceModuleInfo(text) {
+  if (typeof text !== 'string') throw new Error('JUCE moduleinfo text required');
+  let normalized = '', quoted = false, escaped = false, previous = '';
+  for (let i = 0; i < text.length; ++i) {
+    const c = text[i];
+    if (quoted) {
+      normalized += c;
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') { quoted = false; previous = '"'; }
+      continue;
+    }
+    if (c === '"') { quoted = true; normalized += c; continue; }
+    if (c === ',') {
+      let next = i + 1;
+      while (next < text.length && ' \t\r\n'.includes(text[next])) ++next;
+      if ((text[next] === '}' || text[next] === ']') && previous && !'[{,:'.includes(previous)) continue;
+    }
+    normalized += c;
+    if (!' \t\r\n'.includes(c)) previous = c;
+  }
+  try {
+    const value = JSON.parse(normalized);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('object required');
+    return value;
+  } catch (error) {
+    throw new Error(`Invalid JUCE moduleinfo: ${error.message}`, { cause: error });
+  }
+}
+
 export function verifyUnsignedWindowsHandoff(directory, expected) {
   const record = JSON.parse(fs.readFileSync(regular(directory, RECORD), 'utf8'));
   if (record.schema !== 'hypha-private-windows-vst3-build-v1' || record.commit !== expected.commit
@@ -57,7 +90,7 @@ export function verifyUnsignedWindowsHandoff(directory, expected) {
     const file = same(directory, binary);
     if (readPeMachine(file) !== 0x8664) throw new Error('Unsigned Windows binary must be x64');
     inspectUpdateBinary(file, '');
-    const info = JSON.parse(fs.readFileSync(same(directory, binary.moduleInfo), 'utf8'));
+    const info = parseJuceModuleInfo(fs.readFileSync(same(directory, binary.moduleInfo), 'utf8'));
     if (info.Version !== record.version) throw new Error('Unsigned module version mismatch');
   }
   const qualification = JSON.parse(fs.readFileSync(same(directory, record.pluginval), 'utf8').replace(/^\uFEFF/, ''));
