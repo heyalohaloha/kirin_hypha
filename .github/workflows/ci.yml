@@ -67,7 +67,7 @@ jobs:
   release-source:
     name: release source ${{ matrix.phase }} (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
-    runs-on: macos-14
+    runs-on: macos-15
     # Independent jobs; every native shard builds the identical graph before its selection.
     # Hosted macOS measurements: native build 21-22 min; serial tests projected at 80-110
     # min before notification waits. The observed test durations put at most 33% in one
@@ -126,7 +126,7 @@ jobs:
     name: release source contract (macos)
     needs: [release-source]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]')) }}
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 5
     steps:
       - name: Require every release source phase
@@ -137,10 +137,10 @@ jobs:
   auval-arm64:
     name: auval arm64 (AU validation)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
-    # macos-14 is an Apple Silicon (arm64) runner: builds arm64-native and validates the AU on
+    # macos-15 is an Apple Silicon (arm64) runner: builds arm64-native and validates the AU on
     # the same arch the ship universal binary's arm64 slice runs on (B-082/B-084). engine
     # (kirin_measure) calculation is unchanged -- this is CI / packaging validation only.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -155,7 +155,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
-      # arm64-native: macos-14 host is aarch64, so `cargo build` produces the arm64 staticlib at
+      # arm64-native: macos-15 host is aarch64, so `cargo build` produces the arm64 staticlib at
       # target/release (the CMake KIRIN_FFI_LIB default path).
       - name: Build kirin_hypha_ffi staticlib (arm64 native)
         run: cargo build --release -p kirin_hypha_ffi --locked

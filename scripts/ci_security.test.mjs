@@ -62,7 +62,7 @@ function verifyPublicWorkflow(source) {
     const line = lines[i];
     if (/^\s*runs-on:/.test(line)) {
       runners += 1;
-      assert.match(line, /^\s*runs-on: (?:ubuntu-latest|macos-14|windows-latest)\s*(?:#.*)?$/,
+      assert.match(line, /^\s*runs-on: (?:ubuntu-latest|macos-15|windows-latest)\s*(?:#.*)?$/,
         'public CI must use a literal GitHub-hosted runner');
     }
     const action = line.match(/^\s*(?:- )?uses:\s*(.*?)\s*(?:#.*)?$/);
