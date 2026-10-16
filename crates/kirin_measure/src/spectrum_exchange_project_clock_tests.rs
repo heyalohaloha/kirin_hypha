@@ -193,6 +193,7 @@ fn absolute_view_publishes_local_timeline_and_psb_after_a_perceptual_latency_ref
             fixture.post.try_view().unwrap().status,
             SpectrumViewStatus::OutputLatencyUnavailable
         );
+        let deadline = Instant::now() + Duration::from_secs(3);
         for position in (0..9_600).step_by(256) {
             let count = 256.min(9_600 - position);
             let samples = (position..position + count)
@@ -201,29 +202,31 @@ fn absolute_view_publishes_local_timeline_and_psb_after_a_perceptual_latency_ref
                     [sample, sample]
                 })
                 .collect::<Vec<_>>();
-            assert!(fixture.post_runtime.push_block_from_audio_with_clock(
-                &samples,
-                2,
-                Some(clock(position))
-            ));
-            thread::sleep(Duration::from_millis(2));
-        }
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while fixture
-            .post_runtime
-            .try_absolute_history()
-            .is_none_or(|history| {
-                history
-                    .newest()
-                    .is_none_or(|frame| frame.presentation_end_samples != 9_600)
-            })
-        {
             assert!(
                 Instant::now() < deadline,
-                "absolute worker must publish fresh local facts"
+                "absolute feed deadline before {position}"
             );
-            thread::sleep(Duration::from_millis(2));
+            assert!(
+                fixture.post_runtime.push_block_from_audio_with_clock(
+                    &samples,
+                    2,
+                    Some(clock(position))
+                ),
+                "absolute input refused at {position}: {:?}",
+                fixture.post_runtime.stats()
+            );
+            await_input(&fixture.post_runtime, deadline, position);
         }
+        let history = fixture.post_runtime.try_absolute_history();
+        assert!(
+            Instant::now() < deadline
+                && history.is_some_and(|history| {
+                    history
+                        .newest()
+                        .is_some_and(|frame| frame.presentation_end_samples == 9_600)
+                }),
+            "absolute worker must publish fresh local facts after completing the real input"
+        );
         assert!(fixture.post.post_tick("post", None));
         let view = fixture.post.try_view().unwrap();
         assert_eq!(view.status, SpectrumViewStatus::Active);

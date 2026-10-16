@@ -23,15 +23,13 @@ crates/kirin_measure/src/pair_preview_tests.rs	1
 crates/kirin_measure/src/record_expected_tests.rs	2
 crates/kirin_measure/src/record_ingress_tests.rs	1
 crates/kirin_measure/src/spectrum_exchange_aax_clock_tests.rs	3
-crates/kirin_measure/src/spectrum_exchange_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_exchange_integration_tests.rs	7
 crates/kirin_measure/src/spectrum_exchange_lock_tests.rs	3
-crates/kirin_measure/src/spectrum_exchange_project_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_aax_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_absolute_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_clock_tests.rs	2
 crates/kirin_measure/src/spectrum_runtime_snapshot_tests.rs	2
-crates/kirin_measure/src/spectrum_runtime_tests.rs	7
+crates/kirin_measure/src/spectrum_runtime_tests.rs	6
 crates/kirin_measure/src/spectrum_runtime_view_tests.rs	5
 crates/kirin_measure/src/storage_tests.rs	2
 juce_shell/tests/AuCycleSpectrumCallbackTest.h	1
