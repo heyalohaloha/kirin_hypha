@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 // UTF-16 units, excluding the terminating NUL. Count a possible JUCE staging suffix
 // even though owned writers use short siblings, and leave room for future nesting.
-export const windowsBuildPrefix = 'D:\\a\\kirin_hypha\\kirin_hypha\\juce_shell\\build-windows';
+export const windowsBuildPrefix = 'D:\\kh';
 export const pathLimit = 259;
 export const headroom = 40;
 export const temporaryAllowance = '_temp12345678'.length;
@@ -17,13 +17,15 @@ export function windowsRelative(relative) {
       || text.slice(offset + match.length) === '/plugin_data' ? 'Local' : 'Roaming'}/Kirin OS`);
 }
 
-export function projectedLength(relative, rootName = 't') {
+export function projectedLength(relative, rootName = 't', buildPrefix = windowsBuildPrefix) {
   if (typeof relative !== 'string' || !relative || relative.includes('\\')
       || relative.includes('\0') || relative.includes(':')
       || relative.split('/').some(part => !part || part === '.' || part === '..'))
     throw new Error('invalid relative fixture path');
   if (!/^[a-z0-9-]+$/i.test(rootName)) throw new Error('invalid fixture root name');
-  return `${windowsBuildPrefix}\\${rootName}\\${windowsRelative(relative).replaceAll('/', '\\')}`.length + temporaryAllowance;
+  if (typeof buildPrefix !== 'string' || !path.win32.isAbsolute(buildPrefix) || buildPrefix.includes('\0'))
+    throw new Error('invalid Windows build prefix');
+  return `${path.win32.normalize(buildPrefix)}\\${rootName}\\${windowsRelative(relative).replaceAll('/', '\\')}`.length + temporaryAllowance;
 }
 
 export function scan(root) {
@@ -40,11 +42,17 @@ export function scan(root) {
   return entries;
 }
 
-export function inspect(entries, rootName = 't') {
-  const measured = [...new Set(entries)].map(relative => ({ relative, length: projectedLength(relative, rootName) }));
+export function inspect(entries, rootName = 't', buildPrefix = windowsBuildPrefix) {
+  const measured = [...new Set(entries)].map(relative => ({ relative, length: projectedLength(relative, rootName, buildPrefix) }));
   measured.sort((a, b) => b.length - a.length || a.relative.localeCompare(b.relative));
   return { count: measured.length, maximum: measured[0]?.length ?? 0,
     longest: measured.slice(0, 10), violations: measured.filter(entry => entry.length > pathLimit - headroom) };
+}
+
+// Windows measures its physical prefix. An old long build root or junction cannot
+// be scored against the shorter cross-platform projection.
+export function auditBuildPrefix(root, platform = process.platform, realpath = fs.realpathSync) {
+  return platform === 'win32' ? path.win32.dirname(realpath(root)) : windowsBuildPrefix;
 }
 
 export function run(mode, root, ledger) {
@@ -73,7 +81,7 @@ export function run(mode, root, ledger) {
     if (!Array.isArray(saved)) throw new Error('invalid path ledger');
     entries.push(...saved);
   }
-  return inspect(entries, path.basename(root));
+  return inspect(entries, path.basename(root), auditBuildPrefix(root));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
