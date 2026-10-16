@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import childProcess from 'node:child_process';
+import { stageLegalDelivery, verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -225,11 +226,19 @@ function findBundleDirectories(root, expectedNames) {
   return matches;
 }
 
-function verifyPackagedPayload(packagePath) {
+function verifyPackagedPayload(packagePath, releaseIdentity) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-expand-'));
   const expanded = path.join(temporary, 'expanded');
   try {
     run('pkgutil', ['--expand-full', packagePath, expanded]);
+    if (process.env.KIRIN_HYPHA_LEGAL_DIR) {
+      const matches = findBundleDirectories(expanded, ['Legal']).get('Legal')
+        .filter(p => p.endsWith('/Library/Application Support/Kirin Hypha/Legal'));
+      if (matches.length !== 1) throw new Error('Expanded PKG must contain one source/legal delivery');
+      const actual = verifyLegalDelivery(matches[0], releaseIdentity.commit);
+      const expected = verifyLegalDelivery(process.env.KIRIN_HYPHA_LEGAL_DIR, releaseIdentity.commit);
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Expanded PKG legal inventory mismatch');
+    }
     const updateCheck = inspectMacTree(expanded, UPDATE_PUBLIC_KEY, WITH_AAX ? 6 : 4);
     if (!WITH_AAX) return updateCheck;
     const expectedNames = aaxManifest.bundles.map((bundle) => path.basename(bundle.install_relative));
@@ -269,6 +278,9 @@ function buildPackage() {
   const releaseIdentity = SKIP_SIGN
     ? readReleaseSourceIdentity({ root: ROOT })
     : requireCleanReleaseSource({ root: ROOT });
+  if (!SKIP_SIGN && !process.env.KIRIN_HYPHA_LEGAL_DIR) {
+    throw new Error('Signed distribution requires retained source/legal delivery');
+  }
   const aaxMaterialization = WITH_AAX
     ? fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-aax-'))
     : null;
@@ -302,6 +314,10 @@ function buildPackage() {
   const payloadRoot = path.join(workDir, 'payload');
   const scriptsDir = path.join(workDir, 'scripts');
   fs.mkdirSync(payloadRoot, { recursive: true });
+  const legalDelivery = process.env.KIRIN_HYPHA_LEGAL_DIR
+    ? stageLegalDelivery(process.env.KIRIN_HYPHA_LEGAL_DIR,
+      path.join(payloadRoot, 'Library/Application Support/Kirin Hypha/Legal'), releaseIdentity.commit)
+    : null;
   fs.mkdirSync(scriptsDir, { recursive: true });
   writePreinstall(path.join(scriptsDir, 'preinstall'));
 
@@ -363,7 +379,7 @@ function buildPackage() {
   }
 
   run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
-  const updateCheck = verifyPackagedPayload(PACKAGE_PATH);
+  const updateCheck = verifyPackagedPayload(PACKAGE_PATH, releaseIdentity);
   if (!SKIP_SIGN) {
     run('pkgutil', ['--check-signature', PACKAGE_PATH]);
     if (!SKIP_NOTARIZE) run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
@@ -375,6 +391,7 @@ function buildPackage() {
     product: 'Kirin Hypha',
     version: VERSION,
     updateCheck,
+    legalDelivery,
     fileName: path.basename(PACKAGE_PATH),
     path: path.relative(ROOT, PACKAGE_PATH),
     size,

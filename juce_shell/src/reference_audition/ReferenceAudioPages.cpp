@@ -1,5 +1,6 @@
 #include "ReferenceVisualAudio.h"
 #include "ReferenceAudioPages.h"
+#include "ReferenceTestCommitObserver.h"
 
 #include "ReferenceRuntimeV2Source.h"
 
@@ -299,6 +300,7 @@ namespace hypha::reference_audition
         selected->generation.store (generation, std::memory_order_relaxed);
         selected->publicationSequence.fetch_add (1, std::memory_order_release);
         selected->state.store (ready, std::memory_order_release);
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
         return true;
     }
 

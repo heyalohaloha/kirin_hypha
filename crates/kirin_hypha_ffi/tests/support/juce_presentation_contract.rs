@@ -231,7 +231,6 @@ fn hypha_information_and_display_actions_ship_while_capture_validation_stays_deb
     let shipped_information = without_juce_debug_blocks(&information);
     for required in [
         "Loaded v",
-        "Official release identity not verified",
         "Update information and downloads (English)",
         "Release notes",
     ] {

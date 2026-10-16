@@ -300,7 +300,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditorTimeSnapshots.cpp
         src/PluginEditorDrumSnapshots.cpp
         src/HostExecutableIdentity.cpp
-        src/PluginProcessor.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessor.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorIdentity.cpp src/PluginProcessorPairReadback.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorContentTiming.cpp
         src/PluginProcessorLiveMatchRequest.cpp
@@ -989,7 +989,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_live_window_test.cpp
         tests/reference_tracking_gain_test.cpp
         tests/reference_abcv_roles_test.cpp
-        tests/reference_cue_restart_test.cpp
+        tests/reference_cue_restart_test.cpp tests/ReferenceCommitWait.cpp
         tests/reference_lower_a_test.cpp
         tests/reference_abcv_test.cpp
         tests/reference_kirin_spectrum_test.cpp
@@ -1006,7 +1006,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
-        JUCE_WEB_BROWSER=0
+        JUCE_WEB_BROWSER=0 KIRIN_REFERENCE_TEST_COMMIT_OBSERVER=1
         JUCE_USE_CURL=0
         KIRIN_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     target_compile_options(KirinReferenceAuditionRuntimeTests PRIVATE

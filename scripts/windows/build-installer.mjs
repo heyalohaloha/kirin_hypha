@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createSigningAttempt, finishSigningAttempt } from './signing_recovery.mjs';
 import { batchSign, signingEnvironment } from './sign-codesigntool.mjs';
 import {
   loadWindowsAaxBundleManifest,
@@ -13,8 +14,12 @@ import {
   verifyWindowsAaxCopy,
 } from './windows-aax-bundles.mjs';
 import { loadWindowsAaxSignedProvenance } from './windows-aax-provenance.mjs';
-import { requireCleanReleaseSource } from '../ls_release/release_source_identity.mjs';
+import { requireCleanReleaseSource, readReleaseSourceIdentity } from '../ls_release/release_source_identity.mjs';
 import { updateBinding, validatePublicKey, inspectUpdateBinary } from '../updates/update_key_binding.mjs';
+import { stageLegalDelivery, verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
+import { verifyUnsignedWindowsHandoff } from './unsigned_vst3_provenance.mjs';
+import { bindWindowsSourceIdentity } from './windows_source_identity.mjs';
+import { qualifiedWindowsVst3Files } from './windows_vst3_bundle.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
@@ -43,6 +48,7 @@ export function parseArgs(argv) {
     commit: process.env.KIRIN_COMMIT || '',
     runUrl: process.env.KIRIN_GITHUB_RUN_URL || '',
     updatePublicKey: '',
+    legalDir: '',
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -60,6 +66,10 @@ export function parseArgs(argv) {
     else if (arg === '--commit') opts.commit = argv[++index] || '';
     else if (arg === '--run-url') opts.runUrl = argv[++index] || '';
     else if (arg === '--update-public-key') opts.updatePublicKey = argv[++index] || '';
+    else if (arg === '--legal-dir') {
+      opts.legalDir = argv[++index] || '';
+      if (!opts.legalDir) throw new Error('--legal-dir requires a value');
+    }
     else throw new Error(`unknown option: ${arg}`);
   }
   if (!['unsigned', 'signed'].includes(opts.signing)) {
@@ -96,8 +106,8 @@ function git(args, fallback) {
   }
 }
 
-function inferBNumber() {
-  return git(['log', '-1', '--pretty=%s'], '').match(/\bB-\d+\b/)?.[0] || 'B-UNKNOWN';
+export function inferBNumber({ root = ROOT } = {}) {
+  return readReleaseSourceIdentity({ root }).bNumber;
 }
 
 function inferRunUrl() {
@@ -133,6 +143,7 @@ export function findUniqueBundle(root, name) {
 export function bundleRecord(root, role) {
   const name = `Kirin Hypha ${role}.vst3`;
   const bundle = findUniqueBundle(root, name);
+  qualifiedWindowsVst3Files(bundle, role);
   const binary = path.join(bundle, 'Contents', 'x86_64-win', name);
   const moduleInfo = path.join(bundle, 'Contents', 'Resources', 'moduleinfo.json');
   if (!fs.statSync(binary, { throwIfNoEntry: false })?.isFile() || fs.statSync(binary).size <= 0) {
@@ -163,13 +174,14 @@ function resolveIscc(env = process.env) {
   return match;
 }
 
-export function innoCompilerArgs({ outputDir, payloadDir, signing, aaxRecords = [] }) {
+export function innoCompilerArgs({ outputDir, payloadDir, signing, aaxRecords = [], legalDir = '' }) {
   const args = [
     `/DAppVersion=${VERSION}`,
     `/DOutputDir=${outputDir}`,
     `/DPreBundle=${path.join(payloadDir, 'Kirin Hypha PRE.vst3')}`,
     `/DPostBundle=${path.join(payloadDir, 'Kirin Hypha POST.vst3')}`,
   ];
+  if (legalDir) args.push(`/DLegalDir=${legalDir}`);
   if (signing === 'signed') {
     args.push('/DSignedBuild=1');
     args.push(`/Skirin_esigner=$q${process.execPath}$q $q${SIGNER_FILE}$q --input-file $f`);
@@ -216,7 +228,7 @@ export function bindAaxSourceIdentity(opts, currentSource, aaxProvenance) {
   return { ...opts, commit: currentSource.commit, bNumber: currentSource.bNumber };
 }
 
-function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxProvenance }) {
+export function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxProvenance }) {
   const aaxIncluded = aaxPayloadRecords.length === 2;
   return {
     schema: 'kirin-hypha-windows-installer-v1',
@@ -238,6 +250,9 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxPr
       b_number: opts.bNumber,
       github_actions_run: opts.runUrl || null,
       job: 'windows VST3 preflight',
+      ...(opts.unsignedBuild ? { producer: { kind: 'private-windows-latest',
+        factory_commit: opts.unsignedBuild.factoryCommit, factory_run: opts.unsignedBuild.factoryRun,
+        source_ci_run: opts.unsignedBuild.ciRun, unsigned_binaries: opts.unsignedBuild.binaries } } : {}),
     },
     installer: {
       name: path.basename(installer),
@@ -310,7 +325,10 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxPr
 export async function buildInstaller(opts) {
   validatePublicKey(opts.updatePublicKey || '');
   if (process.platform !== 'win32') throw new Error('Windows installer builds must run on Windows');
-  if (opts.signing === 'signed') signingEnvironment();
+  if (opts.signing === 'signed') {
+    run('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/windows/installer_environment.ps1']);
+    signingEnvironment();
+  }
   let aaxProvenance = null;
   if (opts.aaxArtifactDir) {
     aaxProvenance = loadWindowsAaxSignedProvenance({
@@ -320,21 +338,35 @@ export async function buildInstaller(opts) {
     });
     opts = bindAaxSourceIdentity(opts, requireCleanReleaseSource({ root: ROOT }), aaxProvenance);
   } else {
-    opts.commit ||= git(['rev-parse', 'HEAD'], 'unknown');
-    opts.bNumber ||= inferBNumber();
+    opts = bindWindowsSourceIdentity(opts, { root: ROOT, diagnostic: opts.signing === 'unsigned' });
   }
   opts.runUrl ||= inferRunUrl();
+  if (opts.signing === 'signed' && !opts.legalDir) throw new Error('Signed distribution requires retained source/legal delivery');
+  if (opts.signing === 'signed') {
+    const checked = verifyUnsignedWindowsHandoff(path.resolve(ROOT, opts.artifactDir), {
+      commit: opts.commit, ciRun: opts.runUrl.split('/').at(-1),
+      factoryCommit: process.env.GITHUB_SHA, factoryRun: process.env.KIRIN_UNSIGNED_VST3_RUN_ID,
+    });
+    if (path.resolve(opts.legalDir) !== path.resolve(checked.legalDir)) throw new Error('Signed installer legal source must come from the verified producer');
+    opts.unsignedBuild = checked.record;
+  }
+  if (opts.legalDir) verifyLegalDelivery(opts.legalDir, opts.commit);
 
   const outputDir = path.resolve(ROOT, opts.outputDir);
   const payloadDir = path.join(outputDir, PAYLOAD_DIR_NAME);
   const installer = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-Setup.exe`);
   const aaxManifestCopy = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-AAX.json`);
   fs.mkdirSync(outputDir, { recursive: true });
+  if (opts.signing === 'signed' && [payloadDir, installer, `${installer}.json`, path.join(outputDir, 'signing-recovery')].some(file => fs.existsSync(file))) {
+    throw new Error('Existing signing output requires reconciliation; preserve partial successes before any resend');
+  }
   fs.rmSync(payloadDir, { recursive: true, force: true });
   for (const sidecar of [installer, `${installer}.sha256`, `${installer}.json`, aaxManifestCopy]) {
     fs.rmSync(sidecar, { force: true });
   }
   fs.mkdirSync(payloadDir, { recursive: true });
+  const legalDir = opts.legalDir ? path.join(payloadDir, 'Legal') : '';
+  if (legalDir) stageLegalDelivery(opts.legalDir, legalDir, opts.commit);
 
   const sourceRecords = ['PRE', 'POST'].map((role) => bundleRecord(opts.artifactDir, role));
   for (const record of sourceRecords) inspectUpdateBinary(record.binary, opts.updatePublicKey || '');
@@ -356,9 +388,13 @@ export async function buildInstaller(opts) {
   }
   if (aaxProvenance) fs.copyFileSync(aaxProvenance.manifestPath, aaxManifestCopy);
   const payloadRecords = ['PRE', 'POST'].map((role) => bundleRecord(payloadDir, role));
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-installer-'));
+  const recoveryRoot = path.join(outputDir, 'signing-recovery');
+  const attempt = opts.signing === 'signed' ? createSigningAttempt(recoveryRoot, 'payload-container') : null;
+  const tempRoot = attempt?.directory || fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-installer-'));
+  let completed = false;
   const buildEnv = {
     ...process.env,
+    KIRIN_ESIGNER_RECOVERY_DIR: recoveryRoot,
     KIRIN_ESIGNER_TOTP_STATE_FILE: path.join(tempRoot, 'totp-window.state'),
   };
   try {
@@ -368,9 +404,12 @@ export async function buildInstaller(opts) {
       payloadDir,
       signing: opts.signing,
       aaxRecords: aaxPayloadRecords,
+      legalDir,
     }), { env: buildEnv });
+    completed = true;
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    if (attempt) finishSigningAttempt(attempt, completed ? 'completed' : 'failed-or-uncertain');
+    else fs.rmSync(tempRoot, { recursive: true, force: true });
   }
   if (!fs.statSync(installer, { throwIfNoEntry: false })?.isFile() || fs.statSync(installer).size <= 0) {
     throw new Error(`Inno Setup did not produce the expected installer: ${installer}`);
@@ -382,6 +421,7 @@ export async function buildInstaller(opts) {
     aaxPayloadRecords,
     aaxProvenance,
   });
+  if (legalDir) manifest.legalDelivery = verifyLegalDelivery(legalDir, opts.commit);
   fs.writeFileSync(`${installer}.sha256`, `${manifest.installer.sha256}  ${path.basename(installer)}\n`);
   fs.writeFileSync(`${installer}.json`, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`[hypha-installer] wrote ${installer}`);

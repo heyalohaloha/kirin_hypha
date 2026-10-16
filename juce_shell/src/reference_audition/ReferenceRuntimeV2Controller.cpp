@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceTestCommitObserver.h"
 
 #include <cmath>
 #include <utility>
@@ -53,6 +54,7 @@ namespace hypha::reference_audition
 
     RuntimeV2Controller::~RuntimeV2Controller()
     {
+        KIRIN_REFERENCE_CANCEL_REFRESH_FOR_TEST (this);
         selectA();
         signalThreadShouldExit();
         notify();
@@ -153,6 +155,7 @@ namespace hypha::reference_audition
         const juce::ScopedLock lock (stateLock);
         publishedSource.reset();
         publishLocked (std::move (next));
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
     }
 
     void RuntimeV2Controller::publishReady (
@@ -164,6 +167,7 @@ namespace hypha::reference_audition
         publishedSource = std::move (source);
         publishLocked (std::move (next));
         ready.store (true, std::memory_order_release);
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
     }
 
     void RuntimeV2Controller::revokeAuditionPublication() noexcept
@@ -222,6 +226,7 @@ namespace hypha::reference_audition
         activeOutputGateToken.store (0, std::memory_order_release);
         if (selectionGate)
             selectionGate (false);
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
     }
 
     void RuntimeV2Controller::releaseActiveOutputGate() noexcept

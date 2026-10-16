@@ -1,5 +1,17 @@
 # Exact-distribution provenance gate
 
+### 2026-10-16 processor identity extraction build-contract review
+
+An independent read-only review compared the CMake difference from
+`1cbe7f7b43f69690781a73665dba05d0e7b433dd`: only the registrations of
+`PluginProcessorIdentity.cpp` and `PluginProcessorPairReadback.cpp` were added. Removing
+these entries restores the previous CMake bytes. The DATA_SOURCES declaration, optional
+font conditions, BinaryData processing, included modules and all three embedded PNG hashes
+retain their reviewed bytes and uses. The CMake SHA-256 is
+`44da76b60f8eba7a33162d061d25a1e0934f2f7a9be1de6e9d27915ef1cae534`.
+Only the registry build-contract hash advances. This bounded review grants no new material
+rights and does not qualify the processor change, actual payload linkage or release acceptance.
+
 This adds to the existing source, signature, notarization, host and three-channel release gates.
 It does not change GPLv3 or dependency licenses, certify legal compliance, or qualify an existing
 Release retrospectively. Local fixtures and CI success are not actual distribution evidence.
@@ -111,6 +123,13 @@ Public CI continues the complete build/test matrix but suppresses new Windows UI
 fallback-ZIP uploads while embedded-input permission is unresolved. Preview permission is checked
 separately from binary use. Diagnostic CI also lacks verified actual-payload NOTICE/source delivery,
 so input-rights approval alone cannot reenable binary uploads. Logs remain available.
+When that diagnostic upload is unavailable, the reviewed private factory may build the exact
+green source on `windows-latest` without signing credentials. Its immutable handoff retains
+raw PRE/POST hashes, audio transparency/pluginval results, CMake inputs, factory/source-CI identity,
+Corresponding Source and legal documents. The signing job verifies this handoff and the complete
+source CI before accepting it; it never silently treats a skipped public upload as successful.
+The private unsigned build is not public distribution approval. Actual extraction, linkage,
+host, signature and three-channel gates remain mandatory.
 This also covers generated previews and embedded resource copies, not only loose original files.
 Existing artifacts are preserved. Contributor source remains available for inspection; do not
 use repository availability as approval to package held material into a new distribution.
@@ -125,7 +144,7 @@ private retained JSON report. It must be schema `hypha-distribution-provenance-v
   URL. The archive is uploaded and read back alongside release artifacts, not replaced by a generic
   repository link or GitHub's automatic source ZIP, which omits submodule contents.
 - `components`: IDs, actual version/source, license expression, modification notice and archive
-  `licenseFiles`. The gate requires MoSQITo, JUCE and a conservative normal/build FFI Cargo closure;
+  `licenseFiles`. The gate requires MoSQITo, JUCE, its bundled FLAC/Ogg/Vorbis/IJG JPEG/libpng/zlib/Apple AudioUnitSDK/VST3 SDK notices, the pinned Rust runtime notices, and a conservative normal/build FFI Cargo closure;
   additional actual linked/embedded components must be identified in the retained linkage review.
   Every reported component needs a resolved license declaration and retained license files, including
   additional components and those with no manifest license. `Unknown`, `NOASSERTION`, pending markers
@@ -214,3 +233,101 @@ and every listed material hash still match the registry. The reviewed CMake hash
 `7bcec36e0ae3a35449a504e79c7dd8b974ecce9402c52ad7ab45dce6b3af9320`. Only the build-contract hash changes; material permissions, holds and release
 gates retain their existing decisions. This implementation review does not claim independent
 review or release acceptance.
+The unsigned private Windows producer awaits the pinned GUI-subsystem pluginval process,
+requires exit code zero, and verifies the complete PRE/POST bundle file sets and SHA-256 values
+before and after validation. Its handoff retains the validator receipt, raw owned/JUCE source
+inventory and the actual POST MSVC linker map. The importer checks these bytes again before
+any signature request. CRLF/LF differences count as different source bytes. Rust 1.94.1 runtime
+notices are retained; a different compiler requires a new runtime inventory review.
+
+Legal delivery also includes `Corresponding-Source.txt` with the free exact-release source
+archive URL and hash. External AAX SDK and PACE redistribution/source conditions remain a
+separate release-specific review; the built-in JUCE inventory does not settle them.
+
+
+### 2026-10-15 Reference commit-wait fixture build-contract review
+
+An independent read-only review inspected the complete CMake difference from
+`f8726ebd86ff29ac42993a2d6f67f52b09865f4b`: registration of the original
+`ReferenceCommitWait.cpp` fixture and a PRIVATE observer define for its runtime-test target.
+Reversing these two changes restores the previously pinned CMake bytes exactly.
+The 2,178-byte resource/font declaration, `ObservatoryMaterial.cmake`, all three embedded
+PNGs and the documentation alias retain their approved bytes and uses. No embedding or
+font input is added. The reviewed CMake SHA-256 is
+`88709e21ae713e978cf1e8744073a590e7283e35cb3eed83135086130182ab6a`.
+Only the registry build-contract hash advances. Existing material grants and holds remain;
+this bounded review does not replace exact-payload linkage, source delivery or release gates.
+
+### Producer evidence and runtime identity
+
+All formal Mac AU/VST3/AAX and Windows VST3/AAX producers must check Rust's actual
+runtime version against the retained standard-library notices before building, and again
+when freezing the candidate. Installing a private producer toolchain selects it within that job;
+it must not change a shared machine's default toolchain.
+Public CI and contributor diagnostics continue to use Rust stable. The runtime pin belongs
+to formal `produceMac`/freeze, Mac AAX `--sign`, Windows AAX `-Distribution` and private
+Windows producers. Raw-source qualification tests inject a declared runtime; the real producer
+reads the actual compiler and rejects a different version.
+
+The Windows raw-source record compares unfiltered working bytes to the adopted Git blobs.
+Approved JUCE patches are applied to a temporary index to derive the expected patched blobs;
+the working submodule/index is not reset. Compare this record again after the build.
+
+A Windows VST3 bundle contains its DLL, moduleinfo.json and, if present, the complete
+JUCE desktop.ini/Plugin.ico pair. Reject extra files, absent payloads and symlinks at producer,
+import and packaging boundaries. Link maps belong in an intermediate evidence directory;
+append target link options without replacing platform defaults. Check real map location and
+PE continuity in the first unsigned producer run.
+The build record defines the complete unsigned upload tree, including both external maps
+and all legal/source files. Stage and reimport that tree before upload; upload only that directory.
+
+Retain the unsigned and signed pluginval receipts under separate, exclusively created names.
+Bind imported current-factory artifacts to the same reviewed factory commit, repository,
+dispatch event, workflow path and unique nonexpired artifact ID/digest. Verify downloaded
+archive bytes before extraction. Archive and executable hashes also fix every downloaded
+runtime receiving signing secrets; compare its extracted tree to the verified archive before use.
+These checks do not replace clean-machine lifecycle, licensed-tool qualification or cost approval.
+
+Current import boundaries include unsigned VST3, signed AAX, signed-candidate promotion
+and signed-full delivery to the public coordinator. Promotion preserves the original candidate
+manifest and artifact receipt, and records candidate/promotion identity. The coordinator's private
+profile pins the reviewed factory repository/commit, promotion run and retained signed-full ZIP. Verify both
+runs, separated jobs, unique artifacts, API digests, actual archive/local-delivery bytes and the
+original manifest before accepting it. Promotion updates the manifest's validation/readiness/
+factory-origin metadata and adds candidate-manifest.json, signed-candidate-artifact.json and
+promotion-transition.json under provenance/. It preserves executable bytes, signatures and
+existing payload/qualification metadata.
+
+Native evidence uses the NOTICE inventory's role mapping: PRE requires IJG JPEG/libpng/zlib;
+POST additionally requires FLAC/Ogg/Vorbis because only POST links juce_audio_formats.
+Tests retain distinct symbol inputs derived from existing binaries. They do not qualify MSVC
+map layout, PE continuity or uploaded bytes; confirm those in the exact unsigned producer run.
+
+Promotion reads the preserved candidate's JSON values without timestamp conversion. Exercise
+its PowerShell 7 writer through the Node coordinator, including full installer metadata and
+seven-digit timestamps ending in zero. Preserve strict payload/qualification comparisons.
+
+Windows and macOS producers run in this order. Public CI must first be green for the exact source with all four required jobs. At one reviewed factory commit, the private factory then runs build_only (unsigned VST3, no signing secrets) and Windows AAX signing (PACE + eSigner, the first metered signing operation; either may run first), then candidate signing (eSigner for PRE/POST VST3, the uninstaller and Setup EXE), Windows external validation of that exact candidate, and promotion (no signing). Only then can the coordinator start: provenance-inputs, ci, source-delivery, the macOS AU/VST3 and AAX producers (signing, notarization, PACE), windows, A3 freeze, A4 hosts, packages, provenance, A5 distribution, LS, GitHub, HP and A7. Windows external validation is not A3; A3 is the coordinator freeze after windows.
+
+The actual-host minimum is Intel macOS AU/VST3/AAX and Windows x64 VST3/AAX. Additional hosts may be included before A3; their frozen evidence requirements then apply. Both macOS Universal slices and arm64 automated CI remain required.
+
+Retention is set per upload. The signed AAX and unsigned VST3 handoffs use 3-day workflow retention, and the in-run unsigned AAX handoff 1 day. Candidate and signed-full omit retention-days and inherit the factory repository setting at upload time. Candidate signing reads both 3-day handoffs and rejects an expired or different-factory-commit artifact before any signing secret is loaded. Promotion reads the candidate. The coordinator reads candidate and signed-full in windows and again in distribution (A5), including every resume while A5 is pending; later stages do not read them. The two factory workflows share one concurrency group: dispatch the next run only after the previous one finishes.
+
+1. Before dispatching Windows AAX signing (and before build_only if it runs first): retain the repository retention GET response and time; the retention-days of every upload in both reviewed workflows at the exact factory commit; that factory commit, used for build_only, AAX signing, candidate signing and promotion; and owner-agreed dates with margin for build_only, AAX signing, candidate signing, Windows external validation, promotion, the macOS producers, A3, A4 and A5. Confirm that the approved signing budget covers both AAX and candidate signing, and that the required signing hosts are available on those dates. Do not sign AAX unless candidate signing is planned within 3 days, minus margin, of both the AAX upload and the build_only upload, and A5 is planned before candidate signing plus the effective retention days, minus margin. Artifact IDs and actual expires_at do not exist yet and are not required here.
+2. Before dispatching candidate signing: GET both input runs and artifacts and retain run/artifact IDs, digests, expires_at and head_sha. Both must be unexpired, from the dispatch factory commit, and must expire after the planned start plus the job timeout and margin. Re-read the repository setting. Confirm that no run of the shared concurrency group is running or pending, and that the candidate budget is still approved. If only the unsigned VST3 handoff is short or expired, run build_only again; it needs no signing. If the signed AAX handoff expired, do not sign again automatically: preserve receipts and obtain a qualification decision. Immediately after the candidate upload, retain its run/artifact ID and actual expires_at.
+3. After promotion, before coordinator --execute and any macOS signing, notarization or PACE: retain both run/artifact IDs, actual expires_at, the earlier deadline, the original signed-full ZIP digest and its complete extracted tree, and planned A3, A4 and A5 dates. Stop if either artifact is missing or expired, or if A5 cannot pass before the earlier deadline with margin. provenance-inputs validates input structure only; the coordinator's API and archive checks run later, in windows and distribution.
+4. Before starting A4 host acceptance, and before each A5 resume: GET both artifacts again. Stop before spending host acceptance if A5 cannot pass before the earlier deadline with margin.
+
+Do not delete these artifacts to save storage before A5 passes. After expiry, preserve ZIPs and receipts and obtain a new qualification decision. Never sign again automatically or accept expired artifacts.
+
+The repository setting is read through the official
+[artifact retention API](https://docs.github.com/en/rest/actions/permissions#get-artifact-and-log-retention-settings-for-a-repository).
+Pending-run replacement follows the
+[GitHub concurrency specification](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency);
+workflow inspection alone does not test that platform behavior.
+
+Preserve the original signed-full ZIP and extract its complete upload tree, including
+provenance/, without adding, deleting or rewriting files. Promotion adds the original candidate
+manifest, candidate artifact receipt and transition record to the retained producer/qualification
+evidence. The coordinator compares all archive and local-delivery files and their hashes;
+the installer and its top-level sidecars alone are not the complete factory handoff.

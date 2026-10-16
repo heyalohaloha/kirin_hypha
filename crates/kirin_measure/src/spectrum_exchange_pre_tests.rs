@@ -4,6 +4,70 @@ use crate::attack_runtime::snapshot::{
     AttackObservationSnapshot, AttackSourceEvidence, AttackSourceKey,
 };
 
+#[test]
+fn concurrent_pre_reads_claim_unique_revisions_without_wrapping() {
+    let (_, coordinator, _, _, _) = fixture();
+    let barrier = Arc::new(std::sync::Barrier::new(8));
+    let mut revisions = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let coordinator = &coordinator;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    (0..32)
+                        .map(|_| coordinator.next_pre_read_revision().unwrap())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    revisions.sort_unstable();
+    assert_eq!(revisions, (1..=256).collect::<Vec<_>>());
+    coordinator
+        .pre_request_read_revision
+        .store(u64::MAX - 1, Ordering::Release);
+    assert_eq!(coordinator.next_pre_read_revision(), Some(u64::MAX));
+    assert_eq!(coordinator.next_pre_read_revision(), None);
+    assert_eq!(coordinator.next_pre_read_revision(), None);
+    assert_eq!(
+        coordinator
+            .pre_request_read_revision
+            .load(Ordering::Acquire),
+        u64::MAX
+    );
+    coordinator.shutdown();
+}
+
+#[test]
+fn exhausted_pre_revision_preserves_current_owner_and_published_bytes() {
+    let (temp, coordinator, _, request_id, _) = fixture();
+    let request_before = serde_json::to_vec(&read_request(temp.path()).unwrap()).unwrap();
+    coordinator
+        .pre_request_read_revision
+        .store(u64::MAX, Ordering::Release);
+    assert!(!coordinator.pre_tick("pre-fixture", temp.path()));
+    assert_eq!(
+        coordinator
+            .pre_session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .request_id,
+        request_id
+    );
+    assert_eq!(
+        serde_json::to_vec(&read_request(temp.path()).unwrap()).unwrap(),
+        request_before
+    );
+    coordinator.shutdown();
+}
+
 fn fixture() -> (
     tempfile::TempDir,
     Arc<SpectrumCoordinator>,
@@ -41,6 +105,7 @@ fn fixture() -> (
         last_ready_written_at: None,
         instance_dir: temp.path().to_path_buf(),
         state_epoch_samples: None,
+        awaiting_rearm: false,
     });
     let source = AttackSourceKey {
         incarnation: [4; 16],

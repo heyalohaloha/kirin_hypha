@@ -5,7 +5,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { headroom, inspect, pathLimit, projectedLength, run, scan, temporaryAllowance, windowsRelative } from './native_path_budget.mjs';
+import { auditBuildPrefix, headroom, inspect, pathLimit, projectedLength, run, scan, temporaryAllowance, windowsBuildPrefix, windowsRelative } from './native_path_budget.mjs';
+
+const oldBuildPrefix = 'D:\\a\\kirin_hypha\\kirin_hypha\\juce_shell\\build-windows';
 
 function fixture(t) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'path-budget-'));
@@ -52,18 +54,46 @@ test('old Drop, hash preset and Rust claim paths fail with their old fixture pre
     `reference/v2/library/presets/${'a'.repeat(64)}.json`,
     `update-fixture-project/record_expected/claims/update-fixture-bounce-1234567890123/${uuid}.json`,
   ];
-  assert.equal(inspect(paths.map(p => prefix + p), 'test-kirin-os').violations.length, 3);
+  assert.equal(inspect(paths.map(p => prefix + p), 'test-kirin-os', oldBuildPrefix).violations.length, 3);
   const shortened = paths.map(p => `s-12345/home/AppData/Local/Kirin OS/plugin_data/${p}`
     .replace('update-fixture-project', 'up').replace('update-fixture-bounce', 'bounce'));
-  assert.equal(inspect(shortened).violations.length, 0);
+  assert.equal(inspect(shortened, 't', oldBuildPrefix).violations.length, 0);
 });
 
 test('pair-owner leases need compact fixture instance directories, not a weaker limit', () => {
   const uuid = '11111111-1111-4111-8111-111111111111';
   const lease = `.pair_owners/${uuid}-${'a'.repeat(32)}.lease`;
   const prefix = `s-12345/tmp/kirin/${uuid}/`;
-  assert.equal(inspect([`${prefix}${uuid}/${lease}`]).violations.length, 1);
-  assert.equal(inspect([`${prefix}iffff/${lease}`]).violations.length, 0);
+  assert.equal(inspect([`${prefix}${uuid}/${lease}`], 't', oldBuildPrefix).violations.length, 1);
+  assert.equal(inspect([`${prefix}iffff/${lease}`], 't', oldBuildPrefix).violations.length, 0);
+});
+
+test('real collision UUID lease paths fit the short CI root without changing identities', () => {
+  const uuid = '11111111-1111-4111-8111-111111111111';
+  const relative = `s-1234/tmp/kirin/${uuid}/${uuid}/.pair_owners/${uuid}-${'a'.repeat(32)}.lease`;
+  assert.equal(projectedLength(relative, 't', oldBuildPrefix), 248);
+  assert.equal(projectedLength(relative), 200);
+  assert.equal(inspect([relative]).violations.length, 0);
+  assert.equal(inspect([relative], 't', oldBuildPrefix).violations.length, 1);
+  const physical = auditBuildPrefix('D:/kh/t', 'win32', () => `${oldBuildPrefix}\\t`);
+  assert.equal(physical, oldBuildPrefix);
+  assert.equal(inspect([relative], 't', physical).violations.length, 1);
+  assert.throws(() => projectedLength(relative, 't', 'relative/build'));
+});
+
+test('all Windows CI consumers share the measured root and refuse existing output', () => {
+  const workflow = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const job = workflow.slice(workflow.indexOf('  windows-vst3-preflight:\n'));
+  const configured = job.match(/^      HYPHA_WINDOWS_BUILD_DIR: (.+)$/m)?.[1];
+  assert.equal(configured?.replaceAll('/', '\\'), windowsBuildPrefix);
+  assert.doesNotMatch(job, /juce_shell\/build-windows/);
+  const variable = '$env:HYPHA_WINDOWS_BUILD_DIR';
+  for (const prefix of ['cmake -S juce_shell -B ', '--build-dir ', 'cmake --build ', '--artifact-dir '])
+    assert.ok(job.includes(prefix + variable), prefix);
+  assert.equal((job.match(/ctest --test-dir /g) || []).length, job.split('ctest --test-dir ' + variable).length - 1);
+  assert.match(job, /if \(Test-Path -LiteralPath \$buildRoot\) \{ throw/);
+  assert.match(job, /steps\.native-root\.outcome == 'success'/);
+  assert.doesNotMatch(job, /Remove-Item[^\n]*\$buildRoot/);
 });
 
 test('scanner includes files, empty folders, and hidden temporaries', t => {
@@ -75,7 +105,7 @@ test('scanner includes files, empty folders, and hidden temporaries', t => {
 
 test('deleted Rust-shaped output remains checked through the teardown ledger', t => {
   const f = fixture(t); run('setup', f.root, f.ledger);
-  const relative = `record_expected/claims/${'c'.repeat(150)}/receipt.json`;
+  const relative = `record_expected/claims/${'c'.repeat(200)}/receipt.json`;
   fs.mkdirSync(path.dirname(path.join(f.root, relative)), { recursive: true });
   fs.writeFileSync(path.join(f.root, relative), '{}');
   fs.writeFileSync(path.join(f.ledger, 'removed.json'), JSON.stringify(scan(f.root)));
@@ -119,7 +149,7 @@ test('CTest auto-selects the budget, fails overlong native output, and runs clea
   const cmake = fileURLToPath(new URL('../juce_shell/cmake/NativePathBudget.cmake', import.meta.url));
   const write = path.join(source, 'write.mjs');
   fs.writeFileSync(write, `import fs from 'node:fs'; import path from 'node:path';
-    fs.mkdirSync(path.join(process.env.KIRIN_HYPHA_PATH_BUDGET_ROOT, 'x'.repeat(180)));
+    fs.mkdirSync(path.join(process.env.KIRIN_HYPHA_PATH_BUDGET_ROOT, 'x'.repeat(220)));
     process.exit(Number(process.argv[2]));`);
   // Use real fixture wiring, substituting only the repository-relative script location.
   const cmakeText = fs.readFileSync(cmake, 'utf8').replace('${CMAKE_CURRENT_SOURCE_DIR}/../scripts/native_path_budget.mjs', script.replaceAll('\\', '/'));
@@ -137,7 +167,7 @@ include(Budget.cmake)
   const invoke = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' });
   const config = invoke('cmake', ['-S', source, '-B', build]);
   assert.equal(config.status, 0, config.stderr);
-  const ctest = name => invoke('ctest', ['--test-dir', build, '--output-on-failure', '-R', `^${name}$`]);
+  const ctest = name => invoke('ctest', ['--test-dir', build, '-C', 'Release', '--output-on-failure', '-R', `^${name}$`]);
   const ok = ctest('native_ok'); assert.equal(ok.status, 0, ok.stdout + ok.stderr);
   const long = ctest('native_long'); assert.notEqual(long.status, 0);
   assert.match(long.stdout, /kirin_native_path_budget_cleanup[^\n]*Failed/);

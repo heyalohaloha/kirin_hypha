@@ -77,13 +77,13 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             libraryPreparation = std::move (preparation);
         }
-        activeABinding = aBindingRepository.load (configuration.identity, nowMs);
+        activeABinding = aBindingRepository.loadCurrent (configuration.identity);
         RequestedSelection selection;
         { const juce::ScopedLock lock (stateLock); selection = requestedSelection; }
         aCapture.service (activeABinding,
                           static_cast<std::int64_t> (std::llround (
                               configuration.sampleRate)),
-                          configuration.channels, nowMs,
+                          configuration.channels, juce::Time::currentTimeMillis(),
                           versionComparison && configuration.identity.library
                               ? configuration.identity.runtimeInstanceId : juce::String {});
         const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)

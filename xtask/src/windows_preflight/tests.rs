@@ -207,13 +207,39 @@ fn preflight_requires_pre_and_post_binary_paths() {
 #[test]
 fn preflight_requires_upload_paths_to_match_layout_paths() {
     let bad = CI_WORKFLOW.replace(
-        "            juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
-        "            juce_shell/build-windows/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha WRONG.vst3",
+        "            ${{ env.HYPHA_WINDOWS_BUILD_DIR }}/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3",
+        "            ${{ env.HYPHA_WINDOWS_BUILD_DIR }}/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha WRONG.vst3",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
     assert!(err
         .to_string()
         .contains("must upload the layout artifact path"));
+}
+
+#[test]
+fn preflight_requires_measured_ci_root_and_live_layout_bindings() {
+    for (from, to, reason) in [
+        (
+            "HYPHA_WINDOWS_BUILD_DIR: D:/kh",
+            "HYPHA_WINDOWS_BUILD_DIR: D:/longer/root",
+            "must declare the measured short build root",
+        ),
+        (
+            "$env:HYPHA_WINDOWS_BUILD_DIR/KirinHyphaPRE_artefacts",
+            "juce_shell/build-windows/KirinHyphaPRE_artefacts",
+            "must verify the layout artifact path",
+        ),
+        (
+            "${{ env.HYPHA_WINDOWS_BUILD_DIR }}/KirinHyphaPRE_artefacts",
+            "juce_shell/build-windows/KirinHyphaPRE_artefacts",
+            "must upload the layout artifact path",
+        ),
+    ] {
+        assert!(CI_WORKFLOW.contains(from), "mutation must reach its input");
+        let bad = CI_WORKFLOW.replace(from, to);
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err.to_string().contains(reason), "{err}");
+    }
 }
 
 #[test]

@@ -35,14 +35,6 @@ pub(super) fn write_perceptual_snapshot(instance_dir: &Path, bytes: &[u8]) -> st
     )
 }
 
-pub(super) fn remove_perceptual_snapshot(instance_dir: &Path) {
-    let _ = analysis_exchange_transport::remove(
-        instance_dir,
-        &perceptual_snapshot_path(instance_dir),
-        AnalysisSlot::Perceptual,
-    );
-}
-
 #[cfg(test)]
 pub(super) fn encode_perceptual_snapshot(request_id: Uuid, history: &PerceptualHistory) -> Vec<u8> {
     encode_perceptual_snapshot_with_clock(request_id, history, SpectrumClockKind::Presentation)

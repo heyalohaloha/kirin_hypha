@@ -9,23 +9,60 @@ Release-operator state is local-only and ignored by Git. Public artifact facts a
 Kirin Hypha ships through three release surfaces. Updating only one leaves the others on the old version.
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
-2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
-3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST. Public CI builds
-   and validates the VST3 source artifact; the private, approved Windows signing hosts produce and
-   verify the signed installer. AAX releases add verified PACE+Authenticode AAX to the same
+2. **HP free download** — the EN/JA "Download for macOS — Free" buttons use
+   `/downloads/kirin-hypha/macos`, which redirects to the signed/notarized Universal `.pkg`
+   selected by the central release record. The same GitHub Release must also contain the
+   signed/notarized Universal `.zip` for manual recovery. See **"HP Free Download Channel"** below.
+3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST. Public CI
+   validates the exact source commit. A reviewed private unsigned producer builds its VST3
+   bundles on windows-latest; approved signing hosts import that qualified output and produce
+   and verify the signed installer. AAX releases add verified PACE+Authenticode AAX to the same
    installer; the manual VST3 `.zip` is fallback-only. See **"Windows VST3 Channel"** below.
 
-The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
+The macOS LS and normal HP downloads use the same signed/notarized Universal `.pkg`. The
+required recovery `.zip` packages the same signed/notarized bundles from Phase 1. Windows uses
+the qualified JUCE VST3 output from that private unsigned producer; held public-CI binary
+uploads do not supply the formal candidate.
 
 Optional update verification uses the same explicitly approved RSA public key for every role,
 format and OS. Empty is the explicit default and disables checking; stale CMake caches do not
-enable it. See the [release entry](../hypha_release_entry.md) for the input routes. Every package
+enable it. The current formal Windows producer/import route accepts only an empty key;
+do not use `--init --update-public-key` for a release including Windows. Enabling it requires
+script/factory changes, trusted-closure review and new runs first. Public CI key inputs do not
+produce a formal candidate. See the [release entry](../hypha_release_entry.md) for this boundary. Every package
 records `updateCheck` with the canonical key SHA-256 and hashes of the actual distributed
 binaries. macOS verifies expanded PKG/extracted ZIP bytes and their plist/key markers, requiring
 both ARM64/Intel fat slices to carry the same key and retaining each slice hash; Windows
 ties the signed PRE/POST VST3/AAX markers to the installer payload and signed AAX provenance.
 The freeze binds the approved key, and the offline manifest producer rejects a different signer.
 Previous artifacts missing this evidence cannot qualify as a newly enabled update build.
+
+Private Windows handoffs must preserve the original signed-full artifact ZIP. Pin the reviewed
+factory commit and promotion run in the release profile; qualify candidate and promotion origins,
+artifact IDs/digests and the actual ZIP/local delivery inventory through the release entry. Promotion
+preserves the original candidate manifest; a successful run alone is not an accepted factory origin.
+Keep both candidate and signed-full artifacts available through distribution (A5), including
+pending-report resumes. Follow the four operator gates in the
+[distribution gate](../provenance/distribution_gate.md):
+
+1. Before Windows AAX signing, and before build_only if it runs first, record effective repository
+   retention, every workflow upload's retention, the same reviewed factory commit, owner dates
+   and margin for all stages, both signing budgets and signing-host availability. Candidate signing
+   must fit both 3-day input handoffs; A5 must fit candidate signing plus effective retention.
+2. Before candidate signing, qualify both actual input artifacts, commits, digests and deadlines
+   with job-time margin; recheck repository retention, concurrency and budget. Rebuild an expired
+   unsigned VST3 input without signing; expired signed AAX needs a qualification decision.
+   Record the candidate's actual ID and deadline immediately after upload.
+3. After promotion, before coordinator --execute or macOS signing/notarization/PACE, qualify both
+   actual artifacts, original signed-full ZIP and full tree, and planned A3/A4/A5 against the earlier
+   deadline. Input format checking does not query expiry before macOS operations.
+4. Before A4 host acceptance and each A5 resume, GET both deadlines again; do not start A4 if A5
+   cannot fit the earlier deadline with margin.
+
+Public CI precedes build_only and Windows AAX signing; candidate signing, Windows external validation
+and promotion precede the coordinator. Windows external validation is not A3: A3 is freeze after
+windows and before A4. The workflows share one concurrency group; wait for each run to finish
+before dispatching the next. Expiry never authorizes automatic re-signing.
 
 ## Files
 
@@ -62,8 +99,14 @@ order for every release:
    new candidate that must repeat the preliminary product gates.
 2. Validate that product commit locally before starting release integration. Do not reuse evidence
    from an older product commit.
-3. Integrate the distribution-procedure commit into the validated product line, choose the next
-   unused version, and assign the integration commit its unique B number. The integration is required
+3. Integrate the distribution-procedure commit into the validated product line and choose the next
+   unused version. The integration commit remains the exact release source. `readReleaseSourceIdentity`
+   reads its B number, or borrows the highest B number from an identical-tree numbered commit when
+   a merge subject omits the number. A different tree never supplies the number.
+   Numberless shallow PR/main checkouts are allowed only for unsigned CI diagnostics:
+   their metadata records a null build number and the exact HEAD, with a DIAGNOSTIC ZIP label.
+   Signed/distribution producers require a numbered source (or an identical-tree numbered commit
+   available in their full-history checkout). A caller-supplied number cannot qualify another source. Integration is required
    because the pinned signing factory executes `scripts/windows/build-installer.mjs` from the checked-out
    Hypha source. If any trusted distribution file changed, review it and update the
    private factory's SHA-256 allowlist in the same integration step.
@@ -84,6 +127,8 @@ order for every release:
    pluginval, signature, and payload-hash verification against the exact signed installer. Do not
    substitute an older commit's evidence or an unsigned binary where the final signed binary is
    required.
+   The required actual hosts are Intel macOS AU/VST3/AAX and Windows x64 VST3/AAX; other actual
+   hosts are additional checks. Both macOS Universal slices and arm64 automated CI remain required.
 7. After every release-candidate gate is green, package and publish all three channels using the
    already verified signed bundle/installer hashes. Do not rebuild, resign, change source, or change
    version after validation; any byte change creates a new candidate and repeats the affected gates.
@@ -112,8 +157,14 @@ LS verification, immutable GitHub Release publication, EN/JA HP updates, the HP 
 standard staged production deployment, and download read-back. It does not skip host gates,
 automate an unavailable LS upload interface, or infer publication approval from a build request.
 
-After the macOS source bundles are built/notarized and the latest green CI artifact
-`KirinHypha-Windows-signed-full` has been downloaded, run:
+After promotion and before coordinator --execute or macOS signing/notarization/PACE, close Gate 3
+of the distribution gate above. Qualify candidate and promotion origins against the reviewed factory
+commit and retain the original signed-full ZIP and complete extracted inventory. Gate 4 rechecks
+deadlines before A4 and each A5 resume. After the macOS bundles are built/notarized, the release entry
+invokes the packaging helper below. A standalone helper call does not replace these operator gates,
+factory API/origin/archive qualification or host acceptance:
+
+Run:
 
 ```bash
 node scripts/ls_release/build_kirin_hypha_release_set.mjs \
@@ -121,7 +172,8 @@ node scripts/ls_release/build_kirin_hypha_release_set.mjs \
 ```
 
 This verifies the downloaded signed Windows installer and its sidecars, runs Windows static gates,
-builds the macOS LS `.pkg`, and builds the macOS HP `.zip`.
+builds the macOS `.pkg` shared by LS and the normal HP download, and builds the required
+macOS recovery `.zip` for the same GitHub Release.
 
 If the Windows artifact is missing, the script fails before reporting release ready. Do not use `--skip-windows-package` for a public release.
 
@@ -188,7 +240,7 @@ writes `build-aax-universal/kirin-hypha-macos-aax-notarization.json` only after 
 The archive, manifest, and log remain under `build-aax-universal/aax-notarization/<sha256>/`.
 A v1, signature-only, or diagnostic receipt is never accepted by either macOS packaging path.
 
-The HP zip also carries an exact copy of the accepted receipt at
+The required macOS recovery ZIP also carries an exact copy of the accepted receipt at
 `AAX/kirin-hypha-macos-aax-notarization.json`. Post-extraction verification rejects a missing or
 different copy, so the public artifact retains the notarization submission and PRE/POST hash binding.
 
@@ -304,12 +356,17 @@ on the release page for manual recovery. Update the actual EN/JA PKG and Windows
 version/date/format labels and their tests together; do not regress that established installer
 entry to ZIP-only.
 
-The homepage `kirinmastering.com/hypha` has a "Download for macOS — Free" button that links to a GitHub Release asset:
-`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`
+The EN/JA "Download for macOS — Free" buttons use `/downloads/kirin-hypha/macos`. The
+central `updates/hypha.json` record selects the GitHub Release PKG URL, actual bytes and SHA-256:
+`https://github.com/heyalohaloha/kirin_hypha/releases/download/vX.Y.Z/Kirin-Hypha-X.Y.Z-macOS-Universal.pkg`.
+The stable route must return a 302 to that exact URL with `no-store`; the public download is
+read back through the same route and checked against the selected bytes and SHA-256.
 
-This is a SEPARATE channel from Lemon Squeezy and MUST be updated on every release. Run these AFTER Phase 1 (the bundles are already signed+notarized — the `.zip` reuses them).
+This is a SEPARATE delivery channel from Lemon Squeezy and MUST be updated on every release.
+The normal download uses the verified Phase 2 PKG. The recovery ZIP reuses the signed/notarized
+Phase 1 bundles and remains a required asset in the same Release; it is not the normal HP link.
 
-### HP-1: Build the free `.zip` (signed bundles → universal zip)
+### HP-1: Build the required recovery `.zip` (signed bundles → Universal ZIP)
 
 ```bash
 cargo run --package xtask -- release-package
@@ -343,14 +400,21 @@ hashed before the HP update. See [the complete entry](../hypha_release_entry.md)
 
 ### HP-3: Bump the website download links
 
-Update BOTH files (EN + JA) to the same current Mac PKG and Windows EXE URLs:
+HP keeps the stable `/downloads/kirin-hypha/macos` and `/downloads/kirin-hypha/windows`
+entry routes. The release coordinator updates five source files together:
 
-- `hypha.html` (EN, the `Download for macOS — Free` link)
-- `ja/hypha.html` (JA, the `macOS版を無料ダウンロード` link)
+- `hypha.html` and `ja/hypha.html`: release tokens, AAX format copy and update guidance.
+- `updates/hypha.json`: exact version/date/notes plus the official PKG/EXE URL, actual bytes and SHA-256
+  from the frozen package facts. Missing, duplicated, malformed or different-version installer facts fail.
+- `scripts/__tests__/hypha-entry-links.test.mjs` and `api/__tests__/download-security.test.mjs`:
+  the current version/date expectations and the negative URL/version guard.
 
-Update the version, release date, platform/format copy and
-`scripts/__tests__/hypha-entry-links.test.mjs` together. The coordinator handles these three files
-as one planned change, refuses unrelated dirty changes, and runs the HP tests before commit/push.
+The source templates retain version/date/notes tokens; the HP build renders the central record.
+Do not replace its download routes with direct links or invent integrity values. The coordinator
+refuses unrelated dirty changes, altered planned edits, an unreviewed downgrade or different
+same-version integrity, and runs the HP tests before commit/push. After the standard deployment,
+it verifies both rendered languages/date/notes, each exact302 redirect and no-store, and the
+actual streamed bytes/hash through each public download route, plus deployment-source.
 
 The website repository and deployment credentials are maintained separately from this public source repository. Update both language variants through that repository's documented release workflow.
 
@@ -379,21 +443,31 @@ and its exact 40-character commit. Public source validation does not establish s
 Formal signing uses a separately controlled environment holding credentials and any licensed SDK/PACE
 inputs. Review the exact source and distribution scripts before authorizing that environment to execute
 them. Verify the successful CI run belongs to the same source commit and includes all required jobs.
-Keep credentials, account/administration identifiers, machine topology and operator state outside this
-public repository. The AAX build/license/signing boundary is documented in [the AAX guide](../aax_build_signing_entry.md).
+Build VST3 with the reviewed private unsigned producer on windows-latest and qualify that run
+and its complete artifact before signing. Public CI binary uploads are not the formal producer.
+Close Gate 1 of the distribution gate before dispatching Windows AAX signing or build_only.
+Close Gate 2 before candidate signing. Keep credentials, account/administration identifiers,
+machine topology and operator state outside this public repository. The AAX build/license/signing
+boundary is documented in [the AAX guide](../aax_build_signing_entry.md).
 
-The signing workflow must verify the reviewed script hashes and pinned signing-tool/Inno Setup bytes,
-produce a candidate bound to that source commit, and sign all executable surfaces:
+The signing workflow verifies reviewed script hashes and pinned signing-tool/Inno Setup bytes.
+Its candidate job signs these executable surfaces, bound to the same source commit:
 
 - PRE VST3 PE binary
 - POST VST3 PE binary
-- PRE/POST AAX payload when selected, with PACE and Authenticode verification
 - generated uninstaller
 - Setup EXE
 
+Selected PRE/POST AAX is signed earlier by the AAX workflow with PACE and Authenticode and
+verified on import. Transparency is checked before signing in the unsigned producer and public
+CI. After signing, the candidate job runs pluginval on signed VST3 and the installer lifecycle;
+it does not rerun transparency. Preserve unsigned and signed validation evidence separately.
+
 Run [external validation](../windows_external_validation.md) against that exact signed installer, retain
 the report and its SHA-256, and promote only after complete evidence. Candidate promotion must verify
-hash/source/signature and change only the readiness sidecar; never rebuild or resign accepted bytes.
+hash/source/signature, update the installer JSON's validation, readiness and factory-origin
+metadata, and add the three provenance records listed in WIN-2; never rebuild or re-sign
+accepted executable bytes. Preserve the candidate's existing evidence and the complete delivery tree.
 Keep pending evidence distinguishable from complete evidence.
 
 Verify previous-public-version upgrade, same-version reinstall and isolated uninstall, installed payload
@@ -403,7 +477,8 @@ substitute for `KirinHypha-Windows-signed-full` or for dedicated-host acceptance
 
 ### WIN-2: Required artifacts
 
-Download `KirinHypha-Windows-signed-full`. It must contain exactly:
+Retain the original `KirinHypha-Windows-signed-full` artifact ZIP and extract its complete tree
+into the private release handoff directory. Its top-level distribution files are:
 
 - `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`
 - matching `.exe.sha256`
@@ -412,6 +487,15 @@ Download `KirinHypha-Windows-signed-full`. It must contain exactly:
 For an AAX release it must additionally contain the matching
 `Kirin-Hypha-X.Y.Z-Windows-x64-AAX.json` signed-provenance sidecar. A VST3-only release must not
 claim AAX in the installer manifest.
+
+The artifact also contains the complete `provenance/` subtree uploaded by the factory, including
+retained unsigned producer/qualification evidence, Legal/source files, both role-specific link
+maps, and promotion's original candidate manifest, artifact receipt and transition record.
+These files are part of the handoff, not extra files to remove. Do not add, delete or rewrite
+files in the extracted tree; keep new logs/reports elsewhere. The coordinator verifies the
+original ZIP's API digest and compares its entire file set and each file's SHA-256 with this tree.
+Use the release entry's selected public assets for publication; retaining the private factory
+archive does not authorize publishing its complete provenance subtree.
 
 The JSON must report signing `valid`, CI validation `passed`, external validation `complete`, the
 tested installer's identical SHA-256, retained report SHA-256, signed-candidate workflow URL, and

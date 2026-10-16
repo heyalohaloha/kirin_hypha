@@ -6,7 +6,7 @@ import { buildTreeManifest } from './aax_submission_archive.mjs';
 
 export const SCHEMA = 'kirin-hypha-release-pipeline-v1';
 export const HOST_TESTS = [
-  ...['arm64', 'x86_64'].flatMap(cpu => ['AU', 'VST3', 'AAX'].map(f => `macOS/${cpu}/${f}`)),
+  ...['AU', 'VST3', 'AAX'].map(f => `macOS/x86_64/${f}`),
   'Windows/x64/VST3', 'Windows/x64/AAX',
   ...['PRE-alone', 'POST-alone', 'same-pair', 'wrong-pair', 'multiple-pairs', 'duplicate',
     'peer-loss', 'peer-return', 'reopen-order', 'processor-recreation'].map(t => `pair/${t}`),

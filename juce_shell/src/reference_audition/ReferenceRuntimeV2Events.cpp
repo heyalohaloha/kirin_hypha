@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceTestCommitObserver.h"
 #include "ReferenceWholeSongEvents.h"
 
 #include <algorithm>
@@ -333,6 +334,7 @@ namespace hypha::reference_audition
                     && bConfirmed <= current->bConfirmationBaseline)
                 {
                     current = auditionEventSessions.erase (current);
+                    KIRIN_REFERENCE_COMMIT_FOR_TEST();
                     continue;
                 }
                 if (now < current->retryAtMs) { ++current; continue; }
@@ -366,6 +368,7 @@ namespace hypha::reference_audition
                 current->startWritten = written;
                 current->retryAtMs = written ? 0 : now + std::min (60000, 1000 * (1 << std::min (current->retries++, 6)));
                 if (written) current->retries = 0;
+                KIRIN_REFERENCE_COMMIT_FOR_TEST();
             }
         }
         for (const auto& session : completions)
@@ -383,6 +386,7 @@ namespace hypha::reference_audition
             {
                 if (written) auditionEventSessions.erase (current);
                 else current->retryAtMs = now + std::min (60000, 1000 * (1 << std::min (current->retries++, 6)));
+                KIRIN_REFERENCE_COMMIT_FOR_TEST();
             }
         }
 

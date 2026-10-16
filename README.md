@@ -1459,11 +1459,21 @@ KIRIN_SKIP_PKG_SIGN=1 KIRIN_SKIP_PKG_NOTARIZE=1 \
 ```
 
 Signed Windows installers require an independently controlled signing environment and reviewed
-exact source. The full source commit and a successful CI run for that commit bind the signed PRE/POST
-payload, installer and uninstaller. Same-version reinstall, prior-release upgrade, isolated uninstall,
+exact source. A successful exact-source public CI run and a reviewed private unsigned producer
+on windows-latest bind the signed PRE/POST payload, installer and uninstaller to that commit.
+The same reviewed factory signs a pending candidate, then promotes it after dedicated-host
+validation; the release entry qualifies the complete signed-full delivery and its origin.
+Same-version reinstall, prior-release upgrade, isolated uninstall,
 pluginval and dedicated-host acceptance remain mandatory release gates. Signing credentials and
-operator configuration must remain outside this public GPL repository. Public CI always creates unsigned candidates with external acceptance pending. It has no signing
-credential or persistent-runner route; manual dispatch cannot enable signing.
+operator configuration must remain outside this public GPL repository. Public CI remains unsigned
+and its held binary uploads do not supply the formal candidate. It has no signing credential or
+persistent-runner route; manual dispatch cannot enable signing. Follow the four operator gates
+in the [distribution gate](docs/provenance/distribution_gate.md): before Windows AAX signing or
+build_only, before candidate signing, after promotion before coordinator/macOS operations, and
+before A4 and each A5 resume. Windows external validation precedes promotion; A3 means the
+coordinator freeze. The current formal Windows route accepts only an empty update key; public
+CI key inputs do not produce a formal candidate. See the [release entry](docs/hypha_release_entry.md).
+
 [The exposure report](docs/security/public_repo_exposure_audit_20261005.md) records the trust boundary.
 
 The legacy manual-install zip can still be built as a fallback with:

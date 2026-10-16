@@ -377,6 +377,11 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
 }
 
 fn verify_ci_uses_layout_artifact_paths(job_code: &str) -> Result<()> {
+    require(
+        job_code,
+        "HYPHA_WINDOWS_BUILD_DIR: D:/kh",
+        "Windows CI must declare the measured short build root",
+    )?;
     let verify_step = section_between(
         job_code,
         "Verify Windows VST3 artifacts",
@@ -385,21 +390,27 @@ fn verify_ci_uses_layout_artifact_paths(job_code: &str) -> Result<()> {
     let upload_step = section_after(job_code, "Upload Windows VST3 artifacts")?;
 
     for path in windows_vst3_layout::windows_vst3_artifact_paths() {
+        let suffix = path
+            .strip_prefix("juce_shell/build-windows/")
+            .ok_or_else(|| anyhow::anyhow!("Unexpected Windows VST3 layout root"))?;
         require(
             verify_step,
-            &path,
+            &format!("$env:HYPHA_WINDOWS_BUILD_DIR/{suffix}"),
             "Windows preflight job must verify the layout artifact path",
         )?;
         require(
             upload_step,
-            &path,
+            &format!("${{{{ env.HYPHA_WINDOWS_BUILD_DIR }}}}/{suffix}"),
             "Windows preflight job must upload the layout artifact path",
         )?;
     }
     for path in windows_vst3_layout::windows_vst3_binary_paths() {
+        let suffix = path
+            .strip_prefix("juce_shell/build-windows/")
+            .ok_or_else(|| anyhow::anyhow!("Unexpected Windows VST3 layout root"))?;
         require(
             verify_step,
-            &path,
+            &format!("$env:HYPHA_WINDOWS_BUILD_DIR/{suffix}"),
             "Windows preflight job must verify the layout binary path",
         )?;
     }

@@ -153,6 +153,166 @@ void sharedRing (juce::AudioProcessor::WrapperType format, int channels)
     require (post->startLiveCompare() == StartResult::preUnavailable, "retired PRE cannot start another session");
     pre->releaseResources(); post->releaseResources();
 }
+
+void duplicateState (juce::AudioProcessor::WrapperType format, int channels)
+{
+    Clock clock;
+    auto pre = prepare (Processor::Role::Pre, format, channels, clock);
+    auto post = prepare (Processor::Role::Post, format, channels, clock);
+    selectPair (*pre, *post, clock, channels);
+    const auto originalPre = pre->instanceId(), originalPost = post->instanceId();
+    juce::MemoryBlock preState, postState;
+    pre->getStateInformation (preState); post->getStateInformation (postState);
+    const auto recall = [&] (Processor::Role role, const juce::MemoryBlock& state)
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin (format);
+        auto processor = std::make_unique<Processor> (role);
+        auto layout = processor->getBusesLayout();
+        const auto set = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
+        layout.inputBuses.set (0, set); layout.outputBuses.set (0, set);
+        require (processor->setBusesLayout (layout), "copied layout negotiates");
+        processor->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+        processor->setPlayHead (&clock);
+        hypha::tests::prepareFixtureProcessor (*processor, 48000, frames);
+        LiveTimingFixtureAccess::enableFixtureWrites (*processor);
+        require (hypha::tests::fixtureStorageReady (*processor), "copied identity is claimed before publication");
+        if (role == Processor::Role::Pre)
+            require (LiveTimingFixtureAccess::timingRingPublished (*processor), "recalled PRE publishes after prior ring retirement");
+        return processor;
+    };
+    auto copyPre = recall (Processor::Role::Pre, preState);
+    auto copyPost = recall (Processor::Role::Post, postState);
+    const auto copiedPre = copyPre->instanceId(), copiedPost = copyPost->instanceId();
+    require (copiedPre != originalPre && copiedPost != originalPost, "live state copies receive distinct IDs");
+    require (pre->instanceId() == originalPre && post->instanceId() == originalPost,
+             "original owners keep their IDs");
+    require (copyPost->pairedPreInstanceId().isEmpty(), "copied POST must not inherit original exact PRE");
+    require (post->pairedPreInstanceId() == originalPre, "copy cannot change original pair");
+    for (auto* processor : { pre.get(), post.get(), copyPre.get(), copyPost.get() })
+    {
+        normalBlock (*processor, channels);
+        require (! processor->liveCompareStatus().active, "copy never starts audition");
+    }
+    selectPair (*copyPre, *copyPost, clock, channels);
+    require (post->pairedPreInstanceId() == originalPre && copyPost->pairedPreInstanceId() == copiedPre,
+             "two explicitly selected pairs stay independent");
+    // A second, late host state callback cannot put the copied POST back onto the original PRE.
+    copyPost->setStateInformation (postState.getData(), static_cast<int> (postState.getSize()));
+    require (copyPost->instanceId() == copiedPost && copyPost->pairedPreInstanceId().isEmpty(),
+             "late copy retains claimed ID and clears imported authority");
+    selectPair (*copyPre, *copyPost, clock, channels);
+    copyPre->getStateInformation (preState); copyPost->getStateInformation (postState);
+    juce::MemoryBlock originalPreState, originalPostState;
+    pre->getStateInformation (originalPreState); post->getStateInformation (originalPostState);
+    // A real format rebuild destroys/join old engine before reacquiring the same processor ID.
+    pre->prepareToPlay (96000, frames);
+    LiveTimingFixtureAccess::enableFixtureWrites (*pre);
+    require (pre->instanceId() == originalPre, "format rebuild retains original identity");
+    copyPost.reset(); copyPre.reset(); post.reset(); pre.reset();
+    // Reopen both construction orders from the repaired, distinct saved states. A POST restored
+    // first must retain its exact locator, never discover the other same-name PRE instead.
+    for (bool reversed : { false, true })
+    {
+        if (reversed)
+        {
+            copyPost = recall (Processor::Role::Post, postState);
+            pre = recall (Processor::Role::Pre, originalPreState);
+            post = recall (Processor::Role::Post, originalPostState);
+            copyPre = recall (Processor::Role::Pre, preState);
+        }
+        else
+        {
+            pre = recall (Processor::Role::Pre, originalPreState);
+            post = recall (Processor::Role::Post, originalPostState);
+            copyPre = recall (Processor::Role::Pre, preState);
+            copyPost = recall (Processor::Role::Post, postState);
+        }
+        require (pre->instanceId() == originalPre && post->instanceId() == originalPost
+            && copyPre->instanceId() == copiedPre && copyPost->instanceId() == copiedPost,
+                 "reopen order does not change repaired saved identities");
+        require (post->pairedPreInstanceId() == originalPre && copyPost->pairedPreInstanceId() == copiedPre,
+                 "reopen restores only each saved exact PRE");
+        require (! post->liveCompareStatus().active && ! copyPost->liveCompareStatus().active,
+                 "reopen never restores audition permission");
+        copyPost.reset(); copyPre.reset(); post.reset(); pre.reset();
+    }
+}
+
+void identityIoFailure (const juce::File& sandbox)
+{
+    const auto obstruction = sandbox.getChildFile ("tmp/kirin/.instance_identity");
+    require (obstruction.getParentDirectory().createDirectory().wasOk(), "owned identity root");
+    {
+        juce::FileOutputStream stream (obstruction);
+        require (stream.openedOk() && stream.write ("blocked", 7), "owned identity IO failure fixture");
+        stream.flush();
+        require (stream.getStatus().wasOk(), "owned obstruction was written");
+    }
+    Clock clock;
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Pre);
+    processor.setPlayHead (&clock);
+    hypha::tests::prepareFixtureProcessor (processor, 48000, frames);
+    const auto restoredId = processor.instanceId();
+    LiveTimingFixtureAccess::enableFixtureWrites (processor);
+    require (! hypha::tests::fixtureStorageReady (processor)
+        && ! LiveTimingFixtureAccess::timingRingPublished (processor),
+             "identity IO failure cannot publish unclaimed transport");
+    require (processor.instanceId() == restoredId, "IO failure preserves recovery identity");
+    require (obstruction.deleteFile(), "remove owned obstruction");
+    LiveTimingFixtureAccess::enableFixtureWrites (processor);
+    require (hypha::tests::fixtureStorageReady (processor)
+        && processor.instanceId() == restoredId, "recovery claims retained identity");
+}
+
+void identityBoundary()
+{
+    Clock clock;
+    const auto create = [&] (const juce::String& id, Processor::Role role = Processor::Role::Pre)
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+        auto processor = std::make_unique<Processor> (role);
+        juce::XmlElement xml ("KirinHyphaState");
+        xml.setAttribute ("instance_id", id);
+        juce::MemoryBlock state;
+        juce::AudioProcessor::copyXmlToBinary (xml, state);
+        processor->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+        processor->setPlayHead (&clock);
+        hypha::tests::prepareFixtureProcessor (*processor, 48000, frames);
+        LiveTimingFixtureAccess::enableFixtureWrites (*processor);
+        require (hypha::tests::fixtureStorageReady (*processor), "boundary identity claimed");
+        return processor;
+    };
+    const auto prefix = juce::String::repeatedString ("x", 63), full = prefix + "y";
+    auto first = create (prefix), second = create (full);
+    require (first->instanceId() == prefix && second->instanceId() == full,
+             "complete readback keeps 64-byte identity distinct from 63-byte prefix");
+    require (LiveTimingFixtureAccess::timingRingPublished (*first)
+        && LiveTimingFixtureAccess::timingRingPublished (*second), "both distinct full keys publish");
+    auto copy = create (full);
+    require (copy->instanceId() != full && copy->instanceId() != prefix, "full identity copy rekeys");
+    juce::MemoryBlock state; second->getStateInformation (state);
+    auto saved = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    require (saved && saved->getStringAttribute ("instance_id") == full, "saved identity is not shortened");
+    auto post = create ("boundary-post", Processor::Role::Post);
+    selectPair (*first, *post, clock, 2);
+    require (post->pairedPreInstanceId() == prefix, "63-byte candidate selects its exact instance");
+    selectPair (*second, *post, clock, 2);
+    require (post->pairedPreInstanceId() == full, "64-byte candidate cannot select prefix instance");
+    bool hasPrefix = false, hasFull = false;
+    for (const auto& candidate : post->enumeratePreCandidates())
+    {
+        hasPrefix = hasPrefix || candidate.instanceId == prefix;
+        hasFull = hasFull || candidate.instanceId == full;
+    }
+    require (hasPrefix && hasFull, "actual candidate export keeps both complete IDs");
+    juce::String project, selected;
+    require (post->pairedPreLocator (project, selected) && selected == full,
+             "complete exact locator returns the selected long PRE");
+    hypha::local_blind::ExactPairBinding unsupported;
+    require (! post->localBlindPairBinding (unsupported),
+             "legacy Local Blind DTO refuses long identity instead of selecting its prefix");
+}
 }
 int main (int argc, char** argv)
 try
@@ -160,7 +320,8 @@ try
     require (argc == 2, "choose --state-only, --shared-ring or --storage-only");
     const bool shared = juce::String (argv[1]) == "--shared-ring";
     const bool storage = juce::String (argv[1]) == "--storage-only";
-    require (shared || storage || juce::String (argv[1]) == "--state-only", "known test mode");
+    const bool duplicate = juce::String (argv[1]) == "--duplicate";
+    require (shared || storage || duplicate || juce::String (argv[1]) == "--state-only", "known test mode");
    #if KIRIN_HYPHA_PRE_DISPLAY
     ValidationStorageSandbox sandbox;
    #else
@@ -177,6 +338,7 @@ try
         return EXIT_SUCCESS;
     }
     juce::ScopedJuceInitialiser_GUI initialise;
+    if (duplicate) { identityIoFailure (sandbox.directory()); identityBoundary(); }
     int cases = 0;
     for (auto format : { juce::AudioProcessor::wrapperType_VST3,
                         juce::AudioProcessor::wrapperType_AAX,
@@ -186,7 +348,8 @@ try
                         })
         for (int channels : { 1, 2 })
         {
-            if (shared) sharedRing (format, channels); else stateOnly (format, channels);
+            if (duplicate) duplicateState (format, channels);
+            else if (shared) sharedRing (format, channels); else stateOnly (format, channels);
             ++cases;
         }
     std::cout << "Live publication: PASS " << cases << " format/layout cases " << argv[1] << '\n';

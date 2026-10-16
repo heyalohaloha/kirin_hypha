@@ -170,6 +170,14 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         // coherent with its established identity.
         if (writesEnabled.load (std::memory_order_acquire))
         {
+            // Hosts may apply copied state after prepare/enable. Keep this processor's already
+            // claimed identity and never import another processor's saved exact-pair authority.
+            if (restoredInstanceId.isNotEmpty() && restoredInstanceId != persistInstanceId)
+            {
+                restoredPairName.clear();
+                restoredPairInstanceId.clear();
+                restoredPairProjectHash.clear();
+            }
             persistName = restoredName;
             persistPairName = restoredPairName;
             persistPairInstanceId = restoredPairInstanceId;

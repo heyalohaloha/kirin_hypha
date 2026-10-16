@@ -82,6 +82,7 @@ fn feed_level(
     clock: impl Fn(i64) -> SpectrumInputClock,
     amplitude: f32,
 ) {
+    let deadline = Instant::now() + Duration::from_secs(3);
     for position in (0..10_240).step_by(256) {
         let samples = (position..position + 256)
             .flat_map(|index| {
@@ -89,21 +90,39 @@ fn feed_level(
                 [sample * amplitude, sample * amplitude]
             })
             .collect::<Vec<_>>();
-        assert!(runtime.push_block_from_audio_with_clock(&samples, 2, Some(clock(position))));
-        thread::sleep(Duration::from_millis(2));
+        assert!(
+            Instant::now() < deadline,
+            "Spectrum feed deadline before {position}"
+        );
+        assert!(
+            runtime.push_block_from_audio_with_clock(&samples, 2, Some(clock(position))),
+            "input refused at {position}: {:?}",
+            runtime.stats()
+        );
+        await_input(runtime, deadline, position);
     }
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline {
-        if runtime.try_history().is_some_and(|history| {
-            history
-                .newest()
-                .is_some_and(|frame| frame.presentation_end_samples >= 9_600)
-        }) {
-            return;
-        }
-        thread::sleep(Duration::from_millis(2));
-    }
-    panic!("actual Spectrum worker failed to publish");
+    let history = runtime.try_history();
+    assert!(
+        Instant::now() < deadline
+            && history.is_some_and(|history| {
+                history
+                    .newest()
+                    .is_some_and(|frame| frame.presentation_end_samples >= 9_600)
+            }),
+        "actual Spectrum worker failed to publish after completing every input"
+    );
+}
+
+fn await_input(runtime: &SpectrumRuntime, deadline: Instant, position: i64) {
+    // Control thread only: the existing receipt follows processing AND publication.
+    // One deadline covers the entire feed; no queue retry or additional PCM is allowed.
+    assert!(
+        Instant::now() < deadline
+            && runtime.wait_for_input_for_test(deadline.saturating_duration_since(Instant::now()))
+            && Instant::now() < deadline,
+        "Spectrum input completion deadline at {position}: {:?}",
+        runtime.stats()
+    );
 }
 
 #[test]

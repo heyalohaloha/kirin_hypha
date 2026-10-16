@@ -67,9 +67,15 @@ The Perceptual worker uses the established Phase D Sharpness pipeline but stops 
 independent STFT/PSB branch that this page does not display. Record continues through its existing
 complete Phase D path; its values and state are not reused or rewritten by Perceptual Delta.
 
-Closing either page disables the shared ingress and clears its display history. PRE has no public
-Perceptual Delta page; it analyzes only while an exact paired POST holds a renewable request lease.
-Request expiry or page close removes the PRE snapshot and stops its optional worker.
+Closing POST immediately disables its ingress, clears its display and releases its analysis slot.
+PRE has no public Perceptual Delta page; it analyzes only while an exact paired POST holds a renewable
+request lease, and stops on the first tick after that unchanged 1,500 ms lease expires. Retirement
+does not delete shared request, ready or snapshot slots: a read-then-remove could delete a new owner's
+publication. The next atomic publication replaces old bytes, and exact request ID, target, rate and
+lease checks reject retired facts. A late successful old request write is repaired once from the
+current owner; normal renewal remains the recovery path if authority changes again during repair.
+Clock rearm waits for a new request ID, including across temporary request loss or expiry; renewing
+the old ID cannot restore its old epoch. Filesystem work stays outside session transactions.
 
 The normal PRE/POST IO service also supervises successful exchange publication. A completed worker
 attempt is not progress unless it actually publishes a request, readiness fact, or PRE snapshot.

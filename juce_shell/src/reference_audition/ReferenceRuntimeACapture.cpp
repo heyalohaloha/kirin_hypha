@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeACapture.h"
+#include "ReferenceTestCommitObserver.h"
 #include "../AtomicFile.h"
 #include <algorithm>
 #include <cmath>
@@ -155,8 +156,15 @@ namespace hypha::reference_audition
 
     void RuntimeACapture::discardQueued() noexcept
     {
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        const auto previousRead = readSlot.load (std::memory_order_relaxed);
+       #endif
         readSlot.store (writeSlot.load (std::memory_order_acquire),
                         std::memory_order_release);
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        if (previousRead != readSlot.load (std::memory_order_relaxed))
+            KIRIN_REFERENCE_COMMIT_FOR_TEST();
+       #endif
     }
 
     void RuntimeACapture::resetAccumulator (bool preservePublished)
@@ -327,6 +335,7 @@ namespace hypha::reference_audition
         collecting = false;
         complete = true;
         nextPublishAtMs = 0;
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
     }
 
     void RuntimeACapture::publishReceipt (const RuntimeABinding& binding,
@@ -377,7 +386,7 @@ namespace hypha::reference_audition
     {
         const bool local = safeRuntimeId (localRuntimeId);
         const bool authorityValid = (local || (binding.has_value()
-            && binding->leaseExpiresAtMs >= nowMs))
+            && binding->issuedAtMs <= nowMs && binding->leaseExpiresAtMs >= nowMs))
             && sampleRateHz >= 8'000 && sampleRateHz <= 768'000
             && (channels == 1 || channels == 2)
             && nowMs >= 0 && nowMs <= maximumSafeInteger - receiptLeaseMs;
@@ -386,7 +395,10 @@ namespace hypha::reference_audition
             observationArmed.store (false, std::memory_order_release);
             captureEnabled.store (false, std::memory_order_release);
             if (receipt || ! activeBindingId.isEmpty())
+            {
+                KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "authority_unavailable", nowMs);
                 removeReceiptFile();
+            }
             resetAccumulator();
             discardQueued();
             activeBindingId.clear();
@@ -400,6 +412,7 @@ namespace hypha::reference_audition
             || activeRuntimeInstanceId != runtimeId
             || activeSampleRateHz != sampleRateHz || activeChannels != channels)
         {
+            KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "binding_or_format_changed", nowMs);
             removeReceiptFile();
             resetAccumulator();
             discardQueued();
@@ -415,6 +428,7 @@ namespace hypha::reference_audition
         const auto generation = continuityGeneration.load (std::memory_order_acquire);
         if (generation != consumedGeneration)
         {
+            KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "continuity_changed", nowMs);
             resetAccumulator();
             discardQueued();
             consumedGeneration = generation;
@@ -434,9 +448,11 @@ namespace hypha::reference_audition
             consumeBlock (block, samples, targetFrames, nowMs);
             readSlot.store ((currentRead + 1u) % queueSlotCount,
                             std::memory_order_release);
+            KIRIN_REFERENCE_COMMIT_FOR_TEST();
         }
         if (receipt && nowMs > receipt->capturedAtMs + maximumReceiptAgeMs)
         {
+            KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "capture_expired", nowMs);
             removeReceiptFile();
             resetAccumulator();
         }

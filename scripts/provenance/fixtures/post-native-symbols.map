@@ -1,0 +1,21 @@
+Symbol names extracted from an existing macOS x86_64 build.
+MSVC envelope/address columns are illustrative; not Windows qualification.
+  Address         Publics by Value              Rva+Base       Lib:Object
+ 0001:00000000       FLAC__ChannelAssignmentString   0000000180000000 f   fixture.obj
+ 0001:00000001       FLAC__ENTROPY_CODING_METHOD_PARTITIONED_RICE2_ESCAPE_PARAMETER   0000000180000001 f   fixture.obj
+ 0001:00000002       FLAC__ENTROPY_CODING_METHOD_PARTITIONED_RICE2_PARAMETER_LEN   0000000180000002 f   fixture.obj
+ 0001:00000003       ZN4juce18OggVorbisNamespaceL15_os_body_expandEPNS0_16ogg_stream_stateEl   0000000180000003 f   fixture.obj
+ 0001:00000004       ZN4juce18OggVorbisNamespaceL17_os_lacing_expandEPNS0_16ogg_stream_stateEl   0000000180000004 f   fixture.obj
+ 0001:00000005       ZN4juce18OggVorbisNamespaceL18ogg_stream_flush_iEPNS0_16ogg_stream_stateEPNS0_8ogg_pageEii   0000000180000005 f   fixture.obj
+ 0001:00000006       ZN4juce18OggVorbisNamespace10floor1_fitEPNS0_12vorbis_blockEPNS0_18vorbis_look_floor1EPKfS6_   0000000180000006 f   fixture.obj
+ 0001:00000007       ZN4juce18OggVorbisNamespace12_vi_psy_freeEPNS0_15vorbis_info_psyE   0000000180000007 f   fixture.obj
+ 0001:00000008       ZN4juce18OggVorbisNamespace12_vp_psy_initEPNS0_15vorbis_look_psyEPNS0_15vorbis_info_psyEPNS0_22vorbis_info_psy_globalEil   0000000180000008 f   fixture.obj
+ 0001:00000009       ZN4juce11JPEGHelpersL13jpegWriteInitEPNS_16jpeglibNamespace20jpeg_compress_structE   0000000180000009 f   fixture.obj
+ 0001:0000000a       ZN4juce11JPEGHelpersL14jpegWriteFlushEPNS_16jpeglibNamespace20jpeg_compress_structE   000000018000000a f   fixture.obj
+ 0001:0000000b       ZN4juce11JPEGHelpersL17fatalErrorHandlerEPNS_16jpeglibNamespace18jpeg_common_structE   000000018000000b f   fixture.obj
+ 0001:0000000c       ZN4juce10PNGHelpersL17writeDataCallbackEPNS_15pnglibNamespace14png_struct_defEPhm   000000018000000c f   fixture.obj
+ 0001:0000000d       ZN4juce15pnglibNamespace10png_callocEPKNS0_14png_struct_defEm   000000018000000d f   fixture.obj
+ 0001:0000000e       ZN4juce15pnglibNamespace10png_do_bgrEPNS0_19png_row_info_structEPh   000000018000000e f   fixture.obj
+ 0001:0000000f       ZN4juce13zlibNamespace12z_deflateEndEPNS0_10z_stream_sE   000000018000000f f   fixture.obj
+ 0001:00000010       ZN4juce13zlibNamespace12z_inflateEndEPNS0_10z_stream_sE   0000000180000010 f   fixture.obj
+ 0001:00000011       ZN4juce13zlibNamespace14z_deflateInit_EPNS0_10z_stream_sEiPKci   0000000180000011 f   fixture.obj

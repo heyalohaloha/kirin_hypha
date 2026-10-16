@@ -6,16 +6,31 @@ use std::time::Instant;
 use super::*;
 #[path = "spectrum_exchange_pre_clock.rs"]
 mod clock_publication;
+#[path = "spectrum_exchange_pre_perceptual.rs"]
+mod perceptual_transaction;
 
 impl SpectrumCoordinator {
     /// PRE IO-thread tick. An active exact request may be called at the 30 Hz Analysis cadence.
     pub(crate) fn pre_tick(&self, pre_instance_id: &str, instance_dir: &Path) -> bool {
+        self.pre_tick_observed(pre_instance_id, instance_dir, || {})
+    }
+
+    fn pre_tick_observed(
+        &self,
+        pre_instance_id: &str,
+        instance_dir: &Path,
+        after_read: impl FnOnce(),
+    ) -> bool {
+        let Some(read_revision) = self.next_pre_read_revision() else {
+            return false;
+        };
         let request = validated_request(
             instance_dir,
             pre_instance_id,
             self.sample_rate,
             unix_ms_now(),
         );
+        after_read();
         let Some(ValidatedRequest {
             request_id,
             analysis_mode,
@@ -24,20 +39,18 @@ impl SpectrumCoordinator {
             attack_band,
         }) = request
         else {
-            self.retire_pre_session();
+            self.retire_pre_session(read_revision);
             return false;
         };
-        if !self.runtime.set_analysis_mode(analysis_mode)
-            || !self.runtime.set_channel_mode(channel_mode)
-        {
-            self.retire_pre_session();
+        if !self.prepare_pre_session(
+            read_revision,
+            request_id,
+            instance_dir,
+            analysis_mode,
+            channel_mode,
+            attack_band,
+        ) {
             return false;
-        }
-        if !self.prepare_pre_session(request_id, instance_dir, analysis_mode) {
-            return false;
-        }
-        if let Some(runtime) = self.attack_runtime.as_ref() {
-            runtime.set_band(attack_band);
         }
         if analysis_mode == AnalysisViewMode::Perceptual {
             if let Some(active) = self.service_perceptual_handshake(
@@ -52,20 +65,57 @@ impl SpectrumCoordinator {
         self.publish_pre_snapshot(request_id, pre_instance_id, analysis_mode, instance_dir)
     }
 
+    fn next_pre_read_revision(&self) -> Option<u64> {
+        let mut revision = self.pre_request_read_revision.load(Ordering::Acquire);
+        loop {
+            let next = revision.checked_add(1)?;
+            match self.pre_request_read_revision.compare_exchange_weak(
+                revision,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Some(next),
+                Err(current) => revision = current,
+            }
+        }
+    }
+
     fn prepare_pre_session(
         &self,
+        read_revision: u64,
         request_id: Uuid,
         instance_dir: &Path,
         analysis_mode: AnalysisViewMode,
+        channel_mode: SpectrumChannelMode,
+        attack_band: Option<AttackBand>,
     ) -> bool {
         let mut slot = match self.try_pre_session() {
             Some(slot) => slot,
             None => return false,
         };
+        if self.pre_request_read_revision.load(Ordering::Acquire) != read_revision {
+            return false;
+        }
+        // The descriptor's mode and epoch owner cannot change separately from its session.
+        if !self.runtime.set_analysis_mode(analysis_mode)
+            || !self.runtime.set_channel_mode(channel_mode)
+        {
+            if !slot.as_ref().is_some_and(|current| current.awaiting_rearm) {
+                let _ = slot.take();
+            }
+            self.disable_analysis_runtimes();
+            return false;
+        }
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            runtime.set_band(attack_band);
+        }
         if slot.as_ref().map(|state| state.request_id) != Some(request_id) {
             self.restart_session_runtimes(analysis_mode);
             if !self.set_active_runtime_enabled(analysis_mode, true) {
-                *slot = None;
+                if !slot.as_ref().is_some_and(|current| current.awaiting_rearm) {
+                    *slot = None;
+                }
                 return false;
             }
             *slot = Some(PreSession {
@@ -76,95 +126,11 @@ impl SpectrumCoordinator {
                 last_ready_written_at: None,
                 instance_dir: instance_dir.to_path_buf(),
                 state_epoch_samples: None,
+                awaiting_rearm: false,
             });
         }
-        true
-    }
-
-    /// `Some` completes the tick in handshake state; `None` continues to payload publication.
-    fn service_perceptual_handshake(
-        &self,
-        request_id: Uuid,
-        pre_instance_id: &str,
-        instance_dir: &Path,
-        requested_epoch: Option<i64>,
-    ) -> Option<bool> {
-        let observed_end = self.runtime.latest_presentation_end()?;
-        let rearm_required = self.runtime.take_perceptual_rearm_required();
-        if rearm_required {
-            let _ = self.runtime.set_perceptual_state_epoch(None);
-            let publish = self.prepare_ready_publication(request_id, None, Instant::now())?;
-            return Some(self.publish_pre_ready(
-                request_id,
-                pre_instance_id,
-                instance_dir,
-                observed_end,
-                true,
-                publish,
-            ));
-        }
-        let Some(epoch) = requested_epoch else {
-            if self.pre_state_epoch(request_id).is_some() {
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-            }
-            let publish = self.prepare_ready_publication(request_id, None, Instant::now())?;
-            return Some(self.publish_pre_ready(
-                request_id,
-                pre_instance_id,
-                instance_dir,
-                observed_end,
-                false,
-                publish,
-            ));
-        };
-        if self.pre_state_epoch(request_id) != Some(epoch) {
-            if observed_end >= epoch || !self.runtime.set_perceptual_state_epoch(Some(epoch)) {
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-                let publish = self.prepare_ready_publication(request_id, None, Instant::now())?;
-                return Some(self.publish_pre_ready(
-                    request_id,
-                    pre_instance_id,
-                    instance_dir,
-                    observed_end,
-                    true,
-                    publish,
-                ));
-            }
-            let mut slot = self.try_pre_session()?;
-            let current = slot
-                .as_mut()
-                .filter(|current| current.request_id == request_id)?;
-            current.state_epoch_samples = Some(epoch);
-            current.last_written_end = None;
-            current.last_write_attempt_end = None;
-            current.last_write_attempt_at = None;
-            current.last_ready_written_at = None;
-            return Some(true);
-        }
-        None
-    }
-
-    fn prepare_ready_publication(
-        &self,
-        request_id: Uuid,
-        state_epoch_samples: Option<i64>,
-        now: Instant,
-    ) -> Option<bool> {
-        let mut slot = self.try_pre_session()?;
-        let current = slot
-            .as_mut()
-            .filter(|current| current.request_id == request_id)?;
-        current.state_epoch_samples = state_epoch_samples;
-        current.last_written_end = None;
-        current.last_write_attempt_end = None;
-        current.last_write_attempt_at = None;
-        let due = current
-            .last_ready_written_at
-            .is_none_or(|written| now.duration_since(written) >= REQUEST_RENEW_INTERVAL);
-        if due {
-            current.last_ready_written_at = Some(now);
-        }
-        Some(due)
+        // An expired request may leave its rearm tombstone while the runtime is disabled.
+        self.set_active_runtime_enabled(analysis_mode, true)
     }
 
     fn publish_pre_ready(
@@ -409,25 +375,34 @@ impl SpectrumCoordinator {
         true
     }
 
-    fn retire_pre_session(&self) {
-        let retired = self
-            .try_pre_session()
-            .and_then(|mut slot| slot.take())
-            .is_some();
-        if retired {
-            self.disable_analysis_runtimes();
-            if let Some(runtime) = self.attack_runtime.as_ref() {
-                runtime.set_band(None);
+    fn retire_pre_session(&self, read_revision: u64) {
+        if let Some(mut slot) = self.try_pre_session() {
+            if self.pre_request_read_revision.load(Ordering::Acquire) != read_revision {
+                return;
             }
-            let _ = self.runtime.set_perceptual_state_epoch(None);
+            let has_session = slot.is_some();
+            if let Some(current) = slot.as_mut() {
+                if self.runtime.analysis_mode() == AnalysisViewMode::Perceptual
+                    && self.runtime.take_perceptual_rearm_required()
+                {
+                    current.awaiting_rearm = true;
+                    current.state_epoch_samples = None;
+                }
+            }
+            if let Some(current) = slot.as_mut().filter(|current| current.awaiting_rearm) {
+                current.last_ready_written_at = None;
+                Self::clear_pre_epoch_publication(current);
+            } else {
+                let _ = slot.take();
+            }
+            if has_session {
+                self.disable_analysis_runtimes();
+                if let Some(runtime) = self.attack_runtime.as_ref() {
+                    runtime.set_band(None);
+                }
+                let _ = self.runtime.set_perceptual_state_epoch(None);
+            }
         }
-    }
-
-    fn pre_state_epoch(&self, request_id: Uuid) -> Option<i64> {
-        let slot = self.try_pre_session()?;
-        slot.as_ref()
-            .filter(|current| current.request_id == request_id)
-            .and_then(|current| current.state_epoch_samples)
     }
 
     fn pre_session_is_current(&self, request_id: Uuid, epoch: Option<i64>) -> bool {

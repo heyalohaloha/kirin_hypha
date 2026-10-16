@@ -85,7 +85,8 @@ GitHub Secretsの登録状態、署名成功を証明するものではない。
    workflow名は`Hypha Windows AAX signing`。public repoのAAX Phase A workflowは署名入口ではない。
    private側の所在地はローカル引継ぎを参照し、public GPL repoへ秘密値を移さない。
 4. 新規build経路にはexact full commitと、そのcommitの完了済みHypha CI runが必要。
-   workflowは`public history identity`と`windows VST3 preflight`のgreen、
+   通常経路は`public history identity`、`release source contract (macos)`、
+   `auval arm64 (AU validation)`、`windows VST3 preflight`の4 jobのgreenと、
    署名手順の承認済みhash、SDK license、専用runnerと物理PACE authorizationを確認する。
    過去のunsigned run再利用は明示された承認対象だけ。任意のローカルZIPを代入しない。
 5. factoryがGitHub Secretsを注入し、eSigner CKA証明書をロードして、PACE + Authenticodeを
@@ -94,8 +95,38 @@ GitHub Secretsの登録状態、署名成功を証明するものではない。
 6. `kirin-hypha-windows-aax-signed.json`とPRE/POST両方の署名を検証する。
    factoryは終了時に一時証明書とCKA設定をunload／removeする。
    次回の`CurrentUser`証明書storeが空でも、それだけで設定紛失とは判定しない。
-7. 同一release commitのgreenな`windows-latest`由来VST3、signed AAX provenanceを結び、
-   正規installerとinstall／同版reinstall／旧公開版upgrade／uninstallを検証する。
+7. 同一release commitの公開CI合格と、審査済みprivate factoryの`windows-latest`未署名
+   producer由来VST3、同じ審査済みfactoryのsigned AAX provenanceを結ぶ。
+   正規installerとinstall／同版reinstall／旧公開版upgrade／uninstallを検証し、
+   同じfactoryでpromotionしたsigned-full全体の出どころを照合する。
+
+統合公開では次の関門を適用する。
+
+期限の関門は[配布gate](provenance/distribution_gate.md)の4段に従う。
+順序は、公開CI → 同じ審査済みfactory commitでbuild_onlyとWindows AAX署名
+（PACE＋eSigner。最初の有料署名。2つの順は問わない）→ candidate署名（eSigner）→
+Windows実機検証 → promotion → coordinator（Macの署名・公証・PACE → windows →
+A3 freeze → A4 → A5）。Windows実機検証をA3と呼ばない。
+
+1. AAX署名の前（build_onlyが先ならその前）: 保存期間設定のGETと取得時刻、両workflowの
+   全uploadのretention-days、全工程で使う審査済みfactory commit、各工程の予定日と余裕、
+   AAXとcandidate両方の署名予算と署名機の空きを記録する。candidate署名をAAXとbuild_onlyの
+   各uploadから3日以内（余裕を引く）に置けない、またはA5をcandidate署名＋有効保存期間
+   （余裕を引く）より前に置けないなら署名しない。未生成のartifact IDや実期限は要求しない。
+2. candidate署名の前: 両入力artifactのrun/artifact ID・digest・expires_at・commitをGETし、
+   未失効、同じfactory commit、job時間を含む余裕を確かめる。保存期間設定、共有concurrency
+   groupの空き、candidateの予算も再確認する。未署名VST3だけが切れた場合はbuild_onlyを
+   やり直す。signed AAXが切れた場合は自動で再署名せず資格判断を取る。
+   candidateのupload直後に実run/artifact IDとexpires_atを記録する。
+3. promotionの後、coordinatorの`--execute`とMac工程の前: 両artifactの実ID・expires_at、
+   signed-fullの元ZIP digestと全tree、A3・A4・A5予定日を記録し、A5が早い方の期限に余裕を
+   残して収まるか確かめる。provenance-inputsは入力形式だけを確認し、API・ZIP照合は後の
+   windowsとdistributionで行う。この関門は担当者が閉じる。
+4. A4開始前とA5再開前: 両artifactの期限をGETし直す。A5に間に合わなければA4に進まない。
+
+署名済みAAXと未署名VST3は各3日、同run内の未署名AAXは1日で保持する。
+candidateとsigned-fullはupload時のrepo設定を使う。両workflowは同じconcurrency groupなので、
+前のrunが終わってから次をdispatchする。A5前にartifactを削除せず、期限切れを再署名の理由にしない。
 
 private workflowのソース確認は、現在のGitHub Secret登録やjob成功の確認ではない。
 CI dispatch、artifactの外部受渡し、機器設定、配置、公開に新しい権限が必要なら、その前に確認する。

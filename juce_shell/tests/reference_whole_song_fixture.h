@@ -4,6 +4,7 @@
 #include "../src/AtomicFile.h"
 namespace
 {
+    constexpr int wholeSongObservationFrames = 1024;
     ref::RuntimeContentReceipt stageWholeSongArtifact (const juce::File& root, const juce::String& bucket, const juce::var& value)
     {
         const auto json = ref::RuntimeEventTransport::canonicalJson (value);
@@ -86,7 +87,7 @@ namespace
     [[maybe_unused]] void observeWholeSongFixture (ref::ReferenceComparisonController& controller,
                                   const WholeSongFixture& fixture, int& position)
     {
-        constexpr int frames = 1024;
+        constexpr int frames = wholeSongObservationFrames;
         if (position + frames > fixture.audio.getNumSamples()) position = 0;
         juce::AudioBuffer<float> input (2, frames);
         for (int channel = 0; channel < 2; ++channel)

@@ -175,19 +175,12 @@ pub(super) fn read_ready(instance_dir: &Path) -> Option<AnalysisReady> {
     .ok()
 }
 
+#[cfg(test)]
 pub(super) fn remove_request(instance_dir: &Path) {
     let _ = analysis_exchange_transport::remove(
         instance_dir,
         &request_path(instance_dir),
         AnalysisSlot::Request,
-    );
-}
-
-pub(super) fn remove_ready(instance_dir: &Path) {
-    let _ = analysis_exchange_transport::remove(
-        instance_dir,
-        &ready_path(instance_dir),
-        AnalysisSlot::Ready,
     );
 }
 

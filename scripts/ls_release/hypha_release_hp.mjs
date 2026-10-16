@@ -5,39 +5,9 @@ import path from 'node:path';
 import { fileFact, hash, Checkpoint, readBudgetPolicy, checkFacts } from './hypha_release_contract.mjs';
 
 export const GH_REPO = 'heyalohaloha/kirin_hypha';
-export const HP_FILES = ['hypha.html', 'ja/hypha.html', 'scripts/__tests__/hypha-entry-links.test.mjs'];
+import { HP_FILES, updateHpDocuments, makeHpRecord, assertHpPage, HP_TARGETS, verifyHpAsset } from './hypha_release_hp_data.mjs';
+export { HP_FILES, updateHpDocuments } from './hypha_release_hp_data.mjs';
 const BASE = `https://github.com/${GH_REPO}/releases`;
-
-export function updateHpDocuments(documents, version, date) {
-  if (!/^\d+\.\d+\.\d+$/.test(version) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid release version/date');
-  const versions = documents.slice(0, 2).map(html =>
-    html.match(/id="hypha-download-title"[^>]*>Hypha (\d+\.\d+\.\d+)</)?.[1]);
-  if (!versions[0] || versions[0] !== versions[1]) throw new Error('HP language version mismatch');
-  const old = versions[0];
-  const oldEscaped = old.replaceAll('.', '\\.');
-  const result = documents.map(text => text.replaceAll(old, version)
-    .replaceAll(oldEscaped, version.replaceAll('.', '\\.')));
-  for (let i = 0; i < 2; i++) {
-    const html = result[i];
-    const downloads = [...html.matchAll(/https:\/\/github\.com\/heyalohaloha\/kirin_hypha\/releases\/download\/v([^/]+)\/([^"\s<]+)/g)];
-    const expected = [`Kirin-Hypha-${version}-macOS-Universal.pkg`, `Kirin-Hypha-${version}-Windows-x64-Setup.exe`];
-    if (downloads.length !== 2 || downloads.some((m, n) => m[1] !== version || m[2] !== expected[n])) {
-      throw new Error('HP must retain the PKG + signed Windows EXE primary links');
-    }
-    const oldDate = html.match(/<time datetime="(\d{4}-\d{2}-\d{2})">\1<\/time>/)?.[1];
-    if (!oldDate) throw new Error('HP release date markup changed; review required');
-    result[i] = html.replace(`<time datetime="${oldDate}">${oldDate}</time>`, `<time datetime="${date}">${date}</time>`)
-      .replace('macOS 12+ (VST3 + Audio Unit)', 'macOS 12+ (VST3 + Audio Unit + AAX)')
-      .replace('Windows 10/11 (VST3)', 'Windows 10/11 (VST3 + AAX)')
-      .replace('Download for Windows VST3<', 'Download for Windows VST3 + AAX<')
-      .replace('Windows VST3版をダウンロード<', 'Windows VST3 + AAX版をダウンロード<');
-    if (!result[i].includes('Audio Unit + AAX') || !result[i].includes('Windows 10/11 (VST3 + AAX)')) {
-      throw new Error('HP format copy changed; review required');
-    }
-    result[2] = result[2].replaceAll(oldDate, date);
-  }
-  return result;
-}
 
 export async function hpPreflight(state, run, { allowPlanned = false, allowUnpushed = false } = {}) {
   const root = state.inputs.hpRoot;
@@ -72,8 +42,9 @@ export async function hpPreflight(state, run, { allowPlanned = false, allowUnpus
   if (!inspected.includes(project.projectName) || !inspected.includes(project.projectId)) {
     throw new Checkpoint('Resolved Vercel project does not match the authorized project name/ID');
   }
+  checkFacts(state.stages.packages?.facts);
   updateHpDocuments(HP_FILES.map(file => fs.readFileSync(path.join(root, file), 'utf8')),
-    state.candidate.version, state.inputs.date);
+    state.candidate.version, state.inputs.date, state.stages.packages?.facts);
 }
 
 async function api(run, endpoint, optional = false) {
@@ -156,35 +127,32 @@ export async function publicDownloadFacts(state, facts, fetcher = fetch) {
   const measured = [];
   for (const fact of facts) {
     const url = `${BASE}/download/v${state.candidate.version}/${encodeURIComponent(path.basename(fact.path))}`;
-    const response = await fetcher(url, { signal: AbortSignal.timeout(120000) });
-    if (!response.ok || !response.body) throw new Error('Public artifact download failed');
-    const crypto = await import('node:crypto');
-    const sha = crypto.createHash('sha256'); let bytes = 0;
-    for await (const chunk of response.body) {
-      sha.update(chunk); bytes += chunk.length;
-      if (bytes > fact.bytes) throw new Error('Public artifact exceeded frozen size');
-    }
-    if (bytes !== fact.bytes || sha.digest('hex') !== fact.sha256) throw new Error('Public artifact bytes/hash mismatch');
-    measured.push({ url, bytes, sha256: fact.sha256 });
+    measured.push(await verifyHpAsset(fetcher, url, fact));
   }
   return measured;
 }
 
 export async function verifyPublicHp(state, fetcher = fetch) {
+  const facts = state.stages.packages?.facts;
+  checkFacts(facts);
+  const record = makeHpRecord(state.candidate.version, state.inputs.date, facts);
   const base = 'https://kirinmastering.com';
   for (const [route, lang] of [['/hypha', 'en'], ['/ja/hypha', 'ja']]) {
     const response = await fetcher(`${base}${route}?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new Error('HP public route failed');
-    const html = await response.text();
-    if (!html.includes(`<html lang="${lang}">`) || !html.includes(`Hypha ${state.candidate.version}</`)
-        || !html.includes('Audio Unit + AAX') || !html.includes('Windows 10/11 (VST3 + AAX)')) {
-      throw new Error('HP public language/version/format mismatch');
+    const html = await response.text(); assertHpPage(html, lang, record);
+    if (!html.includes('Audio Unit + AAX') || !html.includes('Windows 10/11 (VST3 + AAX)')) {
+      throw new Error('HP public format mismatch');
     }
-    for (const suffix of ['macOS-Universal.pkg', 'Windows-x64-Setup.exe']) {
-      if (!html.includes(`${BASE}/download/v${state.candidate.version}/Kirin-Hypha-${state.candidate.version}-${suffix}`)) {
-        throw new Error('HP public download link mismatch');
-      }
+  }
+  for (const target of HP_TARGETS) {
+    const url = `${base}/downloads/kirin-hypha/${target}`;
+    const redirect = await fetcher(url, { redirect: 'manual', signal: AbortSignal.timeout(30000) });
+    if (redirect.status !== 302 || redirect.headers.get('location') !== record.downloads[target].url
+        || redirect.headers.get('cache-control') !== 'no-store') {
+      throw new Error('HP public installer redirect/version/cache mismatch');
     }
+    await verifyHpAsset(fetcher, url, record.downloads[target]);
   }
   const source = await fetcher(`${base}/deployment-source.txt?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
   if (!source.ok || (await source.text()).trim() !== state.hpCommit) throw new Error('HP deployment source commit mismatch');
@@ -210,7 +178,7 @@ export async function publishHp(state, run, save, fetcher = fetch) {
   await hpPreflight(state, run, { allowPlanned: !!state.hpPlanned, allowUnpushed: !!state.hpCommit });
   if (!state.hpCommit) {
     const changes = updateHpDocuments(HP_FILES.map(f => fs.readFileSync(path.join(root, f), 'utf8')),
-      state.candidate.version, state.inputs.date);
+      state.candidate.version, state.inputs.date, state.stages.packages?.facts);
     const planned = changes.map((bytes, i) => ({ path: HP_FILES[i], sha256: hash(bytes) }));
     state.publicationStarted = true;
     if (!state.hpPlanned) {

@@ -2,12 +2,44 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { capture, protectedRoots, run, snapshot, verify } from './native_storage_guard.mjs';
 
 const script = fileURLToPath(new URL('./native_storage_guard.mjs', import.meta.url));
+const exited = child => child.exitCode !== null || child.signalCode !== null;
+function waitChild(child, event, milliseconds = 5_000) {
+  if (exited(child)) return event === 'exit' ? Promise.resolve([child.exitCode, child.signalCode])
+    : Promise.reject(Error('fixture child exited before ' + event));
+  return new Promise((resolve, reject) => {
+    const finish = (error, value) => {
+      clearTimeout(timer);
+      child.off('message', message); child.off('exit', exit); child.off('error', fail);
+      if (error) reject(error); else resolve(value);
+    };
+    const message = value => { if (event === 'message') finish(null, [value]); };
+    const exit = (code, signal) => event === 'exit' ? finish(null, [code, signal])
+      : finish(Error('fixture child exited before ' + event));
+    const fail = error => finish(error);
+    const timer = setTimeout(() => finish(Error('fixture child timed out waiting for ' + event)), milliseconds);
+    child.on('message', message); child.on('exit', exit); child.on('error', fail);
+  });
+}
+async function stopSocket(child) {
+  const [message, exit] = await Promise.all([waitChild(child, 'message'), waitChild(child, 'exit'),
+    new Promise((resolve, reject) => child.send('stop', error => error ? reject(error) : resolve()))]);
+  assert.deepEqual(message[0], { connections: 0 });
+  assert.equal(exit[0], 0);
+}
+async function cleanupChild(child) {
+  if (!child || !child.pid || exited(child)) return;
+  try { const done = waitChild(child, 'exit'); child.kill(); await done; }
+  catch (error) {
+    if (exited(child)) return;
+    const done = waitChild(child, 'exit'); child.kill('SIGKILL'); await done;
+  }
+}
 function fixture(t) {
   // Always below the working build/checkout; never create a fake tree in the real account home.
   const parent = path.join(process.cwd(), 'target', 'native-storage-guard-fixtures');
@@ -108,6 +140,65 @@ test('symlink targets are read, cycles bounded, and baseline symlinks rejected',
   fs.symlinkSync(file, f.state);
   assert.throws(() => run('setup', f.state, f.roots), /symbolic link/);
   assert.equal(fs.readFileSync(file, 'utf8'), 'two');
+});
+
+test('Unix sockets are observed without connecting; metadata, deletion and replacement still fail', async t => {
+  if (process.platform === 'win32') { t.skip('Unix domain filesystem sockets are POSIX-only'); return; }
+  const f = fixture(t);
+  // Use a short relative pathname only in the child cwd, below the disposable fixture.
+  // This avoids Darwin's socket pathname limit without changing the test process cwd.
+  const code = `const net=require('node:net'); let connections=0;
+    const server=net.createServer(socket=>{++connections;socket.destroy();});
+    server.listen('s',()=>process.send({ready:true}));
+    process.on('message',message=>{if(message==='stop')server.close(()=>{
+      process.send({connections},()=>process.exit(0));});});`;
+  const child = spawn(process.execPath, ['-e', code], { cwd: f.protectedRoot, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  let stderr = '', replacement;
+  child.stderr.on('data', bytes => { stderr += bytes; });
+  try {
+    const ready = await waitChild(child, 'message');
+    assert.deepEqual(ready[0], { ready: true });
+    const socket = path.join(f.protectedRoot, 's');
+    assert.ok(fs.lstatSync(socket).isSocket());
+    const before = capture(f.roots);
+    assert.equal(run('setup', f.state, f.roots), 1);
+    assert.equal(run('cleanup', f.state, f.roots), 1);
+    assert.deepEqual(capture(f.roots), before);
+    fs.chmodSync(socket, (fs.lstatSync(socket).mode & 0o777) ^ 0o100);
+    assert.throws(() => verify(before, f.roots), /storage changed/);
+    const changed = capture(f.roots);
+    await stopSocket(child);
+    assert.equal(fs.existsSync(socket), false);
+    assert.throws(() => verify(changed, f.roots), /storage changed/);
+    replacement = spawn(process.execPath, ['-e', code], { cwd: f.protectedRoot, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+    replacement.stderr.on('data', bytes => { stderr += bytes; });
+    const recreated = await waitChild(replacement, 'message');
+    assert.deepEqual(recreated[0], { ready: true });
+    assert.ok(fs.lstatSync(socket).isSocket());
+    assert.throws(() => verify(changed, f.roots), /storage changed/);
+    await stopSocket(replacement);
+    fs.writeFileSync(socket, '');
+    assert.throws(() => verify(changed, f.roots), /storage changed/);
+  } finally {
+    const cleanups = await Promise.allSettled([cleanupChild(child), cleanupChild(replacement)]);
+    for (const result of cleanups) if (result.status === 'rejected') throw result.reason;
+    assert.equal(stderr, '');
+  }
+});
+
+test('owned child waits are bounded on early exit, signal exit and missing response', async () => {
+  const early = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+  try { await assert.rejects(waitChild(early, 'message'), /exited before/); }
+  finally { await cleanupChild(early); }
+  const signalled = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+  try {
+    const done = waitChild(signalled, 'exit'); signalled.kill('SIGTERM');
+    assert.equal((await done)[1], 'SIGTERM');
+    assert.equal((await waitChild(signalled, 'exit'))[1], 'SIGTERM');
+  } finally { await cleanupChild(signalled); }
+  const silent = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+  try { await assert.rejects(waitChild(silent, 'message', 20), /timed out/); }
+  finally { await cleanupChild(silent); }
 });
 
 test('OS home resolution ignores a redirected HOME', t => {

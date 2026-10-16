@@ -2,6 +2,7 @@
 
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_v2_refresh_test_support.h"
+#include "ReferenceLiveAuthorityFixture.h"
 
 #include <functional>
 
@@ -81,16 +82,17 @@ namespace
         const juce::String& presetId,
         const juce::String& revisionId,
         std::int64_t alignedBFrames,
+        const ref::RuntimeACaptureAudio& liveA,
         std::int64_t hostPosition,
         juce::AudioBuffer<float>& output)
     {
         for (int i = 0; i < 4; ++i) { output.clear(); controller.renderSelectedB (output, hostPosition, true); }
-        for (int i = 0; i < 200 && comparisonSuspended.load(); ++i) juce::Thread::sleep (5);
+        namespace control = hypha::tests::reference_control;
+        require (control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (1),
+                     [&] { return ! comparisonSuspended.load(); }), "normal return releases its gate within the original one-second boundary");
         require (!comparisonSuspended.load(), "normal return completes before the new Blind acquisition race");
         const auto initial = controller.snapshot();
         const auto gateRaceRevision = initial.manifestRevision + 1;
-        const auto heldAGain = std::pow (
-            10.0f, static_cast<float> (-initial.blindRequiredAAttenuationDb / 20.0));
         const juce::String gateRaceVersionId =
             "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
         const auto gateRaceSourceReceipt = stageRuntimeV2Artifact (
@@ -100,28 +102,123 @@ namespace
         const auto gateRacePreset = bindRuntimeV2WorkVersionPresetToSource (
             presetId, revisionId, gateRaceSourceReceipt, alignedBFileHash,
             alignedBPcmHash, recordingId, gateRaceVersionId, alignedBFrames);
+        const juce::String replacementVersionId = "efefefef-efef-4fef-8fef-efefefefefef";
+        const auto replacementSourceReceipt = stageRuntimeV2Artifact (
+            v2Root, "sources", makeRuntimeV2WorkVersionSource (
+                alignedBFile, alignedBFileHash, alignedBPcmHash, recordingId, replacementVersionId, alignedBFrames));
+        const auto replacementPreset = bindRuntimeV2WorkVersionPresetToSource (
+            presetId, revisionId, replacementSourceReceipt, alignedBFileHash,
+            alignedBPcmHash, recordingId, replacementVersionId, alignedBFrames);
+        const ref::RuntimeIdentity identity { runtimeId, workId, 42 };
+        resetForFreshBlindCapture (controller, identity, initial);
+        feedFreshBlindCapture (controller, v2Root, identity, liveA, "transaction_reset");
+        controller.observeTransport (hostPosition, true, true);
+        RefreshTransport transport (controller, hostPosition);
+        const auto old = control::publicationFactsFor (controller, {});
+        const auto completedPcm = control::captureFor (controller, {}).currentAudio();
+        require (completedPcm != nullptr, "the gate race retains the actual completed PCM before its hook");
+        const auto completedRevision = completedPcm->dawRevisionId, completedHash = completedPcm->cuePcmSha256;
+        const auto requireSamePcm = [&] {
+            const auto current = control::captureFor (controller, {}).currentAudio();
+            if (current != completedPcm)
+            {
+                const auto reset = ref::referenceTestCaptureResetFacts (&control::captureFor (controller, {}));
+                std::cerr << "BLIND_GATE_PCM_LOST present=" << (current != nullptr)
+                          << " resetReason=" << reset.reason << " resetAt=" << reset.atMs << " resetCount=" << reset.count << '\n';
+            }
+            require (current && current == completedPcm && current->dawRevisionId == completedRevision
+                && current->cuePcmSha256 == completedHash, "the race may never lose or replace its original completed PCM");
+        };
+        require (old.ready && old.snapshot.blindEligible && old.snapshot.blindLowerAApprovalRequired && ! comparisonSuspended.load()
+                     && liveBlindCaptureCurrent (controller, v2Root, identity), "the race starts with real current authority, PCM and an unheld gate");
+        const auto heldAGain = std::pow (
+            10.0f, static_cast<float> (-old.snapshot.blindRequiredAAttenuationDb / 20.0));
         std::atomic<bool> gateRacePublished { false };
+        bool hookReached = false, newPublicationObserved = false, refreshConsumedAtWait = false;
+        std::uint64_t newEpoch = 0, refreshTicket = 0;
+        juce::String newIdentity;
+        std::chrono::steady_clock::time_point hookStarted, writeCompleted, waitCompleted;
         beforeGateActivation = [&]
         {
+            hookStarted = std::chrono::steady_clock::now();
+            hookReached = true;
             gateRacePublished.store (
                 writeJson (presetFile, gateRacePreset)
                 && writeJson (manifestFile, makeRuntimeV2Manifest (
                     presetId, revisionId, presetFile, gateRaceRevision)));
-            for (int attempt = 0; attempt < 400
-                 && controller.snapshot().manifestRevision != gateRaceRevision; ++attempt)
-                juce::Thread::sleep (10);
+            require (gateRacePublished.load(), "the gate race actually publishes both disposable fixture files");
+            writeCompleted = std::chrono::steady_clock::now();
+            refreshTicket = ref::requestReferenceTestWorkspaceRefresh (&controller);
+            require (refreshTicket != 0, "one test-only worker read request is accepted after the actual publication");
+            newPublicationObserved = control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (4), [&] {
+                requireSamePcm();
+                if (! ref::referenceTestWorkspaceRefreshConsumed (refreshTicket)) return false;
+                const auto current = control::publicationFactsFor (controller, {});
+                if (! current.ready || current.snapshot.manifestRevision != gateRaceRevision
+                    || current.snapshot.playbackIdentity == old.snapshot.playbackIdentity || current.epoch == old.epoch) return false;
+                newEpoch = current.epoch; newIdentity = current.snapshot.playbackIdentity; return true;
+            });
+            waitCompleted = std::chrono::steady_clock::now();
+            refreshConsumedAtWait = ref::referenceTestWorkspaceRefreshConsumed (refreshTicket);
+            if (! newPublicationObserved) ref::cancelReferenceTestWorkspaceRefresh (&controller, refreshTicket);
         };
-        require (! controller.approveBlindLowerAAndStart (-14.0, -6.0),
-                 "Blind must reject a start whose source epoch changes inside the output gate");
+        const auto staleStarted = controller.approveBlindLowerAAndStart (-14.0, -6.0);
         beforeGateActivation = {};
-        for (int attempt = 0; attempt < 400
-             && ! controller.snapshot().blindEligible; ++attempt)
-            juce::Thread::sleep (10);
-        require (gateRacePublished.load() && controller.snapshot().blindEligible
-                 && ! comparisonSuspended.load(),
+        if (! hookReached || ! gateRacePublished.load() || ! newPublicationObserved || staleStarted)
+        {
+            const auto current = control::publicationFactsFor (controller, {});
+            const auto authority = juce::JSON::parse (ref::RuntimeABindingRepository (v2Root).bindingFile (runtimeId));
+            const auto elapsedMs = [] (auto start, auto end) { return std::chrono::duration_cast<std::chrono::milliseconds> (end - start).count(); };
+            std::cerr << "BLIND_GATE_RACE hook=" << hookReached << " published=" << gateRacePublished.load()
+                      << " observed=" << newPublicationObserved << " started=" << staleStarted << " gateHeld=" << comparisonSuspended.load()
+                      << " refreshTicket=" << refreshTicket << " refreshConsumed=" << refreshConsumedAtWait
+                      << " writeMs=" << elapsedMs (hookStarted, writeCompleted) << " waitMs=" << elapsedMs (writeCompleted, waitCompleted)
+                      << " oldEpoch=" << old.epoch << " epoch=" << current.epoch << " ready=" << current.ready
+                      << " expectedRevision=" << gateRaceRevision << " revision=" << current.snapshot.manifestRevision
+                      << " identityChanged=" << (current.snapshot.playbackIdentity != old.snapshot.playbackIdentity)
+                      << " eligible=" << current.snapshot.blindEligible << " capture=" << current.snapshot.aCaptureAvailable
+                      << " binding=" << current.snapshot.aBindingAvailable << " rejection=" << current.snapshot.rejectionCode
+                      << " now=" << juce::Time::currentTimeMillis()
+                      << " issued=" << static_cast<juce::int64> (authority["issued_at_ms"])
+                      << " expires=" << static_cast<juce::int64> (authority["lease_expires_at_ms"]) << '\n';
+        }
+        require (hookReached && gateRacePublished.load() && newPublicationObserved && ! staleStarted,
+                 "Blind rejects a proven new publication and epoch inside the output gate within four seconds");
+        require (! comparisonSuspended.load(), "the rejected stale Blind start returns its gate before the command returns");
+        requireSamePcm();
+        LiveBlindCaptureFacts preparedCapture;
+        const auto preparationStarted = std::chrono::steady_clock::now();
+        const bool preparedNewEpoch = control::waitUntil (preparationStarted + std::chrono::seconds (4), [&] {
+            requireSamePcm();
+            const auto current = control::publicationFactsFor (controller, {});
+            require (current.epoch == newEpoch && current.snapshot.manifestRevision == gateRaceRevision
+                && current.snapshot.playbackIdentity == newIdentity, "a different later epoch cannot satisfy the race result");
+            preparedCapture = liveBlindCaptureFacts (controller, v2Root, identity);
+            requireSamePcm();
+            return current.ready && current.snapshot.blindEligible && preparedCapture.current()
+                && preparedCapture.revision == completedRevision && preparedCapture.pcmHash == completedHash;
+        });
+        if (! preparedNewEpoch)
+        {
+            const auto current = control::publicationFactsFor (controller, {});
+            const auto reset = ref::referenceTestCaptureResetFacts (&control::captureFor (controller, {}));
+            std::cerr << "BLIND_GATE_PREPARATION ready=" << current.ready << " eligible=" << current.snapshot.blindEligible
+                      << " binding=" << current.snapshot.aBindingAvailable << " capture=" << current.snapshot.aCaptureAvailable
+                      << " rejection=" << current.snapshot.rejectionCode << " epoch=" << current.epoch
+                      << " expectedEpoch=" << newEpoch << " revision=" << current.snapshot.manifestRevision
+                      << " expectedRevision=" << gateRaceRevision << " gateHeld=" << comparisonSuspended.load()
+                      << " elapsedMs=" << std::chrono::duration_cast<std::chrono::milliseconds> (
+                          std::chrono::steady_clock::now() - preparationStarted).count()
+                      << " resetReason=" << reset.reason << " resetAt=" << reset.atMs << " resetCount=" << reset.count;
+            printLiveBlindCaptureFacts (std::cerr, preparedCapture);
+            std::cerr << '\n';
+        }
+        require (preparedNewEpoch,
                  "the rejected stale Blind start must return its gate and prepare only the new epoch");
         require (controller.approveBlindLowerAAndStart (-14.0, -6.0),
                  "explicit approval must start the current lower-A Blind context");
+        require (control::publicationFactsFor (controller, {}).session.auditionEpoch == newEpoch,
+                 "the explicit new Blind session belongs to the same captured publication epoch");
         output.clear();
         require (controller.renderSelectedB (output, hostPosition, true),
                  "the approved Blind context must reach one real audio callback");
@@ -129,15 +226,6 @@ namespace
             controller, presetFile, manifestFile, gateRacePreset, presetId, revisionId, hostPosition, output);
         const auto replacementRevision = controller.snapshot().manifestRevision + 1;
 
-        const juce::String replacementVersionId =
-            "efefefef-efef-4fef-8fef-efefefefefef";
-        const auto replacementSourceReceipt = stageRuntimeV2Artifact (
-            v2Root, "sources", makeRuntimeV2WorkVersionSource (
-                alignedBFile, alignedBFileHash, alignedBPcmHash, recordingId,
-                replacementVersionId, alignedBFrames));
-        const auto replacementPreset = bindRuntimeV2WorkVersionPresetToSource (
-            presetId, revisionId, replacementSourceReceipt, alignedBFileHash,
-            alignedBPcmHash, recordingId, replacementVersionId, alignedBFrames);
         require (writeJson (presetFile, replacementPreset)
                  && writeJson (manifestFile,
                                makeRuntimeV2Manifest (

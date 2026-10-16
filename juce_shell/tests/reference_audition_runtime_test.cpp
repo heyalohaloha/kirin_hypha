@@ -8,7 +8,7 @@
 #include "ReferenceRepairTestEntry.h"
 int main (int argc, char** argv)
 {
-    if (testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
+    if (prepareReferenceRuntimeInvocation (argc, argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
@@ -16,7 +16,13 @@ int main (int argc, char** argv)
     const auto sandbox = hypha::tests::temporaryParent()
                              .getNonexistentChildFile ("ref", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
-    if (runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox) || runReferenceRepairTests (argc, argv, sandbox)) return 0;
+    if (runReferenceWorkspaceContract (argc, argv, sandbox) || runReferencePendingTests (argc, argv, sandbox) || runReferenceAbcvTests (argc, argv, sandbox) || runReferenceRepairTests (argc, argv, sandbox)) return 0;
+    if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
+    {
+        verifyLazyPresets (sandbox);
+        require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Preset fixtures must be removed");
+        return 0;
+    }
     testReferenceAInput();
     testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (hypha::tests::removeFixtureDirectory (sandbox), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);
@@ -26,12 +32,6 @@ int main (int argc, char** argv)
     testReferencePendingAudition (sandbox);
     testReferenceCalibrationRegressions (sandbox);
     if (finishReferenceAbcMode (argc, argv, sandbox)) return 0;
-    if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
-    {
-        verifyLazyPresets (sandbox);
-        require (hypha::tests::removeFixtureDirectory (sandbox), "lazy Preset fixtures must be removed");
-        return 0;
-    }
     if (argc == 2 && juce::String (argv[1]) == "--lazy-candidates-only")
     {
         verifyLazyCandidates (sandbox);

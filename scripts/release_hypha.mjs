@@ -9,17 +9,20 @@ import { requireCleanReleaseSource } from './ls_release/release_source_identity.
 import { SCHEMA, HOST_TESTS, SAFETY_EXPECTED, DISTRIBUTION_TESTS, POST_TESTS, assertState, safeStatePath,
   atomicJson, digest, checkFacts, fileFact, treeFact, readJson, resolveInput, validateReport,
   reportTemplate, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
+import { assertRustRuntime } from './provenance/runtime_guard.mjs';
 import { produceMac, verifyMac, verifyCi, verifyWindows, packageAll, verifyPackages,
   prepareLs } from './ls_release/hypha_release_local.mjs';
 import { hpPreflight, publishGithub, publishHp, publicDownloadFacts,
   verifyPublicHp } from './ls_release/hypha_release_hp.mjs';
 import { assetDecision, embeddedAssets } from './provenance/asset_gate.mjs';
 import { verifyReleaseProvenance } from './provenance/distribution_gate.mjs';
+import { prepareSourceDelivery } from './provenance/source_delivery.mjs';
 import { updateBinding, validatePublicKey, assertUpdateBinding } from './updates/update_key_binding.mjs';
+import { requireFactoryInputs } from './provenance/factory_artifact.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
-export const STAGES = ['provenance-inputs', 'ci', 'macos-au-vst3', 'macos-aax', 'windows', 'freeze', 'hosts',
+export const STAGES = ['provenance-inputs', 'ci', 'source-delivery', 'macos-au-vst3', 'macos-aax', 'windows', 'freeze', 'hosts',
   'packages', 'provenance', 'distribution', 'ls', 'github', 'hp', 'postrelease'];
 export const HELP = `Usage: node scripts/build_hypha.mjs --release --state release_state/NAME.json [options]
 
@@ -31,10 +34,15 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --sdk PATH --license-confirmed  External AAX SDK for macOS approved signing producer
   --ci-run ID               Reuse exact-commit complete green CI, never auto-dispatch/rerun
   --windows-installer-dir DIR  Approved same-commit signed-full factory artifact
+  --windows-factory-repository OWNER/REPO  Reviewed private factory origin
+  --windows-factory-commit SHA  Reviewed exact factory commit for candidate and promotion
+  --windows-promotion-run ID    Successful promotion run containing signed-full
+  --windows-artifact-archive FILE  Retained signed-full ZIP, verified against GitHub digest
   --hp-root DIR             Existing HP main checkout (must be clean/current before publish)
   --ls-state FILE           Existing private LS product-target state
   --notes FILE              Reviewed public release notes
   --provenance-report FILE  Retained exact-payload NOTICE/license/source evidence (private)
+  --source-archive FILE     Reuse the private Windows producer's verified source ZIP bytes
   --update-public-key KEY    Approved pinned RSA public key; default empty disables checking
   --date YYYY-MM-DD         Release date (default: today UTC)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
@@ -53,7 +61,10 @@ export function parseReleaseArgs(argv) {
   const fields = { '--state': 'state', '--sdk': 'sdk', '--ci-run': 'ciRun',
     '--windows-installer-dir': 'windowsInstallerDir', '--hp-root': 'hpRoot',
     '--ls-state': 'lsState', '--notes': 'notes', '--date': 'date', '--until': 'until',
-    '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport', '--update-public-key': 'updatePublicKey' };
+    '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport',
+    '--source-archive': 'sourceArchive', '--update-public-key': 'updatePublicKey',
+    '--windows-factory-commit': 'windowsFactoryCommit', '--windows-factory-repository': 'windowsFactoryRepository', '--windows-promotion-run': 'windowsPromotionRun',
+    '--windows-artifact-archive': 'windowsArtifactArchive' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (fields[arg]) {
@@ -87,8 +98,10 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
   const inputs = { date: options.date || new Date().toISOString().slice(0, 10),
     sdk: inputPath(options.sdk), licenseConfirmed: !!options.licenseConfirmed, ciRun: options.ciRun || '',
     windowsInstallerDir: inputPath(options.windowsInstallerDir), hpRoot: inputPath(options.hpRoot),
+    windowsFactoryRepository: options.windowsFactoryRepository || '', windowsFactoryCommit: options.windowsFactoryCommit || '', windowsPromotionRun: options.windowsPromotionRun || '',
+    windowsArtifactArchive: inputPath(options.windowsArtifactArchive),
     hpBaseCommit: '', hpProjectSha256: '', lsState: inputPath(options.lsState), notes: inputPath(options.notes),
-    provenanceReport: inputPath(options.provenanceReport), updatePublicKey,
+    provenanceReport: inputPath(options.provenanceReport), sourceArchive: inputPath(options.sourceArchive), updatePublicKey,
     hostsReport: path.join(prefix, 'hosts.json'), distributionReport: path.join(prefix, 'distribution.json'),
     lsReport: path.join(prefix, 'ls.json'), postreleaseReport: path.join(prefix, 'postrelease.json') };
   if (inputs.hpRoot) inputs.hpBaseCommit = childProcess.execFileSync('git', ['rev-parse', 'HEAD'],
@@ -125,11 +138,21 @@ export function realActions(state, options, run, save, fetcher = fetch) {
   };
   return {
     'provenance-inputs': async () => {
+      requireFactoryInputs(state);
       const decision = assetDecision(state.root, embeddedAssets(state.root));
       if (!decision.approved) throw new Checkpoint('Embedded materials have distribution holds; verify rights or review replacements before producing a release');
       return { evidence: decision };
     },
     ci: async () => ({ evidence: await verifyCi(state, run) }),
+    'source-delivery': async () => {
+      if (!state.inputs.provenanceReport) throw new Checkpoint('Private provenance report path required before producing containers');
+      const reportPath = safeStatePath(state.root, resolveInput(state, state.inputs.provenanceReport));
+      const result = prepareSourceDelivery({ root: state.root, commit: state.candidate.commit,
+        version: state.candidate.version, reportPath,
+        archiveInput: state.inputs.sourceArchive,
+        directory: path.join(path.dirname(reportPath), state.candidate.id, 'source-delivery') });
+      return { facts: result.facts, evidence: { legalDir: result.legalDir } };
+    },
     'macos-au-vst3': async () => ({ facts: await produceMac(state, run) }),
     'macos-aax': async () => ({ facts: await produceMac(state, run, true) }),
     windows: async () => ({ facts: await verifyWindows(state, run) }),
@@ -140,7 +163,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
         criteriaSha256: digest({ tests: state.requiredHostTests, expected: state.expected }),
         inputs: digest(state.inputs), publicationNotes: fileFact(resolveInput(state, state.inputs.notes)), toolchain: {
           node: process.version, xcode: (await run('xcodebuild', ['-version'], { capture: true })).trim(),
-          rustc: (await run('rustc', ['--version'], { capture: true })).trim(),
+          rustc: assertRustRuntime(await run('rustc', ['--version'], { capture: true })),
           cargo: (await run('cargo', ['--version'], { capture: true })).trim(),
           cmake: (await run('cmake', ['--version'], { capture: true })).trim(),
           sdk: treeFact(state.inputs.sdk),

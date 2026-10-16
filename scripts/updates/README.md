@@ -41,10 +41,16 @@ channel and has no Hypha signature. It is not a substitute for this three-channe
 gate. The actual Hypha manifest route, approved production key provisioning and HP
 allowlist/deployment/readback integration must be established before enabling checking.
 
-Build/release inputs default explicitly to empty. The normal entry accepts
-`--update-public-key KEY`; formal shell producers and packagers use
-`KIRIN_HYPHA_UPDATE_PUBLIC_KEY`, Windows AAX uses `-UpdatePublicKey`, and the Windows
-installer uses `--update-public-key`. CMake takes only the per-invocation
+Build/release inputs default explicitly to empty. Individual build scripts accept
+`--update-public-key KEY` or `KIRIN_HYPHA_UPDATE_PUBLIC_KEY`; the Windows AAX build
+script accepts `-UpdatePublicKey`, and the installer script accepts `--update-public-key`.
+Those script inputs do not make a keyed formal Windows candidate: the current private
+producer fixes the key to empty, its public import rejects other keys, and neither signing
+workflow accepts a key. Do not use `--init --update-public-key` for a release including
+Windows. Enabling a key requires script/factory changes, trusted-closure review and new
+runs first. Public CI's `update_public_key` affects only its unsigned build and does not
+produce a formal candidate. See the [release entry](../../docs/hypha_release_entry.md).
+CMake takes only the per-invocation
 `KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT` and resets its cache on every configure.
 All inputs reject a zero, even or shorter-than-2048-bit modulus and noncanonical text.
 Each binary carries `KirinHyphaUpdateKeySha256=<digest or disabled>;` and every Mac

@@ -1,3 +1,5 @@
+#[cfg(not(windows))]
+use super::integration_tests::{push_stereo_pair_in_blocks, serve_pre};
 use super::*;
 use std::thread;
 // `frame()` は `spectrum_exchange_view_tests.rs` が持つ（同じ親の兄弟モジュール）。
@@ -16,33 +18,6 @@ fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
         channels: 2,
         sharpness: value,
         psb: None,
-    }
-}
-
-#[cfg(not(windows))]
-fn push_stereo_pair_in_blocks(
-    pre_runtime: &SpectrumRuntime,
-    post_runtime: &SpectrumRuntime,
-    pre_samples: &[f32],
-    post_samples: &[f32],
-) {
-    const BLOCK_FRAMES: usize = 256;
-    assert_eq!(pre_samples.len(), post_samples.len());
-    assert_eq!(pre_samples.len() % 2, 0);
-    for start in (0..pre_samples.len() / 2).step_by(BLOCK_FRAMES) {
-        let end = (start + BLOCK_FRAMES).min(pre_samples.len() / 2);
-        let sample_range = start * 2..end * 2;
-        assert!(pre_runtime.push_block_from_audio(
-            &pre_samples[sample_range.clone()],
-            2,
-            Some(start as i64),
-        ));
-        assert!(post_runtime.push_block_from_audio(
-            &post_samples[sample_range],
-            2,
-            Some(start as i64),
-        ));
-        thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -138,8 +113,7 @@ fn failed_pre_snapshot_write_is_not_reported_as_exchange_progress() {
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
     post.set_post_visible(true);
-    assert!(post.post_tick("post", Some(target)));
-    assert!(pre.pre_tick("pre", &pre_dir));
+    assert!(serve_pre(&pre, &post, &target));
 
     let frames = 9_600_usize;
     let mut samples = Vec::with_capacity(frames * 2);
@@ -148,17 +122,45 @@ fn failed_pre_snapshot_write_is_not_reported_as_exchange_progress() {
         samples.extend_from_slice(&[sample, -sample]);
     }
     push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &samples, &samples);
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline && pre_runtime.try_history().is_none() {
-        thread::sleep(Duration::from_millis(2));
-    }
-    assert!(pre_runtime.try_history().is_some());
+    assert_eq!(
+        pre_runtime
+            .try_history()
+            .unwrap()
+            .newest()
+            .unwrap()
+            .presentation_end_samples,
+        frames as i64
+    );
+
+    // Cross the real lease deliberately, then renew before the I/O fault. Otherwise a false
+    // tick could merely mean an expired request, and a slow host would test the wrong boundary.
+    thread::sleep(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
+    assert!(validated_request(&pre_dir, "pre", 48_000, unix_ms_now()).is_none());
+    assert!(post.post_tick("post", Some(target.clone())));
+    assert!(validated_request(&pre_dir, "pre", 48_000, unix_ms_now()).is_some());
 
     fs::create_dir_all(snapshot_path(&pre_dir)).unwrap();
-    assert!(!pre.pre_tick("pre", &pre_dir));
+    assert!(!serve_pre(&pre, &post, &target));
+    assert!(pre
+        .pre_session
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .last_written_end
+        .is_none());
     fs::remove_dir(snapshot_path(&pre_dir)).unwrap();
-    assert!(pre.pre_tick("pre", &pre_dir));
-    assert!(read_snapshot(&pre_dir).is_some());
+    thread::sleep(REQUEST_RENEW_INTERVAL);
+    assert!(serve_pre(&pre, &post, &target));
+    assert_eq!(
+        read_snapshot(&pre_dir)
+            .unwrap()
+            .history
+            .newest()
+            .unwrap()
+            .presentation_end_samples,
+        frames as i64
+    );
 
     pre.shutdown();
     post.shutdown();

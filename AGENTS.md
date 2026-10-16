@@ -23,11 +23,13 @@ helpはSDK・認証・USB不要。未署名buildにもiLok不要。既存の成�
 Hyphaの公開リリースは、以下の3チャネルを同じバージョンで揃えて初めて完了とする。
 
 1. Lemon Squeezy: signed / notarized済みmacOS Universal `.pkg`
-2. HP無料配布: signed / notarized済みmacOS Universal `.zip` + GitHub Release + 英日HPリンク
-3. Windows: 同一コミットのgreenな`windows-latest` CI artifactから作る、PRE/POST同梱・
+2. HP無料配布: signed / notarized済みmacOS Universal `.pkg`を英日HPの通常導線へ結び、
+   同じGitHub Releaseへ必須のsigned / notarized済みUniversal `.zip`を手動復旧用として添付する
+3. Windows: 同一コミットのgreenな公開CIと、審査済みprivate factoryの`windows-latest`未署名producerを結ぶ、PRE/POST同梱・
    Authenticode署名済みInno Setup `.exe`（payload / installer / uninstallerの全署名と
    install → 同版再install → 旧公開版からのupgrade → uninstall検証がgreenであること）。
-   手動VST3 `.zip`は診断・復旧用fallbackのみ
+   signed candidateを実機検証後に同じ審査済みfactoryでpromotionし、signed-full全体の出どころを照合する。
+   保留中の公開CI binary uploadを正式producerの代用にしない。手動VST3 `.zip`は診断・復旧用fallbackのみ
 
 Windows版を暗黙に外すこと、macOSだけを先に公開してリリース完了とすることは禁止。
 同一コミットの署名済みWindows installer artifactが無い、CI / pluginval / installer実動検証が未完了、
@@ -155,6 +157,8 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - ソース、テスト、ライセンス、公開検証方法を保持する。秘密値・個人PC情報・運用stateをcommitしない。
 - PR検証は署名credential不要の環境で行う。署名・公証・正式配布はレビュー済みexact sourceと
   独立した権限境界で行い、CI成功だけで公開承認を推定しない。
+- 実host受入の必須platformはIntel macOSのAU / VST3 / AAXとWindows x64のVST3 / AAX。
+  macOS Universalの両slice検証とARM64の自動CIは維持する。その他の実hostは追加検証として扱う。
 
 ## 開発ルール
 
@@ -170,6 +174,10 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 全owned sourceを500行以下へ収束させることは長期目標であり、現在のUI着手ゲートではない。
 
 - Rust: `cargo clippy` + `cargo test` を毎回実行
+- 実threadやworkerを待つ試験は、短く眠って見回らない。通知で待つか、音声の時間に追いつくまでだけ眠る（遅れたblockは眠らない）。
+  CIの仮想のmacOSでは短い眠りが約10倍に伸び、手元で通る試験がCIだけで落ちる。試験の短い眠り（50 ms以下）は
+  `scripts/test_sleep_budget.tsv`の記録より増やさない（軽量契約で検査し、減らしたら記録も下げる）。
+  このような試験を変えたらpushの前に`bash scripts/test_slow_host.sh`（macOSのbackground QoSでCIの遅さを再現）を流す。
 - **kirin_hypha_ffi の検証ゲート**: `cargo test --workspace` の green だけでは Record/pairing を検証しない（Record finalize・PRE-POST ペアリング・plugin_data 実出力のテストは realtime で遅いため全て `#[ignore]`）。kirin_hypha_ffi を変更したら `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1`（parity.rs 20 件）と `cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-threads=1`（pairing_candidates.rs 6 件）の #[ignore] スイート（計 26 件）の pass も検証ゲートに含める。件数は `-- --ignored --list | grep -c ': test'` で実測のこと（loose grep は散文中の `#[ignore]` を誤カウントする）。これらは CI（ci.yml）では PR / workflow_dispatch / `[ci full]` 時のみ走る（通常 push は test job ごとスキップ）。
 - エラーログは作業前に必ず読む
 - 同じアプローチは最大2回。3回目は別手法

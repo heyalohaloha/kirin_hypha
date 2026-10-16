@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceTestCommitObserver.h"
 
 #include <cmath>
 #include <utility>
@@ -115,6 +116,8 @@ namespace hypha::reference_audition
                 applyConfiguration (configuration);
                 untilPoll = 0;
             }
+            // Race fixtures request one ordinary worker read; they never fabricate a publication.
+            if (KIRIN_REFERENCE_REFRESH_FOR_TEST (this)) untilPoll = 0;
             pages.service();
             if (contentRefreshRequested.exchange (false, std::memory_order_acq_rel)
                 && !bSelected.load (std::memory_order_acquire) && !blind.ongoing())

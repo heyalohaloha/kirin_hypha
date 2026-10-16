@@ -211,10 +211,8 @@ fn perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch() {
 
     let samples = [0.125_f32; 512];
     assert!(runtime.push_block_from_audio(&samples, 2, Some(12_000)));
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline && !runtime.perceptual_rearm_required.load(Ordering::Acquire) {
-        thread::sleep(Duration::from_millis(2));
-    }
+    // The rearm flag precedes the history clear; wait for this block's completion too.
+    assert!(runtime.wait_for_input_for_test(Duration::from_secs(2)));
     assert!(runtime.take_perceptual_rearm_required());
     assert!(runtime
         .try_perceptual_history()

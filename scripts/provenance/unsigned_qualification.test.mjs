@@ -1,0 +1,79 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { NATIVE_LINK_COMPONENTS, BUNDLED_COMPONENTS } from './bundled_components.mjs';
+import { assertRawSourceUnchanged, rawSourceSnapshot, inspectNativeLinkMap,
+  assertPluginvalQualification, PLUGINVAL_SHA256 } from './unsigned_qualification.mjs';
+
+test('raw source is bound to committed blobs and the approved patched JUCE tree', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'raw-juce-fixture-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const juce = path.join(root, 'juce_shell/JUCE');
+  fs.mkdirSync(juce, { recursive: true });
+  const git = (directory, args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe', encoding: 'utf8' }).trim();
+  for (const directory of [root, juce]) {
+    git(directory, ['init']); git(directory, ['config', 'user.name', 'Fixture']);
+    git(directory, ['config', 'user.email', 'fixture@example.invalid']);
+    fs.writeFileSync(path.join(directory, 'source'), 'original\n');
+    git(directory, ['add', 'source']); git(directory, ['commit', '-m', 'fixture source']);
+  }
+  fs.mkdirSync(path.join(root, 'scripts')); fs.mkdirSync(path.join(root, 'juce_shell/patches'));
+  fs.writeFileSync(path.join(juce, 'source'), 'patched\n');
+  const patch = git(juce, ['diff', '--no-ext-diff']);
+  fs.writeFileSync(path.join(root, 'juce_shell/patches/0001-fixture.patch'), patch + '\n');
+  fs.writeFileSync(path.join(root, 'scripts/verify_juce_patch_state.sh'), 'PATCHES=(\n  "0001-fixture.patch::"\n)\n');
+  git(root, ['add', '.']); git(root, ['commit', '-m', 'pin approved patch']);
+  const indexBefore = git(juce, ['ls-files', '--stage']);
+  // Qualification is tested against a declared fixture runtime, independent of contributor/CI stable.
+  const snapshot = () => rawSourceSnapshot(root, { readRuntime: () => 'rustc 1.94.1 (fixture date)' });
+  assert.throws(() => rawSourceSnapshot(root, { readRuntime: () => 'rustc 1.99.0 (fixture date)' }), /retained notices/);
+  const before = snapshot();
+  assert.equal(before.commit, git(root, ['rev-parse', 'HEAD']));
+  assert.equal(before.files.find(f => f.path === 'source').blob, git(root, ['hash-object', '--no-filters', 'source']));
+  assertRawSourceUnchanged(before, snapshot());
+  assert.equal(git(juce, ['ls-files', '--stage']), indexBefore);
+  for (const [directory, bytes] of [[juce, 'patched\r\n'], [juce, 'original\n'], [root, 'original\r\n']]) {
+    fs.writeFileSync(path.join(directory, 'source'), bytes);
+    assert.throws(snapshot, /canonical Git blob/);
+    fs.writeFileSync(path.join(directory, 'source'), directory === juce ? 'patched\n' : 'original\n');
+  }
+});
+
+test('native linker evidence follows role-specific actual symbol inputs and the NOTICE/CMake inventory', () => {
+  const load = role => fs.readFileSync(new URL(`./fixtures/${role}-native-symbols.map`, import.meta.url), 'utf8');
+  assert.equal(inspectNativeLinkMap(load('pre'), 'PRE').length, 3);
+  assert.equal(inspectNativeLinkMap(load('post'), 'POST').length, 6);
+  assert.throws(() => inspectNativeLinkMap(load('pre'), 'POST'), /FLAC.*POST/);
+  for (const role of ['PRE', 'POST']) {
+    for (const { pattern } of NATIVE_LINK_COMPONENTS.filter(row => row.roles.includes(role))) {
+      const missing = load(role.toLowerCase()).split('\n').filter(line => !pattern.test(line)).join('\n');
+      assert.throws(() => inspectNativeLinkMap(missing, role), /evidence missing/);
+    }
+  }
+  assert.throws(() => inspectNativeLinkMap(load('post'), 'unknown'), /known role/);
+  assert.throws(() => inspectNativeLinkMap('source contains FLAC__read', 'POST'), /actual MSVC/);
+  for (const row of NATIVE_LINK_COMPONENTS) assert.ok(BUNDLED_COMPONENTS.some(item => item.id === row.id));
+  const cmake = fs.readFileSync(new URL('../../juce_shell/CMakeLists.txt', import.meta.url), 'utf8');
+  const branch = cmake.split('if("${TARGET}" STREQUAL "KirinHyphaPRE")')[1].split('endif()')[0];
+  const [pre, post] = branch.split('else()');
+  assert.doesNotMatch(pre, /juce::juce_audio_formats/);
+  assert.match(post, /target_link_libraries\(\$\{TARGET\} PRIVATE juce::juce_audio_formats\)/);
+  assert.equal((cmake.match(/target_link_libraries\(\$\{TARGET\} PRIVATE juce::juce_audio_formats\)/g) || []).length, 1);
+});
+
+test('plugin qualification is bound to both complete bundle inventories and exact tool bytes', () => {
+  const binaries = [{ role: 'PRE' }, { role: 'POST' }];
+  const files = [{ path: 'Contents/payload', sha256: 'a'.repeat(64) }];
+  const record = { schema: 'hypha-pluginval-qualification-v1', toolSha256: PLUGINVAL_SHA256,
+    results: binaries.map(b => ({ bundle: `Kirin Hypha ${b.role}.vst3`, exitCode: 0 })), before: [files, files], after: [files, files] };
+  assertPluginvalQualification(record, binaries, () => [...files]);
+  assert.throws(() => assertPluginvalQualification(record, binaries, () => [...files, { path: 'added', sha256: 'b'.repeat(64) }]), /Payload differs/);
+  assert.throws(() => assertPluginvalQualification({ ...record, toolSha256: '0'.repeat(64) }, binaries, () => files), /incomplete/);
+  const failed = structuredClone(record); failed.results[1].exitCode = 7;
+  assert.throws(() => assertPluginvalQualification(failed, binaries, () => files), /incomplete/);
+  const changed = JSON.parse(JSON.stringify(record)); changed.after[0][0].sha256 = 'b'.repeat(64);
+  assert.throws(() => assertPluginvalQualification(changed, binaries, () => files), /changed/);
+});

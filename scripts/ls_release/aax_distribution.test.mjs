@@ -382,7 +382,9 @@ test('release source identity uses exact fixture commits and distinguishes patch
   assert.equal(changedRevision.sourceState, 'modified source');
   assert.ok(changedRevision.dirtyEntries.some((entry) => entry.endsWith('juce_shell/JUCE')));
 
-  git(root, 'commit', '--allow-empty', '-m', 'Merge temporary CI candidate');
+  // A changed submodule revision cannot borrow the old tree's build number.
+  git(root, 'add', 'juce_shell/JUCE');
+  git(root, 'commit', '-m', 'Merge temporary CI candidate');
   assert.throws(() => readReleaseSourceIdentity({ root }), /release commit subject has no B number/);
 });
 

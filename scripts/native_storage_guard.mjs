@@ -46,9 +46,11 @@ export function snapshot(root) {
       if (ancestors.has(real)) { entry.cycle = true; return; }
       const next = new Set([...ancestors, real]);
       for (const name of fs.readdirSync(file).sort()) visit(path.join(file, name), `${relative}/${name}`, next);
-    } else if (!target.isFile()) {
+    } else if (!target.isFile() && !target.isSocket()) {
       throw new Error('unsupported protected entry type');
     }
+    // A running app may own a Unix socket here. Observe its metadata like a file,
+    // without opening or connecting to it; replacement/removal still fails comparison.
     // Record each file's size, mtime and ctime instead of reading large audio payloads. ctime
     // also detects an overwrite followed by restoring mtime. Directory metadata catches leases
     // created and removed between snapshots; this is a mutation guard, not a content backup.

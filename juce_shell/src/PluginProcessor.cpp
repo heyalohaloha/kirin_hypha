@@ -348,39 +348,6 @@ bool KirinHyphaProcessorBase::isRecording() const
     return kirin_hypha_is_recording (hyphaHandle);
 }
 
-int KirinHyphaProcessorBase::pairStatus() const
-{
-    const juce::ScopedLock sl (handleLock);
-    return hyphaHandle != nullptr ? (int) kirin_hypha_pair_status (hyphaHandle) : 0;
-}
-
-juce::String KirinHyphaProcessorBase::pairedPreInstanceId() const
-{
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return {};
-    char out[64] = { 0 };
-    return kirin_hypha_get_paired_pre_instance_id (hyphaHandle, out, sizeof (out))
-             ? juce::String::fromUTF8 (out)
-             : juce::String();
-}
-
-bool KirinHyphaProcessorBase::pairedPreLocator (juce::String& projectHash,
-                                                juce::String& instanceId) const
-{
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return false;
-    char projectOut[64] = { 0 };
-    char instanceOut[64] = { 0 };
-    if (! kirin_hypha_get_paired_pre_locator (
-            hyphaHandle, projectOut, sizeof (projectOut), instanceOut, sizeof (instanceOut)))
-        return false;
-    projectHash = juce::String::fromUTF8 (projectOut);
-    instanceId = juce::String::fromUTF8 (instanceOut);
-    return true;
-}
-
 int KirinHyphaProcessorBase::keepPhase() const
 {
     const juce::ScopedLock sl (handleLock);
@@ -575,53 +542,3 @@ int KirinHyphaProcessorBase::getCurrentProgram()         { return 0; }
 void KirinHyphaProcessorBase::setCurrentProgram (int)    {}
 const juce::String KirinHyphaProcessorBase::getProgramName (int) { return {}; }
 void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
-
-void KirinHyphaProcessorBase::enableWritesNow()
-{
-    // B-070 + Logic stopped-state fix: message-thread one-shot. Applies the FFI contract order create -> set_license
-    // (done in prepareToPlay) -> set_identity -> enable_*_writes. processBlock still takes the
-    // fast path; when the host is stopped, prepareToPlay enables after a short state-restore grace
-    // period so PRE/POST discovery does not depend on audible playback.
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr || writesEnabled.load (std::memory_order_acquire))
-        return;
-
-    // set_identity BEFORE enable: empty keys -> the FFI generates fresh UUIDs and writes
-    // them back; restored keys -> reused. A set_identity after enable would not propagate
-    // (the io_thread snapshots identity at enable), hence this single ordered point.
-    kirin_hypha_set_identity (hyphaHandle,
-                              persistInstanceId.toRawUTF8(),
-                              persistProjectUuid.toRawUTF8(),
-                              persistDawSessionUuid.toRawUTF8(),
-                              persistName.toRawUTF8());
-
-    // Role selects the plugin_data role: PRE (Watch pre.json + Record) vs POST (post.json
-    // Δ via select_target_pre). enable_pre_writes / enable_post_writes are mutually
-    // exclusive and idempotent in the FFI.
-    if (role == Role::Post)
-    {
-        kirin_hypha_enable_post_writes (hyphaHandle);
-        restorePersistedPairUnderHandleLock();
-    }
-    else
-    {
-        kirin_hypha_enable_pre_writes (hyphaHandle);
-    }
-
-    // Read back the final (restored or freshly generated) identity so getStateInformation
-    // persists it across DAW save/load.
-    KirinIdentity id;
-    kirin_hypha_get_identity (hyphaHandle, &id);
-    persistInstanceId     = juce::String::fromUTF8 (id.instance_id);
-    persistProjectUuid    = juce::String::fromUTF8 (id.project_uuid);
-    persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
-    persistName           = juce::String::fromUTF8 (id.name);
-
-    configureWorkTransports();
-    configureReferenceAudition();
-
-    writesEnabled.store (true, std::memory_order_release);
-    analysisApplication.engineReady();
-    serviceRequestedAnalysisUnderHandleLock();
-    startPreparedFormatServices();
-}

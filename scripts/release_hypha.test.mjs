@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { STAGES, executeRelease, parseReleaseArgs, makeState } from './release_hypha.mjs';
+import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions } from './release_hypha.mjs';
 import { HOST_TESTS, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths } from './ls_release/hypha_release_local.mjs';
@@ -12,6 +12,18 @@ import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
 const options = { execute: true, until: 'hp' };
+test('reviewed factory, promotion run and retained archive are pinned before any manufacturing action', async t => {
+  const f = fixture(t);
+  const actions = realActions(f.state, {}, async () => { throw new Error('No command may run'); }, () => {});
+  await assert.rejects(actions['provenance-inputs'](), /private profile/);
+  const options = parseReleaseArgs(['--state','release_state/factory.json',
+    '--windows-factory-repository','fixture/factory','--windows-factory-commit','c'.repeat(40),'--windows-promotion-run','123','--windows-artifact-archive','artifact.zip']);
+  const state = makeState(f.root,options,() => SOURCE);
+  assert.equal(state.inputs.windowsFactoryRepository,'fixture/factory');
+  assert.equal(state.inputs.windowsFactoryCommit,'c'.repeat(40));
+  assert.equal(state.inputs.windowsPromotionRun,'123');
+  assert.equal(state.inputs.windowsArtifactArchive,path.join(f.root,'artifact.zip'));
+});
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-release-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -162,6 +174,12 @@ test('reports bind candidate and exact artifact set; SKIP/missing evidence/old c
 
 test('matrix minimum and private ignored state paths are mandatory', t => {
   const f = fixture(t); assertState(f.state);
+  for (const format of ['AU', 'VST3', 'AAX']) {
+    assert.ok(f.state.requiredHostTests.includes(`macOS/x86_64/${format}`));
+    assert.ok(!f.state.requiredHostTests.includes(`macOS/arm64/${format}`));
+  }
+  assert.ok(f.state.requiredHostTests.includes('Windows/x64/VST3'));
+  assert.ok(f.state.requiredHostTests.includes('Windows/x64/AAX'));
   f.state.candidate.commit = 'f'.repeat(40);
   assert.throws(() => assertState(f.state), /source identity/);
   f.state.candidate.commit = SOURCE.commit;
@@ -172,6 +190,17 @@ test('matrix minimum and private ignored state paths are mandatory', t => {
   assert.throws(() => safeStatePath(f.root, `${dir}/state.json`), /symlinks/);
 });
 
+test('an added host remains a real evidence checkpoint while the default minimum stays intact', t => {
+  const f = fixture(t), optional = 'macOS/arm64/AAX';
+  f.state.requiredHostTests.push(optional);
+  f.state.expected[optional] = { passed: true };
+  assertState(f.state);
+  const file = path.join(f.root, 'additional-host.json');
+  const report = reportTemplate(f.state, 'A4', 'd'.repeat(64), [optional]);
+  fs.writeFileSync(file, JSON.stringify(report));
+  assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), [optional]), Checkpoint);
+});
+
 test('bundle facts include resources, permissions and symlink targets, not only the executable', t => {
   const f = fixture(t); const dir = path.join(f.root, 'bundle'); fs.mkdirSync(dir);
   fs.writeFileSync(path.join(dir, 'resource'), 'resource'); const fact = treeFact(dir);
@@ -180,14 +209,18 @@ test('bundle facts include resources, permissions and symlink targets, not only 
 
 test('CI exact commit, complete matrix and workflow must agree; no dispatch route exists', async t => {
   const f = fixture(t); f.state.inputs.ciRun = '123';
-  let commit = SOURCE.commit;
+  let commit = SOURCE.commit, event = 'push', repository = 'heyalohaloha/kirin_hypha';
   const jobs = ['public history identity', 'release source contract (macos)', 'auval arm64 (AU validation)', 'windows VST3 preflight']
-    .map(name => ({ name, conclusion: 'success' }));
+    .map(name => ({ name, status: 'completed', conclusion: 'success' }));
   const run = async (tool, args) => { assert.equal(tool, 'gh'); assert.equal(args[0], 'api');
     return JSON.stringify(args[1].includes('/jobs?') ? { jobs } :
-      { head_sha: commit, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml' }); };
+      { head_sha: commit, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml', name: 'CI', event, head_repository: { full_name: repository } }); };
   await verifyCi(f.state, run); commit = 'f'.repeat(40);
   await assert.rejects(verifyCi(f.state, run), Checkpoint); commit = SOURCE.commit;
+  for (event of ['pull_request', 'pull_request_target', undefined]) await assert.rejects(verifyCi(f.state, run), Checkpoint);
+  event = 'push'; repository = 'fixture/fork'; await assert.rejects(verifyCi(f.state, run), Checkpoint);
+  repository = 'heyalohaloha/kirin_hypha';
+  jobs.push(jobs[0]); await assert.rejects(verifyCi(f.state, run), /not green/); jobs.pop();
   jobs[1].conclusion = 'skipped'; await assert.rejects(verifyCi(f.state, run), /not green/);
 });
 
