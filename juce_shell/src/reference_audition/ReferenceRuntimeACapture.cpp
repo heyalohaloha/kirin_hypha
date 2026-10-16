@@ -386,7 +386,7 @@ namespace hypha::reference_audition
     {
         const bool local = safeRuntimeId (localRuntimeId);
         const bool authorityValid = (local || (binding.has_value()
-            && binding->leaseExpiresAtMs >= nowMs))
+            && binding->issuedAtMs <= nowMs && binding->leaseExpiresAtMs >= nowMs))
             && sampleRateHz >= 8'000 && sampleRateHz <= 768'000
             && (channels == 1 || channels == 2)
             && nowMs >= 0 && nowMs <= maximumSafeInteger - receiptLeaseMs;
@@ -395,7 +395,10 @@ namespace hypha::reference_audition
             observationArmed.store (false, std::memory_order_release);
             captureEnabled.store (false, std::memory_order_release);
             if (receipt || ! activeBindingId.isEmpty())
+            {
+                KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "authority_unavailable", nowMs);
                 removeReceiptFile();
+            }
             resetAccumulator();
             discardQueued();
             activeBindingId.clear();
@@ -409,6 +412,7 @@ namespace hypha::reference_audition
             || activeRuntimeInstanceId != runtimeId
             || activeSampleRateHz != sampleRateHz || activeChannels != channels)
         {
+            KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "binding_or_format_changed", nowMs);
             removeReceiptFile();
             resetAccumulator();
             discardQueued();
@@ -424,6 +428,7 @@ namespace hypha::reference_audition
         const auto generation = continuityGeneration.load (std::memory_order_acquire);
         if (generation != consumedGeneration)
         {
+            KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "continuity_changed", nowMs);
             resetAccumulator();
             discardQueued();
             consumedGeneration = generation;
@@ -447,6 +452,7 @@ namespace hypha::reference_audition
         }
         if (receipt && nowMs > receipt->capturedAtMs + maximumReceiptAgeMs)
         {
+            KIRIN_REFERENCE_CAPTURE_RESET_FOR_TEST (this, "capture_expired", nowMs);
             removeReceiptFile();
             resetAccumulator();
         }

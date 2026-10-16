@@ -1,6 +1,7 @@
 #pragma once
 #include "reference_runtime_test_support.h"
 #include "ReferenceControllerTestAccess.h"
+#include "ReferenceCaptureLeaseFacts.h"
 #include "../src/reference_audition/ReferenceTestCommitObserver.h"
 #include <condition_variable>
 #include <mutex>
@@ -60,18 +61,16 @@ private:
     std::thread worker;
 };
 
+LiveBlindCaptureFacts liveBlindCaptureFacts (ref::RuntimeV2Controller& controller, const juce::File& root,
+                                           const ref::RuntimeIdentity& identity)
+{
+    return readLiveBlindCaptureFacts (root,
+        hypha::tests::reference_control::captureFor (controller, {}).captureFile (identity.runtimeInstanceId), identity);
+}
+
 bool liveBlindCaptureCurrent (ref::RuntimeV2Controller& controller, const juce::File& root,
                              const ref::RuntimeIdentity& identity)
-{
-    const auto now = juce::Time::currentTimeMillis();
-    const auto authority = ref::RuntimeABindingRepository (root).load (identity, now);
-    const auto receipt = juce::JSON::parse (hypha::tests::reference_control::captureFor (controller, {}).captureFile (identity.runtimeInstanceId));
-    const auto capturedAt = static_cast<juce::int64> (receipt["captured_at_ms"]);
-    return authority.has_value() && capturedAt > 0 && now >= capturedAt && now - capturedAt <= 10'000
-        && static_cast<juce::int64> (receipt["lease_expires_at_ms"]) >= now
-        && receipt["binding_id"].toString() == authority->bindingId
-        && receipt["recording_id"].toString() == authority->recordingId;
-}
+{ return liveBlindCaptureFacts (controller, root, identity).current(); }
 
 void resetForFreshBlindCapture (ref::RuntimeV2Controller& controller, const ref::RuntimeIdentity& identity,
                                const ref::Snapshot& expected)

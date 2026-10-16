@@ -115,6 +115,20 @@ namespace
         controller.observeTransport (hostPosition, true, true);
         RefreshTransport transport (controller, hostPosition);
         const auto old = control::publicationFactsFor (controller, {});
+        const auto completedPcm = control::captureFor (controller, {}).currentAudio();
+        require (completedPcm != nullptr, "the gate race retains the actual completed PCM before its hook");
+        const auto completedRevision = completedPcm->dawRevisionId, completedHash = completedPcm->cuePcmSha256;
+        const auto requireSamePcm = [&] {
+            const auto current = control::captureFor (controller, {}).currentAudio();
+            if (current != completedPcm)
+            {
+                const auto reset = ref::referenceTestCaptureResetFacts (&control::captureFor (controller, {}));
+                std::cerr << "BLIND_GATE_PCM_LOST present=" << (current != nullptr)
+                          << " resetReason=" << reset.reason << " resetAt=" << reset.atMs << " resetCount=" << reset.count << '\n';
+            }
+            require (current && current == completedPcm && current->dawRevisionId == completedRevision
+                && current->cuePcmSha256 == completedHash, "the race may never lose or replace its original completed PCM");
+        };
         require (old.ready && old.snapshot.blindEligible && old.snapshot.blindLowerAApprovalRequired && ! comparisonSuspended.load()
                      && liveBlindCaptureCurrent (controller, v2Root, identity), "the race starts with real current authority, PCM and an unheld gate");
         const auto heldAGain = std::pow (
@@ -137,6 +151,7 @@ namespace
             refreshTicket = ref::requestReferenceTestWorkspaceRefresh (&controller);
             require (refreshTicket != 0, "one test-only worker read request is accepted after the actual publication");
             newPublicationObserved = control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (4), [&] {
+                requireSamePcm();
                 if (! ref::referenceTestWorkspaceRefreshConsumed (refreshTicket)) return false;
                 const auto current = control::publicationFactsFor (controller, {});
                 if (! current.ready || current.snapshot.manifestRevision != gateRaceRevision
@@ -170,12 +185,35 @@ namespace
         require (hookReached && gateRacePublished.load() && newPublicationObserved && ! staleStarted,
                  "Blind rejects a proven new publication and epoch inside the output gate within four seconds");
         require (! comparisonSuspended.load(), "the rejected stale Blind start returns its gate before the command returns");
-        require (control::waitUntil (std::chrono::steady_clock::now() + std::chrono::seconds (4), [&] {
+        requireSamePcm();
+        LiveBlindCaptureFacts preparedCapture;
+        const auto preparationStarted = std::chrono::steady_clock::now();
+        const bool preparedNewEpoch = control::waitUntil (preparationStarted + std::chrono::seconds (4), [&] {
+            requireSamePcm();
             const auto current = control::publicationFactsFor (controller, {});
             require (current.epoch == newEpoch && current.snapshot.manifestRevision == gateRaceRevision
                 && current.snapshot.playbackIdentity == newIdentity, "a different later epoch cannot satisfy the race result");
-            return current.ready && current.snapshot.blindEligible;
-        }) && liveBlindCaptureCurrent (controller, v2Root, identity),
+            preparedCapture = liveBlindCaptureFacts (controller, v2Root, identity);
+            requireSamePcm();
+            return current.ready && current.snapshot.blindEligible && preparedCapture.current()
+                && preparedCapture.revision == completedRevision && preparedCapture.pcmHash == completedHash;
+        });
+        if (! preparedNewEpoch)
+        {
+            const auto current = control::publicationFactsFor (controller, {});
+            const auto reset = ref::referenceTestCaptureResetFacts (&control::captureFor (controller, {}));
+            std::cerr << "BLIND_GATE_PREPARATION ready=" << current.ready << " eligible=" << current.snapshot.blindEligible
+                      << " binding=" << current.snapshot.aBindingAvailable << " capture=" << current.snapshot.aCaptureAvailable
+                      << " rejection=" << current.snapshot.rejectionCode << " epoch=" << current.epoch
+                      << " expectedEpoch=" << newEpoch << " revision=" << current.snapshot.manifestRevision
+                      << " expectedRevision=" << gateRaceRevision << " gateHeld=" << comparisonSuspended.load()
+                      << " elapsedMs=" << std::chrono::duration_cast<std::chrono::milliseconds> (
+                          std::chrono::steady_clock::now() - preparationStarted).count()
+                      << " resetReason=" << reset.reason << " resetAt=" << reset.atMs << " resetCount=" << reset.count;
+            printLiveBlindCaptureFacts (std::cerr, preparedCapture);
+            std::cerr << '\n';
+        }
+        require (preparedNewEpoch,
                  "the rejected stale Blind start must return its gate and prepare only the new epoch");
         require (controller.approveBlindLowerAAndStart (-14.0, -6.0),
                  "explicit approval must start the current lower-A Blind context");

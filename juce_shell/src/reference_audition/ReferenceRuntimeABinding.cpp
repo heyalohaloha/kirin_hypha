@@ -2,6 +2,7 @@
 
 #include <limits>
 #include <regex>
+#include <stdexcept>
 
 namespace hypha::reference_audition
 {
@@ -79,9 +80,10 @@ namespace hypha::reference_audition
         }
     }
 
-    RuntimeABindingRepository::RuntimeABindingRepository (juce::File transportRootIn)
-        : root (std::move (transportRootIn))
+    RuntimeABindingRepository::RuntimeABindingRepository (juce::File transportRootIn, ReadClock readClockIn)
+        : root (std::move (transportRootIn)), readClock (std::move (readClockIn))
     {
+        if (! readClock) throw std::invalid_argument ("A binding read clock is required");
     }
 
     juce::File RuntimeABindingRepository::bindingFile (
@@ -95,9 +97,19 @@ namespace hypha::reference_audition
     std::optional<RuntimeABinding> RuntimeABindingRepository::load (
         const RuntimeIdentity& identity, std::int64_t nowMs) const
     {
+        return loadWithClock (identity, [nowMs] { return nowMs; });
+    }
+
+    std::optional<RuntimeABinding> RuntimeABindingRepository::loadCurrent (const RuntimeIdentity& identity) const
+    {
+        return loadWithClock (identity, readClock);
+    }
+
+    std::optional<RuntimeABinding> RuntimeABindingRepository::loadWithClock (
+        const RuntimeIdentity& identity, const ReadClock& clock) const
+    {
         if (! identity.valid() || ! runtimeId (identity.runtimeInstanceId)
-            || ! canonicalUuid (identity.workId) || nowMs < 0
-            || nowMs > maximumSafeInteger)
+            || ! canonicalUuid (identity.workId))
             return std::nullopt;
         juce::var value;
         if (! readBoundedJson (bindingFile (identity.runtimeInstanceId), value))
@@ -111,6 +123,8 @@ namespace hypha::reference_audition
             || object->getProperty ("version") != "1.0")
             return std::nullopt;
 
+        const auto nowMs = clock();
+        if (nowMs < 0 || nowMs > maximumSafeInteger) return std::nullopt;
         RuntimeABinding result;
         result.bindingId = object->getProperty ("binding_id").toString();
         result.runtimeInstanceId = object->getProperty ("runtime_instance_id").toString();

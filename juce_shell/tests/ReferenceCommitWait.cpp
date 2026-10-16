@@ -1,9 +1,12 @@
 #include "ReferenceControllerTestAccess.h"
 #include "../src/reference_audition/ReferenceTestCommitObserver.h"
+#include "ReferenceABindingReadClockTests.h"
+#include "ReferenceCaptureServiceClockTests.h"
 #include <condition_variable>
 #include <mutex>
 #include <iostream>
 #include <cstdlib>
+#include <unordered_map>
 
 bool prepareReferenceRuntimeInvocation (int argc, char** argv);
 
@@ -21,6 +24,7 @@ struct Commits
     const void* refreshController = nullptr;
     const void* consumedController = nullptr;
     std::uint64_t refreshIssued = 0, refreshConsumed = 0;
+    std::unordered_map<const void*, hypha::reference_audition::ReferenceTestCaptureResetFacts> captureResets;
 };
 // require() exits without destroying local controllers. Keep test notifications
 // alive for the process lifetime, including a failing test's worker shutdown.
@@ -29,6 +33,22 @@ Commits& commits() { static auto* state = new Commits(); return *state; }
 
 namespace hypha::reference_audition
 {
+void notifyReferenceTestCaptureReset (const void* capture, const char* reason, std::int64_t atMs) noexcept
+{
+    auto& state = commits();
+    const std::lock_guard<std::mutex> lock (state.mutex);
+    auto& facts = state.captureResets[capture];
+    facts.reason = reason; facts.atMs = atMs; ++facts.count;
+}
+
+ReferenceTestCaptureResetFacts referenceTestCaptureResetFacts (const void* capture) noexcept
+{
+    auto& state = commits();
+    const std::lock_guard<std::mutex> lock (state.mutex);
+    const auto found = state.captureResets.find (capture);
+    return found == state.captureResets.end() ? ReferenceTestCaptureResetFacts {} : found->second;
+}
+
 void notifyReferenceTestCommit() noexcept
 {
     auto& state = commits();
@@ -124,5 +144,8 @@ void verifyCommitWaitContract()
 bool prepareReferenceRuntimeInvocation (int argc, char** argv)
 {
     hypha::tests::reference_control::verifyCommitWaitContract();
-    return argc == 2 && juce::String (argv[1]) == "--commit-wait-only";
+    if (argc == 2 && juce::String (argv[1]) == "--commit-wait-only") return true;
+    verifyABindingReadClockContract();
+    verifyCaptureServiceClockContract();
+    return argc == 2 && juce::String (argv[1]) == "--binding-read-clock-only";
 }
