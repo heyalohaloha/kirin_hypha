@@ -305,8 +305,8 @@ After A3, complete the mandatory host matrix and expectations fixed for the cand
 [release entry](hypha_release_entry.md), including LISTEN clock/PDC, local Blind anonymity,
 Exact 4 S frame counts, pair-loss/return and recreation, state/automation recall, the declared
 rate/buffer/layout matrix and UI stress. The 1.1.51 acceptance scope excludes the legacy
-Exact 4 S comparison by release-owner decision; this exclusion is not a passing test and does
-not change the default gate for later candidates. The five checks above are part of full
+Exact 4 S comparison by release-owner decision, and 1.1.52 no longer offers its entry. Neither
+is a passing test, and neither changes the default gate for later candidates. The five checks above are part of full
 acceptance; they do not replace it. Bind every result to the exact installed payload hashes.
 
 ## Release Decision
