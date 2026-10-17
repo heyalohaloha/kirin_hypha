@@ -2,18 +2,96 @@
 
 **See — and hear — exactly what your processing chain changed.**
 
-A free, open-source PRE/POST measurement plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
+A free, open-source measurement plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
 
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
-Insert **PRE** before the processors you want to judge and **POST** after them. POST measures both
-exact points and shows what changed: loudness, peaks, dynamics, spectrum, stereo image and drum
-attack. When the numbers are not enough, listen — switch PRE and POST in place at a matched level,
-take a blind test, or compare your mix with your reference tracks. Normal measurement never touches
-the audio; only an explicit audition replaces POST's output.
+Put **POST Kirin Hypha** on a bus or master and read loudness, true peak and crest. Add **PRE**
+before your processors when you want to see what the chain changed. Normal measurement passes
+the audio through unchanged, with zero added latency. Comparison listening starts only when you
+choose it.
 
-**[Download](#download)** · **[Start in a minute](#start-in-under-a-minute)** ·
+**[Download 1.1.51](#download)** · **[Start in a minute](#start-in-under-a-minute)** ·
 **[What it measures](#what-it-measures)** · **[Build from source](#building-from-source)**
+
+<details>
+<summary>Contributor guides</summary>
+
+[Build guide](docs/hypha_build_entry.md) · [Release qualification](docs/hypha_release_entry.md).
+Commands and prerequisites are in [Building from source](#building-from-source).
+
+</details>
+
+## Start in under a minute
+
+1. Insert **POST Kirin Hypha** on a bus or master.
+2. Open **LEVEL** to read loudness, true peak and crest. POST works on its own; Kirin OS is not
+   required for real-time measurement.
+3. To compare your processing, insert **PRE Kirin Hypha** before the processors and keep POST
+   after them. Click POST's pair selector or arrow, then choose that exact PRE under **PRE connection**.
+4. Choose **POST** for the output's own readings or **Δ** for the difference from PRE. Explore
+   **TIME**, **FREQ** and **SPACE** as you need them; **REF** compares references from Kirin OS.
+
+Names are optional labels. PRE and POST do not need matching names, and track position is never used
+to guess a pair. PRE captures the input state, while POST captures the output state and joins only
+verified matching observations.
+
+## Download
+
+**Hypha 1.1.51 is available for macOS and Windows.** Both installers include PRE and POST.
+
+| Platform | Installer | Plug-in formats |
+|---|---|---|
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.51/Kirin-Hypha-1.1.51-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.51/Kirin-Hypha-1.1.51-Windows-x64-Setup.exe) | VST3 · AAX Native |
+
+The macOS installer and plug-ins are signed and notarized. The Windows installer and plug-ins are
+Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.51).
+
+<details>
+<summary>Download verification and release provenance</summary>
+
+Download the latest macOS or Windows release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
+
+The macOS installer package and the plug-in bundles inside it are signed with Apple Developer ID certificates and notarized by Apple, so Gatekeeper normally opens them without a warning. If a downloaded file is still flagged — for instance when the quarantine attribute persists — you can inspect it and clear the flag yourself:
+
+```bash
+# Inspect the installer signature
+pkgutil --check-signature "Kirin-Hypha-<version>-macOS-Universal.pkg"
+
+# Verify the download against the SHA-256 shown on the Releases page
+shasum -a 256 "Kirin-Hypha-<version>-macOS-Universal.pkg"
+
+# Remove the quarantine attribute if macOS blocks the installer
+xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
+```
+
+The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page.
+Each release also includes a signed, notarized macOS Universal ZIP for manual recovery. Use the PKG
+for normal installation.
+
+The Windows 10/11 x64 release is one signed installer EXE containing PRE and POST in VST3 and AAX,
+built from the same release commit as macOS. The VST3 and AAX payloads, installer, and generated
+uninstaller must pass their signature and acceptance gates, including pluginval, real DAW use,
+same-version reinstall, upgrade from the preceding public release, and isolated uninstall.
+[`docs/windows_external_validation.md`](docs/windows_external_validation.md) is the repeatable
+real-machine regression checklist. Each release identifies its exact source commit and artifacts.
+
+#### Release provenance
+
+Published artifacts are immutable. If repository maintenance changes a public commit ID after a release, the commit recorded in that artifact remains its original build commit. [`docs/release_commit_map.json`](docs/release_commit_map.json) maps an affected artifact commit to the commit currently referenced by its release tag and records the verified source-equivalence scope.
+
+Maintainers use the [public history identity contract](docs/public_history_identity.md): full commit
+SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are supplemental labels.
+
+</details>
+
+## New in 1.1.51
+
+Keep comparing through brief timing interruptions. LISTEN and BLIND retain your source, matched
+level and blind assignment; POST plays until timing is confirmed, then the same comparison resumes.
+Start with POST and LEVEL as before. [Read the release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.51).
 
 ![A tour of Kirin Hypha: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind](docs/media/readme/tour.gif)
 
@@ -25,6 +103,30 @@ the audio; only an explicit audition replaces POST's output.
 <img src="docs/media/readme/level.jpg" alt="LEVEL: momentary, short-term and integrated loudness, true peak, LRA, PLR and crest above 60 seconds of history">
 <br><b>LEVEL</b> — loudness (M / S / I), true peak, LRA, PLR and crest above a minute of history.
 Click a moment to hold it while measurement continues; step through every peak above −1 dBTP.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
+<br><b>FREQ</b> — where the chain changed: PRE, POST and their difference in LR, MID or SIDE, with
+a six-second field and a Focus Trail for any frequency.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
+<br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
+sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
+<br><b>SPACE</b> — mid/side density, balance, correlation, and how much of each band survives the
+mono sum.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: PRE playing at +1.8 dB with POST, MATCH and END in the footer">
+<br><b>Live PRE/POST compare</b> — hear the signal before or after your processing at a matched
+level. Unverified timing keeps POST audible; the same comparison resumes after fresh proof.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
@@ -40,56 +142,12 @@ songs (B), a check on a reference cue (C) or another version of the same song (V
 level and with the same spectrum definition.
 </td>
 <td width="50%" valign="top">
-<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: PRE playing at +1.8 dB with POST, MATCH and END in the footer">
-<br><b>Live PRE/POST compare</b> — <b>LISTEN</b> plays PRE in POST's place wherever its line-up
-with POST is proven. <b>MATCH</b> fixes a level match; <b>AUTO</b> follows it within ±6 dB.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
-<br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
-sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
-</td>
-<td width="50%" valign="top">
-<img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
-<br><b>FREQ</b> — where the chain changed: PRE, POST and their difference in LR, MID or SIDE, with
-a six-second field and a Focus Trail for any frequency.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
 <img src="docs/media/readme/ref_v.jpg" alt="Reference V: your mix against another version of the same song across the whole timeline">
 <br><b>Reference V</b> — Hypha finds where your mix is in another version of the same song and
 plays it from the same place, at the same level.
 </td>
-<td width="50%" valign="top">
-<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
-<br><b>SPACE</b> — mid/side density, balance, correlation, and how much of each band survives the
-mono sum.
-</td>
 </tr>
 </table>
-
-Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). The
-[build guide](docs/hypha_build_entry.md) documents unsigned native builds, and
-[release qualification](docs/hypha_release_entry.md) covers signing, acceptance and publication.
-`node scripts/build_hypha.mjs --help` and `--release --help` work without SDKs, credentials or iLok.
-For a quick unsigned GUI/DSP test build, run `node scripts/build_hypha.mjs --without-aax`
-(Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok). The default still
-builds all formats; this shortcut is not a full-format or release gate.
-
-## Start in under a minute
-
-1. Insert **PRE Kirin Hypha** before the processing chain.
-2. Insert **POST Kirin Hypha** after the processing chain.
-3. Click POST's pair selector or arrow, then choose that exact PRE under **PRE connection**.
-4. Use the top-level **LEVEL**, **TIME**, **FREQ**, **SPACE** and **REF** domains (FREQ and REF on
-   POST). In **TIME**, choose **HISTORY**, **RUN**, **SHARP** or **LIVE**, and **DRUM** on a track or stem.
-
-Names are optional labels. PRE and POST do not need matching names, and track position is never used
-to guess a pair. The two plug-ins are the measurement boundary: PRE captures the input state, while
-POST captures the output state and joins only verified matching observations.
 
 ## Channel scope
 
@@ -673,41 +731,6 @@ Sharpness are measured independently per input channel and combined by arithmeti
 sum the waveform before the nonlinear psychoacoustic pipeline. Perceptual Δ uses that same definition
 for LR, while its explicit MID and SIDE selections intentionally measure `(L+R)/2` and `(L−R)/2`.
 
-## Download
-
-Download the latest macOS or Windows release from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
-
-The macOS installer package and the plug-in bundles inside it are signed with Apple Developer ID certificates and notarized by Apple, so Gatekeeper normally opens them without a warning. If a downloaded file is still flagged — for instance when the quarantine attribute persists — you can inspect it and clear the flag yourself:
-
-```bash
-# Inspect the installer signature
-pkgutil --check-signature "Kirin-Hypha-<version>-macOS-Universal.pkg"
-
-# Verify the download against the SHA-256 shown on the Releases page
-shasum -a 256 "Kirin-Hypha-<version>-macOS-Universal.pkg"
-
-# Remove the quarantine attribute if macOS blocks the installer
-xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
-```
-
-The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page.
-Each release also includes a signed, notarized macOS Universal ZIP for manual recovery. Use the PKG
-for normal installation.
-
-The Windows 10/11 x64 release is one signed installer EXE containing PRE and POST in VST3 and AAX,
-built from the same release commit as macOS. The VST3 and AAX payloads, installer, and generated
-uninstaller must pass their signature and acceptance gates, including pluginval, real DAW use,
-same-version reinstall, upgrade from the preceding public release, and isolated uninstall.
-[`docs/windows_external_validation.md`](docs/windows_external_validation.md) is the repeatable
-real-machine regression checklist. Each release identifies its exact source commit and artifacts.
-
-### Release provenance
-
-Published artifacts are immutable. If repository maintenance changes a public commit ID after a release, the commit recorded in that artifact remains its original build commit. [`docs/release_commit_map.json`](docs/release_commit_map.json) maps an affected artifact commit to the commit currently referenced by its release tag and records the verified source-equivalence scope.
-
-Maintainers use the [public history identity contract](docs/public_history_identity.md): full commit
-SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are supplemental labels.
-
 ## Installation
 
 ### macOS
@@ -750,27 +773,29 @@ requirement.
 Switching views retires the previous view's missing-latency flag. Format support alone does not
 prove PRE/POST timing alignment.
 
-### Optional update information
+<a id="optional-update-information"></a>
+### Update information in 1.1.51
 
-The PRE / POST information menu retains explicit English/Japanese official download links. The
-new update checker is **OFF by default**. When enabled (or explicitly checked), it requests only
-one fixed official manifest, with a shared **24-hour limit including failures and cancellations**.
-The download page opens only when you choose it; Hypha does not install updates automatically.
+**Automatic update checking is disabled in this release.** Use the Information menu's English or
+Japanese official download link to get a newer version. Hypha does not install updates automatically.
 
-Update storage and exclusion are dedicated to `Kirin Hypha/UpdateCheck/v1`, not Kirin OS
-identity, Reference delivery/lease, or Record data. HTTP, signature checks and storage run on a
-separate worker, never in audio processing. Checks send no installation, license, Work or audio
-identifiers. The server still receives ordinary network information such as the IP address.
-Invalid, expired or unsigned information cannot announce a release. Normal use works offline.
+<details>
+<summary>Update-check implementation for contributors</summary>
 
-This source includes the implementation and offline tests, **not a published update service**.
-No production verification key is provisioned here: until a key and signed official endpoint are
-approved and deployed, the information menu hides update status, automatic checking and Check now.
-No HTTP request is made; the manual official links remain usable. If saving a check timestamp
-fails, the running checker waits 24 hours before trying again. A timestamp more than 24 hours
-ahead of the current clock can be discarded without discarding the verified publication sequence.
-See [update implementation and acceptance](docs/hypha_update_check_contract_20261005.md) for
-the precise host/format, lifecycle and outstanding real-device verification boundaries.
+The source contains an optional checker and offline tests. No production verification key or
+published update service is provisioned, so this release hides update status, automatic checking
+and Check now, and makes no update-check HTTP request.
+
+When a future release enables the service, checks use one fixed official manifest and a shared
+24-hour limit including failures and cancellations. Update storage is separate from Kirin OS
+identity, Reference and Record data. Network, verification and storage work runs outside audio
+processing; no installation, license, Work or audio identifiers are sent. Invalid, expired or
+unsigned information cannot announce a release. Normal use works offline.
+
+See [update implementation and acceptance](docs/hypha_update_check_contract_20261005.md) for the
+protocol, clock handling, storage failures and service qualification requirements.
+
+</details>
 
 ## Pairing PRE and POST
 
@@ -1012,36 +1037,31 @@ and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, 
 by itself as soon as it can confirm it again. Short checks are quiet and the selected PRE button
 stays selected. Measurement and Records are never changed.
 
-LISTEN/MATCH have platform paths for macOS VST3, AU and AAX and Windows VST3 and AAX;
-these paths do not certify every host. Logic AU can run BLIND during continuous and cycle playback,
-including preparation, level approval and settling, using callback-bound PRE/POST timing proof.
-A missing host certification value alone never makes LISTEN or BLIND unavailable.
-Initial loop admission is a separate check. The Studio Pro 8.1.2.113407 VST3 content-clock
-profile is also enabled for Studio One 6–7 (minimum 6.0.0) and Studio Pro 8. Readable native versions in dotted
-or “Build” form are required; only 8.1.2.113407 is marked measured. This is a version policy,
-not a claim of testing every build. Separate real-host measurement checks confirmed zero FREQ, SHARP
-and PSB differences with a 4096-sample delay and loops in Studio One 6.6.3 / 7.2.3 and
-Studio Pro 8.0.2 / 8.1.2 on macOS, and Studio Pro 8.1.2 on Windows. Pro Tools AAX uses the proof measured in
-Pro Tools Developer 26.4.0.5 is granted to every Pro Tools build from 12.6 on (executables
-"Pro Tools", "ProTools" and "Pro Tools Developer"; the floor is the build that reports its
-delay-compensation state). A host's loop-playback setting with no selection names no loop, so
-playback is treated as linear. In an AAX host that is not Pro Tools a looped
-selection cannot be proven, and LISTEN, BLIND, SHARP and the PSB difference say **Loop Playback on:
-turn it off to compare** while POST plays; that loop is never reported as a host that cannot verify
-timing. Short checks keep the selected controls and stay quiet. After three seconds without
-recovery, a brief instruction explains the observed cause and remedy; END remains available. REAPER VST3 uses its own processing counter, calibrated against compensated project
-positions, for PRE, MATCH and BLIND during linear playback. Its FREQ Δ, SHARP Δ and PSB Δ
-measurement clocks keep their existing rules. [REAPER loop limits and measured conditions](#reaper-listen-timing)
-are separate from the other host profiles. In Pro Tools it is offered
-on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
-multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
-multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.2.113407;
-Windows unsigned AAX has been checked separately in Pro Tools Developer 26.4.0.5. Developer
-testing is not acceptance of a signed plug-in in regular Pro Tools. Avid documents that its
-[debuggable Developer builds cannot save or export sessions](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html).
-For the signed 1.1.51 release, regular Pro Tools Native on Intel macOS and Windows x64 has also
-passed PRE/POST loading, pairing, normal audio, Keep, offline bounce, and saving/reopening.
-Those checks do not extend the LISTEN/BLIND timing acceptance to every AAX host or configuration.
+LISTEN, level matching and BLIND are available in macOS AU, VST3 and AAX, and Windows VST3
+and AAX. Logic AU supports continuous and cycle playback. REAPER VST3 uses its processing
+counter, calibrated against compensated project positions; its measurement clocks keep their
+own rules. [REAPER loop conditions](#reaper-listen-timing) are described below.
+
+**Pro Tools:** use the signed AAX Native release in regular Pro Tools, with delay compensation
+enabled. PRE and POST can be true mono or stereo (multichannel) instances. A multi-mono insert
+measures each channel independently and does not offer live comparison, because Pro Tools can
+process those channels in parallel. The comparison clock uses Pro Tools' reported timing and
+delay-compensation state, available from Pro Tools 12.6. Loop playback without a selected range
+is treated as linear playback. If timing cannot be confirmed, POST remains audible and the
+comparison resumes when confirmation returns. END stays available throughout.
+
+The signed 1.1.51 release has passed PRE/POST loading, exact pairing, normal audio, Keep,
+offline bounce, and saving/reopening in regular Pro Tools Native on Intel macOS and Windows x64.
+
+**Studio One / Studio Pro:** the VST3 comparison profile accepts Studio One 6–7 and Studio Pro 8
+with a readable native version. The measured profile is Studio Pro 8.1.2.113407. Separate
+real-host measurement checks confirmed zero FREQ, SHARP and PSB differences with a
+4096-sample delay and loops in Studio One 6.6.3 / 7.2.3 and Studio Pro 8.0.2 / 8.1.2 on macOS,
+and Studio Pro 8.1.2 on Windows.
+
+In another AAX host, a looped selection that cannot be proven asks you to turn loop playback
+off while POST plays. Brief timing checks keep your selected controls and stay quiet. After
+three seconds without recovery, the status area explains the observed cause and remedy.
 
 <a id="reaper-listen-timing"></a>
 **REAPER LISTEN timing (1.1.51; stereo output checked in REAPER 7.71 on Intel macOS).** Both PRE and POST
@@ -1270,8 +1290,8 @@ For the identical four-second range on both sides, use **LISTEN → MENU → PIN
 the immutable-PCM trial below, with replay of the same range for each source. It is a preference
 listening trial, not a score or proof that either side is better.
 
-In AAX, its Pro Tools clock/PDC acceptance is still to be done; exact capture and runtime checks
-are enforced on every format.
+In Pro Tools, use the same mono or stereo instance and delay-compensation conditions described
+above. Exact capture and runtime checks remain active on every format.
 
 1. In POST, select the PRE pair and start LISTEN.
 2. Keep the DAW playing for at least four seconds, then choose **MENU → PIN 4 S**. It uses the
@@ -1408,6 +1428,14 @@ conditions documented above are separate requirements.
 **Not currently supported:** Linux · CLAP
 
 ## Building from source
+
+Contributors: read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). The
+[build guide](docs/hypha_build_entry.md) documents unsigned native builds, and
+[release qualification](docs/hypha_release_entry.md) covers signing, acceptance and publication.
+`node scripts/build_hypha.mjs --help` and `--release --help` work without SDKs, credentials or iLok.
+For a quick unsigned GUI/DSP test build, run `node scripts/build_hypha.mjs --without-aax`
+(Mac: PRE/POST AU+VST3 Universal; Windows: PRE/POST VST3 x64; no AAX SDK or iLok). The default still
+builds all formats; this shortcut is not a full-format or release gate.
 
 For all supported formats in one local build, use
 [`node scripts/build_hypha.mjs`](docs/hypha_build_entry.md): macOS produces PRE/POST × AAX/AU/VST3
