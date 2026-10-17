@@ -2,7 +2,7 @@
 
 **See — and hear — exactly what your processing chain changed.**
 
-A free, open-source PRE/POST measurement plug-in for macOS (AU · VST3) and Windows (VST3).
+A free, open-source PRE/POST measurement plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
 
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
@@ -690,13 +690,16 @@ shasum -a 256 "Kirin-Hypha-<version>-macOS-Universal.pkg"
 xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 ```
 
-The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
+The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page.
+Each release also includes a signed, notarized macOS Universal ZIP for manual recovery. Use the PKG
+for normal installation.
 
-The current v1.1.50 Windows 10/11 64-bit VST3 release is distributed as one signed installer EXE for
-PRE and POST, built from the same release commit as macOS.
-Its payloads, installer, and generated uninstaller passed signature, pluginval, DAW, same-version
-reinstall, upgrade from v1.1.49, and isolated-uninstall gates. [`docs/windows_external_validation.md`](docs/windows_external_validation.md)
-is the repeatable real-machine regression checklist.
+The Windows 10/11 x64 release is one signed installer EXE containing PRE and POST in VST3 and AAX,
+built from the same release commit as macOS. The VST3 and AAX payloads, installer, and generated
+uninstaller must pass their signature and acceptance gates, including pluginval, real DAW use,
+same-version reinstall, upgrade from the preceding public release, and isolated uninstall.
+[`docs/windows_external_validation.md`](docs/windows_external_validation.md) is the repeatable
+real-machine regression checklist. Each release identifies its exact source commit and artifacts.
 
 ### Release provenance
 
@@ -713,6 +716,7 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 2. Open the installer package and follow macOS Installer.
    - The package installs **VST3** to `/Library/Audio/Plug-Ins/VST3/`.
    - The package installs **Audio Unit** to `/Library/Audio/Plug-Ins/Components/`.
+   - The package installs **AAX** to `/Library/Application Support/Avid/Audio/Plug-Ins/`.
    - The package removes old user-level and system-level Kirin Hypha PRE/POST copies before installing, so DAWs do not load stale bundles first.
 3. Rescan plugins in your DAW.
 4. Insert **PRE Kirin Hypha** before your processing chain.
@@ -722,9 +726,11 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 1. Download the latest `Kirin-Hypha-<version>-Windows-x64-Setup.exe` and its `.sha256` companion
    from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
-2. Close the DAW and run the installer. Select **Current user** unless you specifically need the
-   elevated all-users installation.
-3. Start the DAW and rescan VST3 plug-ins if needed.
+2. Close the DAW and run the installer. The full VST3 + AAX installer requires administrator
+   permission and installs both formats for all users. VST3 goes to
+   `%ProgramFiles%\Common Files\VST3`; AAX goes to
+   `%ProgramFiles%\Common Files\Avid\Audio\Plug-Ins`.
+3. Start your VST3 DAW or Pro Tools and rescan plug-ins if needed.
 4. Insert **PRE Kirin Hypha** before your processing chain and **POST Kirin Hypha** after it.
 
 The manual VST3 ZIP is a diagnostic and recovery fallback, not the normal installation path.
@@ -779,6 +785,10 @@ matching names.
 Giving PRE a name such as `Mix`, `Drum`, or `Vocal` makes the menu easier to scan, but naming is
 optional. UTF-8 labels, including Japanese, are supported. An unnamed PRE can still be selected by
 its exact instance identity. POST never accepts a typed pair name or retargets another PRE by name.
+
+When an active PRE or POST is duplicated, the copy receives a different instance identity. Select
+the intended PRE again in a copied POST. Saved identities are retained when reopening a session if
+no running instance already owns them.
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 
@@ -1029,10 +1039,12 @@ multi-mono plug-in in parallel. Windows VST3 has been checked in Studio Pro 8.1.
 Windows unsigned AAX has been checked separately in Pro Tools Developer 26.4.0.5. Developer
 testing is not acceptance of a signed plug-in in regular Pro Tools. Avid documents that its
 [debuggable Developer builds cannot save or export sessions](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html).
-Saving and reopening therefore remain separate regular-host acceptance requirements.
+For the signed 1.1.51 release, regular Pro Tools Native on Intel macOS and Windows x64 has also
+passed PRE/POST loading, pairing, normal audio, Keep, offline bounce, and saving/reopening.
+Those checks do not extend the LISTEN/BLIND timing acceptance to every AAX host or configuration.
 
 <a id="reaper-listen-timing"></a>
-**REAPER LISTEN timing (1.1.51 implementation; output acceptance pending).** Both PRE and POST
+**REAPER LISTEN timing (1.1.51; stereo output checked in REAPER 7.71 on Intel macOS).** Both PRE and POST
 must use VST3, mono or stereo, in the same compensated chain. The executable/version policy is the
 same as REAPER's measurement certificate above. Each instance counts the frames it actually
 processes; eight consecutive agreeing linear blocks establish the offset between those independent
@@ -1068,19 +1080,21 @@ fingerprint and delay in the same run can resume LISTEN or BLIND with its approv
 proof still revokes K; both LISTEN and BLIND resume only after new proof. Idle instances check at 250 ms;
 only relevant playing instances inspect the API at 50 ms. These are freshness limits, not a guarantee
 that a host report precedes an audible PDC change. Dynamic API notification order, scheduling
-outside the measured conditions and actual output acceptance remain host tests.
+outside the measured conditions remain host tests.
 
 Timing measurements used REAPER 7.71 on macOS, 96 kHz, stereo, 512-frame blocks, anticipative FX
 processing off and on (200 ms render-ahead). Reported 4096→0 latency changes and bypass reductions
 were detected in the same POST block in all 12 measured transitions: the observed undetected window
 was **0 ms**, at callback resolution. Reported 0→4096 increases, including bypass release, preserved
 the correspondence because REAPER processed upstream FX ahead. This is a reduced timing sample,
-not a guarantee for every host version or a completed LISTEN/BLIND output acceptance test.
+not a guarantee for every host version. Separate signed-release checks in REAPER 7.71 on Intel
+macOS verified LISTEN and BLIND output, recovery during the tested edits, END, and session reopen;
+the timing measurements above retain their own narrower scope.
 Unreported latency changes were not detected by the clocks; an independent negative test remained
 misaligned for about seven seconds until playback stopped. As required by R-12, every intervening
 plug-in must report latency correctly and REAPER must compensate it. No clock-only rule can repair
-an unreported delay. Native Windows, other rates/buffers, larger delays and FX insertion/removal
-still need host acceptance. [Timing contract and regression coverage](docs/planning/hypha_reaper_listen_timing.md).
+an unreported delay. The REAPER results do not establish native Windows REAPER acceptance or coverage of every
+rate, buffer size, delay, and plug-in configuration. [Timing contract and regression coverage](docs/planning/hypha_reaper_listen_timing.md).
 
 1. In POST, select the exact PRE pair. At 200% and above, press **LISTEN** (**PRE/POST LISTEN** at
    300% and above) in the footer.
@@ -1246,7 +1260,9 @@ selection uses the same command-bound rule, so a late callback cannot clear a ne
 Reference and its access panel follow the parent editor's current body bounds when a recovery
 line appears or disappears. Unchanged geometry does not relayout those panes.
 Meters, names, gain details and their accessibility are isolated until the comparison ends.
-Real-host acceptance of the one-pass/END flow on each supported format is still to be done.
+The signed 1.1.51 release has passed the one-pass/END flow and safe session reopen in REAPER 7.71
+VST3 stereo on Intel macOS. That result does not establish the same acceptance in every format
+or host configuration.
 
 ### Optional Exact 4 S
 
@@ -1382,10 +1398,12 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 
 - macOS 12 or later (Apple Silicon and Intel)
 - Windows 10 or 11, 64-bit
-- VST3-compatible DAW, or an Audio Unit-compatible DAW on macOS
+- A VST3-compatible DAW, an Audio Unit-compatible DAW on macOS, or Pro Tools for AAX
 
-macOS releases are signed and notarized VST3 and Audio Unit plug-ins. Windows releases are VST3; the
-current v1.1.50 release uses an Authenticode-signed installer containing both PRE and POST.
+macOS delivers signed, notarized PRE/POST AU, VST3 and AAX plug-ins as Universal binaries. Windows
+delivers PRE/POST VST3 and AAX x64 in an Authenticode-signed installer. The AAX plug-ins use Native
+processing; AudioSuite is not included. Format availability and the feature-specific host timing
+conditions documented above are separate requirements.
 
 **Not currently supported:** Linux · CLAP
 
@@ -1415,37 +1433,51 @@ mandatory.
 node scripts/build_hypha.mjs --release --help
 ```
 
-The AAX-free route:
+For a quick AAX-free GUI/DSP build on either supported OS:
 
 ```bash
-git clone https://github.com/heyalohaloha/kirin_hypha.git
+git clone --recurse-submodules https://github.com/heyalohaloha/kirin_hypha.git
 cd kirin_hypha
-scripts/build_juce_universal.sh
-scripts/validate_macos_pluginval.sh juce_shell/build-universal
+node scripts/build_hypha.mjs --without-aax
 ```
 
-Requires Rust stable toolchain, CMake, Xcode command line tools, and the pinned JUCE submodule.
-The macOS release ship set is one JUCE role-parameterised processor/editor compiled as AU and VST3. The VST3 wrapper preserves the original component IDs and migrates legacy nih-plug state so existing DAW sessions keep their identities and pair names.
+This creates PRE/POST AU + VST3 Universal on macOS and VST3 x64 on Windows. It requires no AAX SDK
+or iLok and does not replace the full-format release gates. Follow the
+[build guide](docs/hypha_build_entry.md) for toolchains, output paths and validation.
 
-Run the macOS pluginval gate before opening Studio One for manual validation. It recreates the exact role-first installed layout (`PRE Kirin Hypha.vst3` / `POST Kirin Hypha.vst3`) in an isolated runtime directory, resolves each executable through `CFBundleExecutable`, verifies the preserved component IDs and host names, and then runs pluginval at strictness level 5 against those staged bundles. Logs are written to `target/pluginval/logs/macos`, while plug-in runtime writes stay under `target/pluginval/runtime/macos/`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only for the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
+Requires Node.js, Git, CMake, Rust stable and the pinned JUCE submodule. macOS also needs the Xcode
+toolchain and both Rust CPU targets; Windows needs Visual Studio Build Tools with C++ and the
+Windows SDK, Git Bash and the Rust MSVC x64 target. The [build guide](docs/hypha_build_entry.md)
+lists the platform prerequisites.
+The shipping formats share one JUCE role-parameterised processor/editor: PRE/POST × AU/VST3/AAX
+on macOS and PRE/POST × VST3/AAX on Windows. The VST3 wrapper preserves the original component IDs
+and migrates legacy nih-plug state so existing DAW sessions keep their identities and pair names.
+
+For the AAX-free macOS build above, run the VST3 gate before manual DAW validation:
+
+```bash
+scripts/validate_macos_pluginval.sh target/hypha-build/macos-universal-no-aax
+```
+
+For the default full-format diagnostic build, pass `target/hypha-build/macos-universal` instead.
+This VST3 check recreates the exact role-first installed layout (`PRE Kirin Hypha.vst3` / `POST Kirin Hypha.vst3`) in an isolated runtime directory, resolves each executable through `CFBundleExecutable`, verifies the preserved component IDs and host names, and then runs pluginval at strictness level 5 against those staged bundles. Logs are written to `target/pluginval/logs/macos`, while plug-in runtime writes stay under `target/pluginval/runtime/macos/`. Override with `PLUGINVAL_STRICTNESS_LEVEL=10` only for the slower stress pass. If Steinberg's VST3 validator is installed, pass it with `VST3_VALIDATOR_BIN=/path/to/validator`.
 
 ## Maintainer release packaging
 
-For opt-in AAX builds, start with the [AAX build and signing entry guide](docs/aax_build_signing_entry.md).
-It separates diagnostic builds, local host validation and distribution candidates, and identifies
-the macOS and Windows signing inputs without storing customer information or credentials here.
-
-On the release machine, after signing and notarizing the four source plug-in bundles with `cargo run --package xtask -- notarize`, build the Lemon Squeezy installer package with the release scripts:
+Start with the [release entry](docs/hypha_release_entry.md) and the
+[AAX build and signing guide](docs/aax_build_signing_entry.md). The unified command coordinates
+Mac signing/notarization/PACE, the reviewed Windows factory, exact-candidate acceptance, package
+creation and the three publication channels:
 
 ```bash
-node scripts/ls_release/build_kirin_hypha_pkg.mjs
-mkdir -p release_state
-cp docs/ls_release/kirin_hypha_ls_state.example.json \
-  release_state/kirin_hypha_X.Y.Z_ls.state.json
-node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
-  --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
-  --with-apple-verification
+node scripts/build_hypha.mjs --release --help
 ```
+
+The full release contains six Mac bundles (PRE/POST × AU/VST3/AAX) and four Windows bundles
+(PRE/POST × VST3/AAX). The coordinator uses the existing release-set producer to prepare the
+signed/notarized macOS PKG, the same-release recovery ZIP and the qualified Windows installer.
+Inspect and resume the private profile according to the release guide; do not substitute the
+legacy VST3-only packaging command for this full release.
 
 `release_state/` is deliberately ignored: it contains release-operator targets and upload readiness, not source. Fill the local state from the generated `.pkg.json` sidecar and keep it out of commits. Publish the `.pkg.json` artifact manifest and `.pkg.sha256` with the GitHub Release.
 
@@ -1476,14 +1508,13 @@ CI key inputs do not produce a formal candidate. See the [release entry](docs/hy
 
 [The exposure report](docs/security/public_repo_exposure_audit_20261005.md) records the trust boundary.
 
-The legacy manual-install zip can still be built as a fallback with:
-
-```bash
-cargo run --package xtask -- release-package
-```
+The macOS recovery ZIP is a required artifact of the same full release, with the same signed
+payloads and release identity as the normal PKG. The Windows manual VST3 ZIP is a separate
+diagnostic/recovery fallback; it does not replace the full signed installer.
 
 Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
-Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to the configured Lemon Squeezy products after local verification passes.
+After verification passes, upload `Kirin-Hypha-<version>-macOS-Universal.pkg` and
+`Kirin-Hypha-<version>-Windows-x64-Setup.exe` to each configured Lemon Squeezy product.
 
 Public diagnostic CI retains all required build/validation jobs and logs. Preview artifacts are published only for inputs accepted for that use; binary/installer uploads remain held pending actual NOTICE, component license and Corresponding Source delivery evidence. Unresolved materials keep individual holds in the [distribution registry](docs/provenance/asset_distribution_registry.json).
 
@@ -1492,6 +1523,11 @@ Public diagnostic CI retains all required build/validation jobs and logs. Previe
 [GNU General Public License v3.0](LICENSE)
 
 Kirin Hypha is released under GPLv3 to keep the measurement layer auditable. The numbers a tool produces should be inspectable — any user, researcher, or engineer can read the code that generated them. Derivative works inherit the same openness.
+
+Release downloads include the Corresponding Source archive and third-party license notices.
+The archive retains the GPL-covered AAX SDK source used by the build. The PACE signature
+verification component included with AAX is covered by its separate PACE terms; see the Legal
+notices delivered with the installer and recovery ZIP.
 
 ## Acknowledgements
 

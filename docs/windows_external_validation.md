@@ -1,18 +1,16 @@
 # Kirin Hypha Windows Validation and Regression Checklist
 
-Purpose: validate every Windows JUCE VST3 release on a real Windows DAW before public upload.
+Purpose: validate each full Windows PRE/POST VST3 + AAX release on real Windows DAWs before public upload.
 
-Status: Windows 10/11 64-bit VST3 is supported. The v1.1.49 release is the first published signed
-installer and records CI, pluginval, Studio One Pro, Authenticode, same-version reinstall, v1.1.48
-upgrade, and isolated-uninstall validation as complete. This document remains the required regression
-checklist for later release commits; a new package must stay blocked until these gates are complete
-for that commit.
+A previous release's acceptance does not qualify a new commit or new payload. Keep the candidate
+blocked until its exact signatures, installer lifecycle and real-host evidence are complete. Use
+[`hypha_release_entry.md`](hypha_release_entry.md) for the complete three-channel release procedure.
 
 ## Current Boundary
 
-- Windows delivery target: JUCE VST3, PRE and POST.
-- Current published state: v1.1.49 is one Authenticode-signed installer containing PRE and POST.
-  The payload binaries, Setup EXE, and generated uninstaller have valid signatures.
+- Windows delivery target: PRE/POST × JUCE VST3/AAX x64 in one full installer.
+- All four payload binaries, the Setup EXE and the generated uninstaller require valid
+  Authenticode signatures. AAX also requires matching PACE verification and signed provenance.
 - Per-release procedure: exact-source public CI must pass. A reviewed private unsigned producer
   builds PRE/POST Windows VST3 on windows-latest and validates them with pluginval; the same
   reviewed factory imports that qualified artifact, signs the PE binaries and packages both roles.
@@ -25,8 +23,8 @@ for that commit.
   recovery ZIP. It never replaces the primary installer.
 - Per-release validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline
   bounce, and audio transparency must be complete before LS-ready.
-- Authenticode scope: PRE binary, POST binary, Setup EXE, and generated uninstaller must all be Valid
-  before an installer can be published.
+- Authenticode scope: PRE/POST VST3, PRE/POST AAX, Setup EXE and generated uninstaller must all
+  be Valid before publication. Retain exact payload hashes and AAX PACE verification evidence.
 
 ## Artifact To Send
 
@@ -72,8 +70,9 @@ deadline with margin. The signed candidate and fallback ZIP are not normal user-
 ## Tester Requirements
 
 - Windows 10 or 11, 64-bit.
-- A DAW that can load VST3 plug-ins.
-- Ability to run the current-user installer and Windows Installed apps uninstaller.
+- A VST3 DAW and regular Pro Tools capable of loading the signed AAX candidate.
+- Administrator permission for the full all-users installer and its uninstaller.
+- A new dedicated test session; preserve existing user sessions and Kirin OS data.
 - Ability to send screenshots and exported WAV files to the release maintainer.
 
 Record these facts in the report:
@@ -96,7 +95,8 @@ Validation report SHA-256:
 
 Close the DAW before installing.
 
-Open `Kirin-Hypha-<version>-Windows-x64-Setup.exe` and select **Current user** for the first pass.
+Open `Kirin-Hypha-<version>-Windows-x64-Setup.exe` with administrator permission. The full AAX
+installer uses the all-users installation scope; the automated lifecycle uses `/ALLUSERS`.
 Repeat the installer once before DAW testing to exercise same-version update behavior. Both passes
 must complete without manual VST3 folder selection.
 
@@ -107,39 +107,38 @@ candidate replaces both owned bundles, preserves the session identities and pair
 not alter unrelated VST3 files. Record the old and new versions and both payload hashes in the
 external-validation report. Same-version reinstall does not substitute for this upgrade test.
 
-Expected installed paths:
+Expected installed paths for the full installer:
 
 ```text
-%LOCALAPPDATA%\Programs\Common\VST3\Kirin Hypha PRE.vst3
-%LOCALAPPDATA%\Programs\Common\VST3\Kirin Hypha POST.vst3
+%ProgramFiles%\Common Files\VST3\Kirin Hypha PRE.vst3
+%ProgramFiles%\Common Files\VST3\Kirin Hypha POST.vst3
+%ProgramFiles%\Common Files\Avid\Audio\Plug-Ins\Kirin Hypha PRE.aaxplugin
+%ProgramFiles%\Common Files\Avid\Audio\Plug-Ins\Kirin Hypha POST.aaxplugin
 ```
 
-The optional all-users selection installs to the global path and requires elevation. Do not use it
-for the first validation pass:
+A separate VST3-only diagnostic installer may support current-user installation. It does not
+qualify the full AAX installer. Check for stale current-user copies before a full installation;
+preserve and restore an existing installation using the approved procedure rather than deleting it.
 
-```text
-%ProgramFiles%\Common Files\VST3
-```
-
-If the tester has no existing Kirin data they need to keep, they may start clean:
-
-```powershell
-Remove-Item -Recurse -Force "$env:TEMP\kirin" -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Kirin OS\plugin_data" -ErrorAction SilentlyContinue
-```
-
-Do not delete existing Kirin data on a machine where the tester relies on Kirin OS / Kirin Sense data.
+Do not clear `%TEMP%\kirin` or Kirin OS `plugin_data` globally. Use owned test sessions and an
+isolated QA storage plan. Establish the storage environment for every scanner/broker and host
+process before it can load a plug-in. Preserve shared Hypha UI preferences and track only the
+resources created by this validation. A configured QA root does not sandbox arbitrary file choosers.
+Record the actual Watch and plugin-data roots in the report; the following normal-path examples
+must be adjusted to those verified roots when isolated QA storage is used.
 
 ## Test 1: DAW Scan And Load
 
 1. Start the DAW.
-2. Rescan VST3 plug-ins if needed.
+2. In the VST3 DAW, rescan VST3 plug-ins if needed. Repeat scan/load in regular Pro Tools for AAX.
 3. Confirm both plug-ins are visible:
    - `PRE Kirin Hypha`
    - `POST Kirin Hypha`
 4. Insert each plug-in on a stereo bus.
 5. Open each plug-in GUI.
 6. At the Windows display scale used for the test, inspect the complete PRE and POST screens.
+7. Save and reopen a new test session in each host. A Developer host that cannot save/export
+   sessions does not substitute for this regular Pro Tools acceptance.
 
 Pass:
 
@@ -260,13 +259,30 @@ attribute the difference to Hypha. Run `KirinAudioTransparencyContractTests` aga
 PRE and POST VST3 bundles. The host contract exercises active realtime, active offline, stereo, and mono
 processing with known sample buffers and fails on the first changed sample bit or any non-zero latency.
 
-Pass requires either a deterministic DAW null or a passing exact-binary host contract for both PRE and POST.
-If neither can be completed, this gate remains unresolved. Do not treat that as a full release pass.
+For VST3, pass requires either a deterministic DAW null or a passing exact-binary host contract
+for both PRE and POST. This host-contract fallback qualifies VST3 only. AAX retains its actual
+Pro Tools export/null evidence requirement. Missing evidence for either format leaves that
+format's existing acceptance unresolved.
+
+## Full-candidate host acceptance
+
+The order is Windows basic external validation → promotion → coordinator/A3 → full A4 acceptance.
+This full A4 section is completed after promotion; it is not a prerequisite for marking the
+Windows basic external-validation report complete or running promotion.
+
+After A3, complete the mandatory host matrix and expectations fixed for the candidate before A3 in the
+[release entry](hypha_release_entry.md), including LISTEN clock/PDC, local Blind anonymity,
+Exact 4 S frame counts, pair-loss/return and recreation, state/automation recall, the declared
+rate/buffer/layout matrix and UI stress. The 1.1.51 acceptance scope excludes the legacy
+Exact 4 S comparison by release-owner decision; this exclusion is not a passing test and does
+not change the default gate for later candidates. The five checks above are part of full
+acceptance; they do not replace it. Bind every result to the exact installed payload hashes.
 
 ## Release Decision
 
 - Any failure in Test 1 or Test 2: do not proceed to LS.
 - Any failure in Test 3 or Test 4: do not proceed to LS.
 - Test 5 missing: beta can continue, but LS release remains blocked.
-- All tests pass with artifacts attached: mark external validation complete in the signed installer
-  manifest and include that exact installer in the three-channel release set.
+- All five basic Windows tests pass with artifacts attached: mark external validation complete
+  and promote the same signed installer under the reviewed factory procedure. Then continue
+  through coordinator/A3, full A4 and the remaining distribution gates before public release.

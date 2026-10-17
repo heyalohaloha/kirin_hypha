@@ -165,7 +165,7 @@ fn macos_pluginval_script_is_a_reusable_strict_preflight_gate() {
 fn readme_exposes_the_local_pluginval_gate() {
     require(
         README,
-        "scripts/validate_macos_pluginval.sh juce_shell/build-universal",
+        "scripts/validate_macos_pluginval.sh target/hypha-build/macos-universal-no-aax",
         "README must tell maintainers how to run the local macOS pluginval gate",
     );
     require(
