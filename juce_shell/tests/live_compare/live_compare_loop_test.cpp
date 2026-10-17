@@ -1,5 +1,6 @@
 #include "LiveCompareLoopOracle.h"
 #include "LiveCompareAuLoopProjectionTest.h"
+#include "LogicPpqGridTest.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -120,6 +121,7 @@ int main (int argc, char** argv)
     if (argc > 2 || (argc == 2 && std::strcmp (argv[1], "--matrix") != 0)) return 64;
     faults();
     verifyAuLoopProjection();
+    logic_ppq_grid::verifyLogicPpqGrid();
     const bool matrix = argc == 2;
     unsigned cases = 0;
     for (int length : { 24000, 48000, 96000, 192000, 384000 })

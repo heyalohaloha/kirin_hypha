@@ -42,11 +42,61 @@ struct LoopContext
     }
 };
 
+// How exactly a host's position report names an instant is a property of its clock profile.
+// Most hosts derive PPQ from their sample position (within one sample). Logic Pro's render
+// profile reports PPQ on a grid of 1/15360 quarter note (measured on Logic Pro 12.2: every
+// reading lies on the grid, within one grid step of the exact position), while its project
+// sample advances exactly and its Cycle moves project back by exactly one cycle length.
+struct PositionPrecision
+{
+    double ppqGrid = 0.0;      // quarter notes per reported PPQ step; 0 = follows the sample position
+    bool exactProject = false; // project, not PPQ, decides continuity inside a cycle
+};
+constexpr double logicPpqGrid = 1.0 / 15360.0;
+
+inline PositionPrecision positionPrecision (std::uint8_t basis, std::uint8_t authority) noexcept
+{
+    return basis == static_cast<std::uint8_t> (ClockBasis::audioUnitRender)
+            && authority == static_cast<std::uint8_t> (ClockAuthority::logicRender)
+        ? PositionPrecision { logicPpqGrid, true } : PositionPrecision {};
+}
+
+inline bool onPpqGrid (double ppq, double grid) noexcept
+{
+    const double steps = ppq / grid;
+    return grid > 0.0 && std::isfinite (steps) && std::abs (steps - std::round (steps)) <= 1.0e-6;
+}
+
+// Exact-project profile, both readings in the same constant-tempo cycle. The step is either
+// linear (frames, or one sample at Logic's pre-roll crossing) or exactly one cycle length back,
+// and PPQ must agree with that step. PPQ readings are never turned into a sample position.
+inline bool exactProjectLoopStep (const LoopContext& from, std::int64_t project, std::int64_t frames,
+                                  const LoopContext& to, std::int64_t nextProject, double rate,
+                                  double grid) noexcept
+{
+    // The grid allowance needs both readings to show the grid; another reading keeps one sample.
+    const double reading = onPpqGrid (from.ppq, grid) && onPpqGrid (to.ppq, grid) ? 2.0 * grid : 0.0;
+    const double tolerance = from.beats (1, rate) + reading + 1.0e-9;
+    const double length = (from.end - from.start) * (60.0 * rate / from.bpm);
+    const double step = static_cast<double> (nextProject) - static_cast<double> (project);
+    const double linear = from.ppq + from.beats (frames, rate);
+    if (! std::isfinite (length) || ! std::isfinite (step) || ! std::isfinite (linear)) return false;
+    if (linear < from.end + tolerance && std::abs (step - static_cast<double> (frames)) <= 1.0
+        && std::abs (to.ppq - linear) <= tolerance) return true;
+    // One wrap per callback; a cycle shorter than the callback fails closed.
+    return linear >= from.end - tolerance && static_cast<double> (frames) < length
+        && std::abs (step - (static_cast<double> (frames) - length)) <= 1.01
+        && std::abs (to.ppq - (linear - (from.end - from.start))) <= tolerance;
+}
+
 inline bool loopPositionMatches (const LoopContext& from, std::int64_t project,
                                  std::int64_t frames, const LoopContext& to,
-                                 std::int64_t nextProject, double rate) noexcept
+                                 std::int64_t nextProject, double rate,
+                                 PositionPrecision precision = {}) noexcept
 {
     if (! from.usable (rate) || ! to.usable (rate) || ! from.sameRange (to)) return false;
+    if (precision.exactProject)
+        return exactProjectLoopStep (from, project, frames, to, nextProject, rate, precision.ppqGrid);
     const double tolerance = from.beats (1, rate) + 1.0e-9;
     const double expected = from.advance (frames, rate);
     if (std::abs (to.ppq - expected) > tolerance) return false;
@@ -106,8 +156,11 @@ public:
             {
                 if (loop.active && block.loop.active)
                 {
-                    const bool matches = loopPositionMatches (loop, project, frames,
-                                                               block.loop, block.project, rate);
+                    // A profile change between the two readings grants no profile precision.
+                    const auto precision = positionPrecision (block.clockBasis, block.clockAuthority);
+                    const bool sameProfile = block.clockBasis == basis && block.clockAuthority == authority;
+                    const bool matches = loopPositionMatches (loop, project, frames, block.loop,
+                        block.project, rate, sameProfile ? precision : PositionPrecision {});
                     // Some hosts clamp POST to the loop start while delayed PRE still belongs
                     // to the tail. This is WAIT, never evidence for a new K or audible PRE.
                     const bool clamp = clampBudget > 0 && loop.usable (rate) && block.loop.usable (rate)
@@ -137,6 +190,7 @@ public:
         if (result.waiting && ! waiting) waitStart = block.clock;
         waiting = result.waiting;
         clock = block.clock; project = block.project; frames = block.frames; loop = block.loop;
+        basis = block.clockBasis; authority = block.clockAuthority;
         havePrevious = valid;
         observed = true;
         if (result.broken) previousBreak = result.cause;
@@ -147,6 +201,7 @@ private:
     bool havePrevious = false, waiting = false, observed = false;
     std::int64_t clock = 0, project = 0, waitStart = 0;
     std::int32_t frames = 0;
+    std::uint8_t basis = 0, authority = 0;
     LoopContext loop;
     TimelineBreak previousBreak = TimelineBreak::unknown;
 };

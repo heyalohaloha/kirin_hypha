@@ -428,6 +428,13 @@ LISTEN・MATCH・BLINDとFREQ／SHARP／PSB Δを許可する。差0もR-12の�
 検出保証にしない。入力presentationやproject位置を代替証拠にしない。欠損・逆差・矛盾・時計resetではPOSTへ
 退避し、BLINDも新しい証明で自動復帰する。確認不能が3秒以上続く場合だけ復帰方法を示す。
 `kirin_logic_cycle_entry`はblock内折返し・1 sample移動・差0・誤render・presentation失効と同callbackのΔ認定を確認する。
+Logic AUのPPQは4分音符の1/15360刻みに丸めた報告であり、project sampleとrender時刻は正確に進む（Logic Pro
+12.2で実測）。この性質はclock profileで一か所に持ち、Cycle中の連続はproject sampleの移動（blockの長さ、
+pre-rollの1 sample、またはCycle長ちょうどの戻り）で確かめ、PPQは両方の報告が刻み上にある場合だけ
+1 sampleに2刻みを足した幅で照合する。他のhostと刻みにない報告は従来の1 sampleのまま。Cycle offでは
+Logicが知らせるCycle範囲をpairの条件に含めない。`kirin_logic_cycle_replay`は実測のcallback時計（匿名化）を
+製品経路へ流し、各側のproject位置から求めた期待値と実PCMを照合し、誤reset・途切れの見逃し・誤対応の各0を
+別々に確認する。
 
 raw wall gapは、両側のcounter、project移動・実測wrap、PRE sequence/generation/ownerと合わせて扱う。
 線形位置が連続する正常なburstのpauseはそれだけで欠落としない。片側の欠落、説明不能なsequence進行、
