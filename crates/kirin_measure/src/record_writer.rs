@@ -1220,7 +1220,7 @@ fn producer_take_slot_positions(
     if expected_len == 0 || slot_samples <= 0 {
         return None;
     }
-    let duration_samples = i64::try_from(record_duration_samples(ctx)).ok()?;
+    let duration_samples = i64::try_from(trace_duration_samples(ctx)).ok()?;
     let bwf_start = expected_wav(ctx)
         .and_then(|expected| expected.wav_time_reference_samples)
         .and_then(|start| i64::try_from(start).ok());

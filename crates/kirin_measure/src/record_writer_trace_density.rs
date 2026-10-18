@@ -1,21 +1,25 @@
 //! Whether the Record TRACE covers and densely measures the span it must describe.
 use super::*;
 
-/// The span the TRACE must cover: the record's duration, or only the TRACE pass of a Keep whose
-/// listed later passes explain the rest of the record (INV-R10).
-pub(super) fn trace_duration_ms(ctx: &RecordingCtx) -> u64 {
-    let duration_ms = record_duration_ms(ctx);
+/// The samples the TRACE must cover: the record's duration, or only the TRACE pass of a Keep
+/// whose listed later passes explain the rest of the record (INV-R10).
+pub(super) fn trace_duration_samples(ctx: &RecordingCtx) -> u64 {
     let data = ctx.writer.data();
-    let duration_samples = record_duration_samples(ctx);
-    let span = crate::record_take::trace_span_samples(
+    crate::record_take::trace_span_samples(
         &data.keep_passes,
-        duration_samples,
+        record_duration_samples(ctx),
         data.sample_rate,
-    );
-    if span >= duration_samples || data.sample_rate == 0 {
-        return duration_ms;
+    )
+}
+
+/// [`trace_duration_samples`] in milliseconds; the record's own duration when it is the whole.
+pub(super) fn trace_duration_ms(ctx: &RecordingCtx) -> u64 {
+    let span = trace_duration_samples(ctx);
+    let sample_rate = u64::from(ctx.writer.data().sample_rate);
+    if span >= record_duration_samples(ctx) || sample_rate == 0 {
+        return record_duration_ms(ctx);
     }
-    span.saturating_mul(1_000) / u64::from(data.sample_rate)
+    span.saturating_mul(1_000) / sample_rate
 }
 
 pub(super) fn frame_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {

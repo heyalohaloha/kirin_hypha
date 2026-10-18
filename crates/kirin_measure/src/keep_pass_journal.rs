@@ -207,8 +207,8 @@ impl KeepPassJournal {
 }
 
 /// The samples the TRACE must cover in a record of `duration_samples`: all of them, except for a
-/// Keep whose listed later realtime passes explain the rest of the record (for example an exported
-/// WAV of the whole Keep). Its TRACE ends at its first pass by design, so the TRACE checks judge
+/// Keep whose listed realtime passes account for exactly that record (for example an exported WAV
+/// of the whole Keep). Its TRACE ends at its first pass by design, so the TRACE checks judge
 /// that pass and a normal LOOP wrap degrades nothing. A span the passes do not explain keeps the
 /// whole duration, so a real gap still degrades the record. Passes after an offline take are never
 /// part of the record's audio and explain nothing.
@@ -222,12 +222,11 @@ pub fn trace_span_samples(passes: &[KeepPass], duration_samples: u64, sample_rat
             (trace, later.saturating_add(pass.frames))
         }
     });
-    // One TRACE slot of tolerance for where the record's edges fall inside a callback.
+    // The passes explain the record only when they hold as many frames as it has, within one
+    // TRACE slot for where the record's edges fall inside a callback. A record longer than what
+    // the Keep accepted (a part never played) or shorter (another export) is not explained.
     let slot = u64::from(sample_rate / 10).max(1);
-    if trace == 0
-        || later == 0
-        || trace.saturating_add(later).saturating_add(slot) < duration_samples
-    {
+    if trace == 0 || later == 0 || trace.saturating_add(later).abs_diff(duration_samples) > slot {
         return duration_samples;
     }
     duration_samples.min(trace)
