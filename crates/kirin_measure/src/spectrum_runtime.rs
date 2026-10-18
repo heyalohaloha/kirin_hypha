@@ -4,7 +4,9 @@ use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
+#[cfg(test)]
+use std::thread;
+use std::thread::JoinHandle;
 
 use rtrb::{Consumer, Producer, RingBuffer};
 
@@ -372,14 +374,15 @@ impl SpectrumRuntime {
             return false;
         };
         let runtime = Arc::clone(self);
-        let spawned = thread::Builder::new()
-            .name("kirin-hypha-spectrum".to_string())
-            .spawn(move || {
+        let spawned = crate::engine::denormal_flush::spawn_named_measurement_thread(
+            "kirin-hypha-spectrum",
+            move || {
                 runtime.worker_running.store(true, Ordering::Release);
                 let _ = catch_unwind(AssertUnwindSafe(|| runtime.run_worker(&mut consumers)));
                 runtime.worker_running.store(false, Ordering::Release);
                 consumers
-            });
+            },
+        );
         match spawned {
             Ok(worker) => {
                 *worker_slot = Some(worker);

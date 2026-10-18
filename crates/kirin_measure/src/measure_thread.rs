@@ -245,7 +245,7 @@ pub fn spawn_measure_thread(
     record_take_tracker: Arc<RecordTakeTracker>,
     record_ingress: Arc<crate::RecordIngress>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || {
+    crate::engine::denormal_flush::spawn_measurement_thread(move || {
         let mut consumer = MeasureSampleConsumer::watch(consumer);
         let n_channels = layout.channel_count();
 
