@@ -1042,9 +1042,9 @@ pub fn spawn_measure_thread(
 
                 // 100ms チャンク単位で計測し、揃ったら結果を共有領域に書き込む。
                 // Offline bounce では 1 drain 内で複数結果が出るため、observer で全件を
-                // audio-time TRACE queue に渡す。
+                // audio-time TRACE queue に渡す。Phase D は TRACE の周回だけで測る（後の周回に止まった値を載せない）。
                 let mut last_result = None;
-                let latest_pd_snapshot = latest_pd.clone();
+                let latest_pd_snapshot = latest_pd.clone().filter(|_| !is_recording || record_take);
                 let _ = engine.push_observed(chunk_48k, |_, base_result, _| {
                     let mut new_result = base_result.clone();
                     merge_phase_d_fields(&mut new_result, latest_pd_snapshot.as_ref());

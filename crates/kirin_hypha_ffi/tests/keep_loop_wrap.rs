@@ -150,6 +150,19 @@ fn keep_follows_every_pass_of_a_realtime_loop() {
         advanced >= keep_frames,
         "the meter session advances through every wrap: {advanced} of {keep_frames}"
     );
+    // SHARP is measured for the TRACE pass only: a later pass of the Keep shows no frozen take
+    // value next to its live LEVEL in the Keep display.
+    let display = std::iter::repeat_with(|| post.poll_record_display())
+        .flatten()
+        .next()
+        .expect("Keep display");
+    let measure = display.measure.expect("Keep display measure");
+    assert!(
+        measure.lufs_m.is_some() && measure.sharpness.is_none(),
+        "a later pass carries no Phase D value: M {:?} SHARP {:?}",
+        measure.lufs_m,
+        measure.sharpness
+    );
     let live = post.poll_result().expect("live result");
     let live_m = live.lufs_m.expect("live LUFS-M");
     assert!(
