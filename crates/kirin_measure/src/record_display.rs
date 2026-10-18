@@ -163,6 +163,19 @@ impl RecordDisplayStore {
         state.status = RecordDisplayStatus::Unavailable;
     }
 
+    /// A Keep aborted before it was committed has no result: its display ends without one, and
+    /// a late drain of the same generation can no longer finalize a short Keep there.
+    pub fn abandon(&self, generation: u64) {
+        let mut state = self.lock();
+        if state.generation == generation {
+            *state = RecordDisplaySnapshot {
+                generation,
+                status: RecordDisplayStatus::Dismissed,
+                ..RecordDisplaySnapshot::default()
+            };
+        }
+    }
+
     /// 最終確定後に最初の実測Watch結果が届いた時だけ表示をWatchへ戻す。
     pub fn dismiss_on_watch_result(&self) {
         let mut state = self.lock();

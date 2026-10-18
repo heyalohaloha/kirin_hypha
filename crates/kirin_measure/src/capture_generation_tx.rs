@@ -291,6 +291,13 @@ fn abort_uncommitted_generation(base_dir: &Path, generation: &CaptureGeneration)
                 &signal,
                 crate::record_signal::ReleaseReason::ManualStop,
             );
+            // INV-R3: give back the pair this Keep reserved; only that exact owner is removed.
+            crate::reservation::release_pairing(
+                base_dir,
+                &member.project_hash,
+                &signal.target_pre_instance_id,
+                &member.post_instance_id,
+            );
         }
     }
 
@@ -479,6 +486,9 @@ fn process_is_alive(process_id: u32) -> bool {
     process_id != 0
 }
 
+#[cfg(test)]
+#[path = "capture_generation_abort_tests.rs"]
+mod abort_tests;
 #[cfg(test)]
 #[path = "capture_generation_ready_tests.rs"]
 mod ready_tests;

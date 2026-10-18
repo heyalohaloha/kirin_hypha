@@ -235,7 +235,10 @@ fn exit_if_generation_aborted(
             signal.session_id,
             instance_id
         );
+        let generation = record_sm.generation();
         crate::cleanup::exit_record_preserve_pair(record_sm);
+        // An aborted Keep shows no short result; the late drain cannot finalize one.
+        record_sm.abandon_record_display(generation);
     }
     aborted
 }

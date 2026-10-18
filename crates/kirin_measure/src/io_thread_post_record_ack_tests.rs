@@ -2,6 +2,7 @@ use super::*;
 use crate::record::RecordState;
 use crate::record_expected::ExpectedWavMetadata;
 use crate::record_signal::{RecordSignal, SignalStatus};
+use crate::RecordDisplayStatus;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const TEST_PH: &str = "ph";
@@ -286,6 +287,7 @@ fn a_post_that_entered_an_aborted_keep_returns_to_watch() {
     };
     poll();
     assert_eq!(sm.current(), RecordState::Record, "the ACK arms this POST");
+    let display_generation = sm.generation();
     // The readiness deadline passed: the uncommitted transaction aborts its generation.
     drop(transaction);
     poll();
@@ -294,6 +296,12 @@ fn a_post_that_entered_an_aborted_keep_returns_to_watch() {
         RecordState::Watch,
         "no Record survives an aborted Keep"
     );
+    // An aborted Keep has no result: its display ends without one, and the Measure Thread's
+    // late drain of the same generation cannot finalize a short Keep there.
+    let aborted_display = || sm.try_record_display_snapshot().expect("display");
+    assert_eq!(aborted_display().status, RecordDisplayStatus::Dismissed);
+    sm.finalize_record_display(display_generation, None);
+    assert_eq!(aborted_display().status, RecordDisplayStatus::Dismissed);
     assert!(
         !pair_label.lock().unwrap().is_empty(),
         "the pair stays selected"
