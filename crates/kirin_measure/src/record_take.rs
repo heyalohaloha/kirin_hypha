@@ -16,42 +16,6 @@ use std::sync::Arc;
 pub const RECORD_TAKE_SOURCE_RENDER_CLOCK: &str = "render_clock_native";
 pub const RECORD_TAKE_SOURCE_WAV_CLOCK: &str = "wav_clock_native";
 
-/// Producer-owned preference for one immutable take epoch.
-///
-/// The numeric order is part of the lock-free selection rule: a producer may upgrade to a more
-/// authoritative clock, but a later epoch of the same or lower authority can never replace the
-/// already selected take merely because it is longer.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-enum TakeEpochPriority {
-    #[default]
-    None = 0,
-    Rendered = 1,
-    Offline = 2,
-    NativeRange = 3,
-}
-
-impl TakeEpochPriority {
-    fn from_abi(value: u8) -> Self {
-        match value {
-            1 => Self::Rendered,
-            2 => Self::Offline,
-            3 => Self::NativeRange,
-            _ => Self::None,
-        }
-    }
-
-    fn for_block(block: &RecordTakeBlock) -> Self {
-        if bounded_duration_from_block(block).is_some() {
-            Self::NativeRange
-        } else if block.offline {
-            Self::Offline
-        } else {
-            Self::Rendered
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordTakeBlock {
     pub generation: u64,
@@ -155,6 +119,9 @@ impl Default for RecordTakeTracker {
 mod clock_capture;
 #[path = "record_take_mapping.rs"]
 mod mapping;
+#[path = "record_take_priority.rs"]
+mod priority;
+use priority::TakeEpochPriority;
 impl RecordTakeTracker {
     /// Audio-thread capture clock note. Call immediately before the corresponding ring push,
     /// so Measure Thread can map its consumed native frame count back to the host transport
