@@ -42,8 +42,14 @@ fn explain_passes(role: &str, member: &serde_json::Value) -> (usize, u64) {
         "{role} TRACE stays within its first pass"
     );
     assert_eq!(
-        member["integrity_degraded"], false,
-        "{role} a LOOP wrap degrades nothing"
+        member["integrity_degraded"],
+        false,
+        "{role} a LOOP wrap degrades nothing: {} dropped={} passes={} trace={} first={}",
+        member["integrity_reasons"],
+        member["dropped_samples"],
+        passes.len(),
+        trace_frames,
+        field(first, "frames")
     );
     (wraps, total)
 }
