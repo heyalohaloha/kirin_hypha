@@ -131,11 +131,24 @@ struct ListenWithReference
         require (r.view().feedback() == notice && preButton().getTooltip() == notice
                      && menuHeaders().contains (notice),
                  "past 3 s the footer, the PRE control and MENU say what plays and how to return");
-        requireNoPinEntry (*r.editor, "no PIN 4 S while LISTEN runs beside REF");
         const auto story = r.editor->statusStory().joinIntoString (" ");
         require (story.contains (preChosen ? "B plays now. Press A in REF to hear PRE."
                                            : "B plays now. Press A in REF to hear POST."),
                  "the status window tells what plays now and how to hear the choice");
+        matrix ("LISTEN beside REF", { observatory::Domain::level, observatory::Domain::reference });
+    }
+    // While this state runs: every control at every size, display scale and language on these pages, and no
+    // PIN 4 S in the editor or any MENU level (LISTEN's own section included).
+    void matrix (const char* what, std::initializer_list<observatory::Domain> pages)
+    {
+        const std::vector<observatory::Domain> shownPages (pages);
+        for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        {
+            const i18n::ScopedLanguage shown (language);
+            (r.editor.get()->*privateMember (SyncLanguage {})) (true);
+            checkEveryCell (*r.editor, juce::String (what) + (language == i18n::Language::japanese ? " ja" : " en"), shownPages);
+        }
+        (r.editor.get()->*privateMember (SyncLanguage {})) (true);
     }
 };
 }
@@ -195,7 +208,8 @@ void verifyListenWhileReferencePlays (const juce::File& sandbox)
     require (r.post->beginLiveBlind() == live_compare::StartResult::started, "BLIND starts from LISTEN");
     for (int n = 0; n < 80 && r.post->liveBlindStatus().stage != live_compare::BlindStage::active; ++n) test.play (0.1);
     require (r.post->liveBlindStatus().stage == live_compare::BlindStage::active, "BLIND runs");
-    requireNoPinEntry (*r.editor, "no PIN 4 S while BLIND runs");
+    for (int n = 0; n < 5; ++n) test.play (0.1);  // the editor's refresh opens the BLIND screen
+    test.matrix ("BLIND", { observatory::Domain::level });
     r.post->finishLiveCompare(); test.play (0.5);
     require (r.pre->getLatencySamples() == 0 && r.post->getLatencySamples() == 0, "no added latency");
 }

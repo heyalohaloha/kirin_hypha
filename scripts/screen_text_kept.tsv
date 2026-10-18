@@ -72,3 +72,35 @@ trace open failed	diagnostic trace setup exception caught by Recorder::fromEnvir
 Logic Pro	host executable name compared by the chain clock policy; never drawn
 Studio One	DAW product name and clock policy identity; keep the official name.
 Pro Tools	DAW product name and clock policy identity; keep the official name.
+Mastering · stereo, low end, and context	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Mastering · tone, level, and dynamics	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Arrangement · groove, energy, and hooks	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Recording · room, noise, and bleed	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+MIX · punch, width, and depth	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+MIX · balance and tone	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Recording · tone and performance	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Album context	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Arrangement · roles and density	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Energy curve	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Performance dynamics	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Frequency space	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Hook placement	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Low-volume balance	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Section difference	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+All stages · 5 essential checks	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+All stages · 3 essential checks	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Pitch and timing	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Genre context	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Delivery context	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Loudest 30 s	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Instrumentation and roles	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Kick and bass	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Tonal balance	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Stereo and phase	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Separation and bleed	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Phase and microphones	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Low-end consistency	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Lead position	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Production stage	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+Chorus candidate	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID
+High end	Kirin OS built-in name; shown in Japanese from its own table only for an item with a built-in ID

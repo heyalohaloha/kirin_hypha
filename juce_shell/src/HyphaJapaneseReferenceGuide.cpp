@@ -73,6 +73,8 @@ const Entry entries[] = {
     { "%1's source is not usable in Hypha", u8"%1の音源はHyphaでは使えません" },
     { "Hypha has no message for this reason. A stays live.", u8"この理由の説明はHyphaにありません。Aを保ちます。" },
     { "Reason code: %1", u8"理由のコード：%1" },
+    { "REASON CODE %1", u8"理由のコード %1" },
+    { "NO REASON CODE", u8"理由のコードなし" },
     { "Publication not read", u8"公開データを読めません" },
     { "%1's Reference publication was not read", u8"%1のReferenceの公開データを読めませんでした" },
     { "Publish it again in Kirin OS. A stays live.", u8"Kirin OSで再公開してください。Aを保ちます。" },

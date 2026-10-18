@@ -5,10 +5,9 @@
 
 namespace hypha::reference_ui
 {
-// Kirin OS が日本語の画面で保存・公開した組み込みの名前（CHECK セット・Check・自動の Cue）を、Kirin OS の英語の
-// 画面と同じ英語にそろえる（Hypha は名前を言語にかかわらず英語で出す。HyphaJapaneseCatalog.h の方針）。
-// 2026-10-04（英語で出す名前に日本語が混じらないように）：表を Kirin OS の訳（ja.json）で全部埋め、名前の
-// 後ろに曲名・順位が付いた形（「名前  /  曲名」「名前   1 / 3」）にも当てる。ID・利用者が付けた名前・音源は変えない。
+// Kirin OS の組み込みの名前（CHECK セット・Check）の日本語と英語（Kirin OS の ja.json と同じ）。組み込みの ID の項目
+// だけに使い（kirinOsBuiltInId）、日本語で保存された名前も英語の画面では英語にそろえる。名前の後ろに曲名・順位が
+// 付いた形（「名前  /  曲名」「名前   1 / 3」）にも当てる。ID・利用者が付けた名前・音源は変えない。
 inline constexpr const char* standardDisplayNames[][2] {
     { u8"Mastering｜ステレオ・低域・全体の流れ", u8"Mastering · stereo, low end, and context" },
     { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" },
@@ -75,10 +74,6 @@ inline constexpr const char* standardDisplayNames[][2] {
 
 inline juce::String standardDisplayName (const juce::String& input)
 {
-    // Kirin OS が新しい B セットに付ける既定の名前（「セット 2」。作ったときの言語で保存される）。
-    if (const auto set = juce::String::fromUTF8 (u8"セット "); input.startsWith (set) && input.length() > set.length()
-        && juce::CharacterFunctions::isDigit (input[set.length()]))
-        return "Set " + input.substring (set.length());
     for (const auto& pair : standardDisplayNames)
     {
         const auto original = juce::String::fromUTF8 (pair[0]);
@@ -91,9 +86,21 @@ inline juce::String standardDisplayName (const juce::String& input)
     return input;
 }
 
-// 2026-10-18（日本語の画面）：日本語の画面では、標準の名前を Kirin OS の日本語の画面と同じ名前で出す（ja.json）。
-// 上の表を逆に引き、Kirin OS が日本語でも英語のまま出す名前は英語のまま。画面全体の辞書には入れず、名前の欄
-// （CHECK セット・Check・Cue・B セット）だけで引くので、同じ綴りの曲名や利用者の名前は訳さない。
+// 2026-10-18：標準の名前かどうかは綴りで決めない。Kirin OS は組み込みの Preset と Check に、決まった名前空間の ID
+// （00000000-0000-4000-8000-＋12 桁の数字。Kirin OS の組み込みの一覧が source で固定する）を付ける。その ID の項目だけを
+// 画面の言語の名前で出し、それ以外（利用者が付けた名前、標準と同じ綴りの自作の名前、印の無い Cue と B セットの名前）は
+// 書かれたとおりに出す。C の項目の ID は「Check の ID / 曲の ID」、作品の Preset は「work:」が前に付く。
+inline bool kirinOsBuiltInId (const juce::String& id)
+{
+    auto key = id.startsWith ("work:") ? id.substring (5) : id;
+    key = key.upToFirstOccurrenceOf ("/", false, false);
+    const juce::String space ("00000000-0000-4000-8000-");
+    return key.length() == space.length() + 12 && key.startsWith (space)
+        && key.substring (space.length()).containsOnly ("0123456789");
+}
+
+// 日本語の画面で Kirin OS の日本語の画面と同じ名前（ja.json）。上の表を逆に引き、Kirin OS が日本語でも英語のまま出す
+// 名前は英語のまま。
 inline constexpr const char* standardJapaneseOverrides[][2] {
     { "Mastering", "Mastering" }, { "Stereo", "Stereo" }, { "MIX", "MIX" }, { "Arrangement", u8"構成" },
 };
@@ -103,13 +110,6 @@ inline juce::String japaneseStandardName (const juce::String& english)
     // そのものか、Hypha が後ろに付けた順位・曲名（2 つ以上の空白の後）。利用者が続けて打った語の前では当てない。
     const auto fits = [&english] (const juce::String& name)
     { return english == name || (english.startsWith (name) && english.substring (name.length()).startsWith ("  ")); };
-    if (english.startsWith ("Set ") && english.length() > 4 && juce::CharacterFunctions::isDigit (english[4]))
-    {
-        auto end = 4;
-        while (end < english.length() && juce::CharacterFunctions::isDigit (english[end])) ++end;
-        if (fits (english.substring (0, end)))
-            return juce::String::fromUTF8 (u8"セット ") + english.substring (4);
-    }
     for (const auto& pair : standardJapaneseOverrides)
         if (const auto name = juce::String::fromUTF8 (pair[0]); fits (name))
             return juce::String::fromUTF8 (pair[1]) + english.substring (name.length());
@@ -119,23 +119,24 @@ inline juce::String japaneseStandardName (const juce::String& english)
     return english;
 }
 
-// 名前を英語にそろえ、日本語の画面では Kirin OS の日本語名にする。曲名（title、C の項目の曲）は変えない。
-inline juce::String shownStandardName (const juce::String& input, i18n::Language language)
+// 組み込みの項目の名前は画面の言語で（英語の画面では Kirin OS の英語の名前にそろえる）、それ以外は書かれたとおり。
+inline juce::String shownStandardName (const juce::String& id, const juce::String& input, i18n::Language language)
 {
+    if (! kirinOsBuiltInId (id)) return input;
     const auto english = standardDisplayName (input);
     return language == i18n::Language::japanese ? japaneseStandardName (english) : english;
 }
 
 inline void prepareDisplayNames (State& state, i18n::Language language = i18n::current())
 {
-    state.presetName = shownStandardName (state.presetName, language);
-    state.checkLabel = shownStandardName (state.checkLabel, language);
-    state.cueLabel = shownStandardName (state.cueLabel, language);
+    state.presetName = shownStandardName (state.presetId, state.presetName, language);
+    state.checkLabel = shownStandardName (state.checkId, state.checkLabel, language);
+    state.cueLabel = shownStandardName (state.cueId, state.cueLabel, language);
     for (auto* options : { &state.presets, &state.checks, &state.cues, &state.songSets })
         for (auto& option : *options)
         {
-            option.label = shownStandardName (option.label, language);
-            option.checkLabel = shownStandardName (option.checkLabel, language);
+            option.label = shownStandardName (option.id, option.label, language);
+            option.checkLabel = shownStandardName (option.id, option.checkLabel, language);
         }
 }
 }

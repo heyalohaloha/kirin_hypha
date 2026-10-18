@@ -132,6 +132,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     if (issue.isNotEmpty() && referenceSetsIssueShown != issue) showToast (issue);
     referenceSetsIssueShown = issue;
     state.referenceStep = referenceStep (runtime, slot, state.aAvailable);
+    state.referenceRejectionCode = runtime.libraryReceived ? rejectionCodeOf (slot) : juce::String {};
     // 同じ定義・同じ区間・同じ音量で比べる値（A の窓は観測スレッド、C の Cue の値は C の役から）。
     const auto& checkRole = runtime.checkSelection ? *runtime.checkSelection : runtime;
     if (runtime.visualTimeline) state.aKirin = runtime.visualTimeline->aKirin;

@@ -29,6 +29,7 @@
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
 #include "NoteDialogContract.h"
+#include "ReferenceReachabilityContract.h"
 #include "BlindLightContract.h"
 #include "LiveCompareFooterContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
@@ -153,6 +154,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         return true;
     }
     verifyNoteDialog();
+    verifyReferenceReachability();
     verifyObservationPageContract();
     verifyObservatoryCompositeContract();
     verifyPerceptualHistoryContract();

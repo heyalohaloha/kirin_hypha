@@ -72,6 +72,10 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     if (slot == 2 && (step == SourceStep::ready || step == SourceStep::playDaw))
         if (const auto substitute = cueSubstituteLine (state.cueSubstitute); substitute.isNotEmpty())
             return { kind, substitute };
+    // 文の無い理由は、状態の行にそのコードを出す（2026-10-18：B のページは案内を出さず、コードが見えなかった）。
+    const auto& code = slot == 1 ? state.versionRejectionCode : slot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
+    if (step == SourceStep::attention && code.isNotEmpty())
+        return { kind, stageLine (step, slot).replace ("SEE THE REASON CODE", "REASON CODE " + code) };
     return { kind, stageLine (step, slot) };
 }
 

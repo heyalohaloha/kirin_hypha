@@ -26,9 +26,17 @@ struct Description
     std::string note; // empty unless the host withheld the installed version
 };
 
+// No macOS was released as 10.16 or as 16.x: they exist only as compatibility values (10.16 for hosts
+// built before macOS 11, 16.0 for hosts built before macOS 26). Either one, or the value the system
+// names as its compatibility version, is never shown as the installed macOS.
+inline bool compatibilityOnlyVersion (const std::string& version) noexcept
+{
+    return version == "10.16" || version.rfind ("10.16.", 0) == 0 || version == "16" || version.rfind ("16.", 0) == 0;
+}
+
 inline bool hostWithholdsVersion (const MacFacts& facts) noexcept
 {
-    return facts.productVersion.empty()
+    return facts.productVersion.empty() || compatibilityOnlyVersion (facts.productVersion)
         || (! facts.compatibilityVersion.empty()
             && facts.productVersion == facts.compatibilityVersion);
 }

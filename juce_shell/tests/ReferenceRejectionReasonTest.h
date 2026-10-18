@@ -62,13 +62,27 @@ inline void verifyReferenceRejectionReasons()
                  "pressing C says the reason it cannot play, an unknown one with its code: " + notice);
         require (japanese (notice) != notice && (state.checkStep != SourceStep::attention || japanese (notice).contains (code)),
                  "the reason reads in Japanese and keeps the code: " + japanese (notice));
+        // 状態の行は、C のページでも案内を出さない B のページでも、文の無い理由のコードを見せる。
+        for (const int slot : { 2, 3 })
+        {
+            auto page = state;
+            page.comparisonSlot = slot;
+            page.referenceStep = view::rejectedStep (code);
+            page.referenceRejectionCode = code;
+            const auto line = reference_ui::referenceStatusLine (page, false).text;
+            const bool unknown = view::rejectedStep (code) == SourceStep::attention;
+            require (! unknown || (line.contains (code) && ! line.contains ("SEE THE REASON CODE")),
+                     "the status line of the C and B pages shows an unknown reason's code: " + line);
+            require (! unknown || (japanese (line).contains (code) && ! japanese (line).contains ("REASON")),
+                     "the Japanese status line keeps the code and reads the rest in Japanese: " + japanese (line));
+        }
     }
-    // 全体として断られた（Reference が使えない）ときの状態の行も、知らない理由を推測しない。状態の行は語だけで
-    // （日本語の画面に英字の語を残さない、INV-S40）、コードは案内と知らせに残す。
+    // 全体として断られた（Reference が使えない）ときの状態の行も、知らない理由を推測せず、コードを見せる（コードは
+    // Kirin OS 側と照らす識別子なので日本語の画面でもそのまま）。
     require (! view::rejectedStatus ("channel_layout_unsupported").contains ("PREPARE AGAIN")
                  && ! view::rejectedStatus ("an_unknown_reason").contains ("PREPARE AGAIN")
-                 && view::rejectedStatus ("an_unknown_reason").contains ("SEE THE REASON CODE"),
-             "the whole-reference status names the reason and points to the code");
+                 && view::rejectedStatus ("an_unknown_reason").contains ("REASON CODE an_unknown_reason"),
+             "the whole-reference status names the reason and shows the code");
 }
 
 // 2026-10-18：音源が見つからない B の曲。選択欄は「PREPARING」と言わず「NOT FOUND」と言い（日本語の画面では状態の語だけ
@@ -103,11 +117,12 @@ inline void verifyUnsentCheckSet()
 {
     using namespace reference_guide_contract;
     reference_ui::State sets;
-    sets.presets = { { "basic", "Basic 5" }, { "recording", {} } };
+    const juce::String recording ("00000000-0000-4000-8000-000000000101");  // Kirin OS の組み込みの CHECK セット
+    sets.presets = { { "basic", "Basic 5" }, { recording, {} } };
     sets.presets[1].label = juce::String::fromUTF8 (u8"Recording · tone and performance");
-    sets.presetId = "recording";
+    sets.presetId = recording;
     reference_ui::runtime_view::rankCheckSets (sets, { { "basic", "r1", 1 } });
-    require (sets.presets.size() == 2 && sets.presets[0].label == "Basic 5   1 / 1" && sets.presets[1].id == "recording"
+    require (sets.presets.size() == 2 && sets.presets[0].label == "Basic 5   1 / 1" && sets.presets[1].id == recording
                  && sets.presets[1].label.endsWith ("   NOT SENT TO HYPHA"),
              "the chosen CHECK set stays chosen and says Kirin OS no longer sends it");
     reference_ui::prepareDisplayNames (sets, i18n::Language::japanese);

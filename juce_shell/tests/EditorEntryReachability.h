@@ -58,7 +58,8 @@ inline void requireNoPinEntry (KirinHyphaEditor& editor, const char* where)
 }
 
 // Every shown control at every size, display scale and page; returns the number of cells checked.
-inline int checkEveryCell (KirinHyphaEditor& editor, const juce::String& who)
+template <typename Pages = decltype (entryPages)>
+inline int checkEveryCell (KirinHyphaEditor& editor, const juce::String& who, const Pages& pages = entryPages)
 {
     auto* view = component<observatory::View> (editor);
     require (view != nullptr && view->onDomainChange != nullptr, "the domain buttons open their pages");
@@ -69,7 +70,7 @@ inline int checkEveryCell (KirinHyphaEditor& editor, const juce::String& who)
     for (const auto& [width, height] : entrySizes)
     {
         editor.setSize (width, height);
-        for (const auto page : entryPages)
+        for (const auto page : pages)
         {
             view->onDomainChange (page);
             requireNoPinEntry (editor, "no PIN 4 S in the editor, MENU or the information menu");
@@ -146,7 +147,43 @@ inline void verifyEveryControlReachable()
         editor.reset();
         restored.releaseResources();
     }
+    // LISTEN's footer on POST: PRE / POST / MATCH / END while comparing, END and POST naming an approved
+    // lowering, RETURNING after END, RETURN while the lowering is held after the session.
+    int listenCells = 0;
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage shown (language);
+        juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+        Processor processor (Processor::Role::Post);
+        hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+        std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+        require (editor != nullptr, "shipping editor opens");
+        editor->setVisible (true);
+        auto* view = component<observatory::View> (*editor);
+        observatory::LiveCompareFooter comparing;
+        comparing.entryEnabled = comparing.active = comparing.preSelected = comparing.matched = comparing.blindAvailable = true;
+        comparing.preGainTenthsDb = -35;
+        auto lowered = comparing;
+        lowered.postHeldTenthsDb = -70;
+        observatory::LiveCompareFooter returning;
+        returning.finishing = true;
+        returning.postHeldTenthsDb = -70;
+        observatory::LiveCompareFooter held;
+        held.entryEnabled = true;
+        held.postHeldTenthsDb = -70;
+        for (const auto& footer : { comparing, lowered, returning, held })
+        {
+            view->setLiveCompareFooter (footer);
+            listenCells += checkEveryCell (*editor, juce::String ("POST LISTEN ") + (language == i18n::Language::japanese ? "ja" : "en"),
+                                           std::array<observatory::Domain, 2> { observatory::Domain::level, observatory::Domain::reference });
+        }
+        view->setLiveCompareFooter ({});
+        processor.editorBeingDeleted (editor.get());
+        editor.reset();
+        processor.releaseResources();
+    }
     std::cout << "Editor reach: PASS (" << cells << " cells: 8 sizes x 4 display scales x 5 pages x en/ja/switched x PRE/POST;"
+              << " LISTEN footer " << listenCells << " cells: 4 states x 8 sizes x 4 scales x 2 pages x en/ja;"
               << " no PIN 4 S in any MENU level, after a language switch or an older state)\n";
 }
 }

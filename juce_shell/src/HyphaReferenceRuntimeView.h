@@ -49,7 +49,9 @@ inline juce::String rejectedStatus (const juce::String& code)
     if (code.startsWith ("reference_preset_") || code == "reference_work_invalid"
         || code == "reference_global_preset_catalog_rejected")
         return "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS";
-    return "SOURCE NOT USABLE IN HYPHA / SEE THE REASON CODE";  // コードは案内と知らせに残す（状態の行は語だけ）
+    // 文の無い理由は、コードを状態の行にも出す（コードが無ければ、無いと言う）。
+    return code.isNotEmpty() ? "SOURCE NOT USABLE IN HYPHA / REASON CODE " + code
+                             : juce::String ("SOURCE NOT USABLE IN HYPHA / NO REASON CODE");
 }
 inline std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
     const std::vector<hypha::reference_audition::RuntimeSelectionOption>& input)

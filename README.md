@@ -1285,15 +1285,9 @@ click. Blind inherits it when opened and keeps any override within that comparis
 **TRACK/STEM** identifies an individual track or stem and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
-Hypha does not change DAW Solo, Mute, faders, plug-in bypass, or routing. On a TRACK or STEM, only that
-POST output is replaced, so the rest of the project continues at the same DAW timeline and the user
-hears the change in mix context. On a 2MIX bus, the whole bus output is switched.
-Downstream processors still receive the selected signal and may react to it. Sends or parallel paths
-that branch before POST are not switched, so this is specifically a comparison between the chosen
-PRE and POST insertion points—not a claim about every route in the project.
-
-Reference Version Blind is a separate whole-song comparison between live DAW A and a measured,
-acoustically matched Version V from Kirin OS, shown on the same screen as BLIND.
+Reference Version Blind is a separate whole-song
+comparison between live DAW A and a measured, acoustically matched Version V from Kirin OS, shown on
+the same screen as BLIND.
 Its four-second A observation proves calibration only; it neither replaces live A nor claims
 whole-song loudness or an immutable whole-song identity for the current DAW input.
 

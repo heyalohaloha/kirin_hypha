@@ -6,9 +6,10 @@
 #include <cstdlib>
 #include <iostream>
 
-// 2026-10-18（日本語の画面）：Kirin OS の標準の名前（CHECK セット・Check・Cue・B セットの既定の名前）は、日本語の
-// 画面では Kirin OS の日本語の画面と同じ名前で出す（Check のタブが Low end / Dynamics のまま英語だった）。
-// 曲名と利用者が付けた名前は訳さず、Kirin OS が日本語でも英語で出す名前（Stereo・Mono など）は英語のまま。
+// 2026-10-18（日本語の画面）：Kirin OS の組み込みの CHECK セットと Check（決まった名前空間の ID を持つ）は、日本語の
+// 画面では Kirin OS の日本語の画面と同じ名前で出す（Check のタブが Low end / Dynamics のまま英語だった）。標準かどうかは
+// ID で決め、綴りでは決めない：標準と同じ綴りの自作の名前、曲名、印の無い Cue と B セットの名前は書かれたとおり。
+// Kirin OS が日本語でも英語で出す名前（Stereo・Mono など）は英語のまま。
 namespace hypha::tests
 {
 inline void verifyReferenceJapaneseNames()
@@ -23,18 +24,21 @@ inline void verifyReferenceJapaneseNames()
     state.osAccess = os_access::State::ready;
     state.readiness = reference_ui::Readiness::ready;
     state.title = "Tone";  // 曲名（利用者の名前）
-    state.presetId = "saved"; state.checkId = "low"; state.cueId = "whole";
-    state.presets = { { "saved", utf8 (u8"All stages · 5 essential checks") }, { "custom", utf8 (u8"夜明けの音") } };
-    // C の項目は Check と曲を分けて持つ（Check のタブは Check の名前、曲名は利用者の名前）。
-    const auto target = [] (const char* id, const juce::String& check, const juce::String& song)
-    { return reference_ui::SelectionOption { id, check + "  /  " + song, check, song }; };
-    state.checks = { target ("low/1", "Low end", "Tone"), target ("dynamics/1", "Dynamics", "Song 1"),
-                     target ("vocal/1", "Vocal balance", "Song 1"), target ("tone/1", "Tone", "Song 1"),
-                     target ("stereo/1", "Stereo", "Song 1"), target ("hook/1", "Hook", "Song 1"),
-                     target ("mono/1", "Mono", "Song 1"), target ("own/1", utf8 (u8"QA 自分の音色確認"), "Song 1"),
-                     target ("typed/1", "Tone mix", "Song 1"), target ("ja/1", utf8 (u8"低域"), "Song 1") };
-    state.cues = { { "whole", "Full track" }, { "loud", "Loudest 30 s" } };
-    state.songSets = { { "first", "Set 1   1 / 2" }, { "second", utf8 (u8"セット 2") }, { "mine", "Set 2 mix" } };
+    const auto builtIn = [] (int number) { return juce::String ("00000000-0000-4000-8000-") + juce::String (number).paddedLeft ('0', 12); };
+    state.presetId = builtIn (100); state.checkId = builtIn (2000) + "/1"; state.cueId = "whole";
+    state.presets = { { builtIn (100), utf8 (u8"All stages · 5 essential checks") }, { "custom", utf8 (u8"夜明けの音") },
+                      { "own-copy", utf8 (u8"MIX · balance and tone") } };
+    // C の項目は Check と曲を分けて持つ（Check のタブは Check の名前、曲名は利用者の名前）。ID は「Check / 曲」。
+    const auto target = [] (const juce::String& id, const juce::String& check, const juce::String& song)
+    { return reference_ui::SelectionOption { id + "/1", check + "  /  " + song, check, song }; };
+    state.checks = { target (builtIn (2000), "Low end", "Tone"), target (builtIn (2001), "Dynamics", "Song 1"),
+                     target (builtIn (2002), "Vocal balance", "Song 1"), target (builtIn (2003), "Tone", "Song 1"),
+                     target (builtIn (2004), "Stereo", "Song 1"), target (builtIn (2403), "Hook", "Song 1"),
+                     target (builtIn (2605), "Mono", "Song 1"), target ("own", utf8 (u8"QA 自分の音色確認"), "Song 1"),
+                     target ("typed", "Tone mix", "Song 1"), target (builtIn (2800), utf8 (u8"低域"), "Song 1"),
+                     target ("mine-tone", "Tone", "Song 1"), target ("mine-hook", "Hook", "Song 1") };
+    state.cues = { { "whole", "Full track" }, { "loud", "Loudest 30 s" }, { "mine", "Hook" } };
+    state.songSets = { { "first", "Set 1   1 / 2" }, { "second", utf8 (u8"セット 2") }, { "mine", "Set 3" } };
     state.checkLabel = "Low end";
     state.status = "PLAY TO AUDITION";
     reference_ui::Component component;
@@ -58,17 +62,21 @@ inline void verifyReferenceJapaneseNames()
         check (checks[4] == "Stereo" && checks[6] == "Mono", "a name Kirin OS keeps in English stays English");
         check (checks[7] == utf8 (u8"QA 自分の音色確認") && checks[8] == "Tone mix",
                "a name you gave is never translated");
+        check (checks[10] == "Tone" && checks[11] == "Hook",
+               "a Check you made with a standard name's spelling (no built-in ID) stays as written");
         check (text_style::shownText (shown.checkLabel) == utf8 (u8"低域"), "the chosen Check reads in Japanese too");
         check (text_style::shownText (shown.checks[0].itemLabel) == "Tone"
                    && text_style::shownText (shown.checks[0].label) == utf8 (u8"低域  /  Tone"),
                "a song title next to a Check name stays as written");
+        // Kirin OS は Cue と B セットに組み込みの印を付けない：名前は書かれたとおり（Kirin OS 側に印が無いため未対応）。
         const auto cues = shownLabels (shown.cues);
-        check (cues[0] == utf8 (u8"曲全体") && cues[1] == utf8 (u8"最も大きい30秒"), "the automatic Cue names read in Japanese");
+        check (cues[0] == "Full track" && cues[1] == "Loudest 30 s" && cues[2] == "Hook", "Cue names stay as written");
         const auto presets = shownLabels (shown.presets);
-        check (presets[0] == utf8 (u8"全工程｜基本5項目") && presets[1] == utf8 (u8"夜明けの音"), "CHECK SET names");
+        check (presets[0] == utf8 (u8"全工程｜基本5項目") && presets[1] == utf8 (u8"夜明けの音")
+                   && presets[2] == utf8 (u8"MIX · balance and tone"),
+               "the built-in CHECK SET reads in Japanese; a set you made, even with a built-in name, stays as written");
         const auto sets = shownLabels (shown.songSets);
-        check (sets[0] == utf8 (u8"セット 1   1 / 2") && sets[1] == utf8 (u8"セット 2") && sets[2] == "Set 2 mix",
-               "a B set's default name reads as Kirin OS names it, keeping its rank; a typed name stays");
+        check (sets[0] == "Set 1   1 / 2" && sets[1] == utf8 (u8"セット 2") && sets[2] == "Set 3", "B set names stay as written");
         check (text_style::shownText (shown.title) == "Tone", "a song title is never translated");
         check (i18n::translate ("Dynamics", i18n::Language::japanese) == "Dynamics"
                    && i18n::translate ("Set 2   1 / 3", i18n::Language::japanese) == "Set 2   1 / 3",
@@ -78,8 +86,8 @@ inline void verifyReferenceJapaneseNames()
     component.setState (state);
     const auto& english = component.state();
     check (shownLabels (english.checks, true)[0] == "Low end" && shownLabels (english.checks, true)[9] == "Low end"
-               && shownLabels (english.songSets)[1] == "Set 2" && shownLabels (english.cues)[0] == "Full track"
+               && shownLabels (english.songSets)[1] == utf8 (u8"セット 2") && shownLabels (english.cues)[0] == "Full track"
                && text_style::shownText ("LOW FREQUENCY") == "LOW FREQUENCY",
-           "English shows every standard name in English, as before");
+           "English shows the built-in names in English; names without a built-in ID stay as written");
 }
 }

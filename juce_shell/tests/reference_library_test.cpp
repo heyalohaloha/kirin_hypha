@@ -399,7 +399,7 @@ void testReferenceComparisons (const juce::File& sandbox)
 }
 
 bool testReferenceLibraryOsFixture();
-void testReferenceLibrarySetsOsFixture (const juce::File& root);
+void testReferenceLibrarySetsOsFixture (const juce::File& root, int minimumVerified = 0);
 bool testReferenceLibraryOsFixture()
 {
     const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_LIBRARY_FIXTURE", {});

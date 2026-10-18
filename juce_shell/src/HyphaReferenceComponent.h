@@ -106,7 +106,7 @@ struct State
     // Where B and C each stand, whichever of them the page shows (the guide names both).
     SourceStep versionStep = SourceStep::waitingForKirinOs, checkStep = SourceStep::waitingForKirinOs;
     // 断られた役の理由のコード（案内に残す。2026-10-18）。断られていなければ空。
-    juce::String versionRejectionCode, checkRejectionCode;
+    juce::String versionRejectionCode, checkRejectionCode, referenceRejectionCode;
     int comparisonSlot = 2, audibleComparisonSlot = 0;
     bool transportPlaying = false, versionArmable = false, checkArmable = false;
     reference_audition::PendingAuditionView pendingAudition;
@@ -255,8 +255,8 @@ public:
         // 状態の行は足元の段に移ると REF の子ではないので、それも巡る。
         passPresentationContext (*this, next);
         passPresentationContext (statusStrip, next);
-        resized();
-        repaint();
+        // 大きさで出し分ける操作（300% の C の MATCH・選択欄）も新しい大きさに合わせる（2026-10-18：300% から小さくすると残った）。
+        setState (State (current));
     }
 
     std::function<void()> onSelectA;

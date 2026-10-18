@@ -31,14 +31,15 @@ inline void verifyGuideInformationFacts()
     guide.nextMaskingFocus.lowHz = 20.0;
     guide.nextMaskingFocus.highHz = 100.0;
     auto facts = guide_information::facts (display, guide);
-    require (facts.contains ("Frequency focus  20 to 100 Hz"), "the next item's chosen range is listed before it starts");
+    require (facts.contains ("Next frequency focus  20 to 100 Hz") && ! facts.contains ("Frequency focus  20 to 100 Hz"),
+             "before the next item starts, its chosen range is listed as the next one, never as the current one");
     require (facts.contains ("Sources  Bass x Drums") && facts.contains ("PAUSED"), "the other facts stay");
     guide.hasMaskingFocus = true;
     guide.maskingFocus = guide.nextMaskingFocus;
     guide.maskingFocus.lowHz = 40.0;
     guide.maskingFocus.highHz = 80.0;
     facts = guide_information::facts (display, guide);
-    require (facts.contains ("Frequency focus  40 to 80 Hz") && ! facts.contains ("Frequency focus  20 to 100 Hz"),
+    require (facts.contains ("Frequency focus  40 to 80 Hz") && ! facts.joinIntoString ("\n").contains ("20 to 100 Hz"),
              "while an item plays, its own chosen range is listed");
     guide.hasMaskingFocus = guide.hasNextMaskingFocus = false;
     facts = guide_information::facts (display, guide);
@@ -46,5 +47,8 @@ inline void verifyGuideInformationFacts()
     require (i18n::translate ("Frequency focus  20 to 100 Hz", i18n::Language::japanese)
                  == juce::String::fromUTF8 (u8"確認する周波数範囲  20〜100 Hz"),
              "the line reads in Japanese with the range as written");
+    require (i18n::translate ("Next frequency focus  20 to 100 Hz", i18n::Language::japanese)
+                 == juce::String::fromUTF8 (u8"次に確認する周波数範囲  20〜100 Hz"),
+             "the next range reads in Japanese as the next one");
 }
 }

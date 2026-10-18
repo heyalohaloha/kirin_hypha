@@ -54,12 +54,45 @@ inline int check (juce::Component& editor, const std::function<void (const juce:
             auto* hit = editor.getComponentAt (bounds.getCentre());
             if (hit != child && ! child->isParentOf (hit))
                 fail ("a press at its centre does not reach it: " + name + " " + bounds.toString()
-                      + (hit != nullptr ? " (reaches " + hit->getComponentID() + " " + hit->getTitle() + ")" : juce::String()));
+                      + (hit != nullptr ? " (reaches " + hit->getComponentID() + " " + hit->getTitle() + " "
+                                              + editor.getLocalArea (hit, hit->getLocalBounds()).toString() + " in "
+                                              + (hit->getParentComponent() != nullptr
+                                                     ? hit->getParentComponent()->getComponentID() + " "
+                                                       + editor.getLocalArea (hit->getParentComponent(),
+                                                             hit->getParentComponent()->getLocalBounds()).toString()
+                                                     : juce::String()) + ")"
+                                            : juce::String()));
             if (! keyboardReaches (*child))
                 fail ("the keyboard does not reach it: " + name + " " + bounds.toString());
         }
     };
     visit (editor);
+    return checked;
+}
+
+// A full-window screen (or any surface) at each display scale inside a host window: the host's scale
+// transforms the surface, presses land in the window's pixels. Restores the surface afterwards.
+inline constexpr float displayScales[] { 1.0f, 1.25f, 1.5f, 2.0f };
+
+inline int checkAtDisplayScales (juce::Component& surface, const std::function<void (float, const juce::String&)>& fail)
+{
+    auto* parent = surface.getParentComponent();
+    const auto transform = surface.getTransform();
+    if (parent != nullptr) parent->removeChildComponent (&surface);
+    juce::Component window;
+    window.setVisible (true);
+    window.addAndMakeVisible (surface);
+    int checked = 0;
+    for (const auto scale : displayScales)
+    {
+        surface.setTransform (juce::AffineTransform::scale (scale));
+        const auto scaled = surface.getBoundsInParent();
+        window.setSize (scaled.getRight(), scaled.getBottom());
+        checked += check (window, [&] (const juce::String& problem) { fail (scale, problem); });
+    }
+    surface.setTransform (transform);
+    window.removeChildComponent (&surface);
+    if (parent != nullptr) parent->addChildComponent (surface);
     return checked;
 }
 }
