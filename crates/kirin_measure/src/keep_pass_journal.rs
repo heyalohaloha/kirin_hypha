@@ -26,7 +26,7 @@ pub const KEEP_PASS_POSITION_JUMP: &str = "position_jump";
 pub const KEEP_PASS_TRANSPORT_RESTART: &str = "transport_restart";
 /// The pass after an offline take (the host's position jump after a bounce): live display only.
 pub const KEEP_PASS_AFTER_OFFLINE_TAKE: &str = "after_offline_take";
-/// The last entry once the list is full: every further pass's frames, without host ranges.
+/// One entry after the full list: every further pass's frames, without host ranges.
 pub const KEEP_PASS_MORE_PASSES: &str = "more_passes";
 
 /// Enough for a two-hour Keep around a two-second loop; the record stays bounded beyond it.
@@ -155,21 +155,26 @@ impl KeepPassJournal {
                     _ => false,
                 }
         });
+        // The list keeps KEEP_PASS_LIMIT real passes; every pass beyond it joins one aggregate.
         let full = state.passes.len() >= KEEP_PASS_LIMIT;
+        let aggregating = state.passes.last().is_some_and(|pass| {
+            pass.trace_excluded_reason.as_deref() == Some(KEEP_PASS_MORE_PASSES)
+        });
         let mut began_later_pass = false;
-        match state.passes.last_mut().filter(|_| continues || full) {
+        match state.passes.last_mut().filter(|_| continues || aggregating) {
             Some(pass) => {
                 pass.frames = pass.frames.saturating_add(chunk.frames);
                 pass.summary_frames = pass.summary_frames.saturating_add(summary_frames);
-                if full && !continues {
-                    pass.host_start_position_samples = None;
-                    pass.in_trace = false;
-                    pass.trace_excluded_reason = Some(KEEP_PASS_MORE_PASSES.to_string());
-                }
-                let aggregate =
-                    pass.trace_excluded_reason.as_deref() == Some(KEEP_PASS_MORE_PASSES);
-                pass.host_end_position_samples = raw_end.filter(|_| !aggregate);
+                pass.host_end_position_samples = raw_end.filter(|_| !aggregating);
             }
+            None if full => state.passes.push(KeepPass {
+                host_start_position_samples: None,
+                host_end_position_samples: None,
+                frames: chunk.frames,
+                summary_frames,
+                in_trace: false,
+                trace_excluded_reason: Some(KEEP_PASS_MORE_PASSES.to_string()),
+            }),
             None => {
                 let reason = (!chunk.in_trace).then(|| later_pass_reason(state.edge, &chunk));
                 began_later_pass = reason.is_some()

@@ -171,7 +171,7 @@ fn a_host_without_positions_keeps_one_pass_and_the_list_stays_bounded() {
         tracker.note_keep_chunk(chunk(4, 0, Some(10_000 + pass * BLOCK as i64), false));
     }
     let passes = tracker.keep_passes(4);
-    assert_eq!(passes.len(), KEEP_PASS_LIMIT);
+    assert_eq!(passes.len(), KEEP_PASS_LIMIT + 1);
     let last = passes.last().unwrap();
     assert_eq!(
         last.trace_excluded_reason.as_deref(),
@@ -211,5 +211,42 @@ fn a_seek_back_is_a_position_jump_unless_the_host_loop_names_the_return() {
     assert_eq!(
         reasons(&tracker.keep_passes(7)),
         [None, Some(KEEP_PASS_POSITION_JUMP)]
+    );
+}
+
+#[test]
+fn the_last_listed_pass_keeps_its_range_and_only_passes_beyond_the_list_are_aggregated() {
+    let tracker = RecordTakeTracker::new();
+    tracker.note_keep_chunk(chunk(8, 0, Some(0), true));
+    // Later passes until the list holds KEEP_PASS_LIMIT real passes, each after a restart.
+    let start = |pass: i64| pass * 10_000;
+    for pass in 1..KEEP_PASS_LIMIT as i64 {
+        tracker.note_keep_chunk(chunk(8, start(pass), Some(start(pass)), false));
+    }
+    let listed = tracker.keep_passes(8);
+    assert_eq!(listed.len(), KEEP_PASS_LIMIT);
+    // Two passes beyond the list: the last real pass keeps its own range and reason.
+    for pass in KEEP_PASS_LIMIT as i64..KEEP_PASS_LIMIT as i64 + 2 {
+        tracker.note_keep_chunk(chunk(8, start(pass), Some(start(pass)), false));
+    }
+    let passes = tracker.keep_passes(8);
+    assert_eq!(
+        passes.len(),
+        KEEP_PASS_LIMIT + 1,
+        "the list plus one aggregate"
+    );
+    assert_eq!(passes[KEEP_PASS_LIMIT - 1], listed[KEEP_PASS_LIMIT - 1]);
+    let last = passes.last().unwrap();
+    assert_eq!(
+        last.trace_excluded_reason.as_deref(),
+        Some(KEEP_PASS_MORE_PASSES)
+    );
+    assert_eq!(
+        (
+            last.frames,
+            last.host_start_position_samples,
+            last.host_end_position_samples
+        ),
+        (2 * BLOCK, None, None)
     );
 }
