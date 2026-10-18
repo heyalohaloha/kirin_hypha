@@ -6,6 +6,21 @@ mod audio_mapping;
 pub(super) use audio_mapping::RecordAudioMapping;
 
 impl RecordTakeTracker {
+    /// Audio Thread, immediately before the capture window it names: whether that window begins
+    /// with the host's own LOOP wrap (its loop range named the return). Atomics only.
+    pub fn stage_host_loop_wrap(&self, host_loop_wrap: bool) {
+        self.staged_host_loop_wrap
+            .store(host_loop_wrap, Ordering::Release);
+    }
+
+    pub(super) fn capture_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
+        if epoch == 0 {
+            return None;
+        }
+        let index = epoch as usize % self.capture_clock_slots.len();
+        self.capture_clock_slots[index].read(epoch)
+    }
+
     /// Full callback-local clock transaction. Auxiliary samples remain raw host evidence; they
     /// are never substituted for the established Record/WAV position mapping.
     #[allow(clippy::too_many_arguments)]
@@ -98,6 +113,8 @@ impl RecordTakeTracker {
                 .load(Ordering::Acquire)
                 == position_samples;
         let mapping_contiguous = audio_mapping_contiguous && auxiliary_contiguous;
+        // Consumed by this callback whether or not it starts a span: a LOOP wrap never continues.
+        let host_loop_wrap = self.staged_host_loop_wrap.swap(false, Ordering::AcqRel);
 
         // Some hosts enter the offline render before PRE has acknowledged the Keep generation.
         // The audio is already the first WAV audio in that interval, but it is still tagged as
@@ -157,6 +174,7 @@ impl RecordTakeTracker {
                     && !force_new_epoch
                     && !force_watch_offline_epoch,
                 offline: capture_block_offline,
+                host_loop_wrap,
                 epoch: sequence,
                 generation: capture_generation,
                 capture_start_frame,

@@ -80,7 +80,7 @@ pub mod channel_abi;
 mod comparison_abi;
 pub use comparison_abi::*;
 mod capture_window_ffi;
-pub use capture_window_ffi::kirin_hypha_note_capture_window;
+pub use capture_window_ffi::{kirin_hypha_note_capture_loop_wrap, kirin_hypha_note_capture_window};
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;

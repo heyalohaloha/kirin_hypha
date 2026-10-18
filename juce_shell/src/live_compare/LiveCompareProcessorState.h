@@ -156,6 +156,7 @@ struct ProcessorState
     bool compensationWasOff = false;              // Audio Thread only
     // Shared callback result for analysis, LISTEN and BLIND; never persisted.
     std::atomic<LoopPairingBlock> loopBlock { LoopPairingBlock::none };
+    RecordLoopWrapWitness keepLoopWrap; // Audio Thread: a captured callback begins the host's LOOP wrap
     // Host capability, for guidance only and never a proof: whether any callback of this instance
     // carried a continuous clock, and whether the host ever reported its output presentation
     // latency (the read path in PluginProcessorHostClock.cpp). A host that supplies neither

@@ -16,9 +16,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-/// The host's continuous clock ran on and the project position returned: a LOOP wrap.
+/// The host's continuous clock ran on and the position returned as the host's own LOOP range
+/// plays: a LOOP wrap.
 pub const KEEP_PASS_LOOP_WRAP: &str = "loop_wrap";
-/// The host's continuous clock ran on and the project position skipped ahead.
+/// The host's continuous clock ran on and the position moved without the LOOP naming it: a skip
+/// ahead or a seek back.
 pub const KEEP_PASS_POSITION_JUMP: &str = "position_jump";
 /// The host's continuous clock did not run on (a stop and a new start) or was not reported.
 pub const KEEP_PASS_TRANSPORT_RESTART: &str = "transport_restart";
@@ -58,6 +60,8 @@ pub(crate) struct KeepChunk {
     pub in_trace: bool,
     pub in_summary: bool,
     pub after_offline_take: bool,
+    /// The chunk begins with the host's own LOOP wrap (the host's loop range named the return).
+    pub host_loop_wrap: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +103,7 @@ fn later_pass_reason(edge: Option<PassEdge>, chunk: &KeepChunk) -> &'static str 
     };
     let continuous = edge.aux_end.is_some() && edge.aux_end == aux_point(chunk.auxiliary);
     match (continuous, edge.raw_end.zip(chunk.raw_host_start)) {
-        (true, Some((end, start))) if start < end => KEEP_PASS_LOOP_WRAP,
+        (true, Some((end, start))) if start < end && chunk.host_loop_wrap => KEEP_PASS_LOOP_WRAP,
         (true, Some(_)) => KEEP_PASS_POSITION_JUMP,
         _ => KEEP_PASS_TRANSPORT_RESTART,
     }

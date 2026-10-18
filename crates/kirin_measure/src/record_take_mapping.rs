@@ -30,6 +30,7 @@ impl RecordTakeTracker {
                 .map(|_| CaptureClockSlot::new())
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
+            staged_host_loop_wrap: AtomicBool::new(false),
             mark_version: AtomicU64::new(0),
             mark_capture_armed: AtomicBool::new(false),
             mark_generation: AtomicU64::new(0),

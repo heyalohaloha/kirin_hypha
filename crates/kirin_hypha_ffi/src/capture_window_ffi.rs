@@ -3,6 +3,13 @@
 use super::*;
 
 impl KirinHyphaEngine {
+    /// Audio Thread, immediately before the capture window it names: whether that window begins
+    /// with the host's own LOOP wrap (the host's loop range named the return).
+    pub fn note_capture_loop_wrap(&self, host_loop_wrap: bool) {
+        self.record_take_tracker
+            .stage_host_loop_wrap(host_loop_wrap);
+    }
+
     pub fn note_capture_window(
         &self,
         position_valid: bool,
@@ -200,6 +207,25 @@ pub unsafe extern "C" fn kirin_hypha_note_capture_window(
                 force_new_epoch,
             );
         }
+    }));
+}
+
+/// Stage whether the next capture window begins with the host's own LOOP wrap: the host's loop
+/// range named the return. A seek or a stop and restart never does. Keep passes name their
+/// reason from it (INV-R10). Atomics only.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by `kirin_hypha_create`.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_note_capture_loop_wrap(
+    handle: *mut KirinHyphaEngine,
+    host_loop_wrap: bool,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).note_capture_loop_wrap(host_loop_wrap) };
     }));
 }
 

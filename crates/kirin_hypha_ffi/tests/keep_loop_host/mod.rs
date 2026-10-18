@@ -26,6 +26,8 @@ pub struct Host {
     pub blocks: i64,
     pub start: Instant,
     pub cycle: bool,
+    /// The next callback begins with the host's own LOOP wrap.
+    pub wrapped: bool,
 }
 
 impl Host {
@@ -37,6 +39,7 @@ impl Host {
             impulses(self.counter)
         };
         for engine in [pre, post] {
+            engine.note_capture_loop_wrap(self.wrapped);
             push(engine, &block, self.position, self.counter);
         }
         self.counter += BLOCK;
@@ -45,6 +48,7 @@ impl Host {
         if wrapped {
             self.position -= LOOP_END;
         }
+        self.wrapped = wrapped;
         self.blocks += 1;
         let due = self.start + Duration::from_secs_f64(self.blocks as f64 * BLOCK as f64 / RATE);
         if due > Instant::now() {
@@ -136,6 +140,7 @@ impl Host {
     ) {
         self.cycle = false;
         self.position = position;
+        self.wrapped = false;
         let mut zero_after = DeltaReturn::default();
         let mut endpoints = [None, None];
         let deadline = Instant::now() + CATCH_UP;

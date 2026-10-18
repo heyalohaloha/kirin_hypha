@@ -1,6 +1,7 @@
 #include "LiveCompareLoopOracle.h"
 #include "LiveCompareAuLoopProjectionTest.h"
 #include "LogicPpqGridTest.h"
+#include "RecordLoopWrapWitnessTest.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -122,6 +123,7 @@ int main (int argc, char** argv)
     faults();
     verifyAuLoopProjection();
     logic_ppq_grid::verifyLogicPpqGrid();
+    record_loop_wrap::verifyRecordLoopWrapWitness();
     const bool matrix = argc == 2;
     unsigned cases = 0;
     for (int length : { 24000, 48000, 96000, 192000, 384000 })

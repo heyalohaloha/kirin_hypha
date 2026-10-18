@@ -85,6 +85,7 @@ fn keep_follows_every_pass_of_a_realtime_loop() {
         blocks: 0,
         start: Instant::now(),
         cycle: false,
+        wrapped: false,
     };
     // Positive control: before any Keep the pair joins only identical windows.
     let mut zero_before = DeltaReturn::default();

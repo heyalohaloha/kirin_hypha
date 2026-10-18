@@ -14,6 +14,7 @@ fn chunk(generation: u64, raw: i64, aux: Option<i64>, in_trace: bool) -> KeepChu
         in_trace,
         in_summary: true,
         after_offline_take: false,
+        host_loop_wrap: false,
     }
 }
 
@@ -35,7 +36,9 @@ fn a_loop_wrap_is_a_later_pass_and_every_frame_is_accounted() {
         aux += BLOCK as i64;
     }
     assert!(!tracker.keep_trace_first_pass_only(3));
-    tracker.note_keep_chunk(chunk(3, 0, Some(aux), false));
+    let mut wrap = chunk(3, 0, Some(aux), false);
+    wrap.host_loop_wrap = true;
+    tracker.note_keep_chunk(wrap);
     tracker.note_keep_chunk(chunk(3, 512, Some(aux + 512), false));
     assert!(tracker.keep_trace_first_pass_only(3));
     let passes = tracker.keep_passes(3);
@@ -196,5 +199,17 @@ fn an_auxiliary_cut_at_every_callback_keeps_one_trace_pass() {
     assert_eq!(
         passes[0].host_end_position_samples,
         Some(100 * BLOCK as i64)
+    );
+}
+
+#[test]
+fn a_seek_back_is_a_position_jump_unless_the_host_loop_names_the_return() {
+    let tracker = RecordTakeTracker::new();
+    tracker.note_keep_chunk(chunk(7, 40_000, Some(5_000), true));
+    // The user seeks back while the host clock runs on: no LOOP range names the return.
+    tracker.note_keep_chunk(chunk(7, 10_000, Some(5_512), false));
+    assert_eq!(
+        reasons(&tracker.keep_passes(7)),
+        [None, Some(KEEP_PASS_POSITION_JUMP)]
     );
 }

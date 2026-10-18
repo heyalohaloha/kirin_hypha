@@ -1844,7 +1844,7 @@ pub mod tests {
             capture_generation: Some(1),
             clock_source: CaptureClockSource::AudioRenderTimeline,
             presentation_latency: latency,
-            auxiliary: crate::AuxiliaryClockSamples::default(),
+            ..super::CaptureChunkPlan::default()
         };
 
         let (captured_frame, point) = super::observed_capture_endpoint(
@@ -1880,7 +1880,7 @@ pub mod tests {
             capture_generation: Some(1),
             clock_source: CaptureClockSource::ProjectTimeline,
             presentation_latency: PresentationLatencySamples::default(),
-            auxiliary: crate::AuxiliaryClockSamples::default(),
+            ..super::CaptureChunkPlan::default()
         };
 
         // 2,425 priming frames complete the observer's first 4,800-frame slot after only 2,375

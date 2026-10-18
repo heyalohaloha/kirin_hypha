@@ -64,6 +64,7 @@ pub struct RecordTakeTracker {
     input_presentation_samples: AtomicU64,
     output_presentation_samples: AtomicU64,
     capture_clock_slots: Box<[CaptureClockSlot]>,
+    staged_host_loop_wrap: AtomicBool,
     mark_version: AtomicU64,
     mark_capture_armed: AtomicBool,
     mark_generation: AtomicU64,
@@ -449,14 +450,6 @@ impl RecordTakeTracker {
             }
         }
         None
-    }
-
-    fn capture_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
-        if epoch == 0 {
-            return None;
-        }
-        let index = epoch as usize % self.capture_clock_slots.len();
-        self.capture_clock_slots[index].read(epoch)
     }
 
     /// Audio-thread note. This is atomics only: no allocation, lock, filesystem,

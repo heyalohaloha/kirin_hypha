@@ -16,6 +16,8 @@ pub(super) struct CaptureChunkPlan {
     pub(super) clock_source: CaptureClockSource,
     pub(super) presentation_latency: PresentationLatencySamples,
     pub(super) auxiliary: AuxiliaryClockSamples,
+    /// The chunk begins its span, and the span began with the host's own LOOP wrap.
+    pub(super) host_loop_wrap: bool,
 }
 
 impl CaptureChunkPlan {
@@ -61,6 +63,7 @@ impl CaptureChunkPlan {
             in_summary,
             // A chunk without a capture span names no pass; continuity alone decides its reason.
             after_offline_take: route == RecordChunkRoute::LiveOnly && self.capture_epoch.is_some(),
+            host_loop_wrap: self.host_loop_wrap,
         }
     }
 
@@ -226,6 +229,7 @@ pub(super) fn capture_chunk_plan(
             source: span.auxiliary_source,
             samples: span.auxiliary_at_capture_boundary(captured_frames),
         },
+        host_loop_wrap: span.host_loop_wrap && span.capture_start_frame == captured_frames,
     }
 }
 
@@ -264,5 +268,47 @@ mod tests {
     fn a_pass_after_an_offline_take_reaches_only_the_live_meters() {
         assert_eq!(route(Some(4), Some(4), Some(5), false, false), LiveOnly);
         assert_eq!(route(Some(4), Some(4), None, false, false), LiveOnly);
+    }
+
+    #[test]
+    fn only_the_chunk_that_begins_a_host_loop_wrap_carries_it() {
+        use crate::record_take::{CaptureClockSource, PresentationLatencySamples};
+        use crate::{AuxiliaryClockSamples, AuxiliaryClockSource};
+        let tracker = crate::record_take::RecordTakeTracker::new();
+        let callback = |position: i64, aux: i64, wrap: bool| {
+            tracker.stage_host_loop_wrap(wrap);
+            tracker.note_capture_window_with_clocks_boundary(
+                true,
+                position,
+                512,
+                CaptureClockSource::ProjectTimeline,
+                PresentationLatencySamples::default(),
+                AuxiliaryClockSamples {
+                    source: AuxiliaryClockSource::Vst3Continuous,
+                    samples: Some(aux),
+                },
+                false,
+            );
+        };
+        callback(95_488, 1_000, false);
+        // The host's loop range names the return; the next callback continues the new pass.
+        callback(0, 1_512, true);
+        callback(512, 2_024, false);
+        // A seek back is not named by the loop.
+        callback(40_000, 2_536, false);
+        let plan = |frame: u64, samples: usize| {
+            super::capture_chunk_plan(&tracker, frame, samples, 2, 48_000)
+        };
+        assert!(!plan(0, 1_024).host_loop_wrap);
+        assert!(plan(512, 2_048).host_loop_wrap, "the wrap's first chunk");
+        let wrap = plan(512, 2_048);
+        assert!(
+            !plan(512 + 256, 2_048).host_loop_wrap,
+            "inside the wrap's span"
+        );
+        assert!(!plan(1_536, 1_024).host_loop_wrap, "the seek's span");
+        // The flag reaches the pass journal through the chunk.
+        let chunk = wrap.keep_chunk(1, 1_024, super::RecordChunkRoute::KeepPass, true);
+        assert!(chunk.host_loop_wrap && chunk.raw_host_start == Some(0));
     }
 }
