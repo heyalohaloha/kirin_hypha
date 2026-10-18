@@ -156,6 +156,7 @@ impl RecordTakeTracker {
                     && !auxiliary_contiguous
                     && !force_new_epoch
                     && !force_watch_offline_epoch,
+                offline: capture_block_offline,
                 epoch: sequence,
                 generation: capture_generation,
                 capture_start_frame,
@@ -358,6 +359,30 @@ impl RecordTakeTracker {
                         )
                 }
             })
+    }
+
+    /// The epoch is the selected take or follows it only through latency continuations: the
+    /// chain the Measure Thread admits as the same take.
+    pub(crate) fn epoch_continues_selected_take(&self, selected: u64, candidate: u64) -> bool {
+        candidate >= selected
+            && (selected..candidate)
+                .all(|epoch| self.capture_epochs_are_latency_continuation(epoch, epoch + 1))
+    }
+
+    /// Both spans belong to one Record generation and began in realtime callbacks. A realtime
+    /// Keep continues through its later passes (LOOP wrap, seek, restart after a stop); an offline
+    /// bounce take, or a pass after it, never qualifies.
+    pub(crate) fn capture_epochs_are_realtime_passes(&self, selected: u64, candidate: u64) -> bool {
+        let (Some(selected), Some(candidate)) = (
+            self.capture_span_for_epoch(selected),
+            self.capture_span_for_epoch(candidate),
+        ) else {
+            return false;
+        };
+        selected.generation > 0
+            && selected.generation == candidate.generation
+            && !selected.offline
+            && !candidate.offline
     }
 }
 

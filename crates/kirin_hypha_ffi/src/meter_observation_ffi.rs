@@ -269,6 +269,10 @@ fn build_observatory_frame(
         comparison.state = state;
         comparison.reason = reason;
     }
+    if !comparison_busy {
+        // A busy comparison read is no observation of the wait; it neither starts nor clears it.
+        observatory_progress::qualify_wait(engine, &mut comparison, active, snapshot);
+    }
     let frame = KirinObservatoryFrame {
         version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
         signal_state: if signal_after == KIRIN_SIGNAL_STATE_ACTIVE && !active {
@@ -283,7 +287,17 @@ fn build_observatory_frame(
         meter: to_c_meter_session(snapshot),
         delta,
         comparison_reason: comparison.reason,
-        comparison_reserved: [0; 7],
+        meter_stalled: u8::from(observatory_progress::stalled_meter(
+            engine,
+            snapshot,
+            signal_after,
+        )),
+        keep_first_pass_only: u8::from(
+            engine
+                .record_take_tracker
+                .keep_trace_first_pass_only(engine.record_sm.generation()),
+        ),
+        comparison_reserved: [0; 5],
         comparison_generation: comparison.generation,
         comparison_identity: comparison.identity,
     };
@@ -307,6 +321,8 @@ unsafe fn write_observatory_frame(
         std::ptr::addr_of_mut!((*out).lra_state).write(frame.lra_state);
         std::ptr::addr_of_mut!((*out).lra_elapsed_seconds).write(frame.lra_elapsed_seconds);
         std::ptr::addr_of_mut!((*out).meter).write(frame.meter);
+        std::ptr::addr_of_mut!((*out).meter_stalled).write(frame.meter_stalled);
+        std::ptr::addr_of_mut!((*out).keep_first_pass_only).write(frame.keep_first_pass_only);
     }
 }
 

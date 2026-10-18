@@ -107,6 +107,8 @@ pub struct RecordTakeTracker {
     previous_range_valid: AtomicBool,
     previous_start_position: AtomicI64,
     previous_end_position: AtomicI64,
+    /// Measure/IO Threads only; the Audio Thread never takes this lock.
+    keep_passes: keep_passes::KeepPassJournal,
 }
 
 impl Default for RecordTakeTracker {
@@ -117,10 +119,13 @@ impl Default for RecordTakeTracker {
 
 #[path = "record_take_clock_capture.rs"]
 mod clock_capture;
+#[path = "keep_pass_journal.rs"]
+mod keep_passes;
 #[path = "record_take_mapping.rs"]
 mod mapping;
 #[path = "record_take_priority.rs"]
 mod priority;
+pub use keep_passes::*;
 use priority::TakeEpochPriority;
 impl RecordTakeTracker {
     /// Audio-thread capture clock note. Call immediately before the corresponding ring push,

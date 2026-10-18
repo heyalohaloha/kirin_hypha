@@ -187,6 +187,52 @@ void verify()
     stopped.signal_state = KIRIN_SIGNAL_STATE_BYPASSED;
     post.setObservatoryFrame (stopped, true);
     KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "BYPASSED");
+    // LIVE only while the meter advances: an ACTIVE meter frozen for a second is held.
+    auto live = stopped;
+    live.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+    live.comparison_state = KIRIN_COMPARISON_STATE_ACTIVE;
+    live.comparison_reason = KIRIN_COMPARISON_REASON_NONE;
+    post.setObservatoryFrame (live, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "LIVE");
+    live.meter_stalled = 1u;
+    post.setObservatoryFrame (live, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "HOLD");
+    live.meter_stalled = 0u;
+    // A Keep past its first pass says where its TRACE ends, also in the folded status strip.
+    KirinRecordDisplay keeping {};
+    keeping.phase = KIRIN_RECORD_DISPLAY_LIVE;
+    keeping.generation = 9u;
+    post.setRecordDisplay (keeping, true);
+    post.setObservatoryFrame (live, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "LIVE");
+    live.keep_first_pass_only = 1u;
+    post.setObservatoryFrame (live, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "LIVE / TRACE: FIRST PASS ONLY");
+    KIRIN_COMPARISON_REQUIRE (post.footerStatus() == post.footerStatusForTest());
+    live.meter_stalled = 1u;
+    post.setObservatoryFrame (live, true);
+    KIRIN_COMPARISON_REQUIRE (post.footerStatusForTest() == "HOLD");
+    post.setRecordDisplay ({}, false);
+    // MEASURING resolves by itself; a matched wait that stalled asks for a new run, quietly.
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        i18n::ScopedLanguage scoped (language);
+        const auto waiting = comparison_presentation::statusText (
+            KIRIN_COMPARISON_STATE_PREPARING, KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT);
+        const auto stalled = comparison_presentation::statusText (
+            KIRIN_COMPARISON_STATE_PREPARING, KIRIN_COMPARISON_REASON_JOIN_STALLED);
+        KIRIN_COMPARISON_REQUIRE (stalled.isNotEmpty() && stalled != waiting);
+        KIRIN_COMPARISON_REQUIRE ((language == i18n::Language::japanese)
+                                  == (text_style::shownText (stalled) != stalled));
+        for (const auto& footer : { juce::String ("LIVE / TRACE: FIRST PASS ONLY"),
+                                    juce::String ("TRACE: 1ST PASS") })
+            KIRIN_COMPARISON_REQUIRE ((language == i18n::Language::japanese)
+                                      == (text_style::shownText (footer) != footer));
+    }
+    KIRIN_COMPARISON_REQUIRE (! comparison_presentation::notifiesExplicitAction (
+        KIRIN_COMPARISON_STATE_PREPARING, KIRIN_COMPARISON_REASON_JOIN_STALLED));
+    KIRIN_COMPARISON_REQUIRE (comparison_presentation::spectrumStatusText (
+        KIRIN_COMPARISON_STATE_PREPARING, KIRIN_COMPARISON_REASON_JOIN_STALLED).isEmpty());
     // A retained exact pair is stopped, never a request to select that PRE again.
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {

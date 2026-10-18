@@ -29,7 +29,15 @@ pub fn wait_for_seal(
     let has_progress_detector = record_trace_queue.is_some();
     let absolute_deadline = Instant::now() + absolute_timeout;
     let mut no_progress_deadline = Instant::now() + no_progress_timeout;
-    let mut last_len = trace_queue_len(record_trace_queue);
+    // TRACE samples and drained Record-lane chunks are both progress: a Keep's later passes
+    // reach only the summary and add no TRACE, yet the drain is still advancing.
+    let progress = || {
+        (
+            trace_queue_len(record_trace_queue),
+            record_sm.measure_progress(),
+        )
+    };
+    let mut last = progress();
     loop {
         if record_sm.seal() > seal_at_start {
             return true;
@@ -39,9 +47,9 @@ pub fn wait_for_seal(
             return false;
         }
         std::thread::sleep(SEAL_WAIT_POLL);
-        let len = trace_queue_len(record_trace_queue);
-        if has_progress_detector && len != last_len {
-            last_len = len;
+        let now_progress = progress();
+        if has_progress_detector && now_progress != last {
+            last = now_progress;
             no_progress_deadline = Instant::now() + no_progress_timeout;
         }
     }
@@ -53,4 +61,39 @@ fn trace_queue_len(record_trace_queue: Option<&RecordTraceQueue>) -> usize {
         .and_then(|q| q.lock().ok())
         .map(|guard| guard.len())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Keep's later passes reach only the summary: the drain advances while the TRACE queue
+    /// stays still. Drained Record-lane chunks keep the wait alive, as growing TRACE does.
+    #[test]
+    fn drained_summary_only_chunks_keep_the_seal_wait_alive() {
+        let sm = Arc::new(RecordStateMachine::new());
+        let start = sm.seal();
+        let queue = new_record_trace_queue();
+        let drain = Arc::clone(&sm);
+        let handle = std::thread::spawn(move || {
+            for _ in 0..4 {
+                std::thread::sleep(Duration::from_millis(300));
+                drain.note_measure_progress();
+            }
+            std::thread::sleep(Duration::from_millis(300));
+            drain.bump_seal();
+        });
+        let sealed = wait_for_seal(
+            &sm,
+            start,
+            Some(&queue),
+            Duration::from_secs(1),
+            Duration::from_secs(5),
+        );
+        handle.join().unwrap();
+        assert!(
+            sealed,
+            "a progressing drain without TRACE must reach its seal"
+        );
+    }
 }

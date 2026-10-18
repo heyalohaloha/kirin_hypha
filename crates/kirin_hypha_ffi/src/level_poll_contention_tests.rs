@@ -59,7 +59,7 @@ fn retained_frame() -> KirinObservatoryFrame {
     frame.comparison_reason = KIRIN_COMPARISON_REASON_STALE;
     frame.comparison_generation = 37;
     frame.comparison_identity = 23;
-    frame.comparison_reserved = [17; 7];
+    frame.comparison_reserved = [17; 5];
     frame.delta_available = 1;
     frame.delta.lufs = 4.5;
     frame.delta.lufs_s = -1.25;

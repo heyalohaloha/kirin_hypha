@@ -24,6 +24,8 @@ pub const KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC: u8 = 10;
 pub const KIRIN_COMPARISON_REASON_LOCAL_INACTIVE: u8 = 11;
 /// Host bypass of the local POST, distinct from transport inactivity.
 pub const KIRIN_COMPARISON_REASON_LOCAL_BYPASSED: u8 = 12;
+/// A matched pair measured 3 s of POST audio without a common window: the wait needs the user.
+pub const KIRIN_COMPARISON_REASON_JOIN_STALLED: u8 = 13;
 
 /// Observatory display facts returned by one non-RT poll.
 #[repr(C)]
@@ -37,7 +39,11 @@ pub struct KirinObservatoryFrame {
     pub meter: KirinMeterSession,
     pub delta: KirinDelta,
     pub comparison_reason: u8,
-    pub comparison_reserved: [u8; 7],
+    /// ACTIVE input whose meter has not advanced for one second: the footer is not LIVE.
+    pub meter_stalled: u8,
+    /// This Keep's TRACE ended at its first pass while later passes reach the summary and live.
+    pub keep_first_pass_only: u8,
+    pub comparison_reserved: [u8; 5],
     pub comparison_generation: u64,
     pub comparison_identity: u64,
 }

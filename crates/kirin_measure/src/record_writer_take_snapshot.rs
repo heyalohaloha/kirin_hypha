@@ -9,6 +9,8 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
     ctx.selected_capture_epoch = None;
     ctx.record_audio_prefix = None;
     ctx.presentation_range = None;
+    ctx.writer
+        .set_keep_passes(tracker.keep_passes(ctx.record_generation));
 
     let snapshot = tracker.snapshot(ctx.record_generation);
     let raw_range = snapshot.and_then(|snapshot| {

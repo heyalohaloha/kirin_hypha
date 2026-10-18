@@ -52,6 +52,7 @@ impl RecordStateMachine {
             closed_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
             record_display: RecordDisplayStore::default(),
+            measure_progress: AtomicU64::new(0),
         }
     }
 

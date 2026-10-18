@@ -1,5 +1,6 @@
 //! Record->Watch tight drain: the ring left at the edge enters the Record engines before the
 //! final summary, then the seal advances (B-132).
+use super::capture_plan::CaptureChunkPlan;
 use super::*;
 
 pub(super) struct DrainRingSession<'a> {
@@ -25,12 +26,16 @@ pub(super) struct DrainRingSession<'a> {
     pub(super) record_take_tracker: &'a RecordTakeTracker,
     pub(super) last_capture_position_end: &'a mut Option<i64>,
     pub(super) finalize_capture: bool,
+    /// Seal-wait progress for every drained chunk; tests without a Record state pass None.
+    pub(super) record_sm: Option<&'a RecordStateMachine>,
 }
 
 pub(super) fn drain_ring_into_session(
     ctx: DrainRingSession<'_>,
     mut record_trace: Option<RecordTraceDrain<'_>>,
 ) -> bool {
+    // The resampler's final flush belongs to Phase D only when the take owns the tail.
+    let mut tail_take = true;
     while ctx.consumer.slots() > 0 {
         let bounded_available = ctx.consumer.slots().min(measure_chunk_capacity_samples(
             ctx.sample_rate,
@@ -46,6 +51,13 @@ pub(super) fn drain_ring_into_session(
         if plan.sample_count == 0 {
             break;
         }
+        if let Some(record_sm) = ctx.record_sm {
+            record_sm.note_measure_progress();
+        }
+        let generation = record_trace.as_ref().map(|trace| trace.timeline.generation);
+        let route = tail_route(ctx.record_take_tracker, generation, plan);
+        let take = route == RecordChunkRoute::Take;
+        tail_take = take;
         if plan
             .position_start_samples
             .zip(*ctx.last_capture_position_end)
@@ -112,16 +124,31 @@ pub(super) fn drain_ring_into_session(
         } else {
             ctx.chunk_f64.as_slice()
         };
-        feed_phase_d_slots(
-            chunk_48k,
-            ctx.n_channels,
-            ctx.phase_d_slot_pending,
-            ctx.phase_d,
-            ctx.latest_pd,
-            ctx.record_phase_pending,
-            true,
-        );
+        if take {
+            feed_phase_d_slots(
+                chunk_48k,
+                ctx.n_channels,
+                ctx.phase_d_slot_pending,
+                ctx.phase_d,
+                ctx.latest_pd,
+                ctx.record_phase_pending,
+                true,
+            );
+        }
         if let Some(trace) = record_trace.as_mut() {
+            let chunk = plan.keep_chunk(
+                trace.timeline.generation,
+                chunk_native_frames,
+                route,
+                !route.live_only(),
+            );
+            ctx.record_take_tracker.note_keep_chunk(chunk);
+            if !route.live_only() {
+                let _ = ctx.summary_engine.push(ctx.chunk_f64);
+            }
+            if !take {
+                continue;
+            }
             let trace_engine_frames_before = ctx.trace_engine.total_frames();
             let trace_engine_pending_frames_before = ctx.trace_engine.pending_frames();
             let _ = ctx.trace_engine.push_observed(
@@ -161,13 +188,12 @@ pub(super) fn drain_ring_into_session(
                 ctx.record_core_pending,
                 ctx.record_phase_pending,
             );
-            let _ = ctx.summary_engine.push(ctx.chunk_f64);
         } else {
             let _ = ctx.trace_engine.push(ctx.chunk_f64);
             let _ = ctx.summary_engine.push(ctx.chunk_f64);
         }
     }
-    if ctx.finalize_capture {
+    if ctx.finalize_capture && tail_take {
         if let Some(resampler) = ctx.resampler.as_mut() {
             ctx.resampled_buf.clear();
             if let Err(error) = resampler.finish(ctx.resampled_buf) {
@@ -215,4 +241,20 @@ pub(super) fn drain_ring_into_session(
             false
         }
     }
+}
+
+/// The tail keeps the main loop's routes: TRACE and Phase D only for the selected take, the Keep
+/// summary also for its later realtime passes, and every chunk in the pass journal.
+/// The Record generation is the drain's own, as in the main loop, never the chunk's span.
+fn tail_route(
+    tracker: &RecordTakeTracker,
+    generation: Option<u64>,
+    plan: CaptureChunkPlan,
+) -> RecordChunkRoute {
+    let selected = generation.and_then(|generation| tracker.selected_capture_epoch(generation));
+    let admitted = selected
+        .zip(plan.capture_epoch)
+        .filter(|&(selected, candidate)| tracker.epoch_continues_selected_take(selected, candidate))
+        .map(|(_, candidate)| candidate);
+    chunk_route(tracker, selected, admitted, plan, false)
 }

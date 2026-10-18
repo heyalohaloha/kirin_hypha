@@ -16,6 +16,7 @@ use crate::{
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, TryLockError};
+use std::time::{Duration, Instant};
 #[path = "meter_session_coverage.rs"]
 mod coverage;
 pub use coverage::{MeterSessionSnapshotV2, MeterSessionSummaryStatus};
@@ -85,29 +86,51 @@ impl MeterSessionSnapshot {
 /// independent lock and never contend with EBU processing; a rare publication handoff collision
 /// is a silent skipped poll and the shell keeps displaying its last complete frame.
 pub struct MeterSessionPublication {
-    latest: RwLock<MeterSessionSnapshot>,
+    /// The observation and when the meter last advanced (new frames, state or generation).
+    latest: RwLock<(MeterSessionSnapshot, Instant)>,
 }
+
+/// An ACTIVE meter that has not advanced for this long is not LIVE.
+pub const METER_STALL_AFTER: Duration = Duration::from_secs(1);
 
 impl MeterSessionPublication {
     pub fn new(initial: MeterSessionSnapshot) -> Self {
         Self {
-            latest: RwLock::new(initial),
+            latest: RwLock::new((initial, Instant::now())),
         }
     }
 
     pub fn publish(&self, snapshot: MeterSessionSnapshot) {
-        *self
+        self.publish_at(snapshot, Instant::now());
+    }
+
+    pub(crate) fn publish_at(&self, snapshot: MeterSessionSnapshot, now: Instant) {
+        let mut latest = self
             .latest
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let advanced = snapshot.active_frames != latest.0.active_frames
+            || snapshot.state != latest.0.state
+            || snapshot.generation != latest.0.generation;
+        let progressed_at = if advanced { now } else { latest.1 };
+        *latest = (snapshot, progressed_at);
     }
 
     pub fn try_snapshot(&self) -> Option<MeterSessionSnapshot> {
         match self.latest.try_read() {
-            Ok(snapshot) => Some(snapshot.clone()),
-            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().clone()),
+            Ok(latest) => Some(latest.0.clone()),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().0.clone()),
             Err(TryLockError::WouldBlock) => None,
         }
+    }
+
+    /// The published meter is ACTIVE but has not advanced for [`METER_STALL_AFTER`]. A busy
+    /// publication is not evidence of a stall.
+    pub fn stalled_at(&self, now: Instant) -> bool {
+        self.latest.try_read().is_ok_and(|latest| {
+            latest.0.state == MeterSessionState::Active
+                && now.saturating_duration_since(latest.1) >= METER_STALL_AFTER
+        })
     }
 }
 

@@ -35,6 +35,8 @@
 #define KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC 10u
 #define KIRIN_COMPARISON_REASON_LOCAL_INACTIVE 11u
 #define KIRIN_COMPARISON_REASON_LOCAL_BYPASSED 12u
+/* A matched pair measured 3 s of POST audio without a common window: stop and play to retry. */
+#define KIRIN_COMPARISON_REASON_JOIN_STALLED 13u
 
 /* Additive SHARP / LIVE / PSB analysis status; existing fields and tags are stable. */
 #define KIRIN_SPECTRUM_OUTPUT_LATENCY_UNAVAILABLE 6u

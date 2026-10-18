@@ -1,7 +1,7 @@
 //! Immutable bridge from accepted capture spans to Measure Thread chunks.
 
 use crate::record_take::{
-    CaptureClockPoint, CaptureClockSource, PresentationLatencySamples, RecordTakeTracker,
+    CaptureClockPoint, CaptureClockSource, KeepChunk, PresentationLatencySamples, RecordTakeTracker,
 };
 use crate::{AuxiliaryClockSamples, MeterClockStart};
 
@@ -44,6 +44,26 @@ impl CaptureChunkPlan {
         })
     }
 
+    /// The Keep-pass account of this chunk once `frames` of it were consumed.
+    pub(super) fn keep_chunk(
+        self,
+        generation: u64,
+        frames: u64,
+        route: RecordChunkRoute,
+        in_summary: bool,
+    ) -> KeepChunk {
+        KeepChunk {
+            generation,
+            raw_host_start: self.raw_host_position_start_samples,
+            auxiliary: self.auxiliary,
+            frames,
+            in_trace: route == RecordChunkRoute::Take,
+            in_summary,
+            // A chunk without a capture span names no pass; continuity alone decides its reason.
+            after_offline_take: route == RecordChunkRoute::LiveOnly && self.capture_epoch.is_some(),
+        }
+    }
+
     pub(super) fn meter_clock_start(self, frame_offset: u64) -> MeterClockStart {
         let offset = i64::try_from(frame_offset).ok();
         MeterClockStart {
@@ -66,16 +86,66 @@ impl CaptureChunkPlan {
     }
 }
 
-pub(super) fn should_drop_unselected_record_epoch(
+/// What one captured Record-lane chunk may feed. The live meters always follow the audio
+/// (INV-S15); only the Record outputs depend on which pass the chunk belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RecordChunkRoute {
+    /// The selected take, its admitted epoch or a latency continuation: every Record output.
+    Take,
+    /// A later realtime pass of the same realtime Keep (a LOOP wrap, a seek, a restart after a
+    /// stop): the Keep summary as well, never the position-bound TRACE of the selected take.
+    KeepPass,
+    /// Any other pass, typically the DAW's position jump after an offline bounce: live only.
+    LiveOnly,
+}
+
+/// Routes one Record-lane chunk against the selected take and its admitted epoch.
+impl RecordChunkRoute {
+    pub(super) fn live_only(self) -> bool {
+        self == Self::LiveOnly
+    }
+}
+
+pub(super) fn chunk_route(
+    tracker: &RecordTakeTracker,
+    selected_epoch: Option<u64>,
+    admitted_epoch: Option<u64>,
+    plan: CaptureChunkPlan,
+    latency_epoch_transition: bool,
+) -> RecordChunkRoute {
+    let realtime_passes =
+        selected_epoch
+            .zip(plan.capture_epoch)
+            .is_some_and(|(selected, candidate)| {
+                tracker.capture_epochs_are_realtime_passes(selected, candidate)
+            });
+    record_chunk_route(
+        selected_epoch,
+        admitted_epoch,
+        plan.capture_epoch,
+        latency_epoch_transition,
+        realtime_passes,
+    )
+}
+
+pub(super) fn record_chunk_route(
     selected_epoch: Option<u64>,
     admitted_epoch: Option<u64>,
     candidate_epoch: Option<u64>,
     latency_epoch_transition: bool,
-) -> bool {
-    selected_epoch.is_some()
-        && candidate_epoch != selected_epoch
-        && candidate_epoch != admitted_epoch
-        && !latency_epoch_transition
+    realtime_passes: bool,
+) -> RecordChunkRoute {
+    if selected_epoch.is_none()
+        || candidate_epoch == selected_epoch
+        || candidate_epoch == admitted_epoch
+        || latency_epoch_transition
+    {
+        RecordChunkRoute::Take
+    } else if realtime_passes {
+        RecordChunkRoute::KeepPass
+    } else {
+        RecordChunkRoute::LiveOnly
+    }
 }
 
 /// Resolve one MeasureEngine observer endpoint back to the exact captured audio boundary.
@@ -149,4 +219,33 @@ pub(super) fn trusted_pre_roll_epoch(plan: CaptureChunkPlan) -> Option<u64> {
         && plan.position_end_samples.is_some())
     .then_some(plan.capture_epoch)
     .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{record_chunk_route as route, RecordChunkRoute::*};
+
+    #[test]
+    fn realtime_keep_passes_reach_the_summary_but_never_the_selected_take() {
+        // A LOOP wrap, seek or restart inside a realtime Keep is a later pass of the same Keep.
+        assert_eq!(route(Some(4), Some(4), Some(5), false, true), KeepPass);
+        assert_eq!(route(Some(4), Some(4), Some(9), false, true), KeepPass);
+        // The take itself and a latency continuation keep every Record output.
+        assert_eq!(route(Some(4), Some(4), Some(4), false, true), Take);
+        assert_eq!(route(Some(4), Some(4), Some(5), true, true), Take);
+        assert_eq!(route(None, None, Some(5), false, false), Take);
+    }
+
+    #[test]
+    fn admitted_latency_epoch_keeps_every_following_chunk() {
+        assert_eq!(route(Some(10), Some(10), Some(11), true, false), Take);
+        assert_eq!(route(Some(10), Some(11), Some(11), false, false), Take);
+        assert_eq!(route(Some(10), Some(11), Some(12), false, false), LiveOnly);
+    }
+
+    #[test]
+    fn a_pass_after_an_offline_take_reaches_only_the_live_meters() {
+        assert_eq!(route(Some(4), Some(4), Some(5), false, false), LiveOnly);
+        assert_eq!(route(Some(4), Some(4), None, false, false), LiveOnly);
+    }
 }

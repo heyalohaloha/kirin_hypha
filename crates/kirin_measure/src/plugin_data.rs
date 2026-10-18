@@ -413,6 +413,10 @@ pub struct PluginDataFile {
     pub trace_raw_host_slot_positions: Vec<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_host_clock_range: Option<HostClockRange>,
+    /// Every pass of a Keep that went on past its first pass (a LOOP wrap, a seek, a restart), with
+    /// host range, accepted frames and why it is not in the TRACE. A normal wrap degrades nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keep_passes: Vec<crate::record_take::KeepPass>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
     /// finalization this is the host callback position; afterwards both roles carry the same
     /// absolute host-sample endpoint selected by the producer-owned WAV-start clock.
@@ -555,6 +559,7 @@ impl PluginDataFile {
             trace_comparison_slot_positions: Vec::new(),
             trace_raw_host_slot_positions: Vec::new(),
             raw_host_clock_range: None,
+            keep_passes: Vec::new(),
             trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
             trace_content_alignment: None,
@@ -831,6 +836,10 @@ impl PluginDataWriter {
 
     pub(crate) fn set_raw_host_clock_range(&mut self, range: Option<HostClockRange>) {
         self.data.raw_host_clock_range = range;
+    }
+
+    pub(crate) fn set_keep_passes(&mut self, passes: Vec<crate::record_take::KeepPass>) {
+        self.data.keep_passes = passes;
     }
 
     pub(crate) fn set_trace_slot_positions(&mut self, positions: Vec<i64>) {

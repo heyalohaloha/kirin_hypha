@@ -59,9 +59,21 @@ void View::setLevelObservation (const KirinLevelSnapshot* packet,
     // Comparison generation also advances on transient PRE availability. Only its producer
     // identity is a binding boundary; an unrelated delta status must not erase POST history.
     const bool changedBinding = observatoryFrame.comparison_identity != fallback->comparison_identity;
+    // Whether the meter advances, and whether a Keep went past its first pass, are local facts
+    // of this poll; they change the footer without retiring any observation.
+    const bool changedProgress = observatoryFrame.meter_stalled != fallback->meter_stalled
+        || observatoryFrame.keep_first_pass_only != fallback->keep_first_pass_only;
+    if (! changedSession && ! changedState && ! changedBinding)
+    {
+        if (! changedProgress) return;
+        auto retained = observatoryFrame;
+        retained.meter_stalled = fallback->meter_stalled;
+        retained.keep_first_pass_only = fallback->keep_first_pass_only;
+        setObservatoryFrame (retained, true);
+        return;
+    }
     if (! changedSession)
     {
-        if (! changedState && ! changedBinding) return;
         // Availability is not a new observation. Keep the accepted numeric/history cutoff,
         // including absolute HOLD, while exposing the current pause/bypass fact accurately.
         auto retained = observatoryFrame;
@@ -71,6 +83,8 @@ void View::setLevelObservation (const KirinLevelSnapshot* packet,
         retained.comparison_reason = fallback->comparison_reason;
         retained.comparison_generation = fallback->comparison_generation;
         retained.comparison_identity = fallback->comparison_identity;
+        retained.meter_stalled = fallback->meter_stalled;
+        retained.keep_first_pass_only = fallback->keep_first_pass_only;
         retained.delta_available = 0u;
         clearChainObservation();
         setObservatoryFrame (retained, true);

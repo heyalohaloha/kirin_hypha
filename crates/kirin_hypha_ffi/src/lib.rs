@@ -86,6 +86,7 @@ mod identity_registry;
 mod legacy_nih_state;
 mod meter_observation_ffi;
 mod meter_session_ffi;
+mod observatory_progress;
 pub use meter_observation_ffi::*;
 mod pair_binding;
 mod pair_candidates_ffi;
@@ -376,6 +377,7 @@ pub struct KirinHyphaEngine {
     watch_playback_pass_id: Arc<AtomicU64>,
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
     watch_max: Mutex<WatchMaxTracker>,
+    comparison_wait: Mutex<observatory_progress::ComparisonWait>,
     transport_previous_playing: AtomicBool,
     transport_previous_position_valid: AtomicBool,
     transport_previous_position_samples: AtomicI64,
@@ -1139,6 +1141,7 @@ impl KirinHyphaEngine {
             watch_playback_pass_id,
             watch_playback_pass_cutover_samples,
             watch_max: Mutex::new(WatchMaxTracker::default()),
+            comparison_wait: Mutex::default(),
             transport_previous_playing: AtomicBool::new(false),
             transport_previous_position_valid: AtomicBool::new(false),
             transport_previous_position_samples: AtomicI64::new(0),

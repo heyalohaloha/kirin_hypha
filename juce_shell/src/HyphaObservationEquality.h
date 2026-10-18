@@ -98,9 +98,11 @@ inline bool same (const KirinObservatoryFrame& a, const KirinObservatoryFrame& b
 {
     return fields (std::tie (a.version, a.signal_state, a.lra_state, a.delta_available,
                             a.comparison_state, a.lra_elapsed_seconds, a.comparison_reason,
+                            a.meter_stalled, a.keep_first_pass_only,
                             a.comparison_generation, a.comparison_identity),
                    std::tie (b.version, b.signal_state, b.lra_state, b.delta_available,
                             b.comparison_state, b.lra_elapsed_seconds, b.comparison_reason,
+                            b.meter_stalled, b.keep_first_pass_only,
                             b.comparison_generation, b.comparison_identity))
         && same (a.meter, b.meter) && same (a.delta, b.delta);
 }
