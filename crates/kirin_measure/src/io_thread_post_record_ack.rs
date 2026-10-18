@@ -51,6 +51,9 @@ pub(super) fn poll_record_signal_ack_with_base(
     let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
         return;
     };
+    if exit_if_generation_aborted(base, instance_id, record_sm, &signal) {
+        return;
+    }
     if signal.status != SignalStatus::Acknowledged {
         return;
     }
@@ -168,11 +171,17 @@ pub(super) fn poll_record_signal_ack_with_base(
             signal.expected_end_position_samples_for_sample_rate(sample_rate),
             signal.session_id.clone(),
         ) {
-            Ok(()) => log::info!(
-                "[IOThread POST] ACK received; POST entered Record (session={}, post_iid={})",
-                signal.session_id,
-                instance_id
-            ),
+            Ok(()) => {
+                log::info!(
+                    "[IOThread POST] ACK received; POST entered Record (session={}, post_iid={})",
+                    signal.session_id,
+                    instance_id
+                );
+                // The abort may have landed between the authorization above and this entry.
+                if exit_if_generation_aborted(base, instance_id, record_sm, &signal) {
+                    return;
+                }
+            }
             Err(crate::record::TransitionError::AlreadyRecording) => {}
             Err(e) => {
                 log::warn!("[IOThread POST] ACK Record enter rejected: {:?}", e);
@@ -191,6 +200,47 @@ pub(super) fn poll_record_signal_ack_with_base(
             *g = new_label;
         }
     }
+}
+
+/// A Keep whose producers missed the readiness deadline is aborted before it is committed. The
+/// abort releases this POST's signal before writing its stop broadcast, and an originator ignores
+/// its own broadcast, so a POST that entered Record from the ACK it read just before the abort
+/// would keep recording alone. Return it to Watch, keeping the pair, from that same signal.
+fn exit_if_generation_aborted(
+    base: &Path,
+    instance_id: &str,
+    record_sm: &RecordStateMachine,
+    signal: &record_signal::RecordSignal,
+) -> bool {
+    if !record_sm.is_recording()
+        || signal.capture_generation_id.trim().is_empty()
+        || record_sm.record_session_id().as_deref() != Some(signal.session_id.as_str())
+    {
+        return false;
+    }
+    let aborted = matches!(
+        crate::capture_generation_lifecycle::read_generation_terminal(
+            base,
+            &signal.capture_generation_id,
+            signal.generation_started_at_ms,
+        ),
+        Ok(Some(terminal))
+            if terminal.terminal_reason
+                == crate::capture_generation_lifecycle::GenerationTerminalReason::Aborted
+    );
+    if aborted {
+        log::warn!(
+            "[IOThread POST] Keep aborted before commit; POST returns to Watch \
+             (session={}, post_iid={})",
+            signal.session_id,
+            instance_id
+        );
+        let generation = record_sm.generation();
+        crate::cleanup::exit_record_preserve_pair(record_sm);
+        // An aborted Keep shows no short result; the late drain cannot finalize one.
+        record_sm.abandon_record_display(generation);
+    }
+    aborted
 }
 
 pub(super) fn post_ack_generation_is_authorized(

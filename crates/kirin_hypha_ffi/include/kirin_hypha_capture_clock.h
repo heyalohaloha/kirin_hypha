@@ -31,6 +31,10 @@ void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
                                      uint8_t auxiliary_source, bool auxiliary_valid,
                                      int64_t auxiliary_samples, bool force_new_epoch);
 
+/* Stage, immediately before note_capture_window, whether that window begins with the host's own
+ * LOOP wrap (the host's loop range named the return). A seek or a restart never does. */
+void kirin_hypha_note_capture_loop_wrap(KirinHypha* handle, bool host_loop_wrap);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

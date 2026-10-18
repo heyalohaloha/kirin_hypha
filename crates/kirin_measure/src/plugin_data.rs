@@ -39,7 +39,7 @@
 //! - `PluginDataWriter`（append / heartbeat / flush / close / compact filename）
 //!
 
-use hmac::{Hmac, Mac};
+use hmac::Hmac;
 use serde::{Deserialize, Serialize};
 
 #[path = "plugin_data_write.rs"]
@@ -49,6 +49,13 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+#[path = "plugin_data_checksum.rs"]
+mod checksum;
+#[path = "plugin_data_trace_coverage.rs"]
+mod trace_coverage;
+pub use checksum::verify_checksum;
+pub(crate) use checksum::{compute_checksum, hmac_key};
+use trace_coverage::*;
 use write::write_plugin_data_atomic;
 
 pub use crate::record_expected::ExpectedWavMetadata;
@@ -409,6 +416,10 @@ pub struct PluginDataFile {
     pub trace_raw_host_slot_positions: Vec<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_host_clock_range: Option<HostClockRange>,
+    /// Every pass of a Keep that went on past its first pass (a LOOP wrap, a seek, a restart), with
+    /// host range, accepted frames and why it is not in the TRACE. A normal wrap degrades nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keep_passes: Vec<crate::record_take::KeepPass>,
     /// Producer-canonical native-sample endpoint of every `frames[]` entry. Before pair
     /// finalization this is the host callback position; afterwards both roles carry the same
     /// absolute host-sample endpoint selected by the producer-owned WAV-start clock.
@@ -551,6 +562,7 @@ impl PluginDataFile {
             trace_comparison_slot_positions: Vec::new(),
             trace_raw_host_slot_positions: Vec::new(),
             raw_host_clock_range: None,
+            keep_passes: Vec::new(),
             trace_slot_positions: Vec::new(),
             trace_wav_reference: None,
             trace_content_alignment: None,
@@ -827,6 +839,10 @@ impl PluginDataWriter {
 
     pub(crate) fn set_raw_host_clock_range(&mut self, range: Option<HostClockRange>) {
         self.data.raw_host_clock_range = range;
+    }
+
+    pub(crate) fn set_keep_passes(&mut self, passes: Vec<crate::record_take::KeepPass>) {
+        self.data.keep_passes = passes;
     }
 
     pub(crate) fn set_trace_slot_positions(&mut self, positions: Vec<i64>) {
@@ -1231,161 +1247,6 @@ fn bounce_take_duration_frames_48k(take: &BounceTake) -> Option<u64> {
     ))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct LatencyMappedTraceCoverage {
-    expected_frame_count: u64,
-    measured_frame_count: u64,
-    missing_slots: u64,
-}
-
-fn uses_latency_mapped_wav_grid(data: &PluginDataFile) -> bool {
-    data.trace_clock_resolution.as_deref() == Some("producer_plus_output_latency")
-}
-
-fn latency_mapped_source_times(data: &PluginDataFile) -> Option<Vec<u64>> {
-    if data.trace_clock_observations.is_empty() {
-        return None;
-    }
-    let origin = data
-        .expected_wav
-        .as_ref()
-        .and_then(|expected| expected.wav_time_reference_samples)
-        .and_then(|origin| i64::try_from(origin).ok())
-        .or_else(|| {
-            data.trace_clock
-                .as_ref()
-                .map(|clock| clock.origin_position_samples)
-        })?;
-    let mut source_times_by_wav_slot = HashMap::new();
-    for observation in &data.trace_clock_observations {
-        let (Some(producer_position), Some(output_latency)) = (
-            observation.producer_position_samples,
-            observation.output_presentation_latency_samples,
-        ) else {
-            continue;
-        };
-        let aligned = producer_position.checked_add(i64::from(output_latency))?;
-        let wav_slot = aligned.checked_sub(origin)?;
-        if !data.trace_slot_positions.contains(&wav_slot) {
-            continue;
-        }
-        if source_times_by_wav_slot
-            .insert(wav_slot, observation.frame.t_ms)
-            .is_some()
-        {
-            return None;
-        }
-    }
-    let source_times = data
-        .trace_slot_positions
-        .iter()
-        .map(|slot| source_times_by_wav_slot.get(slot).copied())
-        .collect::<Option<Vec<_>>>()?;
-    source_times
-        .windows(2)
-        .all(|pair| pair[0] < pair[1])
-        .then_some(source_times)
-}
-
-/// Count only complete 100 ms windows that can exist on this side's factual latency-mapped
-/// lattice. A non-zero presentation-latency phase normally leaves complementary partial ranges at
-/// the WAV head and tail; those two edge remainders are not a missing measurement. Missing first,
-/// middle, or last lattice positions remain explicit gaps.
-fn latency_mapped_trace_coverage(
-    data: &PluginDataFile,
-    duration_samples: u64,
-    sample_rate: u32,
-) -> Option<LatencyMappedTraceCoverage> {
-    if !uses_latency_mapped_wav_grid(data)
-        || sample_rate == 0
-        || data.frames.is_empty()
-        || data.trace_slot_positions.len() != data.frames.len()
-    {
-        return None;
-    }
-    let slot_samples = i64::from(sample_rate / 10).max(1);
-    let half_slot = (slot_samples / 2).max(1);
-    let duration = i64::try_from(duration_samples).ok()?;
-    let first = *data.trace_slot_positions.first()?;
-    let last = *data.trace_slot_positions.last()?;
-    if first < slot_samples || last > duration {
-        return None;
-    }
-    if data
-        .trace_slot_positions
-        .iter()
-        .zip(&data.frames)
-        .any(|(slot, frame)| {
-            u64::try_from(*slot).ok().is_none_or(|slot| {
-                frame.t_ms != slot.saturating_mul(1_000) / u64::from(sample_rate)
-            })
-        })
-    {
-        return None;
-    }
-    if !data
-        .trace_slot_positions
-        .windows(2)
-        .all(|pair| pair[0] < pair[1])
-    {
-        return None;
-    }
-
-    // The earliest complete window on any phase ends in [slot, 2*slot). Every full slot beyond
-    // that boundary is a real missing head window, not an arbitrary phase remainder.
-    let mut missing_slots = u64::try_from(first / slot_samples).ok()?.saturating_sub(1);
-    if !data.trace_clock_observations.is_empty() {
-        // Presentation latency may change by more than half a 100 ms interval between epochs.
-        // Count internal gaps on the untouched producer journal, not by rounding the shifted WAV
-        // distance. This preserves every factual latency change without hiding a missing frame.
-        for pair in latency_mapped_source_times(data)?.windows(2) {
-            let delta_ms = pair[1].checked_sub(pair[0])?;
-            if delta_ms < TRACE_FRAME_INTERVAL_MS || delta_ms % TRACE_FRAME_INTERVAL_MS != 0 {
-                return None;
-            }
-            missing_slots = missing_slots.checked_add(
-                delta_ms
-                    .checked_div(TRACE_FRAME_INTERVAL_MS)?
-                    .saturating_sub(1),
-            )?;
-        }
-    } else if let Some(diagnostics) = data.trace_diagnostics.as_ref().filter(|diagnostics| {
-        diagnostics.measured_frame_count == data.frames.len() as u64
-            && diagnostics.expected_frame_count
-                == diagnostics
-                    .measured_frame_count
-                    .saturating_add(diagnostics.missing_slots)
-    }) {
-        // The journal is deliberately removed after commit. Its already-derived counts remain the
-        // signed fact; re-inferring from shifted distances could disagree with the commit decision.
-        return Some(LatencyMappedTraceCoverage {
-            expected_frame_count: diagnostics.expected_frame_count,
-            measured_frame_count: diagnostics.measured_frame_count,
-            missing_slots: diagnostics.missing_slots,
-        });
-    } else {
-        for pair in data.trace_slot_positions.windows(2) {
-            let delta = pair[1].checked_sub(pair[0])?;
-            if delta < half_slot {
-                return None;
-            }
-            // Compatibility for an unsigned in-memory fixture with no producer journal or
-            // diagnostics. Committed current artifacts always use one of the factual paths above.
-            let cadence_count = delta.checked_add(half_slot)?.checked_div(slot_samples)?;
-            missing_slots = missing_slots
-                .checked_add(u64::try_from(cadence_count.max(1)).ok()?.saturating_sub(1))?;
-        }
-    }
-    let tail_samples = duration.checked_sub(last)?;
-    missing_slots = missing_slots.checked_add(u64::try_from(tail_samples / slot_samples).ok()?)?;
-    let measured_frame_count = u64::try_from(data.frames.len()).ok()?;
-    Some(LatencyMappedTraceCoverage {
-        expected_frame_count: measured_frame_count.checked_add(missing_slots)?,
-        measured_frame_count,
-        missing_slots,
-    })
-}
-
 fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str> {
     let Some(take) = data.bounce_take.as_ref() else {
         return Vec::new();
@@ -1396,10 +1257,10 @@ fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str>
     };
     let mapped_coverage =
         latency_mapped_trace_coverage(data, take.duration_samples, take.sample_rate);
-    let expected_frame_count = mapped_coverage
-        .map_or(duration_ms / TRACE_FRAME_INTERVAL_MS, |coverage| {
-            coverage.expected_frame_count
-        });
+    let expected_frame_count = mapped_coverage.map_or_else(
+        || trace_span_frame_count(data, take.duration_samples, take.sample_rate),
+        |coverage| coverage.expected_frame_count,
+    );
     if take.wav_start_sample != 0 {
         reasons.push("bounce_take_start_sample_nonzero");
     }
@@ -3167,7 +3028,7 @@ fn normalize_late_expected_record(
     let Some(duration_ms) = expected_wav_duration_ms(expected) else {
         return false;
     };
-    let expected_frame_count = duration_ms / TRACE_FRAME_INTERVAL_MS;
+    let expected_frame_count = expected_trace_frames(data, expected);
     let Ok(expected_len) = usize::try_from(expected_frame_count) else {
         return false;
     };
@@ -4307,51 +4168,6 @@ fn round2(v: f64) -> f64 {
     } else {
         v
     }
-}
-
-/// `checksum=""` にした状態の JSON バイト列に対して HMAC-SHA256 を計算。
-///
-/// B-026 / Gap-9: 同 crate 内の `record_writer::sweep_stale_active_at_startup`
-/// が startup sweep 時に再計算で利用する。HMAC 鍵 (`hmac_key`) は plugin_data
-/// 内で閉じたままにしたいため `pub` ではなく `pub(crate)`。
-pub(crate) fn compute_checksum(data: &PluginDataFile) -> Result<String, serde_json::Error> {
-    let mut clone = data.clone();
-    clone.checksum = String::new();
-    let bytes = serde_json::to_vec(&clone)?;
-    let mut mac =
-        HmacSha256::new_from_slice(hmac_key()).expect("HMAC-SHA256 accepts any key length");
-    mac.update(&bytes);
-    Ok(hex::encode(mac.finalize().into_bytes()))
-}
-
-/// HMAC 鍵（identity.rs と同じ方針。ビルド時埋め込み）。
-fn hmac_key() -> &'static [u8] {
-    match option_env!("KIRIN_HYPHA_HMAC_KEY") {
-        Some(k) => k.as_bytes(),
-        None => DEFAULT_HMAC_KEY,
-    }
-}
-
-const DEFAULT_HMAC_KEY: &[u8] = b"kirin-hypha-phase1.0-hmac-key-deterrent-level-20260417";
-
-/// 検証用: 読み込んだ `PluginDataFile` の `checksum` が整合するか。
-pub fn verify_checksum(data: &PluginDataFile) -> bool {
-    match compute_checksum(data) {
-        Ok(expected) => constant_time_eq(expected.as_bytes(), data.checksum.as_bytes()),
-        Err(_) => false,
-    }
-}
-
-/// 定数時間比較。
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

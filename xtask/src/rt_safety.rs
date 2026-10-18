@@ -440,6 +440,7 @@ mod tests {
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_window",
             "pub unsafe extern \"C\" fn kirin_hypha_note_capture_window",
+            "pub unsafe extern \"C\" fn kirin_hypha_note_capture_loop_wrap",
             "pub unsafe extern \"C\" fn kirin_hypha_note_transport_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_oversized_drop",
         ] {
@@ -447,7 +448,7 @@ mod tests {
                 || signature.contains("kirin_hypha_set_signal_state")
             {
                 SIGNAL_STATE_FFI_RS
-            } else if signature.contains("kirin_hypha_note_capture_window") {
+            } else if signature.contains("kirin_hypha_note_capture_") {
                 CAPTURE_WINDOW_FFI_RS
             } else {
                 FFI_LIB_RS

@@ -1,7 +1,7 @@
 //! Record state data model shared by the transition implementation.
 
 use crate::record_display::RecordDisplayStore;
-use std::sync::atomic::{AtomicI64, AtomicU64};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::RwLock;
 
 /// Record mode の状態。
@@ -149,4 +149,19 @@ pub struct RecordStateMachine {
     pub(super) measure_ready_generation: AtomicU64,
     /// GUI表示専用の世代付きRecord snapshot。計測・writer・pairingの正本には使わない。
     pub(super) record_display: RecordDisplayStore,
+    /// Record-lane chunks the Measure Thread has drained, TRACE or not. The IO seal wait counts it
+    /// as progress, so a Keep's later passes (summary only) are never mistaken for a stall.
+    pub(super) measure_progress: AtomicU64,
+}
+
+impl RecordStateMachine {
+    /// Measure Thread: one more Record-lane chunk entered the Record engines or the summary.
+    pub fn note_measure_progress(&self) {
+        self.measure_progress.fetch_add(1, Ordering::Release);
+    }
+
+    /// IO Thread: monotonic count for the seal wait's no-progress detector.
+    pub fn measure_progress(&self) -> u64 {
+        self.measure_progress.load(Ordering::Acquire)
+    }
 }

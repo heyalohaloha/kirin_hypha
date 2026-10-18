@@ -15,6 +15,10 @@ bool KirinHyphaProcessorBase::feedMeasurementInput (const juce::AudioBuffer<floa
             for (int ch = 0; ch < numCh; ++ch)
                 interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
         const auto auxiliary = hypha::offsetAuxiliaryClock (clock.auxiliary, (std::uint64_t) windowStartFrame);
+        // A Keep's later pass is a LOOP wrap only when the host's own loop range names the return.
+        kirin_hypha_note_capture_loop_wrap (hyphaHandle, liveCompare.keepLoopWrap.observe (clock.loop, clock.playing,
+            clock.hasPosition, clock.positionSamples, buffer.getNumSamples(), preparedFormat.sampleRate,
+            clock.outputPresentationValid ? (std::int64_t) clock.outputPresentationSamples : 0));
         kirin_hypha_note_capture_window (hyphaHandle, clock.hasPosition, windowPositionSamples,
             windowNumFrames, clock.clockSource, clock.presentationSource,
             clock.inputPresentationValid, clock.inputPresentationSamples,

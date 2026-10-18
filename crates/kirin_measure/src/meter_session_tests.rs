@@ -121,6 +121,39 @@ fn publication_exposes_only_complete_replacements_and_never_waits_for_writer() {
 }
 
 #[test]
+fn an_active_meter_that_stops_advancing_is_stalled_not_live() {
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
+    let start = std::time::Instant::now();
+    let publication = MeterSessionPublication::new(session.snapshot());
+    assert!(session.push_active(&stereo_constant(0.25, 0.25)));
+    publication.publish_at(session.snapshot(), start);
+    let later = start + METER_STALL_AFTER;
+    assert!(!publication.stalled_at(later - std::time::Duration::from_millis(1)));
+    // The same observation published again is no progress; new frames are.
+    publication.publish_at(
+        session.snapshot(),
+        start + std::time::Duration::from_millis(900),
+    );
+    assert!(
+        publication.stalled_at(later),
+        "an ACTIVE meter frozen for 1 s"
+    );
+    assert!(session.push_active(&stereo_constant(0.25, 0.25)));
+    publication.publish_at(session.snapshot(), later);
+    assert!(!publication.stalled_at(later + std::time::Duration::from_millis(500)));
+    // A paused meter is HOLD by its own state, never a stall.
+    session.pause();
+    publication.publish_at(session.snapshot(), later);
+    assert!(!publication.stalled_at(later + METER_STALL_AFTER * 10));
+    let writer = publication.latest.write().unwrap();
+    assert!(
+        !publication.stalled_at(later + METER_STALL_AFTER * 10),
+        "busy is no evidence"
+    );
+    drop(writer);
+}
+
+#[test]
 fn integrated_lra_peak_and_plr_share_one_session_fact() {
     let samples = stereo_sine(12.0, 0.5);
     let mut reference = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();

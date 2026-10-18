@@ -17,6 +17,14 @@ impl MeterDeltaHistoryExchange {
         self.time_post_span.load(Ordering::Acquire)
     }
 
+    /// The PRE meter progress (observed frames) of the latest PRE publication this POST read.
+    /// None while the comparison is busy or no PRE is bound; never blocks the UI thread.
+    pub fn comparison_pre_observed(&self) -> Option<u64> {
+        let delta = self.delta.try_lock().ok()?;
+        delta.pair_key()?.post_binding.as_ref()?;
+        delta.time.pre_observed()
+    }
+
     pub fn time_comparison(
         &self,
         resolution: MeterHistoryResolution,

@@ -28,6 +28,7 @@ fn process_block_calls_only_rt_safe_ffi_surface() {
             "kirin_hypha_get_signal_state",
             "kirin_hypha_is_recording",
             "kirin_hypha_note_capture_window",
+            "kirin_hypha_note_capture_loop_wrap",
             "kirin_hypha_note_transport_block",
             "kirin_hypha_note_record_window",
             "kirin_hypha_note_oversized_drop",

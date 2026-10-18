@@ -139,8 +139,15 @@ juce::String View::footerStatusText() const
         return "WAITING";
     if (observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED)
         return "BYPASSED";
-    if (! currentFactsAvailable()) return "HOLD";
-    return measurementOnlySurround ? juce::String ("5.1 MEASURE") : juce::String ("LIVE");
+    // LIVE only while the meter advances: ACTIVE input whose meter stopped is held (INV-S15).
+    if (! currentFactsAvailable() || observatoryFrame.meter_stalled != 0u) return "HOLD";
+    if (measurementOnlySurround) return "5.1 MEASURE";
+    // A Keep that went on past its first pass: the TRACE ends there, later passes reach the
+    // summary and the meters (INV-R10).
+    if (recordDisplayAvailable && recordDisplay.phase == KIRIN_RECORD_DISPLAY_LIVE
+        && observatoryFrame.keep_first_pass_only != 0u)
+        return "LIVE / TRACE: FIRST PASS ONLY";
+    return "LIVE";
 }
 
 void View::paintFooter (juce::Graphics& g, const ShellLayout&)
@@ -163,7 +170,8 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout&)
         auto label = state;
         if (text_style::shownWidth (font, label) > (float) session.getWidth())
             label = state == "BYPASSED" ? "BYP" : state == "WAITING" ? "WAIT"
-                  : state == "5.1 MEASURE" ? "5.1" : measurementFormatHeld ? "FORMAT" : state;
+                  : state == "5.1 MEASURE" ? "5.1" : measurementFormatHeld ? "FORMAT"
+                  : state.startsWith ("LIVE / TRACE") ? "TRACE: 1ST PASS" : state;
         // The chain timing the user asked to keep in view goes right of the state. Where the two do
         // not fit, it takes the place of LIVE, HOLD or WAITING, shortened if it must be, while the
         // states that call for action keep the rail. Feedback owns the rail while it lasts, and

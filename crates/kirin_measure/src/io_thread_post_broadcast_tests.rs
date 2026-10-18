@@ -210,3 +210,79 @@ fn self_originated_keep_is_cached_without_reentering_pair_resolution() {
     assert_eq!(attempts.load(AtomicOrdering::Relaxed), 0);
     assert!(processed_keep.contains("post-self", &generation.capture_generation_id));
 }
+
+/// An All Keep member that entered Record when its generation was aborted before its commit
+/// (here its signal could not be released, so the abort's Stop reaches it as a broadcast) ends
+/// without a short Keep result, as on the ACK path; a committed generation's Stop keeps its result.
+#[test]
+fn an_aborted_generation_stop_ends_the_member_display_without_a_result() {
+    use crate::capture_generation_lifecycle::{mark_generation_terminal, GenerationTerminalReason};
+    for (reason, abandoned) in [
+        (GenerationTerminalReason::Aborted, true),
+        (GenerationTerminalReason::AllStop, false),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let generation = generation("post-origin", "post-self");
+        let member = generation.member("project-a", "post-self").unwrap().clone();
+        crate::record_signal::write_pending_claiming_expected_and_clock_for_generation(
+            temp.path(),
+            "project-a",
+            "post-self",
+            member.pre_instance_id.clone(),
+            "daw-a".into(),
+            None,
+            &generation,
+        )
+        .unwrap();
+        let record_sm = RecordStateMachine::new();
+        record_sm
+            .try_enter_record_started_at_clock_transaction(
+                crate::License::Os,
+                1,
+                None,
+                member.record_session_id.clone(),
+            )
+            .unwrap();
+        let display_generation = record_sm.generation();
+        mark_generation_terminal(temp.path(), &generation, reason).unwrap();
+        crate::all_stop_signal::write_stop_broadcast_for_generation(
+            temp.path(),
+            "project-a",
+            "post-origin",
+            "daw-a".to_string(),
+            crate::current_host_process_id(),
+            &generation,
+        )
+        .unwrap();
+        let keep: TriggerPairResolutionFn = Arc::new(|_, _, _| true);
+        let stopped = Arc::new(AtomicUsize::new(0));
+        let stop_count = Arc::clone(&stopped);
+        let stop: TriggerStopResolutionFn = Arc::new(move |_, _| {
+            stop_count.fetch_add(1, AtomicOrdering::Relaxed);
+        });
+        let daw_session_id = Arc::new(RwLock::new("daw-a".to_string()));
+        let mut processed_keep = crate::broadcast_edge::BroadcastEdgeMemory::default();
+        let mut processed_stop = crate::broadcast_edge::BroadcastEdgeMemory::default();
+        poll_post_broadcasts(
+            temp.path(),
+            "project-a",
+            "post-self",
+            &daw_session_id,
+            &record_sm,
+            &mut processed_keep,
+            &mut processed_stop,
+            &keep,
+            &stop,
+        );
+        assert_eq!(stopped.load(AtomicOrdering::Relaxed), 1, "{reason:?}");
+        // The stop resolution exits Record; the Measure Thread's drain later tries to finalize.
+        record_sm.exit_record();
+        record_sm.finalize_record_display(display_generation, None);
+        let status = record_sm.try_record_display_snapshot().unwrap().status;
+        assert_eq!(
+            status == crate::RecordDisplayStatus::Dismissed,
+            abandoned,
+            "{reason:?}: {status:?}"
+        );
+    }
+}

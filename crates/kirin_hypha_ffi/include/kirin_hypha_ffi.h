@@ -178,7 +178,7 @@ typedef struct {
   double psb_bark[20];  /* POST - PRE PSB share per Bark band */
 } KirinDelta;
 
-/* Observatory 1 UI poll分。接続状態は別のcontrol-plane事実。 */
+/* Observatory 1 UI poll分。接続状態は別のcontrol-plane事実。meter_stalled: ACTIVEでも計測が1秒進まない（LIVEでない）。keep_first_pass_only: KeepのTRACEは最初の1周まで。 */
 typedef struct {
   uint32_t version;       /* KIRIN_OBSERVATORY_FRAME_VERSION */
   uint8_t signal_state;   /* KIRIN_SIGNAL_STATE_* */
@@ -188,7 +188,7 @@ typedef struct {
   double lra_elapsed_seconds;
   KirinMeterSession meter;
   KirinDelta delta;
-  uint8_t comparison_reason; uint8_t comparison_reserved[7];
+  uint8_t comparison_reason; uint8_t meter_stalled; uint8_t keep_first_pass_only; uint8_t comparison_reserved[5];
   uint64_t comparison_generation; uint64_t comparison_identity;
 } KirinObservatoryFrame;
 

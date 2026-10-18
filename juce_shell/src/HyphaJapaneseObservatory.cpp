@@ -77,6 +77,8 @@ const Entry entries[] = {
     { "5.1 MEASURE", u8"5.1 計測のみ" },
     { "RECORD FINALIZING", u8"Recordを確定中" },
     { "RECORD RESULT", u8"Recordの結果" },
+    { "LIVE / TRACE: FIRST PASS ONLY", u8"LIVE / 記録の時系列は最初の1周まで" },
+    { "TRACE: 1ST PASS", u8"時系列は1周目まで" },
     { "WARMING %1 S", u8"準備中 %1 S" },
     { "One row per playback, from play to stop", u8"再生1回ごとに1行（再生から停止まで）" },
     { "Play audio to collect run facts in this history range",
@@ -93,6 +95,7 @@ const Entry entries[] = {
     { u8"POST BYPASSED — ENABLE POST TO COMPARE", u8"POSTをバイパス中 — POSTを有効にして比較" },
     // PRE / POST comparison states.
     { u8"MATCHED PAIR — MEASURING", u8"ペア一致 — 計測中" },
+    { u8"MATCHED PAIR — NO COMMON TIME — STOP AND PLAY", u8"ペア一致 — 時刻が揃わない — 停止して再生" },
     { u8"PRE UPDATE DELAYED — HOLDING MATCHED Δ", u8"PRE更新待ち — 一致したΔを保持" },
     { u8"PRE UPDATE DELAYED — WAITING FOR MATCHED DATA", u8"PRE更新待ち — 一致データを待機中" },
     { u8"POST STOPPED — COMPARISON PAUSED", u8"POST停止中 — 比較を停止" },

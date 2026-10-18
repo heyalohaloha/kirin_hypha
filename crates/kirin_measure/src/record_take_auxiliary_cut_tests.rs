@@ -292,3 +292,51 @@ fn retained_record_prefix_requires_exact_generation_epoch_source_latency_and_coo
     let replacement = tracker.clock_point_for_captured_frame(frames * 2).unwrap();
     assert!(!proof.matches(replacement));
 }
+
+fn pass(tracker: &RecordTakeTracker, generation: u64, offline: bool, position: i64) -> u64 {
+    tracker.note_block(RecordTakeBlock {
+        generation,
+        recording: true,
+        rendered: true,
+        playing: !offline,
+        offline,
+        position_valid: true,
+        position_samples: position,
+        num_frames: 512,
+        clock_start_samples: 0,
+        clock_end_samples: None,
+    });
+    tracker.note_capture_window_with_clocks_boundary(
+        true,
+        position,
+        512,
+        CaptureClockSource::ProjectTimeline,
+        PresentationLatencySamples::default(),
+        AuxiliaryClockSamples::default(),
+        false,
+    );
+    tracker
+        .clock_point_for_captured_frame(tracker.captured_frames_total())
+        .unwrap()
+        .epoch
+}
+
+#[test]
+fn realtime_keep_passes_are_distinct_from_a_pass_after_an_offline_take() {
+    let realtime = RecordTakeTracker::new();
+    let first = pass(&realtime, 3, false, 90_000);
+    let wrap = pass(&realtime, 3, false, 0);
+    assert_ne!(first, wrap, "a LOOP wrap starts a new capture epoch");
+    assert!(realtime.capture_epochs_are_realtime_passes(first, wrap));
+    let bounce = RecordTakeTracker::new();
+    let take = pass(&bounce, 3, true, 1_200);
+    let jump = pass(&bounce, 3, false, 200);
+    assert!(
+        !bounce.capture_epochs_are_realtime_passes(take, jump),
+        "post-bounce jump"
+    );
+    assert!(
+        !bounce.capture_epochs_are_realtime_passes(take, take + 99),
+        "unknown epoch"
+    );
+}

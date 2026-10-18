@@ -1,12 +1,14 @@
 #include "ReaperFixture.h"
 #include "LoopReviewRegressions.h"
 #include "../ProductTestClock.h"
+#include <cmath>
 #include "../../src/live_compare/PairedAnalysisClock.h"
 using namespace reaper_fixture;
 int main()
 {
     loop_review::linearLogic();
     hypha::tests::ProductTestClock time;
+    for (bool grid : { false, true })
     for (int blockFrames : { 512, 2048 })
     for (int channels : { 1, 2 })
     for (int delay : { 0, 4096 })
@@ -28,7 +30,9 @@ int main()
             b.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::logicRender);
             b.presentationSource = 2; b.outputPresentationValid = true;
             b.outputPresentationSamples = static_cast<std::uint32_t> (685 + (pre ? delay : 0));
-            b.loop = { true, true, b.project / 48000.0, 0, 384123.0 / 48000.0, 120 };
+            // Logic Pro reports PPQ rounded up to 1/15360 quarter note; render and project stay exact.
+            const auto ppq = b.project / 48000.0;
+            b.loop = { true, true, grid ? std::ceil (ppq * 15360.0 - 1.0e-7) / 15360.0 : ppq, 0, 384123.0 / 48000.0, 120 };
             b.wallNanos = time.nanos(); return b;
         };
         auto publish = [&] (std::int64_t render)

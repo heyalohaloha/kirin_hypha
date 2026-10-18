@@ -59,7 +59,7 @@ pub(super) fn bake_continuous_record_timeline(ctx: &mut RecordingCtx) {
         return;
     }
 
-    let duration_ms = record_duration_ms(ctx);
+    let duration_ms = trace_duration_ms(ctx);
     if duration_ms == 0 {
         return;
     }

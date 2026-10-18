@@ -67,6 +67,8 @@ inline void verify()
     b.delta_available = 1; require (! same (a, b)); b.delta_available = 0;
     b.comparison_state = KIRIN_COMPARISON_STATE_ACTIVE; require (! same (a, b)); b.comparison_state = 0;
     b.comparison_reason = KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH; require (! same (a, b)); b.comparison_reason = 0;
+    b.meter_stalled = 1; require (! same (a, b)); b.meter_stalled = 0;
+    b.keep_first_pass_only = 1; require (! same (a, b)); b.keep_first_pass_only = 0;
     b.comparison_generation = 8; require (! same (a, b)); b.comparison_generation = 0;
     b.comparison_identity = 9; require (! same (a, b)); b.comparison_identity = 0;
     b.version = 1; require (! same (a, b)); b.version = 0;

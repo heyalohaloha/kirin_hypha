@@ -52,6 +52,7 @@ impl RecordStateMachine {
             closed_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
             record_display: RecordDisplayStore::default(),
+            measure_progress: AtomicU64::new(0),
         }
     }
 
@@ -472,6 +473,10 @@ impl RecordStateMachine {
 
     pub fn mark_record_display_unavailable(&self, generation: u64) {
         self.record_display.mark_unavailable(generation);
+    }
+
+    pub fn abandon_record_display(&self, generation: u64) {
+        self.record_display.abandon(generation);
     }
 
     pub fn dismiss_record_display_on_watch_result(&self) {

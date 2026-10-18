@@ -30,6 +30,7 @@ impl RecordTakeTracker {
                 .map(|_| CaptureClockSlot::new())
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
+            staged_host_loop_wrap: AtomicBool::new(false),
             mark_version: AtomicU64::new(0),
             mark_capture_armed: AtomicBool::new(false),
             mark_generation: AtomicU64::new(0),
@@ -73,6 +74,7 @@ impl RecordTakeTracker {
             previous_range_valid: AtomicBool::new(false),
             previous_start_position: AtomicI64::new(i64::MIN),
             previous_end_position: AtomicI64::new(i64::MIN),
+            keep_passes: Default::default(),
         }
     }
 
@@ -207,7 +209,7 @@ impl RecordTakeTracker {
         ))
     }
 
-    fn record_audio_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
+    pub(super) fn record_audio_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
         // Use the longer factual prefix without changing Watch/pair span lookup or its TTL.
         let ring = self.capture_span_for_epoch(epoch);
         let prefix = self.record_audio_mapping.read(epoch);

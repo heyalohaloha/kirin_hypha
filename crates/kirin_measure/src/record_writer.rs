@@ -49,6 +49,12 @@ use trace_selection::bake_continuous_record_timeline;
 #[path = "record_writer_take_snapshot.rs"]
 mod take_snapshot;
 pub use take_snapshot::apply_record_take_snapshot;
+#[path = "record_seal_wait.rs"]
+mod seal_wait;
+pub use seal_wait::wait_for_seal;
+#[path = "record_writer_trace_density.rs"]
+mod trace_density;
+use trace_density::*;
 
 /// Frame サンプリング間隔（10 fps / G-50-17 リアルタイム Record）。
 pub const FRAME_INTERVAL_MS: u64 = 100;
@@ -360,60 +366,6 @@ const CLEAN_TAKE_MIN_TRACE_RATIO_DEN: usize = 4;
 /// frames[] が WAV 0..duration を覆っているとみなす許容幅。
 const FRAME_COVERAGE_MAX_GAP_MS: u64 = FRAME_INTERVAL_MS * 2;
 const FRAME_COVERAGE_EDGE_TOLERANCE_MS: u64 = FRAME_INTERVAL_MS * 2;
-
-/// B-132 (G-115-382 共通B): Record→Watch close 時に Measure Thread の post-drain seal が
-/// `seal_at_start` を超えるまで **lock-free bounded** に待つ。
-///
-/// P3 (2026-07-10): 固定の合計待ち時間ではなく、`record_trace_queue` が伸び続けている
-/// （= Measure Thread が実際に drain を進めている）限り無進捗タイマーを都度リセットする
-/// deterministic な handshake にする。offline bounce のような backlog が大きいケースでも、
-/// 進捗している間は正当な処理時間として待ち続け、進捗が本当に止まったときだけ
-/// `no_progress_timeout` で諦める。`absolute_timeout` は `record_trace_queue` が無い
-/// legacy/fallback 呼び出し元だけに適用する。
-///
-/// 返値 `true`: seal が前進した（= measure が tight-drain + 最終 finalize + session_summary 書込を
-/// 完了）→ bake arm は post-drain 確定スナップショットを take してよい。
-/// 返値 `false`: 無進捗のまま `no_progress_timeout` 超過、または進捗監視なしで
-/// `absolute_timeout` 超過（measure 死 / shutdown / stall）→ 呼出側は integrity_degraded を立てる。
-///
-/// teardown 安全性: atomic load + Mutex 短時間 lock のみ。通常の Record TRACE 経路は
-/// 「進捗が止まったら有限時間で抜ける」。進捗監視の無い legacy/fallback 経路だけは
-/// `absolute_timeout` でも抜ける。
-pub fn wait_for_seal(
-    record_sm: &RecordStateMachine,
-    seal_at_start: u64,
-    record_trace_queue: Option<&RecordTraceQueue>,
-    no_progress_timeout: Duration,
-    absolute_timeout: Duration,
-) -> bool {
-    let has_progress_detector = record_trace_queue.is_some();
-    let absolute_deadline = Instant::now() + absolute_timeout;
-    let mut no_progress_deadline = Instant::now() + no_progress_timeout;
-    let mut last_len = trace_queue_len(record_trace_queue);
-    loop {
-        if record_sm.seal() > seal_at_start {
-            return true;
-        }
-        let now = Instant::now();
-        if now >= no_progress_deadline || (!has_progress_detector && now >= absolute_deadline) {
-            return false;
-        }
-        std::thread::sleep(SEAL_WAIT_POLL);
-        let len = trace_queue_len(record_trace_queue);
-        if has_progress_detector && len != last_len {
-            last_len = len;
-            no_progress_deadline = Instant::now() + no_progress_timeout;
-        }
-    }
-}
-
-/// `record_trace_queue` の現在長（lock 取得失敗時は進捗なしとみなし 0 を返す）。
-fn trace_queue_len(record_trace_queue: Option<&RecordTraceQueue>) -> usize {
-    record_trace_queue
-        .and_then(|q| q.lock().ok())
-        .map(|guard| guard.len())
-        .unwrap_or(0)
-}
 
 fn session_scoped_failed_path(
     fallback_failed_path: &Path,
@@ -1268,7 +1220,7 @@ fn producer_take_slot_positions(
     if expected_len == 0 || slot_samples <= 0 {
         return None;
     }
-    let duration_samples = i64::try_from(record_duration_samples(ctx)).ok()?;
+    let duration_samples = i64::try_from(trace_duration_samples(ctx)).ok()?;
     let bwf_start = expected_wav(ctx)
         .and_then(|expected| expected.wav_time_reference_samples)
         .and_then(|start| i64::try_from(start).ok());
@@ -1427,56 +1379,6 @@ fn clip_clean_timeline_to_duration(ctx: &mut RecordingCtx) {
     }
 }
 
-fn frame_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {
-    let frames = &ctx.writer.data().frames;
-    let Some(first) = frames.first() else {
-        return false;
-    };
-    if first.t_ms > FRAME_COVERAGE_EDGE_TOLERANCE_MS {
-        return false;
-    }
-    if duration_ms > 0 {
-        let Some(last) = frames.last() else {
-            return false;
-        };
-        if last.t_ms.saturating_add(FRAME_COVERAGE_EDGE_TOLERANCE_MS) < duration_ms {
-            return false;
-        }
-    }
-    frames
-        .windows(2)
-        .all(|pair| pair[1].t_ms.saturating_sub(pair[0].t_ms) <= FRAME_COVERAGE_MAX_GAP_MS)
-}
-
-fn frame_timeline_has_gap(ctx: &RecordingCtx, duration_ms: u64) -> bool {
-    !frame_timeline_covers_duration(ctx, duration_ms)
-}
-
-fn timeline_times_cover_duration(times: &mut Vec<u64>, duration_ms: u64) -> bool {
-    if times.is_empty() {
-        return false;
-    }
-    times.sort_unstable();
-    times.dedup();
-    let Some(first) = times.first() else {
-        return false;
-    };
-    if *first > FRAME_COVERAGE_EDGE_TOLERANCE_MS {
-        return false;
-    }
-    if duration_ms > 0 {
-        let Some(last) = times.last() else {
-            return false;
-        };
-        if last.saturating_add(FRAME_COVERAGE_EDGE_TOLERANCE_MS) < duration_ms {
-            return false;
-        }
-    }
-    times
-        .windows(2)
-        .all(|pair| pair[1].saturating_sub(pair[0]) <= FRAME_COVERAGE_MAX_GAP_MS)
-}
-
 fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool {
     let Some(take) = ctx.clean_take else {
         return false;
@@ -1490,7 +1392,7 @@ fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> boo
     let raw_timeline_ready = ctx
         .raw_trace_timeline_covers_duration
         .unwrap_or_else(|| frame_timeline_covers_duration(ctx, duration_ms));
-    duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
+    keep_duration_ms(ctx) >= CLEAN_TAKE_MIN_DURATION_MS
         && frame_timeline_covers_duration(ctx, duration_ms)
         && raw_timeline_ready
         && clean_take_trace_density_ready(ctx, duration_ms)
@@ -1500,7 +1402,7 @@ fn expected_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> 
     let Some(expected) = expected_wav(ctx) else {
         return false;
     };
-    if !expected.is_usable() || duration_ms < CLEAN_TAKE_MIN_DURATION_MS {
+    if !expected.is_usable() || keep_duration_ms(ctx) < CLEAN_TAKE_MIN_DURATION_MS {
         return false;
     }
     if ctx.writer.data().sample_rate != expected.expected_sample_rate {
@@ -1528,77 +1430,6 @@ fn clean_take_trace_density_ready(ctx: &RecordingCtx, duration_ms: u64) -> bool 
     };
     raw_count.saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_DEN)
         >= expected.saturating_mul(CLEAN_TAKE_MIN_TRACE_RATIO_NUM)
-}
-
-fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
-    if ctx.writer.data().frames.is_empty() {
-        return true;
-    }
-    let duration_ms = record_duration_ms(ctx);
-    if ctx.raw_trace_timeline_covers_duration == Some(false) {
-        return true;
-    }
-    if frame_timeline_has_gap(ctx, duration_ms) {
-        return true;
-    }
-    if duration_ms < TRACE_DENSITY_MIN_DURATION_MS {
-        return false;
-    }
-    if ctx.trace_sample_count > 0 {
-        let expected = expected_trace_samples(duration_ms);
-        let measured = if !ctx.trace_samples.is_empty() {
-            measured_trace_sample_count(ctx)
-        } else {
-            ctx.trace_sample_count
-        };
-        return measured.saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
-            < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM);
-    }
-    fallback_frame_density_is_sparse(ctx, duration_ms)
-}
-
-fn measured_trace_sample_count(ctx: &RecordingCtx) -> usize {
-    ctx.trace_samples
-        .iter()
-        .filter(|sample| sample.has_measured_core())
-        .count()
-}
-
-fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> bool {
-    let frame_count = ctx.writer.data().frames.len();
-    if frame_count == 0 {
-        return true;
-    }
-    if frame_timeline_has_gap(ctx, duration_ms) {
-        return true;
-    }
-    let expected = expected_trace_samples(duration_ms);
-    frame_count.saturating_mul(TRACE_DENSITY_MIN_RATIO_DEN)
-        < expected.saturating_mul(TRACE_DENSITY_MIN_RATIO_NUM)
-}
-
-fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
-    let duration_ms = record_duration_ms(ctx);
-    let has_frame_gap = frame_timeline_has_gap(ctx, duration_ms);
-    let has_raw_gap = ctx.raw_trace_timeline_covers_duration == Some(false);
-    if trace_density_is_sparse(ctx) {
-        log::warn!(
-            "[writer] sparse Record density: trace_samples={} frames={} duration_ms={} - marking integrity_degraded",
-            ctx.trace_sample_count,
-            ctx.writer.data().frames.len(),
-            duration_ms
-        );
-        ctx.writer.mark_integrity_degraded();
-        if ctx.writer.data().frames.is_empty() {
-            ctx.writer.add_integrity_reason("zero_trace_frames");
-        } else if has_raw_gap {
-            ctx.writer.add_integrity_reason("raw_trace_timeline_gap");
-        } else if has_frame_gap {
-            ctx.writer.add_integrity_reason("frame_timeline_gap");
-        } else {
-            ctx.writer.add_integrity_reason("sparse_trace_density");
-        }
-    }
 }
 
 fn mark_integrity_if_record_clock_is_not_wav_bounded(ctx: &mut RecordingCtx) {
@@ -1633,7 +1464,7 @@ fn mark_integrity_if_record_is_too_short(ctx: &mut RecordingCtx) {
     if !has_audio_time {
         return;
     }
-    let duration_ms = record_duration_ms(ctx);
+    let duration_ms = keep_duration_ms(ctx);
     if duration_ms >= CLEAN_TAKE_MIN_DURATION_MS {
         return;
     }
@@ -3146,7 +2977,7 @@ mod tests {
         format!("{prefix}-{}-{n}", std::process::id())
     }
 
-    fn isolated_base() -> PathBuf {
+    pub(super) fn isolated_base() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
@@ -3743,7 +3574,7 @@ mod tests {
         make_ctx_with_sample_rate(base, role, started_at_ms, 48_000)
     }
 
-    fn make_ctx_with_sample_rate(
+    pub(super) fn make_ctx_with_sample_rate(
         base: &std::path::Path,
         role: Role,
         started_at_ms: i64,
@@ -3917,7 +3748,7 @@ mod tests {
         assert!(!writer_claim_active(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
     }
 
-    fn read_output_for_final(final_path: &Path) -> PluginDataFile {
+    pub(super) fn read_output_for_final(final_path: &Path) -> PluginDataFile {
         let failed_path = failed_path_for_final(final_path);
         let pending_path = pair_pending_path_for_final(final_path);
         let path = if final_path.exists() {
@@ -3987,7 +3818,7 @@ mod tests {
         ctx
     }
 
-    fn full_measure_result() -> MeasureResult {
+    pub(super) fn full_measure_result() -> MeasureResult {
         MeasureResult {
             lufs_m: Some(-14.2),
             true_peak: Some(-1.1),
@@ -4016,7 +3847,7 @@ mod tests {
         }
     }
 
-    fn expected_wav_metadata(
+    pub(super) fn expected_wav_metadata(
         sample_rate: u32,
         duration_samples: u64,
         bounce_id: &str,
@@ -4062,7 +3893,7 @@ mod tests {
         trace_sample_frames_with_native(t_frames_48k, None, result, include_psb)
     }
 
-    fn trace_sample_frames_with_native(
+    pub(super) fn trace_sample_frames_with_native(
         t_frames_48k: u64,
         t_native_frames: Option<u64>,
         result: MeasureResult,

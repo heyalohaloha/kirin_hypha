@@ -110,6 +110,10 @@ pub struct CaptureClockPoint {
 pub(crate) struct CaptureClockSpan {
     /// Producer proved unchanged audio mapping; only auxiliary pair evidence cut here.
     pub auxiliary_only_cut: bool,
+    /// The span began in an offline (bounce) callback; a realtime pass is never a bounce take.
+    pub offline: bool,
+    /// The span began with the host's own LOOP wrap: its loop range named the return.
+    pub host_loop_wrap: bool,
     pub epoch: u64,
     pub generation: u64,
     pub capture_start_frame: u64,
@@ -191,6 +195,8 @@ impl CaptureClockSpan {
 #[derive(Debug)]
 pub(crate) struct CaptureClockSlot {
     auxiliary_only_cut: AtomicBool,
+    offline: AtomicBool,
+    host_loop_wrap: AtomicBool,
     version: AtomicU64,
     sequence: AtomicU64,
     generation: AtomicU64,
@@ -213,6 +219,8 @@ impl CaptureClockSlot {
     pub(crate) fn new() -> Self {
         Self {
             auxiliary_only_cut: AtomicBool::new(false),
+            offline: AtomicBool::new(false),
+            host_loop_wrap: AtomicBool::new(false),
             version: AtomicU64::new(0),
             sequence: AtomicU64::new(0),
             generation: AtomicU64::new(0),
@@ -237,6 +245,9 @@ impl CaptureClockSlot {
         self.sequence.store(span.epoch, Ordering::Relaxed);
         self.auxiliary_only_cut
             .store(span.auxiliary_only_cut, Ordering::Relaxed);
+        self.offline.store(span.offline, Ordering::Relaxed);
+        self.host_loop_wrap
+            .store(span.host_loop_wrap, Ordering::Relaxed);
         self.generation.store(span.generation, Ordering::Relaxed);
         self.capture_start_frame
             .store(span.capture_start_frame, Ordering::Relaxed);
@@ -308,6 +319,8 @@ impl CaptureClockSlot {
             };
             let span = CaptureClockSpan {
                 auxiliary_only_cut: self.auxiliary_only_cut.load(Ordering::Relaxed),
+                offline: self.offline.load(Ordering::Relaxed),
+                host_loop_wrap: self.host_loop_wrap.load(Ordering::Relaxed),
                 epoch: sequence,
                 generation: self.generation.load(Ordering::Relaxed),
                 capture_start_frame: self.capture_start_frame.load(Ordering::Relaxed),

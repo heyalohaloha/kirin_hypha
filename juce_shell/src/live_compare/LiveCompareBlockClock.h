@@ -75,6 +75,8 @@ inline bool logicRender (const BlockClock& b) noexcept
 // Logic's render stamps name the compensated content sample, including cycle occurrences.
 // The simultaneously observed PRE/POST distance must independently equal the host's output
 // presentation difference. Missing, reverse or contradictory reports grant no permission.
+// Logic reports its cycle range even with Cycle off, while PRE publishes a range only for an
+// active cycle; with Cycle off on both sides the range is not part of the pair.
 inline bool logicRenderPair (const BlockClock& pre, const BlockClock& post) noexcept
 {
     std::int64_t distance = 0;
@@ -86,7 +88,7 @@ inline bool logicRenderPair (const BlockClock& pre, const BlockClock& post) noex
         && pre.outputPresentationSamples >= post.outputPresentationSamples
         && checkedClockSubtract (pre.clock, post.clock, distance)
         && distance == static_cast<std::int64_t> (pre.outputPresentationSamples - post.outputPresentationSamples)
-        && pre.loop.sameRange (post.loop);
+        && ((! pre.loop.active && ! post.loop.active) || pre.loop.sameRange (post.loop));
 }
 
 // One shared rule for a previously proven K, whether observed before or during an audition.

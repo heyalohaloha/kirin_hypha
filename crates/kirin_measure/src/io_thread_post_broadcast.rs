@@ -87,7 +87,15 @@ pub(super) fn poll_post_broadcasts(
             broadcast.started_at,
             scan_dir.display()
         );
+        // A Stop for a generation aborted before its commit ends an aborted Keep: when this POST
+        // still records that generation's session, its display closes without a short result, as
+        // on the ACK path (INV-A4).
+        let aborted =
+            aborted_member_generation(base_dir, project_hash, instance_id, record_sm, &broadcast);
         trigger_stop_resolution(&originator_iid, &broadcast.started_at);
+        if let Some(generation) = aborted {
+            record_sm.abandon_record_display(generation);
+        }
     }
 
     let now_chrono = chrono::Utc::now();
@@ -185,4 +193,33 @@ pub(super) fn poll_post_broadcasts(
             processed_keep.remember(&originator_iid, &broadcast_key);
         }
     }
+}
+
+/// The Record display generation this POST records for an aborted generation's Stop, if any.
+fn aborted_member_generation(
+    base_dir: &Path,
+    project_hash: &str,
+    instance_id: &str,
+    record_sm: &RecordStateMachine,
+    broadcast: &all_stop_signal::AllStopBroadcast,
+) -> Option<u64> {
+    if !broadcast.has_generation() || !record_sm.is_recording() {
+        return None;
+    }
+    let aborted = matches!(
+        crate::capture_generation_lifecycle::read_generation_terminal(
+            base_dir,
+            &broadcast.capture_generation_id,
+            broadcast.generation_started_at_ms,
+        ),
+        Ok(Some(terminal))
+            if terminal.terminal_reason
+                == crate::capture_generation_lifecycle::GenerationTerminalReason::Aborted
+    );
+    let signal = crate::record_signal::read_signal(base_dir, project_hash, instance_id)?;
+    (aborted
+        && signal.capture_generation_id == broadcast.capture_generation_id
+        && signal.generation_started_at_ms == broadcast.generation_started_at_ms
+        && record_sm.record_session_id().as_deref() == Some(signal.session_id.as_str()))
+    .then(|| record_sm.generation())
 }
