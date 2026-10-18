@@ -236,9 +236,11 @@ jobs:
       HYPHA_WINDOWS_BUILD_DIR: D:/kh
     # Measured local cold build at 4 CPUs: 33.2 min; serial tests: 16.3 min.
     # Estimate 34 build + 17 tests + 9 verification/packaging + 15 setup/runner/cache margin
-    # = 75 min. Hosted runtime must be checked on the next authorized run; no deadline
-    # or matrix coverage is relaxed by this job budget.
-    timeout-minutes: 75
+    # = 75 min; the last measured hosted run took 64 min. The pre-build installer check and
+    # the previous-release upgrade phase add about 8 min, so the budget is 90 min. Hosted
+    # runtime must be checked on the next authorized run; no deadline or matrix coverage is
+    # relaxed by this job budget.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -251,6 +253,39 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Install verified Inno Setup compiler
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $downloadDir = Join-Path $env:RUNNER_TEMP 'inno-download'
+          $installDir = Join-Path $env:RUNNER_TEMP 'Inno Setup 6'
+          $installLog = Join-Path $env:RUNNER_TEMP 'inno-setup-install.log'
+          New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+          Push-Location $downloadDir
+          try {
+            gh release download is-6_7_3 --repo jrsoftware/issrc --pattern 'innosetup-6.7.3.exe'
+            gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc
+            $installer = Join-Path $downloadDir 'innosetup-6.7.3.exe'
+            $arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""
+            $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Inno Setup install failed with exit $($process.ExitCode)" }
+          } finally {
+            Pop-Location
+          }
+          $iscc = Join-Path $installDir 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            if (Test-Path -LiteralPath $installLog -PathType Leaf) { Get-Content -LiteralPath $installLog }
+            throw 'verified ISCC.exe not found'
+          }
+          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Installer scripts and the Inno recipe fail here in minutes, before the native build.
+      - name: Check Windows installer scripts, signature records and recipe
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/windows/check_installer_sources.ps1
 
       # Windows remains VST3-only. AU, Apple signing, notarization, and macOS LS packaging stay
       # on macOS. Public CI produces only unsigned candidates; release signing is isolated.
@@ -504,34 +539,6 @@ jobs:
             if ($proc.ExitCode -ne 0) { throw "pluginval failed for $($b.FullName) (exit $($proc.ExitCode))" }
           }
 
-      - name: Install verified Inno Setup compiler
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $downloadDir = Join-Path $env:RUNNER_TEMP 'inno-download'
-          $installDir = Join-Path $env:RUNNER_TEMP 'Inno Setup 6'
-          $installLog = Join-Path $env:RUNNER_TEMP 'inno-setup-install.log'
-          New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
-          Push-Location $downloadDir
-          try {
-            gh release download is-6_7_3 --repo jrsoftware/issrc --pattern 'innosetup-6.7.3.exe'
-            gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc
-            $installer = Join-Path $downloadDir 'innosetup-6.7.3.exe'
-            $arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""
-            $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
-            if ($process.ExitCode -ne 0) { throw "Inno Setup install failed with exit $($process.ExitCode)" }
-          } finally {
-            Pop-Location
-          }
-          $iscc = Join-Path $installDir 'ISCC.exe'
-          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
-            if (Test-Path -LiteralPath $installLog -PathType Leaf) { Get-Content -LiteralPath $installLog }
-            throw 'verified ISCC.exe not found'
-          }
-          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       # Legacy provenance identifier retained for existing artifact consumers.
       # Execution is always unsigned; release signing uses the independent trusted factory.
       - name: Build Windows installer and sign all executable surfaces
@@ -547,6 +554,12 @@ jobs:
           --external-validation $env:WINDOWS_EXTERNAL_VALIDATION
           --update-public-key "$env:KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT"
 
+      # Exact pinned bytes of the earlier public installers; the upgrade phase keeps them in
+      # the scopes users installed them in.
+      - name: Download pinned previous public Windows installers
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/windows/download_previous_installers.ps1 -OutDir "$env:RUNNER_TEMP/hypha-previous-installers"
+
       - name: Verify Windows installer install, same-version reinstall, signatures, and uninstall
         shell: pwsh
         env:
@@ -559,7 +572,9 @@ jobs:
             -Installer $installer[0].FullName `
             -PayloadDir dist/WINDOWS_CI/installer-payload `
             -Signing $env:WINDOWS_SIGNING `
-            -Manifest "$($installer[0].FullName).json"
+            -Manifest "$($installer[0].FullName).json" `
+            -PreviousInstallerDir "$env:RUNNER_TEMP/hypha-previous-installers"
+          if ($LASTEXITCODE -ne 0) { throw "installer lifecycle or upgrade verification failed: $LASTEXITCODE" }
 
       # Diagnostic binaries remain held pending reviewed actual delivery evidence.
       - name: Upload primary Windows installer

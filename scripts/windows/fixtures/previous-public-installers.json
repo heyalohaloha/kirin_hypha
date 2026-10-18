@@ -1,0 +1,61 @@
+{
+  "schema": "kirin-hypha-previous-windows-installers-v1",
+  "release_download_base": "https://github.com/heyalohaloha/kirin_hypha/releases/download",
+  "installers": [
+    {
+      "version": "1.1.50",
+      "file_name": "Kirin-Hypha-1.1.50-Windows-x64-Setup.exe",
+      "bytes": 14859376,
+      "sha256": "d61cd066e8d0d6156592ee79f82d160f8761080c6c9cea2723c90e84d6619c09",
+      "default_scope": "current-user",
+      "formats": ["VST3"]
+    },
+    {
+      "version": "1.1.51",
+      "file_name": "Kirin-Hypha-1.1.51-Windows-x64-Setup.exe",
+      "bytes": 27656032,
+      "sha256": "fcfa8e14a1c05c060da3f2a882bb42a00fbb35c037b4b679018a9647f97efe7c",
+      "default_scope": "all-users",
+      "formats": ["VST3", "AAX"]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "current-user-1.1.50-to-all-users",
+      "previous": [{ "version": "1.1.50", "scope": "default" }],
+      "new_scope": "all-users",
+      "expect": "replaced"
+    },
+    {
+      "id": "current-user-1.1.50-beside-all-users-1.1.51",
+      "previous": [{ "version": "1.1.50", "scope": "default" }, { "version": "1.1.51", "scope": "default" }],
+      "new_scope": "all-users",
+      "expect": "replaced"
+    },
+    {
+      "id": "all-users-1.1.51",
+      "previous": [{ "version": "1.1.51", "scope": "default" }],
+      "new_scope": "all-users",
+      "expect": "replaced"
+    },
+    {
+      "id": "current-user-1.1.50-locked-then-retried",
+      "previous": [{ "version": "1.1.50", "scope": "default" }],
+      "new_scope": "all-users",
+      "expect": "refused-while-locked-then-replaced"
+    },
+    {
+      "id": "current-user-install-beside-all-users-1.1.51",
+      "previous": [{ "version": "1.1.51", "scope": "default" }],
+      "new_scope": "current-user",
+      "expect": "refused",
+      "vst3_only_installer": true
+    }
+  ],
+  "required_for_release": [
+    "current-user-1.1.50-to-all-users",
+    "current-user-1.1.50-beside-all-users-1.1.51",
+    "all-users-1.1.51",
+    "current-user-1.1.50-locked-then-retried"
+  ]
+}

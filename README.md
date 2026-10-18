@@ -753,6 +753,9 @@ for LR, while its explicit MID and SIDE selections intentionally measure `(L+R)/
    permission and installs both formats for all users. VST3 goes to
    `%ProgramFiles%\Common Files\VST3`; AAX goes to
    `%ProgramFiles%\Common Files\Avid\Audio\Plug-Ins`.
+   - The installer first removes your own older current-user Kirin Hypha PRE/POST copy, so DAWs do
+     not keep loading it. Settings and DAW projects are kept. If a DAW still holds that copy, the
+     installer stops before installing anything; close every DAW and run it again.
 3. Start your VST3 DAW or Pro Tools and rescan plug-ins if needed.
 4. Insert **PRE Kirin Hypha** before your processing chain and **POST Kirin Hypha** after it.
 

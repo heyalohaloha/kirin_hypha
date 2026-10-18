@@ -92,7 +92,28 @@ export function currentReleaseIdentity({ root = ROOT } = {}) {
   return { version, ...readReleaseSourceIdentity({ root }) };
 }
 
-function requireValidSigningTargets(manifest, { requireAax }) {
+// The release installer must have updated the pinned previous public installers in their own
+// scopes (scripts/windows/fixtures/previous-public-installers.json), not only a fresh install.
+export function requirePreviousReleaseUpgrades(manifest, { root = ROOT } = {}) {
+  const fixtureFile = path.join(root, 'scripts/windows/fixtures/previous-public-installers.json');
+  const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
+  const known = new Set((fixture.scenarios || []).map((scenario) => scenario.id));
+  const required = fixture.required_for_release;
+  if (!Array.isArray(required) || !required.length || required.some((id) => !known.has(id))) {
+    throw new Error('Previous-release upgrade fixture has no valid required scenarios');
+  }
+  const upgrade = manifest.ci_validation?.prior_public_upgrade;
+  const scenarios = Array.isArray(upgrade?.scenarios) ? upgrade.scenarios : [];
+  const ids = scenarios.map((scenario) => scenario?.id);
+  const missing = required.filter((id) => ids.filter((seen) => seen === id).length !== 1);
+  if (upgrade?.status !== 'passed' || upgrade.fixture_sha256 !== sha256(fixtureFile)
+      || scenarios.some((scenario) => scenario?.status !== 'passed' || !known.has(scenario.id))
+      || new Set(ids).size !== ids.length || missing.length > 0) {
+    throw new Error(`Windows installer previous-release upgrade verification is incomplete: ${missing.join(', ') || upgrade?.status || 'missing'}`);
+  }
+}
+
+export function requireValidSigningTargets(manifest, { requireAax }) {
   const targets = manifest.signing?.verification?.targets;
   const expectedCount = requireAax ? 6 : 4;
   if (!Array.isArray(targets) || targets.length !== expectedCount) {
@@ -293,6 +314,7 @@ export function requireWindowsInstaller(
   if (manifest.ci_validation?.status !== 'passed') {
     throw new Error(`Windows installer verification is incomplete: ${manifest.ci_validation?.status}`);
   }
+  if (requireAax) requirePreviousReleaseUpgrades(manifest);
   if (manifest.external_validation?.status !== 'complete') {
     throw new Error('Windows external DAW validation is incomplete');
   }

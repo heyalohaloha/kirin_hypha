@@ -14,160 +14,32 @@ param(
 
   [string]$AaxWraptool = "",
 
-  [string]$PreviousInstaller = ""
+  # Directory produced by download_previous_installers.ps1; required for signed candidates.
+  [string]$PreviousInstallerDir = "",
+
+  [string]$UpgradeFixture = ""
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/installer_payload.ps1"
+. "$PSScriptRoot/installer_environment.ps1"
+. "$PSScriptRoot/installer_upgrade.ps1"
 . "$PSScriptRoot/installer_qualification.ps1"
-
-function Resolve-RequiredFile([string]$Value, [string]$Label) {
-  $resolved = Resolve-Path -LiteralPath $Value -ErrorAction SilentlyContinue
-  if ($null -eq $resolved -or !(Test-Path -LiteralPath $resolved.Path -PathType Leaf)) {
-    throw "Missing ${Label}: $Value"
-  }
-  return $resolved.Path
-}
-
-function Resolve-RequiredDirectory([string]$Value, [string]$Label) {
-  $resolved = Resolve-Path -LiteralPath $Value -ErrorAction SilentlyContinue
-  if ($null -eq $resolved -or !(Test-Path -LiteralPath $resolved.Path -PathType Container)) {
-    throw "Missing ${Label}: $Value"
-  }
-  return $resolved.Path
-}
-
-function Get-Sha256([string]$FilePath) {
-  return (Get-FileHash -LiteralPath $FilePath -Algorithm SHA256).Hash.ToLower()
-}
-
-function Get-SignatureRecord([string]$Role, [string]$FilePath, [string]$Expected) {
-  $signature = Get-AuthenticodeSignature -FilePath $FilePath
-  $actual = [string]$signature.Status
-  if ($Expected -eq "signed" -and $actual -ne "Valid") {
-    throw "Invalid Authenticode signature for ${Role}: $actual ($FilePath)"
-  }
-  if ($Expected -eq "unsigned" -and $actual -ne "NotSigned") {
-    throw "Unsigned CI candidate unexpectedly has signature status $actual for ${Role}: $FilePath"
-  }
-  $record = [ordered]@{
-    role = $Role
-    file_name = [System.IO.Path]::GetFileName($FilePath)
-    status = $actual
-    sha256 = Get-Sha256 $FilePath
-  }
-  if ($null -ne $signature.SignerCertificate) {
-    $record.signer_subject = $signature.SignerCertificate.Subject
-    $record.signer_thumbprint = $signature.SignerCertificate.Thumbprint
-  }
-  if ($null -ne $signature.TimeStamperCertificate) {
-    $record.timestamp_subject = $signature.TimeStamperCertificate.Subject
-    $record.timestamp_thumbprint = $signature.TimeStamperCertificate.Thumbprint
-  }
-  return $record
-}
-
-function Resolve-AaxWraptool([string]$Requested) {
-  $candidates = @(
-    $Requested,
-    (Join-Path $env:ProgramFiles "PACEAntiPiracy\Eden\Fusion\Current\bin\wraptool.exe"),
-    (Join-Path $env:ProgramFiles "PACEAntiPiracy\Eden\Fusion\Versions\6\bin\wraptool.exe")
-  ) | Where-Object { $_ -ne "" }
-  foreach ($candidate in $candidates) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      return (Resolve-Path -LiteralPath $candidate).Path
-    }
-  }
-  throw "PACE wraptool.exe is required to verify an AAX installer"
-}
-
-function Find-HyphaUninstallEntries {
-  $roots = @(
-    "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall",
-    "Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall",
-    "Registry::HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
-  )
-  $matches = @()
-  foreach ($root in $roots) {
-    if (!(Test-Path -LiteralPath $root)) { continue }
-    $matches += @(Get-ItemProperty -Path "$root\*" -ErrorAction SilentlyContinue | Where-Object {
-      $_.DisplayName -eq "Kirin Hypha"
-    })
-  }
-  return $matches
-}
-
-function Wait-PathState([string]$PathValue, [bool]$Present, [string]$Label) {
-  for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
-    if ((Test-Path -LiteralPath $PathValue) -eq $Present) { return }
-    Start-Sleep -Milliseconds 500
-  }
-  throw "Timed out waiting for ${Label}: $PathValue"
-}
-
-function Resolve-HyphaUninstaller([string]$Root) {
-  $uninstallers = @(Get-ChildItem -LiteralPath $Root -File -Filter "unins*.exe" -ErrorAction Stop)
-  if ($uninstallers.Count -ne 1) {
-    throw "Expected exactly one Kirin Hypha uninstaller, found $($uninstallers.Count)"
-  }
-  return $uninstallers[0].FullName
-}
-
-function Assert-Payload([string]$InstalledRoot, [string]$SourceRoot) {
-  $records = @()
-  foreach ($role in @("PRE", "POST")) {
-    $bundleName = "Kirin Hypha ${role}.vst3"
-    $relativeBinary = "Contents\x86_64-win\$bundleName"
-    $sourceBinary = Resolve-RequiredFile (Join-Path (Join-Path $SourceRoot $bundleName) $relativeBinary) "source $role binary"
-    $installedBinary = Resolve-RequiredFile (Join-Path (Join-Path $InstalledRoot $bundleName) $relativeBinary) "installed $role binary"
-    $sourceHash = Get-Sha256 $sourceBinary
-    $installedHash = Get-Sha256 $installedBinary
-    if ($sourceHash -ne $installedHash) {
-      throw "$role installed payload hash mismatch: $installedHash != $sourceHash"
-    }
-    $records += Get-SignatureRecord "installed $role VST3 binary" $installedBinary $Signing
-  }
-  return $records
-}
-
-function Assert-AaxPayload([string]$InstalledRoot, [string]$SourceRoot, [string]$Wraptool) {
-  $records = @()
-  foreach ($role in @("PRE", "POST")) {
-    $bundleName = "Kirin Hypha ${role}.aaxplugin"
-    $relativeBinary = "Contents\x64\$bundleName"
-    $sourceBinary = Resolve-RequiredFile (Join-Path (Join-Path $SourceRoot $bundleName) $relativeBinary) "source $role AAX binary"
-    $installedBinary = Resolve-RequiredFile (Join-Path (Join-Path $InstalledRoot $bundleName) $relativeBinary) "installed $role AAX binary"
-    $sourceHash = Get-Sha256 $sourceBinary
-    $installedHash = Get-Sha256 $installedBinary
-    if ($sourceHash -ne $installedHash) {
-      throw "$role installed AAX hash mismatch: $installedHash != $sourceHash"
-    }
-    $records += Get-SignatureRecord "installed $role AAX binary" $installedBinary "signed"
-    & $Wraptool verify --localonly --in $installedBinary
-    if ($LASTEXITCODE -ne 0) {
-      throw "PACE verification failed for installed $role AAX binary"
-    }
-  }
-  return $records
-}
 
 $installerPath = Resolve-RequiredFile $Installer "installer"
 $payloadPath = Resolve-RequiredDirectory $PayloadDir "installer payload"
 $manifestPath = Resolve-RequiredFile $Manifest "installer manifest"
 $manifestData = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $withAax = [bool]$manifestData.distribution.aax_included
-$previousInstallerPath = $null
-$previousVersion = $null
-if ($Signing -eq "signed") {
-  if ([string]::IsNullOrWhiteSpace($PreviousInstaller)) {
-    throw "-PreviousInstaller is required for signed release upgrade verification"
-  }
-  $previousInstallerPath = Resolve-RequiredFile $PreviousInstaller "previous public installer"
-  $previousVersion = [string](Get-Item -LiteralPath $previousInstallerPath).VersionInfo.FileVersion
-  $previousVersion = $previousVersion.Trim()
-  if ([string]::IsNullOrWhiteSpace($previousVersion) -or
-      [version]$previousVersion -ge [version]$manifestData.product.version) {
-    throw "Previous installer version must be older than $($manifestData.product.version): $previousVersion"
-  }
+$version = [string]$manifestData.product.version
+if ([string]::IsNullOrWhiteSpace($UpgradeFixture)) {
+  $UpgradeFixture = Join-Path $PSScriptRoot "fixtures/previous-public-installers.json"
+}
+$previousDir = $null
+if (![string]::IsNullOrWhiteSpace($PreviousInstallerDir)) {
+  $previousDir = Resolve-RequiredDirectory $PreviousInstallerDir "previous public installers"
+} elseif ($Signing -eq "signed") {
+  throw "Signed release verification requires -PreviousInstallerDir with the pinned previous public installers"
 }
 $vst3Root = if ($withAax) {
   Join-Path $env:CommonProgramFiles "VST3"
@@ -179,6 +51,7 @@ $uninstallRoot = if ($withAax) {
 } else {
   Join-Path $env:LOCALAPPDATA "Programs\Kirin Mastering\Kirin Hypha"
 }
+$cleanScope = if ($withAax) { "all-users" } else { "current-user" }
 function Verify-InstalledLegalDelivery {
   if ($null -eq $manifestData.legalDelivery) {
     if ($Signing -eq 'signed') { throw 'Signed installer legal delivery evidence is missing' }
@@ -203,10 +76,11 @@ $postBundle = Join-Path $vst3Root "Kirin Hypha POST.vst3"
 $preAaxBundle = Join-Path $aaxRoot "Kirin Hypha PRE.aaxplugin"
 $postAaxBundle = Join-Path $aaxRoot "Kirin Hypha POST.aaxplugin"
 $resolvedWraptool = if ($withAax) { Resolve-AaxWraptool $AaxWraptool } else { "" }
+$payloadHashes = Get-HyphaPayloadHashes $payloadPath $withAax
 
-. "$PSScriptRoot/installer_environment.ps1"
 Assert-HyphaInstallerEnvironment | Out-Null
 
+# Phase 1: fresh install on a clean machine, same-version reinstall and uninstall.
 New-Item -ItemType Directory -Force -Path $vst3Root | Out-Null
 $sentinel = Join-Path $vst3Root ("kirin-hypha-preserve-" + [Guid]::NewGuid().ToString("N") + ".txt")
 Set-Content -LiteralPath $sentinel -Value "unrelated VST3 sentinel" -Encoding utf8
@@ -222,20 +96,6 @@ $uninstallerPath = $null
 try {
   $records += Get-SignatureRecord "installer" $installerPath $Signing
   $installScope = if ($withAax) { "/ALLUSERS" } else { "/CURRENTUSER" }
-  if ($null -ne $previousInstallerPath) {
-    $previousInstall = Start-Process -FilePath $previousInstallerPath -ArgumentList @(
-      "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $installScope
-    ) -Wait -PassThru
-    if ($previousInstall.ExitCode -ne 0) {
-      throw "Previous installer failed with exit code $($previousInstall.ExitCode)"
-    }
-    Wait-PathState $preBundle $true "previous PRE bundle"
-    Wait-PathState $postBundle $true "previous POST bundle"
-    $uninstallerPath = Resolve-HyphaUninstaller $uninstallRoot
-    if (@(Find-HyphaUninstallEntries).Count -ne 1) {
-      throw "Expected one Kirin Hypha uninstall entry after previous-version install"
-    }
-  }
   foreach ($installPass in 1..2) {
     $process = Start-Process -FilePath $installerPath -ArgumentList @(
       "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $installScope
@@ -245,21 +105,20 @@ try {
     }
     Wait-PathState $preBundle $true "installed PRE bundle"
     Wait-PathState $postBundle $true "installed POST bundle"
-    $passRecords = @(Assert-Payload $vst3Root $payloadPath)
+    $passRecords = @(Assert-Payload $vst3Root $payloadPath $Signing)
     if ($withAax) {
       Wait-PathState $preAaxBundle $true "installed PRE AAX bundle"
       Wait-PathState $postAaxBundle $true "installed POST AAX bundle"
       $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool)
     }
+    Assert-HyphaResolvedPayload $payloadHashes $cleanScope "Fresh install pass $installPass" | Out-Null
+    Assert-HyphaRegistration $cleanScope $version "Fresh install pass $installPass" | Out-Null
     $uninstallerPath = Resolve-HyphaUninstaller $uninstallRoot
     Verify-InstalledLegalDelivery
     if ($installPass -eq 2) { $records += $passRecords }
   }
 
   $records += Get-SignatureRecord "installed uninstaller" $uninstallerPath $Signing
-  if (@(Find-HyphaUninstallEntries).Count -ne 1) {
-    throw "Expected exactly one Kirin Hypha uninstall registry entry after install"
-  }
 
   $uninstall = Start-Process -FilePath $uninstallerPath -ArgumentList @(
     "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
@@ -282,13 +141,6 @@ try {
   if (@(Find-HyphaUninstallEntries).Count -ne 0) {
     throw "Uninstaller left a Kirin Hypha registry entry"
   }
-
-  $expectedInstallerHash = [string]$manifestData.installer.sha256
-  if ((Get-Sha256 $installerPath) -ne $expectedInstallerHash) {
-    throw "Installer no longer matches its build manifest"
-  }
-  Write-HyphaInstallerQualification $manifestData $manifestPath $Signing $records $withAax $previousInstallerPath $previousVersion
-  Write-Host "[hypha-installer] repeat install/uninstall verification passed"
 } finally {
   if ($null -ne $uninstallerPath -and (Test-Path -LiteralPath $uninstallerPath -PathType Leaf)) {
     Start-Process -FilePath $uninstallerPath -ArgumentList @(
@@ -307,3 +159,17 @@ try {
     Remove-Item -LiteralPath $aaxSentinel -Force -ErrorAction SilentlyContinue
   }
 }
+
+# Phase 2: updates from the previous public releases as users installed them, kept separate
+# from the fresh-install phase and starting again from a verified clean machine.
+$upgradeMatrix = $null
+if ($null -ne $previousDir) {
+  $upgradeMatrix = Invoke-HyphaUpgradeMatrix $UpgradeFixture $previousDir $installerPath $payloadPath $version $withAax $Signing
+}
+
+$expectedInstallerHash = [string]$manifestData.installer.sha256
+if ((Get-Sha256 $installerPath) -ne $expectedInstallerHash) {
+  throw "Installer no longer matches its build manifest"
+}
+Write-HyphaInstallerQualification $manifestData $manifestPath $Signing $records $withAax $upgradeMatrix
+Write-Host "[hypha-installer] fresh install, repeat install, uninstall and upgrade verification passed"

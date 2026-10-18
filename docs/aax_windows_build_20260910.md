@@ -141,8 +141,11 @@ At the original 2026-09-10 checkpoint, the public Windows installer and source w
 so a prior-public-version upgrade was not yet possible. For each new candidate, read its version
 from `crates/hypha_pre/Cargo.toml` and independently verify the preceding public installer version;
 do not treat that historical version as the current source or release.
-`verify-installer.ps1` requires an explicit older installer for the AAX variant and rejects an equal
-or newer version, so a same-version reinstall cannot be mislabeled as an upgrade.
+`verify-installer.ps1` runs the fresh-install lifecycle first and then, as a separate phase, the
+previous-release matrix in `scripts/windows/fixtures/previous-public-installers.json`. Each pinned
+public installer is installed in its own default scope and left in place; the candidate itself must
+update or migrate it. A signed candidate requires that matrix and rejects pins that are not older,
+so a same-version reinstall cannot be mislabeled as an upgrade.
 
 ## Remaining release gates
 

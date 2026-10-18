@@ -431,9 +431,11 @@ HP publication reaches `RELEASED`; A7's public-installer/host smoke report is st
 
 ## Windows VST3 Channel
 
-The primary Windows package is `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`. It installs PRE and POST
-to Steinberg's standard per-user VST3 directory by default, supports an explicit all-users choice,
-and registers one product uninstaller without owning the shared VST3 root.
+The primary Windows package is `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`. It requires administrator
+permission and installs PRE and POST as VST3 and AAX for all users, removes the same user's older
+current-user PRE/POST copy first, and registers one product uninstaller without owning the shared VST3
+or AAX root. The VST3-only diagnostic installer installs for the current user by default and refuses
+that scope while an all-users copy exists.
 
 ### WIN-1: CI build and signing
 

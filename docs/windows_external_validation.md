@@ -100,12 +100,28 @@ installer uses the all-users installation scope; the automated lifecycle uses `/
 Repeat the installer once before DAW testing to exercise same-version update behavior. Both passes
 must complete without manual VST3 folder selection.
 
-For an upgrade test, begin separately from the preceding public Windows release by installing its
-signed installer. Open and save one DAW session containing
-both roles, close the DAW, then run the candidate installer. Reopen that session and confirm that the
-candidate replaces both owned bundles, preserves the session identities and pair selection, and does
-not alter unrelated VST3 files. Record the old and new versions and both payload hashes in the
+For an upgrade test, begin separately from the preceding public Windows releases by installing their
+signed installers in the scopes users received by default: an earlier VST3-only release installs for
+the current user, a VST3 + AAX release for all users. Test each relevant starting state separately,
+including both copies present at once. Leave the old copies, registrations and scopes in place: the
+candidate installer itself must update or migrate them, so never move an old bundle aside before
+the candidate runs. Open and save one DAW session containing both roles, close the DAW, then run the
+candidate installer. Reopen that session and confirm that the candidate replaces both owned bundles,
+removes only this user's own older current-user PRE/POST copy, preserves the session identities and
+pair selection, and does not alter unrelated VST3 files or other Windows accounts. Record, from the
+running DAW and its plug-in scanner, the path and SHA-256 of every Kirin Hypha binary actually
+loaded; every loaded path and hash must be the candidate's. Record the old and new versions in the
 external-validation report. Same-version reinstall does not substitute for this upgrade test.
+
+Setup removes the older current-user PRE/POST bundles and then that copy's registration itself. It
+never runs the older per-user uninstaller from the user-writable profile, so that uninstaller's files
+stay unregistered in `%LOCALAPPDATA%\Programs\Kirin Mastering\Kirin Hypha`. If an older current-user
+bundle cannot be removed (for example a DAW still holds it), Setup stops before installing anything
+new, keeps the older registration, and asks to close every DAW and plug-in scanner; running it again
+completes the update. Cancelling during file copying leaves Kirin Hypha uninstalled until Setup runs again;
+settings and DAW projects are kept. Setup cannot see another Windows account's current-user copy, or
+the copy of the signed-in user when Setup is elevated with a different administrator account; that
+account removes its own copy from Windows Settings.
 
 Expected installed paths for the full installer:
 
@@ -117,8 +133,10 @@ Expected installed paths for the full installer:
 ```
 
 A separate VST3-only diagnostic installer may support current-user installation. It does not
-qualify the full AAX installer. Check for stale current-user copies before a full installation;
-preserve and restore an existing installation using the approved procedure rather than deleting it.
+qualify the full AAX installer, and it refuses a current-user installation while an all-users copy
+exists. Before an independent fresh-install test, preserve and restore an existing installation using
+the approved procedure rather than deleting it; for an upgrade test keep the old copies as described
+above.
 
 Do not clear `%TEMP%\kirin` or Kirin OS `plugin_data` globally. Use owned test sessions and an
 isolated QA storage plan. Establish the storage environment for every scanner/broker and host

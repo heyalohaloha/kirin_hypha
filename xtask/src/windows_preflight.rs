@@ -1,6 +1,13 @@
 use crate::windows_vst3_layout;
 use anyhow::{bail, Result};
 
+/// Pre-build installer source check and previous-release upgrade verification.
+pub(crate) const INSTALLER_UPGRADE_STEPS: [&str; 3] = [
+    "scripts/windows/check_installer_sources.ps1",
+    "scripts/windows/download_previous_installers.ps1",
+    "-PreviousInstallerDir",
+];
+
 const JUCE_CMAKE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../juce_shell/CMakeLists.txt"
@@ -291,6 +298,13 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "scripts/windows/verify-installer.ps1",
         "Windows preflight job must run the installer verification script",
     )?;
+    for needle in INSTALLER_UPGRADE_STEPS {
+        require(
+            job_code,
+            needle,
+            &format!("Windows preflight job must run {needle}"),
+        )?;
+    }
     require(
         job_code,
         "name: kirin-hypha-windows-installer",
