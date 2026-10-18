@@ -411,7 +411,9 @@ entry routes. The release coordinator changes two data files and verifies the pa
   copy and the update guidance; a literal release number in them stops for review.
 
 The source templates retain version/date/notes tokens; the HP build renders the central record. The HP
-tests read the version, date and notices from the same records, so they need no per-release edit. Before
+tests read the version, date and notices from the same records, so they need no per-release edit. A new
+release must be dated after the current one and not after today in Tokyo, so a second release on the
+same day (a same-day hotfix) stops at the HP preflight and needs a reviewed date decision. Before
 signing, run the whole HP suite on a disposable checkout with the next version's values (see
 `node --test scripts/ls_release/hypha_release_hp.test.mjs` for the update itself).
 Do not replace its download routes with direct links or invent integrity values. The coordinator
@@ -436,9 +438,9 @@ HP publication reaches `RELEASED`; A7's public-installer/host smoke report is st
 ## Windows VST3 Channel
 
 The primary Windows package is `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`. It requires administrator
-permission and installs PRE and POST as VST3 and AAX for all users, removes the same user's older
-current-user PRE/POST copy first, and registers one product uninstaller without owning the shared VST3
-or AAX root. The VST3-only diagnostic installer installs for the current user by default and refuses
+permission and installs PRE and POST as VST3 and AAX for all users, first removes the older
+current-user PRE/POST copy of the Windows user who started it (as that user), and registers one product
+uninstaller without owning the shared VST3 or AAX root. The VST3-only diagnostic installer installs for the current user by default and refuses
 that scope while an all-users copy exists.
 
 ### WIN-1: CI build and signing

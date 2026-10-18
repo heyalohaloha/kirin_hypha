@@ -112,7 +112,8 @@ function Remove-HyphaScenarioState {
 }
 
 # Unrelated files that every scenario must leave untouched: other products, diagnostics whose
-# names also begin with "Kirin Hypha", and the per-user settings/records Hypha writes.
+# names also begin with "Kirin Hypha", the per-user settings/records Hypha and Kirin OS write, and
+# DAW projects.
 function New-HyphaPreservedSet {
   $id = [Guid]::NewGuid().ToString("N")
   $files = @()
@@ -124,6 +125,10 @@ function New-HyphaPreservedSet {
   $files += Join-Path $env:APPDATA "Kirin\Kirin Hypha\installer-qa-$id.txt"
   $files += Join-Path $env:APPDATA "Kirin Hypha\UpdateCheck\v1\installer-qa-$id.txt"
   $files += Join-Path $env:LOCALAPPDATA "Kirin OS\plugin_data\installer-qa-$id.txt"
+  $files += Join-Path $env:APPDATA "Kirin OS\installer-qa-$id.txt"
+  # DAW projects that use both roles, as a user would keep them in Documents.
+  $projects = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Kirin Hypha installer QA-$id"
+  $files += @("Studio Pro\Kirin Hypha QA.song", "Pro Tools\Kirin Hypha QA.ptx", "REAPER\Kirin Hypha QA.RPP") | ForEach-Object { Join-Path $projects $_ }
   $created = @()
   foreach ($file in $files) {
     $directory = [System.IO.Path]::GetDirectoryName($file)
@@ -144,8 +149,11 @@ function Assert-HyphaPreservedSet($Set, [string]$Label) {
   }
 }
 
+# Newest first, so a folder shared by several files is empty when its first creator is reached.
 function Remove-HyphaPreservedSet($Set) {
-  foreach ($item in $Set) {
+  $items = @($Set)
+  [array]::Reverse($items)
+  foreach ($item in $items) {
     Remove-Item -LiteralPath $item.file -Force -ErrorAction SilentlyContinue
     foreach ($dir in $item.directories) {
       if ((Test-Path -LiteralPath $dir) -and @(Get-ChildItem -LiteralPath $dir -Force -Recurse -File).Count -eq 0) {
@@ -206,7 +214,15 @@ function Invoke-HyphaUpgradeScenario($Scenario, $Fixture, [string]$PreviousDir, 
     }
     else {
       if ($Scenario.expect -eq "refused-while-locked-then-replaced") {
-        $locked = Join-Path $env:LOCALAPPDATA "Programs\Common\VST3\Kirin Hypha PRE.vst3\Contents\x86_64-win\Kirin Hypha PRE.vst3"
+        # Hold one role's binary as a DAW would. Setup must stop with the older copy untouched:
+        # both bundles byte for byte, its registration, and nothing new for all users.
+        $userVst3 = Join-Path $env:LOCALAPPDATA "Programs\Common\VST3"
+        $heldRole = [string]$Scenario.lock_role
+        if ($heldRole -cnotin @("PRE", "POST")) { throw "Scenario $($Scenario.id) names no lock_role" }
+        $olderCopy = @(Get-ChildItem -LiteralPath $userVst3 -Recurse -Force -File | Where-Object { $_.FullName -match '\\Kirin Hypha (PRE|POST)\.vst3\\' } |
+          ForEach-Object { [pscustomobject]@{ file = $_.FullName; sha256 = Get-Sha256 $_.FullName } })
+        if ($olderCopy.Count -eq 0) { throw "Scenario $($Scenario.id): no older current-user copy to hold" }
+        $locked = Join-Path $userVst3 "Kirin Hypha $heldRole.vst3\Contents\x86_64-win\Kirin Hypha $heldRole.vst3"
         $lock = [System.IO.File]::Open($locked, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
         $exitCode = Invoke-HyphaSetup $Installer $Scenario.new_scope (Join-Path $LogDir "$($Scenario.id)-locked.log")
         # Release the lock before reading: hashing the held file would itself fail.
@@ -215,10 +231,14 @@ function Invoke-HyphaUpgradeScenario($Scenario, $Fixture, [string]$PreviousDir, 
         if (@(Get-HyphaPluginResolution | Where-Object { $_.scope -eq "all-users" -and $_.format -eq "VST3" }).Count -ne 0) {
           throw "Scenario $($Scenario.id): Setup installed the all-users copy while the current-user copy remained"
         }
-        # The old entry stays while any of its files remain, so the user can see it and run Setup again.
+        Assert-HyphaPreservedSet $olderCopy "Scenario $($Scenario.id) refused (older current-user copy left intact)"
+        if (@(Get-ChildItem -LiteralPath $userVst3 -Force | Where-Object { $_.Name -like "*.kirin-hypha-removing" }).Count -ne 0) {
+          throw "Scenario $($Scenario.id): a refused migration left a renamed copy"
+        }
         if (@(Find-HyphaUninstallEntries | Where-Object { $_.scope -eq "current-user" }).Count -ne 1) {
           throw "Scenario $($Scenario.id): a refused migration removed the current-user registration"
         }
+        $result.locked_role = $heldRole
         $result.locked_exit_code = $exitCode
       }
       foreach ($pass in 1..2) {
@@ -228,6 +248,10 @@ function Invoke-HyphaUpgradeScenario($Scenario, $Fixture, [string]$PreviousDir, 
         $registration = Assert-HyphaRegistration $newScope $Version "Scenario $($Scenario.id) pass $pass"
         Assert-HyphaPreservedSet $preserved "Scenario $($Scenario.id) pass $pass"
         Assert-HyphaPreservedSet $userUninstaller "Scenario $($Scenario.id) pass $pass (old per-user uninstaller files, never run or removed)"
+        $userVst3Root = Join-Path $env:LOCALAPPDATA "Programs\Common\VST3"
+        if ((Test-Path -LiteralPath $userVst3Root) -and @(Get-ChildItem -LiteralPath $userVst3Root -Force | Where-Object { $_.Name -like "*.kirin-hypha-removing" }).Count -ne 0) {
+          throw "Scenario $($Scenario.id) pass ${pass}: the migration left a renamed copy"
+        }
       }
       $result.resolved = @($resolved | ForEach-Object { [ordered]@{ format = $_.format; role = $_.role; location = $_.location; sha256 = $_.sha256 } })
       $result.registration = [ordered]@{ scope = $registration.scope; display_version = $registration.display_version }

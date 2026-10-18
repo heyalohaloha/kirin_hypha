@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { SCRIPT_PATH as cleanupScriptPath, cleanupScript, embeddedBlock as embeddedCleanupBlock,
+  generatedBlock as generatedCleanupBlock } from './installer_user_cleanup.mjs';
 
 import {
   VERSION,
@@ -327,7 +329,7 @@ test('installer verifier gates fresh install, reinstall, signatures, upgrades an
   assert.match(payload, /foreach \(\$line in \$output\) \{ Write-Host/);
 });
 
-test('Inno recipe migrates only this user\'s exact older copy before an all-users install', () => {
+test('Inno recipe removes the starting user\'s exact older copy as that user before an all-users install', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'kirin-hypha-installer.iss'), 'utf8');
   const code = source.slice(source.indexOf('[Code]'));
   const appId = source.match(/^AppId=\{(\{[0-9A-F-]{36}\})$/m)?.[1];
@@ -335,26 +337,55 @@ test('Inno recipe migrates only this user\'s exact older copy before an all-user
   assert.ok(code.includes(`HyphaUninstallKey = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${appId}_is1';`));
   const payload = fs.readFileSync(path.join(scriptDir, 'installer_payload.ps1'), 'utf8');
   assert.ok(payload.includes(`$HyphaAppUninstallKey = '${appId}_is1'`));
+  const cleanup = fs.readFileSync(cleanupScriptPath, 'utf8');
+  assert.ok(cleanup.includes(`'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${appId}_is1'`));
   assert.match(code, /function PrepareToInstall\(var NeedsRestart: Boolean\): String;/);
-  assert.match(code, /if IsAdminInstallMode then[\s\S]*HyphaRemoveCurrentUserCopy[\s\S]*else if HyphaAllUsersCopyFound then/);
+  assert.match(code, /if IsAdminInstallMode then[\s\S]*HyphaUserCleanupRemoveCommand[\s\S]*else if HyphaAllUsersCopyFound then/);
   assert.match(code, /function UpdateReadyMemo\(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,\s+MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String\): String;/);
-  // Exact PRE/POST names in this user's own VST3 folder; never wildcards, other profiles or roots.
-  assert.match(code, /ExpandConstant\('\{localappdata\}\\Programs\\Common\\VST3\\Kirin Hypha '\) \+ Role \+ '\.vst3'/);
-  assert.equal((code.match(/DelTree\(/g) || []).length, 1);
-  assert.match(code, /DelTree\(HyphaCurrentUserVst3Bundle\(Role\), True, True, True\)/);
-  assert.doesNotMatch(code, /'[^'\n]*\*[^'\n]*'|C:\\Users|ProfileList|\{userappdata\}|\{commonappdata\}|HKEY_USERS|DeleteFile\(/);
-  assert.deepEqual(code.match(/RegDeleteKeyIncludingSubkeys\([^)]*\)/g), ['RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, HyphaUninstallKey)']);
-  // The elevated Setup never runs or deletes anything from the user-writable profile except the two
-  // exact bundles: no Exec of the registered per-user uninstaller (a planted exe would run as admin).
-  assert.doesNotMatch(code, /\bExec(AsOriginalUser)?\(|ShellExec|UninstallString|RenameFile|unins[0-9?]|'unins/i);
-  // The registration goes only after both bundles are gone, so a refused update keeps the old entry.
-  const removal = code.slice(code.indexOf('function HyphaRemoveCurrentUserCopy'), code.indexOf('function HyphaAllUsersCopyFound'));
-  assert.ok(removal.indexOf('DelTree(') > 0 && removal.indexOf('DelTree(') < removal.indexOf('RegDeleteKeyIncludingSubkeys('));
-  assert.match(removal, /if HyphaCurrentUserBundlesPresent then[\s\S]*HyphaMigrationFailed[\s\S]*Exit;[\s\S]*RegDeleteKeyIncludingSubkeys/);
-  assert.doesNotMatch(code, /Sleep\(/);
-  for (const name of ['HyphaMigrationReadyMemo', 'HyphaMigrationFailed', 'HyphaAllUsersPresent']) {
+  // The embedded command is exactly the reviewed script, for both modes.
+  assert.equal(embeddedCleanupBlock(source), generatedCleanupBlock());
+  // The only process the recipe starts: Windows PowerShell from System32, as the user who started Setup.
+  assert.deepEqual(code.match(/\b(Exec|ExecAsOriginalUser|ShellExec|ShellExecAsOriginalUser|ExecAndLogOutput|ExecAndCaptureOutput)\(/g), ['ExecAsOriginalUser(']);
+  assert.match(code, /ExecAsOriginalUser\(ExpandConstant\('\{sys\}\\WindowsPowerShell\\v1\.0\\powershell\.exe'\),\s+'-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' \+ Command,/);
+  // The elevated recipe itself deletes nothing in a user profile: no file, folder or registry removal.
+  assert.doesNotMatch(code, /DelTree\(|DeleteFile\(|RemoveDir\(|RenameFile\(|RegDelete|\{localappdata\}|\{userappdata\}|HKEY_CURRENT_USER|Sleep\(/);
+  // In use: nothing changed. Could not finish, or never checked: nothing new installed. All stop with exit code 7.
+  assert.match(code, /if Code = HyphaUserCopyInUse then\s+Result := CustomMessage\('HyphaMigrationInUse'\)\s+else if \(Code = 21\) or \(Code = 22\) or \(Code = 30\) then\s+Result := CustomMessage\('HyphaMigrationFailed'\)\s+else if Code <> 0 then\s+Result := CustomMessage\('HyphaMigrationUnchecked'\);/);
+  const cleanupCodes = [...fs.readFileSync(cleanupScriptPath, 'utf8').matchAll(/\bexit (\d+)/g)].map((m) => Number(m[1]));
+  assert.deepEqual([...new Set(cleanupCodes)].sort((a, b) => a - b), [0, 10, 20, 21, 22, 30, 31]);
+  for (const name of ['HyphaMigrationReadyMemo', 'HyphaMigrationInUse', 'HyphaMigrationFailed', 'HyphaMigrationUnchecked', 'HyphaAllUsersPresent']) {
     for (const language of ['english', 'japanese']) assert.match(source, new RegExp(`^${language}\\.${name}=\\S`, 'm'));
   }
+});
+
+test('Inno reads the recipe as UTF-8: valid UTF-8 without a BOM and a compiler from 6.3.0 on', () => {
+  // Inno Setup 6.3.0 added UTF-8 without a BOM for .iss files and no longer recommends a BOM
+  // (https://jrsoftware.org/files/is6-whatsnew.htm). Japanese messages depend on this reading.
+  const bytes = fs.readFileSync(path.join(scriptDir, 'kirin-hypha-installer.iss'));
+  assert.notDeepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+  assert.doesNotThrow(() => new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  assert.match(bytes.toString('utf8'), /^japanese\.HyphaMigrationInUse=.*[\u3040-\u30ff]/m);
+  const workflow = fs.readFileSync(path.join(scriptDir, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  const versions = [...workflow.matchAll(/gh release download is-(\d+)_(\d+)_(\d+) --repo jrsoftware\/issrc/g)].map((m) => m.slice(1).map(Number));
+  assert.ok(versions.length > 0);
+  for (const [major, minor] of versions) assert.ok(major > 6 || (major === 6 && minor >= 3), `${major}.${minor}`);
+});
+
+test('the per-user cleanup script renames both bundles before deleting and touches only exact names', () => {
+  const script = fs.readFileSync(cleanupScriptPath, 'utf8');
+  assert.doesNotMatch(script, /[^\x09\x0a\x0d\x20-\x7e]/);
+  assert.equal(cleanupScript('check', script).split('\r\n')[0], "$Mode = 'check'");
+  assert.throws(() => cleanupScript('other', script), /unknown cleanup mode/);
+  // Windows PowerShell 5.1 only: no PowerShell 7 syntax.
+  assert.doesNotMatch(script, /\?\?|\?\.|\s\?\s[^:]*\s:\s|&&|\|\||-Parallel|ForEach-Object -Parallel/);
+  assert.match(script, /Join-Path \$env:LOCALAPPDATA 'Programs\\Common\\VST3'/);
+  assert.match(script, /'Kirin Hypha ' \+ \$Role \+ '\.vst3'/);
+  assert.doesNotMatch(script, /\*|Get-ChildItem|Remove-Item -LiteralPath \$(bundle|root)|-Recurse -Force -LiteralPath \$root/);
+  // Rename both, roll back on failure, then delete with rd (which never follows links).
+  const order = ['Rename-Item -LiteralPath $bundle', 'Rename-Item -LiteralPath (Get-HyphaUserStaged $done)', 'Remove-HyphaUserTree (Get-HyphaUserStaged $_)', 'Remove-Item -LiteralPath $key'].map((text) => script.indexOf(text));
+  assert.ok(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1])), order.join(','));
+  assert.match(script, /& \$cmd \/d \/c rd \/s \/q \$Path/);
+  assert.match(script, /Join-Path \$env:SystemRoot 'System32\\cmd\.exe'/);
 });
 
 test('previous public installer pins drive a separate upgrade and scope-migration matrix', () => {
@@ -383,7 +414,12 @@ test('previous public installer pins drive a separate upgrade and scope-migratio
   const defaultCurrentUser = fixture.installers.filter((entry) => entry.default_scope === 'current-user').map((e) => e.version);
   assert.ok(required.some((s) => s.previous.length === 1 && defaultCurrentUser.includes(s.previous[0].version) && s.previous[0].scope === 'default'));
   assert.ok(required.some((s) => s.previous.length === 2 && s.previous.every((step) => step.scope === 'default')));
-  assert.ok(required.some((s) => s.expect === 'refused-while-locked-then-replaced'));
+  // A held PRE and a held POST each stop Setup with the older copy intact, then the retry completes.
+  const locked = required.filter((s) => s.expect === 'refused-while-locked-then-replaced').map((s) => s.lock_role).sort();
+  assert.deepEqual(locked, ['POST', 'PRE']);
+  for (const scenario of fixture.scenarios) {
+    assert.equal(scenario.expect === 'refused-while-locked-then-replaced', ['PRE', 'POST'].includes(scenario.lock_role), scenario.id);
+  }
   assert.ok(required.every((s) => s.new_scope === 'all-users' && !s.vst3_only_installer));
   const download = fs.readFileSync(path.join(scriptDir, 'download_previous_installers.ps1'), 'utf8');
   assert.match(download, /\$item\.Length -ne \[long\]\$entry\.bytes -or \$hash -cne \$entry\.sha256/);

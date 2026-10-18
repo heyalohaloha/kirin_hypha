@@ -1,5 +1,6 @@
-# Fast pre-build gate: parse every Windows PowerShell script, run the installer record fixture and
-# compile both installer variants from inert payload folders. Nothing is installed or signed.
+# Fast pre-build gate: parse every Windows PowerShell script, run the installer record and per-user
+# cleanup fixtures and compile both installer variants from inert payload folders. Nothing is
+# installed or signed.
 $ErrorActionPreference = "Stop"
 foreach ($script in Get-ChildItem -LiteralPath $PSScriptRoot -Filter "*.ps1") {
   $errors = $null
@@ -11,6 +12,11 @@ foreach ($script in Get-ChildItem -LiteralPath $PSScriptRoot -Filter "*.ps1") {
 
 pwsh -NoProfile -File (Join-Path $PSScriptRoot "installer_payload_fixture.ps1")
 if ($LASTEXITCODE -ne 0) { throw "Installer payload record fixture failed" }
+# The recipe must embed the current per-user cleanup script, which then runs on Windows PowerShell 5.1.
+node (Join-Path $PSScriptRoot "installer_user_cleanup.mjs")
+if ($LASTEXITCODE -ne 0) { throw "The recipe's embedded per-user cleanup script is stale" }
+pwsh -NoProfile -File (Join-Path $PSScriptRoot "installer_user_cleanup_fixture.ps1")
+if ($LASTEXITCODE -ne 0) { throw "Per-user cleanup fixture failed" }
 
 $iscc = $env:ISCC_PATH
 if ([string]::IsNullOrWhiteSpace($iscc) -or !(Test-Path -LiteralPath $iscc -PathType Leaf)) {

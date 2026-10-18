@@ -28,9 +28,12 @@ function Assert-HyphaSignatureRecords($records, [bool]$withAax, [string]$Signing
     if ($found.Count -ne 1) { throw "Expected one signature record for $role, found $($found.Count)" }
     $record = $found[0]
     if ([string]$record.sha256 -notmatch '^[0-9a-f]{64}$') { throw "Signature record for $role has no SHA-256" }
-    $expectedStatus = if ($Signing -eq "signed") { "Valid" } else { "NotSigned" }
+    # AAX binaries are always PACE + Authenticode signed before packaging (Assert-AaxPayload), so an
+    # unsigned rehearsal installer carries signed AAX records and unsigned records for the rest.
+    $signedRole = $Signing -eq "signed" -or $role -like "installed * AAX binary"
+    $expectedStatus = if ($signedRole) { "Valid" } else { "NotSigned" }
     if ($record.status -cne $expectedStatus) { throw "Signature record for $role is $($record.status), not $expectedStatus" }
-    if ($Signing -eq "signed") {
+    if ($signedRole) {
       foreach ($field in @("signer_subject", "signer_thumbprint", "timestamp_subject", "timestamp_thumbprint")) {
         if ([string]::IsNullOrWhiteSpace([string]$record[$field])) { throw "Signature record for $role has no $field" }
       }

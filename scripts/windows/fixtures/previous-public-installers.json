@@ -42,7 +42,15 @@
       "id": "current-user-1.1.50-locked-then-retried",
       "previous": [{ "version": "1.1.50", "scope": "default" }],
       "new_scope": "all-users",
-      "expect": "refused-while-locked-then-replaced"
+      "expect": "refused-while-locked-then-replaced",
+      "lock_role": "PRE"
+    },
+    {
+      "id": "current-user-1.1.50-post-locked-then-retried",
+      "previous": [{ "version": "1.1.50", "scope": "default" }],
+      "new_scope": "all-users",
+      "expect": "refused-while-locked-then-replaced",
+      "lock_role": "POST"
     },
     {
       "id": "current-user-install-beside-all-users-1.1.51",
@@ -56,6 +64,7 @@
     "current-user-1.1.50-to-all-users",
     "current-user-1.1.50-beside-all-users-1.1.51",
     "all-users-1.1.51",
-    "current-user-1.1.50-locked-then-retried"
+    "current-user-1.1.50-locked-then-retried",
+    "current-user-1.1.50-post-locked-then-retried"
   ]
 }

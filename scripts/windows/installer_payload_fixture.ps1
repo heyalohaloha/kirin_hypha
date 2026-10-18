@@ -133,6 +133,27 @@ try {
   Reject "upgrade matrix without fixture hash" { Write-HyphaInstallerQualification (& $fresh) $manifestFile "signed" $six $true ([ordered]@{ scenarios = $matrix.scenarios }) } "fixture SHA-256"
   Reject "scenario list instead of a matrix" { Write-HyphaInstallerQualification (& $fresh) $manifestFile "signed" $six $true @($matrix.scenarios) } "fixture SHA-256"
   Reject "upgrade matrix without scenarios" { Write-HyphaInstallerQualification (& $fresh) $manifestFile "signed" $six $true ([ordered]@{ fixture_sha256 = $matrix.fixture_sha256; scenarios = @() }) } "ran no scenarios"
+  # Rehearsal before Authenticode signing: an unsigned installer, unsigned VST3 and uninstaller, and
+  # the already signed AAX. Accepted as an unsigned candidate only; the release reader refuses it.
+  $unsignedRecord = { param($Role) [ordered]@{ role = $Role; file_name = "unsigned.bin"; status = "NotSigned"; sha256 = Get-Sha256 $unsigned } }
+  $rehearsal = @(& $unsignedRecord "installer") + @(& $unsignedRecord "installed PRE VST3 binary") +
+    @(& $unsignedRecord "installed POST VST3 binary") + @(Assert-AaxPayload $installed $source $paceOk) +
+    @(& $unsignedRecord "installed uninstaller")
+  Write-HyphaInstallerQualification (& $fresh) $manifestFile "unsigned" $rehearsal $true $matrix
+  $written = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json
+  if ($written.signing.status -cne "verified_unsigned_ci_candidate" -or $written.distribution.public_ready -ne $false) {
+    throw "A rehearsal with signed AAX must stay an unsigned, non-public candidate"
+  }
+  Push-Location $repoRoot
+  try {
+    & node --input-type=module -e "import fs from 'node:fs'; import { requireValidSigningTargets } from './scripts/ls_release/build_kirin_hypha_release_set.mjs'; try { requireValidSigningTargets(JSON.parse(fs.readFileSync(process.argv[1], 'utf8').replace(/^\uFEFF/, '')), { requireAax: true }); process.exit(0); } catch (error) { process.exit(/Authenticode verification is incomplete for installer/.test(error.message) ? 3 : 4); }" $manifestFile
+    if ($LASTEXITCODE -ne 3) { throw "The release-set validator accepted an unsigned rehearsal" }
+  } finally { Pop-Location }
+  $script:passed += 1
+  $unsignedAax = @($rehearsal[0..2]) + @(& $unsignedRecord "installed PRE AAX binary") + @($rehearsal[4..5])
+  Reject "unsigned AAX in a rehearsal" { Write-HyphaInstallerQualification (& $fresh) $manifestFile "unsigned" $unsignedAax $true $matrix } "installed PRE AAX binary is NotSigned, not Valid"
+  $signedInstaller = @(Get-SignatureRecord "installer" $sample "signed") + @($rehearsal[1..5])
+  Reject "signed installer in an unsigned run" { Write-HyphaInstallerQualification (& $fresh) $manifestFile "unsigned" $signedInstaller $true $matrix } "installer is Valid, not NotSigned"
   Write-Host "[hypha-payload-fixture] $($script:passed) checks passed"
 }
 finally {
