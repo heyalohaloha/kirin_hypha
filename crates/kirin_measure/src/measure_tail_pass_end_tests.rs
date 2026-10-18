@@ -64,9 +64,10 @@ fn tone(rate: u32, frames: usize) -> Vec<f32> {
         .collect()
 }
 
-/// The positions of the measured TRACE slots that a Stop tail of `take_blocks` take callbacks
-/// and `later_blocks` callbacks of a later pass (the host's LOOP back to the start) emits.
-fn tail_slots(rate: u32, take_blocks: i64, later_blocks: i64) -> Vec<i64> {
+/// The measured TRACE slots (position, and whether Phase D completed them) that a Stop tail of
+/// `take_blocks` take callbacks and `later_blocks` callbacks of a later pass (the host's LOOP back
+/// to the start) emits.
+fn tail_slots(rate: u32, take_blocks: i64, later_blocks: i64) -> Vec<(i64, bool)> {
     let block = block(rate);
     let tracker = RecordTakeTracker::new();
     for index in 0..take_blocks {
@@ -150,7 +151,12 @@ fn tail_slots(rate: u32, take_blocks: i64, later_blocks: i64) -> Vec<i64> {
     drain_record_trace_queue(&queue)
         .iter()
         .filter(|sample| sample.has_measured_core())
-        .filter_map(|sample| sample.position_samples)
+        .filter_map(|sample| {
+            // A slot is complete with its Phase D half (N', Sharpness, PSB).
+            let phase_d =
+                sample.result.n_prime_total.is_some() && sample.result.sharpness.is_some();
+            sample.position_samples.map(|position| (position, phase_d))
+        })
         .collect()
 }
 
@@ -164,8 +170,12 @@ fn a_take_that_ends_inside_the_stop_tail_keeps_its_last_slot_at_every_rate() {
         let then_later = tail_slots(rate, take_blocks, 30);
         assert_eq!(
             alone.last(),
-            Some(&(take_blocks * block(rate))),
-            "{rate} Hz: a take that ends the tail emits its last slot"
+            Some(&(take_blocks * block(rate), true)),
+            "{rate} Hz: a take that ends the tail emits its last slot with Phase D"
+        );
+        assert!(
+            alone.iter().all(|(_, phase_d)| *phase_d),
+            "{rate} Hz: every slot has Phase D: {alone:?}"
         );
         assert_eq!(
             then_later, alone,

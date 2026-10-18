@@ -946,12 +946,12 @@ pub fn spawn_measure_thread(
                     offset_native_frames: record_trace_native_frame_offset,
                     origin_position_samples: record_origin_position_samples,
                 };
-                // The TRACE pass ended: a later pass of the Keep begins or the take jumps. Close it
-                // as Stop does before this chunk enters the resampler (INV-R10).
-                if is_recording
-                    && (record_grid_cursor.is_some() || !record_core_pending.is_empty())
-                    && (!record_take || capture_plan.position_start_samples != record_grid_cursor)
-                {
+                // The TRACE pass ended: a later pass of the Keep begins, or the take begins a new
+                // pass on a position. Close it as Stop does before this chunk enters the resampler.
+                let new_take_pass = capture_plan.position_start_samples.is_some()
+                    && capture_plan.position_start_samples != record_grid_cursor;
+                let pass_left = record_grid_cursor.is_some() || !record_core_pending.is_empty();
+                if is_recording && (record_take && new_take_pass || !record_take && pass_left) {
                     record_grid_cursor = None;
                     let cursor = RecordTraceCursor {
                         next_trace_ms: &mut next_record_trace_ms,

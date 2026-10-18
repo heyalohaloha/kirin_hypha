@@ -217,6 +217,11 @@ fn keep_whose_trace_pass_ends(
         assert!(Instant::now() < deadline, "{tag}: ARMED");
         host.play(&pre, &post, false);
     }
+    // An arming that lands on the LOOP's last callback starts the take after the wrap: it still
+    // plays to the next wrap.
+    if host.wrapped {
+        host.play(&pre, &post, false);
+    }
     // The TRACE pass plays on for over a second and ends on the 100 ms grid (ten callbacks).
     let pass_end = match host.loop_end {
         Some(loop_end) => loop_end,
