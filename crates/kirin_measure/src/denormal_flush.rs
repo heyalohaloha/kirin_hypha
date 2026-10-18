@@ -16,7 +16,13 @@ pub(crate) fn flush_denormals_on_this_thread() {
     #[cfg(target_arch = "x86_64")]
     #[allow(deprecated)]
     // SAFETY: only the FTZ (bit 15) and DAZ (bit 6) flags of this thread's MXCSR change; the
-    // rounding mode and exception masks stay as they are.
+    // rounding mode and exception masks stay as they are. Rust deprecates `_mm_setcsr` because
+    // the compiler assumes the default floating-point environment, and documents a DAZ change as
+    // undefined behaviour. This is an accepted deviation, as audio software commonly does (JUCE's
+    // ScopedNoDenormals sets the same flags): the change happens once, first on the thread, before
+    // any measurement code runs; the thread runs only this crate's measurement (no DAW audio path);
+    // and the figures it measures are tested equal to those of a default thread. Flushing the
+    // Phase D filter states in the algorithm itself would remove the deviation.
     unsafe {
         use std::arch::x86_64::{_mm_getcsr, _mm_setcsr};
         _mm_setcsr(_mm_getcsr() | 0x8040);
