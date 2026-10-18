@@ -10,8 +10,10 @@
 use crate::record_spool::MeasureSampleConsumer;
 
 /// Pops queued Watch samples without measuring them (stop, bypass, a playback-pass cutover).
-/// `until` stops at that per-pass sample count; `None` drains what is queued. A pending skip past
-/// the last Keep applies to the discarded frames too.
+/// `until` stops at that per-pass sample count; `None` drains what is queued. Only whole frames
+/// leave: the Audio Thread pushes one sample at a time, so the queue may end inside a frame, and
+/// splitting it would shift the index and swap the channels of every later frame. A pending skip
+/// past the last Keep applies to the discarded frames too.
 pub(super) fn discard_watch_samples(
     consumer: &mut MeasureSampleConsumer,
     consumed_samples: &mut u64,
@@ -20,11 +22,11 @@ pub(super) fn discard_watch_samples(
     until: Option<u64>,
     resume: &mut Option<WatchResume>,
 ) -> usize {
-    let limit = until.map_or(consumer.slots(), |cutover| {
-        cutover
-            .saturating_sub(*consumed_samples)
-            .min(usize::MAX as u64) as usize
+    let queued = consumer.slots();
+    let limit = until.map_or(queued, |cutover| {
+        cutover.saturating_sub(*consumed_samples).min(queued as u64) as usize
     });
+    let limit = limit - limit % n_channels.max(1);
     let mut drained = 0_usize;
     while drained < limit && consumer.pop().is_ok() {
         *consumed_samples = (*consumed_samples).saturating_add(1);
@@ -152,6 +154,40 @@ mod tests {
             4
         );
         assert_eq!((consumed, native), (8, 484));
+    }
+
+    #[test]
+    fn a_discard_never_splits_a_frame_the_audio_thread_is_still_pushing() {
+        // The Audio Thread pushes one sample at a time: a stop can see 1.5 stereo frames queued.
+        let (mut producer, consumer) = rtrb::RingBuffer::new(16);
+        let mut consumer = MeasureSampleConsumer::watch(consumer);
+        for sample in [1.0, 1.0, 2.0] {
+            producer.push(sample).unwrap();
+        }
+        let (mut consumed, mut native) = (0_u64, 100_u64);
+        let drained = discard_watch_samples(
+            &mut consumer,
+            &mut consumed,
+            &mut native,
+            2,
+            None,
+            &mut None,
+        );
+        assert_eq!((drained, consumed, native), (2, 2, 101));
+        // The rest of that frame arrives: the next discard starts at its left sample.
+        producer.push(2.5).unwrap();
+        // A cutover beyond what is queued stops at the last whole frame as well.
+        producer.push(3.0).unwrap();
+        let drained = discard_watch_samples(
+            &mut consumer,
+            &mut consumed,
+            &mut native,
+            2,
+            Some(10),
+            &mut None,
+        );
+        assert_eq!((drained, consumed, native), (2, 4, 102));
+        assert_eq!(consumer.pop().unwrap(), 3.0);
     }
 
     #[test]
