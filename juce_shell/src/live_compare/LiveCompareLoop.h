@@ -106,35 +106,6 @@ inline bool loopPositionMatches (const LoopContext& from, std::int64_t project,
     return std::abs (static_cast<double> (nextProject - project) - movement) <= 1.01;
 }
 
-// Whether a captured callback begins with the host's own LOOP wrap: the previous callback and
-// this one report the same usable loop, and the position moved back exactly as that loop plays
-// (within Logic's PPQ grid when both readings show it). A seek, a stop and restart, or an edited
-// loop is never a wrap. A Keep names its later pass from this fact (INV-R10). Plain values only.
-class RecordLoopWrapWitness
-{
-public:
-    bool observe (const LoopContext& loop, bool playing, bool hasPosition, std::int64_t position,
-                  std::int64_t frames, double rate) noexcept
-    {
-        const bool valid = playing && hasPosition && frames > 0;
-        const bool movedBack = position + 1 < previousPosition + previousFrames;
-        const bool wrap = valid && previousValid && movedBack
-            && (loopPositionMatches (previousLoop, previousPosition, previousFrames, loop, position, rate)
-                || loopPositionMatches (previousLoop, previousPosition, previousFrames, loop, position,
-                                        rate, PositionPrecision { logicPpqGrid, true }));
-        previousValid = valid;
-        previousLoop = loop;
-        previousPosition = position;
-        previousFrames = frames;
-        return wrap;
-    }
-
-private:
-    LoopContext previousLoop;
-    std::int64_t previousPosition = 0, previousFrames = 0;
-    bool previousValid = false;
-};
-
 // A project move with a continuous clock is a transport fact. A missing/changed clock,
 // callback hole or foreign source is not silently reclassified as a seek.
 enum class TimelineBreak : std::uint8_t

@@ -19,6 +19,7 @@
 #include "LiveCompareWaitNotice.h"
 #include "CertifiedProjectAnalysisClock.h"
 #include "LiveCompareLoopGuidance.h"
+#include "RecordLoopWrapWitness.h"
 #include "ReaperChainStatus.h"
 #include "../chain_trace/ChainTraceWriter.h"
 
