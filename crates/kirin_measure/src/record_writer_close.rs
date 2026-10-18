@@ -27,6 +27,15 @@ pub(super) fn close_recording_context(
     );
     // B-043: Record→Watch 遷移時に Measure Thread の最新セッション集計を取り出して注入。
     let summary = session_summary.and_then(take_session_summary);
+    // The writer closes this generation, so its display never stays FINALIZING past the close. A
+    // drain that sealed without closing this generation's display (its worker finalized another
+    // generation) shows the result; a close without the seal shows the final measurement
+    // unavailable. A display the drain already closed, or a newer Keep's, is left as it is.
+    if sealed {
+        record_sm.finalize_record_display(ctx.record_generation, summary);
+    } else {
+        record_sm.mark_record_display_unavailable(ctx.record_generation);
+    }
     // B-076: この Record 中に ring 満杯で落ちたサンプル数 = 現在の累積 - 開始時 snapshot。
     let push_dropped = overflow
         .load(std::sync::atomic::Ordering::Relaxed)
@@ -66,3 +75,7 @@ pub(super) fn close_recording_context(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "record_writer_close_tests.rs"]
+mod tests;
