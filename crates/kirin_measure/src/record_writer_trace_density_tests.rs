@@ -10,6 +10,8 @@ use crate::plugin_data::{PluginDataFile, Role};
 use crate::record_take::{KeepPass, KEEP_PASS_LOOP_WRAP};
 
 const RATE: u64 = 48_000;
+/// The loop end of the tracked Keeps, in host samples.
+const LOOP_END: u64 = 600 * 512;
 /// One pass of a six-second loop.
 const PASS: u64 = 6 * RATE;
 
@@ -87,7 +89,7 @@ fn a_span_the_passes_do_not_explain_still_degrades_the_record() {
 
 /// The producer side of a realtime two-pass Keep: the take, a LOOP wrap, and the pass journal the
 /// Measure Thread wrote, as the IO Thread finds them at close.
-fn two_pass_tracker(pass: u64) -> crate::record_take::RecordTakeTracker {
+fn two_pass_tracker(first: u64, later: u64) -> crate::record_take::RecordTakeTracker {
     use crate::record_take::{
         CaptureClockSource, KeepChunk, PresentationLatencySamples, RecordTakeBlock,
     };
@@ -95,9 +97,13 @@ fn two_pass_tracker(pass: u64) -> crate::record_take::RecordTakeTracker {
     let tracker = crate::record_take::RecordTakeTracker::new();
     let block = 512_u64;
     let mut clock = 1_000_000_i64;
-    for lap in 0..2 {
-        for index in 0..pass / block {
-            let position = (index * block) as i64;
+    // The take may begin anywhere in the loop; it runs to the loop end, then the loop wraps.
+    for (lap, (start, frames)) in [(LOOP_END - first, first), (0, later)]
+        .into_iter()
+        .enumerate()
+    {
+        for index in 0..frames / block {
+            let position = (start + index * block) as i64;
             tracker.note_block(RecordTakeBlock {
                 generation: 1,
                 recording: true,
@@ -145,7 +151,7 @@ fn two_pass_tracker(pass: u64) -> crate::record_take::RecordTakeTracker {
 /// A realtime two-pass Keep closed with its tracker and an exported WAV of the whole Keep.
 fn close_tracked_keep(wav_reference: Option<u64>, session: &str) -> PluginDataFile {
     const LAP: u64 = 600 * 512;
-    let tracker = two_pass_tracker(LAP);
+    let tracker = two_pass_tracker(LAP, LAP);
     let selected = tracker.selected_capture_epoch(1).expect("take epoch");
     let base = isolated_base();
     let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), RATE as u32);
@@ -215,4 +221,92 @@ fn passes_that_do_not_add_up_to_the_wav_explain_nothing() {
         trace_span_samples(&passes(PASS), 2 * PASS - RATE / 10, rate),
         PASS
     );
+}
+
+/// Keep pressed less than a second before the loop end: the take (the TRACE pass) is short, the
+/// Keep goes on through the following passes. That is no lifecycle fragment, and no WAV is needed.
+const SHORT_FIRST: u64 = 88 * 512; // 0.94 s before the loop end
+
+/// A Keep whose first pass is short and whose next pass is a whole loop, closed with an optional
+/// exported WAV of `wav_samples`.
+fn close_short_first_pass(wav_samples: Option<u64>, session: &str) -> PluginDataFile {
+    const FIRST: u64 = SHORT_FIRST;
+    let tracker = two_pass_tracker(FIRST, LOOP_END);
+    let selected = tracker.selected_capture_epoch(1).expect("take epoch");
+    let base = isolated_base();
+    let mut ctx = make_ctx_with_sample_rate(&base, Role::Post, now_epoch_ms(), RATE as u32);
+    ctx.writer.set_record_session_id(Some(session.to_string()));
+    if let Some(samples) = wav_samples {
+        let mut expected = expected_wav_metadata(RATE as u32, samples, session);
+        // The exported WAV starts where the Keep's recording started.
+        expected.wav_time_reference_samples = Some(LOOP_END - FIRST);
+        ctx.writer.set_expected_wav(Some(expected));
+    }
+    ctx.record_generation = 1;
+    let origin = (LOOP_END - FIRST) as i64;
+    mark_trace_time(&mut ctx, FIRST * 1_000 / RATE, FIRST, Some(FIRST));
+    let measure = full_measure_result();
+    for slot in 1..=FIRST * 10 / RATE {
+        let native = slot * RATE / 10;
+        let mut sample =
+            trace_sample_frames_with_native(native, Some(native), measure.clone(), slot == 1);
+        sample.position_samples = Some(origin + native as i64);
+        sample.raw_host_position_samples = Some(origin + native as i64);
+        sample.capture_epoch = Some(selected);
+        ctx.trace_samples.push(sample);
+    }
+    ctx.trace_sample_count = ctx.trace_samples.len();
+    crate::record_writer::apply_record_take_snapshot(&mut ctx, Some(&tracker));
+    writer_close(ctx);
+    read_session_output(&base, session)
+}
+
+#[test]
+fn a_keep_whose_first_pass_is_short_is_no_fragment_once_it_plays_on() {
+    // Without a WAV, and with a WAV of exactly the passes the Keep accepted.
+    for (wav, session) in [
+        (None, "short-first-pass"),
+        (Some(SHORT_FIRST + LOOP_END), "short-first-pass-wav"),
+    ] {
+        let loaded = close_short_first_pass(wav, session);
+        assert_eq!(loaded.keep_passes.len(), 2, "{session}");
+        assert!(
+            !loaded.integrity_degraded,
+            "{session}: a short first pass of a Keep that plays on: {:?}",
+            loaded.integrity_reasons
+        );
+    }
+}
+
+#[test]
+fn a_wav_that_does_not_match_the_passes_of_a_short_first_pass_keep_stays_degraded() {
+    // The whole song was exported, far longer than the Keep played: never "corresponding".
+    let loaded = close_short_first_pass(Some(10 * LOOP_END), "short-first-pass-long-wav");
+    assert!(loaded.integrity_degraded);
+    assert!(
+        loaded
+            .integrity_reasons
+            .iter()
+            .any(|reason| reason == "frame_timeline_gap" || reason == "missing_trace_slots"),
+        "{:?}",
+        loaded.integrity_reasons
+    );
+    let quality = loaded.record_quality.expect("record quality");
+    assert!(!quality.complete, "{quality:?}");
+}
+
+/// The one record a closed writer left for `session`: committed, pending or failed.
+fn read_session_output(base: &std::path::Path, session: &str) -> PluginDataFile {
+    fn find(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+        std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                find(&path, name)
+            } else {
+                (path.file_name()?.to_str()? == name).then_some(path)
+            }
+        })
+    }
+    let path = find(base, &format!("{session}.json")).expect("the session's record");
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }

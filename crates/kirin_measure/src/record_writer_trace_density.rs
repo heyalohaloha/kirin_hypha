@@ -12,6 +12,21 @@ pub(super) fn trace_duration_samples(ctx: &RecordingCtx) -> u64 {
     )
 }
 
+/// The length the lifecycle-fragment rule judges: the record's duration, or every realtime frame
+/// of a Keep that went on into later passes. A Keep pressed just before the loop end has a short
+/// take (its TRACE pass) but played on; it is no fragment (INV-R10).
+pub(super) fn keep_duration_ms(ctx: &RecordingCtx) -> u64 {
+    let duration_ms = record_duration_ms(ctx);
+    let data = ctx.writer.data();
+    let sample_rate = u64::from(data.sample_rate);
+    match crate::record_take::realtime_keep_frames(&data.keep_passes) {
+        Some(frames) if sample_rate > 0 => {
+            duration_ms.max(frames.saturating_mul(1_000) / sample_rate)
+        }
+        _ => duration_ms,
+    }
+}
+
 /// [`trace_duration_samples`] in milliseconds; the record's own duration when it is the whole.
 pub(super) fn trace_duration_ms(ctx: &RecordingCtx) -> u64 {
     let span = trace_duration_samples(ctx);

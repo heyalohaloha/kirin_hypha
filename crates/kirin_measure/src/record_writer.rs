@@ -1392,7 +1392,7 @@ fn clean_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> boo
     let raw_timeline_ready = ctx
         .raw_trace_timeline_covers_duration
         .unwrap_or_else(|| frame_timeline_covers_duration(ctx, duration_ms));
-    duration_ms >= CLEAN_TAKE_MIN_DURATION_MS
+    keep_duration_ms(ctx) >= CLEAN_TAKE_MIN_DURATION_MS
         && frame_timeline_covers_duration(ctx, duration_ms)
         && raw_timeline_ready
         && clean_take_trace_density_ready(ctx, duration_ms)
@@ -1402,7 +1402,7 @@ fn expected_take_is_sample_count_ready(ctx: &RecordingCtx, duration_ms: u64) -> 
     let Some(expected) = expected_wav(ctx) else {
         return false;
     };
-    if !expected.is_usable() || duration_ms < CLEAN_TAKE_MIN_DURATION_MS {
+    if !expected.is_usable() || keep_duration_ms(ctx) < CLEAN_TAKE_MIN_DURATION_MS {
         return false;
     }
     if ctx.writer.data().sample_rate != expected.expected_sample_rate {
@@ -1464,7 +1464,7 @@ fn mark_integrity_if_record_is_too_short(ctx: &mut RecordingCtx) {
     if !has_audio_time {
         return;
     }
-    let duration_ms = record_duration_ms(ctx);
+    let duration_ms = keep_duration_ms(ctx);
     if duration_ms >= CLEAN_TAKE_MIN_DURATION_MS {
         return;
     }

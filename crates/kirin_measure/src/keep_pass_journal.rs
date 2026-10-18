@@ -212,8 +212,15 @@ impl KeepPassJournal {
 /// that pass and a normal LOOP wrap degrades nothing. A span the passes do not explain keeps the
 /// whole duration, so a real gap still degrades the record. Passes after an offline take are never
 /// part of the record's audio and explain nothing.
-pub fn trace_span_samples(passes: &[KeepPass], duration_samples: u64, sample_rate: u32) -> u64 {
-    let (trace, later) = passes.iter().fold((0_u64, 0_u64), |(trace, later), pass| {
+/// Every realtime frame a Keep that went on into later realtime passes accepted (its TRACE pass
+/// and the later passes, never a pass after an offline take); None for a Keep of one pass.
+pub fn realtime_keep_frames(passes: &[KeepPass]) -> Option<u64> {
+    let (trace, later) = trace_and_later_frames(passes);
+    (trace > 0 && later > 0).then(|| trace.saturating_add(later))
+}
+
+fn trace_and_later_frames(passes: &[KeepPass]) -> (u64, u64) {
+    passes.iter().fold((0_u64, 0_u64), |(trace, later), pass| {
         if pass.in_trace {
             (trace.saturating_add(pass.frames), later)
         } else if pass.trace_excluded_reason.as_deref() == Some(KEEP_PASS_AFTER_OFFLINE_TAKE) {
@@ -221,7 +228,11 @@ pub fn trace_span_samples(passes: &[KeepPass], duration_samples: u64, sample_rat
         } else {
             (trace, later.saturating_add(pass.frames))
         }
-    });
+    })
+}
+
+pub fn trace_span_samples(passes: &[KeepPass], duration_samples: u64, sample_rate: u32) -> u64 {
+    let (trace, later) = trace_and_later_frames(passes);
     // The passes explain the record only when they hold as many frames as it has, within one
     // TRACE slot for where the record's edges fall inside a callback. A record longer than what
     // the Keep accepted (a part never played) or shorter (another export) is not explained.
