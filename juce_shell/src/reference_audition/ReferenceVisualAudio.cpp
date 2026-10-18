@@ -11,7 +11,10 @@ bool readReferenceVisualAudio (juce::AudioFormatReader& reader, std::int64_t pag
 {
     if (pageStart < 0 || framesPerPage < 1 || hostRate < 8000 || hostRate > 768000
         || !std::isfinite (reader.sampleRate) || reader.sampleRate < 8000 || reader.sampleRate > 768000
-        || channels < 1 || channels > 2 || int (reader.numChannels) != channels) return false;
+        || channels < 1 || channels > 2
+        || (int (reader.numChannels) != channels && ! (reader.numChannels == 1 && channels == 2))) return false;
+    // A mono reader into a two-channel buffer: JUCE's read copies channel 0 to channel 1, and
+    // the converter below then computes both channels with the same taps, so L == R exactly.
     const auto sourceSampleRate = reader.sampleRate;
     const auto outputSampleRate = double (hostRate);
     output.setSize (channels, framesPerPage, false, false, true);

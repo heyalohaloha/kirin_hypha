@@ -82,10 +82,11 @@ const std::array<Stage, stageCount> stages { {
     // savedChoiceUnavailable
     { K::unable, W::none, "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN", "", "Choose again", "The saved choice for %1 is gone",
       "Choose the source again. A stays live." },
-    // channelsDiffer（2026-10-18：mono の音源は stereo の track では鳴らせない。逆も同じ）
-    { K::unable, W::none, "CHANNELS DIFFER FROM THIS TRACK / USE A SOURCE WITH THE SAME CHANNELS", "",
-      "Channels differ from this track", "%1's source has other channels than this track",
-      "A mono source plays on a mono track, a stereo source on a stereo track. A stays live." },
+    // channelsDiffer（2026-10-19：mono の音源は stereo の track でも左右に写して鳴らす。stereo の音源を mono の
+    // track では混ぜずに断る）
+    { K::unable, W::none, "STEREO SOURCE ON A MONO TRACK / USE A STEREO TRACK", "",
+      "Stereo source on a mono track", "%1's source is stereo and this track is mono",
+      "A stereo source plays on a stereo track. A mono source plays on either. A stays live." },
     // sourceRecordMismatch：Kirin OS の音源の記録がファイルと合わない（Kirin OS が書き直せば直る）
     { K::unable, W::none, "SOURCE RECORD DOES NOT MATCH / PREPARE AGAIN IN KIRIN OS", "", "Source record does not match",
       "%1's source record does not match its file", "Prepare it again in Kirin OS. A stays live." },

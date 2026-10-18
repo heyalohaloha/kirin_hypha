@@ -399,6 +399,8 @@ namespace hypha::reference_audition
         }
         // Cue の頭から鳴らし直す役（DAW の位置に合わせない曲）も、周回して頭へ戻るので頭のページを読んでおく。
         pages.setPinnedCue (mappedCueStart, mappedCueEnd, cue->loopEnabled || restartsAtCueStart());
+        // MATCH compares A with what is played: the opened file's channels on this track's channels.
+        next.sourceLoudnessOffsetLu = pages.playbackLoudnessOffsetLu();
         next.sourceIntegratedLoudness = selectedSource->measurementSummary
             && selectedSource->measurementSummary->loudnessLufsI
             ? *selectedSource->measurementSummary->loudnessLufsI : unavailable();

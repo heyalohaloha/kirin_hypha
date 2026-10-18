@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ReferenceSourceLoudness.h"
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -54,6 +55,18 @@ namespace hypha::reference_audition
         {
             return pageFrames.load (std::memory_order_acquire);
         }
+        // Channels of the opened file. A mono file on a stereo track plays on both channels.
+        int sourceFileChannels() const noexcept
+        {
+            return fileChannels.load (std::memory_order_acquire);
+        }
+        // What the played copy measures above the file's own ITU-R BS.1770 loudness: a mono
+        // file on both channels of a stereo track sums two equal channel powers, +10*log10(2).
+        double playbackLoudnessOffsetLu() const noexcept
+        {
+            return playedLoudnessOffsetLu (fileChannels.load (std::memory_order_acquire),
+                                           sourceChannels.load (std::memory_order_acquire));
+        }
 
     private:
         void run() override;
@@ -99,7 +112,8 @@ namespace hypha::reference_audition
         std::atomic<std::int64_t> requestedPosition { 0 };
         std::atomic<std::uint64_t> activeGeneration { 0 };
         std::atomic<std::int64_t> sourceLength { 0 };
-        std::atomic<int> sourceChannels { 0 };
+        std::atomic<int> sourceChannels { 0 };   // the track's channels (page layout)
+        std::atomic<int> fileChannels { 0 };     // the file's channels (1 or the same as the track)
         std::atomic<int> pageFrames { 0 };
         double sourceSampleRate = 0.0;
         double outputSampleRate = 0.0;

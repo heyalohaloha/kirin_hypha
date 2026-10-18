@@ -273,10 +273,70 @@ int main()
     require (stopbandRms < 0.002,
              "approved downsampling must suppress a 30 kHz out-of-band tone below 0.002 RMS");
 
+    // A mono source on a stereo track plays its one channel on both sides, exactly as the
+    // source (no gain, no downmix); a stereo source on a mono track is still refused.
+    {
+        ref::AudioPages monoOnStereo { ref::AudioPages::ServiceMode::manual };
+        require (monoOnStereo.installReaderForTest (
+                     std::make_unique<TestReader> (48'000.0, 1, 480'000), 48'000.0, 2).isEmpty(),
+                 "a mono source must open on a stereo track");
+        require (monoOnStereo.sourceFileChannels() == 1 && monoOnStereo.playbackLoudnessOffsetLu() > 3.0102
+                     && monoOnStereo.playbackLoudnessOffsetLu() < 3.0104,
+                 "a mono source on a stereo track must report the BS.1770 dual-mono offset");
+        juce::AudioBuffer<float> both (2, 512);
+        both.clear();
+        require (monoOnStereo.render (both, 100, 1.0f), "a mono source must render on a stereo track");
+        bool identical = true;
+        for (int frame = 0; frame < 512; ++frame)
+            identical = identical && both.getSample (0, frame) == TestReader::valueAt (0, 100 + frame)
+                && both.getSample (1, frame) == both.getSample (0, frame);
+        require (identical, "a mono source must play bit identical on both channels");
+
+        // Converted rate: each side equals the one-channel conversion of the same source.
+        ref::AudioPages convertedStereo { ref::AudioPages::ServiceMode::manual };
+        ref::AudioPages convertedMono { ref::AudioPages::ServiceMode::manual };
+        require (convertedStereo.installReaderForTest (
+                     std::make_unique<SineReader> (44'100.0, 997.0, 0.5f, 1, 441'000), 48'000.0, 2, true).isEmpty()
+                 && convertedMono.installReaderForTest (
+                     std::make_unique<SineReader> (44'100.0, 997.0, 0.5f, 1, 441'000), 48'000.0, 1, true).isEmpty(),
+                 "a converted mono source must open on stereo and mono tracks");
+        juce::AudioBuffer<float> convertedBoth (2, 512), convertedOne (1, 512);
+        convertedBoth.clear();
+        convertedOne.clear();
+        require (convertedStereo.render (convertedBoth, 4'800, 1.0f)
+                     && convertedMono.render (convertedOne, 4'800, 1.0f),
+                 "converted mono sources must render");
+        bool convertedIdentical = true;
+        for (int frame = 0; frame < 512; ++frame)
+            convertedIdentical = convertedIdentical
+                && convertedBoth.getSample (0, frame) == convertedOne.getSample (0, frame)
+                && convertedBoth.getSample (1, frame) == convertedOne.getSample (0, frame);
+        require (convertedIdentical, "a converted mono source must play the same samples on both channels");
+        require (convertedMono.playbackLoudnessOffsetLu() == 0.0,
+                 "a mono source on a mono track has no loudness offset");
+        // B's display meters read the source the same way, at the same rate and converted.
+        for (const int displayRate : { 48'000, 44'100 })
+        {
+            TestReader monoReader (48'000.0, 1, 480'000);
+            juce::AudioBuffer<float> shown, scratch;
+            require (ref::readReferenceVisualAudio (monoReader, 1'000, 512, displayRate, 2, shown, scratch),
+                     "the display reader reads a mono source for a stereo track");
+            bool shownIdentical = true;
+            for (int frame = 0; frame < 512; ++frame)
+                shownIdentical = shownIdentical && shown.getSample (1, frame) == shown.getSample (0, frame)
+                    && (displayRate != 48'000 || shown.getSample (0, frame) == TestReader::valueAt (0, 1'000 + frame));
+            require (shownIdentical, "the display reader gives both channels the same mono samples");
+        }
+        ref::AudioPages stereoOnStereo { ref::AudioPages::ServiceMode::manual };
+        require (stereoOnStereo.installReaderForTest (
+                     std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 2).isEmpty()
+                     && stereoOnStereo.sourceFileChannels() == 2 && stereoOnStereo.playbackLoudnessOffsetLu() == 0.0,
+                 "a stereo source on a stereo track has no loudness offset");
+    }
     require (pages.installReaderForTest (
-                 std::make_unique<TestReader> (48'000.0, 1, 480'000), 48'000.0, 2)
+                 std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 1)
                  == "channel_layout_unsupported",
-             "channel mismatch must reject instead of fabricating a layout");
+             "a stereo source on a mono track must refuse instead of fabricating a downmix");
 
     std::cout << "Reference audio page tests passed\n";
     return 0;

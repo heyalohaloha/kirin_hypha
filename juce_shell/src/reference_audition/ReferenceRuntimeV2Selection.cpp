@@ -252,7 +252,8 @@ namespace hypha::reference_audition
                 if (facts.wholeSong)
                 {
                     currentSnapshot.aIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
-                    currentSnapshot.adjustedBIntegratedLoudness = currentSnapshot.sourceIntegratedLoudness + facts.bGainDb;
+                    currentSnapshot.adjustedBIntegratedLoudness = currentSnapshot.sourceIntegratedLoudness
+                        + currentSnapshot.sourceLoudnessOffsetLu + facts.bGainDb;
                     currentSnapshot.loudnessDeltaBMinusA = std::numeric_limits<double>::quiet_NaN();
                 }
             }

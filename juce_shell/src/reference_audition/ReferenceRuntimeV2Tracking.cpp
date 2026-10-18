@@ -34,7 +34,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     const auto generation = normalSelectionGeneration.load (std::memory_order_acquire);
     std::shared_ptr<const RuntimeSource> source;
     juce::String mode;
-    double currentGain = 0.0, anchorGain = unavailable, selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable;
+    double currentGain = 0.0, anchorGain = unavailable, selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable, loudnessOffset = 0.0;
     bool cueLevel = false, resuming = false;
     {
         const juce::ScopedLock lock (stateLock);
@@ -48,11 +48,12 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         cueLevel = currentSnapshot.cueLevelAvailable && ! versionComparison;
         cueLoudness = currentSnapshot.cueIntegratedLoudness;
         cuePeak = currentSnapshot.cueMaximumTruePeakDbtp;
+        loudnessOffset = currentSnapshot.sourceLoudnessOffsetLu;
     }
     if (source == nullptr) return TrackingAction::keep;
     const auto& summary = source->measurementSummary;
-    const auto sourceLoudness = cueLevel ? cueLoudness
-        : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable;
+    const auto sourceLoudness = loudnessOffset + (cueLevel ? cueLoudness
+        : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable);
     const auto sourcePeak = cueLevel && std::isfinite (cuePeak) ? cuePeak
         : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable;
     double aLoudness = unavailable, required = unavailable;
@@ -131,7 +132,7 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
         return RematchResult::notPlaying;
     const auto generation = normalSelectionGeneration.load (std::memory_order_acquire);
     std::shared_ptr<const RuntimeSource> source;
-    double selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable;
+    double selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable, loudnessOffset = 0.0;
     bool cueLevel = false;
     {
         const juce::ScopedLock lock (stateLock);
@@ -143,11 +144,12 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
         cueLevel = currentSnapshot.cueLevelAvailable;
         cueLoudness = currentSnapshot.cueIntegratedLoudness;
         cuePeak = currentSnapshot.cueMaximumTruePeakDbtp;
+        loudnessOffset = currentSnapshot.sourceLoudnessOffsetLu;
     }
     if (source == nullptr) return RematchResult::notPlaying;
     const auto& summary = source->measurementSummary;
-    const auto sourceLoudness = cueLevel ? cueLoudness
-        : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable;
+    const auto sourceLoudness = loudnessOffset + (cueLevel ? cueLoudness
+        : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable);
     const auto sourcePeak = cueLevel && std::isfinite (cuePeak) ? cuePeak
         : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable;
     const auto required = aLoudness - sourceLoudness;

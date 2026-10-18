@@ -10,6 +10,7 @@
 #include "../src/reference_audition/ReferenceSourceRanges.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceTrackingGain.h"
+#include "ReferenceControllerTestAccess.h"
 
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
@@ -173,14 +174,14 @@ void readsKirinOsCueLevel (const juce::File& sandbox)
              "C measures A over the Cue's length: at least 10 s, at most the 10 minutes of history");
 }
 
-juce::var cueRanges (const juce::String& fileHash, const juce::String& pcmHash)
+juce::var cueRanges (const juce::String& fileHash, const juce::String& pcmHash, int channels)
 {
     auto* content = new juce::DynamicObject();
     content->setProperty ("sha256_file", fileHash);
     content->setProperty ("sha256_pcm", pcmHash);
     auto* audio = new juce::DynamicObject();
     audio->setProperty ("sample_rate_hz", 48'000);
-    audio->setProperty ("channels", 2);
+    audio->setProperty ("channels", channels);
     audio->setProperty ("total_sample_frames", 96'000);
     auto* range = new juce::DynamicObject();
     range->setProperty ("start_sample", 0);
@@ -237,23 +238,24 @@ juce::var setsFor (const juce::String& sourceSha, const ref::RuntimeContentRecei
     return juce::var (root);
 }
 
-// 曲（一定の 0.1）を Cue の値 −16 LUFS / −4 dBTP（曲全体は −18 / −6）で置き、C の固定と B の追従を通す。
-void matchesAndFollows (const juce::File& sandbox)
+// 曲（一定の 0.1、channels は 1 か 2）を Cue の値 −16 LUFS / −4 dBTP（曲全体は −18 / −6）で library に置く。
+void publishCueLibrary (const juce::File& root, int channels)
 {
-    const auto root = sandbox.getChildFile ("abcv-tracking");
     require (root.createDirectory().wasOk(), "tracking fixture directory");
     const auto file = root.getChildFile ("cue.wav");
     {
         juce::WavAudioFormat format;
         auto stream = file.createOutputStream();
-        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (stream.release(), 48'000, 2, 32, {}, 0));
-        juce::AudioBuffer<float> data (2, 96'000);
-        for (int channel = 0; channel < 2; ++channel) juce::FloatVectorOperations::fill (data.getWritePointer (channel), 0.1f, 96'000);
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (
+            stream.release(), 48'000, static_cast<unsigned int> (channels), 32, {}, 0));
+        juce::AudioBuffer<float> data (channels, 96'000);
+        for (int channel = 0; channel < channels; ++channel) juce::FloatVectorOperations::fill (data.getWritePointer (channel), 0.1f, 96'000);
         require (writer && writer->writeFromAudioSampleBuffer (data, 0, 96'000), "known Cue samples");
     }
     const auto fileHash = juce::SHA256 (file).toHexString();
     const auto pcmHash = juce::String::repeatedString ("7", 64);
     auto sourceValue = makeRuntimeV2Source (file, fileHash, pcmHash);
+    sourceValue["audio"].getDynamicObject()->setProperty ("channels", channels);
     addRuntimeV2MeasurementSummary (sourceValue, -18.0, -6.0);
     const auto source = stageRuntimeV2Artifact (root, "sources", sourceValue);
     auto preset = bindRuntimeV2PresetToSource ("88888888-8888-4888-8888-888888888888",
@@ -264,11 +266,17 @@ void matchesAndFollows (const juce::File& sandbox)
     object->removeProperty ("work_id");
     object->removeProperty ("source_preset_artifact");
     preset["checks"][0]["candidates"][0].getDynamicObject()->setProperty ("preparation_status", "prepared");
-    const auto ranges = stageRuntimeV2Artifact (root, "ranges", cueRanges (fileHash, pcmHash));
+    const auto ranges = stageRuntimeV2Artifact (root, "ranges", cueRanges (fileHash, pcmHash, channels));
     require (writeJson (root.getChildFile ("library/sets.json"), setsFor (source.sha256, ranges))
                  && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
              "the library with Cue values must be published");
+}
 
+// C の固定と B の追従を通す。
+void matchesAndFollows (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("abcv-tracking");
+    publishCueLibrary (root, 2);
     ref::RuntimeV2Controller controller (root, [] (bool) { return true; });
     controller.configure ({ "abcv-tracking", {}, 42, true }, 48'000.0, 2);
     std::int64_t position = 0;
@@ -409,11 +417,78 @@ void matchesAndFollows (const juce::File& sandbox)
     controller.selectA();
     render(); render();
 }
+
+// mono の Cue（Kirin OS は 1 ch で測る）を stereo の track で鳴らすと、左右に同じ sample を写すので
+// BS.1770 で +3.0103 LU 大きく測れる。C の MATCH・MATCH をもう一度・B の追従はどれも「A −（Cue + 3.0103）」。
+// mono の track では足さない。stereo の Cue を mono の track では断る（勝手に混ぜない）。
+void matchesMonoCue (const juce::File& sandbox)
+{
+    namespace control = hypha::tests::reference_control;
+    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    const auto root = sandbox.getChildFile ("abcv-tracking-mono");
+    publishCueLibrary (root, 1);
+    for (const int trackChannels : { 2, 1 })
+    {
+        ref::RuntimeV2Controller controller (root, [] (bool) { return true; });
+        controller.configure ({ "abcv-tracking-mono-" + juce::String (trackChannels), {}, 42, true }, 48'000.0, trackChannels);
+        std::int64_t position = 0;
+        juce::AudioBuffer<float> buffer (trackChannels, 480);
+        const auto render = [&]
+        {
+            buffer.clear();
+            beginReferenceRtProbe();
+            controller.observeTransport (position, true, true);
+            controller.renderSelectedB (buffer, position, true);
+            require (endReferenceRtProbe() == 0, "a mono Cue adds no heap operation to the audio callback");
+            position += buffer.getNumSamples();
+            for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
+                require (buffer.getSample (0, frame) == buffer.getSample (buffer.getNumChannels() - 1, frame),
+                         "a mono Cue plays the same sample on both channels");
+        };
+        controller.observeTransport (position, true, true);
+        require (control::waitUntil (deadline(), [&] {
+            const auto state = controller.snapshot();
+            return state.state == ref::RuntimeState::ready && state.auditionBuffered && state.cueLevelAvailable; }),
+                 "a mono Cue is prepared on a mono or stereo track");
+        const double cue = -16.0 + (trackChannels == 2 ? 3.010299956639812 : 0.0);
+        require (controller.selectB (-14.0, -2.0), "C matches a mono Cue");
+        auto state = controller.snapshot();
+        require (closeTo (state.appliedGainDb, -14.0 - cue, 1.0e-6) && closeTo (state.adjustedBIntegratedLoudness, -14.0, 1.0e-6)
+                     && closeTo (state.loudnessDeltaBMinusA, 0.0, 1.0e-6)
+                     && closeTo (state.adjustedBMaximumTruePeakDbtp, -4.0 - 14.0 - cue, 1.0e-6)
+                     && closeTo (state.cueIntegratedLoudness, -16.0),
+                 "C's gain is A - (Cue + 3.0103) on a stereo track; the Kirin OS value itself is kept");
+        render(); render();
+        require (closeTo (buffer.getSample (0, 479), 0.1 * std::pow (10.0, (-14.0 - cue) / 20.0), 1.0e-6),
+                 "C sounds at the matched gain");
+        require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched
+                     && closeTo (controller.snapshot().appliedGainDb, -13.5 - cue, 1.0e-6),
+                 "MATCH again uses the same offset");
+        controller.selectA();
+        render(); render();
+        controller.setTrackingEnabled (true);
+        require (controller.selectB (-14.0, -2.0) && controller.followSelection (steady (-18.0), -2.0) == ref::TrackingAction::move
+                     && closeTo (controller.snapshot().appliedGainDb, -18.0 - cue, 1.0e-6),
+                 "B follows A with the same offset");
+        for (int block = 0; block < 6; ++block) render();
+        require (closeTo (buffer.getSample (0, 479), 0.1 * std::pow (10.0, (-18.0 - cue) / 20.0), 1.0e-6),
+                 "B sounds at the followed gain");
+        controller.selectA();
+        render(); render();
+    }
+    ref::RuntimeV2Controller monoTrack (sandbox.getChildFile ("abcv-tracking"), [] (bool) { return true; });
+    monoTrack.configure ({ "abcv-tracking-mono-track", {}, 42, true }, 48'000.0, 1);
+    require (control::waitUntil (deadline(), [&] {
+        const auto state = monoTrack.snapshot();
+        return state.state == ref::RuntimeState::rejected && state.rejectionCode == "channel_layout_unsupported"; }),
+             "a stereo Cue on a mono track is refused instead of mixed down");
+}
 }
 
 void testReferenceCueMatch (const juce::File& sandbox)
 {
     readsKirinOsCueLevel (sandbox);
     matchesAndFollows (sandbox);
+    matchesMonoCue (sandbox);
     std::cout << "Reference Cue MATCH and tracking PASS\n";
 }
