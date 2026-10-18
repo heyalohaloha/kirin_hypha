@@ -327,6 +327,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     std::uint64_t recordInvalidationsForTest() const noexcept { return recordBodyInvalidations; }
+    std::uint64_t footerInvalidationsForTest() const noexcept { return footerInvalidations; }
     bool historyHeldForTest() const noexcept { return levelInspection.held(); }
 
 private:
@@ -349,6 +350,7 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
     juce::String footerStatusText() const;
+    void repaintFooterIfChanged (const juce::String& previous);
     int statusStripHeight() const;
     void layoutFooterActions (juce::Rectangle<int>);
     int footerButtonWidth (const juce::String& text) const;
@@ -440,7 +442,7 @@ private:
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;
     history_inspection::Selection levelInspection;
-    std::uint64_t recordBodyInvalidations = 0;
+    std::uint64_t recordBodyInvalidations = 0, footerInvalidations = 0;
     Button previousPeakButton { "< TP", false };
     Button nextPeakButton { "TP >", false };
     Button historyLiveButton { "LIVE", false };
