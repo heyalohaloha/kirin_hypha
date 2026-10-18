@@ -134,13 +134,22 @@ impl KeepPassJournal {
             after_offline_take: chunk.after_offline_take,
         };
         let summary_frames = if chunk.in_summary { chunk.frames } else { 0 };
-        // Without host positions on either side, the continuous clock (or nothing) keeps the pass.
+        // A position that runs on keeps the pass, also across an auxiliary-only cut (some hosts
+        // cut that clock at every callback while the take continues). Without host positions on
+        // either side, the continuous clock (or nothing) keeps the pass.
         let continues = state.edge.is_some_and(|last| {
             last.in_trace == chunk.in_trace
                 && last.after_offline_take == chunk.after_offline_take
-                && last.raw_end == chunk.raw_host_start
-                && last.aux_end.map(|(source, _)| source) == edge.aux_end.map(|(source, _)| source)
-                && (last.aux_end.is_none() || last.aux_end == aux_point(chunk.auxiliary))
+                && match (last.raw_end, chunk.raw_host_start) {
+                    (Some(end), Some(start)) => end == start,
+                    (None, None) => {
+                        last.aux_end.map(|(source, _)| source)
+                            == edge.aux_end.map(|(source, _)| source)
+                            && (last.aux_end.is_none()
+                                || last.aux_end == aux_point(chunk.auxiliary))
+                    }
+                    _ => false,
+                }
         });
         let full = state.passes.len() >= KEEP_PASS_LIMIT;
         let mut began_later_pass = false;

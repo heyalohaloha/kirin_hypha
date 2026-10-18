@@ -128,6 +128,23 @@ pub(super) fn chunk_route(
     )
 }
 
+/// The chunk moves the take from its current epoch to the next through a latency or
+/// auxiliary-only continuation: still the same take, for the main loop and the STOP tail alike.
+pub(super) fn take_epoch_transition(
+    tracker: &RecordTakeTracker,
+    take_epoch: Option<u64>,
+    plan: CaptureChunkPlan,
+    generation: u64,
+) -> bool {
+    take_epoch
+        .zip(plan.capture_epoch)
+        .is_some_and(|(previous, next)| {
+            previous != next
+                && plan.capture_generation == Some(generation)
+                && tracker.capture_epochs_are_latency_continuation(previous, next)
+        })
+}
+
 pub(super) fn record_chunk_route(
     selected_epoch: Option<u64>,
     admitted_epoch: Option<u64>,

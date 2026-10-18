@@ -361,20 +361,13 @@ impl RecordTakeTracker {
             })
     }
 
-    /// The epoch is the selected take or follows it only through latency continuations: the
-    /// chain the Measure Thread admits as the same take.
-    pub(crate) fn epoch_continues_selected_take(&self, selected: u64, candidate: u64) -> bool {
-        candidate >= selected
-            && (selected..candidate)
-                .all(|epoch| self.capture_epochs_are_latency_continuation(epoch, epoch + 1))
-    }
-
     /// Both spans belong to one Record generation and began in realtime callbacks. A realtime
     /// Keep continues through its later passes (LOOP wrap, seek, restart after a stop); an offline
-    /// bounce take, or a pass after it, never qualifies.
+    /// bounce take, or a pass after it, never qualifies. A long Keep outlives the capture ring,
+    /// so the selected take's span is read from the retained Record audio mapping as well.
     pub(crate) fn capture_epochs_are_realtime_passes(&self, selected: u64, candidate: u64) -> bool {
         let (Some(selected), Some(candidate)) = (
-            self.capture_span_for_epoch(selected),
+            self.record_audio_span_for_epoch(selected),
             self.capture_span_for_epoch(candidate),
         ) else {
             return false;

@@ -102,6 +102,7 @@ fn drain_includes_tail_off_undercounts_on_matches_full() {
             last_capture_position_end: &mut last_capture_position_end,
             finalize_capture: false,
             record_sm: None,
+            take_epoch: None,
         },
         None,
     );
@@ -180,6 +181,7 @@ fn drain_empty_ring_preserves_finalize_value() {
             last_capture_position_end: &mut last_capture_position_end,
             finalize_capture: false,
             record_sm: None,
+            take_epoch: None,
         },
         None,
     );
@@ -262,6 +264,7 @@ fn drain_position_jump_preserves_record_session_summary() {
             last_capture_position_end: &mut last_capture_position_end,
             finalize_capture: false,
             record_sm: None,
+            take_epoch: None,
         },
         None,
     );

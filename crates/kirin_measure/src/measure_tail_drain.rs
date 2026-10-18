@@ -28,6 +28,9 @@ pub(super) struct DrainRingSession<'a> {
     pub(super) finalize_capture: bool,
     /// Seal-wait progress for every drained chunk; tests without a Record state pass None.
     pub(super) record_sm: Option<&'a RecordStateMachine>,
+    /// The main loop's current epoch of the selected take when the Record edge arrived. The tail
+    /// continues the take from it, never from the capture ring, which a long Keep outlives.
+    pub(super) take_epoch: Option<u64>,
 }
 
 pub(super) fn drain_ring_into_session(
@@ -36,6 +39,7 @@ pub(super) fn drain_ring_into_session(
 ) -> bool {
     // The resampler's final flush belongs to Phase D only when the take owns the tail.
     let mut tail_take = true;
+    let mut take_epoch = ctx.take_epoch;
     while ctx.consumer.slots() > 0 {
         let bounded_available = ctx.consumer.slots().min(measure_chunk_capacity_samples(
             ctx.sample_rate,
@@ -55,7 +59,7 @@ pub(super) fn drain_ring_into_session(
             record_sm.note_measure_progress();
         }
         let generation = record_trace.as_ref().map(|trace| trace.timeline.generation);
-        let route = tail_route(ctx.record_take_tracker, generation, plan);
+        let route = tail_route(ctx.record_take_tracker, generation, &mut take_epoch, plan);
         let take = route == RecordChunkRoute::Take;
         tail_take = take;
         if plan
@@ -245,16 +249,25 @@ pub(super) fn drain_ring_into_session(
 
 /// The tail keeps the main loop's routes: TRACE and Phase D only for the selected take, the Keep
 /// summary also for its later realtime passes, and every chunk in the pass journal.
-/// The Record generation is the drain's own, as in the main loop, never the chunk's span.
+/// The Record generation is the drain's own, as in the main loop, never the chunk's span. The
+/// take continues from the main loop's epoch through the same latency and auxiliary-only
+/// continuations; the selected take's first epoch may have left the capture ring long ago.
 fn tail_route(
     tracker: &RecordTakeTracker,
     generation: Option<u64>,
+    take_epoch: &mut Option<u64>,
     plan: CaptureChunkPlan,
 ) -> RecordChunkRoute {
     let selected = generation.and_then(|generation| tracker.selected_capture_epoch(generation));
-    let admitted = selected
-        .zip(plan.capture_epoch)
-        .filter(|&(selected, candidate)| tracker.epoch_continues_selected_take(selected, candidate))
-        .map(|(_, candidate)| candidate);
-    chunk_route(tracker, selected, admitted, plan, false)
+    let transition = generation
+        .is_some_and(|generation| take_epoch_transition(tracker, *take_epoch, plan, generation));
+    let route = chunk_route(tracker, selected, *take_epoch, plan, transition);
+    if transition {
+        *take_epoch = plan.capture_epoch;
+    }
+    route
 }
+
+#[cfg(test)]
+#[path = "measure_long_keep_tests.rs"]
+mod long_keep_tests;

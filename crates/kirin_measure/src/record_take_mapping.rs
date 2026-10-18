@@ -208,7 +208,7 @@ impl RecordTakeTracker {
         ))
     }
 
-    fn record_audio_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
+    pub(super) fn record_audio_span_for_epoch(&self, epoch: u64) -> Option<CaptureClockSpan> {
         // Use the longer factual prefix without changing Watch/pair span lookup or its TTL.
         let ring = self.capture_span_for_epoch(epoch);
         let prefix = self.record_audio_mapping.read(epoch);

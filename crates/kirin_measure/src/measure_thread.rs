@@ -39,8 +39,8 @@ mod watch_lane_clock;
 #[cfg(test)]
 use capture_plan::CaptureChunkPlan;
 use capture_plan::{
-    capture_chunk_plan, chunk_route, observed_capture_endpoint, trusted_pre_roll_epoch,
-    RecordChunkRoute,
+    capture_chunk_plan, chunk_route, observed_capture_endpoint, take_epoch_transition,
+    trusted_pre_roll_epoch, RecordChunkRoute,
 };
 use record_epoch_transition::record_grid_alignment;
 use tail_drain::{drain_ring_into_session, DrainRingSession};
@@ -506,6 +506,7 @@ pub fn spawn_measure_thread(
                             last_capture_position_end: &mut last_capture_position_end,
                             finalize_capture: true,
                             record_sm: Some(&record_sm),
+                            take_epoch: record_capture_epoch,
                         },
                         Some(RecordTraceDrain {
                             queue: &record_trace_queue,
@@ -809,17 +810,13 @@ pub fn spawn_measure_thread(
             let selected_record_epoch = is_recording
                 .then(|| record_take_tracker.selected_capture_epoch(record_sm.generation()))
                 .flatten();
-            let capture_epoch_changed = is_recording
-                && capture_plan.capture_epoch.is_some()
-                && capture_plan.capture_epoch != record_capture_epoch;
-            let latency_epoch_transition = capture_epoch_changed
-                && record_capture_epoch
-                    .zip(capture_plan.capture_epoch)
-                    .is_some_and(|(previous, next)| {
-                        capture_plan.capture_generation == Some(record_sm.generation())
-                            && record_take_tracker
-                                .capture_epochs_are_latency_continuation(previous, next)
-                    });
+            let latency_epoch_transition = is_recording
+                && take_epoch_transition(
+                    &record_take_tracker,
+                    record_capture_epoch,
+                    capture_plan,
+                    record_sm.generation(),
+                );
             // A later pass after the immutable take was selected never resets or extends the
             // chosen take's TRACE and never replaces the WAV epoch. Its audio still reaches the
             // live meters, and a realtime Keep's later passes also reach the Keep summary.
@@ -2502,6 +2499,7 @@ pub mod tests {
                 last_capture_position_end: &mut last_position_end,
                 finalize_capture: true,
                 record_sm: None,
+                take_epoch: None,
             },
             Some(super::RecordTraceDrain {
                 queue: &queue,

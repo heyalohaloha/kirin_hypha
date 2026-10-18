@@ -179,3 +179,22 @@ fn a_host_without_positions_keeps_one_pass_and_the_list_stays_bounded() {
     let frames: u64 = passes.iter().map(|pass| pass.frames).sum();
     assert_eq!(frames, (100 + 1 + wraps as u64) * BLOCK);
 }
+
+#[test]
+fn an_auxiliary_cut_at_every_callback_keeps_one_trace_pass() {
+    // Some hosts cut their auxiliary clock at every callback while the position runs on. The take
+    // continues through those cuts, so its TRACE stays one pass.
+    let tracker = RecordTakeTracker::new();
+    for block in 0..100_i64 {
+        let raw = block * BLOCK as i64;
+        tracker.note_keep_chunk(chunk(6, raw, Some(raw + (block % 2) * BLOCK as i64), true));
+    }
+    tracker.note_keep_chunk(chunk(6, 0, Some(1), false));
+    let passes = tracker.keep_passes(6);
+    assert_eq!(passes.len(), 2, "{passes:?}");
+    assert_eq!(passes[0].frames, 100 * BLOCK);
+    assert_eq!(
+        passes[0].host_end_position_samples,
+        Some(100 * BLOCK as i64)
+    );
+}
