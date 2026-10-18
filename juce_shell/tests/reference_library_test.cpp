@@ -1,13 +1,13 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include <functional>
 #include <cstring>
-#include <thread>
 #include "reference_rt_probe.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
 #include "ReferenceWholeSongInputClock.h"
 #include "reference_library_manifest_fixture.h"
 #include "ReferenceVisualSourceEvidenceTest.h"
+#include "ReferenceConcurrentSwitch.h"
 #include "../src/AtomicFile.h"
 namespace
 {
@@ -291,32 +291,34 @@ void testReferenceComparisons (const juce::File& sandbox)
     require (controller.selectB (-14, -2) && block(), "B choice survives C audition");
     block(); block();
     require (maximumOwners == 1 && owners == 1, "three buttons never require three analysis slots");
-    std::thread switches ([&] {
-        for (int i = 0; i < 100; ++i)
-        { if ((i & 1) == 0) controller.selectC (-14, -2); else controller.selectB (-14, -2); juce::Thread::sleep (1); }
-    });
-    for (int i = 0; i < 200; ++i)
-    {
-        block();
-        for (int c = 0; c < 2; ++c) for (int frame = 0; frame < 128; ++frame)
-        {
-            const auto upper = juce::jmax (0.125f, fixture.audio.getSample (c, frame));
-            require (buffer.getSample (c, frame) >= -0.250002f && buffer.getSample (c, frame) <= upper + 2.0e-6f,
-                     "concurrent B/C commands cannot sum two full sources or overshoot the convex fade");
-        }
-        juce::Thread::sleep (1);
-    }
-    switches.join(); block(); block();
-    require (maximumOwners == 1 && owners == 1, "rapid concurrent switching retains one external owner");
-    const auto completionCount = [&] {
-        int count = 0;
-        for (const auto& file : root.getChildFile ("library/events").findChildFiles (
-                 juce::File::findFiles, true, "*.json"))
-            if (juce::JSON::parse (file)["event_type"].toString() == "audition_completed") ++count;
-        return count;
-    };
+    // B -> C -> B switched between callbacks: each new role is selected before the old role's 5 ms fade ends,
+    // so no block outputs A. This order is deterministic, so no audition may complete here.
     juce::Thread::sleep (150);
-    require (completionCount() == 0, "C to B does not falsely record an audible A return");
+    require (hypha::tests::referenceAuditionCompletions (root) == 0, "C to B does not falsely record an audible A return");
+    // A second thread switches while callbacks run. A switch deselects the old role before the new one is
+    // admitted (one output owner). If that thread is delayed past the old role's fade, or a selection is
+    // refused, A is really output and its return is truthfully recorded. Without an actual A block nothing
+    // may complete. The scheduler decides which of the two happens, so the fixture counts it.
+    auto switching = hypha::tests::switchConcurrently (
+        [&] { return controller.selectC (-14, -2); }, [&] { return controller.selectB (-14, -2); }, block, [&] {
+            for (int c = 0; c < 2; ++c) for (int frame = 0; frame < 128; ++frame)
+            {
+                const auto upper = juce::jmax (0.125f, fixture.audio.getSample (c, frame));
+                require (buffer.getSample (c, frame) >= -0.250002f && buffer.getSample (c, frame) <= upper + 2.0e-6f,
+                         "concurrent B/C commands cannot sum two full sources or overshoot the convex fade");
+            }
+        });
+    // The last command was B. If the thread's final B was refused, select it again so the rest starts from B.
+    if (controller.snapshot().audibleComparisonSlot != 1) require (controller.selectB (-14, -2), "B is selectable after switching");
+    for (int i = 0; i < 2; ++i) if (! block()) ++switching.actualABlocks;
+    require (maximumOwners == 1 && owners == 1, "rapid concurrent switching retains one external owner");
+    juce::Thread::sleep (150);
+    const auto concurrentCompletions = hypha::tests::referenceAuditionCompletions (root);
+    if (switching.actualABlocks > 0 || switching.refusedSelections > 0 || concurrentCompletions > 0)
+        std::cerr << "concurrent switching: actual A blocks=" << switching.actualABlocks << " refused selections="
+                  << switching.refusedSelections << " completions=" << concurrentCompletions << '\n';
+    require (concurrentCompletions == 0 || switching.actualABlocks > 0,
+             "concurrent C/B switching records an A return only after A was actually output");
     controller.selectA();
     block(); block();
     require (!block(), "one A click completes its 5 ms return");
