@@ -34,6 +34,8 @@ mod capture_plan;
 mod record_epoch_transition;
 #[path = "measure_tail_drain.rs"]
 mod tail_drain;
+#[path = "measure_trace_slots.rs"]
+mod trace_slots;
 #[path = "watch_lane_clock.rs"]
 mod watch_lane_clock;
 #[cfg(test)]
@@ -44,6 +46,10 @@ use capture_plan::{
 };
 use record_epoch_transition::record_grid_alignment;
 use tail_drain::{drain_ring_into_session, DrainRingSession};
+use trace_slots::{
+    feed_phase_d_slots, flush_record_core_without_phase_d, join_record_trace_slots,
+    PendingRecordCore,
+};
 use watch_lane_clock::{
     after_keep_resume, discard_watch_samples, resume_watch_index, watch_chunk_limit, WatchResume,
 };
@@ -1249,100 +1255,6 @@ struct RecordTraceObserved {
     clock_source: CaptureClockSource,
     presentation_latency: PresentationLatencySamples,
     observed_silence_floor: bool,
-}
-
-#[derive(Debug, Clone)]
-struct PendingRecordCore {
-    frames_48k: u64,
-    native_frames: u64,
-    position_samples: Option<i64>,
-    raw_host_position_samples: Option<i64>,
-    capture_epoch: Option<u64>,
-    clock_source: CaptureClockSource,
-    presentation_latency: PresentationLatencySamples,
-    observed_silence_floor: bool,
-    result: MeasureResult,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn feed_phase_d_slots(
-    input_48k: &[f64],
-    n_channels: usize,
-    slot_pending: &mut Vec<f64>,
-    phase_d: &mut PhaseDChannelStream,
-    latest_pd: &mut Option<crate::phase_d::stream::PhaseDResult>,
-    record_phase_pending: &mut VecDeque<crate::phase_d::stream::PhaseDResult>,
-    is_recording: bool,
-) {
-    slot_pending.extend_from_slice(input_48k);
-    let slot_samples = ENGINE_SR as usize / 10 * n_channels;
-    let complete_samples = slot_pending.len() / slot_samples * slot_samples;
-    for slot in slot_pending[..complete_samples].chunks_exact(slot_samples) {
-        if let Some(result) = phase_d.push_interleaved_slot(slot) {
-            *latest_pd = Some(result.clone());
-            if is_recording {
-                record_phase_pending.push_back(result);
-            }
-        }
-    }
-    slot_pending.drain(..complete_samples);
-}
-
-fn join_record_trace_slots(
-    trace: &mut RecordTraceDrain<'_>,
-    sample_rate: u32,
-    core_pending: &mut VecDeque<PendingRecordCore>,
-    phase_pending: &mut VecDeque<crate::phase_d::stream::PhaseDResult>,
-) {
-    while !core_pending.is_empty() && !phase_pending.is_empty() {
-        let core = core_pending.pop_front().expect("checked non-empty");
-        let phase = phase_pending.pop_front().expect("checked non-empty");
-        let mut result = core.result;
-        merge_phase_d_fields(&mut result, Some(&phase));
-        let _ = maybe_push_record_trace(
-            trace.queue,
-            trace.timeline,
-            &mut trace.cursor,
-            sample_rate,
-            RecordTraceObserved {
-                frames_48k: core.frames_48k,
-                native_frames: Some(core.native_frames),
-                position_samples: core.position_samples,
-                raw_host_position_samples: core.raw_host_position_samples,
-                capture_epoch: core.capture_epoch,
-                clock_source: core.clock_source,
-                presentation_latency: core.presentation_latency,
-                observed_silence_floor: core.observed_silence_floor,
-            },
-            &result,
-        );
-    }
-}
-
-fn flush_record_core_without_phase_d(
-    trace: &mut RecordTraceDrain<'_>,
-    sample_rate: u32,
-    core_pending: &mut VecDeque<PendingRecordCore>,
-) {
-    while let Some(core) = core_pending.pop_front() {
-        let _ = maybe_push_record_trace(
-            trace.queue,
-            trace.timeline,
-            &mut trace.cursor,
-            sample_rate,
-            RecordTraceObserved {
-                frames_48k: core.frames_48k,
-                native_frames: Some(core.native_frames),
-                position_samples: core.position_samples,
-                raw_host_position_samples: core.raw_host_position_samples,
-                capture_epoch: core.capture_epoch,
-                clock_source: core.clock_source,
-                presentation_latency: core.presentation_latency,
-                observed_silence_floor: core.observed_silence_floor,
-            },
-            &core.result,
-        );
-    }
 }
 
 fn maybe_push_record_trace(
