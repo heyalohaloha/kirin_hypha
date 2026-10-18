@@ -54,6 +54,43 @@ pub(crate) fn resolve_and_enter_keep(
         Ok(p) => p.plugin_data_dir(),
         Err(_) => return false,
     };
+    // A single Keep owns the same two-phase generation contract as All Keep. External
+    // generations are already staged by the All Keep originator and are committed only after all
+    // members report exact PRE+POST writer ownership.
+    let owned_generation = capture_generation.is_none().then(|| {
+        CaptureGeneration::new_single_named(
+            project_hash.to_string(),
+            post_iid.to_string(),
+            target.clone(),
+            daw.to_string(),
+            current_host_process_id(),
+            Some(pair.clone()),
+        )
+    });
+    // The single Keep holds the generation lock before it reserves the pair. An older Keep aborted
+    // before its commit gives its reservation back while it still holds that lock, so it can never
+    // remove a reservation this Keep took or reused (INV-R3). An unstaged transaction that drops
+    // on a later rejection changes nothing.
+    let mut owned_transaction = match owned_generation.as_ref() {
+        Some(generation) => match CaptureGenerationTransaction::begin(&base, generation) {
+            Ok(transaction) => Some(transaction),
+            Err(error) => {
+                if matches!(
+                    error,
+                    kirin_measure::CaptureGenerationError::Io(ref error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                ) {
+                    if let Ok(mut message) = keep_action_notice.write() {
+                        *message = Some("Another Keep is active".to_string());
+                    }
+                } else if let Ok(mut message) = record_error_message.write() {
+                    *message = Some("Failed to start record".to_string());
+                }
+                return false;
+            }
+        },
+        None => None,
+    };
     // B-127 (G-115-365): per-pairing O_EXCL reservation で cross-process atomic に枠を確保する。
     // pairing key = (target=PRE iid, post_iid=POST iid)。cap の真実源は枠ファイルの**物理存在のみ**
     // （count_distinct_pairings = reservation::count_frames）。reservation を先に atomic-create
@@ -110,19 +147,6 @@ pub(crate) fn resolve_and_enter_keep(
             return false;
         }
     }
-    // A single Keep owns the same two-phase generation contract as All Keep. External
-    // generations are already staged by the All Keep originator and are committed only after all
-    // members report exact PRE+POST writer ownership.
-    let owned_generation = capture_generation.is_none().then(|| {
-        CaptureGeneration::new_single_named(
-            project_hash.to_string(),
-            post_iid.to_string(),
-            target.clone(),
-            daw.to_string(),
-            current_host_process_id(),
-            Some(pair.clone()),
-        )
-    });
     let generation = match capture_generation.or(owned_generation.as_ref()) {
         Some(generation) => generation,
         None => {
@@ -135,27 +159,7 @@ pub(crate) fn resolve_and_enter_keep(
             return false;
         }
     };
-    let mut owned_transaction = if owned_generation.is_some() {
-        let mut transaction = match CaptureGenerationTransaction::begin(&base, generation) {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                if reservation_created {
-                    reservation::release_pairing(&base, project_hash, &target, post_iid);
-                }
-                if matches!(
-                    error,
-                    kirin_measure::CaptureGenerationError::Io(ref error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                ) {
-                    if let Ok(mut message) = keep_action_notice.write() {
-                        *message = Some("Another Keep is active".to_string());
-                    }
-                } else if let Ok(mut message) = record_error_message.write() {
-                    *message = Some("Failed to start record".to_string());
-                }
-                return false;
-            }
-        };
+    if let Some(transaction) = owned_transaction.as_mut() {
         if transaction.stage().is_err() {
             if reservation_created {
                 reservation::release_pairing(&base, project_hash, &target, post_iid);
@@ -165,10 +169,7 @@ pub(crate) fn resolve_and_enter_keep(
             }
             return false;
         }
-        Some(transaction)
-    } else {
-        None
-    };
+    }
     keep_phase_generation_started_at_ms.store(generation.started_at_ms, Ordering::Release);
     keep_record_generation.store(record_sm.generation().saturating_add(1), Ordering::Release);
     keep_phase.store(KIRIN_KEEP_PHASE_PREPARING, Ordering::Release);
@@ -311,4 +312,22 @@ fn spawn_keep_phase_observer(
             }
         })
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    /// A single Keep holds its generation lock before it reserves the pair. An older aborted Keep
+    /// gives its reservation back while holding that lock, so it can never remove the reservation
+    /// of the Keep that follows it (`a_reservation_taken_after_begin_survives_an_older_aborted_keep`).
+    #[test]
+    fn a_single_keep_reserves_its_pair_only_after_it_holds_the_generation_lock() {
+        let source = include_str!("keep_entry.rs");
+        let body = &source[source.find("fn resolve_and_enter_keep(").unwrap()..];
+        let begin = body.find("CaptureGenerationTransaction::begin(").unwrap();
+        let reserve = body.find("reservation::reserve_pairing(").unwrap();
+        assert!(
+            begin < reserve,
+            "the pair is reserved before the generation lock"
+        );
+    }
 }

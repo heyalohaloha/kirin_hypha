@@ -117,3 +117,39 @@ fn an_aborted_all_keep_gives_back_every_member_but_never_a_replaced_one() {
         "the replacement generation keeps its reservation"
     );
 }
+
+#[test]
+fn a_reservation_taken_after_begin_survives_an_older_aborted_keep() {
+    let temp = tempfile::tempdir().unwrap();
+    let single = |post: &str| {
+        CaptureGeneration::new_single_named(
+            "project-a".into(),
+            post.into(),
+            "pre-a".into(),
+            "daw-a".into(),
+            1,
+            None,
+        )
+    };
+    let older = single("post-a");
+    let mut transaction = CaptureGenerationTransaction::begin(temp.path(), &older).unwrap();
+    transaction.stage().unwrap();
+    armed(temp.path(), &older, &older.members[0]);
+    // Reserving before its own begin, the next Keep of the same pair would reuse the older
+    // reservation, which the older Keep's abort then removes from under it.
+    assert_eq!(
+        reserve_pairing(temp.path(), "project-a", "pre-a", "post-a").unwrap(),
+        ReserveOutcome::AlreadyReserved
+    );
+    // Beginning first, it waits for the older transaction, which gives its reservation back
+    // while it still holds the lock.
+    let next = single("post-a");
+    assert!(CaptureGenerationTransaction::begin(temp.path(), &next).is_err());
+    drop(transaction);
+    let _next_transaction = CaptureGenerationTransaction::begin(temp.path(), &next).unwrap();
+    assert_eq!(
+        reserve_pairing(temp.path(), "project-a", "pre-a", "post-a").unwrap(),
+        ReserveOutcome::Created,
+        "the next Keep owns a reservation nothing older can remove"
+    );
+}
