@@ -206,6 +206,33 @@ impl KeepPassJournal {
     }
 }
 
+/// The samples the TRACE must cover in a record of `duration_samples`: all of them, except for a
+/// Keep whose listed later realtime passes explain the rest of the record (for example an exported
+/// WAV of the whole Keep). Its TRACE ends at its first pass by design, so the TRACE checks judge
+/// that pass and a normal LOOP wrap degrades nothing. A span the passes do not explain keeps the
+/// whole duration, so a real gap still degrades the record. Passes after an offline take are never
+/// part of the record's audio and explain nothing.
+pub fn trace_span_samples(passes: &[KeepPass], duration_samples: u64, sample_rate: u32) -> u64 {
+    let (trace, later) = passes.iter().fold((0_u64, 0_u64), |(trace, later), pass| {
+        if pass.in_trace {
+            (trace.saturating_add(pass.frames), later)
+        } else if pass.trace_excluded_reason.as_deref() == Some(KEEP_PASS_AFTER_OFFLINE_TAKE) {
+            (trace, later)
+        } else {
+            (trace, later.saturating_add(pass.frames))
+        }
+    });
+    // One TRACE slot of tolerance for where the record's edges fall inside a callback.
+    let slot = u64::from(sample_rate / 10).max(1);
+    if trace == 0
+        || later == 0
+        || trace.saturating_add(later).saturating_add(slot) < duration_samples
+    {
+        return duration_samples;
+    }
+    duration_samples.min(trace)
+}
+
 impl RecordTakeTracker {
     /// Measure Thread: account one consumed Record-lane chunk to its Keep pass.
     pub(crate) fn note_keep_chunk(&self, chunk: KeepChunk) {

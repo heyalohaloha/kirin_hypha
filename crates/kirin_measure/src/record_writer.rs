@@ -2977,7 +2977,7 @@ mod tests {
         format!("{prefix}-{}-{n}", std::process::id())
     }
 
-    fn isolated_base() -> PathBuf {
+    pub(super) fn isolated_base() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
@@ -3574,7 +3574,7 @@ mod tests {
         make_ctx_with_sample_rate(base, role, started_at_ms, 48_000)
     }
 
-    fn make_ctx_with_sample_rate(
+    pub(super) fn make_ctx_with_sample_rate(
         base: &std::path::Path,
         role: Role,
         started_at_ms: i64,
@@ -3748,7 +3748,7 @@ mod tests {
         assert!(!writer_claim_active(&base, TEST_PH, session_id, Role::Post, TEST_IID).unwrap());
     }
 
-    fn read_output_for_final(final_path: &Path) -> PluginDataFile {
+    pub(super) fn read_output_for_final(final_path: &Path) -> PluginDataFile {
         let failed_path = failed_path_for_final(final_path);
         let pending_path = pair_pending_path_for_final(final_path);
         let path = if final_path.exists() {
@@ -3818,7 +3818,7 @@ mod tests {
         ctx
     }
 
-    fn full_measure_result() -> MeasureResult {
+    pub(super) fn full_measure_result() -> MeasureResult {
         MeasureResult {
             lufs_m: Some(-14.2),
             true_peak: Some(-1.1),
@@ -3847,7 +3847,7 @@ mod tests {
         }
     }
 
-    fn expected_wav_metadata(
+    pub(super) fn expected_wav_metadata(
         sample_rate: u32,
         duration_samples: u64,
         bounce_id: &str,
@@ -3893,7 +3893,7 @@ mod tests {
         trace_sample_frames_with_native(t_frames_48k, None, result, include_psb)
     }
 
-    fn trace_sample_frames_with_native(
+    pub(super) fn trace_sample_frames_with_native(
         t_frames_48k: u64,
         t_native_frames: Option<u64>,
         result: MeasureResult,

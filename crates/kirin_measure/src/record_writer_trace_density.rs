@@ -1,6 +1,23 @@
 //! Whether the Record TRACE covers and densely measures the span it must describe.
 use super::*;
 
+/// The span the TRACE must cover: the record's duration, or only the TRACE pass of a Keep whose
+/// listed later passes explain the rest of the record (INV-R10).
+pub(super) fn trace_duration_ms(ctx: &RecordingCtx) -> u64 {
+    let duration_ms = record_duration_ms(ctx);
+    let data = ctx.writer.data();
+    let duration_samples = record_duration_samples(ctx);
+    let span = crate::record_take::trace_span_samples(
+        &data.keep_passes,
+        duration_samples,
+        data.sample_rate,
+    );
+    if span >= duration_samples || data.sample_rate == 0 {
+        return duration_ms;
+    }
+    span.saturating_mul(1_000) / u64::from(data.sample_rate)
+}
+
 pub(super) fn frame_timeline_covers_duration(ctx: &RecordingCtx, duration_ms: u64) -> bool {
     let frames = &ctx.writer.data().frames;
     let Some(first) = frames.first() else {
@@ -55,7 +72,7 @@ fn trace_density_is_sparse(ctx: &RecordingCtx) -> bool {
     if ctx.writer.data().frames.is_empty() {
         return true;
     }
-    let duration_ms = record_duration_ms(ctx);
+    let duration_ms = trace_duration_ms(ctx);
     if ctx.raw_trace_timeline_covers_duration == Some(false) {
         return true;
     }
@@ -99,7 +116,7 @@ fn fallback_frame_density_is_sparse(ctx: &RecordingCtx, duration_ms: u64) -> boo
 }
 
 pub(super) fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) {
-    let duration_ms = record_duration_ms(ctx);
+    let duration_ms = trace_duration_ms(ctx);
     let has_frame_gap = frame_timeline_has_gap(ctx, duration_ms);
     let has_raw_gap = ctx.raw_trace_timeline_covers_duration == Some(false);
     if trace_density_is_sparse(ctx) {
@@ -121,3 +138,7 @@ pub(super) fn mark_integrity_if_trace_density_is_sparse(ctx: &mut RecordingCtx) 
         }
     }
 }
+
+#[cfg(test)]
+#[path = "record_writer_trace_density_tests.rs"]
+mod tests;

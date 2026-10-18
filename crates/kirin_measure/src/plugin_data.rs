@@ -1257,10 +1257,10 @@ fn trace_bounce_take_failure_reasons(data: &PluginDataFile) -> Vec<&'static str>
     };
     let mapped_coverage =
         latency_mapped_trace_coverage(data, take.duration_samples, take.sample_rate);
-    let expected_frame_count = mapped_coverage
-        .map_or(duration_ms / TRACE_FRAME_INTERVAL_MS, |coverage| {
-            coverage.expected_frame_count
-        });
+    let expected_frame_count = mapped_coverage.map_or_else(
+        || trace_span_frame_count(data, take.duration_samples, take.sample_rate),
+        |coverage| coverage.expected_frame_count,
+    );
     if take.wav_start_sample != 0 {
         reasons.push("bounce_take_start_sample_nonzero");
     }
@@ -3028,7 +3028,7 @@ fn normalize_late_expected_record(
     let Some(duration_ms) = expected_wav_duration_ms(expected) else {
         return false;
     };
-    let expected_frame_count = duration_ms / TRACE_FRAME_INTERVAL_MS;
+    let expected_frame_count = expected_trace_frames(data, expected);
     let Ok(expected_len) = usize::try_from(expected_frame_count) else {
         return false;
     };

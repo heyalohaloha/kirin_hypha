@@ -75,6 +75,8 @@ pub(super) fn latency_mapped_trace_coverage(
     }
     let slot_samples = i64::from(sample_rate / 10).max(1);
     let half_slot = (slot_samples / 2).max(1);
+    let duration_samples =
+        crate::record_take::trace_span_samples(&data.keep_passes, duration_samples, sample_rate);
     let duration = i64::try_from(duration_samples).ok()?;
     let first = *data.trace_slot_positions.first()?;
     let last = *data.trace_slot_positions.last()?;
@@ -154,4 +156,28 @@ pub(super) fn latency_mapped_trace_coverage(
         measured_frame_count,
         missing_slots,
     })
+}
+
+/// Whole TRACE slots in the span the TRACE must cover within `duration_samples` (INV-R10).
+pub(super) fn trace_span_frame_count(
+    data: &PluginDataFile,
+    duration_samples: u64,
+    sample_rate: u32,
+) -> u64 {
+    if sample_rate == 0 {
+        return 0;
+    }
+    crate::record_take::trace_span_samples(&data.keep_passes, duration_samples, sample_rate)
+        .saturating_mul(1_000)
+        / u64::from(sample_rate)
+        / TRACE_FRAME_INTERVAL_MS
+}
+
+/// Whole TRACE slots an exported WAV holds for this record.
+pub(super) fn expected_trace_frames(data: &PluginDataFile, expected: &ExpectedWavMetadata) -> u64 {
+    trace_span_frame_count(
+        data,
+        expected.expected_duration_samples,
+        expected.expected_sample_rate,
+    )
 }
