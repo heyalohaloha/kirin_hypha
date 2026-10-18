@@ -62,6 +62,12 @@ function modeString(stat) {
   return (stat.mode & 0o7777).toString(8).padStart(4, '0');
 }
 
+// One order for every tree manifest: full POSIX paths compared as strings, the same
+// comparison validateTreeManifest enforces. Depth-first sibling order differs ("a/b" vs "a-b").
+function comparePaths(left, right) {
+  return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+}
+
 export function buildTreeManifest(rootPath, rootName = path.basename(rootPath)) {
   safeComponent(rootName, 'AAX content manifest root_name');
   if (!fs.statSync(rootPath, { throwIfNoEntry: false })?.isDirectory()) {
@@ -69,8 +75,7 @@ export function buildTreeManifest(rootPath, rootName = path.basename(rootPath)) 
   }
   const entries = [];
   function visit(directory, prefix) {
-    const children = fs.readdirSync(directory, { withFileTypes: true })
-      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+    const children = fs.readdirSync(directory, { withFileTypes: true });
     for (const child of children) {
       const absolute = path.join(directory, child.name);
       const relative = prefix ? `${prefix}/${child.name}` : child.name;
@@ -100,6 +105,7 @@ export function buildTreeManifest(rootPath, rootName = path.basename(rootPath)) 
     }
   }
   visit(path.resolve(rootPath), '');
+  entries.sort(comparePaths);
   const manifest = { schema: AAX_CONTENT_MANIFEST_SCHEMA, root_name: rootName, entries };
   validateTreeManifest(manifest);
   return manifest;

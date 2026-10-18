@@ -76,7 +76,7 @@ run node --test scripts/check_screen_text.test.mjs
 run node scripts/check_screen_text.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
-run node --test scripts/ls_release/release_metadata.test.mjs scripts/ls_release/windows_primary_metadata.test.mjs
+run node --test scripts/ls_release/release_metadata.test.mjs scripts/ls_release/windows_primary_metadata.test.mjs scripts/ls_release/pkg_payload_modes.test.mjs
 run node --test scripts/windows/windows_installer.test.mjs scripts/windows/unsigned_vst3_provenance.test.mjs scripts/windows/windows_vst3_bundle.test.mjs
 run node --test scripts/ls_release/release_source_identity.test.mjs scripts/provenance/unsigned_qualification.test.mjs scripts/provenance/runtime_guard.test.mjs scripts/provenance/native_link_evidence.test.mjs
 run node --test scripts/provenance/factory_artifact.test.mjs

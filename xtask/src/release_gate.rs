@@ -3,6 +3,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 pub const UNSIGNED_SUFFIX: &str = "UNSIGNED-DO-NOT-UPLOAD";
+/// Exact `git_dirty` string for a clean source in the ZIP sidecar; the release verifier
+/// (`scripts/ls_release/hypha_release_local.mjs`) accepts only this value.
+pub const GIT_CLEAN_STATE: &str = "false";
 
 pub fn verify_package_mode(dist_dir: &Path, allow_unsigned: bool) -> Result<()> {
     if allow_unsigned {
@@ -22,7 +25,7 @@ pub fn verify_package_mode(dist_dir: &Path, allow_unsigned: bool) -> Result<()> 
 
 pub fn git_dirty_for_manifest() -> String {
     match git_dirty_entries() {
-        Ok(entries) if entries.is_empty() => "false".to_string(),
+        Ok(entries) if entries.is_empty() => GIT_CLEAN_STATE.to_string(),
         Ok(entries) => format!("true: {}", entries.join("; ")),
         Err(err) => format!("unknown: {err}"),
     }

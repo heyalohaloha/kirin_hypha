@@ -116,8 +116,14 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
 
 export function nativeRunner(root) {
   return async (tool, args, options = {}) => {
-    const result = childProcess.spawnSync(tool, args, { cwd: options.cwd || root, encoding: 'utf8',
-      env: { ...process.env, ...(options.env || {}) }, stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', maxBuffer: 32 * 1024 * 1024 });
+    // stdoutFile: binary output goes straight to a new owned file (never decoded or overwritten).
+    const output = options.stdoutFile ? fs.openSync(options.stdoutFile, 'wx', 0o600) : null;
+    const stdio = output !== null ? ['ignore', output, 'pipe'] : options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit';
+    let result;
+    try {
+      result = childProcess.spawnSync(tool, args, { cwd: options.cwd || root, encoding: 'utf8',
+        env: { ...process.env, ...(options.env || {}) }, stdio, maxBuffer: 32 * 1024 * 1024 });
+    } finally { if (output !== null) fs.closeSync(output); }
     if (result.error || result.status !== 0) {
       if (options.optional404 && /HTTP 404/.test(result.stderr || '')) return '';
       throw new Error(`${tool} failed; inspect retained tool output (exit ${result.status ?? 'unavailable'})`);

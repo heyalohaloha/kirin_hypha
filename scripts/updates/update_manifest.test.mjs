@@ -100,7 +100,7 @@ function completeFixture(t) {
   fs.writeFileSync(files[2], JSON.stringify({ version: '1.1.51', source, signed: true, notarized: true,
     aaxIncluded: true, updateCheck: mac, sha256: fileFact(files[0]).sha256 }));
   fs.writeFileSync(files[5], JSON.stringify({ version: '1.1.51', commit: source.commit,
-    unsigned_smoke_test: false, aax_included: true, git_dirty: '', updateCheck: mac, sha256: fileFact(files[3]).sha256 }));
+    unsigned_smoke_test: false, aax_included: true, git_dirty: 'false', updateCheck: mac, sha256: fileFact(files[3]).sha256 }));
   fs.writeFileSync(files[8], JSON.stringify({ updateCheck: win, installer: {
     payload: win.binaries.map(b => ({ role: b.role, format: b.format, binary_sha256: b.binarySha256 })) } }));
   for (const file of [files[0], files[3], files[6]]) fs.writeFileSync(`${file}.sha256`, `${fileFact(file).sha256}  ${path.basename(file)}\n`);

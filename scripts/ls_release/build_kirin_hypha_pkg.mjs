@@ -13,6 +13,7 @@ import {
 } from './aax_notarization_receipt.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
+import { normalizeContainerDirectories, verifyContainerDirectories } from './pkg_payload_modes.mjs';
 import { inspectMacBundle, inspectMacTree, validatePublicKey } from '../updates/update_key_binding.mjs';
 import {
   readReleaseSourceIdentity,
@@ -40,6 +41,7 @@ const shipManifest = loadMacShipBundleManifest({ root: ROOT });
 const aaxManifest = WITH_AAX ? loadMacAaxBundleManifest({ root: ROOT }) : null;
 const bundles = [...shipManifest.bundles, ...(aaxManifest?.bundles || [])];
 const UPDATE_PUBLIC_KEY = process.env.KIRIN_HYPHA_UPDATE_PUBLIC_KEY || '';
+const LEGAL_RELATIVE = 'Library/Application Support/Kirin Hypha/Legal';
 
 function usage() {
   return `Usage:
@@ -231,11 +233,21 @@ function verifyPackagedPayload(packagePath, releaseIdentity) {
   const expanded = path.join(temporary, 'expanded');
   try {
     run('pkgutil', ['--expand-full', packagePath, expanded]);
+    // pkgutil restores the archived modes: every folder above a bundle or Legal stays 755.
+    const anchor = bundles[0].install_relative;
+    const anchors = findBundleDirectories(expanded, [path.basename(anchor)]).get(path.basename(anchor))
+      .filter((candidate) => candidate.endsWith(`/${anchor}`));
+    if (anchors.length !== 1) throw new Error('Expanded PKG must contain one plug-in payload root');
+    verifyContainerDirectories(anchors[0].slice(0, -anchor.length - 1), [
+      ...bundles.map((bundle) => bundle.install_relative),
+      ...(process.env.KIRIN_HYPHA_LEGAL_DIR ? [LEGAL_RELATIVE] : []),
+    ]);
     if (process.env.KIRIN_HYPHA_LEGAL_DIR) {
       const matches = findBundleDirectories(expanded, ['Legal']).get('Legal')
-        .filter(p => p.endsWith('/Library/Application Support/Kirin Hypha/Legal'));
+        .filter(p => p.endsWith(`/${LEGAL_RELATIVE}`));
       if (matches.length !== 1) throw new Error('Expanded PKG must contain one source/legal delivery');
-      const actual = verifyLegalDelivery(matches[0], releaseIdentity.commit);
+      // Every account must be able to read the installed notices (modes travel in the payload).
+      const actual = verifyLegalDelivery(matches[0], releaseIdentity.commit, { distributed: true });
       const expected = verifyLegalDelivery(process.env.KIRIN_HYPHA_LEGAL_DIR, releaseIdentity.commit);
       if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Expanded PKG legal inventory mismatch');
     }
@@ -316,7 +328,7 @@ function buildPackage() {
   fs.mkdirSync(payloadRoot, { recursive: true });
   const legalDelivery = process.env.KIRIN_HYPHA_LEGAL_DIR
     ? stageLegalDelivery(process.env.KIRIN_HYPHA_LEGAL_DIR,
-      path.join(payloadRoot, 'Library/Application Support/Kirin Hypha/Legal'), releaseIdentity.commit)
+      path.join(payloadRoot, LEGAL_RELATIVE), releaseIdentity.commit)
     : null;
   fs.mkdirSync(scriptsDir, { recursive: true });
   writePreinstall(path.join(scriptsDir, 'preinstall'));
@@ -339,6 +351,10 @@ function buildPackage() {
     }
   }
   verifyShipBundleContract(payloadRoot);
+  normalizeContainerDirectories(payloadRoot, [
+    ...packageBundles.map((bundle) => bundle.install_relative),
+    ...(legalDelivery ? [LEGAL_RELATIVE] : []),
+  ]);
 
   const componentPkg = path.join(workDir, 'KirinHyphaPlugins.pkg');
   run('pkgbuild', [

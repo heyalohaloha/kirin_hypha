@@ -401,15 +401,19 @@ hashed before the HP update. See [the complete entry](../hypha_release_entry.md)
 ### HP-3: Bump the website download links
 
 HP keeps the stable `/downloads/kirin-hypha/macos` and `/downloads/kirin-hypha/windows`
-entry routes. The release coordinator updates five source files together:
+entry routes. The release coordinator changes two data files and verifies the pages:
 
-- `hypha.html` and `ja/hypha.html`: release tokens, AAX format copy and update guidance.
 - `updates/hypha.json`: exact version/date/notes plus the official PKG/EXE URL, actual bytes and SHA-256
   from the frozen package facts. Missing, duplicated, malformed or different-version installer facts fail.
-- `scripts/__tests__/hypha-entry-links.test.mjs` and `api/__tests__/download-security.test.mjs`:
-  the current version/date expectations and the negative URL/version guard.
+- `data/news.json`: one standard notice for the release, ahead of the earlier ones, which stay unchanged.
+  A different notice for the same release stops for review.
+- `hypha.html` and `ja/hypha.html`: checked, never rewritten. They keep the release tokens, the AAX format
+  copy and the update guidance; a literal release number in them stops for review.
 
-The source templates retain version/date/notes tokens; the HP build renders the central record.
+The source templates retain version/date/notes tokens; the HP build renders the central record. The HP
+tests read the version, date and notices from the same records, so they need no per-release edit. Before
+signing, run the whole HP suite on a disposable checkout with the next version's values (see
+`node --test scripts/ls_release/hypha_release_hp.test.mjs` for the update itself).
 Do not replace its download routes with direct links or invent integrity values. The coordinator
 refuses unrelated dirty changes, altered planned edits, an unreviewed downgrade or different
 same-version integrity, and runs the HP tests before commit/push. After the standard deployment,

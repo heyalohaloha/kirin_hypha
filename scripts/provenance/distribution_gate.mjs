@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { readSourceZip } from './source_zip.mjs';
 import { ROOT, readAssetRegistry, embeddedAssets, assetDecision, rejectHeldBytes, sha256 } from './asset_gate.mjs';
 import { fileFact, Checkpoint, resolveInput } from '../ls_release/hypha_release_contract.mjs';
+import { releaseSealedAliases, sealedPayloadInventory } from './sealed_pace_alias.mjs';
 
 const MEDIA = /\.(png|jpe?g|mp4|otf|ttf)$/i;
 const REQUIRED_NOTICES = ['LICENSE', 'THIRD_PARTY_NOTICES.md',
@@ -36,7 +37,7 @@ function sameFile(root, relative, expected) {
   return fileFact(file);
 }
 
-function walkFiles(root, prefix = '') {
+export function walkFiles(root, prefix = '') {
   const result = [];
   for (const entry of fs.readdirSync(path.join(root, prefix), { withFileTypes: true })) {
     if (entry.name === '.git') continue;
@@ -106,7 +107,8 @@ export function validateComponentInventory(components, inventory, entries) {
   }
 }
 
-export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts, report, requirements = sourceRequirements }) {
+export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts, report, requirements = sourceRequirements,
+  sealedAliases }) {
   if (report.schema !== 'hypha-distribution-provenance-v1' || report.commit !== commit) {
     throw new Error('Distribution provenance candidate mismatch');
   }
@@ -137,7 +139,7 @@ export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts
   validateComponentInventory(components, inventory, entries);
   const channels = ['macos-pkg', 'macos-zip', 'windows-exe'];
   if (!Array.isArray(report.payloads) || report.payloads.length !== channels.length) throw new Error('All three actual distribution payloads required');
-  const facts = [sourceFact];
+  const facts = [sourceFact]; const aliases = [];
   for (const channel of channels) {
     const payload = report.payloads.find(p => p.channel === channel);
     const artifact = artifacts[channels.indexOf(channel)];
@@ -148,7 +150,11 @@ export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts
     facts.push(evidence);
     const payloadRoot = resolveInput({ root }, payload.root);
     const extraction = JSON.parse(fs.readFileSync(evidence.path, 'utf8'));
-    const actualFiles = walkFiles(payloadRoot).sort().map(p => ({ path: p, sha256: sha256(fs.readFileSync(regular(payloadRoot, p))) }));
+    // Without frozen rules every payload symlink is rejected; verified aliases stay out of the file inventory.
+    const walked = sealedAliases ? sealedPayloadInventory(payloadRoot, channel, sealedAliases)
+      : { files: walkFiles(payloadRoot), aliases: [] };
+    aliases.push(...walked.aliases);
+    const actualFiles = walked.files.sort().map(p => ({ path: p, sha256: sha256(fs.readFileSync(regular(payloadRoot, p))) }));
     if (extraction.schema !== 'hypha-extraction-evidence-v1' || extraction.artifactSha256 !== artifact.sha256
         || extraction.extractor !== payload.extractor || extraction.exitCode !== 0 || !extraction.reviewer?.trim()
         || !Array.isArray(extraction.command) || !extraction.command.length
@@ -186,9 +192,9 @@ export function verifyDistributionEvidence({ root, commit, releaseTag, artifacts
       }
       facts.push(cacheFact);
     }
-    rejectHeldBytes(registry, walkFiles(payloadRoot).map(p => [p, fs.readFileSync(regular(payloadRoot, p))]), 'binary');
+    rejectHeldBytes(registry, walked.files.map(p => [p, fs.readFileSync(regular(payloadRoot, p))]), 'binary');
   }
-  return { facts, publicFacts: [sourceFact] };
+  return { facts, publicFacts: [sourceFact], aliases };
 }
 
 export function verifyReleaseProvenance(state) {
@@ -204,7 +210,8 @@ export function verifyReleaseProvenance(state) {
     throw new Checkpoint('Actual Windows AAX/installer font provenance must match the no-font distribution');
   }
   const result = verifyDistributionEvidence({ root: state.root, commit: state.candidate.commit,
-    releaseTag: `v${state.candidate.version}`, artifacts: [packageFacts[0], packageFacts[3], packageFacts[6]], report });
+    releaseTag: `v${state.candidate.version}`, artifacts: [packageFacts[0], packageFacts[3], packageFacts[6]], report,
+    sealedAliases: releaseSealedAliases(state) });
   return { ...result, facts: [fileFact(file), ...result.facts] };
 }
 
