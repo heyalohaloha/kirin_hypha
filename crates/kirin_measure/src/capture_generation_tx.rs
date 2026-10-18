@@ -124,6 +124,10 @@ impl CaptureGenerationTransaction {
     /// Waits for both PRE and POST writers of every immutable roster member to own their exact
     /// Record session, then promotes the active pointer. This runs only on a user/control thread;
     /// it performs no audio-thread work and never scans directories or historical sessions.
+    ///
+    /// `timeout` is the longest wait without one more producer becoming ready; the whole wait
+    /// ends at [`CAPTURE_PRODUCER_READY_LIMIT`]. A slow host bringing producers up one by one is
+    /// not failed for being slow, and a producer that never arrives still ends the wait.
     pub fn commit_when_ready(&mut self, timeout: Duration) -> Result<(), CaptureGenerationError> {
         if !self.staged {
             return Err(CaptureGenerationError::Io(io::Error::new(
@@ -131,19 +135,21 @@ impl CaptureGenerationTransaction {
                 "capture generation was not staged",
             )));
         }
-        let deadline = Instant::now() + timeout;
-        loop {
-            if generation_producers_ready(&self.base_dir, &self.generation) {
-                return self.commit();
-            }
-            if Instant::now() >= deadline {
-                return Err(CaptureGenerationError::Io(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "capture generation producers did not become ready",
-                )));
-            }
-            thread::sleep(Duration::from_millis(10));
+        let total = self.generation.members.len() * 2;
+        let ready = wait_for_producers(
+            timeout,
+            || ready_producer_count(&self.base_dir, &self.generation),
+            total,
+            Instant::now,
+            || thread::sleep(Duration::from_millis(10)),
+        );
+        if ready {
+            return self.commit();
         }
+        Err(CaptureGenerationError::Io(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "capture generation producers did not become ready",
+        )))
     }
 
     /// Move producer readiness waiting off the host message thread.
@@ -305,35 +311,70 @@ fn abort_uncommitted_generation(base_dir: &Path, generation: &CaptureGeneration)
     }
 }
 
-fn generation_producers_ready(base_dir: &Path, generation: &CaptureGeneration) -> bool {
-    if !process_is_alive(generation.host_process_id) {
-        return false;
+/// The producer barrier: true once every one of `total` producers is ready. Ends after `timeout`
+/// without progress, or at [`CAPTURE_PRODUCER_READY_LIMIT`] (never before `timeout`).
+fn wait_for_producers(
+    timeout: Duration,
+    mut ready: impl FnMut() -> usize,
+    total: usize,
+    mut now: impl FnMut() -> Instant,
+    mut pause: impl FnMut(),
+) -> bool {
+    let started = now();
+    let limit = started + timeout.max(crate::capture_contract::CAPTURE_PRODUCER_READY_LIMIT);
+    let mut no_progress_deadline = started + timeout;
+    let mut best = 0;
+    loop {
+        let count = ready();
+        if total > 0 && count >= total {
+            return true;
+        }
+        let at = now();
+        if count > best {
+            best = count;
+            no_progress_deadline = at + timeout;
+        }
+        if at >= no_progress_deadline || at >= limit {
+            return false;
+        }
+        pause();
     }
-    generation.members.iter().all(|member| {
-        !member.pre_instance_id.trim().is_empty()
+}
+
+fn generation_producers_ready(base_dir: &Path, generation: &CaptureGeneration) -> bool {
+    !generation.members.is_empty()
+        && ready_producer_count(base_dir, generation) == generation.members.len() * 2
+}
+
+/// PRE and POST writers of the roster that own their exact Record session and are ready.
+fn ready_producer_count(base_dir: &Path, generation: &CaptureGeneration) -> usize {
+    if !process_is_alive(generation.host_process_id) {
+        return 0;
+    }
+    let ready = |member: &crate::capture_generation::CaptureGenerationMember,
+                 role: Role,
+                 instance_id: &str| {
+        !instance_id.trim().is_empty()
             && crate::record_writer_claim::writer_claim_ready_for_generation(
                 base_dir,
                 &member.project_hash,
                 &member.record_session_id,
-                Role::Pre,
-                &member.pre_instance_id,
+                role,
+                instance_id,
                 &generation.capture_generation_id,
                 generation.started_at_ms,
                 generation.host_process_id,
             )
             .unwrap_or(false)
-            && crate::record_writer_claim::writer_claim_ready_for_generation(
-                base_dir,
-                &member.project_hash,
-                &member.record_session_id,
-                Role::Post,
-                &member.post_instance_id,
-                &generation.capture_generation_id,
-                generation.started_at_ms,
-                generation.host_process_id,
-            )
-            .unwrap_or(false)
-    })
+    };
+    generation
+        .members
+        .iter()
+        .map(|member| {
+            usize::from(ready(member, Role::Pre, &member.pre_instance_id))
+                + usize::from(ready(member, Role::Post, &member.post_instance_id))
+        })
+        .sum()
 }
 
 fn remove_preparing_if_current(base_dir: &Path, generation: &CaptureGeneration) {
@@ -438,6 +479,9 @@ fn process_is_alive(process_id: u32) -> bool {
     process_id != 0
 }
 
+#[cfg(test)]
+#[path = "capture_generation_ready_tests.rs"]
+mod ready_tests;
 #[cfg(test)]
 #[path = "capture_generation_tx_tests.rs"]
 mod tests;

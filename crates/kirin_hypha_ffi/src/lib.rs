@@ -31,7 +31,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::SessionSummary;
@@ -865,7 +865,8 @@ fn spawn_keep_phase_observer(
     std::thread::Builder::new()
         .name("hypha-arm-observer".to_string())
         .spawn(move || {
-            let deadline = std::time::Instant::now() + CAPTURE_PRODUCER_READY_TIMEOUT;
+            let deadline =
+                Instant::now() + kirin_measure::capture_contract::CAPTURE_PRODUCER_READY_LIMIT;
             loop {
                 if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
                     return;
@@ -881,16 +882,12 @@ fn spawn_keep_phase_observer(
                     phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
                     return;
                 }
-                if kirin_measure::read_generation_terminal(
+                let terminal = kirin_measure::read_generation_terminal(
                     &base,
                     &capture_generation_id,
                     generation_started_at_ms,
-                )
-                .ok()
-                .flatten()
-                .is_some()
-                    || std::time::Instant::now() >= deadline
-                {
+                );
+                if terminal.ok().flatten().is_some() || Instant::now() >= deadline {
                     phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
                     return;
                 }

@@ -235,3 +235,70 @@ fn duplicate_post_state_machines_same_ack_only_one_enters_record() {
         "same session/POST instance must have only one cross-process Record entrant"
     );
 }
+
+/// A Keep whose producers missed the readiness deadline is aborted before commit. A slow POST may
+/// enter Record from the ACK it read just before the abort; the abort then releases its signal
+/// and the originator ignores its own stop broadcast. That POST must still return to Watch.
+#[test]
+fn a_post_that_entered_an_aborted_keep_returns_to_watch() {
+    let base = isolated_base("aborted-generation");
+    let generation = crate::CaptureGeneration::new_single_named(
+        TEST_PH.to_string(),
+        TEST_POST_IID.to_string(),
+        "pre-iid".to_string(),
+        "daw-1".to_string(),
+        crate::current_host_process_id(),
+        Some("2Mix".to_string()),
+    );
+    let member = generation.members[0].clone();
+    let mut transaction =
+        crate::CaptureGenerationTransaction::begin(&base, &generation).expect("generation lock");
+    transaction.stage().expect("producer preparation");
+    let signal = RecordSignal {
+        status: SignalStatus::Acknowledged,
+        requested_by: TEST_POST_IID.to_string(),
+        target_pre_instance_id: member.pre_instance_id.clone(),
+        daw_session_id: "daw-1".to_string(),
+        session_id: member.record_session_id.clone(),
+        capture_generation_id: generation.capture_generation_id.clone(),
+        generation_started_at_ms: generation.started_at_ms,
+        t: "2026-07-15T00:00:00Z".to_string(),
+        started_at: "2026-07-15T00:00:00Z".to_string(),
+        started_at_position_samples: None,
+        paired_pre_name: "2Mix".to_string(),
+        release_reason: None,
+        expected_wav: None,
+    };
+    crate::record_signal::write_signal(&base, TEST_PH, TEST_POST_IID, &signal).unwrap();
+    let sm = Arc::new(RecordStateMachine::new());
+    let pair_label = Arc::new(Mutex::new(String::new()));
+    let record_ingress = crate::RecordIngress::new(16);
+    let poll = || {
+        poll_record_signal_ack_with_base(
+            &base,
+            TEST_PH,
+            TEST_POST_IID,
+            48_000,
+            &sm,
+            &pair_label,
+            &record_ingress,
+        )
+    };
+    poll();
+    assert_eq!(sm.current(), RecordState::Record, "the ACK arms this POST");
+    // The readiness deadline passed: the uncommitted transaction aborts its generation.
+    drop(transaction);
+    poll();
+    assert_eq!(
+        sm.current(),
+        RecordState::Watch,
+        "no Record survives an aborted Keep"
+    );
+    assert!(
+        !pair_label.lock().unwrap().is_empty(),
+        "the pair stays selected"
+    );
+    // A later poll of the same released signal never re-arms it.
+    poll();
+    assert_eq!(sm.current(), RecordState::Watch);
+}

@@ -73,6 +73,7 @@ pub(super) struct TimeComparisonState {
     post_admission_floor: u64,
     joined_run: u64,
     seeks: seek::SeekAdmission,
+    passes: seek::PassAlignment,
 }
 
 impl TimeComparisonState {
@@ -84,6 +85,8 @@ impl TimeComparisonState {
             TimeComparisonReason::Stopped | TimeComparisonReason::Incompatible
         ) {
             self.seeks.clear_pending();
+            // Both sides start their next playback from a common origin.
+            self.passes.reset();
         }
     }
 
@@ -187,6 +190,12 @@ impl TimeComparisonState {
             .filter_map(|p| Some((p.exact_key()?, p)))
             .collect();
         history.set_step_frames(((u64::from(latest.wire.span.sample_rate) + 5) / 10).max(1));
+        if !self.passes.aligned(*pre_latest, latest.wire) {
+            // A side that has not moved back as far as the other is still measuring a previous
+            // pass of the same positions. Never subtract two passes.
+            self.fail(TimeComparisonReason::Missing);
+            return;
+        }
         let last_joined = self.last_joined;
         for local in post
             .iter()
@@ -351,3 +360,7 @@ mod recovery_tests;
 #[cfg(test)]
 #[path = "time_pair_latency_tests.rs"]
 mod latency_tests;
+
+#[cfg(test)]
+#[path = "time_pair_loop_tests.rs"]
+mod loop_tests;
