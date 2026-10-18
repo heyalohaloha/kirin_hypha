@@ -37,7 +37,7 @@ pub(super) fn drain_ring_into_session(
     ctx: DrainRingSession<'_>,
     mut record_trace: Option<RecordTraceDrain<'_>>,
 ) -> bool {
-    // The resampler's final flush belongs to Phase D only when the take owns the tail.
+    // The TRACE pass is open until a later pass, a jump or the end of the tail closes it.
     let mut tail_take = true;
     let mut take_epoch = ctx.take_epoch;
     while ctx.consumer.slots() > 0 {
@@ -61,21 +61,27 @@ pub(super) fn drain_ring_into_session(
         let generation = record_trace.as_ref().map(|trace| trace.timeline.generation);
         let route = tail_route(ctx.record_take_tracker, generation, &mut take_epoch, plan);
         let take = route == RecordChunkRoute::Take;
-        tail_take = take;
-        if plan
+        let jumped = plan
             .position_start_samples
             .zip(*ctx.last_capture_position_end)
-            .is_some_and(|(start, previous_end)| start != previous_end)
-        {
-            if let Some(trace) = record_trace.as_mut() {
-                join_record_trace_slots(
-                    trace,
-                    ctx.sample_rate,
-                    ctx.record_core_pending,
-                    ctx.record_phase_pending,
-                );
-                flush_record_core_without_phase_d(trace, ctx.sample_rate, ctx.record_core_pending);
-            }
+            .is_some_and(|(start, previous_end)| start != previous_end);
+        // The TRACE pass ends inside the tail: close it before this chunk enters the resampler.
+        if tail_take && (!take || jumped) {
+            let _ = close_trace_pass(
+                ctx.resampler,
+                ctx.resampled_buf,
+                ctx.n_channels,
+                ctx.phase_d_slot_pending,
+                ctx.phase_d,
+                ctx.latest_pd,
+                ctx.record_phase_pending,
+                ctx.record_core_pending,
+                record_trace.as_mut(),
+                ctx.sample_rate,
+            );
+        }
+        tail_take = take;
+        if jumped {
             ctx.trace_engine.reset();
             // Recordのsession summaryは通常ループと同じくtransport位置の不連続を
             // またいで維持する。tight-drainだけで最後のjumpを観測してもI/Max TPを
@@ -197,36 +203,22 @@ pub(super) fn drain_ring_into_session(
             let _ = ctx.summary_engine.push(ctx.chunk_f64);
         }
     }
-    if ctx.finalize_capture && tail_take {
-        if let Some(resampler) = ctx.resampler.as_mut() {
-            ctx.resampled_buf.clear();
-            if let Err(error) = resampler.finish(ctx.resampled_buf) {
-                log::warn!(
-                    "[MeasureThread] Record phase tail flush failed: {:?}",
-                    error
-                );
-                return false;
-            }
-            feed_phase_d_slots(
-                ctx.resampled_buf,
-                ctx.n_channels,
-                ctx.phase_d_slot_pending,
-                ctx.phase_d,
-                ctx.latest_pd,
-                ctx.record_phase_pending,
-                true,
-            );
-        }
-        if let Some(trace) = record_trace.as_mut() {
-            join_record_trace_slots(
-                trace,
-                ctx.sample_rate,
-                ctx.record_core_pending,
-                ctx.record_phase_pending,
-            );
-            flush_record_core_without_phase_d(trace, ctx.sample_rate, ctx.record_core_pending);
-            ctx.record_phase_pending.clear();
-        }
+    if ctx.finalize_capture
+        && tail_take
+        && !close_trace_pass(
+            ctx.resampler,
+            ctx.resampled_buf,
+            ctx.n_channels,
+            ctx.phase_d_slot_pending,
+            ctx.phase_d,
+            ctx.latest_pd,
+            ctx.record_phase_pending,
+            ctx.record_core_pending,
+            record_trace.as_mut(),
+            ctx.sample_rate,
+        )
+    {
+        return false;
     }
     if let Some(trace) = record_trace.as_mut() {
         push_record_timeline_markers_until(trace, ctx.sample_rate, *ctx.native_frames_total);
@@ -271,3 +263,7 @@ fn tail_route(
 #[cfg(test)]
 #[path = "measure_long_keep_tests.rs"]
 mod long_keep_tests;
+
+#[cfg(test)]
+#[path = "measure_tail_pass_end_tests.rs"]
+mod pass_end_tests;

@@ -96,3 +96,59 @@ pub(super) fn flush_record_core_without_phase_d(
         );
     }
 }
+
+/// The TRACE pass of the selected take ends: a later pass of the Keep begins, the take jumps, or
+/// the Record stops. At a rate other than 48 kHz the resampler still holds the pass's last
+/// samples, so the Phase D half of its last slots is incomplete. Pump them out into Phase D, join
+/// every slot, emit the core slots left without Phase D, and start the resampler and Phase D
+/// afresh for what follows. Call it before the next chunk enters the resampler. False when the
+/// resampler failed; the slots are emitted all the same.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn close_trace_pass(
+    resampler: &mut Option<ResamplerTo48k>,
+    resampled_buf: &mut Vec<f64>,
+    n_channels: usize,
+    phase_d_slot_pending: &mut Vec<f64>,
+    phase_d: &mut PhaseDChannelStream,
+    latest_pd: &mut Option<crate::phase_d::stream::PhaseDResult>,
+    record_phase_pending: &mut VecDeque<crate::phase_d::stream::PhaseDResult>,
+    record_core_pending: &mut VecDeque<PendingRecordCore>,
+    trace: Option<&mut RecordTraceDrain<'_>>,
+    sample_rate: u32,
+) -> bool {
+    let mut flushed = true;
+    if let Some(resampler) = resampler.as_mut() {
+        resampled_buf.clear();
+        match resampler.finish(resampled_buf) {
+            Ok(_) => feed_phase_d_slots(
+                resampled_buf,
+                n_channels,
+                phase_d_slot_pending,
+                phase_d,
+                latest_pd,
+                record_phase_pending,
+                true,
+            ),
+            Err(error) => {
+                log::warn!("[MeasureThread] TRACE pass tail flush failed: {:?}", error);
+                flushed = false;
+            }
+        }
+        resampler.reset();
+    }
+    if let Some(trace) = trace {
+        join_record_trace_slots(
+            trace,
+            sample_rate,
+            record_core_pending,
+            record_phase_pending,
+        );
+        flush_record_core_without_phase_d(trace, sample_rate, record_core_pending);
+    }
+    record_core_pending.clear();
+    record_phase_pending.clear();
+    phase_d_slot_pending.clear();
+    phase_d.reset();
+    *latest_pd = None;
+    flushed
+}

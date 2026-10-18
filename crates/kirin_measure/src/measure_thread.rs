@@ -47,8 +47,7 @@ use capture_plan::{
 use record_epoch_transition::record_grid_alignment;
 use tail_drain::{drain_ring_into_session, DrainRingSession};
 use trace_slots::{
-    feed_phase_d_slots, flush_record_core_without_phase_d, join_record_trace_slots,
-    PendingRecordCore,
+    close_trace_pass, feed_phase_d_slots, join_record_trace_slots, PendingRecordCore,
 };
 use watch_lane_clock::{
     after_keep_resume, discard_watch_samples, resume_watch_index, watch_chunk_limit, WatchResume,
@@ -938,6 +937,43 @@ pub fn spawn_measure_thread(
                 }
                 let native_frames_after = native_frames_total;
                 last_capture_position_end = capture_plan.position_end_samples;
+                let timeline = RecordTraceTimeline {
+                    generation: record_sm.generation(),
+                    origin_frames_48k: record_origin_frames,
+                    origin_native_frames: record_origin_native_frames,
+                    offset_frames_48k: record_trace_frame_offset_48k,
+                    offset_native_frames: record_trace_native_frame_offset,
+                    origin_position_samples: record_origin_position_samples,
+                };
+                // The TRACE pass ended: a later pass of the Keep begins or the take jumps. Close it
+                // as Stop does before this chunk enters the resampler (INV-R10).
+                if is_recording
+                    && (record_grid_cursor.is_some() || !record_core_pending.is_empty())
+                    && (!record_take || capture_plan.position_start_samples != record_grid_cursor)
+                {
+                    record_grid_cursor = None;
+                    let cursor = RecordTraceCursor {
+                        next_trace_ms: &mut next_record_trace_ms,
+                        next_psb_ms: &mut next_record_psb_ms,
+                    };
+                    let mut trace = RecordTraceDrain {
+                        queue: &record_trace_queue,
+                        timeline,
+                        cursor,
+                    };
+                    let _ = close_trace_pass(
+                        &mut resampler,
+                        &mut resampled_buf,
+                        n_channels,
+                        &mut phase_d_slot_pending,
+                        &mut phase_d,
+                        &mut latest_pd,
+                        &mut record_phase_pending,
+                        &mut record_core_pending,
+                        Some(&mut trace),
+                        sample_rate,
+                    );
+                }
                 //  v2: 入力 SR が 48 kHz でない場合のみリサンプリング。
                 // resampler 経由では 48 kHz interleaved f64 が `resampled_buf` に追記される。
                 // 端数フレームは ResamplerTo48k 内部の pending に保持され次回呼出で消費。
@@ -965,38 +1001,8 @@ pub fn spawn_measure_thread(
                 if record_take {
                     if let Some(position_start) = capture_plan.position_start_samples {
                         if record_grid_cursor != Some(position_start) {
-                            let mut boundary_trace = RecordTraceDrain {
-                                queue: &record_trace_queue,
-                                timeline: RecordTraceTimeline {
-                                    generation: record_sm.generation(),
-                                    origin_frames_48k: record_origin_frames,
-                                    origin_native_frames: record_origin_native_frames,
-                                    offset_frames_48k: record_trace_frame_offset_48k,
-                                    offset_native_frames: record_trace_native_frame_offset,
-                                    origin_position_samples: record_origin_position_samples,
-                                },
-                                cursor: RecordTraceCursor {
-                                    next_trace_ms: &mut next_record_trace_ms,
-                                    next_psb_ms: &mut next_record_psb_ms,
-                                },
-                            };
-                            join_record_trace_slots(
-                                &mut boundary_trace,
-                                sample_rate,
-                                &mut record_core_pending,
-                                &mut record_phase_pending,
-                            );
-                            flush_record_core_without_phase_d(
-                                &mut boundary_trace,
-                                sample_rate,
-                                &mut record_core_pending,
-                            );
+                            // A new TRACE pass: the previous one, if any, was closed above.
                             record_engines.trace().reset();
-                            phase_d.reset();
-                            latest_pd = None;
-                            phase_d_slot_pending.clear();
-                            record_core_pending.clear();
-                            record_phase_pending.clear();
                             let (phase_frames, next_grid_end) =
                                 record_grid_alignment(position_start, sample_rate);
                             // TRACE has a causal 400 ms momentary window. Prime only the TRACE
@@ -1136,14 +1142,7 @@ pub fn spawn_measure_thread(
                     }
                     let mut trace = RecordTraceDrain {
                         queue: &record_trace_queue,
-                        timeline: RecordTraceTimeline {
-                            generation: record_sm.generation(),
-                            origin_frames_48k: record_origin_frames,
-                            origin_native_frames: record_origin_native_frames,
-                            offset_frames_48k: record_trace_frame_offset_48k,
-                            offset_native_frames: record_trace_native_frame_offset,
-                            origin_position_samples: record_origin_position_samples,
-                        },
+                        timeline,
                         cursor: RecordTraceCursor {
                             next_trace_ms: &mut next_record_trace_ms,
                             next_psb_ms: &mut next_record_psb_ms,
@@ -2037,7 +2036,7 @@ pub mod tests {
             },
         };
 
-        super::flush_record_core_without_phase_d(&mut trace, 96_000, &mut pending);
+        super::trace_slots::flush_record_core_without_phase_d(&mut trace, 96_000, &mut pending);
 
         let drained = crate::record_writer::drain_record_trace_queue(&queue);
         assert_eq!(drained.len(), 2);
