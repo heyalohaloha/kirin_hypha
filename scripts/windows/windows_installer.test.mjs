@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { SCRIPT_PATH as cleanupScriptPath, cleanupScript, embeddedBlock as embeddedCleanupBlock,
+  generatedBlock as generatedCleanupBlock } from './installer_user_cleanup.mjs';
 
 import {
   VERSION,
@@ -293,26 +295,148 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
   assert.match(source, /\{commoncf\}\\Avid\\Audio\\Plug-Ins\\Kirin Hypha POST\.aaxplugin/);
 });
 
-test('installer verifier gates prior-version upgrade, reinstall, signatures, and unrelated payload preservation', () => {
-  const main = fs.readFileSync(path.join(scriptDir, 'verify-installer.ps1'), 'utf8');
-  const writer = fs.readFileSync(path.join(scriptDir, 'installer_qualification.ps1'), 'utf8');
-  assert.match(main, /\. "\$PSScriptRoot\/installer_qualification\.ps1"/);
-  assert.match(main, /Write-HyphaInstallerQualification \$manifestData \$manifestPath/);
-  const source = main + '\n' + writer;
-  assert.match(source, /foreach \(\$installPass in 1\.\.2\)/);
-  assert.match(source, /-PreviousInstaller is required for signed release upgrade verification/);
-  assert.match(source, /if \(\$Signing -eq "signed"\)/);
-  assert.match(source, /Resolve-HyphaUninstaller/);
-  assert.match(source, /prior_public_upgrade/);
-  assert.match(source, /installed uninstaller/);
-  assert.match(source, /Get-AuthenticodeSignature/);
-  assert.match(source, /Uninstaller removed an unrelated VST3 file/);
-  assert.match(source, /Assert-AaxPayload/);
-  assert.match(source, /wraptool verify --localonly|\$Wraptool verify --localonly/);
-  assert.match(source, /PACE verification failed/);
-  assert.match(source, /Uninstaller removed an unrelated AAX file/);
-  assert.match(source, /Find-HyphaUninstallEntries/);
-  assert.match(source, /distribution\.public_ready/);
+test('installer verifier gates fresh install, reinstall, signatures, upgrades and unrelated payload preservation', () => {
+  const read = (name) => fs.readFileSync(path.join(scriptDir, name), 'utf8');
+  const main = read('verify-installer.ps1');
+  const writer = read('installer_qualification.ps1');
+  const payload = read('installer_payload.ps1');
+  const upgrade = read('installer_upgrade.ps1');
+  for (const name of ['installer_payload', 'installer_environment', 'installer_upgrade', 'installer_qualification']) {
+    assert.match(main, new RegExp(`\\. "\\$PSScriptRoot/${name}\\.ps1"`));
+  }
+  assert.match(main, /Write-HyphaInstallerQualification \$manifestData \$manifestPath \$Signing \$records \$withAax \$upgradeMatrix/);
+  // Fresh install runs first on a verified clean machine; upgrades are a separate later phase.
+  const order = ['Assert-HyphaInstallerEnvironment | Out-Null', 'foreach ($installPass in 1..2)',
+    'Invoke-HyphaUpgradeMatrix', 'Write-HyphaInstallerQualification'].map((text) => main.indexOf(text));
+  assert.ok(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1])), order.join(','));
+  assert.match(main, /Signed release verification requires -PreviousInstallerDir/);
+  assert.match(writer, /Signed installer qualification requires the previous public release upgrade matrix/);
+  const source = [main, writer, payload, upgrade].join('\n');
+  for (const text of ['Resolve-HyphaUninstaller', 'prior_public_upgrade', 'installed uninstaller', 'Get-AuthenticodeSignature',
+    'Uninstaller removed an unrelated VST3 file', 'Uninstaller removed an unrelated AAX file', 'Assert-AaxPayload',
+    'PACE verification failed', 'Find-HyphaUninstallEntries', 'distribution.public_ready', 'Assert-HyphaResolvedPayload',
+    'Assert-HyphaRegistration', 'Assert-HyphaSignatureRecords']) assert.ok(source.includes(text), text);
+  // The matrix reports the fixture bytes it ran; the writer records them where the release reader
+  // compares them with the tracked fixture, and the Windows fixture runs that reader on the output.
+  assert.match(upgrade, /return \[ordered\]@\{ fixture_sha256 = \$fixtureSha256; scenarios = @\(\$results\) \}/);
+  assert.match(writer, /fixture_sha256 = \[string\]\$upgradeMatrix\.fixture_sha256/);
+  const reader = fs.readFileSync(path.join(scriptDir, '..', 'ls_release', 'build_kirin_hypha_release_set.mjs'), 'utf8');
+  assert.match(reader, /upgrade\.fixture_sha256 !== sha256\(fixtureFile\)/);
+  assert.match(read('installer_payload_fixture.ps1'), /requirePreviousReleaseUpgrades\(manifest\)/);
+  // PACE stdout is captured and logged; no other wraptool call can join the returned records.
+  const pace = payload.split('\n').filter((line) => line.includes('$Wraptool verify'));
+  assert.deepEqual(pace.map((line) => line.trim()), ['$output = @(& $Wraptool verify --localonly --in $Binary)']);
+  assert.match(payload, /foreach \(\$line in \$output\) \{ Write-Host/);
+});
+
+test('Inno recipe removes the starting user\'s exact older copy as that user before an all-users install', () => {
+  const source = fs.readFileSync(path.join(scriptDir, 'kirin-hypha-installer.iss'), 'utf8');
+  const code = source.slice(source.indexOf('[Code]'));
+  const appId = source.match(/^AppId=\{(\{[0-9A-F-]{36}\})$/m)?.[1];
+  assert.ok(appId);
+  assert.ok(code.includes(`HyphaUninstallKey = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${appId}_is1';`));
+  const payload = fs.readFileSync(path.join(scriptDir, 'installer_payload.ps1'), 'utf8');
+  assert.ok(payload.includes(`$HyphaAppUninstallKey = '${appId}_is1'`));
+  const cleanup = fs.readFileSync(cleanupScriptPath, 'utf8');
+  assert.ok(cleanup.includes(`'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${appId}_is1'`));
+  assert.match(code, /function PrepareToInstall\(var NeedsRestart: Boolean\): String;/);
+  assert.match(code, /if IsAdminInstallMode then[\s\S]*HyphaUserCleanupRemoveCommand[\s\S]*else if HyphaAllUsersCopyFound then/);
+  assert.match(code, /function UpdateReadyMemo\(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,\s+MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String\): String;/);
+  // The embedded command is exactly the reviewed script, for both modes.
+  assert.equal(embeddedCleanupBlock(source), generatedCleanupBlock());
+  // The only process the recipe starts: Windows PowerShell from System32, as the user who started Setup.
+  assert.deepEqual(code.match(/\b(Exec|ExecAsOriginalUser|ShellExec|ShellExecAsOriginalUser|ExecAndLogOutput|ExecAndCaptureOutput)\(/g), ['ExecAsOriginalUser(']);
+  assert.match(code, /ExecAsOriginalUser\(ExpandConstant\('\{sys\}\\WindowsPowerShell\\v1\.0\\powershell\.exe'\),\s+'-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' \+ Command,/);
+  // The elevated recipe itself deletes nothing in a user profile: no file, folder or registry removal.
+  assert.doesNotMatch(code, /DelTree\(|DeleteFile\(|RemoveDir\(|RenameFile\(|RegDelete|\{localappdata\}|\{userappdata\}|HKEY_CURRENT_USER|Sleep\(/);
+  // In use: nothing changed. Could not finish, or never checked: nothing new installed. All stop with exit code 7.
+  assert.match(code, /if Code = HyphaUserCopyInUse then\s+Result := CustomMessage\('HyphaMigrationInUse'\)\s+else if \(Code = 21\) or \(Code = 22\) or \(Code = 30\) then\s+Result := CustomMessage\('HyphaMigrationFailed'\)\s+else if Code <> 0 then\s+Result := CustomMessage\('HyphaMigrationUnchecked'\);/);
+  const cleanupCodes = [...fs.readFileSync(cleanupScriptPath, 'utf8').matchAll(/\bexit (\d+)/g)].map((m) => Number(m[1]));
+  assert.deepEqual([...new Set(cleanupCodes)].sort((a, b) => a - b), [0, 10, 20, 21, 22, 30, 31]);
+  for (const name of ['HyphaMigrationReadyMemo', 'HyphaMigrationInUse', 'HyphaMigrationFailed', 'HyphaMigrationUnchecked', 'HyphaAllUsersPresent']) {
+    for (const language of ['english', 'japanese']) assert.match(source, new RegExp(`^${language}\\.${name}=\\S`, 'm'));
+  }
+});
+
+test('Inno reads the recipe as UTF-8: valid UTF-8 without a BOM and a compiler from 6.3.0 on', () => {
+  // Inno Setup 6.3.0 added UTF-8 without a BOM for .iss files and no longer recommends a BOM
+  // (https://jrsoftware.org/files/is6-whatsnew.htm). Japanese messages depend on this reading.
+  const bytes = fs.readFileSync(path.join(scriptDir, 'kirin-hypha-installer.iss'));
+  assert.notDeepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+  assert.doesNotThrow(() => new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  assert.match(bytes.toString('utf8'), /^japanese\.HyphaMigrationInUse=.*[\u3040-\u30ff]/m);
+  const workflow = fs.readFileSync(path.join(scriptDir, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  const versions = [...workflow.matchAll(/gh release download is-(\d+)_(\d+)_(\d+) --repo jrsoftware\/issrc/g)].map((m) => m.slice(1).map(Number));
+  assert.ok(versions.length > 0);
+  for (const [major, minor] of versions) assert.ok(major > 6 || (major === 6 && minor >= 3), `${major}.${minor}`);
+});
+
+test('the per-user cleanup script renames both bundles before deleting and touches only exact names', () => {
+  const script = fs.readFileSync(cleanupScriptPath, 'utf8');
+  assert.doesNotMatch(script, /[^\x09\x0a\x0d\x20-\x7e]/);
+  assert.equal(cleanupScript('check', script).split('\r\n')[0], "$Mode = 'check'");
+  assert.throws(() => cleanupScript('other', script), /unknown cleanup mode/);
+  // Windows PowerShell 5.1 only: no PowerShell 7 syntax.
+  assert.doesNotMatch(script, /\?\?|\?\.|\s\?\s[^:]*\s:\s|&&|\|\||-Parallel|ForEach-Object -Parallel/);
+  assert.match(script, /Join-Path \$env:LOCALAPPDATA 'Programs\\Common\\VST3'/);
+  assert.match(script, /'Kirin Hypha ' \+ \$Role \+ '\.vst3'/);
+  assert.doesNotMatch(script, /\*|Get-ChildItem|Remove-Item -LiteralPath \$(bundle|root)|-Recurse -Force -LiteralPath \$root/);
+  // Rename both, roll back on failure, then delete with rd (which never follows links).
+  const order = ['Rename-Item -LiteralPath $bundle', 'Rename-Item -LiteralPath (Get-HyphaUserStaged $done)', 'Remove-HyphaUserTree (Get-HyphaUserStaged $_)', 'Remove-Item -LiteralPath $key'].map((text) => script.indexOf(text));
+  assert.ok(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1])), order.join(','));
+  assert.match(script, /& \$cmd \/d \/c rd \/s \/q \$Path/);
+  assert.match(script, /Join-Path \$env:SystemRoot 'System32\\cmd\.exe'/);
+});
+
+test('previous public installer pins drive a separate upgrade and scope-migration matrix', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(scriptDir, 'fixtures', 'previous-public-installers.json'), 'utf8'));
+  assert.equal(fixture.schema, 'kirin-hypha-previous-windows-installers-v1');
+  assert.equal(fixture.release_download_base, 'https://github.com/heyalohaloha/kirin_hypha/releases/download');
+  const newer = (a, b) => a.split('.').map(Number).reduce((r, n, i) => r || n - b.split('.').map(Number)[i], 0);
+  for (const entry of fixture.installers) {
+    assert.equal(entry.file_name, `Kirin-Hypha-${entry.version}-Windows-x64-Setup.exe`);
+    assert.match(entry.sha256, /^[0-9a-f]{64}$/);
+    assert.ok(Number.isSafeInteger(entry.bytes) && entry.bytes > 0);
+    assert.ok(['current-user', 'all-users'].includes(entry.default_scope));
+    // Signed verification requires strictly older pins; before the release bump CI may be equal.
+    assert.ok(newer(VERSION, entry.version) >= 0, `${entry.version} must not be newer than ${VERSION}`);
+  }
+  const ids = fixture.scenarios.map((scenario) => scenario.id);
+  assert.equal(new Set(ids).size, ids.length);
+  const versions = new Set(fixture.installers.map((entry) => entry.version));
+  for (const scenario of fixture.scenarios) {
+    assert.ok(scenario.previous.length > 0 && scenario.previous.every((step) => versions.has(step.version)));
+    assert.ok(['replaced', 'refused', 'refused-while-locked-then-replaced'].includes(scenario.expect));
+  }
+  assert.ok(fixture.required_for_release.every((id) => ids.includes(id)));
+  // The defaults users actually had: the per-user default VST3 release, then the all-users AAX release.
+  const required = fixture.scenarios.filter((scenario) => fixture.required_for_release.includes(scenario.id));
+  const defaultCurrentUser = fixture.installers.filter((entry) => entry.default_scope === 'current-user').map((e) => e.version);
+  assert.ok(required.some((s) => s.previous.length === 1 && defaultCurrentUser.includes(s.previous[0].version) && s.previous[0].scope === 'default'));
+  assert.ok(required.some((s) => s.previous.length === 2 && s.previous.every((step) => step.scope === 'default')));
+  // A held PRE and a held POST each stop Setup with the older copy intact, then the retry completes.
+  const locked = required.filter((s) => s.expect === 'refused-while-locked-then-replaced').map((s) => s.lock_role).sort();
+  assert.deepEqual(locked, ['POST', 'PRE']);
+  for (const scenario of fixture.scenarios) {
+    assert.equal(scenario.expect === 'refused-while-locked-then-replaced', ['PRE', 'POST'].includes(scenario.lock_role), scenario.id);
+  }
+  assert.ok(required.every((s) => s.new_scope === 'all-users' && !s.vst3_only_installer));
+  const download = fs.readFileSync(path.join(scriptDir, 'download_previous_installers.ps1'), 'utf8');
+  assert.match(download, /\$item\.Length -ne \[long\]\$entry\.bytes -or \$hash -cne \$entry\.sha256/);
+  assert.match(download, /Get-AuthenticodeSignature/);
+});
+
+test('public Windows CI checks installer sources before the build and verifies previous-release upgrades', () => {
+  const workflow = fs.readFileSync(path.join(scriptDir, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  const at = (text) => { const index = workflow.indexOf(text); assert.ok(index > 0, text); return index; };
+  assert.ok(at('Install verified Inno Setup compiler') < at('scripts/windows/check_installer_sources.ps1'));
+  assert.ok(at('scripts/windows/check_installer_sources.ps1') < at('Build kirin_hypha_ffi staticlib (MSVC)'));
+  assert.ok(at('scripts/windows/download_previous_installers.ps1') < at('scripts/windows/verify-installer.ps1'));
+  assert.match(workflow, /-PreviousInstallerDir "\$env:RUNNER_TEMP\/hypha-previous-installers"/);
+  const check = fs.readFileSync(path.join(scriptDir, 'check_installer_sources.ps1'), 'utf8');
+  assert.match(check, /Language\.Parser\]::ParseFile/);
+  assert.match(check, /installer_payload_fixture\.ps1/);
+  assert.match(check, /foreach \(\$variant in @\("vst3", "aax"\)\)/);
 });
 
 test('eSigner environment is fail-closed and never accepts partial credentials', () => {

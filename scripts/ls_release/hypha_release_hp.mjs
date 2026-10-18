@@ -1,12 +1,12 @@
 // Publication uses the HP repository's existing clean staged deployment, never a direct --prod.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileFact, hash, Checkpoint, readBudgetPolicy, checkFacts } from './hypha_release_contract.mjs';
-
-export const GH_REPO = 'heyalohaloha/kirin_hypha';
-import { HP_FILES, updateHpDocuments, makeHpRecord, assertHpPage, HP_TARGETS, verifyHpAsset } from './hypha_release_hp_data.mjs';
+import { GH_REPO } from './hypha_release_github.mjs';
+import { HP_FILES, updateHpDocuments, makeHpRecord, assertHpPage, HP_TARGETS, verifyHpAsset,
+  assertHpPublicationDate } from './hypha_release_hp_data.mjs';
 export { HP_FILES, updateHpDocuments } from './hypha_release_hp_data.mjs';
+export { GH_REPO, checkTag, publishGithub } from './hypha_release_github.mjs';
 const BASE = `https://github.com/${GH_REPO}/releases`;
 
 export async function hpPreflight(state, run, { allowPlanned = false, allowUnpushed = false } = {}) {
@@ -43,84 +43,9 @@ export async function hpPreflight(state, run, { allowPlanned = false, allowUnpus
     throw new Checkpoint('Resolved Vercel project does not match the authorized project name/ID');
   }
   checkFacts(state.stages.packages?.facts);
+  assertHpPublicationDate(state.inputs.date);
   updateHpDocuments(HP_FILES.map(file => fs.readFileSync(path.join(root, file), 'utf8')),
     state.candidate.version, state.inputs.date, state.stages.packages?.facts);
-}
-
-async function api(run, endpoint, optional = false) {
-  const output = await run('gh', ['api', endpoint], { capture: true, optional404: optional });
-  return output ? JSON.parse(output) : null;
-}
-
-export async function checkTag(state, run, { optional = false } = {}) {
-  let ref = await api(run, `repos/${GH_REPO}/git/ref/tags/v${state.candidate.version}`, optional);
-  if (!ref) return;
-  for (let depth = 0; depth < 5 && ref.object?.type === 'tag'; depth++) {
-    ref = await api(run, `repos/${GH_REPO}/git/tags/${ref.object.sha}`);
-  }
-  if (ref.object?.type !== 'commit' || ref.object.sha !== state.candidate.commit) {
-    throw new Error('Release tag does not resolve to the frozen exact commit');
-  }
-}
-
-async function verifyReleaseBytes(state, run, release, facts) {
-  for (const fact of facts) {
-    const name = path.basename(fact.path);
-    const assets = release.assets?.filter(a => a.name === name) || [];
-    if (assets.length !== 1 || assets[0].size !== fact.bytes) throw new Error('GitHub Release asset set/size mismatch');
-    if (assets[0].digest && assets[0].digest !== `sha256:${fact.sha256}`) throw new Error('GitHub Release asset digest mismatch');
-  }
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-release-readback-'));
-  try {
-    await run('gh', ['release', 'download', `v${state.candidate.version}`, '--repo', GH_REPO,
-      '--dir', temporary, ...facts.flatMap(f => ['--pattern', path.basename(f.path)])]);
-    for (const fact of facts) {
-      if (fileFact(path.join(temporary, path.basename(fact.path))).sha256 !== fact.sha256) {
-        throw new Error('Downloaded GitHub Release bytes do not match the frozen distribution set');
-      }
-    }
-  } finally {
-    fs.rmSync(temporary, { recursive: true, force: true }); // owned mkdtemp only
-  }
-}
-
-export async function publishGithub(state, run, save) {
-  const tag = `v${state.candidate.version}`;
-  if (state.stages.provenance?.status !== 'PASS' || !state.stages.provenance.publicFacts?.length) {
-    throw new Checkpoint('Verified exact-release Corresponding Source delivery required before publication');
-  }
-  checkFacts(state.stages.provenance.facts);
-  const facts = [...state.stages.packages.facts, ...state.stages.provenance.publicFacts];
-  await checkTag(state, run, { optional: true });
-  // Candidate must already exist in public history; no implicit product push/branch fallback.
-  const remoteCommit = await api(run, `repos/${GH_REPO}/commits/${state.candidate.commit}`);
-  if (remoteCommit.sha !== state.candidate.commit) throw new Error('Product commit is not available in public history');
-  let release = await api(run, `repos/${GH_REPO}/releases/tags/${tag}`, true);
-  if (!release) {
-    readBudgetPolicy(state.root);
-    state.publicationStarted = true; save();
-    await run('gh', ['release', 'create', tag, '--repo', GH_REPO, '--target', state.candidate.commit,
-      '--draft', '--title', `Kirin Hypha ${state.candidate.version}`, '--notes-file', state.inputs.notes]);
-    release = await api(run, `repos/${GH_REPO}/releases/tags/${tag}`);
-  }
-  if (release.draft) {
-    if (release.target_commitish !== state.candidate.commit) throw new Error('Foreign draft: target commit mismatch');
-    state.publicationStarted = true; save(); // also covers an imported/interrupted draft
-    for (const fact of facts) {
-      if (!release.assets?.some(a => a.name === path.basename(fact.path))) {
-        readBudgetPolicy(state.root);
-        await run('gh', ['release', 'upload', tag, fact.path, '--repo', GH_REPO]); // no --clobber
-      }
-    }
-    release = await api(run, `repos/${GH_REPO}/releases/tags/${tag}`);
-    await verifyReleaseBytes(state, run, release, facts);
-    readBudgetPolicy(state.root);
-    await run('gh', ['release', 'edit', tag, '--repo', GH_REPO, '--draft=false']);
-    release = await api(run, `repos/${GH_REPO}/releases/tags/${tag}`);
-  } else await verifyReleaseBytes(state, run, release, facts);
-  if (release.draft || release.prerelease) throw new Error('Release is not public stable');
-  await checkTag(state, run);
-  return { url: release.html_url, releaseId: release.id };
 }
 
 export async function publicDownloadFacts(state, facts, fetcher = fetch) {

@@ -38,7 +38,7 @@ fn release_manifest_mentions_all_four_installed_files() {
         package_leaf: &leaf,
         sha256: "abc",
         allow_unsigned: false,
-        git_dirty: "false",
+        git_dirty: crate::release_gate::GIT_CLEAN_STATE,
         with_aax: false,
         bundles: &entries,
         update_check: &update_check,
@@ -59,6 +59,8 @@ fn release_manifest_mentions_all_four_installed_files() {
     assert_eq!(parsed["version"], "1.1.1");
     assert_eq!(parsed["package"], format!("{leaf}.zip"));
     assert_eq!(parsed["sha256"], "abc");
+    // The release verifier compares this exact JSON string, not a boolean or an empty value.
+    assert_eq!(parsed["git_dirty"], serde_json::json!("false"));
 }
 
 #[test]
@@ -72,7 +74,7 @@ fn aax_opt_in_adds_both_roles_to_metadata_and_install_text() {
         package_leaf: &package_leaf("1.1.1", false),
         sha256: "abc",
         allow_unsigned: false,
-        git_dirty: "false",
+        git_dirty: crate::release_gate::GIT_CLEAN_STATE,
         with_aax: true,
         bundles: &entries,
         update_check: &serde_json::json!({"protocol": 1, "publicKeySha256": ""}),

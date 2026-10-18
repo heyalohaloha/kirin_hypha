@@ -312,6 +312,15 @@ fn preflight_requires_installer_post_install_verification() {
 }
 
 #[test]
+fn preflight_requires_installer_source_check_and_previous_release_upgrades() {
+    for needle in INSTALLER_UPGRADE_STEPS {
+        let bad = CI_WORKFLOW.replace(needle, "Write-Host skipped");
+        let err = verify_windows_ci_job(&bad).unwrap_err();
+        assert!(err.to_string().contains(&format!("must run {needle}")));
+    }
+}
+
+#[test]
 fn preflight_rejects_signing_credentials_in_public_ci() {
     let bad = CI_WORKFLOW.replace(
         "WINDOWS_SIGNING: unsigned",

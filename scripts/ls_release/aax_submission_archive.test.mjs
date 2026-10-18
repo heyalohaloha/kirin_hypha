@@ -179,3 +179,44 @@ test('verified AAX payload is materialized from the preserved archive bytes', {
   );
   assert.throws(() => assertTreeMatchesManifest(materialized, manifest), /does not match/);
 });
+
+test('full-tree manifest uses one global path order for generation and read-back', (context) => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-tree-order-'));
+  context.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  const root = path.join(fixture, 'sdk');
+  // Depth-first sibling order puts "a/b" before "a-b"; global path order puts "a-b" first.
+  fs.mkdirSync(path.join(root, 'a/b'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'a/b/file.txt'), 'nested\n');
+  fs.writeFileSync(path.join(root, 'a-b'), 'sibling\n');
+  fs.writeFileSync(path.join(root, 'a.c'), 'dotted\n');
+  fs.symlinkSync('a-b', path.join(root, 'a0'));
+  const manifest = buildTreeManifest(root);
+  const paths = manifest.entries.map((entry) => entry.path);
+  assert.deepEqual(paths, [...paths].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)));
+  assert.deepEqual(paths, ['a', 'a-b', 'a.c', 'a/b', 'a/b/file.txt', 'a0']);
+  assert.doesNotThrow(() => assertTreeMatchesManifest(root, manifest));
+
+  const reject = (mutate, restore) => {
+    mutate();
+    assert.throws(() => assertTreeMatchesManifest(root, manifest), /does not match/);
+    restore();
+    assert.doesNotThrow(() => assertTreeMatchesManifest(root, manifest));
+  };
+  reject(() => fs.renameSync(path.join(root, 'a.c'), path.join(fixture, 'moved')),
+    () => fs.renameSync(path.join(fixture, 'moved'), path.join(root, 'a.c')));
+  reject(() => fs.writeFileSync(path.join(root, 'a/extra'), 'added\n'),
+    () => fs.rmSync(path.join(root, 'a/extra')));
+  reject(() => fs.writeFileSync(path.join(root, 'a-b'), 'changed\n'),
+    () => fs.writeFileSync(path.join(root, 'a-b'), 'sibling\n'));
+  reject(() => fs.chmodSync(path.join(root, 'a-b'), 0o600),
+    () => fs.chmodSync(path.join(root, 'a-b'), fs.statSync(path.join(root, 'a.c')).mode & 0o777));
+  reject(() => { fs.unlinkSync(path.join(root, 'a0')); fs.symlinkSync('a.c', path.join(root, 'a0')); },
+    () => { fs.unlinkSync(path.join(root, 'a0')); fs.symlinkSync('a-b', path.join(root, 'a0')); });
+
+  const duplicated = structuredClone(manifest);
+  duplicated.entries.splice(2, 0, structuredClone(duplicated.entries[1]));
+  assert.throws(() => assertTreeMatchesManifest(root, duplicated), /not unique and sorted/);
+  const depthFirst = structuredClone(manifest);
+  depthFirst.entries.sort((x, y) => (x.path.replaceAll('/', '\0') < y.path.replaceAll('/', '\0') ? -1 : 1));
+  assert.throws(() => assertTreeMatchesManifest(root, depthFirst), /not unique and sorted/);
+});

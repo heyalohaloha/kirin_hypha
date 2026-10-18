@@ -99,6 +99,10 @@ export async function verifyWindows(state, run) {
     path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact).concat(factoryFacts);
 }
 
+// The ZIP producer (xtask release_gate GIT_CLEAN_STATE) records a clean source as this exact string;
+// "true: ..." and "unknown: ..." describe dirty or unreadable sources.
+export const ZIP_CLEAN_GIT_STATE = 'false';
+
 export function artifactPaths(state) {
   const name = `Kirin-Hypha-${state.candidate.version}`;
   const pkg = path.join(state.root, 'dist/LS_UPLOAD', `${name}-macOS-Universal.pkg`);
@@ -135,7 +139,7 @@ export function verifyPackages(state) {
       || pkg.version !== state.candidate.version || !pkg.signed || !pkg.notarized || !pkg.aaxIncluded
       || pkg.sha256 !== fileFact(files[0]).sha256) throw new Error('PKG release identity/signing/hash mismatch');
   if (zip.version !== state.candidate.version || zip.commit !== state.candidate.commit
-      || zip.unsigned_smoke_test !== false || zip.aax_included !== true || zip.git_dirty !== ''
+      || zip.unsigned_smoke_test !== false || zip.aax_included !== true || zip.git_dirty !== ZIP_CLEAN_GIT_STATE
       || zip.sha256 !== fileFact(files[3]).sha256) throw new Error('ZIP release identity/signing/hash mismatch');
   for (const file of [files[0], files[3], files[6]]) {
     const text = fs.readFileSync(`${file}.sha256`, 'utf8').trim();

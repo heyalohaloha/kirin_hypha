@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -96,6 +97,10 @@ test('full release set accepts only a signed, verified, externally validated Win
     /format VST3 does not match VST3\+AAX/,
   );
 
+  const upgradeFixture = fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url));
+  const requiredUpgrades = JSON.parse(upgradeFixture).required_for_release;
+  const upgradeFixtureSha256 = crypto.createHash('sha256').update(upgradeFixture).digest('hex');
+  assert.ok(requiredUpgrades.length > 0);
   const preAaxDigest = '4'.repeat(64);
   const postAaxDigest = '5'.repeat(64);
   const aaxProofName = `Kirin-Hypha-${identity.version}-Windows-x64-AAX.json`;
@@ -144,6 +149,11 @@ test('full release set accepts only a signed, verified, externally validated Win
         ],
       },
     },
+    ci_validation: {
+      status: 'passed',
+      prior_public_upgrade: { status: 'passed', fixture_sha256: upgradeFixtureSha256,
+        scenarios: requiredUpgrades.map((id) => ({ id, status: 'passed' })) },
+    },
     distribution: {
       ...manifest.distribution,
       aax_included: true,
@@ -162,6 +172,23 @@ test('full release set accepts only a signed, verified, externally validated Win
   };
   fs.writeFileSync(`${installer}.json`, JSON.stringify(aaxManifest));
   assert.equal(requireWindowsInstaller(root, identity, { requireAax: true }), installer);
+  // The release installer must carry every required previous-release upgrade scenario as passed.
+  const passed = (ids) => ids.map((id) => ({ id, status: 'passed' }));
+  for (const upgrade of [undefined, { status: 'passed', fixture_sha256: upgradeFixtureSha256, scenarios: [] },
+    { status: 'passed', fixture_sha256: upgradeFixtureSha256, scenarios: passed(requiredUpgrades.slice(1)) },
+    { status: 'passed', fixture_sha256: upgradeFixtureSha256, scenarios: requiredUpgrades.map((id, i) => ({ id, status: i ? 'passed' : 'failed' })) },
+    { status: 'passed', fixture_sha256: upgradeFixtureSha256, scenarios: [...passed(requiredUpgrades), { id: requiredUpgrades[0], status: 'failed' }] },
+    { status: 'passed', fixture_sha256: upgradeFixtureSha256, scenarios: [...passed(requiredUpgrades), ...passed(requiredUpgrades.slice(0, 1))] },
+    { status: 'passed', fixture_sha256: upgradeFixtureSha256, scenarios: [...passed(requiredUpgrades), { id: 'unpinned', status: 'passed' }] },
+    { status: 'passed', fixture_sha256: 'f'.repeat(64), scenarios: passed(requiredUpgrades) },
+    { status: 'passed', scenarios: passed(requiredUpgrades) },
+    { status: 'failed', fixture_sha256: upgradeFixtureSha256, scenarios: passed(requiredUpgrades) }]) {
+    fs.writeFileSync(`${installer}.json`, JSON.stringify({ ...aaxManifest,
+      ci_validation: { status: 'passed', ...(upgrade ? { prior_public_upgrade: upgrade } : {}) } }));
+    assert.throws(() => requireWindowsInstaller(root, identity, { requireAax: true }),
+      /previous-release upgrade verification is incomplete/);
+  }
+  fs.writeFileSync(`${installer}.json`, JSON.stringify(aaxManifest));
   assert.throws(
     () => requireWindowsInstaller(root, identity),
     /contains AAX.*did not select --with-aax/,

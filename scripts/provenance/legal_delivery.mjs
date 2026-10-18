@@ -9,8 +9,34 @@ const safe = relative => typeof relative === 'string' && relative.length > 0
   && !relative.includes(':')
   && !relative.split('/').some(p => !p || p === '.' || p === '..');
 const MANIFEST = 'legal-delivery.json';
+// Distributed notices must be readable by every account and writable only by the owner.
+// Retained private evidence may stay owner-only; modes are set while staging, before signing.
+export const LEGAL_FILE_MODE = 0o644;
+export const LEGAL_DIRECTORY_MODE = 0o755;
+const posixModes = process.platform !== 'win32';
 
-export function verifyLegalDelivery(directory, commit) {
+function legalDirectories(root, manifest) {
+  const directories = new Set([root]);
+  for (const entry of manifest.files) {
+    let dir = root;
+    for (const part of entry.path.split('/').slice(0, -1)) directories.add(dir = path.join(dir, part));
+  }
+  return [...directories];
+}
+
+function verifyDistributedModes(root, manifest) {
+  if (!posixModes) return; // Windows installs inherit the install directory ACL.
+  for (const entry of [...manifest.files.map(e => e.path), MANIFEST]) {
+    const mode = fs.statSync(path.join(root, entry)).mode & 0o777;
+    if (mode !== LEGAL_FILE_MODE) throw new Error(`Distributed legal file mode ${mode.toString(8)} is not 644: ${entry}`);
+  }
+  for (const dir of legalDirectories(root, manifest)) {
+    const mode = fs.statSync(dir).mode & 0o777;
+    if (mode !== LEGAL_DIRECTORY_MODE) throw new Error(`Distributed legal directory mode ${mode.toString(8)} is not 755`);
+  }
+}
+
+export function verifyLegalDelivery(directory, commit, { distributed = false } = {}) {
   const root = path.resolve(directory);
   if (fs.lstatSync(root).isSymbolicLink()) throw new Error('Legal root must not be a symlink');
   if (fs.lstatSync(path.join(root, MANIFEST)).isSymbolicLink()) throw new Error('Legal manifest must not be a symlink');
@@ -48,6 +74,7 @@ export function verifyLegalDelivery(directory, commit) {
   if (components.schema !== 'hypha-delivered-components-v1' || components.commit !== commit
       || components.sourceSha256 !== delivery.sha256 || !Array.isArray(components.components)
       || !components.components.length) throw new Error('Delivered component notice identity mismatch');
+  if (distributed) verifyDistributedModes(root, manifest);
   return manifest;
 }
 
@@ -76,7 +103,11 @@ export function stageLegalDelivery(directory, destination, commit) {
     throw new Error('Refusing to overwrite existing legal manifest');
   }
   if (!fs.existsSync(record)) fs.writeFileSync(record, bytes, { flag: 'wx' });
-  return verifyLegalDelivery(target, commit);
+  if (posixModes) {
+    for (const name of [...manifest.files.map(e => e.path), MANIFEST]) fs.chmodSync(path.join(target, name), LEGAL_FILE_MODE);
+    for (const dir of legalDirectories(target, manifest)) fs.chmodSync(dir, LEGAL_DIRECTORY_MODE);
+  }
+  return verifyLegalDelivery(target, commit, { distributed: true });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

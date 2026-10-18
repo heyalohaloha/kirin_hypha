@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions } from './release_hypha.mjs';
+import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions, nativeRunner } from './release_hypha.mjs';
 import { HOST_TESTS, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
-import { verifyCi, verifyPackages, artifactPaths } from './ls_release/hypha_release_local.mjs';
+import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE } from './ls_release/hypha_release_local.mjs';
 import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
@@ -235,7 +235,7 @@ test('packaging validates actual existing sidecar schemas and all ten upload ass
   fs.writeFileSync(files[2], JSON.stringify({ version: '1.2.3', source: { commit: SOURCE.commit, bNumber: SOURCE.bNumber },
     signed: true, notarized: true, aaxIncluded: true, updateCheck: mac, sha256: hash(fs.readFileSync(files[0])) }));
   fs.writeFileSync(files[5], JSON.stringify({ version: '1.2.3', commit: SOURCE.commit, unsigned_smoke_test: false,
-    aax_included: true, git_dirty: '', updateCheck: mac, sha256: hash(fs.readFileSync(files[3])) }));
+    aax_included: true, git_dirty: 'false', updateCheck: mac, sha256: hash(fs.readFileSync(files[3])) }));
   fs.writeFileSync(files[8], JSON.stringify({ updateCheck: win, installer: { payload: win.binaries.map(b => ({ role: b.role, format: b.format, binary_sha256: b.binarySha256 })) } }));
   for (const file of [files[0], files[3], files[6]]) fs.writeFileSync(`${file}.sha256`, `${fileFact(file).sha256}  ${path.basename(file)}\n`);
   assert.equal(verifyPackages(f.state).length, 10);
@@ -250,4 +250,49 @@ test('packaging validates actual existing sidecar schemas and all ten upload ass
   zipMetadata.updateCheck.binaries[0].architectures[0].sha256 = 'c'.repeat(64);
   fs.writeFileSync(files[5], JSON.stringify(zipMetadata));
   fs.appendFileSync(files[0], 'tampered'); assert.throws(() => verifyPackages(f.state), /PKG/);
+});
+
+test('ZIP clean-source state uses the producer schema; dirty, unknown, missing or retyped values stop', t => {
+  const f = fixture(t); f.state.inputs.windowsInstallerDir = 'windows';
+  const files = artifactPaths(f.state);
+  // The producer writes this exact string (xtask release_gate GIT_CLEAN_STATE); bind both sides.
+  const producer = fs.readFileSync(path.join(import.meta.dirname, '..', 'xtask/src/release_gate.rs'), 'utf8');
+  assert.equal(producer.match(/pub const GIT_CLEAN_STATE: &str = "([^"]*)";/)?.[1], ZIP_CLEAN_GIT_STATE);
+  assert.match(producer, /Ok\(entries\) if entries\.is_empty\(\) => GIT_CLEAN_STATE\.to_string\(\)/);
+  const binding = ids => ({ ...updateBinding(''), binaries: ids.map(id => ({ format: id.split('/')[0], role: id.split('/')[1], binarySha256: 'd'.repeat(64), publicKeySha256: '',
+    architectures: ['arm64', 'x86_64'].map(architecture => ({ architecture, sha256: 'c'.repeat(64) })) })) });
+  const mac = binding(['AU/PRE', 'AU/POST', 'VST3/PRE', 'VST3/POST', 'AAX/PRE', 'AAX/POST']);
+  const win = binding(['VST3/PRE', 'VST3/POST', 'AAX/PRE', 'AAX/POST']);
+  for (const file of files) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'artifact bytes'); }
+  fs.writeFileSync(files[2], JSON.stringify({ version: '1.2.3', source: { commit: SOURCE.commit, bNumber: SOURCE.bNumber },
+    signed: true, notarized: true, aaxIncluded: true, updateCheck: mac, sha256: hash(fs.readFileSync(files[0])) }));
+  fs.writeFileSync(files[8], JSON.stringify({ updateCheck: win, installer: { payload: win.binaries.map(b => ({ role: b.role, format: b.format, binary_sha256: b.binarySha256 })) } }));
+  for (const file of [files[0], files[3], files[6]]) fs.writeFileSync(`${file}.sha256`, `${fileFact(file).sha256}  ${path.basename(file)}\n`);
+  // Same shape and string typing as release_package_metadata::manifest_json.
+  const zip = { updateCheck: mac, product: 'Kirin Hypha', version: '1.2.3', commit: SOURCE.commit,
+    package: 'Kirin-Hypha-1.2.3-macOS-Universal.zip', sha256: hash(fs.readFileSync(files[3])),
+    unsigned_smoke_test: false, git_dirty: 'false', ship_set: 'juce-common-shell+aax', aax_included: true, bundles: [] };
+  const write = value => fs.writeFileSync(files[5], `${JSON.stringify(value, null, 2)}\n`);
+  write(zip); assert.equal(verifyPackages(f.state).length, 10);
+  for (const gitDirty of ['true: M crates/fixture.rs', 'unknown: git status failed', '', false, 0, null, 'False', ' false']) {
+    write({ ...zip, git_dirty: gitDirty });
+    assert.throws(() => verifyPackages(f.state), /ZIP release identity/, JSON.stringify(gitDirty));
+  }
+  const { git_dirty: _omitted, ...missing } = zip; write(missing);
+  assert.throws(() => verifyPackages(f.state), /ZIP release identity/);
+  write({ ...zip, commit: 'f'.repeat(40) });
+  assert.throws(() => verifyPackages(f.state), /ZIP release identity/);
+});
+
+test('native runner writes binary stdout to a new owned file and never overwrites it', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-runner-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'asset.bin');
+  const run = nativeRunner(root);
+  const script = 'process.stdout.write(Buffer.from([0, 255, 1, 10, 13]))';
+  assert.equal(await run(process.execPath, ['-e', script], { stdoutFile: file }), '');
+  assert.deepEqual(fs.readFileSync(file), Buffer.from([0, 255, 1, 10, 13]));
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  await assert.rejects(run(process.execPath, ['-e', script], { stdoutFile: file }), /EEXIST/);
+  await assert.rejects(run(process.execPath, ['-e', 'process.exit(3)'], { stdoutFile: path.join(root, 'failed.bin') }), /exit 3/);
 });

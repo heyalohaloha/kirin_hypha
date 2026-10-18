@@ -42,7 +42,7 @@ node scripts/build_hypha.mjs --release --help
 4. 既存release-set producerでLS / HP通常導線のPKGと、公開Releaseに必須の復旧用ZIPを作り、Windows EXEと合わせてA5を確認する。
 5. LSの全対象への配送を確認する。
 6. exact commitへGitHub Releaseを作り、全配布物をdownloadしてhash照合後にdraftを公開する。
-7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、英日template・対応formatと両関連testを一括更新する。
+7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、`data/news.json`へその版の標準のお知らせを1件足す。英日templateと対応formatは書き換えずに照合し、HPの試験は中央の記録から版・日付・お知らせを読む。
 8. HPの標準手順でtest → commit/push → clean staged deploy → 検証 → production promotionを行う。
 9. 英日公開ページの版・日付・notes、通常download routeの302転送先とno-store、導線から取得した配布物の実bytes/hash、HPのdeployment-sourceを確認する。
 
@@ -185,6 +185,9 @@ CIは指定したgreen runを検証して再利用する。新規dispatch、reru
 - foreign／中断した署名済みoutput、既存pkg/zipをproducerで自動上書きしない。担当者が保全・照合してから再開する。
 - `FAIL` / 中断した`RUNNING`のbuild/署名は無根拠に再実行しない。正常な確認待ちだけはreport完成後に再開できる。
 - GitHubではdraftと既存assetsを照合し、無いassetだけuploadする。公開済みの別bytesは置換しない。
+  下書きはtagで引けないため、作成時のrelease IDをprofileの`githubRelease`に保存し、再開はそのIDで照合する。
+  作成の結果が不明なまま止まった場合も、事故の整理で`githubRelease`を消さない。消すと作成済みの下書きを照合できず、
+  同じreleaseを二重に作る原因になる。
 - HPの別セッションのdirty変更、baseline drift、project link driftを公開へ巻き込まない。
 - HPは`deploy-production-clean.sh`を使い、repo-rootから直接`vercel --prod`しない。
 - 公開途中の重大FAILは`RELEASE_INCIDENT`。担当者が影響と公開状況を確認するまで自動retryしない。
@@ -198,11 +201,11 @@ HPまでのPASSは`RELEASED`。A7待ちであり`RELEASE_COMPLETE`ではない�
 
 ```bash
 node --test scripts/build_hypha.test.mjs scripts/release_hypha.test.mjs \
-  scripts/ls_release/hypha_release_hp.test.mjs
+  scripts/ls_release/hypha_release_hp.test.mjs scripts/ls_release/hypha_release_github.test.mjs
 ```
 
 既存の正本: [3チャネルRunbook](ls_release/kirin_hypha_ls_runbook.md)、[AAX署名入口](aax_build_signing_entry.md)、
 HP repositoryの`README_DEPLOY.md`。
-CLI仕様: [GitHub Release create](https://cli.github.com/manual/gh_release_create)、
-[download](https://cli.github.com/manual/gh_release_download)、
+CLI仕様: [gh api](https://cli.github.com/manual/gh_api)と[GitHub Releases REST API](https://docs.github.com/en/rest/releases)
+（下書きはtagで引けないため、作成時のrelease IDで再開・upload・読戻し・公開する）、
 [Vercel staged deployment](https://vercel.com/docs/cli/deploy#skip-domain)。

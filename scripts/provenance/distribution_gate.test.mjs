@@ -7,7 +7,8 @@ import test from 'node:test';
 import zlib from 'node:zlib';
 import { assetDecision, embeddedAssets, readAssetRegistry, rejectHeldBytes, ROOT, REGISTRY, sha256 } from './asset_gate.mjs';
 import { verifyDistributionEvidence } from './distribution_gate.mjs';
-import { fileFact, Checkpoint } from '../ls_release/hypha_release_contract.mjs';
+import { sealedAliasRules } from './sealed_pace_alias.mjs';
+import { fileFact, Checkpoint, treeFact } from '../ls_release/hypha_release_contract.mjs';
 
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -211,4 +212,62 @@ test('font declaration cannot override the retained actual producer build config
   put(f.root, path.basename(p.buildMaterialEvidence), JSON.stringify(material));
   p.buildMaterialEvidenceSha256 = fileFact(p.buildMaterialEvidence).sha256;
   assert.throws(() => verifyDistributionEvidence(f.args), /no-font build/);
+});
+
+const ALIAS = ['Contents/Resources/__Pace_Eden/Signatures/codesign.dsig',
+  '../../../__Pace_Eden.bundle/Contents/Resources/Signatures/codesign.dsig'];
+function regularFiles(root, prefix = '') {
+  return fs.readdirSync(path.join(root, prefix), { withFileTypes: true }).flatMap(entry => {
+    const file = prefix ? `${prefix}/${entry.name}` : entry.name;
+    return entry.isDirectory() ? regularFiles(root, file) : entry.isFile() ? [file] : [];
+  });
+}
+function reinventory(p, extra = []) {
+  const evidence = JSON.parse(fs.readFileSync(p.extractionEvidence, 'utf8'));
+  evidence.payloadFiles = [...regularFiles(p.root), ...extra].sort()
+    .map(file => ({ path: file, sha256: sha256(fs.readFileSync(path.join(p.root, file))) }));
+  fs.writeFileSync(p.extractionEvidence, JSON.stringify(evidence));
+  p.extractionEvidenceSha256 = fileFact(p.extractionEvidence).sha256;
+}
+function addSealedAliases(f) {
+  // Fake signed AAX sources with one sealed internal alias each; no SDK, PACE tool or signing.
+  const bundles = ['PRE', 'POST'].map(role => {
+    const name = `Kirin Hypha ${role}.aaxplugin`; const dir = path.join(f.root, 'aax-build', name);
+    put(dir, 'Contents/__Pace_Eden.bundle/Contents/Resources/Signatures/codesign.dsig', `fake ${role} signature`);
+    put(dir, 'Contents/_CodeSignature/CodeResources', `<plist><dict><key>files2</key><dict><key>${ALIAS[0].slice(9)}</key>`
+      + `<dict><key>symlink</key><string>${ALIAS[1]}</string></dict></dict></dict></plist>`);
+    fs.mkdirSync(path.dirname(path.join(dir, ALIAS[0])), { recursive: true });
+    fs.symlinkSync(ALIAS[1], path.join(dir, ALIAS[0]));
+    return { role, sourcePath: dir, install_relative: `Library/Application Support/Avid/Audio/Plug-Ins/${name}`,
+      archive_relative: `AAX/${name}` };
+  });
+  f.args.sealedAliases = sealedAliasRules({ bundles, frozenPayloads: bundles.map(b => treeFact(b.sourcePath)) });
+  for (const [index, field] of ['install_relative', 'archive_relative'].entries()) {
+    const p = f.report.payloads[index];
+    for (const b of bundles) fs.cpSync(b.sourcePath, path.join(p.root, b[field]), { recursive: true, verbatimSymlinks: true });
+    reinventory(p);
+  }
+  return bundles;
+}
+test('frozen PACE-sealed aliases pass in both Mac payloads and are reported apart from regular files', t => {
+  const f = fixture(t); addSealedAliases(f); const result = verifyDistributionEvidence(f.args);
+  assert.equal(result.facts.length, 31 + BUNDLED_COMPONENTS.flatMap(c => c.licenseFiles).length * 3);
+  assert.deepEqual(result.aliases.map(a => [a.channel, a.role]),
+    [['macos-pkg', 'PRE'], ['macos-pkg', 'POST'], ['macos-zip', 'PRE'], ['macos-zip', 'POST']]);
+  for (const p of f.report.payloads.slice(0, 2)) {
+    const listed = JSON.parse(fs.readFileSync(p.extractionEvidence, 'utf8')).payloadFiles.map(e => e.path);
+    assert.equal(listed.filter(file => file.endsWith(ALIAS[0])).length, 0);
+  }
+  assert.deepEqual(verifyDistributionEvidence(fixture(t).args).aliases, []);
+});
+test('payload symlinks stay rejected without frozen rules, on Windows, and as inventory files', t => {
+  const strict = fixture(t); addSealedAliases(strict); delete strict.args.sealedAliases;
+  assert.throws(() => verifyDistributionEvidence(strict.args), /contains symlink/);
+  const windows = fixture(t); const [pre] = addSealedAliases(windows); const w = windows.report.payloads[2];
+  fs.cpSync(pre.sourcePath, path.join(w.root, pre.archive_relative), { recursive: true, verbatimSymlinks: true });
+  reinventory(w);
+  assert.throws(() => verifyDistributionEvidence(windows.args), /Unexpected symlink in windows-exe payload/);
+  const counted = fixture(t); const [first] = addSealedAliases(counted); const p = counted.report.payloads[0];
+  reinventory(p, [`${first.install_relative}/${ALIAS[0]}`]);
+  assert.throws(() => verifyDistributionEvidence(counted.args), /extraction inventory/);
 });

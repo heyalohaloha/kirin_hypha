@@ -98,3 +98,34 @@ test('legal manifest and destination symlinks are rejected', t => {
   fs.rmSync(actual); fs.symlinkSync(other, actual);
   assert.throws(() => verifyLegalDelivery(legalDir, commit), /symlink/);
 });
+
+test('staged legal files are readable by every user without becoming writable by others', {
+  skip: process.platform === 'win32',
+}, t => {
+  const f = fixture(t); const result = prepareSourceDelivery(f.args);
+  // Private retained evidence may stay owner-only; the distributed copy may not.
+  assert.throws(() => verifyLegalDelivery(result.legalDir, commit, { distributed: true }), /mode/);
+  const target = path.join(f.root, 'payload/Library/Application Support/Kirin Hypha/Legal');
+  stageLegalDelivery(result.legalDir, target, commit);
+  const manifest = verifyLegalDelivery(target, commit, { distributed: true });
+  const modes = [];
+  for (const name of [...manifest.files.map(entry => entry.path), 'legal-delivery.json']) {
+    modes.push(fs.statSync(path.join(target, name)).mode & 0o777);
+    for (let dir = path.dirname(path.join(target, name)); dir.startsWith(target); dir = path.dirname(dir)) {
+      assert.equal(fs.statSync(dir).mode & 0o777, 0o755, dir);
+    }
+  }
+  assert.deepEqual([...new Set(modes)], [0o644]);
+  const notice = path.join(target, 'component-notices.json');
+  for (const mode of [0o600, 0o640, 0o664, 0o666, 0o755]) {
+    fs.chmodSync(notice, mode);
+    assert.throws(() => verifyLegalDelivery(target, commit, { distributed: true }), /mode/, mode.toString(8));
+  }
+  fs.chmodSync(notice, 0o644);
+  fs.chmodSync(path.join(target, 'THIRD_PARTY_LICENSES'), 0o777);
+  assert.throws(() => verifyLegalDelivery(target, commit, { distributed: true }), /mode/);
+  fs.chmodSync(path.join(target, 'THIRD_PARTY_LICENSES'), 0o755);
+  // Re-staging the same candidate normalizes nothing new and keeps identical bytes.
+  stageLegalDelivery(result.legalDir, target, commit);
+  assert.equal(verifyLegalDelivery(target, commit, { distributed: true }).sourceSha256, result.facts[0].sha256);
+});
