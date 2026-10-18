@@ -74,9 +74,15 @@ pub(super) struct TimeComparisonState {
     joined_run: u64,
     seeks: seek::SeekAdmission,
     passes: seek::PassAlignment,
+    /// The latest PRE publication's meter progress, for the UI's wait qualification only.
+    pre_observed: Option<u64>,
 }
 
 impl TimeComparisonState {
+    pub(super) fn pre_observed(&self) -> Option<u64> {
+        self.pre_observed
+    }
+
     pub(super) fn fail(&mut self, reason: TimeComparisonReason) {
         self.point = None;
         self.reason = reason;
@@ -108,6 +114,7 @@ impl TimeComparisonState {
             self.fail(TimeComparisonReason::Waiting);
             return;
         };
+        self.pre_observed = Some(pre_latest.observed);
         if post.iter().any(|p| !p.wire.valid(latest.wire.span))
             || !latest.wire.span.valid()
             || latest.wire.span.sample_rate != pre.span.sample_rate
