@@ -66,36 +66,64 @@ mod tests {
     use crate::engine::MeasureEngine;
     use crate::phase_d::channels::PhaseDChannelStream;
     use crate::phase_d::tables::FieldType;
+    use crate::resampler::ResamplerTo48k;
     use std::hint::black_box;
     use std::time::{Duration, Instant};
 
-    /// One 100 ms stereo slot at 48 kHz.
+    /// Frames of one 100 ms slot at 48 kHz.
     const SLOT: usize = 4_800;
 
-    /// A tone plus broadband noise that excites every band of the Phase D filter bank; level 0 is
-    /// digital silence.
-    fn slot(level: f64, offset: usize) -> Vec<f64> {
-        (0..SLOT)
+    /// 100 ms at `rate` of a tone plus broadband noise that excites every band of the Phase D
+    /// filter bank; level 0 is digital silence.
+    fn slot_at(rate: u32, level: f64, offset: usize) -> Vec<f64> {
+        (0..rate as usize / 10)
             .flat_map(|i| {
                 let n = (offset + i) as u64;
                 let hash = n.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 11;
                 let noise = hash as f64 / (1_u64 << 53) as f64 - 0.5;
-                let tone = (std::f64::consts::TAU * 110.0 * n as f64 / 48_000.0).sin();
+                let tone = (std::f64::consts::TAU * 110.0 * n as f64 / f64::from(rate)).sin();
                 let x = level * (0.8 * tone + 0.4 * noise);
                 [x, x]
             })
             .collect()
     }
 
+    fn slot(level: f64, offset: usize) -> Vec<f64> {
+        slot_at(48_000, level, offset)
+    }
+
     /// Every figure a Keep displays or saves (LUFS-M/S, TP, Max TP, CREST, PSR, Phase D N, S, N'
-    /// and PSB, then I, LRA and Max TP of the summary) for 3 s of signal and 3 s of silence.
-    fn measured_figures() -> Vec<f64> {
-        let mut engine = MeasureEngine::new(48_000, ChannelLayout::stereo()).unwrap();
+    /// and PSB, then I, LRA and Max TP of the summary) for 3 s of signal and 3 s of silence at
+    /// `rate`. As in a Keep, the native audio feeds the EBU engine and its 48 kHz resampling
+    /// feeds Phase D.
+    fn measured_figures(rate: u32) -> Vec<f64> {
+        let mut engine = MeasureEngine::new(rate, ChannelLayout::stereo()).unwrap();
         let mut phase = PhaseDChannelStream::new(FieldType::Free, 2);
+        let mut resampler = (rate != 48_000).then(|| ResamplerTo48k::new(rate, 2).unwrap());
+        let mut phase_input = Vec::new();
         let mut figures = Vec::new();
         let figure = |value: Option<f64>| value.unwrap_or(f64::NAN);
         for index in 0..60 {
-            let slot = slot(if index < 30 { 0.25 } else { 0.0 }, index * SLOT);
+            let level = if index < 30 { 0.25 } else { 0.0 };
+            let slot = slot_at(rate, level, index * rate as usize / 10);
+            match resampler.as_mut() {
+                Some(resampler) => resampler.process(&slot, &mut phase_input).unwrap(),
+                None => phase_input.extend_from_slice(&slot),
+            }
+            if index == 59 {
+                if let Some(resampler) = resampler.as_mut() {
+                    resampler.finish(&mut phase_input).unwrap();
+                }
+            }
+            let whole = phase_input.len() / (2 * SLOT) * 2 * SLOT;
+            for phase_slot in phase_input[..whole].chunks_exact(2 * SLOT) {
+                if let Some(result) = phase.push_interleaved_slot(phase_slot) {
+                    figures.extend([result.loudness, result.sharpness]);
+                    figures.extend(result.n_specific);
+                    figures.extend(result.psb);
+                }
+            }
+            phase_input.drain(..whole);
             if let Some(m) = engine.push(&slot) {
                 figures.extend(
                     [
@@ -109,11 +137,6 @@ mod tests {
                     .map(figure),
                 );
             }
-            if let Some(result) = phase.push_interleaved_slot(&slot) {
-                figures.extend([result.loudness, result.sharpness]);
-                figures.extend(result.n_specific);
-                figures.extend(result.psb);
-            }
         }
         let summary = engine.finalize();
         figures.extend([summary.lufs_i, summary.lra, summary.max_true_peak].map(figure));
@@ -125,15 +148,21 @@ mod tests {
     /// environment measures, for the signal and the silence after it.
     #[test]
     fn a_measurement_thread_measures_the_same_figures() {
-        let flushed = spawn_measurement_thread(measured_figures).join().unwrap();
-        let default = std::thread::spawn(measured_figures).join().unwrap();
-        assert!(flushed.len() > 500, "every slot was measured");
-        assert_eq!(flushed.len(), default.len());
-        for (index, (a, b)) in flushed.iter().zip(&default).enumerate() {
-            assert!(
-                a == b || (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-9,
-                "figure {index}: {a} on a measurement thread against {b}"
-            );
+        for rate in [48_000, 192_000] {
+            let flushed = spawn_measurement_thread(move || measured_figures(rate))
+                .join()
+                .unwrap();
+            let default = std::thread::spawn(move || measured_figures(rate))
+                .join()
+                .unwrap();
+            assert!(flushed.len() > 500, "{rate} Hz: every slot was measured");
+            assert_eq!(flushed.len(), default.len());
+            for (index, (a, b)) in flushed.iter().zip(&default).enumerate() {
+                assert!(
+                    a == b || (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-9,
+                    "{rate} Hz figure {index}: {a} on a measurement thread against {b}"
+                );
+            }
         }
     }
 

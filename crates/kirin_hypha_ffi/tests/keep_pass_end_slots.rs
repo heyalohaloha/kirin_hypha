@@ -1,8 +1,8 @@
 //! Real paired Keep whose TRACE pass ends before the Keep does (a LOOP wrap, a seek, a stop and a
-//! new start) at sample rates other than 48 kHz. Phase D measures a 48 kHz resampled stream; the
-//! last 100 ms of the TRACE pass must still reach its TRACE slot, so the record keeps every slot
-//! and a normal pass end degrades nothing. 48 kHz (no resampler) is the control. Simulated clock
-//! facts, independent of actual DAW acceptance.
+//! new start) at every supported sample rate other than 48 kHz (44.1 to 192 kHz). Phase D measures
+//! a 48 kHz resampled stream; the last 100 ms of the TRACE pass must still reach its TRACE slot,
+//! so the record keeps every slot and a normal pass end degrades nothing. 48 kHz (no resampler) is
+//! the control. Simulated clock facts, independent of actual DAW acceptance.
 use kirin_hypha_ffi::{channel_abi::ChannelLayout, KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED};
 use kirin_measure::{
     AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, PresentationLatencySamples,
@@ -274,7 +274,7 @@ fn keep_whose_trace_pass_ends(
 }
 
 #[test]
-#[ignore = "slow: real PRE/POST Keeps at 96, 44.1 and 48 kHz whose TRACE pass ends early"]
+#[ignore = "slow: real PRE/POST Keeps from 44.1 to 192 kHz whose TRACE pass ends early"]
 fn a_trace_pass_that_ends_before_the_keep_keeps_its_last_slot_at_every_rate() {
     let sandbox = tempfile::tempdir().unwrap();
     std::env::set_var(kirin_measure::TEST_STORAGE_ROOT_ENV, sandbox.path());
@@ -299,6 +299,16 @@ fn a_trace_pass_that_ends_before_the_keep_keeps_its_last_slot_at_every_rate() {
         (44_100, PassEnd::KeepNearLoopEnd, "n44"),
         (48_000, PassEnd::KeepNearLoopEnd, "n48"),
         (48_000, PassEnd::LoopWrap, "w48"),
+        (88_200, PassEnd::LoopWrap, "w88"),
+        (88_200, PassEnd::Seek, "s88"),
+        (88_200, PassEnd::StopRestart, "r88"),
+        (176_400, PassEnd::LoopWrap, "w176"),
+        (176_400, PassEnd::Seek, "s176"),
+        (176_400, PassEnd::StopRestart, "r176"),
+        (192_000, PassEnd::LoopWrap, "w192"),
+        (192_000, PassEnd::Seek, "s192"),
+        (192_000, PassEnd::StopRestart, "r192"),
+        (192_000, PassEnd::KeepNearLoopEnd, "n192"),
     ]
     .into_iter()
     .flat_map(|(rate, end, tag)| keep_whose_trace_pass_ends(&plugin_data, rate, end, tag))
