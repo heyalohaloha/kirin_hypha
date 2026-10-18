@@ -1,4 +1,5 @@
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaAxisLabels.h"
 #include "HyphaCaptureHistoryGeometry.h"
 #include "HyphaCaptureHistoryTruePeak.h"
 
@@ -383,6 +384,10 @@ void paint (juce::Graphics& g,
                          typography::Composition::visualization));
     const auto paintLoudnessTicks = [&] (const auto& ticks)
     {
+        std::vector<float> centres;
+        for (const auto tick : ticks) centres.push_back (yForLoudness (loudnessPlot, tick, delta));
+        // A short plot names the ends and the middle; numbers that would overlap thin out further.
+        const auto named = axis_labels::named (centres, axis_labels::endsFirst (ticks.size()), 15.0f);
         for (size_t index = 0; index < ticks.size(); ++index)
         {
             if (loudnessPlot.getHeight() < 110.0f
@@ -394,6 +399,7 @@ void paint (juce::Graphics& g,
             g.setColour ((zero ? COL_FLORA_BR : COL_MUTED).withAlpha (
                 zero ? 0.42f : 0.25f));
             g.drawHorizontalLine (y, loudnessPlot.getX(), loudnessPlot.getRight());
+            if (! named[index]) continue;
             g.setColour (COL_MUTED.brighter (0.20f).withAlpha (0.86f));
             const auto label = (delta && tick > 0.0 ? "+" : "")
                              + juce::String (tick, 0);

@@ -4,6 +4,7 @@
 #include "HyphaReferenceNotices.h"
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
 #include "HyphaReferencePendingUI.h"
+#include "HyphaReferenceSongChoice.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
@@ -19,7 +20,7 @@ void KirinHyphaEditor::wireReferenceRoles()
         const auto latest = processorRef.referenceAuditionSnapshot();
         const auto& slot = latest.referenceSelection ? *latest.referenceSelection : latest;
         if (offerReferenceLowerA (3, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
-        showToast (hypha::reference_ui::notice::roleUnavailable (3, slotStep (slot, latest.transportPlaying), slot.matchFailure));
+        showToast (hypha::reference_ui::notice::roleUnavailable (3, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
     };
     referenceView.onSelectSong = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSong (id)) showToast ("Song selection was not changed"); };
@@ -87,6 +88,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
             : hypha::reference_audition::RuntimeSongPreparation {};
     };
     const auto count = juce::String (static_cast<int> (runtime.songSets.size()));
+    bool selectedSongMissing = false;
     for (const auto& set : runtime.songSets)
     {
         state.songSets.push_back ({ set.id, set.name + "   " + juce::String (set.rank) + " / " + count });
@@ -94,7 +96,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
             for (size_t index = 0; index < set.songs.size(); ++index)
             {
                 const auto& song = set.songs[index];
-                state.songs.push_back ({ song.id, song.label + (song.requiresPreparation ? "   PREPARING" : "") });
+                const bool missing = index < set.facts.size() && set.facts[index].sourceMissing;
+                selectedSongMissing = selectedSongMissing || (missing && song.id == runtime.selectedSongId);
+                state.songs.push_back ({ song.id, hypha::reference_ui::songChoiceLabel (song.label, song.requiresPreparation, missing) });
                 hypha::reference_ui::SongFact fact;
                 fact.prepared = ! song.requiresPreparation;
                 fact.preparation = preparationOf (song.id);
@@ -104,8 +108,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                     if (source.sourceMissing)
                     {
                         fact.prepared = false;
-                        fact.preparation.reason = "source_unavailable";
-                        fact.preparation.retry = "manual";
+                        hypha::reference_ui::markSourceMissing (fact.preparation);
                     }
                     fact.lufsI = source.lufsI;
                     fact.centersHz = source.spectrumCentersHz;
@@ -188,6 +191,9 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.rolePreparation = runtime.comparisonSlot == 3 ? preparationOf (runtime.selectedSongId)
                           : runtime.comparisonSlot == 2 ? preparationOf (check.candidateId)
                           : hypha::reference_audition::RuntimeSongPreparation {};
+    // 選んだ B の曲の音源が無い：状態の行も一覧と同じく「見つからない」と Kirin OS での直し方を言う（2026-10-18）。
+    if (runtime.comparisonSlot == 3 && selectedSongMissing)
+        hypha::reference_ui::markSourceMissing (state.rolePreparation);
     const bool measuringA = pendingWaiting && state.pendingAudition.stage == hypha::reference_audition::PendingAuditionView::Stage::level;
     state.preparationOverdue = referencePreparationWatch.observe (
         watchedSlot, watchedStep, measuringA, state.osOnline, state.transportPlaying, juce::Time::getMillisecondCounterHiRes() / 1000.0);

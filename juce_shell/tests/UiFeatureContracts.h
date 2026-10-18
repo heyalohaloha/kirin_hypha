@@ -28,6 +28,7 @@
 #include "LocalBlindNamedUiContractTest.h"
 #include "LiveBlindUiContractTest.h"
 #include "VersionBlindScreenContractTest.h"
+#include "NoteDialogContract.h"
 #include "BlindLightContract.h"
 #include "LiveCompareFooterContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
@@ -151,6 +152,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         std::cout << "Product entry: PASS (82 role/size layouts, 41 Reference layouts, update dispatch, DRUM navigation)\n";
         return true;
     }
+    verifyNoteDialog();
     verifyObservationPageContract();
     verifyObservatoryCompositeContract();
     verifyPerceptualHistoryContract();

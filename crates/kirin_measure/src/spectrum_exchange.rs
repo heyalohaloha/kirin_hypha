@@ -407,6 +407,9 @@ mod lock_tests;
 #[path = "spectrum_exchange_mid_side_tests.rs"]
 mod mid_side_tests;
 #[cfg(test)]
+#[path = "spectrum_exchange_owner_tests.rs"]
+mod owner_tests;
+#[cfg(test)]
 #[path = "spectrum_exchange_recovery_tests.rs"]
 mod recovery_tests;
 #[cfg(test)]

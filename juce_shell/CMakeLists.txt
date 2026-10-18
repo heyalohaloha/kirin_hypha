@@ -341,6 +341,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorMeter.cpp
         src/PluginProcessorSignal.cpp
         src/PluginEditorObservatory.cpp
+        src/HyphaNoteDialog.cpp
         src/PluginEditorAnalysis.cpp
         src/PluginEditorCapture.cpp
         src/CaptureWorkAttachment.cpp
@@ -665,6 +666,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     juce_add_console_app(KirinUiRenderContractTests
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
+        src/HyphaNoteDialog.cpp
         ${KIRIN_HYPHA_TIME_SNAPSHOT_SOURCES}
         ${KIRIN_HYPHA_ATTACK_V2_SOURCES}
         tests/TimeSnapshotContractTest.cpp

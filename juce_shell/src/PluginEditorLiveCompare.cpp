@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "HyphaLiveCompareActionResult.h"
 #include "HyphaLiveCompareRecoveryText.h"
+#include "HyphaReferenceAuditionRecoveryText.h"
 #include "HyphaLocalBlindAdmissionText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -42,20 +43,6 @@ juce::String offsetText (std::int64_t lag, double sampleRate)
         return {};
     const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / sampleRate;
     return "PRE " + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
-}
-
-juce::String pinFailure (hypha::live_compare::PinFailure failure)
-{
-    using hypha::live_compare::PinFailure;
-    switch (failure)
-    {
-        case PinFailure::none:        return {};
-        case PinFailure::notProven:   return "PIN waits for PRE";
-        case PinFailure::tooShort:    return "PIN needs 4 s of play";
-        case PinFailure::notOneRange: return "Last 4 s not one range";
-        case PinFailure::overwritten: return "PIN failed; try again";
-    }
-    return {};
 }
 
 juce::String startFailure (StartResult result)
@@ -143,7 +130,6 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareAuto = {};
         refreshLiveCompare();
     };
-    observatoryView.onLiveComparePin = [this] { pinLiveCompareForBlind(); };
     observatoryView.onLiveCompareReturn = [this]
     {
         if (returnReferenceLevelIfHeld()) { refreshLiveCompare(); return; }  // Reference が下げた A を戻す
@@ -252,34 +238,6 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
         });
 }
 
-// INV-LC15: PIN fixes the last four seconds and opens PRE / POST Blind on them, past its capture
-// step. The live session ends; Blind owns the output from here, and its own RETURN brings back POST.
-void KirinHyphaEditor::pinLiveCompareForBlind()
-{
-    if (outputRefused (hypha::output_owner::Activity::localBlind))
-        return;
-    const auto result = processorRef.pinLiveCompareForBlind (processorRef.meterContextPreference());
-    if (! result.pinned)
-    {
-        refreshLiveCompare();
-        showToast (result.pin != hypha::live_compare::PinFailure::none
-                       ? pinFailure (result.pin) : hypha::local_blind_ui::admissionText (result.admission));
-        return;
-    }
-    processorRef.stopLiveCompare();
-    liveCompareMatched = false;
-    liveCompareLimited = false;
-    liveCompareActiveSeen = false;
-    liveCompareAuto = {};
-    localBlindReturnIntent.clear();
-    localBlindPreflight = false;
-    localBlindView.setMeterContext (processorRef.meterContextPreference());
-    localBlindOpen = true;
-    localBlindView.clearActionNotice();
-    refreshLocalBlindProduct();
-    if (localBlindView.isShowing()) localBlindView.grabKeyboardFocus();
-}
-
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
 bool KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Status& status, double now)
 {
@@ -339,14 +297,19 @@ bool KirinHyphaEditor::refreshLiveCompare()
     }
     liveCompareActiveSeen = status.active && ! status.finishing;
     newFault = monitorLiveCompareOffset (status, now) || newFault;
-    const auto presentation = hypha::live_compare_ui::currentNamedPresentation (status, processorRef.liveCompareAdmission (false));
+    // B, C or V in REF may hold the output; past 3 s LISTEN says so. The choice stays.
+    const auto auditionSlot = processorRef.referenceOutputSlot();
+    const auto presentation = hypha::live_compare_ui::currentListenPresentation (
+        status, processorRef.liveCompareAdmission (false), auditionSlot);
     liveCompareStory.clear();
     if (*presentation.instruction != 0)
     {
         liveCompareWarning = presentation.instruction;
         const auto why = presentation.reason != hypha::live_compare::RecoveryReason::none ? presentation.reason
                                                                                          : status.observation;
-        if (const auto* next = hypha::live_compare_ui::nextStep (presentation.action); *next != 0)
+        if (const auto* next = hypha::live_compare_ui::auditionHoldsListen (status, auditionSlot)
+                ? hypha::live_compare_ui::auditionNextStep (auditionSlot, status.preSelected)
+                : hypha::live_compare_ui::nextStep (presentation.action); *next != 0)
             liveCompareStory = { juce::String ("LISTEN: ") + hypha::live_compare_ui::cause (why)
                 + (why == hypha::live_compare::RecoveryReason::cycleUnverified ? "" : "."), next };
     }
@@ -363,8 +326,6 @@ bool KirinHyphaEditor::refreshLiveCompare()
     footer.contentHeld = status.active && status.contentHeld;
     footer.compensationOff = status.active && status.compensationOff;
     footer.recoveryHelp = presentation.instruction;
-    footer.pinAvailable = processorRef.localBlindProductSupported()
-        && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && (liveCompareMatched || status.matchHeld);
     footer.matchHeld = false; // the approved MATCH stays visible across timing recovery
     footer.matchLimited = footer.matched && liveCompareLimited;

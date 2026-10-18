@@ -63,6 +63,7 @@ const Entry entries[] = {
     { "Sources  %1", u8"ソース  %1" },
     { "Source  %1", u8"ソース  %1" },
     { "Channel  %1", u8"チャンネル  %1" },
+    { "Frequency focus  %1", u8"確認する周波数範囲  %1" },  // Kirin OS で選んだ範囲（2026-10-18）
     { "%1 to %2 Hz", u8"%1〜%2 Hz" },
 
     // Hypha information.

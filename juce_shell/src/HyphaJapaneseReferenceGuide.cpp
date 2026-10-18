@@ -20,7 +20,6 @@ const Entry entries[] = {
     { "Aligning V with A", u8"VをAに位置合わせしています" },
     { "Play another passage to align V", u8"Vを合わせるため、別の箇所を再生してください" },
     { "Preparing %1", u8"%1を準備しています" },
-    { "Open Kirin OS to check the source", u8"Kirin OSを開いて音源を確認してください" },
     { "Kirin OS's B sets were not read", u8"Kirin OSのBセットを読めませんでした" },
     { "The source of %1 changed", u8"%1の音源が変わりました" },
     { "The format of %1's source changed", u8"%1の音源の形式が変わりました" },
@@ -52,7 +51,31 @@ const Entry entries[] = {
     { "Open Kirin OS to make the source available. A stays live.", u8"Kirin OSを開いて音源を使えるようにしてください。Aを保ちます。" },
     { "Choose the source again. A stays live.", u8"音源を選び直してください。Aを保ちます。" },
     { "Update Kirin OS and Hypha to the same release.", u8"Kirin OSとHyphaを同じリリースに更新してください。" },
-    { "The source changed or could not be opened.", u8"音源が変わったか、開けませんでした。" },
+    // 断られた理由ごとの段階（2026-10-18）。知らない理由はコードで言う。
+    { "CHANNELS DIFFER FROM THIS TRACK", u8"チャンネル数がこのトラックと違う" },
+    { "USE A SOURCE WITH THE SAME CHANNELS", u8"同じチャンネル数の音源を使う" },
+    { "Channels differ from this track", u8"チャンネル数がこのトラックと違います" },
+    { "%1's source has other channels than this track", u8"%1の音源はこのトラックとチャンネル数が違います" },
+    { "A mono source plays on a mono track, a stereo source on a stereo track. A stays live.",
+      u8"モノラルの音源はモノラルのトラックで、ステレオの音源はステレオのトラックで鳴らせます。Aを保ちます。" },
+    { "SOURCE RECORD DOES NOT MATCH", u8"音源の記録がファイルと合わない" },
+    { "Source record does not match", u8"音源の記録がファイルと合いません" },
+    { "%1's source record does not match its file", u8"%1の音源の記録がファイルと合いません" },
+    { "SOURCE RECORD NOT READ", u8"音源の記録を読めない" },
+    { "Source record not read", u8"音源の記録を読めません" },
+    { "%1's source record was not read", u8"%1の音源の記録を読めませんでした" },
+    { "Update Kirin OS and Hypha to the same release. A stays live.",
+      u8"Kirin OSとHyphaを同じリリースに更新してください。Aを保ちます。" },
+    { "SOURCE NOT USABLE IN HYPHA", u8"Hyphaでは使えない音源" },
+    { "SEE THE REASON CODE", u8"理由のコードを確認" },
+    { "Not usable in Hypha", u8"Hyphaでは使えません" },
+    { "Not usable in Hypha (%1)", u8"Hyphaでは使えません (%1)" },
+    { "%1's source is not usable in Hypha", u8"%1の音源はHyphaでは使えません" },
+    { "Hypha has no message for this reason. A stays live.", u8"この理由の説明はHyphaにありません。Aを保ちます。" },
+    { "Reason code: %1", u8"理由のコード：%1" },
+    { "Publication not read", u8"公開データを読めません" },
+    { "%1's Reference publication was not read", u8"%1のReferenceの公開データを読めませんでした" },
+    { "Publish it again in Kirin OS. A stays live.", u8"Kirin OSで再公開してください。Aを保ちます。" },
 
     // A, V and C, and where each stands.
     { "Your mix, live from the DAW", u8"今のミックス（DAWの音）" },
@@ -82,6 +105,17 @@ const Entry entries[] = {
     { "B: %1", u8"B：%1" },
     { "V: %1", u8"V：%1" },
     { "C: %1", u8"C：%1" },
+
+    // LISTEN while B, C or V in REF holds the output for more than 3 s (HyphaReferenceAuditionRecoveryText.h).
+    { "B plays from REF: press A there to listen", u8"REFのBを再生中。REFでAを押すと戻ります" },
+    { "C plays from REF: press A there to listen", u8"REFのCを再生中。REFでAを押すと戻ります" },
+    { "V plays from REF: press A there to listen", u8"REFのVを再生中。REFでAを押すと戻ります" },
+    { "B plays now. Press A in REF to hear PRE.", u8"今はB。REFでAを押すとPREに戻ります。" },
+    { "B plays now. Press A in REF to hear POST.", u8"今はB。REFでAを押すとPOSTに戻ります。" },
+    { "C plays now. Press A in REF to hear PRE.", u8"今はC。REFでAを押すとPREに戻ります。" },
+    { "C plays now. Press A in REF to hear POST.", u8"今はC。REFでAを押すとPOSTに戻ります。" },
+    { "V plays now. Press A in REF to hear PRE.", u8"今はV。REFでAを押すとPREに戻ります。" },
+    { "V plays now. Press A in REF to hear POST.", u8"今はV。REFでAを押すとPOSTに戻ります。" },
 };
 }
 

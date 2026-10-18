@@ -5,7 +5,7 @@ set(_clock_fixtures
     KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLocalBlindProductTests
     KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests
     KirinLiveCompareAaxGroupProductTests KirinLiveCompareLifecycleTests
-    KirinLiveReentryProductTests KirinLiveRecoveryProductTests)
+    KirinLiveReentryProductTests KirinLiveRecoveryProductTests KirinReferenceListenProductTests)
 set(_have_clock_fixture FALSE)
 foreach(fixture IN LISTS _clock_fixtures)
     if(TARGET ${fixture})

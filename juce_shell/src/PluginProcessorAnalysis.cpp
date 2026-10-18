@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "HyphaAnalysisUiText.h"
 #include "HyphaAnalysisFfiAdapter.h"
 
 void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int channels) noexcept
@@ -339,17 +340,11 @@ bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
         out.clear();
         return true;
     }
+    // A name that could not be read keeps its slot counted ("another Hypha"); the other name stays
+    // (one unnamed holder used to hide both).
     juce::StringArray names;
     for (size_t index = 0u; index < KIRIN_ANALYSIS_SLOT_COUNT; ++index)
-    {
-        const auto* utf8 = owners.names[index];
-        if (utf8[0] == '\0')
-        {
-            out.clear();
-            return true;
-        }
-        names.add (juce::String (juce::CharPointer_UTF8 (utf8)));
-    }
-    out = names.joinIntoString (", ");
+        names.add (juce::String (juce::CharPointer_UTF8 (owners.names[index])));
+    out = hypha::analysis_ui::slotOwnerNames (names);
     return true;
 }

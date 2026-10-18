@@ -11,9 +11,9 @@ namespace
 thread_local ShownTextLog* activeLog = nullptr;
 
 // Every drawing call reports the text it drew here (nothing happens unless a test keeps a log).
-const juce::String& drawn (const juce::String& text)
+const juce::String& drawn (const juce::String& text, juce::Rectangle<float> area)
 {
-    if (activeLog != nullptr && text.isNotEmpty()) activeLog->add (text);
+    if (activeLog != nullptr && text.isNotEmpty()) activeLog->add (text, area);
     return text;
 }
 }
@@ -73,6 +73,24 @@ juce::String ellipsizedText (const juce::String& text, const juce::Font& font, f
             high = length - 1;
     }
     return text.substring (0, low).trimEnd() + marker;
+}
+
+juce::String ellipsizedKeepingVersion (const juce::String& text, const juce::Font& font, float width)
+{
+    if (width <= 0.0f || font.getStringWidthFloat (text) <= width)
+        return ellipsizedText (text, font, width);
+    const auto separator = juce::String::fromUTF8 (u8" · v");
+    const auto split = text.lastIndexOf (separator);
+    const auto number = split > 0 ? text.substring (split + separator.length()) : juce::String();
+    if (number.isNotEmpty() && number.length() <= 4 && number.containsOnly ("0123456789"))
+    {
+        const auto tail = text.substring (split);
+        const auto tailWidth = font.getStringWidthFloat (tail);
+        if (tailWidth < width * 0.6f)
+            if (const auto head = ellipsizedText (text.substring (0, split), font, width - tailWidth); head.isNotEmpty())
+                return head + tail;
+    }
+    return ellipsizedText (text, font, width);
 }
 
 namespace
@@ -253,9 +271,9 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
         auto top = static_cast<float> (area.getY()) + offset;
         for (const auto& line : japaneseLines (text, font, static_cast<float> (area.getWidth())))
         {
-            graphics.drawText (drawn (line), juce::Rectangle<float> (static_cast<float> (area.getX()), top,
-                                                             static_cast<float> (area.getWidth()),
-                                                             font.getHeight()),
+            const juce::Rectangle<float> lineArea (static_cast<float> (area.getX()), top,
+                                                   static_cast<float> (area.getWidth()), font.getHeight());
+            graphics.drawText (drawn (line, lineArea), lineArea,
                                justification.getOnlyHorizontalFlags()
                                    | juce::Justification::verticallyCentred,
                                false);
@@ -267,7 +285,7 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
     // left edge whatever the justification. Starting it at the centre put a centred status half
     // outside the area, where the clip cut "INACTIVE" to "INAC".
     const auto baseline = area.getY() + juce::roundToInt (offset + font.getAscent());
-    graphics.drawMultiLineText (drawn (text), area.getX(), baseline, area.getWidth(), justification);
+    graphics.drawMultiLineText (drawn (text, area.toFloat()), area.getX(), baseline, area.getWidth(), justification);
 }
 
 template <typename Area>
@@ -276,7 +294,7 @@ void drawShown (juce::Graphics& graphics, const juce::String& text, Area area,
 {
     const auto shown = shownText (text);
     const ShownFont font (graphics, shown);
-    graphics.drawText (drawn (shown), area, justification, useEllipsesIfTooLong);
+    graphics.drawText (drawn (shown, area.toFloat()), area, justification, useEllipsesIfTooLong);
 }
 }
 
@@ -298,7 +316,7 @@ void draw (juce::Graphics& graphics, const juce::String& text,
     const auto displayed = overflow == typography::Overflow::ellipsize
         ? ellipsizedText (shown, graphics.getCurrentFont(), static_cast<float> (area.getWidth()))
         : shown;
-    graphics.drawText (drawn (displayed), area, justification, false);
+    graphics.drawText (drawn (displayed, area.toFloat()), area, justification, false);
 }
 
 void drawEllipsized (juce::Graphics& graphics, const juce::String& text,
@@ -308,7 +326,18 @@ void drawEllipsized (juce::Graphics& graphics, const juce::String& text,
     const auto shown = shownText (text);
     const ShownFont font (graphics, shown);
     graphics.drawText (drawn (ellipsizedText (shown, graphics.getCurrentFont(),
-                                              static_cast<float> (area.getWidth()))),
+                                              static_cast<float> (area.getWidth())), area.toFloat()),
+                       area, justification, false);
+}
+
+void drawEllipsizedKeepingVersion (juce::Graphics& graphics, const juce::String& text,
+                                   juce::Rectangle<int> area, juce::Justification justification)
+{
+    if (area.isEmpty() || text.isEmpty()) return;
+    const auto shown = shownText (text);
+    const ShownFont font (graphics, shown);
+    graphics.drawText (drawn (ellipsizedKeepingVersion (shown, graphics.getCurrentFont(),
+                                                        static_cast<float> (area.getWidth())), area.toFloat()),
                        area, justification, false);
 }
 
@@ -321,7 +350,7 @@ void drawLines (juce::Graphics& graphics, const juce::String& text, juce::Rectan
     if (maximumLines > 1)
         drawWrapped (graphics, shown, area, justification);
     else
-        graphics.drawText (drawn (shown), area, justification, true);
+        graphics.drawText (drawn (shown, area.toFloat()), area, justification, true);
 }
 
 void drawText (juce::Graphics& graphics, const juce::String& text, juce::Rectangle<int> area,

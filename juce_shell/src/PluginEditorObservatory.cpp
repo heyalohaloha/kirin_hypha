@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaNoteDialog.h"
 #include "HyphaSnapshotSource.h"
 #include "HyphaComparisonPresentation.h"
 
@@ -138,22 +139,7 @@ void KirinHyphaEditor::configureMeterContext()
 void KirinHyphaEditor::showNoteDialog()
 {
     if (! isPost || noteDialog != nullptr) return;
-    // The dialog is built in the language shown; its buttons measure and draw through the
-    // editor's LookAndFeel, and a note may be typed in Japanese, which the native font carries.
-    noteDialog = std::make_unique<juce::AlertWindow> (
-        "NOTE", hypha::i18n::tr ("Attach a note to the current sample position."),
-        juce::MessageBoxIconType::NoIcon, this);
-    noteDialog->setLookAndFeel (&textLookAndFeel);
-    noteDialog->addTextEditor ("memo", {}, "NOTE");
-    if (auto* editor = noteDialog->getTextEditor ("memo"))
-    {
-        editor->setInputRestrictions (240);
-        editor->setFont (hypha::nativeTextFont (logicalPresentationContext(),
-                                                hypha::typography::TextRole::body));
-    }
-    noteDialog->addButton ("ADD", 1, juce::KeyPress (juce::KeyPress::returnKey));
-    noteDialog->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-    noteDialog->centreAroundComponent (this, 360, 170);
+    noteDialog = hypha::note_dialog::create (*this, textLookAndFeel, logicalPresentationContext());
     const juce::Component::SafePointer<KirinHyphaEditor> safe (this);
     noteDialog->enterModalState (true, juce::ModalCallbackFunction::create (
         [safe] (int result)

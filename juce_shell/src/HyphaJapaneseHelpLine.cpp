@@ -32,7 +32,6 @@ const Entry entries[] = {
       u8"%1のオクターブ帯域（%2）。PREとPOSTの各打音を、余韻が終わってからこの帯域で測ります。" },
     // The footer's own controls: the status at the left of the footer.
     { "Finish Keep / Record before Blind", u8"Blindの前にKeep／Recordを終えてください" },
-    { "Open the last 4 s of PRE and POST in Blind", u8"直前4秒のPREとPOSTをBlindで開きます" },
     { "Switch PRE and POST while the song plays", u8"曲を再生したままPREとPOSTを切り替えます" },
     { "Return POST to its normal level", u8"POSTを通常の音量に戻します" },
     { "Start a separate Version Blind trial.", u8"別のVersion Blindを始めます" },

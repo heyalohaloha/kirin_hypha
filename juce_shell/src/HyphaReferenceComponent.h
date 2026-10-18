@@ -105,6 +105,8 @@ struct State
     bool separateComparisons = false, versionReady = false, checkReady = false;
     // Where B and C each stand, whichever of them the page shows (the guide names both).
     SourceStep versionStep = SourceStep::waitingForKirinOs, checkStep = SourceStep::waitingForKirinOs;
+    // 断られた役の理由のコード（案内に残す。2026-10-18）。断られていなければ空。
+    juce::String versionRejectionCode, checkRejectionCode;
     int comparisonSlot = 2, audibleComparisonSlot = 0;
     bool transportPlaying = false, versionArmable = false, checkArmable = false;
     reference_audition::PendingAuditionView pendingAudition;

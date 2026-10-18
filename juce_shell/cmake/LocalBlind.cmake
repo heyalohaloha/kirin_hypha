@@ -216,6 +216,16 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         add_test(NAME kirin_reference_lower_a_product COMMAND KirinReferenceLowerAProductTests
             "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
         set_tests_properties(kirin_reference_lower_a_product PROPERTIES TIMEOUT 90)
+        # LISTEN while REF plays B: the request, the actual output and the display.
+        add_executable(KirinReferenceListenProductTests tests/reference_listen_product_test.cpp
+            tests/BlindProductMacRunLoop.mm)
+        target_compile_features(KirinReferenceListenProductTests PRIVATE cxx_std_17)
+        target_compile_options(KirinReferenceListenProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+        target_compile_definitions(KirinReferenceListenProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+        target_include_directories(KirinReferenceListenProductTests PRIVATE "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+        target_link_libraries(KirinReferenceListenProductTests PRIVATE KirinHyphaPOST juce::juce_recommended_warning_flags)
+        add_test(NAME kirin_reference_listen_product COMMAND KirinReferenceListenProductTests)
+        set_tests_properties(kirin_reference_listen_product PROPERTIES TIMEOUT 90)
     endif()
     add_executable(KirinLiveCompareLifecycleTests tests/live_compare_lifecycle_product_test.cpp)
     if(APPLE)

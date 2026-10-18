@@ -98,7 +98,7 @@ void SongList::paint (juce::Graphics& g)
         text_style::drawEllipsized (g, juce::String (static_cast<int> (index) + 1), cells[0], juce::Justification::centred);
         g.setColour (row.selected ? COL_SPECTRUM_DELTA_BR : COL_OBSERVATORY_VALUE);
         g.setFont (labelFont (context, typography::TextRole::body, typography::Composition::information));
-        text_style::drawEllipsized (g, row.title, cells[1], juce::Justification::centredLeft);
+        text_style::drawEllipsizedKeepingVersion (g, row.title, cells[1], juce::Justification::centredLeft);
         g.setFont (monoFont (context, typography::TextRole::unit, typography::Composition::information));
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, number (row.lufsI), cells[2], juce::Justification::centredRight);

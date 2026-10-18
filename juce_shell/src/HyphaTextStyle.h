@@ -2,6 +2,8 @@
 
 #include "HyphaTheme.h"
 
+#include <vector>
+
 // Every piece of Hypha's screen text is drawn through these calls (INV-S40). They show the text
 // in the current language (HyphaLanguage.h), except controls explicitly given a fixed label.
 // Japanese text uses the native text font at the height the caller chose. English and fixed
@@ -19,6 +21,9 @@ int requiredWidth (const juce::Font&, const juce::String&,
                    const typography::TextStyle&, int minimum = 0);
 int requiredLineHeight (const typography::TextStyle&, int minimum = 0) noexcept;
 juce::String ellipsizedText (const juce::String&, const juce::Font&, float width);
+// A long song title is cut before its version (" · v5"), which stays, so versions of one song stay
+// apart (2026-10-18). A title without a version is cut at its end, as ellipsizedText cuts it.
+juce::String ellipsizedKeepingVersion (const juce::String&, const juce::Font&, float width);
 void draw (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
            const presentation::Context&, typography::TextRole,
            juce::Justification, int maximumLines = 1,
@@ -26,6 +31,8 @@ void draw (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
            LabelPolicy = LabelPolicy::localized);
 void drawEllipsized (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                      juce::Justification);
+void drawEllipsizedKeepingVersion (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
+                                   juce::Justification);
 // The lines Japanese `shown` breaks into at `width` in `font`: a line never starts with closing
 // punctuation or a small kana, never ends with an opening bracket, and keeps Latin words whole.
 juce::StringArray japaneseLines (const juce::String& shown, const juce::Font&, float width);
@@ -47,18 +54,21 @@ void drawText (juce::Graphics&, const juce::String&, int x, int y, int width, in
                juce::Justification, bool useEllipsesIfTooLong = true);
 
 // What the screen said, for tests: while a log lives on this thread, every call above that draws
-// appends the text it drew (in the current language, after any ellipsis), in drawing order.
+// appends the text it drew (in the current language, after any ellipsis), in drawing order, and the
+// area it was drawn in (in the coordinates of that call; empty when a caller adds text itself).
 class ShownTextLog final
 {
 public:
     ShownTextLog() noexcept;
     ~ShownTextLog();
     const juce::StringArray& texts() const noexcept { return entries; }
-    void clear() noexcept { entries.clearQuick(); }
-    void add (const juce::String& text) { entries.add (text); }
+    const std::vector<juce::Rectangle<float>>& areas() const noexcept { return placed; }
+    void clear() noexcept { entries.clearQuick(); placed.clear(); }
+    void add (const juce::String& text, juce::Rectangle<float> area = {}) { entries.add (text); placed.push_back (area); }
 
 private:
     juce::StringArray entries;
+    std::vector<juce::Rectangle<float>> placed;
     ShownTextLog* outer = nullptr;
     JUCE_DECLARE_NON_COPYABLE (ShownTextLog)
 };

@@ -1,5 +1,6 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "ReferenceDisplayRegressionTest.h"
+#include "ReferenceJapaneseNamesTest.h"
 #include "ReferenceVisualComparisonTest.h"
 #include "ReferenceSelectionWorkflowTest.h"
 #include "MetricPresentationWorkflowTest.h"
@@ -118,6 +119,7 @@ void verifyReferenceAuditionComponentContract()
     verifyReferenceVisualComparison();
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();
+    verifyReferenceJapaneseNames();
     constexpr auto presentationContext = presentation::forEditor (450, 300);
     KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));
     KIRIN_REF_REQUIRE (requiresNativeTextFont (juce::String::fromUTF8 ("全工程｜基本5項目")));

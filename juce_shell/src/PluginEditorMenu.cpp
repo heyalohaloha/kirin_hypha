@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaGuideInformationFacts.h"
 
 namespace
 {
@@ -112,6 +113,18 @@ void KirinHyphaEditor::showCandidateMenu()
 void KirinHyphaEditor::showOperationsMenu()
 {
     processorRef.refreshLicenseForUserAction();
+    const auto options = juce::PopupMenu::Options()
+        .withTargetComponent (&observatoryView.operationsMenuAnchor())
+        .withDeletionCheck (*this).withMinimumWidth (juce::jlimit (300, 420, getWidth()))
+        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
+    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    operationsMenu().showMenuAsync (options, [safe] (int result)
+    { if (safe != nullptr) safe->handleOperationsMenu (result); });
+}
+
+// MENU as it stands now, every level (built apart from showing it, so a test reads what is offered).
+juce::PopupMenu KirinHyphaEditor::operationsMenu()
+{
     const bool recording = processorRef.isRecording();
     const bool keepActive = recording
         || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
@@ -171,13 +184,7 @@ void KirinHyphaEditor::showOperationsMenu()
     if (appearanceSnapshot.activationSeen)
         menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
                       observatoryView.jungleAppearanceEnabled());
-    const auto options = juce::PopupMenu::Options()
-        .withTargetComponent (&observatoryView.operationsMenuAnchor())
-        .withDeletionCheck (*this).withMinimumWidth (juce::jlimit (300, 420, getWidth()))
-        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
-    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    menu.showMenuAsync (options, [safe] (int result)
-    { if (safe != nullptr) safe->handleOperationsMenu (result); });
+    return menu;
 }
 
 void KirinHyphaEditor::handleOperationsMenu (int result)
@@ -372,27 +379,8 @@ void KirinHyphaEditor::showGuideInformationMenu()
                        : guide.payloadKind == "inspect" ? "INSPECT / OS GUIDE" : "OS GUIDE";
     menu.addSectionHeader (heading);
     int item = 500;
-    const auto addFact = [&menu, &item] (const juce::String& text)
-    { if (text.isNotEmpty()) menu.addItem (item++, text, false); };
-    addFact (display.primary);
-    addFact (display.detail);
-    addFact (display.stateText);
-    addFact (guide.sourcePairLabel.isNotEmpty() ? "Sources  " + guide.sourcePairLabel
-                                                : juce::String());
-    if (guide.hasPrimary)
-    {
-        addFact (guide.primary.label);
-        addFact (guide.primary.sourceLabel.isNotEmpty()
-                     ? "Source  " + guide.primary.sourceLabel : juce::String());
-        addFact (guide.primary.channel.isNotEmpty()
-                     ? "Channel  " + guide.primary.channel : juce::String());
-        if (guide.primary.hasBand)
-            addFact (juce::String (guide.primary.lowHz, 0) + " to "
-                     + juce::String (guide.primary.highHz, 0) + " Hz"
-                     + (guide.primary.frequencyBasis.isNotEmpty()
-                            ? juce::String (" / ") + guide.primary.frequencyBasis
-                            : juce::String()));
-    }
+    for (const auto& fact : hypha::guide_information::facts (display, guide))
+        menu.addItem (item++, fact, false);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView.guideDetailsAnchor())
         .withDeletionCheck (*this).withMinimumWidth (juce::jlimit (300, 440, getWidth()))

@@ -123,6 +123,10 @@ Guide guide (const State& state)
         : version ? result.version : result.check;
     result.heading = stageHeading (first, version ? 1 : 2);
     result.detail = stageOf (first).detail;
+    // 断られた理由のコードを残す（2026-10-18。知らない理由も、コードで Kirin OS 側と照らせる）。
+    if (const auto& code = version ? state.versionRejectionCode : state.checkRejectionCode;
+        code.isNotEmpty() && kindOf (first) == StatusKind::unable)
+        result.detail += " Reason code: " + code;
     return result;
 }
 

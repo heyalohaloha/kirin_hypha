@@ -77,3 +77,14 @@ void KirinHyphaProcessorBase::processComparisonPaths (
     processLiveCompare (buffer, clock, bypassed, nonRealtimeMode, false);
 #endif
 }
+
+// What the last block actually played, for LISTEN's notice. A plain atomic read; once the host stops
+// calling the audio callback, nothing plays and no role is named.
+int KirinHyphaProcessorBase::referenceOutputSlot() const noexcept
+{
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr && heartbeatLive() ? referenceAuditionController->outputSlot() : 0;
+#else
+    return 0;
+#endif
+}

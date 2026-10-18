@@ -61,7 +61,6 @@ fn direct_live_action_results_follow_ambient_state_acknowledgement() {
     for (source, method) in [
         (editor, "void KirinHyphaEditor::matchLiveCompare"),
         (editor, "void KirinHyphaEditor::applyLiveCompareChoice"),
-        (editor, "void KirinHyphaEditor::pinLiveCompareForBlind"),
         (
             header,
             "bool outputRefused (hypha::output_owner::Activity activity)",

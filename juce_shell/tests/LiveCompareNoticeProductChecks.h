@@ -106,6 +106,7 @@ struct NoticeRig
     juce::AudioBuffer<float> preAudio { 2, 512 }, postAudio { 2, 512 };
     juce::MidiBuffer midi;
     bool expectOrdinaryAudio = true, bypassed = false;
+    float chainGain = 1.0f; // what the chain between PRE and POST does; another gain tells PRE from POST
     NoticeRig()
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
@@ -138,7 +139,7 @@ struct NoticeRig
         for (int n = 0; n < 512; ++n)
         {
             const auto value = 0.05f * std::sin (float (clock.position + n) * 0.071f);
-            preAudio.setSample (c, n, value); postAudio.setSample (c, n, value);
+            preAudio.setSample (c, n, value); postAudio.setSample (c, n, chainGain * value);
         }
         pre->processBlock (preAudio, midi);
         // A processor with a bypass parameter is never sent processBlockBypassed by the JUCE

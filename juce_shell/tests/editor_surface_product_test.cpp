@@ -9,6 +9,7 @@
 #include "LiveTimingFixtureAccess.h"
 #include "../src/update/UpdateBuildTrust.h"
 #include "EditorProductChecks.h"
+#include "EditorEntryReachability.h"
 #include "EditorHiddenAutoCheck.h"
 #include "EditorResizeGripCheck.h"
 #include "ObservatoryHelpLineCheck.h"
@@ -482,6 +483,7 @@ int main (int argc, char** argv)
     hypha::tests::editor_product::verifyHiddenAutoStops();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
+    hypha::tests::editor_product::verifyEveryControlReachable();
     hypha::tests::editor_product::verifyChainTimingFooterSwitch();
     hypha::tests::editor_product::verifyMagnifiedEditor();
     hypha::tests::editor_product::verifyResizeGrip();

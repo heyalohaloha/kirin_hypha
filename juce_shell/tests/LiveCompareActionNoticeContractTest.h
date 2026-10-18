@@ -15,7 +15,7 @@ inline void verifyLiveCompareActionNotices()
 {
     observatory::View post (observatory::Role::post); post.setVisible (true);
     observatory::LiveCompareFooter rail;
-    rail.active = rail.matched = rail.pinAvailable = true;
+    rail.active = rail.matched = true;
     rail.preGainTenthsDb = -125;
     rail.postHeldTenthsDb = -100;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })

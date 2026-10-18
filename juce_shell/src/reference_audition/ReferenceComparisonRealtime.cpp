@@ -40,8 +40,12 @@ bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& b
     { if (role.hasOutputPath()) { paths[count] = &role; scratch[count] = &space; slots[count++] = slot; } };
     add (version, bScratch, 1); add (check, cScratch, 2); add (reference, rScratch, 3);
     bool rendered = false;
+    int renderedRole = 0;
     if (count == 1)
+    {
         rendered = paths[0]->renderSelectedB (buffer, position, valid, allowed, returnAllowed, target == slots[0]);
+        renderedRole = rendered ? slots[0] : 0;
+    }
     else if (count > 1)
     {
         const int frames = buffer.getNumSamples(), channels = buffer.getNumChannels();
@@ -49,6 +53,7 @@ bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& b
         {
             for (int index = 0; index < count; ++index) paths[index]->renderSelectedB (buffer, position, valid, false, false);
             heldA.apply (buffer, returnAllowed, false);
+            renderedSlot.store (0, std::memory_order_relaxed);
             return false;
         }
         bool audible[3] {};
@@ -61,6 +66,9 @@ bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& b
         }
         int first = -1;
         for (int index = count - 1; index >= 0; --index) if (audible[index]) first = index;
+        // The role the user chose when it sounds, else the first that still sounds (fading back to A).
+        for (int index = 0; index < count; ++index) if (audible[index] && slots[index] == target) renderedRole = slots[index];
+        if (renderedRole == 0 && first >= 0) renderedRole = slots[first];
         // One audible role is copied exactly; more start from the first and add the others' deviations from A.
         if (rendered) for (int channel = 0; channel < channels; ++channel)
             for (int frame = 0; frame < frames; ++frame)
@@ -83,6 +91,8 @@ bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& b
     // あるので、掛けた後も A と合う。オフライン書き出し・bypass には掛けない（returnAllowed）。RETURN は、このブロックの
     // 始めに出力を持つ役が無いときに上げ始める（役が自分の音量より大きく鳴らない）。
     heldA.apply (buffer, returnAllowed, count == 0);
+    // The fact of this block, read by LISTEN's notice: an atomic store only, no wait.
+    renderedSlot.store (renderedRole, std::memory_order_relaxed);
     return rendered;
 }
 }

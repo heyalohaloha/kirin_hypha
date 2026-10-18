@@ -10,7 +10,7 @@ const named = read('juce_shell/src/PluginEditorLiveCompare.cpp');
 test('LISTEN action messages remain in the full-text native inventory', () => {
   // The named status and Blind screens come from their production projections. Direct-action
   // sentences must also stay in the inventory, including entry failures before a session exists.
-  const directFunctions = named.slice(named.indexOf('juce::String pinFailure'), named.indexOf('void KirinHyphaEditor::configureLiveCompare'));
+  const directFunctions = named.slice(named.indexOf('juce::String startFailure'), named.indexOf('void KirinHyphaEditor::configureLiveCompare'));
   const directToasts = ['PluginEditorLiveCompare.cpp', 'PluginEditorLiveCompareAuto.cpp', 'PluginEditorLiveBlind.cpp']
     .map((file) => read(`juce_shell/src/${file}`));
   const lifecycle = read('juce_shell/src/PluginEditorLifecycle.cpp');
@@ -21,7 +21,7 @@ test('LISTEN action messages remain in the full-text native inventory', () => {
     .map((match) => match[1]);
   for (const message of messages)
     assert.ok(cases.includes(`"${message}"`) || recovery.includes(`"${message}"`), `Uncovered LISTEN notice: ${message}`);
-  for (const projection of ['namedPresentation', 'currentNamedPresentation', 'screenFor', 'autoReadinessNotice', 'admissionText', 'refusalText'])
+  for (const projection of ['namedPresentation', 'currentNamedPresentation', 'currentListenPresentation', 'screenFor', 'autoReadinessNotice', 'admissionText', 'refusalText'])
     assert.ok(cases.includes(projection), `${projection} must feed the native text inventory`);
 });
 

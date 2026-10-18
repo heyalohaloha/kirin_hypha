@@ -52,9 +52,8 @@ inline constexpr std::array<Shortened, 10> row {{
 }};
 
 // The footer's own controls: only the status at the left of the footer is theirs.
-inline constexpr std::array<Shortened, 12> footer {{
+inline constexpr std::array<Shortened, 11> footer {{
     { "Finish Keep / Record before PRE / POST Blind", "Finish Keep / Record before Blind" },
-    { "Fix the last four seconds of PRE and POST and open them in PRE / POST Blind", "Open the last 4 s of PRE and POST in Blind" },
     { "Switch between PRE and POST while playing. Comparison continues when this window closes",
       "Switch PRE and POST while the song plays" },
     { "Return POST to its normal level; it rises by the amount shown", "Return POST to its normal level" },

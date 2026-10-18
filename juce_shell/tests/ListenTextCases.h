@@ -2,6 +2,7 @@
 #include <vector>
 #include "../src/HyphaLiveBlindComponent.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
+#include "../src/HyphaReferenceAuditionRecoveryText.h"
 #include "../src/HyphaLiveCompareActionResult.h"
 #include "../src/HyphaLocalBlindAdmissionText.h"
 #include "../src/HyphaOutputOwnershipText.h"
@@ -51,14 +52,19 @@ inline std::vector<Notice> notices()
         add (live_compare_ui::namedPresentation (state).instruction, state);
     }
     add ("MATCH waits for more signal");
+    // B, C or V in REF holding the output past 3 s (currentListenPresentation).
+    for (int slot = 1; slot <= 3; ++slot)
+    {
+        Status state; state.active = state.preSelected = state.prolongedWait = true;
+        add (live_compare_ui::currentListenPresentation (state, StartResult::started, slot).instruction, state);
+    }
     // Direct action results and numeric boundaries in the LISTEN rail, including entry refusal,
-    // MATCH, AUTO, PIN and END. These are transient notices, not timing verdicts.
+    // MATCH, AUTO and END. These are transient notices, not timing verdicts.
     for (const char* text : { "LISTEN could not start", "Choose the PRE first",
         "Mono / stereo only", "Paired PRE unavailable", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
         "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
-        "Press RETURN first", "PRE over TP ceiling", "PRE held: latency changed", "PIN waits for PRE",
-        "PIN needs 4 s of play", "Last 4 s not one range", "PIN failed; try again", "AUTO on: within 0.5 dB",
+        "Press RETURN first", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",
         "AUTO off", "AUTO stopped: editor hidden", "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB", "Delay compensation is off in Pro Tools",
         "End the current comparison first", "BLIND COMPARE COULD NOT START" }) add (text);
     for (const auto* db : { "-24.00", "0.00", "+24.00" })

@@ -26,7 +26,9 @@ void Component::syncSelectionControl (juce::ComboBox& box,
     const auto recovery = [] (SourceStep step) {
         return step == SourceStep::savedChoiceUnavailable || step == SourceStep::sourceChanged
             || step == SourceStep::sourceFormatChanged || step == SourceStep::sourceUnopenable
-            || step == SourceStep::sourceUnavailable || step == SourceStep::attention;
+            || step == SourceStep::sourceUnavailable || step == SourceStep::channelsDiffer
+            || step == SourceStep::sourceRecordMismatch || step == SourceStep::sourceRecordUnsupported
+            || step == SourceStep::publicationInvalid || step == SourceStep::attention;
     };
     const bool retry = recovery (&box == &versionBox ? current.versionStep : current.checkStep);
     box.setEnabled (options.size() > 1 || (options.size() == 1 && (selected == 0 || retry)));

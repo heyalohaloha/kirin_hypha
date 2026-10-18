@@ -2,7 +2,7 @@
 
 // The received Kirin OS Guide as Hypha shows it on the guide rail and in its details menu. The
 // Guide's own labels and names come from Kirin OS and pass through; Hypha's states around them
-// are translated, fact by fact.
+// are translated, fact by fact. The information menu's operating system note is here too.
 namespace hypha::i18n::catalog
 {
 namespace
@@ -23,6 +23,9 @@ const Entry entries[] = {
     { "MASKING  END", u8"MASKING  終了" },
     { "INSPECT  END", u8"INSPECT  終了" },
     { "HELD", u8"保持" },
+    { "This host reports macOS %1 for compatibility",
+      u8"このホストは互換のため、macOSのバージョンを%1と伝えています" },
+    { "This host does not report the macOS version", u8"このホストはmacOSのバージョンを伝えていません" },
 };
 }
 

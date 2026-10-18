@@ -107,6 +107,7 @@ const Entry entries[] = {
     { "ONSET (RISE PER HOP)", u8"立ち上がり（区間ごと）" },
     { "ATTACK (PEAK - LUFS-M)", u8"ATTACK（PEAK−LUFS-M）" },
     { "OVER TIME", u8"時間の動き" },
+    { "LOW FREQUENCY", u8"低域" },  // C の低域の Check の図の見出し（2026-10-18）
     // Kirin OS の標準の名前（HyphaReferenceDisplayText.h が英語の名前にそろえる）。日本語の画面では Kirin OS の日本語名で出す。
     { u8"Mastering · stereo, low end, and context", u8"Mastering｜ステレオ・低域・全体の流れ" },
     { u8"Mastering · tone, level, and dynamics", u8"Mastering｜音色・音量・ダイナミクス" },
@@ -146,6 +147,7 @@ const Entry entries[] = {
       u8"この項目は耳で聴き比べます。Hyphaは測っていない結果を出しません。Aと%1を押して、同じ音量で切り替えてください。" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
     // Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
     { "NOT FOUND", u8"見つからない" },
+    { "NOT SENT TO HYPHA", u8"Hyphaに出していない" },  // Kirin OS で外した CHECK セット（2026-10-18）
     { "CHECKING", u8"確認中" },
     { "%1 AHEAD", u8"前に%1曲" },
     { "KIRIN OS CANNOT FIND THE FILE / IT RETRIES ONCE SOON", u8"Kirin OSがファイルを確かめられません / まもなく再試行" },

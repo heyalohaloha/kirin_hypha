@@ -26,6 +26,10 @@ const Entry entries[] = {
     { "PREPARING ANALYSIS", u8"解析を準備中" },
     { "ANALYSIS DATA UNAVAILABLE", u8"解析データがありません" },
     { "ANALYSIS IN USE", u8"解析を使用中" },
+    { "another Hypha", u8"別のHypha" },  // 名前を読めない枠の持ち主（2026-10-18）
+    // 2026-10-18：待つ表示は、空け方も言う（どちらかを LEVEL にするか閉じると、ここで自動で始まる）。
+    { "SET ONE TO LEVEL OR CLOSE IT", u8"どちらかをLEVELにするか閉じる" },
+    { "SET ANOTHER VIEW TO LEVEL OR CLOSE IT", u8"ほかの解析をLEVELにするか閉じる" },
     { "PAIR PRE TO VIEW DIFFERENCE\nPOST SHARPNESS IS IN LIVE",
       u8"差分を見るにはPREとペアにしてください\nPOSTのシャープネスはLIVEにあります" },
 

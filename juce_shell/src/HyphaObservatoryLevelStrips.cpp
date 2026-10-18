@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaAxisLabels.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaChannelReadoutLayout.h"
 #include "ChannelRoles.h"
@@ -96,6 +97,13 @@ void paintFullChannelStrips (juce::Graphics& g,
     };
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::instrument));
+    // 0 and -48 first, then -24 and the rest; numbers that would overlap are left out (the scale
+    // overlapped in the saved 1200x630 image). Every mark's line is still drawn.
+    std::vector<float> centres;
+    for (int db = 0; db >= -48; db -= 6)
+        centres.push_back (static_cast<float> (juce::jlimit (area.getY(), area.getBottom() - 14,
+                                                             juce::roundToInt (mapY ((double) db)) - 7) + 7));
+    const auto named = axis_labels::named (centres, axis_labels::endsFirst (centres.size()), 15.0f);
     for (int db = 0; db >= -48; db -= 6)
     {
         const auto y = juce::roundToInt (mapY ((double) db));
@@ -103,6 +111,7 @@ void paintFullChannelStrips (juce::Graphics& g,
         g.setColour (COL_MUTED.withAlpha (0.22f));
         for (const auto column : columns)
             g.drawHorizontalLine (y, (float) column.getX(), (float) column.getRight());
+        if (! named[static_cast<std::size_t> (-db / 6)]) continue;
         g.setColour (COL_TEXT_TERTIARY);
         text_style::drawText (g, juce::String (db),
                     juce::Rectangle<int> { scaleColumn.getX(), labelY,

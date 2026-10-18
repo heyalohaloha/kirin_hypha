@@ -10,10 +10,13 @@
 namespace hypha::reference_ui::notice
 {
 // 押した役がまだ鳴らせない理由：MATCH の失敗があればそれ、無ければその役の段階（「V: Preparing」）。
-inline juce::String roleUnavailable (int slot, SourceStep step, reference_audition::MatchFailure failure)
+inline juce::String roleUnavailable (int slot, SourceStep step, reference_audition::MatchFailure failure,
+                                     const juce::String& rejectionCode = {})
 {
     if (const auto text = runtime_view::matchFailureText (failure); text.isNotEmpty()) return text;
     const juce::String letter (roleLetter (slot));
+    if (step == SourceStep::attention && rejectionCode.isNotEmpty())  // 文の無い理由はコードで言う（2026-10-18）
+        return letter + ": " + juce::String ("Not usable in Hypha (%1)").replace ("%1", rejectionCode);
     return step == SourceStep::ready ? letter + " could not switch at this playhead. A remains live; retry when " + letter + " is ready."
                                      : letter + ": " + stepText (step);
 }

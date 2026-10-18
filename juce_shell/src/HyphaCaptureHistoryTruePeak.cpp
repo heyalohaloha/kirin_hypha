@@ -1,4 +1,5 @@
 #include "HyphaCaptureHistoryTruePeak.h"
+#include "HyphaAxisLabels.h"
 
 #include "HyphaHistoryInspection.h"
 #include "HyphaTextStyle.h"
@@ -89,8 +90,13 @@ void paintAxis (juce::Graphics& g, const Layout& layout, presentation::Context p
                           juce::roundToInt (overlay.getY()) - 22,
                           layout.truePeakLabels.getWidth(), 14,
                           juce::Justification::centredLeft);
-    for (const auto tick : ticks)
+    // +3 and -1 (the ends) and 0 first; numbers that would overlap are left out.
+    std::vector<float> centres;
+    for (const auto tick : ticks) centres.push_back (static_cast<float> (yFor (overlay, tick)));
+    const auto named = axis_labels::named (centres, { 0, 4, 3, 1, 2 }, 15.0f);
+    for (std::size_t index = 0; index < ticks.size(); ++index)
     {
+        const auto tick = ticks[index];
         // A short overlay keeps the ends and 0; a tall one names every dB.
         if (overlay.getHeight() < 70.0f && (tick == 1.0 || tick == 2.0))
             continue;
@@ -98,6 +104,7 @@ void paintAxis (juce::Graphics& g, const Layout& layout, presentation::Context p
         g.setColour (COL_TRUE_PEAK.withAlpha (tick == 0.0 ? 0.42f : 0.20f));
         g.drawHorizontalLine (y, layout.sharedPlot.getRight() - 5.0f,
                               layout.sharedPlot.getRight());
+        if (! named[index]) continue;
         g.setColour (tick == 0.0 ? COL_TRUE_PEAK.withAlpha (0.86f) : COL_MUTED.withAlpha (0.72f));
         const auto label = tick > 0.0 ? "+" + juce::String (tick, 0) : juce::String (tick, 0);
         text_style::drawText (g, label, layout.truePeakLabels.getX(), y - 7,

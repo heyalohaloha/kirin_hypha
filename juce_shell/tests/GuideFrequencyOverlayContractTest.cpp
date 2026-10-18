@@ -1,4 +1,5 @@
 #include "GuideFrequencyOverlayContractTest.h"
+#include "GuideInformationFactsTest.h"
 
 #include "../src/HyphaGuideFrequencyOverlay.h"
 #include "../src/HyphaSpectrumComponent.h"
@@ -101,6 +102,7 @@ namespace
 
 void verifyGuideFrequencyOverlayContract()
 {
+    verifyGuideInformationFacts();
     pre_display::GuidePresentationSnapshot presentation;
     presentation.targetRole = pre_display::GuideTargetRole::post;
     presentation.status = pre_display::DisplayStatus::active;

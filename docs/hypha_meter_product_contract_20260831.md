@@ -15,7 +15,7 @@ mono／stereoのPOSTで現在サイズの匿名面を開き、AAXはstereoまた
 100%／125%はMENUを入口とし、試聴中は上段2行目を比較操作へ優先してENDとMENUを残す。小サイズでも終了時の上昇量を隠さない。
 Source 1／2の実出力receipt後だけ回答可能。ENDは上昇量の明示→POSTへの退避→通常音量へのramp→実unity確認を一回の要求にまとめる。
 close／hideだけなら減衰保持、回答／Revealだけなら試聴継続。終了後にMATCHへ戻さない。
-固定4秒の厳密比較はLISTENのMENU → PIN 4 Sに残し、Exactの固定PCM／最小900×600契約を維持する。直接CAPTURE入口は主面とMENUから外す。
+固定4秒の厳密比較（Exact 4 S）は1.1.52では入口を出さず（INV-LC15）、仕組みは次の版で撤去する。直接CAPTURE入口は主面とMENUから外す。
 以下の登録Referenceの拡大規則は変更しない。本差分の実機format検証と公開適合は未完了である。
 
 Date: 2026-08-31

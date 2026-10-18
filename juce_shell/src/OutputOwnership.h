@@ -12,7 +12,7 @@ enum class Activity : std::uint8_t
 {
     liveCompare,   // LISTEN（live PRE/POST 比較）を始める
     liveBlind,     // LIVE BLIND（live 比較のセッションを使う Blind）
-    localBlind,    // PRE/POST Blind（区間の取り込み。live 比較の PIN も）
+    localBlind,    // PRE/POST Blind（区間の取り込み。live 比較の PIN の仕組みも。1.1.52 は PIN の入口を出さない）
     versionBlind,  // REF の VERSION BLIND
     lowerA,        // 上限を超えた MATCH で、A を下げて合わせる承認
     audition,      // B・C・V を鳴らす（押した・待たせた・戻す・替えた選択のどれも）
