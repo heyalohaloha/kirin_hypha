@@ -59,6 +59,62 @@ impl Host {
 }
 
 impl Host {
+    pub fn mark(&self) -> Mark {
+        Mark {
+            blocks: self.blocks,
+            position: self.position,
+        }
+    }
+
+    /// Played blocks since `mark`.
+    pub fn played_since(&self, mark: &Mark) -> i64 {
+        self.blocks - mark.blocks
+    }
+
+    /// One callback of the linear run that began at `mark`, paced by the measurement instead of
+    /// the wall clock: while either side's latest TIME endpoint in this run is more than the slack
+    /// behind the host position (audio its meter has not measured yet, however long it has been
+    /// queued), the host sends only heartbeat callbacks without audio; positions and host clock
+    /// stay continuous. A slow host (a virtual CI machine, background QoS) is then slowed to its own
+    /// measurement, so the Δ checks always run on fresh points; a meter that stops advancing still
+    /// fails the wait.
+    pub fn play_measured(
+        &mut self,
+        pre: &KirinHyphaEngine,
+        post: &KirinHyphaEngine,
+        level: f32,
+        mark: &Mark,
+    ) -> bool {
+        let mut stalled = 0;
+        loop {
+            // A busy meter (one measuring a backlog) refuses a read, so it is read again.
+            let endpoints = [settled_endpoint(pre), settled_endpoint(post)];
+            let behind = endpoints.iter().any(|endpoint| {
+                let measured = endpoint
+                    .filter(|end| *end >= mark.position)
+                    .unwrap_or(mark.position);
+                measured + MEASURE_SLACK < self.position
+            });
+            if !behind {
+                break;
+            }
+            // A heartbeat-only callback keeps both sides active while no audio is delivered.
+            for engine in [pre, post] {
+                engine.set_signal_state(1);
+                engine.push_samples(&[], 2);
+            }
+            sleep(HOLD);
+            self.start += HOLD;
+            let advanced = [settled_endpoint(pre), settled_endpoint(post)] != endpoints;
+            stalled = if advanced { 0 } else { stalled + 1 };
+            assert!(
+                stalled < STALLED_HOLDS,
+                "a meter stopped measuring the played audio"
+            );
+        }
+        self.play(pre, post, level)
+    }
+
     /// Stopped transport callbacks: the host clock runs on, nothing is captured.
     pub fn stopped(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, blocks: i64) {
         for _ in 0..blocks {
@@ -131,7 +187,7 @@ impl Host {
 
     /// After a Keep the pair plays on from `position`: each side's TIME points name the audio they
     /// describe and the LEVEL Δ of identical PRE/POST audio is zero; a joined Δ of different
-    /// windows is a wrong pair.
+    /// windows is a wrong pair. The run is paced by the measurement, so a slow host checks it too.
     pub fn plays_on_after_keep(
         &mut self,
         pre: &KirinHyphaEngine,
@@ -143,12 +199,11 @@ impl Host {
         self.wrapped = false;
         let mut zero_after = DeltaReturn::default();
         let mut endpoints = [None, None];
-        let deadline = Instant::now() + CATCH_UP;
-        let meter =
-            |engine: &KirinHyphaEngine| engine.poll_meter_session().map_or(0, |m| m.active_frames);
-        let (meter_before, blocks_before) = (meter(post), self.blocks);
-        while zero_after.polls < 470 || (!zero_after.returned() && Instant::now() < deadline) {
-            self.play(pre, post, 0.0);
+        let mark = self.mark();
+        while zero_after.polls < 470
+            || (!zero_after.returned() && self.played_since(&mark) < MEASURED_RUN_BLOCKS)
+        {
+            self.play_measured(pre, post, 0.0, &mark);
             // The history read never waits for the Measure Thread; a busy read keeps the last one.
             for (side, engine) in [pre, post].into_iter().enumerate() {
                 if let Some(endpoint) = latest_endpoint(engine) {
@@ -164,18 +219,7 @@ impl Host {
                 "{role} TIME points name the audio after the Keep: {endpoint} not in ({position}, {played}]"
             );
         }
-        // A host whose Measure Threads lag seconds behind shows no current Δ (stale points are
-        // never compared); it must still never be wrong (`zero_delta`).
-        let played = (self.blocks - blocks_before) as u64 * BLOCK as u64;
-        let lag = played.saturating_sub(meter(post).saturating_sub(meter_before));
-        if lag < 48_000 {
-            zero_after.assert_returned("LEVEL Δ returns after the Keep");
-        } else {
-            eprintln!(
-                "the Measure Thread lagged {lag} frames: after-Keep Δ {} of {} polls",
-                zero_after.zero, zero_after.polls
-            );
-        }
+        zero_after.assert_returned("LEVEL Δ returns after the Keep");
     }
 }
 
@@ -206,9 +250,24 @@ pub fn impulses(counter: i64) -> Vec<f32> {
 }
 
 /// A slow host (a virtual CI machine, background QoS) lags the Measure Thread far behind the
-/// audio, and a stale TIME point is never compared. Runs that wait for the measurement continue
-/// playing until it has caught up, bounded by this wall-clock budget instead of a block count.
+/// audio, and a stale TIME point is never compared. The arming waits are bounded by this
+/// wall-clock budget instead of a block count.
 pub const CATCH_UP: Duration = Duration::from_secs(30);
+
+/// Played audio a meter may still have to measure before the host holds its next callback.
+const MEASURE_SLACK: i64 = 24_000;
+/// One host stall between heartbeat-only callbacks, shorter than the 400 ms liveness window.
+const HOLD: Duration = Duration::from_millis(100);
+/// Consecutive stalls without any meter advancing before the wait reports a stopped meter.
+const STALLED_HOLDS: u32 = 100;
+/// Audio a measurement-paced run may play before it must have seen the Δ return.
+pub const MEASURED_RUN_BLOCKS: i64 = 30 * RATE as i64 / BLOCK;
+
+/// Where a measurement-paced linear run starts: its host callback and position.
+pub struct Mark {
+    blocks: i64,
+    position: i64,
+}
 
 /// How a matched LEVEL Δ shows up over a run of polls. A busy poll reads nothing, so the count
 /// varies with host load; the Δ must return and still be there at the end of the run.
@@ -262,6 +321,17 @@ pub fn zero_delta(post: &KirinHyphaEngine) -> bool {
         d.lufs
     );
     true
+}
+
+/// The latest TIME endpoint, read again (without sleeping) while the meter is busy.
+fn settled_endpoint(engine: &KirinHyphaEngine) -> Option<i64> {
+    (0..1_000).find_map(|_| {
+        let endpoint = latest_endpoint(engine);
+        if endpoint.is_none() {
+            std::thread::yield_now();
+        }
+        endpoint
+    })
 }
 
 pub fn latest_endpoint(engine: &KirinHyphaEngine) -> Option<i64> {

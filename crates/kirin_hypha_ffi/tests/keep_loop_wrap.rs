@@ -89,9 +89,11 @@ fn keep_follows_every_pass_of_a_realtime_loop() {
     };
     // Positive control: before any Keep the pair joins only identical windows.
     let mut zero_before = DeltaReturn::default();
-    let deadline = Instant::now() + CATCH_UP;
-    while zero_before.polls < 300 || (!zero_before.returned() && Instant::now() < deadline) {
-        host.play(&pre, &post, 0.0);
+    let mark = host.mark();
+    while zero_before.polls < 300
+        || (!zero_before.returned() && host.played_since(&mark) < MEASURED_RUN_BLOCKS)
+    {
+        host.play_measured(&pre, &post, 0.0, &mark);
         zero_before.note(zero_delta(&post));
     }
     zero_before.assert_returned("LEVEL Δ is available before the Keep");
@@ -104,6 +106,7 @@ fn keep_follows_every_pass_of_a_realtime_loop() {
     host.arm(&pre, &post, QUIET);
 
     // Keep across four realtime passes; the level rises after the first wrap, as a fader would.
+    let keep_mark = host.mark();
     let meter_before = post
         .poll_meter_session()
         .expect("meter session")
@@ -121,45 +124,28 @@ fn keep_follows_every_pass_of_a_realtime_loop() {
         keep_delta.note(zero_delta(&post));
     }
     assert!(wraps >= 3, "the Keep spans several cycle wraps");
-    // A current Δ needs both Measure Threads within the comparison's freshness of the audio. A
-    // host that cannot keep pace (background QoS) shows no Δ in the Keep, never a wrong one.
-    let lag = keep_frames.saturating_sub(
-        post.poll_meter_session()
-            .map_or(0, |m| m.active_frames.saturating_sub(meter_before)),
-    );
-    let kept_pace = lag < 48_000;
 
     // Live display: the meter session catches up with every frame played in the Keep (the
     // Measure Thread may lag; it never stops at a wrap), and the live LEVEL follows the audio.
     // The Keep goes on meanwhile, so the matched Δ is still read inside it. Playback leaves the
     // cycle here: while a lagging side is still measuring the previous pass, the same positions
-    // are never compared, so the Δ returns once both sides measure the same new audio.
+    // are never compared, so the Δ returns once both sides measure the same new audio. The rest
+    // of the Keep is paced by the measurement, so a slow host (background QoS) checks it too.
     host.cycle = false;
+    let linear = host.mark();
     let mut advanced = 0;
-    let deadline = Instant::now() + CATCH_UP;
     loop {
         advanced = post
             .poll_meter_session()
             .map_or(advanced, |m| m.active_frames.saturating_sub(meter_before));
-        let delta_done = keep_delta.returned() || !kept_pace;
-        if (advanced >= keep_frames && delta_done) || Instant::now() >= deadline {
+        let ran_out = host.played_since(&keep_mark) >= 750 + MEASURED_RUN_BLOCKS;
+        if (advanced >= keep_frames && keep_delta.returned()) || ran_out {
             break;
         }
-        host.play(&pre, &post, LOUD);
+        host.play_measured(&pre, &post, LOUD, &linear);
         keep_delta.note(zero_delta(&post));
     }
-    if kept_pace {
-        keep_delta.assert_returned("the matched LEVEL Δ stays available through the Keep");
-    } else {
-        // Points older than the comparison's freshness are never compared, so a host whose
-        // Measure Threads lag seconds behind shows no current Δ; it must still never be wrong
-        // (`zero_delta`). The hold and release across wraps are covered without timing by
-        // kirin_measure's time_pair loop tests.
-        eprintln!(
-            "the Measure Thread lagged {lag} frames: in-Keep Δ {} of {} polls",
-            keep_delta.zero, keep_delta.polls
-        );
-    }
+    keep_delta.assert_returned("the matched LEVEL Δ stays available through the Keep");
     assert!(
         advanced >= keep_frames,
         "the meter session advances through every wrap: {advanced} of {keep_frames}"
