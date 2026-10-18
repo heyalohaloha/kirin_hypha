@@ -215,7 +215,7 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout&)
         provenance += "  |  v" + captureVersion;
     g.setFont (monoFont (presentationContext(), typography::TextRole::captureMetadata));
     auto statusArea = upper.removeFromLeft (juce::roundToInt (upper.getWidth() * 0.55f));
-    text_style::draw (g, state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
+    text_style::draw (g, (state.isNotEmpty() ? state.trimEnd() + " " : juce::String()) + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
                       statusArea, presentationContext(), typography::TextRole::captureMetadata,
                       juce::Justification::centredLeft);
     text_style::draw (g, provenance, upper, presentationContext(),

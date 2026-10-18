@@ -7,6 +7,7 @@
 #include "../src/pre_display/PreDisplayClock.h"
 #include "../src/pre_display/PreDisplayProjection.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
+#include "OperatingSystemTextContract.h"
 
 #include <cassert>
 #include <cmath>
@@ -335,5 +336,6 @@ int main()
     assert (oversizedState.detail.width == ui::preDisplayDetailMinimumWidth);
     const auto undersizedLine = ui::preDisplayDetailLayout ({ 0, 0, 60, 18 }, 40);
     assert (undersizedLine.detail.width == 60 && undersizedLine.state.width == 0);
+    verifyOperatingSystemTextContract();
     return 0;
 }

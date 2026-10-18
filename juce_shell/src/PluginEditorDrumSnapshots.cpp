@@ -26,7 +26,7 @@ void KirinHyphaEditor::refreshDrumSnapshots (bool liveInput)
         {
             juce::String owners;
             processorRef.pollAnalysisOwnerNames (owners);
-            attackView.setAnalysisUnavailable (hypha::analysis_ui::slotsInUse (owners));
+            attackView.setAnalysisUnavailable (hypha::analysis_ui::slotsInUseStatus (owners));
             observatoryView.setAttackPaired (false);
             return;
         }

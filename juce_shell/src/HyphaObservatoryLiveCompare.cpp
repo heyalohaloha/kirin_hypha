@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdlib>
 
-// POST comparisons: live BLIND or named LISTEN. Exact 4 S is secondary, through MENU -> PIN.
+// POST comparisons: live BLIND or named LISTEN. 1.1.52 shows no Exact 4 S (PIN 4 S) entry.
 // Active/recovery controls remain reachable at every size and always disclose a level rise.
 namespace hypha::observatory
 {
@@ -22,7 +22,7 @@ juce::String signedGain (int tenths)
 void View::configureComparisonEntries()
 {
     for (auto* button : { &localBlindButton, &liveCompareButton, &livePreButton, &livePostButton,
-                          &liveMatchButton, &liveEndButton, &liveReturnButton, &livePinButton })
+                          &liveMatchButton, &liveEndButton, &liveReturnButton })
     {
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
         addChildComponent (*button);
@@ -59,11 +59,6 @@ void View::configureComparisonEntries()
     liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
     liveReturnButton.setTooltip (liveReturnButton.getDescription());
     liveReturnButton.onClick = [this] { if (onLiveCompareReturn) onLiveCompareReturn(); };
-    livePinButton.setComponentID ("observatory-live-pin");
-    livePinButton.setTitle ("PIN 4 S");
-    livePinButton.setDescription ("Fix the last four seconds of PRE and POST and open them in PRE / POST Blind");
-    livePinButton.setTooltip (livePinButton.getDescription());
-    livePinButton.onClick = [this] { if (onLiveComparePin) onLiveComparePin(); };
 }
 
 void View::setLiveCompareFooter (const LiveCompareFooter& next)
@@ -82,8 +77,7 @@ void View::setLiveCompareFooter (const LiveCompareFooter& next)
 // Fixed slot widths keep controls steady across ordinary gain text changes.
 bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 {
-    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton,
-                          &livePinButton })
+    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton })
         button->setVisible (false);
     if (captureFrame)
         return false;

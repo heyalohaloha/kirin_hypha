@@ -2,6 +2,8 @@
 #include "../src/AtomicFile.h"
 #include "TestTemporaryDirectory.h"
 #include "AbsoluteAnalysisHelpContract.h"
+#include "JapaneseSentenceContract.h"
+#include "AnalysisSlotOwnersContract.h"
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaHoverHelpPreference.h"
 #include "../src/HyphaJapaneseCatalog.h"
@@ -370,6 +372,8 @@ inline void verifyLanguageContract()
 {
     verifyAbsoluteAnalysisHelp();
     language_contract::verifyLookup();
+    verifyJapaneseSentences();
+    verifyAnalysisSlotOwners();
     language_contract::verifyCatalog();
     language_contract::verifyWidths();
     language_contract::verifyPreference();

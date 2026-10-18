@@ -41,7 +41,7 @@ namespace
         if (host_availability::outputLatencyUnavailable (status)) return host_availability::outputLatencyText();
         if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
         if (status == KIRIN_SPECTRUM_IN_USE)
-            return analysis_ui::slotsInUse (analysisOwnerNames);
+            return analysis_ui::slotsInUseStatus (analysisOwnerNames);
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         return {};
     }

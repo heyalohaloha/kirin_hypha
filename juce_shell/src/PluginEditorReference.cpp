@@ -35,7 +35,7 @@ void KirinHyphaEditor::configureReferenceAudition()
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.versionSelection ? *latest.versionSelection : latest;
             if (offerReferenceLowerA (1, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
-            showToast (hypha::reference_ui::notice::roleUnavailable (1, slotStep (slot, latest.transportPlaying), slot.matchFailure));
+            showToast (hypha::reference_ui::notice::roleUnavailable (1, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
         }
     };
     referenceView.onSelectC = [this]
@@ -47,7 +47,7 @@ void KirinHyphaEditor::configureReferenceAudition()
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.checkSelection ? *latest.checkSelection : latest;
             if (offerReferenceLowerA (2, slot)) return;
-            showToast (hypha::reference_ui::notice::roleUnavailable (2, slotStep (slot, latest.transportPlaying), slot.matchFailure));
+            showToast (hypha::reference_ui::notice::roleUnavailable (2, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
         }
     };
     referenceView.onSelectVersion = [this](const juce::String& id){if(!processorRef.selectReferenceVersion(id))showToast("Version selection was not changed");};

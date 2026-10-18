@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -23,7 +24,9 @@ void initialiseBlindProductHostApplication();
 
 // INV-LC15 end to end: the real PRE and POST processors, the Rust C ABI, pair discovery, the shared
 // live ring, the product editor and PRE / POST Blind. POST hears PRE at -6 dB. LISTEN starts a live
-// session; after more than four seconds of proven playback PIN fixes the last four seconds and
+// session. 1.1.52 shows no PIN 4 S entry at any size, in either language, on any host (the editor has
+// none); the mechanism stays until its removal in a later release and is still checked here through
+// the processor: after more than four seconds of proven playback it fixes the last four seconds and
 // Blind prepares them without its own capture: an exact four-second pair with Gain Match -6.02 dB.
 namespace
 {
@@ -111,6 +114,31 @@ private:
         return view != nullptr ? view->feedback() : juce::String();
     }
 
+    // No control, title or text of the editor offers PIN (1.1.52), at every size and in both languages.
+    void requireNoPinEntry()
+    {
+        std::function<bool (juce::Component&)> offersPin = [&] (juce::Component& component)
+        {
+            if (component.getComponentID() == "observatory-live-pin" || component.getTitle().contains ("PIN 4"))
+                return true;
+            if (auto* button = dynamic_cast<juce::Button*> (&component); button && button->getButtonText().contains ("PIN 4"))
+                return true;
+            for (auto* child : component.getChildren())
+                if (offersPin (*child)) return true;
+            return false;
+        };
+        for (const auto language : { hypha::i18n::Language::english, hypha::i18n::Language::japanese })
+        {
+            const hypha::i18n::ScopedLanguage shown (language);
+            for (const auto& preset : hypha::observatory::sizePresets)
+            {
+                editor->setSize (preset.width, preset.height);
+                require (! offersPin (*editor), "no PIN 4 S entry in the editor");
+            }
+        }
+        editor->setSize (900, 600);
+    }
+
     bool click (const char* id)
     {
         auto* button = dynamic_cast<juce::Button*> (find (*editor, id));
@@ -158,6 +186,7 @@ private:
             case 2:
                 if (! post->isPlaying() || ! post->heartbeatLive() || ! click ("observatory-live-compare")) break;
                 require (post->liveCompareStatus().active, "LISTEN starts a live session");
+                requireNoPinEntry();
                 listenedAt = hypha::live_compare::callbackWallNanos();
                 ++stage;
                 break;
@@ -165,18 +194,19 @@ private:
                 if (hypha::live_compare::callbackWallNanos() - listenedAt < 4'600'000'000ULL
                     || post->liveCompareStatus().verdict != hypha::live_compare::Verdict::accepted)
                     break;
-                if (const auto* view = findView (*editor); view && view->onLiveComparePin)
-                    view->onLiveComparePin(); // PIN now lives in MENU, behind the primary live BLIND.
-                else break;
-                if (post->liveCompareStatus().active)
+                // The mechanism through the processor (no entry calls it in 1.1.52), as the old
+                // entry did: pin, then end the live session.
+                if (const auto result = post->pinLiveCompareForBlind (post->meterContextPreference()); ! result.pinned)
                 {
                     // A pending worker result may refuse PIN; retry only after another full
                     // audio window, retaining the bounded attempts and exact capture oracle.
                     std::cout << "PIN refused, retrying: " << footer() << std::endl;
-                    require (++pinAttempts < 6, "PIN ends the live session");
+                    require (++pinAttempts < 6, "PIN fixes the last four seconds");
                     listenedAt = hypha::live_compare::callbackWallNanos();
                     break;
                 }
+                post->stopLiveCompare();
+                require (! post->liveCompareStatus().active, "the live session ends after PIN");
                 ++stage;
                 break;
             case 4:
@@ -190,9 +220,8 @@ private:
                 require (std::abs (view.fixedPreGainDb + 6.0206) < 0.002, "Gain Match measures -6.02 dB");
                 require (view.start >= 0 && view.start + view.frames <= clock.position + blockFrames * 2,
                          "the pinned range is audio that already played");
-                auto* screen = find (*editor, "local-blind-screen");
-                require (screen != nullptr && screen->isVisible(), "Blind opens on the pinned pair");
-                std::cout << "Live PIN product: PASS (real C ABI, pair discovery, live ring, PIN to Blind ready)\n";
+                requireNoPinEntry();
+                std::cout << "Live PIN product: PASS (no entry; real C ABI, pair discovery, live ring, PIN to Blind ready)\n";
                 passed = true;
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();

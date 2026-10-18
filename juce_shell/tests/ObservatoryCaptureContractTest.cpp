@@ -2,6 +2,7 @@
 
 #include "../src/HyphaCaptureHistoryPainter.h"
 #include "../src/HyphaObservatoryView.h"
+#include "CaptureLabelSpacingContract.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -211,6 +212,7 @@ void verifyObservatoryCaptureContract (
     const KirinObservatoryFrame& activeFrame,
     const KirinObservatoryFrame& inactiveFrame)
 {
+    verifyCaptureLabelSpacing (post, history);
     for (const auto dimensions : {
              std::pair { 1'200, 630 }, std::pair { 1'080, 1'080 },
              std::pair { 1'080, 1'350 } })

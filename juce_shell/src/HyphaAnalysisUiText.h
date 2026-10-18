@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HyphaLanguage.h"
+
 #include <juce_core/juce_core.h>
 
 namespace hypha::analysis_ui
@@ -15,6 +17,23 @@ inline juce::String slotsInUse (const juce::String& ownerNames)
     if (ownerNames.isNotEmpty())
         text += " / " + ownerNames;
     return text;
+}
+
+// 2026-10-18: the holders of the two slots, slot by slot. A holder whose name could not be
+// read (another Hypha build in this DAW process) is counted as "another Hypha", never left out.
+inline juce::String slotOwnerNames (const juce::StringArray& names)
+{
+    juce::StringArray shown;
+    for (const auto& name : names)
+        shown.add (name.trim().isNotEmpty() ? name.trim() : i18n::tr ("another Hypha"));  // names stay as written
+    return shown.joinIntoString (", ");
+}
+
+// What a view waiting for a slot shows: who holds the slots and how one frees. It starts by itself.
+inline juce::String slotsInUseStatus (const juce::String& ownerNames)
+{
+    return slotsInUse (ownerNames) + (ownerNames.isNotEmpty() ? " / SET ONE TO LEVEL OR CLOSE IT"
+                                                              : " / SET ANOTHER VIEW TO LEVEL OR CLOSE IT");
 }
 
 inline juce::String channelModeTooltip (uint8_t mode)

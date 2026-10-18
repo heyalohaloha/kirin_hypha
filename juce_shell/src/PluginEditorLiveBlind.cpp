@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaLiveCompareRecoveryText.h"
+#include "HyphaReferenceAuditionRecoveryText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 using hypha::live_compare::BlindStage;
@@ -88,7 +89,8 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     const auto live = processorRef.liveCompareStatus();
     if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported()) return;
     menu.addSectionHeader ("PRE / POST");
-    const auto recovery = hypha::live_compare_ui::currentNamedPresentation (live, processorRef.liveCompareAdmission (false));
+    const auto recovery = hypha::live_compare_ui::currentListenPresentation (
+        live, processorRef.liveCompareAdmission (false), processorRef.referenceOutputSlot());
     if (*recovery.instruction != 0) menu.addSectionHeader (recovery.instruction);
     if (! live.active) menu.addItem (40, "LISTEN", processorRef.liveCompareAdmission (false) == StartResult::started);
     else
@@ -96,7 +98,6 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         menu.addItem (41, "MATCH", ! live.finishing);
         menu.addItem (42, "PRE", ! live.finishing);
         menu.addItem (43, "POST", ! live.finishing);
-        menu.addItem (44, "PIN 4 S", ! live.finishing);
     }
     if (observatoryView.localBlindEntryAvailable())
         menu.addItem (23, "BLIND", ! keepActive && processorRef.liveCompareAdmission (true) == StartResult::started);
@@ -104,11 +105,11 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)
 {
-    if (result < 40 || result > 44) return false;
+    // 1.1.52 shows no PIN 4 S entry (Exact 4 S); its internals leave in a later release.
+    if (result < 40 || result > 43) return false;
     if (result == 40 && observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();
     if (result == 41 && observatoryView.onLiveCompareMatch) observatoryView.onLiveCompareMatch();
     if (result == 42 || result == 43) processorRef.selectLiveComparePre (result == 42);
-    if (result == 44) pinLiveCompareForBlind();
     return true;
 }
 #endif

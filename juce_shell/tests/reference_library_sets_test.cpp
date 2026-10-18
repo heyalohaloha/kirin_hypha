@@ -15,6 +15,7 @@
 #include <algorithm>
 
 void testReferenceLibrarySets (const juce::File&);
+void testReferenceLibrarySetsOsFixture (const juce::File& root, int minimumVerified = 0);
 
 namespace
 {
@@ -358,6 +359,77 @@ void readsKirinOsPreparation (const juce::File& sandbox)
     require (root.getChildFile ("library/preparation.json").deleteFile() && repository.libraryPreparation (now) == nullptr,
              "an older Kirin OS writes no state");
 }
+
+// Kirin OS 1.2.0 の受け渡しの節目（2026-10-18）：知らない版の sets は推測で読まずに理由を残す。sets.json が消えても
+// library は使え（B セットだけが無くなる）、戻れば同じ世代をそのまま読み直す。知らない版を読んだ後も前の世代へ戻れる。
+void followsTheHandoffLifecycle (const juce::File& sandbox)
+{
+    const auto root = copyFixture (sandbox, "library-sets-lifecycle");
+    ref::RuntimeV2Repository repository (root);
+    const auto first = repository.refreshLibrary();
+    require (first.usable() && first.workspace->librarySets.has_value(), "the first read has the B sets");
+    const auto original = readSets (root);
+    const auto setsFile = root.getChildFile ("library/sets.json");
+    const auto written = root.getChildFile ("sets-as-written.json");
+    require (setsFile.copyFileTo (written), "keep the sets Kirin OS wrote, byte for byte");
+    auto future = original.clone();
+    future.getDynamicObject()->setProperty ("version", "2.0");
+    require (writeJson (setsFile, future), "a sets file of a version this Hypha does not know");
+    juce::String rejection;
+    std::vector<ref::RuntimeSkippedItem> skipped;
+    require (! ref::readReferenceLibrarySets (root, *first.workspace, rejection, skipped)
+                 && rejection == "reference_library_sets_rejected",
+             "an unknown sets version is refused with its reason, never guessed");
+    require (setsFile.deleteFile(), "Kirin OS removes the sets");
+    const auto removed = repository.refreshLibrary (first.workspace);
+    require (removed.usable() && ! removed.workspace->librarySets.has_value() && ! removed.workspace->presets.empty(),
+             "without sets.json the library stays usable and has no B sets");
+    require (written.copyFileTo (setsFile), "Kirin OS writes the same sets again");
+    const auto restored = repository.refreshLibrary (removed.workspace);
+    require (restored.usable() && restored.workspace->librarySets.has_value(), "the returned sets are read again");
+    require (restored.workspace->librarySets->hash == first.workspace->librarySets->hash
+                 && restored.workspace->librarySets->revision == first.workspace->librarySets->revision
+                 && restored.workspace->librarySets->songSets.size() == first.workspace->librarySets->songSets.size(),
+             "the returned sets are the same generation as before");
+}
+
+// Kirin OS が閉じて戻る（2026-10-18）：presence.json は 5 秒ごとの印で、期限が切れたら切れたものとし、新しい回の印で
+// 戻る。切れている間も受け取った B セットは同じ世代のまま残り、戻った後も読み直しで変わらない。形の違う印は使わない。
+void followsKirinOsReconnect (const juce::File& sandbox)
+{
+    const auto root = copyFixture (sandbox, "library-reconnect");
+    ref::RuntimeV2Repository repository (root);
+    const auto first = repository.refreshLibrary();
+    require (first.usable() && first.workspace->librarySets.has_value(), "the library is read while Kirin OS is open");
+    const auto presence = [&] (const char* session, std::int64_t updated, std::int64_t lifetime)
+    {
+        auto* object = new juce::DynamicObject();
+        object->setProperty ("format", "kirin_hypha_reference_library_presence"); object->setProperty ("version", "1.0");
+        object->setProperty ("session_id", session);
+        object->setProperty ("updated_at_ms", updated); object->setProperty ("expires_at_ms", updated + lifetime);
+        require (writeJson (root.getChildFile ("library/presence.json"), juce::var (object)), "a presence file");
+    };
+    const auto now = juce::Time::currentTimeMillis();
+    presence ("77777777-7777-4777-8777-777777777777", now, 5000);
+    require (repository.libraryOnline (now), "Kirin OS is open");
+    require (! repository.libraryOnline (now + 6000), "an expired presence means Kirin OS closed");
+    const auto closed = repository.refreshLibrary (first.workspace);
+    require (closed.usable() && closed.workspace->librarySets.has_value()
+                 && closed.workspace->librarySets->revision == first.workspace->librarySets->revision,
+             "while Kirin OS is closed the received B sets stay, the same generation");
+    presence ("88888888-8888-4888-8888-888888888888", now + 9000, 5000);
+    require (repository.libraryOnline (now + 9000), "a new session's presence means Kirin OS is back");
+    const auto back = repository.refreshLibrary (closed.workspace);
+    require (back.usable() && back.workspace->librarySets.has_value()
+                 && back.workspace->librarySets->hash == first.workspace->librarySets->hash,
+             "after the reconnect the same B sets are read");
+    presence ("not-a-uuid", now + 9000, 5000);
+    require (! repository.libraryOnline (now + 9000), "a presence of the wrong form is not used");
+    presence ("99999999-9999-4999-8999-999999999999", now + 9000, 60'000);
+    require (! repository.libraryOnline (now + 9000), "a presence with another lifetime is not used");
+    require (root.getChildFile ("library/presence.json").deleteFile() && ! repository.libraryOnline (now),
+             "no presence file: Kirin OS is not open");
+}
 }
 
 void testReferenceLibrarySets (const juce::File& sandbox)
@@ -369,4 +441,52 @@ void testReferenceLibrarySets (const juce::File& sandbox)
     refusesWhatItCannotTrust (sandbox);
     keepsSetsUntilTheyCatchUp (sandbox);
     readsKirinOsPreparation (sandbox);
+    followsTheHandoffLifecycle (sandbox);
+    followsKirinOsReconnect (sandbox);
+    // The source identity, the Cue range and the Cue values of every prepared B song, as Kirin OS 1.2.0
+    // writes them, checked on the anonymous fixture in every run (a real export is checked only on request).
+    testReferenceLibrarySetsOsFixture (copyFixture (sandbox, "library-os-shape"), 1);
 }
+
+// Kirin OS の書き出しの B セット（毎回は repo の匿名の fixture、頼まれたときは KIRIN_REFERENCE_LIBRARY_FIXTURE の
+// 手元の写し）：曲ごとに音源の記述・Cue の区間（実際に鳴らす区間）・Cue の値を、Hypha が鳴らすときと同じ入口で確かめ、
+// 音源ファイルがあれば hash と版も照らす。sets.json は今の manifest の版に結ばれている（古い世代を読まない）。
+void testReferenceLibrarySetsOsFixture (const juce::File& root, int minimumVerified)
+{
+    ref::RuntimeV2Repository repository (root);
+    const auto loaded = repository.refreshLibrary();
+    require (loaded.usable(), "actual OS library must load");
+    if (! loaded.workspace->librarySets) { std::cout << "OS library B sets: none\n"; return; }
+    const auto& sets = *loaded.workspace->librarySets;
+    const auto setsFile = juce::JSON::parse (root.getChildFile ("library/sets.json"));
+    require (static_cast<juce::int64> (setsFile["manifest_revision"]) == loaded.workspace->manifest.revision
+                 && sets.revision == static_cast<juce::int64> (setsFile["revision"]),
+             "the B sets read are the generation of the manifest read");
+    ref::RuntimeV2SourceRepository sources (root);
+    int songs = 0, prepared = 0, verified = 0, missing = 0;
+    for (const auto& set : sets.songSets)
+        for (const auto& song : set.songs)
+        {
+            ++songs;
+            if (! song.prepared) continue;
+            ++prepared;
+            const auto source = sources.load (song);
+            require (source.accepted(), "a prepared B song's source record must be accepted");
+            // The audio file itself is checked where it exists (a real export); the record, the Cue range and
+            // the Cue values are checked for every prepared song.
+            if (! sources.verifySourceFile (*source.source).isEmpty()) ++missing;
+            require (! song.cues.empty(), "a prepared B song has its Cue");
+            for (const auto& cue : song.cues)
+                require (cue.sampleRateHz == source.source->audio.sampleRateHz && cue.startSample >= 0
+                             && cue.endSample > cue.startSample && cue.endSample <= source.source->audio.totalSampleFrames,
+                         "the Cue Hypha plays lies inside the source");
+            require (ref::readSourceRanges (root, sets, song.sourceArtifact, *source.source).has_value(),
+                     "the Cue values of this very source are read");
+            ++verified;
+        }
+    require (verified >= minimumVerified, "the prepared B songs are checked against their records, Cues and values");
+    std::cout << "OS library B sets: " << sets.songSets.size() << " sets, " << songs << " songs, " << prepared
+              << " prepared, " << verified << " verified with record, Cue and values, " << missing
+              << " files not found on disk; sets revision " << sets.revision << " for manifest " << loaded.workspace->manifest.revision << '\n';
+}
+

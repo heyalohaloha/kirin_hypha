@@ -20,6 +20,18 @@ mod epoch_tests;
 #[path = "spectrum_exchange_post_join.rs"]
 mod post_join;
 
+/// The name a POST without a pair holds an analysis slot under: what its own name field shows when no
+/// name is given (the first 8 characters of its instance id), so a waiting third view can say who
+/// uses the slots. Never empty.
+pub(crate) fn unpaired_post_owner_label(post_instance_id: &str) -> String {
+    let id: String = post_instance_id.chars().take(8).collect();
+    if id.is_empty() {
+        "POST".to_string()
+    } else {
+        format!("POST {id}")
+    }
+}
+
 impl SpectrumCoordinator {
     pub(crate) fn post_tick_for_owner(
         &self,
@@ -31,6 +43,13 @@ impl SpectrumCoordinator {
             self.retire_hidden_post_session();
             return false;
         }
+        let unpaired;
+        let owner_name = if owner_name.trim().is_empty() {
+            unpaired = unpaired_post_owner_label(post_instance_id);
+            unpaired.as_str()
+        } else {
+            owner_name
+        };
         match self.ensure_analysis_lease(owner_name) {
             Ok(true) => {}
             Ok(false) => {

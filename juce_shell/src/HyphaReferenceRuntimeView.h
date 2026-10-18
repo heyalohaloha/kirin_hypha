@@ -42,7 +42,16 @@ inline juce::String rejectedStatus (const juce::String& code)
     if (code == "reference_source_changed") return "SOURCE CHANGED / VERIFY IN KIRIN OS";
     if (code == "reference_source_audio_mismatch")
         return "SOURCE FORMAT CHANGED / VERIFY IN KIRIN OS";
-    return "PREPARE AGAIN IN KIRIN OS";
+    // 2026-10-18：知らない理由を「Kirin OS で準備し直す」と推測しない（Kirin OS では準備済みで直す手段が無かった）。
+    if (code == "channel_layout_unsupported") return "CHANNELS DIFFER FROM THIS TRACK / USE A SOURCE WITH THE SAME CHANNELS";
+    if (code == "reference_source_receipt_rejected") return "SOURCE RECORD DOES NOT MATCH / PREPARE AGAIN IN KIRIN OS";
+    if (code == "reference_source_contract_rejected") return "SOURCE RECORD NOT READ / UPDATE KIRIN OS AND HYPHA";
+    if (code.startsWith ("reference_preset_") || code == "reference_work_invalid"
+        || code == "reference_global_preset_catalog_rejected")
+        return "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS";
+    // 文の無い理由は、コードを状態の行にも出す（コードが無ければ、無いと言う）。
+    return code.isNotEmpty() ? "SOURCE NOT USABLE IN HYPHA / REASON CODE " + code
+                             : juce::String ("SOURCE NOT USABLE IN HYPHA / NO REASON CODE");
 }
 inline std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
     const std::vector<hypha::reference_audition::RuntimeSelectionOption>& input)
@@ -83,7 +92,20 @@ inline SourceStep rejectedStep (const juce::String& code)
     if (code == "source_open_failed" || code == "source_decode_failed"
         || code == "reference_source_open_failed" || code == "reference_source_decode_failed")
         return SourceStep::sourceUnopenable;
+    if (code == "channel_layout_unsupported") return SourceStep::channelsDiffer;
+    if (code == "reference_source_receipt_rejected") return SourceStep::sourceRecordMismatch;
+    if (code == "reference_source_contract_rejected") return SourceStep::sourceRecordUnsupported;
+    // 状態の行（rejectedStatus）が「公開を読めない / Kirin OS で再公開」と言う理由は、案内も同じことを言う。
+    if (code.startsWith ("reference_preset_") || code == "reference_work_invalid"
+        || code == "reference_global_preset_catalog_rejected")
+        return SourceStep::publicationInvalid;
     return SourceStep::attention;
+}
+
+// 断られた役の理由のコード（案内に残す。断られていなければ空）。
+inline juce::String rejectionCodeOf (const reference_audition::Snapshot& slot)
+{
+    return slot.state == reference_audition::RuntimeState::rejected ? slot.rejectionCode : juce::String {};
 }
 
 inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playing)
@@ -143,11 +165,14 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
         : comparison.selectedVersionId != chosen ? SourceStep::preparing
         : slotStep (version, state.aAvailable);
     state.checkStep = ! check.libraryReceived ? libraryStep (comparison) : slotStep (check, state.aAvailable);
+    state.versionRejectionCode = version.libraryReceived ? rejectionCodeOf (version) : juce::String {};
+    state.checkRejectionCode = check.libraryReceived ? rejectionCodeOf (check) : juce::String {};
 }
 
 // CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、
 // 「1 / 3」を添える。順位が無い（sets.json が無い・古い Kirin OS）ときは今までどおりすべての Preset。
-// 選んでいる Preset は順位が無くても残す（選び直すまで消さない）。
+// 選んでいる Preset は順位が無くても残す（選び直すまで消さない。C の音を勝手に替えない）。2026-10-18：Kirin OS で
+// Hypha に出さなくなったことを「NOT SENT TO HYPHA」と添えて言う（黙って残すと、外したことが伝わらなかった）。
 inline void rankCheckSets (State& state, const std::vector<reference_audition::RuntimeCheckSetRank>& ranks)
 {
     if (ranks.empty()) return;
@@ -160,7 +185,7 @@ inline void rankCheckSets (State& state, const std::vector<reference_audition::R
     for (const auto& option : state.presets)
         if (option.id == state.presetId
             && std::none_of (ranked.begin(), ranked.end(), [&option] (const auto& item) { return item.id == option.id; }))
-            ranked.push_back (option);
+            ranked.push_back ({ option.id, option.label + "   NOT SENT TO HYPHA" });
     state.presets = std::move (ranked);
 }
 

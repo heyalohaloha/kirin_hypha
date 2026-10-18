@@ -144,6 +144,7 @@ public:
     void markReferenceLowerAOfferShown (int slot, std::uint64_t failureSerial);  // 窓に一度出した申し出
     void returnReferenceLevelToNormal();     // RETURN：役を止めてから A を通常の音量へ
     double referenceHeldAttenuationDb() const noexcept; // 承認して A を下げている量（0 以下）
+    int referenceOutputSlot() const noexcept; // 直前の block で出力を持った B・C・V（1 V、2 C、3 B、無ければ 0）
     bool selectReferenceBlindStimulus (int stimulus);
     bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();

@@ -174,7 +174,6 @@ private:
     bool refreshLiveCompare(); // true only when this refresh published a new fault notification
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
-    void pinLiveCompareForBlind();
     bool monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     void matchLiveCompare (std::uint64_t menuGeneration = UINT64_MAX);
     void chooseLiveCompareFollow();
@@ -201,6 +200,7 @@ private:
     double pairPreviewRetrySeconds = 1.05;
     std::uint64_t pairPreviewObservedGeneration = 0;
     void showOperationsMenu();
+    juce::PopupMenu operationsMenu();
     void showTimeRangeMenu();
     void showMeterContextMenu (juce::Component& anchor);
     void applyMeterContextChoice (hypha::meter_context::MeterContext);
@@ -210,6 +210,7 @@ private:
     void showFeedbackInformationMenu();
     void handleOperationsMenu (int result);
     void showInformationMenu();
+    juce::PopupMenu informationMenu();
     void handleInformationMenu (int result);
     bool informationBlockedByBlind() const;
     void configureUpdateChecking();

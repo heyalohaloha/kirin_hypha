@@ -36,21 +36,30 @@ inline const std::set<juce::String>& keptWords()
     return words;
 }
 
-// 英字の続き（A〜Z・a〜z）を語として取り出す。
+// 英字の続き（A〜Z・a〜z）を語として取り出す。下線を含む識別子（断られた理由のコード
+// 「reference_alignment_ambiguous」など。Kirin OS 側と照らすため、どの言語でもそのまま出す）は語に数えない。
 inline juce::StringArray englishWords (const juce::String& text)
 {
     juce::StringArray words;
-    juce::String word;
+    juce::String run;
+    const auto isRun = [] (juce::juce_wchar c)
+    { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; };
     for (int index = 0; index <= text.length(); ++index)
     {
         const auto character = index < text.length() ? text[index] : juce::juce_wchar (0);
-        if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'))
+        if (isRun (character)) { run += juce::String::charToString (character); continue; }
+        if (run.isNotEmpty() && ! run.containsChar ('_'))
         {
-            word += juce::String::charToString (character);
-            continue;
+            juce::String word;
+            for (int at = 0; at <= run.length(); ++at)
+            {
+                const auto c = at < run.length() ? run[at] : juce::juce_wchar (0);
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) { word += juce::String::charToString (c); continue; }
+                if (word.isNotEmpty()) words.add (word);
+                word.clear();
+            }
         }
-        if (word.isNotEmpty()) words.add (word);
-        word.clear();
+        run.clear();
     }
     return words;
 }

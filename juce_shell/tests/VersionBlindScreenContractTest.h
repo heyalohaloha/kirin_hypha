@@ -6,6 +6,7 @@
 // 言わない。開示の前のボタンと読み上げは対応を言わず、開示の後は「1: V」「2: A」のようにそのまま切り替えられる。
 #include "../src/HyphaLiveBlindComponent.h"
 #include "../src/HyphaVersionBlindScreen.h"
+#include "EditorReachabilityCheck.h"
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -132,6 +133,9 @@ inline void verifyVersionBlindScreen()
                     const auto* theirs = live.findChildWithID (juce::String ("live-blind-") + id);
                     require (mine && theirs && mine->getBounds() == theirs->getBounds(), juce::String ("same place as LIVE BLIND: ") + id);
                 }
+                // Every shown control is pressed and reached by Tab at each display scale (2026-10-18).
+                editor_reachability::checkAtDisplayScales (view, [&] (float scale, const juce::String& problem)
+                { require (false, "every VERSION BLIND control is reachable at " + juce::String (scale) + ": " + problem); });
                 ++cases;
             }
     }

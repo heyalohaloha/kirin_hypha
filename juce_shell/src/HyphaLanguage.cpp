@@ -130,6 +130,38 @@ juce::String translateParts (const Catalog&, const juce::String&, int depth);
 
 juce::String exactOrPattern (const Catalog&, const juce::String&, bool& found, int depth = 0);
 
+// A text made of several catalog sentences ("PRE. " + what a value is + the Session note) reads
+// sentence by sentence: from the start, the longest run up to a sentence end (". ") the catalog
+// has, then the next. Empty unless every sentence is found, so a text is never half translated.
+juce::String translateSentences (const Catalog& catalog, const juce::String& text, int depth)
+{
+    std::vector<int> ends;
+    for (int index = 1; index + 1 < text.length(); ++index)
+        if (text[index] == '.' && text[index + 1] == ' ')
+            ends.push_back (index + 1);
+    if (ends.empty())
+        return {};
+    ends.push_back (text.length());
+    juce::String result;
+    for (int start = 0; start < text.length();)
+    {
+        auto next = start;
+        for (auto end = ends.rbegin(); end != ends.rend() && *end > start && next == start; ++end)
+        {
+            bool found = false;
+            const auto sentence = exactOrPattern (catalog, text.substring (start, *end), found, depth);
+            if (! found)
+                continue;
+            result += sentence;
+            next = *end + 1;  // past the space that ends the sentence
+        }
+        if (next == start)
+            return {};
+        start = next;
+    }
+    return result;
+}
+
 juce::String nestedValue (const Catalog& catalog, const juce::String& value, int depth)
 {
     if (depth >= nestingLimit)
@@ -139,7 +171,10 @@ juce::String nestedValue (const Catalog& catalog, const juce::String& value, int
     }
     bool found = false;
     const auto whole = exactOrPattern (catalog, value, found, depth + 1);
-    return found ? whole : translateParts (catalog, value, depth + 1);
+    if (found)
+        return whole;
+    const auto sentences = translateSentences (catalog, value, depth + 1);
+    return sentences.isNotEmpty() ? sentences : translateParts (catalog, value, depth + 1);
 }
 
 juce::String exactOrPattern (const Catalog& catalog, const juce::String& text, bool& found, int depth)
@@ -227,11 +262,28 @@ juce::String translateRanked (const Catalog& catalog, const juce::String& text)
     return found ? name + text.substring (split) : juce::String {};
 }
 
+// A name with one of Hypha's state words after it ("reference 2   NOT FOUND", the B song box and the
+// CHECK SET box): the word reads in the catalog and the name stays exactly as written (a song or set
+// name is never translated, even one that ends in an upper-case word). Empty otherwise.
+juce::String translateStateWord (const Catalog& catalog, const juce::String& text)
+{
+    const auto split = text.lastIndexOf ("   ");
+    if (split <= 0) return {};
+    const auto word = text.substring (split + 3);
+    if (word != "NOT FOUND" && word != "PREPARING" && word != "NOT SENT TO HYPHA")
+        return {};
+    const auto entry = catalog.exact.find (word);
+    return entry != catalog.exact.end() ? text.substring (0, split + 3) + entry->second : juce::String {};
+}
+
 juce::String translateLine (const Catalog& catalog, const juce::String& line)
 {
     bool found = false;
     const auto whole = exactOrPattern (catalog, line, found);
-    return found ? whole : translateParts (catalog, line, 0);
+    if (found)
+        return whole;
+    const auto sentences = translateSentences (catalog, line, 0);
+    return sentences.isNotEmpty() ? sentences : translateParts (catalog, line, 0);
 }
 }
 
@@ -281,6 +333,10 @@ juce::String translate (const juce::String& english, Language language)
         return whole;
     if (const auto ranked = translateRanked (catalog, english); ranked.isNotEmpty())
         return ranked;
+    if (const auto stated = translateStateWord (catalog, english); stated.isNotEmpty())
+        return stated;
+    if (const auto sentences = translateSentences (catalog, english, 0); sentences.isNotEmpty())
+        return sentences;
     // A detail built from several lines (a failure, then what was kept) translates line by line.
     if (! english.containsChar ('\n'))
     {

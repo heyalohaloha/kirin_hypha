@@ -39,7 +39,11 @@ enum class SourceStep
     sourceUnopenable,       // the source could not be opened or decoded
     sourceUnavailable,      // Kirin OS cannot make the source available
     savedChoiceUnavailable, // the saved choice is no longer in Kirin OS
-    attention,              // any other reason to prepare the source again
+    channelsDiffer,         // the source is mono and the track stereo, or the other way round
+    sourceRecordMismatch,   // Kirin OS's record of the source does not match its file
+    sourceRecordUnsupported, // Kirin OS's record of the source is in a form this Hypha does not read
+    publicationInvalid,     // Kirin OS's Reference publication (Preset, Work, catalog) was not read
+    attention,              // a reason Hypha has no message for: said with its code, never guessed
 };
 
 struct Guide

@@ -82,9 +82,22 @@ const std::array<Stage, stageCount> stages { {
     // savedChoiceUnavailable
     { K::unable, W::none, "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN", "", "Choose again", "The saved choice for %1 is gone",
       "Choose the source again. A stays live." },
-    // attention
-    { K::unable, W::none, "SOURCE NOT READY / PREPARE AGAIN IN KIRIN OS", "", "Check the source in Kirin OS",
-      "Open Kirin OS to check the source", "The source changed or could not be opened." },
+    // channelsDiffer（2026-10-18：mono の音源は stereo の track では鳴らせない。逆も同じ）
+    { K::unable, W::none, "CHANNELS DIFFER FROM THIS TRACK / USE A SOURCE WITH THE SAME CHANNELS", "",
+      "Channels differ from this track", "%1's source has other channels than this track",
+      "A mono source plays on a mono track, a stereo source on a stereo track. A stays live." },
+    // sourceRecordMismatch：Kirin OS の音源の記録がファイルと合わない（Kirin OS が書き直せば直る）
+    { K::unable, W::none, "SOURCE RECORD DOES NOT MATCH / PREPARE AGAIN IN KIRIN OS", "", "Source record does not match",
+      "%1's source record does not match its file", "Prepare it again in Kirin OS. A stays live." },
+    // sourceRecordUnsupported：この Hypha が読めない形の記録
+    { K::unable, W::none, "SOURCE RECORD NOT READ / UPDATE KIRIN OS AND HYPHA", "", "Source record not read",
+      "%1's source record was not read", "Update Kirin OS and Hypha to the same release. A stays live." },
+    // publicationInvalid：Kirin OS の Reference の公開（Preset・Work・catalog）を読めない。状態の行と同じ直し方
+    { K::unable, W::none, "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS", "", "Publication not read",
+      "%1's Reference publication was not read", "Publish it again in Kirin OS. A stays live." },
+    // attention：Hypha に文の無い理由。直し方を推測せず、案内に理由のコードを残す（2026-10-18）
+    { K::unable, W::none, "SOURCE NOT USABLE IN HYPHA / SEE THE REASON CODE", "", "Not usable in Hypha",
+      "%1's source is not usable in Hypha", "Hypha has no message for this reason. A stays live." },
 } };
 }
 

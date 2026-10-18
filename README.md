@@ -1136,7 +1136,7 @@ rate, buffer size, delay, and plug-in configuration. [Timing contract and regres
    every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
    control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
    MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
-   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN.
+   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END.
    Hiding the editor also stops AUTO and holds its last gain; the next time you show the editor,
    it reports the stop. Select AUTO again explicitly to resume following. These values are
    experimental until listening tests settle them.
@@ -1197,11 +1197,6 @@ That interval stays on POST until the occurrence is proven, not on unverified PR
 full-frame tests cover initial entry, dynamic processing, clamped wraps and failure paths.
 Real-host evidence belongs to its exact commit, host, format and configuration; it does not
 certify every host, all transitions or signed retail AAX merely because a bundle builds.
-
-In **MENU**, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
-PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
-seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise Hypha says why.
-PIN ends the live session, and Blind's own RETURN brings back POST.
 
 While a session runs, **END** and **MENU** stay at every size; MENU includes any controls that
 do not fit the footer. You can close Hypha or open another plug-in while comparing; reopening
@@ -1284,54 +1279,13 @@ The signed 1.1.51 release has passed the one-pass/END flow and safe session reop
 VST3 stereo on Intel macOS. That result does not establish the same acceptance in every format
 or host configuration.
 
-### Optional Exact 4 S
-
-For the identical four-second range on both sides, use **LISTEN → MENU → PIN 4 S**. This retains
-the immutable-PCM trial below, with replay of the same range for each source. It is a preference
-listening trial, not a score or proof that either side is better.
-
-In Pro Tools, use the same mono or stereo instance and delay-compensation conditions described
-above. Exact capture and runtime checks remain active on every format.
-
-1. In POST, select the PRE pair and start LISTEN.
-2. Keep the DAW playing for at least four seconds, then choose **MENU → PIN 4 S**. It uses the
-   current meter context without changing the normal meter context or WIDE / FOCUS.
-   Wait for the pinned range to finish preparation. If Gain Match is unavailable,
-   follow the section guidance and use **CAPTURE AGAIN** in the same screen.
-3. Optionally, press **NAMED A/B** first (from 200%, or wherever the screen fits it beside
-   **START BLIND**). It plays the same frozen range by name: **PRE** with its fixed gain and
-   **POST**. Choose either at any time; play the DAW from before the range to hear it again. A stop
-   or a seek only waits for the range start again, and nothing is counted or answered. Press
-   **START BLIND** when ready: which is which is hidden again, and Blind begins from empty.
-4. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
-   only the captured samples, even when a processing block crosses either end of the range.
-   After the first pass completes, select the other **Source** and play from before the same range
-   again. A sample-exact DAW loop is optional. Both sources must complete a full pass before answering.
-5. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
-   signal.
-
-POST is the normal Gain Match reference: the frozen PRE audition copy receives one fixed gain so it
-matches the captured POST level. If raising PRE would exceed the comparison ceiling, Hypha does not
-clip or silently normalize both sides. It asks for explicit approval to leave PRE unchanged and lower
-POST by the inverse fixed amount instead. Gain does not follow the signal during the trial. Source changes and the two range edges use
-symmetric five-millisecond transitions in the audition output only; the captured PCM, normal input
-measurement and Record remain unchanged. Closing the editor ends the audition. Reopening recovers
-the explicit return screen without automatically resuming playback.
-
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
 click. Blind inherits it when opened and keeps any override within that comparison.
 **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
 **TRACK/STEM** identifies an individual track or stem and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
-Hypha does not change DAW Solo, Mute, faders, plug-in bypass, or routing. On a TRACK or STEM, only that
-POST output is replaced, so the rest of the project continues at the same DAW timeline and the user
-hears the change in mix context. On a 2MIX bus, the captured whole-bus PRE/POST copy is auditioned.
-Downstream processors still receive the selected copy and may react to it. Sends or parallel paths
-that branch before POST are not switched, so this is specifically a comparison between the chosen
-PRE and POST insertion points—not a claim about every route in the project.
-
-The local PRE/POST trial length is four seconds. Reference Version Blind is a separate whole-song
+Reference Version Blind is a separate whole-song
 comparison between live DAW A and a measured, acoustically matched Version V from Kirin OS, shown on
 the same screen as BLIND.
 Its four-second A observation proves calibration only; it neither replaces live A nor claims

@@ -5,6 +5,7 @@
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaSurfaceMaterial.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
+#include "EditorReachabilityCheck.h"
 #include <cmath>
 #include <iostream>
 
@@ -168,6 +169,12 @@ inline void verifyLiveBlindUiContract()
                     require (juce::PNGImageFormat().writeImageToStream (view.createComponentSnapshot (view.getLocalBounds()), *stream),
                              "preview written");
                 }
+                // Every shown control is pressed and reached by Tab at each display scale (2026-10-18).
+                editor_reachability::checkAtDisplayScales (view, [&] (float scale, const juce::String& problem)
+                {
+                    std::cerr << "LIVE BLIND @" << scale << ": " << problem << '\n';
+                    require (false, "every LIVE BLIND control is reachable at every display scale");
+                });
                 ++cases;
             }
     }

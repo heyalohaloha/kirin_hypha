@@ -399,6 +399,7 @@ void testReferenceComparisons (const juce::File& sandbox)
 }
 
 bool testReferenceLibraryOsFixture();
+void testReferenceLibrarySetsOsFixture (const juce::File& root, int minimumVerified = 0);
 bool testReferenceLibraryOsFixture()
 {
     const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_LIBRARY_FIXTURE", {});
@@ -490,6 +491,7 @@ bool testReferenceLibraryOsFixture()
         }
         require (testedAudio, "at least one real source must be auditioned");
     }
+    testReferenceLibrarySetsOsFixture (root);
     std::cout << "OS library -> two POSTs: " << loaded.workspace->presets.size() << " presets, "
               << sourceHashes.size() << " verified audio sources; default " << initial.presetName << '\n';
     return true;

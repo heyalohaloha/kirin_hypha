@@ -91,7 +91,7 @@ juce::String SpectrumComponent::psbStatusText() const
     return ! absoluteObservation && comparisonStatus.isNotEmpty()
         ? comparisonStatus
         : host_availability::outputLatencyUnavailable (psbStatus) ? host_availability::outputLatencyText()
-        : psbStatus == KIRIN_SPECTRUM_IN_USE ? analysis_ui::slotsInUse (analysisOwnerNames)
+        : psbStatus == KIRIN_SPECTRUM_IN_USE ? analysis_ui::slotsInUseStatus (analysisOwnerNames)
         : psbStatus == KIRIN_SPECTRUM_NO_PAIR ? "PRE REQUIRED FOR DELTA"
         : ! signalActive ? "INACTIVE"
         : ! absoluteObservation && *pairing_loop_text::analysisStatus (psbStatus, pairingLoopBlock) != 0

@@ -336,7 +336,6 @@ void verifyLiveCompareFooterContract()
     const auto plain = state;
     state.preGainTenthsDb = -125;
     state.postHeldTenthsDb = -100;
-    state.pinAvailable = true;
     state.following = true;
     post.setLiveCompareFooter (state);
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -350,8 +349,9 @@ void verifyLiveCompareFooterContract()
                                     "MATCH needs more signal", "MATCH over 24 dB", "MATCH: POST -24.00 dB",
                                     "POST back to normal", "Press RETURN first", "PRE over TP ceiling",
                                     "PRE 170.67 ms early", "PRE 170.67 ms late", "PRE held: latency changed",
-                                    "PIN waits for PRE", "PIN needs 4 s of play", "Last 4 s not one range",
-                                    "PIN failed; try again", "AUTO on: within 0.5 dB", "AUTO off",
+                                    "B plays from REF: press A there to listen",
+                                    "C plays from REF: press A there to listen",
+                                    "V plays from REF: press A there to listen", "AUTO on: within 0.5 dB", "AUTO off",
                                     "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB",
                                     "Delay compensation is off in Pro Tools" })
         {
@@ -362,12 +362,17 @@ void verifyLiveCompareFooterContract()
     state = plain;
     post.setLiveCompareFooter (state);
 
-    // A settled MATCH exposes the primary BLIND; PIN remains available through MENU.
+    // A settled MATCH exposes the primary BLIND. 1.1.52 shows no PIN 4 S (Exact 4 S) entry anywhere.
     state.blindAvailable = true;
     post.setLiveCompareFooter (state);
     for (const auto preset : observatory::sizePresets)
     {
         post.setSize (preset.width, preset.height);
+        require (post.findChildWithID ("observatory-live-pin") == nullptr, "the footer has no PIN 4 S control");
+        for (auto* child : post.getChildren())
+            if (auto* button = dynamic_cast<juce::Button*> (child))
+                require (! button->getButtonText().contains ("PIN 4") && ! button->getTitle().contains ("PIN 4"),
+                         "no footer control offers PIN 4 S");
         require (menu->isVisible(), "small layouts never lose the menu");
         if (blind->isVisible())
             require (blind->isEnabled() && readable (post, *blind), "matched Blind is reachable and readable");

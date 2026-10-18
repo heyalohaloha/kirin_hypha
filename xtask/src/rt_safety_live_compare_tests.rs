@@ -313,10 +313,11 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
     assert_eq!(refused(REFERENCE_PENDING_CPP, controller), 2, "controller");
 }
 
-// INV-LC15: PIN fixes one project range without padding or joining, goes through Local Blind's own
-// admission and acceptance, never starts on a held attenuation, and ends the live session.
+// INV-LC15: PIN fixes one project range without padding or joining and goes through Local Blind's
+// own admission and acceptance. 1.1.52 shows no entry to it (MENU, footer, editor): the mechanism
+// stays until its removal in a later release.
 #[test]
-fn live_compare_pin_hands_one_range_to_blind_through_its_own_admission() {
+fn live_compare_pin_keeps_one_range_through_blind_admission_without_an_entry() {
     assert!(PIN_CPP.contains("project.runStart > start"));
     assert!(PIN_CPP.contains("PinFailure::notOneRange"));
     let pin = function_body(
@@ -331,15 +332,26 @@ fn live_compare_pin_hands_one_range_to_blind_through_its_own_admission() {
     assert!(pinned < admitted && admitted < accepted);
     assert!(pin.contains("releaseLocalBlindProductScope (scopeEpoch);"));
     assert!(pin.contains("localBlindProductSession.failCaptureRequest();"));
-    let editor = function_body(
-        EDITOR_LIVE_COMPARE_CPP,
-        "void KirinHyphaEditor::pinLiveCompareForBlind",
-    );
-    let gate = "outputRefused (hypha::output_owner::Activity::localBlind)";
-    let held = editor.find(gate).unwrap();
-    let request = editor.find("processorRef.pinLiveCompareForBlind").unwrap();
-    let stop = editor.find("processorRef.stopLiveCompare();").unwrap();
-    assert!(held < request && request < stop);
+    let menu = include_str!("../../juce_shell/src/PluginEditorLiveBlind.cpp");
+    let view = include_str!("../../juce_shell/src/HyphaObservatoryView.h");
+    let footer = include_str!("../../juce_shell/src/HyphaObservatoryLiveCompare.cpp");
+    let header = include_str!("../../juce_shell/src/PluginEditor.h");
+    for (source, entry) in [
+        (EDITOR_LIVE_COMPARE_CPP, "pinLiveCompareForBlind"),
+        (header, "pinLiveCompareForBlind"),
+        (menu, "\"PIN 4 S\""),
+        (menu, "pinLiveCompareForBlind"),
+        (view, "livePinButton"),
+        (view, "onLiveComparePin"),
+        (footer, "observatory-live-pin"),
+    ] {
+        assert!(
+            !source.contains(entry),
+            "1.1.52 shows no PIN 4 S entry: {entry}"
+        );
+    }
+    let handled = function_body(menu, "bool KirinHyphaEditor::handleLiveCompareMenu");
+    assert!(handled.contains("result > 43") && !handled.contains("44"));
 }
 
 // INV-LC16: AUTO moves PRE's gain only, through the approved point (the ceiling and the reach of the
@@ -371,12 +383,13 @@ fn live_compare_auto_follows_pre_only_within_the_approved_point() {
         "a window's own ceiling never raises the approved one"
     );
     assert!(step.contains("followReachDb") && step.contains("followToleranceDb"));
+    // 1.1.52 shows no PIN entry, so LISTEN and END are the editor's resets.
     assert!(
         EDITOR_LIVE_COMPARE_CPP
             .matches("liveCompareAuto = {};")
             .count()
-            >= 3,
-        "LISTEN, END and PIN reset AUTO"
+            >= 2,
+        "LISTEN and END reset AUTO"
     );
     let render = function_body(SESSION_H, "RenderReport render (");
     assert!(render.contains("preLevel.settle (preGain);"));

@@ -3,8 +3,13 @@
 #include "HyphaChainTimingPreference.h"
 #include "HyphaChainTimingText.h"
 #include "HyphaLocalBlindUiContract.h"
+#include "HyphaOperatingSystemText.h"
 #include "HyphaPluginFormat.h"
 #include "HyphaUpdateContract.h"
+
+#if JUCE_MAC
+ #include <sys/sysctl.h>
+#endif
 
 namespace
 {
@@ -15,6 +20,27 @@ constexpr int pdcValidationAction = 900;
 juce::String toString (std::string_view value)
 {
     return juce::String::fromUTF8 (value.data(), static_cast<int> (value.size()));
+}
+
+#if JUCE_MAC
+std::string systemControlText (const char* name)
+{
+    char value[64] {};
+    auto size = sizeof (value) - 1;
+    return sysctlbyname (name, value, &size, nullptr, 0) == 0 ? std::string (value) : std::string {};
+}
+#endif
+
+// The reported OS, never a compatibility value presented as the installed macOS.
+hypha::operating_system::Description operatingSystem()
+{
+   #if JUCE_MAC
+    return hypha::operating_system::describe ({ systemControlText ("kern.osproductversion"),
+                                                 systemControlText ("kern.osproductversioncompat"),
+                                                 systemControlText ("kern.osversion") });
+   #else
+    return { juce::SystemStats::getOperatingSystemName().toStdString(), {} };
+   #endif
 }
 }
 
@@ -35,12 +61,29 @@ void KirinHyphaEditor::showInformationMenu()
         showToast ("Hypha information is available after Blind Compare");
         return;
     }
+    const auto options = juce::PopupMenu::Options()
+        .withTargetComponent (observatoryView.informationAnchor())
+        .withDeletionCheck (*this).withMinimumWidth (360)
+        .withMaximumNumColumns (1).withStandardItemHeight (26);
+    juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
+    informationMenu().showMenuAsync (options, [safeThis] (int result)
+    {
+        if (safeThis != nullptr) safeThis->handleInformationMenu (result);
+    });
+}
+
+// The information menu, every level (built apart from showing it, so a test reads what is offered).
+juce::PopupMenu KirinHyphaEditor::informationMenu()
+{
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader (juce::String ("Hypha ") + (isPost ? "POST" : "PRE"));
     menu.addItem (1, juce::String ("Loaded v") + JucePlugin_VersionString, false);
+    const auto system = operatingSystem();
     menu.addItem (2, juce::String (hypha::plugin_format::name (processorRef.wrapperType)) + " / "
-                      + juce::SystemStats::getOperatingSystemName(), false);
+                      + toString (system.line), false);
+    if (! system.note.empty())
+        menu.addItem (4, toString (system.note), false);
     menu.addItem (3, juce::String ("Source ") + HYPHA_SOURCE_ID + " / "
                       + HYPHA_SOURCE_STATE, false);
     if (isPost)
@@ -84,15 +127,7 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addSectionHeader ("Updating PRE and POST together");
     menu.addItem (5, "Save work, close the DAW, then install both", false);
     menu.addItem (6, "Restart / rescan; check both loaded versions", false);
-    const auto options = juce::PopupMenu::Options()
-        .withTargetComponent (observatoryView.informationAnchor())
-        .withDeletionCheck (*this).withMinimumWidth (360)
-        .withMaximumNumColumns (1).withStandardItemHeight (26);
-    juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
-    menu.showMenuAsync (options, [safeThis] (int result)
-    {
-        if (safeThis != nullptr) safeThis->handleInformationMenu (result);
-    });
+    return menu;
 }
 
 void KirinHyphaEditor::handleInformationMenu (int result)

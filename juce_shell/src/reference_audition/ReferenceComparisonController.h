@@ -72,6 +72,8 @@ public:
     void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0,
                         std::optional<bool> inputAllowed = {}, AInputClockSignature = {}) noexcept;
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
+    // 直前の block で実際に出力を持った役（1 V、2 C、3 B、無ければ 0）。選択ではなく鳴った事実（2026-10-18）。
+    int outputSlot() const noexcept { return renderedSlot.load (std::memory_order_relaxed); }
     // A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、C（固定）は Cue と同じ長さ。
     int liveWindowBlocks (int slot) const;
     int pendingLiveWindowBlocks() const;
@@ -169,6 +171,7 @@ private:
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
+    std::atomic<int> renderedSlot { 0 };  // Audio Thread が store だけする（outputSlot）
     std::atomic<bool> versionChosen { false };
     bool versionAuto = false; // selectionLock：V の Version は AUTO が選んだ（利用者が選ぶと false）
     bool rtPlaying = false, rtInputAllowed = false, rtInputObserved = false;

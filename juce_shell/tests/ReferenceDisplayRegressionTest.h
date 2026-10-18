@@ -20,11 +20,14 @@ inline void verifyReferenceDisplayRegression()
     state.osAccess = os_access::State::ready;
     state.readiness = reference_ui::Readiness::ready;
     state.title = "Reference song / session metadata and a deliberately long source name";
-    state.presetId = "saved"; state.checkId = "dynamics"; state.cueId = "whole";
-    state.presets = { { "saved", juce::String::fromUTF8 ("全工程｜基本3項目") },
+    // 組み込みの Preset と Check は Kirin OS の決まった名前空間の ID を持つ（2026-10-18：名前は綴りでなく ID で見分ける）。
+    const juce::String builtInSet ("00000000-0000-4000-8000-000000000101"), builtInDynamics ("00000000-0000-4000-8000-000000002001"),
+        builtInLow ("00000000-0000-4000-8000-000000002000");
+    state.presetId = builtInSet; state.checkId = builtInDynamics; state.cueId = "whole";
+    state.presets = { { builtInSet, juce::String::fromUTF8 ("全工程｜基本3項目") },
                       { "custom", juce::String::fromUTF8 ("夜明けの音") } };
-    state.checks = { { "dynamics", juce::String::fromUTF8 ("ダイナミクス") },
-                     { "low", juce::String::fromUTF8 ("低域") } };
+    state.checks = { { builtInDynamics, juce::String::fromUTF8 ("ダイナミクス") },
+                     { builtInLow, juce::String::fromUTF8 ("低域") } };
     state.cues = { { "whole", juce::String::fromUTF8 ("曲全体") } };
     state.checkLabel = state.checks.front().label;
     state.viewBindings = { "dynamics", "loudness" };
@@ -34,7 +37,6 @@ inline void verifyReferenceDisplayRegression()
     for (const auto& [japanese, english] : { std::pair { u8"ボーカルのバランス  /  Song 1", "Vocal balance  /  Song 1" },
                                              std::pair { u8"全工程｜基本5項目   1 / 1", u8"All stages · 5 essential checks   1 / 1" },
                                              std::pair { u8"サビ候補", "Chorus candidate" },
-                                             std::pair { u8"セット 2   1 / 3", "Set 2   1 / 3" },
                                              std::pair { u8"セット名", u8"セット名" },
                                              std::pair { u8"低域の安定性", "Low-end consistency" },
                                              std::pair { u8"低域", "Low end" },
@@ -42,20 +44,23 @@ inline void verifyReferenceDisplayRegression()
                                              std::pair { u8"Mastering｜音色・音量・ダイナミクス", u8"Mastering · tone, level, and dynamics" } })
         check (reference_ui::standardDisplayName (juce::String::fromUTF8 (japanese)) == juce::String::fromUTF8 (english),
                "every standard name from Kirin OS displays in English, with what follows it");
-    // 2026-10-05：順位を添えた名前（CHECK SET・B SET の「   1 / 1」）は、名前に訳があれば名前だけを訳し
-    // 順位は残す（「Mastering · tone, level, and dynamics   1 / 1」が日本語の画面で英語のままだった）。訳の無い名前は
-    // 英語のまま（簡単な英語は訳さない。カタカナにするだけの訳も足さない）。
+    // 2026-10-18：画面全体の辞書は名前を綴りで訳さない（同じ綴りの自作の名前を訳さない）。組み込みの ID の項目だけ、
+    // 名前の欄で Kirin OS の日本語名になり、順位はそのまま残る。
     for (const auto& pair : reference_ui::standardDisplayNames)
     {
         const auto english = juce::String::fromUTF8 (pair[1]);
-        const auto shown = i18n::translate (english, i18n::Language::japanese);
-        check (i18n::translate (english + "   1 / 3", i18n::Language::japanese) == shown + "   1 / 3",
-               "a standard name ranked for Hypha reads as the name alone does and keeps its rank");
-        check (i18n::translate (english + "   1 / 3", i18n::Language::english) == english + "   1 / 3", "English stays as it is");
+        check (i18n::translate (english + "   1 / 3", i18n::Language::japanese) == english + "   1 / 3",
+               "the screen dictionary never translates a name by its spelling");
     }
-    check (i18n::translate (juce::String::fromUTF8 (u8"Mastering · tone, level, and dynamics   1 / 1"), i18n::Language::japanese)
-               == juce::String::fromUTF8 (u8"Mastering｜音色・音量・ダイナミクス   1 / 1"),
-           "the ranked CHECK SET reads as Kirin OS names it in Japanese");
+    {
+        reference_ui::State ranked;
+        ranked.presets = { { "00000000-0000-4000-8000-000000000107", juce::String::fromUTF8 (u8"Mastering · tone, level, and dynamics   1 / 1") },
+                           { "a-copy", juce::String::fromUTF8 (u8"Mastering · tone, level, and dynamics   2 / 2") } };
+        reference_ui::prepareDisplayNames (ranked, i18n::Language::japanese);
+        check (ranked.presets[0].label == juce::String::fromUTF8 (u8"Mastering｜音色・音量・ダイナミクス   1 / 1")
+                   && ranked.presets[1].label == juce::String::fromUTF8 (u8"Mastering · tone, level, and dynamics   2 / 2"),
+               "the built-in CHECK SET reads as Kirin OS names it in Japanese; a copy without its ID stays as written");
+    }
     check (i18n::translate ("Set 2   1 / 3", i18n::Language::japanese) == "Set 2   1 / 3"
                && i18n::translate ("Dynamics", i18n::Language::japanese) == "Dynamics",
            "simple English stays English (no katakana)");
@@ -70,8 +75,10 @@ inline void verifyReferenceDisplayRegression()
         component.setSize (width - 12, width == 900 ? 470 : width * 2 / 3 - 64);
         component.setState (state);
         const auto& shown = component.state();
-        check (shown.presets.front().label == juce::String::fromUTF8 (u8"All stages · 3 essential checks") && shown.checkLabel == "Dynamics"
-            && shown.cues.front().label == "Full track", "standard names must display in English");
+        check (shown.presets.front().label == juce::String::fromUTF8 (u8"All stages · 3 essential checks") && shown.checkLabel == "Dynamics",
+               "built-in names display in English");
+        check (shown.cues.front().label == state.cues.front().label,
+               "a Cue name Kirin OS gives no built-in ID stays as written");
         check (shown.presets[1].label == state.presets[1].label && shown.title == state.title,
                "custom names and source metadata must be preserved");
         auto* preset = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-preset"));
