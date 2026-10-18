@@ -16,6 +16,31 @@ pub(super) struct PendingRecordCore {
     pub(super) result: MeasureResult,
 }
 
+pub(super) fn merge_phase_d_fields(
+    result: &mut MeasureResult,
+    pd: Option<&crate::phase_d::stream::PhaseDResult>,
+) {
+    if let Some(pd_r) = pd {
+        result.n_prime_total = Some(pd_r.loudness);
+        result.sharpness = Some(pd_r.sharpness);
+        result.psb_summary = Some(compute_psb_summary(
+            &pd_r.psb,
+            &pd_r.psb_bark21_24,
+            pd_r.psb_high_ext_15_5k_20k,
+        ));
+        result.n_prime = Some(pd_r.n_prime);
+        result.psb_bark = Some(pd_r.psb);
+    }
+}
+
+pub(super) fn clear_phase_d_fields(result: &mut MeasureResult) {
+    result.n_prime_total = None;
+    result.sharpness = None;
+    result.psb_summary = None;
+    result.n_prime = None;
+    result.psb_bark = None;
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn feed_phase_d_slots(
     input_48k: &[f64],

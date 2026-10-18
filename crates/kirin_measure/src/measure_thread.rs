@@ -47,7 +47,8 @@ use capture_plan::{
 use record_epoch_transition::record_grid_alignment;
 use tail_drain::{drain_ring_into_session, DrainRingSession};
 use trace_slots::{
-    close_trace_pass, feed_phase_d_slots, join_record_trace_slots, PendingRecordCore,
+    clear_phase_d_fields, close_trace_pass, feed_phase_d_slots, join_record_trace_slots,
+    merge_phase_d_fields, PendingRecordCore,
 };
 use watch_lane_clock::{
     after_keep_resume, discard_watch_samples, resume_watch_index, watch_chunk_limit, WatchResume,
@@ -1179,31 +1180,6 @@ pub fn spawn_measure_thread(
 
         log::info!("[MeasureThread] terminated");
     })
-}
-
-fn merge_phase_d_fields(
-    result: &mut MeasureResult,
-    pd: Option<&crate::phase_d::stream::PhaseDResult>,
-) {
-    if let Some(pd_r) = pd {
-        result.n_prime_total = Some(pd_r.loudness);
-        result.sharpness = Some(pd_r.sharpness);
-        result.psb_summary = Some(compute_psb_summary(
-            &pd_r.psb,
-            &pd_r.psb_bark21_24,
-            pd_r.psb_high_ext_15_5k_20k,
-        ));
-        result.n_prime = Some(pd_r.n_prime);
-        result.psb_bark = Some(pd_r.psb);
-    }
-}
-
-fn clear_phase_d_fields(result: &mut MeasureResult) {
-    result.n_prime_total = None;
-    result.sharpness = None;
-    result.psb_summary = None;
-    result.n_prime = None;
-    result.psb_bark = None;
 }
 
 fn next_nonzero_counter(counter: &mut u64) -> u64 {
