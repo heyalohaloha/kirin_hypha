@@ -170,6 +170,10 @@ reportはcandidateとpayload/containerのSHAへ結び、各rowの`expected`、`m
 Blind漏洩、Exact 4 Sのframe誤差は0を要求する。最低期待値を緩めない。
 宣言host範囲と追加の数値閾値はA0で担当者が照合し、A3前にmatrix／期待値へ含める。
 reportで事後に期待値を変更して通すことはできない。
+本人がその版に限って必須の受入から外した行は、`--init`の`--owner-override FILE`で決定ファイル
+（schema `hypha-owner-acceptance-override-v1`、同じ版、HOST_TESTSの1行、`excludedResultMustBe`が
+`NOT_REQUIRED_OWNER_OVERRIDE`）を候補へ結ぶ（1行に1つ、行ごとに繰り返し指定する）。matrixと期待値は残り、決定のhashは受入の基準と一緒に凍結される。
+reportでは結んだ行だけ`NOT_REQUIRED_OWNER_OVERRIDE`を受け付け、決定ファイルが変われば止まる。
 `PENDING` / `SKIP`は確認待ち、実測に基づく`FAIL`は受入失敗として区別する。
 A7の確認済みFAILを、単なる検証待ちの`RELEASED`へ読み替えない。
 

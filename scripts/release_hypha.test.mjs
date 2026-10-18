@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions, nativeRunner } from './release_hypha.mjs';
 import { HOST_TESTS, assertState, hash, digest, fileFact, treeFact, checkFacts,
-  validateReport, reportTemplate, safeStatePath, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
+  validateReport, reportTemplate, safeStatePath, authorization, Checkpoint, acceptanceCriteria } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE } from './ls_release/hypha_release_local.mjs';
 import { updateBinding } from './updates/update_key_binding.mjs';
 
@@ -170,6 +170,83 @@ test('reports bind candidate and exact artifact set; SKIP/missing evidence/old c
   assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ['test']), /mismatch/);
   report.candidate = f.state.candidate; report.tests[0].evidence[0].sha256 = '0'.repeat(64); write();
   assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ['test']), /evidence hash/);
+});
+
+const OWNER_DECISION = { schema: 'hypha-owner-acceptance-override-v1', release: '1.2.3', candidateId: null,
+  excludedRequiredTest: 'Exact-4-S-samples', excludedResultMustBe: 'NOT_REQUIRED_OWNER_OVERRIDE' };
+
+test('an owner decision lifts only its named row, bound to this candidate and frozen with the criteria', t => {
+  const f = fixture(t); const decisionFile = path.join(f.root, 'owner-decision.json');
+  fs.writeFileSync(decisionFile, JSON.stringify(OWNER_DECISION));
+  const state = makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: decisionFile }, () => SOURCE);
+  assertState(state);
+  assert.deepEqual(state.requiredHostTests, HOST_TESTS);
+  assert.deepEqual(state.ownerOverrides.map(o => [o.testId, o.candidateId]), [['Exact-4-S-samples', state.candidate.id]]);
+  assert.notEqual(digest(acceptanceCriteria(state)), digest(acceptanceCriteria(f.state)));
+  assert.equal(digest(acceptanceCriteria(f.state)), digest({ tests: f.state.requiredHostTests, expected: f.state.expected }));
+  const file = path.join(f.root, 'override-report.json'), ids = ['Exact-4-S-samples', 'stress-UI'];
+  const report = reportTemplate(state, 'A4', 'd'.repeat(64), ids);
+  report.tests[0].result = 'NOT_REQUIRED_OWNER_OVERRIDE';
+  report.tests[1] = { id: 'stress-UI', result: 'PASS', expected: { passed: true }, measured: { passed: true },
+    oracle: 'retained UI stress log', evidence: [fileFact(f.evidence)] };
+  const write = () => fs.writeFileSync(file, JSON.stringify(report));
+  write(); assert.equal(validateReport(state, file, 'A4', 'd'.repeat(64), ids).length, 3);
+  assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ids), Checkpoint);
+  report.tests[1].result = 'NOT_REQUIRED_OWNER_OVERRIDE'; write();
+  assert.throws(() => validateReport(state, file, 'A4', 'd'.repeat(64), ids), /stress-UI has no owner override/);
+  report.tests[1].result = 'PASS'; write();
+  assert.throws(() => assertState({ ...state, ownerOverrides: [{ ...state.ownerOverrides[0], candidateId: 'other' }] }),
+    /not bound to this candidate/);
+  const notes = path.join(f.root, 'notes.md'); fs.writeFileSync(notes, 'not an owner decision');
+  const handWritten = { ...state, ownerOverrides: [{ testId: 'stress-UI', candidateId: state.candidate.id,
+    decision: fileFact(notes) }, { testId: 'Exact-4-S-samples', candidateId: state.candidate.id, decision: fileFact(notes) }] };
+  assertState(handWritten);
+  for (const row of report.tests) row.result = 'NOT_REQUIRED_OWNER_OVERRIDE';
+  write(); assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ids));
+  const otherRow = path.join(f.root, 'other-row.json');
+  fs.writeFileSync(otherRow, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'Exact-4-S-samples' }));
+  handWritten.ownerOverrides = [{ testId: 'stress-UI', candidateId: state.candidate.id, decision: fileFact(otherRow) }];
+  assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ['stress-UI']), /decision changed/);
+  fs.writeFileSync(decisionFile, JSON.stringify({ ...OWNER_DECISION, ownerAnswer: 'changed' }));
+  assert.throws(() => validateReport(state, file, 'A4', 'd'.repeat(64), ids), /decision changed/);
+});
+
+test('an owner override added after the freeze stops the release', async t => {
+  const f = fixture(t); const decisionFile = path.join(f.root, 'owner-decision.json');
+  fs.writeFileSync(decisionFile, JSON.stringify(OWNER_DECISION));
+  f.actions.freeze = async () => {
+    f.state.freeze = { inputs: digest(f.state.inputs), updateCheck: updateBinding(''),
+      criteriaSha256: digest(acceptanceCriteria(f.state)) };
+    f.state.freeze.sha256 = digest(f.state.freeze);
+    return { facts: [fileFact(f.evidence)] };
+  };
+  await executeRelease(f.state, { ...options, until: 'packages' }, f.dependencies);
+  f.state.ownerOverrides = makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: decisionFile },
+    () => SOURCE).ownerOverrides;
+  await executeRelease(f.state, options, f.dependencies);
+  assert.match(f.state.blocker.reason, /Frozen acceptance criteria changed/);
+  assert.equal(f.state.stages.ls, undefined);
+});
+
+test('an owner decision for another release, candidate or row is refused, and binds only at --init', t => {
+  const f = fixture(t); const file = path.join(f.root, 'owner-decision.json');
+  for (const change of [{ release: '1.2.2' }, { candidateId: 'B-1-1.2.3-other' }, { excludedRequiredTest: 'Exact-4-S' },
+    { excludedResultMustBe: 'SKIP' }, { schema: 'other' }]) {
+    fs.writeFileSync(file, JSON.stringify({ ...OWNER_DECISION, ...change }));
+    assert.throws(() => makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: file }, () => SOURCE),
+      /Owner override must name/);
+  }
+  assert.throws(() => parseReleaseArgs(['--state', 'x', '--owner-override', file]), /only at --init/);
+  assert.deepEqual(parseReleaseArgs(['--state', 'x', '--init', '--owner-override', file]).ownerOverride, [file]);
+  fs.writeFileSync(file, JSON.stringify(OWNER_DECISION));
+  const second = path.join(f.root, 'owner-decision-stress.json');
+  fs.writeFileSync(second, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'stress-UI' }));
+  const parsed = parseReleaseArgs(['--state', f.statePath, '--init', '--owner-override', file, '--owner-override', second]);
+  const state = makeState(f.root, { ...parsed, date: '2026-10-01' }, () => SOURCE);
+  assert.deepEqual(state.ownerOverrides.map(o => o.testId), ['Exact-4-S-samples', 'stress-UI']);
+  assert.deepEqual(state.requiredHostTests, HOST_TESTS);
+  assert.throws(() => makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: [file, file] }, () => SOURCE),
+    /names a row twice/);
 });
 
 test('matrix minimum and private ignored state paths are mandatory', t => {

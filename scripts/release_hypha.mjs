@@ -8,7 +8,7 @@ import { sourceSnapshot } from './hypha_build_source.mjs';
 import { requireCleanReleaseSource } from './ls_release/release_source_identity.mjs';
 import { SCHEMA, HOST_TESTS, SAFETY_EXPECTED, DISTRIBUTION_TESTS, POST_TESTS, assertState, safeStatePath,
   atomicJson, digest, checkFacts, fileFact, treeFact, readJson, resolveInput, validateReport,
-  reportTemplate, authorization, Checkpoint } from './ls_release/hypha_release_contract.mjs';
+  reportTemplate, authorization, Checkpoint, ownerOverride, acceptanceCriteria } from './ls_release/hypha_release_contract.mjs';
 import { assertRustRuntime } from './provenance/runtime_guard.mjs';
 import { produceMac, verifyMac, verifyCi, verifyWindows, packageAll, verifyPackages,
   prepareLs } from './ls_release/hypha_release_local.mjs';
@@ -44,6 +44,7 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --provenance-report FILE  Retained exact-payload NOTICE/license/source evidence (private)
   --source-archive FILE     Reuse the private Windows producer's verified source ZIP bytes
   --update-public-key KEY    Approved pinned RSA public key; default empty disables checking
+  --owner-override FILE     Owner decision lifting one named host row for this release (--init only; one per row)
   --date YYYY-MM-DD         Release date (default: today UTC)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
   --until packages|hp|complete  Default hp; no stage/gate is skipped
@@ -71,6 +72,10 @@ export function parseReleaseArgs(argv) {
       const value = argv[++i];
       if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`);
       options[fields[arg]] = value;
+    } else if (arg === '--owner-override') {
+      const value = argv[++i];
+      if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`);
+      options.ownerOverride = [...[options.ownerOverride].flat().filter(Boolean), value];
     } else if (arg === '--init') options.init = true;
     else if (arg === '--execute') options.execute = true;
     else if (arg === '--dry-run') options.dryRun = true;
@@ -80,6 +85,7 @@ export function parseReleaseArgs(argv) {
   }
   if (!['packages', 'hp', 'complete'].includes(options.until)) throw new Error('Invalid --until');
   if (options.execute && (options.dryRun || options.init)) throw new Error('Init/dry-run must not execute');
+  if (options.ownerOverride && !options.init) throw new Error('--owner-override binds only at --init');
   if (!options.help && !options.state) throw new Error('--state is required');
   return options;
 }
@@ -109,9 +115,12 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
   if (inputs.hpRoot && fs.existsSync(path.join(inputs.hpRoot, '.vercel/project.json'))) {
     inputs.hpProjectSha256 = fileFact(path.join(inputs.hpRoot, '.vercel/project.json')).sha256;
   }
+  const ownerOverrides = [options.ownerOverride].flat().filter(Boolean).map(file => ownerOverride(inputPath(file), candidate));
+  if (new Set(ownerOverrides.map(o => o.testId)).size !== ownerOverrides.length) throw new Error('Owner override names a row twice');
   return { schema: SCHEMA, root: fs.realpathSync(root), candidate, source, inputs,
     requiredHostTests: [...HOST_TESTS], expected: Object.fromEntries(HOST_TESTS.map(id => [id,
-      SAFETY_EXPECTED[id] || { passed: true }])), stages: {}, releaseState: 'DIAGNOSTIC' };
+      SAFETY_EXPECTED[id] || { passed: true }])), ...(ownerOverrides.length ? { ownerOverrides } : {}),
+    stages: {}, releaseState: 'DIAGNOSTIC' };
 }
 
 export function nativeRunner(root) {
@@ -166,7 +175,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
       const payloads = ['macos-au-vst3', 'macos-aax', 'windows'].flatMap(s => state.stages[s].facts);
       checkFacts(payloads);
       state.freeze = { source: state.source, payloads, updateCheck: updateBinding(state.inputs.updatePublicKey), requiredHostTests: state.requiredHostTests, expected: state.expected,
-        criteriaSha256: digest({ tests: state.requiredHostTests, expected: state.expected }),
+        criteriaSha256: digest(acceptanceCriteria(state)),
         inputs: digest(state.inputs), publicationNotes: fileFact(resolveInput(state, state.inputs.notes)), toolchain: {
           node: process.version, xcode: (await run('xcodebuild', ['-version'], { capture: true })).trim(),
           rustc: assertRustRuntime(await run('rustc', ['--version'], { capture: true })),
@@ -251,7 +260,7 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
       }
       if (state.freeze && state.freeze.inputs !== digest(state.inputs)) throw new Error('Frozen release inputs changed');
       if (state.freeze) assertUpdateBinding(state.freeze.updateCheck, state.inputs.updatePublicKey);
-      if (state.freeze && state.freeze.criteriaSha256 !== digest({ tests: state.requiredHostTests, expected: state.expected })) {
+      if (state.freeze && state.freeze.criteriaSha256 !== digest(acceptanceCriteria(state))) {
         throw new Error('Frozen acceptance criteria changed');
       }
       if (state.freeze?.publicationNotes) checkFacts([state.freeze.publicationNotes]);

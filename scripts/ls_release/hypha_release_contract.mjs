@@ -23,10 +23,40 @@ export const SAFETY_EXPECTED = {
   'Live-Blind-anonymity': { substitutionsCountedAsRequestedSource: 0, identityLeaks: 0 },
   'Exact-4-S-samples': { frameLengthError: 0, unexpectedRestores: 0 },
 };
+export const OWNER_OVERRIDE_SCHEMA = 'hypha-owner-acceptance-override-v1';
+export const OWNER_OVERRIDE_RESULT = 'NOT_REQUIRED_OWNER_OVERRIDE';
 export const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 export const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 export const digest = value => hash(JSON.stringify(value));
 export const resolveInput = (state, value) => path.resolve(state.root, value || '');
+
+// An owner decision lifts one named host row from required acceptance for one release. The row,
+// its expected values and the matrix stay; the decision is bound at --init and frozen with them.
+export function ownerOverride(file, candidate) {
+  const decision = readJson(file);
+  if (decision.schema !== OWNER_OVERRIDE_SCHEMA || decision.release !== candidate.version
+      || !HOST_TESTS.includes(decision.excludedRequiredTest)
+      || decision.excludedResultMustBe !== OWNER_OVERRIDE_RESULT
+      || (decision.candidateId != null && decision.candidateId !== candidate.id)) {
+    throw new Error('Owner override must name one required host row of this release and candidate');
+  }
+  return { testId: decision.excludedRequiredTest, candidateId: candidate.id, decision: fileFact(file) };
+}
+
+export const acceptanceCriteria = state => (state.ownerOverrides?.length
+  ? { tests: state.requiredHostTests, expected: state.expected, ownerOverrides: state.ownerOverrides }
+  : { tests: state.requiredHostTests, expected: state.expected });
+
+function overriddenRow(state, gate, id) {
+  const override = state.ownerOverrides?.find(o => o.testId === id && o.candidateId === state.candidate.id);
+  if (!override) throw new Checkpoint(`${gate}: ${id} has no owner override bound to this candidate`);
+  // Re-read the decision itself: a bound path is honoured only while it is still this owner decision.
+  const bound = ownerOverride(override.decision.path, state.candidate);
+  if (bound.testId !== id || bound.decision.sha256 !== override.decision.sha256) {
+    throw new Error(`${gate}: ${id} owner override decision changed`);
+  }
+  return bound.decision;
+}
 
 export function atomicJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -104,6 +134,7 @@ export function validateReport(state, reportPath, gate, binding, ids) {
   }
   for (const id of ids) {
     const row = report.tests.find(t => t.id === id);
+    if (row?.result === OWNER_OVERRIDE_RESULT) { facts.push(overriddenRow(state, gate, id)); continue; }
     if (row?.result === 'FAIL') throw new Error(`${gate}: ${id} has a confirmed acceptance failure`);
     if (!row || row.result !== 'PASS') throw new Checkpoint(`${gate}: ${id} is not PASS (SKIP cannot compensate)`);
     if (row.expected == null || row.measured == null || !row.oracle?.trim()
@@ -136,6 +167,11 @@ export function assertState(state) {
   }
   for (const id of HOST_TESTS) if (!state.requiredHostTests?.includes(id)) {
     throw new Error('Required host matrix cannot be reduced');
+  }
+  for (const override of state.ownerOverrides || []) {
+    if (!HOST_TESTS.includes(override.testId) || override.candidateId !== state.candidate.id) {
+      throw new Error('Owner override is not bound to this candidate');
+    }
   }
   for (const [id, expected] of Object.entries(SAFETY_EXPECTED)) {
     if (digest(state.expected?.[id]) !== digest(expected)) throw new Error('Minimum quantitative safety criteria cannot be weakened');

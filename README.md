@@ -11,7 +11,7 @@ before your processors when you want to see what the chain changed. Normal measu
 the audio through unchanged, with zero added latency. Comparison listening starts only when you
 choose it.
 
-**[Download 1.1.51](#download)** · **[Start in a minute](#start-in-under-a-minute)** ·
+**[Download 1.1.52](#download)** · **[Start in a minute](#start-in-under-a-minute)** ·
 **[What it measures](#what-it-measures)** · **[Build from source](#building-from-source)**
 
 <details>
@@ -38,16 +38,16 @@ verified matching observations.
 
 ## Download
 
-**Hypha 1.1.51 is available for macOS and Windows.** Both installers include PRE and POST.
+**Hypha 1.1.52 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
-| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.51/Kirin-Hypha-1.1.51-macOS-Universal.pkg) | AU · VST3 · AAX Native |
-| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.51/Kirin-Hypha-1.1.51-Windows-x64-Setup.exe) | VST3 · AAX Native |
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.52/Kirin-Hypha-1.1.52-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.52/Kirin-Hypha-1.1.52-Windows-x64-Setup.exe) | VST3 · AAX Native |
 
 The macOS installer and plug-ins are signed and notarized. The Windows installer and plug-ins are
 Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
-[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.51).
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.52).
 
 <details>
 <summary>Download verification and release provenance</summary>
@@ -87,11 +87,13 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 </details>
 
-## New in 1.1.51
+## New in 1.1.52
 
-Keep comparing through brief timing interruptions. LISTEN and BLIND retain your source, matched
-level and blind assignment; POST plays until timing is confirmed, then the same comparison resumes.
-Start with POST and LEVEL as before. [Read the release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.51).
+Keep comparing while your DAW loops. PRE/POST comparison starts and continues during Logic's
+Cycle, and Keep continues through a loop; its record timeline holds the first pass. Waiting for
+matching audio and a stop that needs your action now look different. On Windows, the installer
+removes an older copy installed for one user, so your DAW loads the new version.
+Start with POST and LEVEL as before. [Read the release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.52).
 
 ![A tour of Kirin Hypha: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind](docs/media/readme/tour.gif)
 
@@ -780,7 +782,7 @@ Switching views retires the previous view's missing-latency flag. Format support
 prove PRE/POST timing alignment.
 
 <a id="optional-update-information"></a>
-### Update information in 1.1.51
+### Update information in 1.1.52
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or
 Japanese official download link to get a newer version. Hypha does not install updates automatically.
@@ -1349,10 +1351,12 @@ With a Kirin OS license, POST can keep a session record.
    session is written to the `.kirin` record.
 
 Integrated Loudness and session-maximum True Peak accumulate across DAW transport stops while the
-same Keep remains active. During an offline bounce/export, POST auto-runs the same cleanup as
-**Stop** when the host reports that offline processing has ended. If a host does not emit that
-offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop backstop after
-10 minutes without Active signal.
+same Keep remains active. If the DAW loops during Keep, the Keep continues: the record's timeline
+holds the first continuous pass, and later passes count toward the Keep summary (Integrated, LRA,
+Max TP and PLR) and the live display. During an offline bounce/export, POST auto-runs the same
+cleanup as **Stop** when the host reports that offline processing has ended. If a host does not
+emit that offline-end edge, Keep remains armed until manual **Stop** or the idle auto-stop
+backstop after 10 minutes without Active signal.
 
 During Keep, intermediate I/LRA readouts reuse an exact-energy cache with a bounded auxiliary
 node budget. This avoids rescanning the complete recording after every small input block.
