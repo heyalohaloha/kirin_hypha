@@ -122,46 +122,66 @@ pub(super) fn flush_record_core_without_phase_d(
     }
 }
 
-/// Phase D's own resampler for the TRACE at a rate other than 48 kHz, built like the live
-/// engine's. A TRACE pass end finishes and restarts it (`close_trace_pass`); the live engine
-/// behind the Watch and Keep displays keeps its own, so its stream runs on through the pass end as
-/// in 1.1.51 (a restart there would cut it and move its true peak).
-pub(super) fn new_trace_resampler(
-    sample_rate: u32,
-    n_channels: usize,
-) -> Result<Option<ResamplerTo48k>, rubato::ResamplerConstructionError> {
-    (sample_rate != ENGINE_SR)
-        .then(|| ResamplerTo48k::new(sample_rate, n_channels))
-        .transpose()
+/// Phase D's own resampler for the TRACE at a rate other than 48 kHz (none at 48 kHz), with its
+/// output. A TRACE pass end finishes and restarts it (`close_trace_pass`); the live engine behind
+/// the Watch and Keep displays keeps its own, so its stream runs on through the pass end as in
+/// 1.1.51 (a restart there would cut it and move its true peak). Its own type, so neither the pass
+/// end nor the Stop tail can be handed the live engine's resampler.
+pub(super) struct TraceResampler {
+    resampler: Option<ResamplerTo48k>,
+    out: Vec<f64>,
+}
+
+impl TraceResampler {
+    pub(super) fn new(
+        sample_rate: u32,
+        n_channels: usize,
+    ) -> Result<Self, rubato::ResamplerConstructionError> {
+        Ok(Self {
+            resampler: (sample_rate != ENGINE_SR)
+                .then(|| ResamplerTo48k::new(sample_rate, n_channels))
+                .transpose()?,
+            out: Vec::new(),
+        })
+    }
+
+    pub(super) fn reset(&mut self) {
+        if let Some(resampler) = self.resampler.as_mut() {
+            resampler.reset();
+        }
+    }
+
+    /// One native chunk's 48 kHz audio for Phase D (the chunk itself at 48 kHz).
+    pub(super) fn process<'a>(
+        &'a mut self,
+        chunk: &'a [f64],
+    ) -> Result<&'a [f64], rubato::ResampleError> {
+        let Some(resampler) = self.resampler.as_mut() else {
+            return Ok(chunk);
+        };
+        self.out.clear();
+        resampler.process(chunk, &mut self.out)?;
+        Ok(&self.out)
+    }
 }
 
 /// The live engine's resampler and Phase D's restart together wherever 1.1.51 restarted the one
-/// they shared (Record start, a Watch pass or position change, a return to Active).
-pub(super) fn reset_resamplers(
-    live: &mut Option<ResamplerTo48k>,
-    trace: &mut Option<ResamplerTo48k>,
-) {
-    for resampler in [live, trace].into_iter().flatten() {
+/// they shared in Watch or at a Record start (a Watch pass or position change, a return to Active).
+pub(super) fn reset_resamplers(live: &mut Option<ResamplerTo48k>, trace: &mut TraceResampler) {
+    if let Some(resampler) = live.as_mut() {
         resampler.reset();
     }
+    trace.reset();
 }
 
-/// One native chunk's 48 kHz audio for Phase D, through Phase D's own resampler at another rate.
-/// A resampler failure leaves the chunk out of Phase D only.
-pub(super) fn trace_48k<'a>(
-    resampler: &mut Option<ResamplerTo48k>,
-    out: &'a mut Vec<f64>,
-    chunk: &'a [f64],
-) -> &'a [f64] {
-    let Some(resampler) = resampler.as_mut() else {
-        return chunk;
-    };
-    out.clear();
-    if let Err(error) = resampler.process(chunk, out) {
+/// One native chunk's 48 kHz audio for Phase D in the main loop. A resampler failure leaves the
+/// chunk out of Phase D only (the live engine's resampler, built alike, fails the same chunk
+/// first and drops it whole).
+pub(super) fn trace_48k<'a>(trace: &'a mut TraceResampler, chunk: &'a [f64]) -> &'a [f64] {
+    trace.process(chunk).unwrap_or_else(|error| {
         log::warn!("[MeasureThread] TRACE resample error: {error:?}; Phase D skips the chunk");
-        out.clear();
-    }
-    out
+        &[]
+    })
 }
 
 /// The TRACE pass of the selected take ends: a later pass of the Keep begins, the take jumps, or
@@ -172,8 +192,7 @@ pub(super) fn trace_48k<'a>(
 /// live engine's. False when the resampler failed; the slots are emitted all the same.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn close_trace_pass(
-    resampler: &mut Option<ResamplerTo48k>,
-    resampled_buf: &mut Vec<f64>,
+    phase_resampler: &mut TraceResampler,
     n_channels: usize,
     phase_d_slot_pending: &mut Vec<f64>,
     phase_d: &mut PhaseDChannelStream,
@@ -184,11 +203,12 @@ pub(super) fn close_trace_pass(
     sample_rate: u32,
 ) -> bool {
     let mut flushed = true;
+    let TraceResampler { resampler, out } = phase_resampler;
     if let Some(resampler) = resampler.as_mut() {
-        resampled_buf.clear();
-        match resampler.finish(resampled_buf) {
+        out.clear();
+        match resampler.finish(out) {
             Ok(_) => feed_phase_d_slots(
-                resampled_buf,
+                out,
                 n_channels,
                 phase_d_slot_pending,
                 phase_d,

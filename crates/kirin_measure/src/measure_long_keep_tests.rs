@@ -5,6 +5,7 @@
 //! the auxiliary-only cuts: the STOP tail stays in the TRACE and a later LOOP pass still reaches
 //! the Keep summary. Neither may depend on the retired ring slot.
 use super::super::capture_plan::{capture_chunk_plan, chunk_route, RecordChunkRoute};
+use super::TraceResampler;
 use super::{drain_ring_into_session, DrainRingSession, MeasureSampleConsumer, RecordTraceDrain};
 use super::{RecordTraceCursor, RecordTraceTimeline};
 use crate::capture_clock::CAPTURE_CLOCK_SPAN_CAPACITY;
@@ -101,12 +102,12 @@ fn a_long_keep_tail_stays_in_the_take_after_its_first_epoch_left_the_ring() {
     let mut consumer = MeasureSampleConsumer::watch(consumer);
     let queue = new_record_trace_queue();
     let (mut next_trace_ms, mut next_psb_ms) = (0, 0);
-    let mut resampler = None;
+    let mut trace_resampler = TraceResampler::new(SR, 2).unwrap();
     let mut trace_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let mut summary_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let summary = Arc::new(Mutex::new(None));
     let mut phase = PhaseDChannelStream::new(FieldType::Free, 2);
-    let (mut chunk, mut resampled, mut phase_slots) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut chunk, mut phase_slots) = (Vec::new(), Vec::new());
     let mut latest_phase = None;
     let mut core_pending = std::collections::VecDeque::new();
     let mut phase_pending = std::collections::VecDeque::new();
@@ -115,7 +116,7 @@ fn a_long_keep_tail_stays_in_the_take_after_its_first_epoch_left_the_ring() {
     let ok = drain_ring_into_session(
         DrainRingSession {
             consumer: &mut consumer,
-            resampler: &mut resampler,
+            trace_resampler: &mut trace_resampler,
             trace_engine: &mut trace_engine,
             summary_engine: &mut summary_engine,
             session_summary: &summary,
@@ -123,7 +124,6 @@ fn a_long_keep_tail_stays_in_the_take_after_its_first_epoch_left_the_ring() {
             meter_session_publication: None,
             meter_active: false,
             chunk_f64: &mut chunk,
-            resampled_buf: &mut resampled,
             phase_d: &mut phase,
             phase_d_slot_pending: &mut phase_slots,
             latest_pd: &mut latest_phase,

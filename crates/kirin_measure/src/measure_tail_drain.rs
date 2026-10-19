@@ -6,7 +6,7 @@ use super::*;
 pub(super) struct DrainRingSession<'a> {
     pub(super) consumer: &'a mut MeasureSampleConsumer,
     /// Phase D's resampler for the TRACE; the live engine's never takes the tail.
-    pub(super) resampler: &'a mut Option<ResamplerTo48k>,
+    pub(super) trace_resampler: &'a mut TraceResampler,
     pub(super) trace_engine: &'a mut MeasureEngine,
     pub(super) summary_engine: &'a mut MeasureEngine,
     pub(super) session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
@@ -14,7 +14,6 @@ pub(super) struct DrainRingSession<'a> {
     pub(super) meter_session_publication: Option<&'a Arc<MeterSessionPublication>>,
     pub(super) meter_active: bool,
     pub(super) chunk_f64: &'a mut Vec<f64>,
-    pub(super) resampled_buf: &'a mut Vec<f64>,
     pub(super) phase_d: &'a mut PhaseDChannelStream,
     pub(super) phase_d_slot_pending: &'a mut Vec<f64>,
     pub(super) latest_pd: &'a mut Option<crate::phase_d::stream::PhaseDResult>,
@@ -69,8 +68,7 @@ pub(super) fn drain_ring_into_session(
         // The TRACE pass ends inside the tail: close it before this chunk enters the resampler.
         if tail_take && (!take || jumped) {
             let _ = close_trace_pass(
-                ctx.resampler,
-                ctx.resampled_buf,
+                ctx.trace_resampler,
                 ctx.n_channels,
                 ctx.phase_d_slot_pending,
                 ctx.phase_d,
@@ -88,9 +86,7 @@ pub(super) fn drain_ring_into_session(
             // またいで維持する。tight-drainだけで最後のjumpを観測してもI/Max TPを
             // 直前区間へ縮めない。TRACE/Phase Dの座標系リセットとは独立。
             ctx.phase_d.reset();
-            if let Some(rs) = ctx.resampler.as_mut() {
-                rs.reset();
-            }
+            ctx.trace_resampler.reset();
             *ctx.latest_pd = None;
             ctx.phase_d_slot_pending.clear();
             ctx.record_core_pending.clear();
@@ -119,23 +115,25 @@ pub(super) fn drain_ring_into_session(
         let native_frames_after = *ctx.native_frames_total;
         let captured_frames_before = native_frames_after.saturating_sub(chunk_native_frames);
         *ctx.last_capture_position_end = plan.position_end_samples;
-        let chunk_48k: &[f64] = if let Some(rs) = ctx.resampler.as_mut() {
-            ctx.resampled_buf.clear();
-            if let Err(e) = rs.process(ctx.chunk_f64.as_slice(), ctx.resampled_buf) {
-                log::warn!(
-                    "[MeasureThread] drain resample error: {:?} — tail finalize skipped",
-                    e
-                );
-                if let Some(trace) = record_trace.as_mut() {
-                    push_record_timeline_markers_until(trace, ctx.sample_rate, native_frames_after);
-                }
-                return false;
-            }
-            ctx.resampled_buf.as_slice()
-        } else {
-            ctx.chunk_f64.as_slice()
-        };
+        // Only the take reaches Phase D, so only the take is resampled for it.
         if take {
+            let chunk_48k = match ctx.trace_resampler.process(ctx.chunk_f64) {
+                Ok(audio) => audio,
+                Err(e) => {
+                    log::warn!(
+                        "[MeasureThread] drain resample error: {:?} — tail finalize skipped",
+                        e
+                    );
+                    if let Some(trace) = record_trace.as_mut() {
+                        push_record_timeline_markers_until(
+                            trace,
+                            ctx.sample_rate,
+                            native_frames_after,
+                        );
+                    }
+                    return false;
+                }
+            };
             feed_phase_d_slots(
                 chunk_48k,
                 ctx.n_channels,
@@ -207,8 +205,7 @@ pub(super) fn drain_ring_into_session(
     if ctx.finalize_capture
         && tail_take
         && !close_trace_pass(
-            ctx.resampler,
-            ctx.resampled_buf,
+            ctx.trace_resampler,
             ctx.n_channels,
             ctx.phase_d_slot_pending,
             ctx.phase_d,

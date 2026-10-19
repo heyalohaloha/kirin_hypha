@@ -2,6 +2,7 @@
 //! 192 kHz): the take's last 100 ms slot is emitted although the resampler still held its last
 //! samples when a later pass of the Keep began, and no audio of the later pass reaches the TRACE.
 use super::super::capture_plan::capture_chunk_plan;
+use super::TraceResampler;
 use super::{drain_ring_into_session, DrainRingSession, MeasureSampleConsumer, RecordTraceDrain};
 use super::{RecordTraceCursor, RecordTraceTimeline};
 use crate::channel_layout::ChannelLayout;
@@ -13,7 +14,6 @@ use crate::record_take::{
     RecordTakeTracker,
 };
 use crate::record_writer::{drain_record_trace_queue, new_record_trace_queue};
-use crate::resampler::ResamplerTo48k;
 use crate::{AuxiliaryClockSamples, AuxiliaryClockSource};
 use std::sync::{Arc, Mutex};
 
@@ -92,12 +92,12 @@ fn tail_slots(rate: u32, take_blocks: i64, later_blocks: i64) -> Vec<(i64, bool)
     let mut consumer = MeasureSampleConsumer::watch(consumer);
     let queue = new_record_trace_queue();
     let (mut next_trace_ms, mut next_psb_ms) = (0, 0);
-    let mut resampler = Some(ResamplerTo48k::new(rate, 2).unwrap());
+    let mut trace_resampler = TraceResampler::new(rate, 2).unwrap();
     let mut trace_engine = MeasureEngine::new(rate, ChannelLayout::stereo()).unwrap();
     let mut summary_engine = MeasureEngine::new(rate, ChannelLayout::stereo()).unwrap();
     let summary = Arc::new(Mutex::new(None));
     let mut phase = PhaseDChannelStream::new(FieldType::Free, 2);
-    let (mut chunk, mut resampled, mut phase_slots) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut chunk, mut phase_slots) = (Vec::new(), Vec::new());
     let mut latest_phase = None;
     let mut core_pending = std::collections::VecDeque::new();
     let mut phase_pending = std::collections::VecDeque::new();
@@ -106,7 +106,7 @@ fn tail_slots(rate: u32, take_blocks: i64, later_blocks: i64) -> Vec<(i64, bool)
     let ok = drain_ring_into_session(
         DrainRingSession {
             consumer: &mut consumer,
-            resampler: &mut resampler,
+            trace_resampler: &mut trace_resampler,
             trace_engine: &mut trace_engine,
             summary_engine: &mut summary_engine,
             session_summary: &summary,
@@ -114,7 +114,6 @@ fn tail_slots(rate: u32, take_blocks: i64, later_blocks: i64) -> Vec<(i64, bool)
             meter_session_publication: None,
             meter_active: false,
             chunk_f64: &mut chunk,
-            resampled_buf: &mut resampled,
             phase_d: &mut phase,
             phase_d_slot_pending: &mut phase_slots,
             latest_pd: &mut latest_phase,

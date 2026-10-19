@@ -2,7 +2,7 @@
 
 use super::{
     drain_ring_into_session, trusted_pre_roll_epoch, CaptureChunkPlan, ChannelLayout,
-    DrainRingSession, MeasureSampleConsumer,
+    DrainRingSession, MeasureSampleConsumer, TraceResampler,
 };
 use crate::engine::MeasureEngine;
 use crate::phase_d::channels::PhaseDChannelStream;
@@ -66,8 +66,7 @@ fn drain_includes_tail_off_undercounts_on_matches_full() {
     let session = crate::MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     let meter_session = Arc::new(Mutex::new(session));
     let mut chunk = Vec::new();
-    let mut resampled = Vec::new();
-    let mut resampler = None;
+    let mut trace_resampler = TraceResampler::new(SR, 2).unwrap();
     let mut native_frames_total = SR as u64;
     let mut consumed_samples = 0_u64;
     let mut phase_d = PhaseDChannelStream::new(FieldType::Free, 2);
@@ -80,7 +79,7 @@ fn drain_includes_tail_off_undercounts_on_matches_full() {
     let ok = drain_ring_into_session(
         DrainRingSession {
             consumer: &mut cons,
-            resampler: &mut resampler,
+            trace_resampler: &mut trace_resampler,
             trace_engine: &mut trace_engine,
             summary_engine: &mut eng_on,
             session_summary: &ss,
@@ -88,7 +87,6 @@ fn drain_includes_tail_off_undercounts_on_matches_full() {
             meter_session_publication: None,
             meter_active: true,
             chunk_f64: &mut chunk,
-            resampled_buf: &mut resampled,
             phase_d: &mut phase_d,
             phase_d_slot_pending: &mut phase_d_slots,
             latest_pd: &mut latest_pd,
@@ -145,8 +143,7 @@ fn drain_empty_ring_preserves_finalize_value() {
     let mut cons = MeasureSampleConsumer::watch(cons);
     let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
     let mut chunk = Vec::new();
-    let mut resampled = Vec::new();
-    let mut resampler = None;
+    let mut trace_resampler = TraceResampler::new(SR, 2).unwrap();
     let mut native_frames_total = SR as u64;
     let mut consumed_samples = 0_u64;
     let mut phase_d = PhaseDChannelStream::new(FieldType::Free, 2);
@@ -159,7 +156,7 @@ fn drain_empty_ring_preserves_finalize_value() {
     let ok = drain_ring_into_session(
         DrainRingSession {
             consumer: &mut cons,
-            resampler: &mut resampler,
+            trace_resampler: &mut trace_resampler,
             trace_engine: &mut trace_engine,
             summary_engine: &mut eng,
             session_summary: &ss,
@@ -167,7 +164,6 @@ fn drain_empty_ring_preserves_finalize_value() {
             meter_session_publication: None,
             meter_active: false,
             chunk_f64: &mut chunk,
-            resampled_buf: &mut resampled,
             phase_d: &mut phase_d,
             phase_d_slot_pending: &mut phase_d_slots,
             latest_pd: &mut latest_pd,
@@ -228,8 +224,7 @@ fn drain_position_jump_preserves_record_session_summary() {
     let session_summary: Arc<Mutex<Option<crate::engine::SessionSummary>>> =
         Arc::new(Mutex::new(None));
     let mut chunk = Vec::new();
-    let mut resampled = Vec::new();
-    let mut resampler = None;
+    let mut trace_resampler = TraceResampler::new(SR, 2).unwrap();
     let mut native_frames_total = SR as u64;
     let mut consumed_samples = 0_u64;
     let mut last_capture_position_end = Some(SR as i64);
@@ -242,7 +237,7 @@ fn drain_position_jump_preserves_record_session_summary() {
     let ok = drain_ring_into_session(
         DrainRingSession {
             consumer: &mut consumer,
-            resampler: &mut resampler,
+            trace_resampler: &mut trace_resampler,
             trace_engine: &mut trace_engine,
             summary_engine: &mut summary_engine,
             session_summary: &session_summary,
@@ -250,7 +245,6 @@ fn drain_position_jump_preserves_record_session_summary() {
             meter_session_publication: None,
             meter_active: false,
             chunk_f64: &mut chunk,
-            resampled_buf: &mut resampled,
             phase_d: &mut phase_d,
             phase_d_slot_pending: &mut phase_d_slots,
             latest_pd: &mut latest_pd,

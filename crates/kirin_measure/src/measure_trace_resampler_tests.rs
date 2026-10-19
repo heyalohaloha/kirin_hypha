@@ -21,15 +21,18 @@ fn tone(index: usize) -> Vec<f64> {
 }
 
 /// The live engine's (LUFS-M, true peak) per 100 ms, and Phase D's slots before the pass end, for
-/// a TRACE pass that ends before chunk `pass_end`. `shared` ends it on the live engine's resampler, as one
-/// resampler for both did.
+/// a TRACE pass that ends before chunk `pass_end`. `shared` feeds the live engine from Phase D's
+/// resampler, as one resampler for both did, so the pass end restarts the live stream too.
 fn run(pass_end: Option<usize>, shared: bool) -> (Vec<(f64, f64)>, usize) {
     let mut live = Some(ResamplerTo48k::new(RATE, 2).unwrap());
-    let mut trace = new_trace_resampler(RATE, 2).unwrap();
-    assert!(trace.is_some(), "Phase D resamples on its own at 96 kHz");
+    let mut trace = TraceResampler::new(RATE, 2).unwrap();
+    assert!(
+        trace.resampler.is_some(),
+        "Phase D resamples on its own at 96 kHz"
+    );
     let mut engine = MeasureEngine::new(ENGINE_SR, ChannelLayout::stereo()).unwrap();
     let mut phase_d = PhaseDChannelStream::new(FieldType::Free, 2);
-    let (mut live_out, mut trace_out, mut slot_pending) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut live_out, mut slot_pending) = (Vec::new(), Vec::new());
     let (mut latest_pd, mut phase_pending, mut core_pending) =
         (None, VecDeque::new(), VecDeque::new());
     let (mut readings, mut slots) = (Vec::new(), 0);
@@ -38,14 +41,8 @@ fn run(pass_end: Option<usize>, shared: bool) -> (Vec<(f64, f64)>, usize) {
         let take = pass_end.is_none_or(|end| index < end);
         if Some(index) == pass_end {
             slots += phase_pending.len();
-            let (resampler, out) = if shared {
-                (&mut live, &mut live_out)
-            } else {
-                (&mut trace, &mut trace_out)
-            };
             close_trace_pass(
-                resampler,
-                out,
+                &mut trace,
                 2,
                 &mut slot_pending,
                 &mut phase_d,
@@ -57,15 +54,19 @@ fn run(pass_end: Option<usize>, shared: bool) -> (Vec<(f64, f64)>, usize) {
             );
         }
         live_out.clear();
-        live.as_mut()
-            .unwrap()
-            .process(&chunk, &mut live_out)
-            .unwrap();
+        if shared {
+            live_out.extend_from_slice(trace.process(&chunk).unwrap());
+        } else {
+            live.as_mut()
+                .unwrap()
+                .process(&chunk, &mut live_out)
+                .unwrap();
+        }
         if take {
             let audio = if shared {
                 live_out.as_slice()
             } else {
-                trace_48k(&mut trace, &mut trace_out, &chunk)
+                trace_48k(&mut trace, &chunk)
             };
             feed_phase_d_slots(
                 audio,
