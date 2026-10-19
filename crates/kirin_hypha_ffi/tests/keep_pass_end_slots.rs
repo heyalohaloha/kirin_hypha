@@ -7,8 +7,8 @@ use kirin_hypha_ffi::{
     channel_abi::ChannelLayout, KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED, KIRIN_KEEP_PHASE_IDLE,
 };
 use kirin_measure::{
-    AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, PresentationLatencySamples,
-    PresentationLatencySource, RecordTakeBlock,
+    AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, MeterHistoryResolution,
+    PresentationLatencySamples, PresentationLatencySource, RecordTakeBlock,
 };
 use std::path::Path;
 use std::thread::sleep;
@@ -108,6 +108,33 @@ impl Host {
             self.wrapped = true;
         }
         self.pace();
+    }
+
+    /// Heartbeat-only callbacks paced to audio time, without audio and without advancing the host
+    /// clock, until both sides measured what was played (their latest TIME endpoint is within
+    /// half a second of the host position). A slow host (a debug build, a loaded runner) measures
+    /// behind the host; the Stop then judges the pass end, not the drain's own pace.
+    fn catch_up(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, tag: &str) {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let hold = Duration::from_secs_f64(self.block() as f64 / f64::from(self.rate));
+        let measured = |engine: &KirinHyphaEngine| {
+            engine
+                .poll_meter_history(MeterHistoryResolution::Hz10, 4)
+                .and_then(|history| history.last()?.last_timeline_endpoint_samples)
+                .is_some_and(|end| end + i64::from(self.rate / 2) >= self.position)
+        };
+        while !measured(pre) || !measured(post) {
+            assert!(
+                Instant::now() < deadline,
+                "{tag}: the meters catch up with the host"
+            );
+            for engine in [pre, post] {
+                engine.set_signal_state(1);
+                engine.push_samples(&[], 2);
+            }
+            sleep(hold);
+            self.start += hold;
+        }
     }
 
     /// Stopped-transport callbacks: the host calls on, nothing is captured.
@@ -288,6 +315,7 @@ fn keep_whose_trace_pass_ends(
     for _ in 0..100 {
         host.play(&pre, &post, false);
     }
+    host.catch_up(&pre, &post, tag);
     post.stop();
     let deadline = Instant::now() + Duration::from_secs(30);
     let records = loop {
