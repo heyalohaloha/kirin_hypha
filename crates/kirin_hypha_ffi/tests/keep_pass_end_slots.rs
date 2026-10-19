@@ -3,7 +3,9 @@
 //! a 48 kHz resampled stream; the last 100 ms of the TRACE pass must still reach its TRACE slot,
 //! so the record keeps every slot and a normal pass end degrades nothing. 48 kHz (no resampler) is
 //! the control. Simulated clock facts, independent of actual DAW acceptance.
-use kirin_hypha_ffi::{channel_abi::ChannelLayout, KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED};
+use kirin_hypha_ffi::{
+    channel_abi::ChannelLayout, KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED, KIRIN_KEEP_PHASE_IDLE,
+};
 use kirin_measure::{
     AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, PresentationLatencySamples,
     PresentationLatencySource, RecordTakeBlock,
@@ -211,10 +213,29 @@ fn keep_whose_trace_pass_ends(
         host.play(&pre, &post, false);
         played += 1;
     }
-    let deadline = Instant::now() + Duration::from_secs(8);
+    // A host too slow for the producer readiness deadline gets "Failed to arm PRE and POST": both
+    // sides return to Watch and the Keep is pressed again, as a user would.
+    let give_up = Instant::now() + Duration::from_secs(30);
+    let mut deadline = Instant::now() + Duration::from_secs(8);
     while post.keep_phase() != KIRIN_KEEP_PHASE_ARMED || !post.is_recording() || !pre.is_recording()
     {
         assert!(Instant::now() < deadline, "{tag}: ARMED");
+        if post.keep_phase() == KIRIN_KEEP_PHASE_IDLE
+            && post.drain_keep_action_notice().as_deref() == Some("Failed to arm PRE and POST")
+        {
+            assert!(
+                Instant::now() < give_up,
+                "{tag}: the Keep keeps failing to arm"
+            );
+            while post.is_recording() || pre.is_recording() || !post.keep() {
+                assert!(
+                    Instant::now() < give_up,
+                    "{tag}: Keep again after a failed arm"
+                );
+                host.play(&pre, &post, false);
+            }
+            deadline = Instant::now() + Duration::from_secs(8);
+        }
         host.play(&pre, &post, false);
     }
     // An arming that lands on the LOOP's last callback starts the take after the wrap: it still
