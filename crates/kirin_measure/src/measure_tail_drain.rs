@@ -5,6 +5,7 @@ use super::*;
 
 pub(super) struct DrainRingSession<'a> {
     pub(super) consumer: &'a mut MeasureSampleConsumer,
+    /// Phase D's resampler for the TRACE; the live engine's never takes the tail.
     pub(super) resampler: &'a mut Option<ResamplerTo48k>,
     pub(super) trace_engine: &'a mut MeasureEngine,
     pub(super) summary_engine: &'a mut MeasureEngine,

@@ -122,12 +122,54 @@ pub(super) fn flush_record_core_without_phase_d(
     }
 }
 
+/// Phase D's own resampler for the TRACE at a rate other than 48 kHz, built like the live
+/// engine's. A TRACE pass end finishes and restarts it (`close_trace_pass`); the live engine
+/// behind the Watch and Keep displays keeps its own, so its stream runs on through the pass end as
+/// in 1.1.51 (a restart there would cut it and move its true peak).
+pub(super) fn new_trace_resampler(
+    sample_rate: u32,
+    n_channels: usize,
+) -> Result<Option<ResamplerTo48k>, rubato::ResamplerConstructionError> {
+    (sample_rate != ENGINE_SR)
+        .then(|| ResamplerTo48k::new(sample_rate, n_channels))
+        .transpose()
+}
+
+/// The live engine's resampler and Phase D's restart together wherever 1.1.51 restarted the one
+/// they shared (Record start, a Watch pass or position change, a return to Active).
+pub(super) fn reset_resamplers(
+    live: &mut Option<ResamplerTo48k>,
+    trace: &mut Option<ResamplerTo48k>,
+) {
+    for resampler in [live, trace].into_iter().flatten() {
+        resampler.reset();
+    }
+}
+
+/// One native chunk's 48 kHz audio for Phase D, through Phase D's own resampler at another rate.
+/// A resampler failure leaves the chunk out of Phase D only.
+pub(super) fn trace_48k<'a>(
+    resampler: &mut Option<ResamplerTo48k>,
+    out: &'a mut Vec<f64>,
+    chunk: &'a [f64],
+) -> &'a [f64] {
+    let Some(resampler) = resampler.as_mut() else {
+        return chunk;
+    };
+    out.clear();
+    if let Err(error) = resampler.process(chunk, out) {
+        log::warn!("[MeasureThread] TRACE resample error: {error:?}; Phase D skips the chunk");
+        out.clear();
+    }
+    out
+}
+
 /// The TRACE pass of the selected take ends: a later pass of the Keep begins, the take jumps, or
-/// the Record stops. At a rate other than 48 kHz the resampler still holds the pass's last
+/// the Record stops. At a rate other than 48 kHz Phase D's resampler still holds the pass's last
 /// samples, so the Phase D half of its last slots is incomplete. Pump them out into Phase D, join
-/// every slot, emit the core slots left without Phase D, and start the resampler and Phase D
-/// afresh for what follows. Call it before the next chunk enters the resampler. False when the
-/// resampler failed; the slots are emitted all the same.
+/// every slot, emit the core slots left without Phase D, and start Phase D's resampler and Phase D
+/// afresh for what follows. Call it before the next chunk enters that resampler; never with the
+/// live engine's. False when the resampler failed; the slots are emitted all the same.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn close_trace_pass(
     resampler: &mut Option<ResamplerTo48k>,
@@ -177,3 +219,7 @@ pub(super) fn close_trace_pass(
     *latest_pd = None;
     flushed
 }
+
+#[cfg(test)]
+#[path = "measure_trace_resampler_tests.rs"]
+mod resampler_tests;

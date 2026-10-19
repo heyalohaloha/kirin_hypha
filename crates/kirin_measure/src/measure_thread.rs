@@ -48,7 +48,7 @@ use record_epoch_transition::record_grid_alignment;
 use tail_drain::{drain_ring_into_session, DrainRingSession};
 use trace_slots::{
     clear_phase_d_fields, close_trace_pass, feed_phase_d_slots, join_record_trace_slots,
-    merge_phase_d_fields, PendingRecordCore,
+    merge_phase_d_fields, new_trace_resampler, reset_resamplers, trace_48k, PendingRecordCore,
 };
 use watch_lane_clock::{
     after_keep_resume, discard_watch_samples, resume_watch_index, watch_chunk_limit, WatchResume,
@@ -301,6 +301,10 @@ pub fn spawn_measure_thread(
         } else {
             None
         };
+        let Ok(mut trace_resampler) = new_trace_resampler(sample_rate, n_channels) else {
+            return;
+        };
+        let mut trace_resampled_buf = Vec::new();
 
         //  streaming processor（ v2: 全 SR 対応のため常に Some 相当）。
         let mut phase_d = PhaseDChannelStream::new(FieldType::Free, n_channels);
@@ -441,9 +445,7 @@ pub fn spawn_measure_thread(
                 engine.reset();
                 record_engines.reset();
                 phase_d.reset();
-                if let Some(rs) = &mut resampler {
-                    rs.reset();
-                }
+                reset_resamplers(&mut resampler, &mut trace_resampler);
                 latest_pd = None;
                 phase_d_slot_pending.clear();
                 record_core_pending.clear();
@@ -490,7 +492,7 @@ pub fn spawn_measure_thread(
                     && drain_ring_into_session(
                         DrainRingSession {
                             consumer: &mut consumer,
-                            resampler: &mut resampler,
+                            resampler: &mut trace_resampler,
                             trace_engine,
                             summary_engine,
                             session_summary: &session_summary,
@@ -498,7 +500,7 @@ pub fn spawn_measure_thread(
                             meter_session_publication: meter_session_publication.as_ref(),
                             meter_active: load_signal_state(&signal_state) == SignalState::Active,
                             chunk_f64: &mut chunk_f64,
-                            resampled_buf: &mut resampled_buf,
+                            resampled_buf: &mut trace_resampled_buf,
                             phase_d: &mut phase_d,
                             phase_d_slot_pending: &mut phase_d_slot_pending,
                             latest_pd: &mut latest_pd,
@@ -646,9 +648,7 @@ pub fn spawn_measure_thread(
                         );
                     }
                     phase_d.reset();
-                    if let Some(rs) = &mut resampler {
-                        rs.reset();
-                    }
+                    reset_resamplers(&mut resampler, &mut trace_resampler);
                     latest_pd = None;
                     phase_d_slot_pending.clear();
                     record_core_pending.clear();
@@ -728,9 +728,7 @@ pub fn spawn_measure_thread(
                     log::info!("[MeasureThread] SS-8 reset suppressed in Record mode (B-043)");
                 }
                 phase_d.reset();
-                if let Some(rs) = &mut resampler {
-                    rs.reset();
-                }
+                reset_resamplers(&mut resampler, &mut trace_resampler);
                 latest_pd = None;
                 phase_d_slot_pending.clear();
                 record_core_pending.clear();
@@ -846,9 +844,7 @@ pub fn spawn_measure_thread(
                     engine.reset();
                     record_engines.reset();
                     phase_d.reset();
-                    if let Some(rs) = &mut resampler {
-                        rs.reset();
-                    }
+                    reset_resamplers(&mut resampler, &mut trace_resampler);
                     latest_pd = None;
                     phase_d_slot_pending.clear();
                     record_core_pending.clear();
@@ -963,8 +959,8 @@ pub fn spawn_measure_thread(
                         cursor,
                     };
                     let _ = close_trace_pass(
-                        &mut resampler,
-                        &mut resampled_buf,
+                        &mut trace_resampler,
+                        &mut trace_resampled_buf,
                         n_channels,
                         &mut phase_d_slot_pending,
                         &mut phase_d,
@@ -1043,7 +1039,7 @@ pub fn spawn_measure_thread(
                 // does not become ready until this Record state has been entered and reset.
                 if should_process_phase_d(record_take) {
                     feed_phase_d_slots(
-                        chunk_48k,
+                        trace_48k(&mut trace_resampler, &mut trace_resampled_buf, &chunk_f64),
                         n_channels,
                         &mut phase_d_slot_pending,
                         &mut phase_d,
