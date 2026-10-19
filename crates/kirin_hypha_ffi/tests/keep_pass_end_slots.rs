@@ -134,6 +134,12 @@ impl Host {
     }
 }
 
+fn epoch_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as i64)
+}
+
 fn collect(path: &Path, results: &mut Vec<serde_json::Value>) {
     let Ok(entries) = std::fs::read_dir(path) else {
         return;
@@ -152,13 +158,24 @@ fn collect(path: &Path, results: &mut Vec<serde_json::Value>) {
     }
 }
 
-fn closed_records(plugin_data: &Path, instances: [&str; 2]) -> Option<Vec<serde_json::Value>> {
+/// The closed records of the two instances for the Keep pressed at `keep_ms` (a Keep that failed
+/// to arm before it leaves a short record of its own), once both are closed.
+fn closed_records(
+    plugin_data: &Path,
+    instances: [&str; 2],
+    keep_ms: i64,
+) -> Option<Vec<serde_json::Value>> {
     let mut output = Vec::new();
     collect(plugin_data, &mut output);
     let closed: Vec<_> = output
         .into_iter()
         .filter(|record| instances.iter().any(|id| record["instance_id"] == *id))
         .filter(|record| record["status"] == "closed")
+        .filter(|record| {
+            record["started_at_ms"]
+                .as_i64()
+                .is_some_and(|ms| ms >= keep_ms)
+        })
         .collect();
     instances
         .iter()
@@ -213,10 +230,12 @@ fn keep_whose_trace_pass_ends(
         host.play(&pre, &post, false);
         played += 1;
     }
+    let mut keep_ms = epoch_ms() - 500;
     // A host too slow for the producer readiness deadline gets "Failed to arm PRE and POST": both
     // sides return to Watch and the Keep is pressed again, as a user would.
     let give_up = Instant::now() + Duration::from_secs(30);
     let mut deadline = Instant::now() + Duration::from_secs(8);
+    let mut pressed_again = false;
     while post.keep_phase() != KIRIN_KEEP_PHASE_ARMED || !post.is_recording() || !pre.is_recording()
     {
         assert!(Instant::now() < deadline, "{tag}: ARMED");
@@ -234,6 +253,8 @@ fn keep_whose_trace_pass_ends(
                 );
                 host.play(&pre, &post, false);
             }
+            keep_ms = epoch_ms() - 500;
+            pressed_again = true;
             deadline = Instant::now() + Duration::from_secs(8);
         }
         host.play(&pre, &post, false);
@@ -271,7 +292,7 @@ fn keep_whose_trace_pass_ends(
     let deadline = Instant::now() + Duration::from_secs(30);
     let records = loop {
         host.stopped(&pre, &post, 25);
-        if let Some(records) = closed_records(plugin_data, [&pre_id, &post_id]) {
+        if let Some(records) = closed_records(plugin_data, [&pre_id, &post_id], keep_ms) {
             break records;
         }
         assert!(Instant::now() < deadline, "{tag}: both Records close");
@@ -291,8 +312,13 @@ fn keep_whose_trace_pass_ends(
             || record["integrity_degraded"] != false
         {
             failures.push(format!(
-                "{tag} {role} ({rate} Hz, {end:?}): {} {}",
-                record["trace_diagnostics"], record["integrity_reasons"]
+                "{tag} {role} ({rate} Hz, {end:?}, pressed again {pressed_again}): {} {} \
+                 frames={} first pass={} take={}",
+                record["trace_diagnostics"],
+                record["integrity_reasons"],
+                record["frames"].as_array().map_or(0, Vec::len),
+                record["keep_passes"][0],
+                record["bounce_take"]
             ));
         }
     }
