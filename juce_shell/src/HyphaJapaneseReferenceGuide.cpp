@@ -53,7 +53,7 @@ const Entry entries[] = {
     { "Update Kirin OS and Hypha to the same release.", u8"Kirin OSとHyphaを同じリリースに更新してください。" },
     // 断られた理由ごとの段階（2026-10-18）。知らない理由はコードで言う。
     { "STEREO SOURCE ON A MONO TRACK", u8"モノラルのトラックにステレオの音源" },
-    { "USE A STEREO TRACK", u8"ステレオのトラックを使う" },
+    { "USE A STEREO TRACK", u8"ステレオトラックを使う" },
     { "Stereo source on a mono track", u8"モノラルのトラックにステレオの音源があります" },
     { "%1's source is stereo and this track is mono", u8"%1の音源はステレオで、このトラックはモノラルです" },
     { "A stereo source plays on a stereo track. A mono source plays on either. A stays live.",
