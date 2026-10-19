@@ -116,7 +116,8 @@ mod tests {
                 }
             }
             let whole = phase_input.len() / (2 * SLOT) * 2 * SLOT;
-            for phase_slot in phase_input[..whole].chunks_exact(2 * SLOT) {
+            // `whole` holds complete slots only.
+            for phase_slot in phase_input[..whole].chunks(2 * SLOT) {
                 if let Some(result) = phase.push_interleaved_slot(phase_slot) {
                     figures.extend([result.loudness, result.sharpness]);
                     figures.extend(result.n_specific);
