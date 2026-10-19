@@ -116,22 +116,27 @@ void monoSongsOnStereoTrack (const juce::File& sandbox)
 {
     namespace control = hypha::tests::reference_control;
     const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
-    const auto root = sandbox.getChildFile ("abcv-mono");
-    require (root.createDirectory().wasOk(), "mono fixture directory");
-    const auto song = writeSong (root, "mono4", 0.1f, -18.0, "44444444-4444-4444-8444-444444444444", 1);
-    const auto checkSong = writeSong (root, "mono5", -0.25f, -20.0, "55555555-5555-4555-8555-555555555555", 1, 44'100);
-    auto preset = libraryPreset (checkSong);
-    auto* cue = preset["checks"][0]["candidates"][0]["cues"][0].getDynamicObject();
-    cue->setProperty ("sample_rate_hz", 44'100);
-    cue->setProperty ("end_sample", 88'200);
-    require (writeJson (root.getChildFile ("library/sets.json"), songSets ("66666666-6666-4666-8666-666666666662",
-                 { candidate (song, "Mono song", "44444444-4444-4444-8444-444444444445") }))
-             && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
-             "a library with a mono B song and a mono Check");
+    // 曲の channels の library：B の曲（48 kHz）と C の Check（44.1 kHz）。
+    const auto publish = [&sandbox] (const juce::String& name, int songChannels)
+    {
+        const auto root = sandbox.getChildFile (name);
+        require (root.createDirectory().wasOk(), "mono fixture directory");
+        const auto song = writeSong (root, "mono4", 0.1f, -18.0, "44444444-4444-4444-8444-444444444444", songChannels);
+        const auto checkSong = writeSong (root, "mono5", -0.25f, -20.0, "55555555-5555-4555-8555-555555555555", songChannels, 44'100);
+        auto preset = libraryPreset (checkSong);
+        auto* cue = preset["checks"][0]["candidates"][0]["cues"][0].getDynamicObject();
+        cue->setProperty ("sample_rate_hz", 44'100);
+        cue->setProperty ("end_sample", 88'200);
+        require (writeJson (root.getChildFile ("library/sets.json"), songSets ("66666666-6666-4666-8666-666666666662",
+                     { candidate (song, "Mono song", "44444444-4444-4444-8444-444444444445") }))
+                 && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
+                 "a library with a B song and a Check");
+        return root;
+    };
+    const auto monoSongs = publish ("abcv-mono", 1), stereoSongs = publish ("abcv-mono-stereo-songs", 2);
     for (const int channels : { 2, 1 })
     {
-        ref::ReferenceComparisonController controller (channels == 2 ? root : sandbox.getChildFile ("abcv-roles"),
-                                                       [] (bool) { return true; });
+        ref::ReferenceComparisonController controller (channels == 2 ? monoSongs : stereoSongs, [] (bool) { return true; });
         controller.configure ({ "abcv-mono-" + juce::String (channels), {}, 42, true }, 48'000, channels);
         controller.setPresented (true);
         juce::AudioBuffer<float> block (channels, 480);
@@ -160,6 +165,12 @@ void monoSongsOnStereoTrack (const juce::File& sandbox)
         require (control::waitUntil (deadline(), [&] { const auto s = controller.snapshot(); return s.referenceReady && s.checkReady; }),
                  "a mono B song and a mono Check prepare on a stereo track");
         constexpr double dualMono = 3.010299956639812;
+        // 鳴らす前の読み：B の一覧の曲と C は、鳴らすときと同じ量を持つ（画面の押したときの gain が跳ばない）。
+        const auto before = controller.snapshot();
+        require (before.songSets.size() == 1 && before.songSets[0].facts.size() == 1
+                     && std::abs (before.songSets[0].facts[0].playbackLoudnessOffsetLu - dualMono) < 1.0e-9
+                     && before.checkSelection != nullptr && std::abs (before.checkSelection->sourceLoudnessOffsetLu - dualMono) < 1.0e-9,
+                 "a mono B song and a mono Check carry the dual mono offset before they play");
         for (const auto& [slot, level, lufs] : { std::tuple { 3, 0.1, -18.0 }, std::tuple { 2, -0.25, -20.0 } })
         {
             require (controller.requestAudition (slot, -14.0, -2.0), "the mono role plays");

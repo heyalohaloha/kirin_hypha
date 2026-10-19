@@ -147,6 +147,10 @@ namespace hypha::reference_audition
         bool sourceMissing = false;
         double lufsI = std::numeric_limits<double>::quiet_NaN();
         double maxTruePeak = std::numeric_limits<double>::quiet_NaN();
+        int channels = 0;  // 音源の記録の channels（Kirin OS はこの数で測る）
+        // 鳴らす音が Kirin OS の値より大きく測れる量（mono の曲を stereo の track で +3.01 LU）。押したときの gain と
+        // Balance のそろえに足し、LUFS-I の列には足さない。
+        double playbackLoudnessOffsetLu = 0.0;
         std::vector<double> spectrumCentersHz;
         std::vector<float> spectrumMedianDb;
         // 既定の Cue が曲のどの部分か（図の凡例「Bサビ 1:02-1:24」）と、その時刻（秒）。

@@ -896,9 +896,9 @@ as in the live PRE/POST compare. An offline render, a local Blind or starting th
 compare clears that held selection, so nothing returns on its own afterwards. Sample-rate conversion
 of the audition copy is automatic (the source file is never changed). On B and C, a mono source on a
 stereo track plays its one channel on both sides, unchanged. Two equal channels read 3.01 LU louder
-(BS.1770) than the mono file Kirin OS measured, so MATCH and following add 3.01 LU to Kirin OS's
-value; the pages still show Kirin OS's value. A stereo source on a mono track is not mixed down: the
-role says so and A stays live. Lowering A for a Blind whose
+(BS.1770) than the mono file Kirin OS measured, so MATCH, following and the gains shown before the
+role plays add 3.01 LU to Kirin OS's value; the LUFS-I figures still show Kirin OS's value. A stereo
+source on a mono track is not mixed down: the role says so and A stays live. Lowering A for a Blind whose
 match exceeds the ceiling still requires explicit approval. Offline render, a missing or changed
 source, or a failed check leaves A playing.
 

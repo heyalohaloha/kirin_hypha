@@ -111,6 +111,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
                         hypha::reference_ui::markSourceMissing (fact.preparation);
                     }
                     fact.lufsI = source.lufsI;
+                    fact.loudnessOffsetLu = source.playbackLoudnessOffsetLu;
                     fact.centersHz = source.spectrumCentersHz;
                     fact.medianDb = source.spectrumMedianDb;
                     fact.part = source.part;
@@ -140,6 +141,7 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.cueMeasurement = checkRole.detailedMeasurement;
     state.cuePart = checkRole.cuePart;
     state.cueLoudness = checkRole.cueLevelAvailable ? checkRole.cueIntegratedLoudness : std::numeric_limits<double>::quiet_NaN();
+    state.cueLoudnessOffsetLu = checkRole.sourceLoudnessOffsetLu;  // 曲全体の値で比べるときも同じ音を鳴らす
     // Cue の値がまだ無い（Kirin OS が区間をまだ測っていない）あいだは、MATCH と同じく C の曲全体の値で比べる。ただし
     // 曲全体のスペクトルが A の窓と同じ定義になる曲（区切りが 100 ms）だけ（ReferenceWholeSongSpectrum.h）。どちらの
     // ときも状態の行が理由と直し方を言う。4 帯域は曲全体には無いので「—」。

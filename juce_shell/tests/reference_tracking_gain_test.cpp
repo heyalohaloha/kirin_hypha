@@ -476,7 +476,8 @@ void matchesMonoCue (const juce::File& sandbox)
         controller.selectA();
         render(); render();
     }
-    ref::RuntimeV2Controller monoTrack (sandbox.getChildFile ("abcv-tracking"), [] (bool) { return true; });
+    publishCueLibrary (sandbox.getChildFile ("abcv-tracking-stereo-cue"), 2);
+    ref::RuntimeV2Controller monoTrack (sandbox.getChildFile ("abcv-tracking-stereo-cue"), [] (bool) { return true; });
     monoTrack.configure ({ "abcv-tracking-mono-track", {}, 42, true }, 48'000.0, 1);
     require (control::waitUntil (deadline(), [&] {
         const auto state = monoTrack.snapshot();

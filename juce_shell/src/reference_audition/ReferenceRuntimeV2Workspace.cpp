@@ -20,9 +20,9 @@ namespace hypha::reference_audition
             return nullptr;
         }
 
-        void appendPresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace)
+        void appendPresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace, int trackChannels)
         {
-            appendRuntimePresetOptions (snapshot, workspace);
+            appendRuntimePresetOptions (snapshot, workspace, trackChannels);
         }
 
         const RuntimeCheck* findCheck (const RuntimePreset& preset, const juce::String& id)
@@ -129,7 +129,7 @@ namespace hypha::reference_audition
             next.presetId = selection.presetId; next.checkId = selection.checkId;
             next.candidateId = selection.candidateId; next.cueId = selection.cueId;
             next.manifestRevision = workspace->manifest.revision;
-            appendPresetOptions (next, *workspace);
+            appendPresetOptions (next, *workspace, configuration.channels);
             publish (std::move (next));
         };
         const RuntimePreset* preset = findPreset (*workspace, selection.presetId);
@@ -149,7 +149,7 @@ namespace hypha::reference_audition
             next.rejectionCode = "reference_checks_empty";
             if (preset != nullptr) { next.presetId = preset->sourcePresetArtifact.presetId; next.presetName = preset->name; }
             next.manifestRevision = workspace->manifest.revision;
-            appendPresetOptions (next, *workspace);
+            appendPresetOptions (next, *workspace, configuration.channels);
             publish (std::move (next));
             return;
         }
@@ -170,7 +170,7 @@ namespace hypha::reference_audition
             next.manifestRevision = workspace->manifest.revision;
             next.hostSampleRateHz = static_cast<std::int64_t> (
                 std::llround (configuration.sampleRate));
-            appendPresetOptions (next, *workspace);
+            appendPresetOptions (next, *workspace, configuration.channels);
             for (const auto& item : preset->checks)
                 next.checks.push_back ({ item.checkId, item.label, {}, false });
             publish (std::move (next));
@@ -202,7 +202,7 @@ namespace hypha::reference_audition
             next.manifestRevision = workspace->manifest.revision;
             next.hostSampleRateHz = static_cast<std::int64_t> (
                 std::llround (configuration.sampleRate));
-            appendPresetOptions (next, *workspace);
+            appendPresetOptions (next, *workspace, configuration.channels);
             for (const auto& item : preset->checks)
                 next.checks.push_back ({ item.checkId, item.label, {}, false });
             for (const auto& item : check->candidates)
@@ -240,7 +240,7 @@ namespace hypha::reference_audition
         next.aRecordingId = activeABinding ? activeABinding->recordingId : juce::String {};
         next.aCaptureAvailable = aCapture.currentReceipt().has_value();
         next.manifestRevision = workspace->manifest.revision;
-        appendPresetOptions (next, *workspace);
+        appendPresetOptions (next, *workspace, configuration.channels);
         for (const auto& item : preset->checks)
             next.checks.push_back ({ item.checkId, item.label, {}, false });
         for (const auto& item : check->candidates)

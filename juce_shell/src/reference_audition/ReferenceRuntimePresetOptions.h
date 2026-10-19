@@ -3,6 +3,7 @@
 #include "ReferenceRuntimeV2Model.h"
 #include "ReferenceRuntimePendingPresets.h"
 #include "ReferenceLibrarySongs.h"
+#include "ReferenceSourceLoudness.h"
 #include <algorithm>
 #include <set>
 
@@ -19,7 +20,8 @@ namespace hypha::reference_audition
         return selected;
     }
 
-    inline void appendRuntimePresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace)
+    // trackChannels：この track の channels（B の曲の押したときの gain に足す量を決める。0 なら足さない）。
+    inline void appendRuntimePresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace, int trackChannels = 0)
     {
         if (workspace.library)
             for (const auto& preset : workspace.presets)
@@ -86,6 +88,7 @@ namespace hypha::reference_audition
                     auto currentFacts = facts != workspace.librarySets->songFacts.end() ? facts->second : RuntimeSongFacts {};
                     if (currentFacts.sourcePath.isNotEmpty())
                         currentFacts.sourceMissing = ! juce::File (currentFacts.sourcePath).existsAsFile();
+                    currentFacts.playbackLoudnessOffsetLu = playedLoudnessOffsetLu (currentFacts.channels, trackChannels);
                     option.facts.push_back (std::move (currentFacts));
                 }
                 snapshot.songSets.push_back (std::move (option));

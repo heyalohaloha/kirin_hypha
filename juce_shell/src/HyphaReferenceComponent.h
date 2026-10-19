@@ -86,6 +86,7 @@ struct SelectionOption
 struct SongFact
 {
     double lufsI = std::numeric_limits<double>::quiet_NaN();
+    double loudnessOffsetLu = 0.0;  // 鳴らす音が lufsI より大きく測れる量（mono の曲を stereo の track で +3.01 LU）
     bool prepared = false;
     reference_audition::RuntimeSongPreparation preparation; // Kirin OS がこの曲を準備している状態
     std::vector<double> centersHz;
@@ -187,6 +188,7 @@ struct State
     std::set<juce::String> listeningChecks;  // 耳で聴き比べる Check（図の代わりに聴き比べの案内を出す）
     double peakShortfallDb = 0.0;  // 鳴っている役が上限まで上げても A に届かない量（0.5 dB 以下）
     double aWindowLoudness = std::numeric_limits<double>::quiet_NaN(), cueLoudness = std::numeric_limits<double>::quiet_NaN();
+    double cueLoudnessOffsetLu = 0.0;  // C の鳴らす音が cueLoudness より大きく測れる量（mono を stereo の track で +3.01 LU）
     int aWindowBlocks = 0, aWindowNeededBlocks = 0; // 仕様 C：A の窓に入った点と、C の MATCH に要る点（10 Hz）
     double cueStartSeconds = std::numeric_limits<double>::quiet_NaN(), cueEndSeconds = std::numeric_limits<double>::quiet_NaN();
     double sourceDurationSeconds = std::numeric_limits<double>::quiet_NaN(), cuePlayheadSeconds = std::numeric_limits<double>::quiet_NaN();
@@ -202,6 +204,14 @@ struct State
 inline double displayGainDb (const State& state, double gainDb) noexcept
 {
     return gainDb + state.heldAttenuationDb;
+}
+
+// 鳴っていない曲を押したときの gain（下げる前の A の基準）：A の窓 −（その曲の Cue の値 + 鳴らす音が大きく測れる量）。
+// 鳴らしたときの MATCH と同じ数（mono の曲を stereo の track で +3.01 LU。INV-S47）。B の一覧と Balance はここを通す。
+inline double songMatchGainDb (const State& state, const SongFact& fact) noexcept
+{
+    return std::isfinite (state.aWindowLoudness) && std::isfinite (fact.lufsI)
+        ? state.aWindowLoudness - (fact.lufsI + fact.loudnessOffsetLu) : std::numeric_limits<double>::quiet_NaN();
 }
 
 inline bool canSelectB (const State& state) noexcept

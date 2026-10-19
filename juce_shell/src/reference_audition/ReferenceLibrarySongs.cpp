@@ -27,6 +27,7 @@ RuntimeSongFacts readSongFacts (const juce::File& root, const RuntimeLibrarySets
     if (source.accepted())
     {
         facts.sourcePath = source.source->absolutePath;
+        facts.channels = source.source->audio.channels;
         facts.sourceMissing = ! juce::File (facts.sourcePath).existsAsFile();
         if (facts.sourceMissing) return facts;
     }
