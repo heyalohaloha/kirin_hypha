@@ -68,7 +68,7 @@ Loudness (M / S / I), true peak, LRA, PLR and crest above a minute of history.
 Click a moment to hold it while measurement continues; step through every peak above −1 dBTP.
 </td>
 <td width="50%" valign="top">
-<img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
+<img src="docs/media/readme/freq.jpg" alt="FREQ: the cyan difference POST − PRE over the PRE and POST spectra">
 <br><b>Which frequencies changed</b> · FREQ<br>
 PRE, POST and their difference in LR, MID or SIDE, with a six-second field and a Focus Trail for
 any frequency.
@@ -76,10 +76,10 @@ any frequency.
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
+<img src="docs/media/readme/drum.jpg" alt="DRUM on a drum track: one hit locked, its PRE and POST envelopes, and the transient, strength, crest and sharpness differences">
 <br><b>How the same drum hit changed</b> · TIME / DRUM<br>
 Every hit measured on PRE and POST: transient, strength, crest and sharpness. Pick an octave band
-to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
+to compare each hit's delay, attack, release and level.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
@@ -89,7 +89,7 @@ Mid/side density, balance, correlation, and how much of each band survives the m
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: PRE playing at +1.8 dB with POST, MATCH and END in the footer">
+<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: LEVEL Δ after MATCH, with PRE selected and END in the footer">
 <br><b>Louder, or better?</b> · LISTEN<br>
 Hear the signal before or after your processing at a matched level, without stopping playback.
 Unverified timing keeps POST audible; the same comparison resumes after fresh proof.
@@ -118,8 +118,8 @@ place, at the same level.
 </table>
 
 <p align="center">
-<img src="docs/media/readme/tour.gif" width="760" alt="A tour of Kirin Hypha: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind">
-<br><sub>A tour: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind</sub>
+<img src="docs/media/readme/tour.gif" width="760" alt="A tour of Kirin Hypha: Hybrid VU, LEVEL, TIME, DRUM, FREQ, SPACE, LISTEN and PRE/POST Blind">
+<br><sub>A tour: Hybrid VU, LEVEL, TIME, DRUM, FREQ, SPACE, LISTEN and PRE/POST Blind</sub>
 </p>
 
 Also inside: the Hybrid VU with true-peak bars and clip lamps, the SHARP and LIVE timelines, the
@@ -323,9 +323,7 @@ TIME directly selects **HISTORY**, **RUN** (absolute facts grouped by playback r
 selected history), **DRUM** (per-hit attack, on a track or stem), signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
-![TIME example: independent main HISTORY and secondary PSR](docs/planning/hypha_drum_psr_g2_20261008/time-900-en.png)
-
-This example shows synthetic measurements.
+![TIME HISTORY: M, S and TP over 30 seconds, with PLR, correlation and PSR below](docs/media/readme/time.jpg)
 
 DRUM answers one question: **how did processing change the same hit?** Put PRE before the
 processing chain and POST after it to compare POST − PRE; with POST alone, read the output hit's
@@ -1306,7 +1304,7 @@ PRE/POST assignment in one click, without a preference question or another playb
 switching after reveal, or press **END**. Live Blind does not collect preference answers, save a
 vote, learn from it, or change audio from it. No Kirin OS is required.
 
-![PRE/POST Blind after REVEAL: SOURCE 1 was PRE and SOURCE 2 was POST; switching continues until END](docs/media/readme/blind_result.jpg)
+![PRE/POST Blind after REVEAL: SOURCE 1 was POST and SOURCE 2 was PRE; switching continues until END](docs/media/readme/blind_result.jpg)
 
 Alternatively use **LISTEN → MATCH → BLIND**. A valid, fully applied MATCH is reused without
 another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full match. If matching
