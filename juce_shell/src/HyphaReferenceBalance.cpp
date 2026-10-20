@@ -79,7 +79,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     const auto shift = [&state, &unmatched, bPlaying] (const SongFact& fact, bool chosenSong)
     {
         if (chosenSong && bPlaying && std::isfinite (state.appliedGainDb)) return state.appliedGainDb;
-        if (std::isfinite (state.aWindowLoudness) && std::isfinite (fact.lufsI)) return state.aWindowLoudness - fact.lufsI;
+        if (const auto gain = songMatchGainDb (state, fact); std::isfinite (gain)) return gain;
         unmatched = true;
         return 0.0;
     };

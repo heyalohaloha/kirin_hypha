@@ -173,7 +173,9 @@ inline void verify()
         for (int tick = 0; tick < 1000; ++tick) view.setRecordDisplay (display, false);
         require (view.recordInvalidationsForTest() == before, "1000 absent Record ticks: zero body invalidations");
         display.phase = KIRIN_RECORD_DISPLAY_FINALIZING; display.generation = 1;
+        const auto footer = view.footerInvalidationsForTest();
         view.setRecordDisplay (display, true);
+        require (view.footerInvalidationsForTest() == footer + 1, "the footer redraws to RECORD FINALIZING");
         const auto finalizing = view.recordInvalidationsForTest();
         require (finalizing == before + 1, "enter finalizing redraws once");
         require (! button (view, "history-live").isVisible(), "Record owns its body");
@@ -182,11 +184,14 @@ inline void verify()
         display.phase = KIRIN_RECORD_DISPLAY_RESULT_HOLD; display.has_session = 1;
         display.session.lufs_i = -14.1; display.session.lra = std::numeric_limits<double>::quiet_NaN();
         view.setRecordDisplay (display, true);
+        // After Stop nothing else of the view changes (transport stopped): the footer still redraws.
+        require (view.footerInvalidationsForTest() == footer + 2, "the footer leaves RECORD FINALIZING on its own");
         const auto held = view.recordInvalidationsForTest();
         view.setRecordDisplay (display, true);
         require (view.recordInvalidationsForTest() == held, "repeated NaN is unchanged");
         display.session.lufs_i = -14.0; view.setRecordDisplay (display, true);
         require (view.recordInvalidationsForTest() == held + 1, "changed result redraws");
+        require (view.footerInvalidationsForTest() == footer + 2, "an unchanged footer is not redrawn");
         display.phase = KIRIN_RECORD_DISPLAY_UNAVAILABLE; view.setRecordDisplay (display, true);
         view.setRecordDisplay ({}, false);
         require (view.recordInvalidationsForTest() == held + 3, "failure and release redraw");

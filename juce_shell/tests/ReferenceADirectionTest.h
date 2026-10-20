@@ -283,9 +283,58 @@ inline void verifyReferenceLoweredAReadings()
              "a gain reads with a sign, and a gain that rounds to zero reads +0.0");
 }
 
+// mono の曲を stereo の track で鳴らすと Kirin OS の値より 3.01 LU 大きく測れる（INV-S47）。鳴っていない曲の押したとき
+// の gain と C の MATCH の読みも、鳴らしたときの gain と同じ数にする（鳴らした瞬間に 3 dB 跳ばない）。LUFS-I の列は
+// Kirin OS の値のまま。A の窓は −14 LUFS、mono の曲は Kirin OS で −18（鳴らす音は −14.99）、stereo の曲も −18。
+inline void verifyReferenceMonoReadings()
+{
+    using namespace reference_guide_contract;
+    const i18n::ScopedLanguage english (i18n::Language::english);
+    constexpr double dualMono = 3.010299956639812;
+    auto state = named ("ready");
+    state.songs = { { "e1/e1/song-1", "Mono song" }, { "e2/e2/song-2", "Stereo song" } };
+    state.songId = "e1/e1/song-1";
+    for (const auto offset : { dualMono, 0.0 })
+    {
+        reference_ui::SongFact fact;
+        fact.lufsI = -18.0; fact.loudnessOffsetLu = offset; fact.prepared = true;
+        state.songFacts.push_back (fact);
+    }
+    state.aWindowLoudness = -14.0;
+    state.aWindowBlocks = 100;
+    state.referenceReady = state.referenceArmable = true;
+    state.referenceStep = reference_ui::SourceStep::ready;
+    state.comparisonSlot = 3;
+    reference_ui::Component panel;
+    panel.setVisible (true);
+    panel.setPresentationContext (presentation::forEditor (900, 600));
+    panel.setSize (888, 470);
+    panel.setState (state);
+    auto* list = dynamic_cast<reference_ui::SongList*> (panel.findChildWithID ("reference-song-list"));
+    require (list != nullptr && list->rows().size() == 2 && ! list->rows()[0].playing
+                 && std::abs (list->rows()[0].gainDb - (-14.0 + 18.0 - dualMono)) < 1.0e-9
+                 && std::abs (list->rows()[1].gainDb - 4.0) < 1.0e-9,
+             "a mono song not playing reads the gain it plays at on a stereo track");
+    require (std::abs (list->rows()[0].lufsI + 18.0) < 1.0e-9 && std::abs (list->rows()[1].lufsI + 18.0) < 1.0e-9,
+             "the LUFS-I column keeps the Kirin OS value");
+    require (std::abs (reference_ui::songMatchGainDb (state, state.songFacts[0]) - list->rows()[0].gainDb) < 1.0e-9,
+             "the B list and Balance share one reading of the gain a song plays at");
+
+    auto check = state;
+    check.separateComparisons = true;
+    check.comparisonSlot = 2;
+    check.comparisonMode = "loudness_match";
+    check.cueLoudness = -16.0;
+    check.cueLoudnessOffsetLu = dualMono;
+    require (std::abs (reference_ui::comparisonGainDb (check) - (-14.0 + 16.0 - dualMono)) < 1.0e-9
+                 && reference_ui::matchReadout (check) == "ON PLAY / C " + juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92" "1.0")) + " dB",
+             "C reads the gain a mono Cue plays at before it plays");
+}
+
 inline void verifyReferenceADirection()
 {
     verifyReferenceLoweredAReadings();
+    verifyReferenceMonoReadings();
     using namespace reference_guide_contract;
     using namespace a_direction;
     const i18n::ScopedLanguage english (i18n::Language::english);

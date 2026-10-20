@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::spectrum::SPECTRUM_PRESENTATION_HZ;
@@ -182,10 +182,10 @@ impl SpectrumExchangeWorker {
         }
         let state = Arc::clone(&self.state);
         let coordinator = Arc::downgrade(coordinator);
-        match thread::Builder::new()
-            .name("kirin-hypha-spectrum-exchange".to_string())
-            .spawn(move || run_worker(state, coordinator))
-        {
+        match crate::engine::denormal_flush::spawn_named_measurement_thread(
+            "kirin-hypha-spectrum-exchange",
+            move || run_worker(state, coordinator),
+        ) {
             Ok(handle) => {
                 *slot = Some(handle);
                 self.reset_supervisor();

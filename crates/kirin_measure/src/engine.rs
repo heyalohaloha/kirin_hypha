@@ -358,6 +358,9 @@ mod readout;
 #[path = "engine_session_summary.rs"]
 mod session_summary;
 
+#[path = "denormal_flush.rs"]
+pub(crate) mod denormal_flush;
+
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;

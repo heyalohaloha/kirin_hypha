@@ -43,7 +43,7 @@ inline juce::String rejectedStatus (const juce::String& code)
     if (code == "reference_source_audio_mismatch")
         return "SOURCE FORMAT CHANGED / VERIFY IN KIRIN OS";
     // 2026-10-18：知らない理由を「Kirin OS で準備し直す」と推測しない（Kirin OS では準備済みで直す手段が無かった）。
-    if (code == "channel_layout_unsupported") return "CHANNELS DIFFER FROM THIS TRACK / USE A SOURCE WITH THE SAME CHANNELS";
+    if (code == "channel_layout_unsupported") return "STEREO SOURCE ON A MONO TRACK / USE A STEREO TRACK";
     if (code == "reference_source_receipt_rejected") return "SOURCE RECORD DOES NOT MATCH / PREPARE AGAIN IN KIRIN OS";
     if (code == "reference_source_contract_rejected") return "SOURCE RECORD NOT READ / UPDATE KIRIN OS AND HYPHA";
     if (code.startsWith ("reference_preset_") || code == "reference_work_invalid"

@@ -33,7 +33,7 @@ namespace hypha::reference_audition
         std::shared_ptr<const RuntimeSource> source;
         std::uint64_t epoch = 0;
         bool cueLevel = false;
-        double cueLoudness = unavailable(), cuePeak = unavailable();
+        double cueLoudness = unavailable(), cuePeak = unavailable(), loudnessOffset = 0.0;
         {
             const juce::ScopedLock lock (stateLock);
             if (! ready.load (std::memory_order_acquire)
@@ -48,14 +48,15 @@ namespace hypha::reference_audition
             cueLevel = currentSnapshot.cueLevelAvailable;
             cueLoudness = currentSnapshot.cueIntegratedLoudness;
             cuePeak = currentSnapshot.cueMaximumTruePeakDbtp;
+            loudnessOffset = currentSnapshot.sourceLoudnessOffsetLu;
         }
         if (source == nullptr)
             return false;
         // B・C で鳴らすのは Cue なので、Kirin OS の Cue の値（ranges）があればそれで合わせる。無ければ
         // 曲全体の値（Kirin OS で測り直すと Cue の値になる）。V は曲全体の位置合わせの観測差で合わせる。
         const auto& summary = source->measurementSummary;
-        const auto sourceLoudness = cueLevel && ! versionComparison ? cueLoudness
-            : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable();
+        const auto sourceLoudness = loudnessOffset + (cueLevel && ! versionComparison ? cueLoudness
+            : summary && summary->loudnessLufsI ? *summary->loudnessLufsI : unavailable());
         const auto sourcePeak = cueLevel && ! versionComparison && std::isfinite (cuePeak) ? cuePeak
             : summary && summary->maximumTruePeakDbtp ? *summary->maximumTruePeakDbtp : unavailable();
         const auto rejectMatch = [&] (MatchFailure reason, double neededAttenuationDb = 0.0)

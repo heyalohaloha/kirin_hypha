@@ -80,6 +80,7 @@ namespace hypha::reference_audition
         reader.reset();
         sourceLength = 0;
         sourceChannels = 0;
+        fileChannels = 0;
         setPinnedCue (0, 0, false);
         if (nextReader == nullptr || ! std::isfinite (hostSampleRate) || hostSampleRate <= 0.0
             || (hostChannels != 1 && hostChannels != 2))
@@ -87,7 +88,11 @@ namespace hypha::reference_audition
         const bool rateDiffers = std::abs (nextReader->sampleRate - hostSampleRate) > 0.001;
         if (rateDiffers && ! sampleRateConversionApproved)
             return "sample_rate_unsupported";
-        if (static_cast<int> (nextReader->numChannels) != hostChannels)
+        // A mono file on a stereo track plays its one channel on both sides (the reader copies it,
+        // off the Audio Thread). Stereo on a mono track would need a downmix that changes the
+        // sound, so it stays refused.
+        const auto readerChannels = static_cast<int> (nextReader->numChannels);
+        if (readerChannels != hostChannels && ! (readerChannels == 1 && hostChannels == 2))
             return "channel_layout_unsupported";
         if (nextReader->lengthInSamples <= 0)
             return "source_decode_failed";
@@ -103,6 +108,7 @@ namespace hypha::reference_audition
         }
         pageFrames = nextPageFrames;
         sourceChannels = hostChannels;
+        fileChannels = readerChannels;
         sourceSampleRate = nextReader->sampleRate;
         outputSampleRate = hostSampleRate;
         sampleRateConversion = rateDiffers;
@@ -135,6 +141,7 @@ namespace hypha::reference_audition
             conversionInput.setSize (0, 0);
             sourceLength = 0;
             sourceChannels = 0;
+            fileChannels = 0;
             sourceSampleRate = 0.0;
             outputSampleRate = 0.0;
             sampleRateConversion = false;

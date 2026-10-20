@@ -92,6 +92,9 @@ namespace hypha::reference_audition
         // 選んだ Cue の Kirin OS の値（ranges）。無ければ曲全体の値で合わせている（Kirin OS で測り直すと使う）。
         bool cueLevelAvailable = false;
         double cueIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
+        // 鳴らす音が Kirin OS の値より大きく測れる量（mono の音源を stereo の track の両 ch で鳴らすと +3.01 LU）。
+        // Kirin OS の値（cue・曲全体）は表示のまま、MATCH と追従と合わせた後の読みだけに足す。
+        double sourceLoudnessOffsetLu = 0.0;
         double cueMaximumTruePeakDbtp = std::numeric_limits<double>::quiet_NaN();
         int cueWindowBlocks = 100;  // C の A 側の窓（10 Hz のブロック数）
         // C の画面。Cue の 64 帯域・4 帯域（Kirin OS の値、gain の前）、Cue の位置・ループと音源の長さ（秒）。

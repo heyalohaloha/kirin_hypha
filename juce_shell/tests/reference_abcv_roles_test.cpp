@@ -5,6 +5,8 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
+#include "ReferenceControllerTestAccess.h"
+#include <tuple>
 
 void testReferenceRoles (const juce::File&);
 
@@ -12,19 +14,26 @@ namespace
 {
 struct Song { juce::File file; juce::String hash, pcm, candidateId; ref::RuntimeContentReceipt source; };
 
-Song writeSong (const juce::File& root, const juce::String& name, float level, double lufs, const juce::String& candidateId)
+// 2 秒の一定の値の曲。channels は 1 か 2、rate は元の音の sample rate。
+Song writeSong (const juce::File& root, const juce::String& name, float level, double lufs, const juce::String& candidateId,
+                int channels = 2, int rate = 48'000)
 {
     Song song { root.getChildFile (name + ".wav"), {}, juce::String::repeatedString (name.getLastCharacters (1), 64), candidateId, {} };
     {
         juce::WavAudioFormat format;
         auto stream = song.file.createOutputStream();
-        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (stream.release(), 48'000, 2, 32, {}, 0));
-        juce::AudioBuffer<float> data (2, 96'000);
-        for (int channel = 0; channel < 2; ++channel) juce::FloatVectorOperations::fill (data.getWritePointer (channel), level, 96'000);
-        require (writer && writer->writeFromAudioSampleBuffer (data, 0, 96'000), "song samples");
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (
+            stream.release(), rate, static_cast<unsigned int> (channels), 32, {}, 0));
+        juce::AudioBuffer<float> data (channels, rate * 2);
+        for (int channel = 0; channel < channels; ++channel) juce::FloatVectorOperations::fill (data.getWritePointer (channel), level, rate * 2);
+        require (writer && writer->writeFromAudioSampleBuffer (data, 0, rate * 2), "song samples");
     }
     song.hash = juce::SHA256 (song.file).toHexString();
     auto source = makeRuntimeV2Source (song.file, song.hash, song.pcm);
+    auto* audio = source["audio"].getDynamicObject();
+    audio->setProperty ("channels", channels);
+    audio->setProperty ("sample_rate_hz", rate);
+    audio->setProperty ("total_sample_frames", rate * 2);
     addRuntimeV2MeasurementSummary (source, lufs, -6.0);
     song.source = stageRuntimeV2Artifact (root, "sources", source);
     return song;
@@ -87,16 +96,9 @@ KirinMeterHistoryEntry window (double lufs)
     value.true_peak = { -3.0, -3.0, -3.0 };
     return value;
 }
-}
 
-void testReferenceRoles (const juce::File& sandbox)
+juce::var libraryPreset (const Song& checkSong)
 {
-    const auto root = sandbox.getChildFile ("abcv-roles");
-    require (root.createDirectory().wasOk(), "roles fixture directory");
-    const juce::String setId = "66666666-6666-4666-8666-666666666661";
-    const auto first = writeSong (root, "song1", 0.1f, -18.0, "11111111-1111-4111-8111-111111111111");
-    const auto second = writeSong (root, "song2", 0.2f, -16.0, "22222222-2222-4222-8222-222222222222");
-    const auto checkSong = writeSong (root, "check3", -0.25f, -18.0, "33333333-3333-4333-8333-333333333333");
     auto preset = bindRuntimeV2PresetToSource ("88888888-8888-4888-8888-888888888888", "99999999-9999-4999-8999-999999999999",
                                                checkSong.source, checkSong.hash, checkSong.pcm);
     auto* object = preset.getDynamicObject();
@@ -104,6 +106,100 @@ void testReferenceRoles (const juce::File& sandbox)
     object->setProperty ("version", "1.0");
     object->removeProperty ("work_id"); object->removeProperty ("source_preset_artifact");
     preset["checks"][0]["candidates"][0].getDynamicObject()->setProperty ("preparation_status", "prepared");
+    return preset;
+}
+
+// mono の曲を stereo の track の B（B セットの曲）と C（Check、44.1 kHz で rate を変換する）で鳴らす。左右は bit で
+// 同じ sample。MATCH は Kirin OS の値（1 ch で測った値）に dual mono の +3.0103 LU を足して合わせる。
+// stereo の曲を mono の track では B も C も断る（勝手に混ぜない）。
+void monoSongsOnStereoTrack (const juce::File& sandbox)
+{
+    namespace control = hypha::tests::reference_control;
+    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    // 曲の channels の library：B の曲（48 kHz）と C の Check（44.1 kHz）。
+    const auto publish = [&sandbox] (const juce::String& name, int songChannels)
+    {
+        const auto root = sandbox.getChildFile (name);
+        require (root.createDirectory().wasOk(), "mono fixture directory");
+        const auto song = writeSong (root, "mono4", 0.1f, -18.0, "44444444-4444-4444-8444-444444444444", songChannels);
+        const auto checkSong = writeSong (root, "mono5", -0.25f, -20.0, "55555555-5555-4555-8555-555555555555", songChannels, 44'100);
+        auto preset = libraryPreset (checkSong);
+        auto* cue = preset["checks"][0]["candidates"][0]["cues"][0].getDynamicObject();
+        cue->setProperty ("sample_rate_hz", 44'100);
+        cue->setProperty ("end_sample", 88'200);
+        require (writeJson (root.getChildFile ("library/sets.json"), songSets ("66666666-6666-4666-8666-666666666662",
+                     { candidate (song, "Mono song", "44444444-4444-4444-8444-444444444445") }))
+                 && writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)),
+                 "a library with a B song and a Check");
+        return root;
+    };
+    const auto monoSongs = publish ("abcv-mono", 1), stereoSongs = publish ("abcv-mono-stereo-songs", 2);
+    for (const int channels : { 2, 1 })
+    {
+        ref::ReferenceComparisonController controller (channels == 2 ? monoSongs : stereoSongs, [] (bool) { return true; });
+        controller.configure ({ "abcv-mono-" + juce::String (channels), {}, 42, true }, 48'000, channels);
+        controller.setPresented (true);
+        juce::AudioBuffer<float> block (channels, 480);
+        std::int64_t position = 0;
+        const auto host = [&]
+        {
+            block.clear();
+            beginReferenceRtProbe();
+            controller.observeTransport (position, true, true);
+            controller.observeAInput (block, position, true, true, true);
+            controller.renderSelectedB (block, position, true, true, true);
+            require (endReferenceRtProbe() == 0, "a mono song adds no heap operations to the audio callback");
+            position += block.getNumSamples();
+            for (int frame = 0; frame < block.getNumSamples(); ++frame)
+                require (block.getSample (0, frame) == block.getSample (channels - 1, frame), "a mono song plays bit identical on both channels");
+        };
+        host();
+        if (channels == 1)
+        {
+            const auto refused = [] (const auto& role) { return role != nullptr && role->rejectionCode == "channel_layout_unsupported"; };
+            require (control::waitUntil (deadline(), [&] {
+                const auto s = controller.snapshot(); return refused (s.referenceSelection) && refused (s.checkSelection); }),
+                     "stereo songs on a mono track are refused for B and C instead of mixed down");
+            continue;
+        }
+        require (control::waitUntil (deadline(), [&] { const auto s = controller.snapshot(); return s.referenceReady && s.checkReady; }),
+                 "a mono B song and a mono Check prepare on a stereo track");
+        constexpr double dualMono = 3.010299956639812;
+        // 鳴らす前の読み：B の一覧の曲と C は、鳴らすときと同じ量を持つ（画面の押したときの gain が跳ばない）。
+        const auto before = controller.snapshot();
+        require (before.songSets.size() == 1 && before.songSets[0].facts.size() == 1
+                     && std::abs (before.songSets[0].facts[0].playbackLoudnessOffsetLu - dualMono) < 1.0e-9
+                     && before.checkSelection != nullptr && std::abs (before.checkSelection->sourceLoudnessOffsetLu - dualMono) < 1.0e-9,
+                 "a mono B song and a mono Check carry the dual mono offset before they play");
+        for (const auto& [slot, level, lufs] : { std::tuple { 3, 0.1, -18.0 }, std::tuple { 2, -0.25, -20.0 } })
+        {
+            require (controller.requestAudition (slot, -14.0, -2.0), "the mono role plays");
+            host(); host();
+            const auto state = controller.snapshot();
+            const auto& role = slot == 3 ? state.referenceSelection : state.checkSelection;
+            const auto gainDb = -14.0 - (lufs + dualMono);
+            require (state.audibleComparisonSlot == slot && role != nullptr && std::abs (role->appliedGainDb - gainDb) < 1.0e-6
+                         && std::abs (role->adjustedBIntegratedLoudness + 14.0) < 1.0e-6,
+                     "the mono role's MATCH is A - (Kirin OS value + 3.0103)");
+            require (std::abs (block.getSample (0, 479) - level * std::pow (10.0, gainDb / 20.0)) < 1.0e-4,
+                     "the mono role sounds at the matched gain on both channels");
+        }
+        controller.selectA();
+        host(); host();
+    }
+    std::cout << "Reference mono songs on B and C PASS\n";
+}
+}
+
+static void rolesShareOneOutput (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("abcv-roles");
+    require (root.createDirectory().wasOk(), "roles fixture directory");
+    const juce::String setId = "66666666-6666-4666-8666-666666666661";
+    const auto first = writeSong (root, "song1", 0.1f, -18.0, "11111111-1111-4111-8111-111111111111");
+    const auto second = writeSong (root, "song2", 0.2f, -16.0, "22222222-2222-4222-8222-222222222222");
+    const auto checkSong = writeSong (root, "check3", -0.25f, -18.0, "33333333-3333-4333-8333-333333333333");
+    auto preset = libraryPreset (checkSong);
     auto verse = preset["checks"][0]["candidates"][0]["cues"][0].clone();  // C の 2 つ目の Cue（C の選択の替え）
     verse.getDynamicObject()->setProperty ("cue_id", "77777777-7777-4777-8777-777777777778");
     verse.getDynamicObject()->setProperty ("label", "Verse");
@@ -273,4 +369,10 @@ void testReferenceRoles (const juce::File& sandbox)
           "a saved song that left the B set is reported");
     require (controller.snapshot().selectedSongId == missing.reference.target(), "the saved song is not silently replaced");
     std::cout << "Reference A/B/C/V roles: B songs, one role at a time, song switch, follow and resume PASS\n";
+}
+
+void testReferenceRoles (const juce::File& sandbox)
+{
+    rolesShareOneOutput (sandbox);
+    monoSongsOnStereoTrack (sandbox);  // mono の track の確かめは上の stereo の library を読むので後に流す
 }

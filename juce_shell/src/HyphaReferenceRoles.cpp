@@ -96,8 +96,8 @@ void Component::syncRoles (bool blindSession)
         const bool selected = song.id == current.songId;
         const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
         // MATCH：鳴っている曲は実際の gain、ほかは押したときの gain（A の窓 − その曲の Cue の値）。どちらも読みの基準で。
-        const auto would = fact.prepared && ! preparationFailed (fact.preparation) && std::isfinite (current.aWindowLoudness) && std::isfinite (fact.lufsI)
-            ? current.aWindowLoudness - fact.lufsI : std::numeric_limits<double>::quiet_NaN();
+        const auto would = fact.prepared && ! preparationFailed (fact.preparation)
+            ? songMatchGainDb (current, fact) : std::numeric_limits<double>::quiet_NaN();
         rows.push_back ({ song.id, songChoiceName (song.label), fact.lufsI,
                           displayGainDb (current, playing ? current.appliedGainDb : would),
                           selected, playing, ! fact.prepared, preparationWord (fact.preparation) });

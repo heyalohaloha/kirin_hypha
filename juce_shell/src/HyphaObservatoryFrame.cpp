@@ -170,7 +170,7 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
         || ! observation_equality::same (previous, observatoryFrame))
     {
         repaint (bodyArea);
-        if (previousState != footerStatusText()) repaint (sessionArea);
+        repaintFooterIfChanged (previousState);
     }
 }
 
@@ -217,7 +217,7 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
         resumeLevelHistory();
     else if (historyIdentityChanged) updateLevelHistoryControls();
     repaint (bodyArea);
-    if (previousState != footerStatusText()) repaint (sessionArea);
+    repaintFooterIfChanged (previousState);
 }
 
 void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
@@ -226,6 +226,7 @@ void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
         && (! available || observation_equality::same (recordDisplay, value)))
         return;
     const auto previouslyShowing = recordDisplayShowing();
+    const auto previousState = footerStatusText();
     recordDisplay = value;
     recordDisplayAvailable = available;
     const auto showing = recordDisplayShowing();
@@ -237,6 +238,8 @@ void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
         layoutLevelHistoryControls();
         repaint (bodyArea);
     }
+    // The footer names the Keep's phase on every domain; after Stop it may be the only change.
+    repaintFooterIfChanged (previousState);
 }
 
 bool View::recordDisplayShowing() const noexcept
@@ -287,5 +290,15 @@ observatory_world::State View::worldState() const noexcept
         ? static_cast<float> (juce::jlimit (
             -1.0, 1.0, observatoryFrame.meter.balance_db / 12.0)) : 0.0f;
     return state;
+}
+
+void View::repaintFooterIfChanged (const juce::String& previous)
+{
+    // The footer names the Keep's phase and the live state. Whichever input changed its text, the
+    // footer redraws; nothing else on screen may be changing (a stopped transport after Stop).
+    if (previous == footerStatusText())
+        return;
+    ++footerInvalidations;
+    repaint (sessionArea);
 }
 }
