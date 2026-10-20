@@ -1,18 +1,39 @@
+<div align="center">
+
 # Kirin Hypha
 
-**See — and hear — exactly what your processing chain changed.**
+### See the signal. Touch nothing.
 
-A free, open-source measurement plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
+Measure before and after your processing chain, see exactly what it changed, then hear both sides
+at the same loudness — with the names hidden if you like.<br>
+A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (VST3 · AAX).
+
+</div>
 
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
-Put **POST Kirin Hypha** on a bus or master and read loudness, true peak and crest. Add **PRE**
-before your processors when you want to see what the chain changed. Normal measurement passes
-the audio through unchanged, with zero added latency. Comparison listening starts only when you
-choose it.
+<p align="center">
+<a href="#download"><b>Download 1.1.52</b></a> &nbsp;·&nbsp;
+<a href="#start-in-under-a-minute"><b>Start in a minute</b></a> &nbsp;·&nbsp;
+<a href="#what-you-can-do"><b>What you can do</b></a> &nbsp;·&nbsp;
+<a href="#building-from-source"><b>Build from source</b></a>
+</p>
 
-**[Download 1.1.52](#download)** · **[Start in a minute](#start-in-under-a-minute)** ·
-**[What it measures](#what-it-measures)** · **[Build from source](#building-from-source)**
+<table>
+<tr>
+<td width="50%" valign="top"><b>Touches nothing</b><br>
+Normal measurement passes the audio through unchanged, with zero added latency.</td>
+<td width="50%" valign="top"><b>Before and after</b><br>
+PRE before your chain, POST after it. POST shows its own reading, or the difference as Δ.</td>
+</tr>
+<tr>
+<td width="50%" valign="top"><b>A fair listen</b><br>
+Switch PRE and POST at matched loudness while the DAW plays — or blind. Listening starts only
+when you choose it.</td>
+<td width="50%" valign="top"><b>Open to inspection</b><br>
+GPLv3. Every metric is backed by a known-signal test you can read and run.</td>
+</tr>
+</table>
 
 <details>
 <summary>Contributor guides</summary>
@@ -35,6 +56,86 @@ Commands and prerequisites are in [Building from source](#building-from-source).
 Names are optional labels. PRE and POST do not need matching names, and track position is never used
 to guess a pair. PRE captures the input state, while POST captures the output state and joins only
 verified matching observations.
+
+## What you can do
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/level.jpg" alt="LEVEL: momentary, short-term and integrated loudness, true peak, LRA, PLR and crest above 60 seconds of history">
+<br><b>Loudness now, and the last minute</b> · LEVEL<br>
+Loudness (M / S / I), true peak, LRA, PLR and crest above a minute of history.
+Click a moment to hold it while measurement continues; step through every peak above −1 dBTP.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
+<br><b>Which frequencies changed</b> · FREQ<br>
+PRE, POST and their difference in LR, MID or SIDE, with a six-second field and a Focus Trail for
+any frequency.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
+<br><b>How the same drum hit changed</b> · TIME / DRUM<br>
+Every hit measured on PRE and POST: transient, strength, crest and sharpness. Pick an octave band
+to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
+<br><b>What survives the mono sum</b> · SPACE<br>
+Mid/side density, balance, correlation, and how much of each band survives the mono sum.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: PRE playing at +1.8 dB with POST, MATCH and END in the footer">
+<br><b>Louder, or better?</b> · LISTEN<br>
+Hear the signal before or after your processing at a matched level, without stopping playback.
+Unverified timing keeps POST audible; the same comparison resumes after fresh proof.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
+<br><b>Decide with the names hidden</b> · BLIND<br>
+Two anonymous sources at a fixed matched level. Switch while the DAW plays, then <b>REVEAL</b>
+which one was PRE and which was POST.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/readme/ref_c.jpg" alt="Reference C: your mix and a reference cue on the same spectrum, with four-band differences and the cue timeline">
+<br><b>Your mix beside your references</b> · Reference A · B · C · V (with Kirin OS)<br>
+Compare your mix (A) with ranked reference songs (B), a check on a reference cue (C) or another
+version of the same song (V), at the same level and with the same spectrum definition.
+</td>
+<td width="50%" valign="top">
+<img src="docs/media/readme/ref_v.jpg" alt="Reference V: your mix against another version of the same song across the whole timeline">
+<br><b>Another version, from the same place</b> · Reference V<br>
+Hypha finds where your mix is in another version of the same song and plays it from the same
+place, at the same level.
+</td>
+</tr>
+</table>
+
+<p align="center">
+<img src="docs/media/readme/tour.gif" width="760" alt="A tour of Kirin Hypha: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind">
+<br><sub>A tour: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind</sub>
+</p>
+
+Also inside: the Hybrid VU with true-peak bars and clip lamps, the SHARP and LIVE timelines, the
+time your chain takes between PRE and POST, and a screen in English or Japanese.
+
+**Free, and more with Kirin OS.** Everything above except Reference works on its own, free — up to
+12 PRE/POST pairs per project. With a Kirin OS license, Reference compares your mix with your own
+library, and Keep / Record saves a playback's measurements with the song. See [Modes](#modes).
+
+## New in 1.1.52
+
+Keep comparing while your DAW loops. PRE/POST comparison starts and continues during Logic's
+Cycle, and Keep continues through a loop; its record timeline holds the first pass. Waiting for
+matching audio and a stop that needs your action now look different. On Windows, the installer
+removes an older copy installed for one user, so your DAW loads the new version.
+Start with POST and LEVEL as before. [Read the release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.52).
 
 ## Download
 
@@ -87,69 +188,91 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 </details>
 
-## New in 1.1.52
+## The full manual
 
-Keep comparing while your DAW loops. PRE/POST comparison starts and continues during Logic's
-Cycle, and Keep continues through a loop; its record timeline holds the first pass. Waiting for
-matching audio and a stop that needs your action now look different. On Windows, the installer
-removes an older copy installed for one user, so your DAW loads the new version.
-Start with POST and LEVEL as before. [Read the release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.52).
+Measured, not judged: Hypha reports what it captured — no score, no target, no recommendation.
+The [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
+records the verified scope, including all 70 assets of the EBU Loudness Test Set v05.
 
-![A tour of Kirin Hypha: LEVEL, TIME, FREQ, SPACE, Reference and PRE/POST Blind](docs/media/readme/tour.gif)
+- [Design](#design) — what Hypha measures, and what it never does to your audio
+- [Modes](#modes) · [Screen language](#screen-language) · [Channel scope](#channel-scope)
+- [Observation domains](#observation-domains) — LEVEL, TIME, DRUM, FREQ, SHARP, LIVE and SPACE in detail
+- [What it measures](#what-it-measures) — every metric, window and standard
+- [Installation](#installation) · [Pairing PRE and POST](#pairing-pre-and-post) · [Requirements](#requirements)
+- [Reference from Kirin OS](#reference-from-kirin-os) · [Live PRE/POST compare](#live-prepost-compare) ·
+  [Local PRE/POST Blind Compare](#local-prepost-blind-compare)
+- [Watch mode](#watch-mode) · [Record mode](#record-mode-kirin-os-required)
+- [Building from source](#building-from-source) · [License](#license)
 
-## Highlights
+---
 
-<table>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/media/readme/level.jpg" alt="LEVEL: momentary, short-term and integrated loudness, true peak, LRA, PLR and crest above 60 seconds of history">
-<br><b>LEVEL</b> — loudness (M / S / I), true peak, LRA, PLR and crest above a minute of history.
-Click a moment to hold it while measurement continues; step through every peak above −1 dBTP.
-</td>
-<td width="50%" valign="top">
-<img src="docs/media/readme/freq.jpg" alt="FREQ: six seconds of POST spectrum with peak hold">
-<br><b>FREQ</b> — where the chain changed: PRE, POST and their difference in LR, MID or SIDE, with
-a six-second field and a Focus Trail for any frequency.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/planning/hypha_drum_psr_g2_20261008/drum-v2-all-900-en.png" alt="DRUM example: per-hit transient, strength, crest and sharpness">
-<br><b>TIME / DRUM</b> — every drum hit measured on PRE and POST: transient, strength, crest and
-sharpness. Pick an octave band to compare each hit's delay, attack, release and level. The example uses synthetic measurements.
-</td>
-<td width="50%" valign="top">
-<img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
-<br><b>SPACE</b> — mid/side density, balance, correlation, and how much of each band survives the
-mono sum.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/media/readme/listen.jpg" alt="Live PRE/POST compare: PRE playing at +1.8 dB with POST, MATCH and END in the footer">
-<br><b>Live PRE/POST compare</b> — hear the signal before or after your processing at a matched
-level. Unverified timing keeps POST audible; the same comparison resumes after fresh proof.
-</td>
-<td width="50%" valign="top">
-<img src="docs/media/readme/blind.jpg" alt="PRE/POST Blind: two anonymous sources, SOURCE 1 and SOURCE 2, with REVEAL and END">
-<br><b>PRE/POST Blind</b> — two anonymous sources at a fixed matched level. Switch while the DAW
-plays, then <b>REVEAL</b> which one was PRE and which was POST.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/media/readme/ref_c.jpg" alt="Reference C: your mix and a reference cue on the same spectrum, with four-band differences and the cue timeline">
-<br><b>Reference A · B · C · V</b> (with Kirin OS) — compare your mix (A) with ranked reference
-songs (B), a check on a reference cue (C) or another version of the same song (V), at the same
-level and with the same spectrum definition.
-</td>
-<td width="50%" valign="top">
-<img src="docs/media/readme/ref_v.jpg" alt="Reference V: your mix against another version of the same song across the whole timeline">
-<br><b>Reference V</b> — Hypha finds where your mix is in another version of the same song and
-plays it from the same place, at the same level.
-</td>
-</tr>
-</table>
+## Design
+
+Kirin Hypha is built to **observe, not to advise**.
+
+It produces measurement data. During normal measurement, it does not generate, modify, attenuate,
+or delay audio: the same input produces the same output, every time. An explicit comparison audition
+is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
+Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
+
+Two display filters exist in the shipping JUCE surface. They affect what is drawn, never what is
+measured, stored, or read back.
+
+- **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
+  and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
+  neither sign is favoured.
+- **MONO's live curve.** A band with nothing to measure in the current 100 ms observation (the rest
+  between two drum hits, for instance) keeps the value it was last measured at for up to one second,
+  drawn faintly, so the curve does not blink between hits. After that the band breaks the line.
+
+Watch draws the measurement engine's own Watch snapshot directly. SPACE's six-second MONO
+field draws observations as measured.
+
+When playback stops, or a rest outlasts the 3-second Watch window, the pages with a six-second history
+(FREQ's field or landscape, LIVE, SHARP and SPACE's MONO field) keep what was measured on screen,
+dimmed, and withdraw only the present: the live curve and the current values. Rests shorter than
+3 seconds, such as the gaps between drum hits, keep every page live.
+
+Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
+numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME
+history, the SHARP and LIVE timelines, Record, Keep, and `plugin_data`. A value read back later is therefore the measured
+one, and FREQ's live curve can differ from its unsmoothed numeric readout while it is moving.
+
+Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
+
+The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
+records the verified scope: BS.1770-5 Annex 1/2 for mono and stereo, all 70 assets in the EBU
+Loudness Test Set v05, the source archive SHA-256, and comparison of the Hypha wrapper with the
+pinned `ebur128` reference. The suite was rerun on 2026-10-06. While surround is held back, the
+5.0/5.1 test assets are checked against the pinned reference only and are not evidence for a
+surround mode. Hypha does not claim EBU Mode conformance and does not use the EBU logo.
+
+## Modes
+
+| Feature | Standalone | With Kirin OS |
+|---|---|---|
+| Watch mode | ✓ | ✓ |
+| POST on-demand DRUM / FREQ / SHARP / LIVE | ✓ | ✓ |
+| Local PRE/POST Blind Compare | ✓ | ✓ |
+| Live PRE/POST compare | ✓ | ✓ |
+| Reference A · B · C · V and VERSION BLIND | — | ✓ |
+| Record mode | — | ✓ |
+| plugin_data output | — | ✓ |
+
+Kirin Hypha is free, and everything without Kirin OS above works as a standalone plug-in. Reference and Record
+mode require a Kirin OS license.
+
+## Screen language
+
+Hypha's screen is in English or Japanese. **MENU → Display → Language** chooses **English** or
+**日本語**; until a choice is made, Hypha follows the system's display language. The choice is saved
+for every PRE and POST, and open editors switch at once. In Japanese, what explains or reports is
+Japanese: status lines, notices, hover help, menus, guidance and dialog text. Measurement labels,
+abbreviations, legends, units and values (LEVEL, LUFS, TP, POST / Δ, MARK) stay as written, so the
+layout and the measurement vocabulary are the same in both languages. Action labels are translated,
+except Blind's **REVEAL** and **END**, which read the same in both. Names you give stay as written. The language changes
+only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
+Kirin OS, and every measurement stay the same.
 
 ## Channel scope
 
@@ -413,74 +536,6 @@ plug-ins. It adds no analyzer, consumes no analysis slot, and runs whether or no
 Two POST optional analyzers may stay active: one can remain on the 2MIX while the other follows the
 working track. A third identifies the owners and waits until one of them leaves DRUM, FREQ, SHARP or LIVE for
 another view, or closes.
-
-## Design
-
-Kirin Hypha is built to **observe, not to advise**.
-
-It produces measurement data. During normal measurement, it does not generate, modify, attenuate,
-or delay audio: the same input produces the same output, every time. An explicit comparison audition
-is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
-Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
-
-Two display filters exist in the shipping JUCE surface. They affect what is drawn, never what is
-measured, stored, or read back.
-
-- **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
-  and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
-  neither sign is favoured.
-- **MONO's live curve.** A band with nothing to measure in the current 100 ms observation (the rest
-  between two drum hits, for instance) keeps the value it was last measured at for up to one second,
-  drawn faintly, so the curve does not blink between hits. After that the band breaks the line.
-
-Watch draws the measurement engine's own Watch snapshot directly. SPACE's six-second MONO
-field draws observations as measured.
-
-When playback stops, or a rest outlasts the 3-second Watch window, the pages with a six-second history
-(FREQ's field or landscape, LIVE, SHARP and SPACE's MONO field) keep what was measured on screen,
-dimmed, and withdraw only the present: the live curve and the current values. Rests shorter than
-3 seconds, such as the gaps between drum hits, keep every page live.
-
-Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
-numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME
-history, the SHARP and LIVE timelines, Record, Keep, and `plugin_data`. A value read back later is therefore the measured
-one, and FREQ's live curve can differ from its unsmoothed numeric readout while it is moving.
-
-Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
-
-The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
-records the verified scope: BS.1770-5 Annex 1/2 for mono and stereo, all 70 assets in the EBU
-Loudness Test Set v05, the source archive SHA-256, and comparison of the Hypha wrapper with the
-pinned `ebur128` reference. The suite was rerun on 2026-10-06. While surround is held back, the
-5.0/5.1 test assets are checked against the pinned reference only and are not evidence for a
-surround mode. Hypha does not claim EBU Mode conformance and does not use the EBU logo.
-
-## Modes
-
-| Feature | Standalone | With Kirin OS |
-|---|---|---|
-| Watch mode | ✓ | ✓ |
-| POST on-demand DRUM / FREQ / SHARP / LIVE | ✓ | ✓ |
-| Local PRE/POST Blind Compare | ✓ | ✓ |
-| Live PRE/POST compare | ✓ | ✓ |
-| Reference A · B · C · V and VERSION BLIND | — | ✓ |
-| Record mode | — | ✓ |
-| plugin_data output | — | ✓ |
-
-Kirin Hypha is free, and everything without Kirin OS above works as a standalone plug-in. Reference and Record
-mode require a Kirin OS license.
-
-## Screen language
-
-Hypha's screen is in English or Japanese. **MENU → Display → Language** chooses **English** or
-**日本語**; until a choice is made, Hypha follows the system's display language. The choice is saved
-for every PRE and POST, and open editors switch at once. In Japanese, what explains or reports is
-Japanese: status lines, notices, hover help, menus, guidance and dialog text. Measurement labels,
-abbreviations, legends, units and values (LEVEL, LUFS, TP, POST / Δ, MARK) stay as written, so the
-layout and the measurement vocabulary are the same in both languages. Action labels are translated,
-except Blind's **REVEAL** and **END**, which read the same in both. Names you give stay as written. The language changes
-only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
-Kirin OS, and every measurement stay the same.
 
 ## What it measures
 
