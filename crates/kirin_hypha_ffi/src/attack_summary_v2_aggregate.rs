@@ -66,7 +66,7 @@ pub(crate) fn assemble_summary(
         || header.target > KIRIN_TARGET_DELTA
         || header.version != KIRIN_ATTACK_BAND_SUMMARY_V2_VERSION
         || header.struct_size as usize != std::mem::size_of::<KirinAttackBandSummaryV2>()
-        || !(1..=8).contains(&header.band)
+        || header.band > 8
         || header.signal_state > 2
     {
         return None;

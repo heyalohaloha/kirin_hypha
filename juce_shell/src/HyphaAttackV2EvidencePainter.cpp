@@ -43,6 +43,8 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
         + words (" / presentation ", u8" / 表示版") + juce::String (p.revision));
     line ("C " + juce::String (p.header.cutoff_sample) + " / V " + juce::String (p.viewport)
         + (p.clock == ClockState::hold ? " HOLD" : " LIVE"));
+    if (p.summary && p.summary->newer_unfinished_count > 0)
+        line (finishText (KIRIN_FINISH_ACQUIRING) + " " + juce::String (p.summary->newer_unfinished_count));
     const std::array<const char*, 4> labels { "DELAY", "ATT", "REL", "LEVEL" };
     for (std::size_t i = 0; i < 4; ++i)
     {
@@ -92,7 +94,7 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
     line (words ("Source generation ", u8"入力世代 ") + juce::String (p.header.source.generation)
         + " / " + juce::String (p.header.source.sample_rate) + " Hz / " + juce::String (p.header.source.channels) + " ch");
     line (words ("Pair authority ", u8"比較の検証版 ") + juce::String (p.header.authority_revision));
-    if (p.summary)
+    if (p.summary && p.header.band != 0)
         line (words ("Mean in dB; identical participants for PRE and POST. Set changes break lines and fill.",
                     u8"dB平均。PRE/POSTは同参加集合。集合変更では線と塗りを切る。"));
     line (words ("Scroll / Up Down for further facts", u8"スクロール / 上下キーで続き"));

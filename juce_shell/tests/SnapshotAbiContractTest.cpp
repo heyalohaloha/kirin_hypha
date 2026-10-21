@@ -148,7 +148,14 @@ int main()
     static_assert (sizeof (KirinAttackBandSummaryV2Request) == 16);
     static_assert (sizeof (KirinAttackBandLaneSummaryV2) == 112);
     static_assert (sizeof (KirinAttackBandAveragePointV2) == 56);
-    static_assert (sizeof (KirinAttackBandSummaryV2) == 13528);
+    static_assert (sizeof (KirinAttackBandSummaryV2) == 14592);
+    static_assert (offsetof (KirinAttackBandSummaryV2, representative_pre) == 13560);
+    static_assert (offsetof (KirinAttackBandSummaryV2, representative_post) == 14072);
+    static_assert (offsetof (KirinAttackBandSummaryV2, has_representative_pre) == 14584);
+    static_assert (offsetof (KirinAttackBandSummaryV2, has_representative_post) == 14585);
+    static_assert (offsetof (KirinAttackBandSummaryV2, newer_unfinished_count) == 137);
+    static_assert (offsetof (KirinAttackBandSummaryV2, comparison_binding) == 13528);
+    static_assert (KIRIN_INTERVAL_ACUM == 2 && KIRIN_INTERVAL_DBFS == 3);
     static_assert (offsetof (KirinAttackBandLaneSummaryV2, whole_interval) == 8);
     static_assert (offsetof (KirinAttackBandLaneSummaryV2, exact_median) == 48);
     static_assert (offsetof (KirinAttackBandLaneSummaryV2, reason_count) == 72);

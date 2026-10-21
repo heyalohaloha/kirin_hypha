@@ -51,3 +51,39 @@ impl AttackRuntime {
         action()
     }
 }
+
+/// Deterministic history injection uses the same layout validation as decoded observations.
+#[doc(hidden)]
+impl AttackHistory {
+    pub fn fixture_from_events(
+        events: &[crate::AttackEvent],
+        details: &[crate::AttackDetailedEvent],
+    ) -> Self {
+        let mut history = Self::default();
+        for event in events {
+            assert!(event.has_valid_layout());
+            history.push(crate::AttackOdfFrame {
+                generation: event.generation,
+                sample_rate: event.sample_rate,
+                channels: event.channels,
+                definition_hash: event.definition_hash,
+                window_samples: 2,
+                hop_samples: 1,
+                support_start_samples: event.event_sample - 1,
+                support_end_samples: event.event_sample + 1,
+                event_sample: event.event_sample,
+                value: event.value,
+            });
+            history.push_event(*event);
+        }
+        for detail in details {
+            assert!(detail.has_valid_layout());
+            assert!(events.contains(&detail.event));
+            history.push_detail(*detail);
+        }
+        history
+    }
+}
+
+#[path = "attack_drum_fixture.rs"]
+pub mod drum;

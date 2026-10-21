@@ -113,6 +113,28 @@ inline KirinAttackBandSummaryV2 denseSummary()
     };
     populate (s.head); populate (s.tail); return s;
 }
+inline KirinAttackBandSummaryV2 allSummary (double value = 3.5)
+{
+    auto s = denseSummary(); s.header.band = 0;
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        const auto unit = static_cast<std::uint8_t> (i == 3 ? KIRIN_INTERVAL_ACUM : KIRIN_INTERVAL_DECIBELS);
+        auto& lane = s.lanes[i]; lane.whole_interval = interval (value, value); lane.whole_interval.unit = unit;
+        lane.exact_median = value;
+        for (auto& row : s.evidence) { row[i].interval = lane.whole_interval; }
+    }
+    for (auto& p : s.head) p = {}; for (auto& p : s.tail) p = {};
+    return s;
+}
+inline void allSingleLanes (KirinAttackSingleSnapshotV2& s, std::array<double, 4> values)
+{
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        auto& lane = s.lanes[i]; lane = {}; lane.has_interval = 1; lane.class_code = KIRIN_SCALAR_EXACT;
+        lane.finish = s.finish; lane.interval = interval (values[i], values[i]);
+        lane.interval.unit = static_cast<std::uint8_t> (i == 3 ? KIRIN_INTERVAL_ACUM : KIRIN_INTERVAL_DECIBELS);
+    }
+}
 inline juce::MouseEvent mouse (juce::Component& c, juce::Point<float> p)
 {
     const auto t = juce::Time::getCurrentTime();

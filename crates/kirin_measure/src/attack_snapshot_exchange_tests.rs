@@ -62,11 +62,11 @@ fn proof_needs_full_filter_preroll_and_rms_tail_not_just_arrival_clock() {
     let band = AttackBand::from_index(5).unwrap();
     let value = proof();
     assert!(value.validates_span(band, 10_000, 24_400, value.pre.source, value.post.source));
-    // 1kHz: HEAD lead960 + four periods192 + half RMS25; end needs25 extra frames.
+    // 1kHz: HEAD lead960 + five periods240 + half RMS25; end needs25 extra frames.
     let mut too_short = value;
-    too_short.post.pcm_start = 8824;
+    too_short.post.pcm_start = 8776;
     assert!(!too_short.validates_span(band, 10_000, 24_400, value.pre.source, value.post.source));
-    too_short.post.pcm_start = 8823;
+    too_short.post.pcm_start = 8775;
     too_short.post.pcm_end = 24424;
     assert!(!too_short.validates_span(band, 10_000, 24_400, value.pre.source, value.post.source));
     too_short.post.pcm_end = 24425;
@@ -140,7 +140,8 @@ fn a_b_a_control_never_relabels_original_session_or_rolls_back_revision() {
         &history(7, None),
         &history(7, None),
         Arc::new(AttackObservationSnapshot::default()),
-        &[]
+        &[],
+        &[],
     ));
     let empty = coordinator.try_attack_observation_view().unwrap();
     assert_eq!(empty.authority_revision, 3);

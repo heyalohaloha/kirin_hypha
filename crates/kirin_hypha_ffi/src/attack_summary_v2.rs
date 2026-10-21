@@ -2,9 +2,22 @@
 
 use crate::snapshot_interval::median_interval;
 use crate::snapshot_types::*;
+use crate::KirinAttackDetail;
 
 #[path = "attack_summary_v2_aggregate.rs"]
 mod aggregate;
+#[path = "attack_summary_v2_all.rs"]
+mod all;
+#[path = "attack_summary_v2_band.rs"]
+mod band;
+#[path = "attack_summary_v2_cohort.rs"]
+mod cohort;
+#[path = "attack_summary_v2_revision.rs"]
+mod revision;
+#[cfg(test)]
+pub(crate) use all::events as all_summary_events;
+#[cfg(test)]
+pub(crate) use all::representative as all_summary_representative;
 #[path = "attack_summary_v2_poll.rs"]
 mod poll;
 pub(crate) use aggregate::{assemble_summary, SummaryEnvelope, SummaryEvent};
@@ -35,7 +48,7 @@ impl KirinAttackBandSummaryV2Request {
         self.version == KIRIN_ATTACK_BAND_SUMMARY_V2_VERSION
             && self.struct_size as usize == std::mem::size_of::<Self>()
             && self.target <= KIRIN_TARGET_DELTA
-            && (1..=8).contains(&self.band)
+            && self.band <= 8
             && self.reserved == [0; 6]
     }
 }
@@ -82,15 +95,25 @@ pub struct KirinAttackBandAveragePointV2 {
 pub struct KirinAttackBandSummaryV2 {
     pub header: KirinSnapshotHeader,
     pub cohort_count: u8,
-    pub reserved: [u8; 7],
+    /// Newer content events that are still acquiring measurement or mapping evidence.
+    pub newer_unfinished_count: u8,
+    pub reserved: [u8; 6],
     pub events: [KirinSnapshotEventKey; KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY],
     /// Matched=0, PRE-only=1, POST-only=2, ambiguous=3, POST-alone=4.
     pub pair_kind: [u8; KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY],
-    /// Oldest event first; DELAY, ATT, REL, LEVEL in each event.
+    /// Oldest first; band 0 uses TRANSIENT, STRENGTH, CREST, SHARPNESS; others DELAY, ATT, REL, LEVEL.
     pub evidence: [[KirinSnapshotScalarEvidence; 4]; KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY],
     pub lanes: [KirinAttackBandLaneSummaryV2; 4],
     pub head: [KirinAttackBandAveragePointV2; KIRIN_ATTACK_BAND_SUMMARY_V2_HEAD],
     pub tail: [KirinAttackBandAveragePointV2; KIRIN_ATTACK_BAND_SUMMARY_V2_TAIL],
+    /// Comparison source/clock/meaning identity, including when no completed PRE hit exists.
+    pub comparison_binding: [u8; 32],
+    /// Existing detail of the newest completed ALL cohort hit; never a new measurement.
+    pub representative_pre: KirinAttackDetail,
+    pub representative_post: KirinAttackDetail,
+    pub has_representative_pre: u8,
+    pub has_representative_post: u8,
+    pub representative_reserved: [u8; 6],
 }
 
 impl Default for KirinAttackBandSummaryV2 {
@@ -98,7 +121,8 @@ impl Default for KirinAttackBandSummaryV2 {
         Self {
             header: KirinSnapshotHeader::default(),
             cohort_count: 0,
-            reserved: [0; 7],
+            newer_unfinished_count: 0,
+            reserved: [0; 6],
             events: [KirinSnapshotEventKey::default(); KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY],
             pair_kind: [0; KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY],
             evidence: [[KirinSnapshotScalarEvidence::default(); 4];
@@ -106,6 +130,12 @@ impl Default for KirinAttackBandSummaryV2 {
             lanes: [KirinAttackBandLaneSummaryV2::default(); 4],
             head: [KirinAttackBandAveragePointV2::default(); KIRIN_ATTACK_BAND_SUMMARY_V2_HEAD],
             tail: [KirinAttackBandAveragePointV2::default(); KIRIN_ATTACK_BAND_SUMMARY_V2_TAIL],
+            comparison_binding: [0; 32],
+            representative_pre: KirinAttackDetail::default(),
+            representative_post: KirinAttackDetail::default(),
+            has_representative_pre: 0,
+            has_representative_post: 0,
+            representative_reserved: [0; 6],
         }
     }
 }
@@ -130,7 +160,7 @@ fn summarize_lane(
         result.class_count[evidence.class as usize] += 1;
         result.reason_count[evidence.reason as usize] += 1;
         result.resolution = result.resolution.max(evidence.resolution);
-        if evidence.has_interval == 1 {
+        if evidence.has_interval == 1 && !evidence.interval.is_all_real() {
             intervals.push(evidence.interval);
         }
         if evidence.class == KIRIN_SCALAR_EXACT {
@@ -145,7 +175,7 @@ fn summarize_lane(
     if let Some(median) = median_interval(&exact) {
         result.exact_median = median.lower.value;
     }
-    if !events.is_empty() && intervals.len() == events.len() {
+    if !intervals.is_empty() {
         let whole = median_interval(&intervals)?;
         result.whole_median_available = 1;
         result.whole_interval = whole;

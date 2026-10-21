@@ -71,7 +71,7 @@ fn lane(events: &[SummaryEvent]) -> KirinAttackBandLaneSummaryV2 {
 }
 
 #[test]
-fn d1_na_remains_in_denominator_and_subset_is_conditional() {
+fn lane_median_excludes_na_but_keeps_its_facts() {
     let result = lane(&[
         event(1, exact(20.0)),
         event(2, exact(20.0)),
@@ -85,10 +85,18 @@ fn d1_na_remains_in_denominator_and_subset_is_conditional() {
     ]);
     assert_eq!(result.cohort_count, 3);
     assert_eq!(result.class_count, [2, 0, 0, 0, 1]);
-    assert_eq!(result.whole_median_available, 0);
-    assert_eq!(result.exact_median, 20.0);
+    assert_eq!(
+        result
+            .class_count
+            .iter()
+            .map(|c| u32::from(*c))
+            .sum::<u32>(),
+        u32::from(result.cohort_count)
+    );
+    assert_eq!(result.whole_median_available, 1);
+    assert_eq!(result.whole_interval, KirinSnapshotInterval::point(20.0, 0));
     assert_eq!(result.exact_count, 2);
-    assert_eq!(result.render_kind, KIRIN_RENDER_CONFIRMED_SUBSET);
+    assert_eq!(result.render_kind, KIRIN_RENDER_WHOLE_POINT);
 }
 
 #[test]
@@ -137,50 +145,40 @@ fn d4_all_real_input_does_not_hide_informative_whole_point() {
 }
 
 #[test]
-fn d5_whole_all_real_is_available_but_conditional_subset_is_primary() {
+fn all_real_values_are_excluded_without_erasing_the_remaining_point() {
     let mut events = vec![event(1, exact(-10.0))];
     events.extend((2..=8).map(|i| event(i, all_real())));
     let result = lane(&events);
-    assert_eq!(result.whole_median_available, 1);
-    assert_eq!(result.whole_numeric_informative, 0);
-    assert!(result.whole_interval.is_all_real());
-    assert_eq!(result.render_kind, KIRIN_RENDER_CONFIRMED_SUBSET);
-    assert_eq!(result.exact_median, -10.0);
-    assert_eq!(result.exact_count, 1);
+    assert_eq!(
+        result.whole_interval,
+        KirinSnapshotInterval::point(-10.0, 0)
+    );
+    assert_eq!(result.render_kind, KIRIN_RENDER_WHOLE_POINT);
+    assert_eq!(result.class_count, [1, 7, 0, 0, 0]);
 }
 
 #[test]
-fn d6_latest_eight_selected_first_pending_never_backfills() {
-    let ids: Vec<_> = (1..=9).collect();
-    let first = fixed_cohort(&ids, 8, 2, |id| *id);
-    assert_eq!(
-        first.into_iter().copied().collect::<Vec<_>>(),
-        (1..=8).collect::<Vec<_>>()
-    );
-    let second = fixed_cohort(&ids, 9, 2, |id| *id);
-    assert_eq!(
-        second.into_iter().copied().collect::<Vec<_>>(),
-        (2..=9).collect::<Vec<_>>()
-    );
-    let pending =
-        KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_PENDING, KIRIN_REASON_WAITING_AUDIO);
-    let mut first: Vec<_> = (1..=8)
-        .map(|i| event(i, if i == 8 { pending } else { exact(i as f64) }))
+fn completed_cohort_backfills_before_capping_and_counts_only_newer_unfinished_hits() {
+    let mut candidates: Vec<_> = (1..=11)
+        .map(|id| (event(id, exact(id as f64)), false))
         .collect();
-    assert_eq!(lane(&first).exact_median, 4.0);
-    assert_eq!(lane(&first).exact_count, 7);
-    first.remove(0);
-    first[6] = event(8, exact(8.0));
-    first.push(event(9, pending));
-    assert_eq!(lane(&first).exact_median, 5.0);
-    assert_eq!(lane(&first).whole_median_available, 0);
-    let keys: Vec<_> = first.iter().map(|e| e.key).collect();
-    first[7] = event(9, exact(9.0));
+    for id in [1, 9, 11] {
+        candidates[id - 1].1 = true;
+    }
+    let (events, count) = cohort::select(&candidates, 10_000, 1000);
     assert_eq!(
-        lane(&first).whole_interval,
+        events.iter().map(|e| e.key.token).collect::<Vec<_>>(),
+        [2, 3, 4, 5, 6, 7, 8, 10]
+    );
+    assert_eq!(count, 1);
+    assert_eq!(
+        lane(&events).whole_interval,
         KirinSnapshotInterval::point(5.5, 0)
     );
-    assert_eq!(keys, first.iter().map(|e| e.key).collect::<Vec<_>>());
+    candidates[10].1 = false;
+    let (events, count) = cohort::select(&candidates, 10_000, 1000);
+    assert_eq!(events.first().unwrap().key.token, 3);
+    assert_eq!(count, 0);
 }
 
 fn envelope(value: f64) -> SummaryEnvelope {
@@ -308,49 +306,39 @@ fn new_summary_layout_has_literal_offsets_and_never_changes_the_legacy_layout() 
     assert_eq!(offset_of!(KirinAttackBandLaneSummaryV2, exact_count), 104);
     assert_eq!(size_of::<KirinAttackBandAveragePointV2>(), 56);
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, cohort_count), 136);
+    assert_eq!(
+        offset_of!(KirinAttackBandSummaryV2, newer_unfinished_count),
+        137
+    );
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, events), 144);
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, pair_kind), 784);
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, evidence), 792);
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, lanes), 4120);
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, head), 4568);
     assert_eq!(offset_of!(KirinAttackBandSummaryV2, tail), 9944);
-    assert_eq!(size_of::<KirinAttackBandSummaryV2>(), 13528);
+    assert_eq!(size_of::<KirinAttackBandSummaryV2>(), 14592);
+    assert_eq!(
+        std::mem::offset_of!(KirinAttackBandSummaryV2, comparison_binding),
+        13528
+    );
+    assert_eq!(
+        offset_of!(KirinAttackBandSummaryV2, representative_pre),
+        13560
+    );
+    assert_eq!(
+        offset_of!(KirinAttackBandSummaryV2, representative_post),
+        14072
+    );
+    assert_eq!(
+        offset_of!(KirinAttackBandSummaryV2, has_representative_pre),
+        14584
+    );
+    assert_eq!(
+        offset_of!(KirinAttackBandSummaryV2, has_representative_post),
+        14585
+    );
     assert_eq!(align_of::<KirinAttackBandSummaryV2>(), 8);
     assert_eq!(size_of::<crate::KirinAttackBandSummary>(), 2880);
-}
-
-#[test]
-fn canonical_d1_ten_keys_select_last_eight_before_classifying_silent_and_pending() {
-    let keys: Vec<_> = (1..=10).collect();
-    let selected = fixed_cohort(&keys, 10, 2, |id| *id);
-    assert_eq!(
-        selected.iter().map(|id| **id).collect::<Vec<_>>(),
-        (3..=10).collect::<Vec<_>>()
-    );
-    let events: Vec<_> = selected
-        .into_iter()
-        .map(|id| {
-            event(
-                *id,
-                match id {
-                    9 => KirinSnapshotScalarEvidence::unavailable(
-                        KIRIN_SCALAR_NOT_APPLICABLE,
-                        KIRIN_REASON_SILENT,
-                    ),
-                    10 => KirinSnapshotScalarEvidence::unavailable(
-                        KIRIN_SCALAR_PENDING,
-                        KIRIN_REASON_WAITING_AUDIO,
-                    ),
-                    _ => exact(*id as f64),
-                },
-            )
-        })
-        .collect();
-    let result = lane(&events);
-    assert_eq!(result.class_count, [6, 0, 0, 1, 1]);
-    assert_eq!(result.class_count.iter().sum::<u8>(), 8);
-    assert_eq!(result.exact_count, 6);
-    assert_eq!(result.whole_median_available, 0);
 }
 
 #[test]
@@ -379,7 +367,7 @@ fn canonical_d5_seven_next_hits_never_become_six_second_rel_bounds() {
     assert_eq!(result.reason_count[KIRIN_REASON_NEXT_HIT as usize], 7);
     assert_eq!(result.exact_median, 20.0);
     assert_eq!(result.exact_count, 1);
-    assert_eq!(result.whole_median_available, 0);
+    assert_eq!(result.whole_median_available, 1);
 }
 
 #[test]
@@ -431,4 +419,37 @@ fn canonical_d10_both_side_means_and_fill_disconnect_on_any_participant_change()
     assert_eq!(result.head[1].connect_previous, 0);
     assert_eq!(result.head[2].connect_previous, 0);
     assert_eq!(result.head[3].valid_count, 0);
+}
+
+#[test]
+fn live_lane_excludes_missing_and_uninformative_values_from_its_median() {
+    let mut a = event(1, exact(10.0));
+    let mut b = event(2, exact(30.0));
+    let mut c = event(3, all_real());
+    a.lanes[1] =
+        KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_NOT_APPLICABLE, KIRIN_REASON_RINGING);
+    b.lanes[1] = bound(40.0);
+    c.lanes[1] =
+        KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_UNKNOWN, KIRIN_REASON_NEXT_HIT);
+    let result = assemble_summary(header(KIRIN_TARGET_DELTA), &[a, b, c]).unwrap();
+    assert_eq!(
+        result.lanes[0].whole_interval,
+        KirinSnapshotInterval::point(20.0, 0)
+    );
+    assert_eq!(result.lanes[1].whole_interval.lower.value, 40.0);
+    assert_eq!(result.lanes[1].render_kind, KIRIN_RENDER_WHOLE_INTERVAL);
+    assert_eq!(result.lanes[1].class_count, [0, 1, 1, 0, 1]);
+    assert_eq!(
+        result.lanes[1].reason_count[KIRIN_REASON_RINGING as usize],
+        1
+    );
+    assert_eq!(
+        result.lanes[1].reason_count[KIRIN_REASON_NEXT_HIT as usize],
+        1
+    );
+    let one = lane(&[event(1, exact(7.0))]);
+    assert_eq!(one.render_kind, KIRIN_RENDER_WHOLE_POINT);
+    assert_eq!(one.whole_interval.lower.value, 7.0);
+    let none = lane(&[event(1, all_real())]);
+    assert_eq!(none.render_kind, KIRIN_RENDER_NO_SCALAR);
 }

@@ -1,4 +1,6 @@
 use super::*;
+use kirin_measure::attack_runtime::snapshot::AttackSourceEvidence;
+use kirin_measure::spectrum_exchange::AttackObservationView;
 
 #[test]
 fn all_invalid_sized_calls_preserve_every_output_byte() {
@@ -151,7 +153,7 @@ fn valid_engine_unknown_request_enum_version_and_short_buffers_preserve_output()
             KIRIN_SNAPSHOT_INVALID_REQUEST,
         ),
         (
-            KirinAttackBandSummaryV2Request { band: 0, ..valid },
+            KirinAttackBandSummaryV2Request { band: 9, ..valid },
             KIRIN_SNAPSHOT_INVALID_REQUEST,
         ),
         (
@@ -181,8 +183,17 @@ fn revision_changes_when_only_pre_facts_or_cohort_scope_change() {
     let original = content_revision(&snapshot, 5, 7);
     assert_eq!(original, content_revision(&snapshot, 5, 7));
     assert_ne!(original, content_revision(&snapshot, 5, 8));
+    snapshot.comparison_binding[0] = 1;
+    assert_ne!(original, content_revision(&snapshot, 5, 7));
+    snapshot.comparison_binding = [0; 32];
     snapshot.header.cutoff_sample = 1;
     assert_ne!(original, content_revision(&snapshot, 5, 7));
+    snapshot.header.cutoff_sample = 0;
+    snapshot.has_representative_post = 1;
+    let representative = content_revision(&snapshot, 5, 7);
+    assert_ne!(original, representative);
+    snapshot.representative_post.shape[0] = 0.25;
+    assert_ne!(representative, content_revision(&snapshot, 5, 7));
 }
 
 #[test]

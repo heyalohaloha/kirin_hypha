@@ -1,13 +1,26 @@
 #pragma once
 #include "HyphaAttackV2Formatter.h"
+#include "HyphaPresentationContext.h"
+#include <juce_graphics/juce_graphics.h>
 #include <array>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace hypha::attack_v2
 {
 enum class Scope { wholePoint, wholeInterval, confirmedSubset, noScalar, single };
 enum class ClockState { initial, moving, hold };
+struct RepresentativeLoupe
+{
+    KirinSnapshotEventKey key {};
+    std::shared_ptr<const KirinAttackBandSummaryV2> packet;
+    // UI-thread cache: the same completed hit does not rebuild its loupe on navigation ticks.
+    mutable juce::Image image;
+    mutable presentation::Context context;
+    mutable unsigned language = 0;
+    mutable float scale = 0;
+};
 struct Lane
 {
     Scope scope = Scope::noScalar;
@@ -17,6 +30,8 @@ struct Lane
     std::uint8_t count = 0, exactCount = 0, reason = 0;
     double exactMedian = 0, ageSeconds = 0, resolution = 0;
     bool unbounded = false, withinResolution = false;
+    // Only the main number may bridge a newer unfinished hit; Facts remain this stamp's facts.
+    std::optional<FormattedInterval> heldNumber;
 };
 // Only one adopted producer stamp supplies the lanes and their envelope. Navigation may advance
 // independently; cutoff/viewport are explicitly different, and no median is recomputed in UI.
@@ -26,6 +41,7 @@ struct Presentation
     std::array<Lane, 4> lanes {};
     std::shared_ptr<const KirinAttackBandSummaryV2> summary;
     std::shared_ptr<const KirinAttackSingleSnapshotV2> single;
+    std::shared_ptr<const RepresentativeLoupe> representative;
     std::uint64_t revision = 0;
     std::int64_t viewport = -1, factsCutoff = -1;
     ClockState clock = ClockState::initial;

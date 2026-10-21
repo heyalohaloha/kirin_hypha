@@ -54,7 +54,7 @@ pub fn snapshot_abi_contract() -> KirinSnapshotAbiContract {
         summary_offsets: summary_offsets(),
         single_offsets: single_offsets(),
         time_offsets: time_offsets(),
-        enum_revision: 1,
+        enum_revision: 2,
         layout_reserved: 0,
     }
 }
@@ -213,7 +213,11 @@ mod tests {
         assert_eq!(size_of::<Request>(), 16);
         assert_eq!(size_of::<Lane>(), 112);
         assert_eq!(size_of::<Average>(), 56);
-        assert_eq!(size_of::<Summary>(), 13528);
+        assert_eq!(size_of::<Summary>(), 14592);
+        assert_eq!(offset_of!(Summary, representative_pre), 13560);
+        assert_eq!(offset_of!(Summary, representative_post), 14072);
+        assert_eq!(offset_of!(Summary, has_representative_pre), 14584);
+        assert_eq!(offset_of!(Summary, has_representative_post), 14585);
         assert_eq!(offset_of!(Lane, whole_interval), 8);
         assert_eq!(offset_of!(Lane, exact_median), 48);
         assert_eq!(offset_of!(Lane, reason_count), 72);

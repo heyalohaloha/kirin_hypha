@@ -43,7 +43,9 @@ pub const ATTACK_BAND_HISTORY_CAPACITY: usize = crate::ATTACK_EVENT_HISTORY_CAPA
 /// The ring reaches back as far as the bins do, so POST can be measured at a PRE onset and a
 /// band change can measure the kept hits again.
 pub const ATTACK_BAND_RETENTION_MICROS: i64 = 7_000_000;
-pub(crate) const SETTLE_PERIODS: i64 = 4;
+pub(crate) const SETTLE_PERIODS: i64 = 5;
+/// Fourth-order Butterworth pole pairs, Q = 1 / (2 cos(pi/8)), 1 / (2 cos(3pi/8)).
+pub(crate) const BUTTERWORTH_Q: [f64; 2] = [0.541_196_100_146_197, 1.306_562_964_876_377];
 pub(crate) const BASE_CENTRE_HZ: f64 = 62.5;
 pub(crate) const NYQUIST_FRACTION: f64 = 0.475;
 pub(crate) const ARRIVAL_AMPLITUDE_RATIO: f64 = 0.1;
@@ -113,10 +115,10 @@ struct Biquad {
 }
 
 impl Biquad {
-    fn new(high_pass: bool, frequency_hz: f64, sample_rate: u32) -> Self {
+    fn new(high_pass: bool, frequency_hz: f64, sample_rate: u32, q: f64) -> Self {
         let frequency_hz = frequency_hz.min(f64::from(sample_rate) * NYQUIST_FRACTION);
         let w0 = std::f64::consts::TAU * frequency_hz / f64::from(sample_rate);
-        let alpha = w0.sin() / (2.0 * std::f64::consts::FRAC_1_SQRT_2);
+        let alpha = w0.sin() / (2.0 * q);
         let cos = w0.cos();
         let a0 = 1.0 + alpha;
         let (b0, b1) = if high_pass {
@@ -150,18 +152,20 @@ impl Biquad {
 }
 
 /// Butterworth high-pass at the band's lower edge into Butterworth low-pass at its upper edge,
-/// scaled so the centre passes at 0 dB: about -1.4 dB at the nominal edges and 12 dB per octave
+/// scaled so the centre passes at 0 dB: about -2.5 dB at the nominal edges and 24 dB per octave
 /// beyond them. A sine at the centre reads its own level.
 pub(crate) struct BandFilter {
-    stages: [Biquad; 2],
+    stages: [Biquad; 4],
     gain: f64,
 }
 
 impl BandFilter {
     pub(crate) fn new(band: AttackBand, sample_rate: u32) -> Self {
         let stages = [
-            Biquad::new(true, band.lower_hz(), sample_rate),
-            Biquad::new(false, band.upper_hz(), sample_rate),
+            Biquad::new(true, band.lower_hz(), sample_rate, BUTTERWORTH_Q[0]),
+            Biquad::new(true, band.lower_hz(), sample_rate, BUTTERWORTH_Q[1]),
+            Biquad::new(false, band.upper_hz(), sample_rate, BUTTERWORTH_Q[0]),
+            Biquad::new(false, band.upper_hz(), sample_rate, BUTTERWORTH_Q[1]),
         ];
         let centre = stages
             .iter()
@@ -177,7 +181,7 @@ impl BandFilter {
     pub(crate) fn run(&self, input: &[f32], output: &mut Vec<f64>) {
         output.clear();
         output.reserve(input.len());
-        let mut state = [[0.0_f64; 4]; 2];
+        let mut state = [[0.0_f64; 4]; 4];
         for &sample in input {
             let mut value = f64::from(sample);
             for (stage, memory) in self.stages.iter().zip(state.iter_mut()) {
@@ -474,3 +478,7 @@ mod outcome_tests;
 #[cfg(test)]
 #[path = "attack_band_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attack_band_response_tests.rs"]
+mod response_tests;

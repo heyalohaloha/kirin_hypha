@@ -1,5 +1,4 @@
 #include "HyphaAttackV2Model.h"
-#include "HyphaAttackLaneModel.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -80,8 +79,15 @@ juce::String unitFor (bool band, std::size_t index, std::uint8_t target)
 }
 bool validSummary (const KirinAttackBandSummaryV2& s) noexcept
 {
-    if (! validHeader (s.header) || s.header.kind != KIRIN_SNAPSHOT_BAND_SUMMARY || s.header.band == 0
-        || s.header.struct_size != sizeof (s) || s.cohort_count > 8) return false;
+    if (! validHeader (s.header) || s.header.kind != KIRIN_SNAPSHOT_BAND_SUMMARY
+        || s.header.struct_size != sizeof (s) || s.cohort_count > 8
+        || s.has_representative_pre > 1 || s.has_representative_post > 1) return false;
+    const auto detail = [&] (const KirinAttackDetail& d) {
+        return d.sample_rate == s.header.source.sample_rate && d.channels == s.header.source.channels
+            && d.shape_count <= KIRIN_ATTACK_SHAPE_CAPACITY && d.shape_end_sample >= d.shape_start_sample; };
+    if ((s.has_representative_pre || s.has_representative_post) && (s.header.band != 0 || s.cohort_count == 0)) return false;
+    if ((s.has_representative_pre && ! detail (s.representative_pre))
+        || (s.has_representative_post && ! detail (s.representative_post))) return false;
     const auto count = s.cohort_count;
     for (std::size_t i = 0; i < count; ++i)
     {
@@ -133,6 +139,7 @@ Presentation summaryPresentation (std::shared_ptr<const KirinAttackBandSummaryV2
     Presentation p;
     p.header = s->header;
     p.summary = std::move (s);
+    const bool band = p.header.band != 0;
     for (std::size_t i = 0; i < 4; ++i)
     {
         const auto& raw = p.summary->lanes[i];
@@ -151,11 +158,12 @@ Presentation summaryPresentation (std::shared_ptr<const KirinAttackBandSummaryV2
         }
         if (raw.render_kind != KIRIN_RENDER_NO_SCALAR)
             l.number = formatInterval (l.scope == Scope::confirmedSubset
-                ? point (raw.exact_median, i == 3 ? KIRIN_INTERVAL_DECIBELS : KIRIN_INTERVAL_MILLISECONDS)
-                : raw.whole_interval, decimalsFor (true, i), unitFor (true, i, p.header.target),
+                ? point (raw.exact_median, band ? i == 3 ? KIRIN_INTERVAL_DECIBELS : KIRIN_INTERVAL_MILLISECONDS
+                    : i == 3 ? KIRIN_INTERVAL_ACUM : i == 1 && p.header.target != KIRIN_TARGET_DELTA ? KIRIN_INTERVAL_DBFS : KIRIN_INTERVAL_DECIBELS)
+                : raw.whole_interval, decimalsFor (band, i), unitFor (band, i, p.header.target),
                 p.header.target == KIRIN_TARGET_DELTA,
                 l.scope == Scope::wholePoint || l.scope == Scope::confirmedSubset);
-        else l.number.unit = unitFor (true, i, p.header.target);
+        else l.number.unit = unitFor (band, i, p.header.target);
     }
     return p;
 }
@@ -163,37 +171,15 @@ Presentation singlePresentation (std::shared_ptr<const KirinAttackSingleSnapshot
 {
     Presentation p;
     p.header = s->header; p.single = std::move (s);
-    attack_lanes::Hit hit;
-    hit.post = attack_lanes::sideFor (p.single->has_all_post ? &p.single->all_post : nullptr);
-    hit.pre = attack_lanes::sideFor (p.single->has_all_pre ? &p.single->all_pre : nullptr);
-    if (p.header.target == KIRIN_TARGET_DELTA) attack_lanes::fillDelta (hit, p.single->pair_kind, p.single->has_all_pre, p.single->has_all_post);
-    else attack_lanes::fillAbsolute (hit);
     for (std::size_t i = 0; i < 4; ++i)
     {
         auto& l = p.lanes[i];
         l.scope = Scope::single; l.count = 1; l.reason = p.single->reason;
         l.number.unit = unitFor (p.header.band != 0, i, p.header.target);
-        if (p.header.band != 0)
-        {
-            const auto& e = p.single->lanes[i];
-            l.counts[e.class_code] = 1; l.reason = e.reason; l.resolution = e.resolution;
-            if (e.has_interval) l.number = formatInterval (e.interval, decimalsFor (true, i), l.number.unit,
-                p.header.target == KIRIN_TARGET_DELTA, e.class_code == KIRIN_SCALAR_EXACT);
-        }
-        else if (p.single->finish != KIRIN_FINISH_RETIRED && std::isfinite (hit.cells[i].value))
-        {
-            l.counts[KIRIN_SCALAR_EXACT] = 1;
-            l.number = formatInterval (point (hit.cells[i].value, KIRIN_INTERVAL_DECIBELS), decimalsFor (false, i),
-                                      l.number.unit, p.header.target == KIRIN_TARGET_DELTA, true);
-        }
-        else
-        {
-            const bool pending = p.single->finish == KIRIN_FINISH_ACQUIRING;
-            l.counts[pending ? KIRIN_SCALAR_PENDING : KIRIN_SCALAR_UNKNOWN] = 1;
-            if (l.reason == 0) l.reason = pending ? KIRIN_REASON_WAITING_SERVICE
-                : hit.cells[i].reason == attack_lanes::Reason::nextHit ? KIRIN_REASON_NEXT_HIT
-                : hit.cells[i].reason == attack_lanes::Reason::quietBody ? KIRIN_REASON_SILENT : KIRIN_REASON_MAPPING;
-        }
+        const auto& e = p.single->lanes[i];
+        l.counts[e.class_code] = 1; l.reason = e.reason; l.resolution = e.resolution;
+        if (e.has_interval) l.number = formatInterval (e.interval, decimalsFor (p.header.band != 0, i), l.number.unit,
+            p.header.target == KIRIN_TARGET_DELTA, e.class_code == KIRIN_SCALAR_EXACT);
     }
     return p;
 }

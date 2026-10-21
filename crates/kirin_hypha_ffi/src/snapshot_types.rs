@@ -11,6 +11,8 @@ pub const KIRIN_ENDPOINT_NEGATIVE_INFINITY: u8 = 1;
 pub const KIRIN_ENDPOINT_POSITIVE_INFINITY: u8 = 2;
 pub const KIRIN_INTERVAL_MILLISECONDS: u8 = 0;
 pub const KIRIN_INTERVAL_DECIBELS: u8 = 1;
+pub const KIRIN_INTERVAL_ACUM: u8 = 2;
+pub const KIRIN_INTERVAL_DBFS: u8 = 3;
 pub const KIRIN_SCALAR_EXACT: u8 = 0;
 pub const KIRIN_SCALAR_BOUND: u8 = 1;
 pub const KIRIN_SCALAR_UNKNOWN: u8 = 2;
@@ -154,7 +156,7 @@ impl KirinSnapshotInterval {
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.unit > KIRIN_INTERVAL_DECIBELS
+        if self.unit > KIRIN_INTERVAL_DBFS
             || self.reserved != [0; 7]
             || !self.lower.is_valid()
             || !self.upper.is_valid()

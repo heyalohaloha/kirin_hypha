@@ -88,3 +88,11 @@ mod tests;
 #[cfg(test)]
 #[path = "attack_single_v2_boundary_tests.rs"]
 mod boundary_tests;
+
+#[cfg(test)]
+#[path = "attack_all_v2_tests.rs"]
+mod all_tests;
+
+#[cfg(test)]
+#[path = "attack_summary_v2_representative_tests.rs"]
+mod representative_tests;

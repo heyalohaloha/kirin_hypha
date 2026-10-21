@@ -106,8 +106,12 @@ fn d12_raw_endpoints_and_extreme_finite_values_are_not_presentation_rounded() {
 #[test]
 fn invalid_enums_nan_and_empty_open_intervals_are_rejected() {
     let mut value = interval(0.0, true, 1.0, true);
-    value.unit = 2;
+    value.unit = KIRIN_INTERVAL_DBFS + 1;
     assert!(median_interval(&[value]).is_none());
+    value.unit = KIRIN_INTERVAL_ACUM;
+    assert!(median_interval(&[value]).is_some());
+    value.unit = KIRIN_INTERVAL_DBFS;
+    assert!(median_interval(&[value]).is_some());
     value.unit = 0;
     value.lower.kind = 9;
     assert!(median_interval(&[value]).is_none());

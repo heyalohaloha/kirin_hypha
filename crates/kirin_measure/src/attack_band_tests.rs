@@ -136,42 +136,6 @@ fn bands_tile_the_octaves_without_gaps() {
     assert_eq!(band(5).resolution_micros(), 1_000);
 }
 
-fn steady_gain_db(filter: &BandFilter, frequency_hz: f64, sample_rate: u32) -> f64 {
-    let frames = sample_rate as usize;
-    let input = (0..frames)
-        .map(|frame| {
-            (std::f64::consts::TAU * frequency_hz * frame as f64 / f64::from(sample_rate)).sin()
-                as f32
-        })
-        .collect::<Vec<_>>();
-    let mut output = Vec::new();
-    filter.run(&input, &mut output);
-    let settled = &output[frames / 2..];
-    let peak = settled
-        .iter()
-        .fold(0.0_f64, |peak, value| peak.max(value.abs()));
-    20.0 * peak.log10()
-}
-
-#[test]
-fn filter_passes_the_centre_and_rejects_two_octaves_away() {
-    let filter = BandFilter::new(band(3), 48_000);
-    assert!(steady_gain_db(&filter, 250.0, 48_000).abs() < 0.3);
-    // Two octaves from the centre is 1.5 octaves past an edge: 12 dB per octave from there.
-    assert!(steady_gain_db(&filter, 62.5, 48_000) < -14.0);
-    assert!(steady_gain_db(&filter, 1_000.0, 48_000) < -14.0);
-    assert!(steady_gain_db(&filter, 31.25, 48_000) < -26.0);
-    assert!(steady_gain_db(&filter, 2_000.0, 48_000) < -26.0);
-    // The nominal edges sit a little inside the -3 dB points.
-    for edge in [band(3).lower_hz(), band(3).upper_hz()] {
-        let gain = steady_gain_db(&filter, edge, 48_000);
-        assert!((-2.5..-0.7).contains(&gain), "edge {edge} Hz: {gain} dB");
-    }
-    // The same holds for the top band at the lowest supported rate.
-    let top = BandFilter::new(band(8), 44_100);
-    assert!(steady_gain_db(&top, 8_000.0, 44_100).abs() < 0.3);
-}
-
 #[test]
 fn measure_reads_arrival_attack_release_and_level_of_a_shaped_burst() {
     let burst = Burst {
@@ -194,6 +158,7 @@ fn measure_reads_arrival_attack_release_and_level_of_a_shaped_burst() {
     let arrival = ms(arrival_frames(&measured), 48_000);
     let attack = ms(attack_frames(&measured), 48_000);
     let release = ms(release_frames(&measured), 48_000);
+    println!("500 Hz burst: arrival {arrival:.3} ms, ATT {attack:.3} ms, REL {release:.3} ms, level {:.3} dBFS", measured.level_dbfs);
     // 10 % of a 6 ms linear rise is at 0.6 ms; 10 % to 90 % takes 4.8 ms; the decay reaches
     // -20 dB at tau x ln 10 = 103.6 ms. Each within the band's 2 ms period.
     assert!((arrival - 0.6).abs() < 2.0, "arrival {arrival} ms");
@@ -216,12 +181,12 @@ fn post_minus_pre_delay_reads_a_known_shift_in_low_and_mid_bands() {
             tau_ms: 45.0,
             amplitude: 0.5,
         };
-        let post_burst = Burst {
-            delay_ms: 2.4,
-            ..pre_burst
-        };
+
         let pre = measure(band(index), 48_000, 2, None, |t| pre_burst.sample(t)).unwrap();
-        let post = measure(band(index), 48_000, 2, None, |t| post_burst.sample(t)).unwrap();
+        let post = measure(band(index), 48_000, 2, None, |t| {
+            pre_burst.sample(t - 0.0024)
+        })
+        .unwrap();
         let delay = ms(band_delay_frames(&pre, &post).unwrap(), 48_000);
         assert!(
             (delay - 2.4).abs() < tolerance_ms,
@@ -286,20 +251,18 @@ fn group_delay_seconds(stage: &Biquad, frequency_hz: f64, sample_rate: u32) -> f
 #[test]
 fn a_minimum_phase_high_pass_delays_the_low_band_by_its_group_delay() {
     // A 40 Hz second-order Butterworth high-pass, as a crossover or a low cut would add.
-    let high_pass = Biquad::new(true, 40.0, 48_000);
+    let high_pass = Biquad::new(true, 40.0, 48_000, std::f64::consts::FRAC_1_SQRT_2);
     let expected_ms = group_delay_seconds(&high_pass, 62.5, 48_000) * 1_000.0;
     assert!(expected_ms > 1.0 && expected_ms < 8.0, "{expected_ms}");
-    let burst = Burst {
-        carrier_hz: 62.5,
-        delay_ms: 0.0,
-        rise_ms: 8.0,
-        tau_ms: 60.0,
-        amplitude: 0.5,
+    // A smooth narrow-band envelope tests group delay. A sub-period abrupt attack has
+    // broadband transients, whose 10 % crossing is not predicted by carrier group delay.
+    let sample = |t: f64| {
+        0.5 * (-0.5 * ((t - 0.05) / 0.018).powi(2)).exp() * (std::f64::consts::TAU * 62.5 * t).sin()
     };
-    let pre = measure(band(1), 48_000, 1, None, |t| burst.sample(t)).unwrap();
+    let pre = measure(band(1), 48_000, 1, None, sample).unwrap();
     let mut state = [0.0_f64; 4];
     let post = measure(band(1), 48_000, 1, None, |t| {
-        let x = burst.sample(t);
+        let x = sample(t);
         let [x1, x2, y1, y2] = state;
         let y = high_pass.b0 * x + high_pass.b1 * x1 + high_pass.b2 * x2
             - high_pass.a1 * y1

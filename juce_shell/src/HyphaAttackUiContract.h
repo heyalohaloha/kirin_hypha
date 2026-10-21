@@ -13,6 +13,7 @@
 // saved meter context to bypass the DRUM admission rule.
 namespace hypha::attack_ui
 {
+inline constexpr double liveAdoptionMs = 500.0;
     constexpr int presentationSeconds = 6;
     constexpr int presentationHz = 10;
     constexpr const char* activationEnvironmentVariable = "KIRIN_HYPHA_OPEN_ATTACK";

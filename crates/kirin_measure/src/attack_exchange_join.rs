@@ -67,6 +67,7 @@ pub(super) fn store_joined_attack(
                 post,
                 Arc::new(observations),
                 &pair_events,
+                &post_anchored,
             ) {
                 coordinator.clear_attack_observations();
             }

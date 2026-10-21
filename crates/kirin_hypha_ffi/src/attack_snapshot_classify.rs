@@ -11,6 +11,155 @@ pub const ATT: usize = 1;
 pub const REL: usize = 2;
 pub const LEVEL: usize = 3;
 
+pub(crate) fn band_proof_compatible(
+    proof: &kirin_measure::spectrum_exchange::AttackMappingProof,
+) -> bool {
+    let expected = kirin_measure::attack_runtime::semantics::band_semantic_hash();
+    proof.band_semantic_hash == expected
+        && proof.pre.band_semantic_hash == expected
+        && proof.post.band_semantic_hash == expected
+}
+
+#[derive(Clone, Copy)]
+pub enum AllSideEvidence<'a> {
+    Detail(&'a kirin_measure::AttackDetailedEvent, AttackFinish),
+    Pending(u8),
+    Missing(u8),
+}
+
+fn all_state(side: AllSideEvidence<'_>, lane: usize) -> KirinSnapshotScalarEvidence {
+    let (detail, finish) = match side {
+        AllSideEvidence::Detail(detail, finish) => (detail, finish),
+        AllSideEvidence::Pending(reason) => {
+            return KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_PENDING, reason)
+        }
+        AllSideEvidence::Missing(reason) => {
+            return KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_UNKNOWN, reason)
+        }
+    };
+    if !detail.has_valid_layout() {
+        return KirinSnapshotScalarEvidence::unavailable(
+            KIRIN_SCALAR_UNKNOWN,
+            KIRIN_REASON_SEMANTICS,
+        );
+    }
+    let features = &detail.features;
+    let unit = match lane {
+        1 => KIRIN_INTERVAL_DBFS,
+        3 => KIRIN_INTERVAL_ACUM,
+        _ => KIRIN_INTERVAL_DECIBELS,
+    };
+    let missing = |reason| KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_UNKNOWN, reason);
+    let mut result = if matches!(lane, 0 | 3) && !features.complete {
+        if finish == AttackFinish::Acquiring {
+            KirinSnapshotScalarEvidence::unavailable(
+                KIRIN_SCALAR_PENDING,
+                KIRIN_REASON_WAITING_AUDIO,
+            )
+        } else {
+            missing(KIRIN_REASON_AUDIO_END)
+        }
+    } else if lane == 0 && features.body_rms_dbfs.is_none() {
+        missing(KIRIN_REASON_NEXT_HIT)
+    } else if lane == 0 && features.body_rms_dbfs.is_some_and(|db| db < -72.0) {
+        KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_NOT_APPLICABLE, KIRIN_REASON_SILENT)
+    } else {
+        let value = match lane {
+            0 => features.transient_db,
+            1 => Some(features.attack_rms_dbfs),
+            2 => Some(features.crest_db),
+            _ => features.sharpness_acum,
+        };
+        value.filter(|v| v.is_finite()).map_or_else(
+            || missing(KIRIN_REASON_NOT_KEPT),
+            |v| {
+                KirinSnapshotScalarEvidence::numeric(
+                    KirinSnapshotInterval::point(f64::from(v), unit),
+                    KIRIN_REASON_NONE,
+                )
+            },
+        )
+    };
+    result.finish = finish as u8;
+    result.requested_start = detail.shape.start_sample;
+    result.actual_start = detail.shape.start_sample;
+    result.requested_end = features.body_end_sample;
+    result.actual_end = features.body_end_sample;
+    result
+}
+
+/// The sole meaning of ALL lanes, for both the LIVE median and a selected Single.
+pub fn classify_all_lanes(
+    target: u8,
+    pre: AllSideEvidence<'_>,
+    post: AllSideEvidence<'_>,
+    pair_kind: u8,
+    proof: Result<u64, u8>,
+) -> [KirinSnapshotScalarEvidence; 4] {
+    std::array::from_fn(|lane| {
+        let mut result = if target != KIRIN_TARGET_DELTA {
+            all_state(
+                if target == KIRIN_TARGET_PRE {
+                    pre
+                } else {
+                    post
+                },
+                lane,
+            )
+        } else if pair_kind != 0 {
+            KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_UNKNOWN, KIRIN_REASON_NO_PAIR)
+        } else if let Err(reason) = proof {
+            KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_UNKNOWN, reason)
+        } else {
+            let a = all_state(pre, lane);
+            let b = all_state(post, lane);
+            if a.has_interval == 0 || b.has_interval == 0 {
+                if a.has_interval == 0 {
+                    a
+                } else {
+                    b
+                }
+            } else if let (
+                AllSideEvidence::Detail(a_detail, _),
+                AllSideEvidence::Detail(b_detail, _),
+            ) = (pre, post)
+            {
+                if a_detail.event.event_sample != b_detail.event.event_sample {
+                    KirinSnapshotScalarEvidence::unavailable(
+                        KIRIN_SCALAR_UNKNOWN,
+                        KIRIN_REASON_MAPPING,
+                    )
+                } else {
+                    let mut interval = b.interval;
+                    // Absolute strength is dBFS; its difference is dB.
+                    if lane == 1 {
+                        interval.unit = KIRIN_INTERVAL_DECIBELS;
+                    }
+                    let value = b.interval.lower.value - a.interval.lower.value;
+                    interval.lower.value = value;
+                    interval.upper.value = value;
+                    let mut result =
+                        KirinSnapshotScalarEvidence::numeric(interval, KIRIN_REASON_NONE);
+                    result.finish = a.finish.max(b.finish);
+                    result.requested_start = a.requested_start;
+                    result.requested_end = a.requested_end;
+                    result.actual_start = a.actual_start.max(b.actual_start);
+                    result.actual_end = a.actual_end.min(b.actual_end);
+                    result
+                }
+            } else {
+                KirinSnapshotScalarEvidence::unavailable(KIRIN_SCALAR_UNKNOWN, KIRIN_REASON_MAPPING)
+            }
+        };
+        result.proof_revision = if target == KIRIN_TARGET_DELTA {
+            proof.unwrap_or(0)
+        } else {
+            0
+        };
+        result
+    })
+}
+
 #[derive(Clone, Copy)]
 pub enum BandSideEvidence<'a> {
     Observation(&'a AttackBandObservation),
