@@ -425,7 +425,9 @@ mod tests {
         }
 
         let mut trial_percent = [0.0; 5];
-        for percent in &mut trial_percent {
+        let mut ratios = [0.0; 5];
+        for (percent, ratio) in trial_percent.iter_mut().zip(&mut ratios) {
+            let reference_ms = crate::perceptual::performance_probe::reference_ms();
             let started = Instant::now();
             for _ in 0..20 {
                 endpoint += 4_800;
@@ -441,14 +443,12 @@ mod tests {
                 );
             }
             *percent = started.elapsed().as_secs_f64() * 1_000.0 / 20.0;
+            *ratio = *percent / reference_ms;
         }
-        trial_percent.sort_by(f64::total_cmp);
-        let projected_two_worker_cpu_percent = trial_percent[trial_percent.len() / 2];
-        eprintln!(
-            "48k two POST absolute workers: median projected CPU \
-             {projected_two_worker_cpu_percent:.3}%, worst {:.3}%",
-            trial_percent[trial_percent.len() - 1]
+        crate::perceptual::performance_probe::report_budget(
+            "two_post_absolute_workers_fit_the_optional_analysis_budget",
+            trial_percent,
+            ratios,
         );
-        assert!(projected_two_worker_cpu_percent < 18.0);
     }
 }

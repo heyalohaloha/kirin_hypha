@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions, nativeRunner } from './release_hypha.mjs';
-import { HOST_TESTS, assertState, hash, digest, fileFact, treeFact, checkFacts,
+import { HOST_TESTS, CI_ORACLES, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint, acceptanceCriteria } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE } from './ls_release/hypha_release_local.mjs';
 import { updateBinding } from './updates/update_key_binding.mjs';
@@ -184,29 +184,29 @@ test('an owner decision lifts only its named row, bound to this candidate and fr
   assert.deepEqual(state.ownerOverrides.map(o => [o.testId, o.candidateId]), [['Exact-4-S-samples', state.candidate.id]]);
   assert.notEqual(digest(acceptanceCriteria(state)), digest(acceptanceCriteria(f.state)));
   assert.equal(digest(acceptanceCriteria(f.state)), digest({ tests: f.state.requiredHostTests, expected: f.state.expected }));
-  const file = path.join(f.root, 'override-report.json'), ids = ['Exact-4-S-samples', 'stress-UI'];
+  const file = path.join(f.root, 'override-report.json'), ids = ['Exact-4-S-samples', 'pair/combinations'];
   const report = reportTemplate(state, 'A4', 'd'.repeat(64), ids);
   report.tests[0].result = 'NOT_REQUIRED_OWNER_OVERRIDE';
-  report.tests[1] = { id: 'stress-UI', result: 'PASS', expected: { passed: true }, measured: { passed: true },
-    oracle: 'retained UI stress log', evidence: [fileFact(f.evidence)] };
+  report.tests[1] = { id: 'pair/combinations', result: 'PASS', expected: { passed: true }, measured: { passed: true },
+    oracle: 'retained pair combinations report', evidence: [fileFact(f.evidence)] };
   const write = () => fs.writeFileSync(file, JSON.stringify(report));
   write(); assert.equal(validateReport(state, file, 'A4', 'd'.repeat(64), ids).length, 3);
   assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ids), Checkpoint);
   report.tests[1].result = 'NOT_REQUIRED_OWNER_OVERRIDE'; write();
-  assert.throws(() => validateReport(state, file, 'A4', 'd'.repeat(64), ids), /stress-UI has no owner override/);
+  assert.throws(() => validateReport(state, file, 'A4', 'd'.repeat(64), ids), /has no owner override/);
   report.tests[1].result = 'PASS'; write();
   assert.throws(() => assertState({ ...state, ownerOverrides: [{ ...state.ownerOverrides[0], candidateId: 'other' }] }),
     /not bound to this candidate/);
   const notes = path.join(f.root, 'notes.md'); fs.writeFileSync(notes, 'not an owner decision');
-  const handWritten = { ...state, ownerOverrides: [{ testId: 'stress-UI', candidateId: state.candidate.id,
+  const handWritten = { ...state, ownerOverrides: [{ testId: 'pair/combinations', candidateId: state.candidate.id,
     decision: fileFact(notes) }, { testId: 'Exact-4-S-samples', candidateId: state.candidate.id, decision: fileFact(notes) }] };
   assertState(handWritten);
   for (const row of report.tests) row.result = 'NOT_REQUIRED_OWNER_OVERRIDE';
   write(); assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ids));
   const otherRow = path.join(f.root, 'other-row.json');
   fs.writeFileSync(otherRow, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'Exact-4-S-samples' }));
-  handWritten.ownerOverrides = [{ testId: 'stress-UI', candidateId: state.candidate.id, decision: fileFact(otherRow) }];
-  assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ['stress-UI']), /decision changed/);
+  handWritten.ownerOverrides = [{ testId: 'pair/combinations', candidateId: state.candidate.id, decision: fileFact(otherRow) }];
+  assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ['pair/combinations']), /decision changed/);
   fs.writeFileSync(decisionFile, JSON.stringify({ ...OWNER_DECISION, ownerAnswer: 'changed' }));
   assert.throws(() => validateReport(state, file, 'A4', 'd'.repeat(64), ids), /decision changed/);
 });
@@ -240,10 +240,10 @@ test('an owner decision for another release, candidate or row is refused, and bi
   assert.deepEqual(parseReleaseArgs(['--state', 'x', '--init', '--owner-override', file]).ownerOverride, [file]);
   fs.writeFileSync(file, JSON.stringify(OWNER_DECISION));
   const second = path.join(f.root, 'owner-decision-stress.json');
-  fs.writeFileSync(second, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'stress-UI' }));
+  fs.writeFileSync(second, JSON.stringify({ ...OWNER_DECISION, excludedRequiredTest: 'pair/combinations' }));
   const parsed = parseReleaseArgs(['--state', f.statePath, '--init', '--owner-override', file, '--owner-override', second]);
   const state = makeState(f.root, { ...parsed, date: '2026-10-01' }, () => SOURCE);
-  assert.deepEqual(state.ownerOverrides.map(o => o.testId), ['Exact-4-S-samples', 'stress-UI']);
+  assert.deepEqual(state.ownerOverrides.map(o => o.testId), ['Exact-4-S-samples', 'pair/combinations']);
   assert.deepEqual(state.requiredHostTests, HOST_TESTS);
   assert.throws(() => makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: [file, file] }, () => SOURCE),
     /names a row twice/);
@@ -288,10 +288,16 @@ test('CI exact commit, complete matrix and workflow must agree; no dispatch rout
   const f = fixture(t); f.state.inputs.ciRun = '123';
   let commit = SOURCE.commit, event = 'push', repository = 'heyalohaloha/kirin_hypha';
   const jobs = ['public history identity', 'release source contract (macos)', 'auval arm64 (AU validation)', 'windows VST3 preflight']
-    .map(name => ({ name, status: 'completed', conclusion: 'success' }));
+    .map(name => ({ name, status: 'completed', conclusion: 'success', steps: [] }));
+  for (const check of Object.values(CI_ORACLES).flatMap(oracle => oracle.checks)) {
+    let job = jobs.find(job => job.name === check.job);
+    if (!job) { job = { name: check.job, status: 'completed', conclusion: 'success', steps: [] }; jobs.push(job); }
+    if (!job.steps.some(step => step.name === check.step)) job.steps.push({ name: check.step, status: 'completed', conclusion: 'success' });
+  }
+  for (const [index, job] of jobs.entries()) Object.assign(job, { id: index + 1, run_id: 123, head_sha: SOURCE.commit, run_attempt: 1 });
   const run = async (tool, args) => { assert.equal(tool, 'gh'); assert.equal(args[0], 'api');
-    return JSON.stringify(args[1].includes('/jobs?') ? { jobs } :
-      { head_sha: commit, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml', name: 'CI', event, head_repository: { full_name: repository } }); };
+    return JSON.stringify(args[1].includes('/jobs?') ? { total_count: jobs.length, jobs } :
+      { head_sha: commit, run_attempt: 1, status: 'completed', conclusion: 'success', path: '.github/workflows/ci.yml', name: 'CI', event, head_repository: { full_name: repository } }); };
   await verifyCi(f.state, run); commit = 'f'.repeat(40);
   await assert.rejects(verifyCi(f.state, run), Checkpoint); commit = SOURCE.commit;
   for (event of ['pull_request', 'pull_request_target', undefined]) await assert.rejects(verifyCi(f.state, run), Checkpoint);

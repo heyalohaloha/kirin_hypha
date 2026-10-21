@@ -25,6 +25,7 @@ run node --test scripts/analyze_chain_trace.test.mjs
 run node --test scripts/listen_text_inventory.test.mjs
 run node --test scripts/hypha_workflow_discovery.test.mjs
 run node --test scripts/build_hypha.test.mjs
+run node --test scripts/ls_release/hypha_release_criteria.test.mjs
 run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_hp.test.mjs scripts/ls_release/hypha_release_github.test.mjs
 run node --test scripts/provenance/*.test.mjs
 run node --test scripts/ls_release/release_source_identity.test.mjs
@@ -33,6 +34,8 @@ run bash scripts/check_source_line_budget.sh
 # Tests wait for notifications or follow audio time; short sleeps only shrink (CI stretches them).
 run node --test scripts/check_test_sleep_budget.test.mjs
 run node scripts/check_test_sleep_budget.mjs
+run node --test scripts/check_perf_budget.test.mjs
+run node scripts/check_perf_budget.mjs
 # Public text: what a change adds and its commit messages carry no internal records.
 run node --test scripts/check_public_text.test.mjs
 run node scripts/check_public_text.mjs

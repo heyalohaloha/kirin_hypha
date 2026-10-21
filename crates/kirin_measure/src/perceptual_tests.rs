@@ -200,7 +200,9 @@ fn one_visible_pair_continuous_sharpness_worker_budget_is_quantified() {
     }
 
     let mut trial_percent = [0.0; 5];
-    for percent in &mut trial_percent {
+    let mut ratios = [0.0; 5];
+    for (percent, ratio) in trial_percent.iter_mut().zip(&mut ratios) {
+        let reference_ms = performance_probe::reference_ms();
         let started = Instant::now();
         for _ in 0..20 {
             endpoint += 4_800;
@@ -211,13 +213,11 @@ fn one_visible_pair_continuous_sharpness_worker_budget_is_quantified() {
         }
         let millis_per_aperture = started.elapsed().as_secs_f64() * 1_000.0 / 20.0;
         *percent = millis_per_aperture * 2.0;
+        *ratio = millis_per_aperture / reference_ms;
     }
-    trial_percent.sort_by(f64::total_cmp);
-    let projected_pair_worker_percent = trial_percent[trial_percent.len() / 2];
-    eprintln!(
-        "48k continuous Perceptual Delta Sharpness: median projected one visible PRE+POST worker \
-         CPU {projected_pair_worker_percent:.3}%, worst {:.3}%",
-        trial_percent[trial_percent.len() - 1]
+    performance_probe::report_budget(
+        "one_visible_pair_continuous_sharpness_worker_budget_is_quantified",
+        trial_percent,
+        ratios,
     );
-    assert!(projected_pair_worker_percent < 18.0);
 }

@@ -70,6 +70,7 @@ node scripts/build_hypha.mjs --release --init \
   --notes release_state/reviewed-release-notes.md \
   --provenance-report release_state/distribution-provenance.json \
   --source-archive /retained/private-windows-producer/Kirin-Hypha-X.Y.Z-Corresponding-Source.zip \
+  --fix-rows release_state/fix-rows.json \
   --date YYYY-MM-DD
 
 # planのみ。build / 署名 / CI / 公開 / HP変更は実行しない。
@@ -153,10 +154,15 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 
 - **CI / Windows**: exact commit、正しいworkflow、全必須job green、署名・pluginval・installer lifecycle・
   external validation・Native-only provenanceが必要。旧runは代用できない。
+- **性能予算**: 較正の変更後にgreenとなったCI 2 runの両probeの参照時間と比を記録し、各probeの最大の中央値比×1.1へ暫定上限1000を下げる。
 - **Source / NOTICE**: `source-delivery`はcleanな採用source・承認済みJUCE bytes・依存sourceを検査し、対応source ZIPとlicense/NOTICEを準備する。Windows private factoryの未署名producerが作ったZIPを`--source-archive`で取り込み、Macでも全entryを照合して同じbytes/hashを使う。PKGの`Library/Application Support/Kirin Hypha/Legal`、ZIPの`Legal`、Windowsのインストール先`Kirin Mastering/Kirin Hypha/Legal`に同じsource配送情報を入れる。署名済みbundleは変更しない。source準備の成功はactual extraction/linkage reviewを代用しない。
-- **A4**: SDK/機器を含まないfixture結果で実host matrixを代用しない。Intel macOSのAU / VST3 / AAX、
-  Windows x64のVST3 / AAX、pair組合せ、LISTEN / Blind / Exact 4 S、通常透明性、保存、stress等を必須とする。
-  macOS Universalの両slice検証とARM64の自動CIは維持する。その他の実hostは追加検証として扱う。
+- **A4**: Intel macOSのAU / VST3 / AAX、Windows x64のVST3 / AAXで普通の通し
+  （導入、path/hash、pair、通常音声、Keep、保存、再起動）を確認する。共通の流れは代表hostへ寄せ、
+  host固有の時計・ループ・PDC、OSごとのpair組合せと192 kHz、Windowsの更新・uninstallを確認する。
+  通常透明性・LISTEN・Blind・Exact 4 Sの定量的安全条件は維持する。
+  rate/layoutの既存計測・pair試験、editor操作と到達性、installer lifecycleは契約のCI oracleへ結び、
+  jobとstepの成功を確認する。新しい全組合せのnative試験が済んだことは意味しない。
+  macOS Universal両sliceとARM64の自動CIを維持する。
 - **Provenance**: build/signing前に素材の用途を確認し、packaging後に実payloadのNOTICE・license・対応source配送を確認する。保持したprivate reportと実bytesを[配布gate](provenance/distribution_gate.md)で照合する。fixture PASSだけで配布readyにしない。
 - **A5**: packaging前後のpayload連続性、両OSのclean install、全署名、Rollback準備の証跡が必要。
 - **LS**: 現行Runbookのauthenticated uploadはoperator工程。scriptはPKG/stateを揃え、各商品の
@@ -170,6 +176,30 @@ reportはcandidateとpayload/containerのSHAへ結び、各rowの`expected`、`m
 Blind漏洩、Exact 4 Sのframe誤差は0を要求する。最低期待値を緩めない。
 宣言host範囲と追加の数値閾値はA0で担当者が照合し、A3前にmatrix／期待値へ含める。
 reportで事後に期待値を変更して通すことはできない。
+
+新規profileは`kirin-hypha-release-pipeline-v2`。旧schemaの凍結済みprofileは読み込まない。
+`--init --fix-rows FILE`で版ごとの深い検証を結ぶ。入力例は次の形。ファイルのhashと全行・期待値を
+受入条件へ凍結する。`kind: host`だけをhosts.jsonへ要求し、`kind: ci`は名前付きCI oracleへ結ぶ。
+CIの標準の期待は`{ "passed": true }`。追加の数値条件には実測oracleの証拠が必要で、無ければ確認待ちにする。
+
+```json
+{ "schema": "hypha-release-fix-rows-v1", "release": "X.Y.Z", "rows": [
+  { "id": "clock-recovery", "kind": "host", "hosts": ["macOS/x86_64/AU"],
+    "depth": "deep", "oracle": "independent callback capture", "expected": { "lostFrames": 0 } },
+  { "id": "pair-recovery", "kind": "ci", "hosts": [], "depth": "deep",
+    "oracle": "pair-recovery-parity", "expected": { "passed": true } }
+] }
+```
+
+凍結後の本人判断は、hosts段の`--execute --owner-decision FILE`で結ぶ（複数ファイル可）。
+判断ファイルは`schema: hypha-owner-acceptance-decision-v1`、`release`、exact `candidateId`、
+`rows[]`の各行に`id`、`reason`、`resumeCondition`、`releaseNote`を必須とする。
+通常のhost行、追加のhost/CI行を複数まとめられる。4件の定量的安全条件は対象外。
+受入条件とfreezeは変えず、判断の内容・hash・freezeとの結びをprofileへ保存する。
+hosts.jsonでは該当行だけ`OWNER_DEFERRED`を受け付ける。CI行はhosts段の証跡へ残る。
+延期はPASSとは区別し、理由・再開条件・公開ノートに使う文を保持する。判断ファイルの変更は後段も拒否する。
+確認済みのhost FAILは判断を明示した再開だけが再検証でき、署名・製造のFAILはこの経路で再試行しない。
+
 本人がその版に限って必須の受入から外した行は、`--init`の`--owner-override FILE`で決定ファイル
 （schema `hypha-owner-acceptance-override-v1`、同じ版、HOST_TESTSの1行、`excludedResultMustBe`が
 `NOT_REQUIRED_OWNER_OVERRIDE`）を候補へ結ぶ（1行に1つ、行ごとに繰り返し指定する）。matrixと期待値は残り、決定のhashは受入の基準と一緒に凍結される。
@@ -181,7 +211,9 @@ A7の確認済みFAILを、単なる検証待ちの`RELEASED`へ読み替えな�
 
 各PASSの実file/tree hashを再確認して再利用する。source、JUCE実bytes、resources、permissions、
 symlinks、package/installer/sidecarを確認し、receiptがあるだけでは再利用しない。
-CIは指定したgreen runを検証して再利用する。新規dispatch、rerun、予算変更、artifact削除は自動で行わない。
+CIは指定したgreen runを検証して再利用する。job一覧は`filter=latest`でページを最後まで読み、
+同じrun・commitの各必須jobとstepの成功、jobごとのattempt番号を証跡へ残す。落ちたjobだけの
+再実行では、成功を維持したjobとattemptが異なってよい。新規dispatch、rerun、予算変更、artifact削除は自動で行わない。
 必要CIが無い場合は、共通予算ルールと既存runを確認して正規CI／factoryを実行する必要が残る。
 これを省略や恒久停止に読み替えない。
 

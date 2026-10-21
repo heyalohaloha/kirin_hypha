@@ -3,15 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { buildTreeManifest } from './aax_submission_archive.mjs';
+import { checkFixRows, checkOwnerDecisions, deferredRow, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
+export { CI_ORACLES, FIX_ROWS_SCHEMA, fixRows, hostTestIds, OWNER_DECISION_SCHEMA, OWNER_DEFERRED } from './hypha_release_criteria.mjs';
 
-export const SCHEMA = 'kirin-hypha-release-pipeline-v1';
+export const SCHEMA = 'kirin-hypha-release-pipeline-v2';
 export const HOST_TESTS = [
   ...['AU', 'VST3', 'AAX'].map(f => `macOS/x86_64/${f}`),
   'Windows/x64/VST3', 'Windows/x64/AAX',
-  ...['PRE-alone', 'POST-alone', 'same-pair', 'wrong-pair', 'multiple-pairs', 'duplicate',
-    'peer-loss', 'peer-return', 'reopen-order', 'processor-recreation'].map(t => `pair/${t}`),
   'normal-bit-identical', 'LISTEN-clock-PDC', 'Live-Blind-anonymity', 'Exact-4-S-samples',
-  'state-automation-recall', 'rate-buffer-layout-matrix', 'stress-UI', 'Windows-installer-lifecycle',
+  'pair/combinations', 'high-rate-192k', 'Windows/x64/install-update',
 ];
 export const DISTRIBUTION_TESTS = ['A4-to-A5-payload-continuity', 'macOS-clean-install',
   'Windows-clean-install', 'all-signatures', 'rollback-preparation'];
@@ -43,9 +43,9 @@ export function ownerOverride(file, candidate) {
   return { testId: decision.excludedRequiredTest, candidateId: candidate.id, decision: fileFact(file) };
 }
 
-export const acceptanceCriteria = state => (state.ownerOverrides?.length
-  ? { tests: state.requiredHostTests, expected: state.expected, ownerOverrides: state.ownerOverrides }
-  : { tests: state.requiredHostTests, expected: state.expected });
+export const acceptanceCriteria = state => ({ tests: state.requiredHostTests, expected: state.expected,
+  ...(state.ownerOverrides?.length ? { ownerOverrides: state.ownerOverrides } : {}),
+  ...(state.fixRows ? { fixRows: state.fixRows } : {}) });
 
 function overriddenRow(state, gate, id) {
   const override = state.ownerOverrides?.find(o => o.testId === id && o.candidateId === state.candidate.id);
@@ -134,6 +134,11 @@ export function validateReport(state, reportPath, gate, binding, ids) {
   }
   for (const id of ids) {
     const row = report.tests.find(t => t.id === id);
+    if (row?.result === OWNER_DEFERRED) {
+      const deferred = gate === 'A4' && deferredRow(state, id);
+      if (!deferred) throw new Checkpoint(`${gate}: ${id} has no bound owner decision`);
+      facts.push(deferred.decision); continue;
+    }
     if (row?.result === OWNER_OVERRIDE_RESULT) { facts.push(overriddenRow(state, gate, id)); continue; }
     if (row?.result === 'FAIL') throw new Error(`${gate}: ${id} has a confirmed acceptance failure`);
     if (!row || row.result !== 'PASS') throw new Checkpoint(`${gate}: ${id} is not PASS (SKIP cannot compensate)`);
@@ -168,6 +173,8 @@ export function assertState(state) {
   for (const id of HOST_TESTS) if (!state.requiredHostTests?.includes(id)) {
     throw new Error('Required host matrix cannot be reduced');
   }
+  checkFixRows(state);
+  checkOwnerDecisions(state);
   for (const override of state.ownerOverrides || []) {
     if (!HOST_TESTS.includes(override.testId) || override.candidateId !== state.candidate.id) {
       throw new Error('Owner override is not bound to this candidate');
