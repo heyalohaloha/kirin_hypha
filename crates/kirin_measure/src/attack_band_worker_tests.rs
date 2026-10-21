@@ -87,15 +87,15 @@ fn missing_cache_refresh_requires_the_full_original_analysis_range() {
         span_end_sample: 34_400,
         measure: None,
     };
-    // Independent 250 Hz contract: 960 lead + 4*192 settle + 97 half-RMS = 1825
+    // Independent 250 Hz contract: 960 lead + 5*192 settle + 97 half-RMS = 2017
     // samples before onset, and 97 after requested end; one missing sample is insufficient.
     let mut ring = crate::attack_perception::band::AttackBandRing::new(48_000, 2);
-    ring.push_block(18_175, &vec![0.0; (34_496 - 18_175) * 2]);
+    ring.push_block(17_983, &vec![0.0; (34_496 - 17_983) * 2]);
     assert!(!super::needs_refresh(&detail, Some(&ring), true));
     ring.push_block(34_496, &[0.0, 0.0]);
     assert!(super::needs_refresh(&detail, Some(&ring), true));
     ring.clear();
-    ring.push_block(18_176, &vec![0.0; (34_497 - 18_176) * 2]);
+    ring.push_block(17_984, &vec![0.0; (34_497 - 17_984) * 2]);
     assert!(!super::needs_refresh(&detail, Some(&ring), false));
     assert!(!super::needs_refresh(&detail, None, false));
 }

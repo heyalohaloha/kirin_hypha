@@ -325,11 +325,12 @@ Summary／Singleを取得する。これは要求済みtarget=Δの測定snapsho
 そのΔに必要な事実が欠ければ、Δのtargetとtyped分類・理由を維持する。同source・同ledgerの
 利用可否変更だけではLOCKのproducer keyを捨てない。
 
-BAND LIVEはsnapshot cutoff時点の6秒内の直近最大8検出打音を先に固定し、
-exact／interval／N/A／unknown／pendingを五分類する。帯域が立ち上がらない打音、測定中の打音も
-cohortに数える。欠測を除いて古い打音を補充しない。2026年10月8日の利用者決定により、
-制作中の主面は値とグラフを優先し、全対象中央値または情報を持つ中央値区間だけを数値表示する。
-全対象の値を出せないlaneは`—`とし、確定部分中央値を全対象値に見せない。
+ALL／BAND LIVEはsnapshot cutoff時点の6秒内で、計測が終わった直近最大8打をcohortにする。
+PENDING、WAITING_AUDIO／SERVICE／PUBLICATION、Δの対象spanをまだ満たさない対応proofは未了で、
+cohort選抜より前に除く。NOT_KEPT／NO_PAIR等の確定した欠測は計測済みとする。
+未了の最新打音の代わりに、その前の計測済み打音を選べる。各laneはN/A・unknown・全実数区間を
+除き、情報を持つ区間が1打以上あれば中央値を表示する。0打なら`—`とする。
+除外理由・件数・五分類はcohort全件分をFactsに残し、intervalの中央値を点へ置き換えない。
 ALL／BANDの主面各laneには「最新の一打」等のscope文、五分類の内訳、理由、指標別ageを描かず、共有captionへ「確定最大古さ」を加えない。既存のLIVE／LOCK選択と共通captionは保持する。
 確定部分中央値・件数・age・全N区間・五分類・理由は同じ採用snapshotの既存Factsに保持する。
 Factsは処理前後の同じ打音を比較する目的と各指標の意味を示し、ATT／RELをコンプ設定値と混同させない。
@@ -340,8 +341,9 @@ ALLで未設定のBAND用要求窓・実測窓・分解能は表示せず、age�
 値・scope・件数・理由・平均HEAD／TAIL・実測mask・参加集合・接続可否は同じtyped stampで採用し、
 UIで中央値を再計算しない。参加集合が変わる点、未観測区間をつながない。
 
-ALL LIVEは最新の検出打音のSingleを使い、BANDの8打中央値を流用しない。LOCKは一打の値・理由・
-包絡を保持し、6秒窓外でも同じeventを読む。BANDのpointerは最後に採用したSummary cutoff Cの
+ALL LIVEもSummaryの中央値を使う。TRANSIENT／STRENGTH／CREST／SHARPNESSの定義は保ち、
+Δは完全なPRE detailとraw span proofのある同じ打音のPOST−PREをまとめる。ALLの分類・値・理由は
+Rustの共通classifierをSingleとSummaryの両方が使う。LOCKは一打の値・理由・包絡を即時に保持し、6秒窓外でも同じeventを読む。BANDのpointerは最後に採用したSummary cutoff Cの
 最大8件cohortを使い、LOCK中もその表示集合を保持する。普通の←→・HOMEは現在集合を使う。
 BANDは現在Navigation cutoffの6秒内の直近最大8件を欠測込みで、ALLは現在表示窓の全Navigation
 系列（容量240件）を巡回する。clusterとactive dragは開始時の鍵集合を使い、publicationで
@@ -350,13 +352,26 @@ LIVEへ戻る。空所は近い打音を選び、ESCは
 候補操作／Factsを閉じてもLOCKを維持する。同source・同ledgerのPOST↔Δ利用可否だけでは選択を
 失わず、source／proof binding失効は退役する。Factsは同じ採用presentationの根拠を凍結して示す。
 
+帯域フィルターは各端4次のButterworth HP／LP（Q=0.5411961／1.306563）を縦続し、中心0 dBで
+正規化する。零状態の読み込みはHEAD開始前に中心周波数の5周期を取り、任意位相の定常入力との
+差を−60 dB未満へ収める。高帯域の応答は双一次変換によるrate依存を含む。意味バージョンは2で、
+旧PREとの混在では更新を要求する。検出器と各指標の窓・定義は変更しない。
+
 帯域処理とPCM保持はATTACK workerが担当し、帯域を替えると直近7秒を停止中でも再解析する。
 AudioEnd後の連続入力で実測区間が延びた場合は新revisionを公開するが、終端済みSingleは凍結する。
 ALLへ戻すと帯域用PCMを解放する。旧DRUMの`--`、NOW、available-onlyまとめ、旧PREでのPOST代用は
 現行V2の表示契約に使わない。測定定義は`hypha_drum_band_view_plan_20260928.md`（§11〜§14）、
 現行presentationはINV-S44と`planning/hypha_drum_psr_usability_improvement_plan_20261007.md`を正本とする。
 
-DRUM取得は30 Hz、BAND LIVEまとめの採用は250 msごと、ALL最新一打／LOCK取得中はnative周期を使う。
+DRUM取得は30 Hz。ALL／BAND LIVEは500 msごとに1 stamp全体を採用する。主値・件数・Facts・
+BANDの数直線の点・HEAD／TAIL包絡を同時に更新し、打音の線と6秒履歴の描画は従来どおりとする。
+主値の保持は、cohortが空でなく、cohortより新しい未了の打音がある間だけのUI側の例外とする。
+保持中もFacts・点・包絡は新stampのまま。未了がない欠測、空cohort、計測済みの全打がN/A・unknownのlaneは`—`とする。
+帯域・target・pair変更とsource退役で保持を消す。Summary末尾の比較元bindingは、完了したPRE打音がない間もPRE再読込を識別し、旧主値を保持しない。HOLDは最後の値を保つ。LOCKはSingleを即時に
+表示し、ENDは同じ観測定義のLIVE保持値（無ければ`—`）へ戻る。LOCK取得中はnative周期を使う。
+ALLの300% LIVEルーペは採用cohortの最も新しい完了打音の既存detailを示す。同じevent keyなら形を描き直さず、
+500 msのstamp採用で代表が替わる。POSTのみ・proof未検証ではPREの形を出さない。帯域変更・退役で代表を消し、LOCKはSingleを使う。ALLにBANDの数直線は描かない。
+LIVEの6秒履歴はnavigationの打音を使い、最新の未了打音も選べる。数直線から選べるのは採用cohortの打音だけとする。BANDのLOCKは元のcohortの時刻を保ち、cohort外から明示選択した一打も履歴に保持する。
 source失効と選択操作はまとめ周期を待たない。表示時計のviewportとfact cutoffを分離し、source sample clockとGUI monotonic clockをanchorする。
 暫定look-behind 150 ms、鮮度250 msはdevelopment値で、実DAWの正常jitter・提示遅延はG3で校正する。
 factsへ追いつく、stop／bypass／非実時間入力、鮮度切れではHOLDにし、毎publicationのeaseや高速catch-upで移動を作らない。

@@ -37,7 +37,7 @@ void KirinHyphaEditor::refreshDrumSnapshots (bool liveInput)
         observatoryView.setAttackPaired (false);
         nextDrumSummaryMs = 0.0;
     }
-    if (attackView.band() != 0 && attackView.presentationSnapshotV2().live && now >= nextDrumSummaryMs)
+    if (attackView.presentationSnapshotV2().live && now >= nextDrumSummaryMs)
     {
         nextDrumSummaryMs = now + 250.0;
         if (!drumSummary) drumSummary = std::make_unique<KirinAttackBandSummaryV2>();

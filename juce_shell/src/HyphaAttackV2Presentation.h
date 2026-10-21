@@ -41,11 +41,12 @@ public:
             && adopted.single->finish != KIRIN_FINISH_ACQUIRING
             && adopted.single->finish != KIRIN_FINISH_RETIRED;
     }
-    bool needsSingle() const noexcept { return band == 0 || ! selection.live; }
+    bool needsSingle() const noexcept { return ! selection.live; }
     const KirinSnapshotHeader& navigationHeader() const noexcept { return navHeader; }
 private:
     KirinSnapshotHeader navHeader {};
     std::shared_ptr<const KirinAttackBandSummaryV2> pending;
+    std::optional<Presentation> livePresentation;
     std::optional<KirinSnapshotEventKey> requested;
     double appliedMs = -1;
     std::uint64_t nextRevision = 1;

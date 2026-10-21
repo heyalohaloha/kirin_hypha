@@ -91,7 +91,7 @@ bool quietValuesAndFacts (const presentation::Context& context, int width, int h
     return true;
 }
 template <typename Rig>
-bool allSinglesQuiet (const presentation::Context& context, int width, int height)
+bool allLiveAndLockedValues (const presentation::Context& context, int width, int height)
 {
     Rig r; r.view->setPresentationContext (context); r.view->setSize (width, height);
     auto h = header(); h.cutoff_sample = 520000;
@@ -104,18 +104,24 @@ bool allSinglesQuiet (const presentation::Context& context, int width, int heigh
     for (const bool live : { true, false })
     {
         if (! live) MAIN_Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
-        auto one = single (r.last, r.view->singleRequestToken()); one.header.cutoff_sample = h.cutoff_sample;
-        one.has_all_pre = one.has_all_post = 1;
-        one.all_post = laneDetail (r.last.event.event_sample);
-        one.all_pre = laneDetail (r.last.event.event_sample, 5);
-        one.all_pre.transient_db = 7; one.all_pre.body_rms_dbfs = -24;
-        one.all_pre.crest_db = 7; one.all_pre.sharpness_acum = 1.2f;
-        one.finish = KIRIN_FINISH_FULL; MAIN_Q (r.view->setSingleSnapshotV2 (one, live ? 0 : 1));
+        if (live)
+        {
+            auto packet = allSummary(); packet.header.cutoff_sample = h.cutoff_sample;
+            MAIN_Q (r.view->setSummarySnapshotV2 (packet, 0));
+        }
+        else
+        {
+            auto one = single (r.last, r.view->singleRequestToken()); one.header.cutoff_sample = h.cutoff_sample;
+            one.has_all_pre = one.has_all_post = 1;
+            one.all_post = laneDetail (r.last.event.event_sample); one.all_pre = one.all_post;
+            one.finish = KIRIN_FINISH_FULL; allSingleLanes (one, {1.0, 2.0, 3.0, .25});
+            MAIN_Q (r.view->setSingleSnapshotV2 (one, 1));
+        }
         text_style::ShownTextLog main; MAIN_Q (renderAttack (*r.view).isValid());
         const auto& adopted = r.view->presentationSnapshotV2();
-        MAIN_Q (adopted.live == live && adopted.single && adopted.single->event.event_sample == r.last.event.event_sample);
+        MAIN_Q (adopted.live == live && (live ? adopted.summary != nullptr : adopted.single != nullptr));
         for (const auto& lane : adopted.lanes)
-            MAIN_Q (lane.scope == Scope::single && lane.number.valid && main.texts().contains (lane.number.value)
+            MAIN_Q ((live ? lane.scope == Scope::wholePoint : lane.scope == Scope::single) && lane.number.valid && main.texts().contains (lane.number.value)
                 && ! main.texts().contains (scopeText (lane, live))
                 && (laneReason (lane).isEmpty() || ! main.texts().contains (laneReason (lane))));
         const auto text = main.texts().joinIntoString ("\n");
@@ -153,9 +159,38 @@ bool wholeValuesVisible (const presentation::Context& context, int width, int he
     return true;
 }
 template <typename Rig>
+bool allHasNoBandAxis()
+{
+    for (const auto editor : {600, 900})
+    {
+        const auto context = presentation::forEditor (editor, editor * 2 / 3);
+        const int width = editor == 600 ? 580 : 872, height = editor == 600 ? 248 : 412;
+        for (const auto band : {0, 5})
+        {
+            Rig r; r.view->setPresentationContext (context); r.view->setSize (width, height);
+            r.view->setBand (static_cast<std::uint8_t> (band));
+            auto packet = band == 0 ? allSummary() : denseSummary();
+            MAIN_Q (r.nav ({packet.events, packet.events + packet.cohort_count}));
+            const auto waiting = renderAttack (*r.view);
+            MAIN_Q (r.view->setSummarySnapshotV2 (packet, 0));
+            const auto measured = renderAttack (*r.view);
+            const auto shape = geometry (width, height, context, band == 0);
+            for (const auto& lane : shape.lanes)
+            {
+                MAIN_Q (!lane.axis.isEmpty());
+                // This region contains both scale glyphs and the number line. BAND is the positive control.
+                MAIN_Q (band == 0 ? differences (waiting, measured, lane.axis) == 0
+                                  : differences (waiting, measured, lane.axis) > 0);
+            }
+        }
+    }
+    return true;
+}
+template <typename Rig>
 bool verify()
 {
     material_cache::Lifetime lifetime;
+    MAIN_Q (allHasNoBandAxis<Rig>());
     const auto output = juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_ARTIFACT_DIR", {});
     const std::array<int, 5> widths { 292, 363, 434, 580, 872 }, heights { 120, 158, 164, 248, 412 }, editors { 300, 375, 450, 600, 900 };
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -171,10 +206,8 @@ bool verify()
             {
                 Rig all; all.view->setPresentationContext (c); all.view->setSize (widths[size], heights[size]);
                 auto h = header(); h.cutoff_sample = 520000; MAIN_Q (all.nav ({key (400000, 1), key (470000, 2)}, 0, h));
-                auto one = single (all.last, all.view->singleRequestToken()); one.header.cutoff_sample = h.cutoff_sample;
-                one.has_all_pre = one.has_all_post = 1; one.all_post = laneDetail (470000); one.all_pre = laneDetail (470000, 5);
-                one.all_pre.transient_db = 7; one.all_pre.body_rms_dbfs = -24; one.all_pre.crest_db = 7; one.all_pre.sharpness_acum = 1.2f;
-                one.finish = KIRIN_FINISH_FULL; MAIN_Q (all.view->setSingleSnapshotV2 (one, 0));
+                auto packet = allSummary(); packet.header.cutoff_sample = h.cutoff_sample;
+                MAIN_Q (all.view->setSummarySnapshotV2 (packet, 0));
                 const auto file = juce::File (output).getChildFile ("drum-v2-all-" + juce::String (editors[size]) + "-"
                     + (language == i18n::Language::english ? "en" : "ja") + ".png");
                 MAIN_Q (file.getParentDirectory().createDirectory().wasOk()); juce::FileOutputStream stream (file); juce::PNGImageFormat png;
@@ -235,7 +268,7 @@ bool verify()
             MAIN_Q (! mainText.contains (words ("Max age ", u8"確定最大古さ"))
                 && ! mainText.contains (words (" old", u8" 古さ")));
             MAIN_Q (quietValuesAndFacts<Rig> (c, widths[size], heights[size]));
-            MAIN_Q (allSinglesQuiet<Rig> (c, widths[size], heights[size]));
+            MAIN_Q (allLiveAndLockedValues<Rig> (c, widths[size], heights[size]));
             MAIN_Q (wholeValuesVisible<Rig> (c, widths[size], heights[size]));
             if (output.isNotEmpty())
             {
@@ -252,7 +285,7 @@ bool verify()
                 level.class_count[1] = 8; level.exact_count = 0; level.render_kind = KIRIN_RENDER_WHOLE_INTERVAL;
                 level.whole_interval = interval (-magnitude, magnitude); level.whole_interval.unit = KIRIN_INTERVAL_DECIBELS;
                 for (auto& row : broad.evidence) { row[3].class_code = KIRIN_SCALAR_BOUND; row[3].interval = level.whole_interval; }
-                MAIN_Q (r.view->setSummarySnapshotV2 (broad, magnitude > 1e300 ? 1750 : magnitude > 1000 ? 1500 : 1250)); // force immediate publication without elapsed-value interpolation
+                MAIN_Q (r.view->setSummarySnapshotV2 (broad, magnitude > 1e300 ? 3000 : magnitude > 1000 ? 2500 : 2000)); // force immediate publication without elapsed-value interpolation
                 const auto& lane = r.view->presentationSnapshotV2().lanes[3];
                 MAIN_Q (text_style::shownWidth (monoFont (c, typography::TextRole::primaryValue, typography::Composition::visualization), lane.number.value) <= shape.lanes[3].value.getWidth());
                 MAIN_Q (text_style::shownWidth (monoFont (c, typography::TextRole::unit, typography::Composition::visualization), lane.number.unit) <= shape.lanes[3].unit.getWidth());
@@ -268,7 +301,7 @@ bool verify()
             // Unavailable producer values stay unchanged; the main surface uses one quiet dash.
             for (auto& lane : s->lanes) { std::fill (std::begin (lane.class_count), std::end (lane.class_count), 0); lane.exact_count = 0; lane.class_count[3] = 8; lane.render_kind = KIRIN_RENDER_NO_SCALAR; lane.whole_median_available = lane.whole_numeric_informative = 0; }
             for (auto& row : s->evidence) for (auto& e : row) { e.class_code = KIRIN_SCALAR_PENDING; e.has_interval = 0; }
-            s->header.snapshot_revision = 901; MAIN_Q (r.view->setSummarySnapshotV2 (*s, 2000));
+            s->header.snapshot_revision = 901; MAIN_Q (r.view->setSummarySnapshotV2 (*s, 4000));
             MAIN_Q (r.view->presentationSnapshotV2().lanes[0].number.value == "---");
             {
                 text_style::ShownTextLog missing; MAIN_Q (renderAttack (*r.view).isValid());

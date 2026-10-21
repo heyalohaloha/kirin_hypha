@@ -339,10 +339,10 @@ DRUM shows six seconds of the PRE/POST envelope and four facts for the selected 
 sharpness over the first 100 ms, in acum), each as POST − PRE. TRANSIENT describes the head/body
 contrast, STRENGTH its initial level, CREST its peakiness, and SHARPNESS its perceptual sharpness.
 A matched POST hit is measured at the PRE onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
-or whose body is below the −72 dBFS HISTORY floor, shows **—**, with the reason in Facts. A hit shows
+or whose body is below the −72 dBFS HISTORY floor, shows **—**, with the reason in Facts. In POST, a locked hit can show
 STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPNESS follow once its
-body is complete. A hit cut off before those facts can be measured shows **—** and keeps its reason
-in Facts. Without PRE, the lanes show POST values.
+body is complete. Delta values also require a complete PRE hit and verified mapping.
+A hit cut off before those facts can be measured shows **—** and keeps its reason in Facts. Without PRE, the lanes show POST values.
 
 **BAND**, on DRUM's second header row, filters each hit to one ISO octave band (63 Hz to 8 kHz) on
 PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arrival, where the band
@@ -350,20 +350,20 @@ envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band pea
 −20 dB) and **LEVEL** (the peak of the band RMS envelope), each as POST − PRE of the same hit.
 ATT and REL measure the hit's envelope, not a compressor's attack/release knobs. DELAY measures
 the two band-arrival times, not the plug-in's reported audio latency. Larger views show the
-hits on number lines. LIVE first fixes the latest eight detected hits inside the six-second window, including
-hits still being measured or unavailable. Each lane distinguishes exact values, measured limits,
-not applicable, unknown and pending; it never fills a missing hit with an older one. The production
-view keeps the values and graphs: a whole-cohort median or informative median interval remains visible,
-and a lane without a whole-cohort reading shows **—**. A subset median is available in **Facts**,
-along with its count, age and reasons; it is never presented as the whole cohort. Classification and
+hits on number lines. ALL and BAND LIVE use the latest eight completed hits inside the six-second
+window. Audio, worker, publication and unverified mapping still pending are excluded before that
+cohort is selected; older completed hits can fill those positions. Each lane excludes unavailable,
+not-applicable and wholly uninformative intervals and shows a median from one or more informative
+hits. With none it shows **—**. Facts keeps every cohort hit's classification, count and reason,
+including the excluded observations. The UI never recalculates the median. Classification and
 Age sentences and the repeated “Latest hit” or “Locked hit” lane text stay off the main view;
 the existing LIVE/LOCK control and shared caption retain the selection context. Limits keep their direction and are rounded outwards. At 200 % and
 300 % HISTORY shows those hits' average **HEAD** (−20 to +40 ms) and **TAIL** (0 to 300 ms) in that
 band; smaller views keep the same values, units and Facts access in four cards. Click a dot (or use ← → HOME) to lock that hit and
 read its own values and envelopes. LOCK keeps the selected hit when it leaves the visible window;
 its completed values, envelope and original qualification stay together in one bounded snapshot.
-A real source or clock binding change retires it. LIVE returns to the current cohort. ALL LIVE reads the latest detected hit; it does not use BAND's
-eight-hit median. The band hits keep the same producer keys as the full-band navigation. Choosing
+A real source or clock binding change retires it. LIVE returns to its retained summary. ALL LIVE uses
+the same completed-hit cohort as BAND; LOCK alone reads one selected hit. The band hits keep the same producer keys as the full-band navigation. Choosing
 another band analyzes the retained last 7 s again, even while stopped; ALL releases the extra band
 audio. Facts distinguishes silence, an earlier hit still ringing, a next hit cutting the tail,
 unmeasured audio, audio/worker/publication still pending, and missing comparison proof. A measured
@@ -397,7 +397,11 @@ without equivalent prefix proof stays unavailable in Δ.
 PSR is supplementary: its `Δ −3.3 dB` or `POST 10.1 dB` reading uses a small, regular-weight
 font and secondary colour, with no equation beside it. M, S and TP remain the main readings.
 
-DRUM reads incoming hits at 30 Hz, updates BAND LIVE summaries at 4 Hz and updates TIME at 10 Hz.
+DRUM reads incoming hits at 30 Hz, fetches ALL/BAND LIVE summaries at 4 Hz and adopts one complete
+stamp every 500 ms. Values, counts, points, envelopes and Facts change together. Only the main
+number may retain its previous value while a nonempty cohort has newer unfinished hits. A genuinely
+empty or wholly unavailable cohort shows **—**. HOLD retains the last value; band, target, pair or
+source changes clear it, and LOCK responds immediately. TIME updates at 10 Hz.
 Its display clock is separate from measurement and stops where available observations end. The
 view looks back 150 ms; a BAND reading older than 250 ms keeps its age and missing-data reason
 visible in Facts. These readings describe the measured audio and do not judge its quality.

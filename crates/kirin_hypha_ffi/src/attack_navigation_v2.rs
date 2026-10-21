@@ -112,7 +112,7 @@ fn read_status(error: AttackObservationReadError) -> u8 {
     }
 }
 
-fn same_binding(a: &AttackObservationView, b: &AttackObservationView) -> bool {
+pub(crate) fn same_binding(a: &AttackObservationView, b: &AttackObservationView) -> bool {
     a.status == b.status
         && a.authority_revision == b.authority_revision
         && a.target_hash == b.target_hash
@@ -130,7 +130,7 @@ fn same_binding(a: &AttackObservationView, b: &AttackObservationView) -> bool {
         }
 }
 
-fn assemble_navigation(
+pub(crate) fn assemble_navigation(
     authority: &AttackSnapshotAuthority,
     local: &AttackObservationSnapshot,
     history: &AttackHistory,

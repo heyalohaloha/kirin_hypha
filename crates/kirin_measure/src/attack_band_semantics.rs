@@ -2,17 +2,17 @@
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
-pub const BAND_SEMANTIC_VERSION: u32 = 1;
+pub const BAND_SEMANTIC_VERSION: u32 = 2;
 
 pub fn band_semantic_bytes() -> Vec<u8> {
     let mut bytes = b"KirinHypha/BandMeaning\0".to_vec();
     use crate::attack_perception::band::*;
-    // Stable u32 wire order: version, RBJ filter family, second-order section order,
+    // Stable u32 wire order: version, RBJ filter family, HP/LP order,
     // settle periods, centre-unity normalization, base-two octave series, HEAD lead/span,
     // peak search, TAIL limit, HEAD/TAIL cell counts, linear crossing, first-peak tie,
     // half-open span convention, algorithm revision. Language and display precision are absent.
     const RBJ_FILTER_FAMILY: u32 = 1;
-    const BIQUAD_ORDER: u32 = 2;
+    const FILTER_ORDER: u32 = 4;
     const CENTRE_UNITY: u32 = 1;
     const BASE_TWO_OCTAVES: u32 = 1;
     const LINEAR_CROSSING: u32 = 1;
@@ -22,7 +22,7 @@ pub fn band_semantic_bytes() -> Vec<u8> {
     for value in [
         BAND_SEMANTIC_VERSION,
         RBJ_FILTER_FAMILY,
-        BIQUAD_ORDER,
+        FILTER_ORDER,
         SETTLE_PERIODS as u32,
         CENTRE_UNITY,
         BASE_TWO_OCTAVES,
@@ -39,9 +39,11 @@ pub fn band_semantic_bytes() -> Vec<u8> {
     ] {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
-    // Stable f64 wire order: base centre, octave ratio, Nyquist clamp, presence floor,
+    // Stable f64 wire order: Butterworth pole-pair Qs, base centre, octave ratio, Nyquist clamp, presence floor,
     // rise threshold, lower/upper ATT crossing, REL crossing and plotting floor.
     for value in [
+        BUTTERWORTH_Q[0],
+        BUTTERWORTH_Q[1],
         BASE_CENTRE_HZ,
         2.0,
         NYQUIST_FRACTION,
@@ -55,8 +57,8 @@ pub fn band_semantic_bytes() -> Vec<u8> {
         bytes.extend_from_slice(&value.to_bits().to_le_bytes());
     }
     bytes.extend_from_slice(
-        b"RBJ-DF1-Butterworth-HP-LP;centre-unity;RMS-nearest-period-centred;\
-        settle-4-period;peak-first;linear-crossing;half-open;next-hit-exclusive;\
+        b"RBJ-DF1-Butterworth4-HP-LP;centre-unity;RMS-nearest-period-centred;\
+        settle-5-period;peak-first;linear-crossing;half-open;next-hit-exclusive;\
         audio-end-needs-peak-and-RMS-tail;grid-cell-midpoint;algorithm-1",
     );
     bytes

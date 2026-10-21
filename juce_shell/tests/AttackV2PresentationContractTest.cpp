@@ -6,6 +6,8 @@
 #include "../src/HyphaTextStyle.h"
 #include "AttackV2MaterialContract.h"
 #include "AttackV2MainSurfaceContract.h"
+#include "AttackV2CadenceContract.h"
+#include "AttackV2LoupeContract.h"
 #include "../src/HyphaAttackV2Painter.h"
 #include <iostream>
 #include <limits>
@@ -125,7 +127,7 @@ bool summaryContracts()
     Q (std::abs (p.lanes[0].ageSeconds - 3) < 1e-12 && p.lanes[1].ageSeconds <= 0 && std::abs (p.maximumSubsetAge - 3) < 1e-12);
     Q (p.summary->head[47].participating_bits == 1 && p.summary->head[48].participating_bits == 2
         && ! p.summary->head[48].connect_previous && p.summary->head[49].connect_previous);
-    // Hash900 ->2 at a later cutoff must be admitted; fourHz changes every field at once.
+    // Hash900 ->2 at a later cutoff must be admitted; one adoption changes every field at once.
     s->header.snapshot_revision = 2; s->header.cutoff_sample += 4800;
     s->lanes[2].whole_interval = lowerBound (146.6);
     Q (r.view->setSummarySnapshotV2 (*s, 125));
@@ -134,19 +136,19 @@ bool summaryContracts()
     r.view->setPresentationContext (presentation::forOutput (900, 600, presentation::OutputTarget::capture)); r.view->setSize (872, 412);
     Q (r.view->createComponentSnapshot (r.view->getLocalBounds(), true, 1.25f).isValid() && p.header.snapshot_revision == 900);
     r.view->setSize (580, 248); r.view->setPresentationContext (presentation::forEditor (600, 400));
-    r.view->presentationTickAt (250);
+    r.view->presentationTickAt (500);
     Q (p.header.snapshot_revision == 2 && p.lanes[2].number.value == juce::String::fromUTF8 (u8"≥+146"));
     // A same-cutoff late measurement has another smaller content hash, also admitted.
     s->header.snapshot_revision = 1; s->lanes[2].whole_interval = lowerBound (160.2);
-    Q (r.view->setSummarySnapshotV2 (*s, 260));
+    Q (r.view->setSummarySnapshotV2 (*s, 510));
     Q (p.header.snapshot_revision == 2);
-    r.view->presentationTickAt (500); Q (p.header.snapshot_revision == 1);
+    r.view->presentationTickAt (1000); Q (p.header.snapshot_revision == 1);
     auto invalid = *s; invalid.lanes[2].class_count[3] = 1;
-    Q (! r.view->setSummarySnapshotV2 (invalid, 510) && p.header.snapshot_revision == 1);
+    Q (! r.view->setSummarySnapshotV2 (invalid, 1010) && p.header.snapshot_revision == 1);
     // Evidence is frozen through subsequent publications, then returns with one End action.
     Q (r.view->keyPressed (juce::KeyPress ('i', {}, 'i')));
     const auto frozen = renderAttack (*r.view);
-    s->header.snapshot_revision = 7; Q (r.view->setSummarySnapshotV2 (*s, 750));
+    s->header.snapshot_revision = 7; Q (r.view->setSummarySnapshotV2 (*s, 1500));
     Q (differences (frozen, renderAttack (*r.view)) == 0);
     const auto liveSummary = p.summary; const auto liveRevision = p.revision;
     Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
@@ -159,63 +161,53 @@ bool summaryContracts()
     l.render_kind = KIRIN_RENDER_CONFIRMED_SUBSET; l.whole_median_available = l.whole_numeric_informative = 0;
     const std::array<std::uint8_t, 8> codes {0,0,1,1,2,3,4,4};
     for (std::size_t i = 0; i < 8; ++i) { classes.evidence[i][3].class_code = codes[i]; classes.evidence[i][3].has_interval = codes[i] <= 1; }
-    Q (r.view->setSummarySnapshotV2 (classes, 1000));
+    Q (r.view->setSummarySnapshotV2 (classes, 2000));
     Q (p.lanes[3].counts == (std::array<std::uint8_t,5> {2,2,1,1,2}) && p.lanes[3].exactCount == 2 && p.lanes[3].count == 8);
     return true;
 }
 bool singleAndMotionContracts()
 {
-    Rig r;
-    Q (r.nav ({ key (470000, 1) }));
-    auto a = single (r.last, r.view->singleRequestToken());
-    a.has_all_post = a.has_all_pre = 1; a.all_post = laneDetail (470000); a.all_pre = a.all_post;
-    a.all_post.transient_db = -30; a.finish = KIRIN_FINISH_FULL;
-    Q (r.view->setSingleSnapshotV2 (a, 0));
-    const auto liveSingle = r.view->presentationSnapshotV2().single;
-    const auto liveToken = r.view->singleRequestToken();
-    const auto liveRevision = r.view->presentationSnapshotV2().revision;
+    Rig r; Q (r.nav ({ key (470000, 1) })); Q (r.requested.empty());
+    auto summary = allSummary (-2.0);
+    Q (r.view->setSummarySnapshotV2 (summary, 0));
+    const auto liveSummary = r.view->presentationSnapshotV2().summary;
+    Q (liveSummary && !r.view->presentationSnapshotV2().single && r.requested.empty());
     Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
-    Q (r.view->presentationSnapshotV2().single == liveSingle && r.view->singleRequestToken() == liveToken
-        && r.view->presentationSnapshotV2().revision == liveRevision);
+    Q (r.view->presentationSnapshotV2().summary == liveSummary);
+    Q (countColour (renderAttack (*r.view), geometry (580, 248, presentation::forEditor (600, 400), true).history,
+                    juce::Colour (attack_ui::selectionColour), 20) == 0);
     auto h = header(); h.cutoff_sample = 486000;
     Q (r.nav ({ key (470000, 1), key (486000, 2) }, 125, h));
     const auto& p = r.view->presentationSnapshotV2();
-    Q (! p.single && r.last.event.event_sample == 486000 && p.viewport < 486000);
-    auto b = single (r.last, r.view->singleRequestToken());
-    b.has_all_post = b.has_all_pre = 1; b.all_post = laneDetail (486000); b.all_pre = b.all_post;
-    b.all_post.transient_db = -10;
-    Q (r.view->setSingleSnapshotV2 (b, 125));
-    Q (p.single->event.event_sample == 486000 && p.lanes[0].number.value == juce::String::fromUTF8 (u8"−18.0"));
-    const auto geometryAt200 = geometry (580, 248, presentation::forEditor (600, 400), true);
-    Q (countColour (renderAttack (*r.view), geometryAt200.history, juce::Colour (attack_ui::selectionColour), 20) == 0);
+    Q (!p.single && p.summary == liveSummary && r.requested.empty() && p.viewport < 486000);
     r.view->presentationTickAt (150); Q (p.viewport == 480000);
-    // One locator click locks B before its marker reaches the viewport.
-    r.click (geometryAt200.caption.getCentre()); Q (! p.live);
-    auto locked = single (r.last, r.view->singleRequestToken());
-    locked.has_all_post = locked.has_all_pre = 1; locked.all_post = b.all_post; locked.all_pre = b.all_pre;
     r.view->presentationTickAt (400); Q (p.clock == ClockState::hold);
-    locked.finish = KIRIN_FINISH_AUDIO_END; locked.measurement_revision = 2;
+    // The history's latest visible hit can be locked even though LIVE requests no Single.
+    Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::leftKey)) && !p.live);
+    auto locked = single (r.last, r.view->singleRequestToken());
+    const auto lockedSample = r.last.event.event_sample;
+    locked.has_all_post = locked.has_all_pre = 1;
+    locked.all_post = laneDetail (lockedSample); locked.all_pre = locked.all_post;
+    locked.all_post.transient_db = 77; // Deliberately differs: producer lanes alone own values.
+    allSingleLanes (locked, {-18.0, 2.0, 3.0, .25});
     Q (r.view->setSingleSnapshotV2 (locked, 450));
-    Q (p.single && p.single->finish == KIRIN_FINISH_AUDIO_END && p.clock == ClockState::hold);
-    {
-        text_style::ShownTextLog facts;
-        Q (r.view->keyPressed (juce::KeyPress ('i', {}, 'i'))); renderAttack (*r.view);
-        Q (! facts.texts().joinIntoString ("\n").contains (words ("Requested ", u8"要求窓 ")));
-        r.view->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
-    }
+    Q (p.single && p.lanes[0].number.value == juce::String::fromUTF8 (u8"−18.0"));
+    locked.finish = KIRIN_FINISH_AUDIO_END; locked.measurement_revision = 2;
+    Q (r.view->setSingleSnapshotV2 (locked, 451));
+    Q (p.single->finish == KIRIN_FINISH_AUDIO_END && p.clock == ClockState::hold);
     h.cutoff_sample = 900000; Q (r.nav ({}, 600, h));
-    Q (p.single && p.single->event.event_sample == 486000 && ! p.live);
+    Q (p.single && p.single->event.event_sample == lockedSample && !p.live);
     const auto terminalRevision = p.revision;
     Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::leftKey)) && p.revision == terminalRevision && p.single);
-    locked.measurement_revision = 3; locked.all_post.transient_db = 77;
+    locked.measurement_revision = 3;
     Q (! r.view->setSingleSnapshotV2 (locked, 601) && p.revision == terminalRevision);
     // Band change retains the same EventKey and starts a different keyed measurement.
     r.view->setBand (5); Q (! p.live && ! p.single);
-    Q (r.nav ({}, 610, h) && r.last.event.event_sample == 486000 && r.last.band == 5);
+    Q (r.nav ({}, 610, h) && r.last.event.event_sample == lockedSample && r.last.band == 5);
     h.target = KIRIN_TARGET_POST; Q (r.nav ({}, 615, h));
-    Q (! p.live && ! p.single && r.last.event.event_sample == 486000 && r.last.target == KIRIN_TARGET_POST);
+    Q (! p.live && ! p.single && r.last.event.event_sample == lockedSample && r.last.target == KIRIN_TARGET_POST);
     h.target = KIRIN_TARGET_DELTA; Q (r.nav ({}, 616, h));
-    Q (! p.live && r.last.event.event_sample == 486000 && r.last.target == KIRIN_TARGET_DELTA);
+    Q (! p.live && r.last.event.event_sample == lockedSample && r.last.target == KIRIN_TARGET_DELTA);
     h.source.incarnation[0]++; Q (r.nav ({}, 620, h));
     Q (p.live && ! p.single && r.view->singleRequestToken() == 0);
     Q (! r.view->setSingleSnapshotV2 (locked, 630));
@@ -319,7 +311,7 @@ bool placeholderContracts()
     const auto shape = geometry (580, 248, presentation::forEditor (600, 400), true);
     const juce::Point<int> hit { juce::roundToInt (eventX (400000, 472800, 48000, shape.history)), shape.history.getCentreY() };
     all.click (hit); Q (! all.view->presentationSnapshotV2().live && all.last.event.token == 1);
-    all.click (hit); Q (all.view->presentationSnapshotV2().live && all.last.event.token == 2);
+    all.click (hit); Q (all.view->presentationSnapshotV2().live && all.view->singleRequestToken() == 0);
     return true;
 }
 bool cohortPointerContracts()
@@ -419,14 +411,8 @@ bool frameBudget()
             for (int i = 0; i < instances; ++i)
             {
                 auto& rig = rigs[static_cast<std::size_t> (i)]; rig.view->setNavigationV2 (h, hits, *wave, *wave, now);
-                if (band != 0)
-                { s->header.cutoff_sample = h.cutoff_sample; s->header.snapshot_revision = static_cast<std::uint64_t> (n + 1); rig.view->setSummarySnapshotV2 (*s, now); }
-                else
-                {
-                    auto one = single (rig.last, rig.view->singleRequestToken()); one.has_all_post = one.has_all_pre = 1;
-                    one.all_post = laneDetail (rig.last.event.event_sample); one.all_pre = one.all_post;
-                    one.finish = KIRIN_FINISH_FULL; rig.view->setSingleSnapshotV2 (one, now);
-                }
+                { auto packet = band != 0 ? *s : allSummary(); packet.header.cutoff_sample = h.cutoff_sample;
+                  packet.header.snapshot_revision = static_cast<std::uint64_t> (n + 1); rig.view->setSummarySnapshotV2 (packet, now); }
                 rig.view->presentationTickAt (now);
                 juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (dpi)); rig.view->paintEntireComponent (g, true);
             }
@@ -450,9 +436,14 @@ bool sizesAndArtifacts()
 bool verifyAttackV2PresentationContract()
 {
     const auto focused = juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {});
+    if (focused == "loupe") return v2_loupe_contract::verify<Rig>();
+    if (focused == "subset") return v2_loupe_contract::confirmedSubsetRetentionAndUnits<Rig>();
+    if (focused == "axes") return v2_main_surface_contract::allHasNoBandAxis<Rig>();
+    if (focused == "binding") return v2_cadence_contract::bindingRetirement<Rig>();
+    if (focused == "cadence") return v2_cadence_contract::verify<Rig>();
     if (focused == "cohort") return cohortPointerContracts();
     if (focused == "layout") return sizesAndArtifacts();
-    return completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && evidenceLanguageContracts() && summaryContracts() && singleAndMotionContracts()
+    return v2_loupe_contract::verify<Rig>() && v2_loupe_contract::confirmedSubsetRetentionAndUnits<Rig>() && v2_cadence_contract::verify<Rig>() && v2_cadence_contract::rhythmClock<Rig>() && v2_cadence_contract::bindingRetirement<Rig>() && v2_cadence_contract::unfinishedHistory<Rig>() && completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && evidenceLanguageContracts() && summaryContracts() && singleAndMotionContracts()
         && clusterContracts() && clockContracts() && placeholderContracts() && cohortPointerContracts() && sizesAndArtifacts();
 }
 }

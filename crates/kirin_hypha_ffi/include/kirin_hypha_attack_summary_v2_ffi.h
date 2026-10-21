@@ -2,9 +2,11 @@
 #define KIRIN_HYPHA_ATTACK_SUMMARY_V2_FFI_H
 #include "kirin_hypha_snapshot_types.h"
 #include "kirin_hypha_channels.h"
+#include <stdbool.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include "kirin_hypha_attack_ffi.h"
 #define KIRIN_ATTACK_BAND_SUMMARY_V2_VERSION 2u
 #define KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY 8u
 #define KIRIN_ATTACK_BAND_SUMMARY_V2_HEAD 96u
@@ -55,13 +57,23 @@ typedef struct {
 typedef struct {
     KirinSnapshotHeader header;
     uint8_t cohort_count;
-    uint8_t reserved[7];
+    /* Uses a reserved byte. Existing field offsets stay fixed; extensions are appended. */
+    uint8_t newer_unfinished_count;
+    uint8_t reserved[6];
     KirinSnapshotEventKey events[KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY];
     uint8_t pair_kind[KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY];
     KirinSnapshotScalarEvidence evidence[KIRIN_ATTACK_BAND_SUMMARY_V2_CAPACITY][4];
     KirinAttackBandLaneSummaryV2 lanes[4];
     KirinAttackBandAveragePointV2 head[KIRIN_ATTACK_BAND_SUMMARY_V2_HEAD];
     KirinAttackBandAveragePointV2 tail[KIRIN_ATTACK_BAND_SUMMARY_V2_TAIL];
+    /* Source/clock/meaning identity, also valid with an empty cohort. Prefix offsets stay fixed. */
+    uint8_t comparison_binding[32];
+    /* Existing details of the newest completed ALL cohort hit. Zero for BAND. */
+    KirinAttackDetail representative_pre;
+    KirinAttackDetail representative_post;
+    uint8_t has_representative_pre;
+    uint8_t has_representative_post;
+    uint8_t representative_reserved[6];
 } KirinAttackBandSummaryV2;
 
 /* With a readable aligned uint32_t version prefix and request_size >= 4, unknown
@@ -69,7 +81,8 @@ typedef struct {
  * Known V2 request_size and out_size are checked before either full structure is accessed.
  * Null, unknown enum/version, short buffer, contention and identity races leave
  * all output bytes unchanged. Success may contain Pending, Unknown or N/A.
- * Cohort keys are selected before measurement lookup; there is no backfill. */
+ * Cohort: latest <=8 completed hits in six seconds. Pending audio/publication/mapping
+ * is excluded before selection. Lane medians exclude missing and all-real intervals. */
 uint8_t kirin_hypha_poll_attack_band_summary_v2(const KirinHypha* handle,
     uint32_t request_size, const KirinAttackBandSummaryV2Request* request,
     uint32_t out_size, KirinAttackBandSummaryV2* out);

@@ -8,7 +8,9 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
+#include "HyphaLanguage.h"
 #include <algorithm>
+#include <cmath>
 
 namespace hypha::attack_v2
 {
@@ -31,12 +33,46 @@ void text (juce::Graphics& g, const juce::String& s, juce::Rectangle<int> area,
     g.setFont (monoFont (c, squeezed ? typography::TextRole::axis : role, composition));
     g.setColour (colour); text_style::drawText (g, s, area, alignment, false);
 }
+bool navigationHistory (const State& state)
+{ return state.band == 0 || state.selection.live; }
+std::int64_t historyEnd (const State& state)
+{
+    if (navigationHistory (state)) return state.clock.position();
+    const auto end = state.cohort ? state.cohort->header.cutoff_sample
+                                 : state.selection.selected ? state.selection.selected->event_sample : state.clock.position();
+    return state.selection.selected ? std::max (end, state.selection.selected->event_sample) : end;
+}
+std::uint32_t historyRate (const State& state)
+{
+    return !navigationHistory (state) && state.cohort ? state.cohort->header.source.sample_rate
+        : state.navigationHeader().source.sample_rate;
+}
+void representativeLoupe (juce::Graphics& g, const RepresentativeLoupe& loupe,
+                          juce::Rectangle<int> area, const presentation::Context& context)
+{
+    const auto dpi = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const auto scale = std::isfinite (dpi) && dpi > 0 && dpi <= 4 ? dpi : 1.0f;
+    const auto width = static_cast<int> (std::ceil (area.getWidth() * scale));
+    const auto height = static_cast<int> (std::ceil (area.getHeight() * scale));
+    if (! loupe.image.isValid() || loupe.image.getWidth() != width || loupe.image.getHeight() != height
+        || loupe.context != context || loupe.scale != scale || loupe.language != i18n::revision())
+    {
+        loupe.image = juce::Image (juce::Image::ARGB, width, height, true);
+        juce::Graphics pixels (loupe.image); pixels.addTransform (juce::AffineTransform::scale (scale));
+        const auto& s = *loupe.packet;
+        attack_loupe::paint (pixels, area.withZeroOrigin(), s.has_representative_pre ? &s.representative_pre : nullptr,
+                             s.has_representative_post ? &s.representative_post : nullptr, context);
+        loupe.context = context; loupe.scale = scale; loupe.language = i18n::revision();
+    }
+    g.drawImageTransformed (loupe.image, juce::AffineTransform::scale (1.0f / scale)
+        .translated (static_cast<float> (area.getX()), static_cast<float> (area.getY())));
+}
 void timeStrip (juce::Graphics& g, const State& state, const Geometry& shape, const presentation::Context& c)
 {
     const bool all = state.band == 0;
     const auto* cohort = state.cohort.get();
-    const auto end = all ? state.clock.position() : cohort ? cohort->header.cutoff_sample : -1;
-    const auto rate = all ? state.navigationHeader().source.sample_rate : cohort ? cohort->header.source.sample_rate : 0u;
+    const auto end = historyEnd (state);
+    const auto rate = historyRate (state);
     attack_stage::paint (g, shape.history.toFloat(), 3, .18f, all || shape.head.isEmpty());
     if (all || shape.head.isEmpty())
     {
@@ -103,18 +139,23 @@ juce::String caption (const State& state)
 std::vector<LocatedEvent> visibleEvents (const State& state, const Geometry& shape)
 {
     std::vector<LocatedEvent> result;
-    if (state.band != 0 && ! state.cohort) return result;
-    const auto rate = state.band == 0 ? state.navigationHeader().source.sample_rate : state.cohort->header.source.sample_rate;
-    const auto end = state.band == 0 ? state.clock.position() : state.cohort->header.cutoff_sample;
-    const auto count = state.band == 0 ? state.events.size() : static_cast<std::size_t> (state.cohort->cohort_count);
-    for (std::size_t i = 0; i < count; ++i)
+    const auto rate = historyRate (state);
+    const auto end = historyEnd (state);
+    result.reserve (navigationHistory (state) ? state.events.size() : 9);
+    const auto add = [&] (const KirinSnapshotEventKey& key) {
+        if (key.event_sample > end || end - key.event_sample > static_cast<std::int64_t> (rate) * 6) return;
+        result.push_back ({key, eventX (key.event_sample, end, rate, shape.history)});
+    };
+    if (navigationHistory (state)) for (const auto& key : state.events) add (key);
+    else
     {
-        const auto& key = state.band == 0 ? state.events[i] : state.cohort->events[i];
-        if (key.event_sample > end || end - key.event_sample > static_cast<std::int64_t> (rate) * 6) continue;
-        result.push_back ({ key, eventX (key.event_sample, end, rate, shape.history) });
+        if (state.cohort) for (std::size_t i = 0; i < state.cohort->cohort_count; ++i) add (state.cohort->events[i]);
+        if (state.selection.selected && std::none_of (result.begin(), result.end(), [&] (const auto& e) {
+            return sameEvent (e.key, *state.selection.selected); })) add (*state.selection.selected);
     }
     return result;
 }
+
 void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, const presentation::Context& c)
 {
     const auto& p = state.adopted;
@@ -149,9 +190,12 @@ void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, cons
     if (! shape.loupe.isEmpty())
     {
         attack_loupe::paintPanel (g, shape.loupe);
-        attack_loupe::paint (g, shape.loupe,
-            p.single && p.single->has_all_pre ? &p.single->all_pre : nullptr,
-            p.single && p.single->has_all_post ? &p.single->all_post : nullptr, c);
+        if (! p.single && state.band == 0 && p.representative)
+            representativeLoupe (g, *p.representative, shape.loupe, c);
+        else
+            attack_loupe::paint (g, shape.loupe,
+                p.single && p.single->has_all_pre ? &p.single->all_pre : nullptr,
+                p.single && p.single->has_all_post ? &p.single->all_post : nullptr, c);
     }
     for (std::size_t i = 0; i < 4; ++i)
     {
@@ -159,19 +203,22 @@ void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, cons
         const auto colour = juce::Colour (std::array<std::uint32_t, 4> { attack_ui::transientColour,
             attack_ui::strengthColour, attack_ui::crestColour, attack_ui::sharpnessColour }[i]);
         text (g, state.band == 0 ? allLabels[i] : bandLabels[i], area.metric, c, typography::TextRole::metricLabel, colour);
-        auto unit = lane.number.unit;
-        if (lane.scope == Scope::confirmedSubset && lane.number.exponent != 0)
-            unit = i == 3 ? state.target == KIRIN_TARGET_DELTA ? "dB" : "dBFS" : "ms";
+        const auto& number = lane.heldNumber ? *lane.heldNumber : lane.number;
+        auto unit = number.unit;
+        if (! lane.heldNumber && lane.scope == Scope::confirmedSubset && lane.number.exponent != 0)
+            unit = state.band != 0 ? (i == 3 ? state.target == KIRIN_TARGET_DELTA ? "dB" : "dBFS" : "ms")
+                : i == 3 ? "acum" : i == 1 && state.target != KIRIN_TARGET_DELTA ? "dBFS" : "dB";
         text (g, unit, area.unit, c, typography::TextRole::unit, COL_NORMAL, shape.cards ? juce::Justification::centredRight : juce::Justification::centredLeft);
         // Production reads whole-cohort values or the chosen single. Partial statistics and
         // classifications stay unchanged in the adopted presentation and existing Facts.
-        const auto mainValue = lane.scope == Scope::confirmedSubset || lane.scope == Scope::noScalar || ! lane.number.valid
-            ? juce::String::fromUTF8 (u8"—") : lane.number.value;
+        const auto mainValue = lane.heldNumber ? lane.heldNumber->value
+            : lane.scope == Scope::confirmedSubset || lane.scope == Scope::noScalar || ! lane.number.valid
+                ? juce::String::fromUTF8 (u8"—") : lane.number.value;
         text (g, mainValue, area.value, c, typography::TextRole::primaryValue, COL_NORMAL,
               shape.cards ? juce::Justification::centredLeft : juce::Justification::centredRight);
         g.setColour (COL_TEXT_SECONDARY.withAlpha (.15f));
         g.drawHorizontalLine (area.value.getBottom() - 1, static_cast<float> (area.metric.getX()), static_cast<float> (area.value.getRight()));
-        if (! area.axis.isEmpty() && state.cohort && state.cohort->header.target == state.target)
+        if (state.band != 0 && ! area.axis.isEmpty() && state.cohort && state.cohort->header.target == state.target)
         {
             const auto scale = attack_lanes::scaleFor (attack_lanes::bandLanes[i], state.target == KIRIN_TARGET_DELTA);
             const auto dotX = [&] (double value) { return area.axis.getX() + (area.axis.getWidth() - 1)

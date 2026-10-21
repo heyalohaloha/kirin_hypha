@@ -49,7 +49,7 @@ bool validInterval (const KirinSnapshotInterval& interval) noexcept
         return end.kind <= KIRIN_ENDPOINT_POSITIVE_INFINITY && end.closed <= 1
             && (end.kind == KIRIN_ENDPOINT_FINITE ? std::isfinite (end.value)
                                                   : end.closed == 0 && (end.value <= 0 && end.value >= 0)); };
-    if (! valid (interval.lower) || ! valid (interval.upper) || interval.unit > KIRIN_INTERVAL_DECIBELS
+    if (! valid (interval.lower) || ! valid (interval.upper) || interval.unit > KIRIN_INTERVAL_DBFS
         || interval.lower.kind == KIRIN_ENDPOINT_POSITIVE_INFINITY
         || interval.upper.kind == KIRIN_ENDPOINT_NEGATIVE_INFINITY) return false;
     if (interval.lower.kind == KIRIN_ENDPOINT_FINITE && interval.upper.kind == KIRIN_ENDPOINT_FINITE)

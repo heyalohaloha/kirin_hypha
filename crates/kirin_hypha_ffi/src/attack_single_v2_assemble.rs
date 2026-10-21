@@ -1,6 +1,8 @@
 //! One producer reply supplies all values, shapes, masks and completion tags.
 use super::*;
-use crate::attack_snapshot_classify::{classify_band_lanes, BandSideEvidence};
+use crate::attack_snapshot_classify::{
+    classify_all_lanes, classify_band_lanes, AllSideEvidence, BandSideEvidence,
+};
 use kirin_measure::attack_runtime::single::{AttackSingleReason, AttackSingleSnapshot};
 use kirin_measure::attack_runtime::snapshot::{
     AttackBandObservation, AttackFinish, AttackSourceEvidence,
@@ -102,6 +104,11 @@ pub(super) fn assemble(
     if let Some(band) = request.band {
         let missing = if request.proof_token == [0; 32] || request.pair_kind == 2 {
             KIRIN_REASON_NO_PAIR
+        } else if proof
+            .as_ref()
+            .is_some_and(|p| !crate::attack_snapshot_classify::band_proof_compatible(p))
+        {
+            KIRIN_REASON_SEMANTICS
         } else {
             KIRIN_REASON_MAPPING
         };
@@ -175,14 +182,15 @@ pub(super) fn assemble(
             snapshot.has_all_post = 1;
         }
         if let Some(detail) = request.pre_detail.filter(|detail| {
-            proof.is_some_and(|proof| {
-                proof.validates_raw_span(
-                    detail.shape.start_sample,
-                    detail.features.body_end_sample,
-                    proof.pre.source,
-                    request.local_source,
-                )
-            })
+            detail.features.complete
+                && proof.is_some_and(|proof| {
+                    proof.validates_raw_span(
+                        detail.shape.start_sample,
+                        detail.features.body_end_sample,
+                        proof.pre.source,
+                        request.local_source,
+                    )
+                })
         }) {
             snapshot.all_pre = super::super::convert::to_c_attack_detail(&detail);
             snapshot.has_all_pre = 1;
@@ -190,6 +198,40 @@ pub(super) fn assemble(
         if request.target != KIRIN_TARGET_POST && snapshot.has_all_pre == 0 {
             snapshot.has_all_post = 0;
             snapshot.all_post = Default::default();
+        }
+        let pre = request
+            .pre_detail
+            .as_ref()
+            .filter(|_| snapshot.has_all_pre == 1)
+            .map_or(AllSideEvidence::Missing(KIRIN_REASON_NO_PAIR), |d| {
+                AllSideEvidence::Detail(d, AttackFinish::Full)
+            });
+        let post = state
+            .detail
+            .as_ref()
+            .filter(|_| snapshot.has_all_post == 1)
+            .map_or_else(
+                || {
+                    if state.finish == AttackFinish::Acquiring {
+                        AllSideEvidence::Pending(KIRIN_REASON_WAITING_SERVICE)
+                    } else {
+                        AllSideEvidence::Missing(if snapshot.reason == 0 {
+                            KIRIN_REASON_NOT_KEPT
+                        } else {
+                            snapshot.reason
+                        })
+                    }
+                },
+                |d| AllSideEvidence::Detail(d, state.finish),
+            );
+        let proof_revision = proof
+            .filter(|_| snapshot.has_all_pre == 1)
+            .map(|proof| crate::attack_summary_v2::attack_proof_revision(&proof))
+            .ok_or(KIRIN_REASON_MAPPING);
+        snapshot.lanes =
+            classify_all_lanes(request.target, pre, post, request.pair_kind, proof_revision);
+        for lane in &mut snapshot.lanes {
+            lane.measurement_revision = state.revision;
         }
     }
     snapshot

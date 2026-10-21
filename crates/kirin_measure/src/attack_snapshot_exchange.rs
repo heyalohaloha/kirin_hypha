@@ -139,6 +139,8 @@ pub struct AttackObservationView {
     pub pre: Option<Arc<AttackObservationSnapshot>>,
     pub post: Option<Arc<AttackObservationSnapshot>>,
     pub post_history: Option<Arc<AttackHistory>>,
+    /// Existing POST details measured at PRE onsets, committed with this mapping proof.
+    pub post_anchored: Vec<crate::AttackDetailedEvent>,
     pub pre_history: Option<Arc<AttackHistory>>,
     pub mapping_request_id: [u8; 16],
     /// Retain the ledger's original source qualification even while numeric proof is absent.
@@ -161,6 +163,14 @@ impl AttackObservationView {
 }
 
 impl SpectrumCoordinator {
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
+    pub fn fixture_publish_attack_view(&self, view: AttackObservationView) {
+        self.pair_authority_revision
+            .store(view.authority_revision, Ordering::Release);
+        *self.attack_observation_view.lock().unwrap() = view;
+    }
+
     pub fn set_pair_authority_revision(&self, revision: u64) {
         let old = self
             .pair_authority_revision
@@ -213,6 +223,7 @@ impl SpectrumCoordinator {
             view.post = None;
             view.pre_history = None;
             view.post_history = None;
+            view.post_anchored.clear();
         }
     }
     pub(super) fn store_attack_observations(
@@ -222,6 +233,7 @@ impl SpectrumCoordinator {
         post_history: &AttackHistory,
         pre: Arc<AttackObservationSnapshot>,
         pairs: &[AttackPairEvent],
+        post_anchored: &[crate::AttackDetailedEvent],
     ) -> bool {
         let revision = session.authority_revision;
         if self.pair_authority_revision.load(Ordering::Acquire) != revision {
@@ -393,6 +405,7 @@ impl SpectrumCoordinator {
         view.post = Some(post);
         view.post_history = Some(Arc::new(post_history.clone()));
         view.pre_history = Some(Arc::new(pre_history.clone()));
+        view.post_anchored = post_anchored.to_vec();
         view.mapping_request_id = proof.request_id;
         view.events = events;
         drop(view);

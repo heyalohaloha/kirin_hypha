@@ -36,7 +36,7 @@ inline KirinSnapshotAbiContract expectedSnapshotAbiContract() noexcept
           offsetof (KirinTimeComponentV2, binding_revision), offsetof (KirinTimeSnapshotV2, main),
           offsetof (KirinTimeSnapshotV2, psr), offsetof (KirinTimeHistoryEntryV2, ranges),
           offsetof (KirinTimeHistoryEntryV2, valid_count), offsetof (KirinTimeSnapshotRequestV2, main_target) },
-        1u, 0u,
+        2u, 0u,
     };
 }
 
@@ -82,3 +82,9 @@ inline bool snapshotAbiMatchesLinkedLibrary() noexcept
         && snapshotAbiMatches (lib);
 }
 } // namespace kirin
+
+static_assert (sizeof (KirinAttackBandSummaryV2) == 14592);
+static_assert (offsetof (KirinAttackBandSummaryV2, representative_pre) == 13560);
+static_assert (offsetof (KirinAttackBandSummaryV2, representative_post) == 14072);
+static_assert (offsetof (KirinAttackBandSummaryV2, has_representative_pre) == 14584);
+static_assert (offsetof (KirinAttackBandSummaryV2, has_representative_post) == 14585);
