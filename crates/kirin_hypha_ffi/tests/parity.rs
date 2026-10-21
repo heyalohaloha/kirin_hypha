@@ -12,11 +12,16 @@
 //!
 //! 入力は **L==R のステレオ**（本番 measure_thread の (L+R)*0.5 → mono 等価）。
 
+#[path = "support/paired_record.rs"]
+mod paired_record;
 #[path = "support/storage_sandbox.rs"]
 mod storage_sandbox;
+#[path = "support/trace_shelf.rs"]
+mod trace_shelf;
 use std::f64::consts::PI;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
+use trace_shelf::find_json_under;
 
 use approx::{abs_diff_eq, assert_relative_eq, relative_eq};
 
@@ -797,38 +802,6 @@ fn license_demotion_does_not_stop_active_keep() {
 
 // ── Phase 3b: enable_pre_writes → io_thread_pre が plugin_data を書く ──────────
 
-/// `parent_name/*.{suffix}` を再帰探索し最初の 1 件を返す（parent dir 名で絞る）。
-fn find_json_under(
-    root: &std::path::Path,
-    parent_name: &str,
-    file_name: &str,
-) -> Option<std::path::PathBuf> {
-    let rd = std::fs::read_dir(root).ok()?;
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if let Some(found) = find_json_under(&p, parent_name, file_name) {
-                return Some(found);
-            }
-        } else {
-            let fname = p.file_name().and_then(|n| n.to_str());
-            let pname = p
-                .parent()
-                .and_then(|pp| pp.file_name())
-                .and_then(|n| n.to_str());
-            let name_ok = if file_name == "*.json" {
-                fname.map(|n| n.ends_with(".json")).unwrap_or(false)
-            } else {
-                fname == Some(file_name)
-            };
-            if name_ok && (parent_name.is_empty() || pname == Some(parent_name)) {
-                return Some(p);
-            }
-        }
-    }
-    None
-}
-
 fn find_failed_json_under_role(
     root: &std::path::Path,
     role_name: &str,
@@ -909,7 +882,7 @@ fn pre_direct_record_without_pair_does_not_write_plugin_data_json() {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
     // io_thread spawn 前に設定（default_macos/temp_dir は呼出毎に env を読む）。
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1176,7 +1149,7 @@ fn set_identity_direct_record_does_not_create_annotation_target() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1291,7 +1264,7 @@ fn post_writes_delta_against_colocated_pre() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1418,7 +1391,7 @@ fn post_keep_acked_by_colocated_pre() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1537,7 +1510,7 @@ fn capstone_paired_record_output_and_linkage() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -1555,7 +1528,6 @@ fn capstone_paired_record_output_and_linkage() {
     let pre_block = gen_stereo_f32(0.1); // 0.1s フル振幅
     let post_block: Vec<f32> = pre_block.iter().map(|&s| s * 0.5).collect(); // 半振幅(-6dB)
 
-    let delta_lufs: f64;
     {
         let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
@@ -1579,12 +1551,17 @@ fn capstone_paired_record_output_and_linkage() {
         let position = std::cell::Cell::new(0_i64);
         let drive = |secs: f64| {
             let ticks = (secs / 0.1) as usize;
-            for _ in 0..ticks {
+            let started = Instant::now();
+            for tick in 0..ticks {
                 let start = position.get();
                 push_positioned_stereo(&pre, &pre_block, start);
                 push_positioned_stereo(&post, &post_block, start);
                 position.set(start.saturating_add(bf as i64));
-                sleep(dt);
+                // Sleep only while ahead of the audio clock. A coalesced timer must not add
+                // another full block of delay on every iteration on a background-QoS host.
+                if let Some(remaining) = (dt * (tick as u32 + 1)).checked_sub(started.elapsed()) {
+                    sleep(remaining);
+                }
             }
         };
 
@@ -1593,7 +1570,9 @@ fn capstone_paired_record_output_and_linkage() {
 
         // 2) POST Keep acceptance → the same generation reaches the explicit ARMED barrier.
         assert!(post.keep(), "一意 PRE 'mix' で keep=true");
-        wait_for_keep_armed(&pre, &post, "capstone paired Keep");
+        paired_record::service_until(&pre, &post, || {
+            post.keep_phase() == KIRIN_KEEP_PHASE_ARMED && post.is_recording()
+        });
         let signal = read_signal(&plugin_data_root, "puid-post", "iid-post")
             .expect("successful Keep retains its exact generation signal");
         assert_eq!(signal.status, SignalStatus::Acknowledged);
@@ -1604,24 +1583,12 @@ fn capstone_paired_record_output_and_linkage() {
         // Keep前後の試聴区間をWAV本体と見なさず、producer render rangeを両laneで一致させる。
         position.set(0);
         drive(4.0);
-        let d = post.poll_delta().expect("poll_delta Some");
-        delta_lufs = d.lufs.expect("delta lufs Some");
-        eprintln!("[capstone] mid-record delta lufs={delta_lufs}");
+        paired_record::wait_for_admitted_audio(&pre, &post);
 
         // 4) Actual Drop order: bind WAV metadata while the exact Record generation is open,
         // then Stop/release closes both writers.
         drop_expected_wav(&plugin_data_root, "puid-post", "iid-post", "capstone");
-        for _ in 0..30 {
-            if !post.is_recording() {
-                break;
-            }
-            sleep(Duration::from_millis(100));
-        }
-        assert!(
-            !post.is_recording(),
-            "Drop transaction must close POST Keep"
-        );
-        sleep(Duration::from_secs(2)); // PRE が released を検出して閉じるのを待つ。
+        paired_record::wait_for_closed_writers(&pre, &post);
     } // engines Drop → io_thread join（残り writer は status=closed flush）。
 
     // 5) Kirin OS が読む通常 TRACE 棚と PairRecordSession manifest の両方から読み戻す。
@@ -1750,12 +1717,21 @@ fn capstone_paired_record_output_and_linkage() {
         pre_wav.start_sample, 0,
         "TRACE origin is dropped WAV sample 0"
     );
-    assert!(pre_wav.end_sample > pre_wav.start_sample);
+    assert_eq!(pre_wav.end_sample, u64::from(SR) * 4);
     for (role, data) in [("PRE", &pre_pd), ("POST", &post_pd)] {
         let take = data
             .bounce_take
             .as_ref()
             .unwrap_or_else(|| panic!("{role} must carry a sample-count bounce take"));
+        assert!(
+            data.record_quality.as_ref().unwrap().complete,
+            "{role} must contain the complete admitted audio: {:?}",
+            data.integrity_reasons
+        );
+        assert_eq!(
+            data.frames.len() as u64,
+            take.duration_samples / (u64::from(SR) / 10)
+        );
         assert_eq!(take.wav_start_sample, 0, "{role} WAV origin");
         assert_eq!(take.start_t_ms, 0, "{role} TRACE time origin");
         assert_eq!(take.wav_end_sample, take.duration_samples);
@@ -1770,11 +1746,14 @@ fn capstone_paired_record_output_and_linkage() {
         "successful paired Record must not leave a .failed diagnostic shelf for POST"
     );
 
-    // Δ 物理妥当: POST 半振幅 → -6.02dB 相当。
-    assert!(
-        (-8.0..-4.0).contains(&delta_lufs),
-        "Δ_lufs ≈ -6（POST 半振幅）, got {delta_lufs}"
-    );
+    // Compare the persisted lanes on their shared content clock. A live Watch cache can become
+    // Inactive after the render; it is not a completion barrier for the Record being checked.
+    for (pre_frame, post_frame) in pre_pd.frames.iter().zip(&post_pd.frames) {
+        assert_eq!(pre_frame.t_ms, post_frame.t_ms);
+        let delta_lufs = post_frame.lufs_m - pre_frame.lufs_m;
+        assert!((-8.0..-4.0).contains(&delta_lufs),
+            "half-amplitude POST must retain its approximately -6 dB Record delta, got {delta_lufs}");
+    }
 
     let _ = std::fs::remove_dir_all(&test_root);
 }
@@ -1801,7 +1780,7 @@ fn keep_failure_after_enter_reverts_record_state() {
     std::fs::create_dir_all(&appdata).unwrap();
     std::fs::create_dir_all(&local_appdata).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     std::env::set_var("APPDATA", &appdata);
     std::env::set_var("LOCALAPPDATA", &local_appdata);
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
@@ -1865,11 +1844,10 @@ fn keep_failure_after_enter_reverts_record_state() {
         pre.push_samples(&[], 2);
 
         // ── 失敗ケース: platform storage env を外して StoragePaths::default_platform() を強制失敗（⑤経路）──
-        storage_sandbox::unresolvable();
-        let kept_fail = post.keep();
-        storage_sandbox::isolate(&home, None); // 後続/cleanup 用に即復帰。
-        std::env::set_var("APPDATA", &appdata);
-        std::env::set_var("LOCALAPPDATA", &local_appdata);
+        let kept_fail = {
+            let _missing_storage = storage_sandbox::unresolvable();
+            post.keep()
+        };
 
         assert!(!kept_fail, "StoragePaths 失敗 → keep()=false");
         assert!(
@@ -1923,7 +1901,7 @@ fn post_mark_survives_flush_and_close_with_wav_sample_position() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -2059,7 +2037,7 @@ fn load_license_reads_identity_json() {
     let home = test_root.join("home");
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
-    storage_sandbox::isolate(&home, None);
+    let _sandbox = storage_sandbox::isolate(&home, None);
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
     let id_path = kirin_os.join("identity.json");
@@ -2123,7 +2101,7 @@ fn double_keep_preserves_linkage() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: role-scoped 共有セルを reset してテスト間 first-wins 汚染を排除する（旧 overwrite
     // 隔離の代替）。各テストは自分の set_identity project_uuid を first-wins で seed できる。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
@@ -2363,7 +2341,7 @@ fn two_post_instances_converge_on_one_shelf() {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     // B-106: 他テストの first-wins seed を引き継がないよう reset（旧 overwrite 隔離の代替）。
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
@@ -2560,8 +2538,14 @@ fn b127_make_frames(base: &std::path::Path, project_hash: &str, n: usize) {
 }
 
 /// HOME/TMPDIR を temp へ分離し Os identity.json を置く（既存 #[ignore] 群と同手順）。
-/// グローバル env を触るため --test-threads=1（FFI gate と同じ）。戻り値 (home, tmp)。
-fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+/// グローバル env を触るため --test-threads=1（FFI gate と同じ）。guard は engine より長く保持する。
+fn b127_isolate(
+    tag: &str,
+) -> (
+    std::path::PathBuf,
+    std::path::PathBuf,
+    storage_sandbox::StorageSandbox,
+) {
     let test_root = std::env::temp_dir()
         .join("kirin_b127")
         .join(format!("{tag}_pid{}", std::process::id()));
@@ -2570,7 +2554,7 @@ fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let _ = std::fs::remove_dir_all(&test_root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let _sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
     let kirin_os = home.join("Library/Application Support/Kirin OS");
     std::fs::create_dir_all(&kirin_os).unwrap();
@@ -2579,7 +2563,7 @@ fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         r#"{"schema_version":"1.0","installation_id":"b127-test","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#,
     )
     .unwrap();
-    (home, tmp)
+    (home, tmp, _sandbox)
 }
 
 /// "mix" の fresh pre.json が TMPDIR/kirin に書かれるまで待つ PRE engine（POST の arm 先）。
@@ -2619,7 +2603,7 @@ fn b127_spawn_pre(puid: &str, tmp: &std::path::Path) -> KirinHyphaEngine {
 fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
     use kirin_measure::DeltaMode;
 
-    let (_home, tmp) = b127_isolate("inactive-keep-latch");
+    let (_home, tmp, _sandbox) = b127_isolate("inactive-keep-latch");
     let puid = "puid-b140-inactive";
     let watch_root = tmp.join("kirin");
 
@@ -2748,7 +2732,7 @@ fn b127_write_bidi_pairs(base: &std::path::Path, ph: &str, n: usize) {
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; cap counts frames not markers (sets env)"]
 fn b127_engine_counts_pairings_not_markers() {
-    let (home, tmp) = b127_isolate("bidi12");
+    let (home, tmp, _sandbox) = b127_isolate("bidi12");
     let puid = "puid-b127-bidi";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
@@ -2781,7 +2765,7 @@ fn b127_engine_counts_pairings_not_markers() {
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; reservation lifecycle (sets env)"]
 fn b127_reservation_released_on_stop() {
-    let (home, tmp) = b127_isolate("release");
+    let (home, tmp, _sandbox) = b127_isolate("release");
     let puid = "puid-b127-rel";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
@@ -2819,7 +2803,7 @@ fn b127_reservation_released_on_stop() {
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; reservation release on drop (sets env)"]
 fn b127_reservation_released_on_drop() {
-    let (home, tmp) = b127_isolate("release-drop");
+    let (home, tmp, _sandbox) = b127_isolate("release-drop");
     let puid = "puid-b127-rel-drop";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
@@ -2857,7 +2841,7 @@ fn b127_reservation_released_on_drop() {
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; engine 12-pair enforcement (sets env)"]
 fn b127_engine_caps_at_twelve_and_notifies() {
-    let (home, tmp) = b127_isolate("cap12");
+    let (home, tmp, _sandbox) = b127_isolate("cap12");
     let puid = "puid-b127-cap";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
@@ -2902,7 +2886,7 @@ fn b127_engine_caps_at_twelve_and_notifies() {
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; under-cap keep succeeds (sets env)"]
 fn b127_engine_allows_keep_under_cap() {
-    let (home, tmp) = b127_isolate("under11");
+    let (home, tmp, _sandbox) = b127_isolate("under11");
     let puid = "puid-b127-under";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
@@ -2938,7 +2922,7 @@ fn b127_engine_allows_keep_under_cap() {
 #[test]
 #[ignore = "slow: HOME/TMPDIR + io_thread filesystem; bounded stale lease reclaim on Keep (sets env)"]
 fn b127_keep_reclaims_bounded_stale_leases_before_cap() {
-    let (home, tmp) = b127_isolate("stale12");
+    let (home, tmp, _sandbox) = b127_isolate("stale12");
     let puid = "puid-b127-stale";
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 

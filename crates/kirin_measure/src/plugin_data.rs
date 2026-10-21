@@ -51,6 +51,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 #[path = "plugin_data_checksum.rs"]
 mod checksum;
+#[path = "plugin_data_pair_prepare.rs"]
+mod pair_prepare;
+use pair_prepare::prepare_late_expected_pair;
 #[path = "plugin_data_trace_coverage.rs"]
 mod trace_coverage;
 pub use checksum::verify_checksum;
@@ -389,7 +392,7 @@ pub struct PluginDataFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_presentation_latency_observations: Vec<HostPresentationLatencyObservation>,
     /// 10 fps Record clock journal. One entry corresponds to one measured candidate; it
-    /// is cleared after WAV binding and is never read by Kirin OS as a display axis.
+    /// is preserved across WAV binding; canonical display placement uses the resolved slot axis.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_clock_observations: Vec<TraceClockObservation>,
     /// Clock model selected for this side at Drop, or the explicit chronological fallback.
@@ -2319,6 +2322,17 @@ pub fn reconcile_drop_committed_closed_session(
     {
         return 0;
     }
+    // A live Drop already bound both writers. The second writer close owns publication;
+    // polling that same pending pair would race its five-file commit. This rescue is for a
+    // Stop-before-Drop pair that has not been bound yet. Startup pending recovery remains able
+    // to finish a bound pair after process death, without a persistent lock to strand it.
+    if pre_data.commit_status.as_deref() == Some("pair_pending")
+        && post_data.commit_status.as_deref() == Some("pair_pending")
+        && pre_data.expected_wav.as_ref() == Some(&expected)
+        && post_data.expected_wav.as_ref() == Some(&expected)
+    {
+        return 0;
+    }
     if !normalize_late_expected_pair(&mut pre_data, &mut post_data, &expected)
         || !prepare_late_expected_pair(&mut pre_data, &mut post_data)
     {
@@ -2682,66 +2696,6 @@ fn publish_late_expected_pair(
         right_path,
         right_data,
     )
-}
-
-fn prepare_late_expected_pair(
-    left_data: &mut PluginDataFile,
-    right_data: &mut PluginDataFile,
-) -> bool {
-    let (pre_data, post_data) = match (left_data.role, right_data.role) {
-        (Role::Pre, Role::Post) => (left_data, right_data),
-        (Role::Post, Role::Pre) => (right_data, left_data),
-        _ => return false,
-    };
-    synchronize_pair_annotations(pre_data, post_data);
-    let content_alignment = crate::trace_alignment::canonical_wav_alignment(pre_data, post_data);
-    let timing_reasons = pair_publish_failure_reasons(pre_data, post_data);
-    let alignment_exact = content_alignment.is_some();
-    pre_data.trace_content_alignment = alignment_exact.then(|| {
-        content_alignment
-            .clone()
-            .expect("exact timing has alignment")
-    });
-    post_data.trace_content_alignment =
-        alignment_exact.then(|| content_alignment.expect("exact timing has alignment"));
-    pre_data.trace_pair_offset_samples = None;
-    post_data.trace_pair_offset_samples = None;
-    pre_data.trace_pair_alignment_score = None;
-    post_data.trace_pair_alignment_score = None;
-    pre_data.trace_context_frames.clear();
-    post_data.trace_context_frames.clear();
-    pre_data.trace_context_slot_positions.clear();
-    post_data.trace_context_slot_positions.clear();
-    pre_data.trace_pair_wav_start_basis = None;
-    post_data.trace_pair_wav_start_basis = None;
-    pre_data.trace_context_psb_snapshots.clear();
-    post_data.trace_context_psb_snapshots.clear();
-    let publication_reasons = pair_visibility_failure_reasons(pre_data, post_data);
-    if !publication_reasons.is_empty() {
-        add_integrity_reasons(pre_data, &publication_reasons);
-        add_integrity_reasons(post_data, &publication_reasons);
-        log::warn!(
-            "[RecordPair] late publish rejected for session {:?}: {}",
-            pre_data.record_session_id,
-            publication_reasons.join(",")
-        );
-        return false;
-    }
-    if !timing_reasons.is_empty() {
-        add_integrity_reasons(pre_data, &timing_reasons);
-        add_integrity_reasons(post_data, &timing_reasons);
-    }
-    let comparison_exact = pre_data.trace_comparison_resolution.is_some()
-        && pre_data.trace_comparison_resolution == post_data.trace_comparison_resolution;
-    if alignment_exact || comparison_exact {
-        pre_data.trace_clock_observations.clear();
-        post_data.trace_clock_observations.clear();
-    }
-    pre_data.commit_status = Some("committed".to_string());
-    post_data.commit_status = Some("committed".to_string());
-    refresh_record_quality(pre_data);
-    refresh_record_quality(post_data);
-    true
 }
 
 fn publish_prepared_late_expected_pair(
@@ -4174,6 +4128,9 @@ fn round2(v: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    mod pair_publish {
+        include!("plugin_data_pair_publish_tests.rs");
+    }
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -4547,7 +4504,7 @@ mod tests {
         assert!(prepare_late_expected_pair(&mut pre.data, &mut post.data));
         for data in [&pre.data, &post.data] {
             assert_eq!(data.commit_status.as_deref(), Some("committed"));
-            assert!(data.trace_clock_observations.is_empty());
+            assert!(!data.trace_clock_observations.is_empty());
             assert_eq!(data.trace_raw_host_slot_positions.len(), 10);
             assert_eq!(
                 data.trace_raw_host_slot_positions,
@@ -4761,7 +4718,7 @@ mod tests {
                 data.trace_comparison_resolution.as_deref(),
                 Some(crate::trace_content_clock::TRACE_COMPARISON_PRODUCER_CONTENT_EXACT)
             );
-            assert!(data.trace_clock_observations.is_empty());
+            assert!(!data.trace_clock_observations.is_empty());
             assert_eq!(
                 data.trace_comparison_slot_positions.first(),
                 Some(&first_comparison_position)
@@ -4862,7 +4819,7 @@ mod tests {
                     .map(|alignment| alignment.status.as_str()),
                 Some(crate::trace_alignment::TRACE_ALIGNMENT_STATUS)
             );
-            assert!(data.trace_clock_observations.is_empty());
+            assert!(!data.trace_clock_observations.is_empty());
         }
     }
 

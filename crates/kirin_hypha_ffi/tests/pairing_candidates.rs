@@ -66,7 +66,13 @@ fn wait_until_all_armed(pres: &[&KirinHyphaEngine], posts: &[&KirinHyphaEngine])
     );
 }
 
-fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+fn isolate_env(
+    label: &str,
+) -> (
+    std::path::PathBuf,
+    std::path::PathBuf,
+    storage_sandbox::StorageSandbox,
+) {
     let root = std::env::temp_dir().join(format!(
         "kirin_pairing_candidates_{label}_pid{}",
         std::process::id()
@@ -76,7 +82,7 @@ fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&tmp).unwrap();
-    storage_sandbox::isolate(&home, Some(&tmp));
+    let sandbox = storage_sandbox::isolate(&home, Some(&tmp));
     kirin_hypha_ffi::__reset_shared_ids_for_tests();
 
     let kirin_os = home.join("Library/Application Support/Kirin OS");
@@ -87,7 +93,7 @@ fn isolate_env(label: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     )
     .unwrap();
 
-    (home, tmp)
+    (home, tmp, sandbox)
 }
 
 fn spawn_pre(
@@ -222,7 +228,7 @@ fn wait_for_watch_field(
 #[test]
 #[ignore = "slow: C ABI candidate enumeration with PRE/POST io threads (sets HOME/TMPDIR)"]
 fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
-    let (home, tmp) = isolate_env("split_shell_all_keep");
+    let (home, tmp, _sandbox) = isolate_env("split_shell_all_keep");
 
     let pre_2mix = spawn_pre("iid-pre-2mix", "puid-pre-au", "daw-pre-au", "2Mix");
     let pre_drum = spawn_pre("iid-pre-drum", "puid-pre-vst", "daw-pre-vst", "Drum");
@@ -336,7 +342,7 @@ fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
 #[test]
 #[ignore = "slow: C ABI restore order with POST io thread (sets HOME/TMPDIR)"]
 fn restored_pair_target_before_enable_is_written_to_post_watch_json() {
-    let (home, tmp) = isolate_env("restore_pair_before_enable");
+    let (home, tmp, _sandbox) = isolate_env("restore_pair_before_enable");
     let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity(
@@ -371,7 +377,7 @@ fn restored_pair_target_before_enable_is_written_to_post_watch_json() {
 #[test]
 #[ignore = "slow: C ABI live restore with POST io thread (sets HOME/TMPDIR)"]
 fn restored_pair_target_after_enable_updates_post_watch_json() {
-    let (home, tmp) = isolate_env("restore_pair_after_enable");
+    let (home, tmp, _sandbox) = isolate_env("restore_pair_after_enable");
     let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity(
@@ -406,7 +412,7 @@ fn restored_pair_target_after_enable_updates_post_watch_json() {
 #[test]
 #[ignore = "slow: C ABI restore order with PRE io thread (sets HOME/TMPDIR)"]
 fn restored_pre_name_before_enable_is_written_to_pre_watch_json() {
-    let (home, tmp) = isolate_env("restore_pre_before_enable");
+    let (home, tmp, _sandbox) = isolate_env("restore_pre_before_enable");
     let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity(
@@ -440,7 +446,7 @@ fn restored_pre_name_before_enable_is_written_to_pre_watch_json() {
 #[test]
 #[ignore = "slow: C ABI live restore with PRE io thread (sets HOME/TMPDIR)"]
 fn restored_pre_name_after_enable_updates_pre_watch_json() {
-    let (home, tmp) = isolate_env("restore_pre_after_enable");
+    let (home, tmp, _sandbox) = isolate_env("restore_pre_after_enable");
     let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity(
