@@ -103,7 +103,7 @@ which one was PRE and which was POST.
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/media/readme/ref_c.jpg" alt="Reference C: your mix and a reference cue on the same spectrum, with four-band differences and the cue timeline">
+<img src="docs/media/readme/ref_c.jpg" alt="Reference C: the last 30 seconds of your mix and a 30-second reference cue on the same spectrum, with four-band differences and the cue timeline">
 <br><b>Your mix beside your references</b> · Reference A · B · C · V (with Kirin OS)<br>
 Compare your mix (A) with ranked reference songs (B), a check on a reference cue (C) or another
 version of the same song (V), at the same level and with the same spectrum definition.
@@ -884,7 +884,7 @@ Kirin OS automatically publishes its saved Reference library to POST; there is n
 connect. A small OS indicator reports the connection; received settings remain visible when media is unavailable. Hypha does not substitute
 its own Factory library.
 
-![Reference B: the last 30 seconds of your mix (A) beside a ranked set of reference songs, with level match and spectral balance](docs/media/readme/ref_b.jpg)
+![Reference B: the last 10 seconds of your mix (A) beside a ranked set of four reference songs, with level match and spectral balance](docs/media/readme/ref_b.jpg)
 
 Reference has four roles, each with its own button in the same place at every size: **A B C V**.
 

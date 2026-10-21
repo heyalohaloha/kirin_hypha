@@ -9,14 +9,14 @@ function sha256File(filePath) {
 
 export function verifyReadmeMedia(repoRoot) {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
-  // Captures of the released plug-in playing music, scaled to 1800 x 1200; the Reference views are
-  // rendered with invented data. The DRUM BAND example below stays a labelled synthetic figure.
+  // Captures of the released plug-in playing music, scaled to 1800 x 1200; ref_v is still rendered
+  // with invented data. The DRUM BAND example below stays a labelled synthetic figure.
   const media = [
     ['vu.jpg', 'aa9dbdb668850b5866addf47dc1445cdb251470ac489d5fe569f7dae681f339d'],
     ['tour.gif', '61e9422a128eafd1596feba2a07c85af3ecc4655bf6b33b91ff1989d31092c4a'],
     ['level.jpg', 'a59a108541c5dc2ecf44388e1d29c9a171fef0ceb3cd08ec8141d206f29891f3'],
     ['blind.jpg', '9f3e93faa159329cc7b2dd827a4e2f251268ecb9c449b400713cb90f7e8054c7'],
-    ['ref_c.jpg', '72fe1a4afd7b471d99cdb9872f10137ed1714e53d77f0650487b9c50e5c9f9a8'],
+    ['ref_c.jpg', 'bde856d0d8a06a4221ee2a6e53447344a171a4b6f4c2d89a6bbb31a203bbe805'],
     ['listen.jpg', '48b51c7703dfb0d178c6aa4af27dc1a20a6249e8462aa6673104048d2fc491e0'],
     ['drum.jpg', '058e19e8a3d4ec63a3e43e00fa8eea0bf04b12df9fc18c0e793881fb8390eb17'],
     ['freq.jpg', '7048cb0f7f47a45a3da1e757a59cd4920d667a5f2173b03560f006309fc23677'],
@@ -25,7 +25,7 @@ export function verifyReadmeMedia(repoRoot) {
     ['time.jpg', '0488cbc1fed3ae6fae01cb89f9de4ea965fc9b0b27ee99a38cfe55beed6fabe0'],
     ['sharp.jpg', '5fbc192e26fa620bbf11cf149e56563a4d2f726daa9e1310a8533976aa10dbd7'],
     ['live.jpg', '2b91e5b28adb5eaad2895fadc5a09eb10ee6a421dd6c4433493770c4c5389524'],
-    ['ref_b.jpg', '663193366318bee1900edd66c7b8a3c4d8edc64580a1dfd36c6a39a250a62023'],
+    ['ref_b.jpg', '4b78b9efff5707bebf007b08246b7a860516f8c4b41c8430dd33f6d2f038aa53'],
     ['blind_result.jpg', '7049ba4191cdc45c82cc4d7a9a810aa34c49398f0b40f91a114f530362320c76'],
   ];
   const replacements = {};
