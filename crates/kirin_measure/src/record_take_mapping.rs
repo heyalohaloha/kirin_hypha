@@ -5,6 +5,8 @@ impl RecordTakeTracker {
     pub fn new() -> Self {
         Self {
             capture_frames_total: AtomicU64::new(0),
+            transport_start_journal: TransportStartJournal::new(),
+            active_edge_journal: ActiveEdgeJournal::new(),
             capture_span_sequence: AtomicU64::new(0),
             capture_clock_floor_sequence: AtomicU64::new(1),
             capture_last_span_sequence: AtomicU64::new(0),

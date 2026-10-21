@@ -288,10 +288,12 @@ run cargo test -p hypha_pre -p hypha_post --locked
 run cargo test -p vst3-com --locked --test vtable_expression
 # Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
 # quantify both allowed LIVE slots in the same optimized configuration that ships.
-run cargo test -p kirin_measure --release --locked \
+local perf_absolute=0
+if [[ -z "${GITHUB_ACTIONS:-}" ]]; then perf_absolute=1; fi
+run env KIRIN_HYPHA_PERF_ABSOLUTE="$perf_absolute" cargo test -p kirin_measure --release --locked \
   one_visible_pair_continuous_sharpness_worker_budget_is_quantified \
   --lib -- --ignored --nocapture
-run cargo test -p kirin_measure --release --locked \
+run env KIRIN_HYPHA_PERF_ABSOLUTE="$perf_absolute" cargo test -p kirin_measure --release --locked \
   two_post_absolute_workers_fit_the_optional_analysis_budget \
   --lib -- --ignored --nocapture
 

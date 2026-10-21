@@ -356,3 +356,7 @@ mod tests;
 #[cfg(test)]
 #[path = "psb_display_tests.rs"]
 mod psb_tests;
+
+#[cfg(test)]
+#[path = "performance_probe.rs"]
+pub(crate) mod performance_probe;

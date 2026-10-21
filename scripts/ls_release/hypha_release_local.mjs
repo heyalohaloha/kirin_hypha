@@ -5,7 +5,7 @@ import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
 import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
-import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson } from './hypha_release_contract.mjs';
+import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson, CI_ORACLES } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import { verifyFactoryDelivery } from '../provenance/factory_artifact.mjs';
@@ -71,14 +71,50 @@ export async function verifyCi(state, run) {
       || record.head_repository?.full_name !== 'heyalohaloha/kirin_hypha') {
     throw new Checkpoint('CI is not a successful exact-commit ci.yml run');
   }
-  const pages = JSON.parse(await run('gh', ['api', `${base}/${id}/jobs?per_page=100`], { capture: true }));
+  if (!Number.isSafeInteger(record.run_attempt) || record.run_attempt < 1) throw new Checkpoint('CI run attempt is unavailable');
+  // latest retains successful jobs from earlier attempts when only failed jobs were rerun.
+  // https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run
+  const listJobs = async endpoint => {
+    const jobs = [];
+    let page = 1, total;
+    do {
+      const batch = JSON.parse(await run('gh', ['api', `${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=100&page=${page++}`], { capture: true }));
+      if (!Array.isArray(batch.jobs) || !Number.isSafeInteger(batch.total_count)
+          || batch.total_count < 0 || (!batch.jobs.length && batch.total_count !== 0)
+          || (total != null && total !== batch.total_count)) {
+        throw new Checkpoint('CI latest jobs pagination is incomplete or changed');
+      }
+      total = batch.total_count; jobs.push(...batch.jobs);
+    } while (jobs.length < total);
+    if (jobs.length !== total) throw new Checkpoint('CI latest jobs pagination is inconsistent');
+    return jobs;
+  };
+  const jobs = await listJobs(`${base}/${id}/jobs?filter=latest`);
+  const selected = new Map();
+  const requiredJob = name => {
+    const matches = jobs.filter(job => job.name === name), job = matches[0];
+    if (matches.length !== 1 || job.status !== 'completed' || job.conclusion !== 'success'
+        || !Number.isSafeInteger(job.id) || job.id < 1 || String(job.run_id) !== id || job.head_sha !== state.candidate.commit
+        || !Number.isSafeInteger(job.run_attempt) || job.run_attempt < 1 || job.run_attempt > record.run_attempt) {
+      throw new Checkpoint(`Required CI job is not green or has foreign attempt metadata: ${name}`);
+    }
+    selected.set(name, { name, id: job.id, attempt: job.run_attempt, conclusion: job.conclusion });
+    return job;
+  };
   for (const name of ['public history identity', 'release source contract (macos)',
     'auval arm64 (AU validation)', 'windows VST3 preflight']) {
-    const matches = pages.jobs?.filter(j => j.name === name) || [];
-    const job = matches[0];
-    if (matches.length !== 1 || job.status !== 'completed' || job.conclusion !== 'success') throw new Checkpoint(`Required CI job is not green: ${name}`);
+    requiredJob(name);
   }
-  return { runId: id, headSha: record.head_sha, workflow: record.path };
+  const oracles = Object.entries(CI_ORACLES).map(([name, oracle]) => ({ name, tests: oracle.tests,
+    checks: oracle.checks.map(check => {
+      const job = requiredJob(check.job);
+      const steps = job.steps?.filter(step => step.name === check.step) || [];
+      if (steps.length !== 1 || steps[0].status !== 'completed' || steps[0].conclusion !== 'success') {
+        throw new Checkpoint(`Required CI oracle is not green: ${name}/${check.job}/${check.step}`);
+      }
+      return { ...check, jobId: job.id, attempt: job.run_attempt, conclusion: steps[0].conclusion };
+    }) }));
+  return { runId: id, headSha: record.head_sha, workflow: record.path, attempt: record.run_attempt, jobs: [...selected.values()], oracles };
 }
 
 export async function verifyWindows(state, run) {

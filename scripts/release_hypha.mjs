@@ -8,7 +8,8 @@ import { sourceSnapshot } from './hypha_build_source.mjs';
 import { requireCleanReleaseSource } from './ls_release/release_source_identity.mjs';
 import { SCHEMA, HOST_TESTS, SAFETY_EXPECTED, DISTRIBUTION_TESTS, POST_TESTS, assertState, safeStatePath,
   atomicJson, digest, checkFacts, fileFact, treeFact, readJson, resolveInput, validateReport,
-  reportTemplate, authorization, Checkpoint, ownerOverride, acceptanceCriteria } from './ls_release/hypha_release_contract.mjs';
+  reportTemplate, authorization, Checkpoint, ownerOverride, acceptanceCriteria, fixRows, hostTestIds } from './ls_release/hypha_release_contract.mjs';
+import { bindOwnerDecisions, checkOwnerDecisions, checkFixRows, ciFixRows } from './ls_release/hypha_release_criteria.mjs';
 import { assertRustRuntime } from './provenance/runtime_guard.mjs';
 import { produceMac, verifyMac, verifyCi, verifyWindows, packageAll, verifyPackages,
   prepareLs } from './ls_release/hypha_release_local.mjs';
@@ -44,6 +45,8 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --provenance-report FILE  Retained exact-payload NOTICE/license/source evidence (private)
   --source-archive FILE     Reuse the private Windows producer's verified source ZIP bytes
   --update-public-key KEY    Approved pinned RSA public key; default empty disables checking
+  --fix-rows FILE           Release-specific deep host/CI rows (--init only)
+  --owner-decision FILE     Defer named non-safety rows at hosts after freeze (repeatable)
   --owner-override FILE     Owner decision lifting one named host row for this release (--init only; one per row)
   --date YYYY-MM-DD         Release date (default: today UTC)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
@@ -63,7 +66,7 @@ export function parseReleaseArgs(argv) {
     '--windows-installer-dir': 'windowsInstallerDir', '--hp-root': 'hpRoot',
     '--ls-state': 'lsState', '--notes': 'notes', '--date': 'date', '--until': 'until',
     '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport',
-    '--source-archive': 'sourceArchive', '--update-public-key': 'updatePublicKey',
+    '--fix-rows': 'fixRows', '--source-archive': 'sourceArchive', '--update-public-key': 'updatePublicKey',
     '--windows-factory-commit': 'windowsFactoryCommit', '--windows-factory-repository': 'windowsFactoryRepository', '--windows-promotion-run': 'windowsPromotionRun',
     '--windows-artifact-archive': 'windowsArtifactArchive' };
   for (let i = 0; i < argv.length; i++) {
@@ -72,10 +75,11 @@ export function parseReleaseArgs(argv) {
       const value = argv[++i];
       if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`);
       options[fields[arg]] = value;
-    } else if (arg === '--owner-override') {
+    } else if (arg === '--owner-override' || arg === '--owner-decision') {
       const value = argv[++i];
       if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`);
-      options.ownerOverride = [...[options.ownerOverride].flat().filter(Boolean), value];
+      const key = arg === '--owner-override' ? 'ownerOverride' : 'ownerDecision';
+      options[key] = [...[options[key]].flat().filter(Boolean), value];
     } else if (arg === '--init') options.init = true;
     else if (arg === '--execute') options.execute = true;
     else if (arg === '--dry-run') options.dryRun = true;
@@ -86,6 +90,8 @@ export function parseReleaseArgs(argv) {
   if (!['packages', 'hp', 'complete'].includes(options.until)) throw new Error('Invalid --until');
   if (options.execute && (options.dryRun || options.init)) throw new Error('Init/dry-run must not execute');
   if (options.ownerOverride && !options.init) throw new Error('--owner-override binds only at --init');
+  if (options.fixRows && !options.init) throw new Error('--fix-rows binds only at --init');
+  if (options.ownerDecision && (!options.execute || options.init)) throw new Error('--owner-decision requires a hosts execution');
   if (!options.help && !options.state) throw new Error('--state is required');
   return options;
 }
@@ -117,9 +123,10 @@ export function makeState(root, options, snapshot = sourceSnapshot) {
   }
   const ownerOverrides = [options.ownerOverride].flat().filter(Boolean).map(file => ownerOverride(inputPath(file), candidate));
   if (new Set(ownerOverrides.map(o => o.testId)).size !== ownerOverrides.length) throw new Error('Owner override names a row twice');
-  return { schema: SCHEMA, root: fs.realpathSync(root), candidate, source, inputs,
+  const fixes = options.fixRows ? fixRows(inputPath(options.fixRows), candidate) : undefined;
+  return { schema: SCHEMA, ...(fixes ? { fixRows: fixes } : {}), root: fs.realpathSync(root), candidate, source, inputs,
     requiredHostTests: [...HOST_TESTS], expected: Object.fromEntries(HOST_TESTS.map(id => [id,
-      SAFETY_EXPECTED[id] || { passed: true }])), ...(ownerOverrides.length ? { ownerOverrides } : {}),
+      SAFETY_EXPECTED[id] || { passed: true }]).concat((fixes?.rows || []).map(row => [row.id, row.expected]))), ...(ownerOverrides.length ? { ownerOverrides } : {}),
     stages: {}, releaseState: 'DIAGNOSTIC' };
 }
 
@@ -186,7 +193,15 @@ export function realActions(state, options, run, save, fetcher = fetch) {
       state.freeze.sha256 = digest(state.freeze);
       return { facts: payloads };
     },
-    hosts: async () => report('hostsReport', 'A4', state.freeze.sha256, state.requiredHostTests),
+    hosts: async () => {
+      const rows = ciFixRows(state);
+      template(state, 'hostsReport', 'A4', state.freeze.sha256, hostTestIds(state));
+      state.stages.hosts.facts = [fileFact(resolveInput(state, state.inputs.hostsReport))];
+      save(); // Retain the attempted report identity even when validation fails.
+      const result = report('hostsReport', 'A4', state.freeze.sha256, hostTestIds(state));
+      result.facts.push(...rows.filter(row => row.decision).map(row => row.decision));
+      return { ...result, evidence: { ciFixRows: rows } };
+    },
     packages: async () => ({ facts: await packageAll(state, run) }),
     provenance: async () => verifyReleaseProvenance(state),
     distribution: async () => {
@@ -264,21 +279,33 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
         throw new Error('Frozen acceptance criteria changed');
       }
       if (state.freeze?.publicationNotes) checkFacts([state.freeze.publicationNotes]);
+      checkFixRows(state);
+      checkOwnerDecisions(state);
+      if (stage === 'hosts' && options.ownerDecision) {
+        if (state.stages.hosts?.status === 'PASS') throw new Error('Host acceptance is already complete');
+        try { bindOwnerDecisions(state, options.ownerDecision.map(file => resolveInput(state, file))); }
+        catch (error) { throw new Checkpoint(`Owner decision input needs correction: ${error.message}`); }
+        save();
+      }
       const saved = state.stages[stage];
       if (saved?.status === 'PASS') {
         if (saved.facts) checkFacts(saved.facts);
-        if (stage === 'ci' && !actions) await verifyCi(state, run);
+        if (stage === 'ci' && !actions) { saved.evidence = await verifyCi(state, run); save(); }
         if (stage === 'hp' && !actions) await verifyPublicHp(state, fetcher);
         log(`[hypha-release] ${stage}: verified/reused`); continue;
       }
-      if (saved?.status === 'RUNNING' || saved?.status === 'FAIL') {
+      if (saved?.status === 'RUNNING' || (saved?.status === 'FAIL' && !(stage === 'hosts' && options.ownerDecision))) {
         throw new Checkpoint(`${stage}: interrupted/failed output needs reconciliation; no blind rebuild/resign`);
       }
-      state.stages[stage] = { status: 'RUNNING', startedAt: new Date().toISOString() };
+      const { previous = [], ...attempt } = saved || {};
+      const history = saved?.status === 'FAIL' ? [...previous, attempt] : previous;
+      state.stages[stage] = { status: 'RUNNING', startedAt: new Date().toISOString(),
+        ...(history.length ? { previous: history } : {}) };
       startedThisAttempt = true; save();
       const result = await active[stage]();
       if (digest(snapshot(state.root)) !== digest(state.source)) throw new Error('Source changed during stage');
-      state.stages[stage] = { status: 'PASS', completedAt: new Date().toISOString(), ...result };
+      state.stages[stage] = { status: 'PASS', completedAt: new Date().toISOString(),
+        ...(history.length ? { previous: history } : {}), ...result };
       if (stage === 'hosts') state.releaseState = 'HOST_ACCEPTED';
       if (stage === 'distribution') state.releaseState = 'RELEASE_READY';
       if (stage === 'hp') state.releaseState = 'RELEASED';

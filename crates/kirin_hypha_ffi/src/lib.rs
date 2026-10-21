@@ -106,6 +106,7 @@ mod reference_gain_ffi;
 mod signal_state_ffi;
 mod spectrum_mid_side_ffi;
 mod spectrum_view_abi;
+mod transport_block_ffi;
 mod watch_display_ffi;
 use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual_batch};
 pub use attack_ffi::*;
@@ -1067,46 +1068,6 @@ impl KirinHyphaEngine {
         });
     }
 
-    /// Publish one host transport block. Audio Thread only; atomics and the
-    /// existing ring-cursor seqlock make this RT-safe.
-    pub fn note_transport_block(
-        &self,
-        playing: bool,
-        position_valid: bool,
-        position_samples: i64,
-        num_frames: u64,
-        force_new_pass: bool,
-    ) {
-        let previous_playing = self
-            .transport_previous_playing
-            .swap(playing, Ordering::AcqRel);
-        let previous_valid = self
-            .transport_previous_position_valid
-            .swap(position_valid, Ordering::AcqRel);
-        let previous_position = self
-            .transport_previous_position_samples
-            .swap(position_samples, Ordering::AcqRel);
-        let previous_frames = self
-            .transport_previous_num_frames
-            .swap(num_frames, Ordering::AcqRel);
-
-        let discontinuity = playing
-            && previous_playing
-            && position_valid
-            && previous_valid
-            && previous_position.checked_add(previous_frames as i64) != Some(position_samples);
-        if watch_transport_starts_new_pass(playing, previous_playing, discontinuity, force_new_pass)
-        {
-            publish_watch_playback_pass_boundary(
-                &self.watch_playback_pass_id,
-                &self.watch_ring_cursor_epoch,
-                &self.watch_ring_cursor_pass_id,
-                &self.watch_ring_cursor_samples,
-                &self.watch_playback_pass_cutover_samples,
-            );
-        }
-    }
-
     /// POST の Δ 結果を取得する（B-060 3d-a / GUI 表示用・read-only / try_lock 非ブロッキング）。
     /// `enable_post_writes` 後、POST io_thread が select_target_pre で選んだ PRE との差分。
     /// PRE engine / 未 enable / ロック競合・未計測時は `DeltaResult::default()`（mode=Active
@@ -1979,16 +1940,6 @@ impl KirinHyphaEngine {
         // SAFETY: 上記参照（SPSC・push_samples と同一スレッド・read-only slots()）。
         unsafe { self.producer_handoff.active_slots_from_audio() == capacity }
     }
-}
-
-#[inline]
-fn watch_transport_starts_new_pass(
-    playing: bool,
-    previous_playing: bool,
-    discontinuity: bool,
-    force_new_pass: bool,
-) -> bool {
-    playing && (force_new_pass || !previous_playing || discontinuity)
 }
 
 impl Drop for KirinHyphaEngine {
@@ -3754,26 +3705,6 @@ mod admission_contract_tests {
         assert!(!engine.push_samples_transaction(&block, 2));
         assert_eq!(engine.overflow_count(), block.len() as u64);
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
-    }
-}
-
-#[cfg(test)]
-mod b474_watch_restart_tests {
-    use super::watch_transport_starts_new_pass;
-
-    #[test]
-    fn shared_unavailable_to_active_boundary_starts_a_new_watch_pass() {
-        assert!(watch_transport_starts_new_pass(true, true, false, true));
-    }
-
-    #[test]
-    fn continuous_playback_without_a_shared_boundary_keeps_the_current_pass() {
-        assert!(!watch_transport_starts_new_pass(true, true, false, false));
-    }
-
-    #[test]
-    fn unavailable_boundary_cannot_start_a_pass_while_transport_is_stopped() {
-        assert!(!watch_transport_starts_new_pass(false, true, false, true));
     }
 }
 
