@@ -103,16 +103,16 @@ which one was PRE and which was POST.
 </tr>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/media/readme/ref_c.jpg" alt="Reference C: the last 30 seconds of your mix and a 30-second reference cue on the same spectrum, with four-band differences and the cue timeline">
-<br><b>Your mix beside your references</b> · Reference A · B · C · V (with Kirin OS)<br>
-Compare your mix (A) with ranked reference songs (B), a check on a reference cue (C) or another
-version of the same song (V), at the same level and with the same spectrum definition.
+<img src="docs/media/readme/ref_b.jpg" alt="Reference B: the last 10 seconds of your mix (A) beside a ranked set of four reference songs, with level match and spectral balance">
+<br><b>Your mix beside your references</b> · Reference B (with Kirin OS)<br>
+Rank your own reference songs against your mix (A) and hear each one at the same level, from its
+chorus or your own cue, with the same spectrum definition.
 </td>
 <td width="50%" valign="top">
-<img src="docs/media/readme/ref_v.jpg" alt="Reference V: your mix against another version of the same song across the whole timeline">
-<br><b>Another version, from the same place</b> · Reference V<br>
-Hypha finds where your mix is in another version of the same song and plays it from the same
-place, at the same level.
+<img src="docs/media/readme/ref_c.jpg" alt="Reference C: the last 30 seconds of your mix and a 30-second reference cue on the same spectrum, with four-band differences and the cue timeline">
+<br><b>A focused check on one cue</b> · Reference C<br>
+Lay your mix over a chosen reference cue and read, band by band, where A has more or less. V
+compares another version of the same song from the same place.
 </td>
 </tr>
 </table>

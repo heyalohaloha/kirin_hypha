@@ -9,8 +9,8 @@ function sha256File(filePath) {
 
 export function verifyReadmeMedia(repoRoot) {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
-  // Captures of the released plug-in playing music, scaled to 1800 x 1200; ref_v is still rendered
-  // with invented data. The DRUM BAND example below stays a labelled synthetic figure.
+  // Captures of the released plug-in playing music (the Reference views with Kirin OS reference songs),
+  // scaled to 1800 x 1200. The DRUM BAND example below stays a labelled synthetic figure.
   const media = [
     ['vu.jpg', 'aa9dbdb668850b5866addf47dc1445cdb251470ac489d5fe569f7dae681f339d'],
     ['tour.gif', '61e9422a128eafd1596feba2a07c85af3ecc4655bf6b33b91ff1989d31092c4a'],
@@ -20,7 +20,6 @@ export function verifyReadmeMedia(repoRoot) {
     ['listen.jpg', '48b51c7703dfb0d178c6aa4af27dc1a20a6249e8462aa6673104048d2fc491e0'],
     ['drum.jpg', '058e19e8a3d4ec63a3e43e00fa8eea0bf04b12df9fc18c0e793881fb8390eb17'],
     ['freq.jpg', '7048cb0f7f47a45a3da1e757a59cd4920d667a5f2173b03560f006309fc23677'],
-    ['ref_v.jpg', 'e47898893abbe7dd1f4a835f1c620b6e3b9557e712e66647a2d80291b4133d2d'],
     ['space.jpg', '3db2fdfc3ffec8ff73c7b067708c9892a533b8cbf52d3376ce30ae5b32b32385'],
     ['time.jpg', '0488cbc1fed3ae6fae01cb89f9de4ea965fc9b0b27ee99a38cfe55beed6fabe0'],
     ['sharp.jpg', '5fbc192e26fa620bbf11cf149e56563a4d2f726daa9e1310a8533976aa10dbd7'],
