@@ -79,6 +79,23 @@ test('the aggregate target inventory rejects omissions, duplicates and empty inp
   assert.throws(() => checkBuildTargets('', ['First']), /empty/);
 });
 
+test('Windows selects both registered double precision contracts exactly once', () => {
+  const windows = ci.split('  windows-vst3-preflight:\n')[1];
+  const selections = [...windows.matchAll(/ctest [^\n]+ -R '([^']+)'/g)]
+    .map(match => ({ command: match[0], regex: new RegExp(match[1]) }));
+  const clock = read('juce_shell/cmake/ProductTestClock.cmake');
+  for (const name of ['kirin_double_precision', 'kirin_double_precision_listen']) {
+    assert.match(clock, new RegExp(`add_test\\(NAME ${name} COMMAND KirinProcessorWallClockTests `));
+    const selected = selections.filter(({ regex }) => regex.test(name));
+    assert.equal(selected.length, 1, `${name} must run once on Windows`);
+    assert.match(selected[0].command, /--no-tests=error/);
+    for (const other of [`${name}_extra`, `prefix_${name}`]) assert.ok(!selected[0].regex.test(other));
+  }
+  const inventory = windows.split('      - name: Check Windows native build inventory\n')[1]
+    .split('      - name: ')[0];
+  assert.match(inventory, /\bKirinProcessorWallClockTests\b/);
+});
+
 const tu = (target, file, flags = '') => ({ file, command: `c++ ${flags} -o CMakeFiles/${target}.dir/unit.o -c ${file}` });
 const shared = [tu('KirinNativeJuce_common', '/JUCE/modules/juce_core/juce_core.cpp'),
   tu('KirinNativeSources_common', '/juce_shell/src/Component.cpp')];
