@@ -11,7 +11,7 @@ use kirin_hypha_ffi::{
 #[test]
 #[ignore = "slow: exact PRE/POST request handshake with IO threads (sets HOME/TMPDIR)"]
 fn exact_unnamed_pair_completes_the_local_blind_request_handshake() {
-    let (home, tmp) = isolate_env("local_blind_request");
+    let (home, tmp, _sandbox) = isolate_env("local_blind_request");
     let pre = spawn_pre("pre-unnamed", "pre-project", "daw-a", "");
     let post = spawn_post("post-a", "post-project", "daw-a", "");
     let select_deadline = Instant::now() + Duration::from_secs(4);
