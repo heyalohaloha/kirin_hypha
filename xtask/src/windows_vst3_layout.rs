@@ -181,17 +181,17 @@ mod tests {
 
     #[test]
     fn windows_layout_uses_steinberg_user_dev_folder() {
-        let local_appdata = r"C:\Users\Daisuke\AppData\Local";
+        let local_appdata = r"C:\Users\Example\AppData\Local";
         let user_root = win_join(local_appdata, &["Programs", "Common", "VST3"]);
         let bundles = windows_vst3_bundles(".", &user_root, GLOBAL_VST3_ROOT);
 
         assert_eq!(
             bundles[0].user_dest,
-            r"C:\Users\Daisuke\AppData\Local\Programs\Common\VST3\Kirin Hypha PRE.vst3"
+            r"C:\Users\Example\AppData\Local\Programs\Common\VST3\Kirin Hypha PRE.vst3"
         );
         assert_eq!(
             bundles[1].user_dest,
-            r"C:\Users\Daisuke\AppData\Local\Programs\Common\VST3\Kirin Hypha POST.vst3"
+            r"C:\Users\Example\AppData\Local\Programs\Common\VST3\Kirin Hypha POST.vst3"
         );
     }
 

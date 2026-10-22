@@ -78,7 +78,9 @@ function run(command, args) {
     encoding: 'utf8',
     stdio: 'inherit',
   });
-  if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
+  if (result.status !== 0) {
+    const error = new Error(`${command} exited with ${result.status}`); error.exitCode = result.status; throw error;
+  }
 }
 
 function sha256(filePath) {
@@ -396,6 +398,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === THIS_FILE) {
     runMain();
   } catch (error) {
     console.error(`[build-kirin-hypha-release-set] ERROR: ${error.message}`);
-    process.exit(1);
+    process.exit(error.exitCode === 2 ? 2 : 1);
   }
 }

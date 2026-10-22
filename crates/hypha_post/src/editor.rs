@@ -82,7 +82,7 @@ const PROPOSALS_SCAN_INTERVAL_SECS: f64 = 0.5;
 const PAIR_MENU_SCAN_INTERVAL_SECS: f64 = 0.5;
 
 /// W-280 / G-115-248: 再生中 pair 変更を block 中に表示する tooltip 文言。
-/// R-22 中立的事実説明 (価値判断語なし)。Daisuke 確定 (判断 4) のため変更禁止。
+/// R-22 中立的事実説明 (価値判断語なし)。確定済みの文言のため変更禁止。
 const PAIR_LOCKED_TOOLTIP: &str = "Pair selection is locked during playback";
 
 /// W-281 / G-115-249: pair_claimed_at に書込む Unix epoch sec (f64) を取得する。
@@ -2960,7 +2960,7 @@ mod tests {
     // pick_closest_pre None / LicenseDenied / write_pending fail) すべてで toast 抑制
     // が同等動作する (ロジック完全保持 + Option-aware 化)。
     //
-    // 実環境での 5 path 完全 integration テスト (Daisuke 指示書の test 1-5) は、
+    // 実環境での 5 path 完全 integration テスト (受入手順書の test 1-5) は、
     // (i) /tmp/kirin/ がプロセス共有でテスト隔離不可 (ii) HOME env が process-global
     // で並列テスト不可 — の 2 制約で deferred。ロジック完全保持と wrapper シグネチャ
     // 不変は build success + clippy clean + 既存 trigger_keep 呼出箇所 (editor.rs:774)

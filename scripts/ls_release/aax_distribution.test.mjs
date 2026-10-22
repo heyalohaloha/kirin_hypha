@@ -452,8 +452,7 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(packageBuild, /verifyMacAaxNotarizationReceipt/);
   assert.match(packageBuild, /verifiedAaxBundles/);
   assert.match(packageBuild, /payloadDir/);
-  assert.match(packageBuild, /installer pkg notarytool submit/);
-  assert.match(packageBuild, /installer pkg notarytool info/);
+  assert.match(packageBuild, /finishPkgStaple/);
   assert.match(releasePackage, /stage_archives/);
   assert.match(aaxDistribution, /materialize_verified_payload/);
   assert.match(aaxDistribution, /--materialize-dir/);

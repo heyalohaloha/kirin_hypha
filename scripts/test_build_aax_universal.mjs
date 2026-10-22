@@ -84,7 +84,7 @@ try {
   assert.match(result.output, /KIRIN_HYPHA_REQUIRE_AAX=ON/);
   assert.match(result.output, /--target aarch64-apple-darwin/);
   assert.match(result.output, /--target x86_64-apple-darwin/);
-  assert.match(result.output, /--parallel 2/);
+  assert.match(result.output, /--parallel [1-9][0-9]*/);
   assert.doesNotMatch(result.output, /wraptool/);
   assert.doesNotMatch(result.output, /runtime_guard/);
 

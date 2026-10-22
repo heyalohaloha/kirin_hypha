@@ -2690,7 +2690,7 @@ pub struct StaleSweepReport {
 /// B-026 / Gap-9: Hypha 起動時に plugin_data 配下の crash 残骸 PluginDataFile
 /// (`status=Active && mtime > STALE_ACTIVE_SWEEP_SECS`) を `status=Closed` に
 /// 書き換える。Lens 側が「進行中 Record」と誤認するのを startup 時点で構造的に
-/// 解消する (Daisuke Gap-9 仕様)。
+/// 解消する (Gap-9 仕様)。
 ///
 /// # 対象スコープ
 /// `plugin_data_root` を再帰 walk し、以下を全て満たすファイルのみ対象:

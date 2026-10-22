@@ -15,10 +15,13 @@ export KIRIN_HYPHA_UPDATE_PUBLIC_KEY_INPUT="${KIRIN_HYPHA_UPDATE_PUBLIC_KEY:-}"
 node scripts/updates/update_key_binding.mjs key >/dev/null
 # Contributor diagnostics use Rust stable. The formal coordinator qualifies runtime before calling this.
 
-echo "==> cargo build kirin_hypha_ffi (x86_64-apple-darwin)"
-cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin
-echo "==> cargo build kirin_hypha_ffi (aarch64-apple-darwin)"
-cargo build --release -p kirin_hypha_ffi --target aarch64-apple-darwin
+BUILD_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-$(sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
+if [[ ! "$BUILD_JOBS" =~ ^[1-9][0-9]?$ ]] || (( BUILD_JOBS > 64 )); then
+  echo "ERROR: CMAKE_BUILD_PARALLEL_LEVEL must be an integer from 1 to 64" >&2
+  exit 1
+fi
+echo "==> cargo build kirin_hypha_ffi (both Apple architectures)"
+cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin --target aarch64-apple-darwin --locked
 
 echo "==> lipo -> universal staticlib"
 mkdir -p target/universal
@@ -39,7 +42,7 @@ cmake -S juce_shell -B juce_shell/build-universal \
   -DKIRIN_FFI_LIB="$ROOT/target/universal/libkirin_hypha_ffi.a"
 
 echo "==> cmake build (Release, universal)"
-cmake --build juce_shell/build-universal --config Release --clean-first
+cmake --build juce_shell/build-universal --config Release --clean-first --parallel "$BUILD_JOBS"
 
 for role in PRE POST; do
   plist="juce_shell/build-universal/KirinHypha${role}_artefacts/Release/AU/Kirin Hypha ${role}.component/Contents/Info.plist"

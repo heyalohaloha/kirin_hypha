@@ -63,8 +63,6 @@ node scripts/build_hypha.mjs --release --init \
   --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full \
   --windows-factory-repository REVIEWED_FACTORY_OWNER/REPOSITORY \
   --windows-factory-commit REVIEWED_FACTORY_FULL_SHA \
-  --windows-promotion-run QUALIFIED_PROMOTION_RUN_ID \
-  --windows-artifact-archive /retained/signed-full-artifact.zip \
   --hp-root /absolute/path/to/kirin_hp \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
@@ -89,16 +87,30 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 script作成の依頼や`--execute`だけを、個別candidateの公開承認に読み替えない。
 `--init`は既存profileを上書きしない。profile、商品target、管理URL、reportはignored `release_state/`内。
 秘密値はprofileへ入れず、Keychain／private factoryから渡す。
-Windowsのfactory repository/commit・promotion run・元artifact ZIPもprofileへ固定する。
+Windowsのfactory repository/commitは初期化時に固定する。promotion run・元artifact ZIPは
+初期化時に渡すか、Windows検証の開始前に一度だけ後から結ぶ。後結びは実行と併用しない。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --bind-windows-promotion QUALIFIED_PROMOTION_RUN_ID \
+  --windows-artifact-archive /retained/signed-full-artifact.zip
+```
+
+Mac製造はWindows受入と同時に進められる。未結合ならwindows段の前で確認待ちとなる。
+Windows検証開始後と凍結後の結び直しは拒否する。
 候補署名runとpromotion runの両方を審査済みfactoryへ結び、artifactのAPI digestと実ZIP、
-展開済みfile集合、元候補manifestを照合する。これらの入力が欠ける場合は製造前に止まる。
+展開済みfile集合、元候補manifestを照合する。factory identityが欠ける場合は製造前、deliveryが欠ける場合はWindows検証前に止まる。
 candidateとsigned-fullは、distribution（A5）が通るまで期限内で保持する。
 windowsとdistributionで両artifactを再照合し、A5待ちからの再開も対象になる。
 期限の関門は[配布gate](provenance/distribution_gate.md)の4段に従う。
 順序は、公開CI → 同じ審査済みfactory commitでbuild_onlyとWindows AAX署名
 （PACE＋eSigner。最初の有料署名。2つの順は問わない）→ candidate署名（eSigner）→
-Windows実機検証 → promotion → coordinator（Macの署名・公証・PACE → windows →
-A3 freeze → A4 → A5）。Windows実機検証をA3と呼ばない。
+Windows実機検証 → promotionを後結び → windows → A3 freeze → A4 → A5。
+Macの署名・公証・PACEはWindows実機検証と並行できる。Windows実機検証をA3と呼ばない。
+署名前には[未署名の通し](release/presign_smoke.md)を手で一度行う。
+Mac製造の並列数は同時に動く処理を考慮して`CMAKE_BUILD_PARALLEL_LEVEL`で明示する。
+既定はMacのCPU数。変更は製造入力を変えず、同じtarget archiveを同じ順でlipoへ渡す。
+実製造では未署名の同一入力からのbytesを比較してから署名へ進める。
 
 1. AAX署名の前（build_onlyが先ならその前）: 保存期間設定のGETと取得時刻、両workflowの
    全uploadのretention-days、全工程で使う審査済みfactory commit、各工程の予定日と余裕、
@@ -110,7 +122,7 @@ A3 freeze → A4 → A5）。Windows実機検証をA3と呼ばない。
    groupの空き、candidateの予算も再確認する。未署名VST3だけが切れた場合はbuild_onlyを
    やり直す。signed AAXが切れた場合は自動で再署名せず資格判断を取る。
    candidateのupload直後に実run/artifact IDとexpires_atを記録する。
-3. promotionの後、coordinatorの`--execute`とMac工程の前: 両artifactの実ID・expires_at、
+3. promotionの後、Windows検証と凍結の前: 両artifactの実ID・expires_at、
    signed-fullの元ZIP digestと全tree、A3・A4・A5予定日を記録し、A5が早い方の期限に余裕を
    残して収まるか確かめる。provenance-inputsは入力形式だけを確認し、API・ZIP照合は後の
    windowsとdistributionで行う。この関門は担当者が閉じる。
@@ -166,7 +178,7 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 - **Provenance**: build/signing前に素材の用途を確認し、packaging後に実payloadのNOTICE・license・対応source配送を確認する。保持したprivate reportと実bytesを[配布gate](provenance/distribution_gate.md)で照合する。fixture PASSだけで配布readyにしない。
 - **A5**: packaging前後のpayload連続性、両OSのclean install、全署名、Rollback準備の証跡が必要。
 - **LS**: 現行Runbookのauthenticated uploadはoperator工程。scriptはPKG/stateを揃え、各商品の
-  ダウンロード控えのhashとChromeの配送表示を確認する。LS uploadを自動実装済みとは扱わない。
+  ダウンロード控えのhashとAPIの配送metadataを確認する。LS uploadを自動実装済みとは扱わない。
 - **A7**: 公開導線のdownload検証に加え、公開物をinstallしてscan、pair、通常音声、session reopenを確認する。
 
 `hosts.json`、`distribution.json`、`ls.json`、`postrelease.json`のtemplateは必要gateで自動生成する。
@@ -245,3 +257,51 @@ HP repositoryの`README_DEPLOY.md`。
 CLI仕様: [gh api](https://cli.github.com/manual/gh_api)と[GitHub Releases REST API](https://docs.github.com/en/rest/releases)
 （下書きはtagで引けないため、作成時のrelease IDで再開・upload・読戻し・公開する）、
 [Vercel staged deployment](https://vercel.com/docs/cli/deploy#skip-domain)。
+
+## 受入と記録の型
+
+[手で通す手順と記録の型](release/presign_smoke.md)と[依頼文の雛形](release/acceptance_request_template.md)を使う。
+identityはrunの始めに一回、一行一束、hashは候補／凍結／packages／最終の四点、独立reviewはhostの最後に一回。
+二分進まなければ状態と再開条件を記録して次へ進む。
+
+公開の前日に[読み取り点検とLS API確認](release/prepublication_preflight.md)を一束で行う。
+
+Macの並列化の実製造確認は、同じsource、lockfile、SDK、toolchain、公開鍵、build pathで行い、
+直列の未署名製品を別directoryへ保全してから並列製造と比較する。
+保持するのは両targetのRust archive、Universal archive、PRE/POSTのAU/VST3/AAX製品。
+build directoryや依存全体を複製せず、同じ相対配置の製品だけを二つのtreeへ集める。
+
+```bash
+node scripts/ls_release/verify_build_bytes.mjs /retained/serial-products /retained/parallel-products
+```
+
+この比較はfile集合、全fileのbytes、mode、symlinkの行先の完全一致を要求する。
+同じdirectoryを二度渡した確認は拒否する。署名・timestamp・公証済みの製品同士を比較して
+製造の再現性としない。fixture試験はこの比較器と製造入力の不変性を守り、実製品の比較証拠を代用しない。
+
+## PKG の ticket 添付だけを再開する
+
+署名済み PKG と Accepted submission を作った後の通信切断は、製造・署名・公証submitをやり直さない。
+通常 producer は staple 前の signed bytes を ignored な private directory に控え、hash と submission ID、
+notary log、凍結候補との結びを receipt へ保持する。PKG の公開 sidecar と配布 facts は最終bytesだけを使う。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --execute --until packages --resume-pkg-staple
+```
+
+この明示再開は、保存済み packages の FAIL／PENDING と、同じ候補の検証済み private receipt がある場合だけ使える。
+FAIL の履歴は保持する。receipt、控え、候補、凍結条件が違う場合や、別の署名・製造の FAIL は再実行しない。
+新しい経路が receipt を残す前の失敗に対して、既存PKGを自動取り込みしたり、公証結果不明の submit を再送したりしない。
+
+PKG producer 単体では `--resume-staple`、coordinator は凍結から導出した
+`KIRIN_PKG_STAPLE_STATE` と `KIRIN_PKG_STAPLE_BINDING` を渡す。resume は既存PKGの検証と
+staple／validateだけを行い、productbuild・署名・submitへ戻らない。validateだけが未確認ならstapleも繰り返さない。
+PKG完成後に未生成のZIPを作り、通常の全配布物検証を行う。既存の別容器は上書きしない。
+
+通信切断（exit 68、CloudKit / URL connection loss）は各読取／添付確認で最大3回試し、
+まだ確認できなければ exit 2 の確認待ちにする。非通信の失敗は FAIL として止める。
+署名・payload・Gatekeeper と原本prefixの照合を、通信を要する `stapler validate` より先に行う。
+添付後は「原本全bytesがprefix」「追記がticket一件だけ」「公証logのhashが原本hashと一致」を必須にする。
+trailer の境界は [Apple の公開形式](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_codesigning/lib/notarization.cpp)に従う。
+private receipt、原本、notary logをGitHub Releaseや配布factsへ追加しない。

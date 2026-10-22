@@ -29,8 +29,8 @@ fn hc(a: &str, b: &str, c: &str) -> HardwareComponents {
 
 #[test]
 fn platform_paths_macos_fixture_preserves_current_storage_layout() {
-    let paths = PlatformPaths::for_macos("/Users/daisuke", "/tmp");
-    let expected_root = PathBuf::from("/Users/daisuke")
+    let paths = PlatformPaths::for_macos(concat!("/Users", "/example"), "/tmp");
+    let expected_root = PathBuf::from(concat!("/Users", "/example"))
         .join("Library")
         .join("Application Support")
         .join("Kirin OS");
@@ -56,9 +56,9 @@ fn platform_paths_macos_fixture_preserves_current_storage_layout() {
 
 #[test]
 fn platform_paths_windows_fixture_splits_appdata_and_localappdata() {
-    let appdata = PathBuf::from(r"C:\Users\daisuke\AppData\Roaming");
-    let local_appdata = PathBuf::from(r"C:\Users\daisuke\AppData\Local");
-    let temp = PathBuf::from(r"C:\Users\daisuke\AppData\Local\Temp");
+    let appdata = PathBuf::from(r"C:\Users\example\AppData\Roaming");
+    let local_appdata = PathBuf::from(r"C:\Users\example\AppData\Local");
+    let temp = PathBuf::from(r"C:\Users\example\AppData\Local\Temp");
     let paths = PlatformPaths::for_windows(appdata.clone(), local_appdata.clone(), temp.clone());
     let expected_identity_root = appdata.join("Kirin OS");
     let expected_plugin_data = local_appdata.join("Kirin OS").join("plugin_data");

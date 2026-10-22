@@ -468,7 +468,7 @@ impl PluginDataFile {
 
     /// 空の v1.3 ファイルを生成（heartbeat = timestamp = now, status=active, checksum=空）。
     ///
-    /// # source_format（v1.2 (α) 文言 / Daisuke 判断 2026-05-01）
+    /// # source_format（v1.2 (α) 文言 / 決定 2026-05-01）
     /// Hz 単位の DAW 入力サンプルレート。0 = 取得失敗（fallback）。
     /// リサンプリング前の監査トレイル用。
     /// 値は `sample_rate` と同一値で書き込まれる（plugin_data.rs L204）。

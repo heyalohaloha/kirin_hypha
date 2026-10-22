@@ -129,14 +129,6 @@ time your chain takes between PRE and POST, and a screen in English or Japanese.
 12 PRE/POST pairs per project. With a Kirin OS license, Reference compares your mix with your own
 library, and Keep / Record saves a playback's measurements with the song. See [Modes](#modes).
 
-## New in 1.1.52
-
-Keep comparing while your DAW loops. PRE/POST comparison starts and continues during Logic's
-Cycle, and Keep continues through a loop; its record timeline holds the first pass. Waiting for
-matching audio and a stop that needs your action now look different. On Windows, the installer
-removes an older copy installed for one user, so your DAW loads the new version.
-Start with POST and LEVEL as before. [Read the release notes](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.52).
-
 ## Download
 
 **Hypha 1.1.52 is available for macOS and Windows.** Both installers include PRE and POST.

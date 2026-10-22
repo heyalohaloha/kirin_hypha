@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundedAppleRead, PkgNetworkPending } from './pkg_staple.mjs';
+import { lsApiChecks } from './ls_api_readback.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(THIS_FILE);
@@ -18,7 +20,7 @@ Options:
   --state <path>              Local state JSON path. Required.
                               Start from ${STATE_TEMPLATE}.
   --with-apple-verification   Run pkgutil/spctl/stapler verification on PKGs.
-  --with-ls-chrome            Read logged-in Lemon Squeezy admin page from Google Chrome.
+  --with-ls-api               Read product, variant and file metadata through the LS API.
   --print-artifacts-json      Print current artifact values for manual state updates.
   --json                      Output machine-readable JSON.
   --help                      Show this help.
@@ -29,7 +31,7 @@ export function parseArgs(argv) {
   const opts = {
     state: null,
     withAppleVerification: false,
-    withLsChrome: false,
+    withLsApi: false,
     printArtifactsJson: false,
     json: false,
     help: false,
@@ -43,8 +45,8 @@ export function parseArgs(argv) {
       i += 1;
     } else if (arg === '--with-apple-verification') {
       opts.withAppleVerification = true;
-    } else if (arg === '--with-ls-chrome') {
-      opts.withLsChrome = true;
+    } else if (arg === '--with-ls-api') {
+      opts.withLsApi = true;
     } else if (arg === '--print-artifacts-json') {
       opts.printArtifactsJson = true;
     } else if (arg === '--json') {
@@ -95,20 +97,6 @@ function run(command, args, options = {}) {
     command: `${command} ${args.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg)).join(' ')}`,
     status: result.status,
     ok: result.status === 0,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-  };
-}
-
-function runOsascript(script) {
-  const result = childProcess.spawnSync('osascript', [], {
-    input: script,
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  return {
-    ok: result.status === 0,
-    status: result.status,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
   };
@@ -232,7 +220,17 @@ function verifyAppleArtifacts(state, checks) {
     }
     commandCheck(checks, `${artifact.label} pkg signature`, run('pkgutil', ['--check-signature', filePath]));
     commandCheck(checks, `${artifact.label} Gatekeeper install assess`, run('spctl', ['-a', '-vv', '-t', 'install', filePath]));
-    commandCheck(checks, `${artifact.label} stapler validate`, run('xcrun', ['stapler', 'validate', filePath]));
+    checks.push({ id: `${artifact.label} stapler validate`, ...verifyStaplerReadback(filePath) });
+  }
+}
+
+export function verifyStaplerReadback(filePath, invoke = run, wait) {
+  const attempts = [];
+  try {
+    boundedAppleRead(invoke, ['stapler', 'validate', filePath], result => attempts.push(result), wait);
+    return { ok: true, status: 'PASS', attempts };
+  } catch (error) {
+    return { ok: false, status: error instanceof PkgNetworkPending ? 'UNCONFIRMED' : 'FAIL', attempts };
   }
 }
 
@@ -269,80 +267,14 @@ function verifyLsTargetsState(state, checks) {
   return products;
 }
 
-async function verifyLsChrome(checks, products, artifacts) {
-  for (const product of products) {
-    const label = product.productName || `Product ${product.productId || 'unknown'}`;
-    const productUrl = lemonSqueezyProductUrl(product);
-    if (!productUrl) continue;
-
-    const openScript = `
-tell application "Google Chrome"
-  if (count of windows) = 0 then make new window
-  set URL of active tab of front window to "${productUrl}"
-end tell
-`;
-    const openResult = runOsascript(openScript);
-    addCheck(checks, `${label} Chrome opened Lemon Squeezy product URL`, openResult.ok, {
-      url: productUrl,
-      output: `${openResult.stdout}${openResult.stderr}`.trim(),
-    });
-    if (!openResult.ok) continue;
-
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    const readScript = `
-tell application "Google Chrome"
-  if (count of windows) = 0 then return "NO_CHROME_WINDOWS"
-  set pageUrl to URL of active tab of front window
-  set pageTitle to title of active tab of front window
-  set pageText to execute active tab of front window javascript "document.body ? document.body.innerText : ''"
-  return "URL=" & pageUrl & linefeed & "TITLE=" & pageTitle & linefeed & pageText
-end tell
-`;
-    const readResult = runOsascript(readScript);
-    addCheck(checks, `${label} Chrome Lemon Squeezy page text readable`, readResult.ok, {
-      output: readResult.ok ? '' : `${readResult.stdout}${readResult.stderr}`.trim(),
-    });
-    if (!readResult.ok) continue;
-
-    const text = readResult.stdout;
-    const hasProductName = typeof product.productName === 'string' && product.productName.length > 0;
-    if (hasProductName) {
-      addCheck(checks, `${label} Lemon Squeezy product name visible`, text.includes(product.productName), {
-        expected: product.productName,
-      });
-    }
-    if (product.expectedStatus) {
-      addCheck(checks, `${label} Lemon Squeezy product status visible`, text.includes(product.expectedStatus), {
-        expected: product.expectedStatus,
-      });
-    }
-    if (Number.isFinite(product.expectedFilesCount)) {
-      addCheck(checks, `${label} Lemon Squeezy files count visible`, text.includes(`Files (${product.expectedFilesCount})`), {
-        expected: `Files (${product.expectedFilesCount})`,
-      });
-    }
-
-    for (const artifact of artifacts) {
-      addCheck(checks, `${label} Lemon Squeezy has ${artifact.label} file name`, text.includes(artifact.fileName), {
-        expected: artifact.fileName,
-      });
-      const hasDisplaySize = typeof artifact.lsDisplaySize === 'string' && artifact.lsDisplaySize.length > 0;
-      addCheck(checks, `${label} ${artifact.label} state display size is ready for Lemon Squeezy check`, hasDisplaySize, {
-        expected: 'artifact.lsDisplaySize',
-        actual: artifact.lsDisplaySize,
-      });
-      if (hasDisplaySize) {
-        addCheck(checks, `${label} Lemon Squeezy has ${artifact.label} display size`, text.includes(artifact.lsDisplaySize), {
-          expected: artifact.lsDisplaySize,
-        });
-      }
-    }
-  }
+export function verificationExitCode(checks) {
+  if (checks.every(check => check.ok)) return 0;
+  return checks.some(check => !check.ok && check.status !== 'UNCONFIRMED') ? 1 : 2;
 }
 
 function printHuman(result) {
   for (const check of result.checks) {
-    const status = check.ok ? 'PASS' : 'FAIL';
+    const status = check.ok ? 'PASS' : check.status || 'FAIL';
     const detail = check.expected !== undefined || check.actual !== undefined
       ? ` expected=${JSON.stringify(check.expected)} actual=${JSON.stringify(check.actual)}`
       : check.path
@@ -367,7 +299,7 @@ function printHuman(result) {
   }
 
   console.log('');
-  console.log(result.ok ? 'SUMMARY: PASS' : 'SUMMARY: FAIL');
+  console.log(result.ok ? 'SUMMARY: PASS' : `SUMMARY: ${result.checks.some(c => !c.ok && c.status !== 'UNCONFIRMED') ? 'FAIL' : 'UNCONFIRMED'}`);
 }
 
 async function main() {
@@ -388,7 +320,7 @@ async function main() {
   const currentArtifacts = verifyLocal(state, checks);
   if (opts.withAppleVerification) verifyAppleArtifacts(state, checks);
   const lsProducts = verifyLsTargetsState(state, checks);
-  if (opts.withLsChrome) await verifyLsChrome(checks, lsProducts, state.artifacts);
+  if (opts.withLsApi) checks.push(...await lsApiChecks(lsProducts, currentArtifacts));
   if (opts.printArtifactsJson) console.log(JSON.stringify(currentArtifacts, null, 2));
 
   const result = {
@@ -403,7 +335,7 @@ async function main() {
   } else if (!opts.printArtifactsJson) {
     printHuman(result);
   }
-  if (!result.ok) process.exitCode = 1;
+  if (!result.ok) process.exitCode = verificationExitCode(result.checks);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === THIS_FILE) {

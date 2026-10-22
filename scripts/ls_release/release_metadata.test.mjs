@@ -153,6 +153,7 @@ test('README opens with current analysis, exact pairing, and supported Windows f
   const entrance = readme.slice(0, designIndex);
 
   assert.ok(designIndex > 0, 'README must keep the technical Design contract after the entrance');
+  assert.doesNotMatch(entrance, /^#{1,3}\s+New in\s+\d+\.\d+/im);
   for (const name of ['vu.jpg', 'tour.gif', 'level.jpg', 'blind.jpg', 'ref_c.jpg', 'listen.jpg', 'freq.jpg']) {
     assert.match(entrance, new RegExp(`docs/media/readme/${name.replace('.', '\\.')}`));
   }
@@ -295,7 +296,9 @@ test('Windows fallback ZIP manifest excludes operator workflow state', (context)
   });
   fs.writeFileSync(zipPath, 'zip fixture');
 
+  const privateState = { operator: { name: 'fixture-reviewer' } };
   const opts = {
+    ...privateState,
     releaseKind: 'ls',
     externalValidation: 'complete',
     payloadSigning: 'signed',
@@ -306,6 +309,7 @@ test('Windows fallback ZIP manifest excludes operator workflow state', (context)
   };
   const manifest = artifactManifestFor(opts, 'Kirin-Hypha-test', zipPath, packageRoot, bundles);
   const publicJson = JSON.stringify(manifest);
+  assert.ok(!publicJson.includes(privateState.operator.name), 'public manifest must exclude private attribution');
 
   assertExactKeys(
     manifest,
@@ -398,7 +402,7 @@ test('Windows fallback ZIP manifest excludes operator workflow state', (context)
   assert.match(receipt, /External validation: complete/);
   assert.doesNotMatch(
     publicJson,
-    /Daisuke|lsUpload|ls_upload|releaseStatus|release_status|productId|variantId|productAdminUrl|storeName|expectedFilesCount|operator/,
+    /lsUpload|ls_upload|releaseStatus|release_status|productId|variantId|productAdminUrl|storeName|expectedFilesCount|operator/,
   );
   assert.equal(manifest.contents.length, 2);
 
@@ -436,7 +440,7 @@ test('Windows fallback ZIP manifest excludes operator workflow state', (context)
 
 test('Windows package arguments reject unsupported validation states', () => {
   assert.throws(
-    () => parseWindowsArgs(['--external-validation', 'reported_complete_by_daisuke']),
+    () => parseWindowsArgs(['--external-validation', 'reported_complete_by_operator']),
     /must be complete or pending/,
   );
   assert.throws(

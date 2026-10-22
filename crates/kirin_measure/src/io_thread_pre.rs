@@ -827,7 +827,7 @@ fn initialize_pre_io_partner_at_startup(
 ///
 /// 本関数は cold Watch startup 時に PRE 自身の root inbox 1件だけを読み、Acknowledged なら
 /// envelope が運ぶ exact project/POST key を `delete_signal` で削除する。履歴や他 project
-/// は探索しない (Daisuke 判断 α 採用 / Watch リセット仕様 /
+/// は探索しない (決定 α 採用 / Watch リセット仕様 /
 /// → exit_record で Watch 復帰する (Gap-2 と並ぶ構造的同期経路)。
 ///
 /// R-28 機能的沈黙: storage path 解決失敗 / parse 失敗は当該
@@ -1203,7 +1203,7 @@ pub fn spawn_io_thread_pre(
 
         // ── Record 中に shutdown された場合: writer を閉じる ─────────────
         // B-043: Record 中の shutdown 時も Measure Thread の最新 session_summary を
-        // 取り出して JSON に焼き込む (Daisuke 抜去シナリオ救済 / POST 側と対称)。
+        // 取り出して JSON に焼き込む (抜去シナリオ救済 / POST 側と対称)。
         if let Some(mut ctx) = writer_ctx.take() {
             // B-132 (G-115-382): shutdown-during-record。Measure Thread は teardown 中で seal を
             // 進めないため instant check（bounded 0 / deadlock 無縁）。seal 未前進 = graceful な

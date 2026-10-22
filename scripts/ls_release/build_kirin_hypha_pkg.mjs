@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import childProcess from 'node:child_process';
+import { finishPkgStaple } from './pkg_staple.mjs';
+import { createPkgStapleContext, requireFreshPackage } from './pkg_release_recovery.mjs';
 import { stageLegalDelivery, verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -8,7 +10,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyAaxBundle, verifyAaxBundleCopy } from './aax_bundle_verify.mjs';
 import {
-  parseNotarytoolAccepted,
   verifyMacAaxNotarizationReceipt,
 } from './aax_notarization_receipt.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
@@ -45,10 +46,13 @@ const LEGAL_RELATIVE = 'Library/Application Support/Kirin Hypha/Legal';
 
 function usage() {
   return `Usage:
-  node scripts/ls_release/build_kirin_hypha_pkg.mjs [--with-aax]
+  node scripts/ls_release/build_kirin_hypha_pkg.mjs [--with-aax] [--resume-staple] [--print-staple-context]
 
 Options:
   --with-aax                     Include verified PRE/POST AAX bundles
+  --print-staple-context         Print private context only; no build/sign/network
+  --resume-staple                Resume only the retained signed PKG/notary submission
+  KIRIN_PKG_STAPLE_STATE         Private receipt path (ignored release_state)
 
 Environment:
   KIRIN_RELEASE_DIR=<dir>       Output dir. Default: dist/LS_UPLOAD; unsigned default: /tmp/kirin_hypha_pkg_smoke
@@ -77,6 +81,27 @@ function run(command, args, options = {}) {
     throw new Error(`${command} exited with ${result.status}${details ? `\n${details}` : ''}`);
   }
   return result.stdout || '';
+}
+
+function stapleCommand(command, args) {
+  log(`${command} ${args.slice(0, 2).join(' ')}`);
+  const result = childProcess.spawnSync(command, args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '',
+    ...(result.error ? { error: { code: result.error.code } } : {}) };
+}
+
+function stapleContext(releaseIdentity) {
+  return createPkgStapleContext({ root: ROOT, packagePath: PACKAGE_PATH, source: releaseIdentity,
+    version: VERSION, aaxIncluded: WITH_AAX, updatePublicKey: UPDATE_PUBLIC_KEY,
+    statePath: process.env.KIRIN_PKG_STAPLE_STATE || `release_state/pkg-staple/${VERSION}-${releaseIdentity.commit}/receipt.json`,
+    binding: process.env.KIRIN_PKG_STAPLE_BINDING, keychainProfile: NOTARY_PROFILE });
+}
+function localPackageVerification(releaseIdentity, updateCheck) {
+  run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
+  const actual = updateCheck || verifyPackagedPayload(PACKAGE_PATH, releaseIdentity);
+  run('pkgutil', ['--check-signature', PACKAGE_PATH]);
+  run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
+  return actual;
 }
 
 function readCargoVersion() {
@@ -283,8 +308,12 @@ function buildPackage() {
     console.log(usage());
     return;
   }
-  const unknown = process.argv.slice(2).filter((arg) => arg !== '--with-aax');
+  const unknown = process.argv.slice(2).filter((arg) => !['--with-aax', '--resume-staple', '--print-staple-context'].includes(arg));
   if (unknown.length > 0) throw new Error(`unknown option: ${unknown[0]}`);
+  if (process.argv.includes('--print-staple-context')) {
+    console.log(JSON.stringify(stapleContext(readReleaseSourceIdentity({ root: ROOT }))));
+    return;
+  }
   validatePublicKey(UPDATE_PUBLIC_KEY);
 
   const releaseIdentity = SKIP_SIGN
@@ -293,6 +322,15 @@ function buildPackage() {
   if (!SKIP_SIGN && !process.env.KIRIN_HYPHA_LEGAL_DIR) {
     throw new Error('Signed distribution requires retained source/legal delivery');
   }
+  const recovery = stapleContext(releaseIdentity);
+  if (process.argv.includes('--resume-staple')) {
+    if (SKIP_SIGN || SKIP_NOTARIZE) throw new Error('Staple resume requires the signed notarized route');
+    finishPkgStaple(recovery, { resume: true, run: stapleCommand,
+      verifyLocal: () => localPackageVerification(releaseIdentity) });
+    log('resumed retained PKG staple/verification; no build/sign/submit');
+    return;
+  }
+  requireFreshPackage(recovery, { unsignedSmoke: SKIP_SIGN });
   const aaxMaterialization = WITH_AAX
     ? fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-aax-'))
     : null;
@@ -323,6 +361,7 @@ function buildPackage() {
 
   fs.mkdirSync(RELEASE_DIR, { recursive: true });
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-'));
+  process.once('exit', () => fs.rmSync(workDir, { recursive: true, force: true }));
   const payloadRoot = path.join(workDir, 'payload');
   const scriptsDir = path.join(workDir, 'scripts');
   fs.mkdirSync(payloadRoot, { recursive: true });
@@ -372,37 +411,14 @@ function buildPackage() {
   productArgs.push('--package', componentPkg, PACKAGE_PATH);
   run('productbuild', productArgs);
 
-  let pkgNotarization = null;
-  if (!SKIP_NOTARIZE) {
-    const submitted = run('xcrun', [
-      'notarytool', 'submit', PACKAGE_PATH,
-      '--keychain-profile', NOTARY_PROFILE,
-      '--wait', '--output-format', 'json',
-    ], { capture: true });
-    pkgNotarization = parseNotarytoolAccepted(submitted, 'installer pkg notarytool submit');
-    const confirmed = run('xcrun', [
-      'notarytool', 'info', pkgNotarization.id,
-      '--keychain-profile', NOTARY_PROFILE,
-      '--output-format', 'json',
-    ], { capture: true });
-    const pkgConfirmation = parseNotarytoolAccepted(confirmed, 'installer pkg notarytool info');
-    if (pkgConfirmation.id !== pkgNotarization.id) {
-      throw new Error('installer pkg notarytool confirmation id changed');
-    }
-    pkgNotarization = pkgConfirmation;
-    run('xcrun', ['stapler', 'staple', PACKAGE_PATH]);
-    run('xcrun', ['stapler', 'validate', PACKAGE_PATH]);
-  }
-
   run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
   const updateCheck = verifyPackagedPayload(PACKAGE_PATH, releaseIdentity);
   if (!SKIP_SIGN) {
     run('pkgutil', ['--check-signature', PACKAGE_PATH]);
-    if (!SKIP_NOTARIZE) run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
   }
 
   const size = fs.statSync(PACKAGE_PATH).size;
-  const sidecar = {
+  const metadata = {
     schema: 'kirin-hypha-pkg-artifact-v1',
     product: 'Kirin Hypha',
     version: VERSION,
@@ -410,16 +426,7 @@ function buildPackage() {
     legalDelivery,
     fileName: path.basename(PACKAGE_PATH),
     path: path.relative(ROOT, PACKAGE_PATH),
-    size,
-    sha512: sha512Base64(PACKAGE_PATH),
-    sha256: sha256Hex(PACKAGE_PATH),
-    lsDisplaySize: formatMiB(size),
     signed: !SKIP_SIGN,
-    notarized: !SKIP_NOTARIZE,
-    notarization: pkgNotarization ? {
-      submissionId: pkgNotarization.id,
-      status: pkgNotarization.status,
-    } : null,
     aaxIncluded: WITH_AAX,
     aaxNotarization: aaxNotarization ? {
       submissionId: aaxNotarization.receipt.submission.id,
@@ -432,13 +439,21 @@ function buildPackage() {
     },
     generatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(`${PACKAGE_PATH}.json`, `${JSON.stringify(sidecar, null, 2)}\n`);
-  fs.writeFileSync(`${PACKAGE_PATH}.sha256`, `${sidecar.sha256}  ${sidecar.fileName}\n`);
+  let sidecar;
+  if (!SKIP_NOTARIZE) {
+    sidecar = finishPkgStaple(recovery, { metadata, run: stapleCommand,
+      verifyLocal: () => localPackageVerification(releaseIdentity, updateCheck) });
+  } else {
+    sidecar = { ...metadata, size, sha512: sha512Base64(PACKAGE_PATH), sha256: sha256Hex(PACKAGE_PATH),
+      lsDisplaySize: formatMiB(size), notarized: false, notarization: null };
+    fs.writeFileSync(`${PACKAGE_PATH}.json`, `${JSON.stringify(sidecar, null, 2)}\n`);
+    fs.writeFileSync(`${PACKAGE_PATH}.sha256`, `${sidecar.sha256}  ${sidecar.fileName}\n`);
+  }
   fs.rmSync(workDir, { recursive: true, force: true });
   if (aaxMaterialization) fs.rmSync(aaxMaterialization, { recursive: true, force: true });
 
   log(`wrote ${PACKAGE_PATH}`);
-  log(`size ${size} (${sidecar.lsDisplaySize})`);
+  log(`size ${sidecar.size} (${sidecar.lsDisplaySize})`);
   log(`sha512 ${sidecar.sha512}`);
   log(`sha256 ${sidecar.sha256}`);
 }
@@ -447,5 +462,5 @@ try {
   buildPackage();
 } catch (error) {
   console.error(`[build-kirin-hypha-pkg] ERROR: ${error.message}`);
-  process.exit(1);
+  process.exit(error.exitCode === 2 ? 2 : 1);
 }
