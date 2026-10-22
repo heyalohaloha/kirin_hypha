@@ -455,7 +455,7 @@ fn audio_methods_contain_no_lock_allocator_io_or_deallocation() {
 fn durable_entry_claim_is_never_taken_before_record_lane_preparation() {
     for (source, function) in [
         (
-            include_str!("io_thread_pre.rs"),
+            include_str!("io_thread_pre_entry.rs"),
             "fn enter_pre_record_if_barrier_ready",
         ),
         (

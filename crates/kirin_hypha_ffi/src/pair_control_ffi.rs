@@ -17,7 +17,10 @@ impl KirinHyphaEngine {
                 );
             }
         }
-        self.record_sm.exit_record();
+        kirin_measure::cleanup::exit_record_releasing_unattached_lane(
+            &self.record_sm,
+            &self.record_ingress,
+        );
         (project_hash, post_iid)
     }
 

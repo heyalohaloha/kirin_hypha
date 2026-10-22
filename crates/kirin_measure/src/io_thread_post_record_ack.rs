@@ -51,7 +51,7 @@ pub(super) fn poll_record_signal_ack_with_base(
     let Some(signal) = record_signal::read_signal(base, project_hash, instance_id) else {
         return;
     };
-    if exit_if_generation_aborted(base, instance_id, record_sm, &signal) {
+    if exit_if_generation_aborted(base, instance_id, record_sm, &signal, record_ingress) {
         return;
     }
     if signal.status != SignalStatus::Acknowledged {
@@ -178,12 +178,26 @@ pub(super) fn poll_record_signal_ack_with_base(
                     instance_id
                 );
                 // The abort may have landed between the authorization above and this entry.
-                if exit_if_generation_aborted(base, instance_id, record_sm, &signal) {
+                if exit_if_generation_aborted(base, instance_id, record_sm, &signal, record_ingress)
+                {
                     return;
                 }
             }
-            Err(crate::record::TransitionError::AlreadyRecording) => {}
+            Err(crate::record::TransitionError::AlreadyRecording) => {
+                if crate::cleanup::retire_failed_record_entry(
+                    record_sm,
+                    record_ingress,
+                    next_generation,
+                ) {
+                    return;
+                }
+            }
             Err(e) => {
+                crate::cleanup::retire_failed_record_entry(
+                    record_sm,
+                    record_ingress,
+                    next_generation,
+                );
                 log::warn!("[IOThread POST] ACK Record enter rejected: {:?}", e);
                 return;
             }
@@ -211,6 +225,7 @@ fn exit_if_generation_aborted(
     instance_id: &str,
     record_sm: &RecordStateMachine,
     signal: &record_signal::RecordSignal,
+    record_ingress: &crate::RecordIngress,
 ) -> bool {
     if !record_sm.is_recording()
         || signal.capture_generation_id.trim().is_empty()
@@ -236,7 +251,7 @@ fn exit_if_generation_aborted(
             instance_id
         );
         let generation = record_sm.generation();
-        crate::cleanup::exit_record_preserve_pair(record_sm);
+        crate::cleanup::exit_record_releasing_unattached_lane(record_sm, record_ingress);
         // An aborted Keep shows no short result; the late drain cannot finalize one.
         record_sm.abandon_record_display(generation);
     }

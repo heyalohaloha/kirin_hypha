@@ -53,6 +53,8 @@ impl RecordStateMachine {
             measure_ready_generation: AtomicU64::new(0),
             record_display: RecordDisplayStore::default(),
             measure_progress: AtomicU64::new(0),
+            measure_waker: Default::default(),
+            measure_preparation: Default::default(),
         }
     }
 
@@ -334,6 +336,7 @@ impl RecordStateMachine {
         ) {
             Ok(_) => {
                 self.record_display.begin(self.generation());
+                self.wake_measure();
                 Ok(())
             }
             Err(_) => {
@@ -441,50 +444,7 @@ impl RecordStateMachine {
         self.measure_ready_generation.store(0, Ordering::Release);
         self.record_display.request_stop(closing_generation);
         self.state.store(STATE_WATCH, Ordering::Release);
-    }
-
-    pub fn mark_record_display_measure_started(&self, generation: u64) {
-        self.record_display.mark_measure_started(generation);
-    }
-
-    pub fn publish_record_display_measure(
-        &self,
-        generation: u64,
-        measure: crate::MeasureResult,
-        summary: crate::SessionSummary,
-    ) {
-        self.record_display
-            .publish_measure(generation, measure, summary);
-    }
-
-    pub fn publish_record_display_delta(
-        &self,
-        generation: u64,
-        delta: crate::DeltaResult,
-        pair_pre_instance_id: Option<String>,
-    ) {
-        self.record_display
-            .publish_delta(generation, delta, pair_pre_instance_id);
-    }
-
-    pub fn finalize_record_display(&self, generation: u64, summary: Option<crate::SessionSummary>) {
-        self.record_display.finalize(generation, summary);
-    }
-
-    pub fn mark_record_display_unavailable(&self, generation: u64) {
-        self.record_display.mark_unavailable(generation);
-    }
-
-    pub fn abandon_record_display(&self, generation: u64) {
-        self.record_display.abandon(generation);
-    }
-
-    pub fn dismiss_record_display_on_watch_result(&self) {
-        self.record_display.dismiss_on_watch_result();
-    }
-
-    pub fn try_record_display_snapshot(&self) -> Option<crate::RecordDisplaySnapshot> {
-        self.record_display.try_snapshot()
+        self.wake_measure();
     }
 }
 
@@ -497,3 +457,14 @@ impl Default for RecordStateMachine {
 #[cfg(test)]
 #[path = "record_tests.rs"]
 mod tests;
+
+#[path = "record_display_api.rs"]
+mod display_api;
+#[path = "record_measure_preparation.rs"]
+mod measure_preparation;
+#[path = "record_measure_wake.rs"]
+mod measure_wake;
+
+#[cfg(test)]
+#[path = "record_entry_failure_tests.rs"]
+mod entry_failure_tests;

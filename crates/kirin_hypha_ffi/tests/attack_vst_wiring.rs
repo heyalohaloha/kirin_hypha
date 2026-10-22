@@ -24,6 +24,31 @@ fn slice_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     &source[start_index..end_index]
 }
 
+fn function_body(source: &str, signature: &str) -> String {
+    let source = source
+        .lines()
+        .map(|line| line.split_once("//").map_or(line, |(code, _)| code))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let start = source.find(signature).expect("function signature");
+    let body = &source[start..];
+    let open = body.find('{').expect("function body");
+    let mut depth = 0;
+    for (offset, byte) in body[open..].bytes().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return body[open..=open + offset].to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unterminated function body")
+}
+
 #[test]
 fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
@@ -47,12 +72,8 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
         .expect("VST callback must submit the same interleaved audio");
     assert!(clock < audio);
 
-    let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
-    let transaction = slice_between(
-        &ffi,
-        "fn push_samples_transaction",
-        "pub fn note_oversized_drop",
-    );
+    let ffi = read_repo("crates/kirin_hypha_ffi/src/audio_push_transaction.rs");
+    let transaction = function_body(&ffi, "fn push_samples_transaction");
     assert!(transaction.contains("self.push_optional_analysis(interleaved"));
     let optional = read_repo("crates/kirin_hypha_ffi/src/optional_analysis_clock.rs");
     let ingress = slice_between(

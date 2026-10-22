@@ -230,7 +230,7 @@ fn keep_then_stop(plugin_data: &Path, tag: &str, keep: Keep) {
 #[ignore = "slow: real PRE/POST Keep, Stop and writer close after a silent tail or a bounce"]
 fn a_stopped_keep_shows_its_result_after_a_silent_tail_or_a_bounce() {
     let sandbox = tempfile::tempdir().unwrap();
-    std::env::set_var(kirin_measure::TEST_STORAGE_ROOT_ENV, sandbox.path());
+    let _storage = keep_loop_host::StorageRoot::set(sandbox.path());
     let paths = kirin_measure::PlatformPaths::default_current()
         .unwrap()
         .storage;

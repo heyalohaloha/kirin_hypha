@@ -103,14 +103,14 @@ pub(super) fn drain_ring_into_session(
             }
         }
         let chunk_native_frames = (ctx.chunk_f64.len() / ctx.n_channels) as u64;
-        if ctx.meter_active {
-            feed_meter_session(
-                ctx.meter_session,
-                ctx.meter_session_publication,
-                ctx.chunk_f64,
-                plan.meter_clock_start(0),
-            );
+        meter_feed_gate::MeterFeed {
+            tracker: ctx.record_take_tracker,
+            session: ctx.meter_session,
+            publication: ctx.meter_session_publication,
+            n_channels: ctx.n_channels,
+            fallback_active: ctx.meter_active,
         }
+        .feed(ctx.chunk_f64, *ctx.native_frames_total, plan, 0);
         *ctx.native_frames_total = (*ctx.native_frames_total).saturating_add(chunk_native_frames);
         let native_frames_after = *ctx.native_frames_total;
         let captured_frames_before = native_frames_after.saturating_sub(chunk_native_frames);

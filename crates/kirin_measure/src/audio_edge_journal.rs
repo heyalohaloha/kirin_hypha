@@ -115,6 +115,35 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
             .flatten()
     }
 
+    /// Measure-only bounded snapshot. No heap storage and no writer-side waiting.
+    pub(crate) fn snapshot(&self) -> Option<AudioEdgeSnapshot<T>> {
+        let reset = self.reset_version.load(Ordering::SeqCst);
+        if reset & 1 != 0 {
+            return None;
+        }
+        let end = self.published.load(Ordering::Acquire);
+        let mut values = [None; AUDIO_EDGE_JOURNAL_CAPACITY];
+        for (index, sequence) in
+            (end.saturating_sub(AUDIO_EDGE_JOURNAL_CAPACITY as u64)..end).enumerate()
+        {
+            let slot = &self.slots[sequence as usize % AUDIO_EDGE_JOURNAL_CAPACITY];
+            let version = slot.version.load(Ordering::SeqCst);
+            if version == 0 {
+                continue;
+            }
+            if version != sequence * 2 + 2 {
+                return None;
+            }
+            let frame = slot.captured_frames.load(Ordering::SeqCst);
+            let value = slot.value.load(Ordering::SeqCst);
+            if slot.version.load(Ordering::SeqCst) != version {
+                return None;
+            }
+            values[index] = Some((frame, T::from_word(value)));
+        }
+        (self.reset_version.load(Ordering::SeqCst) == reset).then_some(AudioEdgeSnapshot { values })
+    }
+
     pub fn invalidate(&self) {
         self.reset_version.fetch_add(1, Ordering::SeqCst);
         for slot in &self.slots {
@@ -128,3 +157,34 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
 #[cfg(test)]
 #[path = "audio_edge_journal_tests.rs"]
 mod tests;
+
+pub(crate) struct AudioEdgeSnapshot<T: AudioEdgeValue> {
+    values: [Option<(u64, T)>; AUDIO_EDGE_JOURNAL_CAPACITY],
+}
+
+impl<T: AudioEdgeValue> AudioEdgeSnapshot<T> {
+    pub(crate) fn for_each_range(
+        &self,
+        before: u64,
+        after: u64,
+        fallback: T,
+        mut visit: impl FnMut(u64, u64, T),
+    ) {
+        let mut cursor = before;
+        let mut current = fallback;
+        for &(frame, value) in self.values.iter().flatten() {
+            if frame <= before {
+                current = value;
+            } else if frame < after {
+                if cursor < frame {
+                    visit(cursor, frame, current);
+                }
+                cursor = frame;
+                current = value;
+            }
+        }
+        if cursor < after {
+            visit(cursor, after, current);
+        }
+    }
+}

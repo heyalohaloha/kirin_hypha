@@ -20,6 +20,15 @@ use crate::capture_generation::{
 use crate::plugin_data::Role;
 use crate::record_signal::read_signal;
 
+#[path = "capture_generation_ready.rs"]
+mod ready;
+use ready::{generation_producers_ready, wait_for_producers_report};
+
+#[cfg(test)]
+use ready::{acknowledged_member_count, wait_for_producers};
+#[path = "capture_generation_diagnostics.rs"]
+mod diagnostics;
+
 const PUBLISH_LOCK_FILENAME: &str = ".publish.lock";
 
 /// Holds the installation-wide generation lock from roster staging through
@@ -126,7 +135,7 @@ impl CaptureGenerationTransaction {
     /// it performs no audio-thread work and never scans directories or historical sessions.
     ///
     /// `timeout` is the longest wait without one more producer becoming ready; the whole wait
-    /// ends at [`CAPTURE_PRODUCER_READY_LIMIT`]. A slow host bringing producers up one by one is
+    /// renews its safety window on every new milestone. A host bringing producers up one by one is
     /// not failed for being slow, and a producer that never arrives still ends the wait.
     pub fn commit_when_ready(&mut self, timeout: Duration) -> Result<(), CaptureGenerationError> {
         if !self.staged {
@@ -136,19 +145,22 @@ impl CaptureGenerationTransaction {
             )));
         }
         let total = self.generation.members.len() * 2;
-        let ready = wait_for_producers(
+        let report = wait_for_producers_report(
             timeout,
-            || ready_producer_count(&self.base_dir, &self.generation),
+            || ready::producer_readiness_observation(&self.base_dir, &self.generation),
             total,
             Instant::now,
             || thread::sleep(Duration::from_millis(10)),
         );
-        if ready {
+        if report.ready {
             return self.commit();
         }
+        let diagnostic =
+            diagnostics::producer_readiness_diagnostic(&self.base_dir, &self.generation, &report);
+        log::warn!("Keep producer readiness exhausted before rollback: {diagnostic}");
         Err(CaptureGenerationError::Io(io::Error::new(
             io::ErrorKind::TimedOut,
-            "capture generation producers did not become ready",
+            diagnostics::failure_reason(&diagnostic),
         )))
     }
 
@@ -316,72 +328,6 @@ fn abort_uncommitted_generation(base_dir: &Path, generation: &CaptureGeneration)
             generation,
         );
     }
-}
-
-/// The producer barrier: true once every one of `total` producers is ready. Ends after `timeout`
-/// without progress, or at [`CAPTURE_PRODUCER_READY_LIMIT`] (never before `timeout`).
-fn wait_for_producers(
-    timeout: Duration,
-    mut ready: impl FnMut() -> usize,
-    total: usize,
-    mut now: impl FnMut() -> Instant,
-    mut pause: impl FnMut(),
-) -> bool {
-    let started = now();
-    let limit = started + timeout.max(crate::capture_contract::CAPTURE_PRODUCER_READY_LIMIT);
-    let mut no_progress_deadline = started + timeout;
-    let mut best = 0;
-    loop {
-        let count = ready();
-        if total > 0 && count >= total {
-            return true;
-        }
-        let at = now();
-        if count > best {
-            best = count;
-            no_progress_deadline = at + timeout;
-        }
-        if at >= no_progress_deadline || at >= limit {
-            return false;
-        }
-        pause();
-    }
-}
-
-fn generation_producers_ready(base_dir: &Path, generation: &CaptureGeneration) -> bool {
-    !generation.members.is_empty()
-        && ready_producer_count(base_dir, generation) == generation.members.len() * 2
-}
-
-/// PRE and POST writers of the roster that own their exact Record session and are ready.
-fn ready_producer_count(base_dir: &Path, generation: &CaptureGeneration) -> usize {
-    if !process_is_alive(generation.host_process_id) {
-        return 0;
-    }
-    let ready = |member: &crate::capture_generation::CaptureGenerationMember,
-                 role: Role,
-                 instance_id: &str| {
-        !instance_id.trim().is_empty()
-            && crate::record_writer_claim::writer_claim_ready_for_generation(
-                base_dir,
-                &member.project_hash,
-                &member.record_session_id,
-                role,
-                instance_id,
-                &generation.capture_generation_id,
-                generation.started_at_ms,
-                generation.host_process_id,
-            )
-            .unwrap_or(false)
-    };
-    generation
-        .members
-        .iter()
-        .map(|member| {
-            usize::from(ready(member, Role::Pre, &member.pre_instance_id))
-                + usize::from(ready(member, Role::Post, &member.post_instance_id))
-        })
-        .sum()
 }
 
 fn remove_preparing_if_current(base_dir: &Path, generation: &CaptureGeneration) {

@@ -36,6 +36,31 @@ pub fn exit_record_preserve_pair(record_sm: &RecordStateMachine) {
     record_sm.exit_record();
 }
 
+/// Close a control-plane Record, releasing a lane the Measure worker never claimed.
+pub fn exit_record_releasing_unattached_lane(
+    record_sm: &RecordStateMachine,
+    record_ingress: &crate::RecordIngress,
+) {
+    record_ingress.abandon_unattached_from_control(record_sm.generation());
+    record_sm.exit_record();
+}
+
+/// Retire only a prepared entry whose own transition has already closed.
+/// An in-progress entrant and a Measure-owned lane retain their ownership.
+pub fn retire_failed_record_entry(
+    record_sm: &RecordStateMachine,
+    record_ingress: &crate::RecordIngress,
+    generation: u64,
+) -> bool {
+    if record_sm.generation() != generation
+        || record_sm.is_recording()
+        || record_sm.record_session_id().is_some()
+    {
+        return false;
+    }
+    record_ingress.abandon_unattached_from_control(generation)
+}
+
 ///
 /// 以下 3 ステップを 1 単位で実行する:
 ///   1. `record_sm.exit_record()` — 状態機械を Watch に戻す

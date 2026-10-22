@@ -73,6 +73,12 @@ impl RecordAudioMapping {
         }
     }
 
+    pub(in crate::record_take) fn seed_proven_prefix(&self, span: CaptureClockSpan, last: u64) {
+        self.note(span.epoch, span);
+        let index = self.current.load(Ordering::Acquire) as usize;
+        self.last_extended_epochs[index].store(last, Ordering::Release);
+    }
+
     pub(in crate::record_take) fn read(&self, epoch: u64) -> Option<CaptureClockSpan> {
         self.slots.iter().find_map(|slot| slot.read(epoch))
     }

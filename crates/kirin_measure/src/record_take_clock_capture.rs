@@ -6,6 +6,17 @@ mod audio_mapping;
 pub(super) use audio_mapping::RecordAudioMapping;
 
 impl RecordTakeTracker {
+    /// Measure Thread: only this producer-owned Watch candidate can still become a Record prefix.
+    /// Watch may precede the first callback observing the requested generation. Once the producer
+    /// observes a later generation, it cannot promote this candidate for the older reader.
+    pub(crate) fn offline_watch_promotion_pending(&self, generation: u64, epoch: u64) -> bool {
+        generation > 0
+            && epoch > 0
+            && self.watch_offline_candidate_epoch.load(Ordering::Acquire) == epoch
+            && self.mark_generation.load(Ordering::Acquire) <= generation
+            && self.record_generation.load(Ordering::Acquire) <= generation
+    }
+
     /// Audio Thread, immediately before the capture window it names: whether that window begins
     /// with the host's own LOOP wrap (its loop range named the return). Atomics only.
     pub fn stage_host_loop_wrap(&self, host_loop_wrap: bool) {
@@ -156,13 +167,18 @@ impl RecordTakeTracker {
         } else {
             false
         };
-        let mut published_sequence = None;
         if !extended {
             let sequence = self
                 .capture_span_sequence
                 .fetch_add(1, Ordering::AcqRel)
                 .saturating_add(1);
             let index = sequence as usize % self.capture_clock_slots.len();
+            if watch_offline_capture {
+                // Publish liveness before exposing this span. A reader that can see the span
+                // must never mistake an as-yet-unpublished candidate for an expired one.
+                self.watch_offline_candidate_epoch
+                    .store(sequence, Ordering::Release);
+            }
             self.capture_clock_slots[index].publish(CaptureClockSpan {
                 auxiliary_only_cut: previous_sequence > 0
                     && previous_generation == capture_generation
@@ -188,15 +204,9 @@ impl RecordTakeTracker {
             });
             self.capture_last_span_sequence
                 .store(sequence, Ordering::Release);
-            published_sequence = Some(sequence);
         }
         let epoch = self.capture_last_span_sequence.load(Ordering::Acquire);
-        if watch_offline_capture {
-            if let Some(sequence) = published_sequence {
-                self.watch_offline_candidate_epoch
-                    .store(sequence, Ordering::Release);
-            }
-        } else if capture_generation > 0 {
+        if !watch_offline_capture && capture_generation > 0 {
             // Promotion is permitted only at the first armed Record callback. Regardless of
             // whether the mapping was contiguous, consume the offline edge here so a later Record
             // callback can never reach back and relabel unrelated Watch audio.

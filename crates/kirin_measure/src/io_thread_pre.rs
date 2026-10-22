@@ -365,174 +365,9 @@ fn signal_generation_is_authorized(
         && signal.target_pre_instance_id == pre_instance_id
 }
 
-fn poll_all_stop_signal_in_projects_at(
-    base: &Path,
-    project_hashes: &[String],
-    record_sm: &Arc<RecordStateMachine>,
-    recording: &Arc<AtomicBool>,
-    record_acknowledged: &Arc<AtomicBool>,
-    partner: &mut Option<PartnerInfo>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> bool {
-    if !record_sm.is_recording() {
-        return false;
-    }
-
-    let Some((project_hash, originator_iid, stop_started_at, partner_iid, session_id)) =
-        partner.as_ref().and_then(|p| {
-            let record_started_at_ms = record_sm.record_started_at_ms();
-            project_hashes.iter().find_map(|project_hash| {
-                all_stop_signal::read_current_stop_broadcast(base, project_hash)
-                    .into_iter()
-                    .find_map(|(originator_iid, broadcast)| {
-                        if all_stop_authorizes_pre_stop(
-                            base,
-                            &broadcast,
-                            p,
-                            record_started_at_ms,
-                            now,
-                        ) {
-                            Some((
-                                project_hash.clone(),
-                                originator_iid,
-                                broadcast.started_at,
-                                p.post_instance_id.clone(),
-                                p.session_id.clone(),
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-            })
-        })
-    else {
-        return false;
-    };
-
-    record_sm.exit_record();
-    recording.store(false, Ordering::Relaxed);
-    record_acknowledged.store(false, Ordering::Relaxed);
-    *partner = None;
-    log::info!(
-        "[all_stop PRE] authorized broadcast, PRE exiting Record \
-         (project_hash={}, originator={}, partner={}, session={}, started_at={})",
-        project_hash,
-        originator_iid,
-        partner_iid,
-        session_id,
-        stop_started_at
-    );
-    true
-}
-
-fn poll_all_stop_signal_at(
-    base: &Path,
-    project_hash: &str,
-    record_sm: &Arc<RecordStateMachine>,
-    recording: &Arc<AtomicBool>,
-    record_acknowledged: &Arc<AtomicBool>,
-    partner: &mut Option<PartnerInfo>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> bool {
-    if !record_sm.is_recording() {
-        return false;
-    }
-    let Some(active_partner) = partner.as_ref() else {
-        return false;
-    };
-    let project_hashes = all_stop_project_hashes(project_hash, active_partner);
-    poll_all_stop_signal_in_projects_at(
-        base,
-        &project_hashes,
-        record_sm,
-        recording,
-        record_acknowledged,
-        partner,
-        now,
-    )
-}
-
-fn poll_all_stop_signal_for_active_writer_at(
-    base: &Path,
-    scope: Option<&ActiveWriterStopScope>,
-    record_sm: &Arc<RecordStateMachine>,
-    recording: &Arc<AtomicBool>,
-    record_acknowledged: &Arc<AtomicBool>,
-    partner: &mut Option<PartnerInfo>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> bool {
-    if !record_sm.is_recording() {
-        return false;
-    }
-    let Some(scope) = scope else {
-        return false;
-    };
-
-    let Some((originator_iid, stop_started_at)) =
-        all_stop_signal::read_current_stop_broadcast(base, &scope.project_hash)
-            .into_iter()
-            .find_map(|(originator_iid, broadcast)| {
-                all_stop_authorizes_active_writer_stop(base, &broadcast, scope, now)
-                    .then_some((originator_iid, broadcast.started_at))
-            })
-    else {
-        return false;
-    };
-
-    record_sm.exit_record();
-    recording.store(false, Ordering::Relaxed);
-    record_acknowledged.store(false, Ordering::Relaxed);
-    *partner = None;
-    log::info!(
-        "[all_stop PRE] active writer fallback authorized broadcast, PRE exiting Record \
-         (project_hash={}, originator={}, paired_post={:?}, session={:?}, started_at={})",
-        scope.project_hash,
-        originator_iid,
-        scope.paired_post_instance_id.as_deref(),
-        scope.record_session_id.as_deref(),
-        stop_started_at
-    );
-    true
-}
-
-fn poll_all_stop_signal_for_active_writer(
-    base: &Path,
-    ctx: Option<&RecordingCtx>,
-    record_sm: &Arc<RecordStateMachine>,
-    recording: &Arc<AtomicBool>,
-    record_acknowledged: &Arc<AtomicBool>,
-    partner: &mut Option<PartnerInfo>,
-) -> bool {
-    let scope = active_writer_stop_scope(ctx);
-    poll_all_stop_signal_for_active_writer_at(
-        base,
-        scope.as_ref(),
-        record_sm,
-        recording,
-        record_acknowledged,
-        partner,
-        chrono::Utc::now(),
-    )
-}
-
-fn poll_all_stop_signal(
-    base: &Path,
-    project_hash: &str,
-    record_sm: &Arc<RecordStateMachine>,
-    recording: &Arc<AtomicBool>,
-    record_acknowledged: &Arc<AtomicBool>,
-    partner: &mut Option<PartnerInfo>,
-) -> bool {
-    poll_all_stop_signal_at(
-        base,
-        project_hash,
-        record_sm,
-        recording,
-        record_acknowledged,
-        partner,
-        chrono::Utc::now(),
-    )
-}
+#[path = "io_thread_pre_stop.rs"]
+mod stop;
+use stop::*;
 
 fn wait_for_measure_ready(record_sm: &RecordStateMachine, generation: u64) -> bool {
     if generation == 0 {
@@ -557,157 +392,9 @@ struct PreRecordEntryContext<'a> {
     sample_rate: u32,
 }
 
-fn enter_pre_record_if_barrier_ready(
-    ctx: PreRecordEntryContext<'_>,
-    record_sm: &Arc<RecordStateMachine>,
-    recording: &Arc<AtomicBool>,
-    license: &License,
-    signal: &record_signal::RecordSignal,
-    record_ingress: &crate::RecordIngress,
-) -> bool {
-    if record_sm.is_recording() {
-        let generation = record_sm.generation();
-        if wait_for_measure_ready(record_sm, generation) {
-            recording.store(true, Ordering::Relaxed);
-            return true;
-        }
-        log::warn!(
-            "[signal] PRE Record measure-ready timeout before ACK \
-             (generation={}, pre_iid={}, session={})",
-            generation,
-            ctx.pre_instance_id,
-            signal.session_id
-        );
-        return false;
-    }
-    if !is_os_license(license) {
-        return false;
-    }
-    let started_at_ms = signal_started_at_ms(signal);
-    if started_at_ms <= 0 {
-        log::warn!(
-            "[signal] PRE Record start withheld: invalid started_at (pre_iid={}, session={})",
-            ctx.pre_instance_id,
-            signal.session_id
-        );
-        return false;
-    }
-    let now_ms = crate::record_writer::now_epoch_ms();
-    if now_ms < started_at_ms {
-        return false;
-    }
-    if crate::record_writer::record_session_closed_for_role_instance(
-        ctx.base,
-        ctx.project_hash,
-        ctx.pre_instance_id,
-        PluginDataRole::Pre,
-        &signal.session_id,
-    ) {
-        log::warn!(
-            "[signal] PRE Record start withheld: session already closed on disk \
-             (pre_iid={}, session={})",
-            ctx.pre_instance_id,
-            signal.session_id
-        );
-        return false;
-    }
-    if crate::record_writer_claim::writer_claim_active(
-        ctx.base,
-        ctx.project_hash,
-        &signal.session_id,
-        PluginDataRole::Pre,
-        ctx.pre_instance_id,
-    )
-    .unwrap_or(false)
-    {
-        log::warn!(
-            "[signal] PRE Record start withheld: writer already active \
-             (pre_iid={}, session={})",
-            ctx.pre_instance_id,
-            signal.session_id
-        );
-        return false;
-    }
-    // The in-memory lane must be reusable before taking the durable entry claim. Otherwise an
-    // immediate second Keep can leave a fresh session's claim behind while the prior generation
-    // is still draining, and every later poll would reject itself as AlreadyActive forever.
-    let next_generation = record_sm.generation().saturating_add(1);
-    if !record_ingress.prepare_for_generation(next_generation) {
-        log::warn!(
-            "[signal] PRE Record start withheld: Record ingest lane is not drained/prepared \
-             (generation={}, pre_iid={}, session={})",
-            next_generation,
-            ctx.pre_instance_id,
-            signal.session_id
-        );
-        return false;
-    }
-    match crate::record_entry_lock::claim_record_entry(
-        ctx.base,
-        ctx.project_hash,
-        &signal.session_id,
-        PluginDataRole::Pre,
-        ctx.pre_instance_id,
-    ) {
-        Ok(()) => {}
-        Err(crate::record_entry_lock::RecordEntryLockError::AlreadyActive { .. }) => {
-            log::warn!(
-                "[signal] PRE Record start withheld: record entry already owned \
-                 (pre_iid={}, session={})",
-                ctx.pre_instance_id,
-                signal.session_id
-            );
-            return false;
-        }
-        Err(e) => {
-            log::warn!(
-                "[signal] PRE Record start withheld: record entry claim failed \
-                 (pre_iid={}, session={}): {}",
-                ctx.pre_instance_id,
-                signal.session_id,
-                e
-            );
-            return false;
-        }
-    }
-    match record_sm.try_enter_record_started_at_clock_window_transaction(
-        *license,
-        started_at_ms,
-        signal.started_at_position_samples,
-        signal.expected_end_position_samples_for_sample_rate(ctx.sample_rate),
-        signal.session_id.clone(),
-    ) {
-        Ok(()) => {
-            recording.store(true, Ordering::Relaxed);
-            let generation = record_sm.generation();
-            if !wait_for_measure_ready(record_sm, generation) {
-                log::warn!(
-                    "[signal] PRE Record measure-ready timeout after ACK \
-                     (generation={}, pre_iid={}, session={})",
-                    generation,
-                    ctx.pre_instance_id,
-                    signal.session_id
-                );
-                return false;
-            }
-            log::info!(
-                "[signal] PRE entered Record at barrier (pre_iid={}, session={}, started_at={})",
-                ctx.pre_instance_id,
-                signal.session_id,
-                signal.started_at
-            );
-            true
-        }
-        Err(crate::record::TransitionError::AlreadyRecording) => {
-            recording.store(record_sm.is_recording(), Ordering::Relaxed);
-            true
-        }
-        Err(e) => {
-            log::warn!("[signal] PRE Record barrier enter rejected: {:?}", e);
-            false
-        }
-    }
-}
+#[path = "io_thread_pre_entry.rs"]
+mod pre_entry;
+use pre_entry::enter_pre_record_if_barrier_ready;
 
 /// Restore the one active POST partner after an IO-thread-only watchdog restart.
 ///
@@ -1079,6 +766,7 @@ pub fn spawn_io_thread_pre(
                             &recording,
                             &record_acknowledged,
                             &mut partner,
+                            &record_ingress,
                         ) || poll_all_stop_signal_for_active_writer(
                             &base,
                             writer_ctx.as_ref(),
@@ -1086,6 +774,7 @@ pub fn spawn_io_thread_pre(
                             &recording,
                             &record_acknowledged,
                             &mut partner,
+                            &record_ingress,
                         )
                     })
                     .unwrap_or(false);
@@ -1115,6 +804,7 @@ pub fn spawn_io_thread_pre(
                             &recording,
                             &record_acknowledged,
                             &mut partner,
+                            &record_ingress,
                         ) || poll_all_stop_signal_for_active_writer(
                             &base,
                             writer_ctx.as_ref(),
@@ -1122,6 +812,7 @@ pub fn spawn_io_thread_pre(
                             &recording,
                             &record_acknowledged,
                             &mut partner,
+                            &record_ingress,
                         );
                     }
                 }
@@ -1323,7 +1014,10 @@ fn poll_record_signal(
                     SignalStatus::Released => {
                         if signal_matches_current_partner(sig, p, instance_id) {
                             if sig.released_authorizes_pre_stop() {
-                                record_sm.exit_record();
+                                crate::cleanup::exit_record_releasing_unattached_lane(
+                                    record_sm,
+                                    record_ingress,
+                                );
                                 recording.store(false, Ordering::Relaxed);
                                 record_acknowledged.store(false, Ordering::Relaxed);
                                 log::info!(
@@ -1398,7 +1092,7 @@ fn poll_record_signal(
             .iter()
             .find(|(_, sig)| released_matches_pending_pre_record(sig, instance_id, started_at_ms));
         if let Some((post_iid, _)) = released_before_ack {
-            record_sm.exit_record();
+            crate::cleanup::exit_record_releasing_unattached_lane(record_sm, record_ingress);
             recording.store(false, Ordering::Relaxed);
             record_acknowledged.store(false, Ordering::Relaxed);
             log::info!(
@@ -3021,6 +2715,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(stopped, "All Stop must be a direct PRE stop authority");
@@ -3062,6 +2757,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:01Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3103,6 +2799,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:01Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3153,6 +2850,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3193,6 +2891,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3238,6 +2937,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(!stopped, "cross-DAW All Stop must be ignored by PRE");
@@ -3282,6 +2982,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3329,6 +3030,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3377,6 +3079,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3437,6 +3140,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(
@@ -3486,6 +3190,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(!stopped, "older All Stop must not close a newer writer");
@@ -3533,6 +3238,7 @@ mod tests {
             &ack,
             &mut partner,
             chrono_utc("2026-07-05T00:00:02Z"),
+            &crate::RecordIngress::new(1),
         );
 
         assert!(

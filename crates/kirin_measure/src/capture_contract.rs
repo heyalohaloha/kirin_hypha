@@ -12,7 +12,7 @@ pub const MAX_CAPTURE_PAIRS: usize = 12;
 /// long. A slow host that is still bringing producers up keeps the wait open.
 pub const CAPTURE_PRODUCER_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// However steadily producers keep becoming ready, the whole wait ends here.
+/// Safety window renewed by each producer milestone; never an absolute cap on a progressing roster.
 pub const CAPTURE_PRODUCER_READY_LIMIT: Duration = Duration::from_secs(10);
 
 #[cfg(test)]

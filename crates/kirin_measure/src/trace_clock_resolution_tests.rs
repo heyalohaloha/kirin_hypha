@@ -355,3 +355,6 @@ fn long_generation_selection_advances_through_candidates_once() {
     assert_eq!(producer_slots.last(), Some(&28_800_000));
     assert_eq!(wav_slots.last(), Some(&28_800_000));
 }
+
+#[path = "trace_selected_anchor_tests.rs"]
+mod selected_anchor_tests;

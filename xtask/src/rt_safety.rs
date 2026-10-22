@@ -1,4 +1,8 @@
 #[cfg(test)]
+#[path = "rt_safety_meter_input_tests.rs"]
+mod meter_input_tests;
+
+#[cfg(test)]
 #[path = "rt_safety_platform_gate_tests.rs"]
 mod platform_gate_tests;
 
@@ -20,6 +24,8 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/src/lib.rs"
     ));
+    const FFI_AUDIO_PUSH_RS: &str =
+        include_str!("../../crates/kirin_hypha_ffi/src/audio_push_transaction.rs");
     const SIGNAL_STATE_FFI_RS: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/src/signal_state_ffi.rs"
@@ -76,7 +82,7 @@ mod tests {
             .join("\n")
     }
 
-    fn function_body(source: &str, signature: &str) -> String {
+    pub(super) fn function_body(source: &str, signature: &str) -> String {
         let source = strip_line_comments(source);
         let start = source.find(signature).expect(signature);
         let after = &source[start..];
@@ -321,7 +327,7 @@ mod tests {
     #[test]
     fn ffi_push_samples_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
-            FFI_LIB_RS,
+            FFI_AUDIO_PUSH_RS,
             "fn push_samples_transaction(&self, interleaved: &[f32], num_channels: u32)",
         );
 

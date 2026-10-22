@@ -31,6 +31,8 @@ struct RecordEntryLockFile {
     host_process_id: u32,
     claimed_at_ms: i64,
     heartbeat_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    measure_preparation: Option<preparation::EntryPreparation>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +88,20 @@ impl From<serde_json::Error> for RecordEntryLockError {
     }
 }
 
+/// True once `instance_id` took the entry claim of this exact Record session (its Record state
+/// is being entered). Observable progress for the producer barrier; never writer readiness.
+pub(crate) fn record_entry_claimed(
+    base_dir: &Path,
+    project_hash: &str,
+    session_id: &str,
+    role: Role,
+    instance_id: &str,
+) -> bool {
+    let session_id = session_id.trim();
+    !session_id.is_empty()
+        && entry_lock_path(base_dir, project_hash, session_id, role, instance_id).exists()
+}
+
 pub(crate) fn claim_record_entry(
     base_dir: &Path,
     project_hash: &str,
@@ -112,6 +128,7 @@ pub(crate) fn claim_record_entry(
         host_process_id: std::process::id(),
         claimed_at_ms: now,
         heartbeat_at_ms: now,
+        measure_preparation: None,
     };
     let bytes = serde_json::to_vec(&lock)?;
 
@@ -237,3 +254,7 @@ fn now_epoch_ms() -> i64 {
 #[cfg(test)]
 #[path = "record_entry_lock_tests.rs"]
 mod tests;
+
+#[path = "record_entry_preparation.rs"]
+mod preparation;
+pub(crate) use preparation::{measure_preparation_samples, publish_measure_preparation};

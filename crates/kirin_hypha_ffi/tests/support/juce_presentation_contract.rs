@@ -443,6 +443,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(perceptual.contains("aperture_samples"));
     assert!(perceptual.contains("post.sharpness - pre.sharpness"));
 
-    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
+    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs")
+        + &read_repo("crates/kirin_measure/src/plugin_data_file.rs");
     assert!(!plugin_data.contains("spectrum"));
 }

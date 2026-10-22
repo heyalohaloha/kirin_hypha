@@ -92,6 +92,8 @@ pub(super) struct SessionSlot {
 /// ```
 #[derive(Debug)]
 pub struct RecordStateMachine {
+    pub(super) measure_preparation: super::measure_preparation::MeasurePreparation,
+    pub(super) measure_waker: super::measure_wake::MeasureWakeState,
     pub(super) state: AtomicU64,
     /// Watch→Record の内部 Entering 状態を識別する単調トークン。
     /// exit/retry が同時に走っても、古い Entering が新しい Entering を Record に昇格しないようにする。
