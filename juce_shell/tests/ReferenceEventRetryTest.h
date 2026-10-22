@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferenceControllerTestAccess.h"
 #include "TestPathBudget.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Controller.h"
 #include <cstdlib>
@@ -56,8 +57,9 @@ inline void verify (const juce::File& fixture, const Context& context)
     contextFor (runtime, context, {});
     (runtime.*method (BeginTag {})) (0); confirmB (runtime, {});
     const auto wait = [&] (const auto& predicate) {
-        for (int i = 0; i < 700; ++i) { const auto facts = factsFor (runtime, {}); if (predicate (facts)) return facts; juce::Thread::sleep (10); }
-        check (false, "worker retry fixture deadline"); return Facts(); };
+        Facts result;
+        hypha::tests::reference_control::await ([&] { result = factsFor (runtime, {}); return predicate (result); }, "worker retry stopped progressing");
+        return result; };
     const auto first = wait ([] (const Facts& f) { return f.attempts == 1; });
     check (first.started > 0 && first.retry >= first.started + 1000, "first failure reserves an interval");
     juce::Thread::sleep (200);

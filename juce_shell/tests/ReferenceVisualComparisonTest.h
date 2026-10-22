@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferenceMonoVisualTest.h"
 #include "../src/HyphaReferenceComponent.h"
 #include <cstdlib>
 #include <iostream>
@@ -6,6 +7,7 @@ namespace hypha::tests
 {
 inline void verifyReferenceVisualComparison()
 {
+    verifyMonoVersionVisual();
     const auto check = [] (bool valid, const char* message) { if (!valid) { std::cerr << "Visual UI: " << message << '\n'; std::exit (1); } };
     auto source = std::make_shared<reference_audition::RuntimeSource>();
     source->audio = { 48000, 2, 48000*200 }; source->sourceFileSha256 = juce::String::repeatedString ("a",64);

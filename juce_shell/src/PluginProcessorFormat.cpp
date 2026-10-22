@@ -38,6 +38,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // B-125: cache the prepared capacity so processBlock re-checks against it (the oversized
     // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
     scratchCapacitySamples = interleaveScratch.size();
+    preparePrecisionScratch (maxFrames, numCh);
     const auto roles = kirin::channelRoles (getChannelLayoutOfBus (true, 0));
     const auto liveClock = hypha::live_compare_clock_policy::current (wrapperType, sampleRate);
     liveCompare.clockAuthority = static_cast<std::uint8_t> (liveClock.authority);

@@ -103,7 +103,7 @@ namespace hypha::reference_audition
             || a.frameCount < a.sampleRateHz * 3 || a.frameCount > 4'194'304
             || a.interleaved.size() != static_cast<size_t> (a.frameCount * a.channels)
             || source.audio.sampleRateHz < 8000 || source.audio.sampleRateHz > 768000
-            || source.audio.channels != a.channels
+            || (source.audio.channels != a.channels && ! (source.audio.channels == 1 && a.channels == 2))
             || source.sourceFileSha256.isEmpty() || source.sourcePcmSha256.isEmpty()
             || source.sourceFileSha256 != measured.sourceFileSha256
             || source.sourcePcmSha256 != measured.sourcePcmSha256
@@ -111,7 +111,7 @@ namespace hypha::reference_audition
             || source.audio.channels != measured.audio.channels
             || source.audio.totalSampleFrames != measured.audio.totalSampleFrames
             || !measured.waveform || measured.waveform->framesPerBin < 1
-            || measured.waveform->rmsMillidbfs.size() != static_cast<size_t> (a.channels)
+            || measured.waveform->rmsMillidbfs.size() != static_cast<size_t> (source.audio.channels)
             || measured.waveform->rmsMillidbfs.front().empty()) return result;
         const auto bins = measured.waveform->rmsMillidbfs.front().size();
         if (bins > 4096) return result;
@@ -128,7 +128,7 @@ namespace hypha::reference_audition
         std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (source.absolutePath)));
         if (!reader || reader->lengthInSamples != source.audio.totalSampleFrames
             || std::abs (reader->sampleRate - source.audio.sampleRateHz) > 0.001
-            || reader->numChannels != static_cast<unsigned> (a.channels)) return result;
+            || reader->numChannels != static_cast<unsigned> (source.audio.channels)) return result;
         const auto positions = expectedSourceStart ? std::vector<std::int64_t> { *expectedSourceStart }
                                                    : coarsePositions (a, measured);
         const auto timeline = static_cast<std::int64_t> (std::llround (

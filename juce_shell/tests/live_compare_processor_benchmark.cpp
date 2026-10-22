@@ -23,6 +23,7 @@
  #include <time.h>
 #endif
 #include "TestProcessorStorage.h"
+#include "PrecisionProcessorBenchmark.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
 #endif
@@ -399,18 +400,20 @@ int main (int argc, char** argv)
 {
     require (hypha::test::exactPcmControls(), "runtime exact PCM oracle controls");
     require (argc >= 2 && argc <= 4,
-             "usage: full processor benchmark 64|128|256|512 [--cpu-split] [--audio-qos]");
-    bool splitCpu = false, audioQos = false;
+             "usage: full processor benchmark 64|128|256|512 [--cpu-split --audio-qos | --precision-only]");
+    bool splitCpu = false, audioQos = false, precisionOnly = false;
     for (int i = 2; i < argc; ++i)
     {
+        if (std::strcmp (argv[i], "--precision-only") == 0 && ! precisionOnly) { precisionOnly = true; continue; }
         if (std::strcmp (argv[i], "--cpu-split") == 0 && ! splitCpu) splitCpu = true;
         else if (std::strcmp (argv[i], "--audio-qos") == 0 && ! audioQos) audioQos = true;
         else require (false, "unknown or duplicated fixture option");
     }
+    require (! precisionOnly || (! splitCpu && ! audioQos), "precision-only is a separate diagnostic");
     const int frames = std::atoi (argv[1]);
     require (frames == 64 || frames == 128 || frames == 256 || frames == 512, "specified buffer size is in the gate");
    #if ! JUCE_MAC
-    require (argc == 2, "thread CPU split is a macOS-only diagnostic");
+    require (argc == 2 || precisionOnly, "thread CPU split is a macOS-only diagnostic");
    #endif
     ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
@@ -419,6 +422,7 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
+    if (precisionOnly) { hypha::tests::precisionProcessorBenchmarks (frames); return EXIT_SUCCESS; }
    #if JUCE_MAC
     require (initialiseProcessorHeapProbe(), "macOS allocator hook initialises before audio");
     const uint8_t roles[] { KIRIN_CHANNEL_ROLE_LEFT, KIRIN_CHANNEL_ROLE_RIGHT };

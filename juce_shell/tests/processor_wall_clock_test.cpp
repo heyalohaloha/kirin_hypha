@@ -4,6 +4,8 @@
 #include "ReferenceValidationStorageSandbox.h"
 #include <iostream>
 #include "TestProcessorStorage.h"
+#include "PrecisionTraceTest.h"
+#include "DoublePrecisionLiveAuditionTest.h"
 namespace
 {
 using Processor = KirinHyphaProcessorBase;
@@ -62,11 +64,20 @@ void verify (Processor::Role role, int channels, int delayMs, bool realControl)
     processor.releaseResources();
 }
 }
-int main (int argc, char**)
+int main (int argc, char** argv)
 try
 {
     ReferenceValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI init;
+    const auto mode = argc == 2 ? juce::String (argv[1]) : juce::String {};
+    if (mode == "--double-precision-layout-only") { hypha::tests::precision::verifyDoublePrecisionListenLayout(); return 0; }
+    if (mode == "--double-precision-live-only") { hypha::tests::precision::verifyDoublePrecisionLiveAudition(); return 0; }
+    if (mode == "--double-precision-parity-only")
+    {
+        hypha::tests::precision::verifyDoublePrecisionListenLayout();
+        hypha::tests::precision::verifyDoublePrecisionParity(); hypha::tests::precision::verifyPrecisionTrace();
+        return 0;
+    }
     // The optional negative control uses the old real-clock route under exactly the same
     // assertion; it must fail with 175 ms callbacks. It is not a normal CTest item.
     if (argc > 1) { verify (Processor::Role::Pre, 2, 175, true); return 0; }

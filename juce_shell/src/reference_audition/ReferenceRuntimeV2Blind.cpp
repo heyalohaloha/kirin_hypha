@@ -200,7 +200,8 @@ namespace hypha::reference_audition
         formats.registerBasicFormats();
         auto reader = std::unique_ptr<juce::AudioFormatReader> (
             formats.createReaderFor (juce::File (source->absolutePath)));
-        if (reader == nullptr || static_cast<int> (reader->numChannels) != a->channels
+        if (reader == nullptr || reader->numChannels != static_cast<unsigned> (source->audio.channels)
+            || (source->audio.channels != a->channels && ! (source->audio.channels == 1 && a->channels == 2))
             || (std::abs (reader->sampleRate - a->sampleRateHz) > 0.001
                 && ! sampleRateConversionApproved))
         {

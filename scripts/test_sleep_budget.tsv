@@ -34,9 +34,12 @@ crates/kirin_measure/src/spectrum_runtime_tests.rs	6
 crates/kirin_measure/src/spectrum_runtime_view_tests.rs	5
 crates/kirin_measure/src/storage_tests.rs	2
 juce_shell/tests/AuCycleSpectrumCallbackTest.h	1
+juce_shell/tests/CaptureWorkAttachmentTest.cpp	2
 juce_shell/tests/LiveBlindAudioFixture.h	1
 juce_shell/tests/PublicationStorageContract.h	1
+juce_shell/tests/ReferenceConcurrentSwitch.h	2
 juce_shell/tests/TimeSnapshotProbe.cpp	3
+juce_shell/tests/appearance_contract_test.cpp	3
 juce_shell/tests/live_compare/LiveCompareOwnerLifetimeTest.h	3
 juce_shell/tests/live_compare_aax_group_product_test.cpp	1
 juce_shell/tests/live_compare_lifecycle_product_test.cpp	2
@@ -46,6 +49,12 @@ juce_shell/tests/local_blind_capture_service_test.cpp	1
 juce_shell/tests/local_blind_trial_test.cpp	1
 juce_shell/tests/pair_preview_lifetime_test.cpp	3
 juce_shell/tests/pair_preview_module.cpp	1
+juce_shell/tests/pre_display_runtime_test.cpp	4
 juce_shell/tests/reference_audio_streaming_test.cpp	1
+juce_shell/tests/reference_runtime_v2_refresh_test_support.h	2
+juce_shell/tests/reference_visual_test.cpp	1
+juce_shell/tests/reference_whole_song_fixture.h	2
 juce_shell/tests/storage_paths_test.cpp	1
+juce_shell/tests/update_checker_test.cpp	13
+juce_shell/tests/update_runtime_integration_test.cpp	4
 juce_shell/tests/update_transport_mac_test.mm	4

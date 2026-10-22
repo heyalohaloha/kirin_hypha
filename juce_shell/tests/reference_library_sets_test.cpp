@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 // Hypha が Kirin OS の library/sets.json（Hypha に出した B セット・CHECK セットの順位）と、
 // Cue の値のファイル（ranges/<sha256>.json）を読む。
 // tests/fixtures/kirin_os_library_abcv は、Kirin OS の本物の書き出し処理（Kirin OS の
@@ -13,7 +14,6 @@
 #include "../src/reference_audition/ReferenceRuntimeV2Controller.h"
 #include "../src/AtomicFile.h"
 #include <algorithm>
-
 void testReferenceLibrarySets (const juce::File&);
 void testReferenceLibrarySetsOsFixture (const juce::File& root, int minimumVerified = 0);
 
@@ -138,16 +138,10 @@ void sourceFailureWaitsBeforeReadingAgain (const juce::File& sandbox)
     ref::RuntimeV2Controller controller (root);
     controller.observeTransport (0, true, true);
     controller.configure ({ "source-retry-post", {}, 42, true }, 48000, 2);
-    bool selected = false;
-    for (int i = 0; i < 800 && ! selected; ++i)
-    { selected = controller.selectLibrarySong (id); if (! selected) juce::Thread::sleep (10); }
-    require (selected, "select the fixture's prepared song rather than its empty default Check");
+hypha::tests::reference_control::await ([&] { return controller.selectLibrarySong (id); }, "select the fixture's prepared song rather than its empty default Check");
     const auto wait = [&] (const char* reason) {
-        for (int i = 0; i < 800; ++i)
-        {
-            if (controller.snapshot().rejectionCode == reason) return;
-            juce::Thread::sleep (10);
-        }
+        if (hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5),
+            [&] { return controller.snapshot().rejectionCode == reason; })) return;
         const auto state = controller.snapshot();
         std::cerr << "Source retry expected " << reason << ", actual " << state.rejectionCode
                   << " state " << static_cast<int> (state.state) << " preset " << state.presetName << '\n';

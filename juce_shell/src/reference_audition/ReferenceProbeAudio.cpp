@@ -27,7 +27,7 @@ namespace hypha::reference_audition
                           std::int64_t outputFrames, int outputRate, int channels,
                           std::vector<float>& interleaved)
         {
-            if (static_cast<int> (reader.numChannels) != channels || channels < 1 || channels > 2
+            if ((static_cast<int> (reader.numChannels) != channels && ! (reader.numChannels == 1 && channels == 2)) || channels < 1 || channels > 2
                 || outputFrames < 1 || outputFrames > 3072000 || sourceStart < 0
                 || outputRate < 8000 || outputRate > 768000
                 || !std::isfinite (reader.sampleRate) || reader.sampleRate < 8000

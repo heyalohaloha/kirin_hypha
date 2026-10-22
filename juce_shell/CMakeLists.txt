@@ -226,7 +226,6 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
 
 
 
-
     src/reference_audition/ReferenceComparisonBlind.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
     src/reference_audition/ReferenceRuntimeV2Selection.cpp
@@ -300,7 +299,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditorTimeSnapshots.cpp
         src/PluginEditorDrumSnapshots.cpp
         src/HostExecutableIdentity.cpp
-        src/PluginProcessor.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorIdentity.cpp src/PluginProcessorPairReadback.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessor.cpp src/PluginProcessorPrecision.cpp src/PluginProcessorLifecycle.cpp src/PluginProcessorService.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorIdentity.cpp src/PluginProcessorPairReadback.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorContentTiming.cpp
         src/PluginProcessorLiveMatchRequest.cpp
@@ -810,6 +809,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         # stack for the complete suite instead of silently skipping Windows render coverage.
         target_link_options(KirinUiRenderContractTests PRIVATE "/STACK:8388608")
     endif()
+    include(cmake/ReferenceVisualMeasurementTest.cmake)
+    kirin_reference_visual_measurement_test(KirinUiRenderContractTests)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
     include(cmake/SnapshotContracts.cmake)
     add_test(NAME kirin_product_entry_contract
@@ -1000,7 +1001,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_kirin_fingerprint_test.cpp
         tests/reference_pending_audition_test.cpp
         tests/reference_calibration_regression_test.cpp
-        tests/reference_content_alignment_test.cpp
+        tests/reference_content_alignment_test.cpp tests/reference_mono_version_test.cpp
         tests/reference_real_content_alignment_test.cpp
         tests/reference_rt_probe.cpp
         tests/reference_visual_test.cpp
@@ -1056,8 +1057,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     target_sources(KirinReferenceAuditionComponentTests PRIVATE
         ${KIRIN_HYPHA_TIME_SNAPSHOT_SOURCES}
         tests/reference_audition_component_test_main.cpp
-        tests/ReferenceAuditionComponentContractTest.cpp
-        src/HyphaVersionBlindScreen.cpp
+        tests/ReferenceAuditionComponentContractTest.cpp src/HyphaVersionBlindScreen.cpp
 
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
@@ -1082,9 +1082,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceRangeStrips.cpp
         src/reference_audition/ReferenceDynamicsRange.cpp
-
         src/HyphaReferenceComparisonView.cpp
-
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -1118,6 +1116,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    include(cmake/ReferenceVisualMeasurementTest.cmake)
+    kirin_reference_visual_measurement_test(KirinReferenceAuditionComponentTests)
     add_test(NAME kirin_reference_audition_component
         COMMAND KirinReferenceAuditionComponentTests)
 endif()

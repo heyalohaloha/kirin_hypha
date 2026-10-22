@@ -1,6 +1,7 @@
 #pragma once
+#include "ReferenceControllerTestAccess.h"
 #include "../src/reference_audition/ReferenceLiveALevel.h"
-
+#include "ReferenceWholeSongInputClock.h"
 namespace
 {
 void verifyReferenceSelectionSafety (const juce::File& sandbox)
@@ -59,7 +60,7 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
         return rendered;
     };
     const auto wait = [&] (const auto& condition) {
-        for (int i = 0; i < 1500; ++i) { if (condition (controller.snapshot())) return; juce::Thread::sleep (10); }
+        if (hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] { return condition (controller.snapshot()); })) return;
         require (false, "selection safety preparation deadline");
     };
     host (false);
@@ -76,8 +77,9 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     require (! controller.selectVersion (autoId, true), "AUTO never replaces a Version the user chose");
     wait ([] (const auto& s) { return s.versionArmable; });
     int cursor = 0;
-    for (int i = 0; i < 1500 && !controller.snapshot().versionReady; ++i)
-    { observeWholeSongFixture (controller, fixture, cursor); juce::Thread::sleep (10); }
+    WholeSongInputClock clock;
+    require (clock.waitFor (controller, fixture, cursor,
+        [] (const auto& state) { return state.versionReady; }), "Version calibration worker completes");
     require (controller.snapshot().versionReady, "safety Version has verified content correspondence");
     require (controller.requestAudition (1, level.loudness, level.peak), "start safety Version B");
     const auto b = *controller.snapshot().versionSelection;
@@ -122,7 +124,7 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     ref::RuntimeV2Controller runtime (root);
     runtime.configure ({ "selection-safety-direct", {}, 42, true }, 48000, 2);
     runtime.observeTransport (0, true, true);
-    for (int i = 0; i < 1500 && !runtime.snapshot().auditionBuffered; ++i) juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] { return ! (!runtime.snapshot().auditionBuffered); });
     require (!runtime.selectB (-28, -12, runtime.normalSelectionTicket(), originalKey)
         && !runtime.snapshot().bSelected, "activation rechecks the pinned complete condition, not only a fresh generation");
     const auto current = runtime.snapshot();
@@ -136,7 +138,7 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     sourceArtifact->setProperty ("relative_path", missingReceipt.relativePath);
     sourceArtifact->setProperty ("sha256", missingReceipt.sha256); sourceArtifact->setProperty ("bytes", missingReceipt.bytes);
     publish (4);
-    for (int i = 0; i < 1500 && runtime.snapshot().manifestRevision != 4; ++i) juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] { return ! (runtime.snapshot().manifestRevision != 4); });
     require (runtime.snapshot().manifestRevision == 4 && !runtime.selectB (-28, -12)
         && runtime.snapshot().matchFailure == ref::MatchFailure::sourceLevelUnavailable,
         "missing source measurements cannot silently change manual MATCH to original");
@@ -148,7 +150,7 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     sourceArtifact->setProperty ("relative_path", fixture.receipt.relativePath);
     sourceArtifact->setProperty ("sha256", fixture.receipt.sha256); sourceArtifact->setProperty ("bytes", fixture.receipt.bytes);
     preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "peak_match"); publish (5);
-    for (int i = 0; i < 1500 && runtime.snapshot().manifestRevision != 5; ++i) juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] { return ! (runtime.snapshot().manifestRevision != 5); });
     require (runtime.snapshot().manifestRevision == 5 && !runtime.selectB (-28, std::numeric_limits<double>::quiet_NaN())
         && runtime.snapshot().matchFailure == ref::MatchFailure::liveLevelUnavailable,
         "peak MATCH requires a measured live peak too");

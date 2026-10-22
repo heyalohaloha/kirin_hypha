@@ -88,10 +88,29 @@ namespace hypha::reference_audition
                               ? configuration.identity.runtimeInstanceId : juce::String {});
         const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
             : repository.refresh (configuration.identity.workId, workspace);
-        if (loaded.workspace == nullptr)
+        if (loaded.workspace == nullptr || loaded.rejectionCode == "reference_library_rejected"
+            || loaded.rejectionCode == "reference_manifest_rejected")
         {
             failClosedToA();
             Snapshot next;
+            if (loaded.workspace != nullptr)
+            {
+                const juce::ScopedLock lock (stateLock);
+                // Only catalog presentation survives rejection; measured readiness and playback authority end.
+                const auto& previous = currentSnapshot;
+                next.presets = previous.presets; next.checks = previous.checks;
+                next.candidates = previous.candidates; next.cues = previous.cues;
+                next.versions = previous.versions; next.checkTargets = previous.checkTargets;
+                next.songSets = previous.songSets; next.checkSetRanks = previous.checkSetRanks;
+                next.checkViewBindings = previous.checkViewBindings; next.listeningChecks = previous.listeningChecks;
+                next.presetId = previous.presetId; next.checkId = previous.checkId;
+                next.candidateId = previous.candidateId; next.cueId = previous.cueId;
+                next.presetName = previous.presetName; next.checkLabel = previous.checkLabel;
+                next.candidateName = previous.candidateName; next.cueLabel = previous.cueLabel;
+                next.selectedVersionId = previous.selectedVersionId;
+                next.selectedSongSetId = previous.selectedSongSetId; next.selectedSongId = previous.selectedSongId;
+                next.librarySkipped = previous.librarySkipped; next.songSetsIssue = previous.songSetsIssue;
+            }
             next.state = loaded.state == RuntimeWorkspaceLoadState::missing
                 ? RuntimeState::waiting : RuntimeState::rejected;
             next.rejectionCode = loaded.rejectionCode;

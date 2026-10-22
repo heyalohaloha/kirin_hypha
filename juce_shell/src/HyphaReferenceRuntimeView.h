@@ -28,9 +28,11 @@ inline juce::String sourceLabel (const juce::String& kind)
     if (kind == "catalog_track" || kind == "catalog") return "CATALOG";
     return "KIRIN OS";
 }
+inline bool formatUnreadableCode (const juce::String& code) noexcept
+{ return code == "reference_library_rejected" || code == "reference_manifest_rejected"; }
 inline juce::String rejectedStatus (const juce::String& code)
 {
-    if (code == "reference_library_rejected" || code == "reference_manifest_rejected")
+    if (formatUnreadableCode (code))
         return "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND PUBLISH AGAIN";
     if (code.startsWith ("reference_library_") || code.startsWith ("reference_manifest_"))
         return "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS";
@@ -138,9 +140,15 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
 }
 
 // Kirin OS からまだ何も届いていない役：Kirin OS が開いていれば届くのを待ち（上限あり）、閉じていれば開くのが直し方。
+inline bool formatUnreadable (const reference_audition::Snapshot& snapshot) noexcept
+{
+    return snapshot.state == reference_audition::RuntimeState::rejected
+        && formatUnreadableCode (snapshot.rejectionCode);
+}
 inline SourceStep libraryStep (const reference_audition::Snapshot& comparison)
 {
-    return comparison.osOnline ? SourceStep::waitingForKirinOs : SourceStep::openKirinOs;
+    return formatUnreadable (comparison) ? SourceStep::attention
+         : comparison.osOnline ? SourceStep::waitingForKirinOs : SourceStep::openKirinOs;
 }
 
 // B（REF）の段階：Kirin OS からの届き方と B セットも含める。B セットが無ければ Hypha に出すのが直し方、sets.json を
@@ -148,7 +156,8 @@ inline SourceStep libraryStep (const reference_audition::Snapshot& comparison)
 inline SourceStep referenceStep (const reference_audition::Snapshot& comparison, const reference_audition::Snapshot& slot,
                                  bool aAvailable)
 {
-    return ! comparison.libraryReceived ? libraryStep (comparison)
+    return formatUnreadable (slot) ? SourceStep::attention
+         : ! comparison.libraryReceived ? libraryStep (comparison)
          : comparison.songSets.empty() ? (comparison.songSetsIssue.isNotEmpty() ? SourceStep::setsNotRead : SourceStep::rankSet)
          : slotStep (slot, aAvailable);
 }
@@ -159,14 +168,14 @@ inline void setSourceSteps (State& state, const reference_audition::Snapshot& co
     const auto& version = comparison.versionSelection ? *comparison.versionSelection : comparison;
     const auto& check = comparison.checkSelection ? *comparison.checkSelection : comparison;
     const auto chosen = version.presetId + "/" + version.checkId + "/" + version.candidateId;
-    state.versionStep = ! version.libraryReceived ? libraryStep (comparison)
+    state.versionStep = formatUnreadable (version) ? SourceStep::attention : ! version.libraryReceived ? libraryStep (comparison)
         : comparison.versions.empty() ? SourceStep::registerVersion
         : comparison.selectedVersionId.isEmpty() ? SourceStep::chooseVersion
         : comparison.selectedVersionId != chosen ? SourceStep::preparing
         : slotStep (version, state.aAvailable);
-    state.checkStep = ! check.libraryReceived ? libraryStep (comparison) : slotStep (check, state.aAvailable);
-    state.versionRejectionCode = version.libraryReceived ? rejectionCodeOf (version) : juce::String {};
-    state.checkRejectionCode = check.libraryReceived ? rejectionCodeOf (check) : juce::String {};
+    state.checkStep = formatUnreadable (check) ? SourceStep::attention : ! check.libraryReceived ? libraryStep (comparison) : slotStep (check, state.aAvailable);
+    state.versionRejectionCode = (version.libraryReceived || formatUnreadable (version)) ? rejectionCodeOf (version) : juce::String {};
+    state.checkRejectionCode = (check.libraryReceived || formatUnreadable (check)) ? rejectionCodeOf (check) : juce::String {};
 }
 
 // CHECK SET。Kirin OS で「Hypha に出す」順位を付けた CHECK セット（最大 3）だけを順位の順に出し、

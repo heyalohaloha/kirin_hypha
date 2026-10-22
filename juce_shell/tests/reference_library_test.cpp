@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include <functional>
 #include <cstring>
@@ -9,28 +10,28 @@
 #include "ReferenceVisualSourceEvidenceTest.h"
 #include "ReferenceConcurrentSwitch.h"
 #include "../src/AtomicFile.h"
+#include "ReferenceLibraryFormatTest.h"
 namespace
 {
 bool waitFor (ref::RuntimeV2Controller& controller, const std::function<bool(const ref::Snapshot&)>& predicate)
 {
-    for (int i = 0; i < 3000; ++i)
-    {
-        controller.observeTransport (0, true, true);
-        if (predicate (controller.snapshot())) return true;
-        juce::Thread::sleep (10);
-    }
+    if (hypha::tests::reference_control::waitUntil (
+            std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+                controller.observeTransport (0, true, true);
+                return predicate (controller.snapshot());
+            })) return true;
     const auto state = controller.snapshot();
     std::cerr << "Reference wait: " << static_cast<int> (state.state) << " " << state.rejectionCode
               << " / " << state.presetName << " / " << state.checkLabel << '\n';
     return false;
 }
 
-
 }
 
 void testReferenceLibraryContract (const juce::File& sandbox);
 void testReferenceLibraryContract (const juce::File& sandbox)
 {
+    testReferenceLibraryFormat (sandbox);
     const auto root = sandbox.getChildFile ("independent-library");
     ref::RuntimeV2Repository repository (root);
     require (! repository.refreshLibrary().usable(), "no local Factory substitute may appear without OS data");
@@ -192,14 +193,10 @@ void testReferenceComparisons (const juce::File& sandbox)
     const auto wait = [&] (const auto& predicate)
     {
         int cursor = 0;
-        WholeSongInputClock clock (std::chrono::steady_clock::now() + std::chrono::seconds (30));
-        while (clock.observeNext (controller, fixture, cursor))
+        WholeSongInputClock clock;
+        if (clock.waitFor (controller, fixture, cursor, predicate))
         {
-            const bool ready = predicate (controller.snapshot());
-            if (clock.expired()) break;
-            if (ready) {
-                controller.observeTransport (0, true, true); juce::Thread::sleep (200); return;
-            }
+            controller.observeTransport (0, true, true); return;
         }
         const auto last = controller.snapshot();
         std::cerr << "ABC state " << static_cast<int> (last.state) << " " << last.rejectionCode
@@ -322,7 +319,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     controller.selectA();
     block(); block();
     require (!block(), "one A click completes its 5 ms return");
-    for (int i = 0; i < 100 && owners != 0; ++i) juce::Thread::sleep (5);
+    hypha::tests::reference_control::await ([&] { return ! (owners != 0); });
     require (owners == 0, "A return releases audition ownership after the tail");
     for (int channel = 0; channel < 2; ++channel)
         for (int n = 0; n < 128; ++n) require (buffer.getSample (channel, n) == 0.125f, "A remains bit identical");
@@ -342,13 +339,10 @@ void testReferenceComparisons (const juce::File& sandbox)
         reopened.setPresented (true);
         const auto awaitReopen = [&] (const auto& predicate) {
             int cursor = 0;
-            for (int i = 0; i < 1000; ++i)
+            WholeSongInputClock clock;
+            if (clock.waitFor (reopened, fixture, cursor, predicate))
             {
-                observeWholeSongFixture (reopened, fixture, cursor);
-                if (predicate (reopened.snapshot())) {
-                    reopened.observeTransport (0, true, true); juce::Thread::sleep (200); return;
-                }
-                juce::Thread::sleep (10);
+                reopened.observeTransport (0, true, true); return;
             }
             const auto s = reopened.snapshot();
             std::cerr << "restore deadline: C=" << s.checkReady << " V=" << s.versionReady
@@ -458,13 +452,12 @@ bool testReferenceLibraryOsFixture()
                 require (first.selectB (-14.0, -2.0), "explicit B must activate from prepared source");
                 juce::AudioBuffer<float> buffer (2, 128); buffer.clear();
                 bool audible = false;
-                for (int block = 0; block < 100 && ! audible; ++block)
-                {
+                int block = 0;
+                hypha::tests::reference_control::await ([&] {
                     first.observeTransport (block * 128, true, true);
-                    first.renderSelectedB (buffer, block * 128, true, true);
-                    audible = buffer.getMagnitude (0, 128) > 0.0f;
-                    juce::Thread::sleep (10);
-                }
+                    first.renderSelectedB (buffer, block++ * 128, true, true);
+                    audible = buffer.getMagnitude (0, 128) > 0.0f; return audible;
+                });
                 require (audible, "actual prepared audio must reach the output B buffer");
                 const auto events = root.getChildFile ("library/events/independent-post-one");
                 const auto completions = [&events] {

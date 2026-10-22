@@ -1,4 +1,5 @@
 #pragma once
+#include "ReferenceControllerTestAccess.h"
 #include "../src/AtomicFile.h"
 #include "../src/reference_audition/ReferenceRuntimeV2PresetParsing.h"
 #include "PresetAdoptionPublicationTest.h"
@@ -41,7 +42,6 @@ namespace
                  && ! parses (catalog ({ "factory", "other" })),
              "Factory Presets come first, then User Presets, and nothing else");
 }
-
 [[maybe_unused]] void verifyRuntimeV2PresetSelection (
     ref::RuntimeV2Controller& controller,
     const juce::File& transportRoot,
@@ -85,8 +85,7 @@ namespace
     require (controller.selectPreset (requestedFactoryPresetId),
              "an absent Global Preset must be selectable without opening Kirin OS");
     juce::File selectionRequestFile;
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
+    hypha::tests::reference_control::await ([&] {
         const auto requestDirectory = transportRoot.getChildFile (
             "preset_selection_requests").getChildFile (identity.runtimeInstanceId);
         juce::Array<juce::File> files;
@@ -94,10 +93,10 @@ namespace
         if (! files.isEmpty())
         {
             selectionRequestFile = files[0];
-            break;
+            return true;
         }
-        juce::Thread::sleep (10);
-    }
+        return false;
+    });
     const auto pending = controller.snapshot();
     const auto selectionRequestJson = juce::JSON::parse (selectionRequestFile);
     const auto* selectionRequestObject = selectionRequestJson.getDynamicObject();
@@ -112,8 +111,7 @@ namespace
              "Preset preparation must hold A and write the exact Global identity for Kirin OS");
     require (controller.selectPreset (activeWorkPresetId),
              "choosing an already prepared Work Preset must cancel the pending request");
-    for (int attempt = 0; attempt < 100 && selectionRequestFile.existsAsFile(); ++attempt)
-        juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] { return ! (selectionRequestFile.existsAsFile()); });
     require (! selectionRequestFile.exists()
              && controller.snapshot().presetSelectionStatus.isEmpty(),
              "cancelling preparation must remove only Hypha's pending exchange");

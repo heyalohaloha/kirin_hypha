@@ -15,6 +15,8 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <type_traits>
+#include "reference_rt_probe.h"
 #include "TestProcessorStorage.h"
 #if JUCE_MAC
 void initialiseBlindProductHostApplication();
@@ -42,19 +44,36 @@ struct Clock final : juce::AudioPlayHead
 };
 
 // 静かで peak の大きい B の曲：A（−6 dBFS の正弦）に合わせると上限を超え、A を下げる承認が要る。
-void writeLibrary (const juce::File& root) { writeOneSongLibrary (root, {}); }
+void writeLibrary (const juce::File& root) { OneSongLibrary song; song.frequencyHz = 1500; writeOneSongLibrary (root, song); }
 
+template <typename Sample>
+double referenceTonePower (const Sample* audio, int frames)
+{
+    double power = 0, sine = 0, cosine = 0;
+    for (int f = 0; f < frames; ++f)
+    {
+        const double out = audio[f], angle = 6.283185307179586 * 1500.0 * f / 48000.0;
+        power += out * out; sine += out * std::sin (angle); cosine += out * std::cos (angle);
+    }
+    return power > 1.0e-8 ? 2 * (sine * sine + cosine * cosine) / (frames * power) : 0;
+}
+
+template <typename Sample>
 class LowerAProduct final : private juce::Timer
 {
 public:
     explicit LowerAProduct (std::vector<float> input) : signal (std::move (input))
     {
+        require (signal.size() >= frames && referenceTonePower (signal.data(), frames) < 0.01,
+                 "the independent tone oracle rejects the known A fixture");
         juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
         post = std::make_unique<Processor> (Processor::Role::Post);
         auto layout = post->getBusesLayout();
         layout.inputBuses.set (0, juce::AudioChannelSet::stereo());
         layout.outputBuses.set (0, juce::AudioChannelSet::stereo());
         require (post->setBusesLayout (layout), "stereo layout");
+        post->setProcessingPrecision (std::is_same_v<Sample, double> ? juce::AudioProcessor::doublePrecision
+                                                                 : juce::AudioProcessor::singlePrecision);
         post->setPlayHead (&clock);
         hypha::tests::prepareFixtureProcessor (*post, 48000, frames);
         post->refreshLicenseForUserAction();
@@ -67,12 +86,20 @@ public:
     bool passed = false;
 
 private:
-    float input (std::int64_t position) const { return signal[static_cast<std::size_t> (position) % signal.size()]; }
+    Sample input (std::int64_t position) const
+    {
+        const auto value = signal[static_cast<std::size_t> (position) % signal.size()];
+        if constexpr (std::is_same_v<Sample, double>) return std::nextafter (static_cast<double> (value), 1.0);
+        return value;
+    }
     void timerCallback() override
     {
-        require (Steady::now() - began < std::chrono::seconds (60), "scenario timed out");
+        const auto progress = blocks.load();
+        if (progress != lastProgress) { lastProgress = progress; lastProgressAt = Steady::now(); }
+        require (Steady::now() - lastProgressAt < std::chrono::minutes (5), "audio worker stopped making progress");
+        require (progress < 48000 * 300 / frames, "scenario exceeds its input-content budget");
         const auto state = post->referenceAuditionSnapshot();
-        switch (stage)
+        switch (stage.load())
         {
             case 0:  // B の曲が準備でき、A の 4 秒が測れてから B を押す
                 if (! state.referenceReady || blocks.load() < 48000 * 4 / frames) break;
@@ -114,6 +141,7 @@ private:
                 KirinMeterSession meter {};
                 require (post->pollMeterSession (meter) && std::abs (meter.lufs_m - beforeLufs) < 1.0,
                          "the POST measurement keeps reading A before the lowering");
+                require (heardB.load(), "the actual output contains the independent Reference tone");
                 require (loweredPeak.load() < 0.2f * peak, "the output is lowered while the approval holds");
                 mode.store (1);  // オフライン書き出し
                 stageBlocks = blocks.load();
@@ -165,7 +193,7 @@ private:
     }
     void processAudio()
     {
-        juce::AudioBuffer<float> buffer (2, frames);
+        juce::AudioBuffer<Sample> buffer (2, frames);
         juce::MidiBuffer midi;
         auto* bypass = post->getBypassParameter();
         auto next = Steady::now();
@@ -183,16 +211,25 @@ private:
             const auto start = clock.position.load();
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f) buffer.setSample (c, f, input (start + f));
-            post->processBlock (buffer, midi);
+            beginReferenceRtProbe(); post->processBlock (buffer, midi);
+            require (endReferenceRtProbe() == 0, "Reference callback has no C++ heap operations");
             float loudest = 0.0f;
             int differences = 0;
             for (int c = 0; c < 2; ++c)
                 for (int f = 0; f < frames; ++f)
                 {
-                    loudest = std::max (loudest, std::abs (buffer.getSample (c, f)));
+                    loudest = std::max (loudest, static_cast<float> (std::abs (buffer.getSample (c, f))));
                     const auto expected = input (start + f);
-                    if (std::memcmp (buffer.getReadPointer (c) + f, &expected, sizeof (float)) != 0) ++differences;  // bit 同一
+                    const auto out = buffer.getSample (c, f);
+                    if (std::memcmp (&out, &expected, sizeof (Sample)) != 0)
+                    {
+                        ++differences;
+                        const Sample widened = static_cast<Sample> (static_cast<float> (out));
+                        require (std::memcmp (&out, &widened, sizeof (Sample)) == 0, "changed Reference and fade samples are widened float PCM");
+                    }
+
                 }
+            if (current == 0 && stage == 3 && referenceTonePower (buffer.getReadPointer (0), frames) > 0.99) heardB.store (true);
             if (current == 0 && stage == 3) loweredPeak.store (std::max (loweredPeak.load(), loudest));
             if ((current == 0 && stage == 6) || current == 3) risePeak.store (std::max (risePeak.load(), loudest));
             if ((current == 1 || current == 2 || current == 4) && settle == 0)
@@ -204,7 +241,7 @@ private:
             clock.position.fetch_add (frames);
             blocks.fetch_add (1);
             next += std::chrono::nanoseconds (static_cast<long long> (frames) * 1'000'000'000 / 48000);
-            std::this_thread::sleep_until (next);
+            if (next > Steady::now()) std::this_thread::sleep_until (next);
         }
     }
 
@@ -214,20 +251,21 @@ private:
     Clock clock;
     std::unique_ptr<Processor> post;
     std::thread audio;
-    std::atomic<bool> running { true };
+    std::atomic<bool> running { true }, heardB { false };
     std::atomic<int> mode { 0 }, verified { 0 }, mismatches { 0 };  // 0 通常、1 オフライン、2 bypass、3 RETURN、4 確かめ
     std::atomic<std::int64_t> blocks { 0 };
     std::atomic<float> loweredPeak { 0.0f }, risePeak { 0.0f };
     std::int64_t stageBlocks = 0;
     std::atomic<int> stage { 0 };
     double needed = 0.0, beforeLufs = 0.0;
-    Steady::time_point began = Steady::now();
+    std::int64_t lastProgress = 0;
+    Steady::time_point lastProgressAt = Steady::now();
 };
 }
 
 int main (int argc, char** argv)
 {
-    require (argc == 2, "usage: reference lower A product S-1.wav");
+    require (argc == 2 || (argc == 3 && juce::String (argv[2]) == "--double-precision"), "usage: reference lower A product S-1.wav");
     auto signal = readFixture (argv[1]);
     ReferenceValidationStorageSandbox sandbox;
     // macOS JUCE resolves the home without HOME; keep PRE display files out of the real Kirin OS.
@@ -253,7 +291,10 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
-    LowerAProduct contract (std::move (signal));
-    juce::MessageManager::getInstance()->runDispatchLoop();
-    return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    const auto run = [&] (auto sample) {
+        LowerAProduct<decltype (sample)> contract (std::move (signal));
+        juce::MessageManager::getInstance()->runDispatchLoop();
+        return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    };
+    return argc == 3 ? run (double {}) : run (float {});
 }

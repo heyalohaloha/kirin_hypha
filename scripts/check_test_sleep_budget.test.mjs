@@ -10,6 +10,8 @@ test('short sleeps are counted in every spelling and long sleeps are not', () =>
   assert.equal(countShortSleeps('std::thread::sleep(std::time::Duration::from_micros(10));'), 1);
   assert.equal(countShortSleeps('sleep_for (std::chrono::milliseconds (600)); thread::sleep(Duration::from_millis(250));'), 0);
   assert.equal(countShortSleeps('std::this_thread::sleep_until (deadline);'), 0);
+  assert.equal(countShortSleeps('juce::Thread::sleep (5); Thread::sleep(10);'), 2);
+  assert.equal(countShortSleeps('juce::Thread::sleep(50); Thread::sleep (51); juce::Thread::sleep(600);'), 1);
 });
 
 test('only test sources are scanned', () => {

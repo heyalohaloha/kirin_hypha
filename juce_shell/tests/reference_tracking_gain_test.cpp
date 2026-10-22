@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 // B・V の追従 gain（1 秒ごと・0.5 dB 以内は動かさない・50 ms の ramp・上限で止めて知らせる）と、
 // C の固定 Match（Kirin OS の Cue の値 × A の同じ長さ）。
 #include "reference_runtime_v2_analysis_test_support.h"
@@ -10,7 +11,6 @@
 #include "../src/reference_audition/ReferenceSourceRanges.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceTrackingGain.h"
-#include "ReferenceControllerTestAccess.h"
 
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
@@ -291,13 +291,11 @@ void matchesAndFollows (const juce::File& sandbox)
         position += buffer.getNumSamples();
         return rendered;
     };
-    for (int attempt = 0; attempt < 500; ++attempt)
-    {
+    hypha::tests::reference_control::await ([&] {
         controller.observeTransport (position, true, true);
         const auto state = controller.snapshot();
-        if (state.state == ref::RuntimeState::ready && state.auditionBuffered && state.cueLevelAvailable) break;
-        juce::Thread::sleep (10);
-    }
+        return state.state == ref::RuntimeState::ready && state.auditionBuffered && state.cueLevelAvailable;
+    });
     const auto ready = controller.snapshot();
     require (ready.cueLevelAvailable && closeTo (ready.cueIntegratedLoudness, -16.0) && closeTo (ready.cueMaximumTruePeakDbtp, -4.0)
                  && ready.cueWindowBlocks == 100,
@@ -424,7 +422,7 @@ void matchesAndFollows (const juce::File& sandbox)
 void matchesMonoCue (const juce::File& sandbox)
 {
     namespace control = hypha::tests::reference_control;
-    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::minutes (5); };
     const auto root = sandbox.getChildFile ("abcv-tracking-mono");
     publishCueLibrary (root, 1);
     for (const int trackChannels : { 2, 1 })

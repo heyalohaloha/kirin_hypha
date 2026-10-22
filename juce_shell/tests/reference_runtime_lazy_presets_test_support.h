@@ -1,7 +1,7 @@
 #pragma once
+#include "ReferenceControllerTestAccess.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceRuntimePresetOptions.h"
-
 namespace
 {
     juce::var pendingPresetDescriptor (const juce::String& id, const juce::String& revision)
@@ -135,13 +135,9 @@ namespace
         controller.observeTransport (128, true, true);
         controller.configure ({ runtimeId, workId, 42 }, 48'000, 2);
         const auto waitFor = [&] (auto predicate) {
-            for (int attempt = 0; attempt < 300; ++attempt)
-            {
-                controller.observeTransport (128, true, true);
-                if (predicate (controller.snapshot())) return true;
-                juce::Thread::sleep (10);
-            }
-            return false;
+            return hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+                controller.observeTransport (128, true, true); return predicate (controller.snapshot());
+            });
         };
         require (waitFor ([] (const auto& s) { return s.state == ref::RuntimeState::ready; }),
                  "active Preset must prepare while retired Preset stays listed");

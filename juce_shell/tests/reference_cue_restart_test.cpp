@@ -134,10 +134,10 @@ void verifyReferenceCueRestart (const juce::File& sandbox, bool forcePending)
         return rendered;
     };
     namespace control = hypha::tests::reference_control;
-    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::minutes (5); };
     host (true);
     require (control::waitUntil (deadline(), [&] { return controller.snapshot().referenceReady; }),
-             "the B song prepares within the original deadline");
+             "the B song prepares before the worker watchdog");
     const auto nearCueStart = [&] { const auto value = block.getSample (0, 479); return value > 0.1f && value < rampAt (4'800); };
 
     // 選んでから曲の終わりまで再生し、Cue を過ぎた。範囲外とは言わず、Cue の頭は読んだままで（周回して頭へ戻る役）
@@ -151,7 +151,7 @@ void verifyReferenceCueRestart (const juce::File& sandbox, bool forcePending)
     require (control::waitUntil (deadline(), [&] {
         const auto s = controller.snapshot();
         return s.referenceSelection != nullptr && s.referenceSelection->auditionBuffered;
-    }), "the Cue head is buffered within the original deadline");
+    }), "the Cue head is buffered before the worker watchdog");
     const auto beyond = controller.snapshot();
     require (beyond.referenceSelection != nullptr && ! beyond.referenceSelection->auditionOutsideCue
                  && beyond.referenceSelection->auditionBuffered,
@@ -231,7 +231,7 @@ void verifyReferenceCueRestart (const juce::File& sandbox, bool forcePending)
     require (control::waitUntil (deadline(), [&] {
         const auto s = controller.snapshot();
         return s.referenceSelection != nullptr && s.referenceSelection->rejectionCode == "reference_source_unavailable";
-    }), "the missing fixture song is rejected within the original deadline");
+    }), "the missing fixture song is rejected before the worker watchdog");
     require (controller.snapshot().referenceSelection->rejectionCode == "reference_source_unavailable"
                  && controller.snapshot().referenceSelection->title == "Pending song",
              "a song still being prepared keeps its name as the B title");

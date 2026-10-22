@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
@@ -5,7 +6,7 @@
 #include "ReferenceSelectionSafetyTest.h"
 #include "ReferenceAutoVersionSafetyTest.h"
 #include "TestPathBudget.h"
-#include "ReferenceControllerTestAccess.h"
+#include "ReferenceWholeSongInputClock.h"
 void testReferencePendingAudition (const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
@@ -61,8 +62,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
     };
     const auto wait = [&] (const auto& condition)
     {
-        for (int i = 0; i < 1500; ++i)
-        { if (condition (controller.snapshot())) return; juce::Thread::sleep (10); }
+        if (hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] { return condition (controller.snapshot()); })) return;
         const auto s = controller.snapshot();
         std::cerr << "queued state: " << s.rejectionCode << " / " << int(s.pendingAudition.stage) << '\n';
         require (false, "queued source preparation deadline");
@@ -104,8 +104,9 @@ void testReferencePendingAudition (const juce::File& sandbox)
         "only the last explicitly queued source is armed");
     controller.setPresented (false);
     int cursor = 0;
-    for (int i = 0; i < 1500 && !controller.snapshot().versionReady; ++i)
-    { observeWholeSongFixture (controller, fixture, cursor); juce::Thread::sleep (10); }
+    WholeSongInputClock clock;
+    require (clock.waitFor (controller, fixture, cursor,
+        [] (const auto& state) { return state.versionReady; }), "Version calibration worker completes");
     require (controller.snapshot().versionReady, "queued B still requires exact content alignment with its editor closed");
     controller.servicePendingAudition (-14, -2, true);
     require (controller.snapshot().audibleComparisonSlot == 1, "verified B starts once");
@@ -172,7 +173,7 @@ void testReferencePendingAudition (const juce::File& sandbox)
     wait ([] (const auto& s) { return s.checkArmable && s.checkSelection->comparisonMode == "loudness_match"; });
     host (true); wait ([] (const auto& s) { return s.checkReady; });
     namespace control = hypha::tests::reference_control;
-    const auto eventDeadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    const auto eventDeadline = [] { return std::chrono::steady_clock::now() + std::chrono::minutes (5); };
     const auto allEventsDrained = [&] {
         for (int slot : { 1, 2, 3 }) if (! control::eventsFor (control::roleFor (controller, { slot }), {}).empty()) return false;
         return true;

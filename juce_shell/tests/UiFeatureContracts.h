@@ -1,4 +1,6 @@
 #pragma once
+#include "ReferenceLibraryFormatUiTest.h"
+#include "ReferenceMonoVisualTest.h"
 
 #include "ObservationPageContractTest.h"
 #include "LanguageContract.h"
@@ -50,6 +52,11 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 1 || (argc == 2 && std::string_view (argv[1]) == "--reference-format-only"))
+        verifyReferenceLibraryFormatStatus();
+    if (argc == 2 && std::string_view (argv[1]) == "--reference-format-only") return true;
+    if (argc == 2 && std::string_view (argv[1]) == "--reference-mono-only")
+    { verifyMonoVersionVisual(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--absolute-analysis-help-only")
     {
         verifyAbsoluteAnalysisHelp();
@@ -79,7 +86,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         && ! typographyOnly && ! typographyVisualOnly && ! timeHistoryOnly
         && ! analysisDemandOnly && ! absoluteSpectrumOnly && ! spaceOnly)
     {
-        std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
+        std::cerr << "Usage: KirinUiRenderContractTests [--reference-format-only|--reference-mono-only|--shell-repairs-only|"
+                     "--absolute-analysis-help-only|--product-entry-only|"
                      "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only|"
                      "--typography-only|--typography-visual-only|--time-history-only|"
                      "--analysis-demand-only|--absolute-spectrum-only|--space-only]\n";

@@ -32,7 +32,7 @@ inline void rowJson (std::ostream& out, const Row& r, std::uint64_t offset)
     out << "{\"type\":\"block\",\"serial\":" << r.serial << ",\"localFrames\":" << r.localFrames
         << ",\"entryNanos\":\"" << r.entryNanos << "\",\"exitNanos\":\"" << r.exitNanos
         << "\",\"role\":" << r.role << ",\"wrapper\":" << r.wrapper << ",\"rate\":";
-    number (out, r.rate);
+    number (out, r.rate); out << ",\"precisionBits\":" << r.precisionBits;
     out << ",\"frames\":" << r.frames << ",\"channels\":" << r.channels << ",\"pcmOffset\":" << offset
         << ",\"bypassed\":" << r.bypassed << ",\"offline\":" << r.offline
         << ",\"reset\":" << r.reset << ",\"wallGap\":" << r.wallGap

@@ -63,7 +63,7 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         if (paired.a.gatedBlocks < liveWindowMinimumGatedBlocks
             || paired.reference.gatedBlocks < liveWindowMinimumGatedBlocks)
             return TrackingAction::keep;
-        required = paired.a.lufs - paired.reference.lufs;
+        required = paired.a.lufs - (paired.reference.lufs + loudnessOffset);
     }
     else
     {

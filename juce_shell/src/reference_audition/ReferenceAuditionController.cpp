@@ -1,4 +1,5 @@
 #include "ReferenceAuditionController.h"
+#include "ReferenceTestCommitObserver.h"
 
 #include <cmath>
 #include <utility>
@@ -113,6 +114,7 @@ namespace hypha::reference_audition
             next.truePeakDeltaBMinusA = currentSnapshot.truePeakDeltaBMinusA;
         }
         currentSnapshot = std::move (next);
+        KIRIN_REFERENCE_COMMIT_FOR_TEST();
     }
 
     void Controller::observeTransport (std::int64_t hostPosition, bool positionValid,

@@ -74,7 +74,7 @@ public:
     bool startLocalBlindPdcValidation();
 #endif
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
-
+#include "PrecisionProcessorApi.h"
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
     hypha::update::ServiceOwner& updateServicesForEditor() noexcept { return updateServiceOwner; }

@@ -1,3 +1,5 @@
+#include "ReferenceControllerTestAccess.h"
+#include "../src/reference_audition/ReferenceTestCommitObserver.h"
 #include <mutex>
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
@@ -8,7 +10,6 @@
 #include <thread>
 #include <ctime>
 #include "ReferenceVisualAudioParity.h"
-
 void testReferenceVisual (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
 {
@@ -31,7 +32,7 @@ void testReferenceVisual (const juce::File& sandbox)
     std::mutex mapLock;  // 試験のスレッドが map を替え、観測のスレッドが読む
     auto sharedOwner=std::make_shared<ref::ReferenceAnalysis>();
     ref::VisualObservation observation ([&] {
-        if (blockBinding) { entered = true; while (blockBinding) juce::Thread::sleep (1); }
+        if (blockBinding) { entered = true; ref::notifyReferenceTestCommit(); while (blockBinding) juce::Thread::sleep (1); }
         const std::lock_guard<std::mutex> lock (mapLock);
         return map;
     },sharedOwner);
@@ -46,8 +47,9 @@ void testReferenceVisual (const juce::File& sandbox)
         }
     };
     const auto wait = [&] (const auto& predicate) {
-        for (int i = 0; i < 300; ++i) { const auto state = observation.snapshot(); if (state && predicate (*state)) return true; juce::Thread::sleep (10); }
-        return false;
+        return hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+            const auto state = observation.snapshot(); return state && predicate (*state);
+        });
     };
     require (wait ([] (const auto& state) { return !state.observing; }), "hidden view starts without an analysis owner");
     auto* owner1 = kirin_reference_visual_admission_create(); auto* owner2 = kirin_reference_visual_admission_create();
@@ -59,7 +61,7 @@ void testReferenceVisual (const juce::File& sandbox)
     const auto previousPass = observation.snapshot()->pass;
     observation.pauseAdmission();
     ref::ReferenceAnalysis::Lease audition;
-    for(int i=0;i<100 && !audition;++i) { audition=sharedOwner->acquire(); if(!audition) juce::Thread::sleep(5); }
+    hypha::tests::reference_control::await ([&] { audition=sharedOwner->acquire(); return bool(audition); });
     require(bool(audition),"audition shares the same concrete engine owner");
     observation.resumeObservation();
     require (wait ([&] (const auto& state) { return state.observing && state.pass > previousPass; }), "observation can share admitted audition work");
@@ -72,7 +74,7 @@ void testReferenceVisual (const juce::File& sandbox)
         beginReferenceRtProbe(); enqueueInput (input, 24000 + bin * 4800, true);
         require (endReferenceRtProbe() == 0, "display copy allocates zero times in callback");
         require (std::memcmp (input.getReadPointer (1,32), fixture.audio.getReadPointer (1,bin*4800+32), sizeof(float)) == 0, "observation preserves original A bits");
-        for(int i=0;i<800 && observation.pendingInput();++i) juce::Thread::sleep(5);
+        hypha::tests::reference_control::await ([&] { return ! (observation.pendingInput()); });
         require(!observation.pendingInput(),"synthetic host waits for the finite display worker");
     };
     const auto measurementCpu = std::clock();
@@ -111,7 +113,7 @@ void testReferenceVisual (const juce::File& sandbox)
     for(int c=0;c<2;++c) for(int f=0;f<4800;++f) routePcm[size_t(f*2+c)]=input.getSample(c,f);
     for(int sample=0;sample<40;++sample)
     {
-        for(int i=0;i<400 && observation.pendingInput();++i) juce::Thread::sleep(1);
+        hypha::tests::reference_control::await ([&] { return ! (observation.pendingInput()); });
         require(!observation.pendingInput(),"routing benchmark starts with queue capacity");
         const auto start=juce::Time::getMillisecondCounterHiRes(),epoch=double(observation.inputGeneration());
         for(int offset=0;offset<4800;offset+=256) observation.enqueue(routePcm.data()+size_t(offset*2),std::min(256,4800-offset),2,24000+offset,std::uint64_t(epoch),1);
@@ -124,7 +126,7 @@ void testReferenceVisual (const juce::File& sandbox)
     require(observation.droppedBlocks()==0,"routing never drops a block while the queue has room");
     require(ref::VisualObservation::inputQueueBytes()<=1024*1024,"the bounded display queue fits 1 MiB");
     blockBinding = true;
-    for (int i=0; i<200 && !entered; ++i) juce::Thread::sleep (5);
+    hypha::tests::reference_control::await ([&] { return ! (!entered); });
     require (entered, "simulate stalled non-RT source preparation");
     {
         // A の受け渡し（AInputRelay、2026-10-04 に取り込みの部品から移した）：B の準備が止まっていても、Audio Thread で
@@ -146,7 +148,7 @@ void testReferenceVisual (const juce::File& sandbox)
     require (juce::Time::getMillisecondCounterHiRes()-before < 100, "admission release never waits behind blocked source work");
     require(!kirin_reference_visual_admission_set(owner2,true),"retiring source job still owns its physical slot after demand cancellation");
     observation.resumeObservation(); observation.setPresented (false); blockBinding = false;
-    bool retired=false; for(int i=0;i<100 && !retired;++i) { retired=kirin_reference_visual_admission_set(owner2,true); if(!retired) juce::Thread::sleep(5); }
+    bool retired=false; hypha::tests::reference_control::await ([&] { retired=kirin_reference_visual_admission_set(owner2,true); return retired; });
     require(retired,"physical slot becomes available only after the delayed job returns");
     audition.reset();
     kirin_reference_visual_admission_drop (owner1); kirin_reference_visual_admission_drop (owner2);
@@ -187,11 +189,11 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
 {
     controller.setPresented (true);
     // Allow the visible, calibrated Version binding to publish before the first callback.
-    bool observing=false; for(int attempt=0;attempt<500 && !observing;++attempt) {
+    bool observing=false; hypha::tests::reference_control::await ([&] {
         const auto state=controller.snapshot(); observing=state.visualTimeline
             && state.visualTimeline->observing && state.visualTimeline->pairedObserving;
-        if(!observing) juce::Thread::sleep(10);
-    }
+        return observing;
+    });
     require(observing,"whole-song comparison is observing before the synthetic host runs");
     for (int position=0; position+4800<=song.getNumSamples(); position+=4800)
     {
@@ -203,21 +205,19 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
         const bool rendered = controller.renderSelectedB (block,position,true,true,true);
         require (endReferenceRtProbe()==0 && !rendered, "whole-song display adds no RT heap operations or implicit B switch");
         const auto index=size_t(position/4800);
-        bool consumed=false; for(int attempt=0;attempt<800 && !consumed;++attempt) {
+        bool consumed=false; hypha::tests::reference_control::await ([&] {
             const auto state=controller.snapshot(); consumed=state.visualTimeline
                 && index<state.visualTimeline->bins.size() && state.visualTimeline->bins[index].pass!=0;
-            if(!consumed) juce::Thread::sleep(5);
-        }
+            return consumed;
+        });
         require(consumed,"synthetic host waits for the whole-song comparison worker");
     }
     size_t covered = 0;
-    for (int i=0;i<300;++i)
-    {
+    hypha::tests::reference_control::await ([&] {
         const auto state = controller.snapshot(); covered = 0;
         if (state.visualTimeline) for (const auto& bin : state.visualTimeline->bins) if (bin.pass) ++covered;
-        if (covered >= 75) break;
-        juce::Thread::sleep (10);
-    }
+        return covered >= 75;
+    });
     std::cout << "Reference complete runtime observed " << covered << " / 80 waveform bins\n";
     require (covered >= 75, "verified library and live A feed the complete comparison view");
 }
