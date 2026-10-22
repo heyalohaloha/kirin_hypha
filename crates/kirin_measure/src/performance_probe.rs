@@ -42,8 +42,11 @@ fn within_budget(percent: f64, ratio: f64, limit: f64, absolute: bool) -> bool {
         && ratio >= 0.0
         && limit.is_finite()
         && limit > 0.0
-        && ratio <= limit
-        && (!absolute || percent < 18.0)
+        && if absolute {
+            percent < 18.0
+        } else {
+            ratio <= limit
+        }
 }
 
 pub(crate) fn report_budget(name: &str, mut percent: [f64; 5], mut ratios: [f64; 5]) {
@@ -58,7 +61,12 @@ pub(crate) fn report_budget(name: &str, mut percent: [f64; 5], mut ratios: [f64;
     percent.sort_by(f64::total_cmp);
     ratios.sort_by(f64::total_cmp);
     let absolute = std::env::var("KIRIN_HYPHA_PERF_ABSOLUTE").as_deref() == Ok("1");
-    eprintln!("{name}: median projected CPU {:.3}%, worst {:.3}%; calibrated ratio {:.3}, limit {limit:.3}; absolute={absolute}", percent[2], percent[4], ratios[2]);
+    let policy = if absolute {
+        "CPU <18%"
+    } else {
+        "calibrated ratio"
+    };
+    eprintln!("{name}: median projected CPU {:.3}%, worst {:.3}%; calibrated ratio {:.3}, CI limit {limit:.3}; policy={policy}", percent[2], percent[4], ratios[2]);
     assert!(
         within_budget(percent[2], ratios[2], limit, absolute),
         "worker performance budget exceeded"
@@ -88,4 +96,18 @@ fn reference_calibration_uses_sustained_batches_and_rejects_an_interrupted_trial
     });
     assert!(batches.iter().all(|count| *count >= 200));
     assert!((reference - 0.03).abs() < 1e-12);
+}
+
+#[test]
+fn local_cpu_budget_accepts_measurements_above_ci_ratio_limits() {
+    for (cpu, ratio, limit) in [(10.508, 132.257, 86.052), (11.476, 287.234, 181.973)] {
+        assert!(within_budget(cpu, ratio, limit, true));
+    }
+}
+
+#[test]
+fn ci_ratio_budget_rejects_measurements_below_local_cpu_ceiling() {
+    for (cpu, ratio, limit) in [(10.508, 132.257, 86.052), (11.476, 287.234, 181.973)] {
+        assert!(!within_budget(cpu, ratio, limit, false));
+    }
 }

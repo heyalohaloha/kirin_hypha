@@ -209,8 +209,6 @@ impl Drop for StorageRoot {
 const MEASURE_SLACK: i64 = 24_000;
 /// One host stall between heartbeat-only callbacks, shorter than the 400 ms liveness window.
 const HOLD: Duration = Duration::from_millis(100);
-/// Consecutive stalls without any meter advancing before the wait reports a stopped meter.
-const STALLED_HOLDS: u32 = 100;
 /// Audio a measurement-paced run may play before it must have seen the Δ return.
 pub const MEASURED_RUN_BLOCKS: i64 = 30 * RATE as i64 / BLOCK;
 
@@ -343,3 +341,5 @@ pub fn collect(path: &Path, results: &mut Vec<serde_json::Value>) {
 
 #[path = "callbacks.rs"]
 pub mod callbacks;
+
+mod progress;
