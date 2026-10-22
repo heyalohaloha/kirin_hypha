@@ -2,7 +2,7 @@
 //!
 //! # 排他ルール (B-027 段階 3-A / G-115-47 / G-115-364)
 //! 同一 `project_hash` 内で **最大 [`MAX_ACTIVE_PER_PROJECT`] = 12 distinct pairing** の Record を
-//! 許容する。Daisuke 確認 (2026-05-04 / 値 12 不変・意味は「12 pairs」)。超過で Conflict。
+//! 許容する。確認済み (2026-05-04 / 値 12 不変・意味は「12 pairs」)。超過で Conflict。
 //!
 //! # cap の真実源（G-115-365/366）
 //! count は **`{base}/{project_hash}/record_reservation/*.json`（tempfile+hard_link で atomic claim
@@ -34,7 +34,7 @@ pub const STALE_SECONDS: i64 = 60;
 /// していた（pair 単位と marker 単位の不一致 bug）。現在は **`record_reservation/` の atomic claim
 /// 枠ファイル（tempfile+hard_link）の物理存在数のみ**を distinct pairing 数として数える
 /// （G-115-365/366 / marker は畳み込まない・parse しない・TTL を引かない）。枠数が本値を **超えたら**
-/// 13 ペア目として hard reject。値は 12 のまま（Daisuke 2026-05-04 確定）だが意味は「12 pairs」。
+/// 13 ペア目として hard reject。値は 12 のまま（2026-05-04 確定）だが意味は「12 pairs」。
 pub const MAX_ACTIVE_PER_PROJECT: usize = crate::capture_contract::MAX_CAPTURE_PAIRS;
 
 /// 排他チェック結果。

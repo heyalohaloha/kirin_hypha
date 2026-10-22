@@ -16,7 +16,7 @@ namespace hypha::absolute_spectrum { class History; }
 // with perspective and fading with age. Each ridge is a quarter second on the running clock and
 // holds the highest level each column reached in it, so a hit keeps its top as it moves back
 // instead of showing how it decayed; its depth follows the time since the quarter ended, so a
-// ridge slides back continuously and fades out at the far end (2026-09-29, Daisuke). Ridges are
+// ridge slides back continuously and fades out at the far end (2026-09-29). Ridges are
 // drawn from the newest back, each with a curtain that hides what lies behind it, so the range
 // reads as solid (the ridge-line technique). A quarter with no measured frame has no ridge, and
 // grid lines join only neighbouring quarters, so a gap in the measurement stays empty. The

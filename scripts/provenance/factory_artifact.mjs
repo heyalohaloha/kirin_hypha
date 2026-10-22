@@ -1,6 +1,6 @@
 // Match the current-factory import predicate through promotion and the public coordinator.
 import path from 'node:path';
-import { fileFact, readJson } from '../ls_release/hypha_release_contract.mjs';
+import { fileFact, readJson, Checkpoint } from '../ls_release/hypha_release_contract.mjs';
 
 const WORKFLOW = '.github/workflows/hypha-windows-signing.yml';
 const NAME = 'Hypha Windows signing factory';
@@ -47,15 +47,24 @@ async function qualifiedArtifact(run, id, commit, repository, name, job) {
   }
   return { run: record, artifact: selectFactoryArtifact(artifacts, name, record) };
 }
-export function requireFactoryInputs(state) {
-  const { windowsFactoryCommit: commit, windowsPromotionRun: id, windowsArtifactArchive: archive, windowsFactoryRepository: repository } = state.inputs;
-  if (!sha(commit) || !/^\d+$/.test(String(id || '')) || !archive || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]+$/.test(repository || '')) {
-    throw new Error('Pin reviewed Windows factory repository/commit, promotion run and retained artifact ZIP in the private profile');
+export function requireFactoryIdentity(state) {
+  const { windowsFactoryCommit: commit, windowsFactoryRepository: repository } = state.inputs;
+  if (!sha(commit) || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]+$/.test(repository || '')) {
+    throw new Error('Pin reviewed Windows factory repository/commit in the private profile');
+  }
+  return { commit, repository };
+}
+export function requireFactoryDelivery(state) {
+  const { commit, repository } = requireFactoryIdentity(state);
+  const { windowsPromotionRun: id, windowsArtifactArchive: archive } = state.inputs;
+  if (!/^[1-9]\d*$/.test(String(id || '')) || !archive) {
+    throw new Checkpoint('Bind the promotion run and retained artifact ZIP in the private profile before Windows verification');
   }
   return { commit, id, archive, repository };
 }
+export const requireFactoryInputs = requireFactoryDelivery;
 export async function verifyFactoryDelivery(state, run, manifest, directory) {
-  const { commit, id, archive, repository } = requireFactoryInputs(state);
+  const { commit, id, archive, repository } = requireFactoryDelivery(state);
   const full = await qualifiedArtifact(run, id, commit, repository, 'KirinHypha-Windows-signed-full', 'Hypha validated Windows installer promotion');
   const archiveFile = path.resolve(state.root, archive), archiveFact = fileFact(archiveFile);
   if (`sha256:${archiveFact.sha256}` !== full.artifact.digest) throw new Error('Signed-full artifact archive digest mismatch');

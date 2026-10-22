@@ -695,12 +695,12 @@ fn editor_rs_pair_widgets_wrapped_in_add_enabled_ui_not_is_playing() {
         src.contains("pub liveness: Arc<LivenessEvaluator>"),
         "editor.rs PostEditorArgs / PostEditorState must declare `liveness` evaluator field (B-118)"
     );
-    // PAIR_LOCKED_TOOLTIP const が存在し、tooltip 文言が Daisuke 確定 (判断 4) と一致する。
+    // PAIR_LOCKED_TOOLTIP const が存在し、tooltip 文言が確定済みの文言と一致する。
     assert!(
         src.contains(
             r#"const PAIR_LOCKED_TOOLTIP: &str = "Pair selection is locked during playback""#
         ),
-        "editor.rs must declare PAIR_LOCKED_TOOLTIP with Daisuke-confirmed string (W-280 B-11)"
+        "editor.rs must declare PAIR_LOCKED_TOOLTIP with approved string"
     );
     // ComboBox 全体を add_enabled_ui で囲っていないこと (判断 2 / All Stop / All Keep 保護)。
     // ComboBox::from_id_salt の直前行に add_enabled_ui がないことの簡易チェック。

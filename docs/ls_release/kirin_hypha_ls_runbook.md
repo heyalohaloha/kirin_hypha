@@ -334,20 +334,18 @@ Do not upload:
 
 ## Phase 6: Verify Lemon Squeezy After Upload
 
-After the upload, Chrome must be logged into Lemon Squeezy. The local state JSON contains the configured product admin URLs under `lemonSqueezy.products[]`.
+After manual upload, verify product/variant association, published live files and exact byte sizes with read-only API requests:
 
 ```bash
 node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
   --state release_state/kirin_hypha_X.Y.Z_ls.state.json \
-  --with-ls-chrome
+  --with-ls-api
 ```
 
-The Lemon Squeezy check verifies:
-
-- Product pages include every configured product name.
-- Product pages include `Published`.
-- Product page includes the installer file name.
-- Product page includes the rounded Lemon Squeezy display size from state.
+Supply the credential at runtime through `LEMONSQUEEZY_API_KEY` or a Keychain entry selected by
+`LEMONSQUEEZY_API_KEYCHAIN_SERVICE`. Never put its value in state, commands, fixtures or logs.
+API metadata verification supplements the retained per-product actual download/hash evidence; it does not replace it.
+See [prepublication preparation](../release/prepublication_preflight.md) for the manual login and permission checks.
 
 ## HP Free Download Channel (GitHub Release + Vercel)
 

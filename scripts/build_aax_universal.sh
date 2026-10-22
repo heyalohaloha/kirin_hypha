@@ -16,7 +16,7 @@ KIMERA_LICENSE_CONFIRMED=0
 DEFAULT_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool"
 FALLBACK_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool"
 NOTARY_PROFILE="${KIRIN_NOTARY_PROFILE:-kirin-notarize}"
-BUILD_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
+BUILD_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-$(sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
 if [[ ! "$BUILD_JOBS" =~ ^[1-9][0-9]?$ ]] || (( BUILD_JOBS > 64 )); then
   echo "ERROR: CMAKE_BUILD_PARALLEL_LEVEL must be an integer from 1 to 64" >&2
   exit 1
@@ -39,7 +39,7 @@ Options:
   --kimera-license-confirmed
                          Confirm the font is covered by the Kirin Hypha App License
 
-Build environment: CMAKE_BUILD_PARALLEL_LEVEL (1..64, default 2), CARGO_BUILD_JOBS.
+Build environment: CMAKE_BUILD_PARALLEL_LEVEL (1..64, default CPU count on macOS), CARGO_BUILD_JOBS.
 
 Signing environment (required with --sign or --diagnostic-sign):
   KIRIN_AAX_PACE_ACCOUNT       Optional account ID; passed to wraptool when set
@@ -215,8 +215,7 @@ echo "==> build kirin_hypha_ffi for both Apple architectures"
 if [[ "$SIGN_OUTPUT" == 1 ]]; then
   run node scripts/provenance/runtime_guard.mjs
 fi
-run cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin --locked
-run cargo build --release -p kirin_hypha_ffi --target aarch64-apple-darwin --locked
+run cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin --target aarch64-apple-darwin --locked
 
 run mkdir -p target/universal
 run lipo -create \

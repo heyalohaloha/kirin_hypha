@@ -1442,7 +1442,7 @@ fn push_record_trace_clock_markers_until(
 /// timeout → integrity_degraded に倒れる / 共通B）。
 /// PSB low / mid / high を集約して dB 表現にする。
 ///
-///  C-3 (Daisuke 判断 経路A、破壊的変更):
+///  C-3 (決定 経路A、破壊的変更):
 /// - low : Bark 1–8   ISO 532-1 specific loudness (sone/Bark)         → dB
 /// - mid : Bark 9–16  ISO 532-1 specific loudness (sone/Bark)         → dB
 /// - high: Bark 21–24 + 15.5k–20kHz FFT energy (linear power)         → dB

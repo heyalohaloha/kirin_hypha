@@ -12,7 +12,7 @@ import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
 const options = { execute: true, until: 'hp' };
-test('reviewed factory, promotion run and retained archive are pinned before any manufacturing action', async t => {
+test('reviewed factory identity is pinned before manufacturing; initial delivery inputs remain supported', async t => {
   const f = fixture(t);
   const actions = realActions(f.state, {}, async () => { throw new Error('No command may run'); }, () => {});
   await assert.rejects(actions['provenance-inputs'](), /private profile/);

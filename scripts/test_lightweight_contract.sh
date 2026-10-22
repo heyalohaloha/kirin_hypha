@@ -24,7 +24,11 @@ run node --test scripts/native_test_libraries.test.mjs
 run node --test scripts/analyze_chain_trace.test.mjs
 run node --test scripts/listen_text_inventory.test.mjs
 run node --test scripts/hypha_workflow_discovery.test.mjs
-run node --test scripts/build_hypha.test.mjs
+run node --test scripts/build_hypha.test.mjs scripts/macos_build_parallel.test.mjs
+run node --test scripts/ls_release/windows_promotion.test.mjs
+run node --test scripts/ls_release/pkg_staple.test.mjs scripts/ls_release/pkg_context.test.mjs scripts/ls_release/pkg_release_recovery.test.mjs
+run node --test scripts/acceptance/acceptance_tools.test.mjs
+run node --test scripts/ls_release/ls_api_readback.test.mjs scripts/ls_release/hypha_release_ls.test.mjs scripts/ls_release/release_preflight.test.mjs
 run node --test scripts/ls_release/hypha_release_criteria.test.mjs
 run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_hp.test.mjs scripts/ls_release/hypha_release_github.test.mjs
 run node --test scripts/provenance/*.test.mjs
@@ -45,5 +49,8 @@ if [[ -x /bin/bash ]]; then
   run /bin/bash scripts/check_source_line_budget.sh
 fi
 run bash scripts/test_juce_patch_state.sh
+
+run node --test scripts/check_public_environment.test.mjs
+run node scripts/check_public_environment.mjs
 
 echo "lightweight source contract: PASS"

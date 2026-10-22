@@ -8,7 +8,9 @@ import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
 import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson, CI_ORACLES } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
-import { verifyFactoryDelivery } from '../provenance/factory_artifact.mjs';
+import { verifyPkgResume } from './pkg_staple.mjs';
+import { pkgRecoveryContext, requirePkgRecovery } from './pkg_release_recovery.mjs';
+import { verifyFactoryDelivery, requireFactoryDelivery } from '../provenance/factory_artifact.mjs';
 
 export function macBundles(state, aax = false) {
   return (aax ? loadMacAaxBundleManifest({ root: state.root })
@@ -118,6 +120,7 @@ export async function verifyCi(state, run) {
 }
 
 export async function verifyWindows(state, run) {
+  requireFactoryDelivery(state);
   if (!state.inputs.windowsInstallerDir) throw new Checkpoint('Approved same-commit Windows signed-full installer required');
   const installer = requireWindowsInstaller(resolveInput(state, state.inputs.windowsInstallerDir), {
     version: state.candidate.version, commit: state.candidate.commit, bNumber: state.candidate.bNumber,
@@ -184,17 +187,42 @@ export function verifyPackages(state) {
   return files.map(fileFact);
 }
 
-export async function packageAll(state, run) {
+export async function packageAll(state, run, { resumeStaple = false } = {}) {
   const legalDir = state.stages['source-delivery']?.evidence?.legalDir;
   if (!legalDir) throw new Checkpoint('Verified source/legal delivery stage required before packaging');
   verifyLegalDelivery(legalDir, state.candidate.commit);
-  if (artifactPaths(state).slice(0, 6).some(fs.existsSync)) {
+  const context = pkgRecoveryContext(state);
+  const env = { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '', KIRIN_HYPHA_LEGAL_DIR: legalDir,
+    KIRIN_PKG_STAPLE_STATE: context.statePath, KIRIN_PKG_STAPLE_BINDING: context.binding };
+  if (resumeStaple) {
+    requirePkgRecovery(state);
+    if (artifactPaths(state).slice(1, 6).some(fs.existsSync)) throw new Checkpoint('Partial distribution containers need reconciliation before PKG resume');
+    try {
+      await run('node', ['scripts/ls_release/build_kirin_hypha_pkg.mjs', '--with-aax', '--resume-staple'], { env });
+    } catch (error) {
+      if (error.exitCode === 2) {
+        try { verifyPkgResume(context); } catch { throw error; }
+        throw new Checkpoint('PKG staple/validation is still unconfirmed; retain and explicitly resume');
+      }
+      throw error;
+    }
+    await run('node', ['scripts/ls_release/build_kirin_hypha_release_set.mjs', '--with-aax', '--skip-macos-pkg',
+      '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)], { env });
+    return verifyPackages(state);
+  }
+  if (artifactPaths(state).slice(0, 6).some(fs.existsSync) || fs.existsSync(context.statePath)) {
     throw new Checkpoint('Existing package bytes must be qualified/imported, never overwritten by an automatic retry');
   }
-  await run('node', ['scripts/ls_release/build_kirin_hypha_release_set.mjs', '--with-aax',
-    '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)],
-    { env: { KIRIN_HYPHA_UPDATE_PUBLIC_KEY: state.inputs.updatePublicKey || '',
-      KIRIN_HYPHA_LEGAL_DIR: legalDir } });
+  try {
+    await run('node', ['scripts/ls_release/build_kirin_hypha_release_set.mjs', '--with-aax',
+      '--windows-installer-dir', resolveInput(state, state.inputs.windowsInstallerDir)], { env });
+  } catch (error) {
+    if (error.exitCode === 2) {
+      try { verifyPkgResume(context); } catch { throw error; }
+      throw new Checkpoint('PKG staple/validation is unconfirmed; retain the same submission for explicit resume');
+    }
+    throw error;
+  }
   return verifyPackages(state);
 }
 
@@ -214,5 +242,10 @@ export async function prepareLs(state, run) {
   ls.expectedPayloads = [...loadMacShipBundleManifest({ root: state.root }).bundles,
     ...loadMacAaxBundleManifest({ root: state.root }).bundles].map(b => b.install_relative);
   atomicJson(file, ls);
-  await run('node', ['scripts/ls_release/kirin_hypha_ls_dry_run.mjs', '--state', file, '--with-apple-verification'], { capture: true });
+  try {
+    await run('node', ['scripts/ls_release/kirin_hypha_ls_dry_run.mjs', '--state', file, '--with-apple-verification'], { capture: true });
+  } catch (error) {
+    if (error.exitCode === 2) throw new Checkpoint('Apple online validation is unconfirmed; local verification remains retained');
+    throw error;
+  }
 }

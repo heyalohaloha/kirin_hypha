@@ -60,3 +60,5 @@ Review provenance for changed source, dependencies, patches, assets, generation 
 distribution uses, using [the change review template](docs/provenance/change_review_template.md).
 Keep Unknown items visible; do not substitute an unsupported origin or legal guarantee. Private
 evidence may be reviewed separately without committing account records, personal values or secrets.
+
+The lightweight source contract requires Python 3 for the exported WAV sample comparison fixtures. The supported Ubuntu and macOS CI runners provide it; install `python3` before running the contract locally.

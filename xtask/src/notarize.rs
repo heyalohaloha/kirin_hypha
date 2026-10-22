@@ -19,7 +19,7 @@
 //   - `--password` and `--keychain-profile` are mutually exclusive; the latter is preferred when
 //     credentials are pre-stored via `xcrun notarytool store-credentials`.
 //   - The actual codesign/notarytool steps need an Apple Developer identity + credentials
-//     (Daisuke). `--dry-run` resolves the four bundle paths and prints the exact commands that
+//     for release signing. `--dry-run` resolves the four bundle paths and prints the exact commands that
 //     would run, WITHOUT signing or contacting Apple (no credentials required).
 
 use anyhow::{bail, Context, Result};
@@ -105,7 +105,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         return dry_run_report(&bundles, &identity, keychain_profile.as_deref());
     }
 
-    // ── 実署名モード: credential 必須（Daisuke 専管） ──────────────────────
+    // ── 実署名モード: credential 必須（担当者の権限） ──────────────────────
     match (&password, &keychain_profile) {
         (Some(_), Some(_)) => bail!("--password and --keychain-profile are mutually exclusive"),
         (None, None) => bail!("either --password or --keychain-profile is required"),
@@ -307,7 +307,7 @@ fn print_help() {
     println!("  VST3 : KirinHypha{{PRE,POST}}_artefacts/Release/VST3/*.vst3");
     println!("Build first: scripts/build_juce_universal.sh");
     println!();
-    println!("Defaults for Daisuke's release machine:");
+    println!("Release defaults:");
     println!("  identity           {DEFAULT_IDENTITY}");
     println!("  team-id            {DEFAULT_TEAM_ID}");
     println!("  keychain-profile   {DEFAULT_KEYCHAIN_PROFILE}");
