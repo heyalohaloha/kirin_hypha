@@ -118,7 +118,7 @@ void observationBoundaries()
 }
 
 // 較正の済んだ V の試聴の道具（Kirin OS の 1 つの Version の公開・位置合わせ・音量の較正まで）。
-std::unique_ptr<ref::ReferenceComparisonController> calibratedController (const juce::File& root, WholeSongFixture& fixture)
+std::unique_ptr<ref::ReferenceComparisonController> calibratedController (const juce::File& root, WholeSongFixture& fixture, int* nextPosition = nullptr)
 {
     require (root.createDirectory().wasOk(), "calibration fixture directory");
     const auto file = root.getChildFile ("version.wav");
@@ -156,6 +156,7 @@ std::unique_ptr<ref::ReferenceComparisonController> calibratedController (const 
             << " from " << state.migratedVersionChoice << " reason " << state.rejectionCode << " capture " << state.aCaptureAvailable << '\n';
     }
     require (controller.snapshot().versionReady, "initial position and gain calibration");
+    if (nextPosition) *nextPosition = position;
     return owned;
 }
 
@@ -239,9 +240,9 @@ void versionBlindWaitsForReturn (const juce::File& sandbox)
     require (root.getChildFile ("library").createDirectory().wasOk(), "lowered A fixture directory");
     writeQuietBSet (root);
     WholeSongFixture fixture;
-    auto owned = calibratedController (root, fixture);
-    auto& controller = *owned;
     int position = 0;
+    auto owned = calibratedController (root, fixture, &position);
+    auto& controller = *owned;
     juce::AudioBuffer<float> output (2, 1024);
     const auto host = [&]
     {
@@ -303,6 +304,8 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     require (static_cast<int> (moved["calibration"]["a"]["start_sample"]) == gainedA + 48000
         && static_cast<int> (moved["calibration"]["b"]["start_sample"]) == gainedB,
         "identical PCM moved by one second receives a new host/source map");
+    // END consumed a real discontinuity; supply fresh PCM before starting the next trial.
+    feedPassage (controller, fixture, gainedB, gainedA + 48000, 0.5f, "prepare after calibration receipt");
     controller.observeTransport (gainedA + 48000, true, true); hypha::tests::reference_control::await ([&] { return controller.snapshot().blindEligible; }, "Version preparation completes before Blind");
     require (controller.startBlind (-28, -12), "start trial before another live A edit");
     juce::AudioBuffer<float> trialInput (2, 256); trialInput.clear();

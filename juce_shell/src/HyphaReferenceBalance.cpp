@@ -1,6 +1,8 @@
 #include "HyphaReferenceBalance.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferencePreviewGain.h"
+#include "HyphaReferenceLegend.h"
 #include "HyphaReferenceCueSummary.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
@@ -66,23 +68,6 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
     text_style::drawEllipsized (g, "BALANCE", header.removeFromLeft (header.getWidth() / 3), juce::Justification::centredLeft);
-    auto legend = bounds.removeFromBottom (18.0f).reduced (9.0f, 0.0f).toNearestInt();
-    auto chart = bounds.reduced (10.0f, 6.0f);
-    paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);  // どこが何 Hz か（2026-10-04）
-    paintBlauertZones (g, chart, minimumHz, maximumHz);             // Blauert の帯（2026-10-04）
-
-    // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
-    // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
-    // 曲の LUFS-I が無い）曲はそのままの高さで描き、見出しの右に「音量はそろっていない」と出す。
-    const bool bPlaying = state.bSelected && state.audibleComparisonSlot == 3;
-    bool unmatched = false;
-    const auto shift = [&state, &unmatched, bPlaying] (const SongFact& fact, bool chosenSong)
-    {
-        if (chosenSong && bPlaying && std::isfinite (state.appliedGainDb)) return state.appliedGainDb;
-        if (const auto gain = songMatchGainDb (state, fact); std::isfinite (gain)) return gain;
-        unmatched = true;
-        return 0.0;
-    };
     const SongFact* chosen = nullptr;
     std::vector<const SongFact*> set;
     for (size_t index = 0; index < state.songFacts.size() && index < state.songs.size(); ++index)
@@ -93,6 +78,32 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
         set.push_back (&fact);
     }
     const auto& centers = chosen != nullptr ? chosen->centersHz : set.empty() ? std::vector<double> {} : set.front()->centersHz;
+    const bool aShown = state.aKirin && state.aKirin->frames >= 30 && ! centers.empty()
+        && state.aKirin->centersHz.size() == centers.size()
+        && std::abs (state.aKirin->centersHz.back() / centers.back() - 1.0) < 1.0e-3;
+    const juce::StringArray labels {
+        aShown ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING"),
+        chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true) : juce::String ("B"),
+        "B SET RANGE" };
+    const auto legendFont = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
+    const auto legendRows = referenceLegendRows (legendFont, labels, juce::roundToInt (bounds.getWidth()) - 18, 22);
+    auto legend = bounds.removeFromBottom (18.0f * legendRows).reduced (9.0f, 0.0f).toNearestInt();
+    auto chart = bounds.reduced (10.0f, 6.0f);
+    paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);
+    paintBlauertZones (g, chart, minimumHz, maximumHz);
+
+    // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
+    // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
+    // 曲の LUFS-I が無い）曲はそのままの高さで描き、見出しの右に「音量はそろっていない」と出す。
+    const bool bPlaying = state.bSelected && state.audibleComparisonSlot == 3;
+    bool unmatched = false;
+    const auto shift = [&state, &unmatched, bPlaying] (const SongFact& fact, bool chosenSong)
+    {
+        if (chosenSong && bPlaying && std::isfinite (state.appliedGainDb)) return state.appliedGainDb;
+        if (const auto gain = songPreviewGainDb (state, fact, chosenSong); std::isfinite (gain)) return gain;
+        unmatched = true;
+        return 0.0;
+    };
     std::vector<const SongFact*> comparable;
     for (const auto* fact : set) if (fact->centersHz == centers) comparable.push_back (fact);
     if (comparable.size() >= 2)
@@ -114,9 +125,6 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     }
     // A（直近 10 秒、Kirin OS の Cue と同じ定義）。曲と同じ帯域の並びのときだけ重ねる。A を太く下に、B を細く上に
     // 描く（同じ値でも両方見える。2026-10-04）。
-    const bool aShown = state.aKirin && state.aKirin->frames >= 30 && ! centers.empty()
-        && state.aKirin->centersHz.size() == centers.size()
-        && std::abs (state.aKirin->centersHz.back() / centers.back() - 1.0) < 1.0e-3;
     if (aShown)
     {
         g.setColour (COL_FLORA_BR.withAlpha (0.9f));
@@ -145,18 +153,20 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     // 凡例：A の直近の窓（金）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・B SET（p10〜p90 の薄い帯）。
     // 2026-10-04。文字の長さに合わせて左から並べる（均等に割ると B が切れる）。
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
-    const auto font = g.getCurrentFont();
+    const auto left = legend.getX(), right = legend.getRight();
+    int x = left, y = legend.getY();
     const auto item = [&] (const juce::String& text, juce::Colour colour) {
-        auto cell = legend.removeFromLeft (juce::jmin (legend.getWidth(), 22 + juce::roundToInt (std::ceil (text_style::shownWidth (font, text)))));
-        legend.removeFromLeft (14);
+        const auto width = 22 + referenceTextWidth (legendFont, text);
+        if (x > left && x + width > right) { x = left; y += 18; }
+        auto cell = juce::Rectangle<int> (x, y, juce::jmin (width, right - x), 18);
+        x += width + 10;
         g.setColour (colour);
         g.fillRect (cell.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, colour == COL_FLORA_BR ? 2.8f : 1.6f));
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, text, cell.withTrimmedLeft (4), juce::Justification::centredLeft);
     };
-    item (aShown ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING"), COL_FLORA_BR);
-    item (chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true)
-                            : juce::String ("B"), COL_SPECTRUM_DELTA);
-    item ("B SET RANGE", COL_NORMAL.withAlpha (0.35f));  // B セットの曲の p10〜p90（2026-10-04「B SET の意味」）
+    item (labels[0], COL_FLORA_BR);
+    item (labels[1], COL_SPECTRUM_DELTA);
+    item (labels[2], COL_NORMAL.withAlpha (0.35f));
 }
 }

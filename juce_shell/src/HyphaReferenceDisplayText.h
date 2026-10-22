@@ -131,11 +131,17 @@ inline void prepareDisplayNames (State& state, i18n::Language language = i18n::c
 {
     state.presetName = shownStandardName (state.presetId, state.presetName, language);
     state.checkLabel = shownStandardName (state.checkId, state.checkLabel, language);
-    state.cueLabel = shownStandardName (state.cueId, state.cueLabel, language);
+    // The automatic chorus has no built-in Check ID. Its part and default name
+    // together identify it; authored Cue names remain untouched.
+    const bool automaticChorus = state.cuePart == reference_audition::CuePart::chorus
+        && state.cueLabel == "Chorus candidate";
+    state.cueLabel = automaticChorus && language == i18n::Language::japanese
+        ? i18n::translate ("C CHORUS", language) : shownStandardName (state.cueId, state.cueLabel, language);
     for (auto* options : { &state.presets, &state.checks, &state.cues, &state.songSets })
         for (auto& option : *options)
         {
-            option.label = shownStandardName (option.id, option.label, language);
+            option.label = automaticChorus && option.id == state.cueId && language == i18n::Language::japanese
+                ? state.cueLabel : shownStandardName (option.id, option.label, language);
             option.checkLabel = shownStandardName (option.id, option.checkLabel, language);
         }
 }

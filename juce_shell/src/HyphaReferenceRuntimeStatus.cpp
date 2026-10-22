@@ -1,6 +1,7 @@
 #include "HyphaReferenceRuntimeStatus.h"
 
 #include "HyphaReferenceRuntimeView.h"
+#include "HyphaReferenceStages.h"
 
 namespace hypha::reference_ui
 {
@@ -55,7 +56,7 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
             : runtime.rejectionCode == "reference_alignment_ambiguous" ? "PLAY ANOTHER PASSAGE TO ALIGN V"
             : runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
             : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"
-            : runtime.rejectionCode == "reference_source_unavailable" ? "SOURCE UNAVAILABLE / OPEN KIRIN OS"
+            : runtime.rejectionCode == "reference_source_unavailable" ? stageLine (SourceStep::sourceUnavailable, runtime.comparisonSlot)
             : "RECEIVING REFERENCE";
     else
         result.status = "OPEN KIRIN OS";

@@ -189,7 +189,8 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
     if (prepared.empty()) return;
     const auto unitFont = labelFont (context, typography::TextRole::unit, typography::Composition::visualization);
     const auto numberFont = monoFont (context, typography::TextRole::readout, typography::Composition::information);
-    float numberWidth = 0.0f, differenceWidth = 0.0f;
+    float numberWidth = std::max (text_style::shownWidth (unitFont, "MEDIAN"), text_style::shownWidth (unitFont, "P90-P10"));
+    float differenceWidth = 0.0f;
     for (const auto& item : prepared)
     {
         numberWidth = std::max ({ numberWidth, text_style::shownWidth (numberFont, item.aText), text_style::shownWidth (numberFont, item.otherText) });
@@ -214,6 +215,8 @@ void paintRows (juce::Graphics& g, juce::Rectangle<float> area, const std::vecto
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (context, typography::TextRole::unit, typography::Composition::visualization));
         text_style::drawEllipsized (g, item.row.name, title.withRight (barRight).toNearestInt(), juce::Justification::centredLeft);
+        text_style::drawEllipsized (g, item.row.spread ? "P90-P10" : "MEDIAN",
+            title.withLeft (barRight + gap).withWidth (numberWidth).toNearestInt(), juce::Justification::centredRight);
         for (auto value = item.minimum; value <= item.maximum + 1.0e-9; value += item.row.step)
         {
             const auto x = barLeft + static_cast<float> ((value - item.minimum) / (item.maximum - item.minimum)) * (barRight - barLeft);
@@ -351,16 +354,11 @@ bool paintCueRangeStrips (juce::Graphics& g, juce::Rectangle<float> bounds, cons
 
     surface_material::paintPanel (g, bounds, 0.72f);
     window_material::paintInterior (g, frame, bounds);
-    auto header = bounds.removeFromTop (28.0f).reduced (9.0f, 1.0f).toNearestInt();
-    help::note (header, help_text::strips);
-    g.setColour (COL_NORMAL.withAlpha (0.92f));
-    g.setFont (labelFont (context, typography::TextRole::metricLabel, typography::Composition::visualization));
-    text_style::drawEllipsized (g, binding.toUpperCase(), header.removeFromLeft (juce::roundToInt (header.getWidth() * 0.36f)),
-                                juce::Justification::centredLeft);
-    g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
+    help::note (bounds.withHeight (28.0f), help_text::strips);
     const auto aLegend = sides.aReady ? "A LAST " + juce::String (juce::roundToInt (used / 10.0)) + " S" : juce::String ("A WAITING");
-    paintReferenceLegend (g, aLegend + " / " + cuePartLegend ("C", state.cuePart, nan, nan, false)
-                                 + (anyHeard && ! matched ? " / LEVEL NOT MATCHED" : ""), header);
+    paintReferenceHeader (g, bounds, binding.toUpperCase(),
+        aLegend + " / " + cuePartLegend ("C", state.cuePart, nan, nan, false)
+                + (anyHeard && ! matched ? " / LEVEL NOT MATCHED" : ""), context);
     paintRows (g, bounds.reduced (14.0f, 8.0f), prepared, sides, context);
     return true;
 }

@@ -326,6 +326,7 @@ namespace hypha::reference_audition
         audio->channels = activeChannels;
         audio->startSample = captureStartSample;
         audio->frameCount = capturedFrames;
+        audio->continuity = consumedGeneration;
         audio->interleaved.assign (
             capturedSamples.begin(),
             capturedSamples.begin() + static_cast<std::ptrdiff_t> (sampleCount));

@@ -26,6 +26,7 @@ public:
         double gainDb = std::numeric_limits<double>::quiet_NaN();
         bool selected = false, playing = false, preparing = false;
         juce::String preparation;  // 準備中の曲の Kirin OS の状態（2 AHEAD・CHECKING・NOT FOUND など、無ければ空）
+        double lowerAOfferDb = std::numeric_limits<double>::quiet_NaN();
     };
 
     SongList();

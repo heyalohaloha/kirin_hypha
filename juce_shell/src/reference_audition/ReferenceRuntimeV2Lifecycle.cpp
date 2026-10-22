@@ -28,6 +28,8 @@ namespace hypha::reference_audition
         activeSourceKey.clear();
         activeMappingKey.clear();
         activeContentMappingKey.clear();
+        contentMappingContinuity.store (0, std::memory_order_release);
+        copyCorrespondence.store (false, std::memory_order_release);
         activePublishedSelectionKey.clear();
         workerSource.reset();
         sourceCache.clear();

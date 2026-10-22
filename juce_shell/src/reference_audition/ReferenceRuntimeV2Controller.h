@@ -268,6 +268,8 @@ namespace hypha::reference_audition
         juce::String activeSourceKey;
         juce::String activeMappingKey;
         juce::String activeContentMappingKey;
+        std::atomic<std::uint64_t> contentMappingContinuity { 0 };
+        std::atomic<bool> copyCorrespondence { false };
         juce::String activePublishedSelectionKey;
         juce::String blindContextKey;
         juce::String blindPreparationKey;

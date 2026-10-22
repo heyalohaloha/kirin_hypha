@@ -1,4 +1,5 @@
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferencePreviewGain.h"
 #include "HyphaReferenceSongChoice.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceStatusModel.h"
@@ -97,10 +98,12 @@ void Component::syncRoles (bool blindSession)
         const bool playing = selected && current.bSelected && current.audibleComparisonSlot == 3;
         // MATCH：鳴っている曲は実際の gain、ほかは押したときの gain（A の窓 − その曲の Cue の値）。どちらも読みの基準で。
         const auto would = fact.prepared && ! preparationFailed (fact.preparation)
-            ? songMatchGainDb (current, fact) : std::numeric_limits<double>::quiet_NaN();
+            ? songPreviewGainDb (current, fact, selected) : std::numeric_limits<double>::quiet_NaN();
         rows.push_back ({ song.id, songChoiceName (song.label), fact.lufsI,
                           displayGainDb (current, playing ? current.appliedGainDb : would),
-                          selected, playing, ! fact.prepared, preparationWord (fact.preparation) });
+                          selected, playing, ! fact.prepared, preparationWord (fact.preparation),
+                          selected && ! playing && current.action.kind == ActionKind::lowerAAndPlay
+                              && current.action.offer.slot == 3 ? current.action.offer.db : std::numeric_limits<double>::quiet_NaN() });
     }
     songList.setRows (std::move (rows), presentationContext);
     songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));

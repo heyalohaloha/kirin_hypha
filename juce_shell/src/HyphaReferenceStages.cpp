@@ -77,8 +77,8 @@ const std::array<Stage, stageCount> stages { {
     { K::unable, W::none, "SOURCE COULD NOT BE OPENED / CHECK THE SOURCE IN KIRIN OS", "", "Check the source in Kirin OS",
       "%1's source could not be opened", "Check the source file in Kirin OS. A stays live." },
     // sourceUnavailable
-    { K::unable, W::none, "SOURCE UNAVAILABLE / OPEN KIRIN OS", "", "Open Kirin OS", "%1's source is unavailable",
-      "Open Kirin OS to make the source available. A stays live." },
+    { K::unable, W::none, "SOURCE UNAVAILABLE / CHECK THE SOURCE IN KIRIN OS", "", "Check the source in Kirin OS", "%1's source is unavailable",
+      "Check the source file in Kirin OS. A stays live." },
     // savedChoiceUnavailable
     { K::unable, W::none, "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN", "", "Choose again", "The saved choice for %1 is gone",
       "Choose the source again. A stays live." },
