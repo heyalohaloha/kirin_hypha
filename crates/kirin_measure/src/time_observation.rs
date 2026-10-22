@@ -51,6 +51,9 @@ pub struct TimeWirePoint {
     /// A common publication grid cannot prove away a different unreported node-clock offset.
     #[serde(default)]
     pub clock_origin: Option<i64>,
+    /// Latest host transport start in the same output-presentation coordinates.
+    #[serde(default)]
+    pub playback_start: Option<i64>,
     /// LEVEL CREST at the same 400 ms aperture; not an extra TIME ABI value.
     #[serde(default)]
     pub crest: Option<f64>,
@@ -92,6 +95,10 @@ impl TimeWirePoint {
                 || self
                     .clock_origin
                     .zip(other.clock_origin)
+                    .is_some_and(|(a, b)| a == b)
+                || self
+                    .playback_start
+                    .zip(other.playback_start)
                     .is_some_and(|(a, b)| a == b))
     }
 }

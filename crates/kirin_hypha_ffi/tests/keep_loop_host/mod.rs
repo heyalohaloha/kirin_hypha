@@ -31,34 +31,6 @@ pub struct Host {
 }
 
 impl Host {
-    /// One realtime callback on both sides, paced to audio time. Returns true at a cycle wrap.
-    pub fn play(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, level: f32) -> bool {
-        let block = if level > 0.0 {
-            tone(level, self.counter)
-        } else {
-            impulses(self.counter)
-        };
-        for engine in [pre, post] {
-            engine.note_capture_loop_wrap(self.wrapped);
-            push(engine, &block, self.position, self.counter);
-        }
-        self.counter += BLOCK;
-        self.position += BLOCK;
-        let wrapped = self.cycle && self.position >= LOOP_END;
-        if wrapped {
-            self.position -= LOOP_END;
-        }
-        self.wrapped = wrapped;
-        self.blocks += 1;
-        let due = self.start + Duration::from_secs_f64(self.blocks as f64 * BLOCK as f64 / RATE);
-        if due > Instant::now() {
-            sleep(due - Instant::now());
-        }
-        wrapped
-    }
-}
-
-impl Host {
     pub fn mark(&self) -> Mark {
         Mark {
             blocks: self.blocks,
@@ -85,63 +57,11 @@ impl Host {
         level: f32,
         mark: &Mark,
     ) -> bool {
-        let mut stalled = 0;
-        loop {
-            // A busy meter (one measuring a backlog) refuses a read, so it is read again.
-            let endpoints = [settled_endpoint(pre), settled_endpoint(post)];
-            let behind = endpoints.iter().any(|endpoint| {
-                let measured = endpoint
-                    .filter(|end| *end >= mark.position)
-                    .unwrap_or(mark.position);
-                measured + MEASURE_SLACK < self.position
-            });
-            if !behind {
-                break;
-            }
-            // A heartbeat-only callback keeps both sides active while no audio is delivered.
-            for engine in [pre, post] {
-                engine.set_signal_state(1);
-                engine.push_samples(&[], 2);
-            }
-            sleep(HOLD);
-            self.start += HOLD;
-            let advanced = [settled_endpoint(pre), settled_endpoint(post)] != endpoints;
-            stalled = if advanced { 0 } else { stalled + 1 };
-            assert!(
-                stalled < STALLED_HOLDS,
-                "a meter stopped measuring the played audio"
-            );
-        }
+        self.hold_measured(pre, post, |end| {
+            end.filter(|end| *end >= mark.position)
+                .unwrap_or(mark.position)
+        });
         self.play(pre, post, level)
-    }
-
-    /// Stopped transport callbacks: the host clock runs on, nothing is captured.
-    pub fn stopped(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, blocks: i64) {
-        for _ in 0..blocks {
-            for engine in [pre, post] {
-                engine.set_signal_state(0);
-                engine.note_record_block(RecordTakeBlock {
-                    generation: 0,
-                    recording: engine.is_recording(),
-                    rendered: false,
-                    playing: false,
-                    offline: false,
-                    position_valid: true,
-                    position_samples: self.position,
-                    num_frames: BLOCK as u64,
-                    clock_start_samples: 0,
-                    clock_end_samples: None,
-                });
-                engine.push_samples(&[], 2);
-            }
-            self.counter += BLOCK;
-            self.blocks += 1;
-            let due =
-                self.start + Duration::from_secs_f64(self.blocks as f64 * BLOCK as f64 / RATE);
-            if due > Instant::now() {
-                sleep(due - Instant::now());
-            }
-        }
     }
 
     /// Wait for the accepted Keep using the shared state/attempt contract.
@@ -420,3 +340,6 @@ pub fn collect(path: &Path, results: &mut Vec<serde_json::Value>) {
         }
     }
 }
+
+#[path = "callbacks.rs"]
+pub mod callbacks;

@@ -30,6 +30,14 @@ impl KirinHyphaEngine {
             && position_valid
             && previous_valid
             && previous_position.checked_add(previous_frames as i64) != Some(position_samples);
+        if playing && (!previous_playing || discontinuity || (previous_valid && !position_valid)) {
+            if position_valid {
+                self.record_take_tracker
+                    .note_transport_start(position_samples);
+            } else {
+                self.record_take_tracker.note_unknown_transport_start();
+            }
+        }
         if watch_transport_starts_new_pass(playing, previous_playing, discontinuity, force_new_pass)
         {
             publish_watch_playback_pass_boundary(
@@ -72,3 +80,11 @@ mod tests {
         assert!(!watch_transport_starts_new_pass(false, true, false, true));
     }
 }
+
+#[cfg(test)]
+#[path = "transport_block_start_tests.rs"]
+mod start_tests;
+
+#[cfg(test)]
+#[path = "transport_block_retirement_tests.rs"]
+mod retirement_tests;

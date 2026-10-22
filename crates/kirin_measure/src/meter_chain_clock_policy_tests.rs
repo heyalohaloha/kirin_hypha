@@ -83,6 +83,7 @@ fn exact_host_identity_does_not_promote_missing_output_latency_to_zero() {
             assert!(session.lock().unwrap().push_active_at(
                 &samples,
                 MeterClockStart {
+                    playback_start: None,
                     position_samples: Some(at),
                     epoch: Some(1),
                     source: CaptureClockSource::ProjectTimeline,

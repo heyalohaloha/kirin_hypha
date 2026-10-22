@@ -1,6 +1,6 @@
 //! Bounded, single-Audio-writer edge history, indexed by the capture-frame clock.
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub const AUDIO_EDGE_JOURNAL_CAPACITY: usize = 256;
 
@@ -32,6 +32,7 @@ struct EdgeSlot {
     version: AtomicU64,
     captured_frames: AtomicU64,
     value: AtomicU64,
+    present: AtomicBool,
 }
 impl EdgeSlot {
     const fn new() -> Self {
@@ -39,6 +40,7 @@ impl EdgeSlot {
             version: AtomicU64::new(0),
             captured_frames: AtomicU64::new(0),
             value: AtomicU64::new(0),
+            present: AtomicBool::new(false),
         }
     }
 }
@@ -73,6 +75,15 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
     }
 
     pub fn note(&self, captured_frames: u64, value: T) {
+        self.publish(captured_frames, Some(value));
+    }
+
+    /// Retire authority from this frame onward without erasing older chunks' evidence.
+    pub(crate) fn note_absent(&self, captured_frames: u64) {
+        self.publish(captured_frames, None);
+    }
+
+    fn publish(&self, captured_frames: u64, value: Option<T>) {
         let sequence = self.published.load(Ordering::Relaxed);
         // Never reuse a version after exhaustion; even at an edge per sample this is centuries.
         if sequence >= u64::MAX / 2 {
@@ -82,7 +93,9 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
         slot.version.store(sequence * 2 + 1, Ordering::SeqCst);
         slot.captured_frames
             .store(captured_frames, Ordering::SeqCst);
-        slot.value.store(value.into_word(), Ordering::SeqCst);
+        slot.value
+            .store(value.map_or(0, T::into_word), Ordering::SeqCst);
+        slot.present.store(value.is_some(), Ordering::SeqCst);
         slot.version.store(sequence * 2 + 2, Ordering::SeqCst);
         self.published.store(sequence + 1, Ordering::Release);
     }
@@ -102,11 +115,12 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
             }
             let key = slot.captured_frames.load(Ordering::SeqCst);
             let value = slot.value.load(Ordering::SeqCst);
+            let present = slot.present.load(Ordering::SeqCst);
             if slot.version.load(Ordering::SeqCst) != expected {
                 return None;
             }
             if key <= captured_frame {
-                found = Some(T::from_word(value));
+                found = present.then(|| T::from_word(value));
                 break;
             }
         }
@@ -136,10 +150,11 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
             }
             let frame = slot.captured_frames.load(Ordering::SeqCst);
             let value = slot.value.load(Ordering::SeqCst);
+            let present = slot.present.load(Ordering::SeqCst);
             if slot.version.load(Ordering::SeqCst) != version {
                 return None;
             }
-            values[index] = Some((frame, T::from_word(value)));
+            values[index] = Some((frame, present.then(|| T::from_word(value))));
         }
         (self.reset_version.load(Ordering::SeqCst) == reset).then_some(AudioEdgeSnapshot { values })
     }
@@ -158,8 +173,12 @@ impl<T: AudioEdgeValue> AudioEdgeJournal<T> {
 #[path = "audio_edge_journal_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "audio_edge_retirement_tests.rs"]
+mod retirement_tests;
+
 pub(crate) struct AudioEdgeSnapshot<T: AudioEdgeValue> {
-    values: [Option<(u64, T)>; AUDIO_EDGE_JOURNAL_CAPACITY],
+    values: [Option<(u64, Option<T>)>; AUDIO_EDGE_JOURNAL_CAPACITY],
 }
 
 impl<T: AudioEdgeValue> AudioEdgeSnapshot<T> {
@@ -169,6 +188,33 @@ impl<T: AudioEdgeValue> AudioEdgeSnapshot<T> {
         after: u64,
         fallback: T,
         mut visit: impl FnMut(u64, u64, T),
+    ) {
+        self.for_each_optional_range(before, after, Some(fallback), |from, to, value| {
+            visit(from, to, value.unwrap_or(fallback));
+        });
+    }
+
+    pub(crate) fn first_range(&self, before: u64, frames: u64) -> (u64, Option<T>) {
+        let mut result = (frames, None);
+        self.for_each_optional_range(
+            before,
+            before.saturating_add(frames),
+            None,
+            |from, to, value| {
+                if from == before {
+                    result = (to - from, value);
+                }
+            },
+        );
+        result
+    }
+
+    fn for_each_optional_range(
+        &self,
+        before: u64,
+        after: u64,
+        fallback: Option<T>,
+        mut visit: impl FnMut(u64, u64, Option<T>),
     ) {
         let mut cursor = before;
         let mut current = fallback;

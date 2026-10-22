@@ -192,7 +192,7 @@ impl AttackRuntime {
             worker.audio_at = Some(Instant::now());
         }
         self.sync_band(worker);
-        let idle = worker.audio_at.is_none_or(|at| at.elapsed() >= IDLE_AFTER);
+        let idle = self.band_audio_is_idle(worker.audio_at, Instant::now());
         self.service_single(worker, idle, decided_before);
         let Some(band) = worker.band else {
             self.publish_band(worker, true);
@@ -320,6 +320,14 @@ impl AttackRuntime {
             worker.dirty = true;
             self.publish_band(worker, true);
         }
+    }
+
+    fn band_audio_is_idle(&self, audio_at: Option<Instant>, now: Instant) -> bool {
+        #[cfg(test)]
+        if let Some(ended) = self.test_receipt.audio_end() {
+            return ended;
+        }
+        audio_at.is_none_or(|at| now.saturating_duration_since(at) >= IDLE_AFTER)
     }
 
     pub(super) fn measure_band_at(
@@ -462,3 +470,7 @@ pub(super) fn needs_refresh(
 #[cfg(test)]
 #[path = "attack_band_worker_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attack_band_idle_control_tests.rs"]
+mod idle_control_tests;

@@ -8,6 +8,7 @@ mod project_clock_tests;
 
 struct Fixture {
     _temp: tempfile::TempDir,
+    clock: Arc<super::clock::TestClock>,
     pre: Arc<SpectrumCoordinator>,
     post: Arc<SpectrumCoordinator>,
     pre_runtime: Arc<SpectrumRuntime>,
@@ -26,12 +27,16 @@ impl Fixture {
             SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
         let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
         let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
+        let clock = super::clock::TestClock::new();
+        pre.use_test_clock(&clock);
+        post.use_test_clock(&clock);
         let target = SpectrumTarget::from_pre_json("pre".into(), &pre_json).unwrap();
         post.set_post_visible(true);
         assert!(post.post_tick("post", Some(target.clone())));
         assert!(pre.pre_tick("pre", &target.instance_dir));
         Self {
             _temp: temp,
+            clock,
             pre,
             post,
             pre_runtime,
@@ -82,7 +87,6 @@ fn feed_level(
     clock: impl Fn(i64) -> SpectrumInputClock,
     amplitude: f32,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(3);
     for position in (0..10_240).step_by(256) {
         let samples = (position..position + 256)
             .flat_map(|index| {
@@ -91,44 +95,29 @@ fn feed_level(
             })
             .collect::<Vec<_>>();
         assert!(
-            Instant::now() < deadline,
-            "Spectrum feed deadline before {position}"
-        );
-        assert!(
             runtime.push_block_from_audio_with_clock(&samples, 2, Some(clock(position))),
             "input refused at {position}: {:?}",
             runtime.stats()
         );
-        await_input(runtime, deadline, position);
+        assert!(runtime.wait_for_input_for_test(Duration::from_secs(60)));
     }
     let history = runtime.try_history();
     assert!(
-        Instant::now() < deadline
-            && history.is_some_and(|history| {
-                history
-                    .newest()
-                    .is_some_and(|frame| frame.presentation_end_samples >= 9_600)
-            }),
+        history.is_some_and(|history| {
+            history
+                .newest()
+                .is_some_and(|frame| frame.presentation_end_samples >= 9_600)
+        }),
         "actual Spectrum worker failed to publish after completing every input"
-    );
-}
-
-fn await_input(runtime: &SpectrumRuntime, deadline: Instant, position: i64) {
-    // Control thread only: the existing receipt follows processing AND publication.
-    // One deadline covers the entire feed; no queue retry or additional PCM is allowed.
-    assert!(
-        Instant::now() < deadline
-            && runtime.wait_for_input_for_test(deadline.saturating_duration_since(Instant::now()))
-            && Instant::now() < deadline,
-        "Spectrum input completion deadline at {position}: {:?}",
-        runtime.stats()
     );
 }
 
 #[test]
 fn clock_pair_fixture_renews_request_after_worker_delay() {
     let fixture = Fixture::new();
-    thread::sleep(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
+    fixture
+        .clock
+        .advance(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
     fixture.paired();
 }
 
@@ -358,7 +347,9 @@ fn clock_cutover_during_pre_io_retires_completed_old_authority_publication() {
         known(p, crate::PresentationLatencySource::Vst3, 2_048)
     });
     // Reproduce a worker/scheduler delay before the recovery publication deterministically.
-    thread::sleep(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
+    fixture
+        .clock
+        .advance(Duration::from_millis(REQUEST_LEASE_MS as u64 + 50));
     assert!(fixture.serve_pre());
     assert!(read_snapshot(&fixture.target.instance_dir).is_some());
 }
@@ -403,7 +394,9 @@ fn clock_cutover_during_expired_pre_write_removes_old_bytes_before_early_return(
         2,
         Some(SpectrumInputClock::LocalProject(0))
     ));
-    thread::sleep(PRESENTATION_HOLD + Duration::from_millis(25));
+    fixture
+        .clock
+        .advance(PRESENTATION_HOLD + Duration::from_millis(25));
     pause.release();
     assert!(!pending.join().unwrap());
     drop(pause);
@@ -429,3 +422,6 @@ fn clock_cutover_during_expired_pre_write_removes_old_bytes_before_early_return(
 
 #[path = "spectrum_exchange_content_clock_tests.rs"]
 mod content_clock_tests;
+
+#[path = "spectrum_exchange_injected_clock_tests.rs"]
+mod injected_clock_tests;

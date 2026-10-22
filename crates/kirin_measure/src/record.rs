@@ -36,6 +36,8 @@ use std::sync::RwLock;
 mod state;
 use state::{entering_state, SessionSlot, STATE_RECORD, STATE_WATCH};
 pub use state::{RecordState, RecordStateMachine, TransitionError};
+#[path = "record_delta_boundary.rs"]
+pub(crate) mod delta_boundary;
 
 impl RecordStateMachine {
     /// Watch で初期化。
@@ -52,6 +54,7 @@ impl RecordStateMachine {
             closed_session_id: RwLock::new(None),
             measure_ready_generation: AtomicU64::new(0),
             record_display: RecordDisplayStore::default(),
+            record_delta_boundary: std::sync::Mutex::new(None),
             measure_progress: AtomicU64::new(0),
             measure_waker: Default::default(),
             measure_preparation: Default::default(),

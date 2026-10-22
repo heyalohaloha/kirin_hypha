@@ -8,6 +8,7 @@ use crate::{AuxiliaryClockSamples, MeterClockStart};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct CaptureChunkPlan {
     pub(super) sample_count: usize,
+    pub(super) transport_start_raw: Option<i64>,
     pub(super) position_start_samples: Option<i64>,
     pub(super) position_end_samples: Option<i64>,
     pub(super) raw_host_position_start_samples: Option<i64>,
@@ -70,6 +71,12 @@ impl CaptureChunkPlan {
     pub(super) fn meter_clock_start(self, frame_offset: u64) -> MeterClockStart {
         let offset = i64::try_from(frame_offset).ok();
         MeterClockStart {
+            playback_start: self.transport_start_raw.and_then(|raw| {
+                crate::record_take::wav_presentation_position_samples(
+                    raw,
+                    self.presentation_latency.output,
+                )
+            }),
             position_samples: self
                 .position_start_samples
                 .zip(offset)
@@ -213,9 +220,11 @@ pub(super) fn capture_chunk_plan(
         };
     };
     let frames = available_frames.min(span.capture_end_frame.saturating_sub(captured_frames));
+    let (frames, transport_start_raw) = tracker.transport_start_range(captured_frames, frames);
     let position_start_samples = span.position_at_capture_boundary(captured_frames);
     CaptureChunkPlan {
         sample_count: frames as usize * n_channels,
+        transport_start_raw,
         position_start_samples,
         position_end_samples: position_start_samples
             .map(|position| position.saturating_add(frames as i64)),
@@ -312,3 +321,11 @@ mod tests {
         assert!(chunk.host_loop_wrap && chunk.raw_host_start == Some(0));
     }
 }
+
+#[cfg(test)]
+#[path = "measure_capture_transport_start_tests.rs"]
+mod transport_start_tests;
+
+#[cfg(test)]
+#[path = "measure_capture_transport_boundary_tests.rs"]
+mod transport_boundary_tests;

@@ -40,7 +40,7 @@ test('CI phases exactly partition the local release gate command inventory', () 
   const all = plan('--plan');
   for (const needle of ['assert_ignored_count parity 20', 'assert_ignored_count pairing_candidates 6',
     'assert_ignored_count record_auxiliary_cuts 1', 'assert_ignored_count keep_loop_wrap 1',
-    'assert_ignored_count keep_stop_display 1', 'assert_ignored_count keep_pass_end_slots 1', 'assert_ignored_count keep_offline_after_loop 1', 'check_ffi_symbols', 'check_native_test_inventory.mjs',
+    'assert_ignored_count keep_stop_display 1', 'assert_ignored_count pair_common_start 1', 'assert_ignored_count pair_resume_after_bypass 1', 'assert_ignored_count keep_pass_end_slots 1', 'assert_ignored_count keep_offline_after_loop 1', 'check_ffi_symbols', 'check_native_test_inventory.mjs',
     'check_native_build_targets.mjs', '--repeat until-pass:2']) assert.ok(all.includes(needle), needle);
   assert.doesNotMatch(all, /: PASS/);
   assert.equal((plan('--phase', 'native', '--plan').match(/==> ctest /g) ?? []).length, 3);

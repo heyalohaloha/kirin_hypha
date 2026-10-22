@@ -1,7 +1,6 @@
 //! PRE exchange tick with every filesystem operation outside the session lock.
 
 use std::sync::{MutexGuard, TryLockError};
-use std::time::Instant;
 
 use super::*;
 #[path = "spectrum_exchange_pre_clock.rs"]
@@ -28,7 +27,7 @@ impl SpectrumCoordinator {
             instance_dir,
             pre_instance_id,
             self.sample_rate,
-            unix_ms_now(),
+            self.clock_unix_ms(),
         );
         after_read();
         let Some(ValidatedRequest {
@@ -145,7 +144,7 @@ impl SpectrumCoordinator {
         if !publish {
             return true;
         }
-        let issued_at_unix_ms = unix_ms_now();
+        let issued_at_unix_ms = self.clock_unix_ms();
         let ready = AnalysisReady::new(
             request_id,
             pre_instance_id,
@@ -157,7 +156,7 @@ impl SpectrumCoordinator {
         if write_ready(instance_dir, &ready).is_err() {
             return false;
         }
-        if unix_ms_now() > issued_at_unix_ms.saturating_add(REQUEST_LEASE_MS) {
+        if self.clock_unix_ms() > issued_at_unix_ms.saturating_add(REQUEST_LEASE_MS) {
             return false;
         }
         if self.pre_session_is_current(request_id, None)
@@ -246,7 +245,7 @@ impl SpectrumCoordinator {
         let Some(newest_end) = newest_end else {
             return true;
         };
-        let now = Instant::now();
+        let now = self.clock_now();
         let publish = {
             let mut slot = match self.try_pre_session() {
                 Some(slot) => slot,
@@ -290,7 +289,7 @@ impl SpectrumCoordinator {
         {
             return false;
         }
-        let write_started = Instant::now();
+        let write_started = self.clock_now();
         let write_result = match analysis_mode {
             AnalysisViewMode::Spectrum => write_snapshot(instance_dir, &bytes),
             AnalysisViewMode::Perceptual => write_perceptual_snapshot(instance_dir, &bytes),
@@ -313,7 +312,8 @@ impl SpectrumCoordinator {
             }
             return false;
         }
-        let request_is_live = write_started.elapsed() <= PRESENTATION_HOLD
+        let request_is_live = self.clock_now().saturating_duration_since(write_started)
+            <= PRESENTATION_HOLD
             && self.pre_request_is_live(instance_dir, pre_instance_id, request_id);
         if analysis_mode == AnalysisViewMode::Spectrum
             && !self.runtime.spectrum_clock_is_current(clock_revision)
@@ -425,7 +425,7 @@ impl SpectrumCoordinator {
             instance_dir,
             pre_instance_id,
             self.sample_rate,
-            unix_ms_now(),
+            self.clock_unix_ms(),
         )
         .is_some_and(|current| current.request_id == request_id)
     }

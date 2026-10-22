@@ -182,7 +182,7 @@ impl SpectrumCoordinator {
                 Ok(sent_at) => sent_at,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            *sent_at = band.map(|_| Instant::now());
+            *sent_at = band.map(|_| self.clock_now());
         }
     }
 

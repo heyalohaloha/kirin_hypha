@@ -7,6 +7,9 @@ use crate::storage::PlatformPaths;
 
 use crate::io_thread_post::tick::run_tick;
 
+#[path = "io_thread_post_record_delta.rs"]
+mod record_delta;
+
 use super::pair::PostPairSnapshot;
 use super::runtime::{PostObservationIdentity, PostObservationRuntime};
 
@@ -17,14 +20,20 @@ pub(super) struct PostSnapshotLocation {
 }
 
 pub(super) struct PostSnapshotPublisher {
+    record_delta: record_delta::RecordDeltaCache,
+    meter_history: Option<std::sync::Arc<crate::MeterDeltaHistoryExchange>>,
     kirin_root: PathBuf,
     discovery: PostDiscoveryState,
     watch_lease: crate::watch_snapshot_lease::WatchSnapshotLease,
 }
 
 impl PostSnapshotPublisher {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(
+        meter_history: Option<std::sync::Arc<crate::MeterDeltaHistoryExchange>>,
+    ) -> Self {
         Self {
+            record_delta: Default::default(),
+            meter_history,
             kirin_root: PlatformPaths::current_kirin_tmp_root(),
             discovery: PostDiscoveryState::new(),
             watch_lease: crate::watch_snapshot_lease::WatchSnapshotLease::new(),
@@ -103,6 +112,12 @@ impl PostSnapshotPublisher {
                     "POST Record display delta",
                 )
                 .clone();
+                let delta = self.record_delta.resolve(
+                    generation,
+                    delta,
+                    self.meter_history.as_deref(),
+                    runtime.record_sm.record_delta_boundary(generation),
+                );
                 runtime.record_sm.publish_record_display_delta(
                     generation,
                     delta,

@@ -38,7 +38,7 @@ impl PostObservation {
         analysis: PostAnalysisEndpoints,
         now: Instant,
     ) -> Self {
-        let snapshot = PostSnapshotPublisher::new();
+        let snapshot = PostSnapshotPublisher::new(analysis.meter_history());
         runtime.prepare_startup(snapshot.kirin_root());
         Self {
             runtime,

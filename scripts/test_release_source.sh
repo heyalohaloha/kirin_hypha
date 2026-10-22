@@ -342,6 +342,8 @@ run assert_ignored_count pairing_candidates 6
 run assert_ignored_count record_auxiliary_cuts 1
 run assert_ignored_count keep_loop_wrap 1
 run assert_ignored_count keep_stop_display 1
+run assert_ignored_count pair_common_start 1
+run assert_ignored_count pair_resume_after_bypass 1
 run assert_ignored_count keep_pass_end_slots 1
 run assert_ignored_count keep_offline_after_loop 1
 run cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
@@ -349,6 +351,8 @@ run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignore
 run cargo test -p kirin_hypha_ffi --test record_auxiliary_cuts --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test keep_loop_wrap --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test keep_stop_display --locked -- --ignored --test-threads=1
+run cargo test -p kirin_hypha_ffi --test pair_common_start --locked -- --ignored --test-threads=1
+run cargo test -p kirin_hypha_ffi --test pair_resume_after_bypass --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test keep_pass_end_slots --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test keep_offline_after_loop --locked -- --ignored --test-threads=1
 

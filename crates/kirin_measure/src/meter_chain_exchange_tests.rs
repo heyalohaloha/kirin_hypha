@@ -85,6 +85,7 @@ fn advance_content_frames(
     assert!(session.lock().unwrap().push_active_at(
         &samples,
         MeterClockStart {
+            playback_start: None,
             position_samples: Some(project),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
@@ -119,6 +120,7 @@ fn advance_format_exact(
     assert!(session.lock().unwrap().push_active_at(
         &samples,
         MeterClockStart {
+            playback_start: None,
             position_samples: Some(project),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,

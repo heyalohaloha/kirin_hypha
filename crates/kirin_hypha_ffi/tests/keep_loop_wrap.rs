@@ -3,6 +3,7 @@
 //! pass, and the record lists every pass. Simulated clock facts (a project timeline that wraps and
 //! a continuous host counter), independent of actual DAW acceptance. A post-bounce position jump
 //! keeps its own contract.
+#[allow(dead_code)]
 mod keep_loop_host;
 
 use keep_loop_host::*;

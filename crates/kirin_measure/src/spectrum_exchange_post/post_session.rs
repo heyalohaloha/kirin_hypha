@@ -57,7 +57,7 @@ impl SpectrumCoordinator {
             self.cleanup_retired_post_request(session);
             return false;
         }
-        let issued_at_unix_ms = unix_ms_now();
+        let issued_at_unix_ms = self.clock_unix_ms();
         let attack_band = self.post_attack_band();
         let result = renew_request(
             session,
@@ -67,8 +67,8 @@ impl SpectrumCoordinator {
             issued_at_unix_ms,
             attack_band,
         );
-        let completed_at = Instant::now();
-        let completed_at_unix_ms = unix_ms_now();
+        let completed_at = self.clock_now();
+        let completed_at_unix_ms = self.clock_unix_ms();
         let published_live_lease = result.is_ok()
             && completed_at_unix_ms <= issued_at_unix_ms.saturating_add(REQUEST_LEASE_MS);
         let mut slot = match self.post_session.lock() {

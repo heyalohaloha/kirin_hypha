@@ -153,6 +153,11 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> RecordEdgeOutcome {
         *watch_consumed_samples = *consumed_samples;
         *watch_native_frames_total = *native_frames_total;
         *parked_watch_consumer = Some(std::mem::replace(consumer, record_consumer));
+        if let Some(session) = meter_session.as_ref() {
+            let session =
+                crate::sync_recovery::lock_recover(session, "Record delta admission floor");
+            record_sm.mark_record_delta_boundary(record_generation, &session);
+        }
         *record_display_generation = Some(record_generation);
         record_sm.mark_record_display_measure_started(record_generation);
         *consumed_samples = 0;

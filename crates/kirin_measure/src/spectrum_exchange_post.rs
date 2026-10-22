@@ -82,7 +82,7 @@ impl SpectrumCoordinator {
         };
 
         let channel_mode = self.runtime.channel_mode();
-        let now = Instant::now();
+        let now = self.clock_now();
         let Some(prepared) = self.prepare_post_session(&target, analysis_mode, channel_mode, now)
         else {
             return false;
@@ -117,7 +117,7 @@ impl SpectrumCoordinator {
                     session.request_id,
                     &target.pre_instance_id,
                     self.sample_rate,
-                    unix_ms_now(),
+                    self.clock_unix_ms(),
                 ) && ready.rearm_required()
             }) {
                 return self.rotate_perceptual_request(&session);
@@ -307,7 +307,7 @@ impl SpectrumCoordinator {
                 session.request_id,
                 &target.pre_instance_id,
                 self.sample_rate,
-                unix_ms_now(),
+                self.clock_unix_ms(),
             )
         });
         if ready.as_ref().is_some_and(AnalysisReady::rearm_required) {

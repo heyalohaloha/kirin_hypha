@@ -210,6 +210,11 @@ impl AnalysisLease {
     pub(super) fn held_slot(&self) -> Option<usize> {
         self.held.as_ref().map(|(index, _, _, _)| *index)
     }
+
+    #[cfg(test)]
+    pub(super) fn held_path_for_test(&self) -> Option<PathBuf> {
+        self.held.as_ref().map(|(_, path, _, _)| path.clone())
+    }
 }
 
 impl Drop for AnalysisLease {

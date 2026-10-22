@@ -16,7 +16,6 @@ crates/kirin_hypha_ffi/tests/support/paired_record.rs	1
 crates/kirin_hypha_ffi/tests/support/pairing_candidates_local_blind.rs	2
 crates/kirin_measure/src/analysis_exchange_windows_tests.rs	2
 crates/kirin_measure/src/attack_band_worker_tests.rs	4
-crates/kirin_measure/src/attack_exchange_integration_tests.rs	7
 crates/kirin_measure/src/attack_observation_cadence_tests.rs	2
 crates/kirin_measure/src/attack_observation_worker_tests.rs	2
 crates/kirin_measure/src/attack_runtime_tests.rs	6

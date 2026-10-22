@@ -38,7 +38,7 @@ impl KirinHyphaEngine {
         let Ok(mut watch_max) = self.watch_max.lock() else {
             return false;
         };
-        session.reset();
+        self.record_sm.reset_meter_session(&mut session);
         watch_max.reset();
         if let Some(publication) = self.meter_session_publication.as_ref() {
             publication.publish(session.snapshot());

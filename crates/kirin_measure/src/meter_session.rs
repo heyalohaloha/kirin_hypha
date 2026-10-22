@@ -306,6 +306,7 @@ impl MeterSession {
                             && clock.presentation_latency.input.is_some()
                             && clock.presentation_latency.output.is_some(),
                         clock_origin: self.time.clock_origin(),
+                        playback_start: clock.playback_start,
                         crest: current.crest,
                         values: [
                             current.lufs_m,

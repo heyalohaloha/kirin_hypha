@@ -25,6 +25,9 @@ fn push(
     latency: PresentationLatencySamples,
     audio: &[f64],
 ) {
+    if received == 0 {
+        tracker.note_transport_start(raw);
+    }
     tracker.note_capture_window_with_clocks_boundary(
         true,
         raw,
@@ -40,6 +43,9 @@ fn push(
     assert!(session.push_active_at(
         audio,
         MeterClockStart {
+            playback_start: tracker.transport_start_before(received).and_then(|raw| {
+                crate::record_take::wav_presentation_position_samples(raw, latency.output)
+            }),
             position_samples: Some(point.position_samples - 1),
             epoch: Some(point.epoch),
             source: point.source,

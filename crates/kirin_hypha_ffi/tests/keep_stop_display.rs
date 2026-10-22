@@ -164,8 +164,13 @@ fn keep_then_stop(plugin_data: &Path, tag: &str, keep: Keep) {
         played += 1;
     }
     host.arm(&pre, &post, LOUD);
+    let mark = host.mark();
     for _ in 0..SIGNAL_BLOCKS {
-        callback(&mut host, &pre, &post, LOUD, false);
+        if matches!(keep, Keep::Signal) {
+            host.play_measured(&pre, &post, 0.0, &mark);
+        } else {
+            callback(&mut host, &pre, &post, LOUD, false);
+        }
     }
     match keep {
         Keep::Signal => {}
@@ -220,6 +225,22 @@ fn keep_then_stop(plugin_data: &Path, tag: &str, keep: Keep) {
         RecordDisplayStatus::Finalized,
         "{tag}: a closed Keep shows its result, never RECORD FINALIZING"
     );
+    if matches!(keep, Keep::Signal) {
+        let delta = shown
+            .delta
+            .as_ref()
+            .expect("the paired Keep carries a delta");
+        eprintln!(
+            "changing-peak result: {:?}",
+            [delta.lufs, delta.tp, delta.crest, delta.psr]
+        );
+        for value in [delta.lufs, delta.tp, delta.crest, delta.psr] {
+            assert!(
+                value.is_some_and(|v| v.abs() < 1e-6),
+                "identical windows have zero delta: {value:?}"
+            );
+        }
+    }
     assert!(
         shown.summary.and_then(|summary| summary.lufs_i).is_some(),
         "{tag}: the result carries the Keep's integrated loudness"
