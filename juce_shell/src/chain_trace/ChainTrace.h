@@ -17,7 +17,7 @@ struct Row
 {
     std::uint64_t serial = 0, localFrames = 0, entryNanos = 0, exitNanos = 0, reset = 0;
     double rate = 0;
-    int role = 0, wrapper = 0, frames = 0, channels = 0;
+    int role = 0, wrapper = 0, frames = 0, channels = 0, precisionBits = 32;
     bool bypassed = false, offline = false, wallGap = false, outputTaken = false;
     bool blockSeen = false, timingSeen = false, renderSeen = false, feed = false;
     bool active = false, selected = false, blind = false, contentHeld = false;

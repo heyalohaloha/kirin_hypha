@@ -43,7 +43,7 @@ static void writer (const std::filesystem::path& parent)
     const float* input[] { left, right };
     rt = true;
     auto* r = recorder->begin (input, 2, 4); assert (r != nullptr);
-    r->role = 0; r->rate = 48000; r->host.hasPosition = true;
+    r->role = 0; r->rate = 48000; r->precisionBits = 64; r->host.hasPosition = true;
     recorder->finish (input);
     assert (recorder->begin (input, 2, 8193) == nullptr);
     recorder->finish (input);
@@ -56,6 +56,7 @@ static void writer (const std::filesystem::path& parent)
         if (!std::filesystem::exists (metaPath)) continue;
         std::ifstream file (metaPath); const std::string text ((std::istreambuf_iterator<char> (file)), {});
         assert (text.find ("\"dropped\":1") != std::string::npos);
+        assert (text.find ("\"precisionBits\":64") != std::string::npos);
         std::ifstream pcm (entry.path() / "audio.f32", std::ios::binary);
         float observed[16] {}; pcm.read (reinterpret_cast<char*> (observed), sizeof (observed));
         assert (pcm.gcount() == sizeof (observed));

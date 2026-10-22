@@ -1,6 +1,7 @@
 #include "HyphaReferenceStatusModel.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaReferenceRuntimeView.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceStages.h"
 #include "HyphaTheme.h"
@@ -16,6 +17,11 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
                      : state.blindPhase == BlindPhase::starting || ! state.transportPlaying ? StatusKind::waiting
                      : StatusKind::ready,
                  state.status };
+    const auto& formatCode = state.comparisonSlot == 1 ? state.versionRejectionCode
+        : state.comparisonSlot == 3 ? state.referenceRejectionCode : state.checkRejectionCode;
+    if (state.readiness == Readiness::rejected
+        && runtime_view::formatUnreadableCode (formatCode))
+        return {StatusKind::unable, runtime_view::rejectedStatus (formatCode)};
     // 2026-10-03（R-12）：上限超えで、承認すれば A を下げて合わせられる（直し方はアクションの LOWER A）。
     if (state.action.kind == ActionKind::lowerAAndPlay && state.action.offer.slot == state.comparisonSlot)
         return { StatusKind::unable, state.status };

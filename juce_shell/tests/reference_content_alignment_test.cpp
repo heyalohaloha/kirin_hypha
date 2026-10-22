@@ -9,6 +9,7 @@
 
 void testReferenceContentAlignment (const juce::File& sandbox)
 {
+    testReferenceMonoVersion (sandbox);
     const auto unicode = juce::JSON::parse (juce::String::fromUTF8 (R"({"name":"低音","literal":"\\u4f4e","line":"\n","value":-0.0})"));
     require (ref::RuntimeEventTransport::canonicalJson (unicode) == juce::String::fromUTF8 (
         R"({"line":"\n","literal":"\\u4f4e","name":"低音","value":0})"), "Japanese labels and literal escapes must have the same canonical bytes in C++ and Kirin OS");

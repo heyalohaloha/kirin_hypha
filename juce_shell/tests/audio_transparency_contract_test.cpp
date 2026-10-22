@@ -5,6 +5,9 @@
 #endif
 
 #include <array>
+#include <cmath>
+#include <type_traits>
+#include <stdexcept>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -26,10 +29,10 @@ constexpr int maximumBlockSize = 1'024;
 constexpr int passesPerConfiguration = 16;
 constexpr std::array<int, 6> blockSizes { 1, 17, 64, 255, 512, maximumBlockSize };
 
+// All callers run synchronously on the hosting thread; unwinding releases isolated storage.
 [[noreturn]] void fail (const std::string& message)
 {
-    std::cerr << "Audio transparency contract failed: " << message << '\n';
-    std::exit (EXIT_FAILURE);
+    throw std::runtime_error ("Audio transparency contract failed: " + message);
 }
 
 class ContractPlayHead final : public juce::AudioPlayHead
@@ -53,9 +56,12 @@ private:
     int64_t samplePosition = 0;
 };
 
-uint32_t sampleBits (float value) noexcept
+template <typename Sample>
+using SampleBits = std::conditional_t<sizeof (Sample) == 8, uint64_t, uint32_t>;
+template <typename Sample>
+SampleBits<Sample> sampleBits (Sample value) noexcept
 {
-    uint32_t bits = 0;
+    SampleBits<Sample> bits = 0;
     static_assert (sizeof (bits) == sizeof (value));
     std::memcpy (&bits, &value, sizeof (bits));
     return bits;
@@ -83,6 +89,7 @@ std::unique_ptr<juce::AudioPluginInstance> createInstance (
     return instance;
 }
 
+template <typename Sample>
 void verifyConfiguration (juce::AudioPluginFormat& format,
                           const juce::PluginDescription& description,
                           int channels,
@@ -102,7 +109,10 @@ void verifyConfiguration (juce::AudioPluginFormat& format,
         fail (description.name.toStdString() + " did not expose matching I/O");
 
     instance->setNonRealtime (offline);
-    instance->setProcessingPrecision (juce::AudioProcessor::singlePrecision);
+    constexpr bool isDouble = std::is_same_v<Sample, double>;
+    if (isDouble && ! instance->supportsDoublePrecisionProcessing())
+        fail (description.name.toStdString() + " did not negotiate double precision");
+    instance->setProcessingPrecision (isDouble ? juce::AudioProcessor::doublePrecision : juce::AudioProcessor::singlePrecision);
     instance->prepareToPlay (contractSampleRateHz, maximumBlockSize);
     if (instance->getLatencySamples() != 0)
         fail (description.name.toStdString() + " reported non-zero latency");
@@ -120,15 +130,17 @@ void verifyConfiguration (juce::AudioPluginFormat& format,
     {
         for (const auto frames : blockSizes)
         {
-            juce::AudioBuffer<float> buffer (channels, frames);
-            std::vector<uint32_t> expected;
+            juce::AudioBuffer<Sample> buffer (channels, frames);
+            std::vector<SampleBits<Sample>> expected;
             expected.reserve (static_cast<size_t> (channels * frames));
             for (int channel = 0; channel < channels; ++channel)
             {
                 auto* samples = buffer.getWritePointer (channel);
                 for (int frame = 0; frame < frames; ++frame)
                 {
-                    samples[frame] = contractSample (channel, frame, blockIndex);
+                    const auto value = contractSample (channel, frame, blockIndex);
+                    if constexpr (isDouble) samples[frame] = std::nextafter (static_cast<double> (value), 1.0);
+                    else samples[frame] = value;
                     expected.push_back (sampleBits (samples[frame]));
                 }
             }
@@ -167,7 +179,7 @@ void verifyConfiguration (juce::AudioPluginFormat& format,
         fail (description.name.toStdString() + " changed latency after processing");
 
     std::cout << "PASS " << description.name << ' '
-              << channels << "ch " << (offline ? "offline" : "realtime")
+              << sizeof (Sample) * 8 << "bit " << channels << "ch " << (offline ? "offline" : "realtime")
               << " samples=" << verifiedSamples << " latency=0 bit-identical\n";
 }
 
@@ -317,9 +329,12 @@ void verifyBundle (juce::AudioPluginFormat& format,
         fail ("expected one component in " + path.toStdString() + ", found "
               + std::to_string (descriptions.size()));
 
-    verifyConfiguration (format, *descriptions[0], 2, false);
-    verifyConfiguration (format, *descriptions[0], 2, true);
-    verifyConfiguration (format, *descriptions[0], 1, false);
+    verifyConfiguration<float> (format, *descriptions[0], 2, false);
+    verifyConfiguration<float> (format, *descriptions[0], 2, true);
+    verifyConfiguration<float> (format, *descriptions[0], 1, false);
+    if (std::string (formatName) == "VST3")
+        for (int channels : {1, 2}) for (bool offline : {false, true})
+            verifyConfiguration<double> (format, *descriptions[0], channels, offline);
     // Exact 5.1 is held back from the wrappers until surround acceptance (INV-S33).
     verifyRejectedConfiguration (
         format, *descriptions[0], juce::AudioChannelSet::create5point1(), "5.1");
@@ -333,6 +348,7 @@ void verifyBundle (juce::AudioPluginFormat& format,
 } // namespace
 
 int main (int argc, char* argv[])
+try
 {
     if (argc != 3 && argc != 5)
         fail ("usage: KirinAudioTransparencyContractTests <PRE.vst3> <POST.vst3> "
@@ -377,4 +393,9 @@ int main (int argc, char* argv[])
 
     std::cout << "PASS PRE/POST audio transparency contract\n";
     return EXIT_SUCCESS;
+}
+catch (const std::exception& error)
+{
+    std::cerr << error.what() << '\n';
+    return EXIT_FAILURE;
 }

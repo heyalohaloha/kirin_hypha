@@ -1,8 +1,9 @@
+#include "ReferenceControllerTestAccess.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
-
+#include "ReferenceWholeSongInputClock.h"
 #include <cmath>
 
 namespace
@@ -11,39 +12,34 @@ juce::var calibrationReceipt (ref::ReferenceComparisonController& controller, co
                               const juce::File& root, int host = 0)
 {
     controller.observeTransport (host, true, true);
-    juce::Thread::sleep (100);
+    hypha::tests::reference_control::await ([&] { return controller.snapshot().blindEligible; }, "Version preparation completes before Blind");
     const auto before = root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json");
     require (controller.startBlind (-22, -6), "calibrated Version Blind starts");
     juce::AudioBuffer<float> input (2, 1024);
     for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, 0, 1024);
     require (controller.renderSelectedB (input, host, true, true, true), "confirm calibration receipt on actual audio callback");
     juce::var trial;
-    for (int i = 0; i < 200 && trial.isVoid(); ++i)
-    {
-        controller.observeTransport (host, true, true); juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] {
+        controller.observeTransport (host, true, true);
         for (const auto& file : root.getChildFile ("library/events").findChildFiles (juce::File::findFiles, true, "*.json"))
             if (!before.contains (file))
             {
                 const auto event = juce::JSON::parse (file);
                 if (event["event_type"] == "blind_compare_started") trial = event["payload"]["trial_start"];
             }
-    }
-    require (!trial.isVoid(), "read immutable accepted calibration");
+        return ! trial.isVoid();
+    }, "read immutable accepted calibration");
     require (! controller.aInputFeeding(), "A is not handed to the observation while the Version Blind runs");
     controller.observeTransport (0, false, false); controller.endBlind();
     // 2026-10-04：終了の時点では V がまだ出力を持つ（A へ戻す途中）。そのあいだも、戻し終えた後も、
     // A は観測へ戻る（戻らないと V の画面が空、B・C の A の値が止まる）。
     require (controller.aInputFeeding(), "A goes back to the observation as soon as the Version Blind is ended");
-    juce::Thread::sleep (100);
     controller.observeAInput (input, 0, false, false, true);
-    bool drained = false;
-    for (int i = 0; i < 500; ++i)
-    {
-        controller.observeTransport (0, false, false); juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] {
+        controller.observeTransport (0, false, false);
         const auto state = controller.snapshot();
-        if (!state.aCaptureAvailable && state.blindPhase == ref::BlindPhase::inactive) { drained = true; break; }
-    }
-    require (drained, "paused capture discontinuity is consumed before the next exact four-second observation");
+        return ! state.aCaptureAvailable && state.blindPhase == ref::BlindPhase::inactive;
+    }, "paused capture discontinuity is consumed before the next exact four-second observation");
     require (controller.aInputFeeding(), "A stays with the observation after the Version Blind has returned its output");
     return trial;
 }
@@ -52,43 +48,55 @@ void feedPassage (ref::ReferenceComparisonController& controller, const WholeSon
                   int sourceStart, int hostStart, float gain, const char* label,
                   bool duringBlind = false)
 {
+    namespace control = hypha::tests::reference_control;
+    const auto& version = control::roleFor (controller, {1});
+    const auto& capture = control::captureFor (version, {});
+    const auto previous = capture.currentAudio();
     juce::AudioBuffer<float> input (2, 256);
-    bool observedNewCapture = false;
-    for (int attempt = 0; attempt < 3; ++attempt)
+    // Consume the seek discontinuity before the exact passage. Otherwise its
+    // first queued block can be discarded with the previous capture on a slow worker.
+    input.clear();
+    controller.observeAInput (input, hostStart, false, false, true);
+    control::await ([&] {
+        controller.observeTransport (hostStart, true, true);
+        return ! controller.snapshot().aCaptureAvailable
+            && ! capture.currentAudio() && capture.observationQueueDrained();
+    }, "the preceding capture retires before a new passage starts");
+    const auto origin = std::chrono::steady_clock::now();
+    // Four seconds is the observation's content length, not a completion budget.
+    for (int frame = 0; frame < 192000; frame += 256)
     {
-        for (int frame = 0; frame < 192000; frame += 256)
-        {
-            for (int c = 0; c < 2; ++c)
-                input.copyFrom (c, 0, fixture.audio, c, sourceStart + frame, 256);
-            input.applyGain (gain);
-            controller.observeTransport (hostStart + frame, true, true);
-            controller.observeAInput (input, hostStart + frame, true, true, true);
-            if ((frame % 8192) == 0)
-                observedNewCapture = observedNewCapture
-                    || controller.snapshot().aCaptureAvailable;
-            juce::Thread::sleep (8);
-        }
-        for (int i = 0; i < 500; ++i)
-        {
-            controller.observeTransport (hostStart + 191744, true, true);
-            juce::Thread::sleep (10);
-            const auto state = controller.snapshot();
-            observedNewCapture = observedNewCapture || state.aCaptureAvailable;
-            if (duringBlind ? state.blindPhase == ref::BlindPhase::invalidated
-                            : observedNewCapture && state.versionReady)
-                return;
-        }
-        const auto state = controller.snapshot();
-        std::cerr << "calibration observation retry label=" << label
-                  << " attempt=" << (attempt + 1)
-                  << " capture=" << state.aCaptureAvailable
-                  << " capture_seen=" << observedNewCapture
-                  << " version_ready=" << state.versionReady
-                  << " gain_db=" << state.appliedGainDb
-                  << " blind_phase=" << static_cast<int> (state.blindPhase)
-                  << " rejection=" << state.rejectionCode << '\n';
+        if (frame % 2048 == 0)
+            control::await ([&] {
+                for (int role = 1; role <= 3; ++role)
+                    if (! control::captureFor (control::roleFor (controller, {role}), {})
+                            .observationQueueDrained()) return false;
+                return true;
+            }, "capture consumers acknowledge input before the next burst");
+        for (int c = 0; c < 2; ++c)
+            input.copyFrom (c, 0, fixture.audio, c, sourceStart + frame, 256);
+        input.applyGain (gain);
+        controller.observeTransport (hostStart + frame, true, true);
+        controller.observeAInput (input, hostStart + frame, true, true, true);
+        const auto due = origin + std::chrono::microseconds (
+            static_cast<std::int64_t> (frame + 256) * 1000000 / 48000);
+        if (std::chrono::steady_clock::now() < due) std::this_thread::sleep_until (due);
     }
-    require (false, "new observation must finish acoustic calibration");
+    const bool completed = control::waitUntil (
+        std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+            controller.observeTransport (hostStart + 191744, true, true);
+            const auto state = controller.snapshot();
+            const auto audio = capture.currentAudio();
+            if (! audio || audio == previous || audio->startSample != hostStart) return false;
+            if (duringBlind) return state.blindPhase == ref::BlindPhase::invalidated;
+            const auto calibrated = control::calibrationFor (version, {});
+            return state.versionReady && state.aCaptureAvailable && calibrated.eligible
+                && calibrated.aStartSample == hostStart && calibrated.bStartSample == sourceStart
+                && calibrated.aCuePcmSha256 == audio->cuePcmSha256;
+        });
+    if (! completed)
+        std::cerr << "calibration stalled label=" << label << " rejection=" << controller.snapshot().rejectionCode << '\n';
+    require (completed, "new observation must finish acoustic calibration");
 }
 
 void observationBoundaries()
@@ -132,13 +140,16 @@ std::unique_ptr<ref::ReferenceComparisonController> calibratedController (const 
     controller.restoreSettings (legacy);
     controller.configure ({ "calibration-post", {}, 42, true }, 48000, 2);
     controller.setPresented (true);
-    for (int i = 0; i < 500 && controller.snapshot().versions.empty(); ++i) juce::Thread::sleep (10);
+    require (hypha::tests::reference_control::waitUntil (
+        std::chrono::steady_clock::now() + std::chrono::minutes (5),
+        [&] { return ! controller.snapshot().versions.empty(); }), "the Version catalog publishes");
     require (controller.snapshot().versions.size() == 1 && controller.snapshot().checkSelection->checkTargets.empty(),
              "B remains selectable without any C checks");
     require (!controller.snapshot().bSelected, "legacy restoration never auto-auditions");
     int position = 0;
-    for (int i = 0; i < 1200 && !controller.snapshot().versionReady; ++i)
-    { observeWholeSongFixture (controller, fixture, position); juce::Thread::sleep (10); }
+    WholeSongInputClock clock;
+    require (clock.waitFor (controller, fixture, position,
+        [] (const auto& state) { return state.versionReady; }), "Version calibration worker completes");
     if (!controller.snapshot().versionReady) {
         const auto state = controller.snapshot();
         std::cerr << "migration/calibration state: " << state.selectedVersionId << " / " << state.presetId << "/" << state.checkId << "/" << state.candidateId
@@ -155,15 +166,17 @@ void versionBlindReloadEnds (const juce::File& sandbox)
     auto owned = calibratedController (sandbox.getChildFile ("calibration-reload"), fixture);
     auto& controller = *owned;
     controller.observeTransport (0, true, true);
-    juce::Thread::sleep (100);
+    hypha::tests::reference_control::await ([&] { return controller.snapshot().blindEligible; }, "Version preparation completes before Blind");
     require (controller.startBlind (-22, -6), "a Version Blind that a state reload ends");
     juce::AudioBuffer<float> input (2, 1024);
     for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, 0, 1024);
     require (controller.renderSelectedB (input, 0, true, true, true), "the reloaded trial is heard");
     controller.restoreSettings (controller.savedSettings());
     require (! controller.reserveLocalBlind(), "another Blind waits until V has returned its output");
-    for (int i = 0; i < 500 && (controller.snapshot().blindPhase != ref::BlindPhase::inactive || ! controller.aInputFeeding()); ++i)
-    { controller.observeTransport (0, false, false); controller.servicePendingAudition (-23.0, -6.0, false); juce::Thread::sleep (10); }
+    hypha::tests::reference_control::await ([&] {
+        controller.observeTransport (0, false, false); controller.servicePendingAudition (-23.0, -6.0, false);
+        return controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding();
+    });
     require (controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding(),
              "A goes back to the observation when a state reload ends the Version Blind");
     require (controller.reserveLocalBlind(), "the Blind slot is free once V has returned its output");
@@ -238,7 +251,7 @@ void versionBlindWaitsForReturn (const juce::File& sandbox)
         observeWholeSongFixture (controller, fixture, position);
         controller.renderSelectedB (output, at, true, true, true);
     };
-    for (int i = 0; i < 1500 && ! controller.snapshot().referenceReady; ++i) { host(); juce::Thread::sleep (10); }
+    hypha::tests::reference_control::await ([&] { host(); return controller.snapshot().referenceReady; });
     require (controller.snapshot().referenceReady && controller.snapshot().versionReady, "the quiet B song prepares next to V");
     require (! controller.requestAudition (3, -10.0, -12.0), "a B MATCH over the ceiling does not play B");
     const auto needed = controller.snapshot().referenceSelection->neededAttenuationDb;
@@ -290,7 +303,7 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     require (static_cast<int> (moved["calibration"]["a"]["start_sample"]) == gainedA + 48000
         && static_cast<int> (moved["calibration"]["b"]["start_sample"]) == gainedB,
         "identical PCM moved by one second receives a new host/source map");
-    controller.observeTransport (gainedA + 48000, true, true); juce::Thread::sleep (100);
+    controller.observeTransport (gainedA + 48000, true, true); hypha::tests::reference_control::await ([&] { return controller.snapshot().blindEligible; }, "Version preparation completes before Blind");
     require (controller.startBlind (-28, -12), "start trial before another live A edit");
     juce::AudioBuffer<float> trialInput (2, 256); trialInput.clear();
     require (controller.renderSelectedB (trialInput, gainedA + 48000, true, true, true), "arm active trial on audio callback");
@@ -298,7 +311,7 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
                  "blind-live-edit", true);
     require (!controller.answerBlind (1), "changed A cannot produce a valid Blind answer");
     controller.observeTransport (0, false, false); controller.endBlind();
-    for (int i = 0; i < 500 && controller.snapshot().blindPhase != ref::BlindPhase::inactive; ++i) juce::Thread::sleep (10);
+    hypha::tests::reference_control::await ([&] { return ! (controller.snapshot().blindPhase != ref::BlindPhase::inactive); });
     require (controller.snapshot().blindPhase == ref::BlindPhase::inactive, "invalidated trial still has an END exit");
     require (controller.aInputFeeding(), "A goes back to the observation after an invalidated trial is ended");
     // VERSION BLIND が END を通らずに終わっても、A は観測へ戻り、ほかの Blind を締め出したままにしない。
@@ -306,9 +319,10 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     {
         // Blind が終わると V の位置合わせはやり直しになる。ほかの試験と同じく、始める前に A の区間を流す。
         feedPassage (controller, fixture, gainedB, gainedA + 48000, 0.5f, what);
-        for (int i = 0; i < 300 && ! controller.snapshot().versionReady; ++i)
-        { controller.observeTransport (gainedA + 48000, true, true); juce::Thread::sleep (10); }
-        controller.observeTransport (gainedA + 48000, true, true); juce::Thread::sleep (100);
+        hypha::tests::reference_control::await ([&] {
+            controller.observeTransport (gainedA + 48000, true, true); return controller.snapshot().versionReady;
+        });
+        controller.observeTransport (gainedA + 48000, true, true); hypha::tests::reference_control::await ([&] { return controller.snapshot().blindEligible; }, "Version preparation completes before Blind");
         if (! controller.startBlind (-28, -12))
         {
             const auto state = controller.snapshot();
@@ -322,8 +336,10 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     require (! controller.aInputFeeding(), "A pauses while the Version Blind starts");
     juce::AudioBuffer<float> bypassed (2, 256); bypassed.clear();
     controller.renderSelectedB (bypassed, gainedA + 48000, true, false, true);
-    for (int i = 0; i < 500 && (controller.snapshot().blindPhase != ref::BlindPhase::inactive || ! controller.aInputFeeding()); ++i)
-    { controller.observeTransport (gainedA + 48000, true, true); controller.servicePendingAudition (-23.0, -6.0, true); juce::Thread::sleep (10); }
+    hypha::tests::reference_control::await ([&] {
+        controller.observeTransport (gainedA + 48000, true, true); controller.servicePendingAudition (-23.0, -6.0, true);
+        return controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding();
+    });
     require (controller.snapshot().blindPhase == ref::BlindPhase::inactive && controller.aInputFeeding(),
              "A goes back to the observation when a Version Blind ends before it is heard");
     require (controller.reserveLocalBlind(), "the Blind slot is free after an unheard Version Blind");

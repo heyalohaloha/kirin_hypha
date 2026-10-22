@@ -1,5 +1,6 @@
 #pragma once
-
+#include "ReferenceControllerTestAccess.h"
+#include "ReferenceWholeSongInputClock.h"
 // 2026-10-06：V の AUTO は V の選択だけを替える（INV-S51）。V が鳴っている・押して待っているあいだは V を替えず、
 // 鳴っているほかの役（C）を止めない。AUTO が選んだことは DAW の曲に保存され、開き直しても AUTO のまま（手で選べば
 // AUTO は替えない）。
@@ -38,7 +39,7 @@ void verifyReferenceAutoVersionSafety (const juce::File& sandbox)
         controller.renderSelectedB (block, 0, true, true, true);
     };
     const auto wait = [&] (const auto& condition, const char* what) {
-        for (int i = 0; i < 1500; ++i) { if (condition (controller.snapshot())) return; juce::Thread::sleep (10); }
+        if (hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] { return condition (controller.snapshot()); })) return;
         require (false, what);
     };
     host (false);
@@ -55,14 +56,9 @@ void verifyReferenceAutoVersionSafety (const juce::File& sandbox)
         ref::ReferenceComparisonController reopened (root);
         reopened.restoreSettings (read);
         reopened.configure ({ "auto-safety-reopened", {}, 43, true }, 48000, 2);
-        bool restored = false;
-        for (int i = 0; i < 1500 && ! restored; ++i)
-        {
-            const auto s = reopened.snapshot();
-            restored = s.versionAuto && s.selectedVersionId == autoId;
-            if (! restored) juce::Thread::sleep (10);
-        }
-        require (restored, "a reopened Hypha keeps the Version as AUTO's choice");
+        hypha::tests::reference_control::await ([&] {
+            const auto state = reopened.snapshot(); return state.versionAuto && state.selectedVersionId == autoId;
+        }, "a reopened Hypha keeps the Version as AUTO's choice");
         auto manual = read;
         manual.versionAuto = false;
         juce::XmlElement manualXml ("STATE");
@@ -73,8 +69,9 @@ void verifyReferenceAutoVersionSafety (const juce::File& sandbox)
     // V が鳴っているあいだ、AUTO は V を替えない。
     wait ([] (const auto& s) { return s.versionArmable; }, "AUTO's Version can be prepared");
     int cursor = 0;
-    for (int i = 0; i < 1500 && ! controller.snapshot().versionReady; ++i)
-    { observeWholeSongFixture (controller, fixture, cursor); juce::Thread::sleep (10); }
+    WholeSongInputClock clock;
+    require (clock.waitFor (controller, fixture, cursor,
+        [] (const auto& state) { return state.versionReady; }), "Version calibration worker completes");
     require (controller.snapshot().versionReady, "AUTO's Version has verified content correspondence");
     require (controller.requestAudition (1, -28, -12) && controller.snapshot().audibleComparisonSlot == 1, "V plays AUTO's Version");
     require (! controller.selectVersion (autoId, true) && controller.snapshot().audibleComparisonSlot == 1

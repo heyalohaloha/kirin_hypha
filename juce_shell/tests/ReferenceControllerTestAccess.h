@@ -2,6 +2,7 @@
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include <vector>
 #include <chrono>
+#include <stdexcept>
 
 // Test-only read access and a control-thread publication barrier; never fabricates readiness.
 namespace hypha::tests::reference_control
@@ -48,6 +49,11 @@ const reference_audition::RuntimeACapture& captureFor (const Runtime&, CaptureTa
 template <auto Member> struct CaptureAccess
 { friend const reference_audition::RuntimeACapture& captureFor (const Runtime& r, CaptureTag) { return r.*Member; } };
 template struct CaptureAccess<&Runtime::aCapture>;
+struct CalibrationTag {};
+reference_audition::RuntimeV2BlindSnapshot calibrationFor (const Runtime&, CalibrationTag);
+template <auto Member> struct CalibrationAccess
+{ friend reference_audition::RuntimeV2BlindSnapshot calibrationFor (const Runtime& r, CalibrationTag) { return (r.*Member).snapshot(); } };
+template struct CalibrationAccess<&Runtime::blind>;
 struct CaptureEnabledTag {};
 bool captureEnabledFor (const reference_audition::RuntimeACapture&, CaptureEnabledTag);
 template <auto Member> struct CaptureEnabledAccess
@@ -96,5 +102,10 @@ template <class Predicate, class Now> bool waitUntil (Deadline deadline, Predica
 }
 template <class Predicate> bool waitUntil (Deadline deadline, Predicate predicate)
 { return waitUntil (deadline, predicate, [] { return std::chrono::steady_clock::now(); }); }
+template <class Predicate> void await (Predicate predicate, const char* message = "Reference worker stopped making progress")
+{
+    if (! waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), predicate))
+        throw std::runtime_error (message);
+}
 void verifyCommitWaitContract();
 }

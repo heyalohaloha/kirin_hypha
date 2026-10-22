@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 // 2026-10-03（R-12）：B・C・V の MATCH が上限（True Peak）を超えるとき、承認すれば A（POST の
 // 出力全体）を差だけ下げて合わせる。参照は元の音量のまま。下げ終わってから参照を鳴らし（一瞬大きく聴こえない）、
 // 試聴の後も RETURN まで下げたまま、RETURN は役を止めてから 0.5 秒で上げる。書き出し・bypass には掛けない。
@@ -7,7 +8,6 @@
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
 #include <functional>
-
 void testReferenceLowerA (const juce::File&);
 
 namespace
@@ -182,18 +182,16 @@ void testReferenceLowerA (const juce::File& sandbox)
         position += block.getNumSamples();
         return rendered;
     };
-    // 作業スレッドを待つ：条件が満ちるまでブロックを流して待ちを回す（期限 10 秒。決まった回数の sleep に頼らない）。
+    // 作業スレッドの通知を待つ。止まった場合だけ watchdog で打ち切る。
     bool sounded = false;  // 最後のブロックで役が鳴ったか
     const auto until = [&] (const auto& condition, const char* what, bool playing = true)
     {
-        const auto deadline = juce::Time::getMillisecondCounter() + 10'000;
-        while (! condition())
-        {
-            require (juce::Time::getMillisecondCounter() < deadline, what);
+        hypha::tests::reference_control::await ([&] {
+            if (condition()) return true;
             sounded = host (true, playing);
             controller.servicePendingAudition (-10.0, -12.0, true);
-            juce::Thread::sleep (1);
-        }
+            return condition();
+        }, what);
     };
     until ([&] { const auto s = controller.snapshot(); return s.referenceReady && s.checkReady; }, "the quiet B song prepares");
 
@@ -304,16 +302,14 @@ void testReferenceLowerA (const juce::File& sandbox)
     const auto lowered = static_cast<float> (aLevel * std::pow (10.0, -8.0 / 20.0));
     int blocks = 0;
     float aBeforeB = aLevel;
-    const auto deadline = juce::Time::getMillisecondCounter() + 10'000;
-    while (controller.snapshot().audibleComparisonSlot != 3)
-    {
-        require (juce::Time::getMillisecondCounter() < deadline, "the approved B plays");
+    hypha::tests::reference_control::await ([&] {
+        if (controller.snapshot().audibleComparisonSlot == 3) return true;
         host();
         ++blocks;
         aBeforeB = block.getSample (0, 479);
         controller.servicePendingAudition (-10.0, -12.0, true);
-        juce::Thread::sleep (1);
-    }
+        return controller.snapshot().audibleComparisonSlot == 3;
+    }, "the approved B plays");
     require (blocks >= 4 && closeTo (aBeforeB, lowered), "B is chosen only after A has settled lower");
     host(); host();
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), songLevel),
@@ -425,12 +421,12 @@ void testReferenceLowerA (const juce::File& sandbox)
     // 流して少し待ちながら呼び直す。下げ幅が変わった（または止まった）ところで抜けるので、余計には下げない。
     const auto serviceUntil = [&] (double loudness, const std::function<bool()>& done)
     {
-        for (int attempt = 0; attempt < 400 && ! done(); ++attempt)
-        {
+        hypha::tests::reference_control::await ([&] {
+            if (done()) return true;
             for (int index = 0; index < 8; ++index) host();
             controller.servicePendingAudition (loudness, -12.0, true);
-            if (! done()) juce::Thread::sleep (5);
-        }
+            return done();
+        });
     };
     for (const auto& [loudness, held] : { std::pair { -14.0, -4.0 }, std::pair { -12.0, -6.0 } })
     {

@@ -13,6 +13,7 @@ export const SHORT_SLEEP_LIMIT_MS = 50;
 
 const CPP = /sleep_for\s*\(\s*std::chrono::(milliseconds|microseconds|nanoseconds)\s*\(\s*(\d+)\s*\)\s*\)/g;
 const CPP_LITERAL = /sleep_for\s*\(\s*(\d+)\s*(ms|us|ns)\s*\)/g;
+const JUCE = /(?:juce::)?Thread::sleep\s*\(\s*(\d+)\s*\)/g;
 const RUST = /sleep\s*\(\s*(?:std::time::)?Duration::from_(millis|micros|nanos)\s*\(\s*(\d+)\s*\)\s*\)/g;
 const toMs = { milliseconds: 1, ms: 1, millis: 1, microseconds: 1e-3, us: 1e-3, micros: 1e-3,
   nanoseconds: 1e-6, ns: 1e-6, nanos: 1e-6 };
@@ -32,6 +33,8 @@ export function countShortSleeps(text) {
       if (amount * toMs[unit] <= SHORT_SLEEP_LIMIT_MS) count++;
     }
   }
+  for (const match of text.matchAll(JUCE))
+    if (Number(match[1]) <= SHORT_SLEEP_LIMIT_MS) count++;
   return count;
 }
 

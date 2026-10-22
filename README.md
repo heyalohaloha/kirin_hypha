@@ -951,7 +951,7 @@ A refused start says why and changes nothing.
 A stop or seek keeps the selection: the same source returns at the same gain once it is ready again,
 as in the live PRE/POST compare. An offline render, a local Blind or starting the live PRE/POST
 compare clears that held selection, so nothing returns on its own afterwards. Sample-rate conversion
-of the audition copy is automatic (the source file is never changed). On B and C, a mono source on a
+of the audition copy is automatic (the source file is never changed). On B, C and V (and Version Blind), a mono source on a
 stereo track plays its one channel on both sides, unchanged. Two equal channels read 3.01 LU louder
 (BS.1770) than the mono file Kirin OS measured, so MATCH, following and the gains shown before the
 role plays add 3.01 LU to Kirin OS's value; the LUFS-I figures still show Kirin OS's value. A stereo

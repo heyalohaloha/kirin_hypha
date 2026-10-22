@@ -1,5 +1,5 @@
 #pragma once
-
+#include "ReferenceControllerTestAccess.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceRuntimeV2PlaybackIdentity.h"
 
@@ -122,15 +122,16 @@ namespace
                  && writeJson (manifestFile, makeRuntimeV2Manifest (
                      presetId, revisionId, presetFile, nextRevision)),
                  "unrelated Check and B options must publish before refresh");
-        for (int attempt = 0; attempt < 400
-             && controller.snapshot().manifestRevision != nextRevision; ++attempt)
-        {
-            if (attempt % 100 == 0) renewA();
+        auto nextRenewal = std::chrono::steady_clock::now();
+        hypha::tests::reference_control::await ([&] {
+            if (controller.snapshot().manifestRevision == nextRevision) return true;
+            if (std::chrono::steady_clock::now() >= nextRenewal)
+            { renewA(); nextRenewal = std::chrono::steady_clock::now() + std::chrono::seconds (1); }
             controller.observeTransport (hostPosition, true, true);
             output.clear();
             controller.renderSelectedB (output, hostPosition, true);
-            juce::Thread::sleep (10);
-        }
+            return controller.snapshot().manifestRevision == nextRevision;
+        });
         const auto after = controller.snapshot();
         std::cout << "refresh revision " << before.manifestRevision << " -> " << after.manifestRevision
                   << ", checks/candidates " << after.checks.size() << "/" << after.candidates.size()
@@ -179,8 +180,7 @@ namespace
         ref::RuntimeV2Controller controller (root);
         controller.observeTransport (a->startSample, true, true);
         controller.configure (identity, 48'000, 2);
-        for (int attempt = 0; attempt < 400 && ! controller.snapshot().aBindingAvailable; ++attempt)
-            juce::Thread::sleep (10);
+        hypha::tests::reference_control::await ([&] { return ! (! controller.snapshot().aBindingAvailable); });
         for (std::int64_t offset = 0; offset < a->frameCount; offset += 8'192)
         {
             const auto count = static_cast<int> (std::min<std::int64_t> (8'192, a->frameCount - offset));
@@ -192,12 +192,15 @@ namespace
             controller.observeAInput (input, a->startSample + offset, true, true, true);
             juce::Thread::sleep (12);
         }
-        for (int attempt = 0; attempt < 1'200 && ! controller.snapshot().blindEligible; ++attempt)
-        {
-            if (attempt % 200 == 0)
+        auto nextRenewal = std::chrono::steady_clock::now();
+        hypha::tests::reference_control::await ([&] {
+            if (std::chrono::steady_clock::now() >= nextRenewal)
+            {
                 require (renewRuntimeABinding (bindingFile, identity, recordingId), "isolated lease must renew");
-            juce::Thread::sleep (10);
-        }
+                nextRenewal = std::chrono::steady_clock::now() + std::chrono::seconds (1);
+            }
+            return controller.snapshot().blindEligible;
+        });
         controller.observeTransport (a->startSample + 1, true, true);
         require (controller.approveBlindLowerAAndStart (-14, -6), "isolated Blind must start explicitly");
         juce::AudioBuffer<float> output (2, 256);

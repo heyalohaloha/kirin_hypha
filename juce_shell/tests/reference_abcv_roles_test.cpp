@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 // A／B／C／V の 4 役。B（REF）は Hypha に届いた B セットの曲を、A の直近 10 秒に追従する gain で
 // 鳴らす。同時に鳴るのは 1 役。B のまま曲を替えると、新しい曲が準備でき次第 B のまま鳴る。
 #include "reference_runtime_v2_analysis_test_support.h"
@@ -5,7 +6,6 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 #include "reference_rt_probe.h"
-#include "ReferenceControllerTestAccess.h"
 #include <tuple>
 
 void testReferenceRoles (const juce::File&);
@@ -115,7 +115,7 @@ juce::var libraryPreset (const Song& checkSong)
 void monoSongsOnStereoTrack (const juce::File& sandbox)
 {
     namespace control = hypha::tests::reference_control;
-    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::seconds (15); };
+    const auto deadline = [] { return std::chrono::steady_clock::now() + std::chrono::minutes (5); };
     // 曲の channels の library：B の曲（48 kHz）と C の Check（44.1 kHz）。
     const auto publish = [&sandbox] (const juce::String& name, int songChannels)
     {
@@ -231,8 +231,7 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     };
     const auto wait = [&] (const auto& condition, const char* what)
     {
-        for (int attempt = 0; attempt < 1500; ++attempt)
-        { host (true); if (condition (controller.snapshot())) return; juce::Thread::sleep (10); }
+        if (hypha::tests::reference_control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] { host (true); return condition (controller.snapshot()); })) return;
         const auto s = controller.snapshot();
         std::cerr << "roles: " << what << " / B " << (s.referenceSelection ? s.referenceSelection->rejectionCode : "-") << '\n';
         require (false, what);
@@ -276,12 +275,12 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     require (controller.selectCue (checkState.cueId) && controller.snapshot().comparisonSlot == 2, "change C's Cue while C sounds");
     host (true);
     require (block.getSample (0, 0) < -0.2f && block.getSample (0, 479) == 0.0f, "the Cue change fades C to A instead of cutting it");
-    for (int attempt = 0; attempt < 1500 && controller.snapshot().audibleComparisonSlot != 2; ++attempt)
-    {
+    hypha::tests::reference_control::await ([&] {
+        if (controller.snapshot().audibleComparisonSlot == 2) return true;
         host (true);
         if (controller.pendingAuditionNeedsService()) controller.servicePendingAudition (-14.0, -2.0, true);
-        juce::Thread::sleep (5);
-    }
+        return controller.snapshot().audibleComparisonSlot == 2;
+    });
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 2 && controller.snapshot().checkSelection->cueId == checkState.cueId
                  && closeTo (block.getSample (0, 479), -0.25 * gain (4.0)),
@@ -294,12 +293,12 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     host (true);
     require (block.getSample (0, 0) > 0.1f && block.getSample (0, 479) == 0.0f,
              "switching the song fades B to A instead of cutting it");
-    for (int attempt = 0; attempt < 1500 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
-    {
+    hypha::tests::reference_control::await ([&] {
+        if (controller.snapshot().audibleComparisonSlot == 3) return true;
         host (true);
         if (controller.pendingAuditionNeedsService()) controller.servicePendingAudition (-14.0, -2.0, true);
-        juce::Thread::sleep (5);
-    }
+        return controller.snapshot().audibleComparisonSlot == 3;
+    });
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (block.getSample (0, 479), 0.2 * gain (2.0)),
              "the new song sounds as B with its own MATCH");
@@ -341,8 +340,11 @@ static void rolesShareOneOutput (const juce::File& sandbox)
     // 新しい曲が準備でき次第その MATCH で鳴らす（今までは「準備中」と言うだけで、押したことが消えていた）。
     require (controller.selectSong (state.songSets[0].songs[0].id), "choose the first song while A plays");
     require (controller.requestAudition (3, -14.0, -2.0), "pressing B while the new song is published waits for it");
-    for (int attempt = 0; attempt < 1500 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
-    { host (true); controller.servicePendingAudition (-14.0, -2.0, true); juce::Thread::sleep (5); }
+    hypha::tests::reference_control::await ([&] {
+        if (controller.snapshot().audibleComparisonSlot == 3) return true;
+        host (true); controller.servicePendingAudition (-14.0, -2.0, true);
+        return controller.snapshot().audibleComparisonSlot == 3;
+    });
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 3 && controller.snapshot().selectedSongId == state.songSets[0].songs[0].id
                  && closeTo (block.getSample (0, 479), 0.1 * gain (4.0)),

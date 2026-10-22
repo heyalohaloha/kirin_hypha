@@ -81,7 +81,7 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 
 ### R-12 製造境界（不変）
 通常のPRE/POST計測経路では、HyphaはDAW入力を生成・加工・減衰・遅延させない。A経路は0 samples latency、
-入出力bit identicalを維持し、元音源と正本のPRE/POST測定・Recordを書き換えない。
+入出力bit identical（hostが64 bit floatで渡すときもdoubleのまま）を維持し、元音源と正本のPRE/POST測定・Recordを書き換えない。
 
 利用者の明示操作によるReferenceの比較試聴は、この禁止対象に含めない。登録済みの不変なReferenceを
 試聴用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。Referenceファイル、A経路、

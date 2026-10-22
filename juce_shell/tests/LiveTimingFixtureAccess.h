@@ -3,6 +3,8 @@
 #include "../src/HyphaLiveCompareClockPolicy.h"
 
 #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+extern "C" std::uint64_t kirin_hypha_test_oversized_drops (KirinHypha*);
+extern "C" std::uint32_t kirin_hypha_test_heartbeat (KirinHypha*);
 extern "C" bool kirin_hypha_test_analysis_input_drained (KirinHypha*);
 extern "C" bool kirin_hypha_test_wait_analysis_input (KirinHypha*, std::uint32_t);
 extern "C" bool kirin_hypha_test_wait_analysis_exchange (KirinHypha*, std::uint32_t, bool);
@@ -16,6 +18,12 @@ class LiveTimingFixtureAccess
 {
 public:
    #if defined (KIRIN_HYPHA_TEST_WALL_CLOCK)
+    static std::uint64_t oversizedDrops (KirinHyphaProcessorBase& processor)
+    { return kirin_hypha_test_oversized_drops (processor.hyphaHandle); }
+    static std::uint32_t heartbeat (KirinHyphaProcessorBase& processor)
+    { return kirin_hypha_test_heartbeat (processor.hyphaHandle); }
+    static void setPrecisionScratchFramesForTest (KirinHyphaProcessorBase& processor, int frames)
+    { processor.precisionScratchFrames = frames; }
     static bool waitAnalysisInput (KirinHyphaProcessorBase& processor, std::uint32_t timeoutMillis)
     { return kirin_hypha_test_wait_analysis_input (processor.hyphaHandle, timeoutMillis); }
     static bool waitAnalysisExchange (KirinHyphaProcessorBase& processor, std::uint32_t timeoutMillis, bool endpoint)

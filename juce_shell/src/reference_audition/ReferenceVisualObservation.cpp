@@ -1,4 +1,5 @@
 #include "ReferenceVisualObservation.h"
+#include "ReferenceTestCommitObserver.h"
 #include "ReferenceVisualAudio.h"
 #include <algorithm>
 #include <cmath>
@@ -84,6 +85,7 @@ void VisualObservation::publish()
     ++timeline.revision; dirty = false;
     auto next = std::make_shared<const VisualTimeline> (timeline);
     const juce::ScopedLock lock (snapshotLock); published = std::move (next);
+    KIRIN_REFERENCE_COMMIT_FOR_TEST();
 }
 void VisualObservation::clearMeters()
 {
@@ -294,6 +296,7 @@ void VisualObservation::run()
             if (decoded && analysis->current(job) && block.generation == generation.load (std::memory_order_acquire)) consumePair (block);
             else if (timeline.pairedObserving) clearMeters();
             readIndex.store ((read + 1) % queueSize, std::memory_order_release);
+            KIRIN_REFERENCE_COMMIT_FOR_TEST();
         }
         const auto now = juce::Time::getMillisecondCounterHiRes();
         if (dirty && now >= nextPublish) { publish(); nextPublish = now + 100.0; }

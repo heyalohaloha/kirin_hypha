@@ -34,3 +34,8 @@ inline bool finishReferenceAbcMode (int argc, char** argv, const juce::File& san
 
 void testReferenceVisual (const juce::File&);
 void testReferenceAInput();  // A の受け渡し・Blind の枠・解析のフレーム数の上限（reference_a_input_test.cpp）
+
+void testReferenceMonoVersion (const juce::File&, const juce::String& mode = "all");
+bool runReferenceMonoInvocation (int, char**);
+
+void testReferenceLibraryFormat (const juce::File&);

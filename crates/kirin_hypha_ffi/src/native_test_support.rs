@@ -1,6 +1,24 @@
 //! Native-fixture observations. This module is absent from shipping static libraries.
 use super::KirinHyphaEngine;
 
+/// Read the keepalive counter without relying on elapsed wall time.
+/// # Safety
+/// `handle` must be null or live, with no concurrent destruction.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_test_heartbeat(handle: *mut KirinHyphaEngine) -> u32 {
+    unsafe { handle.as_ref() }.map_or(0, |engine| {
+        engine.heartbeat.load(std::sync::atomic::Ordering::Relaxed)
+    })
+}
+
+/// Read oversized-input drops without requiring a first measurement publication.
+/// # Safety
+/// `handle` must be null or live, with no concurrent destruction.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_test_oversized_drops(handle: *mut KirinHyphaEngine) -> u64 {
+    unsafe { handle.as_ref() }.map_or(0, KirinHyphaEngine::oversized_drop_count)
+}
+
 /// Observe both analysis queues between callbacks, on their sole producer's thread.
 /// This is receipt of input, not successful analysis or a timing certificate.
 /// # Safety
@@ -18,6 +36,14 @@ pub unsafe extern "C" fn kirin_hypha_test_analysis_input_drained(
 
 #[test]
 fn null_is_not_a_receipt() {
+    assert_eq!(
+        unsafe { kirin_hypha_test_heartbeat(std::ptr::null_mut()) },
+        0
+    );
+    assert_eq!(
+        unsafe { kirin_hypha_test_oversized_drops(std::ptr::null_mut()) },
+        0
+    );
     assert!(!unsafe { kirin_hypha_test_analysis_input_drained(std::ptr::null_mut()) });
     assert!(!unsafe { kirin_hypha_test_wait_analysis_input(std::ptr::null_mut(), 0) });
     assert!(!unsafe { kirin_hypha_test_wait_analysis_exchange(std::ptr::null_mut(), 0, false) });

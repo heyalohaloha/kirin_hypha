@@ -10,14 +10,14 @@ class Scope
 public:
     Scope (live_compare::ProcessorState& stateIn, const float* const* samplesIn,
            int channels, int frames, double rate, bool post, int wrapper,
-           const HostProcessClock& host, bool bypassed, bool offline) noexcept
+           const HostProcessClock& host, bool bypassed, bool offline, int precisionBits = 32) noexcept
         : state (stateIn), samples (samplesIn), recorder (state.trace.get())
     {
         if (recorder == nullptr) return;
         if (auto* row = recorder->begin (samples, channels, frames))
         {
             row->host = host; row->role = post ? 1 : 0; row->wrapper = wrapper;
-            row->rate = rate; row->bypassed = bypassed; row->offline = offline;
+            row->rate = rate; row->bypassed = bypassed; row->offline = offline; row->precisionBits = precisionBits;
             row->preGain = state.gain.load (std::memory_order_relaxed);
             row->postGain = state.postLevel.value();
         }

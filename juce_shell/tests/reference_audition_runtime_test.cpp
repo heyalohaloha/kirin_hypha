@@ -1,3 +1,4 @@
+#include "ReferenceControllerTestAccess.h"
 #include "TestTemporaryDirectory.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_os_fixture.h"
@@ -8,7 +9,7 @@
 #include "ReferenceRepairTestEntry.h"
 int main (int argc, char** argv)
 {
-    if (prepareReferenceRuntimeInvocation (argc, argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
+    if (runReferenceMonoInvocation (argc, argv) || prepareReferenceRuntimeInvocation (argc, argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
@@ -91,7 +92,6 @@ int main (int argc, char** argv)
     require (rejected.state == ref::LoadState::rejected
              && rejected.rejectionCode == "preparation_contract_rejected",
              "unknown preparation fields must reject");
-
     require (writeJson (preparationFile,
                         makePreparation (source, sourceHash, receiptHash, finalReceipt.getSize())),
              "valid preparation must be restored");
@@ -298,9 +298,7 @@ int main (int argc, char** argv)
         }, [] { return true; }); // deterministic fixture: stimulus 1 is B
         controller.observeTransport (128, true, true);
         controller.configure (identity, 48'000.0, 2);
-        for (int attempt = 0; attempt < 300
-             && controller.snapshot().state != ref::RuntimeState::ready; ++attempt)
-            juce::Thread::sleep (10);
+        hypha::tests::reference_control::await ([&] { return ! (controller.snapshot().state != ref::RuntimeState::ready); });
         require (controller.snapshot().state == ref::RuntimeState::ready
                  && controller.snapshot().auditionBuffered,
                  "verified and decoded preparation must become ready");
@@ -421,8 +419,7 @@ int main (int argc, char** argv)
         require (blind.blindPhase == ref::BlindPhase::invalidated
                  && blind.blindReveal.isEmpty() && ! blind.bSelected,
                  "an unavailable audio route must invalidate Blind without revealing assignment");
-        for (int attempt = 0; attempt < 100 && comparisonSuspended.load(); ++attempt)
-            juce::Thread::sleep (10);
+        hypha::tests::reference_control::await ([&] { return ! (comparisonSuspended.load()); });
         require (! comparisonSuspended.load(),
                  "audio-thread fail-close must release PRE comparison from the worker thread");
 
@@ -444,9 +441,7 @@ int main (int argc, char** argv)
         }, [] { return true; });
         deniedController.observeTransport (128, true, true);
         deniedController.configure (identity, 48'000.0, 2);
-        for (int attempt = 0; attempt < 300
-             && deniedController.snapshot().state != ref::RuntimeState::ready; ++attempt)
-            juce::Thread::sleep (10);
+        hypha::tests::reference_control::await ([&] { return ! (deniedController.snapshot().state != ref::RuntimeState::ready); });
         require (deniedController.snapshot().state == ref::RuntimeState::ready,
                  "denied-switch fixture must still prepare its immutable source");
         require (deniedController.startBlind (-14.0, -2.0),
@@ -470,17 +465,12 @@ int main (int argc, char** argv)
         }, [] { return true; });
         staleController.observeTransport (128, true, true);
         staleController.configure (identity, 48'000.0, 2);
-        for (int attempt = 0; attempt < 300
-             && staleController.snapshot().state != ref::RuntimeState::ready; ++attempt)
-            juce::Thread::sleep (10);
+        hypha::tests::reference_control::await ([&] { return ! (staleController.snapshot().state != ref::RuntimeState::ready); });
         require (staleController.startBlind (-14.0, -2.0)
                  && staleController.selectBlindStimulus (1),
                  "stale-callback fixture must begin a B-side anonymous request");
-        for (int attempt = 0; attempt < 400
-             && staleController.snapshot().blindPhase != ref::BlindPhase::invalidated; ++attempt)
-            juce::Thread::sleep (10);
-        for (int attempt = 0; attempt < 100 && comparisonSuspended.load(); ++attempt)
-            juce::Thread::sleep (10);
+        hypha::tests::reference_control::await ([&] { return ! (staleController.snapshot().blindPhase != ref::BlindPhase::invalidated); });
+        hypha::tests::reference_control::await ([&] { return ! (comparisonSuspended.load()); });
         const auto stale = staleController.snapshot();
         require (stale.blindPhase == ref::BlindPhase::invalidated,
                  "missing audio callbacks must invalidate Blind");
