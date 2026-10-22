@@ -145,15 +145,20 @@ macOSのJUCEはHOMEだけの変更には従わない。環境変数が未指定�
 
 `kirin_native_storage_guard_setup` / `cleanup`はOSが返す実ホームのDocumentsと
 Application Support内のKirin OSを読み取りだけで確認する。WindowsではDocumentsと
-Roaming/Local AppDataを対象にする。全階層の一覧、size、mtime、ctime、symlink情報を
-build内の`real-kirin-os-before.json`へ控えて比較し、一時ファイルの作成後の削除も検出する。
-音声ファイルの内容を読み直すバックアップではない。存在しないrootは作らず、作成された場合だけ差分とする。
+Roaming/Local AppDataを対象にする。保存先全体を監視し、明示したElectronのcache・
+ブラウザ保存物、Kirin OSのconfig.jsonと数字形式のatomic一時ファイル、folder-scanだけを除外する。Referenceの共有、Recordと予約、identity／licence、
+Appearance、未知のpathも監視する。除外名をHyphaのnative sourceが参照した場合は不合格となる。
+size、mtime、ctime、symlink情報をbuild内の`real-kirin-os-before.json`へ控えて比較する。
+除外の親だけは時刻とsizeを比較せず、除外対象しか持たない通常の親は初回作成・削除も許容する。前後で消えるlockの作成・削除を完全には保証できない。
+音声ファイルの内容を読み直すバックアップではない。存在しない保存先は作らない。
 読み取り失敗も不合格となり、setup失敗時はnative本体を実行しない。cleanupは試験失敗時にも走る。
 
 `ctest -R`による部分実行にも監視は自動で付く。fixtureを除外するオプションや実行ファイルの
 直接起動ではこの監視を代用できない。同じbuildで複数のCTestを同時起動せず、必要ならbuildを分ける。
-実アプリが同時に対象フォルダを更新しても不合格になるため、静止した環境で検証する。
+OSだけが書く枝の更新は、実アプリの稼働中も合否に影響しない。Hyphaも書ける同じpathを
+他のprocessが更新した場合は不合格となる。snapshotから書いたprocessは特定しない。
 監視は変更を検出するもので、OSの書き込み禁止や実データの自動復元は行わない。
+除外一覧・source監査と前後比較の限界は[保存先監視の契約](native_storage_guard.md)を参照する。
 
 `kirin_storage_paths_*`は実フォルダへ書く前に保存先を照合し、環境変数／個別fixture、
 未指定／空の既定値（path読取りのみ）、相対path、書けないrootとPRE／POSTのlease作成・削除を確認する。
