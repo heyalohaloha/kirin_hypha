@@ -1,5 +1,5 @@
 # Keep this include last: every native test, including future additions and filtered -R runs,
-# requires a read-only before/after comparison of the user's Kirin OS directories.
+# requires a read-only before/after comparison of Kirin OS storage, except explicitly app-owned paths.
 get_property(kirin_hypha_native_tests DIRECTORY PROPERTY TESTS)
 if(kirin_hypha_native_tests)
     if(TARGET KirinHyphaPOST)
@@ -21,6 +21,8 @@ if(kirin_hypha_native_tests)
         FIXTURES_SETUP kirin_real_storage RUN_SERIAL TRUE TIMEOUT 120)
     set_tests_properties(kirin_native_storage_guard_cleanup PROPERTIES
         FIXTURES_CLEANUP kirin_real_storage RUN_SERIAL TRUE TIMEOUT 120)
+    # Node bounds the entire contract at 45 seconds and cancels owned children;
+    # keep the 60-second external limit for shutdown and runner cleanup.
     set_tests_properties(kirin_native_storage_guard_contract PROPERTIES
         TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
     include(${CMAKE_CURRENT_LIST_DIR}/NativePathBudget.cmake)

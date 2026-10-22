@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertExclusionOwnership, excluded, exclusionParent, exclusionRules } from './native_storage_exclusions.mjs';
 
 // os.userInfo() reads the OS account, unlike os.homedir(), which accepts HOME overrides.
 // https://nodejs.org/api/os.html#osuserinfooptions
@@ -17,9 +18,10 @@ export function protectedRoots(home = os.userInfo().homedir, platform = process.
   return [...new Set(roots)];
 }
 
-function metadata(stat) {
+function metadata(stat, container = false) {
   // Do not compare atime: the guard itself only reads, which can change access times.
-  return [stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs, stat.ino, stat.dev].map(String);
+  return (container ? [stat.mode, stat.ino, stat.dev]
+    : [stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs, stat.ino, stat.dev]).map(String);
 }
 
 export function snapshot(root) {
@@ -27,8 +29,15 @@ export function snapshot(root) {
   if (!fs.lstatSync(root, { bigint: true, throwIfNoEntry: false })) return null;
   const entries = [];
   function visit(file, relative, ancestors) {
-    const stat = fs.lstatSync(file, { bigint: true });
-    const entry = { name: relative, metadata: metadata(stat) };
+    const container = exclusionParent(relative === '.' ? '' : relative.slice(2));
+    const optional = container && relative !== '.';
+    const start = entries.length;
+    const stat = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+    if (!stat) {
+      if (optional) return;
+      throw new Error('protected entry disappeared while reading');
+    }
+    const entry = { name: relative, metadata: metadata(stat, container && stat.isDirectory()) };
     entries.push(entry);
     let target = stat;
     if (stat.isSymbolicLink()) {
@@ -39,24 +48,48 @@ export function snapshot(root) {
         entry.dangling = true;
         return;
       }
-      entry.target = metadata(target);
+      entry.target = metadata(target, container && target.isDirectory());
     }
     if (target.isDirectory()) {
+      let names;
+      try { names = fs.readdirSync(file, { withFileTypes: true })
+        .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0); }
+      catch (error) {
+        if (optional && !stat.isSymbolicLink() && error.code === 'ENOENT') {
+          entries.length = start; return;
+        }
+        throw error;
+      }
+      if (optional && stat.isDirectory()
+          && names.every(child => excluded(`${relative}/${child.name}`.slice(2), !child.isFile()))) {
+        entries.length = start; return;
+      }
       const real = fs.realpathSync(file);
       if (ancestors.has(real)) { entry.cycle = true; return; }
       const next = new Set([...ancestors, real]);
-      for (const name of fs.readdirSync(file).sort()) visit(path.join(file, name), `${relative}/${name}`, next);
+      for (const child of names) {
+        const childRelative = `${relative}/${child.name}`;
+        // Do not stat app-owned entries: they may vanish or be replaced during this walk.
+        if (!excluded(childRelative.slice(2), !child.isFile())) visit(path.join(file, child.name), childRelative, next);
+      }
     } else if (!target.isFile() && !target.isSocket()) {
       throw new Error('unsupported protected entry type');
     }
     // A running app may own a Unix socket here. Observe its metadata like a file,
     // without opening or connecting to it; replacement/removal still fails comparison.
     // Record each file's size, mtime and ctime instead of reading large audio payloads. ctime
-    // also detects an overwrite followed by restoring mtime. Directory metadata catches leases
-    // created and removed between snapshots; this is a mutation guard, not a content backup.
+    // also detects an overwrite followed by restoring mtime. Exclusion parents omit changing
+    // timestamps/size, but retain mode/inode/device. See the documented transient-write limit.
     // A live writer or disappearing entry must not produce a partial baseline that passes.
-    if (JSON.stringify(metadata(fs.lstatSync(file, { bigint: true }))) !== JSON.stringify(entry.metadata))
+    // An ordinary ancestor containing only excluded entries is app scaffolding.
+    // Omit it even when initially created or later removed. A symlink or any
+    // unexcluded child keeps the ancestor and its authority in the snapshot.
+    const scaffolding = optional && stat.isDirectory() && entries.length === start + 1;
+    const after = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+    if (!after && scaffolding) { entries.length = start; return; }
+    if (!after || JSON.stringify(metadata(after, container && stat.isDirectory())) !== JSON.stringify(entry.metadata))
       throw new Error('protected entry changed while reading');
+    if (scaffolding) entries.length = start;
   }
   visit(root, '.', new Set());
   return entries;
@@ -74,23 +107,14 @@ export function verify(before, roots) {
   const changed = after.filter((item, index) =>
     JSON.stringify(item.entries) !== JSON.stringify(before[index].entries)).length;
   if (changed) {
-    // Name the changed entries (relative names only, never contents) so the writer can be found.
-    const names = [];
-    after.forEach((item, index) => {
-      const old = new Map((before[index].entries || []).map(entry => [entry.name, JSON.stringify(entry)]));
-      for (const entry of item.entries || []) {
-        if (old.get(entry.name) !== JSON.stringify(entry)) names.push(entry.name);
-        old.delete(entry.name);
-      }
-      names.push(...old.keys());
-    });
-    console.error(`changed entries: ${names.slice(0, 20).join(', ')}`);
+    // Even relative filenames may contain private titles. Keep the baseline local.
     throw new Error(`protected Kirin OS storage changed (${changed} roots); inspect the local baseline`);
   }
 }
 
 export function run(mode, state, roots = protectedRoots()) {
   if (!['setup', 'cleanup'].includes(mode) || !state) throw new Error('expected setup|cleanup and baseline file');
+  assertExclusionOwnership();
   // The only output is an explicitly supplied build-local baseline. Never restore protected data.
   const destination = path.resolve(state);
   const realParent = fs.realpathSync(path.dirname(destination));
@@ -108,12 +132,15 @@ export function run(mode, state, roots = protectedRoots()) {
     throw new Error('baseline must not be a symbolic link');
   if (mode === 'setup') {
     const before = capture(roots);
-    fs.writeFileSync(destination, JSON.stringify(before), { mode: 0o600 });
+    fs.writeFileSync(destination, JSON.stringify({ schema: 'hypha-storage-guard-v4', exclusions: exclusionRules, before }), { mode: 0o600 });
     return before.filter(item => item.entries !== null).length;
   }
-  const before = JSON.parse(fs.readFileSync(destination, 'utf8'));
-  verify(before, roots);
-  return before.filter(item => item.entries !== null).length;
+  const baseline = JSON.parse(fs.readFileSync(destination, 'utf8'));
+  if (baseline.schema !== 'hypha-storage-guard-v4'
+      || JSON.stringify(baseline.exclusions) !== JSON.stringify(exclusionRules))
+    throw new Error('missing or incompatible storage baseline exclusions');
+  verify(baseline.before, roots);
+  return baseline.before.filter(item => item.entries !== null).length;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
