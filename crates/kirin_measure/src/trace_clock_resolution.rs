@@ -91,6 +91,20 @@ pub(crate) struct SideClockResolution {
     pub model: &'static str,
 }
 
+/// Epoch IDs are monotonic. Keep the selected take and all later producer-proven continuations;
+/// records without an anchor, and observations without an epoch, retain their legacy behavior.
+pub(crate) fn selected_observations(
+    data: &PluginDataFile,
+) -> impl Iterator<Item = &TraceClockObservation> {
+    data.trace_clock_observations.iter().filter(|observation| {
+        data.trace_selected_capture_epoch.is_none_or(|selected| {
+            observation
+                .capture_epoch
+                .is_none_or(|epoch| epoch >= selected)
+        })
+    })
+}
+
 pub(crate) fn resolve_exact_side(
     data: &PluginDataFile,
     expected: &ExpectedWavMetadata,
@@ -100,6 +114,7 @@ pub(crate) fn resolve_exact_side(
     if expected_len == 0 || slot_samples <= 0 || data.trace_clock_observations.is_empty() {
         return None;
     }
+    let observations = selected_observations(data).cloned().collect::<Vec<_>>();
     // Current producers retain output latency on every 100 ms observation. Apply it exactly once
     // at WAV binding: the metric payload remains untouched and only its factual sample position
     // changes. This path intentionally wins over the legacy grid-count models below.
@@ -110,7 +125,7 @@ pub(crate) fn resolve_exact_side(
     };
     if let Some(origin) = aligned_origin {
         if let Some(selection) = select_latency_mapped_frames(
-            &data.trace_clock_observations,
+            &observations,
             origin,
             expected.expected_duration_samples,
             expected.expected_sample_rate,
@@ -138,13 +153,9 @@ pub(crate) fn resolve_exact_side(
         let Some(origin) = origin else {
             continue;
         };
-        if let Some((frames, producer_slots, wav_slots)) = select_sparse_monotonic_frames(
-            &data.trace_clock_observations,
-            origin,
-            expected_len,
-            slot_samples,
-            model,
-        ) {
+        if let Some((frames, producer_slots, wav_slots)) =
+            select_sparse_monotonic_frames(&observations, origin, expected_len, slot_samples, model)
+        {
             let candidate = SideClockResolution {
                 frames,
                 producer_slots,
@@ -281,9 +292,7 @@ fn render_origin(
         .raw_host_clock_range
         .as_ref()
         .map(|range| range.start_position_samples);
-    let first = data
-        .trace_clock_observations
-        .iter()
+    let first = selected_observations(data)
         .filter(|observation| observation.raw_host_position_samples.is_some())
         .min_by_key(|observation| observation.frame.t_ms);
     model.render_origin(presentation_start, raw_start, first)
@@ -361,7 +370,7 @@ pub(crate) fn chronological_fallback_frames(
         by_slot.into_values().collect::<Vec<_>>()
     };
     let baked_frames = normalize(data.frames.clone());
-    let mut observations = data.trace_clock_observations.iter().collect::<Vec<_>>();
+    let mut observations = selected_observations(data).collect::<Vec<_>>();
     observations.sort_by_key(|observation| {
         (
             observation.frame.t_ms,

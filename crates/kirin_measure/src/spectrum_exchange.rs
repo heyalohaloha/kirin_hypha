@@ -175,6 +175,8 @@ struct PreSession {
 }
 
 pub struct SpectrumCoordinator {
+    #[cfg(test)]
+    test_clock: Mutex<Option<Arc<clock::TestClock>>>,
     sample_rate: u32,
     runtime: Arc<SpectrumRuntime>,
     attack_runtime: Option<Arc<AttackRuntime>>,
@@ -259,6 +261,8 @@ impl SpectrumCoordinator {
         analysis_lease: AnalysisLease,
     ) -> Arc<Self> {
         Arc::new(Self {
+            #[cfg(test)]
+            test_clock: Mutex::new(None),
             sample_rate,
             runtime,
             attack_runtime,
@@ -308,7 +312,7 @@ impl SpectrumCoordinator {
             instance_dir,
             pre_instance_id,
             self.sample_rate,
-            unix_ms_now(),
+            self.clock_unix_ms(),
         )
         .is_some()
     }
@@ -422,3 +426,6 @@ mod view_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_clock_tests.rs"]
 mod clock_tests;
+
+#[path = "spectrum_exchange_clock.rs"]
+mod clock;

@@ -92,6 +92,8 @@ pub(super) struct SessionSlot {
 /// ```
 #[derive(Debug)]
 pub struct RecordStateMachine {
+    pub(super) measure_preparation: super::measure_preparation::MeasurePreparation,
+    pub(super) measure_waker: super::measure_wake::MeasureWakeState,
     pub(super) state: AtomicU64,
     /// Watch→Record の内部 Entering 状態を識別する単調トークン。
     /// exit/retry が同時に走っても、古い Entering が新しい Entering を Record に昇格しないようにする。
@@ -149,6 +151,8 @@ pub struct RecordStateMachine {
     pub(super) measure_ready_generation: AtomicU64,
     /// GUI表示専用の世代付きRecord snapshot。計測・writer・pairingの正本には使わない。
     pub(super) record_display: RecordDisplayStore,
+    pub(super) record_delta_boundary:
+        std::sync::Mutex<Option<(u64, super::delta_boundary::RecordDeltaBoundary)>>,
     /// Record-lane chunks the Measure Thread has drained, TRACE or not. The IO seal wait counts it
     /// as progress, so a Keep's later passes (summary only) are never mistaken for a stall.
     pub(super) measure_progress: AtomicU64,

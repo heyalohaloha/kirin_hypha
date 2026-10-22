@@ -27,7 +27,7 @@ fn latency_mapped_source_times(data: &PluginDataFile) -> Option<Vec<u64>> {
                 .map(|clock| clock.origin_position_samples)
         })?;
     let mut source_times_by_wav_slot = HashMap::new();
-    for observation in &data.trace_clock_observations {
+    for observation in crate::trace_clock_resolution::selected_observations(data) {
         let (Some(producer_position), Some(output_latency)) = (
             observation.producer_position_samples,
             observation.output_presentation_latency_samples,
@@ -128,8 +128,8 @@ pub(super) fn latency_mapped_trace_coverage(
                     .measured_frame_count
                     .saturating_add(diagnostics.missing_slots)
     }) {
-        // The journal is deliberately removed after commit. Its already-derived counts remain the
-        // signed fact; re-inferring from shifted distances could disagree with the commit decision.
+        // Older artifacts may lack the journal. Their already-derived counts remain signed facts;
+        // re-inferring from shifted distances could disagree with the original commit decision.
         return Some(LatencyMappedTraceCoverage {
             expected_frame_count: diagnostics.expected_frame_count,
             measured_frame_count: diagnostics.measured_frame_count,
@@ -181,3 +181,7 @@ pub(super) fn expected_trace_frames(data: &PluginDataFile, expected: &ExpectedWa
         expected.expected_sample_rate,
     )
 }
+
+#[cfg(test)]
+#[path = "plugin_data_trace_selected_coverage_tests.rs"]
+mod selected_take_tests;

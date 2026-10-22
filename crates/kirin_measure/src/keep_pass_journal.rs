@@ -1,8 +1,9 @@
 //! The passes one Keep heard.
 //!
-//! A Keep's TRACE and WAV take stay the first continuous pass. A realtime LOOP wrap, a seek or a
-//! restart after a stop begins a later pass: its audio reaches the live meters and the Keep
-//! summary, never the TRACE. The record lists every pass with its host position range and frame
+//! A Keep's TRACE and WAV take stay the first continuous pass unless an offline take replaces it
+//! or the initial subsecond pass yields once. A realtime LOOP wrap, a seek or a restart after a
+//! stop otherwise begins a later pass: its audio reaches the live meters and the Keep summary,
+//! never the TRACE. The record lists every pass with its host position range and frame
 //! count, so the length of a long Keep is explained by the frames it accepted. A pass that is
 //! not in the TRACE names why. A LOOP wrap is a normal pass; it never degrades the record.
 //!
@@ -26,6 +27,10 @@ pub const KEEP_PASS_POSITION_JUMP: &str = "position_jump";
 pub const KEEP_PASS_TRANSPORT_RESTART: &str = "transport_restart";
 /// The pass after an offline take (the host's position jump after a bounce): live display only.
 pub const KEEP_PASS_AFTER_OFFLINE_TAKE: &str = "after_offline_take";
+/// The initial subsecond pass yielded to the first complete realtime lap.
+pub const KEEP_PASS_SHORT_TRACE_REPLACED: &str = "short_trace_replaced";
+/// An offline take replaced the earlier realtime TRACE.
+pub const KEEP_PASS_REPLACED_BY_OFFLINE_TAKE: &str = "replaced_by_offline_take";
 /// One entry after the full list: every further pass's frames, without host ranges.
 pub const KEEP_PASS_MORE_PASSES: &str = "more_passes";
 
@@ -77,6 +82,7 @@ struct Passes {
     generation: u64,
     passes: Vec<KeepPass>,
     edge: Option<PassEdge>,
+    trace_yielded: bool,
 }
 
 /// The current Record generation's passes.
@@ -196,6 +202,36 @@ impl KeepPassJournal {
         began_later_pass
     }
 
+    pub(crate) fn claim_short_first_trace(&self, generation: u64, minimum: u64) -> bool {
+        let mut state = crate::sync_recovery::lock_recover(&self.passes, "Short first trace");
+        if state.generation != generation
+            || state.trace_yielded
+            || state.passes.len() != 1
+            || !state.passes[0].in_trace
+            || state.passes[0].frames >= minimum
+        {
+            return false;
+        }
+        state.trace_yielded = true;
+        true
+    }
+
+    pub(crate) fn replace_trace_pass(&self, generation: u64, reason: &str) {
+        let mut state = crate::sync_recovery::lock_recover(&self.passes, "Keep pass replacement");
+        if state.generation != generation {
+            return;
+        }
+        for pass in &mut state.passes {
+            if pass.in_trace {
+                pass.in_trace = false;
+                pass.trace_excluded_reason = Some(reason.to_string());
+            }
+        }
+        if let Some(edge) = state.edge.as_mut() {
+            edge.in_trace = false;
+        }
+    }
+
     /// IO Thread at Record close. A pass list with only the TRACE pass is omitted.
     pub(crate) fn passes(&self, generation: u64) -> Vec<KeepPass> {
         let state = crate::sync_recovery::lock_recover(&self.passes, "Keep pass journal");
@@ -244,9 +280,18 @@ pub fn trace_span_samples(passes: &[KeepPass], duration_samples: u64, sample_rat
 }
 
 impl RecordTakeTracker {
+    pub(crate) fn claim_short_first_trace(&self, generation: u64, minimum: u64) -> bool {
+        self.keep_passes
+            .claim_short_first_trace(generation, minimum)
+    }
+
     /// Measure Thread: account one consumed Record-lane chunk to its Keep pass.
     pub(crate) fn note_keep_chunk(&self, chunk: KeepChunk) {
         self.keep_passes.note(chunk);
+    }
+
+    pub(crate) fn replace_trace_pass(&self, generation: u64, reason: &str) {
+        self.keep_passes.replace_trace_pass(generation, reason);
     }
 
     /// IO Thread at Record close: every pass of the generation, in order.

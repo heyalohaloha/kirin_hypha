@@ -119,9 +119,18 @@ impl TimeComparisonState {
             || !latest.wire.span.valid()
             || latest.wire.span.sample_rate != pre.span.sample_rate
             || latest.wire.span.channels != pre.span.channels
-            || !pre.clock_compatible(post)
         {
             self.fail(TimeComparisonReason::Incompatible);
+            history.reset();
+            return;
+        }
+        if !pre.clock_compatible(post) {
+            // Different latest transport starts can be publication lag across a wrap. Retain
+            // the accumulated pass displacement: equal start numbers on later passes do not
+            // authorize a new correspondence. Source/span changes still retire it below.
+            self.point = None;
+            self.reason = TimeComparisonReason::Incompatible;
+            self.seeks.clear_pending();
             history.reset();
             return;
         }
@@ -371,3 +380,11 @@ mod latency_tests;
 #[cfg(test)]
 #[path = "time_pair_loop_tests.rs"]
 mod loop_tests;
+
+#[cfg(test)]
+#[path = "time_pair_transport_start_tests.rs"]
+mod transport_start_tests;
+
+#[cfg(test)]
+#[path = "time_pair_transport_lag_tests.rs"]
+mod transport_lag_tests;

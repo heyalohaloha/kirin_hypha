@@ -2,6 +2,36 @@
 use super::*;
 
 impl RecordTakeTracker {
+    /// Single Audio-writer publication before this callback captures any audio.
+    pub fn note_transport_start(&self, raw_position: i64) {
+        self.transport_start_journal
+            .note(self.captured_frames_total(), raw_position);
+    }
+
+    /// Measure-thread lookup using the chunk's capture-frame boundary.
+    pub fn transport_start_before(&self, captured_frame: u64) -> Option<i64> {
+        self.transport_start_journal
+            .latest_at_or_before(captured_frame)
+    }
+
+    /// A host restart without a position cannot inherit the last playback's authority.
+    pub fn note_unknown_transport_start(&self) {
+        self.transport_start_journal
+            .note_absent(self.captured_frames_total());
+    }
+
+    pub(crate) fn transport_start_range(
+        &self,
+        captured_frame: u64,
+        frames: u64,
+    ) -> (u64, Option<i64>) {
+        self.transport_start_journal
+            .snapshot()
+            .map_or((frames, None), |snapshot| {
+                snapshot.first_range(captured_frame, frames)
+            })
+    }
+
     /// Start the capture clock for a replacement SPSC ring.
     ///
     /// The Measure Thread consuming the new ring starts its native frame cursor at zero. The

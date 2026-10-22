@@ -298,6 +298,7 @@ pub(super) fn joined(now: Instant) -> (TimeRawPoint, Authority, TimeComparisonVi
             continuous_frames: 144000,
             latency_known: true,
             clock_origin: Some(0),
+            playback_start: None,
             crest: Some(1.0),
             values: [Some(1.0); 6],
         },

@@ -7,6 +7,7 @@
 //! the Keep's Record frames. A drifted index silently labels windows with other instants, so the
 //! two sides join different windows (a swinging ΔTP/ΔCREST) or never join (Δ stays MEASURING).
 
+#[cfg(test)]
 use crate::record_spool::MeasureSampleConsumer;
 
 /// Pops queued Watch samples without measuring them (stop, bypass, a playback-pass cutover).
@@ -14,6 +15,7 @@ use crate::record_spool::MeasureSampleConsumer;
 /// leave: the Audio Thread pushes one sample at a time, so the queue may end inside a frame, and
 /// splitting it would shift the index and swap the channels of every later frame. A pending skip
 /// past the last Keep applies to the discarded frames too.
+#[cfg(test)]
 pub(super) fn discard_watch_samples(
     consumer: &mut MeasureSampleConsumer,
     consumed_samples: &mut u64,

@@ -97,7 +97,8 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let post_json = read_repo("crates/kirin_measure/src/io_thread_post_json.rs");
     assert!(pre_json.contains("\"lufs_s\""));
     assert!(post_json.contains("\"lufs_s\""));
-    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
+    let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs")
+        + &read_repo("crates/kirin_measure/src/plugin_data_file.rs");
     assert!(
         !plugin_data.contains("\"lufs_s\""),
         "plugin_data/.kirin schema must remain unchanged"

@@ -1,3 +1,4 @@
-# Probe id\tmaximum median worker/reference FFT ratio (provisional; lower after two green CI runs)
-one_visible_pair_continuous_sharpness_worker_budget_is_quantified	1000
-two_post_absolute_workers_fit_the_optional_analysis_budget	1000
+# Probe id\tmaximum median worker/reference FFT ratio
+# CI runs 39593426619, 39693084357, 39724330466, 39749197405: per-probe maximum median ratio x 1.1, rounded up to 0.001; local measurements excluded.
+one_visible_pair_continuous_sharpness_worker_budget_is_quantified	86.052
+two_post_absolute_workers_fit_the_optional_analysis_budget	181.973

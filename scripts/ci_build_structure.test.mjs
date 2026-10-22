@@ -40,7 +40,7 @@ test('CI phases exactly partition the local release gate command inventory', () 
   const all = plan('--plan');
   for (const needle of ['assert_ignored_count parity 20', 'assert_ignored_count pairing_candidates 6',
     'assert_ignored_count record_auxiliary_cuts 1', 'assert_ignored_count keep_loop_wrap 1',
-    'assert_ignored_count keep_stop_display 1', 'assert_ignored_count keep_pass_end_slots 1', 'check_ffi_symbols', 'check_native_test_inventory.mjs',
+    'assert_ignored_count keep_stop_display 1', 'assert_ignored_count pair_common_start 1', 'assert_ignored_count pair_resume_after_bypass 1', 'assert_ignored_count keep_pass_end_slots 1', 'assert_ignored_count keep_offline_after_loop 1', 'check_ffi_symbols', 'check_native_test_inventory.mjs',
     'check_native_build_targets.mjs', '--repeat until-pass:2']) assert.ok(all.includes(needle), needle);
   assert.doesNotMatch(all, /: PASS/);
   assert.equal((plan('--phase', 'native', '--plan').match(/==> ctest /g) ?? []).length, 3);
@@ -77,6 +77,23 @@ test('the aggregate target inventory rejects omissions, duplicates and empty inp
   assert.throws(() => checkBuildTargets('First\nFirst', ['First']), /duplicate/);
   assert.throws(() => checkBuildTargets('First', ['First', 'First']), /duplicate/);
   assert.throws(() => checkBuildTargets('', ['First']), /empty/);
+});
+
+test('Windows selects both registered double precision contracts exactly once', () => {
+  const windows = ci.split('  windows-vst3-preflight:\n')[1];
+  const selections = [...windows.matchAll(/ctest [^\n]+ -R '([^']+)'/g)]
+    .map(match => ({ command: match[0], regex: new RegExp(match[1]) }));
+  const clock = read('juce_shell/cmake/ProductTestClock.cmake');
+  for (const name of ['kirin_double_precision', 'kirin_double_precision_listen']) {
+    assert.match(clock, new RegExp(`add_test\\(NAME ${name} COMMAND KirinProcessorWallClockTests `));
+    const selected = selections.filter(({ regex }) => regex.test(name));
+    assert.equal(selected.length, 1, `${name} must run once on Windows`);
+    assert.match(selected[0].command, /--no-tests=error/);
+    for (const other of [`${name}_extra`, `prefix_${name}`]) assert.ok(!selected[0].regex.test(other));
+  }
+  const inventory = windows.split('      - name: Check Windows native build inventory\n')[1]
+    .split('      - name: ')[0];
+  assert.match(inventory, /\bKirinProcessorWallClockTests\b/);
 });
 
 const tu = (target, file, flags = '') => ({ file, command: `c++ ${flags} -o CMakeFiles/${target}.dir/unit.o -c ${file}` });

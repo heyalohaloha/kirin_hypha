@@ -322,7 +322,7 @@ fn raw_host_comparison_side(
         .map(|frame| (frame.t_ms, frame))
         .collect::<std::collections::BTreeMap<_, _>>();
     let mut observations_by_epoch = std::collections::BTreeMap::<u64, Vec<(u64, i64)>>::new();
-    for observation in &data.trace_clock_observations {
+    for observation in crate::trace_clock_resolution::selected_observations(data) {
         let (Some(position), Some(capture_epoch)) = (
             observation.raw_host_position_samples,
             observation.capture_epoch,

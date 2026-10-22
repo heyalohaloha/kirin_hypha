@@ -166,7 +166,7 @@ profileで指定されたreportへ実測と証跡を記録する。接続や資�
 
 - **CI / Windows**: exact commit、正しいworkflow、全必須job green、署名・pluginval・installer lifecycle・
   external validation・Native-only provenanceが必要。旧runは代用できない。
-- **性能予算**: 較正の変更後にgreenとなったCI 2 runの両probeの参照時間と比を記録し、各probeの最大の中央値比×1.1へ暫定上限1000を下げる。
+- **性能予算**: CIの両probeは`scripts/perf_budget.tsv`の中央値比上限で検査する。上限はgreenなCIの実測最大値に10%の余裕を加えて固定し、手元のMacの実測とは混ぜない。手元では絶対CPU基準も維持する。
 - **Source / NOTICE**: `source-delivery`はcleanな採用source・承認済みJUCE bytes・依存sourceを検査し、対応source ZIPとlicense/NOTICEを準備する。Windows private factoryの未署名producerが作ったZIPを`--source-archive`で取り込み、Macでも全entryを照合して同じbytes/hashを使う。PKGの`Library/Application Support/Kirin Hypha/Legal`、ZIPの`Legal`、Windowsのインストール先`Kirin Mastering/Kirin Hypha/Legal`に同じsource配送情報を入れる。署名済みbundleは変更しない。source準備の成功はactual extraction/linkage reviewを代用しない。
 - **A4**: Intel macOSのAU / VST3 / AAX、Windows x64のVST3 / AAXで普通の通し
   （導入、path/hash、pair、通常音声、Keep、保存、再起動）を確認する。共通の流れは代表hostへ寄せ、

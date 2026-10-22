@@ -86,7 +86,7 @@ impl SpectrumCoordinator {
         current.state_epoch_samples = None;
         current.awaiting_rearm |= ready;
         Self::clear_pre_epoch_publication(current);
-        let now = Instant::now();
+        let now = self.clock_now();
         let publish = current
             .last_ready_written_at
             .is_none_or(|written| now.duration_since(written) >= REQUEST_RENEW_INTERVAL);

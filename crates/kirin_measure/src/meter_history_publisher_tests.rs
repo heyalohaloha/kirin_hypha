@@ -87,6 +87,7 @@ fn full_legacy_and_content_tails_fit_the_existing_exchange_limit() {
         assert!(session.lock().unwrap().push_active_at(
             &audio,
             MeterClockStart {
+                playback_start: None,
                 position_samples: Some(at),
                 epoch: Some(1),
                 source: CaptureClockSource::ProjectTimeline,

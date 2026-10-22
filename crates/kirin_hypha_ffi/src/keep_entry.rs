@@ -216,12 +216,15 @@ pub(crate) fn resolve_and_enter_keep(
                     if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
                         return;
                     }
-                    if result.is_ok() {
-                        phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
-                    } else {
-                        phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-                        if let Ok(mut message) = action_notice.write() {
-                            *message = Some("Failed to arm PRE and POST".to_string());
+                    match result {
+                        Ok(()) => phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release),
+                        Err(_error) => {
+                            #[cfg(debug_assertions)]
+                            eprintln!("Keep preparation failed: {_error}");
+                            phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                            if let Ok(mut message) = action_notice.write() {
+                                *message = Some("Failed to arm PRE and POST".to_string());
+                            }
                         }
                     }
                 })

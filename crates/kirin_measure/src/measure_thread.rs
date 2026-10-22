@@ -9,6 +9,8 @@ use crate::ingest_contract::{measure_chunk_capacity_samples, raw_pre_roll_capaci
 use crate::phase_d::channels::PhaseDChannelStream;
 use crate::phase_d::tables::FieldType;
 use crate::raw_pre_roll::RawPreRollHistory;
+#[path = "measure_record_prefix.rs"]
+mod record_prefix;
 use crate::record::RecordStateMachine;
 use crate::record_measure_engines::RecordMeasureEngines;
 use crate::record_spool::MeasureSampleConsumer;
@@ -40,6 +42,8 @@ mod tail_drain;
 mod trace_pass;
 #[path = "measure_trace_slots.rs"]
 mod trace_slots;
+#[path = "measure_trace_take.rs"]
+mod trace_take;
 #[path = "watch_lane_clock.rs"]
 mod watch_lane_clock;
 #[cfg(test)]
@@ -55,9 +59,9 @@ use trace_slots::{
     clear_phase_d_fields, feed_phase_d_slots, join_record_trace_slots, merge_phase_d_fields,
     reset_resamplers, trace_48k, PendingRecordCore,
 };
-use watch_lane_clock::{
-    after_keep_resume, discard_watch_samples, resume_watch_index, watch_chunk_limit, WatchResume,
-};
+#[cfg(test)]
+use watch_lane_clock::discard_watch_samples;
+use watch_lane_clock::{after_keep_resume, resume_watch_index, watch_chunk_limit, WatchResume};
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
 /// 100 ms native boundary をそのまま保持する。Record の PhaseD だけ有限長 resample を行い、
@@ -91,27 +95,14 @@ pub fn live_window() -> Duration {
     TICK * HEARTBEAT_STALE_TICKS
 }
 
-#[inline]
-fn idle_sleep_for_record_state(is_recording: bool) -> Duration {
-    if is_recording {
-        RECORD_LOOP_SLEEP
-    } else {
-        LOOP_SLEEP
-    }
-}
-
-fn should_process_phase_d(is_recording: bool) -> bool {
-    is_recording
-}
-
-/// SignalState controls Watch freshness and GUI visibility. Record admission is owned by the
-/// Record state machine and capture clock; once Audio Thread has admitted a buffer, silence is
-/// still factual audio and must pass through every Record engine. Treating Inactive as a Record
-/// boundary resets Phase D and creates sparse 100 ms optional fields on quiet buses.
-#[inline]
-fn should_suspend_measurement(state: SignalState, is_recording: bool) -> bool {
-    !is_recording && state != SignalState::Active
-}
+#[path = "meter_feed_gate.rs"]
+mod meter_feed_gate;
+#[path = "measure_worker_idle.rs"]
+mod worker_idle;
+use meter_feed_gate::{drain_watch_into_raw_pre_roll, pause_meter_session};
+#[cfg(test)]
+use worker_idle::idle_sleep_for_record_state;
+use worker_idle::{should_process_phase_d, should_suspend_measurement};
 
 /// B-115: POST pair 変更ロックの述語。**実再生中（playing）かつ live**（processBlock 進行中）の
 /// ときだけロックする。playing が凍結値でも live=false ならロックしない（false-release 防止 /
@@ -257,6 +248,7 @@ pub fn spawn_measure_thread(
     record_ingress: Arc<crate::RecordIngress>,
 ) -> JoinHandle<()> {
     crate::engine::denormal_flush::spawn_measurement_thread(move || {
+        record_sm.register_measure_thread(thread::current());
         let mut consumer = MeasureSampleConsumer::watch(consumer);
         let n_channels = layout.channel_count();
 
@@ -375,6 +367,7 @@ pub fn spawn_measure_thread(
         let mut next_record_psb_ms = 0_u64;
         let mut record_origin_position_samples: Option<i64> = None;
         let mut record_capture_epoch: Option<u64> = None;
+        let mut trace_anchor_epoch = None;
         let mut latest_record_measure: Option<MeasureResult> = None;
         let mut record_display_generation: Option<u64> = None;
 
@@ -410,7 +403,10 @@ pub fn spawn_measure_thread(
                     record_sm.as_ref(),
                 ),
             );
-            if !record_edge::handle_record_edge(record_edge::RecordEdge {
+            if !prev_recording && is_recording {
+                trace_anchor_epoch = None;
+            }
+            match record_edge::handle_record_edge(record_edge::RecordEdge {
                 consumer: &mut consumer,
                 raw_pre_roll: &mut raw_pre_roll,
                 chunk_f64: &mut chunk_f64,
@@ -421,6 +417,7 @@ pub fn spawn_measure_thread(
                 watch_native_frames_total: &mut watch_native_frames_total,
                 parked_watch_consumer: &mut parked_watch_consumer,
                 record_display_generation: &mut record_display_generation,
+                meter_session_suspended: &mut meter_session_suspended,
                 engine: &mut engine,
                 record_engines: &mut record_engines,
                 phase_d: &mut phase_d,
@@ -462,10 +459,15 @@ pub fn spawn_measure_thread(
                 measure_chunk_samples,
                 playback_pass_id,
             }) {
-                continue;
+                record_edge::RecordEdgeOutcome::Retry => continue,
+                record_edge::RecordEdgeOutcome::Skipped => {
+                    prev_recording = false;
+                    thread::yield_now();
+                    continue;
+                }
+                record_edge::RecordEdgeOutcome::Ready => {}
             }
             prev_recording = is_recording;
-
             // ── B-118: 単一鮮度評価器による stall detection（400ms）────────────
             // callback停止後も受理済みWatch末尾は有限ringから計測し、空になってからInactiveへ
             // 移る。Pair lockは共有evaluatorを直接読むため400msで独立して解除される。
@@ -495,23 +497,30 @@ pub fn spawn_measure_thread(
                         "[MeasureThread] Watch playback pass reset suppressed in Record mode"
                     );
                 } else {
-                    engine.reset();
                     let cutover = watch_playback_pass_cutover_samples.load(Ordering::Acquire);
-                    let stale = discard_watch_samples(
+                    let drained = drain_watch_into_raw_pre_roll(
                         &mut consumer,
-                        &mut consumed_samples,
+                        &record_take_tracker,
+                        &mut raw_pre_roll,
+                        &mut chunk_f64,
                         &mut native_frames_total,
+                        &mut consumed_samples,
                         n_channels,
-                        Some(cutover),
+                        sample_rate,
+                        measure_chunk_samples,
+                        &signal_state,
+                        meter_session.as_ref(),
+                        meter_session_publication.as_ref(),
                         &mut watch_resume,
+                        Some(cutover),
                     );
-                    if stale > 0 {
-                        log::info!(
-                            "[MeasureThread] discarded {} queued samples before Watch playback pass cutover {}",
-                            stale,
-                            cutover
-                        );
+                    if drained.fed {
+                        meter_session_suspended = false;
                     }
+                    if drained.samples > 0 {
+                        log::info!("[MeasureThread] drained {} queued Watch samples before playback pass cutover {}", drained.samples, cutover);
+                    }
+                    engine.reset();
                     phase_d.reset();
                     reset_resamplers(&mut resampler, &mut trace_resampler);
                     latest_pd = None;
@@ -543,27 +552,35 @@ pub fn spawn_measure_thread(
                     is_recording
                 );
                 if state == SignalState::Active && !is_recording {
-                    thread::sleep(idle_sleep_for_record_state(is_recording));
+                    record_sm.wait_for_measure_work(is_recording);
                     continue;
                 }
             }
             if should_suspend_measurement(state, is_recording) {
                 prev_active = false;
+                let drained = drain_watch_into_raw_pre_roll(
+                    &mut consumer,
+                    &record_take_tracker,
+                    &mut raw_pre_roll,
+                    &mut chunk_f64,
+                    &mut native_frames_total,
+                    &mut consumed_samples,
+                    n_channels,
+                    sample_rate,
+                    measure_chunk_samples,
+                    &signal_state,
+                    meter_session.as_ref(),
+                    meter_session_publication.as_ref(),
+                    &mut watch_resume,
+                    None,
+                );
+                if drained.fed {
+                    meter_session_suspended = false;
+                }
                 if !meter_session_suspended {
                     pause_meter_session(meter_session.as_ref(), meter_session_publication.as_ref());
                     meter_session_suspended = true;
                 }
-                // Bypassed / Inactive → compute() スキップ。
-                // Watch のリングバッファに残っているサンプルは破棄する。
-                // Record 中はこの分岐に入らず、無音を含む admitted audio を継続計測する。
-                discard_watch_samples(
-                    &mut consumer,
-                    &mut consumed_samples,
-                    &mut native_frames_total,
-                    n_channels,
-                    None,
-                    &mut watch_resume,
-                );
                 // 計測結果をクリア（GUI が即座に `---` 表示できるようにする）
                 let mut guard =
                     crate::sync_recovery::lock_recover(&result, "MeasureThread inactive reset");
@@ -571,7 +588,7 @@ pub fn spawn_measure_thread(
                 stamp_shared_measure_result(&mut cleared, &mut measure_sequence, playback_pass_id);
                 *guard = cleared;
                 drop(guard);
-                thread::sleep(idle_sleep_for_record_state(is_recording));
+                record_sm.wait_for_measure_work(is_recording);
                 continue;
             }
 
@@ -620,32 +637,25 @@ pub fn spawn_measure_thread(
                     thread::yield_now();
                     continue;
                 };
-                let Some(span) =
-                    record_take_tracker.capture_span_for_frame(capture_origin.saturating_add(1))
-                else {
-                    // Audio publishes the immutable span before any admitted sample. Never guess
-                    // a Watch-relative start while that publication is still in flight.
+                let Some(binding) = record_prefix::bind(
+                    &mut raw_pre_roll,
+                    &record_take_tracker,
+                    record_sm.generation(),
+                    capture_origin,
+                ) else {
+                    // Wait for the producer's complete span or offline promotion. Never guess a
+                    // Watch-relative start while that generation proof is still in flight.
                     thread::yield_now();
                     continue;
                 };
-                let bound_epoch;
-                if let Some(prefix) = raw_pre_roll.take_positioned_prefix(
-                    span.capture_start_frame,
-                    capture_origin,
-                    span.epoch,
-                ) {
-                    native_frames_total = prefix.start_capture_frame;
-                    bound_epoch = prefix.epoch;
+                native_frames_total = binding.native_origin;
+                if let Some(prefix) = binding.prefix {
                     record_prefix_samples = prefix.samples;
                     record_prefix_owns_history_storage = true;
-                } else {
-                    native_frames_total = capture_origin;
-                    bound_epoch = span.epoch;
                 }
                 record_origin_native_frames = native_frames_total;
-                record_origin_position_samples =
-                    span.position_at_capture_boundary(native_frames_total);
-                record_capture_epoch = Some(bound_epoch);
+                record_origin_position_samples = binding.position;
+                record_capture_epoch = Some(binding.epoch);
                 record_prefix_pending = false;
             }
 
@@ -696,6 +706,19 @@ pub fn spawn_measure_thread(
                 capture_plan,
                 latency_epoch_transition,
             );
+            if is_recording
+                && trace_take::wait_for_short_take(
+                    &record_take_tracker,
+                    record_sm.generation(),
+                    sample_rate,
+                    route,
+                    selected_record_epoch,
+                    capture_plan.capture_epoch,
+                )
+            {
+                record_sm.wait_for_measure_work(true);
+                continue;
+            }
             let record_take = is_recording && route == RecordChunkRoute::Take;
             // The take and a realtime Keep's later passes reach the summary on the same rule.
             let record_summary = is_recording && !route.live_only();
@@ -716,17 +739,6 @@ pub fn spawn_measure_thread(
                     record_phase_pending.clear();
                     record_grid_cursor = None;
                     record_next_grid_end = None;
-                    if is_recording {
-                        record_origin_frames = native_frames_to_48k(
-                            record_engines.trace().total_frames(),
-                            sample_rate,
-                        );
-                        record_origin_native_frames = native_frames_total;
-                        record_origin_position_samples = capture_plan.position_start_samples;
-                        record_capture_epoch = selected_record_epoch.or(capture_plan.capture_epoch);
-                        next_record_trace_ms = 0;
-                        next_record_psb_ms = 0;
-                    }
                     log::info!(
                         "[MeasureThread] host sample discontinuity: measurement state reset at {:?}",
                         capture_plan.position_start_samples
@@ -768,14 +780,19 @@ pub fn spawn_measure_thread(
                     }
                 }
                 let chunk_native_frames = (chunk_f64.len() / n_channels) as u64;
-                if state == SignalState::Active {
-                    let direct_sample_offset = replayed_prefix_samples.min(chunk_f64.len());
-                    feed_meter_session(
-                        meter_session.as_ref(),
-                        meter_session_publication.as_ref(),
-                        &chunk_f64[direct_sample_offset..],
-                        capture_plan.meter_clock_start((direct_sample_offset / n_channels) as u64),
-                    );
+                if (meter_feed_gate::MeterFeed {
+                    tracker: &record_take_tracker,
+                    session: meter_session.as_ref(),
+                    publication: meter_session_publication.as_ref(),
+                    n_channels,
+                    fallback_active: state == SignalState::Active,
+                })
+                .feed(
+                    &chunk_f64,
+                    native_frames_total,
+                    capture_plan,
+                    replayed_prefix_samples,
+                ) {
                     meter_session_suspended = false;
                 }
                 let captured_frames_before = native_frames_total;
@@ -787,6 +804,39 @@ pub fn spawn_measure_thread(
                     );
                 }
                 native_frames_total = native_frames_total.saturating_add(chunk_native_frames);
+                let native_frames_after = native_frames_total;
+                last_capture_position_end = capture_plan.position_end_samples;
+                let timeline = trace_take::TraceTakeBoundary {
+                    queue: &record_trace_queue,
+                    tracker: &record_take_tracker,
+                    generation: record_sm.generation(),
+                    sample_rate,
+                    n_channels,
+                    origin_frames: &mut record_origin_frames,
+                    origin_native_frames: &mut record_origin_native_frames,
+                    origin_position: &mut record_origin_position_samples,
+                    anchor_epoch: &mut trace_anchor_epoch,
+                    capture_epoch: &mut record_capture_epoch,
+                    offset_frames: &mut record_trace_frame_offset_48k,
+                    offset_native_frames: &mut record_trace_native_frame_offset,
+                    next_trace_ms: &mut next_record_trace_ms,
+                    next_psb_ms: &mut next_record_psb_ms,
+                    grid_cursor: &mut record_grid_cursor,
+                    next_grid_end: &mut record_next_grid_end,
+                    resampler: &mut trace_resampler,
+                    phase_pending: &mut phase_d_slot_pending,
+                    phase_d: &mut phase_d,
+                    latest_pd: &mut latest_pd,
+                    core: &mut record_core_pending,
+                    phases: &mut record_phase_pending,
+                }
+                .prepare(
+                    is_recording,
+                    record_take,
+                    selected_record_epoch,
+                    capture_plan,
+                    captured_frames_before,
+                );
                 if is_recording {
                     let generation = record_sm.generation();
                     let chunk = capture_plan.keep_chunk(
@@ -796,44 +846,6 @@ pub fn spawn_measure_thread(
                         record_summary,
                     );
                     record_take_tracker.note_keep_chunk(chunk);
-                }
-                let native_frames_after = native_frames_total;
-                last_capture_position_end = capture_plan.position_end_samples;
-                let timeline = RecordTraceTimeline {
-                    generation: record_sm.generation(),
-                    origin_frames_48k: record_origin_frames,
-                    origin_native_frames: record_origin_native_frames,
-                    offset_frames_48k: record_trace_frame_offset_48k,
-                    offset_native_frames: record_trace_native_frame_offset,
-                    origin_position_samples: record_origin_position_samples,
-                };
-                // The TRACE pass ended: a later pass of the Keep begins, or the take begins a new
-                // pass on a position. Close it as Stop does before this chunk enters the resampler.
-                let new_take_pass = capture_plan.position_start_samples.is_some()
-                    && capture_plan.position_start_samples != record_grid_cursor;
-                let pass_left = record_grid_cursor.is_some() || !record_core_pending.is_empty();
-                if is_recording && (record_take && new_take_pass || !record_take && pass_left) {
-                    record_grid_cursor = None;
-                    let cursor = RecordTraceCursor {
-                        next_trace_ms: &mut next_record_trace_ms,
-                        next_psb_ms: &mut next_record_psb_ms,
-                    };
-                    let mut trace = RecordTraceDrain {
-                        queue: &record_trace_queue,
-                        timeline,
-                        cursor,
-                    };
-                    let _ = close_trace_pass(
-                        &mut trace_resampler,
-                        n_channels,
-                        &mut phase_d_slot_pending,
-                        &mut phase_d,
-                        &mut latest_pd,
-                        &mut record_phase_pending,
-                        &mut record_core_pending,
-                        Some(&mut trace),
-                        sample_rate,
-                    );
                 }
                 //  v2: 入力 SR が 48 kHz でない場合のみリサンプリング。
                 // resampler 経由では 48 kHz interleaved f64 が `resampled_buf` に追記される。
@@ -846,7 +858,7 @@ pub fn spawn_measure_thread(
                             sample_rate,
                             e
                         );
-                        thread::sleep(idle_sleep_for_record_state(is_recording));
+                        record_sm.wait_for_measure_work(is_recording);
                         continue;
                     }
                     &resampled_buf
@@ -1034,7 +1046,7 @@ pub fn spawn_measure_thread(
             if consumer.slots() > 0 {
                 thread::yield_now();
             } else {
-                thread::sleep(idle_sleep_for_record_state(is_recording));
+                record_sm.wait_for_measure_work(is_recording);
             }
         }
 
@@ -1252,96 +1264,6 @@ fn estimate_observed_native_frames(
     let observed_delta_native =
         observed_delta_48k.saturating_mul(chunk_native_frames) / chunk_48k_frames;
     Some(native_frames_before.saturating_add(observed_delta_native.min(chunk_native_frames)))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn drain_watch_into_raw_pre_roll(
-    consumer: &mut MeasureSampleConsumer,
-    tracker: &RecordTakeTracker,
-    history: &mut RawPreRollHistory,
-    scratch: &mut Vec<f64>,
-    native_frames_total: &mut u64,
-    consumed_samples: &mut u64,
-    n_channels: usize,
-    sample_rate: u32,
-    chunk_limit_samples: usize,
-    signal_state: &AtomicU8,
-    meter_session: Option<&Arc<Mutex<MeterSession>>>,
-    meter_session_publication: Option<&Arc<MeterSessionPublication>>,
-    resume: &mut Option<WatchResume>,
-) {
-    loop {
-        resume_watch_index(resume, native_frames_total);
-        let available = consumer
-            .slots()
-            .min(chunk_limit_samples)
-            .min(watch_chunk_limit(resume, *native_frames_total, n_channels));
-        let plan = capture_chunk_plan(
-            tracker,
-            *native_frames_total,
-            available,
-            n_channels,
-            sample_rate,
-        );
-        if plan.sample_count == 0 {
-            break;
-        }
-        scratch.clear();
-        for _ in 0..plan.sample_count {
-            let Ok(sample) = consumer.pop() else {
-                break;
-            };
-            *consumed_samples = (*consumed_samples).saturating_add(1);
-            scratch.push(sample as f64);
-        }
-        let frames = (scratch.len() / n_channels.max(1)) as u64;
-        if frames == 0 {
-            break;
-        }
-        let _ = history.append_f64(trusted_pre_roll_epoch(plan), *native_frames_total, scratch);
-        if load_signal_state(signal_state) == SignalState::Active {
-            feed_meter_session(
-                meter_session,
-                meter_session_publication,
-                scratch,
-                plan.meter_clock_start(0),
-            );
-        }
-        *native_frames_total = (*native_frames_total).saturating_add(frames);
-    }
-}
-
-fn feed_meter_session(
-    meter_session: Option<&Arc<Mutex<MeterSession>>>,
-    publication: Option<&Arc<MeterSessionPublication>>,
-    direct_active_samples: &[f64],
-    clock: MeterClockStart,
-) {
-    if direct_active_samples.is_empty() {
-        return;
-    }
-    if let Some(session) = meter_session {
-        let mut session = crate::sync_recovery::lock_recover(session, "MeterSession active push");
-        let _ = session.push_active_at(direct_active_samples, clock);
-        if let Some(publication) = publication {
-            // Publish while the session mutation is still serialized. Otherwise an explicit
-            // CLEAR can publish its cleared holds and then be overwritten by this older frame.
-            publication.publish(session.snapshot());
-        }
-    }
-}
-
-fn pause_meter_session(
-    meter_session: Option<&Arc<Mutex<MeterSession>>>,
-    publication: Option<&Arc<MeterSessionPublication>>,
-) {
-    if let Some(session) = meter_session {
-        let mut session = crate::sync_recovery::lock_recover(session, "MeterSession pause");
-        session.pause();
-        if let Some(publication) = publication {
-            publication.publish(session.snapshot());
-        }
-    }
 }
 
 fn push_record_timeline_markers_until(

@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[path = "record_ingress_diagnostics.rs"]
+mod diagnostics;
+
 struct AudioPushGuard<'a> {
     in_flight: &'a AtomicU64,
 }
@@ -34,6 +37,7 @@ pub struct RecordIngress {
     armed_generation: AtomicU64,
     audio_generation: AtomicU64,
     drained_generation: AtomicU64,
+    abandoned_generation: AtomicU64,
     /// Exact Record generation whose Measure consumer was replaced after a worker loss.
     ///
     /// The replacement Watchdog publishes this before spawning the next Measure worker. The new
@@ -67,6 +71,7 @@ impl RecordIngress {
             armed_generation: AtomicU64::new(0),
             audio_generation: AtomicU64::new(0),
             drained_generation: AtomicU64::new(0),
+            abandoned_generation: AtomicU64::new(0),
             restart_pending_generation: AtomicU64::new(0),
             capture_origin_generation: AtomicU64::new(0),
             capture_origin_frame: AtomicU64::new(0),
@@ -220,6 +225,10 @@ impl RecordIngress {
         &self,
         generation: u64,
     ) -> Option<crate::record_spool::MeasureSampleConsumer> {
+        let control = match self.control.lock() {
+            Ok(control) => control,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         if generation == 0 || self.armed_generation.load(Ordering::Acquire) != generation {
             return None;
         }
@@ -230,10 +239,6 @@ impl RecordIngress {
         {
             return None;
         }
-        let control = match self.control.lock() {
-            Ok(control) => control,
-            Err(poisoned) => poisoned.into_inner(),
-        };
         let reader = control.spool.as_ref().and_then(|spool| spool.reader().ok());
         if reader.is_none() {
             self.measure_attached.store(false, Ordering::Release);
@@ -340,6 +345,39 @@ impl RecordIngress {
         }
     }
 
+    /// Retire an unclaimed lane on a non-audio control thread.
+    pub fn abandon_unattached_from_control(&self, generation: u64) -> bool {
+        let mut control =
+            crate::sync_recovery::lock_recover(&self.control, "Record lane retirement");
+        if generation == 0
+            || self.armed_generation.load(Ordering::Acquire) != generation
+            || !control.allocated
+            || self
+                .measure_attached
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return false;
+        }
+        self.accepting_audio.store(false, Ordering::Release);
+        if let Some(spool) = control.spool.as_ref() {
+            spool.seal();
+        }
+        // Keep the attachment claim until a fresh lane is installed. An already-running
+        // Audio copy and the spool worker retain their own storage; reclamation never waits.
+        drop(control.spool.take());
+        control.allocated = false;
+        self.abandoned_generation
+            .store(generation, Ordering::Release);
+        self.drained_generation
+            .fetch_max(generation, Ordering::AcqRel);
+        true
+    }
+
+    pub fn lane_abandoned(&self, generation: u64) -> bool {
+        generation != 0 && self.abandoned_generation.load(Ordering::Acquire) == generation
+    }
+
     pub fn generation_ready(&self, generation: u64) -> bool {
         generation != 0
             && self.armed_generation.load(Ordering::Acquire) == generation
@@ -378,88 +416,6 @@ impl RecordIngress {
             Err(poisoned) => poisoned.into_inner(),
         };
         control.retired_spools.retain(|spool| !spool.is_closed());
-    }
-
-    /// Detach a terminated Measure reader without replacing the live Audio -> spool lane. A new
-    /// Measure worker replays the same generation from sample zero, so a worker crash cannot erase
-    /// already admitted Record audio.
-    ///
-    /// `observation` is an exact snapshot of the shared Record state. A generation is retired here
-    /// only when it is already known to have entered (`record_generation == armed_generation`) and
-    /// is now fully closed (`!recording && !has_record_session`). A not-yet-entered generation has
-    /// `record_generation < armed_generation` and must remain eligible to enter after restart.
-    pub(crate) fn replace_after_measure_restart(
-        &self,
-        observation: RecordIngressGenerationObservation,
-    ) {
-        let armed_generation = {
-            let control = match self.control.lock() {
-                Ok(control) => control,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if !control.allocated {
-                return;
-            }
-            let armed_generation = self.armed_generation.load(Ordering::Acquire);
-            self.measure_attached.store(false, Ordering::Release);
-            self.restart_pending_generation
-                .store(armed_generation, Ordering::Release);
-            armed_generation
-        };
-        if observation.proves_closed(armed_generation) {
-            let _ = self.retire_restart_generation(armed_generation);
-        }
-    }
-
-    /// Resolve one Watchdog replacement from the newly started Measure worker.
-    ///
-    /// This is deliberately separate from [`Self::replace_after_measure_restart`]. If Stop races
-    /// the Watchdog's first live observation, the replacement worker sees the later closed state
-    /// and retires the exact old generation. Conversely, an Entering state retains a Record session
-    /// while `recording == false`, so it remains pending instead of being misclassified as closed.
-    pub(crate) fn reconcile_after_measure_restart(
-        &self,
-        observation: RecordIngressGenerationObservation,
-    ) -> RecordIngressRestartOutcome {
-        let pending = self.restart_pending_generation.load(Ordering::Acquire);
-        if pending == 0 {
-            return RecordIngressRestartOutcome::None;
-        }
-        if observation.proves_closed(pending) || observation.record_generation > pending {
-            return if self.retire_restart_generation(pending) {
-                RecordIngressRestartOutcome::Retired
-            } else {
-                RecordIngressRestartOutcome::None
-            };
-        }
-        if observation.record_generation == pending && observation.recording {
-            return if self
-                .restart_pending_generation
-                .compare_exchange(pending, 0, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                RecordIngressRestartOutcome::PreservedLive
-            } else {
-                RecordIngressRestartOutcome::None
-            };
-        }
-        RecordIngressRestartOutcome::Pending
-    }
-
-    fn retire_restart_generation(&self, generation: u64) -> bool {
-        if generation == 0 || self.restart_pending_generation.load(Ordering::Acquire) != generation
-        {
-            return false;
-        }
-        if !self.finish_capture_from_measure(generation, Duration::from_secs(1)) {
-            // A close timeout is itself terminal for this TRACE. Release the failed generation so
-            // it cannot retain disk or permanently poison later explicit Keeps.
-            return self.mark_failed_from_measure(generation);
-        }
-        // No replacement Measure worker owns this closed generation, so retirement is a failed
-        // TRACE outcome rather than a successful drain/seal. The same terminalization path also
-        // removes the control seed immediately.
-        self.mark_failed_from_measure(generation)
     }
 
     fn install_fresh_lane(&self, control: &mut ControlState, generation: u64) -> bool {
@@ -527,3 +483,10 @@ pub(crate) enum RecordIngressRestartOutcome {
 #[cfg(test)]
 #[path = "record_ingress_tests.rs"]
 mod tests;
+
+#[path = "record_ingress_restart.rs"]
+mod restart;
+
+#[cfg(test)]
+#[path = "record_ingress_abandon_tests.rs"]
+mod abandon_tests;

@@ -187,6 +187,7 @@ mod tests {
 
     fn exact(auxiliary: i64) -> MeterClockStart {
         MeterClockStart {
+            playback_start: None,
             position_samples: Some(auxiliary),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,

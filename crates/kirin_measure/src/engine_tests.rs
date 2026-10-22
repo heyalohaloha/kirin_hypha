@@ -229,6 +229,7 @@ fn content_grid_splits_do_not_change_canonical_engine_facts() {
         gridded.push_observed_with_session_facts_at(
             &pcm,
             MeterClockStart {
+                playback_start: None,
                 position_samples: Some(start as i64),
                 epoch: Some(1),
                 source: CaptureClockSource::ProjectTimeline,

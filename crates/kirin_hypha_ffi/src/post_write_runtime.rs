@@ -143,12 +143,14 @@ impl KirinHyphaEngine {
         };
         let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn = {
             let record_sm = Arc::clone(&self.record_sm);
+            let record_ingress = Arc::clone(&self.record_ingress);
             let paired = self.pair_binding.recording_pre();
             let project_hash = cb_project_hash;
             let post_iid = cb_post_iid;
             Arc::new(move |_pre: &str, _post: &str| {
                 resolve_and_exit_stop(
                     &record_sm,
+                    &record_ingress,
                     &paired,
                     &project_hash,
                     &post_iid,

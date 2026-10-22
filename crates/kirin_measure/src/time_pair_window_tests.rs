@@ -102,6 +102,7 @@ fn grid_endpoints_need_a_shared_clock_origin_when_latency_is_unreported() {
     for origin in [None, Some(1), Some(4096), Some(4800)] {
         let shifted = crate::meter_session::TimeWirePoint {
             clock_origin: origin,
+            playback_start: None,
             ..point
         };
         assert!(!point.comparison_clock_proven(shifted));

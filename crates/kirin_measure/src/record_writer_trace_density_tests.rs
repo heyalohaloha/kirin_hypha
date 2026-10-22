@@ -310,3 +310,6 @@ fn read_session_output(base: &std::path::Path, session: &str) -> PluginDataFile 
     let path = find(base, &format!("{session}.json")).expect("the session's record");
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
+
+#[path = "record_writer_selected_take_tests.rs"]
+mod selected_take_tests;

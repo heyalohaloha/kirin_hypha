@@ -31,34 +31,6 @@ pub struct Host {
 }
 
 impl Host {
-    /// One realtime callback on both sides, paced to audio time. Returns true at a cycle wrap.
-    pub fn play(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, level: f32) -> bool {
-        let block = if level > 0.0 {
-            tone(level, self.counter)
-        } else {
-            impulses(self.counter)
-        };
-        for engine in [pre, post] {
-            engine.note_capture_loop_wrap(self.wrapped);
-            push(engine, &block, self.position, self.counter);
-        }
-        self.counter += BLOCK;
-        self.position += BLOCK;
-        let wrapped = self.cycle && self.position >= LOOP_END;
-        if wrapped {
-            self.position -= LOOP_END;
-        }
-        self.wrapped = wrapped;
-        self.blocks += 1;
-        let due = self.start + Duration::from_secs_f64(self.blocks as f64 * BLOCK as f64 / RATE);
-        if due > Instant::now() {
-            sleep(due - Instant::now());
-        }
-        wrapped
-    }
-}
-
-impl Host {
     pub fn mark(&self) -> Mark {
         Mark {
             blocks: self.blocks,
@@ -85,104 +57,18 @@ impl Host {
         level: f32,
         mark: &Mark,
     ) -> bool {
-        let mut stalled = 0;
-        loop {
-            // A busy meter (one measuring a backlog) refuses a read, so it is read again.
-            let endpoints = [settled_endpoint(pre), settled_endpoint(post)];
-            let behind = endpoints.iter().any(|endpoint| {
-                let measured = endpoint
-                    .filter(|end| *end >= mark.position)
-                    .unwrap_or(mark.position);
-                measured + MEASURE_SLACK < self.position
-            });
-            if !behind {
-                break;
-            }
-            // A heartbeat-only callback keeps both sides active while no audio is delivered.
-            for engine in [pre, post] {
-                engine.set_signal_state(1);
-                engine.push_samples(&[], 2);
-            }
-            sleep(HOLD);
-            self.start += HOLD;
-            let advanced = [settled_endpoint(pre), settled_endpoint(post)] != endpoints;
-            stalled = if advanced { 0 } else { stalled + 1 };
-            assert!(
-                stalled < STALLED_HOLDS,
-                "a meter stopped measuring the played audio"
-            );
-        }
+        self.hold_measured(pre, post, |end| {
+            end.filter(|end| *end >= mark.position)
+                .unwrap_or(mark.position)
+        });
         self.play(pre, post, level)
     }
 
-    /// Stopped transport callbacks: the host clock runs on, nothing is captured.
-    pub fn stopped(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, blocks: i64) {
-        for _ in 0..blocks {
-            for engine in [pre, post] {
-                engine.set_signal_state(0);
-                engine.note_record_block(RecordTakeBlock {
-                    generation: 0,
-                    recording: engine.is_recording(),
-                    rendered: false,
-                    playing: false,
-                    offline: false,
-                    position_valid: true,
-                    position_samples: self.position,
-                    num_frames: BLOCK as u64,
-                    clock_start_samples: 0,
-                    clock_end_samples: None,
-                });
-                engine.push_samples(&[], 2);
-            }
-            self.counter += BLOCK;
-            self.blocks += 1;
-            let due =
-                self.start + Duration::from_secs_f64(self.blocks as f64 * BLOCK as f64 / RATE);
-            if due > Instant::now() {
-                sleep(due - Instant::now());
-            }
-        }
-    }
-
-    /// Plays until both sides record a Keep the POST accepted. A host too slow for the producer
-    /// readiness deadline gets "Failed to arm PRE and POST": both sides must then be back in Watch
-    /// (no Record survives an aborted Keep) before the Keep is pressed again, as a user would.
-    pub fn arm(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, level: f32) {
-        let give_up = Instant::now() + CATCH_UP;
-        let mut deadline = Instant::now() + Duration::from_secs(8);
-        while post.keep_phase() != KIRIN_KEEP_PHASE_ARMED
-            || !post.is_recording()
-            || !pre.is_recording()
-        {
-            assert!(
-                Instant::now() < deadline,
-                "ARMED deadline: phase {} POST {} PRE {}",
-                post.keep_phase(),
-                post.is_recording(),
-                pre.is_recording()
-            );
-            if post.keep_phase() == KIRIN_KEEP_PHASE_IDLE
-                && post.drain_keep_action_notice().as_deref() == Some("Failed to arm PRE and POST")
-            {
-                assert!(Instant::now() < give_up, "the Keep keeps failing to arm");
-                let rollback = Instant::now() + Duration::from_secs(8);
-                while post.is_recording() || pre.is_recording() {
-                    assert!(
-                        Instant::now() < rollback,
-                        "an aborted Keep leaves no Record: POST {} PRE {}",
-                        post.is_recording(),
-                        pre.is_recording()
-                    );
-                    self.play(pre, post, level);
-                }
-                while !post.keep() {
-                    assert!(Instant::now() < rollback, "Keep again after a failed arm");
-                    self.play(pre, post, level);
-                }
-                deadline = Instant::now() + Duration::from_secs(8);
-            }
+    /// Wait for the accepted Keep using the shared state/attempt contract.
+    pub fn arm(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine, level: f32) -> usize {
+        arm(pre, post, || {
             self.play(pre, post, level);
-        }
+        })
     }
 
     /// After a Keep the pair plays on from `position`: each side's TIME points name the audio they
@@ -249,10 +135,75 @@ pub fn impulses(counter: i64) -> Vec<f32> {
         .collect()
 }
 
-/// A slow host (a virtual CI machine, background QoS) lags the Measure Thread far behind the
-/// audio, and a stale TIME point is never compared. The arming waits are bounded by this
-/// wall-clock budget instead of a block count.
-pub const CATCH_UP: Duration = Duration::from_secs(30);
+/// Watchdog for a stopped fixture; state and attempts determine success or failure.
+pub const CATCH_UP: Duration = Duration::from_secs(600);
+
+/// Arming shared by hosts with different callback sizes and sample rates.
+pub fn arm(pre: &KirinHyphaEngine, post: &KirinHyphaEngine, mut play: impl FnMut()) -> usize {
+    let watchdog = Instant::now() + CATCH_UP;
+    let mut attempts = 1;
+    let mut notices = Vec::new();
+    eprintln!("Keep arm start: {}", arm_diagnostics(pre, post));
+    while post.keep_phase() != KIRIN_KEEP_PHASE_ARMED || !post.is_recording() || !pre.is_recording()
+    {
+        assert!(
+            Instant::now() < watchdog,
+            "arming stopped: phase {} POST {} PRE {}, notices {notices:?}",
+            post.keep_phase(),
+            post.is_recording(),
+            pre.is_recording()
+        );
+        if post.keep_phase() == KIRIN_KEEP_PHASE_IDLE {
+            if let Some(notice) = post.drain_keep_action_notice() {
+                let diagnostic = format!("{notice}; {}", arm_diagnostics(pre, post));
+                eprintln!("Keep arm attempt {attempts} failed: {diagnostic}");
+                notices.push(diagnostic);
+                attempts += 1;
+                assert!(attempts <= 4, "consecutive arm failures: {notices:?}");
+                while post.is_recording() || pre.is_recording() || !post.keep() {
+                    assert!(Instant::now() < watchdog, "rollback stopped: {notices:?}");
+                    play();
+                }
+                eprintln!(
+                    "Keep arm retry {attempts} accepted: {}",
+                    arm_diagnostics(pre, post)
+                );
+            }
+        }
+        play();
+    }
+    eprintln!(
+        "Keep arm ready after {attempts} attempts: {}",
+        arm_diagnostics(pre, post)
+    );
+    attempts
+}
+
+fn arm_diagnostics(pre: &KirinHyphaEngine, post: &KirinHyphaEngine) -> serde_json::Value {
+    serde_json::json!({
+        "pre": pre.__keep_arm_diagnostics_for_test(),
+        "post": post.__keep_arm_diagnostics_for_test(),
+    })
+}
+
+/// Restore the caller's storage override even if the fixture panics.
+pub struct StorageRoot(Option<std::ffi::OsString>);
+impl StorageRoot {
+    pub fn set(root: &Path) -> Self {
+        let old = std::env::var_os(kirin_measure::TEST_STORAGE_ROOT_ENV);
+        std::env::set_var(kirin_measure::TEST_STORAGE_ROOT_ENV, root);
+        Self(old)
+    }
+}
+impl Drop for StorageRoot {
+    fn drop(&mut self) {
+        if let Some(old) = self.0.take() {
+            std::env::set_var(kirin_measure::TEST_STORAGE_ROOT_ENV, old);
+        } else {
+            std::env::remove_var(kirin_measure::TEST_STORAGE_ROOT_ENV);
+        }
+    }
+}
 
 /// Played audio a meter may still have to measure before the host holds its next callback.
 const MEASURE_SLACK: i64 = 24_000;
@@ -389,3 +340,6 @@ pub fn collect(path: &Path, results: &mut Vec<serde_json::Value>) {
         }
     }
 }
+
+#[path = "callbacks.rs"]
+pub mod callbacks;

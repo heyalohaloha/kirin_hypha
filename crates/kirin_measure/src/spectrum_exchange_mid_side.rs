@@ -166,7 +166,7 @@ impl SpectrumCoordinator {
         let Some(frame) = self.runtime.try_mid_side_frame() else {
             return true;
         };
-        self.store_mid_side_runtime_frame(frame, Instant::now());
+        self.store_mid_side_runtime_frame(frame, self.clock_now());
         true
     }
 }

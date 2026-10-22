@@ -101,6 +101,8 @@ mod record_display_ffi;
 mod record_layout_gate;
 mod record_note_ffi;
 use record_display_ffi::to_c_record_display;
+#[path = "audio_push_transaction.rs"]
+mod audio_push_transaction;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
 mod signal_state_ffi;
@@ -186,6 +188,7 @@ mod keep_phase_contract_tests {
 
         resolve_and_exit_stop(
             &record_sm,
+            &RecordIngress::new(32),
             &paired_pre_target,
             "",
             "",
@@ -589,65 +592,8 @@ mod restored_pair_latch_tests {
     }
 }
 
-/// Stop resolution shared by the direct control and All Stop receiver.
-///
-/// Record lifecycle, reservation ownership and pair selection are deliberately separate. Stop
-/// closes the current session and releases its reservation, but the exact PRE selection remains
-/// available to the stopped-session Drop reconciler. Only an explicit selector transition/unpair
-/// clears `paired_pre_target` through `PairBinding`.
-fn resolve_and_exit_stop(
-    record_sm: &RecordStateMachine,
-    paired_pre_target: &Mutex<Option<String>>,
-    project_hash: &str,
-    post_iid: &str,
-    release_reason: Option<ReleaseReason>,
-) {
-    // Capture the selected PRE without consuming it. The reservation is Record-scoped, while this
-    // identity is also the deterministic address for a WAV dropped after Stop.
-    let released_pre = paired_pre_target.lock().ok().and_then(|g| g.clone());
-    // 2026-07-10 構造修正（ACK re-entry race）: shared signal を Released にしてから
-    // record_sm.exit_record() する。逆順だと、record_sm が既に Watch なのに on-disk signal は
-    // まだ Acknowledged のままという間隙が生まれ、その間に ACK poller（io_thread_pre.rs /
-    // io_thread_post.rs）が stale な Acknowledged を読んで同じ session_id へ再入場して
-    // しまう。record_sm 側の `closed_session_id` ガード（record.rs）が構造的な本丸だが、
-    // この reorder はその隙間自体を縮める defense-in-depth。exit_record は
-    // StoragePaths 解決の成否・早期 return 経路に関わらず必ず1回だけ呼ぶ（元の
-    // 無条件呼び出しと同じ保証）。
-    if project_hash.is_empty() || post_iid.is_empty() {
-        record_sm.exit_record(); // 未 enable → released marker は書けないが exit は必須。
-        return;
-    }
-    if let Ok(p) = StoragePaths::default_platform() {
-        let base = p.plugin_data_dir();
-        if let Some(pre) = released_pre.as_deref() {
-            reservation::release_pairing(&base, project_hash, pre, post_iid);
-        }
-        let owned_session = record_sm
-            .record_session_id()
-            .or_else(|| record_sm.last_closed_session_id());
-        if let Some(current) = read_signal(&base, project_hash, post_iid) {
-            // Explicit user/broadcast Stop owns the currently addressed member, including the
-            // Pending-before-ACK interval. Teardown without a Stop reason owns only the exact
-            // session this engine entered or closed; a recreated engine may already have replaced
-            // the canonical path with its next Keep. An ownership mismatch must be a no-op, never
-            // an unconditional fallback release of the newer incarnation.
-            let _ = match release_reason {
-                Some(reason) => mark_released_with_reason_if_current(
-                    &base,
-                    project_hash,
-                    post_iid,
-                    &current,
-                    reason,
-                ),
-                None if owned_session.as_deref() == Some(current.session_id.as_str()) => {
-                    mark_released_if_current(&base, project_hash, post_iid, &current)
-                }
-                None => Ok(false),
-            };
-        }
-    }
-    record_sm.exit_record();
-}
+mod record_stop_ffi;
+use record_stop_ffi::resolve_and_exit_stop;
 
 fn clear_keep_action_notice(keep_action_notice: &RwLock<Option<String>>) {
     if let Ok(mut message) = keep_action_notice.write() {
@@ -926,13 +872,17 @@ impl KirinHyphaEngine {
             let paired_pre_target = self.pair_binding.recording_pre();
             resolve_and_exit_stop(
                 &self.record_sm,
+                &self.record_ingress,
                 &paired_pre_target,
                 &project_hash,
                 &post_iid,
                 Some(ReleaseReason::ManualStop),
             );
         } else {
-            self.record_sm.exit_record();
+            kirin_measure::cleanup::exit_record_releasing_unattached_lane(
+                &self.record_sm,
+                &self.record_ingress,
+            );
         }
     }
 
@@ -1291,20 +1241,6 @@ impl KirinHyphaEngine {
         self.measure_alive.load(Ordering::Relaxed)
     }
 
-    /// Durable Measure worker generation used by restart acceptance tests and diagnostics.
-    #[doc(hidden)]
-    pub fn __measure_worker_generation_for_test(&self) -> u64 {
-        self.measure_worker_generation.load(Ordering::Acquire)
-    }
-
-    /// テスト専用: Measure Thread を強制終了させ watchdog の再起動経路を駆動する（B-118 test iii/iv）。
-    /// `shutdown` をセットすると measure loop が抜けて exit → watchdog が is_finished を検出し
-    /// （watchdog_shutdown は false のため）再 spawn して shutdown を false へ戻す。本番経路は使わない。
-    #[doc(hidden)]
-    pub fn __force_measure_restart_for_test(&self) {
-        self.shutdown.store(true, Ordering::Relaxed);
-    }
-
     /// Compatibility advisory for older shells. This getter is deliberately memory-only: UI
     /// polling must never enumerate reservation files. The authoritative Keep attempt publishes
     /// a one-shot action result when it cannot obtain the 13th slot.
@@ -1600,6 +1536,7 @@ impl KirinHyphaEngine {
         let paired_pre_target = self.pair_binding.recording_pre();
         resolve_and_exit_stop(
             &self.record_sm,
+            &self.record_ingress,
             &paired_pre_target,
             &project_hash,
             &post_iid,
@@ -1669,6 +1606,7 @@ impl KirinHyphaEngine {
         let paired_pre_target = self.pair_binding.recording_pre();
         resolve_and_exit_stop(
             &self.record_sm,
+            &self.record_ingress,
             &paired_pre_target,
             &project_hash,
             &post_iid,
@@ -1703,191 +1641,6 @@ impl KirinHyphaEngine {
             );
         }
         let _ = self.push_samples_transaction(interleaved, num_channels);
-    }
-
-    /// Shipping Audio-Thread transaction. A non-empty callback must already have an exact host
-    /// descriptor staged by the wrapper; the direct Rust shelf above is never used by JUCE.
-    fn push_samples_transaction(&self, interleaved: &[f32], num_channels: u32) -> bool {
-        self.aax_analysis.begin_callback();
-        // (1) heartbeat は常に進める（空ブロック keepalive でも Active を維持できる）。
-        self.heartbeat.fetch_add(1, Ordering::Relaxed);
-        if self.watch_playback_pass_id.load(Ordering::Acquire) == 0 {
-            self.watch_playback_pass_id.store(1, Ordering::Release);
-            reset_watch_ring_cursor(
-                &self.watch_ring_cursor_epoch,
-                &self.watch_ring_cursor_pass_id,
-                &self.watch_ring_cursor_samples,
-                1,
-            );
-        }
-
-        // Watchdog 再起動後の Producer 所有権を atomic pointer だけで取り込む。
-        // 旧 Producer は retired slot へ移し、Watchdog Thread が破棄するため、この
-        // Audio Thread 経路に lock / allocation / deallocation はない。
-        // SAFETY: push_samples は FFI 契約上、単一 Audio Thread からのみ呼ばれる。
-        if unsafe { self.producer_handoff.swap_pending_from_audio() } {
-            self.record_take_tracker.reset_capture_clock();
-            self.capture_last_offline.store(false, Ordering::Release);
-            let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-            reset_watch_ring_cursor(
-                &self.watch_ring_cursor_epoch,
-                &self.watch_ring_cursor_pass_id,
-                &self.watch_ring_cursor_samples,
-                pass_id,
-            );
-            self.watch_ring_replacing.store(false, Ordering::Release);
-        }
-        // SAFETY: same single Audio Thread. Record adoption only moves atomic pointers.
-        unsafe { self.record_ingress.adopt_from_audio() };
-
-        // (2) create 時の layout と異なるブロックは測定に入れない。
-        if num_channels as usize != self.num_channels {
-            self.pending_capture_valid.store(false, Ordering::Release);
-            self.pending_record_valid.store(false, Ordering::Release);
-            return false;
-        }
-
-        let recording = self.record_sm.is_recording();
-        if !interleaved.len().is_multiple_of(self.num_channels) {
-            self.pending_capture_valid.store(false, Ordering::Release);
-            self.pending_record_valid.store(false, Ordering::Release);
-            self.push_overflow
-                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-            return false;
-        }
-        let frames = (interleaved.len() / self.num_channels) as u64;
-        if frames > MAX_AUDIO_BLOCK_FRAMES as u64 {
-            self.pending_capture_valid.store(false, Ordering::Release);
-            self.pending_record_valid.store(false, Ordering::Release);
-            self.push_overflow
-                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-            return false;
-        }
-        let had_pending_clock = self.pending_capture_valid.load(Ordering::Acquire);
-        let pending_clock = self.take_pending_capture_window(frames);
-        let had_pending_record = self.pending_record_valid.load(Ordering::Acquire);
-        let pending_record = self.take_pending_record_block(frames);
-        if had_pending_clock && pending_clock.is_none() {
-            // A descriptor/sample cardinality mismatch is an invalid callback transaction. Drop
-            // it whole; accepting unclocked audio would shift every later producer coordinate.
-            self.push_overflow
-                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-            return false;
-        }
-        if had_pending_record && pending_record.is_none() {
-            self.push_overflow
-                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-            return false;
-        }
-        if interleaved.is_empty() {
-            if let Some(block) = pending_record {
-                self.commit_pending_record_block(block);
-            }
-            return false;
-        }
-        if pending_clock.is_none() {
-            // A sample without an immutable producer coordinate can never enter raw pre-roll or
-            // Record truthfully. The JUCE ABI guarantees note_capture_window immediately before
-            // every non-empty push, so this is a malformed transaction.
-            self.push_overflow
-                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-            return false;
-        }
-        self.push_optional_analysis(interleaved, pending_clock);
-        let accepted_offline_mode = pending_record.map(|block| block.offline);
-        let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
-            && !self.capture_last_offline.load(Ordering::Acquire);
-        let pushed = if recording {
-            let generation = self.record_sm.generation();
-            // SAFETY: producer access is closure-bounded to this one Audio callback.
-            let accepted = unsafe {
-                self.record_ingress
-                    .with_producer_from_audio(generation, |producer| {
-                        if producer.slots() < interleaved.len() {
-                            self.push_overflow
-                                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-                            return 0;
-                        }
-                        let capture_origin = self.record_take_tracker.captured_frames_total();
-                        self.record_ingress
-                            .begin_generation_from_audio(generation, capture_origin);
-                        if let Some(block) = pending_record {
-                            self.commit_pending_record_block(block);
-                        }
-                        if let Some(clock) = pending_clock {
-                            self.record_take_tracker
-                                .note_capture_window_with_clocks_boundary(
-                                    clock.position_valid,
-                                    clock.position_samples,
-                                    clock.num_frames,
-                                    clock.clock_source,
-                                    clock.presentation_latency,
-                                    clock.auxiliary,
-                                    clock.force_new_epoch || offline_capture_boundary,
-                                );
-                        }
-                        for &sample in interleaved {
-                            // The single producer checked the complete cardinality above. A
-                            // concurrent consumer can only increase, never consume, free slots.
-                            let _ = producer.push(sample);
-                        }
-                        interleaved.len() as u64
-                    })
-            };
-            if accepted.is_none() {
-                self.push_overflow
-                    .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-            }
-            accepted.unwrap_or(0)
-        } else {
-            // SAFETY: push_samples is the sole Audio Thread owner. Producer access cannot cross
-            // the callback or a handoff swap.
-            unsafe {
-                self.producer_handoff
-                    .with_active_producer_from_audio(|producer| {
-                        if producer.slots() < interleaved.len() {
-                            self.push_overflow
-                                .fetch_add(interleaved.len() as u64, Ordering::Relaxed);
-                            return 0;
-                        }
-                        if let Some(block) = pending_record {
-                            self.commit_pending_record_block(block);
-                        }
-                        if let Some(clock) = pending_clock {
-                            self.record_take_tracker
-                                .note_capture_window_with_clocks_boundary(
-                                    clock.position_valid,
-                                    clock.position_samples,
-                                    clock.num_frames,
-                                    clock.clock_source,
-                                    clock.presentation_latency,
-                                    clock.auxiliary,
-                                    clock.force_new_epoch || offline_capture_boundary,
-                                );
-                        }
-                        for &sample in interleaved {
-                            let _ = producer.push(sample);
-                        }
-                        interleaved.len() as u64
-                    })
-            }
-        };
-        if pushed > 0 {
-            if let Some(offline) = accepted_offline_mode {
-                self.capture_last_offline.store(offline, Ordering::Release);
-            }
-        }
-        if !recording && pushed > 0 && !self.watch_ring_replacing.load(Ordering::Acquire) {
-            let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-            add_watch_ring_cursor_samples(
-                &self.watch_ring_cursor_epoch,
-                &self.watch_ring_cursor_pass_id,
-                &self.watch_ring_cursor_samples,
-                pass_id,
-                pushed,
-            );
-        }
-        pushed == interleaved.len() as u64
     }
 
     /// 最新の RT 計測結果を取得（UI Thread / try_lock 非ブロッキング）。
@@ -1957,6 +1710,7 @@ impl Drop for KirinHyphaEngine {
             let paired_pre_target = self.pair_binding.recording_pre();
             resolve_and_exit_stop(
                 &self.record_sm,
+                &self.record_ingress,
                 &paired_pre_target,
                 &project_hash,
                 &post_iid,
@@ -3789,3 +3543,6 @@ mod post_controls_parity_tests {
 #[cfg(test)]
 #[path = "keep_action_notice_tests.rs"]
 mod keep_action_notice_tests;
+
+#[path = "keep_arm_diagnostics.rs"]
+mod keep_arm_diagnostics;

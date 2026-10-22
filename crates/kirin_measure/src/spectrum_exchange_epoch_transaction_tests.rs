@@ -230,6 +230,9 @@ fn delayed_unarmed_write_repairs_the_committed_epoch_even_after_lease_expiry() {
             SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
         let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
         let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
+        let clock = super::super::clock::TestClock::new();
+        pre.use_test_clock(&clock);
+        post.use_test_clock(&clock);
         assert!(post.set_post_analysis_mode(AnalysisViewMode::Perceptual));
         post.set_post_visible(true);
         assert!(post.post_tick("post", Some(target.clone())));
@@ -250,11 +253,11 @@ fn delayed_unarmed_write_repairs_the_committed_epoch_even_after_lease_expiry() {
         let epoch = post_runtime.perceptual_state_epoch().unwrap();
         if expire {
             // One production lease boundary, not a polling sleep or an extended oracle.
-            thread::sleep(Duration::from_millis((REQUEST_LEASE_MS + 25) as u64));
+            clock.advance(Duration::from_millis((REQUEST_LEASE_MS + 25) as u64));
         }
         pause.release();
         assert!(!stale.join().unwrap());
-        let wire = validated_request(temp.path(), "pre", 48_000, unix_ms_now())
+        let wire = validated_request(temp.path(), "pre", 48_000, post.clock_unix_ms())
             .expect("repair must leave a fresh lease");
         assert_eq!(wire.request_id, pending.request_id);
         assert_eq!(wire.state_epoch_samples, Some(epoch));
@@ -311,6 +314,9 @@ fn delayed_armed_write_repairs_the_reopened_owner_or_its_same_epoch_lease() {
             SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
         let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
         let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
+        let clock = super::super::clock::TestClock::new();
+        pre.use_test_clock(&clock);
+        post.use_test_clock(&clock);
         assert!(post.set_post_analysis_mode(AnalysisViewMode::Perceptual));
         post.set_post_visible(true);
         assert!(post.post_tick("post", Some(target.clone())));
@@ -338,17 +344,17 @@ fn delayed_armed_write_repairs_the_reopened_owner_or_its_same_epoch_lease() {
         }
         let current = post.post_session.lock().unwrap().as_ref().unwrap().clone();
         assert_eq!(current.request_id == armed.request_id, !reopen);
-        let before = validated_request(temp.path(), "pre", 48_000, unix_ms_now()).unwrap();
+        let before = validated_request(temp.path(), "pre", 48_000, post.clock_unix_ms()).unwrap();
         assert_eq!(before.request_id, current.request_id);
         cleanup_owned_request(Some(&target), armed.request_id);
         assert_eq!(
             read_request(temp.path()).unwrap().request_id,
             current.request_id.to_string()
         );
-        thread::sleep(Duration::from_millis((REQUEST_LEASE_MS + 25) as u64));
+        clock.advance(Duration::from_millis((REQUEST_LEASE_MS + 25) as u64));
         pause.release();
         assert!(!stale.join().unwrap());
-        let repaired = validated_request(temp.path(), "pre", 48_000, unix_ms_now())
+        let repaired = validated_request(temp.path(), "pre", 48_000, post.clock_unix_ms())
             .expect("late write must restore the current owner with a fresh lease");
         assert_eq!(repaired.request_id, current.request_id);
         assert_eq!(repaired.state_epoch_samples, current.state_epoch_samples);

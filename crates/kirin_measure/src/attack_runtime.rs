@@ -78,7 +78,13 @@ struct BandAnchorRequest {
     anchors: Vec<BandAnchor>,
 }
 
+#[cfg(test)]
+#[path = "attack_runtime_receipt.rs"]
+mod receipt;
+
 pub struct AttackRuntime {
+    #[cfg(test)]
+    test_receipt: receipt::Receipt,
     sample_rate: u32,
     num_channels: usize,
     enabled: AtomicBool,
@@ -131,6 +137,8 @@ impl AttackRuntime {
         let (sample_producer, sample_consumer) = RingBuffer::new(sample_capacity);
         let (block_producer, block_consumer) = RingBuffer::new(ATTACK_BLOCK_RING_CAPACITY);
         Ok(Arc::new(Self {
+            #[cfg(test)]
+            test_receipt: receipt::Receipt::default(),
             sample_rate,
             num_channels,
             enabled: AtomicBool::new(false),

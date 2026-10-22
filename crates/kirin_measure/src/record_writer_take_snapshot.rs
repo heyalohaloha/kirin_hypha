@@ -82,6 +82,8 @@ pub fn apply_record_take_snapshot(ctx: &mut RecordingCtx, tracker: Option<&Recor
                 });
         }
     }
+    ctx.writer
+        .set_trace_selected_capture_epoch(ctx.selected_capture_epoch);
     ctx.record_audio_prefix = ctx
         .selected_capture_epoch
         .and_then(|epoch| tracker.record_audio_prefix(epoch, ctx.record_generation));

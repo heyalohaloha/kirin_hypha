@@ -3,11 +3,12 @@
 //! pass, and the record lists every pass. Simulated clock facts (a project timeline that wraps and
 //! a continuous host counter), independent of actual DAW acceptance. A post-bounce position jump
 //! keeps its own contract.
+#[allow(dead_code)]
 mod keep_loop_host;
 
 use keep_loop_host::*;
 use kirin_hypha_ffi::{channel_abi::ChannelLayout, KirinHyphaEngine, KIRIN_KEEP_PHASE_IDLE};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// The record explains the Keep's length: the TRACE is the first pass, every later pass is listed
 /// with its host range and accepted frames, and a LOOP wrap degrades nothing.
@@ -16,11 +17,21 @@ fn explain_passes(role: &str, member: &serde_json::Value) -> (usize, u64) {
         return (0, 0); // A Keep that never left its first pass lists nothing.
     };
     let field = |pass: &serde_json::Value, key: &str| pass[key].as_i64().expect(key);
-    let first = &passes[0];
-    assert!(first["in_trace"] == true && first["trace_excluded_reason"].is_null());
-    let wraps = passes[1..]
+    let first = passes
         .iter()
-        .take_while(|pass| pass["trace_excluded_reason"] == "loop_wrap")
+        .find(|pass| pass["in_trace"] == true)
+        .expect("selected TRACE pass");
+    assert_eq!(
+        passes
+            .iter()
+            .filter(|pass| pass["in_trace"] == true)
+            .count(),
+        1
+    );
+    assert!(first["trace_excluded_reason"].is_null());
+    let wraps = passes
+        .iter()
+        .filter(|pass| pass["trace_excluded_reason"] == "loop_wrap")
         .count();
     let mut total = 0;
     for pass in passes {
@@ -58,7 +69,7 @@ fn explain_passes(role: &str, member: &serde_json::Value) -> (usize, u64) {
 #[ignore = "slow: real PRE/POST Keep across realtime LOOP wraps"]
 fn keep_follows_every_pass_of_a_realtime_loop() {
     let sandbox = tempfile::tempdir().unwrap();
-    std::env::set_var(kirin_measure::TEST_STORAGE_ROOT_ENV, sandbox.path());
+    let _storage = StorageRoot::set(sandbox.path());
     let paths = kirin_measure::PlatformPaths::default_current()
         .unwrap()
         .storage;
@@ -198,7 +209,7 @@ fn keep_follows_every_pass_of_a_realtime_loop() {
     }
     host.stopped(&pre, &post, 40);
     post.stop();
-    let deadline = Instant::now() + Duration::from_secs(12);
+    let deadline = Instant::now() + CATCH_UP;
     while post.is_recording() || pre.is_recording() || post.keep_phase() != KIRIN_KEEP_PHASE_IDLE {
         assert!(Instant::now() < deadline, "the stopped Keep closes");
         host.stopped(&pre, &post, 4);

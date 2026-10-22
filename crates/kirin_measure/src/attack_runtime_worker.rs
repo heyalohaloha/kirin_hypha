@@ -42,9 +42,13 @@ impl AttackRuntime {
             let Ok(block) = consumers.blocks.pop() else {
                 // No audio: the band side finishes what the stopped run allows.
                 self.service_band(&mut band_worker, detail_tracker.decided_before(), false);
+                #[cfg(test)]
+                self.test_receipt.notify();
                 thread::sleep(WORKER_IDLE);
                 continue;
             };
+            #[cfg(test)]
+            let _completed = self.test_receipt.begin();
             consumers.begin_descriptor(block);
             let generation = self.generation.load(Ordering::Acquire);
             if block.generation != generation || block.channels as usize != self.num_channels {

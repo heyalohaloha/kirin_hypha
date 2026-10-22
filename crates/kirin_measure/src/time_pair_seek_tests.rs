@@ -21,6 +21,7 @@ fn series(epoch: u64) -> Vec<TimeRawPoint> {
                 continuous_frames: 144000,
                 latency_known: true,
                 clock_origin: Some(0),
+                playback_start: None,
                 crest: Some(epoch as f64),
                 values: [Some(epoch as f64); 6],
             },

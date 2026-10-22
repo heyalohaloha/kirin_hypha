@@ -32,6 +32,10 @@ impl PostAnalysisEndpoints {
         }
     }
 
+    pub(super) fn meter_history(&self) -> Option<Arc<MeterDeltaHistoryExchange>> {
+        self.meter_history.clone()
+    }
+
     pub(super) fn service(
         &self,
         latched_pre: &Arc<Mutex<Option<LatchedPre>>>,

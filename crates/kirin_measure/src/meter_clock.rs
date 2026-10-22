@@ -18,6 +18,7 @@ pub(crate) enum ClockRunOrigin {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MeterClockStart {
+    pub playback_start: Option<i64>,
     pub position_samples: Option<i64>,
     pub epoch: Option<u64>,
     pub source: CaptureClockSource,
@@ -33,6 +34,7 @@ impl MeterClockStart {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MeterObservationClock {
+    pub playback_start: Option<i64>,
     pub continuous_frames: u64,
     pub run_id: u64,
     pub run_origin: ClockRunOrigin,
@@ -58,6 +60,7 @@ enum ClockKind {
 
 #[derive(Debug, Clone, Copy)]
 struct PendingSpan {
+    playback_start: Option<i64>,
     remaining_frames: u64,
     next_position_samples: Option<i64>,
     next_auxiliary_samples: Option<i64>,
@@ -68,6 +71,7 @@ struct PendingSpan {
 
 #[derive(Debug, Clone, Copy)]
 struct LastInputClock {
+    playback_start: Option<i64>,
     end_position_samples: Option<i64>,
     end_auxiliary_samples: Option<i64>,
     kind: ClockKind,
@@ -119,6 +123,8 @@ impl MeterClockTracker {
         });
         let continuation = self.last_input.is_some_and(|last| {
             last.kind == kind
+                // A transport restart also cuts a window when the timeline resumes at its old endpoint.
+                && last.playback_start == start.playback_start
                 && match kind {
                     ClockKind::Unknown => true,
                     ClockKind::Exact { .. } => {
@@ -157,6 +163,7 @@ impl MeterClockTracker {
                 .and_then(|frames| value.checked_add(frames))
         });
         self.pending.push_back(PendingSpan {
+            playback_start: start.playback_start,
             remaining_frames: frames,
             next_position_samples: position,
             next_auxiliary_samples: start.auxiliary.samples,
@@ -165,6 +172,7 @@ impl MeterClockTracker {
             run_origin,
         });
         self.last_input = Some(LastInputClock {
+            playback_start: start.playback_start,
             end_position_samples,
             end_auxiliary_samples,
             kind,
@@ -210,6 +218,7 @@ impl MeterClockTracker {
 
     pub fn consume_observation(&mut self, frames: u64) -> MeterObservationClock {
         let mut remaining = frames;
+        let mut playback_start = None;
         let mut run_id = None;
         let mut run_origin = None;
         let mut kind = None;
@@ -227,6 +236,10 @@ impl MeterClockTracker {
             {
                 compatible = false;
             }
+            if playback_start.is_some_and(|start| start != front.playback_start) {
+                compatible = false;
+            }
+            playback_start.get_or_insert(front.playback_start);
             run_id.get_or_insert(front.run_id);
             run_origin.get_or_insert(front.run_origin);
             kind.get_or_insert(front.kind);
@@ -260,6 +273,7 @@ impl MeterClockTracker {
         }
 
         MeterObservationClock {
+            playback_start: compatible.then_some(playback_start).flatten().flatten(),
             continuous_frames: if compatible && remaining == 0 {
                 self.continuous_frames
             } else {
@@ -423,3 +437,7 @@ mod tests {
         assert_eq!(mixed.timeline_endpoint_samples, None);
     }
 }
+
+#[cfg(test)]
+#[path = "meter_clock_transport_start_tests.rs"]
+mod transport_start_tests;

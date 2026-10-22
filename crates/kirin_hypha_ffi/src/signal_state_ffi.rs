@@ -20,12 +20,15 @@ fn signal_state_to_abi(state: SignalState) -> u8 {
 
 impl KirinHyphaEngine {
     /// Set the signal state from the stable C ABI code.
+    /// Call only from the Audio Thread: the activity journal has one producer.
     pub fn set_signal_state(&self, abi_state: u8) {
         let state = match abi_state {
             1 => SignalState::Active,
             2 => SignalState::Bypassed,
             _ => SignalState::Inactive,
         };
+        self.record_take_tracker
+            .note_meter_active(state == SignalState::Active);
         store_signal_state(&self.signal_state, state);
     }
 
@@ -120,3 +123,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "meter_activity_ffi_tests.rs"]
+mod activity_tests;

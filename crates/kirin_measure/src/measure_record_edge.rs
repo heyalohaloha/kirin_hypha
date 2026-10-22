@@ -11,6 +11,7 @@ pub(super) struct RecordEdge<'a> {
     pub(super) watch_consumed_samples: &'a mut u64,
     pub(super) watch_native_frames_total: &'a mut u64,
     pub(super) parked_watch_consumer: &'a mut Option<MeasureSampleConsumer>,
+    pub(super) meter_session_suspended: &'a mut bool,
     pub(super) record_display_generation: &'a mut Option<u64>,
     pub(super) engine: &'a mut MeasureEngine,
     pub(super) record_engines: &'a mut RecordMeasureEngines,
@@ -54,8 +55,13 @@ pub(super) struct RecordEdge<'a> {
     pub(super) playback_pass_id: u64,
 }
 
-/// False leaves the transition pending until the Record lane is published.
-pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> bool {
+pub(super) enum RecordEdgeOutcome {
+    Ready,
+    Retry,
+    Skipped,
+}
+
+pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> RecordEdgeOutcome {
     let RecordEdge {
         consumer,
         raw_pre_roll,
@@ -67,6 +73,7 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> bool {
         watch_native_frames_total,
         parked_watch_consumer,
         record_display_generation,
+        meter_session_suspended,
         engine,
         record_engines,
         phase_d,
@@ -110,19 +117,20 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> bool {
     } = edge;
     if !prev_recording && is_recording {
         let record_generation = record_sm.generation();
-        let record_consumer = record_ingress.take_consumer_for_measure(record_generation);
-        let Some(record_consumer) = record_consumer else {
-            // The IO/control thread publishes the complete Record lane before entering
-            // Record. If this thread observes the state in the publication instant, retry
-            // without claiming measure-ready; the generation transaction cannot commit.
-            thread::yield_now();
-            return false;
+        let record_consumer = match claim_record_lane(record_ingress, record_generation) {
+            RecordLaneEntry::Attached(consumer) => consumer,
+            RecordLaneEntry::Abandoned => return RecordEdgeOutcome::Skipped,
+            RecordLaneEntry::Pending => {
+                thread::yield_now();
+                return RecordEdgeOutcome::Retry;
+            }
         };
         // Consume every already-admitted Watch sample into the bounded raw history before
         // parking the lane. PRE may receive the Record control edge one callback after
         // POST; dropping this tail is the exact 7,676-sample class of missing prefix that
         // raw pre-roll exists to recover.
-        drain_watch_into_raw_pre_roll(
+        record_sm.begin_measure_preparation(record_generation);
+        let drained = meter_feed_gate::drain_watch_with_progress(
             consumer,
             record_take_tracker,
             raw_pre_roll,
@@ -136,10 +144,20 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> bool {
             meter_session.as_ref(),
             meter_session_publication.as_ref(),
             watch_resume,
+            None,
+            |samples| record_sm.note_measure_preparation_samples(samples),
         );
+        if drained.fed {
+            *meter_session_suspended = false;
+        }
         *watch_consumed_samples = *consumed_samples;
         *watch_native_frames_total = *native_frames_total;
         *parked_watch_consumer = Some(std::mem::replace(consumer, record_consumer));
+        if let Some(session) = meter_session.as_ref() {
+            let session =
+                crate::sync_recovery::lock_recover(session, "Record delta admission floor");
+            record_sm.mark_record_delta_boundary(record_generation, &session);
+        }
         *record_display_generation = Some(record_generation);
         record_sm.mark_record_display_measure_started(record_generation);
         *consumed_samples = 0;
@@ -175,9 +193,12 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> bool {
         if let Ok(mut g) = session_summary.lock() {
             *g = None;
         }
-        record_sm.mark_measure_ready(record_sm.generation());
+        record_sm.mark_measure_ready(record_generation);
         log::info!("[MeasureThread] engine reset on Watch→Record transition");
     } else if prev_recording && !is_recording {
+        if parked_watch_consumer.is_none() {
+            return RecordEdgeOutcome::Ready;
+        }
         // Record停止時はtight-drain → 最終finalize → session_summary書込みを行う。
         // 「停止前に drain 済み」の clean 録音では ring 空 → finalize は同一サンプル集合を
         // 再抽出するだけ（parity abs=0 維持）。完了後に seal を 1 前進させ、IO の bake arm が
@@ -295,5 +316,23 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> bool {
         clear_phase_d_fields(&mut guard);
         stamp_shared_measure_result(&mut guard, measure_sequence, playback_pass_id);
     }
-    true
+    RecordEdgeOutcome::Ready
 }
+
+enum RecordLaneEntry {
+    Attached(MeasureSampleConsumer),
+    Abandoned,
+    Pending,
+}
+
+fn claim_record_lane(ingress: &crate::RecordIngress, generation: u64) -> RecordLaneEntry {
+    match ingress.take_consumer_for_measure(generation) {
+        Some(consumer) => RecordLaneEntry::Attached(consumer),
+        None if ingress.lane_abandoned(generation) => RecordLaneEntry::Abandoned,
+        None => RecordLaneEntry::Pending,
+    }
+}
+
+#[cfg(test)]
+#[path = "measure_record_edge_tests.rs"]
+mod tests;

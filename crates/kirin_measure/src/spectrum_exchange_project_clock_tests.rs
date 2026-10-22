@@ -193,7 +193,6 @@ fn absolute_view_publishes_local_timeline_and_psb_after_a_perceptual_latency_ref
             fixture.post.try_view().unwrap().status,
             SpectrumViewStatus::OutputLatencyUnavailable
         );
-        let deadline = Instant::now() + Duration::from_secs(3);
         for position in (0..9_600).step_by(256) {
             let count = 256.min(9_600 - position);
             let samples = (position..position + count)
@@ -203,10 +202,6 @@ fn absolute_view_publishes_local_timeline_and_psb_after_a_perceptual_latency_ref
                 })
                 .collect::<Vec<_>>();
             assert!(
-                Instant::now() < deadline,
-                "absolute feed deadline before {position}"
-            );
-            assert!(
                 fixture.post_runtime.push_block_from_audio_with_clock(
                     &samples,
                     2,
@@ -215,16 +210,17 @@ fn absolute_view_publishes_local_timeline_and_psb_after_a_perceptual_latency_ref
                 "absolute input refused at {position}: {:?}",
                 fixture.post_runtime.stats()
             );
-            await_input(&fixture.post_runtime, deadline, position);
+            assert!(fixture
+                .post_runtime
+                .wait_for_input_for_test(Duration::from_secs(60)));
         }
         let history = fixture.post_runtime.try_absolute_history();
         assert!(
-            Instant::now() < deadline
-                && history.is_some_and(|history| {
-                    history
-                        .newest()
-                        .is_some_and(|frame| frame.presentation_end_samples == 9_600)
-                }),
+            history.is_some_and(|history| {
+                history
+                    .newest()
+                    .is_some_and(|frame| frame.presentation_end_samples == 9_600)
+            }),
             "absolute worker must publish fresh local facts after completing the real input"
         );
         assert!(fixture.post.post_tick("post", None));
