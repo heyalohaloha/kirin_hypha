@@ -5,9 +5,47 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { parseArgs as parseReleaseSetArgs, requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
+import { parseArgs as parseReleaseSetArgs, requirePreviousReleaseUpgrades, requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
 const sha256File = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const binding = rows => ({ protocol: 1, publicKeySha256: '', binaries: rows.map(([format, role, binarySha256]) => ({ format, role, binarySha256, publicKeySha256: '' })) });
+
+test('previous public installers pin the released 1.1.52 VST3 and AAX installer', () => {
+  const fixture = JSON.parse(fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url)));
+  assert.deepEqual(fixture.installers.filter(entry => entry.version === '1.1.52'), [{
+    version: '1.1.52',
+    file_name: 'Kirin-Hypha-1.1.52-Windows-x64-Setup.exe',
+    bytes: 27730680,
+    sha256: '0db2fc3993f97d4385f06175da3c9efe5616adcaf1908b7480faa26700b3d41f',
+    default_scope: 'all-users',
+    formats: ['VST3', 'AAX'],
+  }]);
+  assert.deepEqual(fixture.scenarios.filter(scenario => scenario.id === 'all-users-1.1.52'), [{
+    id: 'all-users-1.1.52',
+    previous: [{ version: '1.1.52', scope: 'default' }],
+    new_scope: 'all-users',
+    expect: 'replaced',
+  }]);
+});
+
+test('release qualification requires a passed 1.1.52 upgrade bound to the current fixture', () => {
+  const bytes = fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url));
+  const fixture = JSON.parse(bytes);
+  const latestId = 'all-users-1.1.52';
+  assert.ok(fixture.required_for_release.includes(latestId));
+  const fixtureHash = createHash('sha256').update(bytes).digest('hex');
+  const scenarios = fixture.required_for_release.map(id => ({ id, status: 'passed' }));
+  const qualify = (rows, hash = fixtureHash) => requirePreviousReleaseUpgrades({
+    ci_validation: { prior_public_upgrade: { status: 'passed', fixture_sha256: hash, scenarios: rows } },
+  });
+  assert.doesNotThrow(() => qualify(scenarios));
+  // Passing the older upgrades cannot replace the immediately preceding public release.
+  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.52/);
+  assert.throws(() => qualify(scenarios.map(row => row.id === latestId ? { ...row, status: 'failed' } : row)),
+    /previous-release upgrade verification is incomplete/);
+  // A report bound to the former two-installer fixture cannot qualify the new matrix.
+  assert.throws(() => qualify(scenarios, '3468b10ac60fc41a87f876c418d7b4240b58cf0d0cb7e39402ad00461a5e2651'),
+    /previous-release upgrade verification is incomplete/);
+});
 
 test('full release set accepts only a signed, verified, externally validated Windows installer', (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-windows-primary-'));
