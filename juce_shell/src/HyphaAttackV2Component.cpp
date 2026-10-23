@@ -29,8 +29,8 @@ void AttackComponent::setAnalysisUnavailable (const juce::String& reason)
     analysisUnavailable = reason;
     repaint();
 }
-void AttackComponent::retireV2()
-{ v2->retire(); evidenceV2.reset(); evidenceScrollV2 = 0; selectionLaneV2 = -1; selectionPlotV2 = {}; repaint(); }
+void AttackComponent::retireV2 (bool preserveReadout)
+{ v2->retire (KIRIN_REASON_SOURCE_CHANGED, preserveReadout); evidenceV2.reset(); evidenceScrollV2 = 0; selectionLaneV2 = -1; selectionPlotV2 = {}; repaint(); }
 void AttackComponent::beginSnapshotV2()
 {
     v2->begin(); evidenceV2.reset(); evidenceScrollV2 = 0; selectionLaneV2 = -1; selectionPlotV2 = {};

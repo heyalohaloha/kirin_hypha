@@ -35,7 +35,7 @@ const std::array<Stage, stageCount> stages { {
       "Choose a source for %1 in Kirin OS", "C plays the source a Check compares your mix with." },
     // playDaw
     { K::waiting, W::none, "%1 WAITS FOR THE DAW / PLAY A TO AUDITION", "", "Ready when the DAW plays",
-      "Play the song in your DAW", "V follows the song; C uses its Cue." },
+      "Play the song in your DAW", "B plays the B set; C uses its Cue; V follows the song." },
     // aligning
     { K::waiting, W::alignmentPlay, "ALIGNING VERSION V / KEEP PLAYING", "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
       "Aligning with A. Keep playing", "Aligning V with A", "Keep playing. V must be a Version of the song you are playing." },

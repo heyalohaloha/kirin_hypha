@@ -10,7 +10,7 @@ function(kirin_reference_visual_measurement_test target)
         src/reference_audition/ReferenceKirinFingerprint.cpp
         src/reference_audition/ReferenceDynamicsTicks.cpp)
     target_link_libraries(${target} PRIVATE
-        juce::juce_audio_formats "${KIRIN_FFI_LIB}" ${KIRIN_RUST_NATIVE_LIBS})
+        juce::juce_audio_formats juce::juce_cryptography "${KIRIN_FFI_LIB}" ${KIRIN_RUST_NATIVE_LIBS})
     if(TARGET KirinHyphaRustFFI)
         add_dependencies(${target} KirinHyphaRustFFI)
     endif()

@@ -34,6 +34,7 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
             monoFont (c, typography::TextRole::axis, typography::Composition::visualization), inner.getWidth()))));
         text_style::drawLines (g, s, juce::Rectangle<int> (inner.getX(), y, inner.getWidth(), height),
                               juce::Justification::centredLeft, 8); y += height + 2; };
+    if (p.previousReadout) line ("Previous readings shown. Facts below are for the current pass.");
     line (p.header.target == KIRIN_TARGET_DELTA
         ? "Processing change to the same hit: POST - PRE."
         : "Output hit shape and level.");

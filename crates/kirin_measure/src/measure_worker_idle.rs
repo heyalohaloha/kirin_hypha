@@ -14,6 +14,11 @@ pub(super) fn should_process_phase_d(is_recording: bool) -> bool {
     is_recording
 }
 
+/// Queued PCM alone is not progress: its cursor, frame or generation proof may be pending.
+pub(super) fn should_continue_measurement(processed_samples: usize, queued_samples: usize) -> bool {
+    processed_samples > 0 && queued_samples > 0
+}
+
 /// SignalState controls Watch freshness and GUI visibility. Record admission is owned by the
 /// Record state machine and capture clock; once Audio Thread has admitted a buffer, silence is
 /// still factual audio and must pass through every Record engine. Treating Inactive as a Record
@@ -32,5 +37,18 @@ impl RecordStateMachine {
             thread::park_timeout(idle_sleep_for_record_state(false));
         }
         self.note_measure_idle_return(is_recording);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queued_but_unreadable_pcm_waits_instead_of_spinning() {
+        assert!(!should_continue_measurement(0, 32));
+        assert!(!should_continue_measurement(32, 0));
+        assert!(!should_continue_measurement(0, 0));
+        assert!(should_continue_measurement(32, 32));
     }
 }

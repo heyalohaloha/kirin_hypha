@@ -202,9 +202,15 @@ export function findTypographyViolations(source, relativePath = 'fixture.cpp') {
         reason: 'minimum horizontal scale must remain 1.0 (no compression)' });
   }
   if (!adapter) {
-    for (const match of clean.matchAll(/\bsetFont\s*\(/g)) {
-      const openIndex = clean.indexOf('(', match.index);
-      const args = callArguments(clean, openIndex);
+    // This test-only rasterizer observer does not select a font. Its interface override must
+    // forward the caller's already-contracted font unchanged. Keep every other call checked.
+    const selections = normalizedPath === 'juce_shell/tests/AttackPaintColourLog.h'
+      ? clean.replace(/\bvoid\s+setFont\s*\(\s*const\s+juce::Font\s*&\s*(\w+)\s*\)\s*override\s*\{\s*native->setFont\s*\(\s*\1\s*\)\s*;\s*\}/g,
+        forwarded => forwarded.replace(/[^\n]/g, ' '))
+      : clean;
+    for (const match of selections.matchAll(/\bsetFont\s*\(/g)) {
+      const openIndex = selections.indexOf('(', match.index);
+      const args = callArguments(selections, openIndex);
       if (!new RegExp(`\\b(?:${factoryPattern})\\s*\\(`).test(args.content))
         violations.push({ line: lineAt(clean, match.index),
           reason: 'setFont must consume a semantic typography factory in the same call' });

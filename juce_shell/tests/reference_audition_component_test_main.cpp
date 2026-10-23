@@ -1,5 +1,6 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "ReferenceMissingCheckTest.h"
+#include "ReferenceGuideContractTest.h"
 #include "ReferenceTextRepairsTest.h"
 #include "ValidationStorageSandbox.h"
 
@@ -14,6 +15,7 @@ int main (int argc, char** argv)
     if (argc == 3 && juce::String (argv[1]) == "--reference-text-snapshots")
     { hypha::tests::reference_text_repairs::exportSnapshots (juce::File (argv[2])); return 0; }
     const juce::String mode (argc == 2 ? argv[1] : "");
+    if (mode == "--reference-guide-only") { hypha::tests::verifyReferenceGuideContract(); return 0; }
     if (mode == "--missing-check-navigation-only") { hypha::tests::verifyMissingCheckNavigation(); return 0; }
     if (mode == "--missing-check-text-only") { hypha::tests::verifyMissingCheckText(); return 0; }
     namespace repairs = hypha::tests::reference_text_repairs;

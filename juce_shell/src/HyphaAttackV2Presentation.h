@@ -33,7 +33,7 @@ public:
     void changedSelection();
     void changeBand (std::uint8_t);
     void begin();
-    void retire (std::uint8_t reason = KIRIN_REASON_SOURCE_CHANGED);
+    void retire (std::uint8_t reason = KIRIN_REASON_SOURCE_CHANGED, bool preserveReadout = false);
     void goLive();
     void observeInput (bool active, double nowMs);
     bool holdingFinishedSingle() const noexcept {

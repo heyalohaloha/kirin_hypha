@@ -121,7 +121,7 @@ pub(super) fn handle_record_edge(edge: RecordEdge<'_>) -> RecordEdgeOutcome {
             RecordLaneEntry::Attached(consumer) => consumer,
             RecordLaneEntry::Abandoned => return RecordEdgeOutcome::Skipped,
             RecordLaneEntry::Pending => {
-                thread::yield_now();
+                record_sm.wait_for_measure_work(true);
                 return RecordEdgeOutcome::Retry;
             }
         };

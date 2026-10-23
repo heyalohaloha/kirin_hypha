@@ -390,10 +390,16 @@ PSR is supplementary: its `Δ −3.3 dB` or `POST 10.1 dB` reading uses a small,
 font and secondary colour, with no equation beside it. M, S and TP remain the main readings.
 
 DRUM reads incoming hits at 30 Hz, fetches ALL/BAND LIVE summaries at 4 Hz and adopts one complete
-stamp every 500 ms. Values, counts, points, envelopes and Facts change together. Only the main
-number may retain its previous value while a nonempty cohort has newer unfinished hits. A genuinely
-empty or wholly unavailable cohort shows **—**. HOLD retains the last value; band, target, pair or
-source changes clear it, and LOCK responds immediately. TIME updates at 10 Hz.
+stamp every 500 ms. Values, counts, points, envelopes and Facts change together. Within one playback
+pass, main numbers may retain their previous values while a nonempty cohort has newer unfinished hits;
+an empty or wholly unavailable cohort otherwise shows **—**. After a loop wrap or seek, the previous
+main readings and hit count stay visible in the secondary text colour, labelled **Previous**, until
+completed hits supply replacements for the displayed readings in the same observation scope.
+Their original POST/Δ meaning and units stay with them while waiting.
+Measurement and the six-second history restart for the new pass; previous readings never enter its
+medians, history or Facts. With no previous readings, the empty display is unchanged. HOLD retains
+the last value; changing the band, explicitly changing the target, changing the pair or audio format,
+or restarting analysis clears previous readings. LOCK responds immediately. TIME updates at 10 Hz.
 Its display clock is separate from measurement and stops where available observations end. The
 view looks back 150 ms; a BAND reading older than 250 ms keeps its age and missing-data reason
 visible in Facts. These readings describe the measured audio and do not judge its quality.

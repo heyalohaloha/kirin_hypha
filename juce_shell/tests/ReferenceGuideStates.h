@@ -4,6 +4,7 @@
 #include "../src/HyphaReferencePendingUI.h"
 
 #include <vector>
+#include <utility>
 
 // The REFERENCE page in each state met on the way to B and C, with the status and the B and C
 // steps the editor derives for it (PluginEditorReference.cpp, HyphaReferenceRuntimeView.h). The
@@ -93,6 +94,7 @@ inline std::vector<Case> cases()
     {
         auto state = library();
         state.auditionBuffered = false;
+        state.referenceStep = Step::rankSet;  // This library has no B set ranked for Hypha.
         state.versionStep = Step::chooseVersion;
         state.checkStep = Step::ready;
         state.status = "PLAY A TO AUDITION";
@@ -172,6 +174,24 @@ inline std::vector<Case> cases()
         state.checkStep = Step::verifyingSource;
         state.status = "LOADING SOURCE AT PLAYHEAD / A REMAINS LIVE";
         result.push_back ({ "loading_audio", state });
+    }
+    // B's existing editor steps must fit beside C and V, including its longest action and errors.
+    for (const auto& item : { std::pair { "b_no_set", Step::rankSet },
+                              std::pair { "b_sets_unreadable", Step::setsNotRead },
+                              std::pair { "b_preparing", Step::preparing },
+                              std::pair { "b_source_unopenable", Step::sourceUnopenable },
+                              std::pair { "b_channels_differ", Step::channelsDiffer },
+                              std::pair { "b_outside_cue", Step::outsideCue },
+                              std::pair { "b_stopped", Step::playDaw },
+                              std::pair { "b_ready", Step::ready } })
+    {
+        auto state = item.second == Step::playDaw ? library() : playing (library());
+        state.referenceStep = item.second;
+        state.referenceReady = item.second == Step::ready;
+        state.versionStep = Step::chooseVersion;
+        state.checkStep = state.aAvailable ? Step::enableCheck : Step::playDaw;
+        state.status = state.aAvailable ? "ENABLE A CHECK IN KIRIN OS" : "PLAY A TO AUDITION";
+        result.push_back ({ item.first, state });
     }
     {
         auto state = playing (library());

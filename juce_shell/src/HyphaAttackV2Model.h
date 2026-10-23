@@ -33,6 +33,14 @@ struct Lane
     // Only the main number may bridge a newer unfinished hit; Facts remain this stamp's facts.
     std::optional<FormattedInterval> heldNumber;
 };
+// Display-only copy across loop/seek. No cohort, event keys, proof or envelope survives here.
+struct PreviousReadout
+{
+    KirinSnapshotHeader navigation {};
+    std::array<FormattedInterval, 4> numbers;
+    std::int64_t latestHit = -1; // Display replacement boundary, never a measurement/event identity.
+    std::uint8_t band = 0, target = KIRIN_TARGET_POST, count = 0;
+};
 // Only one adopted producer stamp supplies the lanes and their envelope. Navigation may advance
 // independently; cutoff/viewport are explicitly different, and no median is recomputed in UI.
 struct Presentation
@@ -42,6 +50,7 @@ struct Presentation
     std::shared_ptr<const KirinAttackBandSummaryV2> summary;
     std::shared_ptr<const KirinAttackSingleSnapshotV2> single;
     std::shared_ptr<const RepresentativeLoupe> representative;
+    std::optional<PreviousReadout> previousReadout;
     std::uint64_t revision = 0;
     std::int64_t viewport = -1, factsCutoff = -1;
     ClockState clock = ClockState::initial;

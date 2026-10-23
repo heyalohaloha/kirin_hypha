@@ -33,7 +33,7 @@ void KirinHyphaEditor::refreshDrumSnapshots (bool liveInput)
     }
     if (navStatus == KIRIN_SNAPSHOT_RETIRED || navStatus == KIRIN_SNAPSHOT_UNSUPPORTED)
     {
-        attackView.retireV2();
+        attackView.retireV2 (navStatus == KIRIN_SNAPSHOT_RETIRED);
         observatoryView.setAttackPaired (false);
         nextDrumSummaryMs = 0.0;
     }
