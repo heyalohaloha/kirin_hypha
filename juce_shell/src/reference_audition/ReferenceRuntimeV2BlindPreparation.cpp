@@ -1,6 +1,7 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceContentAlignment.h"
+#include "ReferenceCopyCorrespondence.h"
 #include <cmath>
 namespace hypha::reference_audition
 {
@@ -16,10 +17,17 @@ namespace hypha::reference_audition
         const auto mappedCueStart = outputSample (cue.startSample, cue.sampleRateHz, hostRate);
         const auto mappedCueEnd = outputSample (cue.endSample, cue.sampleRateHz, hostRate);
         const auto cueKey = runtimeCuePlaybackIdentity (cue);
-        const auto capturedA = aCapture.currentAudio();
+        auto capturedA = aCapture.currentAudio();
+        std::optional<std::uint64_t> confirmedContinuity;
+        bool confirmedCopy = false;
         const bool libraryVersion = versionComparison && configuration.identity.library
             && candidate.sourceKind == "work_version" && candidate.sourceWorkId.isNotEmpty()
             && candidate.sourceRecordingId.isNotEmpty() && candidate.sourceVersionId.isNotEmpty();
+        // For a copy profile, retain calibration as a candidate after a seek.
+        // Normal V verifies current PCM before every output block, so a short
+        // loop need not supply another full capture. Blind keeps its full proof.
+        if (libraryVersion && capturedA && capturedA->continuity != aCapture.continuity())
+            capturedA.reset();
         const bool blindIdentityMatches = libraryVersion || (activeABinding
             && activeABinding->workId == configuration.identity.workId
             && activeABinding->recordingId == candidate.sourceRecordingId
@@ -41,7 +49,8 @@ namespace hypha::reference_audition
             blindContextKey = nextBlindContextKey;
         }
         const auto nextBlindKey = blindIdentityMatches && capturedA != nullptr
-            ? referenceObservationIdentity (*capturedA) + ":" + candidate.sourceArtifact.sha256 + ":"
+            ? referenceObservationIdentity (*capturedA) + ":" + juce::String (capturedA->continuity)
+                + ":" + candidate.sourceArtifact.sha256 + ":"
                 + cueKey + ":" + juce::String (next.hostSampleRateHz)
             : juce::String {};
         if (!libraryVersion && nextBlindKey.isEmpty() && blindPreparationKey.isNotEmpty()
@@ -75,7 +84,7 @@ namespace hypha::reference_audition
                     if (blind.ongoing()) invalidateBlind();
                     else
                     {
-                        failClosedToA(); blind.clear(); calibrationObservation.clear();
+                        failClosedToAFromAudioThread(); blind.clear(); calibrationObservation.clear();
                         if (mappingChanged)
                             matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true);
                         if (sourceRepository.verifySourceRevision (*selectedSource).isNotEmpty())
@@ -86,7 +95,13 @@ namespace hypha::reference_audition
                 else if (matched.established && !previous.eligible && !blind.ongoing())
                     prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
                 if (prepared || (matched.established && previous.eligible && !mappingChanged && !calibrationChanged))
+                {
                     calibrationObservation.remember (capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
+                    confirmedCopy = referenceCopyCorresponds (capturedA->interleaved.size(),
+                        [&] (size_t i) { return capturedA->interleaved[i]; },
+                        [&] (size_t i) { return matched.alignedProbe[i]; });
+                    confirmedContinuity = capturedA->continuity;
+                }
                 // Silence or an ambiguous passage cannot replace a proven map.
                 // A positively detected timing change returns to A before rematching.
                 if (matched.reason != "reference_alignment_busy"
@@ -139,12 +154,22 @@ namespace hypha::reference_audition
             mappingGeneration.fetch_add (1, std::memory_order_release);
             activeContentMappingKey.clear();
         }
+        if (confirmedContinuity)
+        {
+            const juce::ScopedLock mappingLock (mappingWriteLock);
+            // These stamps confirm the existing anchors; they do not replace the
+            // map or discard its plotted history. Anchor changes above own the seqlock.
+            contentMappingContinuity.store (*confirmedContinuity, std::memory_order_release);
+            copyCorrespondence.store (confirmedCopy, std::memory_order_release);
+        }
         pages.request (mappedSourcePosition (latestHostPosition.load()));
         pages.service();
+        const bool currentMap = !copyCorrespondence.load (std::memory_order_acquire)
+            || contentMappingContinuity.load (std::memory_order_acquire) == aCapture.continuity();
         next.state = libraryVersion && !blindState.eligible && !blind.ongoing() ? RuntimeState::waiting : RuntimeState::ready;
         if (next.state == RuntimeState::waiting && next.rejectionCode.isEmpty())
             next.rejectionCode = "reference_alignment_waiting_for_content";
-        next.blindEligible = blindState.eligible;
+        next.blindEligible = blindState.eligible && (blind.ongoing() || currentMap);
         next.blindLowerAApprovalRequired = blindState.lowerAApprovalRequired;
         next.blindRequiredAAttenuationDb = blindState.requiredAAttenuationDb;
     }

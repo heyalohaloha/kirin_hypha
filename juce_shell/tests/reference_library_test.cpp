@@ -155,6 +155,10 @@ void testReferenceComparisons (const juce::File& sandbox)
     const juce::String recordingId = "22222222-2222-4222-8222-222222222222";
     const juce::String versionId = "33333333-3333-4333-8333-333333333333";
     const auto fixture = makeWholeSongFixture (root, bFile, recordingId, versionId);
+    // Role/visual commands use a distinct live mix; exact-copy relocations have their own PCM safety fixture.
+    auto liveFixture = fixture;
+    liveFixture.audio.applyGain (0, 0, liveFixture.audio.getNumSamples(), 1.001f);
+    liveFixture.audio.applyGain (1, 0, liveFixture.audio.getNumSamples(), 0.999f);
     const auto bHash = juce::SHA256 (bFile).toHexString(), cHash = juce::SHA256 (cFile).toHexString();
     const auto pcm = fixture.pcmHash;
     const auto bReceipt = fixture.receipt;
@@ -194,7 +198,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     {
         int cursor = 0;
         WholeSongInputClock clock;
-        if (clock.waitFor (controller, fixture, cursor, predicate))
+        if (clock.waitFor (controller, liveFixture, cursor, predicate))
         {
             controller.observeTransport (0, true, true); return;
         }
@@ -219,7 +223,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     require (controller.snapshot().comparisonSlot == 2 && !controller.snapshot().bSelected,
              "choosing B keeps the default Preset visuals and never auditions");
     require (controller.selectVisualSlot (1), "inspect A/B independently of audio");
-    testReferenceVisualIntegration (controller, fixture.audio);
+    testReferenceVisualIntegration (controller, liveFixture.audio);
     const auto cId = initial.checkSelection->checkTargets.back().id;
     require (controller.selectCheck (cId), "choose C independently");
     wait ([] (const auto& state) { return state.checkReady && state.checkSelection->checkLabel == "Dynamics"; });
@@ -340,7 +344,7 @@ void testReferenceComparisons (const juce::File& sandbox)
         const auto awaitReopen = [&] (const auto& predicate) {
             int cursor = 0;
             WholeSongInputClock clock;
-            if (clock.waitFor (reopened, fixture, cursor, predicate))
+            if (clock.waitFor (reopened, liveFixture, cursor, predicate))
             {
                 reopened.observeTransport (0, true, true); return;
             }

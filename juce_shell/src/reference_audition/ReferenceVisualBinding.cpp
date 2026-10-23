@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceCopyCorrespondence.h"
 #include <cmath>
 namespace hypha::reference_audition
 {
@@ -32,7 +33,10 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
     result.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
     result.aligned = result.source && ready.load (std::memory_order_acquire) && calibration.wholeSong && calibration.eligible
-        && generation % 2 == 0 && generation == mappingGeneration.load (std::memory_order_acquire);
+        && generation % 2 == 0 && generation == mappingGeneration.load (std::memory_order_acquire)
+        && (blind.ongoing() || (bSelected.load (std::memory_order_acquire) && normalAudible.load (std::memory_order_acquire))
+            || referenceCopyProofCurrent (versionComparison, copyCorrespondence.load (std::memory_order_acquire),
+                contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()));
     result.hostPositionValid = latestPositionValid.load (std::memory_order_acquire);
     result.hostPosition = result.hostPositionValid
         ? latestHostPosition.load (std::memory_order_acquire) : -1;

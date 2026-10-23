@@ -164,30 +164,33 @@ impl Host {
         post: &KirinHyphaEngine,
         measured: impl Fn(Option<i64>) -> i64,
     ) {
-        let mut stalled = 0;
-        loop {
-            // A busy meter (one measuring a backlog) refuses a read, so it is read again.
-            let endpoints = [settled_endpoint(pre), settled_endpoint(post)];
-            let behind = endpoints
-                .iter()
-                .any(|endpoint| measured(*endpoint) + MEASURE_SLACK < self.position);
-            if !behind {
-                break;
-            }
-            // A heartbeat-only callback keeps both sides active while no audio is delivered.
-            for engine in [pre, post] {
-                engine.set_signal_state(1);
-                engine.push_samples(&[], 2);
-            }
-            sleep(HOLD);
-            self.start += HOLD;
-            let advanced = [settled_endpoint(pre), settled_endpoint(post)] != endpoints;
-            stalled = if advanced { 0 } else { stalled + 1 };
-            assert!(
-                stalled < STALLED_HOLDS,
-                "a meter stopped measuring the played audio"
-            );
-        }
+        let started = Instant::now();
+        let position = self.position;
+        let result = progress::wait_for_measurement(
+            CATCH_UP,
+            || {
+                [pre, post].map(|engine| {
+                    (
+                        settled_endpoint(engine),
+                        engine
+                            .poll_meter_session()
+                            .map(|session| session.observed_frames),
+                    )
+                })
+            },
+            |meter| measured(meter.endpoint) + MEASURE_SLACK < position,
+            || started.elapsed(),
+            || {
+                // Heartbeat-only callbacks keep both sides active without adding more audio.
+                for engine in [pre, post] {
+                    engine.set_signal_state(1);
+                    engine.push_samples(&[], 2);
+                }
+                sleep(HOLD);
+                self.start += HOLD;
+            },
+        );
+        assert!(result.is_ok(), "measurement catch-up stopped: {result:?}");
     }
 }
 

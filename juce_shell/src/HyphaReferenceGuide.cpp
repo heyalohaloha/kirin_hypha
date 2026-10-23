@@ -157,10 +157,10 @@ void Component::syncSourceButtons()
 
 bool Component::explainUnavailable (bool version)
 {
+    if (current.separateComparisons && onSelectVisualSlot) onSelectVisualSlot (version ? 1 : 2);
     const bool audible = version ? ! current.separateComparisons || canHearVersion (current)
                                  : canHearCheck (current);
     if (audible || canQueueSource (current, version)) return false;
-    if (onSelectVisualSlot) onSelectVisualSlot (version ? 1 : 2);
     if (onExplain) onExplain (unavailableText (current, version));
     return true;
 }

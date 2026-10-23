@@ -106,6 +106,7 @@ const Entry entries[] = {
     { "LOUDNESS MOVEMENT (LUFS-S)", u8"音量の動き（LUFS-S）" },
     { "ONSET (RISE PER HOP)", u8"立ち上がり（区間ごと）" },
     { "ATTACK (PEAK - LUFS-M)", u8"ATTACK（PEAK−LUFS-M）" },
+    { "MEDIAN", u8"中央値" },
     { "OVER TIME", u8"時間の動き" },
     { "LOW FREQUENCY", u8"低域" },  // C の低域の Check の図の見出し（2026-10-18）
     // Kirin OS の組み込みの名前は、ここ（綴りで画面全体を訳す辞書）に置かない。組み込みの ID の項目だけを名前の欄で

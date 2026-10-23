@@ -36,18 +36,7 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
 {
     panel (g, area);
     window_material::paintInterior (g, window, area);
-    auto header = area.removeFromTop (28.0f);
-    auto headerText = header.reduced (9.0f, 1.0f).toNearestInt();
-    auto headingArea = headerText.removeFromLeft (juce::roundToInt (
-        static_cast<float> (headerText.getWidth()) * 0.44f));
-    g.setColour (COL_NORMAL.withAlpha (0.92f));
-    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
-                          typography::Composition::visualization));
-    text_style::drawEllipsized (g, heading, headingArea,
-                                juce::Justification::centredLeft);
-    g.setFont (labelFont (presentation, typography::TextRole::legend,
-                          typography::Composition::visualization));
-    paintReferenceLegend (g, detail, headerText);
+    paintReferenceHeader (g, area, heading, detail, presentation);
     auto chart = area.reduced (10.0f, 8.0f);
     g.setColour (COL_MUTED.withAlpha (0.10f));
     for (int line = 1; line < 4; ++line)

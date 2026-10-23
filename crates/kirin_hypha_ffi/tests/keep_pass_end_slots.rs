@@ -231,7 +231,7 @@ fn keep_whose_trace_pass_ends(
     rate: u32,
     end: PassEnd,
     tag: &str,
-) -> (Vec<String>, bool) {
+) -> Vec<String> {
     let (pre_id, post_id, pair) = (
         format!("{tag}-pre"),
         format!("{tag}-post"),
@@ -266,14 +266,25 @@ fn keep_whose_trace_pass_ends(
     };
     let deadline = Instant::now() + Duration::from_secs(600);
     let mut played = 0;
-    // Near the LOOP end Keep is pressed 0.95 seconds before the wrap.
-    let press_at = host.loop_end.map(|end| end - 95 * host.block());
-    while played < 150 || press_at.is_some_and(|press| host.position != press) || !post.keep() {
+    while played < 150 || !post.keep() {
         assert!(Instant::now() < deadline, "{tag}: Keep accepted");
         host.play(&pre, &post, false);
         played += 1;
     }
-    let attempts = keep_loop_host::arm(&pre, &post, || host.play(&pre, &post, false));
+    let attempts = if let Some(loop_end) = host.loop_end {
+        // Prepare without captured audio, then place the first Record callback 0.95 s before
+        // the wrap. Arming speed cannot turn this deliberately short take into a full lap.
+        let attempts = keep_loop_host::arm(&pre, &post, || {
+            host.hold_clock(&pre, &post, true);
+            host.pace();
+        });
+        host.position = loop_end - 95 * host.block();
+        host.wrapped = false;
+        attempts
+    } else {
+        // Other pass-end cases continue ordinary playback throughout arming.
+        keep_loop_host::arm(&pre, &post, || host.play(&pre, &post, false))
+    };
     let first_pass_start = host.position;
     let generation = kirin_measure::capture_generation::read_current_generation(
         plugin_data,
@@ -332,7 +343,6 @@ fn keep_whose_trace_pass_ends(
         assert!(Instant::now() < deadline, "{tag}: both Records close");
     };
     let mut failures = Vec::new();
-    let mut short_replaced = false;
     for record in &records {
         let role = record["role"].as_str().unwrap_or("?");
         let mut diagnostic = record.clone();
@@ -372,15 +382,16 @@ fn keep_whose_trace_pass_ends(
                 "{tag} {role}: selected TRACE must last at least one second: {selected}, armed at {first_pass_start}"
             );
             let short = passes[0]["frames"].as_u64().unwrap() < u64::from(rate);
-            if short {
-                assert!(
-                    passes
-                        .iter()
-                        .any(|pass| pass["trace_excluded_reason"] == "short_trace_replaced"),
-                    "{tag} {role}: a short first lap must yield: {passes:?}"
-                );
-                short_replaced = true;
-            }
+            assert!(
+                short,
+                "{tag} {role}: the fixture must start with a subsecond lap: {passes:?}"
+            );
+            assert!(
+                passes
+                    .iter()
+                    .any(|pass| pass["trace_excluded_reason"] == "short_trace_replaced"),
+                "{tag} {role}: a short first lap must yield: {passes:?}"
+            );
         }
         if record["trace_diagnostics"]["missing_slots"] != 0
             || record["integrity_degraded"] != false
@@ -390,7 +401,7 @@ fn keep_whose_trace_pass_ends(
             ));
         }
     }
-    (failures, short_replaced)
+    failures
 }
 
 #[test]
@@ -408,7 +419,7 @@ fn a_trace_pass_that_ends_before_the_keep_keeps_its_last_slot_at_every_rate() {
     std::fs::create_dir_all(&paths.kirin_os_root).unwrap();
     std::fs::write(paths.primary_path(), br#"{"schema_version":"1.0","installation_id":"keep-pass-end-fixture","hardware_id":"hw","hardware_components":{"iop":"a","sn":"b","bd":"c"},"machine_signature":"sig","license":"os","created_at":"2026-06-09T00:00:00Z","last_verified_at":"2026-06-09T00:00:00Z"}"#).unwrap();
     let plugin_data = paths.plugin_data_dir();
-    let results = [
+    let failures: Vec<_> = [
         (96_000, PassEnd::LoopWrap, "w96"),
         (96_000, PassEnd::Seek, "s96"),
         (96_000, PassEnd::StopRestart, "r96"),
@@ -431,16 +442,8 @@ fn a_trace_pass_that_ends_before_the_keep_keeps_its_last_slot_at_every_rate() {
         (192_000, PassEnd::KeepNearLoopEnd, "n192"),
     ]
     .into_iter()
-    .map(|(rate, end, tag)| keep_whose_trace_pass_ends(&plugin_data, rate, end, tag))
-    .collect::<Vec<_>>();
-    assert!(
-        results.iter().any(|(_, replaced)| *replaced),
-        "the near-wrap fixtures must exercise a short first lap"
-    );
-    let failures: Vec<_> = results
-        .into_iter()
-        .flat_map(|(failures, _)| failures)
-        .collect();
+    .flat_map(|(rate, end, tag)| keep_whose_trace_pass_ends(&plugin_data, rate, end, tag))
+    .collect();
     // Every TRACE slot of the pass, also its last 100 ms, and a normal pass end degrades nothing.
     assert!(failures.is_empty(), "{failures:#?}");
 }

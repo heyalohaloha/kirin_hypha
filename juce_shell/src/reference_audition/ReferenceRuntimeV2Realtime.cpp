@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceCopyCorrespondence.h"
 
 namespace hypha::reference_audition
 {
@@ -93,6 +94,7 @@ namespace hypha::reference_audition
         if (rtNormalBlend <= 0.0f) rtTrackingRamp.settle (targetGain);
         for (int c = 0; c < channels; ++c)
             std::copy_n (buffer.getReadPointer (c), frames, normalLiveA[static_cast<size_t> (c)].data());
+        const auto inputContinuity = aCapture.continuity();
         bool rendered = false;
         for (int attempt = 0; attempt < 3 && ! rendered; ++attempt)
         {
@@ -115,6 +117,25 @@ namespace hypha::reference_audition
         }
         if (! rendered)
         {
+            failClosedToAFromAudioThread(); rtNormalBlend = 0.0f; normalAudible.store (false);
+            return false;
+        }
+        const bool verifyCopy = versionComparison && copyCorrespondence.load (std::memory_order_acquire);
+        bool pcmAgrees = false;
+        if (verifyCopy
+            && ! referenceCopyCorresponds (static_cast<size_t> (frames * channels),
+                [&] (size_t i) { return normalLiveA[i % static_cast<size_t> (channels)][i / static_cast<size_t> (channels)]; },
+                [&] (size_t i) { return buffer.getSample (static_cast<int> (i % static_cast<size_t> (channels)),
+                                                         static_cast<int> (i / static_cast<size_t> (channels))); },
+                contentMappingContinuity.load (std::memory_order_acquire) != inputContinuity, &pcmAgrees))
+        {
+            for (int c = 0; c < channels; ++c)
+                std::copy_n (normalLiveA[static_cast<size_t> (c)].data(), frames, buffer.getWritePointer (c));
+            // Retire a trusted map once. Rejected candidate blocks must not keep
+            // discarding the continuous A needed to establish a different offset.
+            if (! pcmAgrees && (normalAudible.load (std::memory_order_acquire)
+                || contentMappingContinuity.load (std::memory_order_acquire) == inputContinuity))
+                aCapture.invalidateObservation();
             failClosedToAFromAudioThread(); rtNormalBlend = 0.0f; normalAudible.store (false);
             return false;
         }

@@ -15,6 +15,12 @@ namespace hypha::reference_ui
 {
 namespace
 {
+int matchReadoutWidth (const State& state, presentation::Context context)
+{
+    const auto font = monoFont (context, typography::TextRole::unit, typography::Composition::information);
+    return juce::roundToInt (std::ceil (text_style::shownWidth (font, matchReadout (state)))) + 4;
+}
+
 constexpr const char* noSource = " / NO SOURCE IN KIRIN OS";
 
 // state.checks は「checkId/candidateId」と「Check の名前  /  曲」の組（Kirin OS の Preset の順）。
@@ -192,7 +198,7 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
     if (matchButton.isVisible())
     {
         matchButton.setBounds (row.removeFromRight (80).withSizeKeepingCentre (80, 24));
-        row.removeFromRight (156);
+        row.removeFromRight (matchReadoutWidth (current, presentationContext) + 6);
     }
     checkTabs.setBounds (row);
     cueBox.setBounds (cueRowBounds().removeFromLeft (180).withSizeKeepingCentre (180, 22));  // CUE は時間軸の段の左
@@ -203,7 +209,7 @@ void Component::layoutCheckPage (juce::Rectangle<int>& area, juce::Rectangle<int
 int Component::checkTabsHeight() const
 {
     if (! checkPage()) return versionPageRows;
-    const auto width = panelArea().getWidth() - (matchButton.isVisible() ? 80 + 156 : 0);
+    const auto width = panelArea().getWidth() - (matchButton.isVisible() ? 80 + matchReadoutWidth (current, presentationContext) + 6 : 0);
     return checkPageRows * checkTabs.rowsFor (width);
 }
 
@@ -252,7 +258,8 @@ void Component::paintCheckPageLabels (juce::Graphics& g) const
     if (matchButton.isVisible())
     {
         const auto readout = matchReadout (current);
-        const auto space = matchButton.getBounds().withX (matchButton.getX() - 156).withWidth (150);
+        const auto width = matchReadoutWidth (current, presentationContext);
+        const auto space = matchButton.getBounds().withX (matchButton.getX() - width - 6).withWidth (width);
         help::note (space, help_text::match);
         g.setColour (current.bSelected && current.audibleComparisonSlot == 2 ? COL_SPECTRUM_DELTA_BR : COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::unit, typography::Composition::information));

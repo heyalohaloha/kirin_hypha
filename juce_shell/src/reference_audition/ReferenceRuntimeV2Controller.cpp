@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceCopyCorrespondence.h"
 #include "ReferenceTestCommitObserver.h"
 
 #include <cmath>
@@ -123,7 +124,10 @@ namespace hypha::reference_audition
         result.auditionBuffered = publishedReady && (blindState.eligible
             || (result.transportPositionValid
                 && pages.readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)));
-        result.blindEligible = publishedReady && blindState.eligible;
+        result.blindEligible = publishedReady && blindState.eligible
+            && (blind.ongoing() || referenceCopyProofCurrent (versionComparison,
+                copyCorrespondence.load (std::memory_order_acquire),
+                contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()));
         if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;

@@ -40,6 +40,7 @@ namespace hypha::reference_audition
         std::int64_t startSample = 0;
         std::int64_t frameCount = 0;
         std::vector<float> interleaved;
+        std::uint64_t continuity = 0;
     };
 
     class RuntimeACapture final
@@ -74,6 +75,9 @@ namespace hypha::reference_audition
             return writeSlot.load (std::memory_order_acquire)
                 == readSlot.load (std::memory_order_acquire);
         }
+        std::uint64_t continuity() const noexcept
+        { return continuityGeneration.load (std::memory_order_acquire); }
+        void invalidateObservation() noexcept { markDiscontinuity(); }
 
         const std::optional<RuntimeACaptureReceipt>& currentReceipt() const noexcept
         {

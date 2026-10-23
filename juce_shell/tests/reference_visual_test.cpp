@@ -193,7 +193,7 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
         const auto state=controller.snapshot(); observing=state.visualTimeline
             && state.visualTimeline->observing && state.visualTimeline->pairedObserving;
         return observing;
-    });
+    }, "whole-song paired observation must publish after calibration");
     require(observing,"whole-song comparison is observing before the synthetic host runs");
     for (int position=0; position+4800<=song.getNumSamples(); position+=4800)
     {
@@ -209,7 +209,7 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
             const auto state=controller.snapshot(); consumed=state.visualTimeline
                 && index<state.visualTimeline->bins.size() && state.visualTimeline->bins[index].pass!=0;
             return consumed;
-        });
+        }, "a confirmed whole-song bin must be consumed");
         require(consumed,"synthetic host waits for the whole-song comparison worker");
     }
     size_t covered = 0;

@@ -288,6 +288,7 @@ run cargo test -p hypha_pre -p hypha_post --locked
 run cargo test -p vst3-com --locked --test vtable_expression
 # Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
 # quantify both allowed LIVE slots in the same optimized configuration that ships.
+# CI judges calibrated ratios; local release probes judge absolute CPU <18%, with ratios diagnostic only.
 local perf_absolute=0
 if [[ -z "${GITHUB_ACTIONS:-}" ]]; then perf_absolute=1; fi
 run env KIRIN_HYPHA_PERF_ABSOLUTE="$perf_absolute" cargo test -p kirin_measure --release --locked \

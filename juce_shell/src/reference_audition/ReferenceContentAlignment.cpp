@@ -1,6 +1,7 @@
 #include "ReferenceContentAlignment.h"
 #include "ReferenceContentCorrelation.h"
 #include "ReferenceProbeAudio.h"
+#include "ReferenceRefinedEnvelope.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -224,6 +225,7 @@ namespace hypha::reference_audition
                 std::int64_t position = 0;
                 ContentEnvelopeCorrelation identity;
                 std::vector<float> probe;
+                std::optional<RefinedReferenceEnvelope> refinement;
             };
             std::vector<MasteredCandidate> candidates;
             for (const auto position : positions)
@@ -236,7 +238,13 @@ namespace hypha::reference_audition
                 const auto identity = correlateReferenceEnvelope (
                     a.interleaved, probe, static_cast<int> (a.sampleRateHz), a.channels);
                 if (identity.accepted)
-                    candidates.push_back ({ position, identity, std::move (probe) });
+                    candidates.push_back ({ position, identity, std::move (probe), {} });
+                else if (auto refined = refineReferenceEnvelope (a, *reader, position, window, lag, channel, starts))
+                {
+                    const auto exact = refined->position;
+                    const auto verifiedIdentity = refined->identity;
+                    candidates.push_back ({ exact, verifiedIdentity, {}, std::move (refined) });
+                }
             }
             std::sort (candidates.begin(), candidates.end(), [] (const auto& left, const auto& right) {
                 return left.identity.score() > right.identity.score();
@@ -252,6 +260,17 @@ namespace hypha::reference_audition
                 }
 
                 auto& best = candidates.front();
+                if (best.refinement)
+                {
+                    const auto& proof = *best.refinement;
+                    result.sourceStartSample = proof.position;
+                    result.minimumCorrelation = std::min (bestScore, proof.minimumCorrelation);
+                    result.minimumAmbiguityDb = proof.minimumAmbiguity;
+                    result.windowSpreadSamples = proof.spread;
+                    result.alignedProbe = std::move (best.refinement->probe);
+                    result.reason.clear(); result.established = true;
+                    return result;
+                }
                 std::vector<std::int64_t> refinedOffsets;
                 double minimumRefinementCorrelation = 1.0;
                 double minimumRefinementAmbiguity = 300.0;

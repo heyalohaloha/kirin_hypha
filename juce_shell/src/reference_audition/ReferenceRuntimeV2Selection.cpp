@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceCopyCorrespondence.h"
 
 #include <limits>
 
@@ -94,6 +95,8 @@ namespace hypha::reference_audition
     std::int64_t RuntimeV2Controller::mappedSourcePosition (
         std::int64_t hostPosition) const noexcept
     {
+        // This position is a candidate, not renewed acoustic proof. For the copy
+        // profile, renderSelectedB verifies current PCM before accepting output.
         for (int attempt = 0; attempt < 3; ++attempt)
         {
             const auto generation = mappingGeneration.load (std::memory_order_acquire);
@@ -203,8 +206,13 @@ namespace hypha::reference_audition
     bool RuntimeV2Controller::startBlindWithApproval (
         double aIntegratedLoudness, bool approveLowerA) noexcept
     {
+        const auto currentProof = [&]() noexcept {
+            return referenceCopyProofCurrent (versionComparison, copyCorrespondence.load (std::memory_order_acquire),
+                contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity());
+        };
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
         if (! ready.load (std::memory_order_acquire) || revokeAfterFade.load (std::memory_order_acquire)
+            || ! currentProof()
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
             || bSelected.load (std::memory_order_acquire) || blind.ongoing())
@@ -216,13 +224,15 @@ namespace hypha::reference_audition
             return false;
         if (! ready.load (std::memory_order_acquire)
             || auditionEpoch.load (std::memory_order_acquire) != epoch
+            || ! currentProof()
             || ! blind.startSession (approveLowerA, epoch, gateToken))
         {
             releaseOutputGate (gateToken);
             return false;
         }
         if (! ready.load (std::memory_order_acquire)
-            || auditionEpoch.load (std::memory_order_acquire) != epoch)
+            || auditionEpoch.load (std::memory_order_acquire) != epoch
+            || ! currentProof())
         {
             blind.invalidate();
             ReferenceSessionRetirement retirement;
@@ -238,7 +248,7 @@ namespace hypha::reference_audition
         {
             const juce::ScopedLock lock (stateLock);
             publicationStillValid = ready.load (std::memory_order_acquire)
-                && auditionEpoch.load (std::memory_order_acquire) == epoch;
+                && auditionEpoch.load (std::memory_order_acquire) == epoch && currentProof();
             if (publicationStillValid)
             {
                 currentSnapshot.aIntegratedLoudness = aIntegratedLoudness + facts.aGainDb;

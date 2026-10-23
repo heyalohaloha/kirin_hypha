@@ -48,7 +48,6 @@ const Entry entries[] = {
     { "Prepare it again in Kirin OS. A stays live.", u8"Kirin OSで準備し直してください。Aを保ちます。" },
     { "Verify it in Kirin OS. A stays live.", u8"Kirin OSで確認してください。Aを保ちます。" },
     { "Check the source file in Kirin OS. A stays live.", u8"Kirin OSで音源のファイルを確認してください。Aを保ちます。" },
-    { "Open Kirin OS to make the source available. A stays live.", u8"Kirin OSを開いて音源を使えるようにしてください。Aを保ちます。" },
     { "Choose the source again. A stays live.", u8"音源を選び直してください。Aを保ちます。" },
     { "Update Kirin OS and Hypha to the same release.", u8"Kirin OSとHyphaを同じリリースに更新してください。" },
     // 断られた理由ごとの段階（2026-10-18）。知らない理由はコードで言う。

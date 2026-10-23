@@ -107,7 +107,8 @@ void SongList::paint (juce::Graphics& g)
         if (row.preparation != "NOT FOUND" && row.preparation != "ANALYSIS FAILED" && std::isfinite (row.gainDb)) text_style::drawEllipsized (g, gainText (row.gainDb), cells[3], juce::Justification::centredRight);
         const bool missing = row.preparation == "NOT FOUND" || row.preparation == "ANALYSIS FAILED";  // Kirin OS がファイルを確かめられない（待っても進まない）
         g.setColour (row.playing ? COL_SPECTRUM_DELTA : row.preparing && ! missing ? COL_FLORA : COL_MUTED);
-        text_style::drawEllipsized (g, missing ? row.preparation : row.playing ? "PLAYING" : ! row.preparing ? "READY"
+        text_style::drawEllipsized (g, std::isfinite (row.lowerAOfferDb) && row.lowerAOfferDb < 0.0
+                                       ? "A " + gainText (row.lowerAOfferDb) : missing ? row.preparation : row.playing ? "PLAYING" : ! row.preparing ? "READY"
                                        : row.preparation.isNotEmpty() ? row.preparation : "PREPARING",
                                     cells[4], juce::Justification::centredRight);
     }
