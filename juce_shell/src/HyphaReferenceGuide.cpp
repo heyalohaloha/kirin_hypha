@@ -72,9 +72,13 @@ bool paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Row& item,
     row.removeFromLeft (14);
     g.setFont (labelFont (context, TextRole::action, Composition::information));
     text_style::drawText (g, item.letter, row.removeFromLeft (20), juce::Justification::centredLeft);
-    const auto role = described ? row.removeFromLeft (row.getWidth() * 11 / 20).withTrimmedRight (8)
-                                : juce::Rectangle<int>();
     const auto font = labelFont (context, TextRole::body, Composition::information);
+    const auto stateWidth = juce::roundToInt (std::ceil (text_style::shownWidth (font, item.state)));
+    // Leave the whole reason its measured width, including longer Japanese B states.
+    const auto roleWidth = juce::jlimit (0, row.getWidth(),
+        juce::jmin (row.getWidth() * 11 / 20, row.getWidth() - stateWidth));
+    const auto role = described ? row.removeFromLeft (roleWidth).withTrimmedRight (8)
+                                : juce::Rectangle<int>();
     g.setColour (COL_TEXT_SECONDARY);
     g.setFont (labelFont (context, TextRole::body, Composition::information));
     if (described)
@@ -82,7 +86,7 @@ bool paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Row& item,
     g.setColour (item.mark == Mark::waiting ? COL_TEXT_SECONDARY : colour);
     text_style::drawEllipsized (g, item.state, row, juce::Justification::centredLeft);
     return (! described || text_style::shownWidth (font, item.role) <= static_cast<float> (role.getWidth()))
-        && text_style::shownWidth (font, item.state) <= static_cast<float> (row.getWidth());
+        && stateWidth <= row.getWidth();
 }
 }
 
@@ -90,6 +94,7 @@ Guide guide (const State& state)
 {
     Guide result;
     result.playing = state.aAvailable;
+    result.reference = state.referenceStep;  // B's button uses this same editor step.
     result.version = shownStep (state.versionStep, canHearVersion (state), state.aAvailable);
     result.check = shownStep (state.checkStep, canHearCheck (state), state.aAvailable);
     // B（REF）の画面は B セットの曲を出す（V・C の始め方の案内は重ねない）。
@@ -228,22 +233,25 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
             content.getHeight(), lineOf (context, TextRole::body))), juce::Justification::centredLeft);
     content.removeFromTop (inspection ? 12 : 4);
 
-    // A, B and C with where each stands; B and C alone when three rows do not fit, since the
-    // heading already says what A needs.
+    // A, B, C, V in button order. Drop A first (the heading says what it needs), then V;
+    // with only two rows, keep B's new explanation and C.
     const auto rowHeight = juce::jmax (lineOf (context, TextRole::body), inspection ? 26 : full ? 18 : 16);
     const Row rows[] {
         { "A", "Your mix, live from the DAW", shown.playing ? "Playing" : "Stopped",
           shown.playing ? Mark::ready : Mark::action },
-        { "V", "A Version of this song, from Kirin OS", stepText (shown.version),
-          markFor (shown.version) },
+        { "B", "A song of the B set, from Kirin OS", stepText (shown.reference),
+          markFor (shown.reference) },
         { "C", "The source of a Check, from Kirin OS", stepText (shown.check),
           markFor (shown.check) },
+        { "V", "A Version of this song, from Kirin OS", stepText (shown.version),
+          markFor (shown.version) },
     };
-    const auto count = juce::jmin (3, content.getHeight() / rowHeight);
+    const auto count = juce::jmin (4, content.getHeight() / rowHeight);
     if (count < 2)
         return fit;
     fit.rowCount = count;
-    for (auto index = 3 - count; index < 3; ++index)
+    const auto first = count == 4 ? 0 : 1;
+    for (auto index = first; index < first + count; ++index)
         fit.rows = paintRow (g, content.removeFromTop (rowHeight), rows[index], context) && fit.rows;
 
     // How to use them, at the full sizes.

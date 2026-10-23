@@ -1,7 +1,7 @@
 #include "HyphaJapaneseCatalog.h"
 
 // The REFERENCE page's guide (HyphaReferenceGuide.cpp): the next step while V and C cannot be heard,
-// what A, V and C are, where each stands, and the reason a V or C not ready yet gives on hover and
+// what A, B, C and V are, where each stands, and the reason a source not ready yet gives on hover and
 // after a click. Headings ask politely; the rows are short.
 namespace hypha::i18n::catalog
 {
@@ -30,8 +30,8 @@ const Entry entries[] = {
     // Why.
     { "Versions and References registered in Kirin OS arrive here automatically.",
       u8"Kirin OSに登録したVersionとReferenceが、ここに自動で届きます。" },
-    { "V follows the song; C uses its Cue.",
-      u8"Vは同曲、Cは設定済みCueを比較します。" },
+    { "B plays the B set; C uses its Cue; V follows the song.",
+      u8"BはBセットの曲、Cは設定済みCue、Vは同曲を比較します。" },
     { "V plays another Version of the song you are playing, registered in Kirin OS.",
       u8"Vでは、Kirin OSに登録した、再生中の曲の別Versionを鳴らします。" },
     { "Choose it in V / VERSION above. V plays another Version of the song you are playing.",
@@ -78,8 +78,9 @@ const Entry entries[] = {
     { "%1's Reference publication was not read", u8"%1のReferenceの公開データを読めませんでした" },
     { "Publish it again in Kirin OS. A stays live.", u8"Kirin OSで再公開してください。Aを保ちます。" },
 
-    // A, V and C, and where each stands.
+    // A, B, C and V, and where each stands.
     { "Your mix, live from the DAW", u8"今のミックス（DAWの音）" },
+    { "A song of the B set, from Kirin OS", u8"Bセットの曲（Kirin OSから）" },
     { "A Version of this song, from Kirin OS", u8"この曲のVersion（Kirin OSから）" },
     { "The source of a Check, from Kirin OS", u8"Checkの比較音源（Kirin OSから）" },
     { "Playing", u8"再生中" },

@@ -3,6 +3,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceRuntimeView.h"
+#include "../src/HyphaReferenceStages.h"
 #include "../src/HyphaTextStyle.h"
 #include "ReferenceControlLookup.h"
 #include "ReferenceGuideStates.h"
@@ -10,8 +11,8 @@
 #include <cstdlib>
 #include <iostream>
 
-// INV-S41: while neither B nor C can be heard the REFERENCE page says the next step and where A,
-// B and C each stand, whole at every size and in both languages; a B or C that cannot be heard yet
+// INV-S41: while neither V nor C can be heard the REFERENCE page says the next step and where A,
+// B, C and V each stand, whole at every size and in both languages; a source that cannot be heard yet
 // explains itself on hover and on a click instead of doing nothing.
 namespace hypha::tests
 {
@@ -157,6 +158,97 @@ inline void verifyUnavailableButtons()
     require (reference_ui::guide (viewed).shown, "the guide takes the configured views' place");
 }
 
+// Read the actual drawing calls, so a missing B row, a changed order or a different reason fails.
+inline void verifyBGuideRow()
+{
+    using namespace reference_ui;
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage selected (language);
+        Component component;
+        const auto context = presentation::forEditor (900, 600);
+        component.setPresentationContext (context);
+        component.setSize (876, 470);
+        auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-ref"));
+        require (b != nullptr, "the B Reference button exists");
+        for (int index = 0; index < stageCount; ++index)
+        {
+            auto state = named ("no_check");
+            state.referenceStep = static_cast<SourceStep> (index);
+            state.referenceReady = state.referenceStep == SourceStep::ready;
+            component.setState (state);
+            const auto shown = guide (state);
+            require (shown.shown && shown.reference == state.referenceStep,
+                     "B's guide receives the editor's existing source step");
+            juce::Image image (juce::Image::ARGB, 852, 330, true);
+            juce::Graphics graphics (image);
+            text_style::ShownTextLog log;
+            const auto fit = paintGuide (graphics, image.getBounds(), shown, context);
+            const auto& texts = log.texts();
+            const auto where = stepText (state.referenceStep)
+                + (language == i18n::Language::japanese ? " (Japanese)" : " (English)");
+            const auto aRow = texts.indexOf ("A"), bRow = texts.indexOf ("B");
+            const auto cRow = texts.indexOf ("C"), vRow = texts.indexOf ("V");
+            require (fit.rowCount == 4 && fit.rows && aRow >= 0 && aRow < bRow && bRow < cRow && cRow < vRow,
+                     "the painted rows are whole and ordered A, B, C, V: " + where);
+            const auto& areas = log.areas();
+            require (areas[static_cast<size_t> (aRow)].getBottom() <= areas[static_cast<size_t> (bRow)].getY()
+                         && areas[static_cast<size_t> (bRow)].getBottom() <= areas[static_cast<size_t> (cRow)].getY()
+                         && areas[static_cast<size_t> (cRow)].getBottom() <= areas[static_cast<size_t> (vRow)].getY(),
+                     "the four rows do not overlap vertically");
+            for (const auto& area : areas)
+                require (image.getBounds().toFloat().contains (area), "guide text stays inside its panel");
+            const auto reason = stepText (state.referenceStep);
+            const auto description = texts[bRow + 1];
+            require (description.contains ("Kirin OS")
+                         && (language == i18n::Language::japanese
+                             ? description.contains (juce::String::fromUTF8 (u8"Bセット"))
+                             : description.containsIgnoreCase ("B set"))
+                         && texts[bRow + 2] == i18n::tr (reason),
+                     "B describes its B set and paints the editor's source reason");
+            if (! canHearReference (state) && ! canQueueReference (state))
+            {
+                juce::String explained;
+                component.onExplain = [&] (const juce::String& text) { explained = text; };
+                b->onClick();
+                require (b->getTooltip() == "B: " + reason && explained == b->getTooltip(),
+                         "B's drawn state, button and explicit refusal use the same reason");
+                component.onExplain = {};
+            }
+        }
+    }
+}
+
+inline void verifyGuideRowPriority()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage selected (language);
+        bool twoRows = false, threeRows = false;
+        for (int height = 60; height <= 220; height += 4)
+        {
+            juce::Image image (juce::Image::ARGB, 560, height, true);
+            juce::Graphics graphics (image);
+            text_style::ShownTextLog log;
+            const auto fit = reference_ui::paintGuide (graphics, image.getBounds(),
+                reference_ui::guide (named ("stopped")), presentation::forEditor (600, 400));
+            if (fit.rowCount < 2) continue;
+            juce::String letters;
+            for (const auto& text : log.texts())
+                if (text == "A" || text == "B" || text == "C" || text == "V") letters += text;
+            require (letters == (fit.rowCount == 4 ? "ABCV" : fit.rowCount == 3 ? "BCV" : "BC"),
+                     "short panels drop A first, then V, and keep B in button order");
+            require (fit.heading && fit.detail && fit.rows, "retained rows stay whole in short panels");
+            for (const auto& area : log.areas())
+                require (image.getBounds().toFloat().contains (area), "short-panel text stays inside");
+            twoRows = twoRows || fit.rowCount == 2;
+            threeRows = threeRows || fit.rowCount == 3;
+            if (twoRows && threeRows && fit.rowCount == 4) break;
+        }
+        require (twoRows && threeRows, "both reduced row capacities were exercised");
+    }
+}
+
 // アクションのボタンは、どの大きさでも枠の中に収まり、文が切れない（承認の量と役まで言う長い文も）。
 inline void verifyActionFits()
 {
@@ -194,7 +286,7 @@ inline void verifyActionFits()
 }
 
 // Every guide state, at every size, in both languages: the heading and the reason are whole, and
-// the full sizes show all three rows whole.
+// Inspection shows all four rows whole; Observatory keeps at least two whole rows.
 inline void verifyGuideFits()
 {
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
@@ -207,6 +299,7 @@ inline void verifyGuideFits()
             shell.setDomain (observatory::Domain::reference);
             shell.setExternalAnalysisBodyActive (true);
             const auto body = shell.analysisBodyBounds();
+            int minimumRows = 4, maximumRows = 0;
             for (const auto& item : reference_review::cases())
             {
                 if (item.access || ! reference_ui::guide (item.state).shown) continue;
@@ -218,17 +311,35 @@ inline void verifyGuideFits()
                 juce::Graphics graphics (image);
                 component.paintEntireComponent (graphics, true);
                 const auto& fit = component.guideFit();
+                minimumRows = juce::jmin (minimumRows, fit.rowCount);
+                maximumRows = juce::jmax (maximumRows, fit.rowCount);
                 const auto where = juce::String (item.name) + " at " + juce::String (preset.width)
                     + (language == i18n::Language::japanese ? " (Japanese)" : " (English)");
                 require (fit.heading, "heading whole: " + where);
                 require (fit.detail, "reason whole: " + where);
                 require (fit.rowCount == 0 || fit.rows, "rows whole: " + where);
-                // 200% keeps B and C when the footer holds a button; the heading says A's step.
-                require (preset.density != observatory::Density::inspection || fit.rowCount == 3,
-                         "A, B and C at 300%: " + where);
+                require (preset.density != observatory::Density::inspection || fit.rowCount == 4,
+                         "A, B, C and V at 300%: " + where);
                 require (preset.density != observatory::Density::observatory || fit.rowCount >= 2,
                          "B and C at 200%: " + where);
+                const auto preview = juce::SystemStats::getEnvironmentVariable (
+                    "KIRIN_HYPHA_REFERENCE_GUIDE_PREVIEW_DIR", {});
+                if (preview.isNotEmpty() && juce::String (item.name) == "stopped")
+                {
+                    const juce::File directory (preview);
+                    require (directory.createDirectory().wasOk(), "create guide preview directory");
+                    const auto file = directory.getChildFile (
+                        juce::String (language == i18n::Language::japanese ? "ja-" : "en-")
+                        + juce::String (preset.width) + "x" + juce::String (preset.height) + ".png");
+                    juce::FileOutputStream stream (file);
+                    require (stream.setPosition (0) && stream.truncate().wasOk()
+                                 && juce::PNGImageFormat().writeImageToStream (image, stream),
+                             "write guide preview");
+                }
             }
+            std::cout << "Guide rows " << preset.width << 'x' << preset.height
+                      << (language == i18n::Language::japanese ? " Japanese: " : " English: ")
+                      << minimumRows << ".." << maximumRows << '\n';
         }
     }
 }
@@ -239,6 +350,8 @@ inline void verifyReferenceGuideContract()
     reference_guide_contract::verifyGuideStates();
     reference_guide_contract::verifySourceStepReasons();
     reference_guide_contract::verifyUnavailableButtons();
+    reference_guide_contract::verifyBGuideRow();
+    reference_guide_contract::verifyGuideRowPriority();
     reference_guide_contract::verifyActionFits();
     reference_guide_contract::verifyGuideFits();
 }
