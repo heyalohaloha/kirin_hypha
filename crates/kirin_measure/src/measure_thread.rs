@@ -20,7 +20,6 @@ use crate::record_writer::{
     RecordTraceQueue, RecordTraceSample, FRAME_INTERVAL_MS, PSB_INTERVAL_MS,
 };
 use crate::resampler::ResamplerTo48k;
-use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
 use crate::{
     channel_layout::ChannelLayout, engine::SessionSummary, load_signal_state, store_signal_state,
     MeasureEngine, MeasureResult, MeterClockStart, MeterSession, MeterSessionPublication,
@@ -44,6 +43,8 @@ mod trace_pass;
 mod trace_slots;
 #[path = "measure_trace_take.rs"]
 mod trace_take;
+#[path = "measure_watch_cursor.rs"]
+mod watch_cursor;
 #[path = "watch_lane_clock.rs"]
 mod watch_lane_clock;
 #[cfg(test)]
@@ -59,6 +60,7 @@ use trace_slots::{
     clear_phase_d_fields, feed_phase_d_slots, join_record_trace_slots, merge_phase_d_fields,
     reset_resamplers, trace_48k, PendingRecordCore,
 };
+use watch_cursor::{available_watch_samples, samples_until_cursor_limit};
 #[cfg(test)]
 use watch_lane_clock::discard_watch_samples;
 use watch_lane_clock::{after_keep_resume, resume_watch_index, watch_chunk_limit, WatchResume};
@@ -348,8 +350,8 @@ pub fn spawn_measure_thread(
         let mut meter_session_suspended = false;
         let mut measure_sequence = 0_u64;
         let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Acquire);
-        // A spawned Measure Thread always receives a fresh Consumer. Samples already queued in
-        // that Consumer are unread, even if the Audio/FFI side has advanced the cursor first.
+        // Counts belong to this ring's lifetime, across Watch passes and parked Keep intervals.
+        // A replacement worker gets a fresh ring; already queued samples are still unread.
         let mut consumed_samples = 0_u64;
         let mut watch_consumed_samples = 0_u64;
         let mut watch_native_frames_total = 0_u64;
@@ -462,7 +464,7 @@ pub fn spawn_measure_thread(
                 record_edge::RecordEdgeOutcome::Retry => continue,
                 record_edge::RecordEdgeOutcome::Skipped => {
                     prev_recording = false;
-                    thread::yield_now();
+                    record_sm.wait_for_measure_work(is_recording);
                     continue;
                 }
                 record_edge::RecordEdgeOutcome::Ready => {}
@@ -530,7 +532,6 @@ pub fn spawn_measure_thread(
                     record_grid_cursor = None;
                     record_next_grid_end = None;
                     raw_pre_roll.clear();
-                    consumed_samples = 0;
                     prev_active = state == SignalState::Active;
                     if state == SignalState::Active {
                         let mut guard = crate::sync_recovery::lock_recover(
@@ -634,7 +635,7 @@ pub fn spawn_measure_thread(
                 let Some(capture_origin) =
                     record_ingress.capture_origin_for_measure(record_sm.generation())
                 else {
-                    thread::yield_now();
+                    record_sm.wait_for_measure_work(is_recording);
                     continue;
                 };
                 let Some(binding) = record_prefix::bind(
@@ -645,7 +646,7 @@ pub fn spawn_measure_thread(
                 ) else {
                     // Wait for the producer's complete span or offline promotion. Never guess a
                     // Watch-relative start while that generation proof is still in flight.
-                    thread::yield_now();
+                    record_sm.wait_for_measure_work(is_recording);
                     continue;
                 };
                 native_frames_total = binding.native_origin;
@@ -665,17 +666,19 @@ pub fn spawn_measure_thread(
             let available = if is_recording {
                 record_prefix_samples.len().saturating_add(consumer.slots())
             } else {
-                let pushed_for_pass = watch_ring_cursor_samples_for_pass(
+                available_watch_samples(
                     &watch_ring_cursor_epoch,
                     &watch_ring_cursor_pass_id,
                     &watch_ring_cursor_samples,
                     playback_pass_id,
+                    consumed_samples,
+                    consumer.slots(),
                 )
-                .unwrap_or(consumed_samples);
-                let limit = samples_until_cursor_limit(consumed_samples, pushed_for_pass).min(
-                    watch_chunk_limit(&watch_resume, native_frames_total, n_channels),
-                );
-                consumer.slots().min(limit)
+                .min(watch_chunk_limit(
+                    &watch_resume,
+                    native_frames_total,
+                    n_channels,
+                ))
             }
             .min(measure_chunk_samples);
             let capture_plan = capture_chunk_plan(
@@ -1043,7 +1046,7 @@ pub fn spawn_measure_thread(
                 }
             }
 
-            if consumer.slots() > 0 {
+            if worker_idle::should_continue_measurement(available, consumer.slots()) {
                 thread::yield_now();
             } else {
                 record_sm.wait_for_measure_work(is_recording);
@@ -1060,12 +1063,6 @@ fn next_nonzero_counter(counter: &mut u64) -> u64 {
         *counter = 1;
     }
     *counter
-}
-
-fn samples_until_cursor_limit(consumed_samples: u64, cursor_samples: u64) -> usize {
-    cursor_samples
-        .saturating_sub(consumed_samples)
-        .min(usize::MAX as u64) as usize
 }
 
 fn stamp_shared_measure_result(

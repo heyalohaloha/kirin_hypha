@@ -19,7 +19,7 @@ fn inactive() -> AtomicU8 {
 }
 
 #[test]
-fn a_pass_cutover_feeds_the_previous_pass_before_resetting_its_cursor() {
+fn a_pass_cutover_feeds_the_previous_pass_without_resetting_its_cursor() {
     let tracker = RecordTakeTracker::new();
     tracker.note_meter_active(true);
     tracker.note_capture_window(true, 100_000, 4_800);
@@ -49,7 +49,6 @@ fn a_pass_cutover_feeds_the_previous_pass_before_resetting_its_cursor() {
     assert!(drained.fed);
     assert_eq!(session.lock().unwrap().snapshot().active_frames, 4_800);
     assert_eq!((native, consumed, consumer.slots()), (4_800, 9_600, 9_600));
-    consumed = 0;
     history.clear();
     let next = capture_chunk_plan(&tracker, native, consumer.slots(), 2, 48_000);
     assert_eq!(next.position_start_samples, Some(300_000));
@@ -70,7 +69,7 @@ fn a_pass_cutover_feeds_the_previous_pass_before_resetting_its_cursor() {
         None,
     );
     assert_eq!(session.lock().unwrap().snapshot().active_frames, 9_600);
-    assert_eq!((native, consumed), (9_600, 9_600));
+    assert_eq!((native, consumed), (9_600, 19_200));
 }
 
 #[test]

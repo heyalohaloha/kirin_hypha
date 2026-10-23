@@ -71,6 +71,7 @@ pub fn next_watch_playback_pass_id(current: u64) -> u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchRingCursorSnapshot {
     pub pass_id: u64,
+    /// Accepted samples over this ring's lifetime, including earlier playback passes.
     pub pushed_samples: u64,
 }
 
@@ -81,6 +82,7 @@ pub fn reset_watch_ring_cursor(
     cursor_samples: &AtomicU64,
     pass_id: u64,
 ) {
+    // Only a fresh or replacement ring starts new sample coordinates.
     write_watch_ring_cursor(cursor_epoch, cursor_pass_id, cursor_samples, pass_id, 0);
 }
 
@@ -96,12 +98,7 @@ pub fn add_watch_ring_cursor_samples(
         return;
     }
     begin_watch_ring_cursor_write(cursor_epoch);
-    let current_pass_id = cursor_pass_id.load(Ordering::Relaxed);
-    let current_samples = if current_pass_id == pass_id {
-        cursor_samples.load(Ordering::Relaxed)
-    } else {
-        0
-    };
+    let current_samples = cursor_samples.load(Ordering::Relaxed);
     cursor_pass_id.store(pass_id, Ordering::Relaxed);
     cursor_samples.store(
         current_samples.saturating_add(pushed_samples),
@@ -139,7 +136,15 @@ pub fn publish_watch_playback_pass_boundary(
     .unwrap_or(0);
     let next_pass = next_watch_playback_pass_id(current_pass);
     cutover_samples.store(cutover, Ordering::Release);
-    reset_watch_ring_cursor(cursor_epoch, cursor_pass_id, cursor_samples, next_pass);
+    // A transport pass does not replace the ring. Keep its sample coordinates intact:
+    // a consumer may still be draining an earlier pass or have this lane parked for Keep.
+    write_watch_ring_cursor(
+        cursor_epoch,
+        cursor_pass_id,
+        cursor_samples,
+        next_pass,
+        cutover,
+    );
     pass_id.store(next_pass, Ordering::Release);
     next_pass
 }
@@ -260,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn ring_cursor_add_resets_count_when_pass_changes() {
+    fn ring_cursor_add_preserves_count_when_pass_changes() {
         let epoch = AtomicU64::new(0);
         let pass_id = AtomicU64::new(7);
         let samples = AtomicU64::new(512);
@@ -271,7 +276,7 @@ mod tests {
         );
         assert_eq!(
             watch_ring_cursor_samples_for_pass(&epoch, &pass_id, &samples, 8),
-            Some(128)
+            Some(640)
         );
     }
 
@@ -297,7 +302,7 @@ mod tests {
         assert_eq!(pass_id.load(Ordering::Acquire), 8);
         assert_eq!(
             watch_ring_cursor_samples_for_pass(&cursor_epoch, &cursor_pass_id, &cursor_samples, 8),
-            Some(0)
+            Some(512)
         );
     }
 

@@ -11,7 +11,7 @@
 use crate::record_spool::MeasureSampleConsumer;
 
 /// Pops queued Watch samples without measuring them (stop, bypass, a playback-pass cutover).
-/// `until` stops at that per-pass sample count; `None` drains what is queued. Only whole frames
+/// `until` stops at that ring-lifetime sample count; `None` drains what is queued. Only whole frames
 /// leave: the Audio Thread pushes one sample at a time, so the queue may end inside a frame, and
 /// splitting it would shift the index and swap the channels of every later frame. A pending skip
 /// past the last Keep applies to the discarded frames too.
