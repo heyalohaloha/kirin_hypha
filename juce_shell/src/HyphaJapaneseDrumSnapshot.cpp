@@ -4,6 +4,8 @@ namespace hypha::i18n::catalog
 Section drumSnapshotSection() noexcept
 {
     static const Entry entries[] {
+        { "Previous", u8"前の値" },
+        { "Previous readings shown. Facts below are for the current pass.", u8"主な値は前の値です。以下の根拠は今の再生区間です。" },
         { "Choice ", u8"候補" },
         { "Cohort ", u8"対象" },
         { "Cohort waiting", u8"対象打音待ち" },

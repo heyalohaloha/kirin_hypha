@@ -1,4 +1,5 @@
 #include "HyphaAttackV2Presentation.h"
+#include "HyphaAttackV2Readout.h"
 #include "HyphaAttackUiContract.h"
 #include <algorithm>
 #include <cmath>
@@ -52,6 +53,8 @@ void State::apply (Presentation next)
                         next.lanes[i].heldNumber = old.number;
                 }
     }
+    if (next.summary && adopted.previousReadout && !replacesPreviousReadout (next, *adopted.previousReadout, navHeader))
+        next.previousReadout = adopted.previousReadout;
     next.details = adopted.details; next.revision = nextRevision++;
     adopted = std::move (next); stamp();
     if (adopted.summary && selection.live) livePresentation = adopted;
@@ -77,13 +80,15 @@ void State::begin()
     adopted = placeholder (KIRIN_REASON_WAITING_SERVICE); adopted.revision = nextRevision++;
     stamp();
 }
-void State::retire (std::uint8_t reason)
+void State::retire (std::uint8_t reason, bool preserveReadout)
 {
+    auto previous = preserveReadout ? previousReadout (adopted, navHeader) : std::nullopt;
     if (token != 0 && cancel) cancel (token);
     token = 0; requested.reset(); pending.reset(); cohort.reset(); livePresentation.reset(); appliedMs = -1;
     selection.clear(); events.clear(); waveform = {}; preWaveform = {}; navHeader = {};
     clock.reset(); awaitingBandNavigation = false; activeInput = false;
     adopted = placeholder (reason); adopted.revision = nextRevision++;
+    adopted.previousReadout = std::move (previous);
 }
 bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnapshotEventKey>& next,
                        const KirinAttackWaveformBatch& wave, const KirinAttackWaveformBatch& pre,
@@ -98,7 +103,10 @@ bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnaps
             || (i > 0 && next[i].event_sample < next[i - 1].event_sample)) return false;
     const bool targetChanged = enabled && h.target != target;
     if (enabled && navHeader.source.generation != 0 && ((! sameBinding (h, navHeader))
-        || h.cutoff_sample < navHeader.cutoff_sample)) retire();
+        || h.cutoff_sample < navHeader.cutoff_sample))
+        retire (KIRIN_REASON_SOURCE_CHANGED, sameReadoutOwner (h, navHeader));
+    if (adopted.previousReadout && !sameReadoutOwner (adopted.previousReadout->navigation, h))
+    { adopted.previousReadout.reset(); adopted.revision = nextRevision++; }
     const bool finishBandChange = awaitingBandNavigation;
     awaitingBandNavigation = false;
     enabled = true; navHeader = h;
@@ -106,10 +114,14 @@ bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnaps
     if (!fixed) target = h.target;
     if (targetChanged && !fixed)
     {
+        // Pairing availability can change before the new pass is published. Explicit user
+        // target changes already call the ordinary (non-preserving) editor reset.
+        auto previous = previousReadout (adopted, navHeader);
         if (token != 0 && cancel) cancel (token);
         token = 0; requested.reset(); pending.reset(); livePresentation.reset(); appliedMs = -1;
         if (selection.live) cohort.reset(); // LOCK's fixed time candidates are target-independent.
         adopted = placeholder (KIRIN_REASON_WAITING_SERVICE); adopted.revision = nextRevision++;
+        adopted.previousReadout = std::move (previous);
     }
     realtimeInput = realtime; activeInput = h.signal_state == 1;
     events = next; waveform = wave; preWaveform = pre;
@@ -123,6 +135,8 @@ bool State::navigate (const KirinSnapshotHeader& h, const std::vector<KirinSnaps
 }
 bool State::summary (const KirinAttackBandSummaryV2& packet, double now)
 {
+    // RETIRED carries no new authority. Wait for navigation before accepting any summary.
+    if (adopted.previousReadout && navHeader.source.generation == 0) return false;
     if (awaitingBandNavigation || ! validSummary (packet) || packet.header.band != band || ! selection.live
         || (navHeader.source.generation != 0 && ! sameNavigationAuthority (packet.header, navHeader))) return false;
     if (adopted.summary && ! sameAuthority (packet.header, adopted.header))
@@ -134,7 +148,9 @@ bool State::summary (const KirinAttackBandSummaryV2& packet, double now)
                        std::begin (livePresentation->summary->comparison_binding)))
     {
         livePresentation.reset(); pending.reset(); cohort.reset(); appliedMs = -1;
+        auto previous = std::move (adopted.previousReadout);
         adopted = placeholder (KIRIN_REASON_SOURCE_CHANGED); adopted.revision = nextRevision++;
+        adopted.previousReadout = std::move (previous);
     }
     enabled = true;
     // Summary revision is a content fingerprint, not a sequence number. Late measurements at

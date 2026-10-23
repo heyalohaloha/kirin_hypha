@@ -119,6 +119,12 @@ juce::String caption (const State& state)
 {
     const auto& p = state.adopted;
     const juce::String band = attack_band::labelFor (state.band);
+    if (p.previousReadout)
+    {
+        const auto& previous = *p.previousReadout;
+        return "Previous / " + band + (previous.target == KIRIN_TARGET_DELTA ? juce::String::fromUTF8 (u8" Δ ") : " POST ")
+            + juce::String (previous.count) + words (" hits", u8"打");
+    }
     const auto target = state.target == KIRIN_TARGET_DELTA ? juce::String::fromUTF8 (u8"Δ") : juce::String ("POST");
     if (p.single || state.needsSingle())
     {
@@ -159,6 +165,7 @@ std::vector<LocatedEvent> visibleEvents (const State& state, const Geometry& sha
 void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, const presentation::Context& c)
 {
     const auto& p = state.adopted;
+    const auto readoutColour = p.previousReadout ? COL_TEXT_SECONDARY : COL_NORMAL;
     for (std::size_t i = 0; i < shape.bands.size(); ++i)
     {
         if (shape.bands[i].isEmpty()) continue;
@@ -180,7 +187,7 @@ void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, cons
         text (g, "<", shape.previous, c, typography::TextRole::action, cyan, juce::Justification::centred);
         text (g, ">", shape.next, c, typography::TextRole::action, cyan, juce::Justification::centred);
     }
-    text (g, label, state.selection.clustered ? shape.cluster : shape.caption, c, typography::TextRole::readout, COL_NORMAL);
+    text (g, label, state.selection.clustered ? shape.cluster : shape.caption, c, typography::TextRole::readout, readoutColour);
     text (g, state.selection.live ? (p.clock == ClockState::hold ? "HOLD" : "LIVE") : "LOCK",
           shape.live, c, typography::TextRole::action, cyan, juce::Justification::centred);
     text (g, words ("Facts", u8"根拠"), shape.evidence, c, typography::TextRole::action, COL_NORMAL, juce::Justification::centredRight);
@@ -203,18 +210,19 @@ void paintV2 (juce::Graphics& g, const State& state, const Geometry& shape, cons
         const auto colour = juce::Colour (std::array<std::uint32_t, 4> { attack_ui::transientColour,
             attack_ui::strengthColour, attack_ui::crestColour, attack_ui::sharpnessColour }[i]);
         text (g, state.band == 0 ? allLabels[i] : bandLabels[i], area.metric, c, typography::TextRole::metricLabel, colour);
-        const auto& number = lane.heldNumber ? *lane.heldNumber : lane.number;
+        const auto& number = p.previousReadout ? p.previousReadout->numbers[i] : lane.heldNumber ? *lane.heldNumber : lane.number;
         auto unit = number.unit;
-        if (! lane.heldNumber && lane.scope == Scope::confirmedSubset && lane.number.exponent != 0)
+        if (!p.previousReadout && ! lane.heldNumber && lane.scope == Scope::confirmedSubset && lane.number.exponent != 0)
             unit = state.band != 0 ? (i == 3 ? state.target == KIRIN_TARGET_DELTA ? "dB" : "dBFS" : "ms")
                 : i == 3 ? "acum" : i == 1 && state.target != KIRIN_TARGET_DELTA ? "dBFS" : "dB";
-        text (g, unit, area.unit, c, typography::TextRole::unit, COL_NORMAL, shape.cards ? juce::Justification::centredRight : juce::Justification::centredLeft);
+        text (g, unit, area.unit, c, typography::TextRole::unit, readoutColour, shape.cards ? juce::Justification::centredRight : juce::Justification::centredLeft);
         // Production reads whole-cohort values or the chosen single. Partial statistics and
         // classifications stay unchanged in the adopted presentation and existing Facts.
-        const auto mainValue = lane.heldNumber ? lane.heldNumber->value
+        const auto mainValue = p.previousReadout ? (number.valid ? number.value : juce::String::fromUTF8 (u8"—"))
+            : lane.heldNumber ? lane.heldNumber->value
             : lane.scope == Scope::confirmedSubset || lane.scope == Scope::noScalar || ! lane.number.valid
                 ? juce::String::fromUTF8 (u8"—") : lane.number.value;
-        text (g, mainValue, area.value, c, typography::TextRole::primaryValue, COL_NORMAL,
+        text (g, mainValue, area.value, c, typography::TextRole::primaryValue, readoutColour,
               shape.cards ? juce::Justification::centredLeft : juce::Justification::centredRight);
         g.setColour (COL_TEXT_SECONDARY.withAlpha (.15f));
         g.drawHorizontalLine (area.value.getBottom() - 1, static_cast<float> (area.metric.getX()), static_cast<float> (area.value.getRight()));

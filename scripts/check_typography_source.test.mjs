@@ -96,6 +96,17 @@ test('the native twin of a contracted font is a typography factory', () => {
     /requires presentation context/);
 });
 
+test('the colour observer only forwards an unchanged font; other font selection stays checked', () => {
+  const observer = 'juce_shell/tests/AttackPaintColourLog.h';
+  const forward = 'void setFont (const juce::Font& f) override { native->setFont (f); }';
+  assert.deepEqual(findTypographyViolations(forward, observer), []);
+  assert.match(findTypographyViolations(forward, 'juce_shell/src/Other.cpp')[0]?.reason ?? '', /semantic typography/);
+  assert.match(findTypographyViolations(forward, 'juce_shell/tests/Other.h')[0]?.reason ?? '', /semantic typography/);
+  assert.match(findTypographyViolations(forward.replace('setFont (f)', 'setFont (otherFont)'), observer)[0]?.reason ?? '', /semantic typography/);
+  assert.match(findTypographyViolations(`${forward}\ng.setFont (otherFont);`, observer)[0]?.reason ?? '', /semantic typography/);
+  assert.match(findTypographyViolations(`${forward}\nauto font = juce::Font (12.0f);`, observer)[0]?.reason ?? '', /direct juce::Font/);
+});
+
 test('untracked source files are included by the filesystem walk', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-typography-source-'));
   try {

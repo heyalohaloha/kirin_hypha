@@ -41,7 +41,7 @@ namespace hypha
         std::function<void (std::uint64_t)> singleCancelSource;
         std::uint64_t singleRequestToken() const noexcept { return v2->token; }
         std::uint8_t snapshotTargetV2() const noexcept { return v2->target; }
-        void retireV2();
+        void retireV2 (bool preserveReadout = false);
         void setAnalysisUnavailable (const juce::String&);
         void beginSnapshotV2();
         const attack_v2::Presentation& presentationSnapshotV2() const noexcept;
