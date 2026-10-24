@@ -18,12 +18,13 @@ void ReferenceComparisonController::clearPendingAudition()
 
 bool ReferenceComparisonController::pendingAuditionNeedsService() const
 {
-    return activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted()
+    return preparingCheck() || activePendingIntent.load (std::memory_order_acquire) != 0 || resumeWanted()
         || offlineRenderSeen.load (std::memory_order_acquire) || blindSessionOpen.load (std::memory_order_acquire);
 }
 
 int ReferenceComparisonController::pendingSlot() const
 {
+    if (preparingCheck()) return 2;
     const juce::ScopedLock lock (selectionLock);
     return activePendingIntent.load (std::memory_order_acquire) != 0 ? pendingAudition.view.slot : 0;
 }
@@ -109,6 +110,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
 
 void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive)
 {
+    if (callbackLive && preparingCheck() && check.awaitingPreparedLevel()) check.supplyPreparedLevel (loudness, peak);
     reconcileVersionBlindSession();
     reconcileOutputMark();
     if (offlineRenderSeen.exchange (false, std::memory_order_acq_rel)) forgetHeldAudition();
@@ -116,12 +118,13 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     PendingIntent intent;
     { const juce::ScopedLock lock (selectionLock); intent = pendingAudition; }
     if (!intent.view.waiting() || activePendingIntent.load (std::memory_order_acquire) != intent.intentId) return;
-    const auto publish = [&] (Stage stage, bool sawPlayback = false)
+    const auto publish = [&] (Stage stage, bool sawPlayback = false, const juce::String& reason = {})
     {
         const juce::ScopedLock lock (selectionLock);
         if (pendingAudition.intentId == intent.intentId)
         {
             pendingAudition.view.stage = stage; pendingAudition.sawPlayback |= sawPlayback;
+            pendingAudition.view.reasonCode = reason;
             if (!pendingAudition.view.waiting())
             {
                 auto expected = intent.intentId; activePendingIntent.compare_exchange_strong (expected, 0);
@@ -130,10 +133,10 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         }
     };
     auto& target = slotController (intent.view.slot);
+    const auto state = target.snapshot();
     // 戻す控えが消えた（ライブラリが公開を引っ込めた）なら、同じ音が戻っても鳴らさない。音源が変わったと言う。
     if (intent.resume && ! target.hasHeldSelection())
-    { dropResume(); publish (Stage::sourceChanged, true); return; }
-    const auto state = target.snapshot();
+    { dropResume(); publish (Stage::sourceChanged, true, state.rejectionCode); return; }
     const auto inputSafety = pendingInputSafety.load (std::memory_order_acquire);
     if (intent.safetyEpoch != pendingSafetyEpoch.load (std::memory_order_acquire)
         || (intent.sawPlayback && (!state.transportPlaying || !callbackLive))
@@ -158,7 +161,8 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     const auto binding = target.visualBinding();
     if (state.state == RuntimeState::rejected || state.state == RuntimeState::disconnected
         || (state.playbackIdentity.isNotEmpty() && state.playbackIdentity != intent.identity))
-    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged); return; }
+    { if (intent.resume || intent.switching) dropResume();
+      publish (Stage::sourceChanged, false, state.rejectionCode.isNotEmpty() ? state.rejectionCode : "reference_selection_changed"); return; }
     if (!state.transportPlaying) { publish (Stage::play); return; }
     if (!callbackLive || inputSafety != 1
         || !state.transportPositionValid || state.state != RuntimeState::ready
@@ -169,8 +173,8 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     { publish (Stage::level, true); return; }
     if (! heldA.settled()) { publish (Stage::checking, true); return; }  // A を下げ終わってから鳴らす
     RuntimeV2SourceRepository verifier (juce::File {});
-    if (verifier.verifySourceRevision (*binding.source).isNotEmpty())
-    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged); return; }
+    if (const auto failure = verifier.verifySourceRevision (*binding.source); failure.isNotEmpty())
+    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, false, failure); return; }
     // Claim once on the control thread, then use the runtime generation across gain preparation.
     // A, a source change or reconfiguration invalidates that generation before publication.
     // Bind preparation to the same condition even if a publication changes after this snapshot.

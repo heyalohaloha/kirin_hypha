@@ -14,7 +14,7 @@ template <auto Once> struct PageServiceAccess
     friend void servicePages (reference_audition::AudioPages& p, PageServiceTag) { (p.*Once)(); }
 };
 template struct PageServiceAccess<&reference_audition::AudioPages::serviceOnce>;
-template <auto Requested, auto Applied, auto Apply, auto Refresh, auto Pages,
+template <auto Requested, auto Applied, auto Apply, auto Refresh, auto Prepared, auto Pages, auto StagingPages,
           auto Deferred, auto Retirement, auto Fading> struct ManualServiceAccess
 {
     friend void serviceFor (Runtime& r, ServiceTag)
@@ -25,11 +25,13 @@ template <auto Requested, auto Applied, auto Apply, auto Refresh, auto Pages,
         (r.*Retirement)();
         if (! (r.*Fading)()) (r.*Refresh) (configuration, juce::Time::currentTimeMillis());
         servicePages (r.*Pages, {});
+        servicePages (r.*StagingPages, {});
+        if (! (r.*Fading)()) (r.*Prepared) (configuration);
     }
 };
 template struct ManualServiceAccess<&Runtime::requestedConfiguration,
     &Runtime::appliedConfigurationGeneration, &Runtime::applyConfiguration,
-    &Runtime::refreshWorkspace, &Runtime::pages,
+    &Runtime::refreshWorkspace, &Runtime::servicePreparedWorkspace, &Runtime::pages, &Runtime::preparedPages,
     &Runtime::serviceDeferredAudioThreadActions, &Runtime::serviceOutputRetirement,
     &Runtime::deferredRevokeWaiting>;
 

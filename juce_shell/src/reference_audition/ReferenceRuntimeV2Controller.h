@@ -96,6 +96,10 @@ namespace hypha::reference_audition
         void setHeldAttenuation (double db) noexcept { heldAttenuationDb.store (std::min (0.0, db), std::memory_order_release); }
         // B（REF）の役は B セットの曲だけを鳴らす。曲を選ぶまでは何も準備しない（C の Preset に落ちない）。
         void setSongsOnly (bool enabled) noexcept { songsOnly.store (enabled, std::memory_order_release); notify(); }
+        void prepareSelectionsBeforeReturn() noexcept { prepareBeforeReturn.store (true, std::memory_order_release); }
+        bool awaitingPreparedLevel() const;
+        int preparedMatchWindowBlocks() const;
+        void supplyPreparedLevel (double loudness, double peak);
         bool trackingAudible() const noexcept
         { return trackingEnabled.load (std::memory_order_acquire) && bSelected.load (std::memory_order_acquire) && ! blind.ongoing(); }
         // MATCH の A 側の窓の長さ（10 Hz のブロック数）。追従する役は 10 秒、固定する役（C）は Cue と同じ長さ。
@@ -179,6 +183,27 @@ namespace hypha::reference_audition
             bool valid = false;
         };
 
+        struct WorkspaceSelection
+        {
+            Configuration configuration;
+            RequestedSelection selection;
+            Snapshot next;
+            RuntimeCandidate candidate;
+            RuntimeCue cue;
+            RuntimeEventContext event;
+            RuntimeSourcePresetReceipt sourceTemplateArtifact;
+            std::shared_ptr<const RuntimeSource> source;
+            juce::String sourceKey, adoptionKey;
+            std::int64_t preparedAtMs = 0;
+            bool staged = false, returnStarted = false, songEntry = false;
+        };
+        bool beginSelectionPreparationLocked() noexcept;
+        void clearPreparedWorkspace();
+        bool servicePreparedWorkspace (const Configuration&);
+        void finishWorkspaceSelection (WorkspaceSelection);
+        AudioPages& currentPages() const noexcept { return *activePages.load (std::memory_order_acquire); }
+        AudioPages& nextPages() noexcept { return &currentPages() == &pages ? preparedPages : pages; }
+
         void run() override;
         void applyConfiguration (const Configuration&);
         void refreshWorkspace (const Configuration&, std::int64_t nowMs);
@@ -250,6 +275,18 @@ namespace hypha::reference_audition
         std::int64_t sourceRetryAtMs = 0;
         int sourceRetryCount = 0;
         AudioPages pages;
+        AudioPages preparedPages;
+        std::atomic<AudioPages*> activePages { &pages };
+        std::atomic<bool> prepareBeforeReturn { false };
+        std::optional<WorkspaceSelection> preparedWorkspace; // Worker-owned; never read by the callback.
+        enum class PreparedLevel { none, loudness, peak };
+        struct PreparedReturn
+        {
+            std::uint64_t generation = 0;
+            int windowBlocks = 0;
+            PreparedLevel level = PreparedLevel::none;
+            bool pending = false, available = false;
+        } preparedReturn; // stateLock; level readiness is not permission to play the new PCM.
         RuntimeV2Blind blind;
         mutable juce::CriticalSection stateLock;
         juce::CriticalSection outputGateLock;

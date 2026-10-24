@@ -162,8 +162,8 @@ namespace hypha::reference_audition
             contentMappingContinuity.store (*confirmedContinuity, std::memory_order_release);
             copyCorrespondence.store (confirmedCopy, std::memory_order_release);
         }
-        pages.request (mappedSourcePosition (latestHostPosition.load()));
-        pages.service();
+        currentPages().request (mappedSourcePosition (latestHostPosition.load()));
+        currentPages().service();
         const bool currentMap = !copyCorrespondence.load (std::memory_order_acquire)
             || contentMappingContinuity.load (std::memory_order_acquire) == aCapture.continuity();
         next.state = libraryVersion && !blindState.eligible && !blind.ongoing() ? RuntimeState::waiting : RuntimeState::ready;

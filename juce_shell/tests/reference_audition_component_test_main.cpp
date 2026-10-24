@@ -22,6 +22,7 @@ int main (int argc, char** argv)
     if (mode == "--missing-check-text-only") { hypha::tests::verifyMissingCheckText(); return 0; }
     namespace repairs = hypha::tests::reference_text_repairs;
     if (mode == "--reference-approval-only") { repairs::verifyApprovalPreview(); return 0; }
+    if (mode == "--reference-v-stop-text-only") { repairs::verifyVersionStopText(); return 0; }
     if (mode == "--reference-c-legend-only") { repairs::verifyLegends (true); return 0; }
     if (mode == "--reference-b-legend-only") { repairs::verifyLegends (false); return 0; }
     if (mode == "--reference-c-match-fit-only") { repairs::verifyCMatchFit(); return 0; }
@@ -29,6 +30,7 @@ int main (int argc, char** argv)
     if (mode == "--reference-cue-label-only") { repairs::verifyCueLabels(); return 0; }
     hypha::tests::verifyMissingCheckNavigation();
     hypha::tests::verifyMissingCheckText();
+    repairs::verifyVersionStopText();
     repairs::verifyApprovalPreview(); repairs::verifyLegends (true); repairs::verifyLegends (false);
     repairs::verifyCMatchFit(); repairs::verifyOnsetMeaning(); repairs::verifyCueLabels();
     hypha::tests::verifyReferenceAuditionComponentContract();

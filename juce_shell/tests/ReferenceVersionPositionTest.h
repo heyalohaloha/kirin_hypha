@@ -103,6 +103,8 @@ inline void testReferenceVersionPosition (const juce::File& sandbox)
     require (! c.snapshot().versionReady
         && c.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::sourceChanged,
         "an actual file revision ends V authority with a source-change reason");
+    require (c.snapshot().pendingAudition.reasonCode == "reference_source_changed",
+             "the stop retains its verified file-revision reason for the user-facing message");
     require (! feed (192512, 192512, true), "unverified changed media never plays from an old page");
     for (int ch = 0; ch < 2; ++ch)
         require (std::memcmp (input.getReadPointer (ch), original.getReadPointer (ch), 256 * sizeof (float)) == 0,

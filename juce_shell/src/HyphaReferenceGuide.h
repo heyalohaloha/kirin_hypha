@@ -9,6 +9,7 @@
 // with no reason. When neither can be heard, the guide takes the comparison's place and says the
 // one next step, what A, B, C and V are, and where each of them stands. A source that cannot be heard
 // yet explains itself on hover and on a click instead of doing nothing.
+// A stopped V keeps its recovery action visible on its own page.
 namespace hypha::reference_ui
 {
 struct State;
@@ -51,7 +52,7 @@ struct Guide
     bool shown = false;
     juce::String heading, detail;
     SourceStep reference = SourceStep::ready, version = SourceStep::ready, check = SourceStep::ready;
-    bool playing = false;
+    bool playing = false, stoppedVersion = false;
 };
 
 // The source steps as the page states them, including B's existing editor step.

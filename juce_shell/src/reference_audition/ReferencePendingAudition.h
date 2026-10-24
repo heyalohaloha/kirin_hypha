@@ -1,4 +1,5 @@
 #pragma once
+#include <juce_core/juce_core.h>
 
 namespace hypha::reference_audition
 {
@@ -9,6 +10,7 @@ struct PendingAuditionView
                        sourceLevelUnavailable, ceilingExceeded };
     int slot = 0;
     Stage stage = Stage::none;
+    juce::String reasonCode {}; // Preserve the reason at the stop, even if the next snapshot is ready.
     bool waiting() const noexcept
     {
         return slot != 0 && (stage == Stage::play || stage == Stage::checking || stage == Stage::level);

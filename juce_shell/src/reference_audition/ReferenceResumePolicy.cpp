@@ -65,9 +65,10 @@ void ReferenceComparisonController::reconcileOutputMark()
         if (slotController (slot).takeHeldWithdrawn() && marked == slot && activePendingIntent.load (std::memory_order_acquire) == 0
             && switchSlot.load (std::memory_order_acquire) != slot)
         {
+            const auto reason = slotController (slot).snapshot().rejectionCode;
             const juce::ScopedLock lock (selectionLock);
             pendingAudition = {};
-            pendingAudition.view = { slot, PendingAuditionView::Stage::sourceChanged };
+            pendingAudition.view = { slot, PendingAuditionView::Stage::sourceChanged, reason };
         }
     if (marked < 1 || marked > 3 || switchSlot.load (std::memory_order_acquire) == marked
         || activePendingIntent.load (std::memory_order_acquire) != 0) return;

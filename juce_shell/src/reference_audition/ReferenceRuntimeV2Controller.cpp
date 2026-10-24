@@ -123,7 +123,7 @@ namespace hypha::reference_audition
             && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
         result.auditionBuffered = publishedReady && (blindState.eligible
             || (result.transportPositionValid
-                && pages.readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)));
+                && currentPages().readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)));
         result.blindEligible = publishedReady && blindState.eligible
             && (blind.ongoing() || referenceCopyProofCurrent (versionComparison,
                 copyCorrespondence.load (std::memory_order_acquire),

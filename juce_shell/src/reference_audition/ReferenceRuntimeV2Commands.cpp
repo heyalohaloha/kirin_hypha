@@ -10,6 +10,7 @@ namespace hypha::reference_audition
     {
         if (id.isEmpty())
             return false;
+        bool keepPlaying = false;
         {
             const juce::ScopedLock lock (stateLock);
             juce::String* selectedId = nullptr;
@@ -28,10 +29,10 @@ namespace hypha::reference_audition
                 if (kind != "cue") requestedSelection.cueId.clear();
             }
             ++requestedSelection.generation;
-            revokeAfterFadeLocked();
+            keepPlaying = beginSelectionPreparationLocked();
         }
         if (blind.ongoing()) invalidateBlind();
-        else selectA();
+        else if (!keepPlaying) selectA();
         notify();
         return true;
     }

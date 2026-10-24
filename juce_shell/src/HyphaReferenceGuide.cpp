@@ -134,6 +134,15 @@ Guide guide (const State& state)
     if (state.pendingAudition.stage != reference_audition::PendingAuditionView::Stage::none)
     {
         result.heading = pendingAuditionHeading (state);
+        if (state.pendingAudition.slot == 1 && !state.pendingAudition.waiting())
+        {
+            result.stoppedVersion = true;
+            result.shown = state.separateComparisons && state.comparisonSlot == 1
+                && state.osAccess != os_access::State::unowned && !state.bSelected
+                && !isBlindSession (state.blindPhase);
+            result.detail = versionStoppedText (state).fromFirstOccurrenceOf (" / ", false, false);
+            return result;
+        }
         result.detail = state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable
             ? juce::String ("Prepare this source in Kirin OS. A stays live.")
             : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::ceilingExceeded
@@ -238,6 +247,21 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
     const auto headingRole = full ? TextRole::sectionTitle : TextRole::status;
     reference_metric_painter::paintPanel (g, area.toFloat(), 0.72f);
     auto content = area.reduced (inspection ? 18 : full ? 14 : 7, inspection ? 14 : full ? 8 : 4);
+    if (shown.stoppedVersion && !full)
+    {
+        // The stopped role and its recovery action take priority over role-summary rows.
+        const auto message = shown.heading + " / " + shown.detail;
+        const auto font = labelFont (context, TextRole::body, Composition::information);
+        const bool single = text_style::shownWidth (font, message) <= static_cast<float> (content.getWidth());
+        const auto height = single ? juce::roundToInt (std::ceil (font.getHeight()))
+                                   : wrappedHeight (message, font, content.getWidth());
+        fit.heading = fit.detail = height <= content.getHeight();
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, TextRole::body, Composition::information));
+        if (single) text_style::drawEllipsized (g, message, content, juce::Justification::topLeft);
+        else text_style::drawLines (g, message, content, juce::Justification::topLeft, 4);
+        return fit;
+    }
     const auto heading = content.removeFromTop (lineOf (context, headingRole));
     fit.heading = text_style::shownWidth (labelFont (context, headingRole, Composition::information),
                                           shown.heading) <= static_cast<float> (heading.getWidth());
