@@ -2,6 +2,7 @@
 #include "HyphaAttackStage.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaLanguage.h"
 
 namespace hypha::attack_v2
 {
@@ -19,12 +20,13 @@ juce::String rawInterval (const KirinSnapshotInterval& i)
 void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<int> area,
                     const presentation::Context& c, int scroll)
 {
+    const i18n::ScopedLanguage factsLanguage (i18n::Language::english);
     attack_stage::paint (g, area.toFloat(), 4, 1, false);
     auto inner = area.reduced (6, 0);
     auto header = inner.removeFromTop (18);
     g.setColour (COL_NORMAL); g.setFont (monoFont (c, typography::TextRole::axis,
         typography::Composition::visualization));
-    text_style::drawText (g, words (u8"Facts — frozen / ESC close / End LIVE", u8"根拠 — 固定 / ESC閉じる / End LIVE"),
+    text_style::drawText (g, words (u8"Facts — frozen / ESC close / End LIVE", u8"Facts — frozen / ESC close / End LIVE"),
         header, juce::Justification::centredLeft, false);
     juce::Graphics::ScopedSaveState save (g); g.reduceClipRegion (inner);
     int y = inner.getY() - scroll;
@@ -40,8 +42,8 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
         : "Output hit shape and level.");
     if (p.header.band != 0)
         line ("ATT / REL measure the envelope, not compressor settings.");
-    line (words ("Snapshot ", u8"観測版") + juce::String (p.header.snapshot_revision)
-        + words (" / presentation ", u8" / 表示版") + juce::String (p.revision));
+    line (words ("Snapshot ", "Snapshot ") + juce::String (p.header.snapshot_revision)
+        + words (" / presentation ", " / presentation ") + juce::String (p.revision));
     line ("C " + juce::String (p.header.cutoff_sample) + " / V " + juce::String (p.viewport)
         + (p.clock == ClockState::hold ? " HOLD" : " LIVE"));
     if (p.summary && p.summary->newer_unfinished_count > 0)
@@ -63,41 +65,40 @@ void paintEvidence (juce::Graphics& g, const Presentation& p, juce::Rectangle<in
                 "Decay time: peak to -20 dB.",
                 "Peak of the band RMS envelope." };
         line (meanings[i]);
-        line (words ("Exact / bound / unknown / pending / N/A: ", u8"確定 / 限界 / 不明 / 取得中 / 不成立: ")
+        line (words ("Exact / bound / unknown / pending / N/A: ", "Exact / bound / unknown / pending / N/A: ")
             + juce::String (lane.counts[0]) + "/" + juce::String (lane.counts[1]) + "/"
             + juce::String (lane.counts[2]) + "/" + juce::String (lane.counts[3]) + "/" + juce::String (lane.counts[4]));
         if (p.summary)
         {
             const auto& raw = p.summary->lanes[i];
-            line (words ("Whole interval ", u8"全N区間 ") + (raw.whole_median_available ? rawInterval (raw.whole_interval) : "---"));
+            line (words ("Whole interval ", "Whole interval ") + (raw.whole_median_available ? rawInterval (raw.whole_interval) : "---"));
             if (raw.exact_count)
-                line (words ("Exact median ", u8"確定部分中央値 ") + factNumber (raw.exact_median)
+                line (words ("Exact median ", "Exact median ") + factNumber (raw.exact_median)
                     + (lane.scope == Scope::confirmedSubset
-                        ? words (" / age ", u8" / 古さ ") + juce::String (lane.ageSeconds, 2) + "s" : juce::String {}));
+                        ? words (" / age ", " / age ") + juce::String (lane.ageSeconds, 2) + "s" : juce::String {}));
             for (std::size_t reason = 1; reason < KIRIN_REASON_COUNT; ++reason)
                 if (lane.reasons[reason]) line (reasonText (static_cast<std::uint8_t> (reason), true) + " " + juce::String (lane.reasons[reason]));
         }
         if (p.single && p.header.band != 0)
         {
             const auto& raw = p.single->lanes[i];
-            if (raw.has_interval) line (words ("Raw interval ", u8"元区間 ") + rawInterval (raw.interval));
+            if (raw.has_interval) line (words ("Raw interval ", "Raw interval ") + rawInterval (raw.interval));
             const auto reason = reasonText (lane.reason, true);
             const auto finish = finishText (raw.finish);
             line (reason.isEmpty() || reason == finish ? finish : reason + " / " + finish);
-            line (words ("Requested ", u8"要求窓 ") + juce::String (raw.requested_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.requested_end));
-            line (words ("Measured ", u8"実測窓 ") + juce::String (raw.actual_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.actual_end));
+            line (words ("Requested ", "Requested ") + juce::String (raw.requested_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.requested_end));
+            line (words ("Measured ", "Measured ") + juce::String (raw.actual_start) + juce::String::fromUTF8 (u8"…") + juce::String (raw.actual_end));
         }
         if (p.header.band != 0 && lane.resolution > 0)
-            line (words ("Resolution ", u8"判別範囲 ") + factNumber (lane.resolution) + " "
+            line (words ("Resolution ", "Resolution ") + factNumber (lane.resolution) + " "
                 + (i == 3 ? p.header.target == KIRIN_TARGET_DELTA ? "dB" : "dBFS" : "ms")
-                + (lane.withinResolution ? words (" / Whole within", u8" / 全Nが範囲内") : ""));
+                + (lane.withinResolution ? words (" / Whole within", " / Whole within") : ""));
     }
-    line (words ("Source generation ", u8"入力世代 ") + juce::String (p.header.source.generation)
+    line (words ("Source generation ", "Source generation ") + juce::String (p.header.source.generation)
         + " / " + juce::String (p.header.source.sample_rate) + " Hz / " + juce::String (p.header.source.channels) + " ch");
-    line (words ("Pair authority ", u8"比較の検証版 ") + juce::String (p.header.authority_revision));
+    line (words ("Pair authority ", "Pair authority ") + juce::String (p.header.authority_revision));
     if (p.summary && p.header.band != 0)
-        line (words ("Mean in dB; identical participants for PRE and POST. Set changes break lines and fill.",
-                    u8"dB平均。PRE/POSTは同参加集合。集合変更では線と塗りを切る。"));
-    line (words ("Scroll / Up Down for further facts", u8"スクロール / 上下キーで続き"));
+        line (words ("Mean in dB; identical participants for PRE and POST. Set changes break lines and fill.", "Mean in dB; identical participants for PRE and POST. Set changes break lines and fill."));
+    line (words ("Scroll / Up Down for further facts", "Scroll / Up Down for further facts"));
 }
 }

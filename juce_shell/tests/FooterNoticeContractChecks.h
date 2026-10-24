@@ -4,9 +4,38 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
+#include <algorithm>
 
 namespace hypha::tests::footer_notice
 {
+// A wrapped notice is complete only when all its text, in order, is inside the widget.
+// Comparing a single draw call mistakes a valid second line for clipping.
+inline bool completePaint (const text_style::ShownTextLog& actual, const juce::String& wanted,
+                           juce::Rectangle<int> bounds)
+{
+    const auto compact = [] (const juce::String& text) { return text.removeCharacters (" \n\r\t"); };
+    if (wanted.isEmpty() || compact (actual.texts().joinIntoString ("")) != compact (wanted)) return false;
+    return std::all_of (actual.areas().begin(), actual.areas().end(), [&] (const auto& area) {
+        return ! area.isEmpty() && bounds.toFloat().expanded (0.5f).contains (area);
+    });
+}
+
+inline bool verifyCompletePaintOracle()
+{
+    const auto first = juce::String::fromUTF8 (u8"音源を");
+    const auto last = juce::String::fromUTF8 (u8"確認します。");
+    const auto expected = first + last;
+    text_style::ShownTextLog paint;
+    paint.add (first, {0, 0, 100, 16}); paint.add (last, {0, 16, 100, 16});
+    if (paint.texts().contains (expected) || ! completePaint (paint, expected, {0, 0, 100, 32})) return false;
+    paint.clear(); paint.add (first, {0, 0, 100, 16});
+    if (completePaint (paint, expected, {0, 0, 100, 32})) return false;
+    paint.clear(); paint.add (expected + juce::String::fromUTF8 (u8"…"), {0, 0, 100, 16});
+    if (completePaint (paint, expected, {0, 0, 100, 32})) return false;
+    paint.clear(); paint.add (expected, {0, 20, 100, 16});
+    return ! completePaint (paint, expected, {0, 0, 100, 32});
+}
+
 // Test the actual localized paint, rather than requiring the entire sentence to fit a slot.
 inline bool boundedPaint (juce::Component& component, const juce::String& full,
                           const presentation::Context& context, int horizontalInset,

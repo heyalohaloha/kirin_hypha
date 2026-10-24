@@ -113,7 +113,7 @@ inline void verifyReferenceStatusLine()
         under.peakShortfallDb = 0.3;
         const auto line = reference_ui::referenceStatusLine (under).text;
         require (line.contains ("0.3 DB UNDER A (PEAK LIMIT)")
-                     && i18n::translate (line, i18n::Language::japanese).contains (juce::String (juce::CharPointer_UTF8 ("\xe3\x83\x94\xe3\x83\xbc\xe3\x82\xaf"))),
+                     && i18n::translate (line, i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"Aより0.3 dB小さい（Peak上限）")),
                  "a role played at the ceiling short of A says by how much, in both languages");
         under.peakShortfallDb = 0.0;
         require (! reference_ui::referenceStatusLine (under).text.contains ("UNDER A"), "a full match says nothing about it");
@@ -130,7 +130,7 @@ inline void verifyReferenceStatusLine()
     }
     playing.gainLimited = true;
     require (reference_ui::gainReadout (playing) == "V +1.5 dB  /  MATCH UNAVAILABLE"
-                 && i18n::translate (reference_ui::gainReadout (playing), i18n::Language::japanese).contains ("Gain Match"),
+                 && i18n::translate (reference_ui::gainReadout (playing), i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"MATCH不可")),
              "a gain that cannot match says so");
     playing.gainLimited = false;
     playing.heldAttenuationDb = 0.0;

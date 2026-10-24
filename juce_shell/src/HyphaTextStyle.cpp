@@ -115,19 +115,65 @@ bool latinWord (juce::juce_wchar character) noexcept
     return character != ' ' && character < 0x2e80;
 }
 
-// The pieces a line may break between: one kana or kanji at a time, a whole Latin word, with
-// the punctuation and brackets that must stay beside them.
+// Keep a Japanese stem and its following kana together. Script changes after kana give
+// natural phrase boundaries ("音源の / 登録情報を / 確かめます"). Fixed UI terms may
+// contain spaces or several scripts; they remain one piece too.
 juce::StringArray breakUnits (const juce::String& paragraph)
 {
+    static const juce::StringArray terms {
+        juce::String::fromUTF8 (u8"Reference のセット"), juce::String::fromUTF8 (u8"Reference の範囲"),
+        juce::String::fromUTF8 (u8"Reference の曲"), juce::String::fromUTF8 (u8"CHECK セット"),
+        "Kirin OS", "Check Preset", "Blind Compare", "Version Blind", "Meter Session",
+        "True Peak", "Sample Peak", "Peak Hold", "Momentary Loudness", "Short-term Loudness",
+        "Loudness Range", "Buffer size", juce::String::fromUTF8 (u8"Stereo と位相"),
+        "SOURCE 1", "SOURCE 2", "PRE / POST", "PRE/POST",
+        juce::String::fromUTF8 (u8"選び直"), juce::String::fromUTF8 (u8"押し直"),
+        juce::String::fromUTF8 (u8"やり直"), juce::String::fromUTF8 (u8"準備し直"),
+        juce::String::fromUTF8 (u8"保存し直"), juce::String::fromUTF8 (u8"作り直"),
+        juce::String::fromUTF8 (u8"読み込"), juce::String::fromUTF8 (u8"読み取"),
+        juce::String::fromUTF8 (u8"取り込"), juce::String::fromUTF8 (u8"取り消"),
+        juce::String::fromUTF8 (u8"書き込"), juce::String::fromUTF8 (u8"書き出"),
+        juce::String::fromUTF8 (u8"書き直"), juce::String::fromUTF8 (u8"呼び出"),
+        juce::String::fromUTF8 (u8"切り替"), juce::String::fromUTF8 (u8"置き換"),
+        juce::String::fromUTF8 (u8"繰り返"), juce::String::fromUTF8 (u8"立ち上"),
+        juce::String::fromUTF8 (u8"聴き比"), juce::String::fromUTF8 (u8"聴き取"),
+        juce::String::fromUTF8 (u8"聞き取"), juce::String::fromUTF8 (u8"差し引")
+    };
+    const auto script = [] (juce::juce_wchar c) {
+        if (c >= 0x3040 && c <= 0x309f) return 1;
+        if (c >= 0x30a0 && c <= 0x30ff) return 2;
+        if ((c >= 0x3400 && c <= 0x9fff) || c == 0x3005) return 3;
+        return 0;
+    };
     juce::StringArray units;
     juce::String unit;
     juce::juce_wchar previous = 0;
-    for (auto cursor = paragraph.getCharPointer(); ! cursor.isEmpty(); ++cursor)
+    for (int index = 0; index < paragraph.length(); ++index)
     {
-        const auto character = *cursor;
+        const auto rest = paragraph.substring (index);
+        const auto term = std::find_if (terms.begin(), terms.end(), [&rest] (const auto& value) {
+            return rest.startsWith (value);
+        });
+        if (term != terms.end())
+        {
+            if (unit.isNotEmpty() && ! closesNoLine (previous))
+            { units.add (unit); unit.clear(); }
+            unit += *term;
+            index += term->length() - 1;
+            previous = term->getLastCharacter();
+            continue;
+        }
+        const auto character = paragraph[index];
+        const auto kind = script (character);
+        const auto previousKind = script (previous);
+        const auto followsStem = previousKind != 0 || juce::CharacterFunctions::isLetterOrDigit (previous)
+            || previous == ')' || previous == 0xff09 || previous == 0x300d;
         const auto joins = unit.isNotEmpty()
             && (opensNoLine (character) || closesNoLine (previous)
-                || (latinWord (character) && latinWord (previous)));
+                || (latinWord (character) && latinWord (previous))
+                || (kind != 0 && kind == previousKind)
+                || (kind == 1 && followsStem)
+                || (kind == 3 && juce::CharacterFunctions::isDigit (previous)));
         if (! joins && unit.isNotEmpty())
         {
             units.add (unit);
@@ -171,7 +217,8 @@ juce::StringArray japaneseLines (const juce::String& text, const juce::Font& fon
             while (! fits (line) && line.length() > 1)
             {
                 auto length = line.length() - 1;
-                while (length > 1 && ! fits (line.substring (0, length)))
+                while (length > 1 && (! fits (line.substring (0, length))
+                                      || opensNoLine (line[length]) || closesNoLine (line[length - 1])))
                     --length;
                 lines.add (line.substring (0, length));
                 line = line.substring (length);
@@ -184,7 +231,7 @@ juce::StringArray japaneseLines (const juce::String& text, const juce::Font& fon
         if (last > first && font.getStringWidthFloat (lines[last]) < width * 0.3f)
         {
             const auto& previous = lines.getReference (last - 1);
-            static const auto clauseEnds = juce::String::fromUTF8 (u8"。、！？ ");
+            static const auto clauseEnds = juce::String::fromUTF8 (u8"。、！？");
             for (auto split = previous.length() - 1; split > 0; --split)
             {
                 if (! clauseEnds.containsChar (previous[split - 1]))

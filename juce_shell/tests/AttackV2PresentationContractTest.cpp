@@ -1,4 +1,5 @@
 #include "AttackV2PresentationContractTest.h"
+#include "JapaneseDrumWordingContract.h"
 #include "AttackV2Fixtures.h"
 #include "AttackUiLaneContract.h"
 #include "../src/HyphaAttackV2Painter.h"
@@ -79,14 +80,14 @@ bool intervalContracts()
 }
 bool evidenceLanguageContracts()
 {
+    Q (hypha::tests::verifyJapaneseDrumWording());
     const std::array<const char*, 5> english { "Acquiring", "Complete", "Audio ended", "Not retained", "Retired" };
-    const std::array<const char*, 5> japanese { u8"取得中", u8"完了", u8"入力終了", u8"保持外", u8"測り直し" };
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
         for (std::uint8_t finish = 0; finish < 5; ++finish)
         {
-            const auto expected = juce::String::fromUTF8 ((language == i18n::Language::japanese ? japanese : english)[finish]);
+            const auto expected = juce::String::fromUTF8 (english[finish]);
             Q (finishText (finish) == expected);
             Presentation p; p.header.band = 5;
             auto raw = std::make_shared<KirinAttackSingleSnapshotV2>();
@@ -97,10 +98,12 @@ bool evidenceLanguageContracts()
             juce::Image image (juce::Image::ARGB, 900, 600, true);
             juce::Graphics g (image); text_style::ShownTextLog log;
             paintEvidence (g, p, image.getBounds(), presentation::forEditor (900, 600), 0);
+            Q (i18n::current() == language);
             Q (log.texts().contains (expected));
-            Q (finishText (KIRIN_FINISH_AUDIO_END) == reasonText (KIRIN_REASON_AUDIO_END, true));
+            Q (finishText (KIRIN_FINISH_AUDIO_END) == "Audio ended");
             for (const auto& text : log.texts())
             {
+                Q (! requiresJapaneseGlyphs (text));
                 Q (! text.contains ("finish ") && ! text.contains ("Whole 8") && ! text.contains (juce::String::fromUTF8 (u8"全8打")));
                 Q (! text.contains ("Audio ended / Audio ended")
                     && ! text.contains (juce::String::fromUTF8 (u8"入力終了 / 入力終了"))
@@ -112,7 +115,7 @@ bool evidenceLanguageContracts()
             Q (scopeText (p.lanes[0], true).isEmpty());
             p.lanes[0].reason = KIRIN_REASON_NEXT_HIT;
             paintEvidence (g, p, image.getBounds(), presentation::forEditor (900, 600), 0);
-            Q (log.texts().contains (reasonText (KIRIN_REASON_NEXT_HIT, true) + " / " + expected));
+            Q (log.texts().contains ("Next hit / " + expected));
         }
     }
     return true;

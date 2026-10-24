@@ -4,6 +4,7 @@
 #include "../src/HyphaLanguage.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaReferenceVisuals.h"
+#include "JapaneseTermsContract.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -11,6 +12,7 @@ namespace hypha::tests
 {
 inline void verifyReferenceDisplayRegression()
 {
+    verifyBuiltInTermAliases();
     const auto check = [] (bool valid, const char* message)
     {
         if (!valid) { std::cerr << "Reference display: " << message << '\n'; std::exit (1); }

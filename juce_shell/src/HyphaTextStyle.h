@@ -34,10 +34,10 @@ void drawEllipsized (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
 void drawEllipsizedKeepingVersion (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                                    juce::Justification);
 // The lines Japanese `shown` breaks into at `width` in `font`: a line never starts with closing
-// punctuation or a small kana, never ends with an opening bracket, and keeps Latin words whole.
+// punctuation or a small kana, never ends with an opening bracket, and keeps phrases and fixed terms whole.
 juce::StringArray japaneseLines (const juce::String& shown, const juce::Font&, float width);
 // The height of `shown` (text already in the current language) wrapped to `width` in `font`, as
-// drawLines and the wrapping roles draw it: Japanese breaks anywhere and keeps a fifth of a line
+// drawLines and the wrapping roles draw it: Japanese breaks between phrases and keeps a fifth of a line
 // between lines, since it has no spaces or descenders to separate them.
 float wrappedHeight (const juce::String& shown, const juce::Font&, int width);
 // The height drawLines gives `text` at `width`: in the current language, and in the native font

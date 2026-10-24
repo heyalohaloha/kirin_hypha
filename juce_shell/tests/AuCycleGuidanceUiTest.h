@@ -20,14 +20,14 @@ inline void verifyAuCycleGuidanceUi()
     const std::pair<juce::String, const char*> translations[] {
         { status, u8"サイクルをオフにすると比べられます" },
         { listen, u8"サイクルをオフにすると比べられます（今はPOST）" },
-        { cause, u8"サイクル中のPREとPOSTの対応を確認できません。" },
+        { cause, u8"サイクル中はPREとPOSTのタイミングを確かめられません。" },
         { restart, u8"サイクルをオフにし、ENDの後にBLINDを始め直してください。" }
     };
     for (const auto& entry : translations)
         require (i18n::translate (entry.first, i18n::Language::japanese) == juce::String::fromUTF8 (entry.second),
                  "Cycle translations match the public instruction exactly");
     require (i18n::translate ("LISTEN: " + cause, i18n::Language::japanese)
-        == juce::String::fromUTF8 (u8"LISTEN：サイクル中のPREとPOSTの対応を確認できません。"),
+        == juce::String::fromUTF8 (u8"LISTEN：サイクル中はPREとPOSTのタイミングを確かめられません。"),
         "LISTEN details translate the composed cause including its punctuation");
     int surfaces = 0;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })

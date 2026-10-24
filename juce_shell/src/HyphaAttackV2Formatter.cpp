@@ -34,12 +34,12 @@ juce::String finishText (std::uint8_t finish)
 {
     switch (finish)
     {
-        case KIRIN_FINISH_ACQUIRING: return words ("Acquiring", u8"取得中");
-        case KIRIN_FINISH_FULL: return words ("Complete", u8"完了");
-        case KIRIN_FINISH_AUDIO_END: return words ("Audio ended", u8"入力終了");
-        case KIRIN_FINISH_NOT_KEPT: return words ("Not retained", u8"保持外");
-        case KIRIN_FINISH_RETIRED: return words ("Retired", u8"測り直し");
-        default: return words ("Unavailable", u8"未取得");
+        case KIRIN_FINISH_ACQUIRING: return words ("Acquiring", "Acquiring");
+        case KIRIN_FINISH_FULL: return words ("Complete", "Complete");
+        case KIRIN_FINISH_AUDIO_END: return words ("Audio ended", "Audio ended");
+        case KIRIN_FINISH_NOT_KEPT: return words ("Not retained", "Not retained");
+        case KIRIN_FINISH_RETIRED: return words ("Retired", "Retired");
+        default: return words ("Unavailable", "Unavailable");
     }
 }
 
@@ -113,10 +113,10 @@ juce::String reasonText (std::uint8_t reason, bool detailed)
     {
         case KIRIN_REASON_NONE: return {};
         case KIRIN_REASON_NO_PAIR: return words ("No PRE", u8"PREなし");
-        case KIRIN_REASON_SILENT: return words ("Silent", u8"帯域無音");
-        case KIRIN_REASON_BOTH_SILENT: return words ("Both silent", u8"両側無音");
-        case KIRIN_REASON_RINGING: return words ("Ringing", u8"前音残響");
-        case KIRIN_REASON_NEXT_HIT: return words ("Next hit", u8"次打まで");
+        case KIRIN_REASON_SILENT: return words ("Silent", u8"帯域に音なし");
+        case KIRIN_REASON_BOTH_SILENT: return words ("Both silent", u8"両側に音なし");
+        case KIRIN_REASON_RINGING: return words ("Ringing", u8"余韻あり");
+        case KIRIN_REASON_NEXT_HIT: return words ("Next hit", u8"次の打音");
         case KIRIN_REASON_NOT_KEPT: return words ("Not measured", u8"未計測");
         case KIRIN_REASON_MAPPING: return words ("No mapping", u8"対応不明");
         case KIRIN_REASON_CLOCK: return words ("Clock changed", u8"時計変更");
@@ -130,10 +130,10 @@ juce::String reasonText (std::uint8_t reason, bool detailed)
                                       : reason == KIRIN_REASON_WAITING_SERVICE ? "Waiting for worker"
                                       : "Waiting for publication",
                                       reason == KIRIN_REASON_WAITING_AUDIO ? u8"音声待ち"
-                                      : reason == KIRIN_REASON_WAITING_SERVICE ? u8"計測待ち" : u8"公開待ち")
-                            : words ("Measuring", u8"取得中");
-        case KIRIN_REASON_SEMANTICS: return words ("Update PRE", u8"PRE更新");
-        case KIRIN_REASON_LONG_TAIL: return words ("Long tail", u8"長い余韻");
+                                      : reason == KIRIN_REASON_WAITING_SERVICE ? u8"計測待ち" : u8"結果の反映待ち")
+                            : words ("Measuring", u8"計測中");
+        case KIRIN_REASON_SEMANTICS: return words ("Update PRE", u8"PREを更新");
+        case KIRIN_REASON_LONG_TAIL: return words ("Long tail", u8"余韻が長い");
         case KIRIN_REASON_AUDIO_END: return words ("Audio ended", u8"入力終了");
         default: return words ("Unknown", u8"不明");
     }

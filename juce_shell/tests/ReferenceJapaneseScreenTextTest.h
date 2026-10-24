@@ -31,7 +31,11 @@ inline const std::set<juce::String>& keptWords()
         // Kirin OS の画面と同じ名前
         "Reference", "Version", "Check", "Cue", "Preset",
         // 英語のまま残すボタン・欄・機能の語（簡単な英語は訳さない）
-        "MATCH", "BLIND", "Blind", "Gain", "Match", "gain", "WHOLE", "CHECK",
+        "MATCH", "BLIND", "Blind", "Gain", "Match", "gain", "WHOLE", "CHECK", "True", "Peak", "Balance",
+        // Audio and measurement terminology retains its English spelling.
+        "Attack", "Mono", "Stereo", "Headroom", "Spectrum", "Correlation", "CREST", "Integrated",
+        "Onset", "Width", "Sample", "Hold", "Momentary", "Short", "term", "Loudness", "Range",
+        "Sharpness", "Envelope", "Tail", "Body", "Transient", "Compression", "Buffer",
     };
     return words;
 }
