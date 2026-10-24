@@ -62,7 +62,7 @@ use kirin_measure::{
     PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver,
     PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordDisplaySnapshot,
     RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState,
     SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
     SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff,
     WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
@@ -80,7 +80,9 @@ pub mod channel_abi;
 mod comparison_abi;
 pub use comparison_abi::*;
 mod capture_window_ffi;
+mod keep_all;
 mod keep_entry;
+mod keep_preparation;
 pub use capture_window_ffi::{kirin_hypha_note_capture_loop_wrap, kirin_hypha_note_capture_window};
 use keep_entry::*;
 mod identity_ffi;
@@ -1358,164 +1360,6 @@ impl KirinHyphaEngine {
             None,
             generation,
         )
-    }
-
-    /// POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火する（B-102 /
-    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self keep）。broadcast の棚パス
-    /// は、厳格DAW scopeに加えて同一host内で明示的に見えるexact PREをclaimするPOST棚へ書く。
-    /// これによりAU/VST3のidentity棚が分かれても届き、別host・不可視PRE claimは混ぜない。
-    /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
-    pub fn keep_all(&self) -> bool {
-        clear_keep_action_notice(&self.keep_action_notice);
-        if self.reject_unsupported_record_action(true) {
-            return false;
-        }
-        if self.audition.reject_keep(&self.keep_action_notice) {
-            return false;
-        }
-        let post_iid = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return false; // 未 enable_post_writes
-            }
-            id.instance_id.clone()
-        };
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        let host_process_id = current_host_process_id();
-        if project_hash.is_empty() {
-            return false;
-        }
-        let p = match StoragePaths::default_platform() {
-            Ok(paths) => paths,
-            Err(_) => return false,
-        };
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let ready = enumerate_ready_post_pair_candidates_for_operation_group(
-            &kirin_root,
-            &project_hash,
-            &daw,
-            host_process_id,
-        );
-        let members: Vec<_> = ready
-            .iter()
-            .filter_map(|candidate| {
-                Some((
-                    CaptureGenerationMember {
-                        project_hash: candidate.project_uuid.clone(),
-                        post_instance_id: candidate.instance_id.clone(),
-                        pre_instance_id: candidate.paired_pre_instance_id.clone()?,
-                        record_session_id: String::new(),
-                    },
-                    candidate.pair_pre_name.clone(),
-                ))
-            })
-            .collect();
-        if members.len() > MAX_CAPTURE_GENERATION_MEMBERS {
-            if let Ok(mut error) = self.keep_action_notice.write() {
-                *error = Some("Maximum 12 pairs reached".to_string());
-            }
-            return false;
-        }
-        let generation = CaptureGeneration::new_for_named_members(
-            post_iid.clone(),
-            daw.clone(),
-            host_process_id,
-            members,
-        );
-        if !generation.is_valid() {
-            return false;
-        }
-        let plugin_data_dir = p.plugin_data_dir();
-        let mut transaction =
-            match CaptureGenerationTransaction::begin(&plugin_data_dir, &generation) {
-                Ok(transaction) => transaction,
-                Err(error) => {
-                    let is_active_generation = matches!(
-                        &error,
-                        kirin_measure::CaptureGenerationError::Io(error)
-                            if error.kind() == std::io::ErrorKind::WouldBlock
-                    );
-                    let message = match &error {
-                        kirin_measure::CaptureGenerationError::Io(error)
-                            if error.kind() == std::io::ErrorKind::WouldBlock =>
-                        {
-                            "Another Keep is active"
-                        }
-                        _ => "All Keep failed (file write error)",
-                    };
-                    if is_active_generation {
-                        if let Ok(mut notice) = self.keep_action_notice.write() {
-                            *notice = Some(message.to_string());
-                        }
-                    } else if let Ok(mut persistent) = self.record_error_message.write() {
-                        *persistent = Some(message.to_string());
-                    }
-                    return false;
-                }
-            };
-        if transaction.stage().is_err() {
-            if let Ok(mut error) = self.record_error_message.write() {
-                *error = Some("All Keep failed (file write error)".to_string());
-            }
-            return false;
-        }
-        let project_hashes = generation
-            .members
-            .iter()
-            .map(|member| member.project_hash.clone())
-            .collect::<std::collections::BTreeSet<_>>();
-        for ph in project_hashes {
-            if write_broadcast_for_generation(
-                &plugin_data_dir,
-                &ph,
-                &post_iid,
-                daw.clone(),
-                host_process_id,
-                &generation,
-            )
-            .is_err()
-            {
-                if let Ok(mut error) = self.record_error_message.write() {
-                    *error = Some("All Keep failed (file write error)".to_string());
-                }
-                return false;
-            }
-        }
-        if !self.keep_with_generation(&generation) {
-            return false;
-        }
-        let action_notice = Arc::clone(&self.keep_action_notice);
-        let phase = Arc::clone(&self.keep_phase);
-        let phase_generation = Arc::clone(&self.keep_phase_generation_started_at_ms);
-        let generation_started_at_ms = generation.started_at_ms;
-        if transaction
-            .commit_when_ready_async(CAPTURE_PRODUCER_READY_TIMEOUT, move |result| {
-                if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
-                    return;
-                }
-                if result.is_ok() {
-                    phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
-                } else {
-                    phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-                    if let Ok(mut error) = action_notice.write() {
-                        *error = Some("All Keep: pair not ready".to_string());
-                    }
-                }
-            })
-            .is_err()
-        {
-            self.keep_phase
-                .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-            if let Ok(mut error) = self.keep_action_notice.write() {
-                *error = Some("All Keep: pair not ready".to_string());
-            }
-            return false;
-        }
-        true
     }
 
     /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。

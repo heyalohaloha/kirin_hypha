@@ -17,7 +17,6 @@ fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
     assert!(ffi.contains("keep_action_notice: Arc<RwLock<Option<String>>>"));
     assert!(ffi.contains("pub fn drain_keep_action_notice(&self) -> Option<String>"));
     assert!(ffi.contains("and_then(|mut notice| notice.take())"));
-    assert!(ffi.contains("*message = Some(\"Another Keep is active\".to_string())"));
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
         + &read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");

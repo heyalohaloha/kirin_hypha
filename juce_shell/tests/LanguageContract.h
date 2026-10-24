@@ -3,6 +3,7 @@
 #include "TestTemporaryDirectory.h"
 #include "AbsoluteAnalysisHelpContract.h"
 #include "JapaneseSentenceContract.h"
+#include "KeepPreparationNoticeContract.h"
 #include "AnalysisSlotOwnersContract.h"
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaHoverHelpPreference.h"
@@ -124,6 +125,7 @@ inline void verifyLookup()
 // the only entry for its English.
 inline void verifyCatalog()
 {
+    verifyKeepPreparationNotices();
     std::set<juce::String> seen;
     std::size_t count = 0;
     for (const auto& section : i18n::catalog::sections())
