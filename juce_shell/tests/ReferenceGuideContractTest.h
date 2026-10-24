@@ -202,10 +202,10 @@ inline void verifyBGuideRow()
             const auto description = texts[bRow + 1];
             require (description.contains ("Kirin OS")
                          && (language == i18n::Language::japanese
-                             ? description.contains (juce::String::fromUTF8 (u8"Bセット"))
-                             : description.containsIgnoreCase ("B set"))
+                             ? description.contains (juce::String::fromUTF8 (u8"Reference の曲"))
+                             : description.contains ("Reference song"))
                          && texts[bRow + 2] == i18n::tr (reason),
-                     "B describes its B set and paints the editor's source reason");
+                     "B describes its Reference song and paints the editor's source reason");
             if (! canHearReference (state) && ! canQueueReference (state))
             {
                 juce::String explained;
@@ -238,7 +238,9 @@ inline void verifyGuideRowPriority()
                 if (text == "A" || text == "B" || text == "C" || text == "V") letters += text;
             require (letters == (fit.rowCount == 4 ? "ABCV" : fit.rowCount == 3 ? "BCV" : "BC"),
                      "short panels drop A first, then V, and keep B in button order");
-            require (fit.heading && fit.detail && fit.rows, "retained rows stay whole in short panels");
+            require (fit.heading && fit.detail && fit.rows, "retained rows stay whole in short panels: "
+                         + juce::String (height) + (language == i18n::Language::japanese ? " Japanese: " : " English: ")
+                         + log.texts().joinIntoString (" | "));
             for (const auto& area : log.areas())
                 require (image.getBounds().toFloat().contains (area), "short-panel text stays inside");
             twoRows = twoRows || fit.rowCount == 2;
@@ -309,6 +311,7 @@ inline void verifyGuideFits()
                 component.setState (item.state);
                 juce::Image image (juce::Image::ARGB, body.getWidth(), body.getHeight(), true);
                 juce::Graphics graphics (image);
+                text_style::ShownTextLog text;
                 component.paintEntireComponent (graphics, true);
                 const auto& fit = component.guideFit();
                 minimumRows = juce::jmin (minimumRows, fit.rowCount);
@@ -322,6 +325,11 @@ inline void verifyGuideFits()
                          "A, B, C and V at 300%: " + where);
                 require (preset.density != observatory::Density::observatory || fit.rowCount >= 2,
                          "B and C at 200%: " + where);
+                if (language == i18n::Language::japanese && juce::String (item.name) == "stopped")
+                    for (const auto& line : text.texts())
+                        require (!line.endsWith (" B") && !line.endsWith (" C") && !line.endsWith (" V")
+                                     && !line.startsWith (juce::String::fromUTF8 (u8"は同曲")),
+                                 "the Japanese guide keeps a role with its phrase: " + where + ": " + line);
                 const auto preview = juce::SystemStats::getEnvironmentVariable (
                     "KIRIN_HYPHA_REFERENCE_GUIDE_PREVIEW_DIR", {});
                 if (preview.isNotEmpty() && juce::String (item.name) == "stopped")

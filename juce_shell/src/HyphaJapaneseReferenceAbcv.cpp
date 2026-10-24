@@ -49,7 +49,7 @@ const Entry entries[] = {
       u8"Kirin OSの項目を1つ読めませんでした。Kirin OSで準備し直してください。" },
     { "%1 Kirin OS items were not read. Prepare them again in Kirin OS.",
       u8"Kirin OSの項目を%1件読めませんでした。Kirin OSで準備し直してください。" },
-    { "B SETS NOT READ", u8"Bセットを読めません" },
+    { "REFERENCE SETS NOT READ", u8"Reference のセットを読めません" },
     { "UPDATE KIRIN OS AND HYPHA", u8"Kirin OSとHyphaを更新" },
     { "Some Kirin OS sets were not read. Update Kirin OS and Hypha.",
       u8"Kirin OSのセットの一部を読めませんでした。Kirin OSとHyphaを更新してください。" },
@@ -73,7 +73,7 @@ const Entry entries[] = {
     { "C LOUDEST 30 S", u8"C最も大きい30秒" },
     { "C CUE", u8"CのCue" },
     { "C WHOLE", u8"C曲全体" },
-    { "B SET RANGE", u8"Bセットの範囲" },  // B セットの曲の p10〜p90 の帯
+    { "REFERENCE RANGE", u8"Reference の範囲" },  // Reference のセットの曲の p10〜p90 の帯
     // Blauert の帯（HyphaReferenceBlauertZones.h）：300-400 Hz・3-4 kHz に対する 1 kHz 付近の高さを、A を主語に。
     { u8"1k vs 300-400·3-4k", u8"300-400·3-4kに対する1k" },
     // 比べる側との差は A を主語に言葉で（HyphaReferenceAComparison.h。2026-10-04）。
@@ -168,8 +168,8 @@ const Entry entries[] = {
       u8"CのCueと、同じ長さのAの直近のスペクトル。Cは鳴らす音量に合わせる。" },
     { "Spectrum of A and V over the same aligned section, with V at the level it plays at.",
       u8"位置合わせで対応したAとVの同じ区間のスペクトル。Vは鳴らす音量で。" },
-    { "Balance: A's last 10 seconds, the chosen song and the B set's range, at B's level.",
-      u8"Aの直近10秒、選んだ曲、Bセットの範囲（p10〜p90）。Bは鳴らす音量で。" },
+    { "Balance: A's last 10 seconds, the chosen song and the Reference range, at B's level.",
+      u8"A の直近10秒、選んだ曲、Reference の範囲（p10〜p90）、B は鳴らす音量で。" },
     { "Blauert's bands: A's 1 kHz against 300-400 Hz and 3-4 kHz, bands tied to sensed distance.",
       u8"Blauertの帯：300-400・3-4 kHzに対する1 kHzの高さ。距離感に関わる。" },
     { "Four bands: how much more or less A has than C in each band, after matching level.",
@@ -190,8 +190,8 @@ const Entry entries[] = {
       u8"WHOLEは曲全体。ほかのタブは同じ区間のAとVを比べる。" },
     { "The whole song: A above V, peak outside and RMS inside. Select a region to compare.",
       u8"曲全体：上がA、下がV。外側がピーク、内側がRMS。範囲を選ぶと比べる。" },
-    { "Songs of the B set: the LUFS-I of each Cue and the gain MATCH would play it at.",
-      u8"Bセットの曲：各曲のCueのLUFS-Iと、MATCHで鳴らすgain。" },
+    { "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.",
+      u8"Reference の曲：各曲の Cue の LUFS-I と、MATCH で鳴らす gain。" },
 };
 }
 

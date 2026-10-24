@@ -398,8 +398,8 @@ completed hits supply replacements for the displayed readings in the same observ
 Their original POST/Δ meaning and units stay with them while waiting.
 Measurement and the six-second history restart for the new pass; previous readings never enter its
 medians, history or Facts. With no previous readings, the empty display is unchanged. HOLD retains
-the last value; changing the band, explicitly changing the target, changing the pair or audio format,
-or restarting analysis clears previous readings. LOCK responds immediately. TIME updates at 10 Hz.
+the last value; changing the band, explicitly changing the target, changing the pair, audio format or
+comparison source, or restarting analysis clears previous readings. LOCK responds immediately. TIME updates at 10 Hz.
 Its display clock is separate from measurement and stops where available observations end. The
 view looks back 150 ms; a BAND reading older than 250 ms keeps its age and missing-data reason
 visible in Facts. These readings describe the measured audio and do not judge its quality.
@@ -891,16 +891,16 @@ its own Factory library.
 Reference has four roles, each with its own button in the same place at every size: **A B C V**.
 
 - **A — LIVE**: the DAW input. A is never processed; every other role is an audition copy.
-- **B — REF**: the songs of a B set. In Kirin OS you rank up to three B sets for Hypha; choose the
-  set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
+- **B — REF**: Reference songs from Kirin OS. Rank up to three Reference sets for Hypha in Kirin OS;
+  choose the set and the song on the B page. A song plays its Cue as Kirin OS set it, starting from the Cue's
   head; when you press B, or B returns after a stop or seek, at a point outside that Cue (you moved
   back before where you chose the song, or the song has run past its end), B starts the Cue again
   from the current position instead of refusing. If a chosen song leaves
-  the B set, Hypha says so instead of switching to another song. If Hypha cannot read a B set (for
-  example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
+  the Reference set, Hypha says so instead of switching to another song. If Hypha cannot read a
+  Reference set (for example from a newer Kirin OS), the B page asks to update Kirin OS and Hypha; the sets it can read
   stay usable, and while Kirin OS is publishing new sets the current ones stay.
 - **C — CHECK**: a Check from a CHECK set (also ranked in Kirin OS, up to three). A Check names what
-  to listen for; its song defaults to the first-ranked B set. The Cue is the section C plays.
+  to listen for; its song defaults to the first-ranked Reference set. The Cue is the section C plays.
 - **V — VERSION**: another Version of the same song, aligned to A's position by its content.
 
 Only one role sounds at a time. The A/B/C/V buttons change the sound; the pages change only the
@@ -960,7 +960,7 @@ source, or a failed check leaves A playing.
 **Status.** The status line says one of three things, with a dot: ready (cyan: what plays
 and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
 level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
-unavailable (grey: the reason and its one fix, such as ranking a B set in Kirin OS). Its parts are in
+unavailable (grey: the reason and its one fix, such as ranking a Reference set in Kirin OS). Its parts are in
 order of importance — how the role plays, how far it is under A, then the rest — and where the line is
 narrower than all of them it shows the parts that fit whole instead of cutting one; pointing at a
 shortened line shows it whole across the footer row. At 150% and
@@ -972,7 +972,7 @@ cannot be heard yet is drawn dimmed but stays clickable and explains itself. A w
 silently: past its limit (Kirin OS answering, 5 s; checking, loading or preparing a source, 10 s;
 alignment, 30 s of play; A's level for MATCH, 10 s of play, or 35 s for C) it turns unavailable with
 its reason and fix, shown even under the start guide, and returns to ready once the source is. While
-Kirin OS prepares the song of a B set or CHECK set, the line says what Kirin OS is doing in its own
+Kirin OS prepares the song of a Reference set or CHECK set, the line says what Kirin OS is doing in its own
 terms — how many songs it prepares first, checking the file, waiting for another measurement — and a
 file Kirin OS cannot find turns the line unavailable with the retry as its fix (Kirin OS publishes
 this beside its heartbeat; nothing is shown once Kirin OS closes). Blind keeps its own line and never
@@ -986,7 +986,7 @@ instead.
 them opens 300% without changing the sound (press again to listen), as Blind does. At 100% the B page
 shows the song and the status; songs are switched from 125%.
 
-- **B**: the songs of the chosen B set on the left (number, title, Cue LUFS-I from Kirin OS, the
+- **B**: the songs of the chosen Reference set on the left (number, title, Cue LUFS-I from Kirin OS, the
   current MATCH gain of the playing song, and PLAYING / READY, or for a song being prepared what Kirin
   OS is doing: 2 AHEAD, CHECKING, WAITING or NOT FOUND) and **Balance** on the
   right: A over the last 10 seconds (gold), the chosen song (cyan) and the set's p10–p90 range, each
@@ -995,7 +995,7 @@ shows the song and the status; songs are switched from 125%.
   loudest 30 seconds when no chorus is found; the legend names the part and its times
   (B CHORUS 1:02-1:24), and the C page legend names C's part the same way. The list starts with A's row
   (its last 10 seconds, gold) and shows, for every prepared song, the gain MATCH would play it at; the
-  playing song shows the gain applied. The legend's B SET RANGE is the band between the set's songs
+  playing song shows the gain applied. The legend's REFERENCE RANGE is the band between the set's songs
   (p10 to p90 per band, each at the level B plays it at).
 - **C**: CHECK SET with its rank ("1 / 3"), the song, the Checks as tabs in the set's order (a tab
   keeps the song; a set holds at most six Checks in Kirin OS, so the tabs fit one row at 300%; an older
@@ -1071,7 +1071,7 @@ a chart. V's tabs are matched with the alignment's level even while V is not pla
 Kirin OS has measured a Cue, C is compared over its whole song, as MATCH is, and the status line says so
 with the fix (measure the Cue in Kirin OS). The whole-song spectrum stands in only when Kirin OS measured the
 song every 100 ms, A's definition; for a longer song C shows no spectrum and the status line says why. Standard names from
-Kirin OS (Check sets, Checks, automatic Cues, a new B set's default name) read as Kirin OS's English
+Kirin OS (Check sets, Checks, automatic Cues, a new Reference set's default name) read as Kirin OS's English
 names, whatever language they were saved in. On the Japanese screen a name reads in Japanese where
 Hypha has its Japanese (the Check sets, for example, also when ranked "1 / 3"); simple English names
 (Dynamics, Stereo, Set 1) stay in English rather than turning into katakana.

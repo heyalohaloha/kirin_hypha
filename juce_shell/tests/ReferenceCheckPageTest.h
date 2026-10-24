@@ -131,7 +131,7 @@ inline void verifyReferenceCheckPage()
                  "Japanese listening parts preserve source roles and time ranges");
         require (japanese (reference_ui::listeningGuide ('V')).contains (juce::String (juce::CharPointer_UTF8 ("\xe8\x80\xb3")))  // 耳
                      && japanese (reference_ui::listeningGuide ('C')).contains ("C")
-                     && japanese ("B SET RANGE") != "B SET RANGE",
+                     && japanese ("REFERENCE RANGE") != "REFERENCE RANGE",
                  "the listening guide and the B set range read in Japanese");
         auto chorusCheck = state;
         chorusCheck.cuePart = CuePart::chorus;

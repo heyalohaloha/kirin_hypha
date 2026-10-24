@@ -148,7 +148,7 @@ inline void verifyReferenceStatusLine()
     require (line.kind == StatusKind::unable && line.text.endsWith ("SELECT AGAIN"),
              "a stopped switch says to select again");
 
-    // B の画面で B SET が無い：Kirin OS で B SET を出すのが直し方。B の段階は Kirin OS からの届き方と B セットも含む。
+    // B の画面で REFERENCE SET が無い：Kirin OS で REFERENCE SET を出すのが直し方。B の段階は Kirin OS からの届き方と B セットも含む。
     reference_audition::Snapshot library;
     library.libraryReceived = library.osOnline = true;
     require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::rankSet,
@@ -160,15 +160,15 @@ inline void verifyReferenceStatusLine()
     noSet.songSets.clear();
     noSet.referenceStep = Step::rankSet;
     line = reference_ui::referenceStatusLine (noSet);
-    require (line.kind == StatusKind::unable && line.text == "NO B SET FOR HYPHA / RANK A B SET FOR HYPHA IN KIRIN OS",
+    require (line.kind == StatusKind::unable && line.text == "NO REFERENCE SET FOR HYPHA / RANK A REFERENCE SET FOR HYPHA IN KIRIN OS",
              "a B page with no B set says how to make one: " + line.text);
-    // B SET を出しているのに sets.json を形ごと読めないときは、出し方ではなく更新を言う。
+    // REFERENCE SET を出しているのに sets.json を形ごと読めないときは、出し方ではなく更新を言う。
     library.songSetsIssue = "reference_library_sets_rejected";
     require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::setsNotRead,
              "sets Hypha could not read are not mistaken for missing ones");
     noSet.referenceStep = Step::setsNotRead;
     line = reference_ui::referenceStatusLine (noSet);
-    require (line.kind == StatusKind::unable && line.text == "B SETS NOT READ / UPDATE KIRIN OS AND HYPHA",
+    require (line.kind == StatusKind::unable && line.text == "REFERENCE SETS NOT READ / UPDATE KIRIN OS AND HYPHA",
              "a B set Hypha could not read says to update: " + line.text);
     // Kirin OS からまだ届いていない B：開いていれば待ち（上限あり）、閉じていれば開くのが直し方（INV-S48。2026-10-06：
     // B のページだけ、いつも「できない」と言っていた）。

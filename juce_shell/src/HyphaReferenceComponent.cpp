@@ -209,10 +209,10 @@ void Component::paint (juce::Graphics& g)
     if (checkPage() || versionPage()) { area.removeFromTop (panelGap() + checkTabsHeight()); paintCheckPageLabels (g); }
     else if (rolePage() && current.comparisonSlot == 3)
     {
-        area.removeFromTop (panelGap());  // B SET と曲はボタンの段
+        area.removeFromTop (panelGap());  // REFERENCE SET と曲はボタンの段
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
-        for (const auto& [box, text] : { std::pair<const juce::ComboBox*, const char*> { &songSetBox, "B SET" }, { &songBox, "B / REF" } })
+        for (const auto& [box, text] : { std::pair<const juce::ComboBox*, const char*> { &songSetBox, "REFERENCE SET" }, { &songBox, "B / REF" } })
             if (box->isVisible() || selectionVisible (*box))
                 text_style::drawEllipsized (g, text, box->getBounds().withY (box->getY() - 17).withHeight (15), juce::Justification::centredLeft);
     }
@@ -232,7 +232,7 @@ void Component::paint (juce::Graphics& g)
             text_style::drawEllipsized (g, text, bounds, juce::Justification::centredLeft);
         };
         const bool referenceView = current.comparisonSlot == 3;
-        if (referenceView) { label (songSetBox, detailedLayout() ? "B SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
+        if (referenceView) { label (songSetBox, detailedLayout() ? "REFERENCE SET" : "S"); label (songBox, detailedLayout() ? "B / REF" : "B"); }
         else { label (versionBox, detailedLayout() ? "V / VERSION" : "V"); label (checkBox, detailedLayout() ? "C / CHECK" : "C"); }
         if (detailedLayout() && ! guideShown && ! referenceView) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }

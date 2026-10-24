@@ -6,7 +6,7 @@
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceSongChoice.h"
 
-// A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。B SET と曲は B の画面で選ぶ。
+// A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。REFERENCE SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
 
 void KirinHyphaEditor::wireReferenceRoles()
@@ -25,7 +25,7 @@ void KirinHyphaEditor::wireReferenceRoles()
     referenceView.onSelectSong = [this] (const juce::String& id)
     { if (! processorRef.selectReferenceSong (id)) showToast ("Song selection was not changed"); };
     referenceView.onSelectSongSet = [this] (const juce::String& id)
-    { if (! processorRef.selectReferenceSongSet (id)) showToast ("B set selection was not changed"); };
+    { if (! processorRef.selectReferenceSongSet (id)) showToast ("Reference set selection was not changed"); };
     // C の MATCH をもう一度。合わせられないときは理由を言う（R-28）。
     referenceView.onMatch = [this]
     {

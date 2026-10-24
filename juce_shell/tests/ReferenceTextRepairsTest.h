@@ -38,7 +38,7 @@ inline reference_ui::State bState()
 {
     auto state = a_direction::checkState();
     state.comparisonSlot = 3; state.blindLargeScreen = true;
-    state.songSets = {{"set", "B set"}}; state.songSetId = "set";
+    state.songSets = {{"set", "Reference set"}}; state.songSetId = "set";
     state.songs = {{"one/one/one", "First source"}, {"two/two/two", "Second source"}};
     state.songId = state.songs.front().id;
     for (int n = 0; n < 2; ++n)
@@ -108,13 +108,13 @@ inline void verifyLegends (bool check)
             }
             else
             {
-                requireWhole (drawn, "B SET RANGE");
+                requireWhole (drawn, "REFERENCE RANGE");
                 requireWhole (drawn, "B CHORUS 1:02-1:24");
                 state.songFacts.front().part = reference_audition::CuePart::loudest;
                 panel.setState (state);
                 const auto longer = a_direction::drawnTexts (panel);
                 requireWhole (longer, "B LOUDEST 30 S 1:02-1:24");
-                requireWhole (longer, "B SET RANGE");
+                requireWhole (longer, "REFERENCE RANGE");
             }
         }
     }

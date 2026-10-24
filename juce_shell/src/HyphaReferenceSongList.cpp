@@ -21,7 +21,7 @@ juce::String number (double value)
 SongList::SongList()
 {
     setComponentID ("reference-song-list");
-    setTitle ("B songs");
+    setTitle ("Reference songs");
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
 }
 

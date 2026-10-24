@@ -21,7 +21,7 @@ inline constexpr const char* timeLines = "The first fact over the last 30 second
 // スペクトルと 4 帯域（HyphaReferenceCueSummary.cpp・HyphaReferenceVersionPage.cpp・HyphaReferenceBalance.cpp）。
 inline constexpr const char* cueSpectrum = "Spectrum of C's Cue and the same length of recent A, with C at the level it plays at.";
 inline constexpr const char* versionSpectrum = "Spectrum of A and V over the same aligned section, with V at the level it plays at.";
-inline constexpr const char* balance = "Balance: A's last 10 seconds, the chosen song and the B set's range, at B's level.";
+inline constexpr const char* balance = "Balance: A's last 10 seconds, the chosen song and the Reference range, at B's level.";
 inline constexpr const char* blauert = "Blauert's bands: A's 1 kHz against 300-400 Hz and 3-4 kHz, bands tied to sensed distance.";
 inline constexpr const char* cueBands = "Four bands: how much more or less A has than C in each band, after matching level.";
 inline constexpr const char* versionBands = "Four bands: how much more or less A has than V in each band, over the same section.";
@@ -36,7 +36,7 @@ inline constexpr const char* checkTabs = "Checks of this CHECK SET from Kirin OS
 // V と B の画面の部品（HyphaReferenceHoverHelp.cpp）。
 inline constexpr const char* versionTabs = "WHOLE shows the whole song; the other tabs compare A and V over the same section.";
 inline constexpr const char* whole = "The whole song: A above V, peak outside and RMS inside. Select a region to compare.";
-inline constexpr const char* songs = "Songs of the B set: the LUFS-I of each Cue and the gain MATCH would play it at.";
+inline constexpr const char* songs = "Reference songs: the LUFS-I of each Cue and the gain MATCH would play it at.";
 
 // 説明の全部（足したらここにも足す。試験は全部を両言語で確かめる：足元の行に収まる・日本語に英語が残らない）。
 inline constexpr const char* all[] { strips, crest, movement, momentary, width, correlation, peak, rms, onset, attack,

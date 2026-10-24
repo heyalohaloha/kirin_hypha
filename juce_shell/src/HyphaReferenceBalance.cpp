@@ -16,7 +16,7 @@
 #include <cmath>
 
 // B（REF）の画面の右の Balance（「Tonal Balance」とは呼ばない）。A（金）に、選んでいる
-// B の曲（水色）と、B SET の曲全体の分布（p10〜p90 の薄い帯）を重ねる。曲の値は Kirin OS が残した
+// B の曲（水色）と、REFERENCE SET の曲全体の分布（p10〜p90 の薄い帯）を重ねる。曲の値は Kirin OS が残した
 // 既定の Cue の 64 帯域のスペクトル（ranges の中央値）。既製のジャンル曲線は出さない。
 // A は同じ定義で測った直近 10 秒の中央値（ReferenceKirinSpectrum。FREQ の画面のスペクトルとは
 // 定義が違うので使わない）。曲は B が鳴る音量にそろえる（A の 10 秒の音量 − その曲の Cue の Integrated）。
@@ -84,7 +84,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     const juce::StringArray labels {
         aShown ? "A LAST " + juce::String (juce::roundToInt (state.aKirin->frames / 10.0)) + " S" : juce::String ("A WAITING"),
         chosen != nullptr ? cuePartLegend ("B", chosen->part, chosen->partStartSeconds, chosen->partEndSeconds, true) : juce::String ("B"),
-        "B SET RANGE" };
+        "REFERENCE RANGE" };
     const auto legendFont = labelFont (context, typography::TextRole::legend, typography::Composition::visualization);
     const auto legendRows = referenceLegendRows (legendFont, labels, juce::roundToInt (bounds.getWidth()) - 18, 22);
     auto legend = bounds.removeFromBottom (18.0f * legendRows).reduced (9.0f, 0.0f).toNearestInt();
@@ -92,7 +92,7 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     paintFrequencyTicks (g, chart, minimumHz, maximumHz, context);
     paintBlauertZones (g, chart, minimumHz, maximumHz);
 
-    // B SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
+    // REFERENCE SET の分布：同じ帯域の並びを持つ曲の中央値（B が鳴る音量にそろえる）から、帯域ごとの p10〜p90。
     // 鳴っている B は実際に掛けている gain で、ほかは A の直近の窓との差でそろえる。そろえられない（A の窓・
     // 曲の LUFS-I が無い）曲はそのままの高さで描き、見出しの右に「音量はそろっていない」と出す。
     const bool bPlaying = state.bSelected && state.audibleComparisonSlot == 3;
@@ -148,9 +148,9 @@ void paintReferenceBalance (juce::Graphics& g, juce::Rectangle<float> bounds, co
     {
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
         g.setFont (labelFont (context, typography::TextRole::status, typography::Composition::visualization));
-        text_style::drawEllipsized (g, "B SET VALUES ARRIVE FROM KIRIN OS", chart.toNearestInt(), juce::Justification::centred);
+        text_style::drawEllipsized (g, "REFERENCE VALUES ARRIVE FROM KIRIN OS", chart.toNearestInt(), juce::Justification::centred);
     }
-    // 凡例：A の直近の窓（金）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・B SET（p10〜p90 の薄い帯）。
+    // 凡例：A の直近の窓（金）・B の鳴らす部分（水色、「Bサビ 1:02-1:24」）・REFERENCE SET（p10〜p90 の薄い帯）。
     // 2026-10-04。文字の長さに合わせて左から並べる（均等に割ると B が切れる）。
     g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization));
     const auto left = legend.getX(), right = legend.getRight();

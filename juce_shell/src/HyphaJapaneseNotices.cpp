@@ -69,7 +69,7 @@ const Entry entries[] = {
     { "%1 could not switch at this playhead. A remains live; retry when %2 is ready.",
       u8"この位置で%1不可。Aのまま。%2の準備後に再試行" },
     { "Song selection was not changed", u8"曲の選択は変わっていません" },
-    { "B set selection was not changed", u8"Bセットの選択は変わっていません" },
+    { "Reference set selection was not changed", u8"Reference のセットの選択は変わっていません" },
     { "Level match needs A measurements. Keep playing A, then select again.",
       u8"Aの測定待ち。再生後に選び直してください。" },
     { "Source measurements are missing. Prepare this source again in Kirin OS.",

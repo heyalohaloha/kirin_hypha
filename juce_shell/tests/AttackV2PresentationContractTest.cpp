@@ -440,12 +440,14 @@ bool verifyAttackV2PresentationContract()
     if (focused == "loupe") return v2_loupe_contract::verify<Rig>();
     if (focused == "subset") return v2_loupe_contract::confirmedSubsetRetentionAndUnits<Rig>();
     if (focused == "axes") return v2_main_surface_contract::allHasNoBandAxis<Rig>();
-    if (focused == "binding") return v2_cadence_contract::bindingRetirement<Rig>();
+    if (focused == "binding") return v2_cadence_contract::bindingRetirement<Rig>()
+        && v2_transport_readout_contract::bindingChangeAfterTransport<Rig>();
     if (focused == "transport") return v2_transport_readout_contract::verify<Rig>() && v2_transport_readout_contract::emptyAndReset<Rig>() && v2_transport_readout_contract::retiredAndOwner<Rig>();
     if (focused == "cadence") return v2_cadence_contract::verify<Rig>();
     if (focused == "cohort") return cohortPointerContracts();
     if (focused == "layout") return sizesAndArtifacts();
-    return v2_transport_readout_contract::verify<Rig>() && v2_transport_readout_contract::emptyAndReset<Rig>() && v2_transport_readout_contract::retiredAndOwner<Rig>() && v2_loupe_contract::verify<Rig>() && v2_loupe_contract::confirmedSubsetRetentionAndUnits<Rig>() && v2_cadence_contract::verify<Rig>() && v2_cadence_contract::rhythmClock<Rig>() && v2_cadence_contract::bindingRetirement<Rig>() && v2_cadence_contract::unfinishedHistory<Rig>() && completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && evidenceLanguageContracts() && summaryContracts() && singleAndMotionContracts()
+    return v2_transport_readout_contract::bindingChangeAfterTransport<Rig>()
+        && v2_transport_readout_contract::verify<Rig>() && v2_transport_readout_contract::emptyAndReset<Rig>() && v2_transport_readout_contract::retiredAndOwner<Rig>() && v2_loupe_contract::verify<Rig>() && v2_loupe_contract::confirmedSubsetRetentionAndUnits<Rig>() && v2_cadence_contract::verify<Rig>() && v2_cadence_contract::rhythmClock<Rig>() && v2_cadence_contract::bindingRetirement<Rig>() && v2_cadence_contract::unfinishedHistory<Rig>() && completedLockSurvivesLiveWindow() && frameBudget() && verifyAttackV2MaterialContract() && intervalContracts() && evidenceLanguageContracts() && summaryContracts() && singleAndMotionContracts()
         && clusterContracts() && clockContracts() && placeholderContracts() && cohortPointerContracts() && sizesAndArtifacts();
 }
 }

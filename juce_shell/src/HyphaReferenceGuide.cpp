@@ -56,11 +56,37 @@ struct Row
     Mark mark;
 };
 
+juce::String detailForWidth (const juce::String& text, const juce::Font& font, int width)
+{
+    const auto shown = text_style::shownText (text);
+    if (! requiresJapaneseGlyphs (shown) || text != stageOf (SourceStep::playDaw).detail) return text;
+    const auto clauses = juce::StringArray::fromTokens (shown, juce::String::fromUTF8 (u8"、"), {});
+    juce::String result, line;
+    for (int i = 0; i < clauses.size(); ++i)
+    {
+        const auto clause = clauses[i] + (i + 1 < clauses.size() ? juce::String::fromUTF8 (u8"、") : juce::String());
+        if (line.isNotEmpty() && text_style::shownWidth (font, line + clause) > static_cast<float> (width))
+        { result += line + "\n"; line.clear(); }
+        line += clause;
+    }
+    return result + line;
+}
+
+bool stackRow (const Row& item, presentation::Context context, int width)
+{
+    if (! observatory::isFullDensity (context.density)) return false;
+    const auto font = labelFont (context, typography::TextRole::body, typography::Composition::information);
+    const auto role = juce::roundToInt (std::ceil (text_style::shownWidth (font, item.role)));
+    const auto state = juce::roundToInt (std::ceil (text_style::shownWidth (font, item.state)));
+    return role + 8 + state > width - 34;
+}
+
 // At the compact sizes a row is the letter and its step; from 200% it also says what the source is.
 bool paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Row& item,
                presentation::Context context)
 {
     const bool described = observatory::isFullDensity (context.density);
+    const bool stacked = stackRow (item, context, row.getWidth());
     using typography::TextRole;
     using typography::Composition;
     const auto colour = markColour (item.mark);
@@ -75,10 +101,11 @@ bool paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Row& item,
     const auto font = labelFont (context, TextRole::body, Composition::information);
     const auto stateWidth = juce::roundToInt (std::ceil (text_style::shownWidth (font, item.state)));
     // Leave the whole reason its measured width, including longer Japanese B states.
+    const auto neededRole = juce::roundToInt (std::ceil (text_style::shownWidth (font, item.role))) + 8;
     const auto roleWidth = juce::jlimit (0, row.getWidth(),
-        juce::jmin (row.getWidth() * 11 / 20, row.getWidth() - stateWidth));
-    const auto role = described ? row.removeFromLeft (roleWidth).withTrimmedRight (8)
-                                : juce::Rectangle<int>();
+        juce::jmin (juce::jmax (row.getWidth() * 11 / 20, neededRole), row.getWidth() - stateWidth));
+    const auto role = stacked ? row.removeFromTop (row.getHeight() / 2)
+        : described ? row.removeFromLeft (roleWidth).withTrimmedRight (8) : juce::Rectangle<int>();
     g.setColour (COL_TEXT_SECONDARY);
     g.setFont (labelFont (context, TextRole::body, Composition::information));
     if (described)
@@ -221,15 +248,16 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
 
     // Why, whole when it fits and as one line when it does not.
     const auto bodyFont = labelFont (context, TextRole::body, Composition::information);
-    const auto detailHeight = wrappedHeight (shown.detail, bodyFont, content.getWidth());
+    const auto detail = detailForWidth (shown.detail, bodyFont, content.getWidth());
+    const auto detailHeight = wrappedHeight (detail, bodyFont, content.getWidth());
     fit.detail = detailHeight <= content.getHeight();
     g.setColour (full ? COL_NORMAL : COL_TEXT_SECONDARY);
     g.setFont (labelFont (context, TextRole::body, Composition::information));
     if (fit.detail)
-        text_style::drawLines (g, shown.detail, content.removeFromTop (detailHeight),
+        text_style::drawLines (g, detail, content.removeFromTop (detailHeight),
                                juce::Justification::topLeft, 4);
     else
-        text_style::drawEllipsized (g, shown.detail, content.removeFromTop (juce::jmin (
+        text_style::drawEllipsized (g, detail, content.removeFromTop (juce::jmin (
             content.getHeight(), lineOf (context, TextRole::body))), juce::Justification::centredLeft);
     content.removeFromTop (inspection ? 12 : 4);
 
@@ -239,20 +267,29 @@ GuideFit paintGuide (juce::Graphics& g, juce::Rectangle<int> area, const Guide& 
     const Row rows[] {
         { "A", "Your mix, live from the DAW", shown.playing ? "Playing" : "Stopped",
           shown.playing ? Mark::ready : Mark::action },
-        { "B", "A song of the B set, from Kirin OS", stepText (shown.reference),
+        { "B", "A Reference song, from Kirin OS", stepText (shown.reference),
           markFor (shown.reference) },
         { "C", "The source of a Check, from Kirin OS", stepText (shown.check),
           markFor (shown.check) },
         { "V", "A Version of this song, from Kirin OS", stepText (shown.version),
           markFor (shown.version) },
     };
-    const auto count = juce::jmin (4, content.getHeight() / rowHeight);
+    // A long role and reason use separate lines; retain only whole rows in the available height.
+    const auto heightFor = [&] (int index) { return rowHeight * (stackRow (rows[index], context, content.getWidth()) ? 2 : 1); };
+    int count = 4;
+    for (; count >= 2; --count)
+    {
+        int needed = 0;
+        const auto first = count == 4 ? 0 : 1;
+        for (int index = first; index < first + count; ++index) needed += heightFor (index);
+        if (needed <= content.getHeight()) break;
+    }
     if (count < 2)
         return fit;
     fit.rowCount = count;
     const auto first = count == 4 ? 0 : 1;
     for (auto index = first; index < first + count; ++index)
-        fit.rows = paintRow (g, content.removeFromTop (rowHeight), rows[index], context) && fit.rows;
+        fit.rows = paintRow (g, content.removeFromTop (heightFor (index)), rows[index], context) && fit.rows;
 
     // How to use them, at the full sizes.
     // 2026-10-04：VIEW の行は B-1174 で外した（見せる比較は開いている役の画面が決める）。
