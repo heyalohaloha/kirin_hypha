@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions, nativeRunner } from './release_hypha.mjs';
+import { STAGES, executeRelease, parseReleaseArgs, makeState, bindWindowsPromotion, realActions, nativeRunner } from './release_hypha.mjs';
 import { HOST_TESTS, CI_ORACLES, assertState, hash, digest, fileFact, treeFact, checkFacts,
-  validateReport, reportTemplate, safeStatePath, authorization, Checkpoint, acceptanceCriteria } from './ls_release/hypha_release_contract.mjs';
+  validateReport, reportTemplate, safeStatePath, authorization, Checkpoint, acceptanceCriteria, atomicJson } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE } from './ls_release/hypha_release_local.mjs';
 import { updateBinding } from './updates/update_key_binding.mjs';
 
@@ -24,13 +24,19 @@ test('reviewed factory identity is pinned before manufacturing; initial delivery
   assert.equal(state.inputs.windowsPromotionRun,'123');
   assert.equal(state.inputs.windowsArtifactArchive,path.join(f.root,'artifact.zip'));
 });
-function fixture(t) {
+function fixture(t, { delivery = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-release-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, 'crates/hypha_pre'), { recursive: true });
   fs.writeFileSync(path.join(root, 'crates/hypha_pre/Cargo.toml'), '[package]\nversion = "1.2.3"\n');
   const statePath = path.join(root, 'release_state/pipeline.json');
-  const state = makeState(root, { state: statePath, date: '2026-10-01' }, () => SOURCE);
+  let state = makeState(root, { state: statePath, date: '2026-10-01',
+    ...(delivery ? { windowsFactoryRepository: 'fixture/factory', windowsFactoryCommit: 'c'.repeat(40) } : {}) }, () => SOURCE);
+  if (delivery) {
+    const archive = path.join(root, 'delivery.zip'); fs.writeFileSync(archive, 'fixture archive');
+    atomicJson(statePath, state);
+    state = bindWindowsPromotion(statePath, { bindWindowsPromotion: '123', windowsArtifactArchive: archive }, () => SOURCE);
+  }
   const evidence = path.join(root, 'evidence.txt'); fs.writeFileSync(evidence, 'independent retained evidence');
   const calls = [];
   const actions = Object.fromEntries(STAGES.map(stage => [stage, async () => {
@@ -72,7 +78,7 @@ test('plan is read-only and does not call producers', async t => {
 });
 
 test('all stages through HP run in order; Released is not Release Complete', async t => {
-  const f = fixture(t);
+  const f = fixture(t, { delivery: true });
   await executeRelease(f.state, options, f.dependencies);
   assert.deepEqual(f.calls, STAGES.slice(0, -1));
   assert.equal(f.state.releaseState, 'RELEASED');
@@ -82,13 +88,13 @@ test('all stages through HP run in order; Released is not Release Complete', asy
 });
 
 test('successful resume verifies retained bytes and never rebuilds/signs/uploads again', async t => {
-  const f = fixture(t); await executeRelease(f.state, options, f.dependencies);
+  const f = fixture(t, { delivery: true }); await executeRelease(f.state, options, f.dependencies);
   const count = f.calls.length; await executeRelease(f.state, options, f.dependencies);
   assert.equal(f.calls.length, count); assert.equal(fs.existsSync(`${f.statePath}.lock`), false);
 });
 
 test('missing human report stops downstream stages and resumes only the missing stage', async t => {
-  const f = fixture(t); f.actions.hosts = async () => { throw new Checkpoint('host report missing'); };
+  const f = fixture(t, { delivery: true }); f.actions.hosts = async () => { throw new Checkpoint('host report missing'); };
   await executeRelease(f.state, options, f.dependencies);
   assert.equal(f.state.stages.hosts.status, 'PENDING'); assert.equal(f.state.stages.packages, undefined);
   f.actions.hosts = async () => ({ facts: [fileFact(f.evidence)] });
@@ -108,7 +114,7 @@ test('failed signing output is never blindly retried or promoted', async t => {
 });
 
 test('source changes, altered bytes and locks cannot be hidden by completed receipts', async t => {
-  const f = fixture(t); await executeRelease(f.state, { ...options, until: 'packages' }, f.dependencies);
+  const f = fixture(t, { delivery: true }); await executeRelease(f.state, { ...options, until: 'packages' }, f.dependencies);
   fs.writeFileSync(f.evidence, 'changed'); await executeRelease(f.state, options, f.dependencies);
   assert.equal(f.state.stages.ls, undefined); assert.match(f.state.blocker.reason, /artifact changed/);
   await assert.rejects(executeRelease(f.state, options, { ...f.dependencies,
@@ -119,7 +125,7 @@ test('source changes, altered bytes and locks cannot be hidden by completed rece
 });
 
 test('release input paths are root-relative and a changed freeze receipt cannot resume', async t => {
-  const f = fixture(t);
+  const f = fixture(t, { delivery: true });
   const profile = makeState(f.root, { state: f.statePath, sdk: 'external-sdk', notes: 'release_state/notes.md',
     windowsInstallerDir: 'windows', lsState: 'release_state/ls.json' }, () => SOURCE);
   for (const key of ['sdk', 'notes', 'windowsInstallerDir', 'lsState']) assert.ok(path.isAbsolute(profile.inputs[key]));
@@ -137,12 +143,12 @@ test('release input paths are root-relative and a changed freeze receipt cannot 
 });
 
 test('publication errors enter Incident; A7 pending remains Released, never Rollback Complete', async t => {
-  const f = fixture(t);
+  const f = fixture(t, { delivery: true });
   f.actions.github = async () => { f.state.publicationStarted = true; throw new Error('asset hash mismatch'); };
   await executeRelease(f.state, options, f.dependencies);
   assert.equal(f.state.releaseState, 'RELEASE_INCIDENT');
   await assert.rejects(executeRelease(f.state, options, f.dependencies), /Incident requires/);
-  const g = fixture(t); await executeRelease(g.state, options, g.dependencies);
+  const g = fixture(t, { delivery: true }); await executeRelease(g.state, options, g.dependencies);
   g.actions.postrelease = async () => { throw new Checkpoint('real smoke pending'); };
   await executeRelease(g.state, { ...options, until: 'complete' }, g.dependencies);
   assert.equal(g.state.releaseState, 'RELEASED');
@@ -212,7 +218,7 @@ test('an owner decision lifts only its named row, bound to this candidate and fr
 });
 
 test('an owner override added after the freeze stops the release', async t => {
-  const f = fixture(t); const decisionFile = path.join(f.root, 'owner-decision.json');
+  const f = fixture(t, { delivery: true }); const decisionFile = path.join(f.root, 'owner-decision.json');
   fs.writeFileSync(decisionFile, JSON.stringify(OWNER_DECISION));
   f.actions.freeze = async () => {
     f.state.freeze = { inputs: digest(f.state.inputs), updateCheck: updateBinding(''),

@@ -102,6 +102,25 @@ test('real coordinator checkpoints before starting Windows, so delivery can bind
   assert.equal(result.inputs.windowsPromotionRun, '123');
 });
 
+test('factory coordinator actions also checkpoint before starting Windows, so Mac can be manufactured first', async t => {
+  const f = fixture(t);
+  for (const stage of release.STAGES.slice(0, release.STAGES.indexOf('windows')))
+    f.state.stages[stage] = { status: 'PASS', facts: [fileFact(f.options.windowsArtifactArchive)] };
+  let windowsActionCalled = false;
+  const actions = Object.fromEntries(release.STAGES.map(stage => [stage, async () => {
+    if (stage === 'windows') windowsActionCalled = true;
+    return { facts: [fileFact(f.options.windowsArtifactArchive)] };
+  }]));
+  await release.executeRelease(f.state, { execute: true, until: 'packages' }, {
+    statePath: f.statePath, snapshot: f.snapshot, clean: () => {}, run: async () => '{}', log: () => {},
+    platform: 'darwin', actions });
+  assert.equal(f.state.blocker.stage, 'windows', f.state.blocker.reason);
+  assert.equal(windowsActionCalled, false);
+  assert.equal(f.state.stages.windows, undefined);
+  const result = release.bindWindowsPromotion(f.statePath, f.options, f.snapshot);
+  assert.equal(result.inputs.windowsPromotionRun, '123');
+});
+
 test('real producer guard rejects a non-macOS platform before commands or state changes', async t => {
   const f = fixture(t), before = fs.readFileSync(f.statePath);
   await assert.rejects(release.executeRelease(f.state, { execute: true, until: 'packages' }, {

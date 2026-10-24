@@ -3,16 +3,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { makeState, parseReleaseArgs, realActions, executeRelease, STAGES } from '../release_hypha.mjs';
+import { makeState, parseReleaseArgs, realActions, executeRelease, bindWindowsPromotion, STAGES } from '../release_hypha.mjs';
 import { SCHEMA, HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, assertState, digest, fileFact, reportTemplate,
-  validateReport, acceptanceCriteria, Checkpoint } from './hypha_release_contract.mjs';
+  validateReport, acceptanceCriteria, atomicJson, Checkpoint } from './hypha_release_contract.mjs';
 import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES,
   hostTestIds, bindOwnerDecisions, checkOwnerDecisions, checkFixRows, ciFixRows } from './hypha_release_criteria.mjs';
 import { verifyCi } from './hypha_release_local.mjs';
 import { updateBinding } from '../updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1', fingerprint: 'b'.repeat(64) };
-function fixture(t) {
+function fixture(t, { delivery = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-criteria-'));
   assert.ok(fs.realpathSync(root).startsWith(`${fs.realpathSync(os.tmpdir())}${path.sep}`));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -29,7 +29,13 @@ function fixture(t) {
     { ...row, id: 'fixed-ci', kind: 'ci', hosts: [], oracle: 'pair-recovery-parity', expected: { passed: true } }] };
   const fixes = write('fixes.json', spec);
   const statePath = path.join(root, 'release_state/profile.json');
-  const state = makeState(root, { state: statePath, fixRows: fixes }, () => SOURCE);
+  let state = makeState(root, { state: statePath, fixRows: fixes,
+    ...(delivery ? { windowsFactoryRepository: 'fixture/factory', windowsFactoryCommit: 'c'.repeat(40) } : {}) }, () => SOURCE);
+  if (delivery) {
+    const archive = write('delivery.zip', 'fixture archive');
+    atomicJson(statePath, state);
+    state = bindWindowsPromotion(statePath, { bindWindowsPromotion: '123', windowsArtifactArchive: archive }, () => SOURCE);
+  }
   const freeze = () => {
     state.freeze = { inputs: digest(state.inputs), criteriaSha256: digest(acceptanceCriteria(state)), updateCheck: updateBinding('') };
     state.freeze.sha256 = digest(state.freeze);
@@ -127,7 +133,7 @@ test('owner deferrals refuse safety rows, unknown ids, other candidates and inco
 });
 
 test('hosts execution persists the decision before checking the report and resumes a confirmed host failure', async t => {
-  const f = fixture(t), decision = f.decision(['fixed-clock', 'fixed-ci']);
+  const f = fixture(t, { delivery: true }), decision = f.decision(['fixed-clock', 'fixed-ci']);
   const report = reportTemplate(f.state, 'A4', f.state.freeze.sha256, hostTestIds(f.state));
   const evidence = f.write('evidence.json', { independent: true });
   for (const row of report.tests) Object.assign(row, { result: 'PASS', measured: row.expected,
@@ -156,7 +162,7 @@ test('hosts execution persists the decision before checking the report and resum
 });
 
 test('invalid owner decision input checkpoints without recording a host failure and can be corrected', async t => {
-  const f = fixture(t), decision = f.decision(['fixed-clock', 'fixed-ci']);
+  const f = fixture(t, { delivery: true }), decision = f.decision(['fixed-clock', 'fixed-ci']);
   const valid = JSON.parse(fs.readFileSync(decision));
   const evidence = f.write('evidence.json', { captured: true });
   const actions = Object.fromEntries(STAGES.map(stage => [stage, async () => ({ facts: [fileFact(evidence)] })]));
