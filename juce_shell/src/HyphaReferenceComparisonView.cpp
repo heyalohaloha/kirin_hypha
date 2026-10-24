@@ -78,7 +78,7 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
     }
     if (data) key = data->binding.key;
     if (data && following && position >= 0 && position <= data->duration())
-        setRange (position - 6.0, position + 6.0);
+        setRange (position - followHistorySeconds, position + followLookAheadSeconds);
     if (data && data->binding.aligned) lastVerifiedView = data->binding;
     setTitle ("A and V comparison. Arrows move; Shift and arrows resize; Home follows playback.");
     resized(); repaint();

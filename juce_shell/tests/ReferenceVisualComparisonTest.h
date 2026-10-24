@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceMonoVisualTest.h"
+#include "ReferenceFollowViewContract.h"
 #include "../src/HyphaReferenceComponent.h"
 #include <cstdlib>
 #include <iostream>
@@ -7,6 +8,7 @@ namespace hypha::tests
 {
 inline void verifyReferenceVisualComparison()
 {
+    reference_follow_view::verify();
     verifyMonoVersionVisual();
     const auto check = [] (bool valid, const char* message) { if (!valid) { std::cerr << "Visual UI: " << message << '\n'; std::exit (1); } };
     auto source = std::make_shared<reference_audition::RuntimeSource>();
