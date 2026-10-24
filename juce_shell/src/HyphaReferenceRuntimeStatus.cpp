@@ -8,6 +8,9 @@ namespace hypha::reference_ui
 RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const State& state)
 {
     RuntimeStatus result;
+    const auto* selected = runtime.audibleComparisonSlot == 1 && runtime.versionSelection ? runtime.versionSelection.get()
+        : runtime.audibleComparisonSlot == 2 && runtime.checkSelection ? runtime.checkSelection.get()
+        : runtime.audibleComparisonSlot == 3 && runtime.referenceSelection ? runtime.referenceSelection.get() : &runtime;
     using Runtime = hypha::reference_audition::RuntimeState;
     using Access = hypha::os_access::State;
     if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
@@ -32,7 +35,10 @@ RuntimeStatus runtimeStatus (const reference_audition::Snapshot& runtime, const 
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::revealed)
         result.status = "BLIND / REVEALED";
     else if (runtime.bSelected)
-        result.status = juce::String (hypha::reference_ui::roleLetter (runtime.audibleComparisonSlot)) + " AUDITION / PRE DELTA PAUSED";
+        result.status = selected->auditionBuffered
+            ? juce::String (hypha::reference_ui::roleLetter (runtime.audibleComparisonSlot)) + " AUDITION / PRE DELTA PAUSED"
+            : "LOADING " + juce::String (hypha::reference_ui::roleLetter (runtime.audibleComparisonSlot))
+                + " AT PLAYHEAD / KEEP PLAYING";
     else if (state.osAccess == Access::unowned)
         result.status = "REF REQUIRES KIRIN OS";
     else if (runtime.state == Runtime::rejected)

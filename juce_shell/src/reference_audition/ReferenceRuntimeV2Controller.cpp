@@ -129,6 +129,7 @@ namespace hypha::reference_audition
                 copyCorrespondence.load (std::memory_order_acquire),
                 contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()));
         if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
+        if (result.bSelected && normalPageWaiting.load (std::memory_order_acquire)) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;
         result.pendingBlindStimulus = blindState.pendingStimulus;
@@ -178,6 +179,7 @@ namespace hypha::reference_audition
     {
         revokeAfterFade.store (false, std::memory_order_release);
         ready.store (false, std::memory_order_release);
+        normalPageWaiting.store (false, std::memory_order_release);
         auditionEpoch.fetch_add (1, std::memory_order_acq_rel);
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
     }

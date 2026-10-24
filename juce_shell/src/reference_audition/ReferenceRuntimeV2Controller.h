@@ -355,6 +355,7 @@ namespace hypha::reference_audition
         std::atomic<bool> bSelected { false };
         std::atomic<std::uint64_t> normalReturnToken { 0 };
         std::atomic<bool> normalAudible { false };
+        std::atomic<bool> normalPageWaiting { false };
         std::atomic<float> normalFadeStep { 1.0f / 240.0f };
         std::array<std::array<float, 8192>, 2> normalLiveA {};
         std::uint64_t rtNormalEpoch = 0;

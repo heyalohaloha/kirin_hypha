@@ -1,5 +1,6 @@
 #include "../src/reference_audition/ReferenceAudioPages.h"
 #include "ReferenceConversionParityChecks.h"
+#include "ReferenceShortLoopPagesTest.h"
 
 #include <algorithm>
 #include <cmath>
@@ -110,6 +111,7 @@ namespace
 
 int main()
 {
+    verifyShortLoopPages (require);
     verifyReferenceConversionParity<TestReader> (require);
     ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     require (pages.installReaderForTest (
