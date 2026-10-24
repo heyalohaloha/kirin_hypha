@@ -120,7 +120,7 @@ const Entry entries[] = {
     { "Finish Keep / Record first", u8"先にKeep／Recordを終えてください" },
     { "A is returning to normal level", u8"Aを通常の音量へ戻しています" },
     { "Press A in REF first", u8"先にREFでAを押してください" },
-    { "The offer changed. Press the role again.", u8"申し出が変わりました。役を押し直してください" },
+    { "The offer changed. Press the role again.", u8"ボタンの内容が変わりました。もう一度押してください。" },
     { "PRE %1 ms early", u8"PREが%1 ms早く鳴っています" },
     { "PRE %1 ms late", u8"PREが%1 ms遅れて鳴っています" },
     { "AUTO on: within 0.5 dB", u8"AUTO：0.5 dB以内で追従" },

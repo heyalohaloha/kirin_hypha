@@ -80,7 +80,7 @@ bool intervalContracts()
 bool evidenceLanguageContracts()
 {
     const std::array<const char*, 5> english { "Acquiring", "Complete", "Audio ended", "Not retained", "Retired" };
-    const std::array<const char*, 5> japanese { u8"取得中", u8"完了", u8"入力終了", u8"保持外", u8"退役" };
+    const std::array<const char*, 5> japanese { u8"取得中", u8"完了", u8"入力終了", u8"保持外", u8"測り直し" };
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         i18n::ScopedLanguage scoped (language);
