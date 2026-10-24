@@ -246,12 +246,21 @@ fn close_short_first_pass(wav_samples: Option<u64>, session: &str) -> PluginData
     let origin = (LOOP_END - FIRST) as i64;
     mark_trace_time(&mut ctx, FIRST * 1_000 / RATE, FIRST, Some(FIRST));
     let measure = full_measure_result();
-    for slot in 1..=FIRST * 10 / RATE {
-        let native = slot * RATE / 10;
+    let positions = if wav_samples.is_some() {
+        (1..=FIRST * 10 / RATE)
+            .map(|slot| origin + (slot * RATE / 10) as i64)
+            .collect::<Vec<_>>()
+    } else {
+        // Without a WAV origin the producer publishes the absolute 100 ms grid, including
+        // the first partial observation and the exact loop endpoint.
+        (264_000_i64..=307_200).step_by(4_800).collect()
+    };
+    for (index, position) in positions.into_iter().enumerate() {
+        let native = (position - origin) as u64;
         let mut sample =
-            trace_sample_frames_with_native(native, Some(native), measure.clone(), slot == 1);
-        sample.position_samples = Some(origin + native as i64);
-        sample.raw_host_position_samples = Some(origin + native as i64);
+            trace_sample_frames_with_native(native, Some(native), measure.clone(), index == 0);
+        sample.position_samples = Some(position);
+        sample.raw_host_position_samples = Some(position);
         sample.capture_epoch = Some(selected);
         ctx.trace_samples.push(sample);
     }
@@ -275,6 +284,16 @@ fn a_keep_whose_first_pass_is_short_is_no_fragment_once_it_plays_on() {
             "{session}: a short first pass of a Keep that plays on: {:?}",
             loaded.integrity_reasons
         );
+        assert!(
+            loaded.record_quality.as_ref().unwrap().complete,
+            "{session}"
+        );
+        if wav.is_none() {
+            assert_eq!(
+                loaded.trace_slot_positions,
+                (268_800_i64..=307_200).step_by(4_800).collect::<Vec<_>>()
+            );
+        }
     }
 }
 

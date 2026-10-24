@@ -118,6 +118,8 @@ pub(super) fn feed_meter_session(
     if direct_active_samples.is_empty() {
         return false;
     }
+    #[cfg(test)]
+    worker_probe::feed(direct_active_samples, clock);
     if let Some(session) = meter_session {
         let mut session = crate::sync_recovery::lock_recover(session, "MeterSession active push");
         let accepted = session.push_active_at(direct_active_samples, clock);

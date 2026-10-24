@@ -10,9 +10,26 @@ pub(super) struct MeasureWakeState {
     idle_waits: AtomicU64,
     watch_park_returns: AtomicU64,
     record_sleep_returns: AtomicU64,
+    #[cfg(test)]
+    probe: std::sync::Mutex<Option<crate::measure_thread::worker_probe::Probe>>,
 }
 
 impl RecordStateMachine {
+    #[cfg(test)]
+    pub(crate) fn install_measure_worker_probe(
+        &self,
+        probe: crate::measure_thread::worker_probe::Probe,
+    ) {
+        *self.measure_waker.probe.lock().unwrap() = Some(probe);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_measure_worker_probe(
+        &self,
+    ) -> Option<crate::measure_thread::worker_probe::Probe> {
+        self.measure_waker.probe.lock().unwrap().take()
+    }
+
     pub(crate) fn register_measure_thread(&self, thread: std::thread::Thread) {
         *crate::sync_recovery::lock_recover(&self.measure_waker.thread, "Measure waker") =
             Some(thread);

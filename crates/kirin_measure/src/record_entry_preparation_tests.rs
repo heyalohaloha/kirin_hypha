@@ -2,6 +2,12 @@ use super::*;
 
 #[test]
 fn preparation_requires_the_exact_generation_session_owner_and_completed_input() {
+    for role in [Role::Pre, Role::Post] {
+        preparation_for_role(role);
+    }
+}
+
+fn preparation_for_role(role: Role) {
     let temp = tempfile::tempdir().unwrap();
     let generation = crate::capture_generation::CaptureGeneration::new_single(
         "project".into(),
@@ -11,6 +17,7 @@ fn preparation_requires_the_exact_generation_session_owner_and_completed_input()
         std::process::id(),
     );
     let member = &generation.members[0];
+    let instance = if role == Role::Pre { "pre" } else { "post" };
     crate::record_signal::write_pending_claiming_expected_and_clock_for_generation(
         temp.path(),
         "project",
@@ -26,14 +33,15 @@ fn preparation_requires_the_exact_generation_session_owner_and_completed_input()
         temp.path(),
         "project",
         &member.record_session_id,
-        Role::Pre,
-        "pre",
+        role,
+        instance,
     )
     .unwrap();
-    let read = || measure_preparation_samples(temp.path(), &generation, member);
+    let read = || measure_preparation_samples(temp.path(), &generation, member, role);
     assert_eq!(read(), 0);
     let publish = |samples| {
-        publish_measure_preparation(temp.path(), "project", "pre", &signal, 2, samples).unwrap()
+        publish_measure_preparation(temp.path(), "project", role, instance, &signal, 2, samples)
+            .unwrap()
     };
     publish(9_600);
     assert_eq!(read(), 9_600);
@@ -47,11 +55,11 @@ fn preparation_requires_the_exact_generation_session_owner_and_completed_input()
         temp.path(),
         "project",
         &member.record_session_id,
-        Role::Pre,
-        "pre",
+        role,
+        instance,
     );
     let original: RecordEntryLockFile = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    for wrong in 0..6 {
+    for wrong in 0..9 {
         let mut lock = original.clone();
         match wrong {
             0 => {
@@ -69,7 +77,10 @@ fn preparation_requires_the_exact_generation_session_owner_and_completed_input()
             2 => lock.host_process_id = std::process::id().saturating_add(1),
             3 => lock.record_session_id = "other".into(),
             4 => lock.instance_id = "other".into(),
-            _ => lock.role = Role::Post.dir_name().into(),
+            5 => lock.role = if role == Role::Pre { "post" } else { "pre" }.into(),
+            6 => lock.project_hash = "other".into(),
+            7 => lock.schema_version = "unknown".into(),
+            _ => lock.measure_preparation.as_mut().unwrap().record_generation = 0,
         }
         crate::atomic_file::write_bytes_atomic(&path, &serde_json::to_vec(&lock).unwrap()).unwrap();
         assert_eq!(

@@ -42,6 +42,10 @@ use crate::storage::{load_installation_id_safe, StoragePaths};
 use crate::MeasureResult;
 use chrono::TimeZone;
 
+#[path = "record_writer_slot_grid.rs"]
+mod slot_grid;
+use slot_grid::producer_take_slot_positions;
+
 #[path = "record_writer_trace_selection.rs"]
 mod trace_selection;
 use trace_selection::bake_continuous_record_timeline;
@@ -1213,53 +1217,6 @@ fn trace_clock_observation(sample: &RecordTraceSample) -> Option<TraceClockObser
         input_presentation_latency_samples: sample.presentation_latency.input,
         output_presentation_latency_samples: sample.presentation_latency.output,
     })
-}
-
-fn producer_take_slot_positions(
-    ctx: &RecordingCtx,
-    expected_len: usize,
-    slot_samples: i64,
-) -> Option<Vec<i64>> {
-    if expected_len == 0 || slot_samples <= 0 {
-        return None;
-    }
-    let duration_samples = i64::try_from(trace_duration_samples(ctx)).ok()?;
-    let bwf_start = expected_wav(ctx)
-        .and_then(|expected| expected.wav_time_reference_samples)
-        .and_then(|start| i64::try_from(start).ok());
-    let start = bwf_start.or_else(|| ctx.presentation_range.map(|range| range.0))?;
-    let end = start.checked_add(duration_samples)?;
-    if bwf_start.is_none()
-        && ctx
-            .presentation_range
-            .is_some_and(|range| range != (start, end))
-    {
-        return None;
-    }
-    // Measure Thread publishes on one absolute content grid. Before a WAV is known, close must
-    // select that same grid instead of inventing a second grid relative to the capture start.
-    // Once BWF sample zero is known, the public WAV contract remains explicitly start-relative.
-    let first = if bwf_start.is_some() {
-        start.checked_add(slot_samples)?
-    } else {
-        let phase = start.rem_euclid(slot_samples);
-        let remaining = if phase == 0 {
-            slot_samples
-        } else {
-            slot_samples.checked_sub(phase)?
-        };
-        start.checked_add(remaining)?
-    };
-    let positions = (0..expected_len)
-        .map(|index| {
-            i64::try_from(index)
-                .ok()?
-                .checked_mul(slot_samples)?
-                .checked_add(first)
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let grid_end = positions.last().copied()?;
-    (grid_end <= end && end.saturating_sub(grid_end) < slot_samples).then_some(positions)
 }
 
 fn should_bake_continuous_record_timeline(ctx: &RecordingCtx) -> bool {

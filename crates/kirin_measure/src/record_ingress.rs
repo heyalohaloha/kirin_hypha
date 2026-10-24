@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 
 #[path = "record_ingress_diagnostics.rs"]
 mod diagnostics;
+#[cfg(test)]
+#[path = "record_ingress_fixture.rs"]
+mod fixture;
 
 struct AudioPushGuard<'a> {
     in_flight: &'a AtomicU64,

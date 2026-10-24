@@ -22,7 +22,9 @@ pub(super) fn producer_readiness_diagnostic(
         });
         entry_claims += usize::from(entered);
         acknowledgements += usize::from(acknowledged);
-        let samples = crate::record_entry_lock::measure_preparation_samples(base, generation, member);
+        let pre_samples = crate::record_entry_lock::measure_preparation_samples(base, generation, member, Role::Pre);
+        let post_samples = crate::record_entry_lock::measure_preparation_samples(base, generation, member, Role::Post);
+        let samples = pre_samples.saturating_add(post_samples);
         preparation_samples = preparation_samples.saturating_add(samples);
         let writer = |role, iid: &str| crate::record_writer_claim::writer_claim_readiness_diagnostic(
             base, &member.project_hash, &member.record_session_id, role, iid,
@@ -36,6 +38,8 @@ pub(super) fn producer_readiness_diagnostic(
             "pre_entry_claim": entered,
             "acknowledged": acknowledged,
             "measure_preparation_samples": samples,
+            "pre_measure_preparation_samples": pre_samples,
+            "post_measure_preparation_samples": post_samples,
             "signal_status": signal.as_ref().map(|signal| format!("{:?}", signal.status)),
             "signal_generation": signal.as_ref().map(|signal| &signal.capture_generation_id),
             "signal_started_at_ms": signal.as_ref().map(|signal| signal.generation_started_at_ms),

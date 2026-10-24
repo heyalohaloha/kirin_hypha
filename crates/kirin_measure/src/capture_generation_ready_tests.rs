@@ -2,6 +2,8 @@ use super::wait_for_producers;
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
+#[path = "capture_generation_post_preparation_tests.rs"]
+mod post_preparation;
 #[path = "capture_generation_preparation_tests.rs"]
 mod preparation;
 
