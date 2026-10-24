@@ -259,6 +259,11 @@ Contributor手順は[CONTRIBUTING.md](CONTRIBUTING.md)、未署名buildは
 通常のsource検証は`bash scripts/test_lightweight_contract.sh`、完全なrelease-source検証は
 `bash scripts/test_release_source.sh`。後者は実DAW受入・正式署名・公開を代用しない。
 
+Windowsのjobで`shell`を書かないstepはpwshで動き、stepの合否は最後のnative commandの終了コードだけで決まる。
+1つのstepで複数のcommandを流す時は、`shell: bash`で全commandの失敗を数えるか、各commandの後に`$LASTEXITCODE`を確かめる。
+`scripts/ci_security.test.mjs`が、前のcommandの失敗が隠れる形を止める。新しい試験はWindowsで違う所
+（pathの区切り、fsyncとdirectoryのbarrier、timerの15.6 ms刻み、debug buildの速さと実時間の締め、shell）を考えて書く。
+
 ### 合格基準（Step 1）
 - Audio Thread: 通常のA経路でテスト信号PRE/POST差分 = 0（ビット同一）
 - レイテンシー: 0 samples
