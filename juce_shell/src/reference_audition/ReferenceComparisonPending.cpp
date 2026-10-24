@@ -45,6 +45,7 @@ void ReferenceComparisonController::appendPendingAudition (
 bool ReferenceComparisonController::requestAudition (int slot, double loudness, double peak)
 {
     if ((slot != 1 && slot != 2 && slot != 3) || outputDecision (output_owner::Activity::audition).refused()) return false;
+    if (slot == 2 && preparingCheck()) return selectC (loudness, peak);
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
     const auto state = snapshot();
     // 仕様 C：C は A の直近が Cue の長さ（最長 30 秒）たまってから合わせる。足りないあいだは押した選択を

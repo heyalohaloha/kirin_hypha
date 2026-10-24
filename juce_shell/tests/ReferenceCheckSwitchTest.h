@@ -4,14 +4,17 @@
 #include "reference_rt_probe.h"
 #include <limits>
 
+enum class CheckRepress { none, direct, measured, unavailable };
+
 inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int channels,
                                               bool differentSource, bool rejectGain = false,
-                                              bool cancel = false, bool invalidateSource = false)
+                                              bool cancel = false, bool invalidateSource = false,
+                                              CheckRepress repress = CheckRepress::none)
 {
     namespace control = hypha::tests::reference_control;
     const auto root = sandbox.getChildFile ("check-switch-" + juce::String (channels)
         + (differentSource ? "-file" : "-cue") + (rejectGain ? "-ceiling" : "") + (cancel ? "-cancel" : "")
-        + (invalidateSource ? "-changed" : ""));
+        + (invalidateSource ? "-changed" : "") + "-" + juce::String (static_cast<int> (repress)));
     require (root.createDirectory().wasOk(), "isolated Check switch fixture");
     const auto makeCandidate = [&] (const juce::String& name, bool alternate)
     {
@@ -107,6 +110,19 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
         require (feed(), "C also keeps playing while the next MATCH waits for A's window");
         require (block.getSample (0, 511) == 0.25f, "a prepared page never bypasses level readiness");
     }
+    if (repress != CheckRepress::none)
+    {
+        auto& runtime = control::roleFor (c, {2});
+        const auto generation = runtime.requestedGeneration();
+        require (runtime.awaitingPreparedLevel(), "the next C is waiting for measured A before the repeated press");
+        const auto loudness = repress == CheckRepress::unavailable ? std::numeric_limits<double>::quiet_NaN() : -25.0;
+        require (repress == CheckRepress::direct ? c.selectC (loudness, -6) : c.requestAudition (2, loudness, -6),
+                 "pressing C again accepts the existing selection switch");
+        require (runtime.requestedGeneration() == generation,
+                 "pressing C again preserves the requested selection generation");
+        require (feed() && block.getSample (0, 511) == 0.25f,
+                 "pressing C again keeps the old approved PCM while the next A window is unavailable");
+    }
     if (invalidateSource)
     {
         require (differentSource, "revision mutation targets only the next source");
@@ -118,6 +134,9 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
     if (cancel) c.selectA();
     levelAvailable = true;
     c.servicePendingAudition (rejectGain ? -2 : -25, -6, true);
+    if (repress != CheckRepress::none)
+        require (!control::roleFor (c, {2}).awaitingPreparedLevel(),
+                 "pressing C again preserves delivery of the next C's measured A window");
     control::service (c);
     feed(); // The bounded return fade, followed by publication and the new MATCH.
     const bool rendered = feed();
@@ -148,9 +167,14 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
 
 inline void testReferenceCheckSwitch (const juce::File& sandbox)
 {
+    for (auto repress : {CheckRepress::measured, CheckRepress::direct, CheckRepress::unavailable})
+        for (int channels : {1, 2})
+            for (bool otherFile : {false, true})
+                testReferencePreparedCheckSwitch (sandbox, channels, otherFile, false, false, false, repress);
     for (int channels : {1, 2})
         for (bool otherFile : {false, true}) testReferencePreparedCheckSwitch (sandbox, channels, otherFile);
     testReferencePreparedCheckSwitch (sandbox, 2, true, true);
     testReferencePreparedCheckSwitch (sandbox, 2, false, false, true);
     testReferencePreparedCheckSwitch (sandbox, 2, true, false, false, true);
+    std::cout << "Reference Check switch: repeated C, prepared PCM, matched gain and safety PASS\n";
 }
