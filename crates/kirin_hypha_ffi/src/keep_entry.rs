@@ -10,6 +10,8 @@ use super::*;
 /// Drop は generation archive の immutable rosterだけを受理して今回WAVを結び付ける。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_and_enter_keep(
+    held_control: &std::sync::MutexGuard<'_, ()>,
+    keep_control: &Arc<Mutex<()>>,
     license: License,
     record_sm: &RecordStateMachine,
     pair_target: &RwLock<String>,
@@ -212,6 +214,8 @@ pub(crate) fn resolve_and_enter_keep(
         if let Some(transaction) = owned_transaction.take() {
             if !super::keep_preparation::start_keep_preparation(
                 transaction,
+                held_control,
+                keep_control,
                 keep_action_notice,
                 keep_phase,
                 keep_phase_generation_started_at_ms,
@@ -224,6 +228,7 @@ pub(crate) fn resolve_and_enter_keep(
             base.clone(),
             generation.capture_generation_id.clone(),
             generation.started_at_ms,
+            Arc::clone(keep_control),
             Arc::clone(keep_phase),
             Arc::clone(keep_phase_generation_started_at_ms),
         ) {
@@ -253,6 +258,7 @@ fn spawn_keep_phase_observer(
     base: std::path::PathBuf,
     capture_generation_id: String,
     generation_started_at_ms: i64,
+    control: Arc<Mutex<()>>,
     phase: Arc<AtomicU8>,
     phase_generation: Arc<AtomicI64>,
 ) -> std::io::Result<()> {
@@ -273,7 +279,12 @@ fn spawn_keep_phase_observer(
                             && active.started_at_ms == generation_started_at_ms
                     })
                 {
-                    phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
+                    super::keep_preparation::with_current_generation(
+                        &control,
+                        &phase_generation,
+                        generation_started_at_ms,
+                        || phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release),
+                    );
                     return;
                 }
                 let terminal = kirin_measure::read_generation_terminal(
@@ -282,7 +293,12 @@ fn spawn_keep_phase_observer(
                     generation_started_at_ms,
                 );
                 if terminal.ok().flatten().is_some() || Instant::now() >= deadline {
-                    phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                    super::keep_preparation::with_current_generation(
+                        &control,
+                        &phase_generation,
+                        generation_started_at_ms,
+                        || phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release),
+                    );
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(10));

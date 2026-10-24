@@ -4,11 +4,13 @@ use std::io::{Error, ErrorKind};
 
 fn feedback(all: bool) -> KeepPreparationFeedback {
     KeepPreparationFeedback {
+        control: Arc::new(Mutex::new(())),
         notice: Arc::new(RwLock::new(None)),
         phase: Arc::new(AtomicU8::new(KIRIN_KEEP_PHASE_PREPARING)),
         phase_generation: Arc::new(AtomicI64::new(7)),
         generation_started_at_ms: 7,
         all,
+        after_generation_check: None,
     }
 }
 
@@ -76,7 +78,10 @@ fn an_old_preparation_cannot_replace_the_current_notice_or_phase() {
         feedback.phase_generation.store(8, Ordering::Release);
         *feedback.notice.write().unwrap() = Some("current action".into());
         feedback.complete(Err(CaptureGenerationError::Invalid));
-        feedback.dispatch_failed(&CaptureGenerationError::Invalid);
+        feedback.dispatch_failed(
+            &CaptureGenerationError::Invalid,
+            &feedback.control.lock().unwrap(),
+        );
         feedback.complete(Ok(()));
         assert_eq!(
             feedback.phase.load(Ordering::Acquire),
@@ -161,10 +166,13 @@ fn invalid_or_unreadable_preparation_data_requests_pair_selection() {
 fn worker_start_failure_requests_retry_without_claiming_a_storage_fault() {
     for all in [false, true] {
         let feedback = feedback(all);
-        feedback.dispatch_failed(&CaptureGenerationError::Io(Error::new(
-            ErrorKind::PermissionDenied,
-            "worker creation was denied",
-        )));
+        feedback.dispatch_failed(
+            &CaptureGenerationError::Io(Error::new(
+                ErrorKind::PermissionDenied,
+                "worker creation was denied",
+            )),
+            &feedback.control.lock().unwrap(),
+        );
         assert_eq!(
             feedback.phase.load(Ordering::Acquire),
             KIRIN_KEEP_PHASE_IDLE

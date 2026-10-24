@@ -6,6 +6,10 @@ impl KirinHyphaEngine {
     /// Stage an immutable roster, notify its exact POSTs, and enter the local pair. Both writers
     /// of every member must be ready before the generation commits; failures abort the roster.
     pub fn keep_all(&self) -> bool {
+        let control = self
+            .keep_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         clear_keep_action_notice(&self.keep_action_notice);
         if self.reject_unsupported_record_action(true) {
             return false;
@@ -126,11 +130,13 @@ impl KirinHyphaEngine {
                 return false;
             }
         }
-        if !self.keep_with_generation(&generation) {
+        if !self.keep_with_optional_generation(Some(&generation), &control) {
             return false;
         }
         super::keep_preparation::start_keep_preparation(
             transaction,
+            &control,
+            &self.keep_control,
             &self.keep_action_notice,
             &self.keep_phase,
             &self.keep_phase_generation_started_at_ms,

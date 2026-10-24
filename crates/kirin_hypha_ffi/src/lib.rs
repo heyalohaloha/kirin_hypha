@@ -81,6 +81,7 @@ mod comparison_abi;
 pub use comparison_abi::*;
 mod capture_window_ffi;
 mod keep_all;
+mod keep_control;
 mod keep_entry;
 mod keep_preparation;
 pub use capture_window_ffi::{kirin_hypha_note_capture_loop_wrap, kirin_hypha_note_capture_window};
@@ -404,6 +405,8 @@ pub struct KirinHyphaEngine {
     /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
     /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
     record_sm: Arc<RecordStateMachine>,
+    /// Serializes control/worker generation changes and feedback; never used by audio callbacks.
+    keep_control: Arc<Mutex<()>>,
     /// User-facing Keep control state. Record capture may enter before all 1–12 members are ready;
     /// only `Armed` authorizes the user to start an offline bounce.
     keep_phase: Arc<AtomicU8>,
@@ -657,6 +660,7 @@ impl KirinHyphaEngine {
         ));
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
+        let keep_control = Arc::new(Mutex::new(()));
         let keep_phase = Arc::new(AtomicU8::new(KIRIN_KEEP_PHASE_IDLE));
         let keep_phase_generation_started_at_ms = Arc::new(AtomicI64::new(0));
         let keep_record_generation = Arc::new(AtomicU64::new(0));
@@ -789,6 +793,7 @@ impl KirinHyphaEngine {
             watch_ring_replacing,
             liveness,
             record_sm,
+            keep_control,
             keep_phase,
             keep_phase_generation_started_at_ms,
             keep_record_generation,
@@ -893,7 +898,12 @@ impl KirinHyphaEngine {
         self.record_sm.is_recording()
     }
 
+    /// Control-thread getter; retiring a closed generation shares the Keep/Stop lock.
     pub fn keep_phase(&self) -> u8 {
+        let _control = self
+            .keep_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let phase = self.keep_phase.load(Ordering::Acquire);
         let expected_record_generation = self.keep_record_generation.load(Ordering::Acquire);
         if keep_phase_is_closed(
@@ -1302,160 +1312,6 @@ impl KirinHyphaEngine {
             .lock()
             .ok()
             .and_then(|g| g.clone())
-    }
-
-    /// POST「Keep」: 厳格選定（select_target_pre）で対 PRE を一意決定し record_signal(pending)
-    /// を書く（B-061 3d-b）。PRE 側 io_thread が autonomous に discover→ack する。
-    /// `License::Os` かつ一意 PRE のとき `true`。選定 None（空名/不在/曖昧/Bypassed/古t）/
-    /// 非 Os / AlreadyRecording は `false`（write_pending しない）。
-    pub fn keep(&self) -> bool {
-        self.keep_with_optional_generation(None)
-    }
-
-    fn keep_with_generation(&self, generation: &CaptureGeneration) -> bool {
-        self.keep_with_optional_generation(Some(generation))
-    }
-
-    fn keep_with_optional_generation(&self, generation: Option<&CaptureGeneration>) -> bool {
-        if generation.is_none() {
-            clear_keep_action_notice(&self.keep_action_notice);
-        }
-        if self.reject_unsupported_record_action(generation.is_none()) {
-            return false;
-        }
-        let (project_hash, post_iid, daw) = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return false; // 未 enable_post_writes
-            }
-            (
-                id.project_hash.clone(),
-                id.instance_id.clone(),
-                id.daw_session_uuid.clone(),
-            )
-        };
-        // B-102: 解決本体は共有 free 関数 resolve_and_enter_keep（broadcast 受信 closure と同一
-        // 経路）。選定→linkage→try_enter_record→write_pending の順序は従来 keep() と不変。
-        let pair_target = self.pair_binding.desired_name();
-        let paired_pre_target = self.pair_binding.recording_pre();
-        let latched_pre = self.pair_binding.latched_pre();
-        let license = self.license.refresh_for_user_action();
-        resolve_and_enter_keep(
-            license,
-            &self.record_sm,
-            &pair_target,
-            &paired_pre_target,
-            &project_hash,
-            &post_iid,
-            &daw,
-            &latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
-            &self.record_error_message, // persistent producer/I/O fault channel
-            &self.keep_action_notice,
-            &self.keep_phase,
-            &self.keep_phase_generation_started_at_ms,
-            &self.keep_record_generation,
-            None,
-            generation,
-        )
-    }
-
-    /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。
-    /// PRE 側は released を検出して自身も Record を抜ける（io_thread_pre）。
-    pub fn stop(&self) {
-        clear_keep_action_notice(&self.keep_action_notice);
-        self.keep_phase_generation_started_at_ms
-            .store(0, Ordering::Release);
-        self.keep_record_generation.store(0, Ordering::Release);
-        self.keep_phase
-            .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-        // Stop preserves the exact pair identity for a later WAV Drop. Reservation release and
-        // record_signal teardown still share the same resolver with broadcast Stop.
-        let (project_hash, post_iid) = match self.identity.lock() {
-            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
-            Err(_) => (String::new(), String::new()),
-        };
-        let paired_pre_target = self.pair_binding.recording_pre();
-        resolve_and_exit_stop(
-            &self.record_sm,
-            &self.record_ingress,
-            &paired_pre_target,
-            &project_hash,
-            &post_iid,
-            Some(ReleaseReason::ManualStop),
-        );
-    }
-
-    /// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 /
-    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self stop）。
-    pub fn stop_all(&self) {
-        clear_keep_action_notice(&self.keep_action_notice);
-        let post_iid = match self.identity.lock() {
-            Ok(id) => id.instance_id.clone(),
-            Err(_) => String::new(),
-        };
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        if !project_hash.is_empty() && !post_iid.is_empty() {
-            if let Ok(p) = StoragePaths::default_platform() {
-                let base = p.plugin_data_dir();
-                let active =
-                    kirin_measure::read_stop_target_generation(&base, &project_hash, &post_iid)
-                        .ok()
-                        .flatten();
-                let mut wrote_generation_stop = false;
-                if let Some(generation) = active {
-                    if mark_generation_terminal(
-                        &base,
-                        &generation,
-                        GenerationTerminalReason::AllStop,
-                    )
-                    .is_ok()
-                    {
-                        let projects = generation
-                            .members
-                            .iter()
-                            .map(|member| member.project_hash.as_str())
-                            .collect::<std::collections::BTreeSet<_>>();
-                        wrote_generation_stop = true;
-                        for ph in projects {
-                            if write_stop_broadcast_for_generation(
-                                &base,
-                                ph,
-                                &post_iid,
-                                generation.daw_session_id.clone(),
-                                generation.host_process_id,
-                                &generation,
-                            )
-                            .is_err()
-                            {
-                                wrote_generation_stop = false;
-                            }
-                        }
-                    }
-                }
-                // Legacy/no-active fallback is deliberately one known shelf. New producers never
-                // rediscover an All Stop group by scanning live/history directories.
-                if !wrote_generation_stop {
-                    let _ = write_stop_broadcast(&base, &project_hash, &post_iid, daw.clone());
-                }
-            }
-        }
-        let (project_hash, post_iid) = match self.identity.lock() {
-            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
-            Err(_) => (String::new(), String::new()),
-        };
-        let paired_pre_target = self.pair_binding.recording_pre();
-        resolve_and_exit_stop(
-            &self.record_sm,
-            &self.record_ingress,
-            &paired_pre_target,
-            &project_hash,
-            &post_iid,
-            Some(ReleaseReason::AllStop),
-        );
     }
 
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
