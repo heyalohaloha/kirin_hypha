@@ -170,6 +170,7 @@ fn wait_for_entry_measure(
         if let Err(error) = crate::record_entry_lock::publish_measure_preparation(
             ctx.base,
             ctx.project_hash,
+            crate::plugin_data::Role::Pre,
             ctx.pre_instance_id,
             signal,
             generation,

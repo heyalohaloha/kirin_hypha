@@ -93,6 +93,12 @@ namespace hypha::reference_audition
     bool AudioPages::render (juce::AudioBuffer<float>& destination,
                              std::int64_t sourcePosition, float linearGain) noexcept
     {
+        return renderResult (destination, sourcePosition, linearGain) == RenderResult::rendered;
+    }
+
+    AudioPages::RenderResult AudioPages::renderResult (juce::AudioBuffer<float>& destination,
+                                                      std::int64_t sourcePosition, float linearGain) noexcept
+    {
         return renderRegion (destination, sourcePosition, 0,
                              sourceLength.load (std::memory_order_acquire),
                              false, linearGain);
@@ -103,11 +109,20 @@ namespace hypha::reference_audition
                                 std::int64_t cueStart, std::int64_t cueEnd,
                                 bool loopEnabled, float linearGain) noexcept
     {
+        return renderCueResult (destination, sourcePosition, cueStart, cueEnd,
+                                loopEnabled, linearGain) == RenderResult::rendered;
+    }
+
+    AudioPages::RenderResult AudioPages::renderCueResult (juce::AudioBuffer<float>& destination,
+                                std::int64_t sourcePosition,
+                                std::int64_t cueStart, std::int64_t cueEnd,
+                                bool loopEnabled, float linearGain) noexcept
+    {
         return renderRegion (destination, sourcePosition, cueStart, cueEnd,
                              loopEnabled, linearGain);
     }
 
-    bool AudioPages::renderRegion (juce::AudioBuffer<float>& destination,
+    AudioPages::RenderResult AudioPages::renderRegion (juce::AudioBuffer<float>& destination,
                                    std::int64_t sourcePosition,
                                    std::int64_t regionStart, std::int64_t regionEnd,
                                    bool loopEnabled, float linearGain) noexcept
@@ -122,9 +137,9 @@ namespace hypha::reference_audition
             || destination.getNumChannels() != channels
             || regionStart < 0 || regionEnd <= regionStart || regionEnd > sourceFrames
             || sourcePosition < regionStart || sourcePosition >= regionEnd)
-            return false;
+            return RenderResult::invalid;
         if (frames == 0)
-            return true;
+            return RenderResult::rendered;
 
         std::array<std::int64_t, pageCount> requiredStarts {};
         size_t requiredCount = 0;
@@ -139,7 +154,7 @@ namespace hypha::reference_audition
             if (! alreadyRequired)
             {
                 if (requiredCount == requiredStarts.size())
-                    return false;
+                    return RenderResult::invalid;
                 requiredStarts[requiredCount++] = pageStart;
             }
             const auto untilPageEnd = framesPerPage - (position - pageStart);
@@ -147,13 +162,13 @@ namespace hypha::reference_audition
             const auto count = static_cast<int> (std::min<std::int64_t> (
                 remaining, std::min (untilPageEnd, untilRegionEnd)));
             if (count <= 0)
-                return false;
+                return RenderResult::invalid;
             remaining -= count;
             position += count;
             if (remaining > 0 && position == regionEnd)
             {
                 if (! loopEnabled)
-                    return false;
+                    return RenderResult::invalid;
                 position = regionStart;
             }
         }
@@ -173,7 +188,9 @@ namespace hypha::reference_audition
             if (page == nullptr)
             {
                 releaseAll();
-                return false;
+                return generation == activeGeneration.load (std::memory_order_acquire)
+                    && openState.load (std::memory_order_acquire)
+                    ? RenderResult::waitingForPages : RenderResult::invalid;
             }
             acquired[acquiredCount++] = page;
         }
@@ -181,7 +198,7 @@ namespace hypha::reference_audition
             || ! openState.load (std::memory_order_acquire))
         {
             releaseAll();
-            return false;
+            return RenderResult::invalid;
         }
 
         remaining = frames;
@@ -197,7 +214,7 @@ namespace hypha::reference_audition
             if (page == nullptr)
             {
                 releaseAll();
-                return false;
+                return RenderResult::invalid;
             }
             const auto pageOffset = static_cast<int> (position - pageStart);
             const auto count = static_cast<int> (std::min<std::int64_t> (
@@ -217,6 +234,6 @@ namespace hypha::reference_audition
                 position = regionStart;
         }
         releaseAll();
-        return true;
+        return RenderResult::rendered;
     }
 }

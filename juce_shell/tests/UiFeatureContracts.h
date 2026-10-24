@@ -52,6 +52,8 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--language-only")
+    { verifyLanguageContract(); return true; }
     if (argc == 1 || (argc == 2 && std::string_view (argv[1]) == "--reference-format-only"))
         verifyReferenceLibraryFormatStatus();
     if (argc == 2 && std::string_view (argv[1]) == "--reference-format-only") return true;

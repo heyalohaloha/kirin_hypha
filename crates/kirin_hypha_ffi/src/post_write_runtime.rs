@@ -111,6 +111,7 @@ impl KirinHyphaEngine {
             // B-127: broadcast 受信 keep も engine cap を通す。cap 到達通知の宛先 Arc を capture。
             let record_error_message = Arc::clone(&self.record_error_message);
             let keep_action_notice = Arc::clone(&self.keep_action_notice);
+            let keep_control = Arc::clone(&self.keep_control);
             let keep_phase = Arc::clone(&self.keep_phase);
             let keep_phase_generation_started_at_ms =
                 Arc::clone(&self.keep_phase_generation_started_at_ms);
@@ -120,8 +121,13 @@ impl KirinHyphaEngine {
                     if !record_workflow_supported {
                         return false;
                     }
+                    let control = keep_control
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
                     let lic = license.refresh_for_user_action();
                     resolve_and_enter_keep(
+                        &control,
+                        &keep_control,
                         lic,
                         &record_sm,
                         &pair_target,
@@ -142,12 +148,24 @@ impl KirinHyphaEngine {
             )
         };
         let trigger_stop_resolution: kirin_measure::TriggerStopResolutionFn = {
+            let keep_control = Arc::clone(&self.keep_control);
+            let keep_phase = Arc::clone(&self.keep_phase);
+            let keep_phase_generation = Arc::clone(&self.keep_phase_generation_started_at_ms);
+            let keep_record_generation = Arc::clone(&self.keep_record_generation);
+            let keep_action_notice = Arc::clone(&self.keep_action_notice);
             let record_sm = Arc::clone(&self.record_sm);
             let record_ingress = Arc::clone(&self.record_ingress);
             let paired = self.pair_binding.recording_pre();
             let project_hash = cb_project_hash;
             let post_iid = cb_post_iid;
             Arc::new(move |_pre: &str, _post: &str| {
+                let _control = keep_control
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                clear_keep_action_notice(&keep_action_notice);
+                keep_phase_generation.store(0, Ordering::Release);
+                keep_record_generation.store(0, Ordering::Release);
+                keep_phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
                 resolve_and_exit_stop(
                     &record_sm,
                     &record_ingress,

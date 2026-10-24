@@ -268,18 +268,19 @@ static void rolesShareOneOutput (const juce::File& sandbox)
              "choosing C's Cue from the V page keeps the V page");
     require (host (true) && host (true) && controller.snapshot().audibleComparisonSlot == 3, "changing C's Cue keeps B sounding");
     wait ([&] (const auto& s) { return s.checkReady && s.checkSelection->cueId == otherCue; }, "C prepares its other Cue");
-    // C が鳴っているあいだに C の Cue を替えると、フェードで A に戻り、新しい Cue が公開され次第、新しい MATCH で
-    // C のまま鳴る（押せば即切替。ぷつっと切らない）。
+    // C の Cue の切替では、次の Cue と A の窓を準備する間は旧 C を保つ。新しい公開と MATCH の後に次の C を鳴らす。
     require (controller.selectVisualSlot (2) && controller.requestAudition (2, -14.0, -2.0) && host (true) && host (true)
                  && controller.snapshot().audibleComparisonSlot == 2, "C plays before its Cue changes");
     require (controller.selectCue (checkState.cueId) && controller.snapshot().comparisonSlot == 2, "change C's Cue while C sounds");
     host (true);
-    require (block.getSample (0, 0) < -0.2f && block.getSample (0, 479) == 0.0f, "the Cue change fades C to A instead of cutting it");
+    require (block.getSample (0, 0) < -0.2f && closeTo (block.getSample (0, 479), -0.25 * gain (4.0)),
+             "C retains its approved PCM until the next Cue and A window are ready");
     hypha::tests::reference_control::await ([&] {
-        if (controller.snapshot().audibleComparisonSlot == 2) return true;
+        const auto ready = [&] { const auto s = controller.snapshot(); return s.audibleComparisonSlot == 2 && s.checkSelection->cueId == checkState.cueId; };
+        if (ready()) return true;
         host (true);
         if (controller.pendingAuditionNeedsService()) controller.servicePendingAudition (-14.0, -2.0, true);
-        return controller.snapshot().audibleComparisonSlot == 2;
+        return ready();
     });
     host (true); host (true);
     require (controller.snapshot().audibleComparisonSlot == 2 && controller.snapshot().checkSelection->cueId == checkState.cueId

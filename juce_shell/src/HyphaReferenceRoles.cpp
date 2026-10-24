@@ -6,7 +6,7 @@
 #include "HyphaTheme.h"
 
 // A／B／C／V の B（REF）。Kirin OS が「Hypha に出す」にした B セットの曲を鳴らす役のボタンと、
-// B SET（順位つき、最大 3）と曲の選択。B を押すと B の画面になり、B のまま曲を選ぶとすぐ切り替わる。
+// REFERENCE SET（順位つき、最大 3）と曲の選択。B を押すと B の画面になり、B のまま曲を選ぶとすぐ切り替わる。
 namespace hypha::reference_ui
 {
 namespace
@@ -39,8 +39,8 @@ void Component::configureRoles()
     addAndMakeVisible (refButton);
     songSetBox.setLookAndFeel (&selectorLookAndFeel);
     songBox.setLookAndFeel (&selectorLookAndFeel);
-    configureBox (songSetBox, "reference-song-set", "B Set", "Choose a B set Kirin OS ranked for Hypha.");
-    configureBox (songBox, "reference-song", "B Song", "Choose the song B plays. A stays the current DAW input.");
+    configureBox (songSetBox, "reference-song-set", "Reference Set", "Choose a Reference set Kirin OS ranked for Hypha.");
+    configureBox (songBox, "reference-song", "Reference Song", "Choose the Reference song B plays. A stays the current DAW input.");
     songSetBox.onChange = [this]
     {
         const auto id = selectedOptionId (songSetBox, current.songSets);
@@ -78,11 +78,11 @@ void Component::syncRoles (bool blindSession)
     refButton.setAttention (waiting);
     refButton.setReady (audible || queue);
     refButton.setTooltip (queue ? "Queue B for DAW playback. A stays live until ready; press A to cancel."
-        : audible ? juce::String ("Audition a song of the B set from Kirin OS (B).") : referenceUnavailableText (current));
+        : audible ? juce::String ("Audition a Reference song from Kirin OS (B).") : referenceUnavailableText (current));
     syncSelectionControl (songSetBox, current.songSets, current.songSetId);
     syncSelectionControl (songBox, current.songs, current.songId);
     const bool referenceView = current.separateComparisons && current.comparisonSlot == 3 && ! blindSession;
-    // 100% の B は曲名・gain・状態だけ。B SET は出さず、曲の切替は 125% 以上。
+    // 100% の B は曲名・gain・状態だけ。REFERENCE SET は出さず、曲の切替は 125% 以上。
     const bool glance = presentationContext.density == observatory::Density::compact;
     songSetBox.setVisible (referenceView && ! glance && ! current.songSets.empty());
     songBox.setVisible (referenceView && ! current.songs.empty());
@@ -108,7 +108,7 @@ void Component::syncRoles (bool blindSession)
     songList.setRows (std::move (rows), presentationContext);
     songList.setLive (current.aWindowLoudness, juce::roundToInt (static_cast<double> (current.aWindowBlocks) / 10.0));
     if (! referenceView) return;
-    // B の画面には V・C の選択を出さない（B SET と曲だけ）。
+    // B の画面には V・C の選択を出さない（REFERENCE SET と曲だけ）。
     for (auto* box : { &versionBox, &checkBox, &presetBox, &cueBox }) box->setVisible (false);
 }
 

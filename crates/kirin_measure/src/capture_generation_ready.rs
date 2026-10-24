@@ -130,12 +130,16 @@ pub(super) fn producer_readiness_observation(
     generation: &CaptureGeneration,
 ) -> (usize, usize) {
     let ready = ready_producer_count(base, generation);
-    // A PRE can already own its lane while draining a finite Watch tail before ACK. Count only
-    // completed input published by that exact session/generation; an IO heartbeat is not work.
+    // Either role can own its lane while draining a finite Watch tail before its writer opens.
+    // Count completed input from the exact session/generation; an IO heartbeat is not work.
     let samples = generation.members.iter().fold(0_usize, |total, member| {
-        total.saturating_add(crate::record_entry_lock::measure_preparation_samples(
-            base, generation, member,
-        ))
+        [Role::Pre, Role::Post]
+            .into_iter()
+            .fold(total, |total, role| {
+                total.saturating_add(crate::record_entry_lock::measure_preparation_samples(
+                    base, generation, member, role,
+                ))
+            })
     });
     (
         ready,

@@ -75,32 +75,20 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Measure Thread の通常ループ間隔。
-const LOOP_SLEEP: Duration = Duration::from_millis(100);
-
-/// Record 中の idle poll 間隔。
-///
-/// Offline bounce は wall-clock より速く Audio Thread が進むため、Record 中だけ短い sleep にして
-/// Audio→Measure ring の滞留を減らす。Audio Thread からの通知や lock は増やさない。
-const RECORD_LOOP_SLEEP: Duration = Duration::from_millis(1);
-
-/// heartbeat が変化しないまま何 tick 経過したら process() 停止と判定するか。
-/// 4 tick × 100 ms = 400 ms。2回連続の200 ms監視境界を満たしつつ、一時的なcallback揺れを
-/// 1回分吸収する。音声callbackが継続する実際の無音は別のsilence gateが扱うため、ここで
-/// 3秒保持するとtransport停止後に古い値と履歴だけが残る。
-const HEARTBEAT_STALE_TICKS: u32 = 4;
-const TICK: Duration = LOOP_SLEEP; // 100ms
-
-/// 鮮度の live ウィンドウ = 4 tick × 100ms = 400ms。製品はこの導出値、
-/// テストは `LivenessEvaluator::new` に任意 Duration を注入する。
-pub fn live_window() -> Duration {
-    TICK * HEARTBEAT_STALE_TICKS
-}
+pub use worker_idle::live_window;
+#[cfg(test)]
+use worker_idle::{HEARTBEAT_STALE_TICKS, LOOP_SLEEP, RECORD_LOOP_SLEEP, TICK};
 
 #[path = "meter_feed_gate.rs"]
 mod meter_feed_gate;
 #[path = "measure_worker_idle.rs"]
 mod worker_idle;
+#[cfg(test)]
+#[path = "measure_worker_probe.rs"]
+pub(crate) mod worker_probe;
+#[cfg(test)]
+#[path = "measure_worker_progress_tests.rs"]
+mod worker_progress_tests;
 use meter_feed_gate::{drain_watch_into_raw_pre_roll, pause_meter_session};
 #[cfg(test)]
 use worker_idle::idle_sleep_for_record_state;
@@ -189,18 +177,7 @@ impl LivenessEvaluator {
     }
 }
 
-/// heartbeat が鮮度切れになった後の表示状態。
-///
-/// host component が active のままなら通常の処理停止（transport停止・無音・一時停止）なので
-/// Inactive。host が component 自体を deactivate した場合だけ Bypassed とする。
-#[inline]
-pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
-    if host_component_active {
-        SignalState::Inactive
-    } else {
-        SignalState::Bypassed
-    }
-}
+pub use worker_idle::stalled_signal_state;
 
 /// Measure Thread を起動し、JoinHandle を返す。
 ///
@@ -251,6 +228,8 @@ pub fn spawn_measure_thread(
 ) -> JoinHandle<()> {
     crate::engine::denormal_flush::spawn_measurement_thread(move || {
         record_sm.register_measure_thread(thread::current());
+        #[cfg(test)]
+        let _probe = worker_probe::install(record_sm.take_measure_worker_probe());
         let mut consumer = MeasureSampleConsumer::watch(consumer);
         let n_channels = layout.channel_count();
 
@@ -387,6 +366,16 @@ pub fn spawn_measure_thread(
             if shutdown.load(Ordering::Relaxed) {
                 break;
             }
+            #[cfg(test)]
+            worker_probe::iteration(worker_probe::Iteration {
+                recording: prev_recording,
+                consumed: consumed_samples,
+                parked_watch_consumed: watch_consumed_samples,
+                native_frames: native_frames_total,
+                endpoint: last_capture_position_end,
+                playback_pass: playback_pass_id,
+                queued: consumer.slots(),
+            });
 
             // ── B-043: Record mode 遷移ハンドリング ──────────────────
             // Watch→Record: engine を明示リセットして新セッション開始。

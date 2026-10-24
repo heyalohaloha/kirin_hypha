@@ -17,6 +17,7 @@
 #include "AttackUiShowcase.h"
 #include "PolylineGeometryContractTest.h"
 #include "AttackV2PresentationContractTest.h"
+#include "AttackLoupePaintContract.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -77,6 +78,9 @@ int main()
     static_assert (sizeof (KirinAttackPairEvent) == 112);
     static_assert (sizeof (KirinAttackPairEventBatch) == 26'896);
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    KIRIN_REQUIRE (loupe_paint_contract::writePreviews());
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_LOUPE_PAINT_ONLY", {}).isNotEmpty())
+        return loupe_paint_contract::verify() ? EXIT_SUCCESS : EXIT_FAILURE;
     // Existing V2 focus requests isolate that renderer from the legacy UI's timing fixture.
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_V2_FOCUSED", {}).isNotEmpty())
         return verifyAttackV2PresentationContract() ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -193,6 +197,7 @@ int main()
     KIRIN_REQUIRE (verifyPostOnlyLanes());
     KIRIN_REQUIRE (verifyLanesShowDifferencesOnly());
     KIRIN_REQUIRE (verifyLoupe());
+    KIRIN_REQUIRE (loupe_paint_contract::verify());
     KIRIN_REQUIRE (verifyHeadOnlyCells());
     KIRIN_REQUIRE (verifyHeadOnlyLoupe());
     KIRIN_REQUIRE (verifyCompactLine());

@@ -18,6 +18,7 @@ namespace hypha::reference_audition
     {
     public:
         enum class ServiceMode { background, manual };
+        enum class RenderResult { invalid, waitingForPages, rendered };
         explicit AudioPages (ServiceMode = ServiceMode::background);
         ~AudioPages() override;
 
@@ -40,6 +41,12 @@ namespace hypha::reference_audition
                         std::int64_t sourcePosition,
                         std::int64_t cueStart, std::int64_t cueEnd,
                         bool loopEnabled, float linearGain) noexcept;
+        RenderResult renderResult (juce::AudioBuffer<float>& destination,
+                                   std::int64_t sourcePosition, float linearGain) noexcept;
+        RenderResult renderCueResult (juce::AudioBuffer<float>& destination,
+                                      std::int64_t sourcePosition,
+                                      std::int64_t cueStart, std::int64_t cueEnd,
+                                      bool loopEnabled, float linearGain) noexcept;
 
        #if defined(KIRIN_REFERENCE_AUDIO_PAGES_TEST_HOOK)
         using AcquireOwnershipHook = void (*) (AudioPages&);
@@ -93,7 +100,7 @@ namespace hypha::reference_audition
         Page* acquire (std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept;
         bool containsReady (std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept;
         void release (Page*) const noexcept;
-        bool renderRegion (juce::AudioBuffer<float>& destination,
+        RenderResult renderRegion (juce::AudioBuffer<float>& destination,
                            std::int64_t sourcePosition,
                            std::int64_t regionStart, std::int64_t regionEnd,
                            bool loopEnabled, float linearGain) noexcept;

@@ -5,6 +5,8 @@
 #include "ReferenceGuideContractTest.h"
 #include "../src/HyphaReferenceHelpText.h"
 
+#include <algorithm>
+#include <iterator>
 #include <set>
 
 namespace hypha::tests
@@ -29,7 +31,9 @@ inline void verifyReferenceHelpFits (const std::set<juce::String>& extra)
     shell.setDomain (observatory::Domain::reference);
     shell.setExternalAnalysisBodyActive (true);
     const auto line = shell.statusStripBounds().reduced (4, 0);
+    const auto wholeRow = shell.footerBounds().reduced (8, 0);
     require (line.getWidth() > 300, "300% has a footer line for the help");
+    require (wholeRow.getWidth() > line.getWidth(), "graph help has the whole footer row");
     const auto context = presentation::forEditor (900, 600);
     std::set<juce::String> texts (extra);
     for (const auto* text : reference_ui::help_text::all) texts.insert (text);
@@ -39,9 +43,16 @@ inline void verifyReferenceHelpFits (const std::set<juce::String>& extra)
         const i18n::ScopedLanguage shown (language);
         const auto font = labelFont (context, typography::TextRole::unit, typography::Composition::information);
         for (const auto& text : texts)
-            if (const auto width = text_style::shownWidth (font, text); width > static_cast<float> (line.getWidth()))
+        {
+            // Graphs, tabs and lists are in the page body; the editor gives their help the full
+            // footer row. Keep the narrower control-help check for the other collected tooltips.
+            const bool inBody = std::any_of (std::begin (reference_ui::help_text::all), std::end (reference_ui::help_text::all),
+                                             [&] (const auto* help) { return text == help; });
+            const auto available = inBody ? wholeRow.getWidth() : line.getWidth();
+            if (const auto width = text_style::shownWidth (font, text); width > static_cast<float> (available))
                 tooWide << "\n  " << (language == i18n::Language::japanese ? "JA " : "EN ") << juce::String (width, 0) << " > "
-                        << line.getWidth() << ": " << text_style::shownText (text);
+                        << available << ": " << text_style::shownText (text);
+        }
     }
     require (tooWide.isEmpty(), "every help fits the footer line at 300%:" + tooWide);
 }

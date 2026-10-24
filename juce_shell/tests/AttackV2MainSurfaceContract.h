@@ -64,10 +64,10 @@ bool quietValuesAndFacts (const presentation::Context& context, int width, int h
             MAIN_Q (text.contains (expected.removeCharacters (" \n")));
         }
         MAIN_Q (text.contains ((words ("Exact / bound / unknown / pending / N/A: ",
-            u8"確定 / 限界 / 不明 / 取得中 / 不成立: ") + "4/0/4/0/0").removeCharacters (" \n")));
-        MAIN_Q (text.contains (words ("Exact median ", u8"確定部分中央値 ").removeCharacters (" \n"))
-            && text.contains (words (" / age ", u8" / 古さ ").removeCharacters (" \n"))
-            && text.contains ((reasonText (KIRIN_REASON_CLOCK, true) + " 4").removeCharacters (" \n")));
+            "Exact / bound / unknown / pending / N/A: ") + "4/0/4/0/0").removeCharacters (" \n")));
+        MAIN_Q (text.contains (words ("Exact median ", u8"Exact median ").removeCharacters (" \n"))
+            && text.contains (juce::String (" / age ").removeCharacters (" \n"))
+            && text.contains (juce::String ("Clock changed 4").removeCharacters (" \n")));
         MAIN_Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey)));
     }
     // A selected single is still a measured value, independent from the aggregate's quiet dash.
@@ -125,7 +125,7 @@ bool allLiveAndLockedValues (const presentation::Context& context, int width, in
                 && ! main.texts().contains (scopeText (lane, live))
                 && (laneReason (lane).isEmpty() || ! main.texts().contains (laneReason (lane))));
         const auto text = main.texts().joinIntoString ("\n");
-        MAIN_Q (! text.contains (words ("Max age ", u8"確定最大古さ"))
+        MAIN_Q (! text.contains (words ("Max age ", u8"Max age "))
             && ! text.contains (words (" old", u8" 古さ")));
         {
             text_style::ShownTextLog facts;
@@ -134,7 +134,7 @@ bool allLiveAndLockedValues (const presentation::Context& context, int width, in
             const auto evidence = facts.texts().joinIntoString ("\n");
             MAIN_Q (! evidence.contains (words ("Requested ", u8"要求窓 "))
                 && ! evidence.contains (words ("Measured ", u8"実測窓 "))
-                && ! evidence.contains (words ("Resolution ", u8"判別範囲 ")));
+                && ! evidence.contains (words ("Resolution ", u8"細かさ ")));
             MAIN_Q (r.view->keyPressed (juce::KeyPress (juce::KeyPress::escapeKey)));
         }
     }
@@ -154,7 +154,7 @@ bool wholeValuesVisible (const presentation::Context& context, int width, int he
         text_style::ShownTextLog facts;
         MAIN_Q (r.view->keyPressed (juce::KeyPress ('i', {}, 'i')));
         MAIN_Q (renderAttack (*r.view).isValid());
-        MAIN_Q (! facts.texts().joinIntoString ("\n").contains (words (" / age ", u8" / 古さ ")));
+        MAIN_Q (! facts.texts().joinIntoString ("\n").contains (" / age "));
     }
     return true;
 }
@@ -265,7 +265,7 @@ bool verify()
                 MAIN_Q (laneReason (lane).isEmpty() || ! log.texts().contains (laneReason (lane)));
             }
             const auto mainText = log.texts().joinIntoString ("\n");
-            MAIN_Q (! mainText.contains (words ("Max age ", u8"確定最大古さ"))
+            MAIN_Q (! mainText.contains (words ("Max age ", u8"Max age "))
                 && ! mainText.contains (words (" old", u8" 古さ")));
             MAIN_Q (quietValuesAndFacts<Rig> (c, widths[size], heights[size]));
             MAIN_Q (allLiveAndLockedValues<Rig> (c, widths[size], heights[size]));

@@ -13,6 +13,7 @@ Kirin OS remains OS側の対応実装 `31fd330c`; its existing measurement 2.0 d
 - LOUDNESS is LUFS-S at a complete 3-second window endpoint. CREST is true peak / RMS over the same A/B bin. PSR is not substituted.
 - The detail chart uses one common vertical scale for both sides. A/B switching preserves the selected display region.
 - Click/drag and arrow keys change the view; Shift+arrow resizes it; FOLLOW/Home resumes following. None of these operations seeks, loops or switches DAW output.
+- FOLLOW shows ten seconds before playback and two seconds after it, keeping a twelve-second window within the song boundaries. The overview selection frame uses the same interval as the detail chart.
 - Normal A/B/C stays available at all five sizes. C Preset controls appear in C; compact B uses a location overview and point difference.
 - Source-qualified region, FOLLOW and metric preference persist in optional `ReferenceChoices/View` XML. Old settings remain readable. A observation validity is never restored.
 - When changing Versions in the same Work, two verified maps carry the selected DAW interval into the new source, including changed head padding. Pending loading does not erase the previous view choice.

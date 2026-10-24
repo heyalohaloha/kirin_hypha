@@ -1,5 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceCopyCorrespondence.h"
+#include "ReferenceLiveInputRestore.h"
 
 namespace hypha::reference_audition
 {
@@ -63,7 +64,7 @@ namespace hypha::reference_audition
                 && !latestPlaying.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire))
                 return blind.renderPausedA (buffer);
             if (! activeTransport || ! ready.load (std::memory_order_acquire)
-                || ! blind.render (buffer, hostPosition, positionValid, &pages, mappedSourcePosition (hostPosition)))
+                || ! blind.render (buffer, hostPosition, positionValid, &currentPages(), mappedSourcePosition (hostPosition)))
             {
                 invalidateBlindFromAudioThread();
                 return blind.renderInvalidatedA (buffer, normalReturnTransport);
@@ -95,7 +96,10 @@ namespace hypha::reference_audition
         for (int c = 0; c < channels; ++c)
             std::copy_n (buffer.getReadPointer (c), frames, normalLiveA[static_cast<size_t> (c)].data());
         const auto inputContinuity = aCapture.continuity();
+        auto* const renderingPages = &currentPages();
+        std::uint64_t renderedMapping = 0;
         bool rendered = false;
+        auto pageResult = AudioPages::RenderResult::invalid;
         for (int attempt = 0; attempt < 3 && ! rendered; ++attempt)
         {
             const auto generation = mappingGeneration.load (std::memory_order_acquire);
@@ -113,13 +117,41 @@ namespace hypha::reference_audition
             if (sourcePosition < 0
                 || mappingGeneration.load (std::memory_order_acquire) != generation)
                 continue;
-            rendered = pages.renderCue (buffer, sourcePosition, start, end, loops || restart, 1.0f);
+            pageResult = renderingPages->renderCueResult (buffer, sourcePosition, start, end, loops || restart, 1.0f);
+            rendered = pageResult == AudioPages::RenderResult::rendered;
+            renderedMapping = generation;
+        }
+        // A completed preparation can replace the page bank while an earlier callback
+        // is finishing. That callback must never mix the new PCM with the old gain.
+        if (epoch != auditionEpoch.load (std::memory_order_acquire)
+            || epoch != activeAuditionEpoch.load (std::memory_order_acquire)
+            || renderingPages != &currentPages()
+            || (rendered && renderedMapping != mappingGeneration.load (std::memory_order_acquire)))
+        {
+            for (int c = 0; c < channels; ++c)
+                std::copy_n (normalLiveA[static_cast<size_t> (c)].data(), frames, buffer.getWritePointer (c));
+            rtNormalBlend = 0.0f; normalAudible.store (false, std::memory_order_release);
+            return false;
         }
         if (! rendered)
         {
-            failClosedToAFromAudioThread(); rtNormalBlend = 0.0f; normalAudible.store (false);
+            restoreReferenceLiveInput (buffer, [&] (int c) { return normalLiveA[static_cast<size_t> (c)].data(); });
+            rtNormalBlend = 0.0f; normalAudible.store (false, std::memory_order_release);
+            if (pageResult == AudioPages::RenderResult::waitingForPages
+                && renderedMapping == mappingGeneration.load (std::memory_order_acquire))
+            {
+                normalPageWaiting.store (true, std::memory_order_release);
+                if (!selected)
+                {
+                    auto returningToken = gateToken;
+                    if (returningToken && normalReturnToken.compare_exchange_strong (returningToken, 0, std::memory_order_acq_rel))
+                        normalGateReleasePendingToken.store (gateToken, std::memory_order_release);
+                }
+            }
+            else failClosedToAFromAudioThread();
             return false;
         }
+        normalPageWaiting.store (false, std::memory_order_release);
         const bool verifyCopy = versionComparison && copyCorrespondence.load (std::memory_order_acquire);
         bool pcmAgrees = false;
         if (verifyCopy

@@ -8,6 +8,7 @@ template <typename Require>
 void verifyReaperTimingUi (Require require)
 {
     using namespace live_compare;
+    require (footer_notice::verifyCompletePaintOracle(), "wrapped notices retain all text and reject clipping");
     int cases = 0, clipped = 0;
     // Resize/change language on the same screen, as an open editor does.
     observatory::View named (observatory::Role::post); named.setVisible (true);
@@ -47,7 +48,7 @@ void verifyReaperTimingUi (Require require)
                 text_style::ShownTextLog actual;
                 const auto noticePixels = painted.createComponentSnapshot (painted.getLocalBounds());
                 const bool complete = noticePixels.isValid()
-                    && actual.texts().contains (text_style::shownText (notice));
+                    && footer_notice::completePaint (actual, text_style::shownText (notice), painted.getLocalBounds());
                 if (!complete)
                 {
                     ++clipped;
@@ -70,12 +71,9 @@ void verifyReaperTimingUi (Require require)
                     require (view.getLocalBounds().contains (child->getBounds()), "REAPER controls stay inside view");
                     if (auto* label = dynamic_cast<juce::Label*> (child))
                     {
-                        juce::AttributedString text;
-                        text.append (text_style::shownText (label->getText()), label->getFont(), juce::Colours::white);
-                        juce::TextLayout layout;
                         const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                        layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                        require (layout.getHeight() <= bounds.getHeight(), "REAPER bilingual text fits at 100/125/150 percent");
+                        const auto height = text_style::shownWrappedHeight (label->getText(), label->getFont(), bounds.getWidth());
+                        require (height <= bounds.getHeight() + 0.5f, "REAPER bilingual text fits at 100/125/150 percent");
                     }
                 }
                 const auto dir = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});

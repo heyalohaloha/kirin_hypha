@@ -14,7 +14,7 @@ const Entry entries[] = {
     { "All Keep: Kirin OS required", u8"All Keep：Kirin OSが必要です" },
     { "All Keep: %1 ready POSTs", u8"All Keep：準備済みのPOST %1" },
     { "All Keep: %1 ready POST", u8"All Keep：準備済みのPOST %1" },
-    { "Record / Keep: mono / stereo only", u8"Record／Keep：モノラル／ステレオのみ" },
+    { "Record / Keep: mono / stereo only", u8"Record／Keep：Mono／Stereoのみ" },
     { "Measurement", u8"計測" },
     { "Reset Meter Session", u8"Meter Sessionをリセット" },
     { "Add NOTE at current position", u8"今の位置にNOTEを追加" },
@@ -30,7 +30,7 @@ const Entry entries[] = {
       u8"2MIX / ミックスやマスターのバス" },
     { "TRACK / STEM / Individual track or stem",
       u8"TRACK / STEM / 個別のトラックやステム" },
-    { "Observation view", u8"表示する観測" },
+    { "Observation view", u8"表示する画面" },
     { "30 seconds", u8"30秒" },
     { "2 minutes", u8"2分" },
     { "10 minutes", u8"10分" },
@@ -55,13 +55,13 @@ const Entry entries[] = {
     { "Click to edit this PRE name.", u8"クリックしてこのPREの名前を編集します。" },
     { "Connect this PRE: %1. The arrow opens all candidates.",
       u8"このPREに接続します：%1。矢印を押すと候補をすべて表示します。" },
-    { "Spectrum size", u8"スペクトラムの大きさ" },
+    { "Spectrum size", u8"Spectrumの大きさ" },
     { "Cycle POST Analysis between 100, 125, 150, and 200 percent",
       u8"POSTの解析の大きさを100、125、150、200%で切り替えます" },
 
     // The OS Guide details.
-    { "Sources  %1", u8"ソース  %1" },
-    { "Source  %1", u8"ソース  %1" },
+    { "Sources  %1", u8"音源  %1" },
+    { "Source  %1", u8"音源  %1" },
     { "Channel  %1", u8"チャンネル  %1" },
     { "Frequency focus  %1", u8"確認する周波数範囲  %1" },  // Kirin OS で選んだ範囲（2026-10-18）
     { "Next frequency focus  %1", u8"次に確認する周波数範囲  %1" },  // 次の項目の範囲（始まる前）
@@ -83,9 +83,9 @@ const Entry entries[] = {
 
     // The chain timing in POST's information.
     { "PRE to POST chain", u8"PREからPOSTまでのチェーン" },
-    { "Elapsed %1 ms typical / %2 ms peak", u8"経過時間  通常 %1 ms / ピーク %2 ms" },
+    { "Elapsed %1 ms typical / %2 ms peak", u8"経過時間  通常 %1 ms / Peak %2 ms" },
     { "Share of a %1 ms block: %2% typical / %3% peak",
-      u8"ブロック長（%1 ms）に対する割合  通常 %2% / ピーク %3%" },
+      u8"ブロック長（%1 ms）に対する割合  通常 %2% / Peak %3%" },
     { "Counted %1% of blocks (%2)", u8"計測できたブロック %1%（%2）" },
     { "Elapsed time between PRE and POST, not CPU usage",
       u8"PREとPOSTの間の経過時間です。CPU使用率ではありません" },
@@ -121,7 +121,7 @@ const Entry entries[] = {
 
     // The choice when MATCH would raise PRE above the true-peak ceiling.
     { "PRE needs %1; TP ceiling allows %2", u8"PREは%1必要、TP上限までは%2" },
-    { "Lower POST by %1; PRE stays at its level", u8"POSTを%1下げる（PREは原音量のまま）" },
+    { "Lower POST by %1; PRE stays at its level", u8"POSTを%1下げる（PREは元の音量のまま）" },
     { "Raise PRE by %1 only (TP LIMIT)", u8"PREを%1だけ上げる（TP LIMIT）" },
     // MATCH once matched: again, or AUTO (INV-LC16).
     { "MATCH again", u8"もう一度MATCH" },

@@ -1,5 +1,6 @@
 //! The Keep entry shared by the direct control and the All Keep receiver: pair selection,
 //! pairing reservation, the capture generation and the PRE signal.
+use super::keep_preparation::KeepFailure;
 use super::*;
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
@@ -9,6 +10,8 @@ use super::*;
 /// Drop は generation archive の immutable rosterだけを受理して今回WAVを結び付ける。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_and_enter_keep(
+    held_control: &std::sync::MutexGuard<'_, ()>,
+    keep_control: &Arc<Mutex<()>>,
     license: License,
     record_sm: &RecordStateMachine,
     pair_target: &RwLock<String>,
@@ -47,12 +50,24 @@ pub(crate) fn resolve_and_enter_keep(
         daw,
         latched,
     ) else {
-        return false; // 未ラッチ時の厳格選定 None: 空名/不在/曖昧/Bypassed/古t（Inactive は許容）。
+        if pair.is_empty() {
+            KeepFailure::ChoosePre.publish(keep_action_notice);
+        } else {
+            KeepFailure::PreUnavailable.publish(keep_action_notice);
+        }
+        return false;
     };
     let target = sel.instance_id.clone();
     let base = match StoragePaths::default_platform() {
         Ok(p) => p.plugin_data_dir(),
-        Err(_) => return false,
+        Err(error) => {
+            KeepFailure::from_storage(&error).report(
+                keep_action_notice,
+                "storage location",
+                &error,
+            );
+            return false;
+        }
     };
     // A single Keep owns the same two-phase generation contract as All Keep. External
     // generations are already staged by the All Keep originator and are committed only after all
@@ -75,17 +90,7 @@ pub(crate) fn resolve_and_enter_keep(
         Some(generation) => match CaptureGenerationTransaction::begin(&base, generation) {
             Ok(transaction) => Some(transaction),
             Err(error) => {
-                if matches!(
-                    error,
-                    kirin_measure::CaptureGenerationError::Io(ref error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                ) {
-                    if let Ok(mut message) = keep_action_notice.write() {
-                        *message = Some("Another Keep is active".to_string());
-                    }
-                } else if let Ok(mut message) = record_error_message.write() {
-                    *message = Some("Failed to start record".to_string());
-                }
+                KeepFailure::from_generation(&error).report(keep_action_notice, "begin", &error);
                 return false;
             }
         },
@@ -111,10 +116,12 @@ pub(crate) fn resolve_and_enter_keep(
             }
             // G-115-365 (3): 枠が取れない（write_all 失敗等の Err / 不完全枠は内部で unlink 済）= reject。
             // 枠なしで keep に入らない。
-            Err(_) => {
-                if let Ok(mut g) = keep_action_notice.write() {
-                    *g = Some("Maximum 12 pairs reached".to_string());
-                }
+            Err(error) => {
+                KeepFailure::from_storage_io(error.kind()).report(
+                    keep_action_notice,
+                    "pair reservation",
+                    &error,
+                );
                 return false;
             }
         };
@@ -136,6 +143,7 @@ pub(crate) fn resolve_and_enter_keep(
             if reservation_created {
                 reservation::release_pairing(&base, project_hash, &target, post_iid);
             }
+            KeepFailure::SetupChanged.publish(keep_action_notice);
             return false;
         };
         if !generation_member.pre_instance_id.is_empty()
@@ -144,6 +152,7 @@ pub(crate) fn resolve_and_enter_keep(
             if reservation_created {
                 reservation::release_pairing(&base, project_hash, &target, post_iid);
             }
+            KeepFailure::SetupChanged.publish(keep_action_notice);
             return false;
         }
     }
@@ -153,20 +162,16 @@ pub(crate) fn resolve_and_enter_keep(
             if reservation_created {
                 reservation::release_pairing(&base, project_hash, &target, post_iid);
             }
-            if let Ok(mut message) = record_error_message.write() {
-                *message = Some("Failed to start record".to_string());
-            }
+            KeepFailure::SetupChanged.publish(keep_action_notice);
             return false;
         }
     };
     if let Some(transaction) = owned_transaction.as_mut() {
-        if transaction.stage().is_err() {
+        if let Err(error) = transaction.stage() {
             if reservation_created {
                 reservation::release_pairing(&base, project_hash, &target, post_iid);
             }
-            if let Ok(mut message) = record_error_message.write() {
-                *message = Some("Failed to start record".to_string());
-            }
+            KeepFailure::from_generation(&error).report(keep_action_notice, "stage", &error);
             return false;
         }
     }
@@ -207,60 +212,34 @@ pub(crate) fn resolve_and_enter_keep(
             });
         }
         if let Some(transaction) = owned_transaction.take() {
-            let action_notice = Arc::clone(keep_action_notice);
-            let phase = Arc::clone(keep_phase);
-            let phase_generation = Arc::clone(keep_phase_generation_started_at_ms);
-            let generation_started_at_ms = generation.started_at_ms;
-            if transaction
-                .commit_when_ready_async(CAPTURE_PRODUCER_READY_TIMEOUT, move |result| {
-                    if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
-                        return;
-                    }
-                    match result {
-                        Ok(()) => phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release),
-                        Err(_error) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!("Keep preparation failed: {_error}");
-                            phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-                            if let Ok(mut message) = action_notice.write() {
-                                *message = Some("Failed to arm PRE and POST".to_string());
-                            }
-                        }
-                    }
-                })
-                .is_err()
-            {
-                keep_phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-                if let Ok(mut message) = keep_action_notice.write() {
-                    *message = Some("Failed to arm PRE and POST".to_string());
-                }
+            if !super::keep_preparation::start_keep_preparation(
+                transaction,
+                held_control,
+                keep_control,
+                keep_action_notice,
+                keep_phase,
+                keep_phase_generation_started_at_ms,
+                generation.started_at_ms,
+                false,
+            ) {
                 return false;
             }
-        } else if !spawn_keep_phase_observer(
+        } else if let Err(error) = spawn_keep_phase_observer(
             base.clone(),
             generation.capture_generation_id.clone(),
             generation.started_at_ms,
+            Arc::clone(keep_control),
             Arc::clone(keep_phase),
             Arc::clone(keep_phase_generation_started_at_ms),
         ) {
             keep_phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-            if let Ok(mut message) = keep_action_notice.write() {
-                *message = Some("Failed to arm PRE and POST".to_string());
-            }
+            KeepFailure::WorkerUnavailable.report(keep_action_notice, "observer dispatch", &error);
             return false;
         }
         true
     } else {
-        if matches!(
-            write_result,
-            Err(SignalError::Io(ref error))
-                if error.kind() == std::io::ErrorKind::WouldBlock
-        ) {
-            if let Ok(mut g) = keep_action_notice.write() {
-                *g = Some("Another Keep is active".to_string());
-            }
-        } else if let Ok(mut g) = record_error_message.write() {
-            *g = Some("Failed to start record".to_string());
+        if let Err(error) = write_result {
+            KeepFailure::from_signal(&error).report(keep_action_notice, "PRE request", &error);
         }
         // write_pending 失敗時も予約枠を戻す（自分が作った場合のみ）。
         if reservation_created {
@@ -279,9 +258,10 @@ fn spawn_keep_phase_observer(
     base: std::path::PathBuf,
     capture_generation_id: String,
     generation_started_at_ms: i64,
+    control: Arc<Mutex<()>>,
     phase: Arc<AtomicU8>,
     phase_generation: Arc<AtomicI64>,
-) -> bool {
+) -> std::io::Result<()> {
     std::thread::Builder::new()
         .name("hypha-arm-observer".to_string())
         .spawn(move || {
@@ -299,7 +279,12 @@ fn spawn_keep_phase_observer(
                             && active.started_at_ms == generation_started_at_ms
                     })
                 {
-                    phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
+                    super::keep_preparation::with_current_generation(
+                        &control,
+                        &phase_generation,
+                        generation_started_at_ms,
+                        || phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release),
+                    );
                     return;
                 }
                 let terminal = kirin_measure::read_generation_terminal(
@@ -308,13 +293,18 @@ fn spawn_keep_phase_observer(
                     generation_started_at_ms,
                 );
                 if terminal.ok().flatten().is_some() || Instant::now() >= deadline {
-                    phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
+                    super::keep_preparation::with_current_generation(
+                        &control,
+                        &phase_generation,
+                        generation_started_at_ms,
+                        || phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release),
+                    );
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
         })
-        .is_ok()
+        .map(|_| ())
 }
 
 #[cfg(test)]

@@ -113,7 +113,7 @@ inline void verifyReferenceStatusLine()
         under.peakShortfallDb = 0.3;
         const auto line = reference_ui::referenceStatusLine (under).text;
         require (line.contains ("0.3 DB UNDER A (PEAK LIMIT)")
-                     && i18n::translate (line, i18n::Language::japanese).contains (juce::String (juce::CharPointer_UTF8 ("\xe3\x83\x94\xe3\x83\xbc\xe3\x82\xaf"))),
+                     && i18n::translate (line, i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"Aより0.3 dB小さい（Peak上限）")),
                  "a role played at the ceiling short of A says by how much, in both languages");
         under.peakShortfallDb = 0.0;
         require (! reference_ui::referenceStatusLine (under).text.contains ("UNDER A"), "a full match says nothing about it");
@@ -130,7 +130,7 @@ inline void verifyReferenceStatusLine()
     }
     playing.gainLimited = true;
     require (reference_ui::gainReadout (playing) == "V +1.5 dB  /  MATCH UNAVAILABLE"
-                 && i18n::translate (reference_ui::gainReadout (playing), i18n::Language::japanese).contains ("Gain Match"),
+                 && i18n::translate (reference_ui::gainReadout (playing), i18n::Language::japanese).contains (juce::String::fromUTF8 (u8"MATCH不可")),
              "a gain that cannot match says so");
     playing.gainLimited = false;
     playing.heldAttenuationDb = 0.0;
@@ -148,7 +148,7 @@ inline void verifyReferenceStatusLine()
     require (line.kind == StatusKind::unable && line.text.endsWith ("SELECT AGAIN"),
              "a stopped switch says to select again");
 
-    // B の画面で B SET が無い：Kirin OS で B SET を出すのが直し方。B の段階は Kirin OS からの届き方と B セットも含む。
+    // B の画面で REFERENCE SET が無い：Kirin OS で REFERENCE SET を出すのが直し方。B の段階は Kirin OS からの届き方と B セットも含む。
     reference_audition::Snapshot library;
     library.libraryReceived = library.osOnline = true;
     require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::rankSet,
@@ -160,15 +160,15 @@ inline void verifyReferenceStatusLine()
     noSet.songSets.clear();
     noSet.referenceStep = Step::rankSet;
     line = reference_ui::referenceStatusLine (noSet);
-    require (line.kind == StatusKind::unable && line.text == "NO B SET FOR HYPHA / RANK A B SET FOR HYPHA IN KIRIN OS",
+    require (line.kind == StatusKind::unable && line.text == "NO REFERENCE SET FOR HYPHA / RANK A REFERENCE SET FOR HYPHA IN KIRIN OS",
              "a B page with no B set says how to make one: " + line.text);
-    // B SET を出しているのに sets.json を形ごと読めないときは、出し方ではなく更新を言う。
+    // REFERENCE SET を出しているのに sets.json を形ごと読めないときは、出し方ではなく更新を言う。
     library.songSetsIssue = "reference_library_sets_rejected";
     require (reference_ui::runtime_view::referenceStep (library, library, true) == Step::setsNotRead,
              "sets Hypha could not read are not mistaken for missing ones");
     noSet.referenceStep = Step::setsNotRead;
     line = reference_ui::referenceStatusLine (noSet);
-    require (line.kind == StatusKind::unable && line.text == "B SETS NOT READ / UPDATE KIRIN OS AND HYPHA",
+    require (line.kind == StatusKind::unable && line.text == "REFERENCE SETS NOT READ / UPDATE KIRIN OS AND HYPHA",
              "a B set Hypha could not read says to update: " + line.text);
     // Kirin OS からまだ届いていない B：開いていれば待ち（上限あり）、閉じていれば開くのが直し方（INV-S48。2026-10-06：
     // B のページだけ、いつも「できない」と言っていた）。

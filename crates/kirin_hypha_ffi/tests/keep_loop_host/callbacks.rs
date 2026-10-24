@@ -129,6 +129,19 @@ impl Host {
 }
 
 impl Host {
+    fn wait_for_measurement(
+        &mut self,
+        read: impl FnMut() -> [(Option<i64>, Option<u64>); 2],
+        behind: impl Fn(&progress::MeterProgress) -> bool,
+        mut elapsed: impl FnMut() -> Duration,
+        hold: impl FnMut(),
+    ) -> Result<(), [progress::MeterProgress; 2]> {
+        let began = elapsed();
+        let result = progress::wait_for_measurement(CATCH_UP, read, behind, &mut elapsed, hold);
+        self.start += elapsed().saturating_sub(began);
+        result
+    }
+
     pub fn hold_measured_for_cycle(&mut self, pre: &KirinHyphaEngine, post: &KirinHyphaEngine) {
         self.hold_measured(pre, post, |end| end.unwrap_or(0));
     }
@@ -166,8 +179,7 @@ impl Host {
     ) {
         let started = Instant::now();
         let position = self.position;
-        let result = progress::wait_for_measurement(
-            CATCH_UP,
+        let result = self.wait_for_measurement(
             || {
                 [pre, post].map(|engine| {
                     (
@@ -187,12 +199,15 @@ impl Host {
                     engine.push_samples(&[], 2);
                 }
                 sleep(HOLD);
-                self.start += HOLD;
             },
         );
         assert!(result.is_ok(), "measurement catch-up stopped: {result:?}");
     }
 }
+
+#[cfg(test)]
+#[path = "clock_tests.rs"]
+mod clock_tests;
 
 fn bypassed(engine: &KirinHyphaEngine, position: i64, playing: bool) {
     engine.set_signal_state(2);

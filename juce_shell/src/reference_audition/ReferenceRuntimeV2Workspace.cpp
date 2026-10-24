@@ -3,9 +3,9 @@
 #include "ReferenceLibraryLegacyChoice.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceRuntimePresetOptions.h"
+#include "ReferenceTestCommitObserver.h"
 
 #include <cmath>
-#include <limits>
 
 namespace hypha::reference_audition
 {
@@ -19,7 +19,6 @@ namespace hypha::reference_audition
                     return &preset;
             return nullptr;
         }
-
         void appendPresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace, int trackChannels)
         {
             appendRuntimePresetOptions (snapshot, workspace, trackChannels);
@@ -49,6 +48,23 @@ namespace hypha::reference_audition
             return nullptr;
         }
 
+        bool retainsAudibleSelection (const RuntimeWorkspace& publication, const Snapshot& audible,
+                                       RuntimeV2SourceRepository& sources, int channels)
+        {
+            const auto* preset = findPreset (publication, audible.presetId);
+            const auto* check = preset ? findCheck (*preset, audible.checkId) : nullptr;
+            const auto* candidate = check ? findCandidate (*check, audible.candidateId) : nullptr;
+            const auto* cue = candidate ? findCue (*candidate, audible.cueId) : nullptr;
+            if (!cue) return false;
+            const auto source = sources.load (*candidate);
+            if (!source.accepted()) return false;
+            auto key = runtimeSelectionPlaybackIdentity (*preset, *check, *candidate, *cue,
+                publication.library ? runtimeSourceAudioIdentity (*source.source) : juce::String {});
+            appendPlaybackIdentity (key, juce::String (audible.hostSampleRateHz));
+            appendPlaybackIdentity (key, juce::String (channels));
+            return key == audible.playbackIdentity;
+        }
+
         std::int64_t outputSample (std::int64_t sourceSample, std::int64_t sourceRate,
                                    std::int64_t outputRate)
         {
@@ -58,10 +74,6 @@ namespace hypha::reference_audition
                 static_cast<long double> (sourceSample) * outputRate / sourceRate));
         }
 
-        double unavailable() noexcept
-        {
-            return std::numeric_limits<double>::quiet_NaN();
-        }
     }
 
     void RuntimeV2Controller::refreshWorkspace (const Configuration& configuration,
@@ -69,6 +81,7 @@ namespace hypha::reference_audition
     {
         if (! configuration.identity.valid())
             return;
+        if (servicePreparedWorkspace (configuration)) return;
         if (! configuration.identity.library) writeCapability (root, configuration.identity, nowMs);
         libraryOnline.store (configuration.identity.library && repository.libraryOnline (nowMs),
                              std::memory_order_release);
@@ -116,6 +129,15 @@ namespace hypha::reference_audition
             next.rejectionCode = loaded.rejectionCode;
             publish (std::move (next));
             return;
+        }
+        const bool publicationChanged = workspace && workspace->publicationHash != loaded.workspace->publicationHash;
+        if (prepareBeforeReturn.load (std::memory_order_acquire) && publicationChanged
+            && bSelected.load (std::memory_order_acquire))
+        {
+            Snapshot audible;
+            { const juce::ScopedLock lock (stateLock); audible = currentSnapshot; }
+            if (!retainsAudibleSelection (*loaded.workspace, audible, sourceRepository, configuration.channels))
+                failClosedToA();
         }
         { const juce::ScopedLock lock (stateLock); workspace = loaded.workspace; }  // visualBinding がメッセージスレッドから読む
         if (versionComparison && workspace->independentVersions)
@@ -326,13 +348,11 @@ namespace hypha::reference_audition
         appendPlaybackIdentity (publicationKey, juce::String (next.hostSampleRateHz));
         appendPlaybackIdentity (publicationKey, juce::String (configuration.channels));
         next.playbackIdentity = publicationKey;
-        if (publicationKey != activePublishedSelectionKey)
+        if (!prepareBeforeReturn.load (std::memory_order_acquire)
+            && publicationKey != activePublishedSelectionKey)
         {
             revokeAuditionPublication();
-            if (blind.ongoing())
-                invalidateBlind();
-            else
-                selectA();
+            if (blind.ongoing()) invalidateBlind(); else selectA();
         }
         next.sourceSampleRateHz = selectedSource->audio.sampleRateHz;
         // OS-prepared display evidence is independent of permission to resample audition audio.
@@ -366,110 +386,55 @@ namespace hypha::reference_audition
             const auto profile = profileRepository.load (binding.profileArtifact);
             if (profile.accepted()) next.profiles.push_back (profile.profile);
         }
+        next.alignmentPrepared = alignmentRepository.load (*selectedSource).accepted();
         // サンプルレートの変換は自動（試聴コピーだけを変換し、元のファイルは変えない）。承認を待たない。
         const bool rateDiffers = selectedSource->audio.sampleRateHz != next.hostSampleRateHz;
         const auto mappedCueStart = outputSample (cue->startSample, cue->sampleRateHz, next.hostSampleRateHz);
         const auto mappedCueEnd = outputSample (cue->endSample, cue->sampleRateHz, next.hostSampleRateHz);
 
-        const auto sourceKey = mediaKey + ":"
-            + juce::String (next.hostSampleRateHz) + ":"
-            + (rateDiffers ? "converted" : "native");
-        if (sourceKey != activeSourceKey || ! pages.sourceOpen())
+        WorkspaceSelection prepared;
+        prepared.configuration = configuration; prepared.selection = selection;
+        prepared.next = std::move (next); prepared.candidate = *candidate;
+        prepared.cue = *cue; prepared.source = selectedSource;
+        prepared.songEntry = preset->songEntry;
+        prepared.sourceTemplateArtifact = preset->sourceTemplateArtifact;
+        prepared.preparedAtMs = nowMs;
+        prepared.sourceKey = mediaKey + ":" + juce::String (prepared.next.hostSampleRateHz)
+            + ":" + (rateDiffers ? "converted" : "native");
+        prepared.event = { configuration.identity, workspace->manifest.revision,
+            preset->sourcePresetArtifact, prepared.next.presetName, prepared.next.checkId,
+            prepared.next.checkLabel, prepared.next.candidateId, prepared.next.candidateName,
+            prepared.next.cueId, selectedCueLabel, prepared.next.comparisonMode, preset->versionEntry };
+        prepared.adoptionKey = configuration.identity.runtimeInstanceId + ":"
+            + juce::String (configuration.identity.hostProcessId) + ":" + configuration.identity.workId + ":"
+            + juce::String (workspace->manifest.revision) + ":" + preset->sourceTemplateArtifact.sha256
+            + ":" + preset->sourcePresetArtifact.sha256;
+        if (prepareBeforeReturn.load (std::memory_order_acquire)
+            && (publicationKey != activePublishedSelectionKey || !ready.load (std::memory_order_acquire)))
         {
-            revokeAuditionPublication();
-            if (blind.ongoing())
-                invalidateBlind();
-            else
-                selectA();
-            pages.close();
-            const auto openFailure = pages.open (*selectedSource, configuration.sampleRate,
-                                                 configuration.channels, true);
-            if (openFailure.isNotEmpty())
+            prepared.staged = true;
+            auto& staging = nextPages();
+            const auto failure = staging.open (*selectedSource, configuration.sampleRate, configuration.channels, true);
+            if (failure.isNotEmpty())
             {
-                next.state = RuntimeState::rejected;
-                next.rejectionCode = openFailure;
-                publish (std::move (next));
-                return;
+                failClosedToA(); prepared.next.state = RuntimeState::rejected;
+                prepared.next.rejectionCode = failure; publish (std::move (prepared.next)); return;
             }
-            activeSourceKey = sourceKey;
-        }
-        workerSource = selectedSource;
-        const auto alignment = alignmentRepository.load (*selectedSource);
-        next.alignmentPrepared = alignment.accepted();
-
-        const auto cueKey = runtimeCuePlaybackIdentity (*cue);
-        const auto mappingKey = activeSourceKey + ":" + cueKey;
-        if (activeMappingKey != mappingKey)
-        {
-            const juce::ScopedLock mappingLock (mappingWriteLock);
-            mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-            cueStart.store (mappedCueStart, std::memory_order_relaxed);
-            cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
-            cueLoops.store (cue->loopEnabled, std::memory_order_relaxed);
-            sampleLocked.store (candidate->sourceKind == "work_version"
-                                && candidate->sourceWorkId == configuration.identity.workId,
-                                std::memory_order_relaxed);
-            bHostAnchor.store (latestHostPosition.load (std::memory_order_acquire),
-                               std::memory_order_relaxed);
-            bSourceAnchor.store (mappedCueStart, std::memory_order_relaxed);
-            mappingGeneration.fetch_add (1, std::memory_order_release);
-            activeMappingKey = mappingKey;
-            activeContentMappingKey.clear();
-        }
-        // Cue の頭から鳴らし直す役（DAW の位置に合わせない曲）も、周回して頭へ戻るので頭のページを読んでおく。
-        pages.setPinnedCue (mappedCueStart, mappedCueEnd, cue->loopEnabled || restartsAtCueStart());
-        // MATCH compares A with what is played: the opened file's channels on this track's channels.
-        next.sourceLoudnessOffsetLu = pages.playbackLoudnessOffsetLu();
-        next.sourceIntegratedLoudness = selectedSource->measurementSummary
-            && selectedSource->measurementSummary->loudnessLufsI
-            ? *selectedSource->measurementSummary->loudnessLufsI : unavailable();
-        next.sourceMaximumTruePeakDbtp = selectedSource->measurementSummary
-            && selectedSource->measurementSummary->maximumTruePeakDbtp
-            ? *selectedSource->measurementSummary->maximumTruePeakDbtp : unavailable();
-        serviceBlindPreparation (configuration, *candidate, *cue, selectedSource, next);
-        const auto adoptionKey = configuration.identity.runtimeInstanceId + ":"
-            + juce::String (configuration.identity.hostProcessId) + ":"
-            + configuration.identity.workId + ":"
-            + juce::String (workspace->manifest.revision) + ":"
-            + preset->sourceTemplateArtifact.sha256 + ":"
-            + preset->sourcePresetArtifact.sha256;
-        if (! configuration.identity.library && adoptionKey != activePresetAdoptionKey
-            && presetAdoptionTransport.write (
-                configuration.identity,
-                workspace->manifest.revision,
-                preset->sourceTemplateArtifact,
-                preset->sourcePresetArtifact,
-                nowMs))
-            activePresetAdoptionKey = adoptionKey;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (requestedSelection.generation == selection.generation)
+            staging.setPinnedCue (mappedCueStart, mappedCueEnd, true);
+            staging.request (mappedCueStart); staging.service();
             {
-                requestedSelection.presetId = next.presetId;
-                requestedSelection.checkId = next.checkId;
-                requestedSelection.candidateId = next.candidateId;
-                requestedSelection.cueId = preset->songEntry ? juce::String {} : next.cueId;
+                const juce::ScopedLock lock (stateLock);
+                preparedReturn = {selection.generation, prepared.next.cueWindowBlocks,
+                    prepared.next.comparisonMode == "loudness_match" ? PreparedLevel::loudness
+                        : prepared.next.comparisonMode == "peak_match" ? PreparedLevel::peak : PreparedLevel::none,
+                    true, false};
             }
-            activeEventContext = {
-                configuration.identity,
-                workspace->manifest.revision,
-                preset->sourcePresetArtifact,
-                next.presetName,
-                next.checkId,
-                next.checkLabel,
-                next.candidateId,
-                next.candidateName,
-                next.cueId,
-                selectedCueLabel,
-                next.comparisonMode,
-                preset->versionEntry,
-            };
-            activeEventCandidate = *candidate;
-            activeEventCue = *cue;
-            activeEventSource = selectedSource;
+            preparedWorkspace = std::move (prepared);
+            KIRIN_REFERENCE_COMMIT_FOR_TEST();
+            servicePreparedWorkspace (configuration);
+            return;
         }
-        publishReady (std::move (next), selectedSource, *cue);
-        activePublishedSelectionKey = publicationKey;
+        finishWorkspaceSelection (std::move (prepared));
     }
 
 }

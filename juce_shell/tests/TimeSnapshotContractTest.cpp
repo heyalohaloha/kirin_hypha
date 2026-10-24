@@ -287,10 +287,10 @@ void verifyFailureReasons()
 {
     struct Case { uint8_t reason; const char* english; const char* japanese; };
     const Case cases[] {
-        { KIRIN_TIME_REASON_WAITING, "Waiting for corresponding PRE observation", u8"同時刻のPRE観測を待機中" },
-        { KIRIN_TIME_REASON_STOPPED, "PRE observation stopped; history held", u8"PRE観測が停止・履歴を保持" },
-        { KIRIN_TIME_REASON_INCOMPATIBLE, "PRE and POST observations are incompatible", u8"PREとPOSTの観測は比較できません" },
-        { KIRIN_TIME_REASON_MISSING, "PRE observation unavailable", u8"PRE観測を取得できません" },
+        { KIRIN_TIME_REASON_WAITING, "Waiting for corresponding PRE observation", u8"同じ時刻のPREの計測値を待っています" },
+        { KIRIN_TIME_REASON_STOPPED, "PRE observation stopped; history held", u8"PREの計測が停止・履歴を保持" },
+        { KIRIN_TIME_REASON_INCOMPATIBLE, "PRE and POST observations are incompatible", u8"PREとPOSTの計測値は比較できません" },
+        { KIRIN_TIME_REASON_MISSING, "PRE observation unavailable", u8"PREの計測値を取得できません" },
     };
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
@@ -387,14 +387,14 @@ void verifyNativePaintAndCapture()
                 require (language == i18n::Language::english
                     ? scope.contains ("processed Session prefix") && scope.contains ("completed 100 ms point")
                         && scope.contains ("LEVEL: latest Session") && scope.contains ("PSR is independent")
-                    : scope.contains (juce::String::fromUTF8 ("完了した100 ms"))
-                        && scope.contains (juce::String::fromUTF8 ("処理済みSession範囲"))
-                        && scope.contains (juce::String::fromUTF8 ("LEVELは最新。PSRは独立")),
+                    : scope.contains (juce::String::fromUTF8 (u8"完了した100 ms時点までの処理済みSession"))
+                        && scope.contains (juce::String::fromUTF8 (u8"LEVELは最新のSession"))
+                        && scope.contains (juce::String::fromUTF8 (u8"PSRは独立")),
                     "localized concise help preserves completed-point prefix and independent Session/PSR scopes");
             }
             if (showPsr) require (language == i18n::Language::english
                 ? help.contains ("400 ms sample peak minus 3 s loudness") && help.contains ("independently compares")
-                : help.contains (juce::String::fromUTF8 ("400 msサンプルピーク"))
+                : help.contains (juce::String::fromUTF8 (u8"400 msのSample Peak"))
                     && help.contains (juce::String::fromUTF8 ("全体表示とは独立")),
                 "formula and independent scope live in localized help");
             require (! hasText (log, "PSR = 400 ms sample peak minus 3 s loudness"),

@@ -10,6 +10,8 @@ namespace hypha::reference_ui
 class ComparisonView final : public juce::Component
 {
 public:
+    static constexpr double followHistorySeconds = 10.0;
+    static constexpr double followLookAheadSeconds = 2.0;
     ComparisonView();
     void update (std::shared_ptr<const reference_audition::VisualTimeline>, double,
                  presentation::Context, bool concealed, std::shared_ptr<reference_audition::VisualPreferences> = {},

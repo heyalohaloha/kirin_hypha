@@ -1,5 +1,7 @@
 #pragma once
 #include "ReferenceADirectionTest.h"
+#include "ReferenceHeaderFitTest.h"
+#include "ReferenceVersionStopTextTest.h"
 #include "../src/HyphaReferenceDisplayText.h"
 #include "../src/HyphaReferenceGainText.h"
 #include "../src/HyphaReferenceNotices.h"
@@ -38,7 +40,7 @@ inline reference_ui::State bState()
 {
     auto state = a_direction::checkState();
     state.comparisonSlot = 3; state.blindLargeScreen = true;
-    state.songSets = {{"set", "B set"}}; state.songSetId = "set";
+    state.songSets = {{"set", "Reference set"}}; state.songSetId = "set";
     state.songs = {{"one/one/one", "First source"}, {"two/two/two", "Second source"}};
     state.songId = state.songs.front().id;
     for (int n = 0; n < 2; ++n)
@@ -85,6 +87,7 @@ inline void verifyApprovalPreview()
 
 inline void verifyLegends (bool check)
 {
+    if (check) verifyRegularHeaderSizes();
     for (auto language : {i18n::Language::english, i18n::Language::japanese})
     {
         i18n::ScopedLanguage scoped (language);
@@ -103,18 +106,19 @@ inline void verifyLegends (bool check)
             const auto drawn = a_direction::drawnTexts (panel);
             if (check)
             {
+                verifyHeaderLayouts (panel, state);
                 requireWhole (drawn, "LOW FREQUENCY");
                 for (const auto& text : {"A LAST 30 S", "C CHORUS", "LEVEL NOT MATCHED"}) requireWhole (drawn, text);
             }
             else
             {
-                requireWhole (drawn, "B SET RANGE");
+                requireWhole (drawn, "REFERENCE RANGE");
                 requireWhole (drawn, "B CHORUS 1:02-1:24");
                 state.songFacts.front().part = reference_audition::CuePart::loudest;
                 panel.setState (state);
                 const auto longer = a_direction::drawnTexts (panel);
                 requireWhole (longer, "B LOUDEST 30 S 1:02-1:24");
-                requireWhole (longer, "B SET RANGE");
+                requireWhole (longer, "REFERENCE RANGE");
             }
         }
     }
@@ -182,6 +186,8 @@ inline void verifyCueLabels()
 inline void exportSnapshots (const juce::File& directory)
 {
     require (directory.createDirectory().wasOk(), "create the requested layout evidence directory");
+    exportHeaderSnapshots (directory.getChildFile ("c-headers"), inspectionSizes());
+    verifyVersionStopPage (directory.getChildFile ("v-stops"));
     for (auto language : {i18n::Language::english, i18n::Language::japanese})
     {
         i18n::ScopedLanguage scoped (language);

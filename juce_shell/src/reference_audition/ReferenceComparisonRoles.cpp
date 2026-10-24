@@ -15,6 +15,8 @@ bool ReferenceComparisonController::selectB (double loudness, double peak) noexc
 }
 bool ReferenceComparisonController::selectC (double loudness, double peak) noexcept
 {
+    // The audible C still belongs to the old selection while its replacement prepares.
+    if (preparingCheck()) return ! trialActive();
     clearPendingAudition(); switchSlot.store (0, std::memory_order_release);
     if (trialActive() || ! snapshot().checkReady) return false;
     reference.selectA(); version.selectA();

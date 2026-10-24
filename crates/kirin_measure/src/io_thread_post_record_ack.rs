@@ -10,6 +10,9 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+#[cfg(test)]
+#[path = "io_thread_post_preparation_tests.rs"]
+mod preparation_tests;
 
 /// B-023 段階 4: record_signal の Acknowledged を検知して pair_label を更新。
 ///
@@ -203,6 +206,7 @@ pub(super) fn poll_record_signal_ack_with_base(
             }
         }
     }
+    publish_post_preparation(base, project_hash, instance_id, record_sm, &signal);
     let new_label = format_pair_label(&signal.paired_pre_name, &signal.target_pre_instance_id);
     if let Ok(mut g) = pair_label.lock() {
         if *g != new_label {
@@ -212,6 +216,29 @@ pub(super) fn poll_record_signal_ack_with_base(
                 signal.paired_pre_name
             );
             *g = new_label;
+        }
+    }
+}
+
+fn publish_post_preparation(
+    base: &Path,
+    project: &str,
+    instance: &str,
+    sm: &RecordStateMachine,
+    signal: &record_signal::RecordSignal,
+) {
+    let generation = sm.generation();
+    if sm.is_recording() && sm.record_session_id().as_deref() == Some(signal.session_id.as_str()) {
+        if let Err(error) = crate::record_entry_lock::publish_measure_preparation(
+            base,
+            project,
+            PluginDataRole::Post,
+            instance,
+            signal,
+            generation,
+            sm.measure_preparation_samples(generation),
+        ) {
+            log::warn!("POST preparation progress could not be published: {error}");
         }
     }
 }

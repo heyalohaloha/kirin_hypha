@@ -179,8 +179,8 @@ namespace hypha::reference_audition
         const auto hostPosition = latestHostPosition.load (std::memory_order_acquire);
         restartCueAtPlayhead (hostPosition);
         const auto sourcePosition = mappedSourcePosition (hostPosition);
-        pages.request (sourcePosition);
-        if (! pages.readyAt (sourcePosition, 1))
+        currentPages().request (sourcePosition);
+        if (! currentPages().readyAt (sourcePosition, 1))
             return false;
         const auto gateToken = acquireOutputGate();
         if (gateToken == 0)

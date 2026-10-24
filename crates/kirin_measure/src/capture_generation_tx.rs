@@ -138,6 +138,17 @@ impl CaptureGenerationTransaction {
     /// renews its safety window on every new milestone. A host bringing producers up one by one is
     /// not failed for being slow, and a producer that never arrives still ends the wait.
     pub fn commit_when_ready(&mut self, timeout: Duration) -> Result<(), CaptureGenerationError> {
+        self.commit_when_ready_observing(timeout, Instant::now, || {
+            thread::sleep(Duration::from_millis(10))
+        })
+    }
+
+    fn commit_when_ready_observing(
+        &mut self,
+        timeout: Duration,
+        now: impl FnMut() -> Instant,
+        pause: impl FnMut(),
+    ) -> Result<(), CaptureGenerationError> {
         if !self.staged {
             return Err(CaptureGenerationError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -149,8 +160,8 @@ impl CaptureGenerationTransaction {
             timeout,
             || ready::producer_readiness_observation(&self.base_dir, &self.generation),
             total,
-            Instant::now,
-            || thread::sleep(Duration::from_millis(10)),
+            now,
+            pause,
         );
         if report.ready {
             return self.commit();

@@ -1,6 +1,6 @@
 #pragma once
 
-// A／B／C／V の 4 つのボタン（左から A B C V）と、B（REF）の画面の B SET・曲の選択。
+// A／B／C／V の 4 つのボタン（左から A B C V）と、B（REF）の画面の REFERENCE SET・曲の選択。
 // B の画面には V・C の選択を出さない。B が鳴らせないときは押すと理由を言う。
 #include "ReferenceGuideContractTest.h"
 #include "ReferenceStatusLineTest.h"
@@ -46,8 +46,10 @@ inline void verifyReferenceAbcvRoles()
         require (! reference_ui::canQueueReference (playing) && ! reference_ui::canQueueSource (playing, true),
                  "a step the person must change is explained instead of waited for");
     }
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     for (const auto& size : observatory::sizePresets)
     {
+        const i18n::ScopedLanguage scopedLanguage (language);
         observatory::View shell (observatory::Role::post);
         shell.setSize (size.width, size.height);
         shell.setDomain (observatory::Domain::reference);
@@ -117,12 +119,29 @@ inline void verifyReferenceAbcvRoles()
         auto* version = panel.findChildWithID ("reference-version");
         auto* check = panel.findChildWithID ("reference-check");
         require (set && song && version && check, "the B and V/C selectors exist");
-        // 100%（300×200）は曲名だけ。B SET は出さず、曲は 125% 以上で選ぶ。
+        require (set->getTitle() == "Reference Set" && song->getTitle() == "Reference Song"
+                     && set->getTooltip().contains ("Reference set") && song->getTooltip().contains ("Reference song")
+                     && b->getTooltip().contains ("Reference song"),
+                 "the B controls name the Reference set and song");
+        // 100%（300×200）は曲名だけ。REFERENCE SET は出さず、曲は 125% 以上で選ぶ。
         const bool glance = presentation::forEditor (size.width, size.height).density == observatory::Density::compact;
         require (set->isVisible() == ! glance && song->isVisible() && ! version->isVisible() && ! check->isVisible()
                      && song->getText() == "Song 1" && set->getText() == "Mastering refs   1 / 2"
                      && song->isEnabled() == ! glance,
                  "the B page shows only the B set and its songs, and only the song at 100%");
+        {
+            juce::Image image (juce::Image::ARGB, panel.getWidth(), panel.getHeight(), true);
+            juce::Graphics graphics (image);
+            text_style::ShownTextLog log;
+            panel.paintEntireComponent (graphics, true);
+            const auto shown = log.texts().joinIntoString ("|");
+            require (!shown.containsIgnoreCase ("B set") && !shown.contains (juce::String::fromUTF8 (u8"Bセット")),
+                     "the B page never exposes the internal set name");
+            if (observatory::isFullDensity (presentation::forEditor (size.width, size.height).density))
+                require (log.texts().contains (language == i18n::Language::japanese
+                             ? juce::String::fromUTF8 (u8"Reference のセット") : juce::String ("REFERENCE SET")),
+                         "the Reference set heading fits whole in both languages at " + juce::String (size.width));
+        }
         // KIRIN_REFERENCE_UI_ABCV_OUTPUT=<dir>：寸法ごとの B の画面を PNG に書き出す（見た目の確認用）。
         if (const auto directory = juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_UI_ABCV_OUTPUT", {});
             directory.isNotEmpty())
@@ -131,7 +150,8 @@ inline void verifyReferenceAbcvRoles()
             juce::Graphics graphics (image);
             graphics.fillAll (juce::Colour (0xff16110d));
             panel.paintEntireComponent (graphics, true);
-            juce::FileOutputStream stream { juce::File (directory).getChildFile ("abcv_b_" + juce::String (size.width) + ".png") };
+            juce::FileOutputStream stream { juce::File (directory).getChildFile ("abcv_b_" + juce::String (size.width)
+                + (language == i18n::Language::japanese ? "_ja.png" : "_en.png")) };
             if (stream.openedOk()) { stream.setPosition (0); stream.truncate(); juce::PNGImageFormat().writeImageToStream (image, stream); }
         }
 
@@ -198,8 +218,24 @@ inline void verifyReferenceAbcvRoles()
         empty.referenceStep = reference_ui::SourceStep::rankSet;  // editor が Kirin OS の届き方と B セットから決める
         panel.setState (empty);
         b->onClick();
-        require (auditions == 1 && explained == "B: Rank a B set for Hypha in Kirin OS",
+        require (auditions == 1 && explained == "B: Rank a Reference set for Hypha in Kirin OS",
                  "a B that cannot play says why instead of doing nothing");
+        for (const auto step : { reference_ui::SourceStep::rankSet, reference_ui::SourceStep::setsNotRead })
+        {
+            empty.referenceStep = step;
+            panel.setState (empty);
+            const auto statusArea = shell.statusStripFolded() ? panel.footerStatusStrip().getLocalBounds()
+                : shell.statusStripBounds().withPosition (0, 0);
+            const auto layout = panel.statusTextLayout (statusArea);
+            const auto shown = text_style::shownText (layout.line.text);
+            const auto reason = shown.replace (juce::String::fromUTF8 (u8" ／"), " /")
+                .upToFirstOccurrenceOf (" /", false, false).trimEnd();
+            const auto font = labelFont (presentation::forEditor (size.width, size.height), typography::TextRole::readout,
+                                         typography::Composition::information);
+            require (reason.containsIgnoreCase ("Reference") && layout.text.startsWith (reason)
+                         && text_style::shownWidth (font, reason) <= static_cast<float> (layout.textArea.getWidth()),
+                     "the complete Reference source reason fits at " + juce::String (size.width));
+        }
 
         state.comparisonSlot = 1;
         panel.setState (state);

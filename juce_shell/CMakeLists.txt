@@ -208,7 +208,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
-    src/reference_audition/ReferenceRuntimeV2Workspace.cpp
+    src/reference_audition/ReferenceRuntimeV2Workspace.cpp src/reference_audition/ReferenceRuntimePreparedSelection.cpp
     src/reference_audition/ReferenceRuntimeV2BlindPreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceVisualAudio.cpp

@@ -48,6 +48,14 @@ pub(crate) struct RecordSpool {
 }
 
 impl RecordSpool {
+    #[cfg(test)]
+    pub(crate) fn finish_fixture(&mut self) {
+        self.seal();
+        self.worker.take().unwrap().join().unwrap();
+        assert!(self.shared.closed.load(Ordering::Acquire));
+        assert!(!self.shared.failed.load(Ordering::Acquire));
+    }
+
     pub(crate) fn start(mut source: rtrb::Consumer<f32>, generation: u64) -> io::Result<Self> {
         let root = std::env::temp_dir().join("kirin-hypha-record-spool");
         std::fs::create_dir_all(&root)?;

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace hypha::reference_audition
 {
@@ -268,6 +269,9 @@ namespace hypha::reference_audition
         }
         if (selected == nullptr)
         {
+            struct Replacement { Page* page; std::int64_t distance; };
+            std::array<Replacement, pageCount> replacements {};
+            size_t count = 0;
             for (auto& page : pages)
             {
                 const auto existingStart = page.start.load (std::memory_order_relaxed);
@@ -278,7 +282,19 @@ namespace hypha::reference_audition
                             || existingStart == protectedStarts[index];
                 if (protectedPage)
                     continue;
-
+                // Keep pages near the playhead and pinned loop edges. Replace
+                // stale or distant pages before those needed on the next wrap.
+                auto distance = std::numeric_limits<std::int64_t>::max();
+                if (page.generation.load (std::memory_order_relaxed) == generation)
+                    for (size_t index = 0; index < protectedCount; ++index)
+                        distance = std::min (distance, std::abs (existingStart - protectedStarts[index]));
+                replacements[count++] = { &page, distance };
+            }
+            std::sort (replacements.begin(), replacements.begin() + count,
+                       [] (const auto& a, const auto& b) { return a.distance > b.distance; });
+            for (size_t index = 0; index < count; ++index)
+            {
+                auto& page = *replacements[index].page;
                 std::uint8_t expected = ready;
                 if (page.state.compare_exchange_strong (expected, loading,
                                                         std::memory_order_acq_rel))

@@ -3,6 +3,10 @@
 #include "TestTemporaryDirectory.h"
 #include "AbsoluteAnalysisHelpContract.h"
 #include "JapaneseSentenceContract.h"
+#include "JapaneseWordingContract.h"
+#include "JapaneseTermsContract.h"
+#include "JapanesePhraseContract.h"
+#include "KeepPreparationNoticeContract.h"
 #include "AnalysisSlotOwnersContract.h"
 #include "../src/HyphaComparisonPresentation.h"
 #include "../src/HyphaHoverHelpPreference.h"
@@ -56,11 +60,11 @@ inline void verifyLookup()
     KIRIN_LANGUAGE_REQUIRE (japanese ("WARMING 12 S") == utf8 (u8"準備中 12 S"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("20 to 250 Hz") == utf8 (u8"20〜250 Hz"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("Drum Attack. Click to switch view.")
-                            == utf8 (u8"ドラムのアタック。クリックで表示を切り替えます。"));
+                            == utf8 (u8"ドラムのAttack。クリックで表示を切り替えます。"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("POST. Short-term loudness (S): the loudness over 3 seconds, phrase by phrase. "
                                       "Compare sections such as verse and chorus. Showing its maximum "
                                       "since the last Meter Session reset.")
-                            == utf8 (u8"POSTのショートタームラウドネス（S）：3秒ごとの音量。Aメロとサビなど、場面ごとの"
+                            == utf8 (u8"POSTのShort-term Loudness（S）：直近3秒の音量。Aメロとサビなど、場面ごとの"
                                      u8"大きさを比べます。最後にMeter Sessionをリセットしてからの最大値を表示しています。"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 3 ready POSTs") == utf8 (u8"All Keep：準備済みのPOST 3"));
     KIRIN_LANGUAGE_REQUIRE (japanese ("All Keep: 1 ready POST") == utf8 (u8"All Keep：準備済みのPOST 1"));
@@ -120,10 +124,11 @@ inline void verifyLookup()
         KIRIN_LANGUAGE_REQUIRE (i18n::languageForSystem (system) == Language::english);
 }
 
-// Every entry is English on one side and Japanese on the other, keeps the English values, and is
-// the only entry for its English.
+// Each entry has Japanese text or an explicitly retained Facts label, preserves the English
+// values, and is the only entry for its English.
 inline void verifyCatalog()
 {
+    verifyKeepPreparationNotices();
     std::set<juce::String> seen;
     std::size_t count = 0;
     for (const auto& section : i18n::catalog::sections())
@@ -134,7 +139,8 @@ inline void verifyCatalog()
             KIRIN_LANGUAGE_REQUIRE (english.isNotEmpty() && translation.isNotEmpty());
             KIRIN_LANGUAGE_REQUIRE (seen.insert (english).second);
             KIRIN_LANGUAGE_REQUIRE (! requiresJapaneseGlyphs (english));
-            KIRIN_LANGUAGE_REQUIRE (requiresJapaneseGlyphs (translation));
+            KIRIN_LANGUAGE_REQUIRE (requiresJapaneseGlyphs (translation)
+                || (keptEnglishFactsLabel (english) && translation == english));
             for (int slot = 1; slot <= 3; ++slot)
             {
                 const auto placeholder = "%" + juce::String (slot);
@@ -283,14 +289,14 @@ inline void verifyLineBreaking()
 {
     const auto font = nativeTextFontLike (labelFont (presentation::forEditor (300, 200),
                                                      typography::TextRole::body));
-    const auto sentence = utf8 (u8"DAW：取り込んだ範囲をもう一度再生してください。次のソースは自動で選ばれます。");
+    const auto sentence = utf8 (u8"DAW：取り込んだ範囲をもう一度再生してください。次の音源は自動で選ばれます。");
     // Just too narrow for the closing 。: it must not stand alone at the start of a line, and
     // rather than leave "す。" behind, the paragraph breaks between its two sentences.
     const auto width = font.getStringWidthFloat (sentence.dropLastCharacters (1)) + 0.5f;
     const auto lines = text_style::japaneseLines (sentence, font, width);
     KIRIN_LANGUAGE_REQUIRE (lines.size() == 2
                             && lines[0] == utf8 (u8"DAW：取り込んだ範囲をもう一度再生してください。")
-                            && lines[1] == utf8 (u8"次のソースは自動で選ばれます。"));
+                            && lines[1] == utf8 (u8"次の音源は自動で選ばれます。"));
     for (auto narrow = 60.0f; narrow < 400.0f; narrow += 5.0f)
         for (const auto& line : text_style::japaneseLines (sentence, font, narrow))
             KIRIN_LANGUAGE_REQUIRE (! line.startsWith (utf8 (u8"。")) && ! line.startsWith (utf8 (u8"、")));
@@ -370,6 +376,9 @@ inline void verifyLookAndFeel()
 
 inline void verifyLanguageContract()
 {
+    verifyJapaneseWording();
+    verifyJapaneseTerms();
+    verifyJapanesePhrases();
     verifyAbsoluteAnalysisHelp();
     language_contract::verifyLookup();
     verifyJapaneseSentences();

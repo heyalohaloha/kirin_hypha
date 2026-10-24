@@ -155,6 +155,7 @@ private:
     bool waitWhilePreparing (int slot);
     bool queueAudition (int slot, std::uint64_t safetyEpoch);
     bool selectCheckRole (const std::function<bool()>& apply);
+    bool preparingCheck() const { return switchSlot.load() == 2 && normalOutputSlot.load() == 2; }
     RuntimeV2Controller& slotController (int slot) noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     const RuntimeV2Controller& slotController (int slot) const noexcept { return slot == 1 ? version : slot == 3 ? reference : check; }
     void ensureReferenceSong (const Snapshot& reference);

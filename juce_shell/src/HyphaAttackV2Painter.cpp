@@ -103,7 +103,7 @@ void timeStrip (juce::Graphics& g, const State& state, const Geometry& shape, co
         if (! shape.head.isEmpty())
         {
             label += state.target == KIRIN_TARGET_DELTA ? " PRE/POST" : " POST";
-            if (cohort) label += " " + words ("Set change: gap", u8"集合変更は断線");
+            if (cohort) label += " " + words ("Set change: gap", u8"組が変わる所で線を切る");
         }
         text (g, label, axis, c, typography::TextRole::axis, COL_NORMAL,
               juce::Justification::centred);
@@ -132,7 +132,7 @@ juce::String caption (const State& state)
         const bool past = event && (event->event_sample < p.viewport - static_cast<std::int64_t> (event->source.sample_rate) * 6);
         const bool ahead = event && event->event_sample > p.viewport;
         return band + " " + target + " " + (event ? juce::String (static_cast<double> (event->event_sample)
-             / event->source.sample_rate, 2) + "s" + (past ? words (" Past", u8" 過去") : ahead ? words (" Ahead", u8" 未到達") : "")
+             / event->source.sample_rate, 2) + "s" + (past ? words (" Past", u8" 過去") : ahead ? words (" Ahead", " Ahead") : "")
              : words ("Waiting", u8"待機"));
     }
     const auto count = p.summary ? p.summary->cohort_count : 0;

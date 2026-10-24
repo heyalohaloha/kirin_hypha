@@ -7,6 +7,7 @@ bool RuntimeV2Controller::selectLibraryCheck (const juce::String& id)
 {
     const auto split = id.indexOfChar ('/');
     if (split < 0 || blind.ongoing()) return false;
+    bool keepPlaying = false;
     {
         const juce::ScopedLock lock (stateLock);
         if (! requestedConfiguration.identity.library
@@ -16,9 +17,10 @@ bool RuntimeV2Controller::selectLibraryCheck (const juce::String& id)
         requestedSelection.candidateId = id.substring (split + 1);
         requestedSelection.cueId.clear();
         ++requestedSelection.generation;
-        revokeAfterFadeLocked();
+        keepPlaying = beginSelectionPreparationLocked();
     }
-    selectA(); notify(); return true;
+    if (!keepPlaying) selectA();
+    notify(); return true;
 }
 
 bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)

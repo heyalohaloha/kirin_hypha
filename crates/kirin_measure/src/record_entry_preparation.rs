@@ -1,4 +1,4 @@
-//! Preparation progress on the existing exact-session PRE entry claim.
+//! Preparation progress on an exact-session PRE or POST entry claim.
 use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,12 +13,19 @@ pub(super) struct EntryPreparation {
 #[path = "record_entry_preparation_tests.rs"]
 mod tests;
 
-fn matches(lock: &RecordEntryLockFile, project: &str, session: &str, pre: &str, pid: u32) -> bool {
+fn matches(
+    lock: &RecordEntryLockFile,
+    project: &str,
+    session: &str,
+    role: Role,
+    instance: &str,
+    pid: u32,
+) -> bool {
     lock.schema_version == RECORD_ENTRY_LOCK_SCHEMA
         && lock.project_hash == project
         && lock.record_session_id == session
-        && lock.role == Role::Pre.dir_name()
-        && lock.instance_id == pre
+        && lock.role == role.dir_name()
+        && lock.instance_id == instance
         && lock.host_process_id == pid
 }
 
@@ -27,7 +34,8 @@ fn matches(lock: &RecordEntryLockFile, project: &str, session: &str, pre: &str, 
 pub(crate) fn publish_measure_preparation(
     base: &Path,
     project: &str,
-    pre: &str,
+    role: Role,
+    instance: &str,
     signal: &crate::record_signal::RecordSignal,
     record_generation: u64,
     samples: u64,
@@ -36,13 +44,23 @@ pub(crate) fn publish_measure_preparation(
         || record_generation == 0
         || signal.capture_generation_id.is_empty()
         || signal.generation_started_at_ms <= 0
-        || signal.target_pre_instance_id != pre
+        || match role {
+            Role::Pre => signal.target_pre_instance_id != instance,
+            Role::Post => signal.requested_by != instance,
+        }
     {
         return Ok(());
     }
-    let path = entry_lock_path(base, project, &signal.session_id, Role::Pre, pre);
+    let path = entry_lock_path(base, project, &signal.session_id, role, instance);
     let mut lock: RecordEntryLockFile = serde_json::from_slice(&fs::read(&path)?)?;
-    if !matches(&lock, project, &signal.session_id, pre, std::process::id()) {
+    if !matches(
+        &lock,
+        project,
+        &signal.session_id,
+        role,
+        instance,
+        std::process::id(),
+    ) {
         return Ok(());
     }
     if let Some(prior) = &lock.measure_preparation {
@@ -70,13 +88,18 @@ pub(crate) fn measure_preparation_samples(
     base: &Path,
     generation: &crate::capture_generation::CaptureGeneration,
     member: &crate::capture_generation::CaptureGenerationMember,
+    role: Role,
 ) -> usize {
+    let instance = match role {
+        Role::Pre => &member.pre_instance_id,
+        Role::Post => &member.post_instance_id,
+    };
     let path = entry_lock_path(
         base,
         &member.project_hash,
         &member.record_session_id,
-        Role::Pre,
-        &member.pre_instance_id,
+        role,
+        instance,
     );
     let Some(lock) = fs::read(path)
         .ok()
@@ -88,7 +111,8 @@ pub(crate) fn measure_preparation_samples(
         &lock,
         &member.project_hash,
         &member.record_session_id,
-        &member.pre_instance_id,
+        role,
+        instance,
         generation.host_process_id,
     ) {
         return 0;

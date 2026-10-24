@@ -148,9 +148,8 @@ bool State::summary (const KirinAttackBandSummaryV2& packet, double now)
                        std::begin (livePresentation->summary->comparison_binding)))
     {
         livePresentation.reset(); pending.reset(); cohort.reset(); appliedMs = -1;
-        auto previous = std::move (adopted.previousReadout);
+        // A different comparison source ends the display-only readout retained across transport.
         adopted = placeholder (KIRIN_REASON_SOURCE_CHANGED); adopted.revision = nextRevision++;
-        adopted.previousReadout = std::move (previous);
     }
     enabled = true;
     // Summary revision is a content fingerprint, not a sequence number. Late measurements at

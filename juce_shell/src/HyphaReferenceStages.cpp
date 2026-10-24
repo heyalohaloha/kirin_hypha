@@ -35,7 +35,7 @@ const std::array<Stage, stageCount> stages { {
       "Choose a source for %1 in Kirin OS", "C plays the source a Check compares your mix with." },
     // playDaw
     { K::waiting, W::none, "%1 WAITS FOR THE DAW / PLAY A TO AUDITION", "", "Ready when the DAW plays",
-      "Play the song in your DAW", "B plays the B set; C uses its Cue; V follows the song." },
+      "Play the song in your DAW", "B plays a Reference song; C uses its Cue; V follows the song." },
     // aligning
     { K::waiting, W::alignmentPlay, "ALIGNING VERSION V / KEEP PLAYING", "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
       "Aligning with A. Keep playing", "Aligning V with A", "Keep playing. V must be a Version of the song you are playing." },
@@ -62,11 +62,11 @@ const std::array<Stage, stageCount> stages { {
     { K::unable, W::none, "KIRIN OS IS CLOSED / OPEN KIRIN OS", "", "Open Kirin OS", "Open Kirin OS",
       "Versions and References registered in Kirin OS arrive here automatically." },
     // rankSet
-    { K::unable, W::none, "NO B SET FOR HYPHA / RANK A B SET FOR HYPHA IN KIRIN OS", "", "Rank a B set for Hypha in Kirin OS",
-      "Rank a B set for Hypha in Kirin OS", "B plays the songs of the B sets you rank for Hypha in Kirin OS." },
+    { K::unable, W::none, "NO REFERENCE SET FOR HYPHA / RANK A REFERENCE SET FOR HYPHA IN KIRIN OS", "", "Rank a Reference set for Hypha in Kirin OS",
+      "Rank a Reference set for Hypha in Kirin OS", "B plays the Reference songs you rank for Hypha in Kirin OS." },
     // setsNotRead
-    { K::unable, W::none, "B SETS NOT READ / UPDATE KIRIN OS AND HYPHA", "", "Update Kirin OS and Hypha",
-      "Kirin OS's B sets were not read", "Update Kirin OS and Hypha to the same release." },
+    { K::unable, W::none, "REFERENCE SETS NOT READ / UPDATE KIRIN OS AND HYPHA", "", "Update Kirin OS and Hypha",
+      "Kirin OS's Reference sets were not read", "Update Kirin OS and Hypha to the same release." },
     // sourceChanged
     { K::unable, W::none, "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS", "", "Prepare the source again in Kirin OS",
       "The source of %1 changed", "Prepare it again in Kirin OS. A stays live." },

@@ -197,6 +197,53 @@ bool emptyAndReset()
     return true;
 }
 template <typename Rig>
+bool bindingChangeAfterTransport()
+{
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    for (const auto band : std::array<std::uint8_t, 2> {0, 5})
+    for (const bool bindingChanged : {false, true})
+    {
+        const i18n::ScopedLanguage scopedLanguage (language);
+        Rig r; r.view->setBand (band);
+        auto first = band == 0 ? allSummary (17.3) : denseSummary();
+        first.comparison_binding[31] = 1;
+        auto h = navigationFor (first);
+        TRANSPORT_Q (r.nav ({first.events, first.events + 8}, 0, h) && r.view->setSummarySnapshotV2 (first, 0));
+        const auto oldNumbers = r.view->presentationSnapshotV2().lanes;
+        ++h.source.generation; h.cutoff_sample = 48000;
+        TRANSPORT_Q (r.nav ({}, 1, h));
+        const auto& p = r.view->presentationSnapshotV2();
+        TRANSPORT_Q (p.previousReadout && p.previousReadout->count == 8);
+        auto empty = emptySummary (h, band); empty.comparison_binding[31] = 1;
+        TRANSPORT_Q (r.view->setSummarySnapshotV2 (empty, 2));
+        r.view->presentationTickAt (502);
+        TRANSPORT_Q (p.summary && p.summary->cohort_count == 0 && p.previousReadout);
+        // The local POST generation stays the same; only the paired comparison source changes.
+        // An unavailable new lane must not revive that source's previous delta or hit count.
+        auto partial = oneHit (h, band); partial.comparison_binding[31] = bindingChanged ? 2 : 1;
+        auto& lane = partial.lanes[3]; lane = {}; lane.cohort_count = 1;
+        lane.class_count[KIRIN_SCALAR_UNKNOWN] = 1; lane.render_kind = KIRIN_RENDER_NO_SCALAR;
+        lane.reason_count[KIRIN_REASON_NOT_KEPT] = 1;
+        auto& e = partial.evidence[0][3]; e = {}; e.class_code = KIRIN_SCALAR_UNKNOWN;
+        e.reason = KIRIN_REASON_NOT_KEPT; e.finish = KIRIN_FINISH_FULL;
+        TRANSPORT_Q (validSummary (partial) && r.view->setSummarySnapshotV2 (partial, 503));
+        r.view->presentationTickAt (1003);
+        TRANSPORT_Q (p.summary && p.header.source.generation == h.source.generation
+            && p.summary->cohort_count == 1 && p.previousReadout.has_value() == !bindingChanged);
+        text_style::ShownTextLog log; renderOnBackground (*r.view);
+        if (bindingChanged)
+        {
+            TRANSPORT_Q (!p.lanes[3].number.valid && !p.lanes[3].heldNumber);
+            const auto shape = geometry (r.view->getWidth(), r.view->getHeight(), presentation::forEditor (600, 400), band == 0);
+            for (std::size_t i = 0; i < oldNumbers.size(); ++i)
+                TRANSPORT_Q (!shownIn (log, oldNumbers[i].number.value, shape.lanes[i].value));
+            TRANSPORT_Q (!log.texts().joinIntoString ("|").contains (language == i18n::Language::english ? "8 hits" : u8"8打"));
+        }
+        else TRANSPORT_Q (p.previousReadout->count == 8); // A loop alone keeps its labelled readout.
+    }
+    return true;
+}
+template <typename Rig>
 bool retiredAndOwner()
 {
     for (const auto band : std::array<std::uint8_t, 2> {0, 5})

@@ -186,21 +186,21 @@ Presentation singlePresentation (std::shared_ptr<const KirinAttackSingleSnapshot
 juce::String scopeText (const Lane& lane, bool live)
 {
     if (lane.scope == Scope::single) return words (live ? "Latest hit" : "Locked hit", live ? u8"最新の一打" : u8"固定した一打");
-    if (lane.scope == Scope::confirmedSubset) return words ("Exact ", u8"確定") + juce::String (lane.exactCount) + "/" + juce::String (lane.count);
+    if (lane.scope == Scope::confirmedSubset) return words ("Exact ", "Exact ") + juce::String (lane.exactCount) + "/" + juce::String (lane.count);
     if (!lane.number.valid || (lane.scope != Scope::wholePoint && lane.scope != Scope::wholeInterval)) return {};
-    return words ("Whole ", u8"全") + juce::String (lane.count) + words ("", u8"打");
+    return words ("Whole ", "Whole ") + juce::String (lane.count) + words ("", "");
 }
 juce::String laneReason (const Lane& lane)
 {
     if (lane.count == 0 && lane.reason != 0) return reasonText (lane.reason);
     if (lane.scope == Scope::single) return lane.number.valid ? juce::String {} : reasonText (lane.reason);
-    if (lane.unbounded) return words ("Unbounded", u8"全体不定");
+    if (lane.unbounded) return words ("Unbounded", u8"Unbounded");
     if (lane.scope == Scope::wholePoint || lane.scope == Scope::wholeInterval)
-        return lane.withinResolution ? words ("Within RES", u8"判別内") : juce::String {};
+        return lane.withinResolution ? words ("Within RES", u8"RES内") : juce::String {};
     for (const auto code : { KIRIN_SCALAR_NOT_APPLICABLE, KIRIN_SCALAR_UNKNOWN, KIRIN_SCALAR_PENDING })
         if (lane.counts[code] > 0) return words (code == KIRIN_SCALAR_NOT_APPLICABLE ? "N/A "
             : code == KIRIN_SCALAR_UNKNOWN ? "Unknown " : "Pending ",
-            code == KIRIN_SCALAR_NOT_APPLICABLE ? u8"不成立" : code == KIRIN_SCALAR_UNKNOWN ? u8"不明" : u8"取得中") + juce::String (lane.counts[code]);
-    return words ("No observations", u8"観測なし");
+            code == KIRIN_SCALAR_NOT_APPLICABLE ? "N/A " : code == KIRIN_SCALAR_UNKNOWN ? "Unknown " : "Pending ") + juce::String (lane.counts[code]);
+    return words ("No observations", u8"計測値なし");
 }
 }

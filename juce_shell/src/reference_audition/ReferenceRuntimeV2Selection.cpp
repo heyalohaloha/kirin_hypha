@@ -57,9 +57,9 @@ namespace hypha::reference_audition
         latestHostPosition.store (hostPosition, std::memory_order_release);
         const auto sourcePosition = mappedSourcePosition (hostPosition);
         if (sourcePosition >= 0)
-            pages.request (sourcePosition);
+            currentPages().request (sourcePosition);
         else if (restartsAtCueStart())
-            pages.request (cueStart.load (std::memory_order_acquire));  // 押せば Cue の頭から鳴らし直すので先に読む
+            currentPages().request (cueStart.load (std::memory_order_acquire));  // 押せば Cue の頭から鳴らし直すので先に読む
     }
 
     void RuntimeV2Controller::setContentObservationEnabled (bool enabled) noexcept

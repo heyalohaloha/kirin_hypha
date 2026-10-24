@@ -21,7 +21,9 @@ namespace hypha::reference_audition
         removeRuntimeFiles (activeRuntimeFiles);
         activeRuntimeFiles = {};
         revokeAuditionPublication();
-        pages.close();
+        clearPreparedWorkspace();
+        pages.close(); preparedPages.close();
+        activePages.store (&pages, std::memory_order_release);
         aCapture.disconnect();
         { const juce::ScopedLock lock (stateLock); workspace.reset(); }  // visualBinding がメッセージスレッドから読む
         activeABinding.reset();
@@ -120,7 +122,7 @@ namespace hypha::reference_audition
             }
             // Race fixtures request one ordinary worker read; they never fabricate a publication.
             if (KIRIN_REFERENCE_REFRESH_FOR_TEST (this)) untilPoll = 0;
-            pages.service();
+            currentPages().service();
             if (contentRefreshRequested.exchange (false, std::memory_order_acq_rel)
                 && !bSelected.load (std::memory_order_acquire) && !blind.ongoing())
             {
@@ -169,8 +171,9 @@ namespace hypha::reference_audition
                 missedTransportCallbacks = 0;
             }
             // 選択を替えた役がまだ鳴っている（フェード中）あいだは、古い音の準備を崩さない。
+            const bool prepared = servicePreparedWorkspace (configuration);
             const bool fading = deferredRevokeWaiting();
-            if (! fading && (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0))
+            if (! fading && !prepared && (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0))
             {
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 if (versionComparison && workspace != nullptr)

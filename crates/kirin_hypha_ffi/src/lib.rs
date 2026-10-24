@@ -62,7 +62,7 @@ use kirin_measure::{
     PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver,
     PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordDisplaySnapshot,
     RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
-    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalState,
     SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
     SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff,
     WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
@@ -80,7 +80,10 @@ pub mod channel_abi;
 mod comparison_abi;
 pub use comparison_abi::*;
 mod capture_window_ffi;
+mod keep_all;
+mod keep_control;
 mod keep_entry;
+mod keep_preparation;
 pub use capture_window_ffi::{kirin_hypha_note_capture_loop_wrap, kirin_hypha_note_capture_window};
 use keep_entry::*;
 mod identity_ffi;
@@ -402,6 +405,8 @@ pub struct KirinHyphaEngine {
     /// Record 状態機械。`enter_record`/`exit_record` で flip し、Measure Thread が
     /// `is_recording()` を見て自律 finalize する（Phase 3a で実配線）。
     record_sm: Arc<RecordStateMachine>,
+    /// Serializes control/worker generation changes and feedback; never used by audio callbacks.
+    keep_control: Arc<Mutex<()>>,
     /// User-facing Keep control state. Record capture may enter before all 1–12 members are ready;
     /// only `Armed` authorizes the user to start an offline bounce.
     keep_phase: Arc<AtomicU8>,
@@ -655,6 +660,7 @@ impl KirinHyphaEngine {
         ));
         // 実 RecordStateMachine（既定 Watch）。FFI が enter/exit で flip する。
         let record_sm = Arc::new(RecordStateMachine::new());
+        let keep_control = Arc::new(Mutex::new(()));
         let keep_phase = Arc::new(AtomicU8::new(KIRIN_KEEP_PHASE_IDLE));
         let keep_phase_generation_started_at_ms = Arc::new(AtomicI64::new(0));
         let keep_record_generation = Arc::new(AtomicU64::new(0));
@@ -787,6 +793,7 @@ impl KirinHyphaEngine {
             watch_ring_replacing,
             liveness,
             record_sm,
+            keep_control,
             keep_phase,
             keep_phase_generation_started_at_ms,
             keep_record_generation,
@@ -891,7 +898,12 @@ impl KirinHyphaEngine {
         self.record_sm.is_recording()
     }
 
+    /// Control-thread getter; retiring a closed generation shares the Keep/Stop lock.
     pub fn keep_phase(&self) -> u8 {
+        let _control = self
+            .keep_control
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let phase = self.keep_phase.load(Ordering::Acquire);
         let expected_record_generation = self.keep_record_generation.load(Ordering::Acquire);
         if keep_phase_is_closed(
@@ -1300,318 +1312,6 @@ impl KirinHyphaEngine {
             .lock()
             .ok()
             .and_then(|g| g.clone())
-    }
-
-    /// POST「Keep」: 厳格選定（select_target_pre）で対 PRE を一意決定し record_signal(pending)
-    /// を書く（B-061 3d-b）。PRE 側 io_thread が autonomous に discover→ack する。
-    /// `License::Os` かつ一意 PRE のとき `true`。選定 None（空名/不在/曖昧/Bypassed/古t）/
-    /// 非 Os / AlreadyRecording は `false`（write_pending しない）。
-    pub fn keep(&self) -> bool {
-        self.keep_with_optional_generation(None)
-    }
-
-    fn keep_with_generation(&self, generation: &CaptureGeneration) -> bool {
-        self.keep_with_optional_generation(Some(generation))
-    }
-
-    fn keep_with_optional_generation(&self, generation: Option<&CaptureGeneration>) -> bool {
-        if generation.is_none() {
-            clear_keep_action_notice(&self.keep_action_notice);
-        }
-        if self.reject_unsupported_record_action(generation.is_none()) {
-            return false;
-        }
-        let (project_hash, post_iid, daw) = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return false; // 未 enable_post_writes
-            }
-            (
-                id.project_hash.clone(),
-                id.instance_id.clone(),
-                id.daw_session_uuid.clone(),
-            )
-        };
-        // B-102: 解決本体は共有 free 関数 resolve_and_enter_keep（broadcast 受信 closure と同一
-        // 経路）。選定→linkage→try_enter_record→write_pending の順序は従来 keep() と不変。
-        let pair_target = self.pair_binding.desired_name();
-        let paired_pre_target = self.pair_binding.recording_pre();
-        let latched_pre = self.pair_binding.latched_pre();
-        let license = self.license.refresh_for_user_action();
-        resolve_and_enter_keep(
-            license,
-            &self.record_sm,
-            &pair_target,
-            &paired_pre_target,
-            &project_hash,
-            &post_iid,
-            &daw,
-            &latched_pre, // B-108: ラッチ済みならラッチ先を直接 target に使う
-            &self.record_error_message, // persistent producer/I/O fault channel
-            &self.keep_action_notice,
-            &self.keep_phase,
-            &self.keep_phase_generation_started_at_ms,
-            &self.keep_record_generation,
-            None,
-            generation,
-        )
-    }
-
-    /// POST「All Keep」: all_keep broadcast を書いてから自身の keep を発火する（B-102 /
-    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self keep）。broadcast の棚パス
-    /// は、厳格DAW scopeに加えて同一host内で明示的に見えるexact PREをclaimするPOST棚へ書く。
-    /// これによりAU/VST3のidentity棚が分かれても届き、別host・不可視PRE claimは混ぜない。
-    /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
-    pub fn keep_all(&self) -> bool {
-        clear_keep_action_notice(&self.keep_action_notice);
-        if self.reject_unsupported_record_action(true) {
-            return false;
-        }
-        if self.audition.reject_keep(&self.keep_action_notice) {
-            return false;
-        }
-        let post_iid = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return false; // 未 enable_post_writes
-            }
-            id.instance_id.clone()
-        };
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        let host_process_id = current_host_process_id();
-        if project_hash.is_empty() {
-            return false;
-        }
-        let p = match StoragePaths::default_platform() {
-            Ok(paths) => paths,
-            Err(_) => return false,
-        };
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let ready = enumerate_ready_post_pair_candidates_for_operation_group(
-            &kirin_root,
-            &project_hash,
-            &daw,
-            host_process_id,
-        );
-        let members: Vec<_> = ready
-            .iter()
-            .filter_map(|candidate| {
-                Some((
-                    CaptureGenerationMember {
-                        project_hash: candidate.project_uuid.clone(),
-                        post_instance_id: candidate.instance_id.clone(),
-                        pre_instance_id: candidate.paired_pre_instance_id.clone()?,
-                        record_session_id: String::new(),
-                    },
-                    candidate.pair_pre_name.clone(),
-                ))
-            })
-            .collect();
-        if members.len() > MAX_CAPTURE_GENERATION_MEMBERS {
-            if let Ok(mut error) = self.keep_action_notice.write() {
-                *error = Some("Maximum 12 pairs reached".to_string());
-            }
-            return false;
-        }
-        let generation = CaptureGeneration::new_for_named_members(
-            post_iid.clone(),
-            daw.clone(),
-            host_process_id,
-            members,
-        );
-        if !generation.is_valid() {
-            return false;
-        }
-        let plugin_data_dir = p.plugin_data_dir();
-        let mut transaction =
-            match CaptureGenerationTransaction::begin(&plugin_data_dir, &generation) {
-                Ok(transaction) => transaction,
-                Err(error) => {
-                    let is_active_generation = matches!(
-                        &error,
-                        kirin_measure::CaptureGenerationError::Io(error)
-                            if error.kind() == std::io::ErrorKind::WouldBlock
-                    );
-                    let message = match &error {
-                        kirin_measure::CaptureGenerationError::Io(error)
-                            if error.kind() == std::io::ErrorKind::WouldBlock =>
-                        {
-                            "Another Keep is active"
-                        }
-                        _ => "All Keep failed (file write error)",
-                    };
-                    if is_active_generation {
-                        if let Ok(mut notice) = self.keep_action_notice.write() {
-                            *notice = Some(message.to_string());
-                        }
-                    } else if let Ok(mut persistent) = self.record_error_message.write() {
-                        *persistent = Some(message.to_string());
-                    }
-                    return false;
-                }
-            };
-        if transaction.stage().is_err() {
-            if let Ok(mut error) = self.record_error_message.write() {
-                *error = Some("All Keep failed (file write error)".to_string());
-            }
-            return false;
-        }
-        let project_hashes = generation
-            .members
-            .iter()
-            .map(|member| member.project_hash.clone())
-            .collect::<std::collections::BTreeSet<_>>();
-        for ph in project_hashes {
-            if write_broadcast_for_generation(
-                &plugin_data_dir,
-                &ph,
-                &post_iid,
-                daw.clone(),
-                host_process_id,
-                &generation,
-            )
-            .is_err()
-            {
-                if let Ok(mut error) = self.record_error_message.write() {
-                    *error = Some("All Keep failed (file write error)".to_string());
-                }
-                return false;
-            }
-        }
-        if !self.keep_with_generation(&generation) {
-            return false;
-        }
-        let action_notice = Arc::clone(&self.keep_action_notice);
-        let phase = Arc::clone(&self.keep_phase);
-        let phase_generation = Arc::clone(&self.keep_phase_generation_started_at_ms);
-        let generation_started_at_ms = generation.started_at_ms;
-        if transaction
-            .commit_when_ready_async(CAPTURE_PRODUCER_READY_TIMEOUT, move |result| {
-                if phase_generation.load(Ordering::Acquire) != generation_started_at_ms {
-                    return;
-                }
-                if result.is_ok() {
-                    phase.store(KIRIN_KEEP_PHASE_ARMED, Ordering::Release);
-                } else {
-                    phase.store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-                    if let Ok(mut error) = action_notice.write() {
-                        *error = Some("All Keep: pair not ready".to_string());
-                    }
-                }
-            })
-            .is_err()
-        {
-            self.keep_phase
-                .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-            if let Ok(mut error) = self.keep_action_notice.write() {
-                *error = Some("All Keep: pair not ready".to_string());
-            }
-            return false;
-        }
-        true
-    }
-
-    /// POST「Stop」: pair を解除（record_signal released）し Watch へ戻す（B-061 3d-b）。
-    /// PRE 側は released を検出して自身も Record を抜ける（io_thread_pre）。
-    pub fn stop(&self) {
-        clear_keep_action_notice(&self.keep_action_notice);
-        self.keep_phase_generation_started_at_ms
-            .store(0, Ordering::Release);
-        self.keep_record_generation.store(0, Ordering::Release);
-        self.keep_phase
-            .store(KIRIN_KEEP_PHASE_IDLE, Ordering::Release);
-        // Stop preserves the exact pair identity for a later WAV Drop. Reservation release and
-        // record_signal teardown still share the same resolver with broadcast Stop.
-        let (project_hash, post_iid) = match self.identity.lock() {
-            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
-            Err(_) => (String::new(), String::new()),
-        };
-        let paired_pre_target = self.pair_binding.recording_pre();
-        resolve_and_exit_stop(
-            &self.record_sm,
-            &self.record_ingress,
-            &paired_pre_target,
-            &project_hash,
-            &post_iid,
-            Some(ReleaseReason::ManualStop),
-        );
-    }
-
-    /// POST「All Stop」: all_stop broadcast を書いてから自身の stop を発火する（B-102 /
-    /// egui ComboBox 先頭行と同一ライフサイクル: broadcast → self stop）。
-    pub fn stop_all(&self) {
-        clear_keep_action_notice(&self.keep_action_notice);
-        let post_iid = match self.identity.lock() {
-            Ok(id) => id.instance_id.clone(),
-            Err(_) => String::new(),
-        };
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        if !project_hash.is_empty() && !post_iid.is_empty() {
-            if let Ok(p) = StoragePaths::default_platform() {
-                let base = p.plugin_data_dir();
-                let active =
-                    kirin_measure::read_stop_target_generation(&base, &project_hash, &post_iid)
-                        .ok()
-                        .flatten();
-                let mut wrote_generation_stop = false;
-                if let Some(generation) = active {
-                    if mark_generation_terminal(
-                        &base,
-                        &generation,
-                        GenerationTerminalReason::AllStop,
-                    )
-                    .is_ok()
-                    {
-                        let projects = generation
-                            .members
-                            .iter()
-                            .map(|member| member.project_hash.as_str())
-                            .collect::<std::collections::BTreeSet<_>>();
-                        wrote_generation_stop = true;
-                        for ph in projects {
-                            if write_stop_broadcast_for_generation(
-                                &base,
-                                ph,
-                                &post_iid,
-                                generation.daw_session_id.clone(),
-                                generation.host_process_id,
-                                &generation,
-                            )
-                            .is_err()
-                            {
-                                wrote_generation_stop = false;
-                            }
-                        }
-                    }
-                }
-                // Legacy/no-active fallback is deliberately one known shelf. New producers never
-                // rediscover an All Stop group by scanning live/history directories.
-                if !wrote_generation_stop {
-                    let _ = write_stop_broadcast(&base, &project_hash, &post_iid, daw.clone());
-                }
-            }
-        }
-        let (project_hash, post_iid) = match self.identity.lock() {
-            Ok(id) => (id.project_hash.clone(), id.instance_id.clone()),
-            Err(_) => (String::new(), String::new()),
-        };
-        let paired_pre_target = self.pair_binding.recording_pre();
-        resolve_and_exit_stop(
-            &self.record_sm,
-            &self.record_ingress,
-            &paired_pre_target,
-            &project_hash,
-            &post_iid,
-            Some(ReleaseReason::AllStop),
-        );
     }
 
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。

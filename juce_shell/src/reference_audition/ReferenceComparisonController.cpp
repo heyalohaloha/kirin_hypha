@@ -14,6 +14,7 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           return slotController (viewedSlot.load (std::memory_order_acquire)).visualBinding();
       },analysis)
 {
+    check.prepareSelectionsBeforeReturn();
     reference.setTrackingEnabled (true);  // B は A の直近 10 秒に追従する
     reference.setSongsOnly (true);        // B は B セットの曲だけを鳴らす（C の Preset に落ちない）
 }
