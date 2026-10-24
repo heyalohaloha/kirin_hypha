@@ -15,6 +15,39 @@ namespace
 {
 constexpr auto visualization = typography::Composition::visualization;
 const auto preColour = juce::Colour (attack_ui::preTraceColour); // the HISTORY PRE trace colour
+constexpr float preThickness = 1.8f;
+constexpr float postThickness = 2.6f;
+
+// An ivory dashed PRE over a broader gold POST remains identifiable even at identical levels.
+void paintPreTrace (juce::Graphics& g, const juce::Path& path)
+{
+    constexpr float dashes[] { 6.0f, 4.0f };
+    juce::Path outline;
+    juce::PathStrokeType (preThickness, juce::PathStrokeType::curved).createDashedStroke (
+        outline, path, dashes, 2, {}, g.getInternalContext().getPhysicalPixelScaleFactor());
+    g.setColour (preColour);
+    g.fillPath (outline);
+}
+
+void paintLegend (juce::Graphics& g, juce::Rectangle<int>& title, bool pre, bool post)
+{
+    const auto label = [&] (const char* name, juce::Colour colour, bool dashed) {
+        auto cell = title.removeFromRight (juce::roundToInt (std::ceil (
+            text_style::shownWidth (g.getCurrentFont(), name))) + 17);
+        const auto line = cell.removeFromLeft (14).toFloat();
+        cell.removeFromLeft (3);
+        juce::Path path;
+        path.startNewSubPath (line.getX(), line.getCentreY());
+        path.lineTo (line.getRight(), line.getCentreY());
+        if (dashed) paintPreTrace (g, path);
+        else { g.setColour (colour); g.strokePath (path, juce::PathStrokeType (postThickness)); }
+        g.setColour (colour);
+        text_style::drawText (g, name, cell, juce::Justification::centredRight, false);
+        title.removeFromRight (4);
+    };
+    if (post) label ("POST", juce::Colour (attack_ui::waveformColour), false);
+    if (pre) label ("PRE", preColour, true);
+}
 
 bool usable (const KirinAttackDetail* detail) noexcept
 {
@@ -132,7 +165,7 @@ void paintGraticule (juce::Graphics& g, const Axis& axis, const KirinAttackDetai
     if (strength <= 0.0f)
         return;
     const auto& plot = axis.plot;
-    g.setColour (COL_TEXT_TERTIARY.withAlpha (juce::jmin (1.0f, strength * 2.2f)));
+    g.setColour (COL_TEXT_SECONDARY);
     for (int ms = -20; ms <= 130; ms += 10)
     {
         const auto x = axis.x (anchor.event_sample
@@ -162,7 +195,12 @@ juce::String relativeMs (std::int64_t sample, const KirinAttackDetail& anchor)
 void paintPanel (juce::Graphics& g, juce::Rectangle<int> area)
 {
     if (area.getWidth() >= 60 && area.getHeight() >= 60)
+    {
         attack_stage::paint (g, area.toFloat(), 4.0f, 0.10f);
+        // A representative hit is cached as an image. Composite it at full opacity rather than
+        // inheriting the last grid or history stroke's alpha from the surrounding graphics.
+        g.setOpacity (1.0f);
+    }
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetail* pre,
@@ -170,27 +208,26 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
 {
     if (area.getWidth() < 60 || area.getHeight() < 60)
         return;
+    const auto preUsable = usable (pre);
+    const auto postUsable = usable (post);
+    const auto hasHit = preUsable || postUsable;
     auto inner = area.reduced (6, 3);
     const auto legendStyle = typography::resolve (context, typography::TextRole::legend, visualization);
-    const auto axisStyle = typography::resolve (context, typography::TextRole::axis, visualization);
+    const auto axisRole = hasHit ? typography::TextRole::legend : typography::TextRole::axis;
+    const auto axisStyle = typography::resolve (context, axisRole, visualization);
     auto title = inner.removeFromTop (text_style::requiredLineHeight (legendStyle));
     auto axisRow = inner.removeFromBottom (text_style::requiredLineHeight (axisStyle));
     g.setFont (monoFont (context, typography::TextRole::legend, visualization)
                    .withExtraKerningFactor (attack_stage::captionTracking (context)));
-    g.setColour (COL_TEXT_SECONDARY);
+    if (hasHit) paintLegend (g, title, preUsable, postUsable);
+    g.setColour (hasHit ? COL_NORMAL : COL_TEXT_SECONDARY);
     text_style::drawText (g, "HIT 150 ms", title, juce::Justification::centredLeft, false);
-    const auto preUsable = usable (pre);
-    const auto postUsable = usable (post);
     if (! preUsable && ! postUsable)
     {
         g.setColour (COL_TEXT_TERTIARY);
         text_style::drawText (g, "NO HIT", inner, juce::Justification::centred, false);
         return;
     }
-    g.setColour (COL_TEXT_TERTIARY);
-    text_style::drawText (g, preUsable && postUsable ? "PRE / POST" : postUsable ? "POST" : "PRE",
-                title, juce::Justification::centredRight, false);
-
     const auto& anchor = postUsable ? *post : *pre;
     Axis axis { inner.toFloat().reduced (2.0f, 2.0f), spanFirst (anchor), spanLast (anchor) };
     if (preUsable && postUsable)
@@ -243,15 +280,12 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
         g.fillPath (closed);
         attack_depth::lightVolume (g, edge, edge, waveform, depth.fresnel + 0.03f * depth.bloom,
                                    depth.specular, 1.4f);
-        g.setColour (waveform.withAlpha (0.20f));
-        g.strokePath (edge, juce::PathStrokeType (2.6f));
-        g.setColour (waveform.withAlpha (0.92f));
-        g.strokePath (edge, juce::PathStrokeType (1.0f));
+        g.setColour (waveform);
+        g.strokePath (edge, juce::PathStrokeType (postThickness, juce::PathStrokeType::curved));
     }
     if (preUsable)
     {
-        g.setColour (preColour.withAlpha (0.80f));
-        g.strokePath (shapePath (*pre, axis, false), juce::PathStrokeType (0.9f));
+        paintPreTrace (g, shapePath (*pre, axis, false));
         paintRmsSteps (g, *pre, axis, preColour.withAlpha (0.70f), 0.9f);
     }
     if (postUsable)
@@ -262,7 +296,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
             const auto x = axis.x (headEnd (*post)) - 3.0f;
             const auto top = axis.y (post->sample_peak_dbfs);
             const auto bottom = axis.y (post->attack_rms_dbfs);
-            g.setColour (juce::Colour (attack_ui::crestColour));
+            g.setColour (juce::Colour (attack_ui::waveformColour));
             g.drawLine (x, top, x, bottom, 1.2f);
             g.drawLine (x - 2.5f, top, x + 2.5f, top, 1.0f);
         }
@@ -270,8 +304,8 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
 
     // The onset line is the zero; only the window ends are labelled so the short attack window
     // never collides with its own label.
-    g.setFont (monoFont (context, typography::TextRole::axis, visualization));
-    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (monoFont (context, axisRole, visualization));
+    g.setColour (COL_NORMAL);
     text_style::drawText (g, relativeMs (axis.first, anchor), axisRow, juce::Justification::centredLeft, false);
     text_style::drawText (g, relativeMs (axis.last, anchor), axisRow, juce::Justification::centredRight, false);
 }

@@ -1,17 +1,24 @@
 #pragma once
 #include <juce_graphics/juce_graphics.h>
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace hypha::attack_ui_test
 {
-// Observe the colour actually passed to the rasterizer for text. Native glyph antialiasing
+// Observe the colour and geometry actually passed to the rasterizer. Native glyph antialiasing
 // changes with text colour, so neither exact RGB pixels nor a shared glyph-mask assumption
 // can identify a palette token portably. All drawing still reaches the real image context.
 struct PaintColourLog
 {
-    struct Ink { juce::Rectangle<int> clip; juce::Colour colour; };
+    struct Ink { juce::Rectangle<int> clip; juce::Colour colour; float fontHeight; juce::Point<float> position; };
+    struct PathInk { juce::Path path; juce::Colour colour; };
+    struct RectInk { juce::Rectangle<float> area; juce::Colour colour; };
+    struct ImageInk { int width, height; float opacity; };
     std::vector<Ink> glyphs;
+    std::vector<PathInk> paths;
+    std::vector<RectInk> rects;
+    std::vector<ImageInk> images;
     bool has (juce::Rectangle<int> clip, juce::Colour colour) const
     {
         return std::any_of (glyphs.begin(), glyphs.end(), [&] (const auto& ink) {
@@ -43,23 +50,40 @@ public:
     void setFill (const juce::FillType& f) override { fill = f; native->setFill (f); }
     void setOpacity (float a) override { fill.setOpacity (a); native->setOpacity (a); }
     void setInterpolationQuality (juce::Graphics::ResamplingQuality q) override { native->setInterpolationQuality (q); }
-    void fillRect (const juce::Rectangle<int>& r, bool replace) override { native->fillRect (r, replace); }
-    void fillRect (const juce::Rectangle<float>& r) override { native->fillRect (r); }
+    void fillRect (const juce::Rectangle<int>& r, bool replace) override
+    { recordRect (r.toFloat()); native->fillRect (r, replace); }
+    void fillRect (const juce::Rectangle<float>& r) override
+    { recordRect (r); native->fillRect (r); }
     void fillRectList (const juce::RectangleList<float>& r) override { native->fillRectList (r); }
-    void fillPath (const juce::Path& p, const juce::AffineTransform& t) override { native->fillPath (p, t); }
-    void drawImage (const juce::Image& i, const juce::AffineTransform& t) override { native->drawImage (i, t); }
+    void fillPath (const juce::Path& p, const juce::AffineTransform& t) override
+    {
+        if (log && fill.isColour())
+        {
+            auto path = p; path.applyTransform (t);
+            log->paths.push_back ({std::move (path), fill.colour});
+        }
+        native->fillPath (p, t);
+    }
+    void drawImage (const juce::Image& i, const juce::AffineTransform& t) override
+    {
+        if (log) log->images.push_back ({i.getWidth(), i.getHeight(), fill.getOpacity()});
+        native->drawImage (i, t);
+    }
     void drawLine (const juce::Line<float>& l) override { native->drawLine (l); }
     void setFont (const juce::Font& f) override { native->setFont (f); }
     const juce::Font& getFont() override { return native->getFont(); }
-    void drawGlyph (int glyph, const juce::AffineTransform& t) override { record(); native->drawGlyph (glyph, t); }
+    void drawGlyph (int glyph, const juce::AffineTransform& t) override
+    { record (juce::Point<float> {}.transformedBy (t)); native->drawGlyph (glyph, t); }
     bool drawTextLayout (const juce::AttributedString& s, const juce::Rectangle<float>& r) override
-    { record(); return native->drawTextLayout (s, r); }
+    { record (r.getPosition()); return native->drawTextLayout (s, r); }
 private:
     std::unique_ptr<juce::LowLevelGraphicsContext> native;
     PaintColourLog* log;
     juce::FillType fill;
     std::vector<juce::FillType> saved;
-    void record()
-    { if (log && fill.isColour()) log->glyphs.push_back ({native->getClipBounds(), fill.colour}); }
+    void record (juce::Point<float> position)
+    { if (log && fill.isColour()) log->glyphs.push_back ({native->getClipBounds(), fill.colour, native->getFont().getHeight(), position}); }
+    void recordRect (juce::Rectangle<float> area)
+    { if (log && fill.isColour()) log->rects.push_back ({area, fill.colour}); }
 };
 }

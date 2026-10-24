@@ -13,7 +13,8 @@ namespace hypha::attack_loupe
 // TRANSIENT (the step from the head down to the body, once the hit is complete) and CREST (head
 // peak above head RMS). A matched POST is measured at the PRE onset, so both sides share every
 // window.
-// The panel is cached chrome; `paint` draws only the selected hit.
+// The panel is cached chrome; `paint` draws only the selected hit. `paintPanel` leaves image
+// opacity at one so a cached hit is not dimmed by the preceding history/grid drawing.
 void paintPanel (juce::Graphics&, juce::Rectangle<int>);
 void paint (juce::Graphics&, juce::Rectangle<int>, const KirinAttackDetail* pre,
             const KirinAttackDetail* post, presentation::Context);
