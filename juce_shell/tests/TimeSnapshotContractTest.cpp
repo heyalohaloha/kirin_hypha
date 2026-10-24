@@ -388,8 +388,8 @@ void verifyNativePaintAndCapture()
                     ? scope.contains ("processed Session prefix") && scope.contains ("completed 100 ms point")
                         && scope.contains ("LEVEL: latest Session") && scope.contains ("PSR is independent")
                     : scope.contains (juce::String::fromUTF8 (u8"完了した100 ms時点までの処理済みSession"))
-                        && scope.contains (juce::String::fromUTF8 (u8"LEVELは最新のSessionです。"))
-                        && scope.contains (juce::String::fromUTF8 (u8"PSRは独立です。")),
+                        && scope.contains (juce::String::fromUTF8 (u8"LEVELは最新のSession"))
+                        && scope.contains (juce::String::fromUTF8 (u8"PSRは独立")),
                     "localized concise help preserves completed-point prefix and independent Session/PSR scopes");
             }
             if (showPsr) require (language == i18n::Language::english

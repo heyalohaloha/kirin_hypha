@@ -37,7 +37,7 @@ const Entry entries[] = {
     { "PLAYBACK NOT VERIFIED", u8"Vの再生条件が未確認です" },
     { "PLAYBACK INTERRUPTED", u8"再生が中断されました" },
     { "V LEVEL NOT MEASURED", u8"Vの音量が未計測です" },
-    { "CANNOT START SAFELY", u8"安全に試聴を始められません" },
+    { "CANNOT START SAFELY", u8"安全に開始できません" },
     { "PLAY A, THEN PRESS V", u8"Aを再生してVを押す" },
     { "PREPARE V AGAIN IN KIRIN OS", u8"Kirin OSでVを準備し直す" },
     { "CHOOSE ANOTHER VERSION", u8"別のVersionを選ぶ" },

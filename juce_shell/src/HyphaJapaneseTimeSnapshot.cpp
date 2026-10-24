@@ -26,7 +26,7 @@ Section timeSnapshotSection() noexcept
         { "PSR history stops at its verified cutoff. Gaps and different runs are not connected.",
           u8"PSR履歴は対応を確認できた時刻まで表示します。欠測や異なる再生区間を線でつなぎません。" },
         { "PLR/CORR follow main. TIME PLR: processed Session prefix at that completed 100 ms point; LEVEL: latest Session. PSR is independent.",
-          u8"PLR/CORRは全体表示と同じ値です。TIMEのPLRは完了した100 ms時点までの処理済みSession、LEVELは最新のSessionです。PSRは独立です。" },
+          u8"PLR/CORRは全体と同じ値。TIMEのPLRは完了した100 ms時点までの処理済みSession、LEVELは最新のSession。PSRは独立。" },
         { "M, S and TP share one observation. The common time axis follows the local cutoff; a delayed PSR comparison does not stop POST history.",
           u8"M・S・TPは同じ計測の値です。共通の時間軸は単体の計測の終端まで進み、PSRの比較待ちでPOST履歴を止めません。" },
     };
