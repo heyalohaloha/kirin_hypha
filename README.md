@@ -13,7 +13,7 @@ A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
 <p align="center">
-<a href="#download"><b>Download 1.1.52</b></a> &nbsp;·&nbsp;
+<a href="#download"><b>Download 1.1.53</b></a> &nbsp;·&nbsp;
 <a href="#start-in-under-a-minute"><b>Start in a minute</b></a> &nbsp;·&nbsp;
 <a href="#what-you-can-do"><b>What you can do</b></a> &nbsp;·&nbsp;
 <a href="#building-from-source"><b>Build from source</b></a>
@@ -22,7 +22,8 @@ A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (
 <table>
 <tr>
 <td width="50%" valign="top"><b>Touches nothing</b><br>
-Normal measurement passes the audio through unchanged, with zero added latency.</td>
+Normal measurement passes the audio through unchanged, with zero added latency. 64-bit
+floating-point audio keeps its full precision.</td>
 <td width="50%" valign="top"><b>Before and after</b><br>
 PRE before your chain, POST after it. POST shows its own reading, or the difference as Δ.</td>
 </tr>
@@ -78,8 +79,8 @@ any frequency.
 <td width="50%" valign="top">
 <img src="docs/media/readme/drum.jpg" alt="DRUM on a drum track: one hit locked, its PRE and POST envelopes, and the transient, strength, crest and sharpness differences">
 <br><b>How the same drum hit changed</b> · TIME / DRUM<br>
-Every hit measured on PRE and POST: transient, strength, crest and sharpness. Pick an octave band
-to compare each hit's delay, attack, release and level.
+Every hit measured on PRE and POST: transient, strength, crest and sharpness, read as the median of
+up to eight recent hits. Pick an octave band to compare each hit's delay, attack, release and level.
 </td>
 <td width="50%" valign="top">
 <img src="docs/media/readme/space.jpg" alt="SPACE: mid/side density, L/R balance, correlation and the mono sum">
@@ -131,16 +132,16 @@ library, and Keep / Record saves a playback's measurements with the song. See [M
 
 ## Download
 
-**Hypha 1.1.52 is available for macOS and Windows.** Both installers include PRE and POST.
+**Hypha 1.1.53 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
-| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.52/Kirin-Hypha-1.1.52-macOS-Universal.pkg) | AU · VST3 · AAX Native |
-| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.52/Kirin-Hypha-1.1.52-Windows-x64-Setup.exe) | VST3 · AAX Native |
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.53/Kirin-Hypha-1.1.53-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.53/Kirin-Hypha-1.1.53-Windows-x64-Setup.exe) | VST3 · AAX Native |
 
 The macOS installer and plug-ins are signed and notarized. The Windows installer and plug-ins are
 Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
-[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.52).
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.53).
 
 <details>
 <summary>Download verification and release provenance</summary>
@@ -837,7 +838,7 @@ Switching views retires the previous view's missing-latency flag. Format support
 prove PRE/POST timing alignment.
 
 <a id="optional-update-information"></a>
-### Update information in 1.1.52
+### Update information in 1.1.53
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or
 Japanese official download link to get a newer version. Hypha does not install updates automatically.
