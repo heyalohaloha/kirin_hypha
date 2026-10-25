@@ -169,3 +169,58 @@ test('dependency updates cover only present ecosystems without automatic merge',
   assert.equal((config.match(/open-pull-requests-limit: 2/g) || []).length, 2);
   assert.doesNotMatch(ci + aax + config, /--auto(?:\s|$)|enablePullRequestAutoMerge|automerge/);
 });
+
+// GitHub runs a Windows step under pwsh unless it names another shell, and pwsh
+// fails the step only on the last native command's exit code. An earlier native
+// command needs its own $LASTEXITCODE check, or its failure is hidden.
+function hiddenWindowsNativeFailures(source) {
+  const nativeCommand = /^(?:&\s*)?(?:cargo|node|npm|npx|cmake|ctest|python3?|bash|git|iscc|signtool|pluginval|choco|rustup)(?:\.exe|\.cmd)?\b/i;
+  const findings = [];
+  const lines = source.split('\n');
+  let windows = false;
+  let step = null;
+  const finish = () => {
+    if (!step || !windows || step.run === null || !/^(?:pwsh|powershell)$/.test(step.shell)) return;
+    let pending = null;
+    for (const line of step.run.replace(/`\n/g, ' ').split('\n').map(value => value.trim())) {
+      if (!line || line.startsWith('#')) continue;
+      if (/\$LASTEXITCODE/.test(line)) pending = null;
+      if (nativeCommand.test(line)) {
+        if (pending) findings.push(`${step.name}: "${pending}" has no $LASTEXITCODE check before the next command`);
+        pending = line.slice(0, 60);
+      }
+    }
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^  [\w-]+:\s*$/.test(line)) { finish(); step = null; windows = false; continue; }
+    const runner = line.match(/^    runs-on:\s*(\S+)/);
+    if (runner) windows = runner[1].includes('windows');
+    if (/^      - /.test(line)) { finish(); step = { name: '', shell: 'pwsh', run: null }; }
+    if (!step) continue;
+    const name = line.match(/^      (?:- |  )name:\s*(.+)$/);
+    if (name) step.name = name[1];
+    const shell = line.match(/^        shell:\s*(\S+)/);
+    if (shell) step.shell = shell[1];
+    const run = line.match(/^      (?:- |  )run:\s*(.*)$/);
+    if (run) {
+      if (/^[|>]/.test(run[1])) {
+        const body = [];
+        while (i + 1 < lines.length && (!lines[i + 1].trim() || /^ {10}/.test(lines[i + 1]))) body.push(lines[(i += 1)]);
+        step.run = body.join('\n');
+      } else step.run = run[1];
+    }
+  }
+  finish();
+  return findings;
+}
+
+test('no Windows pwsh step hides an earlier native command failure', () => {
+  for (const [name, source] of [['ci.yml', ci], ['aax-phase-a.yml', aax]]) {
+    assert.deepEqual(hiddenWindowsNativeFailures(source), [], name);
+  }
+  const step = run => `jobs:\n  w:\n    runs-on: windows-latest\n    steps:\n      - name: x\n        run: |\n${run}`;
+  assert.equal(hiddenWindowsNativeFailures(step('          cargo test a\n          cargo test b\n')).length, 1);
+  assert.equal(hiddenWindowsNativeFailures(step('          cargo test a\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n          cargo test b\n')).length, 0);
+  assert.equal(hiddenWindowsNativeFailures(step('          cargo test a\n          cargo test b\n').replace('        run: |', '        shell: bash\n        run: |')).length, 0);
+});
