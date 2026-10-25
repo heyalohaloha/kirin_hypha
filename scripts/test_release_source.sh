@@ -70,16 +70,10 @@ run node --test scripts/ls_release/aax_distribution.test.mjs
 run node --test scripts/ls_release/aax_submission_archive.test.mjs
 run node --test scripts/ls_release/aax_notarization_flow.test.mjs
 run node scripts/test_build_aax_universal.mjs
-run node --test scripts/check_typography_source.test.mjs
-run node scripts/check_typography_source.mjs
-run node --test scripts/check_screen_text.test.mjs
-run node scripts/check_screen_text.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run node --test scripts/ls_release/release_metadata.test.mjs scripts/ls_release/windows_primary_metadata.test.mjs scripts/ls_release/pkg_payload_modes.test.mjs
 run node --test scripts/windows/windows_installer.test.mjs scripts/windows/unsigned_vst3_provenance.test.mjs scripts/windows/windows_vst3_bundle.test.mjs
-run node --test scripts/ls_release/release_source_identity.test.mjs scripts/provenance/unsigned_qualification.test.mjs scripts/provenance/runtime_guard.test.mjs scripts/provenance/native_link_evidence.test.mjs
-run node --test scripts/provenance/factory_artifact.test.mjs
 run node --test scripts/windows/inno_signing.test.mjs
 run node --test scripts/updates/update_manifest.test.mjs scripts/updates/update_key_binding.test.mjs scripts/updates/update_binary_slices.test.mjs scripts/updates/winhttp_transport.test.mjs scripts/updates/macos_transport.test.mjs scripts/check_hypha_update_ui.mjs scripts/check_hypha_update_isolation.mjs
 
@@ -99,7 +93,7 @@ run "$OBSERVATORY_CONTRACT_BIN"
 
 # Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
 run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
-run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
+run cargo clippy -p hypha_pre -p hypha_post -p hypha_gui --all-targets --locked -- -D warnings
 }
 
 phase_native1() { phase_native 1; }
@@ -284,7 +278,7 @@ run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
 # Keep legacy VST3 identity and Record styling covered without using these editors as shipping
 # AU/VST3 bundles. Their compatibility modules remain separate from the JUCE product surface.
-run cargo test -p hypha_pre -p hypha_post --locked
+run cargo test -p hypha_pre -p hypha_post -p hypha_gui --locked
 run cargo test -p vst3-com --locked --test vtable_expression
 # Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
 # quantify both allowed LIVE slots in the same optimized configuration that ships.

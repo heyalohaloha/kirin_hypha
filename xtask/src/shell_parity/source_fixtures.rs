@@ -146,3 +146,27 @@
         }
         panic!("function body not closed: {signature}");
     }
+
+    fn without_cpp_comments(source: &str) -> String {
+        let mut out = String::with_capacity(source.len());
+        let mut chars = source.chars().peekable();
+        let mut quote = None;
+        while let Some(c) = chars.next() {
+            if let Some(q) = quote {
+                out.push(c);
+                if c == '\\' { if let Some(escaped) = chars.next() { out.push(escaped); } }
+                else if c == q { quote = None; }
+            } else if c == '"' || c == '\'' { quote = Some(c); out.push(c); }
+            else if c == '/' && chars.peek() == Some(&'/') {
+                chars.next();
+                for next in chars.by_ref() { if next == '\n' { out.push('\n'); break; } }
+            } else if c == '/' && chars.peek() == Some(&'*') {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if next == '*' && chars.peek() == Some(&'/') { chars.next(); break; }
+                }
+                out.push(' ');
+            } else { out.push(c); }
+        }
+        out
+    }

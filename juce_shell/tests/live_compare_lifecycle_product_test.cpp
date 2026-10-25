@@ -1,3 +1,4 @@
+#include "FiniteComparison.h"
 #include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "ReferenceValidationStorageSandbox.h"
@@ -347,8 +348,8 @@ private:
             {
                 const auto first = signal[static_cast<std::size_t> (clock.position + 7) % signal.size()];
                 const auto last = signal[static_cast<std::size_t> (clock.position + frames - 1) % signal.size()];
-                if (std::abs (buffer.getSample (0, 7) - first) > 0.03f
-                    || std::abs (buffer.getSample (0, frames - 1) - processed (last)) > 1.0e-6f) ++fadeErrors;
+                if (! hypha::tests::finiteNear (buffer.getSample (0, 7), first, 0.03f)
+                    || ! hypha::tests::finiteNear (buffer.getSample (0, frames - 1), processed (last), 1.0e-6f)) ++fadeErrors;
                 ++fadeChecks;
             }
             if (verifyPost.load())
@@ -356,7 +357,7 @@ private:
                     for (int f = 0; f < frames; ++f)
                     {
                         const auto input = signal[static_cast<std::size_t> (clock.position + f) % signal.size()];
-                        if (std::abs (buffer.getSample (c, f) - processed (input) * expectedPost.load()) > 1.0e-6f)
+                        if (! hypha::tests::finiteNear (buffer.getSample (c, f), processed (input) * expectedPost.load(), 1.0e-6f))
                             postErrors.fetch_add (1);
                     }
             ratio.store (buffer.getSample (0, frames - 1)

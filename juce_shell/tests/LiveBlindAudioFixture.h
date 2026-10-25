@@ -105,7 +105,7 @@ void processAudio()
                     const float original = sourceSample (c, delayedPosition + f);
                     const float expected = after.preAudible ? original * before.gain
                                                            : processedInput (original) * before.postActual;
-                    if (std::abs (buffer.getSample (c, f) - expected) > 0.0000001f) loopPcmErrors.fetch_add (1);
+                    if (! hypha::tests::finiteNear (buffer.getSample (c, f), expected, 0.0000001f)) loopPcmErrors.fetch_add (1);
                 }
             (after.preAudible ? loopPreFrames : loopPostFrames).fetch_add (blockFrames);
         }
@@ -119,7 +119,7 @@ void processAudio()
                     for (int f = 0; f < blockFrames; ++f)
                     {
                         const float expected = processedInput (sourceSample (c, delayedPosition + f)) * before.postActual;
-                        if (std::abs (buffer.getSample (c, f) - expected) > 0.0000001f) stallPostErrors.fetch_add (1);
+                        if (! hypha::tests::finiteNear (buffer.getSample (c, f), expected, 0.0000001f)) stallPostErrors.fetch_add (1);
                     }
                 stallPostFrames.fetch_add (blockFrames);
             }

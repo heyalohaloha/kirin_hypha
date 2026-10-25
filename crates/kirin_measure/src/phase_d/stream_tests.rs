@@ -31,10 +31,11 @@ fn test_empty_input() {
 
 #[test]
 fn test_sub_frame_no_output() {
-    // Fresh stream: dec_count=0, so first sample IS a decimation point.
-    // Need 0 samples for 0 output.
     let mut stream = PhaseDStream::new(FieldType::Free);
-    assert!(stream.push(&[]).is_empty());
+    assert_eq!(stream.push(&[0.5]).len(), 1); // sample zero is a decimation point
+    assert!(stream.push(&[0.5; 22]).is_empty());
+    assert!(stream.push(&[0.5]).is_empty()); // wrap without publishing early
+    assert_eq!(stream.push(&[0.5]).len(), 1);
 }
 
 #[test]

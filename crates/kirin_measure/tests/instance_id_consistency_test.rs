@@ -26,25 +26,20 @@ use kirin_measure::{
     plugin_data::{PluginDataFile, Role as PluginDataRole},
     record_signal,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
-/// `Arc<RwLock<String>>` から現在値を lazy-read（panic-safe）。
-///
-/// `crate::io_thread_post::read_instance_id_arc` と同等のロジック。
-/// ヘルパは `pub(crate)` のためテストから直接呼べないので再実装する。
-fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
-    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
-}
+// Compile the actual private IO implementation in this integration crate.
+#[path = "../src/io_thread_post_identity.rs"]
+#[allow(dead_code)]
+mod runtime_identity;
+use kirin_measure::{broadcast_scope_ids_match, PairClaim};
+use runtime_identity::read_instance_id_arc;
 
-fn isolated_dir(label: &str) -> std::path::PathBuf {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let pid = std::process::id();
-    let dir = std::env::temp_dir().join(format!("kirin_iid_consistency_{label}_{pid}_{n}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn isolated_dir(label: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("kirin_iid_consistency_{label}_"))
+        .tempdir()
+        .unwrap()
 }
 
 /// 同一 `Arc<RwLock<String>>` を editor / io_thread 双方が共有する限り、
@@ -53,7 +48,8 @@ fn isolated_dir(label: &str) -> std::path::PathBuf {
 /// 受入基準 #1-2 の不変条件を最も直接的に表現するテスト。
 #[test]
 fn record_signal_and_plugin_data_share_instance_id_via_arc_rwlock() {
-    let base = isolated_dir("share");
+    let directory = isolated_dir("share");
+    let base = directory.path();
     let project_hash = "test-ph-share";
     let target_pre = "pre-target".to_string();
     let daw_session = "daw-share".to_string();
@@ -64,7 +60,7 @@ fn record_signal_and_plugin_data_share_instance_id_via_arc_rwlock() {
     // editor 側 lazy-read (trigger_keep 経路 simulating)
     let iid_for_signal = read_instance_id_arc(&instance_id_arc);
     let signal = record_signal::write_pending(
-        &base,
+        base,
         project_hash,
         &iid_for_signal,
         target_pre.clone(),
@@ -105,7 +101,7 @@ fn record_signal_and_plugin_data_share_instance_id_via_arc_rwlock() {
 
     // 復元後の write_pending / plugin_data 生成も新値で整合
     let signal2 = record_signal::write_pending(
-        &base,
+        base,
         project_hash,
         &iid_post_restore,
         target_pre.clone(),

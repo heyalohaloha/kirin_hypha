@@ -4,15 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+PLAN=false
+if [[ "${1:-}" == --plan && $# == 1 ]]; then PLAN=true
+elif [[ $# != 0 ]]; then echo "unknown lightweight argument" >&2; exit 2; fi
+
 run() {
   echo "==> $*"
-  "$@"
+  if [[ "$PLAN" == false ]]; then "$@"; fi
 }
 
 # This is the source-only contract shared by local verification, every CI event, and the
 # full release-source gate. Keep it independent of JUCE builds, signing material, and hardware.
 run cargo fmt --all -- --check
-run node --test scripts/structural_repair_detection.test.mjs
+run node --test scripts/structural_repair_detection.test.mjs scripts/watch_snapshot_runtime.test.mjs
 run node --test scripts/native_storage_guard.test.mjs scripts/native_path_budget.test.mjs
 run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
@@ -54,4 +58,4 @@ run bash scripts/test_juce_patch_state.sh
 run node --test scripts/check_public_environment.test.mjs
 run node scripts/check_public_environment.mjs
 
-echo "lightweight source contract: PASS"
+if [[ "$PLAN" == false ]]; then echo "lightweight source contract: PASS"; fi
