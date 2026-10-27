@@ -301,7 +301,9 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
         save();
       }
       const saved = state.stages[stage];
-      if (stage === 'windows' && !actions) requireFactoryDelivery(state);
+      // factory の段（actions）でも、promotion を結ぶ前に windows の段を作らない。作ると後から結べなくなる。
+      // 結んだ後に PASS になった段は、やり直し（PKG の staple など）で作り直さないのでそのまま使う。
+      if (stage === 'windows' && (!actions || saved?.status !== 'PASS')) requireFactoryDelivery(state);
       if (saved?.status === 'PASS') {
         if (saved.facts) checkFacts(saved.facts);
         if (stage === 'ci' && !actions) { saved.evidence = await verifyCi(state, run); save(); }
