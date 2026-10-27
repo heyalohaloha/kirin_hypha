@@ -56,6 +56,8 @@ SDK・署名の入力は[署名入口](aax_build_signing_entry.md)の既存経�
 以下は構成例であり、run ID・path・stateは担当者が実物から確定する。templateの値は実物から確認する。
 
 ```bash
+bash scripts/apply_juce_patches.sh
+bash scripts/verify_juce_patch_state.sh
 node scripts/build_hypha.mjs --release --init \
   --state release_state/hypha-release.json \
   --sdk /external/licensed/aax-sdk --license-confirmed \

@@ -30,7 +30,7 @@ run node --test scripts/ls_release/pkg_staple.test.mjs scripts/ls_release/pkg_co
 run node --test scripts/acceptance/acceptance_tools.test.mjs
 run node --test scripts/ls_release/ls_api_readback.test.mjs scripts/ls_release/hypha_release_ls.test.mjs scripts/ls_release/release_preflight.test.mjs
 run node --test scripts/ls_release/hypha_release_criteria.test.mjs
-run node --test scripts/release_hypha.test.mjs scripts/ls_release/hypha_release_hp.test.mjs scripts/ls_release/hypha_release_github.test.mjs
+run node --test scripts/release_hypha.test.mjs scripts/release_juce_init.test.mjs scripts/ls_release/hypha_release_hp.test.mjs scripts/ls_release/hypha_release_github.test.mjs
 run node --test scripts/provenance/*.test.mjs
 run node --test scripts/ls_release/release_source_identity.test.mjs
 run bash scripts/test_source_line_budget.sh

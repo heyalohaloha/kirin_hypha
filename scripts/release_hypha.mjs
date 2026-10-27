@@ -377,6 +377,8 @@ export async function runReleaseCli(argv, root = ROOT) {
   childProcess.execFileSync('git', ['check-ignore', '-q', '--', path.relative(root, statePath)], { cwd: root });
   if (options.init) {
     if (fs.existsSync(statePath)) throw new Error('Existing candidate state must not be replaced');
+    const env = { ...process.env }; delete env.KIRIN_JUCE_DIR;
+    childProcess.execFileSync('bash', ['scripts/verify_juce_patch_state.sh'], { cwd: root, env, stdio: 'pipe' });
     const state = makeState(root, options); assertState(state);
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
     fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
