@@ -36,6 +36,7 @@ static void require (bool ok, const char* message)
 }
 
 #include "GuardRecoveryTest.h"
+#include "SharedRingAbiTest.h"
 namespace
 {
 constexpr int frames = 512;
@@ -366,12 +367,13 @@ static void pinFixesOneProjectRange()
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
-    require (name.size() <= 31 && name.rfind ("/kh-lc9-", 0) == 0, "versioned name fits the POSIX limit");
+    require (name.size() <= 31 && name.rfind ("/kh-lc10-", 0) == 0, "versioned name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
     require (sharedRingAvailable(), "macOS and Windows map the ring");
     SharedRingMapping pre, post, wrongRate;
     require (pre.create (pairKey, 48000), "PRE creates its ring");
+    hypha::tests::verifySharedRingAbi (pre, wrongRate, pairKey, require);
     require (post.open (pairKey, 48000), "POST opens the ring of its PRE");
     require (! wrongRate.open (pairKey, 44100), "a ring for another rate is refused");
     post.ring()->header.demand.store (1);
@@ -384,7 +386,6 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     require (post.ring()->header.ownerClosed.load() == 1, "POST learns that PRE closed its ring");
     SharedRingMapping late;
     require (! late.open (pairKey, 48000), "a ring its PRE closed is never opened again");
-
     // PRE prepares again while POST still holds the closed ring (on Windows the section keeps its
     // name): PRE gets a new ring, the old one stays closed for that POST, and a new POST opens the
     // new one.
@@ -401,7 +402,6 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     newer.close();
     again.close();
     require (! late.open (pairKey, 48000), "nothing is left open after every owner closed");
-
     // INV-LC9: a PRE that is one channel of a multi-mono set stamps its ring, and POST reads it.
     SharedRingMapping channel, reader;
     require (channel.create (pairKey, 48000, ringSourceMultiMono), "a multi-mono PRE creates its ring");

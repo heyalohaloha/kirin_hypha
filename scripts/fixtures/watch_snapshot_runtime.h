@@ -8,7 +8,7 @@
 #include <vector>
 #include <utility>
 
-// External UI/preferences/processor ports for the complete shipping methods.
+// External UI, settings and processor ports for the complete shipping methods.
 // No Watch assignment, publication decision, or display equality is copied here.
 namespace juce {
 struct String { bool isNotEmpty() const { return false; } };
