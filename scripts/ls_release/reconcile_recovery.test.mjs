@@ -1,3 +1,4 @@
+import { renderedNews } from './fixtures/news-rendered-fixture.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -233,7 +234,7 @@ test('plan refuses a concurrent profile change during verification', async t => 
 
 test('postrelease reconciliation requires the complete A7 report and public readback before completion', async t => {
   const { digest, acceptanceCriteria, reportTemplate, POST_TESTS } = await import('./hypha_release_contract.mjs');
-  const { makeHpRecord, renderHpPage, installerFilename } = await import('./hypha_release_hp_data.mjs');
+  const { makeHpRecord, renderHpPage, installerFilename, hpReleaseNotice } = await import('./hypha_release_hp_data.mjs');
   const f = fixture(t), state = structuredClone(f.state);
   const payloads = ['macos', 'windows'].map(target => {
     const file = path.join(f.root, installerFilename(state.candidate.version, target));
@@ -257,6 +258,11 @@ test('postrelease reconciliation requires the complete A7 report and public read
   const template = lang => `<html lang="${lang}"><section id="downloads"><h2 id="hypha-download-title">Hypha {{KIRIN_HYPHA_LATEST_VERSION}}</h2><time datetime="{{KIRIN_HYPHA_PUBLISHED_AT}}">{{KIRIN_HYPHA_PUBLISHED_AT}}</time><a href="/downloads/kirin-hypha/macos">PKG</a><a href="/downloads/kirin-hypha/windows">Windows VST3 + AAX</a>macOS 12+ (VST3 + Audio Unit + AAX) / Windows 10/11 (VST3 + AAX)<a href="{{KIRIN_HYPHA_RELEASE_NOTES_URL}}">{{KIRIN_HYPHA_LATEST_VERSION}}</a></section></html>`;
   const fetcher = async (url, options = {}) => {
     if (url.includes('deployment-source')) return new Response(state.hpCommit);
+    if (url.includes('/updates/hypha.json')) return Response.json(record);
+    if (new URL(url).pathname === '/' || new URL(url).pathname === '/ja/') {
+      const lang = new URL(url).pathname === '/' ? 'en' : 'ja';
+      return new Response(renderedNews([hpReleaseNotice(record)], lang));
+    }
     if (url.includes('/downloads/kirin-hypha/')) {
       const target = url.endsWith('/macos') ? 'macos' : 'windows';
       if (options.redirect === 'manual') return new Response(null, { status: 302,
@@ -416,4 +422,24 @@ test('factory or unrecognized provenance recovery is refused before any verifier
   const fakeBody = { schema: 'hypha-release-reconciliation-plan-v1', stage: 'provenance' };
   const fakePlan = { ...fakeBody, sha256: (await import('./hypha_release_contract.mjs')).digest(fakeBody) };
   await assert.rejects(release.applyReleaseReconciliation(f.statePath, fakePlan, fakePlan.sha256, deps), /Factory provenance reconciliation is unsupported/i);
+});
+
+test('reconciliation apply refuses public input or notes changed after the plan', async t => {
+  const { publicationBinding } = await import('./publication_input.mjs');
+  const { hpReleaseNotice, makeHpRecord, installerFilename } = await import('./hypha_release_hp_data.mjs');
+  for (const changed of ['input', 'notes']) {
+    const f = fixture(t), state = structuredClone(f.state), version = state.candidate.version, date = state.inputs.date;
+    const notes = path.join(f.root, 'notes.md'), input = path.join(f.root, 'public.json');
+    fs.writeFileSync(notes, 'reviewed notes'); state.inputs.notes = notes;
+    const facts = ['macos', 'windows'].map(target => ({ path: installerFilename(version, target), bytes: 1, sha256: 'a'.repeat(64) }));
+    const notice = hpReleaseNotice(makeHpRecord(version, date, facts));
+    fs.writeFileSync(input, JSON.stringify({ schema: 'hypha-publication-v1', version, date, notice }));
+    state.publication = publicationBinding(state, input); atomicJson(f.statePath, state);
+    const deps = { snapshot: f.snapshot, verifyPrerequisites: async () => null, verify: async () => ({ facts: [fileFact(f.signed)] }) };
+    const plan = await release.planReleaseReconciliation(f.statePath, await release.inspectRelease(f.statePath, deps), deps);
+    if (changed === 'input') { notice.en.summary += ' changed'; fs.writeFileSync(input, JSON.stringify({ schema: 'hypha-publication-v1', version, date, notice })); }
+    else fs.writeFileSync(notes, 'changed notes');
+    await assert.rejects(release.applyReleaseReconciliation(f.statePath, plan, plan.sha256, deps), /changed/i);
+    assert.equal(JSON.parse(fs.readFileSync(f.statePath)).stages.windows.status, 'FAIL');
+  }
 });

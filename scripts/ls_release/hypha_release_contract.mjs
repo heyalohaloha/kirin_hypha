@@ -1,3 +1,4 @@
+import { releaseComplete } from './release_stages.mjs';
 // Candidate-bound evidence. Reports are attestations backed by retained files, never auto-PASS.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -226,6 +227,7 @@ function checkReconciledEvidence(state) {
 }
 
 export function assertState(state) {
+  if (state.releaseState === 'RELEASE_COMPLETE' && !releaseComplete(state)) throw new Error('Release complete requires all required stages PASS');
   if (state.schema !== SCHEMA || !/^[0-9a-f]{40}$/.test(state.candidate?.commit || '')
       || !/^B-\d+$/.test(state.candidate?.bNumber || '')
       || !/^\d+\.\d+\.\d+$/.test(state.candidate?.version || '')

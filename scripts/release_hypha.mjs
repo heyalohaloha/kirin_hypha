@@ -28,10 +28,14 @@ import { prepareSourceDelivery } from './provenance/source_delivery.mjs';
 import { updateBinding, validatePublicKey, assertUpdateBinding } from './updates/update_key_binding.mjs';
 import { requireFactoryIdentity, requireFactoryDelivery, verifyFactoryArchive } from './provenance/factory_artifact.mjs';
 
+import { publicationBinding, publicationNotice, authorizePublication, auditBeforeInit, bindPublication } from './ls_release/publication_input.mjs';
+export { publicationBinding, authorizePublication, auditBeforeInit, bindPublication };
+import { STAGES, stagePlan, releaseComplete } from './ls_release/release_stages.mjs';
+import { requireRequalification } from './ls_release/release_requalification.mjs';
+export { STAGES };
+
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const ROOT = path.resolve(path.dirname(MODULE_PATH), '..');
-export const STAGES = ['provenance-inputs', 'ci', 'source-delivery', 'macos-au-vst3', 'macos-aax', 'windows', 'freeze', 'hosts',
-  'packages', 'provenance', 'distribution', 'ls', 'github', 'hp', 'postrelease'];
 export const HELP = `Usage: node scripts/build_hypha.mjs --release --state release_state/NAME.json [options]
 
 One workflow through HP upload: macOS Universal AU/VST3/AAX + approved Windows x64
@@ -53,6 +57,9 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --hp-root DIR             Existing HP main checkout (must be clean/current before publish)
   --ls-state FILE           Existing private LS product-target state
   --notes FILE              Reviewed public release notes
+  --publication-input FILE  Reviewed bilingual public notice JSON
+  --bind-publication FILE   Bind corrected wording before publication starts
+  --publication-approved SHA256  Approval of the bound public input digest
   --provenance-report FILE  Retained exact-payload NOTICE/license/source evidence (private)
   --source-archive FILE     Reuse the private Windows producer's verified source ZIP bytes
   --update-public-key KEY    Approved pinned RSA public key; default empty disables checking
@@ -63,7 +70,7 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --date YYYY-MM-DD         Release date (default: today UTC)
   --resume-pkg-staple        Explicitly resume a retained package ticket checkpoint (--execute)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
-  --until packages|hp|complete  Default hp; no stage/gate is skipped
+  --until packages|hp|ls|complete  Default hp; dependencies are required
   --publish-approved ID     Operator authorization for this exact candidate's public writes
   --help                    Show usage
 
@@ -78,7 +85,7 @@ export function parseReleaseArgs(argv) {
   const fields = { '--state': 'state', '--sdk': 'sdk', '--ci-run': 'ciRun',
     '--windows-installer-dir': 'windowsInstallerDir', '--hp-root': 'hpRoot',
     '--ls-state': 'lsState', '--notes': 'notes', '--date': 'date', '--until': 'until',
-    '--publish-approved': 'publishApproved', '--provenance-report': 'provenanceReport',
+    '--publish-approved': 'publishApproved', '--publication-input': 'publicationInput', '--bind-publication': 'bindPublication', '--publication-approved': 'publicationApproved', '--provenance-report': 'provenanceReport',
     '--fix-rows': 'fixRows', '--source-archive': 'sourceArchive', '--update-public-key': 'updatePublicKey',
     '--windows-factory-commit': 'windowsFactoryCommit', '--windows-factory-repository': 'windowsFactoryRepository', '--windows-promotion-run': 'windowsPromotionRun',
     '--windows-artifact-archive': 'windowsArtifactArchive', '--bind-windows-promotion': 'bindWindowsPromotion',
@@ -104,7 +111,7 @@ export function parseReleaseArgs(argv) {
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`Unknown release option: ${arg}`);
   }
-  if (!['packages', 'hp', 'complete'].includes(options.until)) throw new Error('Invalid --until');
+  if (!['packages', 'hp', 'ls', 'complete'].includes(options.until)) throw new Error('Invalid --until');
   const reconcileModes = [options.inspect, options.reconcilePlan, options.reconcileApply].filter(Boolean);
   if (reconcileModes.length > 1 || (reconcileModes.length && (options.init || options.execute || options.dryRun || options.bindWindowsPromotion))) throw new Error('Reconciliation modes must be separate');
   if (options.reconcileRetained && !options.reconcilePlan) throw new Error('--reconcile-retained requires --reconcile-plan');
@@ -122,6 +129,7 @@ export function parseReleaseArgs(argv) {
   if (options.windowsPromotionRun || (options.windowsArtifactArchive && !options.bindWindowsPromotion)) {
     throw new Error('Bind Windows delivery using --bind-windows-promotion and --windows-artifact-archive');
   }
+  if (options.bindPublication && (options.init || options.execute || options.dryRun || options.inspect || options.reconcilePlan || options.reconcileApply || options.bindWindowsPromotion || options.bindOwnerOverride)) throw new Error('--bind-publication must be separate');
   if (!options.help && !options.state) throw new Error('--state is required');
   return options;
 }
@@ -214,7 +222,7 @@ export function realActions(state, options, run, save, fetcher = fetch) {
       checkFacts(payloads);
       state.freeze = { source: state.source, payloads, updateCheck: updateBinding(state.inputs.updatePublicKey), requiredHostTests: state.requiredHostTests, expected: state.expected,
         criteriaSha256: digest(acceptanceCriteria(state)),
-        inputs: digest(state.inputs), publicationNotes: fileFact(resolveInput(state, state.inputs.notes)), toolchain: {
+        inputs: digest(state.inputs), ...(state.publication ? {} : { publicationNotes: fileFact(resolveInput(state, state.inputs.notes)) }), toolchain: {
           node: process.version, xcode: (await run('xcodebuild', ['-version'], { capture: true })).trim(),
           rustc: assertRustRuntime(await run('rustc', ['--version'], { capture: true })),
           cargo: (await run('cargo', ['--version'], { capture: true })).trim(),
@@ -246,7 +254,6 @@ export function realActions(state, options, run, save, fetcher = fetch) {
     },
     ls: async () => {
       authorization(state, options);
-      await hpPreflight(state, run); // fail before any public release if HP is knowingly unusable
       const products = readJson(resolveInput(state, state.inputs.lsState)).lemonSqueezy.products;
       const result = report('lsReport', 'A6-LS', digest(state.stages.packages.facts), products.map(p => `LS/${p.productId}`));
       const uploaded = readJson(resolveInput(state, state.inputs.lsReport));
@@ -260,21 +267,21 @@ export function realActions(state, options, run, save, fetcher = fetch) {
       return { ...result, evidence: { apiChecks } };
     },
     github: async () => {
-      authorization(state, options); await hpPreflight(state, run);
+      authorizePublication(state, options); await hpPreflight(state, run);
       return { evidence: await publishGithub(state, run, save) };
     },
     hp: async () => {
-      authorization(state, options);
+      authorizePublication(state, options);
       const downloads = await publicDownloadFacts(state,
         [...state.stages.packages.facts, ...state.stages.provenance.publicFacts], fetcher);
       const evidence = await publishHp(state, run, save, fetcher);
       return { evidence: { ...evidence, downloads } };
     },
     postrelease: async () => {
-      await verifyPublicHp(state, fetcher);
+      const publicEvidence = await verifyPublicHp(state, fetcher);
       await publicDownloadFacts(state,
         [...state.stages.packages.facts, ...state.stages.provenance.publicFacts], fetcher);
-      return report('postreleaseReport', 'A7', digest(state.stages.packages.facts), POST_TESTS);
+      return { ...report('postreleaseReport', 'A7', digest(state.stages.packages.facts), POST_TESTS), evidence: { publicEvidence } };
     },
   };
 }
@@ -282,9 +289,10 @@ export function realActions(state, options, run, save, fetcher = fetch) {
 export async function executeRelease(state, options, { statePath, run = nativeRunner(state.root),
   snapshot = sourceSnapshot, clean = () => requireCleanReleaseSource({ root: state.root }),
   actions, fetcher = fetch, log = console.log, platform = process.platform } = {}) {
-  assertState(state);
+  const requalification = requireRequalification(state, statePath, actions);
+  if (state.releaseState === 'RELEASE_COMPLETE' && state.publication) publicationNotice(state);
   if (!options.execute) { log(JSON.stringify({ candidate: state.candidate, until: options.until,
-    stages: STAGES, currentState: state.releaseState, externalWrites: 'none (plan only)' }, null, 2)); return state; }
+    stages: stagePlan(options.until), currentState: state.releaseState, externalWrites: 'none (plan only)' }, null, 2)); return state; }
   if (platform !== 'darwin' && !actions) throw new Error('Release coordinator runs on macOS; Windows producer uses approved factory');
   clean();
   if (digest(snapshot(state.root)) !== digest(state.source)) throw new Error('Candidate source changed; initialize a new candidate');
@@ -293,10 +301,13 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
   const lock = `${statePath}.lock`; const fd = fs.openSync(lock, 'wx');
   const save = () => atomicJson(statePath, state);
   const active = actions || realActions(state, options, run, save, fetcher);
-  const end = { packages: 'packages', hp: 'hp', complete: 'postrelease' }[options.until];
   let stage; let startedThisAttempt = false;
   try {
-    for (stage of STAGES.slice(0, STAGES.indexOf(end) + 1)) {
+    if (requalification) {
+      const receipt = requireRequalification(state, statePath, actions);
+      state.releaseState = 'RELEASED'; state.stages.ci.previousProfileReceipt = receipt; assertState(state); save();
+    }
+    for (stage of stagePlan(options.until)) {
       startedThisAttempt = false;
       if (digest(snapshot(state.root)) !== digest(state.source)) throw new Error('Source changed during pipeline');
       if (state.freeze) {
@@ -324,7 +335,7 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
       if (saved?.status === 'PASS') {
         if (saved.facts) checkFacts(saved.facts);
         if (stage === 'ci' && !actions) { saved.evidence = await verifyCi(state, run); save(); }
-        if (stage === 'hp' && !actions) await verifyPublicHp(state, fetcher);
+        if (stage === 'hp' && !actions) { saved.evidence = { ...saved.evidence, publicEvidence: await verifyPublicHp(state, fetcher) }; save(); }
         log(`[hypha-release] ${stage}: verified/reused`); continue;
       }
       const resumePackage = stage === 'packages' && options.resumePkgStaple && ['FAIL', 'PENDING'].includes(saved?.status);
@@ -338,6 +349,7 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
       const { previous = [], ...attempt } = saved || {};
       const history = saved?.status === 'FAIL' || resumePackage ? [...previous, attempt] : previous;
       state.stages[stage] = { status: 'RUNNING', startedAt: new Date().toISOString(),
+        ...(stage === 'ci' && saved?.previousProfileReceipt ? { previousProfileReceipt: saved.previousProfileReceipt } : {}),
         ...(resumePackage ? { evidence: saved.evidence } : {}),
         ...(history.length ? { previous: history } : {}) };
       startedThisAttempt = true; save();
@@ -348,11 +360,15 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
       if (stage === 'hosts') state.releaseState = 'HOST_ACCEPTED';
       if (stage === 'distribution') state.releaseState = 'RELEASE_READY';
       if (stage === 'hp') state.releaseState = 'RELEASED';
-      if (stage === 'postrelease') state.releaseState = 'RELEASE_COMPLETE';
+      if (releaseComplete(state)) {
+        if (state.publication) publicationNotice(state);
+        state.releaseState = 'RELEASE_COMPLETE';
+      }
       delete state.blocker; save(); log(`[hypha-release] ${stage}: PASS`);
     }
     return state;
   } catch (error) {
+    if (!stage) throw error;
     const checkpoint = error instanceof Checkpoint;
     if (!checkpoint || startedThisAttempt) {
       state.stages[stage] = { ...state.stages[stage], status: checkpoint ? 'PENDING' : 'FAIL' };
@@ -414,7 +430,7 @@ export async function bindWindowsPromotion(statePath, options, snapshot = source
   } finally { fs.closeSync(fd); fs.unlinkSync(lock); }
 }
 
-export async function runReleaseCli(argv, root = ROOT) {
+export async function runReleaseCli(argv, root = ROOT, { auditRunner } = {}) {
   const options = parseReleaseArgs(argv);
   if (options.help) { console.log(HELP); return; }
   const statePath = safeStatePath(root, options.state);
@@ -423,13 +439,20 @@ export async function runReleaseCli(argv, root = ROOT) {
     if (fs.existsSync(statePath)) throw new Error('Existing candidate state must not be replaced');
     const env = { ...process.env }; delete env.KIRIN_JUCE_DIR;
     childProcess.execFileSync('bash', ['scripts/verify_juce_patch_state.sh'], { cwd: root, env, stdio: 'pipe' });
-    const state = makeState(root, options); assertState(state);
+    await auditBeforeInit({ ...options, hpRoot: options.hpRoot && path.resolve(root, options.hpRoot) }, auditRunner || nativeRunner(root));
+    const state = makeState(root, options);
+    if (!options.publicationInput) throw new Error('Reviewed --publication-input is required for initialization');
+    state.publication = publicationBinding(state, options.publicationInput); assertState(state);
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
     fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-    console.log(`[hypha-release] initialized ${state.candidate.id}; no build/sign/upload`); return state;
+    console.log(`[hypha-release] initialized ${state.candidate.id}; public digest ${state.publication.sha256}; no build/sign/upload`); return state;
   }
   const state = readJson(statePath);
   if (state.root !== fs.realpathSync(root)) throw new Error('State belongs to another checkout');
+  if (options.bindPublication) {
+    const bound = await bindPublication(statePath, options.bindPublication);
+    console.log(`[hypha-release] public input bound: ${bound.publication.sha256}; no publication`); return bound;
+  }
   if (options.bindOwnerOverride) {
     const bound = bindOwnerOverrides(statePath, options.bindOwnerOverride);
     console.log('[hypha-release] owner overrides bound; no build/sign/upload'); return bound;

@@ -40,7 +40,7 @@ node scripts/build_hypha.mjs --release --help
 2. A3のsource/JUCE/SDK/toolchain/payloadと、受入matrix・期待値を固定する。
 3. exact signed candidateのA4実host受入を確認する。
 4. 既存release-set producerでLS / HP通常導線のPKGと、公開Releaseに必須の復旧用ZIPを作り、Windows EXEと合わせてA5を確認する。
-5. LSの全対象への配送を確認する。
+5. LSの全対象への配送はA5後に独立して確認でき、通常は公開後の確認の後に行う。
 6. exact commitへGitHub Releaseを作り、全配布物をdownloadしてhash照合後にdraftを公開する。
 7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、`data/news.json`へその版の標準のお知らせを1件足す。英日templateと対応formatは書き換えずに照合し、HPの試験は中央の記録から版・日付・お知らせを読む。
 8. HPの標準手順でtest → commit/push → clean staged deploy → 検証 → production promotionを行う。
@@ -67,6 +67,7 @@ node scripts/build_hypha.mjs --release --init \
   --hp-root /absolute/path/to/kirin_hp \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
+  --publication-input release_state/reviewed-publication.json \
   --provenance-report release_state/distribution-provenance.json \
   --source-archive /retained/private-windows-producer/Kirin-Hypha-X.Y.Z-Corresponding-Source.zip \
   --fix-rows release_state/fix-rows.json \
@@ -77,12 +78,25 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 
 # buildからHPまでを進める／確認待ちの続きから再開する。
 node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
-  --execute --publish-approved EXACT_CANDIDATE_ID
+  --execute --publish-approved EXACT_CANDIDATE_ID --publication-approved REVIEWED_PUBLIC_DIGEST
 
-# HPまでの後、A7の公開後smoke reportも確認してRelease Completeへ進む。
+# A5からLSを独立して確認する場合（HP公開は実行しない）。
 node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
-  --execute --until complete --publish-approved EXACT_CANDIDATE_ID
+  --execute --until ls --publish-approved EXACT_CANDIDATE_ID
+
+# HPまでの後、A7の公開後smoke reportとLSの配送を確認してRelease Completeへ進む。
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --execute --until complete --publish-approved EXACT_CANDIDATE_ID --publication-approved REVIEWED_PUBLIC_DIGEST
 ```
+
+英日のお知らせは [公開入力の例](ls_release/hypha_publication.example.json) の形式で準備し、版・日付・notes URLと、既知の点を含む英日本文を確認する。init は HP の `npm run security:audit` が成功してから profile を作り、candidate ID と公開入力 digest を表示する。公開担当は文と release notes を確認した digest を `--publication-approved` に渡す。公開作業開始前の文の変更は、次の独立操作で再結合し、表示された新 digest を改めて承認する。製造済み payload は作り直さない。公開が既に始まった場合は自動変更せず照合する。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --bind-publication release_state/reviewed-publication.json
+```
+
+公開前には HP checkout の clean・current・project を確認する。公開後は英日ページ・中央 JSON・お知らせ・download の実 bytes を読み戻し、deployment commit を出どころとして保存する。別の deployment でも同じ Hypha 内容なら受け付け、読戻し中に deployment が変われば停止する。deploy の直前にも依存 audit を行う。
 
 初期化が出すcandidate IDを、公開を承認した担当者が`--publish-approved`へ渡す。
 script作成の依頼や`--execute`だけを、個別candidateの公開承認に読み替えない。
@@ -247,7 +261,7 @@ CIは指定したgreen runを検証して再利用する。job一覧は`filter=l
 ## 状態と検証
 
 HPまでのPASSは`RELEASED`。A7待ちであり`RELEASE_COMPLETE`ではない。
-全必須A7が通った場合だけ`RELEASE_COMPLETE`。fixture成功と実公開完了は別証跡として報告する。
+LS・HP・Windowsを含む全必須段が通った場合だけ`RELEASE_COMPLETE`。fixture成功と実公開完了は別証跡として報告する。
 
 ```bash
 node --test scripts/build_hypha.test.mjs scripts/release_hypha.test.mjs \

@@ -81,7 +81,7 @@ test('plan is read-only and does not call producers', async t => {
 test('all stages through HP run in order; Released is not Release Complete', async t => {
   const f = fixture(t, { delivery: true });
   await executeRelease(f.state, options, f.dependencies);
-  assert.deepEqual(f.calls, STAGES.slice(0, -1));
+  assert.deepEqual(f.calls, STAGES.slice(0, STAGES.indexOf('hp') + 1));
   assert.equal(f.state.releaseState, 'RELEASED');
   assert.equal(f.state.stages.postrelease, undefined);
   await executeRelease(f.state, { ...options, until: 'complete' }, f.dependencies);

@@ -1,5 +1,6 @@
 // HP source templates and its central integrity record are one publication contract.
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import crypto from 'node:crypto';
 import { Checkpoint } from './hypha_release_contract.mjs';
 
@@ -104,22 +105,45 @@ export function hpReleaseNotice(record) {
       summary: 'Find the download files and release information on the product page.', url: '/hypha' },
     evidence: { source: 'updates/hypha.json', published_at: date, url: record.release_notes_url } };
 }
-function updateNews(text, record, previous) {
+export function assertReviewedNotice(record, reviewedNotice) {
+  const standard = hpReleaseNotice(record);
+  const notice = reviewedNotice;
+  {
+    const { en, ja, ...identity } = notice;
+    const { en: standardEn, ja: standardJa, ...standardIdentity } = standard;
+    const validText = (value, limit, trim = true) => typeof value === 'string' && !!value.trim()
+      && (!trim || value === value.trim()) && value.length <= limit
+      && !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value);
+    if (!isDeepStrictEqual(identity, standardIdentity)
+        || !exactKeys(en, ['title', 'summary', 'url'])
+        || !exactKeys(ja, ['title', 'titlePhrases', 'summary', 'url'])
+        || en.url !== standardEn.url || ja.url !== standardJa.url
+        || ![en.title, ja.title].every(value => validText(value, 300))
+        || ![en.summary, ja.summary].every(value => validText(value, 1000))
+        || !Array.isArray(ja.titlePhrases) || !ja.titlePhrases.length
+        || !ja.titlePhrases.every(value => validText(value, 300, false))
+        || ja.titlePhrases.join('') !== ja.title) {
+      throw new Error('Invalid reviewed HP notice identity or bilingual copy');
+    }
+  }
+  return notice;
+}
+function updateNews(text, record, previous, reviewedNotice) {
   const news = JSON.parse(text);
   if (news?.schema !== 'kirin-news-v1' || !Array.isArray(news.items)) throw new Error('HP news manifest schema changed; review required');
   const hypha = item => Array.isArray(item?.products) && item.products.includes('hypha');
   if (!news.items.some(item => hypha(item) && item.version === previous.version)) {
     throw new Error('HP news no longer carries the current release notice; review required');
   }
-  const notice = hpReleaseNotice(record);
+  const notice = reviewedNotice ? assertReviewedNotice(record, reviewedNotice) : hpReleaseNotice(record);
   const same = news.items.filter(item => hypha(item) && (item.version === record.version || item.id === notice.id));
-  if (same.length > 1 || (same.length === 1 && JSON.stringify(same[0]) !== JSON.stringify(notice))) {
+  if (same.length > 1 || (same.length === 1 && !isDeepStrictEqual(same[0], notice))) {
     throw new Error('HP already has a different Hypha notice for this release; review required');
   }
   if (!same.length) news.items.unshift(notice);
   return `${JSON.stringify(news, null, 2)}\n`;
 }
-export function updateHpDocuments(documents, version, date, facts) {
+export function updateHpDocuments(documents, version, date, facts, reviewedNotice) {
   if (!Array.isArray(documents) || documents.length !== HP_FILES.length) throw new Error('HP central release source set required');
   const previous = validateHpRecord(JSON.parse(documents[RECORD]));
   const record = makeHpRecord(version, date, facts);
@@ -147,7 +171,7 @@ export function updateHpDocuments(documents, version, date, facts) {
   }
   const result = [...documents];
   result[RECORD] = `${JSON.stringify(record, null, 2)}\n`;
-  result[NEWS] = updateNews(documents[NEWS], record, previous);
+  result[NEWS] = updateNews(documents[NEWS], record, previous, reviewedNotice);
   return result;
 }
 export async function verifyHpAsset(fetcher, url, fact) {

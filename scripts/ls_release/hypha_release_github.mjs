@@ -1,3 +1,4 @@
+import { publicationNotice } from './publication_input.mjs';
 // GitHub Release publication addressed by the created release ID. A draft has no tag ref until it is
 // published, so it is never re-resolved by tag; an uncertain create is reconciled, never repeated.
 import fs from 'node:fs';
@@ -156,6 +157,7 @@ async function verifyReleaseBytes(run, release, facts) {
 
 // Read-only recovery: accept only an already public release and verify every frozen byte.
 export async function verifyPublishedGithub(state, run) {
+  if (state.publication) publicationNotice(state);
   if (state.stages.provenance?.status !== 'PASS' || !state.stages.provenance.publicFacts?.length) {
     throw new Error('Verified Corresponding Source delivery required');
   }
@@ -177,7 +179,16 @@ export async function verifyPublishedGithub(state, run) {
   return { facts, evidence: { url: release.html_url, releaseId: release.id } };
 }
 
+function assertReviewedNotes(state, release) {
+  if (!state.publication) return;
+  publicationNotice(state);
+  if (release && release.body !== fs.readFileSync(resolveInput(state, state.inputs.notes), 'utf8')) {
+    throw new Error('GitHub release notes differ from approved public input');
+  }
+}
+
 export async function publishGithub(state, run, save) {
+  assertReviewedNotes(state);
   if (state.stages.provenance?.status !== 'PASS' || !state.stages.provenance.publicFacts?.length) {
     throw new Checkpoint('Verified exact-release Corresponding Source delivery required before publication');
   }
@@ -190,6 +201,7 @@ export async function publishGithub(state, run, save) {
   if (remoteCommit.sha !== state.candidate.commit) throw new Error('Product commit is not available in public history');
   const id = (await locate(state, run, save, want)) ?? (await create(state, run, save, want));
   let release = await byId(run, id, want);
+  assertReviewedNotes(state, release);
   onlyFrozenAssets(release, facts);
   if (release.draft) {
     if (state.githubRelease.status === 'published') throw new Error('Published GitHub release returned to draft; operator review required');
@@ -198,11 +210,13 @@ export async function publishGithub(state, run, save) {
     release = await byId(run, id, want);
     onlyFrozenAssets(release, facts);
     await verifyReleaseBytes(run, release, facts);
+    assertReviewedNotes(state, release);
     readBudgetPolicy(state.root);
     state.githubRelease = { ...state.githubRelease, status: 'publishing' }; save();
     await run('gh', ['api', `${RELEASES}/${id}`, '--method', 'PATCH', '-F', 'draft=false'], { capture: true });
     release = await byId(run, id, want);
   } else await verifyReleaseBytes(run, release, facts);
+  assertReviewedNotes(state, release);
   if (release.draft || release.prerelease) throw new Error('Release is not public stable');
   await checkTag(state, run);
   state.githubRelease = { ...state.githubRelease, status: 'published' }; save();

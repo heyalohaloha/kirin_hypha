@@ -1,10 +1,12 @@
+import { publicationNotice } from './publication_input.mjs';
 // Publication uses the HP repository's existing clean staged deployment, never a direct --prod.
 import fs from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { fileFact, hash, Checkpoint, readBudgetPolicy, checkFacts } from './hypha_release_contract.mjs';
 import { GH_REPO } from './hypha_release_github.mjs';
 import { HP_FILES, updateHpDocuments, makeHpRecord, assertHpPage, HP_TARGETS, verifyHpAsset,
-  assertHpPublicationDate } from './hypha_release_hp_data.mjs';
+  assertHpPublicationDate, hpReleaseNotice, validateHpRecord } from './hypha_release_hp_data.mjs';
 export { HP_FILES, updateHpDocuments } from './hypha_release_hp_data.mjs';
 export { GH_REPO, checkTag, publishGithub } from './hypha_release_github.mjs';
 const BASE = `https://github.com/${GH_REPO}/releases`;
@@ -45,7 +47,7 @@ export async function hpPreflight(state, run, { allowPlanned = false, allowUnpus
   checkFacts(state.stages.packages?.facts);
   assertHpPublicationDate(state.inputs.date);
   updateHpDocuments(HP_FILES.map(file => fs.readFileSync(path.join(root, file), 'utf8')),
-    state.candidate.version, state.inputs.date, state.stages.packages?.facts);
+    state.candidate.version, state.inputs.date, state.stages.packages?.facts, state.publication ? publicationNotice(state) : undefined);
 }
 
 export async function publicDownloadFacts(state, facts, fetcher = fetch) {
@@ -57,11 +59,50 @@ export async function publicDownloadFacts(state, facts, fetcher = fetch) {
   return measured;
 }
 
+function escapeNews(value) {
+  return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+function assertPublicNotice(html, lang, notice) {
+  const entries = [...html.matchAll(/<li\b[^>]*class="news__item"[^>]*data-news-id="([^"]+)"[^>]*>[\s\S]*?<\/li>/g)]
+    .filter(match => match[1].startsWith(`hypha-${notice.version.replaceAll('.', '-')}-release-`));
+  if (entries.length !== 1 || entries[0][1] !== escapeNews(notice.id)) throw new Error('HP public Hypha notice missing or duplicate');
+  const entry = entries[0][0], copy = notice[lang];
+  const title = lang === 'ja' ? copy.titlePhrases.map(phrase => {
+    const leading = phrase.match(/^\s*/u)[0], trailing = phrase.match(/\s*$/u)[0];
+    return `${escapeNews(leading)}<span class="r1-phrase-unit">${escapeNews(phrase.slice(leading.length, phrase.length - trailing.length))}</span>${escapeNews(trailing)}`;
+  }).join('<wbr>') : escapeNews(copy.title);
+  if (!entry.includes(`<time datetime="${escapeNews(notice.date)}">`)
+      || !entry.includes(`<a href="${escapeNews(copy.url)}">${title}</a>`)
+      || !entry.includes(`<p class="news__summary">${escapeNews(copy.summary)}</p>`)) {
+    throw new Error('HP public Hypha notice content mismatch');
+  }
+}
+
 export async function verifyPublicHp(state, fetcher = fetch) {
   const facts = state.stages.packages?.facts;
   checkFacts(facts);
   const record = makeHpRecord(state.candidate.version, state.inputs.date, facts);
   const base = 'https://kirinmastering.com';
+  const readDeployment = async () => {
+    const response = await fetcher(`${base}/deployment-source.txt?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
+    const commit = response.ok ? (await response.text()).trim() : '';
+    if (!/^[a-f0-9]{40}$/.test(commit) || !/^[a-f0-9]{40}$/.test(state.hpCommit || '')) throw new Error('HP deployment source commit unavailable or malformed');
+    return commit;
+  };
+  const startingCommit = await readDeployment();
+  const readPublicJson = async route => {
+    const response = await fetcher(`${base}${route}?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
+    if (!response.ok) throw new Error(`HP public ${route} unavailable`);
+    return response.json();
+  };
+  const liveRecord = validateHpRecord(await readPublicJson('/updates/hypha.json'));
+  if (!isDeepStrictEqual(liveRecord, record)) throw new Error('HP public Hypha record differs from frozen package facts');
+  const expectedNotice = state.publication ? publicationNotice(state) : hpReleaseNotice(record);
+  for (const [route, lang] of [['/', 'en'], ['/ja/', 'ja']]) {
+    const response = await fetcher(`${base}${route}?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
+    if (!response.ok) throw new Error('HP public news route unavailable');
+    assertPublicNotice(await response.text(), lang, expectedNotice);
+  }
   for (const [route, lang] of [['/hypha', 'en'], ['/ja/hypha', 'ja']]) {
     const response = await fetcher(`${base}${route}?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new Error('HP public route failed');
@@ -79,14 +120,15 @@ export async function verifyPublicHp(state, fetcher = fetch) {
     }
     await verifyHpAsset(fetcher, url, record.downloads[target]);
   }
-  const source = await fetcher(`${base}/deployment-source.txt?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
-  if (!source.ok || (await source.text()).trim() !== state.hpCommit) throw new Error('HP deployment source commit mismatch');
+  const deploymentCommit = await readDeployment();
+  if (deploymentCommit !== startingCommit) throw new Error('HP deployment changed during public readback');
+  return { publicationCommit: state.hpCommit, deploymentCommit, sameCommit: deploymentCommit === state.hpCommit };
 }
 
 export async function publishHp(state, run, save, fetcher = fetch) {
   const root = state.inputs.hpRoot;
   if (state.hpCommit) {
-    try { await verifyPublicHp(state, fetcher); return { hpCommit: state.hpCommit, reused: true }; } catch { /* verify before a necessary resume */ }
+    try { const publicEvidence = await verifyPublicHp(state, fetcher); return { hpCommit: state.hpCommit, publicEvidence, reused: true }; } catch { /* verify before a necessary resume */ }
   }
   if (state.hpPlanned && !state.hpCommit) {
     const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: root, capture: true })).trim();
@@ -103,7 +145,7 @@ export async function publishHp(state, run, save, fetcher = fetch) {
   await hpPreflight(state, run, { allowPlanned: !!state.hpPlanned, allowUnpushed: !!state.hpCommit });
   if (!state.hpCommit) {
     const changes = updateHpDocuments(HP_FILES.map(f => fs.readFileSync(path.join(root, f), 'utf8')),
-      state.candidate.version, state.inputs.date, state.stages.packages?.facts);
+      state.candidate.version, state.inputs.date, state.stages.packages?.facts, state.publication ? publicationNotice(state) : undefined);
     const planned = changes.map((bytes, i) => ({ path: HP_FILES[i], sha256: hash(bytes) }));
     state.publicationStarted = true;
     if (!state.hpPlanned) {
@@ -132,7 +174,8 @@ export async function publishHp(state, run, save, fetcher = fetch) {
     readBudgetPolicy(state.root);
     await run('git', ['push', 'origin', 'HEAD:refs/heads/main'], { cwd: root });
   }
+  await run('npm', ['run', 'security:audit'], { cwd: root });
   await run('bash', ['scripts/deploy-production-clean.sh'], { cwd: root });
-  await verifyPublicHp(state, fetcher);
-  return { hpCommit: state.hpCommit, pageFacts: HP_FILES.map(f => fileFact(path.join(root, f))) };
+  const publicEvidence = await verifyPublicHp(state, fetcher);
+  return { hpCommit: state.hpCommit, publicEvidence, pageFacts: HP_FILES.map(f => fileFact(path.join(root, f))) };
 }

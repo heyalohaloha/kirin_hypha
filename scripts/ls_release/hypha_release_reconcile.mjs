@@ -1,3 +1,5 @@
+import { publicationNotice } from './publication_input.mjs';
+import { STAGES, releaseComplete, prerequisites } from './release_stages.mjs';
 // Reconcile retained outputs with read-only verifiers; never call a producer or publication action.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +16,7 @@ import { ciFixRows } from './hypha_release_criteria.mjs';
 import { verifyPreparedLs, verifyRetainedLs } from './hypha_release_reconcile_ls.mjs';
 
 const eligible = new Set(['provenance-inputs', 'ci', 'macos-aax', 'windows', 'hosts', 'provenance', 'distribution', 'ls', 'github', 'hp', 'postrelease']);
-const stages = ['provenance-inputs', 'ci', 'source-delivery', 'macos-au-vst3', 'macos-aax', 'windows', 'freeze', 'hosts', 'packages', 'provenance', 'distribution', 'ls', 'github', 'hp', 'postrelease'];
+const stages = STAGES;
 
 async function verifyPriorStages(state, stage, { run }) {
   if (stages.indexOf(stage) <= stages.indexOf('ci')) return null;
@@ -62,23 +64,24 @@ async function verifyRetained(state, stage, { run, fetcher = fetch }) {
   }
   if (stage === 'postrelease') {
     if (!state.freeze) throw new Error('Frozen candidate required for postrelease');
-    await verifyPublicHp(state, fetcher);
+    const publicEvidence = await verifyPublicHp(state, fetcher);
     const downloads = await publicDownloadFacts(state, [...state.stages.packages.facts, ...state.stages.provenance.publicFacts], fetcher);
     const facts = validateReport(state, state.inputs.postreleaseReport, 'A7', digest(state.stages.packages.facts), POST_TESTS);
-    return { facts, evidence: { downloads } };
+    return { facts, evidence: { downloads, publicEvidence } };
   }
   if (stage === 'hp') {
     if (!state.hpCommit || !state.freeze) throw new Error('HP candidate identity is incomplete');
     const facts = [...state.stages.packages.facts, ...state.stages.provenance.publicFacts];
-    await verifyPublicHp(state, fetcher);
+    const publicEvidence = await verifyPublicHp(state, fetcher);
     const downloads = await publicDownloadFacts(state, facts, fetcher);
-    return { facts, evidence: { hpCommit: state.hpCommit, downloads } };
+    return { facts, evidence: { hpCommit: state.hpCommit, downloads, publicEvidence } };
   }
   throw new Error('Unsupported reconciliation stage');
 }
 function readCandidate(statePath, snapshot) {
   const bytes = fs.readFileSync(statePath), state = readJson(statePath);
   assertState(state);
+  if (state.publication) publicationNotice(state);
   if (digest(snapshot(state.root)) !== digest(state.source)) throw new Error('Candidate source changed');
   if (state.freeze) {
     const { sha256, ...rest } = state.freeze;
@@ -86,8 +89,8 @@ function readCandidate(statePath, snapshot) {
         || state.freeze.criteriaSha256 !== digest(acceptanceCriteria(state))) throw new Error('Frozen candidate changed');
     if (digest(state.freeze.source) !== digest(state.source)) throw new Error('Frozen source changed');
     assertUpdateBinding(state.freeze.updateCheck, state.inputs.updatePublicKey);
-    if (!state.freeze.publicationNotes) throw new Error('Frozen publication notes are missing');
-    checkFacts([state.freeze.publicationNotes]);
+    if (!state.publication && !state.freeze.publicationNotes) throw new Error('Frozen publication notes are missing');
+    if (state.freeze.publicationNotes) checkFacts([state.freeze.publicationNotes]);
     checkFacts(state.freeze.payloads);
   }
   for (const saved of Object.values(state.stages)) if (saved.status === 'PASS' && saved.facts) checkFacts(saved.facts);
@@ -121,9 +124,9 @@ function reconciliationStage(state) {
   if (!running.length) return state.blocker?.stage;
   if (running.length !== 1) throw new Error('Ambiguous interrupted stages require operator review');
   const stage = running[0][0], index = stages.indexOf(stage);
-  if (index < 0 || stages.find(name => state.stages[name]?.status !== 'PASS') !== stage
+  if (index < 0 || prerequisites(stage).some(name => state.stages[name]?.status !== 'PASS')
       || (state.blocker && state.blocker.stage !== stage)
-      || stages.slice(index + 1).some(name => state.stages[name])) {
+      || stages.some(name => prerequisites(name).includes(stage) && state.stages[name])) {
     throw new Error('Ambiguous interrupted stage or inconsistent prerequisites');
   }
   return stage;
@@ -154,7 +157,7 @@ export async function planReleaseReconciliation(statePath, inspection, { snapsho
   }
   if (stage === 'provenance') requirePublicProvenance(state);
   const preserved = verifyRetainedAttempts(state, state.stages[stage], retained);
-  for (const prior of stages.slice(0, stages.indexOf(stage))) {
+  for (const prior of prerequisites(stage)) {
     if (state.stages[prior]?.status !== 'PASS') throw new Error(`Prior stage ${prior} is not PASS`);
   }
   const priorCi = await verifyPrerequisites(state, stage, { run, fetcher });
@@ -210,7 +213,11 @@ export async function applyReleaseReconciliation(statePath, plan, expectedHash, 
     if (plan.stage === 'distribution' || plan.stage === 'ls') state.releaseState = 'RELEASE_READY';
     if (plan.stage === 'github') { state.githubRelease.status = 'published'; state.releaseState = 'RELEASE_READY'; }
     if (plan.stage === 'hp') state.releaseState = 'RELEASED';
-    if (plan.stage === 'postrelease') state.releaseState = 'RELEASE_COMPLETE';
+    if (state.stages.hp?.status === 'PASS') state.releaseState = 'RELEASED';
+    if (releaseComplete(state)) {
+      if (state.publication) publicationNotice(state);
+      state.releaseState = 'RELEASE_COMPLETE';
+    }
     delete state.blocker;
     assertState(state);
     atomicJson(statePath, state);
