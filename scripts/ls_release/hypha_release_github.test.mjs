@@ -313,3 +313,16 @@ test('11: more than one matching same-tag release is ambiguous, with or without 
     noMutation(m);
   }
 });
+
+test('read-only reconciliation verifies public identity, notes, tag and every retained byte', async t => {
+  const { verifyPublishedGithub } = await import('./hypha_release_github.mjs');
+  const f = fixture(t), published = release(701, { draft: false, assets: f.facts.map((fact, i) => asset(800 + i, fact)) });
+  published.body = NOTES; f.state.githubRelease = intent({ id: 701 });
+  const mock = github(f, { releases: [published] });
+  const result = await verifyPublishedGithub(f.state, mock.run);
+  assert.equal(result.evidence.releaseId, 701); assert.deepEqual(result.facts, f.facts); noMutation(mock);
+  published.body = 'different'; await assert.rejects(verifyPublishedGithub(f.state, mock.run), /metadata/i);
+  published.body = NOTES; published.draft = true;
+  await assert.rejects(verifyPublishedGithub(f.state, mock.run), /metadata/i);
+  noMutation(mock);
+});

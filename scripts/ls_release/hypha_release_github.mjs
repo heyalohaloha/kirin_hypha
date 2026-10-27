@@ -154,6 +154,29 @@ async function verifyReleaseBytes(run, release, facts) {
   }
 }
 
+// Read-only recovery: accept only an already public release and verify every frozen byte.
+export async function verifyPublishedGithub(state, run) {
+  if (state.stages.provenance?.status !== 'PASS' || !state.stages.provenance.publicFacts?.length) {
+    throw new Error('Verified Corresponding Source delivery required');
+  }
+  checkFacts(state.stages.provenance.facts);
+  const facts = [...state.stages.packages.facts, ...state.stages.provenance.publicFacts];
+  checkFacts(facts);
+  const want = identity(state), saved = state.githubRelease;
+  if (!positiveId(saved?.id) || saved.tag !== want.tag || saved.commit !== want.commit) {
+    throw new Error('Retained GitHub release identity is missing or differs');
+  }
+  const release = await byId(run, saved.id, want);
+  if (release.draft || release.prerelease || release.name !== want.name
+      || release.body !== fs.readFileSync(resolveInput(state, state.inputs.notes), 'utf8')) {
+    throw new Error('Public release metadata differs from the frozen candidate');
+  }
+  onlyFrozenAssets(release, facts);
+  await verifyReleaseBytes(run, release, facts);
+  await checkTag(state, run);
+  return { facts, evidence: { url: release.html_url, releaseId: release.id } };
+}
+
 export async function publishGithub(state, run, save) {
   if (state.stages.provenance?.status !== 'PASS' || !state.stages.provenance.publicFacts?.length) {
     throw new Checkpoint('Verified exact-release Corresponding Source delivery required before publication');

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import * as factory from '../provenance/factory_artifact.mjs';
 import { atomicJson, Checkpoint, fileFact } from './hypha_release_contract.mjs';
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-promotion-'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-promotion-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, 'crates/hypha_pre'), { recursive: true });
   fs.writeFileSync(path.join(root, 'crates/hypha_pre/Cargo.toml'), 'version = "1.2.3"\n');
@@ -17,10 +18,15 @@ function fixture(t) {
   const snapshot = () => source;
   const state = release.makeState(root, { state: statePath, windowsFactoryRepository: 'fixture/factory',
     windowsFactoryCommit: 'c'.repeat(40) }, snapshot);
-  const archive = path.join(root, 'delivery.zip'); fs.writeFileSync(archive, 'fixture archive');
+  const archive = path.join(root, 'delivery.zip');
+  execFileSync('python3', ['-c', "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('file','fixture archive'); z.close()", archive]);
   atomicJson(statePath, state);
   const options = { bindWindowsPromotion: '123', windowsArtifactArchive: archive };
-  return { root, statePath, state, snapshot, options };
+  const record = { id: 123, head_sha: 'c'.repeat(40), head_repository: { full_name: 'fixture/factory' }, path: '.github/workflows/hypha-windows-signing.yml', name: 'Hypha Windows signing factory', event: 'workflow_dispatch', status: 'completed', conclusion: 'success' };
+  const jobs = ['Hypha unsigned Windows VST3', 'Hypha signed Windows installer', 'Hypha validated Windows installer promotion'].map((name, i) => ({ name, status: 'completed', conclusion: i === 2 ? 'success' : 'skipped' }));
+  const artifact = { name: 'KirinHypha-Windows-signed-full', id: 55, expired: false, digest: `sha256:${fileFact(archive).sha256}`, workflow_run: { id: 123, head_sha: record.head_sha } };
+  const factoryRun = async (tool, args) => JSON.stringify(args[1].includes('/jobs?') ? { jobs } : args[1].includes('/artifacts?') ? { artifacts: [artifact] } : record);
+  return { root, statePath, state, snapshot, options, factoryRun };
 }
 
 test('manufacturing pins factory identity without waiting for delivery; Windows still checkpoints', async t => {
@@ -32,21 +38,21 @@ test('manufacturing pins factory identity without waiting for delivery; Windows 
   await assert.rejects(actions.windows(), Checkpoint);
 });
 
-test('promotion binds once, survives reload, and leaves earlier manufacturing receipts unchanged', t => {
+test('promotion binds once, survives reload, and leaves earlier manufacturing receipts unchanged', async t => {
   const f = fixture(t);
   f.state.stages['macos-aax'] = { status: 'PASS', facts: [] };
   atomicJson(f.statePath, f.state);
-  const updated = release.bindWindowsPromotion(f.statePath, f.options, f.snapshot);
+  const updated = await release.bindWindowsPromotion(f.statePath, f.options, f.snapshot, { run: f.factoryRun });
   assert.equal(updated.inputs.windowsPromotionRun, '123');
   assert.equal(updated.inputs.windowsArtifactArchive, f.options.windowsArtifactArchive);
   assert.deepEqual(updated.stages, f.state.stages);
   assert.equal(JSON.parse(fs.readFileSync(f.statePath)).inputs.windowsPromotionRun, '123');
   factory.requireFactoryDelivery(updated);
-  assert.throws(() => release.bindWindowsPromotion(f.statePath, f.options, f.snapshot));
+  await assert.rejects(() => release.bindWindowsPromotion(f.statePath, f.options, f.snapshot, { run: f.factoryRun }));
   assert.equal(fs.existsSync(`${f.statePath}.lock`), false);
 });
 
-test('binding rejects execution, incomplete input, an existing binding, started Windows, freeze and foreign source', t => {
+test('binding rejects execution, incomplete input, an existing binding, started Windows, freeze and foreign source', async t => {
   const f = fixture(t), args = ['--state', f.statePath, '--bind-windows-promotion', '123'];
   assert.throws(() => release.parseReleaseArgs(args));
   const complete = [...args, '--windows-artifact-archive', f.options.windowsArtifactArchive];
@@ -62,13 +68,13 @@ test('binding rejects execution, incomplete input, an existing binding, started 
   ]) {
     atomicJson(f.statePath, { ...f.state, ...change });
     const before = fs.readFileSync(f.statePath);
-    assert.throws(() => release.bindWindowsPromotion(f.statePath, f.options, f.snapshot));
+    await assert.rejects(() => release.bindWindowsPromotion(f.statePath, f.options, f.snapshot, { run: f.factoryRun }));
     assert.deepEqual(fs.readFileSync(f.statePath), before);
   }
   atomicJson(f.statePath, f.state);
-  assert.throws(() => release.bindWindowsPromotion(f.statePath, f.options, () => ({ commit: 'e'.repeat(40) })));
+  await assert.rejects(() => release.bindWindowsPromotion(f.statePath, f.options, () => ({ commit: 'e'.repeat(40) })));
   fs.writeFileSync(`${f.statePath}.lock`, 'foreign lock');
-  assert.throws(() => release.bindWindowsPromotion(f.statePath, f.options, f.snapshot));
+  await assert.rejects(() => release.bindWindowsPromotion(f.statePath, f.options, f.snapshot, { run: f.factoryRun }));
   assert.equal(fs.readFileSync(`${f.statePath}.lock`, 'utf8'), 'foreign lock');
 });
 
@@ -98,7 +104,7 @@ test('real coordinator checkpoints before starting Windows, so delivery can bind
   assert.equal(f.state.stages.windows, undefined);
   assert.equal(f.state.stages.freeze, undefined);
   assert.equal(f.state.stages['macos-aax'].status, 'PASS');
-  const result = release.bindWindowsPromotion(f.statePath, f.options, f.snapshot);
+  const result = await release.bindWindowsPromotion(f.statePath, f.options, f.snapshot, { run: f.factoryRun });
   assert.equal(result.inputs.windowsPromotionRun, '123');
 });
 
@@ -117,7 +123,7 @@ test('factory coordinator actions also checkpoint before starting Windows, so Ma
   assert.equal(f.state.blocker.stage, 'windows', f.state.blocker.reason);
   assert.equal(windowsActionCalled, false);
   assert.equal(f.state.stages.windows, undefined);
-  const result = release.bindWindowsPromotion(f.statePath, f.options, f.snapshot);
+  const result = await release.bindWindowsPromotion(f.statePath, f.options, f.snapshot, { run: f.factoryRun });
   assert.equal(result.inputs.windowsPromotionRun, '123');
 });
 

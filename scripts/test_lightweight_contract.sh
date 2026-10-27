@@ -25,7 +25,8 @@ run node --test scripts/analyze_chain_trace.test.mjs
 run node --test scripts/listen_text_inventory.test.mjs
 run node --test scripts/hypha_workflow_discovery.test.mjs
 run node --test scripts/build_hypha.test.mjs scripts/macos_build_parallel.test.mjs
-run node --test scripts/ls_release/windows_promotion.test.mjs
+run node --test scripts/ls_release/windows_promotion.test.mjs scripts/ls_release/windows_delivery_bind.test.mjs
+run node --test scripts/ls_release/reconcile_recovery.test.mjs scripts/ls_release/reconcile_override.test.mjs scripts/ls_release/reconcile_ls.test.mjs scripts/ls_release/reconcile_cli.test.mjs
 run node --test scripts/ls_release/pkg_staple.test.mjs scripts/ls_release/pkg_context.test.mjs scripts/ls_release/pkg_release_recovery.test.mjs
 run node --test scripts/acceptance/acceptance_tools.test.mjs
 run node --test scripts/ls_release/ls_api_readback.test.mjs scripts/ls_release/hypha_release_ls.test.mjs scripts/ls_release/release_preflight.test.mjs

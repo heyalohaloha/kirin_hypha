@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { makeState, parseReleaseArgs, realActions, executeRelease, bindWindowsPromotion, STAGES } from '../release_hypha.mjs';
+import { makeState, parseReleaseArgs, realActions, executeRelease, STAGES } from '../release_hypha.mjs';
 import { SCHEMA, HOST_TESTS, DISTRIBUTION_TESTS, POST_TESTS, SAFETY_EXPECTED, assertState, digest, fileFact, reportTemplate,
   validateReport, acceptanceCriteria, atomicJson, Checkpoint } from './hypha_release_contract.mjs';
 import { FIX_ROWS_SCHEMA, OWNER_DECISION_SCHEMA, OWNER_DEFERRED, CI_ORACLES,
@@ -34,7 +34,8 @@ function fixture(t, { delivery = false } = {}) {
   if (delivery) {
     const archive = write('delivery.zip', 'fixture archive');
     atomicJson(statePath, state);
-    state = bindWindowsPromotion(statePath, { bindWindowsPromotion: '123', windowsArtifactArchive: archive }, () => SOURCE);
+    state.inputs.windowsPromotionRun = '123'; state.inputs.windowsArtifactArchive = archive;
+    atomicJson(statePath, state);
   }
   const freeze = () => {
     state.freeze = { inputs: digest(state.inputs), criteriaSha256: digest(acceptanceCriteria(state)), updateCheck: updateBinding('') };

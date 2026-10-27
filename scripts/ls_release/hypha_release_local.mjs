@@ -5,7 +5,7 @@ import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { requireWindowsInstaller } from './build_kirin_hypha_release_set.mjs';
 import { AAX_APPLE_AUTHORITY } from './aax_bundle_verify.mjs';
-import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson, CI_ORACLES } from './hypha_release_contract.mjs';
+import { fileFact, treeFact, readJson, resolveInput, safeStatePath, Checkpoint, atomicJson, CI_ORACLES, checkFacts, assertIndependentDeliveryTree } from './hypha_release_contract.mjs';
 import { inspectUpdateBinary, verifyUpdatePlist, assertPackageUpdateBinding } from '../updates/update_key_binding.mjs';
 import { verifyLegalDelivery } from '../provenance/legal_delivery.mjs';
 import { verifyPkgResume } from './pkg_staple.mjs';
@@ -122,6 +122,8 @@ export async function verifyCi(state, run) {
 export async function verifyWindows(state, run) {
   requireFactoryDelivery(state);
   if (!state.inputs.windowsInstallerDir) throw new Checkpoint('Approved same-commit Windows signed-full installer required');
+  assertIndependentDeliveryTree(resolveInput(state, state.inputs.windowsInstallerDir));
+  if (state.windowsDeliveryBinding?.tree) checkFacts([state.windowsDeliveryBinding.tree]);
   const installer = requireWindowsInstaller(resolveInput(state, state.inputs.windowsInstallerDir), {
     version: state.candidate.version, commit: state.candidate.commit, bNumber: state.candidate.bNumber,
   }, { requireAax: true, updatePublicKey: state.inputs.updatePublicKey || '' });
@@ -135,7 +137,8 @@ export async function verifyWindows(state, run) {
   if (sourceRun !== String(state.inputs.ciRun)) throw new Error('Windows source CI differs from the pinned CI run');
   const factoryFacts = await verifyFactoryDelivery(state, run, manifest, path.dirname(installer));
   return [installer, `${installer}.sha256`, `${installer}.json`,
-    path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact).concat(factoryFacts);
+    path.join(path.dirname(installer), `Kirin-Hypha-${state.candidate.version}-Windows-x64-AAX.json`)].map(fileFact)
+    .concat(factoryFacts, [treeFact(path.dirname(installer))]);
 }
 
 // The ZIP producer (xtask release_gate GIT_CLEAN_STATE) records a clean source as this exact string;

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { STAGES, executeRelease, parseReleaseArgs, makeState, bindWindowsPromotion, realActions, nativeRunner } from './release_hypha.mjs';
+import { STAGES, executeRelease, parseReleaseArgs, makeState, realActions, nativeRunner } from './release_hypha.mjs';
 import { HOST_TESTS, CI_ORACLES, assertState, hash, digest, fileFact, treeFact, checkFacts,
   validateReport, reportTemplate, safeStatePath, authorization, Checkpoint, acceptanceCriteria, atomicJson } from './ls_release/hypha_release_contract.mjs';
 import { verifyCi, verifyPackages, artifactPaths, ZIP_CLEAN_GIT_STATE } from './ls_release/hypha_release_local.mjs';
@@ -12,17 +12,17 @@ import { updateBinding } from './updates/update_key_binding.mjs';
 
 const SOURCE = { commit: 'a'.repeat(40), bNumber: 'B-1234', state: 'clean source', fingerprint: 'b'.repeat(64), juce: null };
 const options = { execute: true, until: 'hp' };
-test('reviewed factory identity is pinned before manufacturing; initial delivery inputs remain supported', async t => {
+test('reviewed factory identity is pinned before manufacturing; delivery requires explicit binding', async t => {
   const f = fixture(t);
   const actions = realActions(f.state, {}, async () => { throw new Error('No command may run'); }, () => {});
   await assert.rejects(actions['provenance-inputs'](), /private profile/);
   const options = parseReleaseArgs(['--state','release_state/factory.json',
-    '--windows-factory-repository','fixture/factory','--windows-factory-commit','c'.repeat(40),'--windows-promotion-run','123','--windows-artifact-archive','artifact.zip']);
+    '--windows-factory-repository','fixture/factory','--windows-factory-commit','c'.repeat(40)]);
   const state = makeState(f.root,options,() => SOURCE);
   assert.equal(state.inputs.windowsFactoryRepository,'fixture/factory');
   assert.equal(state.inputs.windowsFactoryCommit,'c'.repeat(40));
-  assert.equal(state.inputs.windowsPromotionRun,'123');
-  assert.equal(state.inputs.windowsArtifactArchive,path.join(f.root,'artifact.zip'));
+  assert.equal(state.inputs.windowsPromotionRun, '');
+  assert.throws(() => parseReleaseArgs(['--state', 'x', '--windows-promotion-run', '123', '--windows-artifact-archive', 'artifact.zip']), /Bind Windows delivery/);
 });
 function fixture(t, { delivery = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-release-test-'));
@@ -35,7 +35,8 @@ function fixture(t, { delivery = false } = {}) {
   if (delivery) {
     const archive = path.join(root, 'delivery.zip'); fs.writeFileSync(archive, 'fixture archive');
     atomicJson(statePath, state);
-    state = bindWindowsPromotion(statePath, { bindWindowsPromotion: '123', windowsArtifactArchive: archive }, () => SOURCE);
+    state.inputs.windowsPromotionRun = '123'; state.inputs.windowsArtifactArchive = archive;
+    atomicJson(statePath, state);
   }
   const evidence = path.join(root, 'evidence.txt'); fs.writeFileSync(evidence, 'independent retained evidence');
   const calls = [];
@@ -206,7 +207,7 @@ test('an owner decision lifts only its named row, bound to this candidate and fr
   const notes = path.join(f.root, 'notes.md'); fs.writeFileSync(notes, 'not an owner decision');
   const handWritten = { ...state, ownerOverrides: [{ testId: 'pair/combinations', candidateId: state.candidate.id,
     decision: fileFact(notes) }, { testId: 'Exact-4-S-samples', candidateId: state.candidate.id, decision: fileFact(notes) }] };
-  assertState(handWritten);
+  assert.throws(() => assertState(handWritten));
   for (const row of report.tests) row.result = 'NOT_REQUIRED_OWNER_OVERRIDE';
   write(); assert.throws(() => validateReport(handWritten, file, 'A4', 'd'.repeat(64), ids));
   const otherRow = path.join(f.root, 'other-row.json');

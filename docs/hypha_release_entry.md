@@ -62,7 +62,6 @@ node scripts/build_hypha.mjs --release --init \
   --state release_state/hypha-release.json \
   --sdk /external/licensed/aax-sdk --license-confirmed \
   --ci-run GREEN_EXACT_COMMIT_RUN_ID \
-  --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full \
   --windows-factory-repository REVIEWED_FACTORY_OWNER/REPOSITORY \
   --windows-factory-commit REVIEWED_FACTORY_FULL_SHA \
   --hp-root /absolute/path/to/kirin_hp \
@@ -90,7 +89,7 @@ script作成の依頼や`--execute`だけを、個別candidateの公開承認に
 `--init`は既存profileを上書きしない。profile、商品target、管理URL、reportはignored `release_state/`内。
 秘密値はprofileへ入れず、Keychain／private factoryから渡す。
 Windowsのfactory repository/commitは初期化時に固定する。promotion run・元artifact ZIPは
-初期化時に渡すか、Windows検証の開始前に一度だけ後から結ぶ。後結びは実行と併用しない。
+Windows検証の開始前に一度だけ後から結ぶ。後結びは実行と併用しない。
 
 ```bash
 node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
@@ -99,7 +98,8 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 ```
 
 Mac製造はWindows受入と同時に進められる。未結合ならwindows段の前で確認待ちとなる。
-Windows検証開始後と凍結後の結び直しは拒否する。
+Windows検証開始後と凍結後の結び直しは拒否する。bindはAPI digestを確かめ、候補専用の
+`release_state/<candidate>/windows-delivery`へ安全に展開して全treeを照合する。既存の異なるtreeへ混ぜない。
 候補署名runとpromotion runの両方を審査済みfactoryへ結び、artifactのAPI digestと実ZIP、
 展開済みfile集合、元候補manifestを照合する。factory identityが欠ける場合は製造前、deliveryが欠ける場合はWindows検証前に止まる。
 candidateとsigned-fullは、distribution（A5）が通るまで期限内で保持する。
@@ -280,6 +280,34 @@ node scripts/ls_release/verify_build_bytes.mjs /retained/serial-products /retain
 この比較はfile集合、全fileのbytes、mode、symlinkの行先の完全一致を要求する。
 同じdirectoryを二度渡した確認は拒否する。署名・timestamp・公証済みの製品同士を比較して
 製造の再現性としない。fixture試験はこの比較器と製造入力の不変性を守り、実製品の比較証拠を代用しない。
+
+## 保持した結果の照合と判断の後結び
+
+失敗・中断を通常の再実行で消さない。まず inspect と plan で既存状態と検査結果を読み、plan を private な場所に保存して内容と SHA-256 を確認する。明示 apply はその hash と同じ profile・source・保持物・再検査結果の場合だけ成功し、元 profile の控えと失敗履歴を残す。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json --inspect
+set -o noclobber
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json --reconcile-plan > release_state/reconciliation-plan.json
+set +o noclobber
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --reconcile-apply release_state/reconciliation-plan.json --plan-sha256 REVIEWED_PLAN_SHA256
+```
+
+失敗時に記録した report や出力の path を修正後の内容に置き換えた場合、元の bytes を消さずに控え、`--reconcile-retained FILE` で次の JSON 配列を plan に渡す。元の hash と一致しない控えは拒否する。tree の控えは元と同じ末尾名を使う。控えは後段でも検査される。
+
+```json
+[{"originalPath":"/absolute/path/to/failed-report.json","retainedPath":"/absolute/path/to/retained-failed-report.json"}]
+```
+
+現在の対応は、製造前の素材条件と既存 CI の読戻し、保持済み AAX の notarization receipt、Windows 配送、host・provenance・配布 report の再検査、LS の保持済み download と API、既に公開された GitHub Release・HP の読戻し、A7 reportが完了した場合に限定する。factory profile の provenance 復旧は未対応で明示的に拒否する。公開側の provenance は通常の source 証拠だけを受け付け、拡張や未知の証拠を標準契約へ読み替えない。それ以外の FAIL / incident は担当者の照合が必要。再製造、再署名、公開操作はこの経路から行わない。plan の hash は出力 JSON 内の `sha256` であり、ファイル全体の hash ではない。
+
+凍結前には、本人が候補 ID を明示した既存の override 決定を次の独立操作で後から結べる。凍結開始後は拒否し、既に作った payload は再製造しない。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --bind-owner-override release_state/owner-decision.json
+```
 
 ## PKG の ticket 添付だけを再開する
 

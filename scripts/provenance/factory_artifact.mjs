@@ -63,6 +63,13 @@ export function requireFactoryDelivery(state) {
   return { commit, id, archive, repository };
 }
 export const requireFactoryInputs = requireFactoryDelivery;
+export async function verifyFactoryArchive(state, run) {
+  const { commit, id, archive, repository } = requireFactoryDelivery(state);
+  const full = await qualifiedArtifact(run, id, commit, repository, 'KirinHypha-Windows-signed-full', 'Hypha validated Windows installer promotion');
+  const fact = fileFact(path.resolve(state.root, archive));
+  if (`sha256:${fact.sha256}` !== full.artifact.digest) throw new Error('Signed-full artifact archive digest mismatch');
+  return { artifact: full.artifact, fact };
+}
 export async function verifyFactoryDelivery(state, run, manifest, directory) {
   const { commit, id, archive, repository } = requireFactoryDelivery(state);
   const full = await qualifiedArtifact(run, id, commit, repository, 'KirinHypha-Windows-signed-full', 'Hypha validated Windows installer promotion');
