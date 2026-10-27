@@ -62,6 +62,8 @@ impl MeasureEngine {
 
         MeasureResult {
             lufs_m,
+            momentary_silence_floor: momentary_floored
+                && self.window_400ms.len() == self.window_400ms_cap,
             // S owns its 3 s window. A quiet final 400 ms can floor M/Crest/PSR without erasing
             // valid earlier energy that is still inside the Short-term window.
             lufs_s,
