@@ -55,12 +55,22 @@ namespace hypha::reference_audition
         bool accepted() const noexcept { return source != nullptr; }
     };
 
+    enum class SourceRevisionState { matched, revalidate, refused };
+    struct SourceRevisionResult
+    {
+        SourceRevisionState state;
+        juce::String reason;
+        RuntimeFileRevision revision {};
+    };
+
     class RuntimeV2SourceRepository final
     {
     public:
         explicit RuntimeV2SourceRepository (juce::File transportRootIn);
 
         RuntimeSourceLoadResult load (const RuntimeCandidate&) const;
+        bool readSourceRevision (const RuntimeSource&, RuntimeFileRevision&) const;
+        SourceRevisionResult checkSourceRevision (const RuntimeSource&) const;
         juce::String verifySourceRevision (const RuntimeSource&) const;
         juce::String verifySourceFile (const RuntimeSource&) const;
 

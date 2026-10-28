@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferencePinnedSource.h"
 #include "ReferenceCueMatch.h"
 #include "ReferenceLibraryLegacyChoice.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
@@ -308,9 +309,15 @@ namespace hypha::reference_audition
             + juce::String (selection.generation);
         if (sourceRetryKey != retryKey)
         { sourceRetryKey = retryKey; sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0; }
-        const auto sourceFailure = nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified
+        const bool rejectedPageSource = currentPages().sourceInvalidated() && workerSource
+            && workerSourceGeneration == selection.generation
+            && workerSource->absolutePath == selectedSource->absolutePath
+            && workerSource->sourceFileSha256 == selectedSource->sourceFileSha256;
+        const auto sourceFailure = rejectedPageSource ? juce::String ("reference_source_changed")
+            : nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified
             ? sourceRepository.verifySourceRevision (*selectedSource)
             : sourceRepository.verifySourceFile (*selectedSource);
+        if (sourceFailure == "reference_source_revalidating") return;
         if (sourceFailure.isNotEmpty())
         {
             if (nowMs >= sourceRetryAtMs)
@@ -415,7 +422,11 @@ namespace hypha::reference_audition
         {
             prepared.staged = true;
             auto& staging = nextPages();
-            const auto failure = staging.open (*selectedSource, configuration.sampleRate, configuration.channels, true);
+            const auto pinned = std::make_shared<revision_detail::PinnedSource> (selectedSource);
+            const auto failure = staging.open (*selectedSource, configuration.sampleRate, configuration.channels, true,
+                [this, pinned] (RuntimeFileRevision& revision) { return pinned->verified (sourceRepository, revision); }, pinned->input(),
+                [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
+                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation());
             if (failure.isNotEmpty())
             {
                 failClosedToA(); prepared.next.state = RuntimeState::rejected;

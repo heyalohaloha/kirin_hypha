@@ -12,7 +12,16 @@ namespace hypha::reference_audition
 {
     static_assert (std::atomic<std::uint8_t>::is_always_lock_free);
     static_assert (std::atomic<std::int64_t>::is_always_lock_free);
+    static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
     static_assert (std::atomic<float>::is_always_lock_free);
+    namespace
+    {
+        bool sameRevision (const RuntimeFileRevision& a, const RuntimeFileRevision& b)
+        {
+            return a.deviceId == b.deviceId && a.fileId == b.fileId && a.sizeBytes == b.sizeBytes
+                && a.modifiedTimeNs == b.modifiedTimeNs && a.changedTimeNs == b.changedTimeNs;
+        }
+    }
 
     AudioPages::AudioPages (ServiceMode mode)
         : juce::Thread ("Reference audio refill"), serviceMode (mode)
@@ -34,30 +43,57 @@ namespace hypha::reference_audition
         while (!threadShouldExit())
         {
             serviceOnce();
-            wait (sourceOpen() ? 10 : -1);
+            wait (openState.load (std::memory_order_acquire) ? 10 : -1);
         }
     }
 
     juce::String AudioPages::open (const SourceReceipt& receipt,
                                    double hostSampleRate, int hostChannels)
     {
+        const juce::ScopedLock lock (readerLock);
         if (! receipt.valid())
             return "source_receipt_rejected";
         auto nextReader = std::unique_ptr<juce::AudioFormatReader> (
             formats.createReaderFor (juce::File (receipt.filePath)));
         if (nextReader == nullptr)
             return "source_decode_failed";
+        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {};
+        sourceAuthority.reset(); sourceInvalidation = nullptr; initialSourceInvalidation = 0;
+        sourceRejected.store (false, std::memory_order_release);
+        sourceVerified.store (true, std::memory_order_release);
+        readerIdentityValid.store (true, std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels, false);
     }
 
     juce::String AudioPages::open (const RuntimeSource& source,
                                    double hostSampleRate, int hostChannels,
-                                   bool sampleRateConversionApproved)
+                                   bool sampleRateConversionApproved,
+                                   std::function<bool (RuntimeFileRevision&)> sourceCheck,
+                                   std::unique_ptr<juce::InputStream> input,
+                                   std::function<bool()> readerCheck,
+                                   std::function<bool()> rejectionCheck,
+                                   std::shared_ptr<void> authority,
+                                   const std::atomic<std::uint64_t>* invalidation,
+                                   std::uint64_t initialInvalidation)
     {
-        auto nextReader = std::unique_ptr<juce::AudioFormatReader> (
-            formats.createReaderFor (juce::File (source.absolutePath)));
+        const juce::ScopedLock lock (readerLock);
+        if ((invalidation != nullptr) != static_cast<bool> (authority)) return "runtime_format_invalid";
+        auto nextReader = std::unique_ptr<juce::AudioFormatReader> (input
+            ? formats.createReaderFor (std::move (input))
+            : formats.createReaderFor (juce::File (source.absolutePath)));
         if (nextReader == nullptr)
             return "reference_source_decode_failed";
+        verifySource = std::move (sourceCheck); verifyReaderIdentity = std::move (readerCheck);
+        verifySourceRejection = std::move (rejectionCheck);
+        sourceAuthority = std::move (authority); sourceInvalidation = invalidation;
+        initialSourceInvalidation = initialInvalidation;
+        sourceRejected.store (false, std::memory_order_release);
+        readerIdentityValid.store (!verifyReaderIdentity || verifyReaderIdentity(), std::memory_order_release);
+        RuntimeFileRevision revision;
+        const bool verified = !verifySource || verifySource (revision);
+        const bool rejected = verifySourceRejection && verifySourceRejection();
+        if (rejected) sourceRejected.store (true, std::memory_order_release);
+        sourceVerified.store (verified && !rejected, std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels,
                               sampleRateConversionApproved);
     }
@@ -66,6 +102,12 @@ namespace hypha::reference_audition
         std::unique_ptr<juce::AudioFormatReader> nextReader,
         double hostSampleRate, int hostChannels, bool sampleRateConversionApproved)
     {
+        const juce::ScopedLock lock (readerLock);
+        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {};
+        sourceAuthority.reset(); sourceInvalidation = nullptr; initialSourceInvalidation = 0;
+        sourceRejected.store (false, std::memory_order_release);
+        sourceVerified.store (true, std::memory_order_release);
+        readerIdentityValid.store (true, std::memory_order_release);
         return installReader (std::move (nextReader), hostSampleRate, hostChannels,
                               sampleRateConversionApproved);
     }
@@ -136,6 +178,11 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (readerLock);
         openState.store (false, std::memory_order_release);
+        verifySource = {}; verifyReaderIdentity = {}; verifySourceRejection = {};
+        sourceAuthority.reset(); sourceInvalidation = nullptr; initialSourceInvalidation = 0;
+        sourceRejected.store (false, std::memory_order_release);
+        sourceVerified.store (true, std::memory_order_release);
+        readerIdentityValid.store (true, std::memory_order_release);
         activeGeneration.fetch_add (1, std::memory_order_acq_rel);
         requiredReadFailures.store (0, std::memory_order_release);
         if (retirePages())
@@ -215,6 +262,18 @@ namespace hypha::reference_audition
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         if (reader == nullptr || framesPerPage <= 0)
             return;
+        const bool readerValid = !verifyReaderIdentity || verifyReaderIdentity();
+        readerIdentityValid.store (readerValid, std::memory_order_release);
+        RuntimeFileRevision revision;
+        const bool verified = readerValid && (!verifySource || verifySource (revision));
+        const bool rejected = verifySourceRejection && verifySourceRejection();
+        if (rejected) sourceRejected.store (true, std::memory_order_release);
+        sourceVerified.store (verified && !rejected, std::memory_order_release);
+        if (!verified || rejected)
+        {
+            if (!rejected) { requiredReadFailures.store (0, std::memory_order_release); failedPageStart.store (-1, std::memory_order_release); }
+            return;
+        }
         const auto position = juce::jmax<std::int64_t> (
             0, requestedPosition.load (std::memory_order_acquire));
         const auto current = (position / framesPerPage) * framesPerPage;
@@ -261,6 +320,13 @@ namespace hypha::reference_audition
             return false;
         if (containsReady (pageStart, generation))
             return true;
+        RuntimeFileRevision before;
+        if (verifySource && !verifySource (before))
+        {
+            sourceVerified.store (false, std::memory_order_release);
+            if (verifySourceRejection && verifySourceRejection()) sourceRejected.store (true, std::memory_order_release);
+            return false;
+        }
 
         Page* selected = nullptr;
         for (auto& page : pages)
@@ -319,14 +385,23 @@ namespace hypha::reference_audition
             ? fillConverted (*selected, pageStart)
             : reader->read (&selected->audio, 0, framesPerPage,
                             pageStart, true, channels > 1);
+        const bool stillReaderValid = !verifyReaderIdentity || verifyReaderIdentity();
+        readerIdentityValid.store (stillReaderValid, std::memory_order_release);
+        RuntimeFileRevision after;
+        const bool sameVerified = stillReaderValid && (!verifySource
+            || (verifySource (after) && sameRevision (before, after)));
+        const bool rejected = verifySourceRejection && verifySourceRejection();
+        if (rejected) sourceRejected.store (true, std::memory_order_release);
+        const bool stillVerified = sameVerified && !rejected;
+        sourceVerified.store (stillVerified, std::memory_order_release);
         // Capacity contention is retryable. Only actual failed reads of the
         // currently requested page count as repeated decoder failure.
         // A successful prefetch also retires earlier failure evidence for that page.
-        if (readOk && generation == activeGeneration.load (std::memory_order_acquire)
+        if (stillVerified && readOk && generation == activeGeneration.load (std::memory_order_acquire)
             && failedPageStart.load (std::memory_order_acquire) == pageStart)
             requiredReadFailures.store (0, std::memory_order_release);
         const auto requested = juce::jmax<std::int64_t> (0, requestedPosition.load (std::memory_order_acquire));
-        if (generation == activeGeneration.load (std::memory_order_acquire)
+        if (stillVerified && generation == activeGeneration.load (std::memory_order_acquire)
             && pageStart == (requested / framesPerPage) * framesPerPage)
         {
             if (failedPageStart.load (std::memory_order_relaxed) != pageStart)
@@ -337,12 +412,23 @@ namespace hypha::reference_audition
             requiredReadFailures.store (readOk ? 0u
                 : std::min (3u, requiredReadFailures.load (std::memory_order_relaxed) + 1u), std::memory_order_release);
         }
-        if (! readOk || generation != activeGeneration.load (std::memory_order_acquire))
+        if (! readOk || !stillVerified || generation != activeGeneration.load (std::memory_order_acquire))
         {
             selected->publicationSequence.fetch_add (1, std::memory_order_release);
             selected->state.store (empty, std::memory_order_release);
             return false;
         }
+        if (verifySourceRejection && verifySourceRejection())
+        {
+            sourceRejected.store (true, std::memory_order_release);
+            sourceVerified.store (false, std::memory_order_release);
+            selected->publicationSequence.fetch_add (1, std::memory_order_release);
+            selected->state.store (empty, std::memory_order_release);
+            return false;
+        }
+        selected->authority = sourceAuthority;
+        selected->invalidation = sourceInvalidation;
+        selected->initialInvalidation = initialSourceInvalidation;
         selected->start.store (pageStart, std::memory_order_relaxed);
         selected->generation.store (generation, std::memory_order_relaxed);
         selected->publicationSequence.fetch_add (1, std::memory_order_release);

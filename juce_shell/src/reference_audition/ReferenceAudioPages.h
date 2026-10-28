@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -13,6 +14,7 @@
 namespace hypha::reference_audition
 {
     struct RuntimeSource;
+    struct RuntimeFileRevision;
 
     class AudioPages final : private juce::Thread
     {
@@ -24,7 +26,14 @@ namespace hypha::reference_audition
 
         juce::String open (const SourceReceipt&, double hostSampleRate, int hostChannels);
         juce::String open (const RuntimeSource&, double hostSampleRate, int hostChannels,
-                           bool sampleRateConversionApproved);
+                           bool sampleRateConversionApproved,
+                           std::function<bool (RuntimeFileRevision&)> sourceCheck = {},
+                           std::unique_ptr<juce::InputStream> input = {},
+                           std::function<bool()> readerCheck = {},
+                           std::function<bool()> rejectionCheck = {},
+                           std::shared_ptr<void> authority = {},
+                           const std::atomic<std::uint64_t>* invalidation = nullptr,
+                           std::uint64_t initialInvalidation = 0);
         juce::String installReaderForTest (std::unique_ptr<juce::AudioFormatReader>,
                                            double hostSampleRate, int hostChannels,
                                            bool sampleRateConversionApproved = false);
@@ -48,6 +57,11 @@ namespace hypha::reference_audition
                                       std::int64_t cueStart, std::int64_t cueEnd,
                                       bool loopEnabled, float linearGain) noexcept;
 
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        using RenderCopyHook = void (*) (AudioPages&);
+        static void setRenderCopyHookForTest (RenderCopyHook) noexcept;
+       #endif
+
        #if defined(KIRIN_REFERENCE_AUDIO_PAGES_TEST_HOOK)
         using AcquireOwnershipHook = void (*) (AudioPages&);
         static void setAcquireOwnershipHookForTest (AcquireOwnershipHook) noexcept;
@@ -63,7 +77,10 @@ namespace hypha::reference_audition
                 && requiredReadFailures.load (std::memory_order_acquire) >= 3
                 && failed == failedPageStart.load (std::memory_order_acquire);
         }
-        bool sourceOpen() const noexcept { return openState.load (std::memory_order_acquire); }
+        bool sourceInvalidated() const noexcept { return sourceRejected.load (std::memory_order_acquire); }
+        bool sourceOpen() const noexcept
+        { return openState.load (std::memory_order_acquire) && readerIdentityValid.load (std::memory_order_acquire)
+            && !sourceRejected.load (std::memory_order_acquire); }
         std::int64_t lengthInSamples() const noexcept
         {
             return sourceLength.load (std::memory_order_acquire);
@@ -98,6 +115,9 @@ namespace hypha::reference_audition
             std::atomic<std::int64_t> start { 0 };
             std::atomic<std::uint64_t> generation { 0 };
             std::atomic<std::uint64_t> publicationSequence { 0 };
+            std::shared_ptr<void> authority;
+            const std::atomic<std::uint64_t>* invalidation = nullptr;
+            std::uint64_t initialInvalidation = 0;
         };
 
         juce::String installReader (std::unique_ptr<juce::AudioFormatReader>,
@@ -120,6 +140,12 @@ namespace hypha::reference_audition
         // Non-RT reader owners only: refill/open/close. Control service and cue
         // publication do not wait for decoding. render/request/readyAt take no lock.
         const ServiceMode serviceMode;
+        std::function<bool (RuntimeFileRevision&)> verifySource;
+        std::function<bool()> verifyReaderIdentity, verifySourceRejection;
+        std::shared_ptr<void> sourceAuthority;
+        const std::atomic<std::uint64_t>* sourceInvalidation = nullptr;
+        std::uint64_t initialSourceInvalidation = 0;
+        std::atomic<std::uint8_t> sourceVerified { 1 }, readerIdentityValid { 1 }, sourceRejected { 0 };
         juce::CriticalSection readerLock;
         juce::CriticalSection cueLock;
         juce::AudioFormatManager formats;

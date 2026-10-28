@@ -207,7 +207,7 @@ void testReferenceComparisons (const juce::File& sandbox)
                   << " capture " << last.aCaptureAvailable << " measurement " << last.measurementAvailable << '\n';
         require (false, "ABC preparation deadline");
     };
-    wait ([] (const auto& state) { return state.libraryReceived && state.checkReady; });
+    wait ([] (const auto& state) { return state.libraryReceived && state.checkReady && state.versions.size() == 1; });
     const auto initial = controller.snapshot();
     require (initial.checkSelection->presetId == presetId && initial.comparisonSlot == 2,
              "first receipt uses the OS default Preset and A/C visuals without choosing sound");

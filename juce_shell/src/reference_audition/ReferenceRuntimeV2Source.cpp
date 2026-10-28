@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Source.h"
+#include "ReferenceSourceRevisionService.h"
 
 #include <charconv>
 #include <cmath>
@@ -361,13 +362,7 @@ namespace hypha::reference_audition
            #endif
         }
 
-        bool sameRevision (const RuntimeFileRevision& left, const RuntimeFileRevision& right)
-        {
-            return left.deviceId == right.deviceId && left.fileId == right.fileId
-                && left.sizeBytes == right.sizeBytes
-                && left.modifiedTimeNs == right.modifiedTimeNs
-                && left.changedTimeNs == right.changedTimeNs;
-        }
+
     }
 
     RuntimeV2SourceRepository::RuntimeV2SourceRepository (juce::File transportRootIn)
@@ -393,36 +388,49 @@ namespace hypha::reference_audition
         return { std::shared_ptr<const RuntimeSource> (std::move (source)), {} };
     }
 
-    juce::String RuntimeV2SourceRepository::verifySourceRevision (
-        const RuntimeSource& source) const
+    bool RuntimeV2SourceRepository::readSourceRevision (const RuntimeSource& source, RuntimeFileRevision& revision) const
     {
-        const juce::File file (source.absolutePath);
+        if (currentRevision (juce::File (source.absolutePath), revision)) return true;
+        revision_detail::service().noteFailure (source);
+        return false;
+    }
+
+    SourceRevisionResult RuntimeV2SourceRepository::checkSourceRevision (const RuntimeSource& source) const
+    {
         RuntimeFileRevision current;
-        if (! currentRevision (file, current))
-            return "reference_source_open_failed";
-        if (! sameRevision (current, source.revision))
-            return "reference_source_changed";
-        return {};
+        if (!currentRevision (juce::File (source.absolutePath), current))
+        {
+            revision_detail::service().noteFailure (source);
+            return { SourceRevisionState::refused, "reference_source_open_failed" };
+        }
+        auto result = revision_detail::service().check (source, current, currentRevision);
+        result.revision = current;
+        return result;
+    }
+
+    juce::String RuntimeV2SourceRepository::verifySourceRevision (const RuntimeSource& source) const
+    {
+        const auto result = checkSourceRevision (source);
+        return result.state == SourceRevisionState::matched ? juce::String {}
+            : result.state == SourceRevisionState::revalidate ? "reference_source_revalidating" : result.reason;
     }
 
     juce::String RuntimeV2SourceRepository::verifySourceFile (const RuntimeSource& source) const
     {
-        const juce::File file (source.absolutePath);
-        const auto revisionFailure = verifySourceRevision (source);
-        if (revisionFailure.isNotEmpty())
-            return revisionFailure;
-        auto input = file.createInputStream();
-        if (input == nullptr || ! input->openedOk()) return "reference_source_open_failed";
-        if (juce::SHA256 (*input).toHexString() != source.sourceFileSha256)
-            return "reference_source_changed";
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-        if (reader == nullptr) return "reference_source_decode_failed";
-        if (static_cast<std::int64_t> (std::llround (reader->sampleRate)) != source.audio.sampleRateHz
-            || reader->numChannels != source.audio.channels
-            || reader->lengthInSamples != source.audio.totalSampleFrames)
-            return "reference_source_audio_mismatch";
-        return {};
+        RuntimeFileRevision current;
+        if (!currentRevision (juce::File (source.absolutePath), current))
+        { revision_detail::service().noteFailure (source); return "reference_source_open_failed"; }
+        if (!revision_detail::equal (current, source.revision))
+        {
+            const auto state = checkSourceRevision (source);
+            if (state.state == SourceRevisionState::revalidate) return "reference_source_revalidating";
+            if (state.state == SourceRevisionState::refused) return state.reason;
+            RuntimeFileRevision after;
+            if (!currentRevision (juce::File (source.absolutePath), after)
+                || !revision_detail::equal (current, state.revision)
+                || !revision_detail::equal (current, after)) return "reference_source_revalidating";
+            return {};
+        }
+        return revision_detail::service().verifyInitial (source, current, currentRevision);
     }
 }
