@@ -23,6 +23,22 @@ macTest('silent system protection failure reports its startup stage', async t =>
   assert.equal(fs.existsSync(f.command.recoveryDirectory), false);
 });
 
+for (const [name, protection, diagnostic] of [
+  ['SIP disabled', { sip: 'disabled' }, /SIP verification failed/],
+  ['authenticated root disabled', { authenticatedRoot: 'disabled' }, /authenticated root verification failed/],
+  ['unsealed system volume', { sealed: false }, /sealed read-only system volume verification failed/],
+  ['writable system volume', { readOnly: false }, /sealed read-only system volume verification failed/],
+]) {
+  macTest(`${name} is refused by the worker protection predicate`, async t => {
+    const f = await fixture(t, { protection });
+    await assert.rejects(f.connect(), diagnostic);
+    await f.exited;
+    assert.equal(fs.existsSync(f.command.recoveryDirectory), false);
+    assert.equal(f.content('PRE'), 'original-PRE');
+    assert.equal(f.content('POST'), 'original-POST');
+  });
+}
+
 macTest('unsafe fixture root reports its mode before creating a recovery directory', async t => {
   const f = await fixture(t, { prepare: ({ root }) => fs.chmodSync(root, 0o770) });
   await assert.rejects(f.connect(), /unsafe mode: .*770/);

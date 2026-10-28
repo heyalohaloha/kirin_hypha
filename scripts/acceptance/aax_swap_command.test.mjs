@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { buildAuthorization, verifyAuthorization } from './aax_swap_command.mjs';
 import { shellTreeHash } from './aax_swap_shell_plan.mjs';
+import { mapSystemProtectionForFixture } from './aax_swap_fixture.mjs';
 const hash = value => createHash('sha256').update(value).digest('hex');
 const snapshot = { entries: [{ path: '', kind: 'directory', mode: 0o700 }], files: [], attributes: [{ path: '', values: [] }] };
 snapshot.sha256 = hash(JSON.stringify(snapshot.entries)); snapshot.metadataSha256 = hash(JSON.stringify(snapshot.attributes));
@@ -37,6 +38,14 @@ test('only session identity changes the wrapper; altered text or payload fails b
   assert.throws(() => buildAuthorization(outside, identity), /target/);
   const extra = request(); extra.candidates[0].source = '/untrusted';
   assert.throws(() => buildAuthorization(extra, identity), /fields/);
+});
+
+test('fixture system protection mapping cannot pass production authorization even if rehashed', () => {
+  const command = buildAuthorization(request(), identity);
+  const mapped = mapSystemProtectionForFixture(command.rootScript, { sip: 'disabled' });
+  assert.notEqual(mapped, command.rootScript);
+  assert.throws(() => verifyAuthorization({ ...command, rootScript: mapped, scriptSha256: hash(mapped) }), /changed/);
+  assert.throws(() => mapSystemProtectionForFixture(command.rootScript.replace('/usr/bin/csrutil status |', ''), {}), /observation changed/);
 });
 
 test('system shell syntax is checked without executing or authenticating', { skip: process.platform === 'win32' }, () => {

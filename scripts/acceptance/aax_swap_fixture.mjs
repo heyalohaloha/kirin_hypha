@@ -7,8 +7,26 @@ import { prepareSession } from './aax_swap_session.mjs';
 import { buildAuthorization } from './aax_swap_command.mjs';
 import { connectWorker } from './aax_swap_transport.mjs';
 
+// Replaces only the observations, not the worker's protection predicates or tool checks.
+// This helper is used solely on the test-only shell body, never on an authorization command.
+export function mapSystemProtectionForFixture(body, { sip = 'enabled', authenticatedRoot = 'enabled', sealed = true, readOnly = true } = {}) {
+  if (!['enabled', 'disabled'].includes(sip) || !['enabled', 'disabled'].includes(authenticatedRoot) || typeof sealed !== 'boolean' || typeof readOnly !== 'boolean') {
+    throw new Error('invalid fixture system protection state');
+  }
+  const observations = [
+    ['/usr/bin/csrutil status |', `printf '%s\\n' 'System Integrity Protection status: ${sip}.' |`],
+    ['/usr/bin/csrutil authenticated-root status |', `printf '%s\\n' 'Authenticated Root status: ${authenticatedRoot}' |`],
+    ['/sbin/mount |', `printf '%s\\n' '/dev/fixture on / (apfs, ${sealed ? 'sealed, ' : ''}local, ${readOnly ? 'read-only' : 'read-write'}, journaled)' |`],
+  ];
+  for (const [actual, simulated] of observations) {
+    if (body.split(actual).length !== 2) throw new Error('fixture protection observation changed: ' + actual);
+    body = body.replace(actual, simulated);
+  }
+  return body;
+}
+
 // Test-only anchor mapping. No production entry point imports this helper.
-export async function fixture(t, { edit = body => body, prepare = () => {}, receipt = async () => {}, sizeBytes = 0 } = {}) {
+export async function fixture(t, { edit = body => body, prepare = () => {}, receipt = async () => {}, sizeBytes = 0, protection = {} } = {}) {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'aax-shell-'));
   const live = path.join(root, 'Library/Application Support/Avid/Audio/Plug-Ins');
   fs.mkdirSync(live, { recursive: true, mode: 0o700 });
@@ -30,6 +48,7 @@ export async function fixture(t, { edit = body => body, prepare = () => {}, rece
   const built = buildAuthorization(request, { uid: process.getuid(), parentPid: process.pid, token: 'd'.repeat(32) });
   const command = { ...built, ipcDirectory: root + built.ipcDirectory, recoveryDirectory: root + built.recoveryDirectory };
   let body = built.rootScript.replaceAll('/Library', root + '/Library').replace('TRUSTED_UID=0', `TRUSTED_UID=${process.getuid()}`).replace('TRUSTED_GID=0', `TRUSTED_GID=${process.getgid()}`).replace('secure_dir /\n', `secure_dir '${root}'\n`);
+  body = mapSystemProtectionForFixture(body, protection);
   body = edit(body);
   prepare({ root, command, live });
   const child = spawn('/usr/bin/env', ['-i', 'PATH=/usr/bin:/bin:/usr/sbin:/sbin', 'LC_ALL=C', 'HOME=/var/empty', '/bin/sh', '-c', body, '--', String(process.getuid()), String(process.pid), built.config.token, built.config.envelopeSha256, String(built.config.payloadSize), String(built.config.wireSize)], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -42,6 +61,7 @@ export async function fixture(t, { edit = body => body, prepare = () => {}, rece
     fs.rmSync(root, { recursive: true, force: true });
   });
   return { root, live, command, child, exited, stderr: () => stderr,
-    connect: () => connectWorker(command, child, { ownerUid: process.getuid(), receipt, timeout: 15000 }),
+    // A failed start returns at once; the long limit only absorbs slow CI virtual machines.
+    connect: () => connectWorker(command, child, { ownerUid: process.getuid(), receipt, timeout: 120000 }),
     content: role => fs.readFileSync(path.join(live, `Kirin Hypha ${role}.aaxplugin/Contents/payload`), 'utf8') };
 }
