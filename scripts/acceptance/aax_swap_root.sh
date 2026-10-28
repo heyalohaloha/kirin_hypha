@@ -8,6 +8,9 @@ TRUSTED_GID=0
 LIVE='/Library/Application Support/Avid/Audio/Plug-Ins'
 BASE='/Library/Application Support/Kirin/Hypha/acceptance-swap'
 IPC_BASE='/Library/Application Support/Kirin/Hypha/acceptance-swap-ipc'
+fail() { printf '%s\n' "$*" >&2; return 1; }
+startup_stage=arguments
+trap 'code=$?; printf "worker startup failed at %s (exit %s)\n" "$startup_stage" "$code" >&2' EXIT
 caller=$1 parent=$2 token=$3 payload_hash=$4 payload_size=$5 wire_size=$6
 case "$caller:$parent:$payload_size:$wire_size" in *[!0-9:]*|'') exit 64;; esac
 case "$token" in *[!a-f0-9]*|'') exit 64;; esac
@@ -17,7 +20,6 @@ case "$payload_hash" in *[!a-f0-9]*|'') exit 64;; esac
 [ "$(/usr/bin/id -u)" = "$TRUSTED_UID" ] || exit 64
 session="$BASE/$token" ipc="$IPC_BASE/$token"
 old_pre= old_post= new_pre= new_post= originals_checked=0 restored=0 success=0
-fail() { printf '%s\n' "$*" >&2; return 1; }
 digest() { value=$(/usr/bin/openssl dgst -sha256) || return 1; printf '%s\n' "${value##* }"; }
 no_acl() {
   listing=$(/bin/ls -lde "$1") || return 1
@@ -27,14 +29,14 @@ no_acl() {
 '*) fail 'extended ACL refused';; esac
 }
 secure_object() {
-  [ ! -L "$1" ] && [ -e "$1" ] || return 1
+  [ ! -L "$1" ] && [ -e "$1" ] || { fail "missing or linked object: $1"; return 1; }
   object_uid=$(/usr/bin/stat -f %u "$1") || return 1
-  [ "$object_uid" = "$TRUSTED_UID" ] || return 1
+  [ "$object_uid" = "$TRUSTED_UID" ] || { fail "untrusted owner: $1 (uid $object_uid; expected $TRUSTED_UID)"; return 1; }
   mode=$(/usr/bin/stat -f %Lp "$1") || return 1
-  [ "$((0$mode & 07022))" -eq 0 ] || return 1
+  [ "$((0$mode & 07022))" -eq 0 ] || { fail "unsafe mode: $1 ($mode)"; return 1; }
   no_acl "$1"
 }
-secure_dir() { [ -d "$1" ] && secure_object "$1"; }
+secure_dir() { [ -d "$1" ] || { fail "not a directory: $1"; return 1; }; secure_object "$1"; }
 ensure_dir() {
   if [ ! -e "$1" ] && [ ! -L "$1" ]; then
     /bin/mkdir -m "$2" "$1"
@@ -43,14 +45,14 @@ ensure_dir() {
   secure_dir "$1"
 }
 system_guard() {
-  /usr/bin/csrutil status | /usr/bin/grep -Fx 'System Integrity Protection status: enabled.' >/dev/null
-  /usr/bin/csrutil authenticated-root status | /usr/bin/grep -Fx 'Authenticated Root status: enabled' >/dev/null
-  /sbin/mount | /usr/bin/grep -E '^/dev/[^ ]+ on / \(apfs, sealed, .*read-only[,)]' >/dev/null
+  /usr/bin/csrutil status | /usr/bin/grep -Fx 'System Integrity Protection status: enabled.' >/dev/null || { fail 'SIP verification failed'; return 1; }
+  /usr/bin/csrutil authenticated-root status | /usr/bin/grep -Fx 'Authenticated Root status: enabled' >/dev/null || { fail 'authenticated root verification failed'; return 1; }
+  /sbin/mount | /usr/bin/grep -E '^/dev/[^ ]+ on / \(apfs, sealed, .*read-only[,)]' >/dev/null || { fail 'sealed read-only system volume verification failed'; return 1; }
   system_device=$(/usr/bin/stat -f %d /) || return 1
   for tool in /bin/rmdir /bin/sh /bin/mv /bin/mkdir /bin/rm /bin/chmod /bin/ls /bin/sync /usr/bin/env /usr/bin/id /usr/bin/ditto /usr/bin/find /usr/bin/stat /usr/bin/openssl /usr/bin/base64 /usr/bin/xattr /usr/bin/sort /usr/bin/tr /usr/bin/mkfifo /usr/bin/csrutil /usr/bin/grep /usr/sbin/chown /sbin/mount; do
-    [ -f "$tool" ] && [ ! -L "$tool" ] || return 1
+    [ -f "$tool" ] && [ ! -L "$tool" ] || { fail "missing or linked system tool: $tool"; return 1; }
     tool_identity=$(/usr/bin/stat -f '%u:%d' "$tool") || return 1
-    [ "$tool_identity" = "0:$system_device" ] || return 1
+    [ "$tool_identity" = "0:$system_device" ] || { fail "unprotected system tool: $tool ($tool_identity)"; return 1; }
   done
 }
 # Canonical tree records: C byte order; type, octal mode, relative name, byte hash;
@@ -209,24 +211,31 @@ materialize() {
   /usr/bin/ditto --rsrc --extattr --acl "$inbound" "$session/candidate-$role"
   tree_matches "$session/candidate-$role" "$expected" || return 1
 }
+startup_stage=system-protection
 system_guard
+startup_stage=live-ancestors
 secure_dir /
 secure_dir /Library
 secure_dir '/Library/Application Support'
 secure_dir '/Library/Application Support/Avid'
 secure_dir '/Library/Application Support/Avid/Audio'
 secure_dir "$LIVE"
+startup_stage=recovery-ancestors
 ensure_dir '/Library/Application Support/Kirin' 755
 ensure_dir '/Library/Application Support/Kirin/Hypha' 755
+startup_stage=recovery-directory
 ensure_dir "$BASE" 700
 base_identity=$(/usr/bin/stat -f '%u:%g:%Lp' "$BASE") || exit 1
-[ "$base_identity" = "$TRUSTED_UID:$TRUSTED_GID:700" ]
+[ "$base_identity" = "$TRUSTED_UID:$TRUSTED_GID:700" ] || { fail "recovery directory identity mismatch: $base_identity (expected $TRUSTED_UID:$TRUSTED_GID:700)"; exit 1; }
+startup_stage=ipc-directory
 ensure_dir "$IPC_BASE" 711
 ipc_mode=$(/usr/bin/stat -f %Lp "$IPC_BASE") || exit 1
-[ "$ipc_mode" = 711 ]
+[ "$ipc_mode" = 711 ] || { fail "IPC directory mode mismatch: $ipc_mode"; exit 1; }
+startup_stage=volume-check
 volume_device=$(/usr/bin/stat -f %d "$LIVE") || exit 1
 base_device=$(/usr/bin/stat -f %d "$BASE") || exit 1
-[ "$volume_device" = "$base_device" ]
+[ "$volume_device" = "$base_device" ] || { fail "recovery directory is on a different volume"; exit 1; }
+startup_stage=session-creation
 /bin/mkdir -m 700 "$BASE/active"
 /bin/mkdir -m 700 "$session"
 /usr/sbin/chown "$TRUSTED_UID:$TRUSTED_GID" "$session"

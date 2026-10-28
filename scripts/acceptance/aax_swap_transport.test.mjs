@@ -2,9 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { connectWorker } from './aax_swap_transport.mjs';
 import { fixture } from './aax_swap_fixture.mjs';
 const macTest = process.platform === 'darwin' ? test : test.skip;
+
+test('startup errors include exit status and spawn error even without stderr', async () => {
+  const command = { ipcDirectory: '/nonexistent-hypha-test', recoveryDirectory: '/nonexistent-hypha-recovery' };
+  await assert.rejects(connectWorker(command, spawn(process.execPath, ['-e', 'process.exit(42)']), { timeout: 15000 }), /exit code 42, signal none; no diagnostic output/);
+  await assert.rejects(connectWorker(command, spawn('/nonexistent-hypha-executable'), { timeout: 15000 }), /worker startup failed:.*ENOENT/);
+});
+
+macTest('silent system protection failure reports its startup stage', async t => {
+  const f = await fixture(t, { edit: body => {
+    assert.ok(body.includes('\nsystem_guard\n'));
+    return body.replace('\nsystem_guard\n', '\nfalse\n');
+  } });
+  await assert.rejects(f.connect(), /worker startup failed at system-protection \(exit 1\)/);
+  await f.exited;
+  assert.equal(fs.existsSync(f.command.recoveryDirectory), false);
+});
+
+macTest('unsafe fixture root reports its mode before creating a recovery directory', async t => {
+  const f = await fixture(t, { prepare: ({ root }) => fs.chmodSync(root, 0o770) });
+  await assert.rejects(f.connect(), /unsafe mode: .*770/);
+  await f.exited;
+  assert.equal(fs.existsSync(f.command.recoveryDirectory), false);
+});
 
 macTest('system shell transfers bytes, installs, restores and exits in one worker', async t => {
   const f = await fixture(t);

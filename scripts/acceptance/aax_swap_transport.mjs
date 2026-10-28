@@ -41,7 +41,7 @@ export async function connectWorker(command, child, { ownerUid = 0, receipt = as
   child.stdout?.resume();
   const exited = new Promise(resolve => {
     child.once('error', error => { exit = { error }; resolve(exit); });
-    child.once('close', (code, signal) => { exit = { code, signal }; resolve(exit); });
+    child.once('close', (code, signal) => { if (!exit) exit = { code, signal }; resolve(exit); });
   });
   async function waitExit() {
     const end = Date.now() + 40000;
@@ -53,7 +53,7 @@ export async function connectWorker(command, child, { ownerUid = 0, receipt = as
   try {
     const end = Date.now() + timeout;
     while (true) {
-      if (exit) throw new Error('worker startup failed: ' + stderr);
+      if (exit) throw new Error(`worker startup failed: ${exit.error ? exit.error.message : `exit code ${exit.code}, signal ${exit.signal || 'none'}`}; ${stderr.trim() || 'no diagnostic output'}`);
       try {
         const [directory, fifo, status] = await Promise.all([command.ipcDirectory, path.join(command.ipcDirectory, 'request'), path.join(command.ipcDirectory, 'status')].map(file => fs.promises.lstat(file)));
         if (!directory.isDirectory() || directory.uid !== ownerUid || (directory.mode & 0o022)
