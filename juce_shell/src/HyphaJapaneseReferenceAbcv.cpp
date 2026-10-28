@@ -8,7 +8,7 @@ namespace
 {
 const Entry entries[] = {
     { "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION", u8"音声を読込中です / 別の位置から再生してください" },
-    { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSでファイルを確認してください" },
+    { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSで確認" },
     { "AUDIO READ FAILED", u8"音声を読み出せません" },
     { "PLAYHEAD OUTSIDE VERSION", u8"再生位置が版の範囲外です" },
     { "MOVE INSIDE VERSION, THEN PRESS V", u8"版の範囲内へ移動してVを押してください" },
