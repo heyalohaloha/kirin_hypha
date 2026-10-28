@@ -350,6 +350,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryVu.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
@@ -624,6 +625,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryMetrics.cpp
         ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryVu.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryLiveCompare.cpp
@@ -662,6 +664,9 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
 endif()
 if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     enable_testing()
+    add_executable(KirinVuNeedleMotionTests tests/VuNeedleMotionTest.cpp)
+    target_compile_features(KirinVuNeedleMotionTests PRIVATE cxx_std_17)
+    add_test(NAME kirin_vu_needle_motion COMMAND KirinVuNeedleMotionTests)
     juce_add_console_app(KirinUiRenderContractTests
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
@@ -711,6 +716,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryVu.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
@@ -811,6 +817,11 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     endif()
     include(cmake/ReferenceVisualMeasurementTest.cmake)
     kirin_reference_visual_measurement_test(KirinUiRenderContractTests)
+    add_test(NAME kirin_hybrid_vu_contract COMMAND KirinUiRenderContractTests --hybrid-vu-only)
+    add_test(NAME kirin_vu_animator_lifecycle COMMAND KirinUiRenderContractTests --vu-animation-only)
+    add_test(NAME kirin_vu_frame_performance COMMAND KirinUiRenderContractTests --vu-performance-only)
+    add_test(NAME kirin_vu_layer_parity COMMAND KirinUiRenderContractTests --vu-layer-only)
+    add_test(NAME kirin_vu_frame_trace COMMAND KirinUiRenderContractTests --vu-frame-trace-only)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
     include(cmake/SnapshotContracts.cmake)
     add_test(NAME kirin_product_entry_contract
@@ -1090,6 +1101,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryMetrics.cpp
         ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryVu.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryLiveCompare.cpp

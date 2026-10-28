@@ -399,12 +399,7 @@ void View::paint (juce::Graphics& g)
     const key_light::Scope light (*this);
     if (hybridVuVisible())
     {
-        hybrid_vu::paint (g, getLocalBounds(), {
-            role, observatoryFrame.meter, watchDisplay,
-            currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
-            selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
-            jungleAppearance, presentationContext(), vuCalibration()
-        });
+        paintHybridVu (g);
         return;
     }
     const auto state = worldState();
