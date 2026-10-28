@@ -34,6 +34,7 @@ juce::String PreparationWatch::observe (int slot, SourceStep step, bool measurin
     if (stage.budget == WaitBudget::none || (stage.budget == WaitBudget::kirinOsResponse && ! kirinOsOnline))
         return {};
     const auto counted = stage.budget == WaitBudget::alignmentPlay ? played : waited;
-    return counted > budgetSeconds (stage.budget) ? juce::String (stage.overdue) : juce::String();
+    return (stage.budget == WaitBudget::pages ? counted >= budgetSeconds (stage.budget)
+                                            : counted > budgetSeconds (stage.budget)) ? juce::String (stage.overdue) : juce::String();
 }
 }

@@ -3,6 +3,7 @@
 #include "ReferenceTestCommitObserver.h"
 
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #if JUCE_WINDOWS
@@ -103,6 +104,7 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (stateLock);
         auto result = currentSnapshot;
+        const auto observationBefore = inputObservationGeneration.load (std::memory_order_acquire);
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
         result.osOnline = libraryOnline.load (std::memory_order_acquire);
         result.libraryPreparation = libraryPreparation;
@@ -121,9 +123,47 @@ namespace hypha::reference_audition
             && result.transportPositionValid && sourcePosition < 0 && ! restarts
             && (mappingBefore & 1u) == 0 && mappingBefore == mappingAfter
             && cueEnd.load (std::memory_order_acquire) > cueStart.load (std::memory_order_acquire);
-        result.auditionBuffered = publishedReady && (blindState.eligible
-            || (result.transportPositionValid
-                && currentPages().readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)));
+        const bool pageReady = result.transportPositionValid && (mappingBefore & 1u) == 0
+            && mappingBefore == mappingAfter
+            && currentPages().readyAt (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition, 1)
+            && mappingAfter == mappingGeneration.load (std::memory_order_acquire);
+        // Keep unavailable mapping, missing pages and impossible positions distinct.
+        result.auditionPages = AuditionPageState::positionUnknown;
+        if (publishedReady && result.transportPositionValid)
+        {
+            if ((mappingBefore & 1u) != 0 || mappingBefore != mappingAfter
+                || mappingAfter != mappingGeneration.load (std::memory_order_acquire))
+                result.auditionPages = AuditionPageState::mappingUnstable;
+            else if (versionComparison && sourcePosition == std::numeric_limits<std::int64_t>::min())
+                result.auditionPages = AuditionPageState::positionUnknown;
+            else if (! currentPages().sourceOpen() || currentPages().lengthInSamples() <= 0)
+                result.auditionPages = AuditionPageState::positionUnknown;
+            else if (versionComparison && (sourcePosition < 0 || sourcePosition >= currentPages().lengthInSamples()))
+                // A stale copy map cannot prove that a position is permanently unusable.
+                // In-range candidates retain the existing per-block output confirmation.
+                result.auditionPages = referenceCopyProofCurrent (versionComparison,
+                    copyCorrespondence.load (std::memory_order_acquire),
+                    contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity())
+                        ? AuditionPageState::outsideSource : AuditionPageState::mappingUnstable;
+            else
+                result.auditionPages = pageReady ? AuditionPageState::ready
+                    : currentPages().hasPersistentReadFailure (restarts ? cueStart.load (std::memory_order_acquire) : sourcePosition) ? AuditionPageState::readFailed : AuditionPageState::waiting;
+        }
+        if (publishedReady && result.transportPositionValid
+            && (mappingAfter != mappingGeneration.load (std::memory_order_acquire)
+                || (result.auditionPages == AuditionPageState::outsideSource
+                    && ! referenceCopyProofCurrent (versionComparison, copyCorrespondence.load (std::memory_order_acquire),
+                        contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity()))))
+            result.auditionPages = AuditionPageState::mappingUnstable;
+        // Refusing a position needs a complete transport/A tuple and the same map.
+        // An in-range candidate retains the existing per-block output verification.
+        if (versionComparison && result.auditionPages == AuditionPageState::outsideSource
+            && ((observationBefore & 1u) != 0
+                || mappingAfter != mappingGeneration.load (std::memory_order_acquire)
+                || observationBefore != inputObservationGeneration.load (std::memory_order_acquire)))
+            result.auditionPages = AuditionPageState::mappingUnstable;
+        result.auditionBuffered = publishedReady
+            && (versionComparison ? blindState.eligible && result.auditionPages == AuditionPageState::ready : blindState.eligible || pageReady);
         result.blindEligible = publishedReady && blindState.eligible
             && (blind.ongoing() || referenceCopyProofCurrent (versionComparison,
                 copyCorrespondence.load (std::memory_order_acquire),

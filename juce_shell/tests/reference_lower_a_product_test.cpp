@@ -76,6 +76,7 @@ public:
                                                                  : juce::AudioProcessor::singlePrecision);
         post->setPlayHead (&clock);
         hypha::tests::prepareFixtureProcessor (*post, 48000, frames);
+        require (post->getLatencySamples() == 0, "ordinary A starts with zero reported latency");
         post->refreshLicenseForUserAction();
         require (post->licenseIsOs(), "the sandbox identity grants the Kirin OS license");
         clock.playing.store (true);
@@ -183,6 +184,7 @@ private:
                 require (post->startLiveCompare() != hypha::live_compare::StartResult::returnRequired
                              && ! post->outputDecision (Activity::versionBlind).refused(),
                          "after RETURN, LISTEN and Blind may start");
+                require (post->getLatencySamples() == 0, "Reference, offline, bypass and RETURN add no latency");
                 std::cout << "Reference lower A product: PASS lowered " << needed << " dB\n";
                 passed = true;
                 stopTimer();

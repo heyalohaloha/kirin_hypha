@@ -64,6 +64,10 @@ namespace hypha::reference_audition
                             bool playing,
                             bool auditionAllowed, bool confirmAudible = true) noexcept;
         void confirmAOutput() noexcept { aAudibleConfirmations.fetch_add (1, std::memory_order_release); }
+        enum class StartResult { started, preparing, stale, refused };
+        StartResult startB (double aIntegratedLoudness, double aMaximumTruePeakDbtp,
+                           std::uint64_t queuedGeneration = 0, const juce::String& expectedPlaybackIdentity = {}) noexcept;
+        StartResult resumeHeldResult (std::uint64_t, const juce::String&) noexcept;
         bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp,
                       std::uint64_t queuedGeneration = 0, const juce::String& expectedPlaybackIdentity = {}) noexcept;
         std::uint64_t normalSelectionTicket() const noexcept { return normalSelectionGeneration.load (std::memory_order_acquire); }
@@ -225,7 +229,7 @@ namespace hypha::reference_audition
         bool prepareReferenceGain (double aIntegratedLoudness,
                                    double aMaximumTruePeakDbtp,
                                    std::uint64_t selectionGeneration, const juce::String& expectedPlaybackIdentity) noexcept;
-        bool activatePreparedB (std::uint64_t selectionGeneration) noexcept;
+        StartResult activatePreparedB (std::uint64_t selectionGeneration) noexcept;
         bool startBlindWithApproval (double aIntegratedLoudness,
                                      bool approveLowerA) noexcept;
         std::uint64_t acquireOutputGate() noexcept;
@@ -372,6 +376,10 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> auditionEpoch { 1 };
         std::atomic<std::uint64_t> activeAuditionEpoch { 0 };
         std::atomic<std::uint64_t> normalSelectionGeneration { 1 };
+        // Audio-thread writer; odd publication spans transport through A observation.
+        std::uint64_t rtObservationEpoch = 0;
+        bool rtObservationPending = false;
+        std::atomic<std::uint64_t> inputObservationGeneration { 0 };
         std::atomic<std::int64_t> latestHostPosition { 0 };
         std::atomic<bool> latestPositionValid { false };
         std::atomic<bool> latestPlaying { false };

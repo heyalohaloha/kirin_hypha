@@ -28,7 +28,6 @@ bool ReferenceComparisonController::armResume()
         if (state.selectionGeneration < wanted) return true;  // まだ新しい選択が公開されていない。timer は回し続ける
         if (state.state == RuntimeState::rejected) { dropResume(); return false; }
         if (state.playbackIdentity.isEmpty()) return true;     // 準備中
-        switchSlot.store (0, std::memory_order_release);
         next.identity = state.playbackIdentity;
         next.switching = true;
     }

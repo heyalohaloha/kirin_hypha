@@ -30,6 +30,10 @@ inline bool canQueueReference (const State& state)
 inline juce::String pendingAuditionReason (const State& state)
 {
     using Stage = reference_audition::PendingAuditionView::Stage;
+    if (state.pendingAudition.reasonCode == "reference_page_wait_slow")
+        return "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION";
+    if (state.pendingAudition.reasonCode == "reference_audio_read_failed")
+        return "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS";
     switch (state.pendingAudition.stage)
     {
         case Stage::play: return "PLAY DAW";
@@ -64,7 +68,9 @@ inline juce::String versionStoppedText (const State& state)
     switch (state.pendingAudition.stage)
     {
         case Stage::sourceChanged:
-            if (code == "source_changed" || code == "reference_source_changed")
+            if (code == "reference_audio_read_failed")
+            { reason = "AUDIO READ FAILED"; action = "CHECK THE FILE IN KIRIN OS"; }
+            else if (code == "source_changed" || code == "reference_source_changed")
             { reason = "REFERENCE FILE CHANGED"; action = "PREPARE V AGAIN IN KIRIN OS"; }
             else if (code == "reference_selection_unavailable" || code == "reference_version_unselected"
                 || code == "reference_candidates_empty" || code == "reference_checks_empty")
@@ -93,7 +99,11 @@ inline juce::String versionStoppedText (const State& state)
             reason = "V LEVEL NOT MEASURED"; action = "PREPARE V AGAIN IN KIRIN OS"; break;
         case Stage::ceilingExceeded:
             reason = "MATCH EXCEEDS SAFE LEVEL"; action = "USE LOWER A TO LISTEN"; break;
-        case Stage::startFailed: reason = "CANNOT START SAFELY"; break;
+        case Stage::startFailed:
+            if (code == "reference_position_outside_source")
+            { reason = "PLAYHEAD OUTSIDE VERSION"; action = "MOVE INSIDE VERSION, THEN PRESS V"; }
+            else reason = "CANNOT START SAFELY";
+            break;
         case Stage::none: case Stage::play: case Stage::checking: case Stage::level: return {};
     }
     return "V STOPPED / " + reason + " / " + action;

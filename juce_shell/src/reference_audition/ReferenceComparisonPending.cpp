@@ -94,6 +94,13 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
     { const juce::ScopedLock lock (gateLock); if (localBlindOwned || blindGuardOwned) return false; }
     auto& target = slotController (slot);
     const auto now = target.snapshot();
+    if (now.auditionPages == AuditionPageState::outsideSource)
+    {
+        selectA();
+        const juce::ScopedLock lock (selectionLock);
+        pendingAudition.view = { slot, Stage::startFailed, "reference_position_outside_source" };
+        return false;
+    }
     const bool settles = now.matchFailure != MatchFailure::ceilingExceeded
         && now.matchFailure != MatchFailure::sourceLevelUnavailable && ! now.auditionOutsideCue
         && now.state != RuntimeState::rejected && now.state != RuntimeState::disconnected
@@ -109,7 +116,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
     return true;
 }
 
-void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive)
+void ReferenceComparisonController::servicePendingAudition (double loudness, double peak, bool callbackLive, double nowSeconds)
 {
     if (callbackLive && preparingCheck() && check.awaitingPreparedLevel()) check.supplyPreparedLevel (loudness, peak);
     reconcileVersionBlindSession();
@@ -126,12 +133,32 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         {
             pendingAudition.view.stage = stage; pendingAudition.sawPlayback |= sawPlayback;
             pendingAudition.view.reasonCode = reason;
+            if (reason != "reference_page_waiting" && reason != "reference_page_wait_slow")
+                pendingAudition.pageWaitSince = -1.0;
             if (!pendingAudition.view.waiting())
             {
                 auto expected = intent.intentId; activePendingIntent.compare_exchange_strong (expected, 0);
                 version.setQueuedContentObservationEnabled (false);
+                if (intent.switching)
+                {
+                    auto slot = intent.view.slot;
+                    switchSlot.compare_exchange_strong (slot, 0, std::memory_order_acq_rel);
+                }
             }
         }
+    };
+    const auto pageWait = [&]
+    {
+        double since = nowSeconds;
+        {
+            const juce::ScopedLock lock (selectionLock);
+            if (pendingAudition.intentId != intent.intentId) return;
+            if (pendingAudition.pageWaitSince < 0.0 || nowSeconds < pendingAudition.pageWaitSince)
+                pendingAudition.pageWaitSince = nowSeconds;
+            since = pendingAudition.pageWaitSince;
+        }
+        publish (Stage::checking, callbackLive, nowSeconds - since >= PendingAuditionView::pageNoticeSeconds
+            ? "reference_page_wait_slow" : "reference_page_waiting");
     };
     auto& target = slotController (intent.view.slot);
     const auto state = target.snapshot();
@@ -154,6 +181,8 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
                 pendingAudition.safetyEpoch = pendingSafetyEpoch.load (std::memory_order_acquire);
                 pendingAudition.sawPlayback = false;
                 pendingAudition.view.stage = Stage::play;
+                pendingAudition.view.reasonCode.clear();
+                pendingAudition.pageWaitSince = -1.0;
             }
             return;
         }
@@ -164,37 +193,69 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
         || (state.playbackIdentity.isNotEmpty() && state.playbackIdentity != intent.identity))
     { if (intent.resume || intent.switching) dropResume();
       publish (Stage::sourceChanged, false, state.rejectionCode.isNotEmpty() ? state.rejectionCode : "reference_selection_changed"); return; }
+    if (state.state == RuntimeState::ready && binding.source)
+    {
+        RuntimeV2SourceRepository verifier (juce::File {});
+        if (const auto failure = verifier.verifySourceRevision (*binding.source); failure.isNotEmpty())
+        { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, false, failure); return; }
+    }
+    if (state.auditionPages == AuditionPageState::outsideSource || state.auditionPages == AuditionPageState::readFailed)
+    {
+        if (intent.resume || intent.switching) dropResume();
+        publish (state.auditionPages == AuditionPageState::outsideSource ? Stage::startFailed : Stage::sourceChanged,
+                 callbackLive, state.auditionPages == AuditionPageState::outsideSource
+                     ? "reference_position_outside_source" : "reference_audio_read_failed");
+        return;
+    }
     if (!state.transportPlaying) { publish (Stage::play); return; }
     if (!callbackLive || inputSafety != 1
-        || !state.transportPositionValid || state.state != RuntimeState::ready
-        || !state.auditionBuffered || !binding.source)
+        || !state.transportPositionValid || state.state != RuntimeState::ready || !binding.source)
     { publish (Stage::checking, callbackLive); return; }
+    if (!state.auditionBuffered)
+    {
+        if (state.auditionPages == AuditionPageState::waiting) pageWait();
+        else publish (Stage::checking, callbackLive);
+        return;
+    }
     if (!intent.resume && intent.view.slot != 1 && ((state.comparisonMode == "loudness_match" && !std::isfinite (loudness))
         || (state.comparisonMode == "peak_match" && !std::isfinite (peak))))
     { publish (Stage::level, true); return; }
     if (! heldA.settled()) { publish (Stage::checking, true); return; }  // A を下げ終わってから鳴らす
-    RuntimeV2SourceRepository verifier (juce::File {});
-    if (const auto failure = verifier.verifySourceRevision (*binding.source); failure.isNotEmpty())
-    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, false, failure); return; }
-    // Claim once on the control thread, then use the runtime generation across gain preparation.
+    // Pin the runtime generation across gain preparation and transient page waits.
     // A, a source change or reconfiguration invalidates that generation before publication.
     // Bind preparation to the same condition even if a publication changes after this snapshot.
     // Manual and queued selection share the same no-fallback MATCH policy.
     // 待つあいだに別の比較・Keep が始まった（表が断る）なら鳴らさず、理由を出す。戻す控えと選択の替えも手放す。
     if (outputDecision (output_owner::Activity::audition).refused())
     { if (intent.resume || intent.switching) dropResume(); publish (Stage::startFailed, true); return; }
-    const auto generation = target.normalSelectionTicket();
-    auto expected = intent.intentId;
-    if (!activePendingIntent.compare_exchange_strong (expected, 0, std::memory_order_acq_rel)) return;
+    // Keep the same attempt and explicit intent until activation or cancellation.
+    std::uint64_t generation = intent.startGeneration;
+    {
+        const juce::ScopedLock lock (selectionLock);
+        if (activePendingIntent.load (std::memory_order_acquire) != intent.intentId) return;
+        if (generation == 0) pendingAudition.startGeneration = generation = target.normalSelectionTicket();
+    }
+    using Result = RuntimeV2Controller::StartResult;
+    const auto result = intent.resume ? target.resumeHeldResult (generation, intent.identity)
+        : target.startB (loudness, peak, generation, intent.identity);
+    if (activePendingIntent.load (std::memory_order_acquire) != intent.intentId) return;
+    if (result == Result::preparing)
+    {
+        if (target.snapshot().auditionPages == AuditionPageState::waiting) pageWait();
+        else publish (Stage::checking, true);
+        return;
+    }
+    if (result == Result::stale)
+    { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, true); return; }
     if (intent.resume)
     {
         // 戻せなかった（ページの読み込み待ちなど）ときは、次の周期にもう一度戻そうとする。
-        if (!target.resumeHeld (generation, intent.identity)) { publish (Stage::checking, true); return; }
+        if (result != Result::started) { dropResume(); publish (Stage::startFailed, true); return; }
         normalOutputSlot.store (intent.view.slot, std::memory_order_release);
         publish (Stage::none, true);
         return;
     }
-    if (!target.selectB (loudness, peak, generation, intent.identity))
+    if (result != Result::started)
     {
         const auto failed = target.snapshot();
         // 承認は「A を差だけ下げて合わせる」。承認の後に A が大きくなって、鳴らす時点でまだ上限を超えるなら、その時点の

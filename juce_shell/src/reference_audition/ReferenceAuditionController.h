@@ -57,6 +57,8 @@ namespace hypha::reference_audition
 
     enum class MatchFailure { none, liveLevelUnavailable, sourceLevelUnavailable, ceilingExceeded };
 
+    enum class AuditionPageState { positionUnknown, mappingUnstable, waiting, ready, outsideSource, readFailed };
+
     struct Snapshot
     {
         RuntimeState state = RuntimeState::disconnected;
@@ -107,6 +109,7 @@ namespace hypha::reference_audition
         bool bSelected = false;
         bool transportPlaying = false;
         bool transportPositionValid = false;
+        AuditionPageState auditionPages = AuditionPageState::positionUnknown;
         bool auditionBuffered = false;
         bool auditionOutsideCue = false;
         bool blindEligible = false;

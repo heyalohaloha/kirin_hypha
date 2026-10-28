@@ -48,7 +48,9 @@ public:
     bool selectSong (const juce::String& songId);          // B の曲。B が鳴っていれば即切替
     bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
     bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues, playing waits while preparing.
-    void servicePendingAudition (double, double, bool callbackLive);
+    // Control-thread clock, in monotonic seconds; callers may supply it for deterministic scheduling.
+    void servicePendingAudition (double, double, bool callbackLive,
+        double nowSeconds = juce::Time::getMillisecondCounterHiRes() * 0.001);
     bool pendingAuditionNeedsService() const;
     int pendingSlot() const; // 押した後に待っている役（無ければ 0）
     // 仕様 A：オフライン書き出し（Audio Thread が知らせる）・live 比較の開始では、停止前の選択へ自動で戻さない。
@@ -135,6 +137,8 @@ private:
         juce::String identity;
         std::uint64_t safetyEpoch = 0;
         std::uint64_t intentId = 0;
+        std::uint64_t startGeneration = 0;
+        double pageWaitSince = -1.0; // Control-thread monotonic time; slow I/O never cancels the choice.
         bool sawPlayback = false;
         bool resume = false; // 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
         bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）

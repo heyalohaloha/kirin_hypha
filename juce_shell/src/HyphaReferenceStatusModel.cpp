@@ -48,6 +48,8 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {
         // 待ちが上限を超えたら「できない」にして理由と直し方を出す。
+        if (state.pendingAudition.waiting() && state.pendingAudition.reasonCode == "reference_page_wait_slow")
+            return { StatusKind::waiting, pending };
         if (state.pendingAudition.waiting() && state.preparationOverdue.isNotEmpty())
             return { StatusKind::unable, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };

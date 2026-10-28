@@ -53,6 +53,16 @@ namespace hypha::reference_audition
         static void setAcquireOwnershipHookForTest (AcquireOwnershipHook) noexcept;
        #endif
 
+        // Written by the non-RT decoder; no reader lock is needed by control service.
+        bool hasPersistentReadFailure (std::int64_t position) const noexcept
+        {
+            const auto frames = pageFrames.load (std::memory_order_acquire);
+            if (position < 0 || frames <= 0) return false;
+            const auto failed = failedPageStart.load (std::memory_order_acquire);
+            return failed == (position / frames) * frames
+                && requiredReadFailures.load (std::memory_order_acquire) >= 3
+                && failed == failedPageStart.load (std::memory_order_acquire);
+        }
         bool sourceOpen() const noexcept { return openState.load (std::memory_order_acquire); }
         std::int64_t lengthInSamples() const noexcept
         {
@@ -115,6 +125,8 @@ namespace hypha::reference_audition
         juce::AudioFormatManager formats;
         std::unique_ptr<juce::AudioFormatReader> reader;
         juce::AudioBuffer<float> conversionInput;
+        std::atomic<std::int64_t> failedPageStart { -1 };
+        std::atomic<unsigned> requiredReadFailures { 0 };
         std::atomic<bool> openState { false };
         std::atomic<std::int64_t> requestedPosition { 0 };
         std::atomic<std::uint64_t> activeGeneration { 0 };
