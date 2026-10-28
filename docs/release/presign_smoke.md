@@ -11,6 +11,13 @@ DAW の起動、挿入、操作、保存、再起動、書き出しはすべて�
 同じ ID の複数候補を同居させず、読み込んだ path と候補 hash を run identity に一度記録する。
 Windows は同じ source の未署名 factory artifact を使う。
 
+## macOS AAX の差し替えと復元
+
+[受入用の差し替え手順](aax_acceptance_swap.md)の `aax_swap.mjs` を使う。
+候補と導入済みの PRE / POST を認証前に検査し、受入の導入から元への復元まで同じ管理者確認一回で行う。
+すべての AAX host を終了して開始し、受入後にも host を終了してから復元する。
+公開 PKG に権限調整の postinstall を追加せず、親 directory や他社 bundle の権限を変更しない。
+
 ## host ごとの通し
 
 1. POST を先に挿し、PRE が無い表示を確認する。PRE を挿して組を選ぶ。
