@@ -27,7 +27,7 @@ test('LS key failure and unconfirmed reads checkpoint; a verified-content failur
       throw Object.assign(new Error('content mismatch'), { exitCode: failure });
     };
     const actions = { ls: () => confirmLsReadback(state, run, () => {}, key) };
-    await executeRelease(state, { execute: true, until: 'hp' }, { statePath, snapshot: () => source, clean: () => {}, actions, log: () => {} });
+    await executeRelease(state, { execute: true, until: 'ls' }, { statePath, snapshot: () => source, clean: () => {}, actions, log: () => {} });
     assert.equal(keys, 1, JSON.stringify(state.blocker));
     assert.equal(reads, failure === 'key' ? 0 : 1, JSON.stringify(state.blocker));
     if (failure !== 'key') {

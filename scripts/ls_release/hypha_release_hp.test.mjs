@@ -8,6 +8,8 @@ import { updateHpDocuments, publishGithub, checkTag, publicDownloadFacts, verify
 import { makeHpRecord, renderHpPage, validateHpRecord, installerFilename, hpReleaseNotice, hpPublicationDay,
   assertHpPublicationDate } from './hypha_release_hp_data.mjs';
 import { fileFact, hash, Checkpoint } from './hypha_release_contract.mjs';
+import { publicationBinding } from './publication_input.mjs';
+import { renderedNews } from './fixtures/news-rendered-fixture.mjs';
 
 const base = 'https://github.com/heyalohaloha/kirin_hypha/releases';
 function page(lang) {
@@ -55,6 +57,12 @@ function publicHpFetcher(state,root,{deployed=()=>true,head=()=>state.hpCommit}=
       return new Response(fs.readFileSync(state.stages.packages.facts.find(f=>path.basename(f.path)===installerFilename(state.candidate.version,target)).path));
     }
     if (url.includes('deployment-source')) return new Response(head());
+    if (url.includes('/updates/hypha.json')) return new Response(fs.readFileSync(path.join(root, 'updates/hypha.json'), 'utf8'));
+    if (url.includes('/data/news.json')) return new Response('not published', { status: 404 });
+    if (new URL(url).pathname === '/' || new URL(url).pathname === '/ja/') {
+      const items = JSON.parse(fs.readFileSync(path.join(root, 'data/news.json'), 'utf8')).items;
+      return new Response(renderedNews(items, new URL(url).pathname === '/' ? 'en' : 'ja'));
+    }
     const record=JSON.parse(fs.readFileSync(path.join(root,'updates/hypha.json'),'utf8'));
     return new Response(renderHpPage(fs.readFileSync(path.join(root,url.includes('/ja/')?'ja/hypha.html':'hypha.html'),'utf8'),record));
   };
@@ -300,12 +308,12 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
   hpFixture(f); writeHpFixture(root);
   f.state.inputs.hpRoot = root; f.state.inputs.hpBaseCommit = 'c'.repeat(40);
   f.state.inputs.hpProjectSha256 = fileFact(path.join(root, '.vercel/project.json')).sha256;
-  let head = f.state.inputs.hpBaseCommit; let remote = head; let failTests = true; let deployed = false;
+  let head = f.state.inputs.hpBaseCommit; let remote = head; let failTests = true; let auditBlocked = true; let deployed = false;
   const calls = [];
   const run = async (tool, args) => {
     calls.push([tool, args]);
     if (tool === 'vercel') { assert.deepEqual(args, ['project', 'inspect', '--non-interactive']); return 'expected expected-id'; }
-    if (tool === 'npm') { if (failTests) throw new Error('HP tests failed'); return ''; }
+    if (tool === 'npm') { if (failTests) throw new Error('HP tests failed'); if (args[0] === 'run' && auditBlocked) throw new Error('HP audit failed'); return ''; }
     if (tool === 'bash') { assert.deepEqual(args, ['scripts/deploy-production-clean.sh']); deployed = true; return ''; }
     assert.equal(tool, 'git');
     if (args[0] === 'branch') return 'main';
@@ -322,10 +330,149 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
   await assert.rejects(publishHp(f.state, run, () => {}, fetcher), /tests failed/);
   assert.ok(f.state.hpPlanned); assert.equal(f.state.hpCommit, undefined);
   failTests = false;
+  await assert.rejects(publishHp(f.state, run, () => {}, fetcher), /audit failed/);
+  assert.equal(calls.filter(([tool]) => tool === 'bash').length, 0);
+  auditBlocked = false;
   await publishHp(f.state, run, () => {}, fetcher);
   assert.equal(f.state.hpCommit, head);
   assert.equal((await publishHp(f.state, run, () => {}, fetcher)).reused, true);
   assert.equal(calls.filter(([tool, args]) => tool === 'git' && args[0] === 'commit').length, 1);
   assert.equal(calls.filter(([tool]) => tool === 'bash').length, 1);
   assert.equal(calls.filter(([tool, args]) => tool === 'git' && args[0] === 'push').length, 1);
+});
+
+test('reviewed bilingual publication copy is idempotent and rejects stale or duplicated notices', () => {
+  const record = makeHpRecord('1.2.3', '2026-10-01', facts());
+  const notice = hpReleaseNotice(record);
+  notice.en.summary += ' Known issue: temporary limitation.';
+  notice.ja.summary += ' 既知の点：一時的な制限があります。';
+  const first = updateHpDocuments(documents(), '1.2.3', '2026-10-01', facts(), notice);
+  assert.deepEqual(JSON.parse(first[3]).items[0], notice);
+  assert.deepEqual(updateHpDocuments(first, '1.2.3', '2026-10-01', facts(), notice), first);
+  const stale = [...first]; const staleNews = JSON.parse(stale[3]); staleNews.items[0].ja.summary = '古い内容'; stale[3] = JSON.stringify(staleNews);
+  assert.throws(() => updateHpDocuments(stale, '1.2.3', '2026-10-01', facts(), notice), /notice/);
+  const duplicate = [...first]; const duplicateNews = JSON.parse(duplicate[3]); duplicateNews.items.push(duplicateNews.items[0]); duplicate[3] = JSON.stringify(duplicateNews);
+  assert.throws(() => updateHpDocuments(duplicate, '1.2.3', '2026-10-01', facts(), notice), /notice/);
+});
+
+
+test('public HP accepts later deployment only when the entire Hypha record and bilingual notice agree', async t => {
+  const f = fixture(t); hpFixture(f); f.state.hpCommit = 'c'.repeat(40);
+  const root = path.join(f.root, 'public-hp'); fs.mkdirSync(root); writeHpFixture(root);
+  const docs = updateHpDocuments(documents(), '1.2.3', '2026-10-01', f.state.stages.packages.facts);
+  for (const [i, file] of HP_FILES.entries()) fs.writeFileSync(path.join(root, file), docs[i]);
+  const otherProductUpdate = JSON.parse(docs[3]); otherProductUpdate.items.find(item => item.products.includes('os')).en.summary = 'Updated other product notice.';
+  fs.writeFileSync(path.join(root, 'data/news.json'), JSON.stringify(otherProductUpdate));
+  const fetcher = publicHpFetcher(f.state, root, { head: () => 'd'.repeat(40) });
+  const result = await verifyPublicHp(f.state, fetcher);
+  assert.equal(result.deploymentCommit, 'd'.repeat(40));
+  for (const mutation of ['version', 'hash', 'notice', 'duplicate', 'duplicate-version']) {
+    const broken = async (url, options) => {
+      if (url.includes('/updates/hypha.json') && ['version', 'hash'].includes(mutation)) {
+        const record = JSON.parse(docs[2]);
+        if (mutation === 'version') record.version = '1.2.2'; else record.downloads.macos.sha256 = 'e'.repeat(64);
+        return new Response(JSON.stringify(record));
+      }
+      if (new URL(url).pathname === '/ja/' && ['notice', 'duplicate', 'duplicate-version'].includes(mutation)) {
+        const news = JSON.parse(docs[3]);
+        if (mutation === 'notice') news.items[0].ja.summary = 'old';
+        else news.items.push({ ...news.items[0], ...(mutation === 'duplicate-version' ? { id: `hypha-1-2-3-release-20260930` } : {}) });
+        return new Response(renderedNews(news.items, 'ja'));
+      }
+      return fetcher(url, options);
+    };
+    await assert.rejects(verifyPublicHp(f.state, broken), undefined, mutation);
+  }
+});
+
+
+test('published notice uses the same approved bilingual input and rejects later changes', async t => {
+  const f = fixture(t); hpFixture(f); f.state.hpCommit = 'c'.repeat(40);
+  const root = path.join(f.root, 'public-hp'); fs.mkdirSync(root); writeHpFixture(root);
+  const record = makeHpRecord(f.state.candidate.version, f.state.inputs.date, f.state.stages.packages.facts);
+  const notice = hpReleaseNotice(record); notice.en.summary += ' Known issue.'; notice.ja.summary += ' 既知の点。';
+  const notes = path.join(f.root, f.state.inputs.notes); fs.writeFileSync(notes, 'reviewed notes');
+  const input = path.join(f.root, 'public.json');
+  fs.writeFileSync(input, JSON.stringify({ schema: 'hypha-publication-v1', version: record.version, date: record.published_at, notice }));
+  f.state.publication = publicationBinding(f.state, input);
+  const docs = updateHpDocuments(documents(), record.version, record.published_at, f.state.stages.packages.facts, notice);
+  for (const [i, file] of HP_FILES.entries()) fs.writeFileSync(path.join(root, file), docs[i]);
+  await verifyPublicHp(f.state, publicHpFetcher(f.state, root));
+  fs.writeFileSync(notes, 'changed after approval');
+  await assert.rejects(verifyPublicHp(f.state, publicHpFetcher(f.state, root)), /changed/);
+});
+
+test('HP remote advancing during update stops before commit or push and requires a new plan', async t => {
+  const f = fixture(t); const root = path.join(f.root, 'hp'); fs.mkdirSync(path.join(root, '.vercel'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'README_DEPLOY.md'), 'standard deploy');
+  fs.writeFileSync(path.join(root, '.vercel/project.json'), JSON.stringify({ projectName: 'expected', projectId: 'expected-id' }));
+  hpFixture(f); writeHpFixture(root); f.state.inputs.hpRoot = root; f.state.inputs.hpBaseCommit = 'c'.repeat(40);
+  f.state.inputs.hpProjectSha256 = fileFact(path.join(root, '.vercel/project.json')).sha256;
+  let remote = f.state.inputs.hpBaseCommit; const calls = [];
+  const run = async (tool, args) => {
+    calls.push([tool, args]);
+    if (tool === 'vercel') return 'expected expected-id';
+    if (tool === 'npm') { remote = 'd'.repeat(40); return ''; }
+    if (args[0] === 'branch') return 'main';
+    if (args[0] === 'rev-parse') return f.state.inputs.hpBaseCommit;
+    if (args[0] === 'ls-remote') return remote;
+    if (args[0] === 'status' || args[0] === 'ls-files') return '';
+    if (args[0] === 'diff') return args.includes('--cached') ? '' : HP_FILES.join('\n');
+    return '';
+  };
+  await assert.rejects(publishHp(f.state, run, () => {}, async () => new Response('', { status: 503 })), /remote advanced/);
+  assert.equal(calls.some(([tool, args]) => tool === 'git' && ['add', 'commit', 'push'].includes(args[0])), false);
+  assert.equal(calls.some(([tool]) => tool === 'bash'), false);
+  assert.ok(f.state.hpPlanned); assert.equal(f.state.hpCommit, undefined);
+});
+
+test('a deployment changing during public readback is rejected rather than mixed', async t => {
+  const f = fixture(t); hpFixture(f); f.state.hpCommit = 'c'.repeat(40);
+  const root = path.join(f.root, 'public-hp'); fs.mkdirSync(root); writeHpFixture(root);
+  const docs = updateHpDocuments(documents(), '1.2.3', '2026-10-01', f.state.stages.packages.facts);
+  for (const [i, file] of HP_FILES.entries()) fs.writeFileSync(path.join(root, file), docs[i]);
+  let reads = 0;
+  const fetcher = publicHpFetcher(f.state, root, { head: () => ++reads === 1 ? 'c'.repeat(40) : 'd'.repeat(40) });
+  await assert.rejects(verifyPublicHp(f.state, fetcher), /deployment.*changed/i);
+});
+
+test('A7 and LS reach their own checks without a local HP checkout', async t => {
+  const { realActions } = await import('../release_hypha.mjs');
+  const { digest, reportTemplate, POST_TESTS } = await import('./hypha_release_contract.mjs');
+  const f = fixture(t); hpFixture(f); f.state.hpCommit = 'c'.repeat(40);
+  f.state.inputs.hpRoot = path.join(f.root, 'missing-hp-checkout');
+  f.state.inputs.postreleaseReport = 'release_state/a7.json'; f.state.inputs.lsReport = 'release_state/ls.json';
+  f.state.inputs.lsState = 'release_state/targets.json'; fs.mkdirSync(path.join(f.root, 'release_state'));
+  fs.writeFileSync(path.join(f.root, f.state.inputs.lsState), JSON.stringify({ lemonSqueezy: { products: [{ productId: 1 }] } }));
+  const report = reportTemplate(f.state, 'A7', digest(f.state.stages.packages.facts), POST_TESTS);
+  report.tests = report.tests.map(row => ({ ...row, result: 'PASS', measured: row.expected,
+    oracle: 'retained fixture evidence', evidence: [fileFact(f.payload)] }));
+  fs.writeFileSync(path.join(f.root, f.state.inputs.postreleaseReport), JSON.stringify(report));
+  const root = path.join(f.root, 'public-hp'); fs.mkdirSync(root); writeHpFixture(root);
+  const docs = updateHpDocuments(documents(), '1.2.3', f.state.inputs.date, f.state.stages.packages.facts);
+  for (const [i, file] of HP_FILES.entries()) fs.writeFileSync(path.join(root, file), docs[i]);
+  const hpFetcher = publicHpFetcher(f.state, root);
+  const fetcher = async (url, options) => {
+    if (url.startsWith('https://github.com/')) {
+      const name = decodeURIComponent(url.split('/').at(-1));
+      return new Response(fs.readFileSync([...f.state.stages.packages.facts, ...f.state.stages.provenance.publicFacts].find(fact => path.basename(fact.path) === name).path));
+    }
+    return hpFetcher(url, options);
+  };
+  const actions = realActions(f.state, { publishApproved: f.state.candidate.id }, async () => { throw new Error('unexpected command'); }, () => {}, fetcher);
+  const result = await actions.postrelease(); assert.equal(result.evidence.publicEvidence.deploymentCommit, f.state.hpCommit);
+  await assert.rejects(actions.ls(), /A6-LS.*not PASS/);
+});
+
+test('reviewed notice rejects text that the public news renderer cannot build', () => {
+  const record = makeHpRecord('1.2.3', '2026-10-01', facts());
+  for (const alter of [
+    notice => { notice.en.summary += '\nline'; },
+    notice => { notice.ja.titlePhrases = ['incorrect']; },
+    notice => { notice.en.summary = 'x'.repeat(1001); },
+    notice => { notice.en.title = ' leading'; },
+  ]) {
+    const notice = hpReleaseNotice(record); alter(notice);
+    assert.throws(() => updateHpDocuments(documents(), record.version, record.published_at, facts(), notice), /notice/i);
+  }
 });

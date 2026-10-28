@@ -1,0 +1,30 @@
+{
+  "schema": "hypha-publication-v1",
+  "version": "1.2.3",
+  "date": "2026-10-01",
+  "notice": {
+    "id": "hypha-1-2-3-release-20261001",
+    "category": "update",
+    "target": "product",
+    "products": ["hypha"],
+    "date": "2026-10-01",
+    "status": "confirmed",
+    "version": "1.2.3",
+    "ja": {
+      "title": "Kirin Hypha 1.2.3を公開",
+      "titlePhrases": ["Kirin Hypha ", "1.2.3を", "公開"],
+      "summary": "配布ファイルと更新情報を製品ページで確認できます。",
+      "url": "/ja/hypha"
+    },
+    "en": {
+      "title": "Kirin Hypha 1.2.3 released",
+      "summary": "Find the download files and release information on the product page.",
+      "url": "/hypha"
+    },
+    "evidence": {
+      "source": "updates/hypha.json",
+      "published_at": "2026-10-01",
+      "url": "https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.2.3"
+    }
+  }
+}

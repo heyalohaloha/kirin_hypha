@@ -40,7 +40,7 @@ node scripts/build_hypha.mjs --release --help
 2. A3のsource/JUCE/SDK/toolchain/payloadと、受入matrix・期待値を固定する。
 3. exact signed candidateのA4実host受入を確認する。
 4. 既存release-set producerでLS / HP通常導線のPKGと、公開Releaseに必須の復旧用ZIPを作り、Windows EXEと合わせてA5を確認する。
-5. LSの全対象への配送を確認する。
+5. LSの全対象への配送はA5後に独立して確認でき、通常は公開後の確認の後に行う。
 6. exact commitへGitHub Releaseを作り、全配布物をdownloadしてhash照合後にdraftを公開する。
 7. HPの中央`updates/hypha.json`へ実PKG / Windows EXEのURL・bytes・SHAを設定し、`data/news.json`へその版の標準のお知らせを1件足す。英日templateと対応formatは書き換えずに照合し、HPの試験は中央の記録から版・日付・お知らせを読む。
 8. HPの標準手順でtest → commit/push → clean staged deploy → 検証 → production promotionを行う。
@@ -56,16 +56,18 @@ SDK・署名の入力は[署名入口](aax_build_signing_entry.md)の既存経�
 以下は構成例であり、run ID・path・stateは担当者が実物から確定する。templateの値は実物から確認する。
 
 ```bash
+bash scripts/apply_juce_patches.sh
+bash scripts/verify_juce_patch_state.sh
 node scripts/build_hypha.mjs --release --init \
   --state release_state/hypha-release.json \
   --sdk /external/licensed/aax-sdk --license-confirmed \
   --ci-run GREEN_EXACT_COMMIT_RUN_ID \
-  --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full \
   --windows-factory-repository REVIEWED_FACTORY_OWNER/REPOSITORY \
   --windows-factory-commit REVIEWED_FACTORY_FULL_SHA \
   --hp-root /absolute/path/to/kirin_hp \
   --ls-state release_state/current_ls.state.json \
   --notes release_state/reviewed-release-notes.md \
+  --publication-input release_state/reviewed-publication.json \
   --provenance-report release_state/distribution-provenance.json \
   --source-archive /retained/private-windows-producer/Kirin-Hypha-X.Y.Z-Corresponding-Source.zip \
   --fix-rows release_state/fix-rows.json \
@@ -76,19 +78,32 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 
 # buildからHPまでを進める／確認待ちの続きから再開する。
 node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
-  --execute --publish-approved EXACT_CANDIDATE_ID
+  --execute --publish-approved EXACT_CANDIDATE_ID --publication-approved REVIEWED_PUBLIC_DIGEST
 
-# HPまでの後、A7の公開後smoke reportも確認してRelease Completeへ進む。
+# A5からLSを独立して確認する場合（HP公開は実行しない）。
 node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
-  --execute --until complete --publish-approved EXACT_CANDIDATE_ID
+  --execute --until ls --publish-approved EXACT_CANDIDATE_ID
+
+# HPまでの後、A7の公開後smoke reportとLSの配送を確認してRelease Completeへ進む。
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --execute --until complete --publish-approved EXACT_CANDIDATE_ID --publication-approved REVIEWED_PUBLIC_DIGEST
 ```
+
+英日のお知らせは [公開入力の例](ls_release/hypha_publication.example.json) の形式で準備し、版・日付・notes URLと、既知の点を含む英日本文を確認する。init は HP の `npm run security:audit` が成功してから profile を作り、candidate ID と公開入力 digest を表示する。公開担当は文と release notes を確認した digest を `--publication-approved` に渡す。公開作業開始前の文の変更は、次の独立操作で再結合し、表示された新 digest を改めて承認する。製造済み payload は作り直さない。公開が既に始まった場合は自動変更せず照合する。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --bind-publication release_state/reviewed-publication.json
+```
+
+公開前には HP checkout の clean・current・project を確認する。公開後は英日ページ・中央 JSON・お知らせ・download の実 bytes を読み戻し、deployment commit を出どころとして保存する。別の deployment でも同じ Hypha 内容なら受け付け、読戻し中に deployment が変われば停止する。deploy の直前にも依存 audit を行う。
 
 初期化が出すcandidate IDを、公開を承認した担当者が`--publish-approved`へ渡す。
 script作成の依頼や`--execute`だけを、個別candidateの公開承認に読み替えない。
 `--init`は既存profileを上書きしない。profile、商品target、管理URL、reportはignored `release_state/`内。
 秘密値はprofileへ入れず、Keychain／private factoryから渡す。
 Windowsのfactory repository/commitは初期化時に固定する。promotion run・元artifact ZIPは
-初期化時に渡すか、Windows検証の開始前に一度だけ後から結ぶ。後結びは実行と併用しない。
+Windows検証の開始前に一度だけ後から結ぶ。後結びは実行と併用しない。
 
 ```bash
 node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
@@ -97,7 +112,8 @@ node scripts/build_hypha.mjs --release --state release_state/hypha-release.json 
 ```
 
 Mac製造はWindows受入と同時に進められる。未結合ならwindows段の前で確認待ちとなる。
-Windows検証開始後と凍結後の結び直しは拒否する。
+Windows検証開始後と凍結後の結び直しは拒否する。bindはAPI digestを確かめ、候補専用の
+`release_state/<candidate>/windows-delivery`へ安全に展開して全treeを照合する。既存の異なるtreeへ混ぜない。
 候補署名runとpromotion runの両方を審査済みfactoryへ結び、artifactのAPI digestと実ZIP、
 展開済みfile集合、元候補manifestを照合する。factory identityが欠ける場合は製造前、deliveryが欠ける場合はWindows検証前に止まる。
 candidateとsigned-fullは、distribution（A5）が通るまで期限内で保持する。
@@ -245,7 +261,7 @@ CIは指定したgreen runを検証して再利用する。job一覧は`filter=l
 ## 状態と検証
 
 HPまでのPASSは`RELEASED`。A7待ちであり`RELEASE_COMPLETE`ではない。
-全必須A7が通った場合だけ`RELEASE_COMPLETE`。fixture成功と実公開完了は別証跡として報告する。
+LS・HP・Windowsを含む全必須段が通った場合だけ`RELEASE_COMPLETE`。fixture成功と実公開完了は別証跡として報告する。
 
 ```bash
 node --test scripts/build_hypha.test.mjs scripts/release_hypha.test.mjs \
@@ -278,6 +294,34 @@ node scripts/ls_release/verify_build_bytes.mjs /retained/serial-products /retain
 この比較はfile集合、全fileのbytes、mode、symlinkの行先の完全一致を要求する。
 同じdirectoryを二度渡した確認は拒否する。署名・timestamp・公証済みの製品同士を比較して
 製造の再現性としない。fixture試験はこの比較器と製造入力の不変性を守り、実製品の比較証拠を代用しない。
+
+## 保持した結果の照合と判断の後結び
+
+失敗・中断を通常の再実行で消さない。まず inspect と plan で既存状態と検査結果を読み、plan を private な場所に保存して内容と SHA-256 を確認する。明示 apply はその hash と同じ profile・source・保持物・再検査結果の場合だけ成功し、元 profile の控えと失敗履歴を残す。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json --inspect
+set -o noclobber
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json --reconcile-plan > release_state/reconciliation-plan.json
+set +o noclobber
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --reconcile-apply release_state/reconciliation-plan.json --plan-sha256 REVIEWED_PLAN_SHA256
+```
+
+失敗時に記録した report や出力の path を修正後の内容に置き換えた場合、元の bytes を消さずに控え、`--reconcile-retained FILE` で次の JSON 配列を plan に渡す。元の hash と一致しない控えは拒否する。tree の控えは元と同じ末尾名を使う。控えは後段でも検査される。
+
+```json
+[{"originalPath":"/absolute/path/to/failed-report.json","retainedPath":"/absolute/path/to/retained-failed-report.json"}]
+```
+
+現在の対応は、製造前の素材条件と既存 CI の読戻し、保持済み AAX の notarization receipt、Windows 配送、host・provenance・配布 report の再検査、LS の保持済み download と API、既に公開された GitHub Release・HP の読戻し、A7 reportが完了した場合に限定する。factory profile の provenance 復旧は未対応で明示的に拒否する。公開側の provenance は通常の source 証拠だけを受け付け、拡張や未知の証拠を標準契約へ読み替えない。それ以外の FAIL / incident は担当者の照合が必要。再製造、再署名、公開操作はこの経路から行わない。plan の hash は出力 JSON 内の `sha256` であり、ファイル全体の hash ではない。
+
+凍結前には、本人が候補 ID を明示した既存の override 決定を次の独立操作で後から結べる。凍結開始後は拒否し、既に作った payload は再製造しない。
+
+```bash
+node scripts/build_hypha.mjs --release --state release_state/hypha-release.json \
+  --bind-owner-override release_state/owner-decision.json
+```
 
 ## PKG の ticket 添付だけを再開する
 

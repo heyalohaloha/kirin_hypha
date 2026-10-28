@@ -1,3 +1,4 @@
+import { releaseComplete } from './release_stages.mjs';
 // Candidate-bound evidence. Reports are attestations backed by retained files, never auto-PASS.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,6 +42,15 @@ export function ownerOverride(file, candidate) {
     throw new Error('Owner override must name one required host row of this release and candidate');
   }
   return { testId: decision.excludedRequiredTest, candidateId: candidate.id, decision: fileFact(file) };
+}
+
+export function checkBoundOwnerOverrides(state) {
+  const seen = new Set();
+  for (const bound of state.ownerOverrides || []) {
+    const actual = ownerOverride(bound.decision.path, state.candidate);
+    if (seen.has(bound.testId) || digest(actual) !== digest(bound)) throw new Error('Bound owner override decision changed');
+    seen.add(bound.testId);
+  }
 }
 
 export const acceptanceCriteria = state => ({ tests: state.requiredHostTests, expected: state.expected,
@@ -87,6 +97,19 @@ export function fileFact(file) {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.size === 0) throw new Error('Required artifact is not a nonempty regular file');
   return { path: path.resolve(file), bytes: stat.size, sha256: hash(fs.readFileSync(file)) };
+}
+
+export function assertIndependentDeliveryTree(directory) {
+  const root = fs.lstatSync(directory);
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('Delivery root must be a real directory');
+  function visit(dir) {
+    for (const name of fs.readdirSync(dir)) {
+      const file = path.join(dir, name), entry = fs.lstatSync(file);
+      if (entry.isDirectory()) visit(file);
+      else if (!entry.isFile() || entry.nlink !== 1) throw new Error('Delivery contains a nonregular file or hardlink');
+    }
+  }
+  visit(directory);
 }
 
 export function treeFact(directory) {
@@ -161,7 +184,50 @@ export function validateReport(state, reportPath, gate, binding, ids) {
 
 export class Checkpoint extends Error { constructor(message) { super(message); this.name = 'Checkpoint'; } }
 
+export function recordedEvidenceFacts(value) {
+  if (!value || typeof value !== 'object') return [];
+  if (Array.isArray(value)) return value.flatMap(recordedEvidenceFacts);
+  const nested = Object.values(value).flatMap(recordedEvidenceFacts);
+  if (typeof value.path === 'string' && typeof value.treeSha256 === 'string') {
+    return [{ path: value.path, treeSha256: value.treeSha256 }, ...nested];
+  }
+  if (typeof value.path === 'string' && typeof value.bytes === 'number' && typeof value.sha256 === 'string') {
+    return [{ path: value.path, bytes: value.bytes, sha256: value.sha256 }, ...nested];
+  }
+  return nested;
+}
+
+function checkReconciledEvidence(state) {
+  for (const stage of Object.values(state.stages || {})) {
+    const receipt = stage.reconciliation;
+    if (!receipt) continue;
+    if (!/^[0-9a-f]{64}$/.test(receipt.planSha256 || '') || !Array.isArray(receipt.preserved)) {
+      throw new Error('Invalid reconciliation evidence');
+    }
+    checkFacts([receipt.profile]);
+    const originals = recordedEvidenceFacts(stage.previous || []);
+    for (const original of originals) {
+      if (!receipt.preserved.some(item => digest(item.original) === digest(original))) {
+        throw new Error('Original failure evidence is missing from reconciliation');
+      }
+    }
+    for (const { original, retained } of receipt.preserved) {
+      checkFacts([retained]);
+      if (!original || original.sha256 !== retained.sha256 || original.bytes !== retained.bytes
+          || original.treeSha256 !== retained.treeSha256
+          || !originals.some(item => digest(item) === digest(original))) {
+        throw new Error('Retained failure evidence differs');
+      }
+    }
+  }
+  if (state.windowsDeliveryBinding) {
+    assertIndependentDeliveryTree(state.windowsDeliveryBinding.tree.path);
+    checkFacts([state.windowsDeliveryBinding.previousProfile, state.windowsDeliveryBinding.tree]);
+  }
+}
+
 export function assertState(state) {
+  if (state.releaseState === 'RELEASE_COMPLETE' && !releaseComplete(state)) throw new Error('Release complete requires all required stages PASS');
   if (state.schema !== SCHEMA || !/^[0-9a-f]{40}$/.test(state.candidate?.commit || '')
       || !/^B-\d+$/.test(state.candidate?.bNumber || '')
       || !/^\d+\.\d+\.\d+$/.test(state.candidate?.version || '')
@@ -180,6 +246,8 @@ export function assertState(state) {
       throw new Error('Owner override is not bound to this candidate');
     }
   }
+  checkBoundOwnerOverrides(state);
+  checkReconciledEvidence(state);
   for (const [id, expected] of Object.entries(SAFETY_EXPECTED)) {
     if (digest(state.expected?.[id]) !== digest(expected)) throw new Error('Minimum quantitative safety criteria cannot be weakened');
   }

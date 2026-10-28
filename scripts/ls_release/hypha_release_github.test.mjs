@@ -127,7 +127,7 @@ function github(f, { releases = [], fail = () => null, corrupt = null } = {}) {
       mock.intentAtCreate = structuredClone(f.state.githubRelease);
       const body = fields(args);
       assert.equal(body.draft, true); assert.equal(body.prerelease, false); assert.equal(body.body, NOTES);
-      return json(addDraft(body.tag_name, body.target_commitish, body.name));
+      const draft = addDraft(body.tag_name, body.target_commitish, body.name); draft.body = body.body; return json(draft);
     }
     if ((match = new RegExp(`^${UPLOADS}/(\\d+)/assets\\?name=(.+)$`).exec(endpoint))) {
       assert.equal(verb, 'POST'); assert.ok(args.includes('Content-Type: application/octet-stream'));
@@ -312,4 +312,44 @@ test('11: more than one matching same-tag release is ambiguous, with or without 
     await assert.rejects(publishGithub(f.state, m.run, f.save), notCheckpoint(/ambiguous/i));
     noMutation(m);
   }
+});
+
+test('read-only reconciliation verifies public identity, notes, tag and every retained byte', async t => {
+  const { verifyPublishedGithub } = await import('./hypha_release_github.mjs');
+  const f = fixture(t), published = release(701, { draft: false, assets: f.facts.map((fact, i) => asset(800 + i, fact)) });
+  published.body = NOTES; f.state.githubRelease = intent({ id: 701 });
+  const mock = github(f, { releases: [published] });
+  const result = await verifyPublishedGithub(f.state, mock.run);
+  assert.equal(result.evidence.releaseId, 701); assert.deepEqual(result.facts, f.facts); noMutation(mock);
+  published.body = 'different'; await assert.rejects(verifyPublishedGithub(f.state, mock.run), /metadata/i);
+  published.body = NOTES; published.draft = true;
+  await assert.rejects(verifyPublishedGithub(f.state, mock.run), /metadata/i);
+  noMutation(mock);
+});
+
+test('an existing draft with different reviewed notes is refused before asset upload or publish', async t => {
+  const { publicationBinding } = await import('./publication_input.mjs');
+  const { makeHpRecord, hpReleaseNotice, installerFilename } = await import('./hypha_release_hp_data.mjs');
+  const f = fixture(t);
+  const packageFacts = ['macos', 'windows'].map(target => ({ path: installerFilename('1.2.3', target), bytes: 1, sha256: 'a'.repeat(64) }));
+  const input = path.join(f.root, 'public.json');
+  fs.writeFileSync(input, JSON.stringify({ schema: 'hypha-publication-v1', version: '1.2.3', date: '2026-10-01',
+    notice: hpReleaseNotice(makeHpRecord('1.2.3', '2026-10-01', packageFacts)) }));
+  f.state.publication = publicationBinding(f.state, input);
+  const draft = { ...release(88), body: 'old notes' };
+  const mock = github(f, { releases: [draft] });
+  await assert.rejects(publishGithub(f.state, mock.run, f.save), /notes/i);
+  assert.equal(mock.count('upload'), 0); assert.equal(mock.count('publish'), 0);
+});
+
+
+test('reviewed notes remain bound through draft creation and publication', async t => {
+  const { publicationBinding } = await import('./publication_input.mjs');
+  const { makeHpRecord, hpReleaseNotice, installerFilename } = await import('./hypha_release_hp_data.mjs');
+  const f = fixture(t), packageFacts = ['macos', 'windows'].map(target => ({ path: installerFilename('1.2.3', target), bytes: 1, sha256: 'a'.repeat(64) }));
+  const input = path.join(f.root, 'public.json');
+  fs.writeFileSync(input, JSON.stringify({ schema: 'hypha-publication-v1', version: '1.2.3', date: '2026-10-01', notice: hpReleaseNotice(makeHpRecord('1.2.3', '2026-10-01', packageFacts)) }));
+  f.state.publication = publicationBinding(f.state, input);
+  const mock = github(f); await publishGithub(f.state, mock.run, f.save);
+  assert.equal(mock.releases[0].body, NOTES); assert.equal(mock.count('publish'), 1);
 });
