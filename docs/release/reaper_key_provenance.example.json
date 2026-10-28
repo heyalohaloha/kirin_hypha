@@ -1,0 +1,9 @@
+{
+  "schema": "hypha-reaper-key-provenance-v1",
+  "candidate": {
+    "id": "REPLACE_WITH_CANDIDATE_ID",
+    "commit": "REPLACE_WITH_COMMIT"
+  },
+  "keyProof": "REPLACE_WITH_CANDIDATE_KEY_PROOF",
+  "review": "REPLACE_WITH_INDEPENDENT_PRODUCER_KEY_SETTING_REVIEW"
+}

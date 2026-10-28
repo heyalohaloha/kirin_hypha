@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STAGES } from '../release_hypha.mjs';
 import { assertState, checkFacts, digest, hash, readJson, resolveInput, safeStatePath,
-  validateReport, DISTRIBUTION_TESTS, POST_TESTS } from '../ls_release/hypha_release_contract.mjs';
+  validateReport, acceptanceCriteria, DISTRIBUTION_TESTS, POST_TESTS } from '../ls_release/hypha_release_contract.mjs';
 import { verifyPackages } from '../ls_release/hypha_release_local.mjs';
 import { assertUpdateBinding, updateBinding, validatePublicKey } from './update_key_binding.mjs';
 
@@ -120,7 +120,7 @@ export function payloadFromCompletedRelease(state, { now, expiresAt, sequence, w
   const { sha256, ...frozen } = state.freeze || {};
   if (!sha256 || digest(frozen) !== sha256 || digest(state.freeze.source) !== digest(state.source)
       || state.freeze.inputs !== digest(state.inputs)
-      || state.freeze.criteriaSha256 !== digest({ tests: state.requiredHostTests, expected: state.expected })) {
+      || state.freeze.criteriaSha256 !== digest(acceptanceCriteria(state))) {
     throw new Error('Exact candidate freeze/source/criteria changed');
   }
   assertUpdateBinding(state.freeze.updateCheck, state.inputs.updatePublicKey);

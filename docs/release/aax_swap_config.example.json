@@ -1,0 +1,15 @@
+{
+  "schema": "hypha-aax-swap-v1",
+  "sources": [
+    {
+      "role": "PRE",
+      "source": "/PRIVATE/PRE.aaxplugin",
+      "sha256": "REPLACE_WITH_PRE_SHA256_FROM_HASH_COMMAND"
+    },
+    {
+      "role": "POST",
+      "source": "/PRIVATE/POST.aaxplugin",
+      "sha256": "REPLACE_WITH_POST_SHA256_FROM_HASH_COMMAND"
+    }
+  ]
+}

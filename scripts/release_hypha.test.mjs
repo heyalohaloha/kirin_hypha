@@ -132,7 +132,7 @@ test('release input paths are root-relative and a changed freeze receipt cannot 
   for (const key of ['sdk', 'notes', 'windowsInstallerDir', 'lsState']) assert.ok(path.isAbsolute(profile.inputs[key]));
   f.actions.freeze = async () => {
     f.state.freeze = { inputs: digest(f.state.inputs), updateCheck: updateBinding(''),
-      criteriaSha256: digest({ tests: f.state.requiredHostTests, expected: f.state.expected }) };
+      criteriaSha256: digest(acceptanceCriteria(f.state)) };
     f.state.freeze.sha256 = digest(f.state.freeze);
     return { facts: [fileFact(f.evidence)] };
   };
@@ -161,12 +161,16 @@ test('publication errors enter Incident; A7 pending remains Released, never Roll
 
 test('reports bind candidate and exact artifact set; SKIP/missing evidence/old candidate fail', t => {
   const f = fixture(t); const file = path.join(f.root, 'report.json');
+  f.state.freeze = { criteriaSha256: digest(acceptanceCriteria(f.state)) };
   const report = reportTemplate(f.state, 'A4', 'd'.repeat(64), ['test']);
   const write = () => fs.writeFileSync(file, JSON.stringify(report));
   write(); assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ['test']), Checkpoint);
   report.tests[0] = { id: 'test', result: 'PASS', expected: { samples: 0 }, measured: { samples: 0 },
     oracle: 'independent audio null-test', evidence: [fileFact(f.evidence)] };
   write(); assert.equal(validateReport(f.state, file, 'A4', 'd'.repeat(64), ['test']).length, 2);
+  const frozenCriteria = f.state.freeze.criteriaSha256; f.state.freeze.criteriaSha256 = 'f'.repeat(64);
+  assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ['test']), /frozen criteria changed/);
+  f.state.freeze.criteriaSha256 = frozenCriteria;
   report.tests[0].measured.samples = 1; write();
   assert.throws(() => validateReport(f.state, file, 'A4', 'd'.repeat(64), ['test']), /measured values fail/);
   report.tests[0].measured.samples = 0;
@@ -186,11 +190,13 @@ test('an owner decision lifts only its named row, bound to this candidate and fr
   const f = fixture(t); const decisionFile = path.join(f.root, 'owner-decision.json');
   fs.writeFileSync(decisionFile, JSON.stringify(OWNER_DECISION));
   const state = makeState(f.root, { state: f.statePath, date: '2026-10-01', ownerOverride: decisionFile }, () => SOURCE);
+  state.freeze = { criteriaSha256: digest(acceptanceCriteria(state)) };
   assertState(state);
   assert.deepEqual(state.requiredHostTests, HOST_TESTS);
   assert.deepEqual(state.ownerOverrides.map(o => [o.testId, o.candidateId]), [['Exact-4-S-samples', state.candidate.id]]);
   assert.notEqual(digest(acceptanceCriteria(state)), digest(acceptanceCriteria(f.state)));
-  assert.equal(digest(acceptanceCriteria(f.state)), digest({ tests: f.state.requiredHostTests, expected: f.state.expected }));
+  assert.equal(digest(acceptanceCriteria(f.state)), digest({ tests: f.state.requiredHostTests, expected: f.state.expected,
+    evidenceMethods: Object.fromEntries(f.state.requiredHostTests.map(id => [id, 'manual'])) }));
   const file = path.join(f.root, 'override-report.json'), ids = ['Exact-4-S-samples', 'pair/combinations'];
   const report = reportTemplate(state, 'A4', 'd'.repeat(64), ids);
   report.tests[0].result = 'NOT_REQUIRED_OWNER_OVERRIDE';

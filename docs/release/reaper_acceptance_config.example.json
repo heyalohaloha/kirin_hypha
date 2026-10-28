@@ -1,0 +1,52 @@
+{
+  "scope": "host",
+  "pid": 0,
+  "plugin": {
+    "expectedPath": "REPLACE_WITH_BINARY_PATH",
+    "expectedSha256": "REPLACE_WITH_SHA256"
+  },
+  "records": {
+    "source": "REPLACE_WITH_CLOSED_RECORD_ROOT",
+    "closed": true,
+    "hmacKey": "REPLACE_WITH_PRIVATE_KEY",
+    "manifest": "REPLACE_WITH_SELECTED_SESSION_MANIFEST"
+  },
+  "exports": {
+    "reference": "REPLACE_WITH_REFERENCE_WAV",
+    "processed": "REPLACE_WITH_PROCESSED_WAV"
+  },
+  "output": "REPLACE_WITH_NEW_PRIVATE_EVIDENCE_DIRECTORY",
+  "plugins": [
+    {
+      "expectedPath": "REPLACE_WITH_BINARY_PATH",
+      "expectedSha256": "REPLACE_WITH_SHA256"
+    },
+    {
+      "expectedPath": "REPLACE_WITH_OTHER_BINARY_PATH",
+      "expectedSha256": "REPLACE_WITH_OTHER_SHA256"
+    }
+  ],
+  "candidate": {
+    "id": "REPLACE_WITH_CANDIDATE_ID",
+    "commit": "REPLACE_WITH_COMMIT"
+  },
+  "bindingSha256": "REPLACE_WITH_FREEZE_SHA256",
+  "operationsLog": "REPLACE_WITH_PRIVATE_OPERATION_LOG",
+  "captureSource": "REPLACE_WITH_SELECTED_SOURCE_WAV",
+  "candidateKeyProof": "REPLACE_WITH_CANDIDATE_KEY_PROOF",
+  "capture": {
+    "projectHash": "REPLACE_WITH_PROJECT_HASH",
+    "sessionId": "REPLACE_WITH_SESSION_ID",
+    "selection": {
+      "startFrame": 0,
+      "endFrame": 1
+    },
+    "sourceSha256": "REPLACE_WITH_SELECTED_SOURCE_SHA256",
+    "sampleRate": 48000,
+    "frames": 1,
+    "instances": {
+      "PRE": "REPLACE_WITH_PRE_INSTANCE_ID",
+      "POST": "REPLACE_WITH_POST_INSTANCE_ID"
+    }
+  }
+}

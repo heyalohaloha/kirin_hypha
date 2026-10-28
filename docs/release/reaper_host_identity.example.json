@@ -1,0 +1,14 @@
+{
+  "schema": "hypha-host-identity-v1",
+  "candidate": {
+    "id": "REPLACE_WITH_CANDIDATE_ID",
+    "commit": "REPLACE_WITH_COMMIT"
+  },
+  "bindingSha256": "REPLACE_WITH_FREEZE_SHA256",
+  "processId": 0,
+  "os": "macOS",
+  "architecture": "x86_64",
+  "review": "REPLACE_WITH_INDEPENDENT_REVIEW",
+  "osVersion": "REPLACE_WITH_OS_VERSION",
+  "locale": "REPLACE_WITH_LOCALE"
+}

@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { makeState, STAGES } from '../release_hypha.mjs';
 import { artifactPaths } from '../ls_release/hypha_release_local.mjs';
-import { fileFact, digest, hash, DISTRIBUTION_TESTS, POST_TESTS, reportTemplate } from '../ls_release/hypha_release_contract.mjs';
+import { fileFact, digest, hash, DISTRIBUTION_TESTS, POST_TESTS, reportTemplate, acceptanceCriteria } from '../ls_release/hypha_release_contract.mjs';
 import { MAX_BYTES, MAX_LIFETIME, jucePublicKey, signManifest, verifyWire, validSemVer,
   validatePayload, payloadFromCompletedRelease, runCli, assertReleaseSigner } from './update_manifest.mjs';
 import { updateBinding } from './update_key_binding.mjs';
@@ -108,7 +108,7 @@ function completeFixture(t) {
   state.stages = Object.fromEntries(STAGES.map(stage => [stage, { status: 'PASS', facts: [packages[0]] }]));
   state.stages.packages.facts = packages;
   state.freeze = { source, inputs: digest(state.inputs), payloads: [packages[0]], updateCheck: updateBinding(state.inputs.updatePublicKey),
-    criteriaSha256: digest({ tests: state.requiredHostTests, expected: state.expected }) };
+    criteriaSha256: digest(acceptanceCriteria(state)) };
   state.freeze.sha256 = digest(state.freeze);
   const writeReport = (input, gate, binding, ids, measured = null) => {
     const report = reportTemplate(state, gate, binding, ids);
@@ -138,6 +138,9 @@ function completeFixture(t) {
 test('offline producer checks real retained fixture bytes, exact reports and every channel without network', t => {
   const f = completeFixture(t), options = { now, expiresAt: now + 86400, sequence: 6 };
   assert.equal(payloadFromCompletedRelease(f.state, options).version, '1.1.51');
+  f.state.evidenceMethods = { 'macOS/x86_64/VST3': 'reaper' };
+  assert.throws(() => payloadFromCompletedRelease(f.state, options), /criteria changed/);
+  delete f.state.evidenceMethods;
   f.state.releaseState = 'RELEASED'; assert.throws(() => payloadFromCompletedRelease(f.state, options), /complete/);
   f.state.releaseState = 'RELEASE_COMPLETE';
   f.state.stages.ls.status = 'PENDING'; assert.throws(() => payloadFromCompletedRelease(f.state, options), /complete/);

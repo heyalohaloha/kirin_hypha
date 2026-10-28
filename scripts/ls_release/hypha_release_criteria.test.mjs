@@ -305,3 +305,15 @@ test('missing job attempts checkpoint without consulting inferred attempt catalo
     job.run_attempt = attempt;
   }
 });
+
+test('artifact facts reject a file changed while its bytes are being hashed', t => {
+  const f = fixture(t), file = f.write('changing.bin', 'first');
+  const original = fs.readSync; let changed = false;
+  fs.readSync = (...args) => {
+    const count = original(...args);
+    if (count > 0 && !changed) { changed = true; fs.appendFileSync(file, 'later'); }
+    return count;
+  };
+  t.after(() => { fs.readSync = original; });
+  assert.throws(() => fileFact(file), /changed/i);
+});
