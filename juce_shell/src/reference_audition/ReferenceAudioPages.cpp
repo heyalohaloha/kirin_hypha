@@ -207,7 +207,9 @@ namespace hypha::reference_audition
 
     void AudioPages::serviceOnce()
     {
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_reader_lock");
         const juce::ScopedLock lock (readerLock);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_reader_acquired");
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         if (reader == nullptr || framesPerPage <= 0)
             return;
@@ -239,8 +241,10 @@ namespace hypha::reference_audition
                 protect (((pinnedCueEnd - 1) / framesPerPage) * framesPerPage);
             }
         }
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_fill");
         for (size_t index = 0; index < protectedCount; ++index)
             fill (protectedStarts[index], protectedStarts, protectedCount, generation);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_done");
     }
 
     bool AudioPages::fill (

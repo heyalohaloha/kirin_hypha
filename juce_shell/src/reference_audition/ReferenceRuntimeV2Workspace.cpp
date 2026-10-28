@@ -90,7 +90,8 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             libraryPreparation = std::move (preparation);
         }
-        activeABinding = aBindingRepository.loadCurrent (configuration.identity);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "authority_load"); activeABinding = aBindingRepository.loadCurrent (configuration.identity);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "authority_load_done");
         RequestedSelection selection;
         { const juce::ScopedLock lock (stateLock); selection = requestedSelection; }
         aCapture.service (activeABinding,
@@ -434,7 +435,7 @@ namespace hypha::reference_audition
             servicePreparedWorkspace (configuration);
             return;
         }
-        finishWorkspaceSelection (std::move (prepared));
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "finish_selection"); finishWorkspaceSelection (std::move (prepared));
     }
 
 }

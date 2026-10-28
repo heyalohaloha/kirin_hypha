@@ -25,7 +25,7 @@ namespace
             controller, presetFile, manifestFile, measuredPreset, presetId, revisionId, 128, output);
         controller.selectA();
         for (int i = 0; i < 4; ++i) { output.clear(); controller.renderSelectedB (output, 128, true); }
-        hypha::tests::reference_control::await ([&] { return ! (comparisonSuspended.load()); });
+        reference_wait_diagnostic::await ("normal_fade_gate_release", controller, [&] { return reference_wait_diagnostic::all ({{ "gateReleased", !comparisonSuspended.load() }}); });
         require (!comparisonSuspended.load(), "completed normal fade releases the gate before testing a fresh acquisition");
         measuredPreset = measuredPreset.clone();
         const auto nextRevision = controller.snapshot().manifestRevision + 1;
@@ -40,9 +40,8 @@ namespace
                 && writeJson (manifestFile,
                               makeRuntimeV2Manifest (
                                   presetId, revisionId, presetFile, nextRevision)));
-            hypha::tests::reference_control::await ([&] {
-                const auto state = controller.snapshot(); return state.manifestRevision == nextRevision
-                    && state.comparisonMode == "original";
+            reference_wait_diagnostic::await ("gate_activation_new_publication", controller, [&] {
+                const auto state = controller.snapshot(); return reference_wait_diagnostic::all ({{ "nextRevision", state.manifestRevision == nextRevision }, { "original", state.comparisonMode == "original" }});
             });
         };
         require (! controller.selectB (-15.0, -2.0),

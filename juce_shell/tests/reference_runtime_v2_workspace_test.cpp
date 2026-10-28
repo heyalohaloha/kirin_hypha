@@ -3,11 +3,17 @@
 #include "reference_runtime_v2_preset_test_support.h"
 #include "reference_runtime_v2_transaction_test_support.h"
 #include "ReferenceSourceFailureTest.h"
+namespace { bool authorityRenameDiagnostic = false; }
 #include "reference_runtime_test_entries.h"
 #include "../src/AtomicFile.h"
 bool runReferenceWorkspaceContract (int argc, char** argv, const juce::File& sandbox)
 {
-    if (argc != 2 || juce::String (argv[1]) != "--workspace-reset-only") return false;
+    if (argc != 2 || (juce::String (argv[1]) != "--workspace-reset-only" && juce::String (argv[1]) != "--authority-rename-workspace-only" && juce::String (argv[1]) != "--authority-rename-retry-workspace-only")) return false;
+    authorityRenameDiagnostic = juce::String (argv[1]).startsWith ("--authority-rename");
+    referenceAuthorityRenameAttempts.store (juce::String (argv[1]) == "--authority-rename-retry-workspace-only" ? 5 : 1);
+    reference_wait_diagnostic::enabled = authorityRenameDiagnostic;
+    reference_wait_diagnostic::overall = std::chrono::steady_clock::now() + std::chrono::seconds (45);
+    std::cout << "AUTHORITY_PUBLISHER mode=rename attempts=" << referenceAuthorityRenameAttempts.load() << std::endl;
     require (writeStereoWav (sandbox.getChildFile ("version-a.wav")), "workspace source must exist");
     testRuntimeV2Workspace (sandbox);
     require (hypha::tests::removeFixtureDirectory (sandbox), "workspace contract fixture cleanup");
@@ -256,7 +262,12 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             std::function<void()> beforeGateActivation;
             const auto callingThread = std::this_thread::get_id();
             const ref::RuntimeIdentity v2Identity { runtimeId, workId, 42 };
-            LiveRuntimeAuthority liveAuthority (aBindingFile, v2Identity, recordingId);
+            LiveRuntimeAuthority liveAuthority (aBindingFile, v2Identity, recordingId,
+                authorityRenameDiagnostic ? std::function<bool()> ([&] {
+                    const auto now = juce::Time::currentTimeMillis();
+                    return aBindingFile.getParentDirectory().createDirectory().wasOk()
+                        && publishReferenceBindingByRename (aBindingFile, makeRuntimeABinding (v2Identity, recordingId, now, now + 9000));
+                }) : std::function<bool()> {});
             ref::RuntimeV2Controller controller (v2Root,
                 [&comparisonSuspended, &gateReleasedOnCallingThread,
                  &beforeGateActivation, callingThread] (bool bSelected)
@@ -270,10 +281,10 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 });
             controller.observeTransport (128, true, true);
             controller.configure (v2Identity, 48'000.0, 2);
-            require (control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+            require (reference_wait_diagnostic::wait ("initial_revision4_48000", controller, [&] {
                 const auto state = controller.snapshot();
-                return state.state == ref::RuntimeState::ready && state.auditionBuffered
-                    && state.hostSampleRateHz == 48'000 && state.manifestRevision == 4;
+                return reference_wait_diagnostic::all ({{ "ready", state.state == ref::RuntimeState::ready }, { "buffered", state.auditionBuffered },
+                    { "host48000", state.hostSampleRateHz == 48'000 }, { "revision4", state.manifestRevision == 4 }});
             }), "the first configuration publishes its exact rate and workspace before the worker watchdog");
             auto runtime = controller.snapshot();
             require (runtime.state == ref::RuntimeState::ready
@@ -310,7 +321,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      && output.getMagnitude (0, 240, 16) > 0.001f,
                      "always-ready v2 B must render the verified source after its 5 ms entry fade");
             controller.observeTransport (12'345, true, true);
-            hypha::tests::reference_control::await ([&] { return ! (! controller.snapshot().auditionBuffered); });
+            reference_wait_diagnostic::await ("transport_page_12345", controller, [&] { return reference_wait_diagnostic::all ({{ "buffered", controller.snapshot().auditionBuffered }}); });
             output.clear();
             require (controller.renderSelectedB (output, 12'345, true),
                      "moving host transport must remain inside the prepared Reference page");
@@ -325,12 +336,12 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             // サンプルレートが違っても承認を待たず、試聴コピーだけを変換する（元のファイルは変えない）。
             const auto conversionTarget = controller.snapshot();
             controller.configure (v2Identity, 44'100.0, 2);
-            const auto converted = control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+            const auto converted = reference_wait_diagnostic::wait ("convert_44100", controller, [&] {
                 const auto state = controller.snapshot();
-                if (state.state != ref::RuntimeState::ready || ! state.auditionBuffered
-                    || state.sourceSampleRateHz != 48'000 || state.hostSampleRateHz != 44'100
-                    || state.manifestRevision != conversionTarget.manifestRevision || state.presetId != conversionTarget.presetId
-                    || state.candidateId != conversionTarget.candidateId || state.cueId != conversionTarget.cueId) return false;
+                if (!reference_wait_diagnostic::all ({{ "ready", state.state == ref::RuntimeState::ready }, { "buffered", state.auditionBuffered },
+                    { "source48000", state.sourceSampleRateHz == 48'000 }, { "host44100", state.hostSampleRateHz == 44'100 },
+                    { "revision", state.manifestRevision == conversionTarget.manifestRevision }, { "preset", state.presetId == conversionTarget.presetId },
+                    { "candidate", state.candidateId == conversionTarget.candidateId }, { "cue", state.cueId == conversionTarget.cueId }})) return false;
                 runtime = state;
                 return true;
             });
@@ -356,12 +367,12 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                                    makeRuntimeV2Manifest (presetId, revisionId, presetFile, 5)),
                      "measured v2 Source replacement must publish child artifacts before Manifest");
             controller.configure (v2Identity, 48'000.0, 2);
-            require (control::waitUntil (std::chrono::steady_clock::now() + std::chrono::minutes (5), [&] {
+            require (reference_wait_diagnostic::wait ("measured_revision5_48000", controller, [&] {
                 const auto state = controller.snapshot();
-                return state.state == ref::RuntimeState::ready && state.auditionBuffered
-                    && state.hostSampleRateHz == 48'000 && state.manifestRevision == 5
-                    && std::abs (state.sourceIntegratedLoudness + 14.0) < 1.0e-12
-                    && std::abs (state.sourceMaximumTruePeakDbtp + 3.0) < 1.0e-12;
+                return reference_wait_diagnostic::all ({{ "ready", state.state == ref::RuntimeState::ready }, { "buffered", state.auditionBuffered },
+                    { "host48000", state.hostSampleRateHz == 48'000 }, { "revision5", state.manifestRevision == 5 },
+                    { "loudnessMinus14", std::abs (state.sourceIntegratedLoudness + 14.0) < 1.0e-12 },
+                    { "peakMinus3", std::abs (state.sourceMaximumTruePeakDbtp + 3.0) < 1.0e-12 }});
             }), "the measured replacement configuration publishes the exact rate and revision before the worker watchdog");
             require (! controller.snapshot().bSelected, "preparing the measured replacement never starts B");
             require (!controller.selectB (-11.0, -2.0), "a headroom-limited match must not choose original volume");
@@ -394,7 +405,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      "an unavailable realtime route must return the buffer and selection to A immediately");
             require (! gateReleasedOnCallingThread.load(),
                      "the realtime callback must not execute the lock-taking output gate release");
-            hypha::tests::reference_control::await ([&] { return ! (comparisonSuspended.load()); });
+            reference_wait_diagnostic::await ("gate_release_after_rt_failclose", controller, [&] { return reference_wait_diagnostic::all ({{ "gateReleased", !comparisonSuspended.load() }}); });
             require (! comparisonSuspended.load(),
                      "the controller worker must release the output gate after realtime fail-close");
 
@@ -424,14 +435,13 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                                        presetId, revisionId, presetFile, alignedRevision)),
                      "same-recording Work Version must publish before alignment testing");
             controller.disconnect();
-            hypha::tests::reference_control::await ([&] { return ! (controller.snapshot().state != ref::RuntimeState::disconnected); });
+            reference_wait_diagnostic::await ("disconnect_before_alignment", controller, [&] { return reference_wait_diagnostic::all ({{ "disconnected", controller.snapshot().state == ref::RuntimeState::disconnected }}); });
             require (controller.snapshot().state == ref::RuntimeState::disconnected,
                      "controller reconfiguration must first finish its fail-closed reset");
             controller.observeTransport (alignedA->startSample, true, true);
             controller.configure (v2Identity, 48'000.0, 2);
-            hypha::tests::reference_control::await ([&] { return ! ((controller.snapshot().state != ref::RuntimeState::ready
-                     || controller.snapshot().sourceKind != "work_version"
-                     || controller.snapshot().manifestRevision != alignedRevision)); });
+            reference_wait_diagnostic::await ("work_version_before_capture", controller, [&] { const auto state = controller.snapshot(); return reference_wait_diagnostic::all ({{ "ready", state.state == ref::RuntimeState::ready },
+                     { "workVersion", state.sourceKind == "work_version" }, { "alignedRevision", state.manifestRevision == alignedRevision }}); });
             require (controller.snapshot().state == ref::RuntimeState::ready
                      && controller.snapshot().sourceKind == "work_version"
                      && controller.snapshot().manifestRevision == alignedRevision
@@ -444,7 +454,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             require (alignedSnapshot.blindLowerAApprovalRequired,
                      "the high-peak alignment fixture must require explicit lower-A approval");
             controller.observeTransport (alignedA->startSample + 1, true, true);
-            hypha::tests::reference_control::await ([&] { return ! (! controller.snapshot().auditionBuffered); });
+            reference_wait_diagnostic::await ("aligned_transport_page", controller, [&] { return reference_wait_diagnostic::all ({{ "buffered", controller.snapshot().auditionBuffered }}); });
             require (controller.selectB (std::numeric_limits<double>::quiet_NaN(),
                                          std::numeric_limits<double>::quiet_NaN()),
                      "content-aligned normal B must remain one-action available");

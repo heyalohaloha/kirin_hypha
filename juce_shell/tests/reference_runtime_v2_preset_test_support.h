@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceControllerTestAccess.h"
+#include "ReferenceWorkspaceWaitDiagnostic.h"
 #include "../src/AtomicFile.h"
 #include "../src/reference_audition/ReferenceRuntimeV2PresetParsing.h"
 #include "PresetAdoptionPublicationTest.h"
@@ -85,7 +86,7 @@ namespace
     require (controller.selectPreset (requestedFactoryPresetId),
              "an absent Global Preset must be selectable without opening Kirin OS");
     juce::File selectionRequestFile;
-    hypha::tests::reference_control::await ([&] {
+    reference_wait_diagnostic::await ("preset_request_appears", controller, [&] {
         const auto requestDirectory = transportRoot.getChildFile (
             "preset_selection_requests").getChildFile (identity.runtimeInstanceId);
         juce::Array<juce::File> files;
@@ -93,9 +94,9 @@ namespace
         if (! files.isEmpty())
         {
             selectionRequestFile = files[0];
-            return true;
+            return reference_wait_diagnostic::all ({{ "requestFilePresent", true }});
         }
-        return false;
+        return reference_wait_diagnostic::all ({{ "requestFilePresent", false }});
     });
     const auto pending = controller.snapshot();
     const auto selectionRequestJson = juce::JSON::parse (selectionRequestFile);
@@ -111,7 +112,7 @@ namespace
              "Preset preparation must hold A and write the exact Global identity for Kirin OS");
     require (controller.selectPreset (activeWorkPresetId),
              "choosing an already prepared Work Preset must cancel the pending request");
-    hypha::tests::reference_control::await ([&] { return ! (selectionRequestFile.existsAsFile()); });
+    reference_wait_diagnostic::await ("preset_cancel_removes_request", controller, [&] { return reference_wait_diagnostic::all ({{ "requestFileAbsent", !selectionRequestFile.existsAsFile() }}); });
     require (! selectionRequestFile.exists()
              && controller.snapshot().presetSelectionStatus.isEmpty(),
              "cancelling preparation must remove only Hypha's pending exchange");

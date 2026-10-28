@@ -5,10 +5,17 @@
 #include "../src/reference_audition/ReferenceTestCommitObserver.h"
 #include <condition_variable>
 #include <mutex>
+#include <sstream>
+#include <functional>
 
 namespace hypha::tests::reference_control
 {
 struct CaptureQueueFacts { unsigned read = 0, write = 0; std::uint64_t generation = 0; };
+struct BindingRepositoryTag {};
+const void* bindingRepositoryFor (const Runtime&, BindingRepositoryTag);
+template <auto Member> struct BindingRepositoryAccess
+{ friend const void* bindingRepositoryFor (const Runtime& r, BindingRepositoryTag) { return &(r.*Member); } };
+template struct BindingRepositoryAccess<&Runtime::aBindingRepository>;
 struct CaptureQueueTag {};
 CaptureQueueFacts queueFactsFor (const reference_audition::RuntimeACapture&, CaptureQueueTag);
 template <auto Read, auto Write, auto Generation> struct CaptureQueueAccess
@@ -27,16 +34,24 @@ namespace
 class LiveRuntimeAuthority final
 {
 public:
-    LiveRuntimeAuthority (juce::File fileIn, ref::RuntimeIdentity identityIn, juce::String recordingIn)
+    LiveRuntimeAuthority (juce::File fileIn, ref::RuntimeIdentity identityIn, juce::String recordingIn,
+                          std::function<bool()> customRenew = {})
         : file (std::move (fileIn)), identity (std::move (identityIn)), recording (std::move (recordingIn))
     {
-        require (renewRuntimeABinding (file, identity, recording), "the fixture OS publishes a normal nine-second A lease");
-        worker = std::thread ([this] {
+        const auto renew = [this, customRenew] { return customRenew ? customRenew() : renewRuntimeABinding (file, identity, recording); };
+        require (renew(), "the fixture OS publishes a normal nine-second A lease");
+        worker = std::thread ([this, renew] {
             std::unique_lock<std::mutex> lock (mutex);
             while (! changed.wait_for (lock, std::chrono::seconds (1), [this] { return stopping; }))
             {
                 lock.unlock();
-                if (! renewRuntimeABinding (file, identity, recording)) failed.store (true, std::memory_order_release);
+                const auto start = std::chrono::steady_clock::now();
+                const bool renewed = renew();
+                std::ostringstream log;
+                log << "AUTHORITY_RENEW success=" << renewed << " steadyNs=" << start.time_since_epoch().count()
+                    << " elapsedUs=" << std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now() - start).count() << '\n';
+                std::cout << log.str() << std::flush;
+                if (!renewed) failed.store (true, std::memory_order_release);
                 else KIRIN_REFERENCE_COMMIT_FOR_TEST(); // An actual fixture OS publication, never an idle worker tick.
                 lock.lock();
             }
@@ -66,6 +81,30 @@ LiveBlindCaptureFacts liveBlindCaptureFacts (ref::RuntimeV2Controller& controlle
 {
     return readLiveBlindCaptureFacts (root,
         hypha::tests::reference_control::captureFor (controller, {}).captureFile (identity.runtimeInstanceId), identity);
+}
+
+void printCaptureWorkerFacts (std::ostream& out, ref::RuntimeV2Controller& controller)
+{
+    namespace control = hypha::tests::reference_control;
+    const auto& capture = control::captureFor (controller, {});
+    const auto reset = ref::referenceTestCaptureResetFacts (&capture);
+    const auto worker = ref::referenceTestAuthorityFacts (&capture);
+    const auto queue = control::queueFactsFor (capture, {});
+    const auto reader = ref::referenceTestBindingReadFacts (control::bindingRepositoryFor (controller, {}));
+    out << " resetReason=" << reset.reason << " resetAt=" << reset.atMs << " resetCount=" << reset.count
+        << " previousReset=" << reset.previousReason << " previousResetAt=" << reset.previousAtMs
+        << " workerNow=" << worker.nowMs << " workerIssued=" << worker.issuedMs << " workerExpires=" << worker.expiresMs
+        << " workerPresent=" << worker.present << " workerValid=" << worker.valid << " workerLocal=" << worker.local
+        << " workerMaxGapMs=" << worker.maxGapMs << " invalidCount=" << worker.invalidCount
+        << " lastInvalidMs=" << worker.lastInvalidMs << " lastInvalidIssued=" << worker.lastInvalidIssuedMs
+        << " lastInvalidExpires=" << worker.lastInvalidExpiresMs << " queueRead=" << queue.read
+        << " queueWrite=" << queue.write << " continuity=" << queue.generation
+        << " readerStage=" << reader.stage << " readerAccepted=" << reader.accepted << " readerCount=" << reader.count
+        << " readerRejected=" << reader.rejected << " lastReadReject=" << reader.lastRejectedStage
+        << " lastReadRejectAt=" << reader.lastRejectedAtMs << " readerNow=" << reader.nowMs
+        << " readerIssued=" << reader.issuedMs << " readerExpires=" << reader.expiresMs
+        << " rejectedNow=" << reader.lastRejectedNowMs << " rejectedIssued=" << reader.lastRejectedIssuedMs
+        << " rejectedExpires=" << reader.lastRejectedExpiresMs << " rejectedOsError=" << reader.lastRejectedOsError;
 }
 
 bool liveBlindCaptureCurrent (ref::RuntimeV2Controller& controller, const juce::File& root,
@@ -106,6 +145,8 @@ void feedFreshBlindCapture (ref::RuntimeV2Controller& controller, const juce::Fi
         "a real four-second stereo observation starts only after capture reset and arming");
     const auto expectedPublication = controller.snapshot();
     const auto started = std::chrono::steady_clock::now();
+    std::cout << "CAPTURE_BEGIN phase=" << phase << " steadyNs=" << started.time_since_epoch().count();
+    printCaptureWorkerFacts (std::cout, controller); std::cout << std::endl;
     struct Progress { std::int64_t offset, elapsedMs; control::CaptureQueueFacts queue; bool binding, capture, selected; };
     std::vector<Progress> progress;
     progress.reserve (24);
@@ -133,6 +174,14 @@ void feedFreshBlindCapture (ref::RuntimeV2Controller& controller, const juce::Fi
     std::uint64_t refreshTicket = 0;
     if (captureCompleted)
     {
+        std::cout << "CAPTURE_COMPLETE phase=" << phase << " elapsedMs="
+                  << std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now() - started).count()
+                  << " frames=" << completed->frameCount << " start=" << completed->startSample
+                  << " expectedStart=" << source.startSample << " revision=" << completed->dawRevisionId
+                  << " hash=" << completed->cuePcmSha256 << " pcmEqual=" << (completed->interleaved == source.interleaved);
+        printLiveBlindCaptureFacts (std::cout, liveBlindCaptureFacts (controller, root, identity));
+        printCaptureWorkerFacts (std::cout, controller);
+        std::cout << std::endl;
         require (completed->frameCount == source.frameCount && completed->sampleRateHz == source.sampleRateHz
             && completed->channels == source.channels && completed->startSample == source.startSample
             && completed->cuePcmSha256 == source.cuePcmSha256 && completed->interleaved == source.interleaved,
@@ -144,7 +193,19 @@ void feedFreshBlindCapture (ref::RuntimeV2Controller& controller, const juce::Fi
         }
     }
     const bool prepared = refreshTicket != 0 && control::waitUntil (deadline, [&] {
-        require (control::captureFor (controller, {}).currentAudio() == completed,
+        const auto observed = control::captureFor (controller, {}).currentAudio();
+        if (observed != completed)
+        {
+            std::cerr << "CAPTURE_REPLACED phase=" << phase << " present=" << (observed != nullptr)
+                      << " oldFrames=" << completed->frameCount << " newFrames=" << (observed ? observed->frameCount : 0);
+            std::cerr << " expectedRevision=" << completed->dawRevisionId << " expectedHash=" << completed->cuePcmSha256
+                      << " observedRevision=" << (observed ? observed->dawRevisionId : juce::String())
+                      << " observedHash=" << (observed ? observed->cuePcmSha256 : juce::String());
+            printLiveBlindCaptureFacts (std::cerr, liveBlindCaptureFacts (controller, root, identity));
+            printCaptureWorkerFacts (std::cerr, controller);
+            std::cerr << std::endl;
+        }
+        require (observed == completed,
                  "the completed PCM remains published throughout Blind preparation");
         if (! ref::referenceTestWorkspaceRefreshConsumed (refreshTicket)) return false;
         const auto state = controller.snapshot();
@@ -171,6 +232,13 @@ void feedFreshBlindCapture (ref::RuntimeV2Controller& controller, const juce::Fi
                   << " binding=" << state.aBindingAvailable << " capture=" << state.aCaptureAvailable
                   << " eligible=" << state.blindEligible << " rejection=" << state.rejectionCode << '\n';
     }
+    std::cout << "CAPTURE_DIAG phase=" << phase << " prepared=" << prepared
+              << " completed=" << captureCompleted << " refresh=" << refreshTicket
+              << " refreshConsumed=" << ref::referenceTestWorkspaceRefreshConsumed (refreshTicket)
+              << " elapsedMs=" << std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now() - started).count();
+    printLiveBlindCaptureFacts (std::cout, liveBlindCaptureFacts (controller, root, identity));
+    printCaptureWorkerFacts (std::cout, controller);
+    std::cout << " deadlineRemainingMs=" << std::chrono::duration_cast<std::chrono::milliseconds> (deadline - std::chrono::steady_clock::now()).count() << std::endl;
     require (prepared, "the actual PCM observation prepares Blind within the four-second preparation deadline");
     const auto captured = control::captureFor (controller, {}).currentAudio();
     require (captured && captured == completed && captured->frameCount == source.frameCount && captured->startSample == source.startSample

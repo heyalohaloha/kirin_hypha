@@ -129,6 +129,7 @@ namespace hypha::reference_audition
                 blind.clear(); blindPreparationKey.clear(); calibrationObservation.clear();
                 aCapture.disconnect(); untilPoll = 0;
             }
+            KIRIN_REFERENCE_BEFORE_CAPTURE_FOR_TEST (this);
             aCapture.service (
                 activeABinding,
                 static_cast<std::int64_t> (std::llround (configuration.sampleRate)),
