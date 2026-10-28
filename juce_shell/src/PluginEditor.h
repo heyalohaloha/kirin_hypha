@@ -163,6 +163,7 @@ private:
     void beginLocalBlindProductCapture();
     void closeLocalBlindProduct();
     void refreshLocalBlindProduct();
+    void returnFromLocalBlindSize();
     void layoutLocalBlindProduct();
     void setLocalBlindIsolation (bool active);
     void configureLiveBlind();
@@ -358,6 +359,18 @@ private:
     double editorSizeLastChangedAt = 0.0;
     bool editorSizePersistenceReady = false;
     bool editorSizeStateDirty = false;
+    // The size this editor last wrote. A relayout at that same size (a page or VU change while a
+    // restored state waits to be applied) must not write it back over the restored size.
+    hypha::observatory::EditorSize editorSizeWritten {};
+    // Local Blind holds the editor at 900 x 600 for a while; that size is not the user's to save.
+    bool blindHoldsEditorSize() const noexcept
+    {
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        return ! localBlindReturnSize.isOrigin();
+       #else
+        return false;
+       #endif
+    }
     juce::String toastText;
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持

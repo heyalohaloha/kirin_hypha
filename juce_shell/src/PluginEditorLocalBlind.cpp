@@ -150,14 +150,26 @@ void KirinHyphaEditor::closeLocalBlindProduct()
     localBlindView.setVisible (false);
     setLocalBlindIsolation (liveBlindOpen);
     setResizable (true, false);
-    if (! localBlindReturnSize.isOrigin())
-    {
-        const auto size = localBlindReturnSize;
-        localBlindReturnSize = {};
-        setSize (size.x, size.y);
-    }
+    returnFromLocalBlindSize();
     resized();
     refreshObservatory();
+}
+
+// Blind held the editor at 900 x 600 without saving it. A state the host restored meanwhile (the
+// stored size is no longer the one this editor wrote, even a restored 300%) wins over the size
+// Blind kept to return to, and is applied here, before the relayout that follows saves a size.
+void KirinHyphaEditor::returnFromLocalBlindSize()
+{
+    if (localBlindReturnSize.isOrigin())
+        return;
+    hypha::observatory::EditorSize size { localBlindReturnSize.x, localBlindReturnSize.y };
+    localBlindReturnSize = {};
+    const auto stored = hypha::observatory::unpackEditorSize (
+        processorRef.observatoryEditorSizePreference());
+    if ((stored.width != editorSizeWritten.width || stored.height != editorSizeWritten.height)
+        && hypha::observatory::validEditorSize (stored.width, stored.height))
+        size = sizeConstrainer.allowedSize (stored);
+    setSize (size.width, size.height);
 }
 
 void KirinHyphaEditor::refreshLocalBlindProduct()
@@ -171,12 +183,7 @@ void KirinHyphaEditor::refreshLocalBlindProduct()
         localBlindView.setVisible (false);
         setLocalBlindIsolation (liveBlindOpen);
         setResizable (true, false);
-        if (! localBlindReturnSize.isOrigin())
-        {
-            const auto size = localBlindReturnSize;
-            localBlindReturnSize = {};
-            setSize (size.x, size.y);
-        }
+        returnFromLocalBlindSize();
         resized();
         return;
     }

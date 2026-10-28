@@ -286,8 +286,10 @@ void KirinHyphaEditor::resized()
         if (getWidth() >= hypha::observatory::sizePresets[index].width)
             nearestPreset = index;
     observatorySizeIndex = nearestPreset;
-    if (editorSizePersistenceReady)
+    if (editorSizePersistenceReady && ! blindHoldsEditorSize()
+        && (getWidth() != editorSizeWritten.width || getHeight() != editorSizeWritten.height))
     {
+        editorSizeWritten = { getWidth(), getHeight() };
         processorRef.setSpectrumSizePreference ((uint8_t) nearestPreset);
         if (processorRef.setObservatoryEditorSizePreference (getWidth(), getHeight()))
         {

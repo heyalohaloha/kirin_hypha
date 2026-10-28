@@ -463,9 +463,9 @@ private:
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
     hypha::analysis::OwnerState analysisDemandOwner;
     hypha::analysis::ApplicationState analysisApplication; // guarded by handleLock
-    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
+    std::atomic<uint8_t> preferredSpectrumSize { 3 };      // new/no-size state opens at 200%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
-    std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3
+    std::atomic<uint32_t> preferredEditorSize { (600u << 16u) | 400u }; // DisplayState v3
     std::atomic<uint8_t> preferredObservatoryDomain { 0 }; // DisplayState v2; LEVEL
     std::atomic<uint8_t> preferredObservatoryTarget { 0 }; // DisplayState v2; absolute
     std::atomic<uint8_t> preferredObservatoryTimeRange { 0 }; // DisplayState v2; 30 s

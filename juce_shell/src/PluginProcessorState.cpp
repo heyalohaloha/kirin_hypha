@@ -65,9 +65,10 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     uint8_t restoredObservatoryDomain = 0;
     uint8_t restoredObservatoryTarget = 0;
     uint8_t restoredObservatoryTimeRange = 0;
-    uint8_t restoredObservatorySize = 0;
-    int restoredEditorWidth = 300;
-    int restoredEditorHeight = 200;
+    // A state with no size (older JUCE, nih-plug) opens at the default 200%, as a new one does.
+    uint8_t restoredObservatorySize = hypha::observatory::defaultSizePresetIndex;
+    int restoredEditorWidth = hypha::observatory::defaultEditorSize().width;
+    int restoredEditorHeight = hypha::observatory::defaultEditorSize().height;
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
     bool restoredHybridVuOnRecord = true, restored = false;
