@@ -1,4 +1,5 @@
 import { releaseComplete } from './release_stages.mjs';
+import { verifyReaperEvidenceForState } from '../acceptance/reaper_run.mjs';
 // Candidate-bound evidence. Reports are attestations backed by retained files, never auto-PASS.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,6 +55,8 @@ export function checkBoundOwnerOverrides(state) {
 }
 
 export const acceptanceCriteria = state => ({ tests: state.requiredHostTests, expected: state.expected,
+  evidenceMethods: Object.fromEntries((state.requiredHostTests || []).map(id => [id, state.evidenceMethods?.[id] || 'manual'])),
+  ...(state.reaperKeyBindings ? { reaperKeyBindings: state.reaperKeyBindings } : {}),
   ...(state.ownerOverrides?.length ? { ownerOverrides: state.ownerOverrides } : {}),
   ...(state.fixRows ? { fixRows: state.fixRows } : {}) });
 
@@ -96,7 +99,17 @@ export function safeStatePath(root, file) {
 export function fileFact(file) {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.size === 0) throw new Error('Required artifact is not a nonempty regular file');
-  return { path: path.resolve(file), bytes: stat.size, sha256: hash(fs.readFileSync(file)) };
+  const digest = crypto.createHash('sha256'), fd = fs.openSync(file, 'r');
+  const same = (a, b) => a.isFile() && b.isFile() && a.dev === b.dev && a.ino === b.ino
+    && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!same(stat, opened)) throw new Error('Artifact changed while hashing');
+    const buffer = Buffer.alloc(1024 * 1024); let count;
+    while ((count = fs.readSync(fd, buffer)) > 0) digest.update(buffer.subarray(0, count));
+    if (!same(opened, fs.fstatSync(fd)) || !same(opened, fs.lstatSync(file))) throw new Error('Artifact changed while hashing');
+    return { path: path.resolve(file), bytes: opened.size, sha256: digest.digest('hex') };
+  } finally { fs.closeSync(fd); }
 }
 
 export function assertIndependentDeliveryTree(directory) {
@@ -173,10 +186,46 @@ export function validateReport(state, reportPath, gate, binding, ids) {
       throw new Error(`${gate}: ${id} expected values differ from the frozen contract`);
     }
     if (!compareExpected(row.expected, row.measured)) throw new Error(`${gate}: ${id} measured values fail expected conditions`);
+    const method = acceptanceCriteria(state).evidenceMethods[id] || 'manual';
+    if (!['manual', 'reaper'].includes(method)) throw new Error(`${gate}: unknown evidence method`);
+    if (gate === 'A4' && state.freeze?.criteriaSha256 !== digest(acceptanceCriteria(state))) throw new Error(`${gate}: frozen criteria changed`);
+    if (method === 'reaper' && (row.evidence.filter(item => item.kind === 'reaper').length !== 1
+        || row.evidence.filter(item => item.kind === 'host-identity').length !== 1
+        || row.evidence.some(item => !item.kind))) throw new Error(`${gate}: REAPER evidence kind and identity required`);
     for (const evidence of row.evidence) {
+      if (evidence.kind && !['attachment', 'reaper', 'host-identity'].includes(evidence.kind)) throw new Error(`${gate}: unknown evidence kind`);
       const actual = fileFact(resolveInput(state, evidence.path));
       if (actual.sha256 !== evidence.sha256) throw new Error(`${gate}: evidence hash mismatch`);
       facts.push(actual);
+      if (evidence.kind !== 'reaper') {
+        let schema; try { schema = JSON.parse(fs.readFileSync(actual.path, 'utf8')).schema; } catch {}
+        if (schema === 'hypha-reaper-observed-run-v1') throw new Error(`${gate}: REAPER observation requires typed evidence kind`);
+      }
+      if (evidence.kind === 'reaper') {
+        if (method !== 'reaper') throw new Error(`${gate}: REAPER evidence method must be frozen for this row`);
+        if (gate !== 'A4' || !['au', 'vst3'].includes(evidence.format)
+            || id !== `macOS/x86_64/${evidence.format.toUpperCase()}`
+            || path.basename(actual.path) !== 'host-observation.json') {
+          throw new Error(`${gate}: REAPER evidence has an invalid host or format`);
+        }
+        const verified = verifyReaperEvidenceForState(state, path.dirname(actual.path), actual.sha256, evidence.format);
+        const identities = row.evidence.filter(item => item.kind === 'host-identity');
+        if (identities.length !== 1) throw new Error(`${gate}: independent host identity is required`);
+        const identityPath = resolveInput(state, identities[0].path);
+        const identityFact = fileFact(identityPath);
+        if (identityFact.sha256 !== identities[0].sha256) throw new Error(`${gate}: host identity hash differs`);
+        const identity = readJson(identityPath);
+        if (fileFact(identityPath).sha256 !== identityFact.sha256
+            || identity.schema !== 'hypha-host-identity-v1' || identity.candidate?.id !== state.candidate.id
+            || identity.candidate?.commit !== state.candidate.commit || identity.bindingSha256 !== state.freeze.sha256
+            || identity.processId !== verified.observation.pid || identity.os !== 'macOS'
+            || typeof identity.osVersion !== 'string' || !identity.osVersion.trim()
+            || typeof identity.locale !== 'string' || !identity.locale.trim()
+            || identity.architecture !== 'x86_64' || typeof identity.review !== 'string' || !identity.review.trim()) {
+          throw new Error(`${gate}: host identity differs or lacks independent review`);
+        }
+        facts.push(identityFact, ...verified.facts);
+      }
     }
   }
   return facts;

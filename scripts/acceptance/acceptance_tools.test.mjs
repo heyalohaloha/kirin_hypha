@@ -79,3 +79,15 @@ test('record collection copies hidden and nested files, proves bytes and never o
   assert.throws(() => collectRecords(source, path.join(root, 'rejected')));
   assert.equal(fs.existsSync(path.join(root, 'rejected')), false);
 });
+
+test('selected record copies require the exact previously validated bytes', async t => {
+  const { createHash } = await import('node:crypto');
+  const { collectSelectedRecords } = await import('./collect_records.mjs');
+  const root = fixture(t), source = path.join(root, 'closed'); fs.mkdirSync(source);
+  const file = path.join(source, 'record.json'); fs.writeFileSync(file, 'original');
+  const fact = { path: file, sha256: createHash('sha256').update('original').digest('hex') };
+  fs.writeFileSync(file, 'changed');
+  const output = path.join(root, 'evidence');
+  assert.throws(() => collectSelectedRecords(source, output, [fact]), /changed|hash/i);
+  assert.equal(fs.existsSync(output), false);
+});
