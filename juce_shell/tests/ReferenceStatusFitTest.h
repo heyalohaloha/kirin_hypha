@@ -86,6 +86,21 @@ inline void verifyReferenceStatusFits()
             stageNames.push_back (juce::String (reference_ui::roleLetter (slot)) + " stage " + juce::String (index));
             cases.push_back ({ stageNames.back().toRawUTF8(), stage });
         }
+    {
+        auto failed = base;
+        failed.comparisonSlot = 1;
+        failed.bSelected = false;
+        failed.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::sourceChanged,
+                                   "reference_audio_read_failed" };
+        require (reference_ui::referenceStatusLine (failed).text.contains ("AUDIO READ FAILED"),
+                 "the stopped case exercises the read failure");
+        cases.push_back ({ "V audio read failure", failed });
+        failed.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::checking,
+                                   "reference_audio_read_failed" };
+        require (reference_ui::referenceStatusLine (failed).text.contains ("AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS"),
+                 "the pending case exercises the full read failure message");
+        cases.push_back ({ "V pending audio read failure", failed });
+    }
     const auto readout = labelFont (context, typography::TextRole::readout, typography::Composition::information);
     const auto action = labelFont (context, typography::TextRole::action, typography::Composition::information);
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })

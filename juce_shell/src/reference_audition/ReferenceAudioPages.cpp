@@ -79,6 +79,7 @@ namespace hypha::reference_audition
         if (! retirePages())
             return "runtime_busy";
         reader.reset();
+        requiredReadFailures.store (0, std::memory_order_release);
         sourceLength = 0;
         sourceChannels = 0;
         fileChannels = 0;
@@ -136,6 +137,7 @@ namespace hypha::reference_audition
         const juce::ScopedLock lock (readerLock);
         openState.store (false, std::memory_order_release);
         activeGeneration.fetch_add (1, std::memory_order_acq_rel);
+        requiredReadFailures.store (0, std::memory_order_release);
         if (retirePages())
         {
             reader.reset();
@@ -207,7 +209,9 @@ namespace hypha::reference_audition
 
     void AudioPages::serviceOnce()
     {
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_reader_lock");
         const juce::ScopedLock lock (readerLock);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_reader_acquired");
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         if (reader == nullptr || framesPerPage <= 0)
             return;
@@ -239,8 +243,10 @@ namespace hypha::reference_audition
                 protect (((pinnedCueEnd - 1) / framesPerPage) * framesPerPage);
             }
         }
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_fill");
         for (size_t index = 0; index < protectedCount; ++index)
             fill (protectedStarts[index], protectedStarts, protectedCount, generation);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "page_service_done");
     }
 
     bool AudioPages::fill (
@@ -313,6 +319,24 @@ namespace hypha::reference_audition
             ? fillConverted (*selected, pageStart)
             : reader->read (&selected->audio, 0, framesPerPage,
                             pageStart, true, channels > 1);
+        // Capacity contention is retryable. Only actual failed reads of the
+        // currently requested page count as repeated decoder failure.
+        // A successful prefetch also retires earlier failure evidence for that page.
+        if (readOk && generation == activeGeneration.load (std::memory_order_acquire)
+            && failedPageStart.load (std::memory_order_acquire) == pageStart)
+            requiredReadFailures.store (0, std::memory_order_release);
+        const auto requested = juce::jmax<std::int64_t> (0, requestedPosition.load (std::memory_order_acquire));
+        if (generation == activeGeneration.load (std::memory_order_acquire)
+            && pageStart == (requested / framesPerPage) * framesPerPage)
+        {
+            if (failedPageStart.load (std::memory_order_relaxed) != pageStart)
+            {
+                requiredReadFailures.store (0, std::memory_order_release);
+                failedPageStart.store (pageStart, std::memory_order_release);
+            }
+            requiredReadFailures.store (readOk ? 0u
+                : std::min (3u, requiredReadFailures.load (std::memory_order_relaxed) + 1u), std::memory_order_release);
+        }
         if (! readOk || generation != activeGeneration.load (std::memory_order_acquire))
         {
             selected->publicationSequence.fetch_add (1, std::memory_order_release);

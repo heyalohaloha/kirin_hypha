@@ -1,5 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceTrackingGain.h"
+#include "ReferenceCopyCorrespondence.h"
 
 #include <cmath>
 #include <limits>
@@ -158,7 +159,7 @@ namespace hypha::reference_audition
         return true;
     }
 
-    bool RuntimeV2Controller::activatePreparedB (
+    RuntimeV2Controller::StartResult RuntimeV2Controller::activatePreparedB (
         std::uint64_t selectionGeneration) noexcept
     {
         std::uint64_t epoch = 0;
@@ -166,25 +167,40 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             if (! preparedNormalSelection.valid
                 || preparedNormalSelection.selectionGeneration != selectionGeneration)
-                return false;
+                return StartResult::stale;
             epoch = preparedNormalSelection.auditionEpoch;
         }
         if (! ready.load (std::memory_order_acquire)
             || auditionEpoch.load (std::memory_order_acquire) != epoch
             || normalSelectionGeneration.load (std::memory_order_acquire)
-                != selectionGeneration
-            || ! latestPlaying.load (std::memory_order_acquire)
+                != selectionGeneration)
+            return StartResult::stale;
+        if (! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire))
-            return false;
+            return StartResult::preparing;
+        const auto observation = inputObservationGeneration.load (std::memory_order_acquire);
         const auto hostPosition = latestHostPosition.load (std::memory_order_acquire);
         restartCueAtPlayhead (hostPosition);
+        const auto mapping = mappingGeneration.load (std::memory_order_acquire);
+        if ((mapping & 1u) != 0) return StartResult::preparing;
         const auto sourcePosition = mappedSourcePosition (hostPosition);
+        if (mapping != mappingGeneration.load (std::memory_order_acquire)) return StartResult::preparing;
+        if (sourcePosition < 0 || sourcePosition >= currentPages().lengthInSamples())
+        {
+            if (versionComparison && ((observation & 1u) != 0
+                || ! referenceCopyProofCurrent (versionComparison, copyCorrespondence.load (std::memory_order_acquire),
+                    contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity())
+                || mapping != mappingGeneration.load (std::memory_order_acquire)
+                || observation != inputObservationGeneration.load (std::memory_order_acquire)))
+                return StartResult::preparing;
+            return StartResult::refused;
+        }
         currentPages().request (sourcePosition);
         if (! currentPages().readyAt (sourcePosition, 1))
-            return false;
+            return StartResult::preparing;
         const auto gateToken = acquireOutputGate();
         if (gateToken == 0)
-            return false;
+            return StartResult::refused;
 
         bool publicationStillValid = false;
         {
@@ -224,7 +240,7 @@ namespace hypha::reference_audition
         if (! publicationStillValid)
         {
             releaseOutputGate (gateToken);
-            return false;
+            return StartResult::stale;
         }
         activeAuditionEpoch.store (epoch, std::memory_order_release);
         normalReturnToken.store (0, std::memory_order_release);
@@ -237,30 +253,48 @@ namespace hypha::reference_audition
             bSelected.store (false, std::memory_order_release);
             activeAuditionEpoch.store (0, std::memory_order_release);
             releaseOutputGate (gateToken);
-            return false;
+            return StartResult::stale;
         }
-        return true;
+        return StartResult::started;
     }
 
-    bool RuntimeV2Controller::selectB (double aIntegratedLoudness,
-                                       double aMaximumTruePeakDbtp, std::uint64_t queuedGeneration,
-                                       const juce::String& expectedPlaybackIdentity) noexcept
+    bool RuntimeV2Controller::selectB (double loudness, double peak, std::uint64_t generation,
+                                      const juce::String& identity) noexcept
     {
-        // 選択を替えた直後のフェード待ち（古い音がまだ公開されている）あいだは、古い音を選び直さない。
-        if (blind.ongoing() || revokeAfterFade.load (std::memory_order_acquire))
-            return false;
-        if (bSelected.load (std::memory_order_acquire)) return true;
+        return startB (loudness, peak, generation, identity) == StartResult::started;
+    }
+
+    RuntimeV2Controller::StartResult RuntimeV2Controller::startB (
+        double loudness, double peak, std::uint64_t queuedGeneration,
+        const juce::String& expectedPlaybackIdentity) noexcept
+    {
+        if (blind.ongoing()) return StartResult::refused;
+        if (queuedGeneration == 0 && expectedPlaybackIdentity.isEmpty()
+            && bSelected.load (std::memory_order_acquire)) return StartResult::started;
         const auto generation = queuedGeneration != 0 ? queuedGeneration
             : normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel) + 1;
-        const bool alreadySelected = bSelected.load (std::memory_order_acquire);
-        const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
+        const auto currentAttempt = [&]
+        {
+            const juce::ScopedLock lock (stateLock);
+            return normalSelectionGeneration.load (std::memory_order_acquire) == generation
+                && (expectedPlaybackIdentity.isEmpty() || currentSnapshot.playbackIdentity == expectedPlaybackIdentity);
+        };
+        if (!currentAttempt()) return StartResult::stale;
+        if (revokeAfterFade.load (std::memory_order_acquire)) return StartResult::preparing;
+        if (bSelected.load (std::memory_order_acquire)) return StartResult::started;
+        if (!ready.load (std::memory_order_acquire) || !latestPositionValid.load (std::memory_order_acquire))
+            return StartResult::preparing;
+        if (versionComparison && !blind.snapshot().eligible) return StartResult::preparing;
+        const auto baseline = bAudibleConfirmations.load (std::memory_order_acquire);
         { const juce::ScopedLock lock (stateLock); beginMatchLocked(); }
-        if (!prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp, generation,
-                                    expectedPlaybackIdentity)) return false;
-        const bool selected = activatePreparedB (generation);
-        if (selected && ! alreadySelected)
-            beginAuditionEventSession (bBaseline);
-        return selected;
+        if (!prepareReferenceGain (loudness, peak, generation, expectedPlaybackIdentity))
+        {
+            if (!currentAttempt()) return StartResult::stale;
+            return versionComparison && !blind.snapshot().eligible ? StartResult::preparing : StartResult::refused;
+        }
+        const auto result = activatePreparedB (generation);
+        if (result == StartResult::started) beginAuditionEventSession (baseline);
+        return result;
     }
 
     void RuntimeV2Controller::selectA (bool allowFade) noexcept

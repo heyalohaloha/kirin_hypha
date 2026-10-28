@@ -14,14 +14,16 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-constexpr std::uint32_t ringVersion = 9;
+constexpr std::uint32_t ringVersion = 10;
 constexpr std::uint32_t ringChannels = 2;
-constexpr std::uint32_t ringCapacityFrames = 1u << 19; // power of two: about 10.9 s at 48 kHz
+constexpr std::uint32_t ringCapacityFrames = 1u << 20; // power of two: about 5.46 s at 192 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
 constexpr std::uint32_t joinSearchDepth = 256; // latest PRE blocks searched for a project-time join
 constexpr std::uint32_t ringSourceMultiMono = 1u; // PRE is one channel of an AAX multi-mono set (INV-LC9)
 
 static_assert ((ringCapacityFrames & (ringCapacityFrames - 1)) == 0);
+// Four-second MATCH/PIN windows retain at least one second for PRE advance and copying.
+static_assert (ringCapacityFrames >= 192000u * 5u);
 static_assert (joinSearchDepth <= ringDescriptors);
 static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
 static_assert (std::atomic<std::int64_t>::is_always_lock_free);

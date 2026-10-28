@@ -6,6 +6,7 @@ namespace hypha::reference_audition
 // A transient, explicit next-play intent. Never saved with the DAW session or library choices.
 struct PendingAuditionView
 {
+    static constexpr double pageNoticeSeconds = 3.0;
     enum class Stage { none, play, checking, level, sourceChanged, safetyChanged, startFailed,
                        sourceLevelUnavailable, ceilingExceeded };
     int slot = 0;

@@ -7,6 +7,11 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION", u8"音声を読込中です / 別の位置から再生してください" },
+    { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSで確認" },
+    { "AUDIO READ FAILED", u8"音声を読み出せません" },
+    { "PLAYHEAD OUTSIDE VERSION", u8"再生位置が版の範囲外です" },
+    { "MOVE INSIDE VERSION, THEN PRESS V", u8"版の範囲内へ移動してVを押してください" },
     { "NO SOURCE IN KIRIN OS", u8"Kirin OSに音源なし" },
     { "LEVEL NOT MATCHED", u8"音量未調整" },
     { "C Song", u8"Cの曲" },
@@ -26,7 +31,6 @@ const Entry entries[] = {
     { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
       u8"10秒再生してもAを測れません / Aを長めに再生して選び直す" },
     { "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS", u8"10秒で音源を確認できません / Kirin OSで確認" },
-    { "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", u8"10秒で読み込めません / 別の位置から再生" },
     { "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS", u8"10秒で準備できません / Kirin OSで開く" },
     { "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN", u8"30秒再生しても位置が合いません / Versionを選び直す" },
     { "V is measured over the same section as A while they are aligned",

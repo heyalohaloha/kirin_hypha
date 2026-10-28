@@ -45,6 +45,8 @@ namespace
             usesFloatingPointData = true;
         }
 
+        bool unreadableFirstPage = false;
+
         static float valueAt (int channel, std::int64_t position)
         {
             return static_cast<float> ((channel + 1) * 0.1
@@ -55,6 +57,7 @@ namespace
                           int destinationOffset, juce::int64 sourceStart,
                           int frames) override
         {
+            if (unreadableFirstPage && sourceStart == 0) return false;
             for (int channel = 0; channel < destinationChannels; ++channel)
             {
                 auto* samples = reinterpret_cast<float*> (destination[channel]);
@@ -113,6 +116,21 @@ int main()
 {
     verifyShortLoopPages (require);
     verifyReferenceConversionParity<TestReader> (require);
+    {
+        ref::AudioPages recovered { ref::AudioPages::ServiceMode::manual };
+        auto reader = std::make_unique<TestReader> (48'000.0, 2, 480'000);
+        auto* const decoder = reader.get();
+        decoder->unreadableFirstPage = true;
+        require (recovered.installReaderForTest (std::move (reader), 48'000.0, 2).isEmpty(),
+                 "a failing page leaves the source open for retries");
+        recovered.service(); recovered.service();
+        require (! recovered.readyAt (0, 1) && recovered.hasPersistentReadFailure (0),
+                 "three actual reads establish failure of the requested page");
+        decoder->unreadableFirstPage = false;
+        recovered.request (48'000); recovered.service();
+        require (recovered.readyAt (0, 1) && ! recovered.hasPersistentReadFailure (0),
+                 "a successful prefetch clears earlier page read failures");
+    }
     ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     require (pages.installReaderForTest (
                  std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 2).isEmpty(),

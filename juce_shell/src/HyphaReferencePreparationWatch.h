@@ -3,9 +3,10 @@
 #include <juce_core/juce_core.h>
 
 #include "HyphaReferenceGuide.h"
+#include "reference_audition/ReferencePendingAudition.h"
 
 // 準備中を終わらない状態にしない。待ちの種類ごとに上限を持ち（仮置き：Kirin OS の
-// 応答 5 秒、音源の確認・読み込み・準備 10 秒、位置合わせは再生 30 秒ぶん、MATCH に使う A の音量は再生
+// 応答 5 秒、page の読み込み 3 秒、音源の確認・準備 10 秒、位置合わせは再生 30 秒ぶん、MATCH に使う A の音量は再生
 // 10 秒ぶん。C は A の直近が Cue の長さ（最長 30 秒）たまるまで合わせないので 35 秒ぶん）、超えたら状態の
 // 行を「できない」に変えて理由と直し方を 1 つ出す（R-28）。待ちが進めば（段階・役・Kirin OS のつながりが
 // 変われば）数え直し、準備が整えばそのまま聴けるに戻る。音や選択は変えない（表示だけ）。
@@ -15,6 +16,7 @@ struct PreparationBudget
 {
     static constexpr double kirinOsResponseSeconds = 5.0;
     static constexpr double preparationSeconds = 10.0;
+    static constexpr double pageReadSeconds = reference_audition::PendingAuditionView::pageNoticeSeconds;
     static constexpr double alignmentPlaySeconds = 30.0;
     static constexpr double aLevelPlaySeconds = 10.0;
     static constexpr double checkALevelPlaySeconds = 35.0;

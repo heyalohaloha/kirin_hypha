@@ -391,6 +391,8 @@ namespace hypha::reference_audition
             && sampleRateHz >= 8'000 && sampleRateHz <= 768'000
             && (channels == 1 || channels == 2)
             && nowMs >= 0 && nowMs <= maximumSafeInteger - receiptLeaseMs;
+        KIRIN_REFERENCE_AUTHORITY_FOR_TEST (this, nowMs, binding ? binding->issuedAtMs : 0,
+            binding ? binding->leaseExpiresAtMs : 0, binding.has_value(), authorityValid, local);
         if (! authorityValid)
         {
             observationArmed.store (false, std::memory_order_release);

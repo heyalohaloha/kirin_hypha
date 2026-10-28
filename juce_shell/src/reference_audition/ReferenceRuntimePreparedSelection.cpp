@@ -111,6 +111,7 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
 
 void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
 {
+    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "finish_selection_enter");
     const auto& configuration = prepared.configuration;
     const auto& selection = prepared.selection;
     auto& next = prepared.next;
@@ -133,7 +134,8 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
             invalidateBlind();
         else
             selectA();
-        currentPages().close();
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_close"); currentPages().close();
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open");
         const auto openFailure = currentPages().open (*selectedSource, configuration.sampleRate,
                                              configuration.channels, true);
         if (openFailure.isNotEmpty())
@@ -145,7 +147,7 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
         }
         activeSourceKey = sourceKey;
     }
-    workerSource = selectedSource;
+    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open_done"); workerSource = selectedSource;
 
     const auto cueKey = runtimeCuePlaybackIdentity (*cue);
     const auto mappingKey = activeSourceKey + ":" + cueKey;
@@ -176,7 +178,9 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
     next.sourceMaximumTruePeakDbtp = selectedSource->measurementSummary
         && selectedSource->measurementSummary->maximumTruePeakDbtp
         ? *selectedSource->measurementSummary->maximumTruePeakDbtp : unavailable();
+    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "blind_preparation");
     serviceBlindPreparation (configuration, *candidate, *cue, selectedSource, next);
+    KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_write");
     if (!configuration.identity.library && prepared.adoptionKey != activePresetAdoptionKey
         && presetAdoptionTransport.write (configuration.identity, prepared.event.manifestRevision,
             prepared.sourceTemplateArtifact, prepared.event.presetArtifact, prepared.preparedAtMs))
@@ -192,7 +196,8 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
         activeEventContext = prepared.event;
         activeEventCandidate = *candidate; activeEventCue = *cue; activeEventSource = selectedSource;
         appliedSelectionGeneration.store (selection.generation, std::memory_order_release);
-        publishReady (std::move (next), selectedSource, *cue);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "publish_ready"); publishReady (std::move (next), selectedSource, *cue);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "publish_ready_done");
         activePublishedSelectionKey = publicationKey;
     }
     // The new publication can already be selected while the old reader retires.

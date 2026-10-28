@@ -110,6 +110,18 @@ inline void verifySourceStepReasons()
                  && reference_ui::unavailableText (state, false)
                         == "C: Loading audio here; keep playing",
              "a verified source awaiting its playhead page names buffering, not an unknown failure");
+    b->sourceKind = "work_version"; b->auditionBuffered = false;
+    for (auto pages : { AuditionPageState::positionUnknown, AuditionPageState::mappingUnstable })
+    {
+        b->auditionPages = pages;
+        reference_ui::runtime_view::setSourceSteps (state, comparison);
+        require (state.versionStep == reference_ui::SourceStep::preparing,
+                 "an unknown or changing mapping is not an audio-page wait");
+    }
+    b->auditionPages = AuditionPageState::waiting;
+    reference_ui::runtime_view::setSourceSteps (state, comparison);
+    require (state.versionStep == reference_ui::SourceStep::loadingAudio, "only mapped page starvation uses the page notice budget");
+    b->auditionBuffered = true;
     c->auditionOutsideCue = true;
     reference_ui::runtime_view::setSourceSteps (state, comparison);
     require (state.checkStep == reference_ui::SourceStep::outsideCue

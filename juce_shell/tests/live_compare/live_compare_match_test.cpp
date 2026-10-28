@@ -3,6 +3,7 @@
 #include "live_compare_offset_test.h"
 #include "OffsetConfidenceTest.h"
 #include "LoopRuntimeMatchTest.h"
+#include "HighRateRingWindowTest.h"
 
 #include <cmath>
 #include <array>
@@ -45,23 +46,32 @@ struct Pair
     PostLevel level;
     std::int64_t clock = 0;
 
-    Pair()
+    const std::uint32_t sampleRate;
+    const int blockFrames;
+
+    explicit Pair (std::uint32_t sampleRateIn = rate, int blockFramesIn = frames)
+        : sampleRate (sampleRateIn), blockFrames (blockFramesIn)
     {
-        ring->initialise (key, rate);
+        ring->initialise (key, sampleRate);
         ring->header.demand.store (1);
-        renderer.prepare (4096, rate);
+        renderer.prepare (4096, sampleRate);
     }
 
     void run (double seconds, float preScale, float postGain, std::int64_t spikeAt = -1,
               std::int64_t contentDelay = 0)
     {
+        runBlocks (static_cast<int> (seconds * sampleRate / blockFrames), preScale, postGain, spikeAt, contentDelay);
+    }
+
+    void runBlocks (int blocks, float preScale, float postGain, std::int64_t spikeAt = -1,
+                    std::int64_t contentDelay = 0)
+    {
         std::vector<float> pre[2], post[2];
-        for (int c = 0; c < 2; ++c) { pre[c].assign (frames, 0.0f); post[c].assign (frames, 0.0f); }
-        const auto blocks = static_cast<int> (seconds * rate / frames);
+        for (int c = 0; c < 2; ++c) { pre[c].assign (blockFrames, 0.0f); post[c].assign (blockFrames, 0.0f); }
         for (int b = 0; b < blocks; ++b)
         {
             for (int c = 0; c < 2; ++c)
-                for (int i = 0; i < frames; ++i)
+                for (int i = 0; i < blockFrames; ++i)
                 {
                     const auto t = clock + i;
                     const float base = noise (t, c) * preScale;
@@ -70,16 +80,66 @@ struct Pair
                 }
             BlockClock block;
             block.clock = block.project = clock;
-            block.frames = frames;
+            block.frames = blockFrames;
             block.clockValid = block.projectValid = block.playing = true;
             const float* in[] = { pre[0].data(), pre[1].data() };
             feeder.feed (*ring, block, in, 2);
             float* io[] = { post[0].data(), post[1].data() };
-            renderer.render (*ring, key, rate, block, io, 2, false, 1.0f, level, 1.0f, 1.0f);
-            clock += frames;
+            renderer.render (*ring, key, sampleRate, block, io, 2, false, 1.0f, level, 1.0f, 1.0f);
+            clock += blockFrames;
         }
     }
 };
+}
+
+
+// Drive only processed audio frames: host speed and wall-clock scheduling do not set the deadline.
+static void freshMatchesAtSupportedRates()
+{
+    bool allReady = true;
+    for (const auto sampleRate : { 48000u, 96000u, 176400u, 192000u })
+        for (const int blockFrames : { 512, 768 })
+        {
+            if (blockFrames == 768 && sampleRate != 192000u) continue;
+            Pair pair (sampleRate, blockFrames);
+            MatchResult result;
+            while (pair.clock + blockFrames <= 4 * sampleRate)
+            {
+                pair.runBlocks (1, 1.0f, 0.5f);
+                // Retry every half second of audio, as preparation does, once history can qualify.
+                if (pair.clock >= 3 * sampleRate
+                    && (pair.clock / (sampleRate / 2) != (pair.clock - blockFrames) / (sampleRate / 2)))
+                {
+                    result = computeMatch (*pair.ring, pair.renderer, sampleRate);
+                    if (result.ok()) break;
+                }
+            }
+            std::printf ("fresh MATCH rate=%u block=%d audio=%.6f failure=%d (%s)\n",
+                         sampleRate, blockFrames, static_cast<double> (pair.clock) / sampleRate,
+                         static_cast<int> (result.failure), result.failure == MatchFailure::overwritten
+                             ? "overwritten" : result.ok() ? "ok" : "not ready");
+            allReady = allReady && result.ok();
+        }
+    std::fflush (stdout);
+    require (allReady, "fresh MATCH is ready within four seconds at every supported rate");
+}
+
+// Finer probes preserve the normal-rate readiness budget independently of half-second retries.
+static void normalRateReadinessDoesNotGrow()
+{
+    Pair pair;
+    MatchResult result;
+    while (pair.clock + frames <= static_cast<std::int64_t> (rate) * 33 / 10)
+    {
+        pair.runBlocks (1, 1.0f, 0.5f);
+        if (pair.clock >= 3 * rate)
+        {
+            result = computeMatch (*pair.ring, pair.renderer, rate);
+            if (result.ok()) break;
+        }
+    }
+    std::printf ("normal-rate first MATCH: audio=%.6f seconds\n", static_cast<double> (pair.clock) / rate);
+    require (result.ok(), "48 kHz MATCH is ready within 3.3 seconds of audio");
 }
 
 // The measured difference is POST minus PRE loudness over the aligned window, within 0.1 dB.
@@ -309,6 +369,11 @@ static void measurementProofNeverBridgesAnUnverifiedBlock()
 
 int main()
 {
+    freshMatchesAtSupportedRates();
+    normalRateReadinessDoesNotGrow();
+    hypha::tests::verifyHighRateRingWindows<Pair> (require);
+    std::printf ("ring ABI=%u capacity=%u sizeof(Ring)=%zu sizeof(header)=%zu\n",
+                 ringVersion, ringCapacityFrames, sizeof (Ring), sizeof (RingHeader));
     verifyRuntimeLoopMatch();
     matchesALevelDifference();
     aBoostAboveTheCeilingAsksToLowerPost();

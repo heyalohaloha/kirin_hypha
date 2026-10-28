@@ -49,7 +49,7 @@ const std::array<Stage, stageCount> stages { {
     { K::waiting, W::preparation, "VERIFYING SOURCE / WAIT A MOMENT", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
       "Verifying source", "Verifying %1 source", "The source is being checked. A stays live." },
     // loadingAudio
-    { K::waiting, W::preparation, "LOADING %1 AT PLAYHEAD / KEEP PLAYING", "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION",
+    { K::waiting, W::pages, "LOADING %1 AT PLAYHEAD / KEEP PLAYING", "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION",
       "Loading audio here; keep playing", "Loading %1 at the playhead", "Keep playing while audio loads." },
     // outsideCue
     { K::unable, W::none, "OUTSIDE %1 CUE / MOVE OR CHOOSE LONGER CUE", "", "Outside Cue; move or choose longer Cue",
@@ -123,6 +123,7 @@ double budgetSeconds (WaitBudget budget) noexcept
     switch (budget)
     {
         case WaitBudget::kirinOsResponse: return PreparationBudget::kirinOsResponseSeconds;
+        case WaitBudget::pages: return PreparationBudget::pageReadSeconds;
         case WaitBudget::preparation: return PreparationBudget::preparationSeconds;
         case WaitBudget::alignmentPlay: return PreparationBudget::alignmentPlaySeconds;
         case WaitBudget::none: break;

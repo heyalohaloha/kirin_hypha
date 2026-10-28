@@ -261,6 +261,10 @@
 
     #[test]
     fn juce_watch_and_delta_have_one_observatory_path() {
+        let source = without_cpp_comments(PLUGIN_EDITOR_CPP);
+        let snapshot = cpp_body(&source, "void KirinHyphaEditor::refreshWatchSnapshot()");
+        assert!(snapshot.contains("observatoryWatchDisplay = watch;"));
+        assert!(snapshot.contains("haveObservatoryWatchDisplay = true;"));
         assert!(PLUGIN_EDITOR_CPP.contains("processorRef.pollWatchDisplay (watch)"));
         assert!(PLUGIN_EDITOR_CPP.contains("observatoryWatchDisplay = watch;"));
         assert!(PLUGIN_EDITOR_CPP.contains("observatoryView.setWatchDisplay ("));

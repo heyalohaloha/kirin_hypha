@@ -22,7 +22,7 @@ MATCH済みであることは前提にせず、BLINDを直接押した後の固�
 LOOP解除・再MATCH・LOOP専用モード・利用者の追加確認はこの経路へ加えない。
 
 PREが常時公開するのは128 bytesの固定時計metadataだけで、PCM履歴・demand・gain・選択・出力許可は持たない。
-既存のPCM容量は524288 framesのまま、音声コピーは明示比較のdemand後だけ行う。
+PCM容量は1,048,576 framesに固定し、192 kHzでも4秒のMATCH/PIN窓と読取り余裕を確保する。共有ringはversion 10専用名で旧版と分離し、音声コピーは明示比較のdemand後だけ行う。
 POSTの準備leaseはdemandを所有せず、終了しても実比較の音声コピーを止めない。
 既存service timerを待機中250 ms、明示比較・復帰・他の未完了処理中50 msで再利用し、新timer／workerは作らない。
 新layoutはversion 5と専用名で旧版を分離する。実processor全体の負荷受入は、局所metadataの小ささとは別に測る。

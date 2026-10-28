@@ -119,7 +119,11 @@ inline SourceStep slotStep (const reference_audition::Snapshot& slot, bool playi
         case Runtime::ready:
             return ! playing ? SourceStep::playDaw
                  : slot.auditionOutsideCue ? SourceStep::outsideCue
-                 : slot.auditionBuffered ? SourceStep::ready : SourceStep::loadingAudio;
+                  : slot.auditionBuffered ? SourceStep::ready
+                 : slot.sourceKind == "work_version"
+                     && (slot.auditionPages == reference_audition::AuditionPageState::positionUnknown
+                         || slot.auditionPages == reference_audition::AuditionPageState::mappingUnstable)
+                     ? SourceStep::preparing : SourceStep::loadingAudio;
         case Runtime::verifying: return SourceStep::verifyingSource;
         case Runtime::rejected: return rejectedStep (code);
         case Runtime::waiting:

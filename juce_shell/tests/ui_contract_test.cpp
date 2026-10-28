@@ -8,6 +8,7 @@
 #include "../src/pre_display/PreDisplayProjection.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
 #include "OperatingSystemTextContract.h"
+#include "FiniteComparison.h"
 
 #include <cassert>
 #include <cmath>
@@ -47,6 +48,16 @@ namespace
 
 int main()
 {
+    assert (hypha::tests::finiteNear (1.0f, 1.0f, 0.0f));
+    assert (! hypha::tests::finiteNear (1.1f, 1.0f, .001f));
+    for (const float invalid : { std::numeric_limits<float>::quiet_NaN(),
+                                std::numeric_limits<float>::infinity(),
+                                -std::numeric_limits<float>::infinity() })
+    {
+        assert (! hypha::tests::finiteNear (invalid, 1.0f, .001f));
+        assert (! hypha::tests::finiteNear (1.0f, invalid, .001f));
+        assert (! hypha::tests::finiteNear (1.0f, 1.0f, invalid));
+    }
     static_assert (sizeof (KirinAbiContract) == 112);
     static_assert (sizeof (KirinSnapshotAbiContract) == 248);
     static_assert (offsetof (KirinSnapshotAbiContract, summary_size) == 40);

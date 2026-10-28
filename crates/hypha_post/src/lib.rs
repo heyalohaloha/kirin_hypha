@@ -1477,10 +1477,20 @@ mod b147_record_state_tests {
         assert_eq!(window.end_frame, 512);
         assert_eq!(window.position_samples, 96_000);
         assert_eq!(window.num_frames, 412);
+        let window = kirin_measure::record_window_for_buffer(512, 96_900, Some((96_000, 97_000)));
+        assert_eq!(window.start_frame, 0);
+        assert_eq!(window.end_frame, 100);
+        assert_eq!(window.position_samples, 96_900);
+        assert_eq!(window.num_frames, 100);
     }
 
     #[test]
-    fn record_window_drops_tail_after_loop_end() {
+    fn record_window_before_loop_is_empty() {
+        let window = kirin_measure::record_window_for_buffer(512, 95_000, Some((96_000, 97_000)));
+        assert_eq!(window.num_frames, 0);
+        assert_eq!(window.start_frame, 0);
+        assert_eq!(window.end_frame, 0);
+        assert_eq!(window.position_samples, 96_000);
         let window = kirin_measure::record_window_for_buffer(512, 97_000, Some((96_000, 97_000)));
         assert_eq!(window.num_frames, 0);
         assert_eq!(window.start_frame, 0);
@@ -1621,57 +1631,4 @@ mod b147_record_state_tests {
 }
 
 #[cfg(test)]
-mod pair_pre_name_persist_tests {
-    use kirin_measure::sanitize_name;
-    use nih_plug::params::persist::{deserialize_field, serialize_field};
-    use std::sync::RwLock;
-
-    /// Test 1: 空文字保存・復元。pair_pre_name 未設定の Default::default() 状態
-    /// (空文字) が chunk persist と同経路を経ても空文字のまま戻ることを構造的に固定する。
-    #[test]
-    fn pair_pre_name_roundtrip_empty() {
-        let rw: RwLock<String> = RwLock::new(String::new());
-        let json = serialize_field(&*rw.read().unwrap()).expect("serialize empty");
-        assert_eq!(json, r#""""#);
-        let restored: String = deserialize_field(&json).expect("deserialize empty");
-        let rw2: RwLock<String> = RwLock::new(restored);
-        assert_eq!(*rw2.read().unwrap(), "");
-    }
-
-    /// Test 2: ASCII 16 文字保存・復元。境界値が完全一致で戻ることを固定。
-    #[test]
-    fn pair_pre_name_roundtrip_ascii_16() {
-        let original = "AbcDefGhi1234567"; // 16 文字
-        assert_eq!(original.len(), 16);
-        let rw: RwLock<String> = RwLock::new(original.to_string());
-        let json = serialize_field(&*rw.read().unwrap()).expect("serialize ascii_16");
-        let restored: String = deserialize_field(&json).expect("deserialize ascii_16");
-        let rw2: RwLock<String> = RwLock::new(restored);
-        assert_eq!(*rw2.read().unwrap(), original);
-    }
-
-    /// Test 3: sanitize_name が 17 文字目以降を truncate する。
-    #[test]
-    fn pair_pre_name_sanitize_truncates_over_16() {
-        let raw = "a".repeat(20);
-        let sanitized = sanitize_name(&raw);
-        assert_eq!(sanitized.len(), 16);
-        assert_eq!(sanitized, "a".repeat(16));
-    }
-
-    /// B-077 Test 4: sanitize_name が非 ASCII（日本語）を **保持**する（旧: strip）。
-    #[test]
-    fn pair_pre_name_sanitize_keeps_non_ascii() {
-        let raw = "日本語Snare";
-        let sanitized = sanitize_name(raw);
-        assert_eq!(sanitized, "日本語Snare");
-    }
-
-    /// Test 5: sanitize_name が制御文字を strip する。
-    #[test]
-    fn pair_pre_name_sanitize_strips_control_chars() {
-        let raw = "\x01Snare\x7f";
-        let sanitized = sanitize_name(raw);
-        assert_eq!(sanitized, "Snare");
-    }
-}
+mod pair_pre_name_persist_tests;

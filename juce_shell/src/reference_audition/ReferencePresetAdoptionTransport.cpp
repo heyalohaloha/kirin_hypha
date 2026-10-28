@@ -1,5 +1,6 @@
 #include "ReferencePresetAdoptionTransport.h"
 #include "../AtomicFile.h"
+#include "ReferenceTestCommitObserver.h"
 #include <regex>
 
 #include "ReferenceRuntimeEventTransport.h"
@@ -135,28 +136,32 @@ namespace hypha::reference_audition
 
         bool writeImmutable (const juce::File& target, const juce::String& content)
         {
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_create_directory");
             const auto bytes = static_cast<std::int64_t> (content.getNumBytesAsUTF8());
             if (bytes < 1 || bytes > maximumPresetAdoptionBytes
                 || ! target.getParentDirectory().createDirectory())
                 return false;
             // Keep the sibling name shorter than the receipt name so atomic publication does
             // not exceed Windows path limits when the destination itself still fits.
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_temporary_sibling");
             juce::TemporaryFile staged (target, hypha::storage::temporarySibling (target));
             const auto temporary = staged.getFile();
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_open_write");
             auto stream = temporary.createOutputStream();
             if (stream == nullptr || ! stream->openedOk()
                 || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes)))
                 return false;
-            stream->flush();
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_sync"); stream->flush();
             const bool flushed = ! stream->getStatus().failed();
-            stream.reset();
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_close"); stream.reset();
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_move");
             if (! flushed || ! makePrivate (temporary)
                 || target.exists() || ! temporary.moveFileTo (target))
             {
                 temporary.deleteFile();
                 return false;
             }
-            return fsyncDirectory (target.getParentDirectory());
+            KIRIN_REFERENCE_STAGE_CURRENT_FOR_TEST ("adoption_done"); return fsyncDirectory (target.getParentDirectory());
         }
 
         bool existingMatches (const juce::File& file, const RuntimeIdentity& identity,
@@ -220,12 +225,15 @@ namespace hypha::reference_audition
         const RuntimeSourcePresetReceipt& sourceTemplate,
         const RuntimeSourcePresetReceipt& sourcePreset, std::int64_t adoptedAtMs) const
     {
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_file_validate");
         const auto file = adoptionFile (identity, manifestRevision, sourcePreset);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_receipt_validate");
         if (file == juce::File() || ! validReceipt (sourceTemplate)
             || sourceTemplate.presetId != sourcePreset.presetId
             || sourceTemplate.revisionId == sourcePreset.revisionId
             || adoptedAtMs < 0 || adoptedAtMs > maxSafeJsonInteger)
             return false;
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_exists");
         if (file.exists())
             return existingMatches (file, identity, manifestRevision, sourceTemplate, sourcePreset);
 
@@ -239,8 +247,10 @@ namespace hypha::reference_audition
         object->setProperty ("source_template_artifact", receiptValue (sourceTemplate));
         object->setProperty ("source_preset_artifact", receiptValue (sourcePreset));
         object->setProperty ("adopted_at_ms", adoptedAtMs);
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_canonical_json");
         const auto content = RuntimeEventTransport::canonicalJson (juce::var (object));
         if (content.isEmpty()) return false;
+        KIRIN_REFERENCE_STAGE_FOR_TEST (this, "adoption_write_immutable");
         return writeImmutable (file, content)
             || existingMatches (file, identity, manifestRevision, sourceTemplate, sourcePreset);
     }

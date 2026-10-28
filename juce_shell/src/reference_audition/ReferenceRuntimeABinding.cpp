@@ -1,8 +1,15 @@
 #include "ReferenceRuntimeABinding.h"
+#include "ReferenceTestCommitObserver.h"
 
 #include <limits>
 #include <regex>
 #include <stdexcept>
+#if JUCE_WINDOWS && defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
 
 namespace hypha::reference_audition
 {
@@ -56,18 +63,34 @@ namespace hypha::reference_audition
 
         bool readBoundedJson (const juce::File& file, juce::var& value)
         {
-            if (! file.existsAsFile() || file.isSymbolicLink())
-                return false;
+           #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            const bool exists = file.existsAsFile();
+           #if JUCE_WINDOWS
+            const auto error = exists ? 0ul : GetLastError();
+           #else
+            const auto error = 0ul;
+           #endif
+            const bool symbolic = exists && file.isSymbolicLink();
+            KIRIN_REFERENCE_BINDING_ERROR_FOR_TEST (error);
+            KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST (!exists ? "file_not_regular" : symbolic ? "file_symlink" : "file_facts");
+            if (!exists || symbolic) return false;
+           #else
+            if (! file.existsAsFile() || file.isSymbolicLink()) return false;
+           #endif
+            KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("file_size");
             const auto size = file.getSize();
             if (size < 1 || size > maximumBindingBytes
                 || size > std::numeric_limits<int>::max())
                 return false;
+            KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("file_open");
             auto stream = file.createInputStream();
             if (stream == nullptr || ! stream->openedOk())
                 return false;
             juce::MemoryBlock bytes (static_cast<size_t> (size), true);
+            KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("file_read");
             if (stream->read (bytes.getData(), static_cast<int> (size)) != size)
                 return false;
+            KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("encoding");
             const auto* raw = static_cast<const char*> (bytes.getData());
             if (size >= 3 && static_cast<unsigned char> (raw[0]) == 0xef
                 && static_cast<unsigned char> (raw[1]) == 0xbb
@@ -75,6 +98,7 @@ namespace hypha::reference_audition
                 return false;
             if (! juce::CharPointer_UTF8::isValidString (raw, static_cast<int> (size)))
                 return false;
+            KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("json_parse");
             value = juce::JSON::parse (juce::String::fromUTF8 (raw, static_cast<int> (size)));
             return ! value.isVoid();
         }
@@ -108,12 +132,15 @@ namespace hypha::reference_audition
     std::optional<RuntimeABinding> RuntimeABindingRepository::loadWithClock (
         const RuntimeIdentity& identity, const ReadClock& clock) const
     {
+        KIRIN_REFERENCE_BINDING_READ_FOR_TEST (this);
+        KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("identity");
         if (! identity.valid() || ! runtimeId (identity.runtimeInstanceId)
             || ! canonicalUuid (identity.workId))
             return std::nullopt;
         juce::var value;
         if (! readBoundedJson (bindingFile (identity.runtimeInstanceId), value))
             return std::nullopt;
+        KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("schema");
         const auto* object = value.getDynamicObject();
         if (object == nullptr || ! exactProperties (*object, {
                 "format", "version", "binding_id", "runtime_instance_id",
@@ -124,6 +151,10 @@ namespace hypha::reference_audition
             return std::nullopt;
 
         const auto nowMs = clock();
+        KIRIN_REFERENCE_BINDING_VALUES_FOR_TEST (nowMs,
+            static_cast<std::int64_t> (object->getProperty ("issued_at_ms")),
+            static_cast<std::int64_t> (object->getProperty ("lease_expires_at_ms")));
+        KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("clock");
         if (nowMs < 0 || nowMs > maximumSafeInteger) return std::nullopt;
         RuntimeABinding result;
         result.bindingId = object->getProperty ("binding_id").toString();
@@ -131,6 +162,7 @@ namespace hypha::reference_audition
         result.workId = object->getProperty ("work_id").toString();
         result.recordingId = object->getProperty ("recording_id").toString();
         std::int64_t processId = 0;
+        KIRIN_REFERENCE_BINDING_STAGE_FOR_TEST ("fields_or_time");
         if (! uuidV4 (result.bindingId)
             || ! runtimeId (result.runtimeInstanceId)
             || result.runtimeInstanceId != identity.runtimeInstanceId
@@ -147,6 +179,7 @@ namespace hypha::reference_audition
             || result.leaseExpiresAtMs <= result.issuedAtMs
             || result.leaseExpiresAtMs - result.issuedAtMs > maximumLeaseMs)
             return std::nullopt;
+        KIRIN_REFERENCE_BINDING_ACCEPT_FOR_TEST();
         result.hostProcessId = static_cast<std::uint32_t> (processId);
         return result;
     }

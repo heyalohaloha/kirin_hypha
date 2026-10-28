@@ -86,6 +86,7 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
         tests/live_compare/live_compare_match_test.cpp
         tests/live_compare/live_compare_offset_test.cpp
         src/live_compare/LiveCompareMatch.cpp
+        src/live_compare/LiveComparePin.cpp
         src/live_compare/LiveCompareOffset.cpp)
     target_compile_features(KirinLiveCompareMatchTests PRIVATE cxx_std_17)
     target_compile_options(KirinLiveCompareMatchTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})

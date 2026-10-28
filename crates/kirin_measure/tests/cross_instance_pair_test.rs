@@ -88,7 +88,22 @@ fn cross_instance_pair_struct_roundtrip() {
 
 #[test]
 fn schema_version_v13() {
-    assert_eq!(PluginDataFile::SCHEMA_VERSION, "1.3");
+    let data = PluginDataFile::new(
+        "install".into(),
+        "project".into(),
+        "instance".into(),
+        Role::Pre,
+        None,
+        48_000,
+        None,
+        None,
+        None,
+        None,
+    );
+    let json = serde_json::to_value(&data).unwrap();
+    assert_eq!(json["schema_version"], "1.3");
+    let restored: PluginDataFile = serde_json::from_value(json).unwrap();
+    assert_eq!(restored.schema_version, "1.3");
 }
 
 #[test]

@@ -7,23 +7,29 @@ namespace hypha::reference_audition
 // 掛けていた値（追従で動いた後の値）。MATCH は測り直さない（C の固定を崩さない・窓が空でも gain が飛ばない）。
 bool RuntimeV2Controller::resumeHeld (std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept
 {
-    if (blind.ongoing() || bSelected.load (std::memory_order_acquire) || revokeAfterFade.load (std::memory_order_acquire))
-        return false;
+    return resumeHeldResult (selectionGeneration, playbackIdentity) == StartResult::started;
+}
+
+RuntimeV2Controller::StartResult RuntimeV2Controller::resumeHeldResult (
+    std::uint64_t selectionGeneration, const juce::String& playbackIdentity) noexcept
+{
+    if (blind.ongoing()) return StartResult::refused;
+    if (revokeAfterFade.load (std::memory_order_acquire)) return StartResult::preparing;
+    if (bSelected.load (std::memory_order_acquire)) return StartResult::stale;
     {
         const juce::ScopedLock lock (stateLock);
         if (! heldSelection.valid || playbackIdentity.isEmpty() || heldSelection.playbackIdentity != playbackIdentity
             || currentSnapshot.playbackIdentity != playbackIdentity || ! ready.load (std::memory_order_acquire)
             || normalSelectionGeneration.load (std::memory_order_acquire) != selectionGeneration)
-            return false;
+            return StartResult::stale;
         auto prepared = heldSelection.facts;
         prepared.auditionEpoch = auditionEpoch.load (std::memory_order_acquire);
         prepared.selectionGeneration = selectionGeneration;
         prepared.valid = true;
         preparedNormalSelection = prepared;
     }
-    if (! activatePreparedB (selectionGeneration)) return false;
     // Automatic resumption continues the same audition event session.
-    return true;
+    return activatePreparedB (selectionGeneration);
 }
 
 std::uint64_t RuntimeV2Controller::requestedGeneration() const

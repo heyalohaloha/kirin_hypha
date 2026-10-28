@@ -37,6 +37,8 @@
  #include <sys/stat.h>
 #endif
 
+#include "ReferenceAuthorityPublisher.h"
+
 namespace ref = hypha::reference_audition;
 
 namespace
@@ -175,6 +177,8 @@ namespace
 
     [[maybe_unused]] bool writeJson (const juce::File& file, const juce::var& value)
     {
+        if (value["format"].toString() == "kirin_hypha_reference_a_binding")
+            return publishReferenceBindingByRename (file, value);
         if (! file.getParentDirectory().createDirectory())
             return false;
         juce::TemporaryFile temporary (file, hypha::storage::temporarySibling (file));

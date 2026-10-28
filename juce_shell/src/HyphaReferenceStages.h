@@ -14,6 +14,7 @@ enum class WaitBudget
 {
     none,             // 利用者の操作を待つ（上限なし）
     kirinOsResponse,  // Kirin OS の応答（5 秒）
+    pages,           // Audio pages: explain slow I/O after three seconds; keep the selection.
     preparation,      // 音源の確認・読み込み・準備（10 秒）
     alignmentPlay,    // 位置合わせ（再生 30 秒ぶん）
 };

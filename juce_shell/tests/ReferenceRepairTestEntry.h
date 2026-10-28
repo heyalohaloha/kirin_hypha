@@ -2,6 +2,7 @@
 #include "ReferenceVersionPositionTest.h"
 #include "ReferenceVersionLoopTest.h"
 #include "ReferenceVersionSwitchTest.h"
+#include "ReferencePageStartDiagnostic.h"
 #include "ReferenceWorkingMixTest.h"
 #include "ReferenceShiftedMixAlignmentTest.h"
 #include "ReferenceCheckSwitchTest.h"
@@ -16,6 +17,14 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
     else if (mode == "--version-splice-proof-only") testReferenceVersionLoop (sandbox, false, false, true);
     else if (mode == "--version-fresh-proof-only") testReferenceVersionLoop (sandbox, false, true);
     else if (mode == "--version-mix-loop-only") testReferenceVersionLoop (sandbox, true);
+    else if (mode == "--page-seek-publication-only")
+    { for (bool switching : { false, true }) testReferencePageStart (sandbox, switching, false, false, false, PageWaitChange::seekPublication); }
+    else if (mode == "--page-range-only")
+    { for (bool switching : { false, true }) for (auto change : { PageWaitChange::negative, PageWaitChange::atEnd, PageWaitChange::pastEnd }) testReferencePageStart (sandbox, switching, false, false, false, change); }
+    else if (mode == "--page-read-wait-only")
+    { for (bool switching : { false, true }) for (auto change : { PageWaitChange::slowPages, PageWaitChange::readFailure, PageWaitChange::sourceGone }) testReferencePageStart (sandbox, switching, false, false, false, change); }
+    else if (mode == "--page-switch-only") { testReferencePageStart (sandbox, true); testReferencePageStart (sandbox, true, false, true); testReferencePageStart (sandbox, true, false, false, true); testReferencePageStart (sandbox, true, false, false, false, PageWaitChange::transportStop); testReferencePageStart (sandbox, true, false, false, false, PageWaitChange::newSelection); }
+    else if (mode == "--page-first-only") { testReferencePageStart (sandbox, false); testReferencePageStart (sandbox, false, false, true); testReferencePageStart (sandbox, false, false, false, true); testReferencePageStart (sandbox, false, false, false, false, PageWaitChange::transportStop); testReferencePageStart (sandbox, false, false, false, false, PageWaitChange::newSelection); }
     else if (mode == "--version-switch-only") testReferenceVersionSwitch (sandbox);
     else if (mode == "--version-edited-switch-only") testReferenceVersionSwitch (sandbox, true);
     else if (mode == "--content-copy-proof-only") testReferenceWorkingMix (sandbox, true, true);

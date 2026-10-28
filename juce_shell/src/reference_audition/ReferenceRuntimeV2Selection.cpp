@@ -1,5 +1,6 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceCopyCorrespondence.h"
+#include "ReferenceObservationTestHook.h"
 
 #include <limits>
 
@@ -49,12 +50,19 @@ namespace hypha::reference_audition
                                                 bool positionValid,
                                                 bool playing) noexcept
     {
+        if (versionComparison)
+        {
+            rtObservationEpoch += 2;
+            rtObservationPending = true;
+            inputObservationGeneration.store (rtObservationEpoch - 1, std::memory_order_seq_cst);
+        }
         latestPlaying.store (playing, std::memory_order_release);
         latestPositionValid.store (positionValid, std::memory_order_release);
         transportHeartbeat.fetch_add (1, std::memory_order_release);
         if (! positionValid)
             return;
         latestHostPosition.store (hostPosition, std::memory_order_release);
+        KIRIN_REFERENCE_POSITION_FOR_TEST (this);
         const auto sourcePosition = mappedSourcePosition (hostPosition);
         if (sourcePosition >= 0)
             currentPages().request (sourcePosition);
@@ -83,6 +91,11 @@ namespace hypha::reference_audition
                                              bool playing,
                                              bool auditionAllowed, bool confirmAudible) noexcept
     {
+        if (versionComparison && !rtObservationPending)
+        {
+            rtObservationEpoch += 2;
+            inputObservationGeneration.store (rtObservationEpoch - 1, std::memory_order_seq_cst);
+        }
         aCapture.observe (input, hostPosition, positionValid, playing,
                           auditionAllowed && (!versionComparison || contentObservationDemands.load (std::memory_order_acquire) != 0
                               || bSelected.load (std::memory_order_acquire) || blind.ongoing()) && (versionComparison
@@ -90,6 +103,14 @@ namespace hypha::reference_audition
         if (confirmAudible && auditionAllowed && playing && positionValid && input.getNumSamples() > 0
             && ! bSelected.load (std::memory_order_acquire) && !normalReturnToken.load (std::memory_order_acquire) && ! blind.ongoing())
             aAudibleConfirmations.fetch_add (1, std::memory_order_release);
+        if (versionComparison)
+        {
+            rtObservationPending = false;
+            if (latestPositionValid.load (std::memory_order_relaxed) == positionValid
+                && latestPlaying.load (std::memory_order_relaxed) == playing
+                && (!positionValid || latestHostPosition.load (std::memory_order_relaxed) == hostPosition))
+                inputObservationGeneration.store (rtObservationEpoch, std::memory_order_release);
+        }
     }
 
     std::int64_t RuntimeV2Controller::mappedSourcePosition (

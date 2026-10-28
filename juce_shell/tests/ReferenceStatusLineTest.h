@@ -258,6 +258,28 @@ inline void verifyReferenceStatusLine()
              "preparing over 10 s becomes unavailable with its fix");
     require (watch.observe (2, Step::loadingAudio, false, true, true, 111.0).isEmpty(), "a new step starts a new count");
     require (watch.observe (3, Step::loadingAudio, false, true, true, 125.0).isEmpty(), "another role starts a new count");
+    reference_ui::PreparationWatch pagesWatch;
+    require (pagesWatch.observe (1, Step::loadingAudio, false, true, true, 100.0).isEmpty()
+                 && pagesWatch.observe (1, Step::loadingAudio, false, true, true, 102.999).isEmpty(),
+             "page recovery text stays hidden before three seconds");
+    const auto slowPageReason = pagesWatch.observe (1, Step::loadingAudio, false, true, true, 103.0);
+    require (slowPageReason == "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION"
+                 && pagesWatch.observe (1, Step::loadingAudio, false, true, true, 103.001) == slowPageReason,
+             "the three-second boundary shows a reason and recovery without cancelling");
+    auto slowPages = named ("ready");
+    slowPages.bSelected = false;
+    slowPages.separateComparisons = true;
+    slowPages.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::checking, "reference_page_wait_slow" };
+    slowPages.preparationOverdue = slowPageReason;
+    const auto slowLine = reference_ui::referenceStatusLine (slowPages);
+    require (slowLine.kind == StatusKind::waiting && slowLine.text.contains ("AUDIO STILL LOADING"),
+             "slow I/O remains a selected wait, not a stopped audition");
+    slowPages.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::startFailed, "reference_position_outside_source" };
+    require (reference_ui::referenceStatusLine (slowPages).text.contains ("MOVE INSIDE VERSION, THEN PRESS V"),
+             "an out-of-range stop shows a way back");
+    slowPages.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::sourceChanged, "reference_audio_read_failed" };
+    require (reference_ui::referenceStatusLine (slowPages).text.contains ("AUDIO READ FAILED"),
+             "decoder failure is distinct from a slow read");
     for (double now = 200.0; now <= 260.0; now += 0.5)  // 位置合わせ：再生していない間は数えない
         require (watch.observe (1, Step::aligning, false, true, now > 230.0, now).isEmpty(),
                  "aligning counts only the time the DAW plays");
@@ -283,7 +305,7 @@ inline void verifyReferenceStatusLine()
     for (const auto* reason : { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
                                 "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
                                 "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
-                                "AUDIO NOT LOADED IN 10 S / PLAY FROM ANOTHER POSITION", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
+                                "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
                                 "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN" })
         require (i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese) != juce::String ("V: ") + reason
                      && ! i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese).containsIgnoreCase ("NOT"),

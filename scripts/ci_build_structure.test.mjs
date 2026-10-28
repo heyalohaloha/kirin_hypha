@@ -161,3 +161,20 @@ test('native shards use the checked stride; Windows test failures do not skip la
     assert.ok(windows.includes(`id: ${id}\n        if: \${{ !cancelled() && steps.${previous}.outcome == 'success' }}`));
   }
 });
+
+
+test('release checks execute each shared source gate once and include legacy GUI tests', () => {
+  const lightweight = spawnSync('/bin/bash', ['scripts/test_lightweight_contract.sh', '--plan'], { encoding: 'utf8' });
+  assert.equal(lightweight.status, 0, lightweight.stderr);
+  const commands = plan('--phase', 'checks', '--plan') + lightweight.stdout;
+  const tokens = commands.split(/\s+/);
+  for (const file of ['scripts/check_typography_source.test.mjs', 'scripts/check_typography_source.mjs',
+    'scripts/check_screen_text.test.mjs', 'scripts/check_screen_text.mjs',
+    'scripts/ls_release/release_source_identity.test.mjs',
+    'scripts/provenance/unsigned_qualification.test.mjs', 'scripts/provenance/runtime_guard.test.mjs',
+    'scripts/provenance/native_link_evidence.test.mjs', 'scripts/provenance/factory_artifact.test.mjs']) {
+    assert.equal(tokens.filter(token => token === file).length, 1, file);
+  }
+  assert.match(plan('--phase', 'rust', '--plan'), /cargo test -p hypha_pre -p hypha_post -p hypha_gui --locked/);
+  assert.match(commands, /cargo clippy -p hypha_pre -p hypha_post -p hypha_gui --all-targets/);
+});

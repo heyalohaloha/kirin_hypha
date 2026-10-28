@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceControllerTestAccess.h"
+#include "ReferenceWorkspaceWaitDiagnostic.h"
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "../src/reference_audition/ReferenceRuntimeV2PlaybackIdentity.h"
 
@@ -123,14 +124,14 @@ namespace
                      presetId, revisionId, presetFile, nextRevision)),
                  "unrelated Check and B options must publish before refresh");
         auto nextRenewal = std::chrono::steady_clock::now();
-        hypha::tests::reference_control::await ([&] {
-            if (controller.snapshot().manifestRevision == nextRevision) return true;
+        reference_wait_diagnostic::await ("unrelated_publication_next_revision", controller, [&] {
+            if (reference_wait_diagnostic::all ({{ "nextRevision", controller.snapshot().manifestRevision == nextRevision }})) return true;
             if (std::chrono::steady_clock::now() >= nextRenewal)
             { renewA(); nextRenewal = std::chrono::steady_clock::now() + std::chrono::seconds (1); }
             controller.observeTransport (hostPosition, true, true);
             output.clear();
             controller.renderSelectedB (output, hostPosition, true);
-            return controller.snapshot().manifestRevision == nextRevision;
+            return reference_wait_diagnostic::all ({{ "nextRevision", controller.snapshot().manifestRevision == nextRevision }});
         });
         const auto after = controller.snapshot();
         std::cout << "refresh revision " << before.manifestRevision << " -> " << after.manifestRevision

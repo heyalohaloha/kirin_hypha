@@ -175,7 +175,7 @@ fn local_profile_is_invariant_to_native_rate_stereo_antiphase_and_fixed_gain() {
 }
 
 #[test]
-fn local_profile_refuses_unordered_or_nonfinite_diagnostic_thresholds() {
+fn local_profile_cli_validates_arguments_and_serializes_research_identity() {
     let pcm = levels(48_000, &[0.0; 10]);
     for thresholds in [&[][..], &[2.0, 1.0], &[f64::NAN], &[0.0]] {
         assert_eq!(
@@ -183,4 +183,48 @@ fn local_profile_refuses_unordered_or_nonfinite_diagnostic_thresholds() {
             "local_profile_parameters_invalid"
         );
     }
+    assert!(run(&[]).unwrap_err().to_string().contains("usage:"));
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("input.wav");
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 48_000,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+    for sample in exponential(48_000, 0.3, -40.0) {
+        writer.write_sample(sample).unwrap();
+    }
+    writer.finalize().unwrap();
+    let mut args = vec![
+        path.to_str().unwrap().into(),
+        "0".into(),
+        "0".into(),
+        "250".into(),
+        "-90".into(),
+    ];
+    let json = run(&args).unwrap();
+    assert_eq!(json["schema"], "hypha.space.fixed-window-research.v1");
+    assert_eq!(json["product_qualified"], false);
+    assert_eq!(json["sample_rate"], 48_000);
+    assert_eq!(json["captured_frames"], 12_000);
+    assert_eq!(
+        json["input_sha256"],
+        hex::encode(Sha256::digest(std::fs::read(path).unwrap()))
+    );
+    assert_eq!(
+        json["local_decay_profile"]["thresholds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
+    args[3] = "6001".into();
+    assert!(run(&args)
+        .unwrap_err()
+        .to_string()
+        .contains("unsupported research input or range"));
+    args[1] = "not-a-frame".into();
+    assert!(run(&args).is_err());
 }

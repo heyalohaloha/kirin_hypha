@@ -1,3 +1,4 @@
+#include "FiniteComparison.h"
 #include "ProductTestClock.h"
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FiniteComparison.h"
 #include <cmath>
 #include "AttackUiImageHelpers.h"
 #include "../src/HyphaAttackEnvelopeGeometry.h"
@@ -46,8 +47,8 @@ inline bool verifyMeasuredEnvelope()
     const juce::Rectangle<float> area {0,0,600,100};
     const auto base=attack_envelope::geometry (batch,area,0,288000,48000);
     const auto bounds=base.body.getBounds();
-    if (std::abs (bounds.getX()-100)>0.001f || std::abs (bounds.getRight()-106)>0.001f
-        || std::abs (bounds.getHeight()-73.875f)>0.001f) return false; // floor 99.5 to -18 dB
+    if (! tests::finiteNear (bounds.getX(), 100.0f, .001f) || ! tests::finiteNear (bounds.getRight(), 106.0f, .001f)
+        || ! tests::finiteNear (bounds.getHeight(), 73.875f, .001f)) return false; // floor 99.5 to -18 dB
     batch.points[3].start_sample+=240;
     const auto gap=attack_envelope::geometry (batch,area,0,288000,48000);
     if (gap.body.contains (103.25f,75) || ! gap.body.contains (104.5f,75)) return false;
@@ -59,7 +60,7 @@ inline bool verifyMeasuredEnvelope()
     for (auto& p:batch.points)p.rms_dbfs=-36;
     if (! attack_envelope::geometry (batch,area,0,288000,44100).body.isEmpty()) return false;
     const auto clipped=attack_envelope::geometry (batch,area,48240,49200,48000).body.getBounds();
-    if (std::abs (clipped.getX())>.001f || std::abs (clipped.getRight()-600)>.001f) return false;
+    if (! tests::finiteNear (clipped.getX(), 0.0f, .001f) || ! tests::finiteNear (clipped.getRight(), 600.0f, .001f)) return false;
     const auto original=attack_envelope::geometry (batch,area,0,288000,48000);
     constexpr auto huge=INT64_C(9007199254740993);
     for (auto& p:batch.points){p.start_sample+=huge;p.end_sample+=huge;}
@@ -91,7 +92,7 @@ inline bool verifyEnvelopeSimplificationBound()
                 }
                 previous=point;
             }
-            if (closest*dpi>.0502f)return false;
+            if (! std::isfinite (closest) || ! (closest*dpi<=.0502f))return false;
         }
     }
     return true;
