@@ -206,7 +206,7 @@ fn post_pair_surface_selects_an_exact_pre_without_free_text() {
             "single PRE preview lost {required}"
         );
     }
-    assert!(editor.contains("Click to choose one exact PRE."));
+    assert!(editor.contains("hypha::pair_labels::choose"));
     assert!(editor.contains("processorRef.setPairCandidate"));
     assert!(editor.contains("Use POST only"));
     assert!(editor.contains("Stop playback to change connection"));

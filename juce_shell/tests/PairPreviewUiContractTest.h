@@ -26,6 +26,7 @@ inline void verifyPairPreviewUiContract()
             juce::Graphics graphics (image);
             for (int state : { 0, 1 })
             {
+                image.clear (image.getBounds()); // each state is judged on its own pixels
                 badge.setModelName ({});
                 require (state == 0 || badge.setSelectionPreview (pair_labels::candidateLabel ("Mix", "01234567"), 1), "candidate fits inside border");
                 text_style::ShownTextLog shown; badge.paint (graphics);
@@ -37,10 +38,11 @@ inline void verifyPairPreviewUiContract()
                 for (int y = 3; y < badge.getHeight() - 3 && ! copperText; ++y)
                     for (int x = 5; x < badge.getWidth() - 5; ++x)
                     {
+                        // Font smoothing differs by OS, so compare the hue of solid text pixels, not exact
+                        // values. Copper is about 21 degrees; the grey and the paired gold are not.
                         const auto pixel = image.getPixelAt (x, y);
-                        if (pixel.getAlpha() > 130 && std::abs (int (pixel.getRed()) - int (COL_COPPER.getRed())) < 8
-                            && std::abs (int (pixel.getGreen()) - int (COL_COPPER.getGreen())) < 8
-                            && std::abs (int (pixel.getBlue()) - int (COL_COPPER.getBlue())) < 8)
+                        if (pixel.getAlpha() > 130 && pixel.getSaturation() > 0.35f
+                            && std::abs (pixel.getHue() - COL_COPPER.getHue()) < 0.03f)
                         { copperText = true; break; }
                     }
                 require (copperText, "unpaired text uses copper");
