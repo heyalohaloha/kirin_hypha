@@ -47,7 +47,7 @@ const Entry entries[] = {
     { "In use by another POST: %1", u8"別のPOSTが使用中：%1" },
     { "PRE: %1", u8"PRE：%1" },
     { "Click to connect", u8"押して接続" },
-    { "▼ All PREs", u8"▼ 候補一覧" },
+    { u8"▼ All PREs", u8"▼ 候補一覧" },
     { "NO PRE", u8"PREなし" },
     { "Choose PRE", u8"PREを選ぶ" },
     { "SELECT PRE", u8"PREを選択" },
