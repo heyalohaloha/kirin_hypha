@@ -58,11 +58,13 @@ The allowance was fixed before that analysis; it is neither a measured maximum p
 guarantee nor the host's render-ahead duration. Supported actual delay is 0–65536. The dynamic
 upper age is the API value plus the allowance, with complete block age and capacity checks.
 
-The entire `[E-U,E)` interval must be covered by at most two native linear segments of the same
+The entire `[E-U,E)` interval must be covered by at most two native callback maps of the same
 PRE generation. Exactly one project-to-counter address is required; no PCM correlation or newest
-arrival chooses a lap. A verified PRE callback-boundary wrap preserves both adjacent segments.
-This covers the first delayed POST tail before POST itself wraps. Once measured, L must exceed U.
-An unverified within-block wrap or short prefix waits; BLIND retains its assignment while POST covers that wait.
+arrival chooses a lap. A map split is at the next callback start, not the actual loop boundary
+inside the preceding callback. Admission of the current crossing block uses its current proof;
+the next callback separately verifies the wrap and preserves the maps. This covers the first
+delayed POST tail before POST itself wraps. Once measured, L must exceed U. An unverified block
+or short prefix waits; BLIND retains its assignment while POST covers that wait.
 The existing eight-block calibration still applies to REAPER. The API value is an upper bound,
 never K. Without it, the previous linear-proof continuation retains its fixed 73728-sample
 verified-address envelope. REAPER's measurement-only compensated project coordinate remains K=0.

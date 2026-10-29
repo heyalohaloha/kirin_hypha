@@ -30,6 +30,8 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
         add_test(NAME kirin_${contract} COMMAND Kirin_${contract}_Tests)
         set_tests_properties(kirin_${contract} PROPERTIES TIMEOUT 60)
     endforeach()
+    add_test(NAME kirin_reaper_wrap COMMAND Kirin_reaper_loop_entry_Tests --wrap-diagnostic-only)
+    set_tests_properties(kirin_reaper_wrap PROPERTIES TIMEOUT 120)
     foreach(contract IN ITEMS reaper_clock reaper_correspondence reaper_fault)
         add_executable(Kirin_${contract}_Tests tests/live_compare/${contract}_test.cpp)
         target_compile_features(Kirin_${contract}_Tests PRIVATE cxx_std_17)

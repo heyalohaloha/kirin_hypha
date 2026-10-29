@@ -57,7 +57,8 @@ inline void reaper()
     {
         const bool crossing = unsplit.postPosition % unsplit.length + frames > unsplit.length;
         unsplit.consume();
-        if (crossing) require (!unsplit.report.preAudible, "unsplit block across loop end is withheld");
+        if (crossing) require (unsplit.report.preAudible && unsplit.report.verdict == Verdict::accepted,
+                               "proven crossing stays audible in the correct occurrence");
     }
     require (unsplit.wrongFrames == 0, "nonintegral loop never selects a wrong occurrence");
 }
