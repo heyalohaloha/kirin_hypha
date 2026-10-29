@@ -392,3 +392,26 @@ test('native runner writes binary stdout to a new owned file and never overwrite
   await assert.rejects(run(process.execPath, ['-e', script], { stdoutFile: file }), /EEXIST/);
   await assert.rejects(run(process.execPath, ['-e', 'process.exit(3)'], { stdoutFile: path.join(root, 'failed.bin') }), /exit 3/);
 });
+
+test('completion with reviewed publication requires retained HP preview evidence',async t=>{
+ const {publicationBinding}=await import('./ls_release/publication_input.mjs');
+ const {makeHpRecord,hpReleaseNotice,installerFilename}=await import('./ls_release/hypha_release_hp_data.mjs');
+ const f=fixture(t,{delivery:true}),state=f.state,version=state.candidate.version,date=state.inputs.date;
+ const notes=path.join(f.root,'notes.md');fs.writeFileSync(notes,'fixture notes');state.inputs.notes=notes;
+ const facts=['macos','windows'].map(target=>({path:installerFilename(version,target),bytes:1,sha256:'c'.repeat(64)}));
+ const notice=hpReleaseNotice(makeHpRecord(version,date,facts)),input=path.join(f.root,'publication.json');
+ fs.writeFileSync(input,JSON.stringify({schema:'hypha-publication-v1',version,date,notice}));state.publication=publicationBinding(state,input);
+ await executeRelease(state,{execute:true,until:'complete'},f.dependencies);
+ assert.notEqual(state.releaseState,'RELEASE_COMPLETE');assert.match(state.blocker.reason,/preview evidence/i);
+ const {PREVIEW_PAGES}=await import('./ls_release/hypha_hp_preview.mjs');
+ const {HP_FILES}=await import('./ls_release/hypha_release_hp_data.mjs');
+ state.hpCommit='d'.repeat(40);state.hpPlanned=HP_FILES.map(path=>({path,sha256:'e'.repeat(64)}));
+ state.hpPreview={version,hpCommit:state.hpCommit,publicationSha256:state.publication.sha256,sourceFacts:state.hpPlanned,pages:PREVIEW_PAGES.map(path=>({path,sha256:'f'.repeat(64)}))};
+ for(const stage of STAGES)state.stages[stage]={...state.stages[stage],status:'PASS'};
+ state.stages.hp={status:'PASS',evidence:{previewEvidence:structuredClone(state.hpPreview)}};state.releaseState='RELEASE_COMPLETE';
+ await assert.rejects(executeRelease(state,{execute:false,until:'complete'},f.dependencies),/deployment evidence/i);
+ const {deploymentReceipt}=await import('./ls_release/hypha_hp_preview.mjs');
+ state.hpDeployment=deploymentReceipt(state,`Staged production deployment: https://fixture.vercel.app\nProduction deploy verified: https://kirinmastering.com (https://fixture.vercel.app, ${state.hpCommit})\n`);
+ state.stages.hp.evidence.deploymentEvidence=structuredClone(state.hpDeployment);
+ await assert.doesNotReject(executeRelease(state,{execute:false,until:'complete'},f.dependencies));
+});

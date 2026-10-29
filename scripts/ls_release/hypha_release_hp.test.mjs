@@ -9,7 +9,7 @@ import { makeHpRecord, renderHpPage, validateHpRecord, installerFilename, hpRele
   assertHpPublicationDate } from './hypha_release_hp_data.mjs';
 import { fileFact, hash, Checkpoint } from './hypha_release_contract.mjs';
 import { publicationBinding } from './publication_input.mjs';
-import { renderedNews } from './fixtures/news-rendered-fixture.mjs';
+import { publicNewsArchive, renderedNews } from './fixtures/news-rendered-fixture.mjs';
 
 const base = 'https://github.com/heyalohaloha/kirin_hypha/releases';
 function page(lang) {
@@ -58,6 +58,7 @@ function publicHpFetcher(state,root,{deployed=()=>true,head=()=>state.hpCommit}=
     }
     if (url.includes('deployment-source')) return new Response(head());
     if (url.includes('/updates/hypha.json')) return new Response(fs.readFileSync(path.join(root, 'updates/hypha.json'), 'utf8'));
+    if (url.includes('/updates/hypha-news.json')) return Response.json(publicNewsArchive(JSON.parse(fs.readFileSync(path.join(root, 'data/news.json'), 'utf8')).items));
     if (url.includes('/data/news.json')) return new Response('not published', { status: 404 });
     if (new URL(url).pathname === '/' || new URL(url).pathname === '/ja/') {
       const items = JSON.parse(fs.readFileSync(path.join(root, 'data/news.json'), 'utf8')).items;
@@ -66,6 +67,16 @@ function publicHpFetcher(state,root,{deployed=()=>true,head=()=>state.hpCommit}=
     const record=JSON.parse(fs.readFileSync(path.join(root,'updates/hypha.json'),'utf8'));
     return new Response(renderHpPage(fs.readFileSync(path.join(root,url.includes('/ja/')?'ja/hypha.html':'hypha.html'),'utf8'),record));
   };
+}
+function populatePreview(root, output) {
+  const record=JSON.parse(fs.readFileSync(path.join(root,'updates/hypha.json')));
+  const notices=JSON.parse(fs.readFileSync(path.join(root,'data/news.json'))).items;
+  const notice=notices.find(item=>item.version===record.version && item.products.includes('hypha'));
+  const {id,category,target,products,date,version,en,ja}=notice;
+  const write=(name,body)=>{const file=path.join(output,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,body)};
+  write('updates/hypha.json',JSON.stringify(record));
+  write('updates/hypha-news.json',JSON.stringify({schema:'kirin-hypha-public-news-v1',topIds:[id],items:[{id,category,target,products,date,version,en,ja}]}));
+  for(const lang of ['en','ja']) {write(lang==='en'?'hypha.html':'ja/hypha.html',renderHpPage(page(lang),record));write(lang==='en'?'index.html':'ja/index.html',renderedNews([notice],lang));}
 }
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-hp-test-'));
@@ -77,7 +88,6 @@ function fixture(t) {
     inputs: { notes: 'reviewed-notes.md', date: '2026-10-01' }, stages: { packages: { facts: [fileFact(payload)] },
       provenance: { status: 'PASS', facts: [fileFact(source)], publicFacts: [fileFact(source)] } } } };
 }
-
 test('HP release update changes only the central record and adds one standard release notice', () => {
   assert.deepEqual(HP_FILES, ['hypha.html', 'ja/hypha.html', 'updates/hypha.json', 'data/news.json']);
   const docs=documents(); const result=updateHpDocuments(docs,'1.2.3','2026-10-01',facts());
@@ -96,7 +106,6 @@ test('HP release update changes only the central record and adds one standard re
   assert.equal(result[3],`${JSON.stringify(JSON.parse(result[3]),null,2)}\n`);
   assert.deepEqual(docs,documents());
 });
-
 test('changed templates, literal versions, broken notices, missing integrity and wrong targets stop the HP update', () => {
   for(const change of [d=>d[0]=d[0].replace('{{KIRIN_HYPHA_LATEST_VERSION}}','1.1.49'),
       d=>d[1]=d[1].replace('/downloads/kirin-hypha/macos','/downloads/kirin-hypha/zip'),
@@ -113,7 +122,6 @@ test('changed templates, literal versions, broken notices, missing integrity and
     assert.throws(()=>updateHpDocuments(documents(),'1.2.3','2026-10-01',invalid));
   }
 });
-
 test('central release records reject unknown keys, foreign or mismatched URLs and malformed integrity', () => {
   const valid=makeHpRecord('1.1.49','2026-09-02',facts('1.1.49'));
   for(const change of [r=>r.downloads.arm64=r.downloads.macos,r=>delete r.downloads.windows,
@@ -123,7 +131,6 @@ test('central release records reject unknown keys, foreign or mismatched URLs an
     const record=structuredClone(valid);change(record);assert.throws(()=>validateHpRecord(record));
   }
 });
-
 test('a release dated on or before the current notice, or after today in Tokyo, stops before publication', () => {
   // HP lists confirmed notices newest date first (ties by id ascending) and rejects future-dated ones.
   assert.throws(()=>updateHpDocuments(documents(),'1.2.3','2026-09-02',facts()),/later than/);
@@ -134,7 +141,6 @@ test('a release dated on or before the current notice, or after today in Tokyo, 
   assert.doesNotThrow(()=>assertHpPublicationDate('2026-10-18',new Date('2026-10-17T15:00:00Z')));
   assert.throws(()=>assertHpPublicationDate('2026-10-18',new Date('2026-10-17T14:59:59Z')),Checkpoint);
 });
-
 test('own planned update is idempotent while downgrade or changed same-version integrity stops', () => {
   const first=updateHpDocuments(documents(),'1.2.3','2026-10-01',facts());
   assert.deepEqual(updateHpDocuments(first,'1.2.3','2026-10-01',facts()),first);
@@ -194,7 +200,6 @@ function githubMock(f, { published = false, existingAsset = false, corrupt = fal
   };
   return { run, calls };
 }
-
 test('GitHub stages an immutable draft, hashes read-back before publish, pins exact commit', async t => {
   const f = fixture(t); const m = githubMock(f);
   await publishGithub(f.state, m.run, () => {});
@@ -205,7 +210,6 @@ test('GitHub stages an immutable draft, hashes read-back before publish, pins ex
   assert.ok(m.calls.findLastIndex(isReadback) < m.calls.findIndex(([, a]) => isPublish(a)));
   assert.ok(!m.calls.some(([, a]) => a.includes('--clobber') || a[1] === 'delete' || a.includes('DELETE')));
 });
-
 test('missing source gate or changed source bytes stops before GitHub mutation', async t => {
   const f = fixture(t); const m = githubMock(f);
   f.state.stages.provenance.status = 'PENDING';
@@ -216,7 +220,6 @@ test('missing source gate or changed source bytes stops before GitHub mutation',
   await assert.rejects(publishGithub(f.state, m.run, () => {}), /artifact changed/);
   assert.deepEqual(m.calls, []);
 });
-
 test('interrupted draft upload and published same-byte release are reusable without duplicate upload', async t => {
   const f = fixture(t);
   for (const scenario of [{ existingAsset: true }, { published: true }]) {
@@ -224,7 +227,6 @@ test('interrupted draft upload and published same-byte release are reusable with
     assert.ok(!m.calls.some(([, a]) => ['create', 'upload'].includes(a[1]) || isCreate(a) || isUpload(a)));
   }
 });
-
 test('wrong published bytes, foreign tags and authentication failure never become new release', async t => {
   const f = fixture(t); const m = githubMock(f, { existingAsset: true, corrupt: true });
   await assert.rejects(publishGithub(f.state, m.run, () => {}), /bytes/);
@@ -232,7 +234,6 @@ test('wrong published bytes, foreign tags and authentication failure never becom
   await assert.rejects(checkTag(f.state, async () => JSON.stringify({ object: { type: 'commit', sha: 'f'.repeat(40) } })), /frozen/);
   await assert.rejects(publishGithub(f.state, async () => { throw new Error('HTTP 403'); }, () => {}), /403/);
 });
-
 test('public-user-path download validates actual streamed bytes, not HEAD 200 or asset names', async t => {
   const f = fixture(t); const data = fs.readFileSync(f.payload);
   let requests = 0;
@@ -244,7 +245,6 @@ test('public-user-path download validates actual streamed bytes, not HEAD 200 or
   await assert.rejects(publicDownloadFacts(f.state, f.state.stages.packages.facts,
     async () => new Response('no', { status: 404 })), /download failed/);
 });
-
 test('Corresponding Source public readback detects missing or altered source independently of the package', async t => {
   const f = fixture(t); const facts = [...f.state.stages.packages.facts, ...f.state.stages.provenance.publicFacts];
   const visited = [];
@@ -310,11 +310,12 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
   f.state.inputs.hpProjectSha256 = fileFact(path.join(root, '.vercel/project.json')).sha256;
   let head = f.state.inputs.hpBaseCommit; let remote = head; let failTests = true; let auditBlocked = true; let deployed = false;
   const calls = [];
-  const run = async (tool, args) => {
+  const run = async (tool, args, options = {}) => {
     calls.push([tool, args]);
+    if (tool === 'node') { populatePreview(root, options.env.KIRIN_HYPHA_PREVIEW_DIR); return ''; }
     if (tool === 'vercel') { assert.deepEqual(args, ['project', 'inspect', '--non-interactive']); return 'expected expected-id'; }
     if (tool === 'npm') { if (failTests) throw new Error('HP tests failed'); if (args[0] === 'run' && auditBlocked) throw new Error('HP audit failed'); return ''; }
-    if (tool === 'bash') { assert.deepEqual(args, ['scripts/deploy-production-clean.sh']); deployed = true; return ''; }
+    if (tool === 'bash') { assert.deepEqual(args, ['scripts/deploy-production-clean.sh']); deployed = true; return `Staged production deployment: https://fixture.vercel.app\nProduction deploy verified: https://kirinmastering.com (https://fixture.vercel.app, ${head})\n`; }
     assert.equal(tool, 'git');
     if (args[0] === 'branch') return 'main';
     if (args[0] === 'rev-parse') return head;
@@ -333,9 +334,29 @@ test('HP workflow resumes only its own planned changes and uses the standard ver
   await assert.rejects(publishHp(f.state, run, () => {}, fetcher), /audit failed/);
   assert.equal(calls.filter(([tool]) => tool === 'bash').length, 0);
   auditBlocked = false;
-  await publishHp(f.state, run, () => {}, fetcher);
+  const published = await publishHp(f.state, run, () => {}, fetcher);
+  assert.equal(published.deploymentEvidence?.deploymentUrl, 'https://fixture.vercel.app');
+  assert.equal(published.deploymentEvidence?.hpCommit, head);
   assert.equal(f.state.hpCommit, head);
+  assert.equal(f.state.hpPreview.hpCommit, head);
+  assert.equal(f.state.hpPreview.pages.length, 6);
+  assert.deepEqual(f.state.hpPreview.sourceFacts, f.state.hpPlanned);
+  assert.equal(calls.filter(([tool]) => tool === 'node').length, 2, 'interrupted deployment revalidates its preview');
   assert.equal((await publishHp(f.state, run, () => {}, fetcher)).reused, true);
+  const preview=f.state.hpPreview; f.state.hpPreview=null;
+  assert.equal((await publishHp(f.state,run,()=>{},fetcher)).reused,true, 'legacy published profile can be rechecked without a new receipt');
+  const record=makeHpRecord(f.state.candidate.version,f.state.inputs.date,f.state.stages.packages.facts);
+  fs.writeFileSync(path.join(f.root,f.state.inputs.notes),'reviewed notes');
+  const input=path.join(f.root,'public.json');
+  fs.writeFileSync(input,JSON.stringify({schema:'hypha-publication-v1',version:record.version,date:record.published_at,notice:hpReleaseNotice(record)}));
+  f.state.publication=publicationBinding(f.state,input);
+  await assert.rejects(publishHp(f.state,run,()=>{},fetcher),/preview evidence/i); f.state.hpPreview=preview;
+  preview.publicationSha256=f.state.publication.sha256;
+  f.state.hpPreview=structuredClone(preview); f.state.hpPreview.pages[0].path='other';
+  await assert.rejects(publishHp(f.state,run,()=>{},fetcher),/preview evidence/i); f.state.hpPreview=preview;
+  await assert.rejects(publishHp(f.state,run,()=>{},fetcher),/deployment evidence/i);
+  f.state.hpDeployment=(await import('./hypha_hp_preview.mjs')).deploymentReceipt(f.state,`Staged production deployment: https://fixture.vercel.app\nProduction deploy verified: https://kirinmastering.com (https://fixture.vercel.app, ${head})\n`);
+  assert.equal((await publishHp(f.state,run,()=>{},fetcher)).reused,true);
   assert.equal(calls.filter(([tool, args]) => tool === 'git' && args[0] === 'commit').length, 1);
   assert.equal(calls.filter(([tool]) => tool === 'bash').length, 1);
   assert.equal(calls.filter(([tool, args]) => tool === 'git' && args[0] === 'push').length, 1);
@@ -409,10 +430,11 @@ test('HP remote advancing during update stops before commit or push and requires
   hpFixture(f); writeHpFixture(root); f.state.inputs.hpRoot = root; f.state.inputs.hpBaseCommit = 'c'.repeat(40);
   f.state.inputs.hpProjectSha256 = fileFact(path.join(root, '.vercel/project.json')).sha256;
   let remote = f.state.inputs.hpBaseCommit; const calls = [];
-  const run = async (tool, args) => {
+  const run = async (tool, args, options = {}) => {
     calls.push([tool, args]);
     if (tool === 'vercel') return 'expected expected-id';
     if (tool === 'npm') { remote = 'd'.repeat(40); return ''; }
+    if (tool === 'node') { populatePreview(root, options.env.KIRIN_HYPHA_PREVIEW_DIR); return ''; }
     if (args[0] === 'branch') return 'main';
     if (args[0] === 'rev-parse') return f.state.inputs.hpBaseCommit;
     if (args[0] === 'ls-remote') return remote;

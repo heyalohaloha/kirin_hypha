@@ -1,4 +1,5 @@
 import { publicationNotice } from './publication_input.mjs';
+import { deploymentReceipt, requireHpDeploymentEvidence, requireHpPreviewEvidence, verifyHpPreview } from './hypha_hp_preview.mjs';
 // Publication uses the HP repository's existing clean staged deployment, never a direct --prod.
 import fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
@@ -98,10 +99,27 @@ export async function verifyPublicHp(state, fetcher = fetch) {
   const liveRecord = validateHpRecord(await readPublicJson('/updates/hypha.json'));
   if (!isDeepStrictEqual(liveRecord, record)) throw new Error('HP public Hypha record differs from frozen package facts');
   const expectedNotice = state.publication ? publicationNotice(state) : hpReleaseNotice(record);
+  const archive = await readPublicJson('/updates/hypha-news.json');
+  if (archive?.schema !== 'kirin-hypha-public-news-v1' || !Array.isArray(archive.items)) {
+    throw new Error('HP public Hypha notice archive unavailable or malformed');
+  }
+  if (!Array.isArray(archive.topIds) || archive.topIds.some(id => typeof id !== 'string')
+      || new Set(archive.topIds).size !== archive.topIds.length || archive.topIds.length > 3) {
+    throw new Error('HP public top news identity malformed');
+  }
   for (const [route, lang] of [['/', 'en'], ['/ja/', 'ja']]) {
     const response = await fetcher(`${base}${route}?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new Error('HP public news route unavailable');
-    assertPublicNotice(await response.text(), lang, expectedNotice);
+    const html = await response.text();
+    const ids = [...html.matchAll(/<li\b[^>]*class="news__item"[^>]*data-news-id="([^"]+)"[^>]*>/g)].map(match => match[1]);
+    if (!isDeepStrictEqual(ids, archive.topIds)) throw new Error('HP public news differs from archive');
+    if (ids.includes(expectedNotice.id)) assertPublicNotice(html, lang, expectedNotice);
+  }
+  const matching = archive.items.filter(item => item?.version === expectedNotice.version
+    && Array.isArray(item.products) && item.products.includes('hypha'));
+  const { id, category, target, products, date, version, en, ja } = expectedNotice;
+  if (matching.length !== 1 || !isDeepStrictEqual(matching[0], { id, category, target, products, date, version, en, ja })) {
+    throw new Error('HP public Hypha notice missing, duplicate or content mismatch');
   }
   for (const [route, lang] of [['/hypha', 'en'], ['/ja/hypha', 'ja']]) {
     const response = await fetcher(`${base}${route}?hypha_verify=${state.candidate.id}`, { signal: AbortSignal.timeout(30000) });
@@ -128,7 +146,13 @@ export async function verifyPublicHp(state, fetcher = fetch) {
 export async function publishHp(state, run, save, fetcher = fetch) {
   const root = state.inputs.hpRoot;
   if (state.hpCommit) {
-    try { const publicEvidence = await verifyPublicHp(state, fetcher); return { hpCommit: state.hpCommit, publicEvidence, reused: true }; } catch { /* verify before a necessary resume */ }
+    let publicEvidence;
+    try { publicEvidence = await verifyPublicHp(state, fetcher); } catch { /* verify before a necessary resume */ }
+    if (publicEvidence) {
+      const preview = state.publication ? requireHpPreviewEvidence(state) : null;
+      const deployment = state.publication ? requireHpDeploymentEvidence(state) : null;
+      return { hpCommit: state.hpCommit, publicEvidence, ...(preview ? { previewEvidence: preview, deploymentEvidence: deployment } : {}), reused: true };
+    }
   }
   if (state.hpPlanned && !state.hpCommit) {
     const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: root, capture: true })).trim();
@@ -143,6 +167,7 @@ export async function publishHp(state, run, save, fetcher = fetch) {
     }
   }
   await hpPreflight(state, run, { allowPlanned: !!state.hpPlanned, allowUnpushed: !!state.hpCommit });
+  let previewCompleted = false;
   if (!state.hpCommit) {
     const changes = updateHpDocuments(HP_FILES.map(f => fs.readFileSync(path.join(root, f), 'utf8')),
       state.candidate.version, state.inputs.date, state.stages.packages?.facts, state.publication ? publicationNotice(state) : undefined);
@@ -153,6 +178,7 @@ export async function publishHp(state, run, save, fetcher = fetch) {
       for (let i = 0; i < HP_FILES.length; i++) fs.writeFileSync(path.join(root, HP_FILES[i]), changes[i]);
     }
     await run('npm', ['test'], { cwd: root });
+    const preview = await verifyHpPreview(state, run); previewCompleted = true;
     const changed = (await run('git', ['diff', '--name-only', 'HEAD'], { cwd: root, capture: true })).trim().split('\n').filter(Boolean);
     if (changed.some(f => !HP_FILES.includes(f))) throw new Error('HP acquired unrelated changes; publication stopped');
     const indexed = (await run('git', ['diff', '--cached', '--name-only'], { cwd: root, capture: true })).trim().split('\n').filter(Boolean);
@@ -166,7 +192,17 @@ export async function publishHp(state, run, save, fetcher = fetch) {
     if (beforePush !== state.inputs.hpBaseCommit) throw new Error('HP remote advanced during tests');
     await run('git', ['add', '--', ...HP_FILES], { cwd: root });
     await run('git', ['commit', '-m', `Publish Hypha ${state.candidate.version} (${state.candidate.id})`], { cwd: root });
-    state.hpCommit = (await run('git', ['rev-parse', 'HEAD'], { cwd: root, capture: true })).trim(); save();
+    state.hpCommit = (await run('git', ['rev-parse', 'HEAD'], { cwd: root, capture: true })).trim();
+    state.hpPreview = { ...preview, hpCommit: state.hpCommit, sourceFacts: state.hpPlanned }; save();
+  }
+  if (!previewCompleted) {
+    if (!Array.isArray(state.hpPlanned) || state.hpPlanned.length !== HP_FILES.length
+        || !isDeepStrictEqual(state.hpPlanned.map(f => f.path), HP_FILES)) throw new Error('Retained HP plan missing; preview cannot be verified');
+    for (const fact of state.hpPlanned) if (fileFact(path.join(root, fact.path)).sha256 !== fact.sha256) throw new Error('HP source differs from retained plan');
+    await run('npm', ['test'], { cwd: root });
+    const preview = await verifyHpPreview(state, run);
+    for (const fact of state.hpPlanned) if (fileFact(path.join(root, fact.path)).sha256 !== fact.sha256) throw new Error('HP source changed during preview');
+    state.hpPreview = { ...preview, hpCommit: state.hpCommit, sourceFacts: state.hpPlanned }; save();
   }
   const remote = (await run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root, capture: true })).split(/\s/)[0];
   if (remote !== state.hpCommit) {
@@ -175,7 +211,8 @@ export async function publishHp(state, run, save, fetcher = fetch) {
     await run('git', ['push', 'origin', 'HEAD:refs/heads/main'], { cwd: root });
   }
   await run('npm', ['run', 'security:audit'], { cwd: root });
-  await run('bash', ['scripts/deploy-production-clean.sh'], { cwd: root });
+  const deployOutput = await run('bash', ['scripts/deploy-production-clean.sh'], { cwd: root, capture: true });
+  state.hpDeployment = deploymentReceipt(state, deployOutput); save();
   const publicEvidence = await verifyPublicHp(state, fetcher);
-  return { hpCommit: state.hpCommit, publicEvidence, pageFacts: HP_FILES.map(f => fileFact(path.join(root, f))) };
+  return { hpCommit: state.hpCommit, publicEvidence, previewEvidence: state.hpPreview, deploymentEvidence: state.hpDeployment, pageFacts: HP_FILES.map(f => fileFact(path.join(root, f))) };
 }

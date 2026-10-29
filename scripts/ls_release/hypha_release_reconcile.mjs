@@ -1,4 +1,5 @@
 import { publicationNotice } from './publication_input.mjs';
+import { requireHpDeploymentEvidence, requireHpPreviewEvidence } from './hypha_hp_preview.mjs';
 import { STAGES, releaseComplete, prerequisites } from './release_stages.mjs';
 // Reconcile retained outputs with read-only verifiers; never call a producer or publication action.
 import fs from 'node:fs';
@@ -63,6 +64,7 @@ async function verifyRetained(state, stage, { run, fetcher = fetch }) {
     return verifyPublishedGithub(state, run);
   }
   if (stage === 'postrelease') {
+    if (state.publication) { requireHpPreviewEvidence(state); requireHpDeploymentEvidence(state); }
     if (!state.freeze) throw new Error('Frozen candidate required for postrelease');
     const publicEvidence = await verifyPublicHp(state, fetcher);
     const downloads = await publicDownloadFacts(state, [...state.stages.packages.facts, ...state.stages.provenance.publicFacts], fetcher);
@@ -70,18 +72,23 @@ async function verifyRetained(state, stage, { run, fetcher = fetch }) {
     return { facts, evidence: { downloads, publicEvidence } };
   }
   if (stage === 'hp') {
+    if (state.publication) { requireHpPreviewEvidence(state); requireHpDeploymentEvidence(state); }
     if (!state.hpCommit || !state.freeze) throw new Error('HP candidate identity is incomplete');
     const facts = [...state.stages.packages.facts, ...state.stages.provenance.publicFacts];
     const publicEvidence = await verifyPublicHp(state, fetcher);
     const downloads = await publicDownloadFacts(state, facts, fetcher);
-    return { facts, evidence: { hpCommit: state.hpCommit, downloads, publicEvidence } };
+    return { facts, evidence: { hpCommit: state.hpCommit, downloads, publicEvidence,
+      ...(state.publication ? { previewEvidence: requireHpPreviewEvidence(state), deploymentEvidence: requireHpDeploymentEvidence(state) } : {}) } };
   }
   throw new Error('Unsupported reconciliation stage');
 }
 function readCandidate(statePath, snapshot) {
   const bytes = fs.readFileSync(statePath), state = readJson(statePath);
   assertState(state);
-  if (state.publication) publicationNotice(state);
+  if (state.publication) {
+    publicationNotice(state);
+    if (state.stages.hp?.status === 'PASS') { requireHpPreviewEvidence(state); requireHpDeploymentEvidence(state); }
+  }
   if (digest(snapshot(state.root)) !== digest(state.source)) throw new Error('Candidate source changed');
   if (state.freeze) {
     const { sha256, ...rest } = state.freeze;

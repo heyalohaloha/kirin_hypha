@@ -2,6 +2,12 @@
 import fs from 'node:fs';
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const names = { os: 'Kirin OS', hypha: 'Kirin Hypha', sense: 'Kirin Sense' };
+export function publicNewsArchive(items) {
+  const topIds=items.filter(item=>item.status==='confirmed').sort((a,b)=>b.date.localeCompare(a.date)||(a.id<b.id?-1:a.id>b.id?1:0)).slice(0,3).map(item=>item.id);
+  const notices=items.filter(item=>item.status==='confirmed' && typeof item.version==='string' && item.products.includes('hypha'))
+    .map(({id,category,target,products,date,version,en,ja})=>({id,category,target,products,date,version,en:{title:en.title,summary:en.summary,url:en.url},ja:{title:ja.title,titlePhrases:ja.titlePhrases,summary:ja.summary,url:ja.url}}));
+  return {schema:'kirin-hypha-public-news-v1',topIds,items:notices};
+}
 export function renderedNews(items, lang) {
   const html = fs.readFileSync(new URL(`./news-rendered-${lang}.html`, import.meta.url), 'utf8');
   const template = html.match(/<li class="news__item"[\s\S]*?<\/li>/)[0];

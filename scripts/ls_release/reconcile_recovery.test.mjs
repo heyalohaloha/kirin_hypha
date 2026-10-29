@@ -1,4 +1,4 @@
-import { renderedNews } from './fixtures/news-rendered-fixture.mjs';
+import { publicNewsArchive, renderedNews } from './fixtures/news-rendered-fixture.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -259,6 +259,7 @@ test('postrelease reconciliation requires the complete A7 report and public read
   const fetcher = async (url, options = {}) => {
     if (url.includes('deployment-source')) return new Response(state.hpCommit);
     if (url.includes('/updates/hypha.json')) return Response.json(record);
+    if (url.includes('/updates/hypha-news.json')) return Response.json(publicNewsArchive([hpReleaseNotice(record)]));
     if (new URL(url).pathname === '/' || new URL(url).pathname === '/ja/') {
       const lang = new URL(url).pathname === '/' ? 'en' : 'ja';
       return new Response(renderedNews([hpReleaseNotice(record)], lang));
@@ -441,5 +442,44 @@ test('reconciliation apply refuses public input or notes changed after the plan'
     else fs.writeFileSync(notes, 'changed notes');
     await assert.rejects(release.applyReleaseReconciliation(f.statePath, plan, plan.sha256, deps), /changed/i);
     assert.equal(JSON.parse(fs.readFileSync(f.statePath)).stages.windows.status, 'FAIL');
+  }
+});
+
+test('new publication HP and A7 reconciliation refuse missing preview before any public readback',async t=>{
+  const { digest, acceptanceCriteria }=await import('./hypha_release_contract.mjs');
+  const { makeHpRecord, hpReleaseNotice, installerFilename }=await import('./hypha_release_hp_data.mjs');
+  const { publicationBinding }=await import('./publication_input.mjs');
+  for(const stage of ['hp','postrelease']) {
+    const f=fixture(t), state=structuredClone(f.state);
+    const facts=['macos','windows'].map(target=>{const file=path.join(f.root,installerFilename(state.candidate.version,target));fs.writeFileSync(file,`fixture ${target}`);return fileFact(file)});
+    for(const name of ['windows','freeze','hosts','packages','provenance','distribution','github','hp']) state.stages[name]={status:'PASS',facts:[fileFact(f.signed)]};
+    state.stages.packages.facts=facts;state.stages.provenance.publicFacts=[fileFact(f.signed)];
+    state.inputs.date='2026-10-01';state.inputs.notes='notes.md';fs.writeFileSync(path.join(f.root,'notes.md'),'fixture notes');
+    const notice=hpReleaseNotice(makeHpRecord(state.candidate.version,state.inputs.date,facts));
+    const file=path.join(f.root,'publication.json');fs.writeFileSync(file,JSON.stringify({schema:'hypha-publication-v1',version:state.candidate.version,date:state.inputs.date,notice}));
+    state.publication=publicationBinding(state,file);
+    state.freeze={source:state.source,updateCheck:updateBinding(''),inputs:digest(state.inputs),criteriaSha256:digest(acceptanceCriteria(state)),payloads:[fileFact(f.signed)]};
+    state.freeze.sha256=digest(state.freeze);state.hpCommit='c'.repeat(40);state.publicationStarted=true;state.releaseState='RELEASE_INCIDENT';
+    state.stages[stage]={status:'FAIL',reason:'fixture'};state.blocker={stage,reason:'fixture'};atomicJson(f.statePath,state);
+    let calls=0;const deps={snapshot:f.snapshot,verifyPrerequisites:async()=>null,fetcher:async()=>{calls++;throw new Error('unexpected public request')}};
+    if(stage==='postrelease') { await assert.rejects(release.inspectRelease(f.statePath,deps),/preview evidence/i); }
+    else { const inspection=await release.inspectRelease(f.statePath,deps); await assert.rejects(release.planReleaseReconciliation(f.statePath,inspection,deps),/preview evidence/i); }
+    assert.equal(calls,0);
+    const { PREVIEW_PAGES }=await import('./hypha_hp_preview.mjs');
+    state.hpPlanned=(await import('./hypha_release_hp_data.mjs')).HP_FILES.map(path=>({path,sha256:'e'.repeat(64)}));
+    state.hpPreview={version:state.candidate.version,hpCommit:state.hpCommit,publicationSha256:state.publication.sha256,
+      sourceFacts:state.hpPlanned,pages:PREVIEW_PAGES.map(path=>({path,sha256:'d'.repeat(64)}))};
+    if(stage==='postrelease')state.stages.hp.evidence={previewEvidence:structuredClone(state.hpPreview)};
+    atomicJson(f.statePath,state);
+    if(stage==='postrelease') { await assert.rejects(release.inspectRelease(f.statePath,deps),/deployment evidence/i); }
+    else { const inspection=await release.inspectRelease(f.statePath,deps); await assert.rejects(release.planReleaseReconciliation(f.statePath,inspection,deps),/deployment evidence/i); }
+    assert.equal(calls,0);
+    const {deploymentReceipt}=await import('./hypha_hp_preview.mjs');
+    state.hpDeployment=deploymentReceipt(state,`Staged production deployment: https://fixture.vercel.app\nProduction deploy verified: https://kirinmastering.com (https://fixture.vercel.app, ${state.hpCommit})\n`);
+    if(stage==='postrelease')state.stages.hp.evidence.deploymentEvidence=structuredClone(state.hpDeployment);
+    atomicJson(f.statePath,state);
+    const inspection=await release.inspectRelease(f.statePath,deps);
+    await assert.rejects(release.planReleaseReconciliation(f.statePath,inspection,deps),/unexpected public request/);
+    assert.equal(calls,1);
   }
 });
