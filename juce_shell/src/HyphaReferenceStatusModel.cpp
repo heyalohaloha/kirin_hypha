@@ -45,13 +45,15 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         // 下げた A、PRE の Δ。
         return { StatusKind::ready, how + under + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
+    if (state.kirinOsRequest && state.action.kind != ActionKind::none)
+        return { StatusKind::unable, state.status };
     if (const auto pending = pendingAuditionText (state); pending.isNotEmpty())
     {
-        // 待ちが上限を超えたら「できない」にして理由と直し方を出す。
+        // 自動で進む処理は、長く待っていても待機として表示する。
         if (state.pendingAudition.waiting() && state.pendingAudition.reasonCode == "reference_page_wait_slow")
             return { StatusKind::waiting, pending };
         if (state.pendingAudition.waiting() && state.preparationOverdue.isNotEmpty())
-            return { StatusKind::unable, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
+            return { StatusKind::waiting, juce::String (roleLetter (state.pendingAudition.slot)) + ": " + state.preparationOverdue };
         return { state.pendingAudition.waiting() ? StatusKind::waiting : StatusKind::unable, pending };
     }
     if (state.osAccess == os_access::State::unowned) return { StatusKind::unable, state.status };
@@ -72,7 +74,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         return { StatusKind::unable, state.status };
     const auto kind = kindOf (step);
     if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())
-        return { StatusKind::unable, letter + ": " + state.preparationOverdue };
+        return { StatusKind::waiting, letter + ": " + state.preparationOverdue };
     // Kirin OS へ頼んだこと（Preset・曲の準備、Kirin OS で開く、Blind の承認）の途中は、その文（直し方はボタン）。
     if (state.kirinOsRequest) return { kind, state.status };
     // C の Cue の値がまだ無い：曲全体で比べている、または曲全体のスペクトルを出さないことを、理由と直し方で言う

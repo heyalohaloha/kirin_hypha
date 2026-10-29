@@ -189,7 +189,8 @@ fn post_pair_surface_selects_an_exact_pre_without_free_text() {
     let preview = read_repo("juce_shell/src/PluginEditorPairPreview.cpp");
     let widgets = read_repo("juce_shell/src/HyphaWidgets.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
-        + &read_repo("juce_shell/src/PluginProcessorPairing.cpp");
+        + &read_repo("juce_shell/src/PluginProcessorPairing.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorCandidates.cpp");
 
     assert!(editor.contains("nameField.onSelect = [this] { selectPairPreview(); }"));
     // Direct connection requires the painted, fresh identity; all other paths keep the menu.
@@ -206,9 +207,9 @@ fn post_pair_surface_selects_an_exact_pre_without_free_text() {
             "single PRE preview lost {required}"
         );
     }
-    assert!(editor.contains("Click to choose one exact PRE."));
+    assert!(editor.contains("hypha::pair_labels::choose"));
     assert!(editor.contains("processorRef.setPairCandidate"));
-    assert!(editor.contains("Use POST only"));
+    assert!(editor.contains("menu.addItem (11, \"Unpair\""));
     assert!(editor.contains("Stop playback to change connection"));
     assert!(editor.contains("In use by another POST:"));
     assert!(editor.contains("processorRef.clearPairCandidate"));

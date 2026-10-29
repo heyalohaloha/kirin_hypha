@@ -170,6 +170,7 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::localBlindCaptureA
 
 hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::requestLocalBlindProductCapture (hypha::meter_context::MeterContext context)
 {
+    const juce::ScopedLock pairLock (automaticPair.lock);
     using Admission = hypha::local_blind::CaptureAdmission;
     const auto available = localBlindCaptureAvailability();
     if (available != Admission::ready) return available;
@@ -428,6 +429,20 @@ juce::String KirinHyphaProcessorBase::pairDisplayName() const
 bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
                                                 const juce::String& name)
 {
+    automaticPair.inhibited.store (true, std::memory_order_release);
+    bool selected = false;
+    {
+        const juce::ScopedLock lock (automaticPair.lock);
+        selected = applyPairCandidate (instanceId, name);
+        if (selected) automaticPair.disconnected.store (false, std::memory_order_release);
+    }
+    if (selected) updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+    return selected;
+}
+
+bool KirinHyphaProcessorBase::applyPairCandidate (const juce::String& instanceId,
+                                                  const juce::String& name)
+{
     invalidateLiveComparePair();
     {
         const juce::ScopedLock lock (handleLock);
@@ -450,19 +465,6 @@ bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
     persistPairProjectHash = projectHash;
     persistPairInstanceId = selectedInstanceId;
     return true;
-}
-
-void KirinHyphaProcessorBase::clearPairCandidate()
-{
-    invalidateLiveComparePair();
-    {
-        const juce::ScopedLock lock (handleLock);
-        if (hyphaHandle != nullptr)
-            kirin_hypha_set_pair_target (hyphaHandle, "");
-    }
-    persistPairName.clear();
-    persistPairProjectHash.clear();
-    persistPairInstanceId.clear();
 }
 
 void KirinHyphaProcessorBase::restorePersistedPairUnderHandleLock()

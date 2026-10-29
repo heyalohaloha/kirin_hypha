@@ -178,6 +178,8 @@ private:
     bool monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     void matchLiveCompare (std::uint64_t menuGeneration = UINT64_MAX);
     void chooseLiveCompareFollow();
+    void handleLiveCompareFollowChoice (int result);
+    void handleLiveCompareMatchChoice (const hypha::live_compare::MatchPlan&, int result);
     bool followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
@@ -193,6 +195,7 @@ private:
     void showCandidateMenu();
     void refreshPairPreview (bool demand);
     void selectPairPreview();
+    void unpairAutomaticNotice();
     hypha::pair_preview::Ticket pairPreview;
     KirinPairPreviewValue pairPreviewShown {};
     bool pairPreviewWasFocused = false;
@@ -355,6 +358,8 @@ private:
 
     bool   prevAck     = false;
     double bannerUntil = 0.0;
+    bool automaticPairNotice = false;
+    juce::String automaticPairNoticeId;
     double toastUntil  = 0.0;
     double editorSizeLastChangedAt = 0.0;
     bool editorSizePersistenceReady = false;

@@ -21,6 +21,12 @@ struct OperationsMenuOf
     friend Type privateMember (OperationsMenuOf);
 };
 template struct PrivateAccess<OperationsMenuOf, &KirinHyphaEditor::operationsMenu>;
+struct EntryLicense
+{
+    using Type = std::atomic<int> Processor::*;
+    friend Type privateMember (EntryLicense);
+};
+template struct PrivateAccess<EntryLicense, &Processor::cachedLicenseCode>;
 struct InformationMenuOf
 {
     using Type = juce::PopupMenu (KirinHyphaEditor::*)();
@@ -106,6 +112,17 @@ inline void verifyEveryControlReachable()
         hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
         std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
         require (editor != nullptr, "shipping editor opens");
+        if (role == Processor::Role::Post)
+        {
+            auto& license = processor.*privateMember (EntryLicense {});
+            const auto previous = license.exchange (0);
+            const auto menu = (editor.get()->*privateMember (OperationsMenuOf {}))();
+            bool enabled = false;
+            for (juce::PopupMenu::MenuItemIterator item (menu, true); item.next();)
+                if (item.getItem().itemID == 4) enabled = item.getItem().isEnabled;
+            license.store (previous);
+            require (enabled, "Keep remains available when no PRE is paired");
+        }
         editor->setVisible (true);
         // Each language, then switched while the editor stays open (both directions).
         for (const auto language : { i18n::Language::english, i18n::Language::japanese, i18n::Language::english })

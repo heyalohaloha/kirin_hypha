@@ -88,6 +88,7 @@ const Entry entries[] = {
     { "No active signal.", u8"入力がありません。" },
     { "Measurement is unavailable.", u8"計測できません。" },
     { "Keep is waiting for its pair.", u8"Keepはペアを待っています。" },
+    { "Keep ready", u8"Keep準備済み" },
     { "Measurement is active.", u8"計測中です。" },
     { "Keep is recording.", u8"Keepで記録中です。" },
     { "A kept result is available.", u8"Keepの結果があります。" },

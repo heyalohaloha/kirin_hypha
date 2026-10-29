@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaTextStyle.h"
+#include "HyphaLanguage.h"
 #include "HyphaFooterNoticeFont.h"
 #include "HyphaTheme.h"
 
@@ -19,11 +20,15 @@ class FeedbackStrip final : public juce::Component, public juce::SettableTooltip
 {
 public:
     std::function<void()> onClick;
+    std::function<void()> onAction;
 
     FeedbackStrip()
     {
         setComponentID ("feedback-strip");
         setWantsKeyboardFocus (false);
+        actionButton.setComponentID ("feedback-unpair");
+        actionButton.onClick = [this] { if (onAction) onAction(); };
+        addChildComponent (actionButton);
     }
 
     void setFeedback (const juce::String& text)
@@ -34,6 +39,22 @@ public:
         setTitle (text);
         setTooltip (text);
         repaint();
+    }
+
+    void setUnpairActionVisible (bool visible)
+    {
+        if (! visible && ! actionButton.isVisible()) return;
+        const auto label = i18n::tr ("Unpair");
+        if (actionButton.isVisible() == visible && actionButton.getButtonText() == label) return;
+        actionButton.setButtonText (label);
+        actionButton.setVisible (visible);
+        resized();
+        repaint();
+    }
+
+    void resized() override
+    {
+        actionButton.setBounds (getLocalBounds().removeFromRight (72).reduced (2));
     }
 
     void setPresentationContext (presentation::Context next) noexcept
@@ -52,7 +73,8 @@ public:
         g.setColour (COL_MUTED.withAlpha (0.36f));
         g.fillRect (area.withHeight (1.0f));
         g.setColour (COL_NORMAL);
-        const auto room = getLocalBounds().reduced (6, 0);
+        auto room = getLocalBounds().reduced (6, 0);
+        if (actionButton.isVisible()) room.removeFromRight (72);
         footer_notice_font::draw (g, context, feedback, room);
     }
 
@@ -64,6 +86,7 @@ public:
 
 private:
     juce::String feedback;
+    juce::TextButton actionButton;
     presentation::Context context = presentation::defaultContext();
 };
 }

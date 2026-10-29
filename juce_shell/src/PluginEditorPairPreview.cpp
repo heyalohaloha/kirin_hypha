@@ -1,3 +1,5 @@
+#include "HyphaPairLabels.h"
+#include "AutomaticPairNotice.h"
 #include "PluginEditor.h"
 #include <cstring>
 
@@ -15,8 +17,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     if (! demand && isShowing() && now - pairPreviewRefreshAt < 0.1) return;
     pairPreviewRefreshAt = now;
     const auto available = isPost && isShowing() && nameField.isVisible()
-        && processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED
-        && ! (processorRef.isPlaying() && processorRef.heartbeatLive());
+        && processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED;
     if (! available)
     {
         pairPreview.reset(); pairPreviewShown = {}; pairPreviewWasFocused = false;
@@ -24,6 +25,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
         pairPreviewRetrySeconds = firstRetrySeconds;
         pairPreviewObservedGeneration = 0;
         nameField.setSelectionPreview ({}, 0);
+        if (isPost) nameField.setEnabledTooltip (hypha::pair_labels::choose);
         return;
     }
     const bool focused = getPeer() != nullptr && getPeer()->isFocused();
@@ -60,16 +62,32 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
             {
                 const auto id = juce::String::fromUTF8 (value.candidate.instance_id);
                 const auto name = juce::String::fromUTF8 (value.candidate.name);
-                const auto text = "CONNECT "
-                    + (name.isNotEmpty() ? name + " / " : juce::String ("PRE "))
-                    + id.substring (0, 8);
+                if (processorRef.tryAutomaticPair (pairPreview.get(), value))
+                {
+                    pairPreview.reset();
+                    pairPreviewShown = {};
+                    comparisonActionAwaitingResult = true;
+                    comparisonActionAfterGeneration = comparisonObservedGeneration;
+                   #if ! KIRIN_HYPHA_PRE_DISPLAY
+                    spectrumView.clearSnapshot();
+                    perceptualView.clearSnapshot();
+                    absoluteView.clearSnapshot();
+                   #endif
+                    nameField.setModelName (processorRef.pairDisplayName());
+                    showToast ("Paired with PRE  " + (name.isNotEmpty() ? name : id.substring (0, 8)));
+                    automaticPairNotice = true;
+                    automaticPairNoticeId = id;
+                    updateFeedback (nowSecs(), false, {});
+                    return;
+                }
+                const auto text = hypha::pair_labels::candidateLabel (name, id);
                 if (nameField.setSelectionPreview (text, value.generation))
                 {
                     pairPreviewShown = value;
                     pairPreviewRetrySeconds = firstRetrySeconds;
                     pairPreviewNextDemandAt = now + exactCandidateRefreshSeconds;
                     nameField.setEnabledTooltip (
-                        "Connect this PRE: " + id + ". The arrow opens all candidates.");
+                        hypha::pair_labels::candidateTooltip (name, id));
                     return;
                 }
             }
@@ -85,7 +103,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     // Keep a displayed exact receipt while its non-blocking refresh is pending. A click still
     // goes through the authoritative pairing command, which fails closed if the PRE disappeared.
     if (! pairPreviewShown.has_single)
-        nameField.setEnabledTooltip ("Click to choose one exact PRE.");
+        nameField.setEnabledTooltip (hypha::pair_labels::choose);
 }
 
 void KirinHyphaEditor::selectPairPreview()
@@ -97,13 +115,19 @@ void KirinHyphaEditor::selectPairPreview()
         return;
     }
     KirinPairPreviewValue current {};
+    if (pairPreview && processorRef.pairPreviewMatches (pairPreview.get())
+        && ! kirin_hypha_pair_preview_poll (pairPreview.get(), &current))
+    {
+        refreshPairPreview (true);
+        showCandidateMenu();
+        return;
+    }
     if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get())
-        || ! kirin_hypha_pair_preview_poll (pairPreview.get(), &current)
         || ! current.complete || ! current.has_single || current.generation != shown.generation
         || std::strcmp (current.candidate.instance_id, shown.candidate.instance_id) != 0)
     {
         refreshPairPreview (false);
-        showToast ("PRE preview changed. Choose the PRE again.");
+        showToast (hypha::pair_labels::changed);
         showCandidateMenu();
         return;
     }
@@ -114,4 +138,14 @@ void KirinHyphaEditor::selectPairPreview()
     // Existing command rechecks live identity, concurrent ownership and host playback.
     handleCandidateMenu (100, chosen);
     refreshPairPreview (true);
+}
+
+void KirinHyphaEditor::unpairAutomaticNotice()
+{
+    hypha::automatic_pair::unpairNotice (
+        [this] { return ! (processorRef.isPlaying() && processorRef.heartbeatLive())
+            && processorRef.pairedPreInstanceId() == automaticPairNoticeId; },
+        [this] { handleCandidateMenu (11, {}); },
+        [this] { return processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED; },
+        [this] { showToast ("Unpaired"); });
 }

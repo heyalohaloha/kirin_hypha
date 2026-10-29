@@ -75,28 +75,29 @@ fn direct_live_action_results_follow_ambient_state_acknowledgement() {
     let open = function_body(blind_editor, "void KirinHyphaEditor::openLiveBlind");
     assert!(open.find("refreshLiveCompare()").unwrap() < open.find("showToast").unwrap());
     let auto_editor = include_str!("../../juce_shell/src/PluginEditorLiveCompareAuto.cpp");
-    let follow = function_body(
+    let menu = function_body(
         auto_editor,
         "void KirinHyphaEditor::chooseLiveCompareFollow",
     );
-    assert_eq!(follow.matches("refreshLiveCompare()").count(), 1);
-    assert!(follow.find("refreshLiveCompare()").unwrap() < follow.find("showToast").unwrap());
+    assert!(menu.contains("safe->handleLiveCompareFollowChoice (result)"));
+    let follow = function_body(
+        auto_editor,
+        "void KirinHyphaEditor::handleLiveCompareFollowChoice",
+    );
+    assert!(follow.contains("! opening.active || opening.finishing"));
+    assert!(follow.contains("result == 1) { matchLiveCompare(); return;"));
+    assert!(follow.contains("result == 2) { stopLiveCompareAuto ({});"));
     assert!(
         follow.contains("performAction")
             && follow.contains("ActionFaultScope::includingOpeningRefresh")
     );
-    assert!(follow.contains("autoReadiness (current, generation)"));
+    assert!(follow.contains("autoReadiness (current, current.sessionGeneration)"));
     assert!(
         follow.find("autoReadiness").unwrap() < follow.find("liveCompareAuto.on = true").unwrap()
     );
     assert!(follow.contains("ActionCompletion::ineligible && refusal.isNotEmpty()"));
-    assert!(follow.contains(
-        "! opening.active || opening.finishing || opening.sessionGeneration != generation"
-    ));
-    assert!(follow.contains("matchLiveCompare (generation)"));
-    let before_stop = follow.find("safe->stopLiveCompareAuto ({})").unwrap();
-    assert!(follow[..before_stop].contains("ActionOutcome::stale"));
-    assert!(follow[..before_stop].contains("currentNamedAction (current, generation, false)"));
+    assert!(!follow.contains("opening.sessionGeneration !="));
+
     assert!(
         !function_body(auto_editor, "void KirinHyphaEditor::stopLiveCompareAuto")
             .contains("refreshLiveCompare")
@@ -164,15 +165,50 @@ fn live_action_boundary_separates_old_history_from_new_success_faults() {
         "observed OR unobserved old retained ceiling",
         "opening OR closing AUTO follow stop",
         "unresolved guard even when MATCH and epoch never changed",
-        "each current AUTO safety blocker",
-        "obsolete MATCH-again OR Stop-AUTO menu",
+        "retained MATCH may wait; safety blockers still refuse AUTO",
+        "generation-bound action rejects a replaced scope",
         "same-scope menu positive control",
         "a new guard discovered by closing refresh",
-        "current AUTO receipt/proof refusal is explicit",
+        "AUTO waits for proof without hiding a new terminal fault",
     ] {
         assert!(
             fixture.contains(required),
             "causal action regression lost {required}"
+        );
+    }
+    let menu = function_body(
+        editor,
+        "void KirinHyphaEditor::handleLiveCompareMatchChoice",
+    );
+    assert!(menu.contains("applyLiveCompareChoice (plan") && !menu.contains("sessionGeneration"));
+    assert!(
+        apply.contains("applied.failure == MatchFailure::stale")
+            && apply.contains("processorRef.requestLiveCompareMatch()")
+    );
+    let processor = include_str!("../../juce_shell/src/PluginProcessorLiveCompare.cpp");
+    let apply_plan = function_body(processor, "KirinHyphaProcessorBase::applyLiveCompareMatch");
+    assert!(
+        apply_plan
+            .matches("plan.generation != liveCompare.sessionGeneration")
+            .count()
+            >= 2
+    );
+    assert!(
+        apply_plan
+            .matches("history.proof != plan.proof || history.preRun != plan.preRun")
+            .count()
+            >= 2
+    );
+    let product = include_str!("../../juce_shell/tests/LiveCompareNoticeProductChecks.h");
+    for required in [
+        "Stop AUTO remains effective after the menu generation changes",
+        "MATCH again requests a fresh measurement",
+        "stale approval requests a fresh measurement without applying old attenuation",
+        "stale TP LIMIT requests a fresh measurement without applying old gain",
+    ] {
+        assert!(
+            product.contains(required),
+            "menu regression lost {required}"
         );
     }
     let aax = include_str!("../../juce_shell/tests/live_compare_aax_group_product_test.cpp");
@@ -400,11 +436,19 @@ fn reentry_product_audio_oracle_reads_only_atomic_fixture_observations() {
         assert!(!without_line_comments(view).contains(forbidden));
     }
     let pair = include_str!("../../juce_shell/src/PluginProcessorPairing.cpp");
-    for method in [
-        "bool KirinHyphaProcessorBase::setPairCandidate",
-        "void KirinHyphaProcessorBase::clearPairCandidate",
+    let candidates = include_str!("../../juce_shell/src/PluginProcessorCandidates.cpp");
+    assert!(
+        function_body(pair, "bool KirinHyphaProcessorBase::setPairCandidate")
+            .contains("applyPairCandidate (instanceId, name)")
+    );
+    for (source, method) in [
+        (pair, "bool KirinHyphaProcessorBase::applyPairCandidate"),
+        (
+            candidates,
+            "void KirinHyphaProcessorBase::clearPairCandidate",
+        ),
     ] {
-        let body = function_body(pair, method);
+        let body = function_body(source, method);
         assert!(
             body.find("invalidateLiveComparePair()").unwrap() < body.find("handleLock").unwrap()
         );

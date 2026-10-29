@@ -72,7 +72,10 @@ namespace hypha::reference_audition
         bool readSourceRevision (const RuntimeSource&, RuntimeFileRevision&) const;
         SourceRevisionResult checkSourceRevision (const RuntimeSource&) const;
         juce::String verifySourceRevision (const RuntimeSource&) const;
-        juce::String verifySourceFile (const RuntimeSource&) const;
+        // freshAttempt: the caller's retry reservation has run out, so the worker's transient
+        // failure is dropped and one new hash may start. A poll that waits for a running attempt
+        // passes false and receives the worker's failure reason when that attempt ends.
+        juce::String verifySourceFile (const RuntimeSource&, bool freshAttempt = false) const;
 
     private:
         const juce::File root;

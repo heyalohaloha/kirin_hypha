@@ -78,17 +78,22 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
     // A withdrawn publication cannot gain authority by finishing an earlier preparation.
     const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
         : repository.refresh (configuration.identity.workId, workspace);
+    // A hash still running keeps the preparation. A read that already failed (revalidate with a
+    // reason) cannot retry from here, so the preparation is dropped and refreshWorkspace takes the
+    // same selection to its retry reservation; a playing source in that state returns to A.
+    const auto waiting = [] (const SourceRevisionResult& r)
+    { return r.state == SourceRevisionState::revalidate && r.reason.isEmpty(); };
     const auto preparedRevision = sourceRepository.checkSourceRevision (*prepared.source);
-    if (preparedRevision.state == SourceRevisionState::revalidate) return true;
+    if (waiting (preparedRevision)) return true;
     if (!loaded.workspace || loaded.rejectionCode.isNotEmpty()
         || loaded.workspace->publicationHash != workspace->publicationHash
-        || preparedRevision.state == SourceRevisionState::refused)
+        || preparedRevision.state != SourceRevisionState::matched)
     { clearPreparedWorkspace(); return false; }
     if (audibleSource && audibleSource != prepared.source)
     {
         const auto audibleRevision = sourceRepository.checkSourceRevision (*audibleSource);
-        if (audibleRevision.state == SourceRevisionState::revalidate) return true;
-        if (audibleRevision.state == SourceRevisionState::refused) failClosedToA();
+        if (waiting (audibleRevision)) return true;
+        if (audibleRevision.state != SourceRevisionState::matched) failClosedToA();
     }
     auto& staging = nextPages();
     const auto start = outputSample (prepared.cue.startSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);

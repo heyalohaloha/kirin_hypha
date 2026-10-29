@@ -61,7 +61,7 @@ inline std::vector<Notice> notices()
     // Direct action results and numeric boundaries in the LISTEN rail, including entry refusal,
     // MATCH, AUTO and END. These are transient notices, not timing verdicts.
     for (const char* text : { "LISTEN could not start", "Choose the PRE first",
-        "Mono / stereo only", "Paired PRE unavailable", "PRE is multi-mono: insert it as stereo",
+        "Mono / stereo only", "PRE not running; choose again", "PRE is multi-mono: insert it as stereo",
         "Select PRE again", "LISTEN ended; POST plays",
         "MATCH failed; try again", "MATCH over 24 dB", "POST back to normal",
         "Press RETURN first", "PRE over TP ceiling", "PRE held: latency changed", "AUTO on: within 0.5 dB",

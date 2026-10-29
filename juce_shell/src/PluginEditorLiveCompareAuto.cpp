@@ -35,52 +35,41 @@ void KirinHyphaEditor::chooseLiveCompareFollow()
         .withMinimumWidth (juce::jlimit (300, 520, getWidth()))
         .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    const auto generation = processorRef.liveCompareStatus().sessionGeneration;
-    menu.showMenuAsync (options, [safe, generation] (int result)
+    menu.showMenuAsync (options, [safe] (int result)
     {
-        if (safe == nullptr || safe->liveBlindOpen || result < 1 || result > 3)
-            return;
-        const auto opening = safe->processorRef.liveCompareStatus();
-        if (! opening.active || opening.finishing || opening.sessionGeneration != generation)
-            return;
-        if (result == 1)
-        {
-            safe->matchLiveCompare (generation); // the measurement/plan keeps the menu's scope
-            return;
-        }
-        juce::String refusal;
-        const auto completion = hypha::live_compare_ui::performAction (hypha::live_compare_ui::ActionFaultScope::includingOpeningRefresh,
-            [safe, result, generation]
-            {
-                const auto current = safe->processorRef.liveCompareStatus();
-                if (! hypha::live_compare_ui::currentNamedAction (current, generation, false))
-                    return hypha::live_compare_ui::ActionOutcome::stale;
-                if (result == 2) safe->stopLiveCompareAuto ({});
-                return hypha::live_compare_ui::ActionOutcome::success;
-            },
-            [safe] { return safe->refreshLiveCompare(); },
-            [safe, result, generation, &refusal]
-            {
-                const auto current = safe->processorRef.liveCompareStatus();
-                if (result != 3) return hypha::live_compare_ui::currentNamedAction (current, generation, false);
-                const auto readiness = hypha::live_compare_ui::autoReadiness (current, generation);
-                refusal = readiness == hypha::live_compare_ui::AutoReadiness::blocked
-                    ? hypha::live_compare_ui::namedRecovery (current)
-                    : hypha::live_compare_ui::autoReadinessNotice (readiness);
-                return readiness == hypha::live_compare_ui::AutoReadiness::ready;
-            }, [safe, result]
-            {
-                if (result == 3)
-                {
-                    safe->liveCompareAuto.on = true;
-                    safe->liveCompareAuto.hiddenStopNoticePending = false;
-                    safe->liveCompareAuto.nextAt = safe->nowSecs() + hypha::live_compare::followIntervalSeconds;
-                }
-                safe->showToast (result == 3 ? "AUTO on: within 0.5 dB" : "AUTO off");
-            });
-        if (completion == hypha::live_compare_ui::ActionCompletion::ineligible && refusal.isNotEmpty())
-            safe->showToast (refusal); // same current intention failed; new faults/stale menus remain untouched
+        if (safe != nullptr) safe->handleLiveCompareFollowChoice (result);
     });
+}
+
+void KirinHyphaEditor::handleLiveCompareFollowChoice (int result)
+{
+    if (liveBlindOpen || result < 1 || result > 3) return;
+    const auto opening = processorRef.liveCompareStatus();
+    if (! opening.active || opening.finishing) return;
+    if (result == 1) { matchLiveCompare(); return; }
+    if (result == 2) { stopLiveCompareAuto ({}); showToast ("AUTO off"); return; }
+    juce::String refusal;
+    const auto completion = hypha::live_compare_ui::performAction (
+        hypha::live_compare_ui::ActionFaultScope::includingOpeningRefresh,
+        [] { return hypha::live_compare_ui::ActionOutcome::success; },
+        [this] { return refreshLiveCompare(); },
+        [this, &refusal]
+        {
+            const auto current = processorRef.liveCompareStatus();
+            const auto readiness = hypha::live_compare_ui::autoReadiness (current, current.sessionGeneration);
+            refusal = readiness == hypha::live_compare_ui::AutoReadiness::blocked
+                ? hypha::live_compare_ui::namedRecovery (current)
+                : hypha::live_compare_ui::autoReadinessNotice (readiness);
+            return readiness == hypha::live_compare_ui::AutoReadiness::ready;
+        }, [this]
+        {
+            liveCompareAuto.on = true;
+            liveCompareAuto.hiddenStopNoticePending = false;
+            liveCompareAuto.nextAt = nowSecs() + hypha::live_compare::followIntervalSeconds;
+            showToast ("AUTO on: within 0.5 dB");
+        });
+    if (completion == hypha::live_compare_ui::ActionCompletion::ineligible && refusal.isNotEmpty())
+        showToast (refusal);
 }
 
 void KirinHyphaEditor::stopLiveCompareAuto (const juce::String& notice)
@@ -104,6 +93,7 @@ bool KirinHyphaEditor::followLiveCompare (const hypha::live_compare::Status& sta
         return false;
     }
     if (status.contentHeld || status.compensationOff || ! status.matchReady
+        || status.observation != hypha::live_compare::RecoveryReason::none
         || status.verdict != hypha::live_compare::Verdict::accepted || now < a.nextAt)
         return false;
     a.nextAt = now + hypha::live_compare::followIntervalSeconds;

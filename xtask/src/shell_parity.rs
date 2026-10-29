@@ -254,7 +254,16 @@ mod tests {
     #[test]
     fn keep_controls_are_owned_by_the_menu_and_observatory_footer() {
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addSectionHeader (\"Keep\")"));
-        assert!(PLUGIN_EDITOR_CPP.contains("osOwned && pairSelected"));
+        assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (4, \"Keep selected pair\", osOwned)"));
+        let handle = between(
+            PLUGIN_EDITOR_CPP,
+            "void KirinHyphaEditor::handleCandidateMenu",
+            "if (result == 1)",
+        );
+        assert!(handle
+            .contains("result == 4 && processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED"));
+        assert!(handle.contains("showToast (hypha::pair_labels::choose)"));
+        assert!(handle.contains("showCandidateMenu()"));
         assert!(PLUGIN_EDITOR_CPP.contains("processorRef.keepPair()"));
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
             .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
@@ -284,7 +293,7 @@ mod tests {
             "menu.addSectionHeader (\"PRE connection\");",
             "menu.addItem (3, \"No available PRE\", false, false);",
             "! pairLocked && labelEnabled[i], labelChecked[i]",
-            "labels.add ((inUse ? \"In use by another POST: \" : \"Use PRE: \") + shown);",
+            "labels.add ((inUse ? \"In use by another POST: \" : hypha::pair_labels::menuPrefix) + shown);",
         ] {
             assert!(body.contains(required), "candidate menu missing {required}");
         }

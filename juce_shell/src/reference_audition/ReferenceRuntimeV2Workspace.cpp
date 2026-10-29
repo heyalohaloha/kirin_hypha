@@ -302,21 +302,30 @@ namespace hypha::reference_audition
             return;
         }
         auto selectedSource = sourceCache.find (candidate->sourceArtifact.sha256);
-        const bool previouslyVerified = selectedSource != nullptr;
+        // The retry reservation belongs to one explicit selection of one source receipt. A new
+        // selection checks its file at once (through verifySourceFile) instead of serving an
+        // earlier read failure through a new reservation; a republished manifest keeps it.
+        const auto retryKey = candidate->sourceArtifact.sha256 + ":" + juce::String (selection.generation);
+        const bool freshSelection = sourceRetryKey != retryKey;
+        if (freshSelection)
+        { sourceRetryKey = retryKey; sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0; }
+        const bool previouslyVerified = selectedSource != nullptr && ! freshSelection;
         if (! previouslyVerified)
             selectedSource = sourceLoad.source;
-        const auto retryKey = workspace->publicationHash + candidate->sourceArtifact.sha256
-            + juce::String (selection.generation);
-        if (sourceRetryKey != retryKey)
-        { sourceRetryKey = retryKey; sourceRetryFailure.clear(); sourceRetryAtMs = 0; sourceRetryCount = 0; }
         const bool rejectedPageSource = currentPages().sourceInvalidated() && workerSource
             && workerSourceGeneration == selection.generation
             && workerSource->absolutePath == selectedSource->absolutePath
             && workerSource->sourceFileSha256 == selectedSource->sourceFileSha256;
+        // A reservation that has run out starts one fresh attempt. Polls before it only republish
+        // the stored failure; polls after it wait for the attempt the worker holds, and the
+        // worker's own failure reaches this clock as the verification reason.
+        const bool freshAttempt = ! rejectedPageSource
+            && (freshSelection || (sourceRetryFailure.isNotEmpty() && nowMs >= sourceRetryAtMs));
+        if (freshAttempt) { sourceRetryFailure.clear(); sourceRetryAtMs = 0; }
         const auto sourceFailure = rejectedPageSource ? juce::String ("reference_source_changed")
             : nowMs < sourceRetryAtMs ? sourceRetryFailure : previouslyVerified
             ? sourceRepository.verifySourceRevision (*selectedSource)
-            : sourceRepository.verifySourceFile (*selectedSource);
+            : sourceRepository.verifySourceFile (*selectedSource, freshAttempt);
         if (sourceFailure == "reference_source_revalidating") return;
         if (sourceFailure.isNotEmpty())
         {
@@ -327,7 +336,7 @@ namespace hypha::reference_audition
             }
             sourceCache.forget (candidate->sourceArtifact.sha256);
             failClosedToA();
-            next.state = RuntimeState::rejected;
+            next.state = sourceFailure == "reference_source_read_failed" ? RuntimeState::waiting : RuntimeState::rejected;
             next.rejectionCode = sourceFailure;
             publish (std::move (next));
             return;

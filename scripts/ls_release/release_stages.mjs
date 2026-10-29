@@ -17,7 +17,7 @@ export function prerequisites(stage) {
   add(stage); return STAGES.filter(name => result.has(name));
 }
 export function stagePlan(until) {
-  const targets = { packages: ['packages'], hp: ['hp'], ls: ['ls'], complete: ['postrelease', 'ls'] }[until];
+  const targets = { packages: ['packages'], hp: ['hp'], postrelease: ['postrelease'], ls: ['ls'], complete: ['postrelease', 'ls'] }[until];
   if (!targets) throw new Error('Invalid --until');
   const required = new Set();
   const add = stage => { for (const dep of STAGE_DEPENDENCIES[stage]) add(dep); required.add(stage); };

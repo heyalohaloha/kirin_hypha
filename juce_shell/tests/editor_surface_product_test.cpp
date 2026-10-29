@@ -142,7 +142,7 @@ void verifyPairHeaderAtEverySize (const juce::File& previews)
     auto* dropdown = component<hypha::PairDropdownButton> (*editor);
     require (name != nullptr && dropdown != nullptr,
              "shipping pair label and menu target both exist");
-    require (name->getParentComponent() == dropdown->getParentComponent(),
+    hypha::tests::editor_product::renderPairBadges (*editor, *name); require (name->getParentComponent() == dropdown->getParentComponent(),
              "pair label and menu use one coordinate space");
 
     for (const auto preset : hypha::observatory::sizePresets)

@@ -13,11 +13,14 @@ inline void observeReaperIntervals (LinearIntervals& w, const BlockClock& previo
         && checkedClockAdd (previous.project, previous.frames, previousEnd) && block.project == previousEnd;
     if (!linear)
     {
+        // A crossing callback is admitted by the current block proof. A later native
+        // reading separately proves inheritance: the map splits at the next callback
+        // start, not at the actual loop boundary inside the preceding callback.
         const bool split = !restart && w.end == block.clock && block.project < previous.project
             && previous.loop.usable (rate) && block.loop.usable (rate)
             && previous.loop.sameRange (block.loop)
-            && std::abs (previous.loop.ppq + previous.loop.beats (previous.frames, rate) - previous.loop.end) < 1.0e-9
-            && std::abs (block.loop.ppq - block.loop.start) < 1.0e-9;
+            && loopPositionMatches (previous.loop, previous.project, previous.frames,
+                                    block.loop, block.project, rate);
         if (split)
         {
             w.start = w.split; w.project = w.splitProject;
@@ -52,8 +55,6 @@ inline bool reaperWindowAddress (const LoopAnchor& anchor, const BlockClock& pre
         || !pre.playing || !post.playing || !pre.clockValid || !post.clockValid
         || !pre.projectValid || !post.projectValid || pre.afterGap || post.afterGap
         || !pre.loop.usable (rate) || !post.loop.usable (rate) || !pre.loop.sameRange (post.loop)
-        || pre.loop.ppq + pre.loop.beats (pre.frames, rate) > pre.loop.end + 1.0e-9
-        || post.loop.ppq + post.loop.beats (post.frames, rate) > post.loop.end + 1.0e-9
         || (anchor.loopSamples > 0 && anchor.loopSamples <= upper)) return false;
     const auto& w = anchor.intervals;
     std::int64_t end = 0, oldest = 0;

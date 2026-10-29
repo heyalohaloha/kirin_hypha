@@ -27,10 +27,10 @@ test('previous public installers pin the released 1.1.52 VST3 and AAX installer'
   }]);
 });
 
-test('release qualification requires a passed 1.1.52 upgrade bound to the current fixture', () => {
+test('release qualification requires a passed 1.1.53 upgrade bound to the current fixture', () => {
   const bytes = fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json', import.meta.url));
   const fixture = JSON.parse(bytes);
-  const latestId = 'all-users-1.1.52';
+  const latestId = 'all-users-1.1.53';
   assert.ok(fixture.required_for_release.includes(latestId));
   const fixtureHash = createHash('sha256').update(bytes).digest('hex');
   const scenarios = fixture.required_for_release.map(id => ({ id, status: 'passed' }));
@@ -39,7 +39,7 @@ test('release qualification requires a passed 1.1.52 upgrade bound to the curren
   });
   assert.doesNotThrow(() => qualify(scenarios));
   // Passing the older upgrades cannot replace the immediately preceding public release.
-  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.52/);
+  assert.throws(() => qualify(scenarios.filter(row => row.id !== latestId)), /all-users-1\.1\.53/);
   assert.throws(() => qualify(scenarios.map(row => row.id === latestId ? { ...row, status: 'failed' } : row)),
     /previous-release upgrade verification is incomplete/);
   // A report bound to the former two-installer fixture cannot qualify the new matrix.
@@ -329,4 +329,10 @@ test('full release set accepts only a signed, verified, externally validated Win
     },
   }));
   assert.throws(() => requireWindowsInstaller(root, identity), /installed uninstaller/);
+});
+
+
+test('previous public installers pin the released 1.1.53 VST3 and AAX installer', () => {
+ const fixture=JSON.parse(fs.readFileSync(new URL('../windows/fixtures/previous-public-installers.json',import.meta.url)));
+ assert.deepEqual(fixture.installers.filter(entry=>entry.version==='1.1.53'),[{version:'1.1.53',file_name:'Kirin-Hypha-1.1.53-Windows-x64-Setup.exe',bytes:27898440,sha256:'fdbf1ce66443816934021832b3f6e7310badd2eb0669a0b5e67cec7ea7cda5be',default_scope:'all-users',formats:['VST3','AAX']}]);
 });

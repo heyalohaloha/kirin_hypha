@@ -17,6 +17,7 @@ namespace hypha
         Idle,            // grey, static
         Error,           // yellow, static (measure thread stopped)
         RecordStandby,   // green dimmed 0.45, static (recording, not yet acked)
+        RecordReady,     // acknowledged, awaiting signal
         WatchBreathing,  // blue (legacy enum name; rendering is static)
         RecordActive,    // green
         PresetAvailable  // amber
@@ -97,7 +98,7 @@ namespace hypha
         void setEnabledTooltip (const juce::String& t)
         {
             enabledTooltip = t;
-            if (editingEnabled) setTooltip (enabledTooltip);
+            refreshTooltip();
         }
         bool isEditing() const                         { return editing; }
 
@@ -115,6 +116,7 @@ namespace hypha
 
     private:
         std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+        void refreshTooltip();
         void activate();
         void startEditing();
         void commitEditing();

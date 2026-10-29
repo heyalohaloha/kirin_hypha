@@ -311,6 +311,9 @@ namespace hypha::reference_audition
 
         bool currentRevision (const juce::File& file, RuntimeFileRevision& result)
         {
+           #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+            if (revision_detail::pathFailureForTest.exchange (false)) return false;
+           #endif
            #if JUCE_WINDOWS
             const auto path = file.getFullPathName().toWideCharPointer();
             const auto handle = CreateFileW (path, GENERIC_READ, FILE_SHARE_READ, nullptr,
@@ -391,7 +394,6 @@ namespace hypha::reference_audition
     bool RuntimeV2SourceRepository::readSourceRevision (const RuntimeSource& source, RuntimeFileRevision& revision) const
     {
         if (currentRevision (juce::File (source.absolutePath), revision)) return true;
-        revision_detail::service().noteFailure (source);
         return false;
     }
 
@@ -400,8 +402,7 @@ namespace hypha::reference_audition
         RuntimeFileRevision current;
         if (!currentRevision (juce::File (source.absolutePath), current))
         {
-            revision_detail::service().noteFailure (source);
-            return { SourceRevisionState::refused, "reference_source_open_failed" };
+            return { SourceRevisionState::revalidate, "reference_source_read_failed" };
         }
         auto result = revision_detail::service().check (source, current, currentRevision);
         result.revision = current;
@@ -412,18 +413,20 @@ namespace hypha::reference_audition
     {
         const auto result = checkSourceRevision (source);
         return result.state == SourceRevisionState::matched ? juce::String {}
-            : result.state == SourceRevisionState::revalidate ? "reference_source_revalidating" : result.reason;
+            : result.state == SourceRevisionState::revalidate && result.reason.isEmpty() ? "reference_source_revalidating" : result.reason;
     }
 
-    juce::String RuntimeV2SourceRepository::verifySourceFile (const RuntimeSource& source) const
+    juce::String RuntimeV2SourceRepository::verifySourceFile (const RuntimeSource& source, bool freshAttempt) const
     {
+        if (freshAttempt) revision_detail::service().retry (source);
         RuntimeFileRevision current;
         if (!currentRevision (juce::File (source.absolutePath), current))
-        { revision_detail::service().noteFailure (source); return "reference_source_open_failed"; }
+        { return "reference_source_read_failed"; }
         if (!revision_detail::equal (current, source.revision))
         {
             const auto state = checkSourceRevision (source);
-            if (state.state == SourceRevisionState::revalidate) return "reference_source_revalidating";
+            if (state.state == SourceRevisionState::revalidate)
+                return state.reason.isNotEmpty() ? state.reason : "reference_source_revalidating";
             if (state.state == SourceRevisionState::refused) return state.reason;
             RuntimeFileRevision after;
             if (!currentRevision (juce::File (source.absolutePath), after)

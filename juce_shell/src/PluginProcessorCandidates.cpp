@@ -57,3 +57,79 @@ bool KirinHyphaProcessorBase::pairPreviewMatches (const KirinPairPreview* previe
     const juce::ScopedLock lock (handleLock);
     return kirin_hypha_pair_preview_matches (hyphaHandle, preview);
 }
+
+bool KirinHyphaProcessorBase::automaticPairNeedsService() const
+{
+    const juce::ScopedLock pairLock (automaticPair.lock);
+    return role == Role::Post && writesEnabled.load (std::memory_order_acquire)
+        && ! automaticPair.inhibited.load (std::memory_order_acquire)
+        && ! automaticPair.disconnected.load (std::memory_order_acquire)
+        // outputStates includes Record, Keep, LISTEN, BLIND and other output owners.
+        && ! isHostRecording() && outputStates() == 0 && persistPairName.isEmpty() && persistPairInstanceId.isEmpty()
+        && persistPairProjectHash.isEmpty() && pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED;
+}
+
+bool KirinHyphaProcessorBase::tryAutomaticPair (const KirinPairPreview* preview,
+                                                 const KirinPairPreviewValue& observed)
+{
+    if (! automaticPairNeedsService()) return false;
+    bool changed = false;
+    {
+        const juce::ScopedLock pairLock (automaticPair.lock);
+        const auto eligible = [this] { return automaticPairNeedsService(); };
+        KirinPairPreviewValue current {};
+        if (! eligible() || ! preview || ! pairPreviewMatches (preview)
+            || ! kirin_hypha_pair_preview_poll (preview, &current) || ! current.complete
+            || ! current.has_single || current.generation != observed.generation
+            || juce::String::fromUTF8 (current.candidate.instance_id)
+                != juce::String::fromUTF8 (observed.candidate.instance_id)) return false;
+        // Re-read the menu's candidate and claim lists immediately before exact selection.
+        const auto candidates = enumeratePreCandidates();
+        if (candidates.size() >= 32) return false; // The fixed FFI buffer may be truncated.
+        const auto claims = enumeratePostPairClaims();
+        if (claims.size() >= 32) return false;
+        const auto ownId = instanceId();
+        const auto id = juce::String::fromUTF8 (current.candidate.instance_id);
+        int available = 0;
+        bool sameCandidate = false;
+        for (const auto& candidate : candidates)
+        {
+            bool owned = false;
+            for (const auto& claim : claims)
+                if (claim.instanceId != ownId
+                    && ((claim.hasPairedPreInstanceId && claim.pairedPreInstanceId == candidate.instanceId)
+                        || (! claim.hasPairedPreInstanceId && claim.hasPairPreName && candidate.hasName
+                            && candidate.name.isNotEmpty() && claim.pairPreName == candidate.name)))
+                    owned = true;
+            if (! owned) { ++available; sameCandidate = candidate.instanceId == id; }
+        }
+        KirinPairPreviewValue confirmed {};
+        if (available != 1 || ! sameCandidate || ! pairPreviewMatches (preview)
+            || ! kirin_hypha_pair_preview_poll (preview, &confirmed) || ! confirmed.complete
+            || ! confirmed.has_single || confirmed.generation != current.generation
+            || juce::String::fromUTF8 (confirmed.candidate.instance_id) != id || ! eligible()) return false;
+        changed = applyPairCandidate (id, juce::String::fromUTF8 (current.candidate.name));
+        if (changed) automaticPair.inhibited.store (true, std::memory_order_release);
+    }
+    if (changed) updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+    return changed;
+}
+
+void KirinHyphaProcessorBase::clearPairCandidate()
+{
+    automaticPair.inhibited.store (true, std::memory_order_release);
+    {
+        const juce::ScopedLock pairLock (automaticPair.lock);
+        automaticPair.disconnected.store (true, std::memory_order_release);
+        invalidateLiveComparePair();
+        {
+            const juce::ScopedLock lock (handleLock);
+            if (hyphaHandle != nullptr)
+                kirin_hypha_set_pair_target (hyphaHandle, "");
+        }
+        persistPairName.clear();
+        persistPairProjectHash.clear();
+        persistPairInstanceId.clear();
+    }
+    updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}

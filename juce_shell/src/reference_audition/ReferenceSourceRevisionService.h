@@ -38,6 +38,9 @@ inline juce::String number (std::uint64_t n) { return juce::String (std::to_stri
 class OpenFile;
 inline std::atomic<void (*)()> hashReadHook { nullptr }, pageReadHook { nullptr };
 inline std::atomic<OpenFile*> watchedPageFile { nullptr };
+inline std::atomic<int> verifyFailureForTest { 0 };
+inline std::atomic<bool> persistentReadFailureForTest { false };
+inline std::atomic<bool> pathFailureForTest { false };
 #endif
 
 // The hash stream and both revision observations use this same OS handle.
@@ -46,6 +49,10 @@ class OpenFile final : public juce::InputStream
 public:
     explicit OpenFile (const juce::File& file)
     {
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        int expected = 1;
+        if (verifyFailureForTest.compare_exchange_strong (expected, 0)) return;
+#endif
 #if JUCE_WINDOWS
         handle = CreateFileW (file.getFullPathName().toWideCharPointer(), GENERIC_READ,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
@@ -112,6 +119,12 @@ public:
     }
     int read (void* data, int n) override
     {
+#if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        int expected = 2;
+        if (hashingForTest && hashReadStarted && (persistentReadFailureForTest.load()
+            || verifyFailureForTest.compare_exchange_strong (expected, 0)))
+        { failed = true; return 0; }
+#endif
 #if JUCE_WINDOWS
         DWORD got = 0; if (handle == INVALID_HANDLE_VALUE || !ReadFile (handle, data, DWORD (n), &got, nullptr)) { failed = true; return 0; }
         const auto result = int (got);
@@ -119,11 +132,12 @@ public:
         const auto got = handle < 0 ? -1 : ::read (handle, data, size_t (n));
         if (got < 0) { failed = true; return 0; } const auto result = int (got);
 #endif
+        if (n > 0 && result == 0 && position < length) failed = true;
         position += result;
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
         if (result > 0)
         {
-            if (hashingForTest) { if (auto hook = hashReadHook.exchange (nullptr)) hook(); }
+            if (hashingForTest) { hashReadStarted = true; if (auto hook = hashReadHook.exchange (nullptr)) hook(); }
             else if (watchedPageFile.load() == this)
                 if (auto hook = pageReadHook.exchange (nullptr)) hook();
         }
@@ -131,6 +145,7 @@ public:
         return result;
     }
     bool complete() const { return !failed && position == length; }
+    bool readFailed() const { return failed; }
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     void enableHashHook() noexcept { hashingForTest = true; }
 #endif
@@ -143,7 +158,7 @@ private:
     juce::int64 length = -1, position = 0;
     bool failed = false;
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
-    bool hashingForTest = false;
+    bool hashingForTest = false, hashReadStarted = false;
 #endif
 };
 
@@ -182,7 +197,7 @@ inline juce::String verify (const RuntimeSource& source, PathRevision pathRevisi
 {
     const juce::File path (source.absolutePath);
     OpenFile stream (path); RuntimeFileRevision before, after, pathBefore, pathAfter;
-    if (!stream.revision (before) || !pathRevision (path, pathBefore)) return "reference_source_open_failed";
+    if (!stream.revision (before) || !pathRevision (path, pathBefore)) return "reference_source_read_failed";
     if (!sameObject (before, source.revision) || !equal (before, pathBefore)) return "reference_source_changed";
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     stream.enableHashHook();
@@ -191,20 +206,21 @@ inline juce::String verify (const RuntimeSource& source, PathRevision pathRevisi
     {
         juce::BufferedInputStream buffered (stream, 64 * 1024);
         hash = juce::SHA256 (buffered).toHexString();
-        if (buffered.getPosition() != stream.getTotalLength()) return "reference_source_changed";
+        if (buffered.getPosition() != stream.getTotalLength()) return "reference_source_read_failed";
     }
-    if (!stream.complete() || !stream.revision (after) || !pathRevision (path, pathAfter)
-        || !equal (before, after) || !equal (before, pathAfter)) return "reference_source_changed";
+    if (!stream.complete() || !stream.revision (after) || !pathRevision (path, pathAfter)) return "reference_source_read_failed";
+    if (!equal (before, after) || !equal (before, pathAfter)) return "reference_source_changed";
     if (hash != source.sourceFileSha256) return "reference_source_changed";
-    if (!stream.setPosition (0)) return "reference_source_open_failed";
+    if (!stream.setPosition (0)) return "reference_source_read_failed";
     juce::AudioFormatManager formats; formats.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (std::make_unique<BorrowedInput> (stream)));
+    if (stream.readFailed()) return "reference_source_read_failed";
     if (reader == nullptr) return "reference_source_decode_failed";
     if (static_cast<std::int64_t> (std::llround (reader->sampleRate)) != source.audio.sampleRateHz
         || reader->numChannels != source.audio.channels || reader->lengthInSamples != source.audio.totalSampleFrames)
         return "reference_source_audio_mismatch";
-    if (!stream.revision (after) || !pathRevision (path, pathAfter)
-        || !equal (before, after) || !equal (before, pathAfter)) return "reference_source_changed";
+    if (!stream.revision (after) || !pathRevision (path, pathAfter)) return "reference_source_read_failed";
+    if (!equal (before, after) || !equal (before, pathAfter)) return "reference_source_changed";
     verified = before; return {};
 }
 
@@ -222,7 +238,7 @@ class Service final
 {
     struct Entry
     {
-        RuntimeFileRevision revision; juce::String failure;
+        RuntimeFileRevision revision; juce::String failure, transientFailure;
         std::shared_ptr<Authority> authority = std::make_shared<Authority>();
         bool complete = false, queued = false, failureActive = false;
     };
@@ -247,6 +263,7 @@ public:
         trim (key);
         if (!sameObject (source.revision, now))
         { markFailure (e); return { SourceRevisionState::refused, "reference_source_changed" }; }
+        if (e.transientFailure.isNotEmpty()) return { SourceRevisionState::revalidate, e.transientFailure };
         if (e.complete && equal (e.revision, now))
         {
             if (e.failure.isNotEmpty()) { markFailure (e); return { SourceRevisionState::refused, e.failure }; }
@@ -277,6 +294,12 @@ public:
         const auto key = keyFor (source); std::lock_guard<std::mutex> l (mutex);
         auto& e = entries[key]; trim (key); markFailure (e);
     }
+    void retry (const RuntimeSource& source)
+    {
+        std::lock_guard<std::mutex> l (mutex);
+        auto i = entries.find (keyFor (source));
+        if (i != entries.end()) i->second.transientFailure.clear();
+    }
     juce::String verifyInitial (const RuntimeSource& source, const RuntimeFileRevision& requested, PathRevision path)
     {
         if (!sameObject (source.revision, requested)) { noteFailure (source); return "reference_source_changed"; }
@@ -304,18 +327,25 @@ public:
         {
             std::lock_guard<std::mutex> l (mutex);
             auto& e = entries[key]; e.queued = false;
-            if (stable)
+            if (stable && failure != "reference_source_read_failed" && failure != "reference_source_revalidating")
             {
-                e.revision = current; e.failure = failure; e.complete = true;
+                e.revision = current; e.failure = failure; e.complete = true; e.transientFailure.clear();
                 if (failure.isNotEmpty()) markFailure (e); else e.failureActive = false;
             }
-            else if (failure == "reference_source_open_failed") markFailure (e);
         }
         finished.notify_all();
-        return stable || failure == "reference_source_open_failed" ? failure : "reference_source_revalidating";
+        return stable || failure == "reference_source_read_failed" ? failure : "reference_source_revalidating";
     }
 #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
     std::uint64_t startedCount() const noexcept { return testStarted.load(); }
+    bool waitForIdle (std::chrono::milliseconds timeout)
+    {
+        std::unique_lock<std::mutex> l (mutex);
+        return finished.wait_for (l, timeout, [&] {
+            for (const auto& item : entries) if (item.second.queued) return false;
+            return true;
+        });
+    }
     bool waitForCompletion (const RuntimeSource& source, std::chrono::milliseconds timeout)
     {
         std::unique_lock<std::mutex> l (mutex);
@@ -358,12 +388,14 @@ private:
             }
             catch (...) { failure = "reference_source_revalidating"; }
             { std::lock_guard<std::mutex> l (mutex); auto& e = entries[job.key]; e.queued = false;
-              if (stable)
+              if (stable && failure != "reference_source_read_failed" && failure != "reference_source_revalidating")
               {
-                  e.revision = current; e.failure = failure; e.complete = true;
+                  e.revision = current; e.failure = failure; e.complete = true; e.transientFailure.clear();
                   if (failure.isNotEmpty()) markFailure (e); else e.failureActive = false;
               }
-              else if (failure == "reference_source_open_failed") markFailure (e);
+              // The worker keeps a read failure until a fresh attempt (Service::retry) drops it, so
+              // polls that only wait for that attempt do not queue another hash.
+              else if (failure == "reference_source_read_failed") e.transientFailure = failure;
               trim (job.key); }
             finished.notify_all();
         }

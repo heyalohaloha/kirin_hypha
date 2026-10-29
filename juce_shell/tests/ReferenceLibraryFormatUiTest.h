@@ -32,7 +32,7 @@ inline void verifyReferenceLibraryFormatStatus()
                     state.referenceRejectionCode = view::rejectionCodeOf (runtime);
                     const auto line = reference_ui::referenceStatusLine (state, true);
                     check (line.kind == reference_ui::StatusKind::unable && line.text.contains ("FORMAT UNREADABLE")
-                        && line.text.contains ("UPDATE KIRIN OS") && line.text.contains ("PUBLISH AGAIN"),
+                        && line.text.contains ("UPDATE KIRIN OS AND HYPHA"),
                         "every role explains an unreadable cold/warm publication before opening or choosing a library");
                     const auto& reason = slot == 1 ? state.versionRejectionCode : slot == 2 ? state.checkRejectionCode : state.referenceRejectionCode;
                     check (reason == code, "the runtime rejection reaches every role");

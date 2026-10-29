@@ -20,7 +20,7 @@ struct ActionFixture
     struct Status
     {
         bool active = true, finishing = false, matched = true, matchLimited = false;
-        bool matchReady = true, interrupted = false, contentHeld = false, compensationOff = false;
+        bool matchReady = true, matchHeld = false, interrupted = false, contentHeld = false, compensationOff = false;
         std::uint64_t sessionGeneration = 7;
         Verdict verdict = Verdict::accepted;
         RecoveryReason reason = RecoveryReason::none, observation = RecoveryReason::none;
@@ -140,8 +140,8 @@ void actionNoticeBoundary()
     for (int ticks = 0; ticks < 16; ++ticks)
         require (! refusal.refresh() && refusal.notice == "PRE is multi-mono: insert it as stereo",
             "repeated refreshes cannot replay already-acknowledged history over a direct refusal");
-    // Menu generation is checked AFTER opening service and BEFORE any MATCH/AUTO mutation.
-    for (bool matchAgain : { false, true })
+    // A generation-bound action checks its scope after opening service and before mutation.
+    for (bool requiresMatch : { false, true })
         for (bool replacedByOpeningService : { false, true })
         {
             ActionFixture scoped;
@@ -158,10 +158,10 @@ void actionNoticeBoundary()
                 {
                     if (replacedByOpeningService && scoped.refreshes == 0) ++scoped.status.sessionGeneration;
                     return scoped.refresh();
-                }, [&] { return currentNamedAction (scoped.status, menuGeneration, matchAgain); },
+                }, [&] { return currentNamedAction (scoped.status, menuGeneration, requiresMatch); },
                 [&] { scoped.notice = "success"; });
             require (! mutation && published == ActionCompletion::stale && scoped.notice != "success",
-                "obsolete MATCH-again OR Stop-AUTO menu cannot mutate a new session, including opening-service invalidation");
+                "generation-bound action rejects a replaced scope, including opening-service invalidation");
             ++causalCases;
         }
     ActionFixture sameScope;
@@ -177,6 +177,11 @@ void actionNoticeBoundary()
         "same-scope menu positive control still mutates and reports its success");
     ActionFixture eligible;
     require (currentAutoAction (eligible.status, 7), "qualified current AUTO positive control");
+    auto heldWaiting = eligible.status;
+    heldWaiting.matched = false; heldWaiting.matchHeld = true; heldWaiting.matchReady = false;
+    heldWaiting.verdict = Verdict::calibrating;
+    require (autoReadiness (heldWaiting, 7) == AutoReadiness::ready,
+             "AUTO can be enabled while retained MATCH waits for verified timing");
     for (bool proofMissing : { false, true })
         for (bool newFault : { false, true })
         {
@@ -193,11 +198,9 @@ void actionNoticeBoundary()
                 [&] { readiness = autoReadiness (waiting.status, 7); return readiness == AutoReadiness::ready; },
                 [&] { waiting.autoOn = true; waiting.notice = "AUTO on"; });
             if (result == ActionCompletion::ineligible) waiting.notice = autoReadinessNotice (readiness);
-            require (! waiting.autoOn && (newFault
-                ? result == ActionCompletion::newFault && waiting.notice == "recovery"
-                : result == ActionCompletion::ineligible && waiting.notice
-                    == (proofMissing ? "AUTO not started: PRE timing pending" : "AUTO not started: MATCH pending")),
-                "current AUTO receipt/proof refusal is explicit, but never hides a new terminal fault");
+            require (newFault ? ! waiting.autoOn && result == ActionCompletion::newFault && waiting.notice == "recovery"
+                              : waiting.autoOn && result == ActionCompletion::published && waiting.notice == "AUTO on",
+                "AUTO waits for proof without hiding a new terminal fault");
             ++causalCases;
         }
     for (int blocker = 0; blocker < 11; ++blocker)
@@ -218,7 +221,8 @@ void actionNoticeBoundary()
             case 10: blocked.compensationOff = true; break;
             default: break;
         }
-        require (! currentAutoAction (blocked, 7), "each current AUTO safety blocker independently refuses ON");
+        require (currentAutoAction (blocked, 7) == (blocker == 5 || blocker == 6),
+                 "retained MATCH may wait; safety blockers still refuse AUTO");
     }
     std::cout << "Live action boundary: PASS " << causalCases + 1
               << " causal interleavings, 11 current blockers, old-code masking negative control\n";

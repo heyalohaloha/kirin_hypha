@@ -120,7 +120,9 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
         && now.state != RuntimeState::rejected && now.state != RuntimeState::disconnected
         && (target.requestedGeneration() != now.selectionGeneration || now.state == RuntimeState::verifying
             || (now.state == RuntimeState::ready && ! now.auditionBuffered)
-            || (now.state == RuntimeState::waiting && now.rejectionCode == "reference_alignment_waiting_for_content")
+            || (now.state == RuntimeState::waiting
+                && (now.rejectionCode == "reference_alignment_waiting_for_content"
+                    || now.rejectionCode == "reference_alignment_ambiguous"))
             || now.matchFailure == MatchFailure::liveLevelUnavailable);
     if (! settles) return false;
     selectA();

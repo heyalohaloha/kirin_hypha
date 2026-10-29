@@ -137,11 +137,29 @@ inline void testReferencePageWaitFailure (
             pages.close();
             require (file.moveFileTo (held), "withdraw the fixture source");
             c.servicePendingAudition (-22, -6, true, 101.0);
+            const auto waiting = control::pageIntentFactsFor (c, {});
+            require (c.snapshot().pendingAudition.waiting() && waiting.active == initial.active
+                         && waiting.switchingSlot == initial.switchingSlot,
+                     "unavailable source preserves the pending choice");
             require (held.moveFileTo (file), "restore the isolated fixture file");
+            const auto restoredSource = runtime.visualBinding().source;
+            ref::RuntimeV2SourceRepository verifier (root);
+            auto revision = verifier.checkSourceRevision (*restoredSource);
+            if (revision.state == ref::SourceRevisionState::revalidate)
+            {
+                require (ref::revision_detail::service().waitForCompletion (*restoredSource, std::chrono::seconds (30)),
+                         "restored source verification completes");
+                revision = verifier.checkSourceRevision (*restoredSource);
+            }
+            require (revision.state == ref::SourceRevisionState::matched, "restored source verifies again");
             require (pages.open (*runtime.visualBinding().source, 48000, 2, false).isEmpty(),
                      "the restored fixture source can be decoded again");
             control::stopPageRefill (pages);
-            print ("source-withdrawn"); terminal();
+            print ("source-withdrawn");
+            pages.request (cursor); control::servicePages (pages, {});
+            for (int n = 0; n < 3; ++n) c.servicePendingAudition (-22, -6, true, 102.0 + n);
+            require (c.snapshot().bSelected, "restored source starts without another press");
+            c.selectA(); return;
         }
     }
     if (outside) control::pinFixturePosition (runtime, cursor, previousPosition, {});

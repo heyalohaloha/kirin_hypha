@@ -314,22 +314,24 @@ struct Fixture
         require ((listen.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected, "LISTEN status carries the loop guidance only when a range loops");
         // As during a session on this host: PRE selected and waiting on an unidentifiable loop.
         listen.active = listen.preSelected = listen.preWaiting = true;
-        listen.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
-        listen.timingUnavailable = true;
+        listen.observation = expected ? hypha::live_compare::RecoveryReason::loopClockUnavailable
+                                      : hypha::live_compare::RecoveryReason::none;
+        listen.timingUnavailable = expected;
         require (juce::String (currentNamedPresentation (listen).instruction).isEmpty(),
                  "short LISTEN wait has no guidance");
         listen.prolongedWait = true;
         const auto notice = currentNamedPresentation (listen);
         require ((notice.action == RecoveryAction::loopOff) == expected
             && (juce::String (notice.instruction) == "Loop Playback on: turn it off to compare (POST)") == expected
-            && (juce::String (notice.instruction) == hypha::host_availability::timingText()) != expected,
+            && juce::String (notice.instruction) != hypha::host_availability::timingText(),
             "LISTEN asks for loop playback off exactly when the uncertified host loops a range");
         LiveTimingFixtureAccess::blindWaiting (*post, BlindStage::preparing);
         auto blind = post->liveBlindStatus();
         LiveTimingFixtureAccess::blindWaiting (*post, BlindStage::idle);
         blind.stage = BlindStage::preparing;
-        blind.observation = hypha::live_compare::RecoveryReason::loopClockUnavailable;
-        blind.timingUnavailable = true;
+        blind.observation = expected ? hypha::live_compare::RecoveryReason::loopClockUnavailable
+                                     : hypha::live_compare::RecoveryReason::none;
+        blind.timingUnavailable = expected;
         require (!hypha::live_blind_ui::screenFor (blind, true, 1.0f).guidanceShown,
                  "short BLIND wait has no guidance");
         blind.prolongedWait = true;
@@ -337,7 +339,7 @@ struct Fixture
         require ((blind.loopBlock == hypha::live_compare::LoopPairingBlock::aaxLoop) == expected
             && (blindRecovery (blind, false).action == RecoveryAction::loopOff) == expected
             && (screen.recovery == "Turn off Loop Playback to compare") == expected
-            && (screen.recovery == "Timing unavailable; check PRE and play (POST)") != expected,
+            && screen.recovery != "Timing unavailable; check PRE and play (POST)",
             "Blind asks for loop playback off exactly when the uncertified host loops a range");
         KirinPsbView frame {};
         if (! post->pollPsb (frame)) // one contended poll is not a fact; the editor skips that tick

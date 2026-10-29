@@ -15,7 +15,8 @@ public:
     bool sameIdentity() const
     {
         RuntimeFileRevision open;
-        const bool same = file->revision (open) && sameObject (open, source->revision);
+        if (!file->revision (open)) return false;
+        const bool same = sameObject (open, source->revision);
         if (!same) { service().noteFailure (*source); rejected.store (true, std::memory_order_release); }
         return same && !wasRejected();
     }
@@ -26,7 +27,7 @@ public:
         if (checked.state != SourceRevisionState::matched || wasRejected()) return false;
         RuntimeFileRevision open, path;
         if (!file->revision (open) || !repository.readSourceRevision (*source, path))
-        { service().noteFailure (*source); rejected.store (true, std::memory_order_release); return false; }
+            return false;
         if (!sameObject (open, source->revision) || !sameObject (path, source->revision))
         { service().noteFailure (*source); rejected.store (true, std::memory_order_release); return false; }
         if (!equal (open, checked.revision) || !equal (path, checked.revision) || wasRejected()) return false;

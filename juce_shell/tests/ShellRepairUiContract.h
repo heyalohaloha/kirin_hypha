@@ -241,14 +241,14 @@ inline void verify()
     }
     // An uncertified AAX host looping a range observes an unidentifiable loop as well, but loop
     // playback off compares: LISTEN, Blind and the PSB difference ask for that before any host
-    // boundary; without the loop the same observation remains the host boundary.
+    // boundary. The loop-clock observation describes a loop, even without a host-specific block.
     live_compare::Status looped;
     looped.active = looped.preSelected = looped.preWaiting = looped.prolongedWait = true;
     looped.observation = live_compare::RecoveryReason::loopClockUnavailable;
     looped.timingUnavailable = true;
-    require (live_compare_ui::currentNamedPresentation (looped).action == live_compare_ui::RecoveryAction::none
-        && juce::String (live_compare_ui::currentNamedPresentation (looped).instruction) == host_availability::timingText(),
-        "a loop no host rule can identify is the host boundary where loop playback is not the cause");
+    require (live_compare_ui::currentNamedPresentation (looped).action == live_compare_ui::RecoveryAction::loopOff
+        && juce::String (live_compare_ui::currentNamedPresentation (looped).instruction) == "Loop timing unavailable; turn loop off to compare (POST)",
+        "an unidentifiable loop offers loop off");
     looped.loopBlock = hypha::live_compare::LoopPairingBlock::aaxLoop;
     for (bool hostClock : { false, true })
     {
@@ -275,9 +275,9 @@ inline void verify()
         blind.loopBlock = hypha::live_compare::LoopPairingBlock::none;
         require (live_blind_ui::screenFor (blind, true, 1.0f).cause
                 == live_compare_ui::cause (live_compare::RecoveryReason::loopClockUnavailable)
-            && live_blind_ui::screenFor (blind, true, 1.0f).recovery == "Timing unavailable; check PRE and play (POST)"
-            && live_compare_ui::blindRecovery (blind, false).action == live_compare_ui::RecoveryAction::none,
-            "without loop playback the same observation is the host boundary");
+            && live_blind_ui::screenFor (blind, true, 1.0f).recovery == "Turn off Loop Playback to compare"
+            && live_compare_ui::blindRecovery (blind, false).action == live_compare_ui::RecoveryAction::loopOff,
+            "an unidentifiable loop offers loop off");
     }
     SpectrumComponent psb;
     psb.setAbsoluteObservation (false); psb.setSignalActive (true);

@@ -9,8 +9,7 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
-    { "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", u8"Referenceは未公開 ／ Kirin OSを開いたまま" },
-    { "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND PUBLISH AGAIN", u8"Referenceの形式を読めません ／ Kirin OSを更新して再公開してください" },
+    { "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND HYPHA", u8"Referenceの形式を読めません ／ Kirin OSとHyphaを最新に" },
     { "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS", u8"Referenceの公開データを読めません ／ Kirin OSで再公開してください" },
     { "KIRIN OS COULD NOT ANALYZE THE FILE / RETRY IN KIRIN OS", u8"Kirin OSで解析に失敗しました ／ Kirin OSでやり直してください" },
     { "ANALYSIS FAILED", u8"解析失敗" },

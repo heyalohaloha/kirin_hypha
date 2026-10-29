@@ -31,6 +31,7 @@ import { requireFactoryIdentity, requireFactoryDelivery, verifyFactoryArchive } 
 import { publicationBinding, publicationNotice, authorizePublication, auditBeforeInit, bindPublication } from './ls_release/publication_input.mjs';
 export { publicationBinding, authorizePublication, auditBeforeInit, bindPublication };
 import { STAGES, stagePlan, releaseComplete } from './ls_release/release_stages.mjs';
+import { requireHpDeploymentEvidence, requireHpPreviewEvidence } from './ls_release/hypha_hp_preview.mjs';
 import { requireRequalification } from './ls_release/release_requalification.mjs';
 export { STAGES };
 
@@ -70,7 +71,7 @@ Release, EN/JA HP links, standard staged Vercel deployment, public download read
   --date YYYY-MM-DD         Release date (default: today UTC)
   --resume-pkg-staple        Explicitly resume a retained package ticket checkpoint (--execute)
   --execute                 Execute/resume; default or --dry-run only prints the stage plan
-  --until packages|hp|ls|complete  Default hp; dependencies are required
+  --until packages|hp|postrelease|ls|complete  Default hp; dependencies are required
   --publish-approved ID     Operator authorization for this exact candidate's public writes
   --help                    Show usage
 
@@ -111,7 +112,7 @@ export function parseReleaseArgs(argv) {
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`Unknown release option: ${arg}`);
   }
-  if (!['packages', 'hp', 'ls', 'complete'].includes(options.until)) throw new Error('Invalid --until');
+  if (!['packages', 'hp', 'postrelease', 'ls', 'complete'].includes(options.until)) throw new Error('Invalid --until');
   const reconcileModes = [options.inspect, options.reconcilePlan, options.reconcileApply].filter(Boolean);
   if (reconcileModes.length > 1 || (reconcileModes.length && (options.init || options.execute || options.dryRun || options.bindWindowsPromotion))) throw new Error('Reconciliation modes must be separate');
   if (options.reconcileRetained && !options.reconcilePlan) throw new Error('--reconcile-retained requires --reconcile-plan');
@@ -290,7 +291,7 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
   snapshot = sourceSnapshot, clean = () => requireCleanReleaseSource({ root: state.root }),
   actions, fetcher = fetch, log = console.log, platform = process.platform } = {}) {
   const requalification = requireRequalification(state, statePath, actions);
-  if (state.releaseState === 'RELEASE_COMPLETE' && state.publication) publicationNotice(state);
+  if (state.releaseState === 'RELEASE_COMPLETE' && state.publication) { publicationNotice(state); requireHpPreviewEvidence(state); requireHpDeploymentEvidence(state); }
   if (!options.execute) { log(JSON.stringify({ candidate: state.candidate, until: options.until,
     stages: stagePlan(options.until), currentState: state.releaseState, externalWrites: 'none (plan only)' }, null, 2)); return state; }
   if (platform !== 'darwin' && !actions) throw new Error('Release coordinator runs on macOS; Windows producer uses approved factory');
@@ -361,7 +362,7 @@ export async function executeRelease(state, options, { statePath, run = nativeRu
       if (stage === 'distribution') state.releaseState = 'RELEASE_READY';
       if (stage === 'hp') state.releaseState = 'RELEASED';
       if (releaseComplete(state)) {
-        if (state.publication) publicationNotice(state);
+        if (state.publication) { publicationNotice(state); requireHpPreviewEvidence(state); requireHpDeploymentEvidence(state); }
         state.releaseState = 'RELEASE_COMPLETE';
       }
       delete state.blocker; save(); log(`[hypha-release] ${stage}: PASS`);

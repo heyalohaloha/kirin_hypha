@@ -117,7 +117,7 @@ inline void addHelpsBeyondPointing (HelpLineTexts& texts)
                                Metric::loudnessRange, Metric::plr, Metric::truePeak, Metric::crest, Metric::psr })
         for (const auto* side : { "POST. ", "PRE. ", "POST minus PRE. " })
             texts.add (juce::String (side) + level_metrics::scopeHelp (metric), true);
-    for (const auto* text : { "No active signal.", "Measurement is unavailable.", "Keep is waiting for its pair.",
+    for (const auto* text : { "No active signal.", "Measurement is unavailable.", "Keep is waiting for its pair.", "Keep ready",
                               "Measurement is active.", "Keep is recording.", "A kept result is available." })
         texts.add (text, true);
     for (const auto* text : {
@@ -149,6 +149,13 @@ inline std::pair<int, int> helpLineWidths (observatory::View& view)
 
 inline void verifyObservatoryHelpLine (const juce::File& previews)
 {
+    StatusLed readyLed;
+    readyLed.setState (deriveLedState (true, 0, true, true, false));
+    require (readyLed.getTooltip() == "Keep ready", "acknowledged Keep without signal is ready");
+    readyLed.setState (deriveLedState (true, 0, true, false, false));
+    require (readyLed.getTooltip() == "Keep is waiting for its pair.", "unacknowledged Keep waits for its pair");
+    require (i18n::translate ("Keep ready", i18n::Language::japanese) == juce::String::fromUTF8 (u8"Keep準備済み"),
+             "ready Keep has a short Japanese label");
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
     Processor processor (Processor::Role::Post);
     hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);

@@ -1,3 +1,4 @@
+#include "HyphaPairLabels.h"
 #include "PluginEditor.h"
 #include "HyphaKeyLight.h"
 #include "HyphaTextStyle.h"
@@ -147,10 +148,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     {
         nameField.setTitle ("PRE pair selection");
         nameField.setDescription ("Press Return or Space to choose a PRE");
-        nameField.setPrefix ("PAIR ");
-        nameField.setFallback ("SELECT PRE");
-        nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
-        nameField.setEnabledTooltip ("Click to choose one exact PRE.");
+        nameField.setPrefix (hypha::pair_labels::prefix);
+        nameField.setFallback (hypha::pair_labels::unpaired);
+        nameField.setLockedTooltip (hypha::pair_labels::locked);
+        nameField.setEnabledTooltip (hypha::pair_labels::choose);
         nameField.setModelName (processorRef.pairDisplayName());
         nameField.onSelect = [this] { selectPairPreview(); };
         nameField.onPreviewDemand = [this] { refreshPairPreview (true); };
@@ -158,7 +159,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
         // The arrow beside PAIR owns exact connection selection only.
         pairDropdown.setTitle ("Pair menu");
-        pairDropdown.setDescription ("Choose one exact PRE connection");
+        pairDropdown.setDescription (hypha::pair_labels::choose);
         pairDropdown.setTooltip ("PRE connection");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
@@ -221,14 +222,15 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    // Where the footer folds into the header, feedback is shown over the body's bottom edge.
     feedbackStrip.onClick = [this]
     {
-        if (chainFooterText.isNotEmpty() && feedbackStrip.text() == chainFooterText)
+        if (automaticPairNotice && nowSecs() < toastUntil && feedbackStrip.text() == toastText) showCandidateMenu();
+        else if (chainFooterText.isNotEmpty() && feedbackStrip.text() == chainFooterText)
             showInformationMenu(); // the chain timing's details and its switch
         else
             showFeedbackInformationMenu();
     };
+    feedbackStrip.onAction = [this] { unpairAutomaticNotice(); };
     scaleRoot.addChildComponent (feedbackStrip);
     scaleRoot.addChildComponent (helpLineBar);
 
@@ -382,6 +384,7 @@ void KirinHyphaEditor::updateResizeLimits()
 
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {
+    automaticPairNotice = false;
     comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
     toastText = msg;
@@ -393,7 +396,6 @@ void KirinHyphaEditor::updateFeedback (
 {
     juce::String text;
 
-    // A queued measurement result is not a current observation of the listening producer.
     // LISTEN owns its stopped/missing-data guidance, including while timing is unverified.
     if (comparisonNoticeReason == KIRIN_COMPARISON_REASON_PRE_INACTIVE
         && processorRef.liveCompareStatus().active)
@@ -415,6 +417,7 @@ void KirinHyphaEditor::updateFeedback (
     if (now >= toastUntil)
         toastText.clear();
 
+    feedbackStrip.setUnpairActionVisible (automaticPairNotice && now < toastUntil && text == toastText);
     observatoryView.setFeedback (text);
     // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows,
     // and then the chain timing the user turned on (POST only; empty otherwise).
@@ -439,16 +442,16 @@ void KirinHyphaEditor::layoutBodyAndFeedback()
             if (pane->getBounds() != body) pane->setBounds (body);
     }
    #endif
-    bool shown = observatoryView.statusStripFolded() && feedbackStrip.text().isNotEmpty();
+    bool shown = (observatoryView.statusStripFolded() || (automaticPairNotice && nowSecs() < toastUntil)) && feedbackStrip.text().isNotEmpty();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     shown = shown && ! localBlindOpen && ! liveBlindOpen;
    #endif
-    feedbackStrip.setBounds (observatoryView.statusStripBounds());
+    const auto stripBounds = observatoryView.statusStripBounds();
+    feedbackStrip.setBounds ((automaticPairNotice && nowSecs() < toastUntil) ? stripBounds.withTop (juce::jmin (stripBounds.getY(), stripBounds.getBottom() - 20)) : stripBounds);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
    #endif
     feedbackStrip.setVisible (shown);
-    // Only repair ordering when another visible body actually overtook the strip. Do not disturb
-    // Blind/VU ownership or raise the Reference body on every presentation tick.
+    // Raise the strip only when a visible body has overtaken it.
     if (shown)
     {
         const int index = scaleRoot.getIndexOfChildComponent (&feedbackStrip);

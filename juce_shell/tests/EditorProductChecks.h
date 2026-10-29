@@ -1,5 +1,6 @@
 #pragma once
 #include "TestProcessorStorage.h"
+#include "PairBadgeProductRender.h"
 #include "../src/PluginEditor.h"
 #include "../src/HyphaChainTimingPreference.h"
 #include "../src/HyphaEditorSizeConstrainer.h"

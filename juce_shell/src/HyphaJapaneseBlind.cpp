@@ -274,7 +274,7 @@ const Entry entries[] = {
       u8"今の比較を終えて、今の音に戻ってください。" },
     { "The previous capture is still releasing its resources.",
       u8"前の取り込みの後片付けが終わっていません。" },
-    { "Choose the PRE to compare with this POST.", u8"このPOSTと比べるPREを選んでください。" },
+    { "Choose the PRE to compare with this POST.", u8"比べるPREを選ぶ" },
     { "Finish the current Keep / Record before capturing.",
       u8"取り込む前に、今のKeep／Recordを終えてください。" },
     { "Finish Reference Blind and return to Live first.",

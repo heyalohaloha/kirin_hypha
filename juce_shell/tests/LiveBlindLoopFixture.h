@@ -13,6 +13,7 @@ struct LiveBlindLoopFixture
     void advance (std::int64_t emitted)
     {
         if (! active && requested.load()) { start = emitted; active = true; }
+        else if (active && ! requested.load()) active = false;
         if (active) laps.store ((emitted - start) / length);
     }
     void decorate (juce::AudioPlayHead::PositionInfo& info, std::int64_t emitted) const

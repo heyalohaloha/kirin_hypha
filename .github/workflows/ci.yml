@@ -362,13 +362,14 @@ jobs:
           KirinLiveCompareTimingTests KirinLiveCompareSessionTests KirinLiveCompareMatchTests KirinLiveCompareLoopTests
           KirinLiveCompareLoopFeasibilityTests KirinLiveCompare_reentry_Tests KirinLiveCompare_gain_snapshot_Tests Kirin_live_blind_session_Tests
           Kirin_live_compare_completion_Tests Kirin_live_compare_authority_Tests Kirin_reaper_clock_Tests Kirin_reaper_correspondence_Tests
-          Kirin_reaper_fault_Tests KirinReaperListenProductTests KirinChainTraceTests KirinListenTextLayoutTests
+          Kirin_reaper_fault_Tests Kirin_reaper_loop_entry_Tests KirinReaperListenProductTests KirinChainTraceTests KirinListenTextLayoutTests
           KirinHostContentClockPolicyTests KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests
           KirinLiveTimingProductTests KirinLiveBlindProductTests KirinLiveRecoveryProductTests KirinLiveCompareLifecycleTests
           KirinLiveChainTimingProductTests KirinLiveReentryProductTests KirinCaptureWorkAttachmentTests KirinReferenceAuditionRuntimeTests
           KirinReferenceAudioPagesTests KirinReferenceAudioStreamingTests KirinReferenceContentCorrelationTests KirinOutputOwnershipTests
           KirinPairPreviewLifetimeTests KirinAudioTransparencyContractTests KirinProcessorWallClockTests
           KirinLivePublicationPRETests KirinLivePublicationPOSTTests
+          KirinAutomaticPairProductTests KirinAutomaticPairGuardTests KirinAutomaticPairOrderTests
 
       - name: Build JUCE VST3 shell (Windows)
         id: native-build
@@ -437,6 +438,11 @@ jobs:
         run: |
           ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
 
+      - name: Validate automatic PRE/POST pairing
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
+        run: |
+          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^kirin_automatic_pair_'
+
       - name: Validate live PRE/POST compare correspondence
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
@@ -445,7 +451,7 @@ jobs:
       - name: Validate REAPER LISTEN contracts and product flow
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
-          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_reaper_clock|kirin_reaper_correspondence|kirin_reaper_fault|kirin_reaper_listen_mono_product|kirin_reaper_listen_stereo_product|kirin_chain_trace|kirin_listen_text_layout|kirin_host_content_clock_policy)$'
+          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_reaper_clock|kirin_reaper_correspondence|kirin_reaper_fault|kirin_reaper_loop_entry|kirin_reaper_wrap|kirin_reaper_listen_mono_product|kirin_reaper_listen_stereo_product|kirin_chain_trace|kirin_listen_text_layout|kirin_host_content_clock_policy)$'
 
       # The Windows live ring end to end: the real PRE and POST processors, pair discovery, the
       # named section, the product editor, PIN to Blind and the offset warning.

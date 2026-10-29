@@ -41,6 +41,9 @@ inline void verifyReferenceAbcvRoles()
         playing.versionStep = reference_ui::SourceStep::aligning;
         require (reference_ui::canQueueReference (playing) && reference_ui::canQueueSource (playing, true),
                  "pressing B or V while it loads or aligns waits for it");
+        playing.versionStep = reference_ui::SourceStep::playAnotherPassage;
+        require (reference_ui::canQueueSource (playing, true),
+                 "V waits for an ambiguous passage to become identifiable");
         playing.referenceStep = reference_ui::SourceStep::outsideCue;
         playing.versionStep = reference_ui::SourceStep::noMatchingPassage;
         require (! reference_ui::canQueueReference (playing) && ! reference_ui::canQueueSource (playing, true),
@@ -266,6 +269,15 @@ inline void verifyReferenceAbcvRoles()
             require (openedC == 2 && visualC == 2 && opened == 1 && visual == 1 && ! heardC && ! heardV
                          && c->getTooltip() == "Open C at 300%" && v->getTooltip() == "Open V at 300%",
                      "below 300% V and C open their page at 300% without changing the sound");
+        if (sized.blindLargeScreen)
+        {
+            sized.transportPlaying = true; sized.versionReady = sized.versionArmable = false;
+            sized.versionStep = reference_ui::SourceStep::noMatchingPassage;
+            sized.versionRejectionCode = "reference_alignment_no_match";
+            panel.setState (sized); heardV = false;
+            v->onClick();
+            require (! heardV, "pressing V with no matching passage remains refused");
+        }
         panel.onOpenLarge = {}; panel.onSelectVisualSlot = {}; panel.onSelectB = {}; panel.onSelectC = {};
         panel.onSelectRef = {}; panel.onSelectSong = {}; panel.onSelectSongSet = {}; panel.onExplain = {};
     }

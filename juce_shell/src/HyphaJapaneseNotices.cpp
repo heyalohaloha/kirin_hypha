@@ -8,6 +8,8 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Paired with PRE  %1", u8"PRE  %1 と組みました" },
+    { "Unpaired", u8"外しました" },
     { "Capture could not be prepared", u8"画像を準備できませんでした" },
     { "Sending Capture to Work", u8"画像をWorkに送信中" },
     { "Another Work attachment is still in progress", u8"別のWorkへの添付が進行中です" },
@@ -49,7 +51,7 @@ const Entry entries[] = {
     { "Hypha information is available after Blind Compare", u8"Hyphaの情報はBlind Compareの後で見られます" },
     { "Available after Blind Compare", u8"Blind Compareの後で使えます" },
     { "Official URL copied", u8"公式URLをコピーしました" },
-    { "PRE preview changed. Choose the PRE again.", u8"PREの候補が変わりました。選び直してください。" },
+    { "PRE changed", u8"PREが変わりました" },
     // Sent up by the Rust engine when a pair cannot be taken or armed.
     { "PRE already in use", u8"このPREは使用中です" },
     { "PRE or Blind Compare already in use", u8"PREかBlind Compareが使用中です" },
@@ -103,7 +105,7 @@ const Entry entries[] = {
     { "LISTEN could not start", u8"試聴を開始できません" },
     { "Choose the PRE first", u8"先にPREを選んでください" },
     { "Mono / stereo only", u8"Mono／Stereoのみ" },
-    { "Paired PRE unavailable", u8"ペアのPREを使えません" },
+    { "PRE not running; choose again", u8"PREが停止中／選び直す" },
     { "PRE is multi-mono: insert it as stereo", u8"PREがMulti-monoです。Stereoで挿してください" },
     { "Select PRE again", u8"PREを選び直してください" },
     { "MATCH: PRE %1", u8"MATCH：PRE %1" },

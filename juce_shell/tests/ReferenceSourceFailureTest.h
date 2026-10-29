@@ -16,7 +16,7 @@ void verifySourceFailureReasons (const juce::File& root, ref::RuntimeCandidate c
     require (repository.verifySourceFile (*source.source) == "reference_source_decode_failed",
              "a valid hash with undecodable audio reports open/decode failure rather than changed source");
     require (file.deleteFile(), "remove only fixture audio");
-    require (repository.verifySourceFile (*source.source) == "reference_source_open_failed",
+    require (repository.verifySourceFile (*source.source) == "reference_source_read_failed",
              "a removed source reports the unavailable file separately");
 }
 }

@@ -1,9 +1,15 @@
 #include "ReaperFixture.h"
 #include "LoopReviewRegressions.h"
+#include "ReaperWrapDiagnostic.h"
+#include "ReaperBoundaryFaults.h"
+#include <string>
 #include "../ProductTestClock.h"
 using namespace reaper_fixture;
-int main()
+int main (int argc, char** argv)
 {
+    if (argc == 2 && std::string (argv[1]) == "--wrap-diagnostic-only") { diagnoseReaperWraps(); return 0; }
+    reaper_boundary::negative();
+    reaper_boundary::callbackGrids();
     loop_review::reaper();
     loop_review::otherHosts();
     loop_review::copyOverlap();
@@ -51,11 +57,15 @@ int main()
         require (host.ring->header.run.load() != oldRun,
                  "changed chain evidence fences PCM and MATCH history at the same boundary");
     }
-    for (int length : { 7680, 8192 })
+    for (int length : { 7680, 8191, 8192 })
     {
         Host host; host.length = length; host.runtimeBound = true;
-        for (int i = 0; i < 200; ++i) host.consume();
-        require (!host.report.preAudible, "loop at or below the bound is never falsely unique");
+        for (int i = 0; i < 200; ++i)
+        {
+            host.consume();
+            require (!host.report.preAudible && host.report.verdict != Verdict::accepted,
+                     "loop at or below the bound is never falsely unique");
+        }
     }
     {
         Host host; host.length = 384000; host.runtimeBound = true;

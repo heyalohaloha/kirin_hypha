@@ -8,6 +8,66 @@
 #include "TestPathBudget.h"
 #include "ReferenceWholeSongInputClock.h"
 void testReferencePendingAudition (const juce::File&);
+
+static void testRepeatedVersionWait (const juce::File& sandbox)
+{
+    namespace control = hypha::tests::reference_control;
+    const auto root = sandbox.getChildFile ("queued-repeat");
+    require (root.createDirectory(), "repeated Version fixture directory");
+    const auto file = root.getChildFile ("source.wav");
+    const auto fixture = makeWholeSongFixture (root, file,
+        "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", 2, false, true);
+    const auto hash = juce::SHA256 (file).toHexString();
+    auto preset = bindRuntimeV2WorkVersionPresetToSource (
+        "88888888-8888-4888-8888-888888888888", "99999999-9999-4999-8999-999999999999",
+        fixture.receipt, hash, fixture.pcmHash, "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333", fixture.audio.getNumSamples());
+    auto* object = preset.getDynamicObject();
+    object->setProperty ("format", "kirin_hypha_reference_library_preset");
+    object->setProperty ("version", "1.0");
+    object->removeProperty ("work_id"); object->removeProperty ("source_preset_artifact");
+    preset["checks"][0]["candidates"][0].getDynamicObject()->setProperty ("preparation_status", "prepared");
+    require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 1)),
+             "repeated Version publication");
+    ref::ReferenceComparisonController controller (root);
+    controller.configure ({ "repeat-post", {}, 42, true }, 48000, 2);
+    controller.setPresented (true);
+    controller.observeTransport (0, true, false);
+    control::await ([&] { return ! controller.snapshot().versions.empty(); }, "repeated Version arrives");
+    require (controller.selectVersion (controller.snapshot().versions.front().id), "select repeated Version");
+    int cursor = 0;
+    WholeSongInputClock clock;
+    std::cout << "repeated V: awaiting ambiguous passage" << std::endl;
+    require (clock.waitFor (controller, fixture, cursor, [] (const auto& state) {
+        return state.versionSelection && state.versionSelection->rejectionCode == "reference_alignment_ambiguous";
+    }, 2, 15), "repeated passage reaches ambiguous alignment");
+    std::cout << "repeated V: ambiguous passage established" << std::endl;
+    require (controller.requestAudition (1, -14, -2), "V waits while the repeated passage is ambiguous");
+    controller.servicePendingAudition (-14, -2, true);
+    require (controller.snapshot().pendingAudition.waiting(), "the V intent stays pending");
+    cursor = 48000 * 7;
+    std::cout << "repeated V: awaiting distinct passage" << std::endl;
+    const bool aligned = clock.waitFor (controller, fixture, cursor, [] (const auto& state) { return state.versionReady; }, 2, 15);
+    if (! aligned)
+    {
+        const auto state = controller.snapshot();
+        std::cerr << "repeated V: cursor=" << cursor << " pending=" << int (state.pendingAudition.stage)
+                  << " reason=" << state.versionSelection->rejectionCode << " ready=" << state.versionReady << '\n';
+    }
+    require (aligned, "a distinct passage establishes Version alignment");
+    std::cout << "repeated V: distinct passage aligned" << std::endl;
+    controller.servicePendingAudition (-14, -2, true);
+    juce::AudioBuffer<float> block (2, 256);
+    const int position = juce::jmin (cursor, fixture.audio.getNumSamples() - 256);
+    for (int channel = 0; channel < 2; ++channel)
+        block.copyFrom (channel, 0, fixture.audio, channel, position, 256);
+    controller.observeTransport (position, true, true);
+    controller.observeAInput (block, position, true, true, true);
+    require (controller.snapshot().audibleComparisonSlot == 1
+        && controller.renderSelectedB (block, position, true, true, true),
+        "queued V plays after the matching position is verified");
+    std::cout << "repeated V: PASS after alignment" << std::endl;
+}
 bool runReferencePendingTests (int argc, char** argv, const juce::File&);
 bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
 {
@@ -18,6 +78,7 @@ bool runReferencePendingTests (int argc, char** argv, const juce::File& sandbox)
 }
 void testReferencePendingAudition (const juce::File& sandbox)
 {
+    testRepeatedVersionWait (sandbox);
     verifyReferenceSelectionSafety (sandbox);
     verifyReferenceAutoVersionSafety (sandbox);
     using Stage = ref::PendingAuditionView::Stage;
@@ -236,11 +297,17 @@ void testReferencePendingAudition (const juce::File& sandbox)
         "one explicit A return completes the original session once, with no delayed extra resume session");
     host (false);
     require (juce::SHA256 (file).toHexString() == hash, "all auditions preserve the OS source file");
-    require (controller.requestAudition (2, -14, -2), "queue before source removal");
-    require (file.deleteFile(), "remove only the disposable fixture source");
-    wait ([] (const auto& s) { return s.checkSelection->state == ref::RuntimeState::rejected; });
-    controller.servicePendingAudition (-14, -2, false);
-    require (controller.snapshot().pendingAudition.stage == Stage::sourceChanged
-        && !controller.pendingAuditionNeedsService() && !host (true), "missing source cancels with a retained reason");
+    require (controller.requestAudition (2, -28, -12), "queue before source removal");
+    const auto heldFile = file.getSiblingFile ("temporarily-unavailable.wav");
+    require (file.moveFileTo (heldFile), "temporarily move only the disposable fixture source");
+    wait ([] (const auto& s) { return s.checkSelection->state == ref::RuntimeState::waiting
+                                   && s.checkSelection->rejectionCode == "reference_source_read_failed"; });
+    controller.servicePendingAudition (-28, -12, false);
+    require (controller.snapshot().pendingAudition.waiting()
+        && controller.pendingAuditionNeedsService() && !host (false), "unavailable source keeps the pending choice silent");
+    require (heldFile.moveFileTo (file), "restore the same fixture source");
+    host (true); wait ([] (const auto& s) { return s.checkReady; });
+    controller.servicePendingAudition (-28, -12, true);
+    require (controller.snapshot().audibleComparisonSlot == 2 && host (true), "pending choice plays when source returns");
     std::cout << "Queued ABC: identity, readiness, cancel, restore, SRC, gain ceiling, missing source and RT safety PASS\n";
 }
