@@ -30,8 +30,8 @@ const Entry entries[] = {
     // Why.
     { "Versions and References registered in Kirin OS arrive here automatically.",
       u8"Kirin OSに登録したVersionとReferenceが、ここに自動で届きます。" },
-    { "B plays a Reference song; C uses its Cue; V follows the song.",
-      u8"Bは Reference の曲を鳴らし、CはCueを使い、Vは再生中の曲に追従します。" },
+    { "B: Reference song / C: Check source / V: another Version of this song",
+      u8"B：Referenceの曲 ／ C：Checkの音源 ／ V：この曲の別Version" },
     { "V plays another Version of the song you are playing, registered in Kirin OS.",
       u8"Vでは、Kirin OSに登録した、再生中の曲の別Versionを鳴らします。" },
     { "Choose it in V / VERSION above. V plays another Version of the song you are playing.",

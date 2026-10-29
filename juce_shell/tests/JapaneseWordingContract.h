@@ -12,8 +12,8 @@ namespace hypha::tests
 inline void verifyJapaneseWording()
 {
     const char* const cases[][2] {
-        { "B plays a Reference song; C uses its Cue; V follows the song.",
-          u8"Bは Reference の曲を鳴らし、CはCueを使い、Vは再生中の曲に追従します。" },
+        { "B: Reference song / C: Check source / V: another Version of this song",
+          u8"B：Referenceの曲 ／ C：Checkの音源 ／ V：この曲の別Version" },
         { "A stays live until ready. Press A to cancel.",
           u8"準備が整うまで音はAのままです。Aを押すと取り消せます。" },
         { "V opened at 300%. Press V to listen.", u8"Vを300%で開きました。Vを押すと試聴します。" },
