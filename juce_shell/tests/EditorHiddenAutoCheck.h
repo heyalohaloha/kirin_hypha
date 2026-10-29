@@ -22,6 +22,12 @@ struct HiddenTimer
     friend Type privateMember (HiddenTimer);
 };
 template struct PrivateAccess<HiddenTimer, &KirinHyphaEditor::timerCallback>;
+struct FollowWaiting
+{
+    using Type = bool (KirinHyphaEditor::*) (const live_compare::Status&, double);
+    friend Type privateMember (FollowWaiting);
+};
+template struct PrivateAccess<FollowWaiting, &KirinHyphaEditor::followLiveCompare>;
 struct HiddenToast
 {
     using Type = juce::String KirinHyphaEditor::*;
@@ -44,6 +50,20 @@ inline void verifyHiddenAutoStops()
     auto* editor = dynamic_cast<KirinHyphaEditor*> (owner.get());
     require (editor != nullptr, "shipping editor for hidden AUTO fixture");
     const auto before = processor.liveCompareStatus();
+    auto waiting = before;
+    waiting.active = true; waiting.matched = false; waiting.matchHeld = true;
+    waiting.matchReady = false; waiting.verdict = live_compare::Verdict::calibrating;
+    enableHiddenAuto (*editor, {});
+    require (! (editor->*privateMember (FollowWaiting {})) (waiting, 1000.0)
+             && hiddenAutoOn (*editor, {}) && processor.liveCompareStatus().gain == before.gain
+             && processor.liveCompareStatus().postTarget == before.postTarget,
+             "AUTO waits without moving gain until timing is verified");
+    waiting.matchReady = true; waiting.verdict = live_compare::Verdict::accepted;
+    waiting.observation = live_compare::RecoveryReason::clockMissing;
+    require (! (editor->*privateMember (FollowWaiting {})) (waiting, 1000.0)
+             && hiddenAutoOn (*editor, {}) && processor.liveCompareStatus().gain == before.gain
+             && processor.liveCompareStatus().postTarget == before.postTarget,
+             "an unverified observation cannot move AUTO gain");
     enableHiddenAuto (*editor, {});
     editor->setVisible (false);
     for (int n = 0; n < 5; ++n) (editor->*privateMember (HiddenTimer {}))();

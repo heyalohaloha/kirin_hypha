@@ -1,4 +1,5 @@
 #include "../src/PluginProcessor.h"
+#include "../src/HyphaLiveCompareRecoveryText.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveTimingFixtureAccess.h"
 #include "PublicationStorageContract.h"
@@ -102,10 +103,17 @@ void stateOnly (juce::AudioProcessor::WrapperType format, int channels)
     // Remove any real mapping the environment may have created; the positive start belongs only
     // to sharedRing(). Here preUnavailable proves POST passed identity/layout/renderer admission.
     LiveTimingFixtureAccess::retirePreparedFormatRing (*pre);
-    require (post->startLiveCompare() == StartResult::preUnavailable
+    const auto listenMissing = post->startLiveCompare();
+    require (listenMissing == StartResult::preUnavailable
         && ! post->liveCompareStatus().active, "missing PRE fails explicitly after POST reaches open");
-    require (post->beginLiveBlind() == StartResult::preUnavailable
+    const auto blindMissing = post->beginLiveBlind();
+    require (blindMissing == StartResult::preUnavailable
         && ! post->liveCompareStatus().active, "missing PRE also refuses direct BLIND before starting its trial");
+    require (hypha::live_compare_ui::startNeedsPreChoice (listenMissing)
+        && hypha::live_compare_ui::startNeedsPreChoice (blindMissing),
+        "a stopped paired PRE opens the candidate menu for LISTEN and BLIND");
+    require (juce::String (hypha::live_compare_ui::preUnavailableNotice()) == "PRE not running; choose again",
+        "a stopped paired PRE has a short selection notice");
     require (LiveTimingFixtureAccess::publishUnmappedRing (*post), "publish a POST retirement control");
     LiveTimingFixtureAccess::fadePending (*post, true);
     post->serviceLiveCompare();

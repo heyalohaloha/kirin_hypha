@@ -58,7 +58,7 @@ juce::String startFailure (StartResult result)
         case StartResult::notReady:          return "LISTEN could not start";
         case StartResult::noPair:            return "Choose the PRE first";
         case StartResult::unsupportedLayout: return "Mono / stereo only";
-        case StartResult::preUnavailable:    return "Paired PRE unavailable";
+        case StartResult::preUnavailable:    return hypha::live_compare_ui::preUnavailableNotice();
         case StartResult::preMultiMono:      return "PRE is multi-mono: insert it as stereo";
     }
     return {};
@@ -103,7 +103,7 @@ void KirinHyphaEditor::configureLiveCompare()
             [this, &result]
             {
                 if (result != StartResult::started) showToast (startFailure (result));
-                if (result == StartResult::noPair) showCandidateMenu();
+                if (hypha::live_compare_ui::startNeedsPreChoice (result)) showCandidateMenu();
             });
     };
     observatoryView.onLiveCompareSelect = [this] (bool pre)
@@ -191,15 +191,16 @@ void KirinHyphaEditor::chooseLiveCompareMatch (const MatchPlan& plan)
         .withMinimumWidth (juce::jlimit (300, 520, getWidth()))
         .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    const auto generation = processorRef.liveCompareStatus().sessionGeneration;
-    const auto run = processorRef.liveComparePlaybackRun();
-    menu.showMenuAsync (options, [safe, plan, generation, run] (int result)
+    menu.showMenuAsync (options, [safe, plan] (int result)
     {
-        if (safe != nullptr && ! safe->liveBlindOpen && (result == 1 || result == 2)
-            && safe->processorRef.liveCompareStatus().sessionGeneration == generation
-            && safe->processorRef.liveComparePlaybackRun() == run)
-            safe->applyLiveCompareChoice (plan, result == 1 ? MatchChoice::lowerPost : MatchChoice::limitPre);
+        if (safe != nullptr) safe->handleLiveCompareMatchChoice (plan, result);
     });
+}
+
+void KirinHyphaEditor::handleLiveCompareMatchChoice (const MatchPlan& plan, int result)
+{
+    if (! liveBlindOpen && (result == 1 || result == 2))
+        applyLiveCompareChoice (plan, result == 1 ? MatchChoice::lowerPost : MatchChoice::limitPre);
 }
 
 void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoice choice)

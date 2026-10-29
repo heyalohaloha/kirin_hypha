@@ -7,6 +7,10 @@ namespace hypha::live_compare_ui
 {
 using Reason = live_compare::RecoveryReason;
 
+inline bool startNeedsPreChoice (live_compare::StartResult result) noexcept
+{ return result == live_compare::StartResult::noPair || result == live_compare::StartResult::preUnavailable; }
+inline const char* preUnavailableNotice() noexcept { return "PRE not running; choose again"; }
+
 inline const char* cause (Reason reason) noexcept
 {
     switch (reason)
@@ -102,7 +106,7 @@ inline RecoveryPresentation loopRecovery (Reason reason, live_compare::ReaperCha
     if (reason == Reason::reaperLoopTooShort || reason == Reason::loopTooShort)
         return { reason, RecoveryAction::none, "Use a longer loop; POST plays" };
     if (reason == Reason::loopClockUnavailable)
-        return { reason, RecoveryAction::none, "Timing unavailable; check PRE and play (POST)" };
+        return { reason, RecoveryAction::loopOff, "Loop timing unavailable; turn loop off to compare (POST)" };
     if (reason == Reason::loopUnproven)
         return { reason, RecoveryAction::automatic, "Timing unavailable; check PRE and play (POST)" };
     return {};
@@ -126,6 +130,8 @@ inline RecoveryPresentation blindRecovery (const live_compare::LiveBlindStatus& 
         return { Reason::cycleUnverified, stopped ? RecoveryAction::cycleOffEndBlind : RecoveryAction::cycleOff,
                  stopped ? "Turn Cycle off. Press END, then start BLIND again." : "Turn Cycle off to compare" };
     if (state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && ! stopped)
+        return { reason, RecoveryAction::loopOff, "Turn off Loop Playback to compare" };
+    if (!stopped && state.observation == Reason::loopClockUnavailable)
         return { reason, RecoveryAction::loopOff, "Turn off Loop Playback to compare" };
     if (!stopped)
         if (const auto loop = loopRecovery (state.observation, state.reaperRestriction); *loop.instruction)
@@ -175,8 +181,6 @@ inline RecoveryPresentation namedPresentation (const live_compare::Status& state
         return { Reason::cycleUnverified, RecoveryAction::cycleOff, "Turn Cycle off to compare (POST)" };
     if (state.active && state.loopBlock == live_compare::LoopPairingBlock::aaxLoop && (state.preWaiting || ! state.preAudible))
         return result (RecoveryAction::loopOff, "Loop Playback on: turn it off to compare (POST)");
-    if (state.active && state.timingUnavailable && state.observation == Reason::loopClockUnavailable)
-        return result (RecoveryAction::none, host_availability::timingText());
     if (state.active && !state.interrupted)
         if (const auto loop = loopRecovery (state.observation, state.reaperRestriction); *loop.instruction)
             return loop;

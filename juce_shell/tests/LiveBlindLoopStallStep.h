@@ -28,8 +28,15 @@ void loopStallStep()
                          && stallPostFrames.load() >= 9 * LiveBlindLoopFixture::length,
                      "no PRE after the stall; every steady block is exact POST");
             require (loopPcmErrors.load() == 0, "before the stall, the named LOOP was exact");
-            require (click ("observatory-live-end"), "END stays available");
+            loopPcmAuditActive.store (false);
+            clock.loop.requested.store (false);
             loopStallStage = 3;
+            return;
+        case 3:
+            if (! status.preAudible) return;
+            require (status.active && status.preSelected, "linear playback restores the same PRE after loop off");
+            require (click ("observatory-live-end"), "END stays available");
+            loopStallStage = 4;
             return;
         default: // END returns the normal output
         {

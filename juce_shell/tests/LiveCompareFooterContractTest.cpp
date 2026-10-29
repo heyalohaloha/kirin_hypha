@@ -5,7 +5,6 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaLiveCompareRecoveryText.h"
-
 #include <cstdlib>
 #include <iostream>
 #include <vector>
@@ -131,8 +130,10 @@ void verifyLiveCompareFooterContract()
                     if (recovery.active && ! recovery.interrupted && (recovery.observation == live_compare::RecoveryReason::loopTooShort
                         || recovery.observation == live_compare::RecoveryReason::loopClockUnavailable))
                         require (live_compare_ui::namedPresentation (recovery).action
-                            == live_compare_ui::RecoveryAction::none && juce::String (notice).contains ("POST"),
-                            "an observed structural loop failure is explicit, not an instruction to wait or rematch");
+                            == (recovery.observation == live_compare::RecoveryReason::loopClockUnavailable
+                                ? live_compare_ui::RecoveryAction::loopOff : live_compare_ui::RecoveryAction::none)
+                            && juce::String (notice).contains ("POST"),
+                            "a structural loop failure gives the applicable remedy");
                     if (recovery.active && ! recovery.interrupted && ! recovery.contentHeld
                         && ! recovery.compensationOff && recovery.observation == live_compare::RecoveryReason::loopUnproven)
                         require (live_compare_ui::namedPresentation (recovery).action
@@ -342,7 +343,7 @@ void verifyLiveCompareFooterContract()
     {
         const i18n::ScopedLanguage scoped (language);
         for (const char* notice : { "Closing returns to POST", "LISTEN could not start",
-                                    "Choose the PRE first", "Mono / stereo only", "Paired PRE unavailable",
+                                    "Choose the PRE first", "Mono / stereo only", "PRE not running; choose again",
                                     "PRE is multi-mono: insert it as stereo",
                                     "Select PRE again", "LISTEN ended; POST plays", "MATCH: PRE -12.50 dB",
                                     "MATCH waits for PRE", "MATCH needs 3 s of play", "MATCH failed; try again",

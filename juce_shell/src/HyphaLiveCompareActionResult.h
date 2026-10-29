@@ -44,6 +44,18 @@ AutoReadiness autoReadiness (const Status& state, std::uint64_t generation) noex
     if (! currentNamedAction (state, generation, false)) return AutoReadiness::stale;
     if (state.interrupted || state.contentHeld || state.compensationOff) return AutoReadiness::blocked;
     if (state.matchLimited) return AutoReadiness::limited;
+    using Reason = live_compare::RecoveryReason;
+    switch (state.observation)
+    {
+        case Reason::none: case Reason::stopped: case Reason::positionChanged: case Reason::callbackGap:
+        case Reason::projectClockMissing: case Reason::clockMissing: case Reason::calibrating:
+        case Reason::writing: case Reason::beforeRun: case Reason::notWritten: case Reason::overwritten:
+        case Reason::torn: case Reason::loopUnproven: case Reason::loopWaiting: case Reason::loopTooShort:
+        case Reason::loopClockUnavailable: case Reason::cycleUnverified: case Reason::reaperFirstCycle:
+        case Reason::reaperDelayUnverified: case Reason::reaperLoopTooShort: break;
+        default: return AutoReadiness::blocked;
+    }
+    if (state.matched || state.matchHeld) return AutoReadiness::ready;
     if (state.verdict != live_compare::Verdict::accepted
         || state.observation != live_compare::RecoveryReason::none) return AutoReadiness::timing;
     if (! state.matched || ! state.matchReady) return AutoReadiness::match;

@@ -9,6 +9,16 @@ template <typename Require>
 void verifyLiveTimingAvailabilityUi (Require require)
 {
     using namespace live_compare;
+    Status loop;
+    loop.active = loop.preSelected = loop.preWaiting = loop.prolongedWait = loop.timingUnavailable = true;
+    loop.observation = RecoveryReason::loopClockUnavailable;
+    require (live_compare_ui::currentNamedPresentation (loop).action == live_compare_ui::RecoveryAction::loopOff,
+             "unidentifiable loop offers loop off for LISTEN");
+    LiveBlindStatus blind;
+    blind.stage = BlindStage::preparing; blind.prolongedWait = blind.timingUnavailable = true;
+    blind.observation = RecoveryReason::loopClockUnavailable;
+    require (live_compare_ui::blindRecovery (blind, false).action == live_compare_ui::RecoveryAction::loopOff,
+             "unidentifiable loop offers loop off for BLIND");
     int cases = 0;
     for (auto language : { i18n::Language::english, i18n::Language::japanese })
     {

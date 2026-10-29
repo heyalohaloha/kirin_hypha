@@ -29,6 +29,24 @@ struct NoticeAddMenu
     friend Type privateMember (NoticeAddMenu);
 };
 template struct PrivateAccess<NoticeAddMenu, &KirinHyphaEditor::addLiveCompareMenu>;
+struct NoticeFollowChoice
+{
+    using Type = void (KirinHyphaEditor::*) (int);
+    friend Type privateMember (NoticeFollowChoice);
+};
+template struct PrivateAccess<NoticeFollowChoice, &KirinHyphaEditor::handleLiveCompareFollowChoice>;
+struct NoticeMatchChoice
+{
+    using Type = void (KirinHyphaEditor::*) (const live_compare::MatchPlan&, int);
+    friend Type privateMember (NoticeMatchChoice);
+};
+template struct PrivateAccess<NoticeMatchChoice, &KirinHyphaEditor::handleLiveCompareMatchChoice>;
+struct NoticeLiveState
+{
+    using Type = live_compare::ProcessorState Processor::*;
+    friend Type privateMember (NoticeLiveState);
+};
+template struct PrivateAccess<NoticeLiveState, &Processor::liveCompare>;
 
 inline void verifyCurrentRecoveryNotHistory()
 {
@@ -230,6 +248,26 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     require (r.post->startLiveCompare() == live_compare::StartResult::started, "hide test starts real LISTEN");
     r.post->selectLiveComparePre (true); r.advance (0.3);
     require (r.post->liveCompareStatus().preAudible, "PRE actually plays before hide");
+    const auto status = r.post->liveCompareStatus();
+    const auto oldGeneration = status.sessionGeneration + 1;
+    enableHiddenAuto (*r.editor, {});
+    (r.editor.get()->*privateMember (NoticeFollowChoice {})) (2);
+    require (! hiddenAutoOn (*r.editor, {}), "Stop AUTO remains effective after the menu generation changes");
+    auto& state = r.post.get()->*privateMember (NoticeLiveState {});
+    (r.editor.get()->*privateMember (NoticeFollowChoice {})) (1);
+    require (state.namedMatchPending, "MATCH again requests a fresh measurement after a changed menu generation");
+    state.namedMatchPending = false;
+    live_compare::MatchPlan stalePlan;
+    stalePlan.generationBound = true;
+    stalePlan.generation = oldGeneration;
+    (r.editor.get()->*privateMember (NoticeMatchChoice {})) (stalePlan, 1);
+    require (state.namedMatchPending && r.post->liveCompareStatus().postTarget == status.postTarget,
+             "stale approval requests a fresh measurement without applying old attenuation");
+    state.namedMatchPending = false;
+    (r.editor.get()->*privateMember (NoticeMatchChoice {})) (stalePlan, 2);
+    require (state.namedMatchPending && r.post->liveCompareStatus().gain == status.gain,
+             "stale TP LIMIT requests a fresh measurement without applying old gain");
+    state.namedMatchPending = false;
     r.editor->setVisible (false); r.advance (0.1);
     require (r.post->liveCompareStatus().active && r.post->liveCompareStatus().preSelected
         && r.post->liveCompareStatus().preAudible, "hide preserves LISTEN and verified output");

@@ -42,7 +42,11 @@ void KirinHyphaEditor::openLiveBlind()
     if (result != StartResult::started)
     {
         refreshLiveCompare(); // acknowledge older transitions before this direct refusal
-        if (result == StartResult::noPair) showCandidateMenu();
+        if (hypha::live_compare_ui::startNeedsPreChoice (result))
+        {
+            if (result == StartResult::preUnavailable) showToast (hypha::live_compare_ui::preUnavailableNotice());
+            showCandidateMenu();
+        }
         else showToast (result == StartResult::contentHeld ? "Timing changed: check chain delay (POST)"
                       : result == StartResult::returnPending ? "Ended; normal level returns with audio"
                       : result == StartResult::returnRequired ? "Press RETURN first"

@@ -105,7 +105,7 @@ const Entry entries[] = {
     { "LISTEN could not start", u8"試聴を開始できません" },
     { "Choose the PRE first", u8"先にPREを選んでください" },
     { "Mono / stereo only", u8"Mono／Stereoのみ" },
-    { "Paired PRE unavailable", u8"ペアのPREを使えません" },
+    { "PRE not running; choose again", u8"PREが停止中／選び直す" },
     { "PRE is multi-mono: insert it as stereo", u8"PREがMulti-monoです。Stereoで挿してください" },
     { "Select PRE again", u8"PREを選び直してください" },
     { "MATCH: PRE %1", u8"MATCH：PRE %1" },
