@@ -178,6 +178,8 @@ private:
     bool monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     void matchLiveCompare (std::uint64_t menuGeneration = UINT64_MAX);
     void chooseLiveCompareFollow();
+    void handleLiveCompareFollowChoice (int result);
+    void handleLiveCompareMatchChoice (const hypha::live_compare::MatchPlan&, int result);
     bool followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,

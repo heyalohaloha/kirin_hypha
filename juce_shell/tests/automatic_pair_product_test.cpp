@@ -1,11 +1,13 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaFeedbackStrip.h"
 #include "TestProcessorStorage.h"
+#include "AutomaticPairOffscreenEditor.h"
 #include "ReferenceValidationStorageSandbox.h"
 #include "EditorProductChecks.h"
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <cstring>
 
 namespace
@@ -19,6 +21,15 @@ public:
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
             auto processor = std::make_unique<KirinHyphaProcessorBase> (role);
+            if (role == KirinHyphaProcessorBase::Role::Post)
+            {
+                juce::MemoryBlock state;
+                processor->getStateInformation (state);
+                const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+                if (! xml || xml->getStringAttribute ("instance_id").isNotEmpty())
+                    throw std::runtime_error ("fresh POST must have an empty instance ID");
+                processor->setStateInformation (state.getData(), (int) state.getSize());
+            }
             hypha::tests::prepareFixtureProcessor (*processor, 48000, 512);
             (role == KirinHyphaProcessorBase::Role::Pre ? pre : post) = std::move (processor);
         }
@@ -57,7 +68,7 @@ private:
             if (post->pairedPreInstanceId() == pre->instanceId())
                 return finish ("FAIL: paired while editor is closed");
             if (std::chrono::steady_clock::now() - found < std::chrono::seconds (4)) return;
-            editor.reset (post->createEditor());
+            editor.reset (makeAutomaticPairEditor (*post));
             editor->addToDesktop (0);
             editor->setVisible (true);
             found = std::chrono::steady_clock::now();
@@ -77,7 +88,7 @@ private:
             post = std::make_unique<KirinHyphaProcessorBase> (KirinHyphaProcessorBase::Role::Post);
             post->setStateInformation (saved.getData(), (int) saved.getSize());
             hypha::tests::prepareFixtureProcessor (*post, 48000, 512);
-            editor.reset (post->createEditor()); editor->addToDesktop (0); editor->setVisible (true);
+            editor.reset (makeAutomaticPairEditor (*post)); editor->addToDesktop (0); editor->setVisible (true);
             found = std::chrono::steady_clock::now(); stage = 2;
             return;
         }
@@ -85,8 +96,27 @@ private:
         {
             if (post->pairedPreInstanceId().isNotEmpty()) return finish ("FAIL: unpaired POST reconnected");
             if (std::chrono::steady_clock::now() - found < std::chrono::seconds (4)) return;
+            const auto foreignId = post->instanceId();
+            if (foreignId.isEmpty()) return finish ("FAIL: foreign instance ID missing");
+            editor.reset(); post->releaseResources(); post.reset();
+            juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+            post = std::make_unique<KirinHyphaProcessorBase> (KirinHyphaProcessorBase::Role::Post);
+            juce::MemoryBlock state; post->getStateInformation (state);
+            auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+            if (! xml) return finish ("FAIL: foreign state fixture");
+            xml->setAttribute ("instance_id", foreignId);
+            juce::AudioProcessor::copyXmlToBinary (*xml, state);
+            post->setStateInformation (state.getData(), (int) state.getSize());
+            hypha::tests::prepareFixtureProcessor (*post, 48000, 512);
+            editor.reset (makeAutomaticPairEditor (*post)); editor->addToDesktop (0); editor->setVisible (true);
+            found = std::chrono::steady_clock::now(); stage = 3; return;
+        }
+        if (stage == 3)
+        {
+            if (post->pairedPreInstanceId().isNotEmpty()) return finish ("FAIL: foreign state paired automatically");
+            if (std::chrono::steady_clock::now() - found < std::chrono::seconds (4)) return;
             passed = true;
-            return finish ("PASS: editor-only pairing, notice action, persistent unpair");
+            return finish ("PASS: self round trip, persistent unpair, foreign state");
         }
         if (post->pairedPreInstanceId() == pre->instanceId())
         {
@@ -149,6 +179,9 @@ int main()
 {
     ReferenceValidationStorageSandbox sandbox;
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
+   #if JUCE_MAC
+    initialiseBlindProductHostApplication();
+   #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::tests::editor_product::ScopedChainTimingStorage chainTimingStorage (sandbox.directory());
     AutomaticPairTest test;

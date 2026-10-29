@@ -53,7 +53,6 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
     stateInformationSeen.store (true, std::memory_order_release);
-    automaticPair.inhibited.store (true, std::memory_order_release);
     // Revoke the old output before waiting for any non-RT pair operation.
     const auto restore = liveCompare.authority.restoringState();
     const juce::ScopedLock pairLock (automaticPair.lock);
@@ -156,6 +155,10 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     if (restored)
     {
+        if ((restoredInstanceId.isNotEmpty() && restoredInstanceId != persistInstanceId)
+            || restoredPairName.isNotEmpty() || restoredPairInstanceId.isNotEmpty()
+            || restoredPairProjectHash.isNotEmpty() || automaticPair.disconnected.load (std::memory_order_acquire))
+            automaticPair.inhibited.store (true, std::memory_order_release);
         // Additive display state keeps established defaults for older JUCE and nih-plug states.
         persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
         preferredObservatoryDomain.store (restoredObservatoryDomain, std::memory_order_release);

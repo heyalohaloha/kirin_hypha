@@ -2,6 +2,7 @@
 #include "ReferenceValidationStorageSandbox.h"
 #include "EditorProductChecks.h"
 #include "TestProcessorStorage.h"
+#include "AutomaticPairOffscreenEditor.h"
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -37,7 +38,7 @@ private:
     }
     void open()
     {
-        editor.reset (post->createEditor());
+        editor.reset (makeAutomaticPairEditor (*post));
         editor->addToDesktop (0);
         editor->setVisible (true);
     }
@@ -88,6 +89,9 @@ int main (int argc, char** argv)
     if (argc != 2) return 2;
     ReferenceValidationStorageSandbox sandbox;
     hypha::pre_display::Controller::placeUnderForTest (sandbox.directory());
+   #if JUCE_MAC
+    initialiseBlindProductHostApplication();
+   #endif
     juce::ScopedJuceInitialiser_GUI init;
     hypha::tests::editor_product::ScopedChainTimingStorage chainTimingStorage (sandbox.directory());
     OrderTest test (std::string (argv[1]) == "visible");

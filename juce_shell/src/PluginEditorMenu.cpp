@@ -50,7 +50,8 @@ void KirinHyphaEditor::showCandidateMenu()
     const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
     // B-115: lock only when playing AND live (processBlock running). A frozen `playing` with a
     // stalled heartbeat does not lock (false-release prevention; signal_state is silence-conflated).
-    const bool pairLocked = playing && processorRef.heartbeatLive();
+    const bool pairLocked = playing && processorRef.heartbeatLive()
+        && processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
     const auto cands = processorRef.enumeratePreCandidates();
     const auto claims = processorRef.enumeratePostPairClaims();
     const juce::String ownInstanceId = processorRef.instanceId();
@@ -129,7 +130,6 @@ juce::PopupMenu KirinHyphaEditor::operationsMenu()
     const bool recording = processorRef.isRecording();
     const bool keepActive = recording
         || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
-    const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
     const bool osOwned = processorRef.licenseIsOs();
     const bool stereoWorkflows = processorRef.stereoWorkflowsSupported();
     const int nReady = processorRef.keepReadyCount();
@@ -145,7 +145,7 @@ juce::PopupMenu KirinHyphaEditor::operationsMenu()
         }
         else
         {
-            menu.addItem (4, "Keep selected pair", osOwned && pairSelected);
+            menu.addItem (4, "Keep selected pair", osOwned);
             menu.addItem (1, osOwned ? allKeepMenuLabel (nReady)
                                      : "All Keep: Kirin OS required",
                           osOwned && nReady >= 1);
@@ -408,6 +408,12 @@ void KirinHyphaEditor::showFeedbackInformationMenu()
 void KirinHyphaEditor::handleCandidateMenu (
     int result, const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates)
 {
+    if (result == 4 && processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED)
+    {
+        showToast (hypha::pair_labels::choose);
+        showCandidateMenu();
+        return;
+    }
     if ((result == 1 || result == 4) && outputRefused (hypha::output_owner::Activity::recordKeep)) return;
     if (result == 1)
     {
@@ -450,7 +456,9 @@ void KirinHyphaEditor::handleCandidateMenu (
         requestJungleChoice (! observatoryView.jungleAppearanceEnabled());
     else if (result == 11)
     {
-        processorRef.clearPairCandidate();
+        if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED && processorRef.isPlaying() && processorRef.heartbeatLive())
+        { showToast ("Stop playback to change connection"); return; }
+        processorRef.clearPairCandidate(); automaticPairNotice = false;
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.clearSnapshot();
         perceptualView.clearSnapshot();
@@ -464,10 +472,16 @@ void KirinHyphaEditor::handleCandidateMenu (
         if (idx >= 0 && idx < candidates.size())
         {
             const auto candidate = candidates.getReference (idx);
+            if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED
+                && processorRef.isPlaying() && processorRef.heartbeatLive())
+            {
+                if (candidate.instanceId != processorRef.pairedPreInstanceId()) showToast ("Stop playback to change connection");
+                return;
+            }
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
-                comparisonActionAwaitingResult = true;
+                automaticPairNotice = false; comparisonActionAwaitingResult = true;
                 comparisonActionAfterGeneration = comparisonObservedGeneration;
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();

@@ -17,6 +17,7 @@ namespace hypha
         Idle,            // grey, static
         Error,           // yellow, static (measure thread stopped)
         RecordStandby,   // green dimmed 0.45, static (recording, not yet acked)
+        RecordReady,     // acknowledged, awaiting signal
         WatchBreathing,  // blue (legacy enum name; rendering is static)
         RecordActive,    // green
         PresetAvailable  // amber

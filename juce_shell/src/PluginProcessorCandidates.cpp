@@ -63,9 +63,9 @@ bool KirinHyphaProcessorBase::automaticPairNeedsService() const
     const juce::ScopedLock pairLock (automaticPair.lock);
     return role == Role::Post && writesEnabled.load (std::memory_order_acquire)
         && ! automaticPair.inhibited.load (std::memory_order_acquire)
-        && ! stateInformationSeen.load (std::memory_order_acquire)
+        && ! automaticPair.disconnected.load (std::memory_order_acquire)
         // outputStates includes Record, Keep, LISTEN, BLIND and other output owners.
-        && ! isPlaying() && ! isHostRecording() && outputStates() == 0 && persistPairName.isEmpty() && persistPairInstanceId.isEmpty()
+        && ! isHostRecording() && outputStates() == 0 && persistPairName.isEmpty() && persistPairInstanceId.isEmpty()
         && persistPairProjectHash.isEmpty() && pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED;
 }
 

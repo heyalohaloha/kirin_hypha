@@ -37,7 +37,7 @@ namespace hypha
         {
             if (! recordAcknowledged) return LedState::RecordStandby;        // waiting for PRE ack
             if (active)               return LedState::RecordActive;         // ack + Active -> pulse
-            return LedState::RecordStandby;                                  // ack but signal stopped
+            return LedState::RecordReady;                                    // ack but signal stopped
         }
         if (presetAvailable && active) return LedState::PresetAvailable;
         if (active)                    return LedState::WatchBreathing;
@@ -61,6 +61,7 @@ namespace hypha
                 case LedState::Idle:            setTooltip ("No active signal."); break;
                 case LedState::Error:           setTooltip ("Measurement is unavailable."); break;
                 case LedState::RecordStandby:   setTooltip ("Keep is waiting for its pair."); break;
+                case LedState::RecordReady:     setTooltip ("Keep ready"); break;
                 case LedState::WatchBreathing:  setTooltip ("Measurement is active."); break;
                 case LedState::RecordActive:    setTooltip ("Keep is recording."); break;
                 case LedState::PresetAvailable: setTooltip ("A kept result is available."); break;
@@ -76,7 +77,8 @@ namespace hypha
         {
             case LedState::Idle:            c = COL_LED_GREY; break;
             case LedState::Error:           c = COL_LED_YELLOW; break;
-            case LedState::RecordStandby:   c = dim (COL_LED_GREEN, 0.45f); break;
+            case LedState::RecordStandby:
+            case LedState::RecordReady:     c = dim (COL_LED_GREEN, 0.45f); break;
             case LedState::WatchBreathing:  c = COL_LED_BLUE; break;
             case LedState::RecordActive:    c = COL_LED_GREEN; break;
             case LedState::PresetAvailable: c = COL_FLORA; break;
