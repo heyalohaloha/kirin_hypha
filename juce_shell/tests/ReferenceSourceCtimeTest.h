@@ -4,6 +4,7 @@
 #include "ReferencePageWaitTestAccess.h"
 #include "reference_rt_probe.h"
 #include "../src/reference_audition/ReferencePinnedSource.h"
+#include "ReferenceTransientSourceTest.h"
 #include <cstdio>
 #include <fcntl.h>
 #if !JUCE_WINDOWS
@@ -18,6 +19,12 @@
 namespace hypha::tests::reference_control
 {
 struct SourcePageTag {};
+std::int64_t& sourceRetryDeadline (Runtime&, SourcePageTag);
+template <auto Deadline> struct SourceRetryAccess
+{
+    friend std::int64_t& sourceRetryDeadline (Runtime& r, SourcePageTag) { return r.*Deadline; }
+};
+template struct SourceRetryAccess<&Runtime::sourceRetryAtMs>;
 reference_audition::VisualObservation& sourceVisual (Comparison&, SourcePageTag);
 template <auto Visual> struct SourceVisualAccess
 {
@@ -155,6 +162,21 @@ inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange ch
     c.setPresented (false);
     require (((juce::Thread&) control::sourceVisual (c, {})).stopThread (-1), "stop the independent visual worker for deterministic source races");
     auto file = root.getChildFile ("version-1.wav");
+    if (change == SourceChange::attributes)
+    {
+        testTransientSourceFailures (root, control::roleFor (c, { 1 }).visualBinding().source);
+        auto& runtime = control::roleFor (c, { 1 });
+        ref::revision_detail::pathFailureForTest.store (true);
+        const auto before = juce::Time::currentTimeMillis();
+        control::serviceFor (runtime, {});
+        const auto deadline = control::sourceRetryDeadline (runtime, {});
+        require (deadline >= before + 5000, "unavailable source uses retry clock");
+        require (!feed (true, false), "unavailable path does not play cached audio");
+        control::sourceRetryDeadline (runtime, {}) = 0;
+        for (int n = 0; n < 16 && !c.snapshot().versionReady; ++n) feed (false);
+        require (c.snapshot().versionReady, "source becomes ready after retry deadline");
+        require (c.requestAudition (1, -22, -6) && feed (true), "same source plays after retry");
+    }
     if (change == SourceChange::duringRender)
     {
         auto& runtime = control::roleFor (c, { 1 });

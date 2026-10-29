@@ -18,7 +18,7 @@ const std::array<Stage, stageCount> stages { {
     { K::ready, W::none, "READY / A REMAINS LIVE", "", "Ready", "", "" },
     // waitingForKirinOs
     { K::waiting, W::kirinOsResponse, "WAITING FOR KIRIN OS REFERENCE / KEEP KIRIN OS OPEN",
-      "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", "Waiting for Kirin OS", "Receiving from Kirin OS",
+      "CHECKING", "Waiting for Kirin OS", "Receiving from Kirin OS",
       "Versions and References registered in Kirin OS arrive here automatically." },
     // registerVersion
     { K::unable, W::none, "NO VERSION FOR V / REGISTER A VERSION IN KIRIN OS", "", "Register a Version in Kirin OS",
@@ -37,7 +37,7 @@ const std::array<Stage, stageCount> stages { {
     { K::waiting, W::none, "%1 WAITS FOR THE DAW / PLAY A TO AUDITION", "", "Ready when the DAW plays",
       "Play the song in your DAW", "B: Reference song / C: Check source / V: another Version of this song" },
     // aligning
-    { K::waiting, W::alignmentPlay, "ALIGNING VERSION V / KEEP PLAYING", "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+    { K::waiting, W::alignmentPlay, "ALIGNING VERSION V / KEEP PLAYING", "CHECKING",
       "Aligning with A. Keep playing", "Aligning V with A", "Keep playing. V must be a Version of the song you are playing." },
     // noMatchingPassage
     { K::unable, W::none, "NO VERIFIED MATCH / CHECK VERSION V", "", "No verified match here; check Version",
@@ -46,17 +46,17 @@ const std::array<Stage, stageCount> stages { {
     { K::waiting, W::none, "THIS PASSAGE REPEATS IN V / PLAY ANOTHER PASSAGE TO ALIGN V", "", "Play another passage",
       "Play another passage to align V", "This passage repeats in V. Play a part that occurs only once." },
     // verifyingSource
-    { K::waiting, W::preparation, "VERIFYING SOURCE / WAIT A MOMENT", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
+    { K::waiting, W::preparation, "VERIFYING SOURCE / WAIT A MOMENT", "CHECKING",
       "Verifying source", "Verifying %1 source", "The source is being checked. A stays live." },
     // loadingAudio
-    { K::waiting, W::pages, "LOADING %1 AT PLAYHEAD / KEEP PLAYING", "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION",
+    { K::waiting, W::pages, "LOADING %1 AT PLAYHEAD / KEEP PLAYING", "CHECKING",
       "Loading audio here; keep playing", "Loading %1 at the playhead", "Keep playing while audio loads." },
     // outsideCue
     { K::unable, W::none, "OUTSIDE %1 CUE / MOVE OR CHOOSE LONGER CUE", "", "Outside Cue; move or choose longer Cue",
       "This playhead is outside %1's Cue",
       "Move to the comparison passage, or choose a longer or looping Cue in Kirin OS. A stays live." },
     // preparing
-    { K::waiting, W::preparation, "PREPARING %1 / WAIT A MOMENT", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
+    { K::waiting, W::preparation, "PREPARING %1 / WAIT A MOMENT", "CHECKING",
       "Preparing", "Preparing %1", "This takes a moment." },
     // openKirinOs
     { K::unable, W::none, "KIRIN OS IS CLOSED / OPEN KIRIN OS", "", "Open Kirin OS", "Open Kirin OS",

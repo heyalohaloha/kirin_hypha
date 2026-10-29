@@ -155,7 +155,9 @@ hypha::tests::reference_control::await ([&] { return controller.selectLibrarySon
     juce::Thread::sleep (1100);
     require (controller.snapshot().rejectionCode == "reference_source_changed",
              "500 ms worker ticks retain the previous failure instead of reading audio again");
-    wait ("reference_source_open_failed");
+    wait ("reference_source_read_failed");
+    require (controller.snapshot().state == ref::RuntimeState::waiting,
+             "unavailable source remains a waiting state");
     require (juce::Time::getMillisecondCounterHiRes() - first >= 4000,
              "a new source failure is observed only after the five-second retry reservation");
 }

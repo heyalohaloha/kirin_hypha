@@ -9,6 +9,7 @@
 #include "../src/HyphaReferencePreparationWatch.h"
 #include "../src/HyphaReferenceRuntimeView.h"
 #include "../src/HyphaReferenceStages.h"
+#include "../src/HyphaReferenceRuntimeStatus.h"
 
 namespace hypha::tests
 {
@@ -249,13 +250,12 @@ inline void verifyReferenceStatusLine()
     blind.blindPhase = reference_ui::BlindPhase::invalidated;
     require (reference_ui::referenceStatusLine (blind).kind == StatusKind::unable, "a stopped Blind cannot be heard");
 
-    // 準備中を終わらない状態にしない。上限（Kirin OS の応答 5 秒、確認・読み込み・準備 10 秒、位置合わせは
-    // 再生 30 秒ぶん、A の音量は再生 10 秒ぶん）を超えたら「できない」と理由・直し方。段階・役が変われば数え直す。
+    // 準備が長引いても待機として表示し、段階・役が変われば数え直す。
     reference_ui::PreparationWatch watch;
     require (watch.observe (2, Step::preparing, false, true, true, 100.0).isEmpty()
                  && watch.observe (2, Step::preparing, false, true, true, 109.0).isEmpty()
-                 && watch.observe (2, Step::preparing, false, true, true, 110.5) == "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
-             "preparing over 10 s becomes unavailable with its fix");
+                 && watch.observe (2, Step::preparing, false, true, true, 110.5) == "CHECKING",
+             "preparing over 10 s remains checking");
     require (watch.observe (2, Step::loadingAudio, false, true, true, 111.0).isEmpty(), "a new step starts a new count");
     require (watch.observe (3, Step::loadingAudio, false, true, true, 125.0).isEmpty(), "another role starts a new count");
     reference_ui::PreparationWatch pagesWatch;
@@ -263,16 +263,16 @@ inline void verifyReferenceStatusLine()
                  && pagesWatch.observe (1, Step::loadingAudio, false, true, true, 102.999).isEmpty(),
              "page recovery text stays hidden before three seconds");
     const auto slowPageReason = pagesWatch.observe (1, Step::loadingAudio, false, true, true, 103.0);
-    require (slowPageReason == "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION"
+    require (slowPageReason == "CHECKING"
                  && pagesWatch.observe (1, Step::loadingAudio, false, true, true, 103.001) == slowPageReason,
-             "the three-second boundary shows a reason and recovery without cancelling");
+             "the three-second boundary shows checking without cancelling");
     auto slowPages = named ("ready");
     slowPages.bSelected = false;
     slowPages.separateComparisons = true;
     slowPages.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::checking, "reference_page_wait_slow" };
     slowPages.preparationOverdue = slowPageReason;
     const auto slowLine = reference_ui::referenceStatusLine (slowPages);
-    require (slowLine.kind == StatusKind::waiting && slowLine.text.contains ("AUDIO STILL LOADING"),
+    require (slowLine.kind == StatusKind::waiting && slowLine.text.contains ("CHECKING"),
              "slow I/O remains a selected wait, not a stopped audition");
     slowPages.pendingAudition = { 1, reference_audition::PendingAuditionView::Stage::startFailed, "reference_position_outside_source" };
     require (reference_ui::referenceStatusLine (slowPages).text.contains ("MOVE INSIDE VERSION, THEN PRESS V"),
@@ -283,40 +283,54 @@ inline void verifyReferenceStatusLine()
     for (double now = 200.0; now <= 260.0; now += 0.5)  // 位置合わせ：再生していない間は数えない
         require (watch.observe (1, Step::aligning, false, true, now > 230.0, now).isEmpty(),
                  "aligning counts only the time the DAW plays");
-    require (watch.observe (1, Step::aligning, false, true, true, 261.0) == "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
-             "30 s of play without a match becomes unavailable");
+    require (watch.observe (1, Step::aligning, false, true, true, 261.0) == "CHECKING",
+             "30 s of play without a match remains checking");
     require (watch.observe (2, Step::waitingForKirinOs, false, false, false, 300.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, false, false, 320.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0).isEmpty()
-                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 331.5) == "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN",
+                 && watch.observe (2, Step::waitingForKirinOs, false, true, false, 331.5) == "CHECKING",
              "an open Kirin OS without a publication reports publication wait, not application failure");
     // MATCH に使う A の音量：B・V は再生 10 秒ぶん、C は A の直近が Cue の長さ（最長 30 秒）たまるまで待つので 35 秒ぶん。
     for (double now = 500.0; now <= 520.0; now += 0.5)
         require (watch.observe (2, Step::ready, true, true, true, now).isEmpty(), "C waits for up to 30 s of A");
     for (double now = 520.5; now < 535.5; now += 0.5) watch.observe (2, Step::ready, true, true, true, now);
-    require (watch.observe (2, Step::ready, true, true, true, 536.0) == "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+    require (watch.observe (2, Step::ready, true, true, true, 536.0) == "CHECKING",
              "C's A level is overdue after 35 s of play");
     for (double now = 600.0; now <= 610.0; now += 0.5) watch.observe (1, Step::ready, true, true, true, now);
-    require (watch.observe (1, Step::ready, true, true, true, 610.5) == "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
+    require (watch.observe (1, Step::ready, true, true, true, 610.5) == "CHECKING",
              "V's A level is overdue after 10 s of play");
     require (watch.observe (2, Step::playDaw, false, true, false, 400.0).isEmpty()
                  && watch.observe (2, Step::playDaw, false, true, false, 900.0).isEmpty(),
              "waiting for the user's own action has no time limit");
-    for (const auto* reason : { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
-                                "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
-                                "REFERENCE NOT PUBLISHED YET / KEEP KIRIN OS OPEN", "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS",
-                                "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION", "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS",
-                                "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN" })
+    for (const auto* reason : { "CHECKING" })
         require (i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese) != juce::String ("V: ") + reason
                      && ! i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese).containsIgnoreCase ("NOT"),
-                 "every overdue reason reads in Japanese with its fix");
+                 "the checking label reads in Japanese");
     auto overdue = named ("ready");
     overdue.separateComparisons = true;
     overdue.comparisonSlot = 1;
     overdue.versionStep = Step::aligning;
-    overdue.preparationOverdue = "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN";
+    overdue.preparationOverdue = "CHECKING";
     const auto overdueLine = reference_ui::referenceStatusLine (overdue);
-    require (overdueLine.kind == StatusKind::unable && overdueLine.text == "V: NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
-             "an overdue wait turns the status line unavailable with the role's reason and fix");
+    require (overdueLine.kind == StatusKind::waiting && overdueLine.text == "V: CHECKING",
+             "an overdue wait remains checking");
+    for (const bool preset : { false, true })
+    for (const auto* failure : { "timed_out", "storage_unavailable", "publication_failed" })
+    {
+        reference_audition::Snapshot runtime;
+        if (preset) runtime.presetSelectionStatus = failure;
+        else runtime.candidatePreparationStatus = failure;
+        const auto request = reference_ui::runtimeStatus (runtime, overdue);
+        auto failed = overdue;
+        failed.kirinOsRequest = request.request; failed.status = request.status; failed.action = request.action;
+        require (request.action.kind == (preset ? reference_ui::ActionKind::retryPresetPreparation
+                                                : reference_ui::ActionKind::retryCandidatePreparation)
+                     && reference_ui::referenceStatusLine (failed).text == request.status,
+                 "Kirin OS request failure remains visible instead of overdue checking");
+        failed.pendingAudition.slot = 1;
+        failed.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::checking;
+        require (reference_ui::referenceStatusLine (failed).text == request.status,
+                 "Kirin OS request failure remains visible while an audition waits");
+    }
 }
 }

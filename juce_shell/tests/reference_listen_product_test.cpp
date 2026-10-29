@@ -9,6 +9,7 @@
 #include "ReferenceValidationStorageSandbox.h"
 #include "LiveCompareNoticeProductChecks.h"
 #include "EditorEntryReachability.h"
+#include "ReferenceAmbiguousEditorTest.h"
 #include "../src/HyphaReferenceAuditionRecoveryText.h"
 #include <map>
 #if JUCE_MAC
@@ -246,6 +247,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI init;
     hypha::i18n::holdLanguage (true);
     hypha::tests::editor_product::verifyListenWhileReferencePlays (box);
+    hypha::tests::editor_product::verifyAmbiguousVersionFromEditor (box);
     std::cout << "Reference listen product: PASS (B holds the output, LISTEN's choice kept, notice past 3 s, A returns)\n";
     return EXIT_SUCCESS;
 }

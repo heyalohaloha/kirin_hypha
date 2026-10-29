@@ -290,7 +290,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     applyReferenceRoles (state, runtime);
     if (const auto pending = hypha::reference_ui::pendingAuditionText (state);
-        pending.isNotEmpty() && state.action.kind != hypha::reference_ui::ActionKind::lowerAAndPlay)
+        pending.isNotEmpty() && state.action.kind != hypha::reference_ui::ActionKind::lowerAAndPlay
+            && ! (state.kirinOsRequest && state.action.kind != hypha::reference_ui::ActionKind::none))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
     if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};

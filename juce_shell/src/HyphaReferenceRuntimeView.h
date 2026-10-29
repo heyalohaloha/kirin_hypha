@@ -33,7 +33,7 @@ inline bool formatUnreadableCode (const juce::String& code) noexcept
 inline juce::String rejectedStatus (const juce::String& code)
 {
     if (formatUnreadableCode (code))
-        return "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND PUBLISH AGAIN";
+        return "REFERENCE FORMAT UNREADABLE / UPDATE KIRIN OS AND HYPHA";
     if (code.startsWith ("reference_library_") || code.startsWith ("reference_manifest_"))
         return "REFERENCE PUBLICATION INVALID / PUBLISH AGAIN IN KIRIN OS";
     if (code == "source_changed") return "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS";

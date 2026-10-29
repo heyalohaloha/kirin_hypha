@@ -24,10 +24,11 @@ namespace
 
     [[maybe_unused]] WholeSongFixture makeWholeSongFixture (const juce::File& root, const juce::File& file,
                                             const juce::String& recording, const juce::String& version,
-                                            int channels = 2, bool withLoudness = false)
+                                            int channels = 2, bool withLoudness = false, bool repeated = false,
+                                            int repeatedSeconds = 12)
     {
         WholeSongFixture result;
-        result.audio.setSize (channels, result.audio.getNumSamples());
+        result.audio.setSize (channels, repeated ? 48000 * repeatedSeconds : result.audio.getNumSamples());
         std::uint32_t noise = 713, envelope = 239;
         float amplitude = 0.1f;
         for (int frame = 0; frame < result.audio.getNumSamples(); ++frame)
@@ -41,6 +42,9 @@ namespace
             result.audio.setSample (0, frame, value);
             if (channels == 2) result.audio.setSample (1, frame, -value);
         }
+        if (repeated)
+            for (int channel = 0; channel < channels; ++channel)
+                result.audio.copyFrom (channel, 48000 * 4, result.audio, channel, 0, 48000 * 4);
         {
             juce::WavAudioFormat format;
             auto stream = file.createOutputStream();
@@ -64,7 +68,7 @@ namespace
         measurement["audio"].getDynamicObject()->setProperty ("total_sample_frames", result.audio.getNumSamples());
         measurement["audio"].getDynamicObject()->setProperty ("channels", channels);
         auto* waveform = measurement["views"]["waveform"].getDynamicObject();
-        waveform->setProperty ("frames_per_bin", 4800); waveform->setProperty ("bin_count", 80);
+        waveform->setProperty ("frames_per_bin", 4800); waveform->setProperty ("bin_count", result.audio.getNumSamples() / 4800);
         juce::Array<juce::var> rms, peaks;
         for (int channel = 0; channel < channels; ++channel)
         {
@@ -85,7 +89,7 @@ namespace
             auto timeline = new juce::DynamicObject();
             timeline->setProperty ("start_sample", 0); timeline->setProperty ("hop_samples", 4800);
             juce::Array<juce::var> levels;
-            for (int i = 0; i < 80; ++i) levels.add (-20000);
+            for (int i = 0; i < result.audio.getNumSamples() / 4800; ++i) levels.add (-20000);
             timeline->setProperty ("lufs_m_millilu", levels); timeline->setProperty ("lufs_s_millilu", levels);
             measurement["views"].getDynamicObject()->setProperty ("loudness", juce::var (timeline));
         }

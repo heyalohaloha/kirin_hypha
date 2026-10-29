@@ -6,16 +6,10 @@
 
 enum class CheckRepress { none, direct, measured, unavailable };
 
-inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int channels,
-                                              bool differentSource, bool rejectGain = false,
-                                              bool cancel = false, bool invalidateSource = false,
-                                              CheckRepress repress = CheckRepress::none)
+// Two Checks in one library: the first plays the opening of source.wav, the second a later Cue of
+// the same file or of alternate.wav. Returns the preset; the second Check is preset["checks"][1].
+inline juce::var publishTwoCheckLibrary (const juce::File& root, int channels, bool differentSource)
 {
-    namespace control = hypha::tests::reference_control;
-    const auto root = sandbox.getChildFile ("check-switch-" + juce::String (channels)
-        + (differentSource ? "-file" : "-cue") + (rejectGain ? "-ceiling" : "") + (cancel ? "-cancel" : "")
-        + (invalidateSource ? "-changed" : "") + "-" + juce::String (static_cast<int> (repress)));
-    require (root.createDirectory().wasOk(), "isolated Check switch fixture");
     const auto makeCandidate = [&] (const juce::String& name, bool alternate)
     {
         const auto file = root.getChildFile (name);
@@ -60,6 +54,21 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
     second["candidates"][0].getDynamicObject()->setProperty ("default_cue_id", cue["cue_id"]);
     preset["checks"].getArray()->add (second);
     require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)), "publish two Checks");
+    return preset;
+}
+
+inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int channels,
+                                              bool differentSource, bool rejectGain = false,
+                                              bool cancel = false, bool invalidateSource = false,
+                                              CheckRepress repress = CheckRepress::none)
+{
+    namespace control = hypha::tests::reference_control;
+    const auto root = sandbox.getChildFile ("check-switch-" + juce::String (channels)
+        + (differentSource ? "-file" : "-cue") + (rejectGain ? "-ceiling" : "") + (cancel ? "-cancel" : "")
+        + (invalidateSource ? "-changed" : "") + "-" + juce::String (static_cast<int> (repress)));
+    require (root.createDirectory().wasOk(), "isolated Check switch fixture");
+    const auto preset = publishTwoCheckLibrary (root, channels, differentSource);
+    const auto second = preset["checks"][1];
     std::atomic<int> gateBalance {0};
     std::atomic<bool> overlappingAdmission {false};
     ref::ReferenceComparisonController c (root, [&] (bool active) {

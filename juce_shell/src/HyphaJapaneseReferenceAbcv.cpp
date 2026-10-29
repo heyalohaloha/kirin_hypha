@@ -7,7 +7,6 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
-    { "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION", u8"音声を読込中です / 別の位置から再生してください" },
     { "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS", u8"音声を読み出せません / Kirin OSで確認" },
     { "AUDIO READ FAILED", u8"音声を読み出せません" },
     { "PLAYHEAD OUTSIDE VERSION", u8"再生位置が版の範囲外です" },
@@ -27,16 +26,8 @@ const Entry entries[] = {
     { "This Check matches True Peak when C starts. Press A, then C.", u8"このCheckはCを鳴らすときにTrue Peakで合わせます。Aを押してからCを押してください。" },
     { "MATCH exceeds the safe level. The current gain is kept.", u8"MATCHが安全上限を超えます。今のGainを保ちます。" },
     { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
-    // 待ちが上限を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
-    { "A LEVEL NOT MEASURED IN 10 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
-      u8"10秒再生してもAを測れません / Aを長めに再生して選び直す" },
-    { "SOURCE NOT VERIFIED IN 10 S / CHECK THE SOURCE IN KIRIN OS", u8"10秒で音源を確認できません / Kirin OSで確認" },
-    { "NOT PREPARED IN 10 S / OPEN THE SOURCE IN KIRIN OS", u8"10秒で準備できません / Kirin OSで開く" },
-    { "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN", u8"30秒再生しても位置が合いません / Versionを選び直す" },
     { "V is measured over the same section as A while they are aligned",
       u8"位置合わせしているあいだ、VをAと同じ区間で測ります" },
-    { "A LEVEL NOT MEASURED IN 35 S OF PLAY / PLAY A LONGER, THEN SELECT AGAIN",
-      u8"35秒再生してもAを測れません / Aを長めに再生して選び直す" },
     // 追従を MATCH から ±6 dB で止めたとき（live 比較の AUTO と同じ幅）。
     { "%1 FOLLOW STOPPED 6 DB FROM MATCH", u8"%1の追従はMATCHから6 dBで停止" },
     { "Level follow stopped 6 dB from the MATCH. The current gain is kept.",

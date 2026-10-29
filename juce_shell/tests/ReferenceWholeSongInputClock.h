@@ -13,12 +13,12 @@ class WholeSongInputClock
 public:
     template <class Predicate>
     bool waitFor (ref::ReferenceComparisonController& controller,
-                  const WholeSongFixture& fixture, int& cursor, Predicate ready, int channels = 2)
+                  const WholeSongFixture& fixture, int& cursor, Predicate ready, int channels = 2, int watchdogSeconds = 300)
     {
         namespace control = hypha::tests::reference_control;
         const auto complete = [&] { return ready (controller.snapshot()); };
         const auto& capture = control::captureFor (control::roleFor (controller, {1}), {});
-        const auto watchdog = [] { return std::chrono::steady_clock::now() + std::chrono::minutes (5); };
+        const auto watchdog = [watchdogSeconds] { return std::chrono::steady_clock::now() + std::chrono::seconds (watchdogSeconds); };
         if (! control::waitUntil (watchdog(), [&] {
             return complete() || control::captureEnabledFor (capture, {});
         })) return false;

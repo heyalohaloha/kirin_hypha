@@ -13,7 +13,8 @@ inline bool settlesByItself (SourceStep step) noexcept
 
 inline bool canQueueSource (const State& state, bool version)
 {
-    const bool waits = state.transportPlaying ? settlesByItself (version ? state.versionStep : state.checkStep)
+    const bool waits = state.transportPlaying ? (settlesByItself (version ? state.versionStep : state.checkStep)
+                                                  || (version && state.versionStep == SourceStep::playAnotherPassage))
                                               : (version ? state.versionArmable : state.checkArmable);
     return state.separateComparisons && state.libraryReceived && waits
         && state.osAccess != os_access::State::unowned && !isBlindSession (state.blindPhase);
@@ -31,7 +32,7 @@ inline juce::String pendingAuditionReason (const State& state)
 {
     using Stage = reference_audition::PendingAuditionView::Stage;
     if (state.pendingAudition.reasonCode == "reference_page_wait_slow")
-        return "AUDIO STILL LOADING / PLAY FROM ANOTHER POSITION";
+        return "CHECKING";
     if (state.pendingAudition.reasonCode == "reference_audio_read_failed")
         return "AUDIO READ FAILED / CHECK THE FILE IN KIRIN OS";
     switch (state.pendingAudition.stage)

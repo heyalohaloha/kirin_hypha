@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceSourceCtimeTest.h"
+#include "ReferenceRetryControllerTest.h"
 #include "ReferenceSourceAuthorityTest.h"
 #include "ReferenceVersionPositionTest.h"
 #include "ReferenceVersionLoopTest.h"
@@ -14,10 +15,17 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
 {
     if (argc != 2) return false;
     const juce::String mode (argv[1]);
-    if (mode == "--source-ctime-only") testReferenceSourceCtime (sandbox);
+    if (mode == "--pending-audition-only") testReferencePendingAudition (sandbox);
+    else if (mode == "--source-ctime-only") testReferenceSourceCtime (sandbox);
     else if (mode == "--source-authority-only") testReferenceSourceAuthorityPerObject();
     else if (mode == "--source-observed-swap-only") testReferenceSourceCtime (sandbox, SourceChange::observedSwap);
-    else if (mode == "--source-mtime-only") testReferenceSourceCtime (sandbox, SourceChange::modifiedTime);
+    else if (mode == "--source-mtime-only")
+    {
+        testReferenceSourceCtime (sandbox, SourceChange::modifiedTime);
+        testReferenceRetryController (sandbox);
+        testReferencePreparedSourceRetry (sandbox);
+        testReferenceReselectionRetry (sandbox);
+    }
     else if (mode == "--source-page-race-only") testReferenceSourceCtime (sandbox, SourceChange::duringPageRead);
     else if (mode == "--source-render-race-only") testReferenceSourceCtime (sandbox, SourceChange::duringRender);
     else if (mode == "--source-reader-swap-only") testReferenceSourceCtime (sandbox, SourceChange::readerSwap);
