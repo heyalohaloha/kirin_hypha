@@ -78,7 +78,16 @@ inline juce::File* sourceHashMutationTarget = nullptr;
 inline void mutateSourceDuringHash()
 {
 #if JUCE_WINDOWS
-    auto* f = _wfopen (sourceHashMutationTarget->getFullPathName().toWideCharPointer(), L"r+b");
+    const auto name = sourceHashMutationTarget->getFullPathName();
+    const auto* path = name.toWideCharPointer();
+    const auto lastWrite = [path]
+    {
+        WIN32_FILE_ATTRIBUTE_DATA data {};
+        require (GetFileAttributesExW (path, GetFileExInfoStandard, &data) != 0, "read hash-race write time");
+        return (ULONGLONG (data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
+    };
+    const auto previous = lastWrite();
+    auto* f = _wfopen (path, L"r+b");
 #else
     auto* f = std::fopen (sourceHashMutationTarget->getFullPathName().toRawUTF8(), "r+b");
 #endif
@@ -91,6 +100,21 @@ inline void mutateSourceDuringHash()
              && std::fseek (f, offset, SEEK_SET) == 0, "read hash-race byte");
     byte ^= 1;
     require (std::fwrite (&byte, 1, 1, f) == 1 && std::fclose (f) == 0, "mutate during hash");
+#if JUCE_WINDOWS
+    // NTFS stamps writes from a coarse clock, so two quick writes can share one LastWriteTime and
+    // look like one revision. Give every mutation its own, newer LastWriteTime instead of waiting.
+    if (lastWrite() <= previous)
+    {
+        const ULONGLONG next = previous + 10000; // 1 ms in FILETIME ticks
+        const FILETIME stamp { DWORD (next), DWORD (next >> 32) };
+        const auto handle = CreateFileW (path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        require (handle != INVALID_HANDLE_VALUE, "open hash-race write time");
+        const bool stamped = SetFileTime (handle, nullptr, nullptr, &stamp) != 0;
+        require (CloseHandle (handle) != 0 && stamped, "separate hash-race write time");
+    }
+    require (lastWrite() > previous, "hash-race write gets its own write time");
+#endif
 }
 inline void testReferenceSourceCtime (const juce::File& sandbox, SourceChange change = SourceChange::attributes)
 {
