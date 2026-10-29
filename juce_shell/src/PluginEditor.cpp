@@ -222,14 +222,15 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    // Where the footer folds into the header, feedback is shown over the body's bottom edge.
     feedbackStrip.onClick = [this]
     {
-        if (chainFooterText.isNotEmpty() && feedbackStrip.text() == chainFooterText)
+        if (automaticPairNotice && nowSecs() < toastUntil && feedbackStrip.text() == toastText) showCandidateMenu();
+        else if (chainFooterText.isNotEmpty() && feedbackStrip.text() == chainFooterText)
             showInformationMenu(); // the chain timing's details and its switch
         else
             showFeedbackInformationMenu();
     };
+    feedbackStrip.onAction = [this] { unpairAutomaticNotice(); };
     scaleRoot.addChildComponent (feedbackStrip);
     scaleRoot.addChildComponent (helpLineBar);
 
@@ -383,6 +384,7 @@ void KirinHyphaEditor::updateResizeLimits()
 
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {
+    automaticPairNotice = false;
     comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
     toastText = msg;
@@ -394,7 +396,6 @@ void KirinHyphaEditor::updateFeedback (
 {
     juce::String text;
 
-    // A queued measurement result is not a current observation of the listening producer.
     // LISTEN owns its stopped/missing-data guidance, including while timing is unverified.
     if (comparisonNoticeReason == KIRIN_COMPARISON_REASON_PRE_INACTIVE
         && processorRef.liveCompareStatus().active)
@@ -416,6 +417,7 @@ void KirinHyphaEditor::updateFeedback (
     if (now >= toastUntil)
         toastText.clear();
 
+    feedbackStrip.setUnpairActionVisible (automaticPairNotice && now < toastUntil && text == toastText);
     observatoryView.setFeedback (text);
     // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows,
     // and then the chain timing the user turned on (POST only; empty otherwise).
@@ -440,16 +442,16 @@ void KirinHyphaEditor::layoutBodyAndFeedback()
             if (pane->getBounds() != body) pane->setBounds (body);
     }
    #endif
-    bool shown = observatoryView.statusStripFolded() && feedbackStrip.text().isNotEmpty();
+    bool shown = (observatoryView.statusStripFolded() || (automaticPairNotice && nowSecs() < toastUntil)) && feedbackStrip.text().isNotEmpty();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     shown = shown && ! localBlindOpen && ! liveBlindOpen;
    #endif
-    feedbackStrip.setBounds (observatoryView.statusStripBounds());
+    const auto stripBounds = observatoryView.statusStripBounds();
+    feedbackStrip.setBounds ((automaticPairNotice && nowSecs() < toastUntil) ? stripBounds.withTop (juce::jmin (stripBounds.getY(), stripBounds.getBottom() - 20)) : stripBounds);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
    #endif
     feedbackStrip.setVisible (shown);
-    // Only repair ordering when another visible body actually overtook the strip. Do not disturb
-    // Blind/VU ownership or raise the Reference body on every presentation tick.
+    // Raise the strip only when a visible body has overtaken it.
     if (shown)
     {
         const int index = scaleRoot.getIndexOfChildComponent (&feedbackStrip);

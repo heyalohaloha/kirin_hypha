@@ -33,6 +33,9 @@ void KirinHyphaEditor::timerCallback()
     // Once attached, ancestor visibility and minimisation are part of the showing contract.
     if (!isVisible() || (getPeer() != nullptr && !isShowing()))
     {
+        pairPreview.reset();
+        pairPreviewShown = {};
+        pairPreviewObservedGeneration = 0;
         processorRef.setReferenceViewPresented (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (isPost && liveCompareAuto.on)

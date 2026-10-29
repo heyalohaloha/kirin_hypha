@@ -79,6 +79,7 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
 
 hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
 {
+    const juce::ScopedLock pairLock (automaticPair.lock);
     using hypha::live_compare::StartResult;
     const auto permission = liveCompare.authority.ticket();
     serviceLiveCompare();

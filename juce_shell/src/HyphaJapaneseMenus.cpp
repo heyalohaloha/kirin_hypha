@@ -42,7 +42,7 @@ const Entry entries[] = {
     // The PRE connection menu.
     { "PRE connection", u8"PREとの接続" },
     { "Stop playback to change connection", u8"接続を変えるには再生を止めてください" },
-    { "Use POST only", u8"POSTだけで使う" },
+    { "Unpair", u8"外す" },
     { "No available PRE", u8"使えるPREがありません" },
     { "In use by another POST: %1", u8"別のPOSTが使用中：%1" },
     { "PRE: %1", u8"PRE：%1" },

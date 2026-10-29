@@ -15,7 +15,9 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     const auto now = nowSecs();
     if (! demand && isShowing() && now - pairPreviewRefreshAt < 0.1) return;
     pairPreviewRefreshAt = now;
+    const bool automatic = processorRef.automaticPairNeedsService();
     const auto available = isPost && isShowing() && nameField.isVisible()
+        && (automatic || demand || pairPreview != nullptr)
         && processorRef.pairStatus() == KIRIN_PAIR_STATUS_UNPAIRED
         && ! (processorRef.isPlaying() && processorRef.heartbeatLive());
     if (! available)
@@ -29,7 +31,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
         return;
     }
     const bool focused = getPeer() != nullptr && getPeer()->isFocused();
-    demand = demand || (focused && ! pairPreviewWasFocused);
+    demand = demand || (automatic && focused && ! pairPreviewWasFocused);
     pairPreviewWasFocused = focused;
     if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get()))
     {
@@ -46,7 +48,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     // a newly-created PRE is still publishing its identity, so retry with bounded backoff rather
     // than making the user reopen the selector. A known exact candidate is checked occasionally;
     // the final pairing command always rechecks identity and ownership.
-    if (pairPreview && (demand || (pairPreviewNextDemandAt > 0 && now >= pairPreviewNextDemandAt)))
+    if (pairPreview && (demand || (automatic && pairPreviewNextDemandAt > 0 && now >= pairPreviewNextDemandAt)))
     {
         pairPreviewNextDemandAt = now + (hypha::pair_preview::request (pairPreview)
             ? resultWatchdogSeconds : firstRetrySeconds);
@@ -62,6 +64,24 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
             {
                 const auto id = juce::String::fromUTF8 (value.candidate.instance_id);
                 const auto name = juce::String::fromUTF8 (value.candidate.name);
+                if (processorRef.tryAutomaticPair (pairPreview.get(), value))
+                {
+                    pairPreview.reset();
+                    pairPreviewShown = {};
+                    comparisonActionAwaitingResult = true;
+                    comparisonActionAfterGeneration = comparisonObservedGeneration;
+                   #if ! KIRIN_HYPHA_PRE_DISPLAY
+                    spectrumView.clearSnapshot();
+                    perceptualView.clearSnapshot();
+                    absoluteView.clearSnapshot();
+                   #endif
+                    nameField.setModelName (processorRef.pairDisplayName());
+                    showToast ("Paired with PRE  " + (name.isNotEmpty() ? name : id.substring (0, 8)));
+                    automaticPairNotice = true;
+                    automaticPairNoticeId = id;
+                    updateFeedback (nowSecs(), false, {});
+                    return;
+                }
                 const auto text = hypha::pair_labels::candidateLabel (name, id);
                 if (nameField.setSelectionPreview (text, value.generation))
                 {
@@ -114,4 +134,12 @@ void KirinHyphaEditor::selectPairPreview()
     // Existing command rechecks live identity, concurrent ownership and host playback.
     handleCandidateMenu (100, chosen);
     refreshPairPreview (true);
+}
+
+void KirinHyphaEditor::unpairAutomaticNotice()
+{
+    if ((processorRef.isPlaying() && processorRef.heartbeatLive())
+        || processorRef.pairedPreInstanceId() != automaticPairNoticeId) return;
+    handleCandidateMenu (11, {});
+    showToast ("Unpaired");
 }

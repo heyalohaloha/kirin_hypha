@@ -203,7 +203,7 @@ void KirinHyphaEditor::visibilityChanged()
         if (allowed.width != getWidth() || allowed.height != getHeight())
             setSize (allowed.width, allowed.height);
     }
-    refreshPairPreview (true);
+    refreshPairPreview (processorRef.automaticPairNeedsService());
     refreshAppearance();
     // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
     // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.

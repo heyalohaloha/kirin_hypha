@@ -1,6 +1,7 @@
 #pragma once
 #include "PreparedFormat.h"
 #include "HyphaPairPreview.h"
+#include "AutomaticPairState.h"
 #include "HyphaCaptureStateNotification.h"
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindCaptureService.h"
@@ -13,14 +14,11 @@
 #include "kirin_hypha_display_ffi.h"
 #include "kirin_hypha_chain_observation.h"
 #include "kirin_hypha_level_snapshot.h"
-
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <vector>
-
 #include <juce_audio_processors/juce_audio_processors.h>
-
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaVuCalibrationPreference.h"
@@ -34,10 +32,8 @@
 #include "reference_audition/ReferenceComparisonController.h"
 #include "reference_audition/ReferenceLiveALevel.h"
 #include "update/UpdateServiceOwner.h"
-
 namespace hypha::snapshots { class Source; }
 class LiveTimingFixtureAccess; // non-shipping synthetic-host / atomic-receipt fixture only
-
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
 // chunk, the deferred enable (B-126: lock-free flag + non-RT Timer), and the R-12 read-only
@@ -340,6 +336,8 @@ public:
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
     hypha::pair_preview::Ticket createPairPreview() const;
     bool pairPreviewMatches (const KirinPairPreview*) const;
+    bool automaticPairNeedsService() const;
+    bool tryAutomaticPair (const KirinPairPreview*, const KirinPairPreviewValue&);
     juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
     juce::Array<PostPairClaim> enumeratePostPairClaims() const; // FFI kirin_hypha_enumerate_post_pair_claims
     int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)
@@ -377,6 +375,7 @@ private:
     void requestServiceTimer();
     void handleAsyncUpdate() override;
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
+    bool applyPairCandidate (const juce::String&, const juce::String&);
     void serviceReferencePendingAudition();
     bool referencePendingAuditionNeedsService() const;
     void serviceReferenceTracking();            // B・V の追従（1 秒ごと）
@@ -460,6 +459,7 @@ private:
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
+    hypha::automatic_pair::State automaticPair;
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
     hypha::analysis::OwnerState analysisDemandOwner;
     hypha::analysis::ApplicationState analysisApplication; // guarded by handleLock

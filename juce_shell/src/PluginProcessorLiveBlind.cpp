@@ -33,6 +33,7 @@ bool KirinHyphaProcessorBase::liveCompareNeedsService() const noexcept
 
 StartResult KirinHyphaProcessorBase::beginLiveBlind()
 {
+    const juce::ScopedLock pairLock (automaticPair.lock);
     using Phase = hypha::local_blind::ProductSessionPhase;
     const auto permission = liveCompare.authority.ticket();
     serviceLiveCompare();

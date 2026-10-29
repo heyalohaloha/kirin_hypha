@@ -86,7 +86,7 @@ void KirinHyphaEditor::showCandidateMenu()
     menu.addSectionHeader ("PRE connection");
     if (pairLocked)
         menu.addItem (2, "Stop playback to change connection", false, false);
-    menu.addItem (11, "Use POST only", ! pairLocked, ! pairSelected);
+    menu.addItem (11, "Unpair", ! pairLocked && pairSelected, false);
     if (cands.isEmpty())
         menu.addItem (3, "No available PRE", false, false); // explicit result of user action
     else

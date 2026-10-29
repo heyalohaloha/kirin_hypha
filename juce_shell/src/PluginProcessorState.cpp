@@ -3,6 +3,7 @@
 
 void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
+    const juce::ScopedLock pairLock (automaticPair.lock);
     // Hosts may restore PRE and POST in either order; exact ID becomes a Waiting fixed-path latch.
     juce::String livePairProjectHash, livePairInstanceId;
     if (pairedPreLocator (livePairProjectHash, livePairInstanceId))
@@ -21,6 +22,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("daw_session_uuid", persistDawSessionUuid);
     xml.setAttribute ("name",             persistName);
     xml.setAttribute ("pair_pre_name",    persistPairName);
+    xml.setAttribute ("pair_explicitly_disconnected", automaticPair.disconnected.load());
     xml.setAttribute ("paired_pre_instance_id", persistPairInstanceId);
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
@@ -50,14 +52,15 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 }
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
-    // Host-thread revocation precedes parsing, including malformed/legacy state. Cleanup is
-    // deferred to the message thread; the next audio block independently refuses the old source.
+    stateInformationSeen.store (true, std::memory_order_release);
+    automaticPair.inhibited.store (true, std::memory_order_release);
+    // Revoke the old output before waiting for any non-RT pair operation.
     const auto restore = liveCompare.authority.restoringState();
+    const juce::ScopedLock pairLock (automaticPair.lock);
     requestServiceTimer();
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
     // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
     // these at enable time (enableWritesNow), deferred to the message-thread Timer.
-    stateInformationSeen.store (true, std::memory_order_release);
 
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
     juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
@@ -91,6 +94,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                     hypha::reference_audition::ReferenceComparisonSettings::read (*xml));
             }
            #endif
+            automaticPair.disconnected.store (xml->getBoolAttribute ("pair_explicitly_disconnected", false));
             restoredInstanceId     = xml->getStringAttribute ("instance_id");
             restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
             restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");

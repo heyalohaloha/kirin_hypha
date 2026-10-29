@@ -8,6 +8,8 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    { "Paired with PRE  %1", u8"PRE  %1 と組みました" },
+    { "Unpaired", u8"外しました" },
     { "Capture could not be prepared", u8"画像を準備できませんでした" },
     { "Sending Capture to Work", u8"画像をWorkに送信中" },
     { "Another Work attachment is still in progress", u8"別のWorkへの添付が進行中です" },

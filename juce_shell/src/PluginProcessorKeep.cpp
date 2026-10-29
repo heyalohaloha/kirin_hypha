@@ -4,6 +4,7 @@
 // INV-S33 の mono・stereo だけ）、通ったら Rust が最後に確かめる。
 bool KirinHyphaProcessorBase::keepPair()
 {
+    const juce::ScopedLock pairLock (automaticPair.lock);
     refreshLicenseForUserAction();
     if (outputDecision (hypha::output_owner::Activity::recordKeep).refused()) return false;
     const juce::ScopedLock sl (handleLock);
@@ -14,6 +15,7 @@ bool KirinHyphaProcessorBase::keepPair()
 
 bool KirinHyphaProcessorBase::keepAll()
 {
+    const juce::ScopedLock pairLock (automaticPair.lock);
     refreshLicenseForUserAction();
     if (outputDecision (hypha::output_owner::Activity::recordKeep).refused()) return false;
     const juce::ScopedLock sl (handleLock);

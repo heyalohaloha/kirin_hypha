@@ -193,6 +193,7 @@ private:
     void showCandidateMenu();
     void refreshPairPreview (bool demand);
     void selectPairPreview();
+    void unpairAutomaticNotice();
     hypha::pair_preview::Ticket pairPreview;
     KirinPairPreviewValue pairPreviewShown {};
     bool pairPreviewWasFocused = false;
@@ -355,6 +356,8 @@ private:
 
     bool   prevAck     = false;
     double bannerUntil = 0.0;
+    bool automaticPairNotice = false;
+    juce::String automaticPairNoticeId;
     double toastUntil  = 0.0;
     double editorSizeLastChangedAt = 0.0;
     bool editorSizePersistenceReady = false;
