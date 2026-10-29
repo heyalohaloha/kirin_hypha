@@ -49,7 +49,7 @@ const Entry entries[] = {
     { "Hypha information is available after Blind Compare", u8"Hyphaの情報はBlind Compareの後で見られます" },
     { "Available after Blind Compare", u8"Blind Compareの後で使えます" },
     { "Official URL copied", u8"公式URLをコピーしました" },
-    { "PRE preview changed. Choose the PRE again.", u8"PREの候補が変わりました。選び直してください。" },
+    { "PRE changed", u8"PREが変わりました" },
     // Sent up by the Rust engine when a pair cannot be taken or armed.
     { "PRE already in use", u8"このPREは使用中です" },
     { "PRE or Blind Compare already in use", u8"PREかBlind Compareが使用中です" },

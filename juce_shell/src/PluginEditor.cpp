@@ -1,3 +1,4 @@
+#include "HyphaPairLabels.h"
 #include "PluginEditor.h"
 #include "HyphaKeyLight.h"
 #include "HyphaTextStyle.h"
@@ -147,10 +148,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     {
         nameField.setTitle ("PRE pair selection");
         nameField.setDescription ("Press Return or Space to choose a PRE");
-        nameField.setPrefix ("PAIR ");
-        nameField.setFallback ("SELECT PRE");
-        nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
-        nameField.setEnabledTooltip ("Click to choose one exact PRE.");
+        nameField.setPrefix (hypha::pair_labels::prefix);
+        nameField.setFallback (hypha::pair_labels::unpaired);
+        nameField.setLockedTooltip (hypha::pair_labels::locked);
+        nameField.setEnabledTooltip (hypha::pair_labels::choose);
         nameField.setModelName (processorRef.pairDisplayName());
         nameField.onSelect = [this] { selectPairPreview(); };
         nameField.onPreviewDemand = [this] { refreshPairPreview (true); };
@@ -158,7 +159,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
         // The arrow beside PAIR owns exact connection selection only.
         pairDropdown.setTitle ("Pair menu");
-        pairDropdown.setDescription ("Choose one exact PRE connection");
+        pairDropdown.setDescription (hypha::pair_labels::choose);
         pairDropdown.setTooltip ("PRE connection");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);

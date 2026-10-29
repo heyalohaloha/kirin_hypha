@@ -284,7 +284,7 @@ mod tests {
             "menu.addSectionHeader (\"PRE connection\");",
             "menu.addItem (3, \"No available PRE\", false, false);",
             "! pairLocked && labelEnabled[i], labelChecked[i]",
-            "labels.add ((inUse ? \"In use by another POST: \" : \"Use PRE: \") + shown);",
+            "labels.add ((inUse ? \"In use by another POST: \" : hypha::pair_labels::menuPrefix) + shown);",
         ] {
             assert!(body.contains(required), "candidate menu missing {required}");
         }

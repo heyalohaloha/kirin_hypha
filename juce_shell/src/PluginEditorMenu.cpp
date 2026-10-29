@@ -1,3 +1,4 @@
+#include "HyphaPairLabels.h"
 #include "PluginEditor.h"
 #include "HyphaGuideInformationFacts.h"
 
@@ -74,7 +75,7 @@ void KirinHyphaEditor::showCandidateMenu()
                                                      ? " / " + c.instanceId.substring (0, 8)
                                                      : juce::String())
                                      : "PRE " + c.instanceId.substring (0, 8);
-        labels.add ((inUse ? "In use by another POST: " : "Use PRE: ") + shown);
+        labels.add ((inUse ? "In use by another POST: " : hypha::pair_labels::menuPrefix) + shown);
         labelEnabled.add (! inUse);
         labelChecked.add (selected && ! inUse);
     }

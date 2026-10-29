@@ -97,7 +97,7 @@ namespace hypha
         void setEnabledTooltip (const juce::String& t)
         {
             enabledTooltip = t;
-            if (editingEnabled) setTooltip (enabledTooltip);
+            refreshTooltip();
         }
         bool isEditing() const                         { return editing; }
 
@@ -115,6 +115,7 @@ namespace hypha
 
     private:
         std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+        void refreshTooltip();
         void activate();
         void startEditing();
         void commitEditing();

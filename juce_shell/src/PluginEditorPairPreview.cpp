@@ -1,3 +1,4 @@
+#include "HyphaPairLabels.h"
 #include "PluginEditor.h"
 #include <cstring>
 
@@ -24,6 +25,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
         pairPreviewRetrySeconds = firstRetrySeconds;
         pairPreviewObservedGeneration = 0;
         nameField.setSelectionPreview ({}, 0);
+        if (isPost) nameField.setEnabledTooltip (hypha::pair_labels::choose);
         return;
     }
     const bool focused = getPeer() != nullptr && getPeer()->isFocused();
@@ -60,16 +62,14 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
             {
                 const auto id = juce::String::fromUTF8 (value.candidate.instance_id);
                 const auto name = juce::String::fromUTF8 (value.candidate.name);
-                const auto text = "CONNECT "
-                    + (name.isNotEmpty() ? name + " / " : juce::String ("PRE "))
-                    + id.substring (0, 8);
+                const auto text = hypha::pair_labels::candidateLabel (name, id);
                 if (nameField.setSelectionPreview (text, value.generation))
                 {
                     pairPreviewShown = value;
                     pairPreviewRetrySeconds = firstRetrySeconds;
                     pairPreviewNextDemandAt = now + exactCandidateRefreshSeconds;
                     nameField.setEnabledTooltip (
-                        "Connect this PRE: " + id + ". The arrow opens all candidates.");
+                        hypha::pair_labels::candidateTooltip (name, id));
                     return;
                 }
             }
@@ -85,7 +85,7 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     // Keep a displayed exact receipt while its non-blocking refresh is pending. A click still
     // goes through the authoritative pairing command, which fails closed if the PRE disappeared.
     if (! pairPreviewShown.has_single)
-        nameField.setEnabledTooltip ("Click to choose one exact PRE.");
+        nameField.setEnabledTooltip (hypha::pair_labels::choose);
 }
 
 void KirinHyphaEditor::selectPairPreview()
@@ -103,7 +103,7 @@ void KirinHyphaEditor::selectPairPreview()
         || std::strcmp (current.candidate.instance_id, shown.candidate.instance_id) != 0)
     {
         refreshPairPreview (false);
-        showToast ("PRE preview changed. Choose the PRE again.");
+        showToast (hypha::pair_labels::changed);
         showCandidateMenu();
         return;
     }

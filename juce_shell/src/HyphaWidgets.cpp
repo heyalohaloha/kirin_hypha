@@ -1,4 +1,5 @@
 #include "HyphaWidgets.h"
+#include "HyphaPairLabels.h"
 #include "HyphaKeyLight.h"
 
 #include "BinaryData.h"
@@ -9,6 +10,11 @@ namespace hypha
 {
     namespace
     {
+        int pairBadgeInset (const presentation::Context& context) noexcept
+        {
+            return juce::jlimit (2, 6, juce::roundToInt (context.logicalWidth / 150.0f));
+        }
+
         // Allowed name characters: ASCII graphic + space (parity with the FFI's sanitize_name
         // contract / the prior POST field). The FFI sanitizes its own copy regardless.
         juce::String allowedNameChars()
@@ -159,11 +165,18 @@ namespace hypha
     void EditableName::setModelName (const juce::String& raw)
     {
         rawName = raw;
-        const auto value = rawName.isEmpty() ? fallback : rawName;
-        setTooltip ((editingEnabled ? enabledTooltip : lockedTooltip)
-                    + (value.isNotEmpty() ? "\n" + prefix + value : juce::String {}));
+        refreshTooltip();
         if (! editing)
             repaint();
+    }
+
+    void EditableName::refreshTooltip()
+    {
+        const auto value = rawName.isEmpty() ? fallback : rawName;
+        const auto detail = onSelect ? (rawName.isNotEmpty() ? pair_labels::pairedLabel (rawName) : juce::String())
+                                     : (value.isNotEmpty() ? prefix + value : juce::String());
+        setTooltip ((editingEnabled ? enabledTooltip : lockedTooltip)
+                    + (detail.isNotEmpty() ? "\n" + detail : juce::String()));
     }
 
     void EditableName::setEditingEnabled (bool enabled)
@@ -173,7 +186,7 @@ namespace hypha
         editingEnabled = enabled;
         if (! enabled && editing)
             cancelEditing();
-        setTooltip (enabled ? enabledTooltip : lockedTooltip);
+        refreshTooltip();
     }
 
     void EditableName::startEditing()
@@ -245,7 +258,8 @@ namespace hypha
     bool EditableName::setSelectionPreview (const juce::String& text, std::uint64_t generation)
     {
         const auto fits = text.isNotEmpty()
-            && text_style::shownWidth (monoFont (presentationContext, typography::TextRole::selector), text) + 4 <= getWidth();
+            && text_style::shownWidth (monoFont (presentationContext, typography::TextRole::selector), text)
+                + 2 * (onSelect && rawName.isEmpty() ? pairBadgeInset (presentationContext) : 2) <= getWidth();
         const auto next = fits ? text : juce::String();
         const auto nextGeneration = fits ? generation : 0;
         if (selectionPreview != next || previewGeneration != nextGeneration)
@@ -269,12 +283,25 @@ namespace hypha
 
         const bool empty = rawName.isEmpty();
         const bool previewFits = selectionPreview.isNotEmpty()
-            && text_style::shownWidth (monoFont (presentationContext, typography::TextRole::selector), selectionPreview) + 4 <= getWidth();
-        const juce::String shown = previewFits ? selectionPreview : prefix + (empty ? fallback : rawName);
+            && text_style::shownWidth (monoFont (presentationContext, typography::TextRole::selector), selectionPreview)
+                + 2 * (empty && onSelect ? pairBadgeInset (presentationContext) : 2) <= getWidth();
+        const juce::String shown = previewFits ? selectionPreview
+            : (onSelect ? (empty ? fallback : pair_labels::pairedLabel (rawName))
+                        : prefix + (empty ? fallback : rawName));
+        if (empty && onSelect)
+        {
+            const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+            g.setColour (juce::Colour (0xff6f6248).withAlpha (0.32f));
+            g.fillRoundedRectangle (bounds, 2.0f);
+            g.setColour (COL_COPPER);
+            g.drawRoundedRectangle (bounds, 2.0f, 1.0f);
+        }
         paintedPreview = previewFits ? previewGeneration : 0;
         g.setFont (monoFont (presentationContext, typography::TextRole::selector));
-        g.setColour (COL_FLORA);
-        text_style::draw (g, shown, getLocalBounds(), presentationContext,
+        g.setColour (empty && onSelect ? COL_COPPER : COL_FLORA);
+        const auto textBounds = empty && onSelect
+            ? getLocalBounds().reduced (pairBadgeInset (presentationContext), 0) : getLocalBounds();
+        text_style::draw (g, shown, textBounds, presentationContext,
                           typography::TextRole::selector,
                           juce::Justification::centredLeft);
     }
