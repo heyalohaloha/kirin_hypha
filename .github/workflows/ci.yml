@@ -369,6 +369,7 @@ jobs:
           KirinReferenceAudioPagesTests KirinReferenceAudioStreamingTests KirinReferenceContentCorrelationTests KirinOutputOwnershipTests
           KirinPairPreviewLifetimeTests KirinAudioTransparencyContractTests KirinProcessorWallClockTests
           KirinLivePublicationPRETests KirinLivePublicationPOSTTests
+          KirinAutomaticPairProductTests KirinAutomaticPairGuardTests KirinAutomaticPairOrderTests
 
       - name: Build JUCE VST3 shell (Windows)
         id: native-build
@@ -436,6 +437,11 @@ jobs:
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
+
+      - name: Validate automatic PRE/POST pairing
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
+        run: |
+          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^kirin_automatic_pair_'
 
       - name: Validate live PRE/POST compare correspondence
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
