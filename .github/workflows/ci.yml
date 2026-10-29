@@ -464,7 +464,7 @@ jobs:
       - name: Validate Reference audition session contract
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
-          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_reference_audition_runtime|kirin_reference_page_switch|kirin_reference_page_first|kirin_reference_page_seek_publication|kirin_reference_page_range|kirin_reference_page_wait|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_pair_preview_lifetime)$'
+          ctest --test-dir $env:HYPHA_WINDOWS_BUILD_DIR -C Release --output-on-failure --no-tests=error -R '^(kirin_reference_audition_runtime|kirin_reference_page_switch|kirin_reference_page_first|kirin_reference_page_seek_publication|kirin_reference_page_range|kirin_reference_page_wait|kirin_reference_audio_pages|kirin_reference_audio_streaming|kirin_reference_content_correlation|kirin_output_ownership|kirin_pair_preview_lifetime|kirin_reference_source_ctime|kirin_reference_source_observed_swap|kirin_reference_source_mtime|kirin_reference_source_page_race|kirin_reference_source_render_race|kirin_reference_source_reader_swap|kirin_reference_source_pending|kirin_reference_source_hash_race|kirin_reference_source_contents|kirin_reference_source_replacement|kirin_reference_source_authority)$'
 
       - name: Validate Windows double precision and LISTEN
         if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}

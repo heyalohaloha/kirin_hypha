@@ -52,6 +52,16 @@ namespace hypha::tests
 {
 inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    if (argc == 2 && std::string_view (argv[1]) == "--vu-vblank-only")
+    { verifyVuVBlankInteractive(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--vu-animation-only")
+    { verifyVuAnimatorLifecycle(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--vu-performance-only")
+    { measureVuFramePerformance(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--vu-layer-only")
+    { verifyVuLayerParity(); return true; }
+    if (argc == 2 && std::string_view (argv[1]) == "--vu-frame-trace-only")
+    { verifyVuFrameTrace(); return true; }
     if (argc == 2 && std::string_view (argv[1]) == "--language-only")
     { verifyLanguageContract(); return true; }
     if (argc == 1 || (argc == 2 && std::string_view (argv[1]) == "--reference-format-only"))

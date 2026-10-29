@@ -19,6 +19,8 @@
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "HyphaVuCalibrationControl.h"
+#include "HyphaVuNeedleAnimator.h"
+#include "HyphaVuLayerCache.h"
 #include "HyphaObservatoryButton.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
@@ -323,12 +325,16 @@ public:
     juce::String metricHelpAt (juce::Point<int>) const;
     void paint (juce::Graphics&) override;
     void resized() override;
+    void visibilityChanged() override;
+    void parentHierarchyChanged() override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     std::uint64_t recordInvalidationsForTest() const noexcept { return recordBodyInvalidations; }
     std::uint64_t footerInvalidationsForTest() const noexcept { return footerInvalidations; }
     bool historyHeldForTest() const noexcept { return levelInspection.held(); }
+    void setVuFrameTestMode (bool); void tickVuForTest (double);
+    double vuPositionForTest (int) const;
 
 private:
     time_snapshot::Presentation timePresentation;
@@ -339,6 +345,8 @@ private:
     void cycleSize();
     void toggleHybridVu();
     void initializeVuCalibrationControl();
+    void updateVuVisibility();
+    void paintHybridVu (juce::Graphics&);
     bool recordingHybridVuRequested() const noexcept
     {
         return hostRecording && hybridVuOnRecordEnabled
@@ -400,7 +408,9 @@ private:
     bool hostRecording = false;
     bool hybridVuOnRecordEnabled = true;
     bool hybridVuDismissedForCurrentRecording = false;
-    bool manualHybridVuSelected = false;
+    bool manualHybridVuSelected = false, vuFrameTestMode = false; float vuRepaintPositions[2] {};
+    std::unique_ptr<hybrid_vu::NeedleAnimator> vuAnimator;
+    hybrid_vu::LayerCache vuLayerCache;
     bool compactShowsMaximum = false;
     meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;

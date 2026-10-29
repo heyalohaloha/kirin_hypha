@@ -62,58 +62,65 @@ namespace hypha::reference_audition
         if (blindIdentityMatches && capturedA != nullptr
             && nextBlindKey != blindPreparationKey)
         {
-            if (libraryVersion && next.detailedMeasurement)
+            do
             {
-                const auto previous = blind.snapshot();
-                const auto predicted = previous.bStartSample + outputSample (
-                    capturedA->startSample - previous.aStartSample, hostRate, previous.bSampleRateHz);
-                auto matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true,
-                    previous.eligible ? std::optional<std::int64_t> { predicted } : std::nullopt);
-                if (sourceRepository.verifySourceRevision (*selectedSource).isNotEmpty())
-                { failClosedToA(); blind.clear(); next.state = RuntimeState::rejected; next.rejectionCode = "reference_source_changed"; return; }
-                const bool mappingChanged = previous.eligible
-                    && ((capturedA->cuePcmSha256 == previous.aCuePcmSha256 && capturedA->startSample != previous.aStartSample)
-                        || (matched.established && std::abs (matched.sourceStartSample - predicted) > 1)
-                        || matched.reason == "reference_alignment_content_changed"
-                        || matched.reason == "reference_alignment_timing_changed");
-                const bool calibrationChanged = previous.eligible && matched.established
-                    && calibrationObservation.changed (*capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
-                bool prepared = false;
-                if (mappingChanged || calibrationChanged)
+                if (libraryVersion && next.detailedMeasurement)
+                {
+                    const auto previous = blind.snapshot();
+                    const auto predicted = previous.bStartSample + outputSample (
+                        capturedA->startSample - previous.aStartSample, hostRate, previous.bSampleRateHz);
+                    auto matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true,
+                        previous.eligible ? std::optional<std::int64_t> { predicted } : std::nullopt);
+                    const auto revision = sourceRepository.checkSourceRevision (*selectedSource);
+                    if (revision.state == SourceRevisionState::revalidate) break;
+                    if (revision.state == SourceRevisionState::refused)
+                    { failClosedToA(); blind.clear(); next.state = RuntimeState::rejected; next.rejectionCode = revision.reason; return; }
+                    const bool mappingChanged = previous.eligible
+                        && ((capturedA->cuePcmSha256 == previous.aCuePcmSha256 && capturedA->startSample != previous.aStartSample)
+                            || (matched.established && std::abs (matched.sourceStartSample - predicted) > 1)
+                            || matched.reason == "reference_alignment_content_changed"
+                            || matched.reason == "reference_alignment_timing_changed");
+                    const bool calibrationChanged = previous.eligible && matched.established
+                        && calibrationObservation.changed (*capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
+                    bool prepared = false;
+                    if (mappingChanged || calibrationChanged)
+                    {
+                        if (blind.ongoing()) invalidateBlind();
+                        else
+                        {
+                            if (mappingChanged)
+                                matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true);
+                            const auto revisionAfter = sourceRepository.checkSourceRevision (*selectedSource);
+                            if (revisionAfter.state == SourceRevisionState::revalidate) break;
+                            if (revisionAfter.state == SourceRevisionState::refused)
+                            { failClosedToA(); next.state = RuntimeState::rejected; next.rejectionCode = revisionAfter.reason; return; }
+                            failClosedToAFromAudioThread(); blind.clear(); calibrationObservation.clear();
+                            if (matched.established) prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
+                        }
+                    }
+                    else if (matched.established && !previous.eligible && !blind.ongoing())
+                        prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
+                    if (prepared || (matched.established && previous.eligible && !mappingChanged && !calibrationChanged))
+                    {
+                        calibrationObservation.remember (capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
+                        confirmedCopy = referenceCopyCorresponds (capturedA->interleaved.size(),
+                            [&] (size_t i) { return capturedA->interleaved[i]; },
+                            [&] (size_t i) { return matched.alignedProbe[i]; });
+                        confirmedContinuity = capturedA->continuity;
+                    }
+                    // Silence or an ambiguous passage cannot replace a proven map.
+                    // A positively detected timing change returns to A before rematching.
+                    if (matched.reason != "reference_alignment_busy"
+                        && (!blind.ongoing() || (previous.eligible && !mappingChanged && !calibrationChanged)))
+                        blindPreparationKey = nextBlindKey;
+                    if (!previous.eligible && !matched.established) next.rejectionCode = matched.reason;
+                }
+                else if (!libraryVersion)
                 {
                     if (blind.ongoing()) invalidateBlind();
-                    else
-                    {
-                        failClosedToAFromAudioThread(); blind.clear(); calibrationObservation.clear();
-                        if (mappingChanged)
-                            matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true);
-                        if (sourceRepository.verifySourceRevision (*selectedSource).isNotEmpty())
-                        { failClosedToA(); next.state = RuntimeState::rejected; next.rejectionCode = "reference_source_changed"; return; }
-                        if (matched.established) prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
-                    }
+                    if (blind.prepare (capturedA, candidate, cue, selectedSource, true)) blindPreparationKey = nextBlindKey;
                 }
-                else if (matched.established && !previous.eligible && !blind.ongoing())
-                    prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
-                if (prepared || (matched.established && previous.eligible && !mappingChanged && !calibrationChanged))
-                {
-                    calibrationObservation.remember (capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
-                    confirmedCopy = referenceCopyCorresponds (capturedA->interleaved.size(),
-                        [&] (size_t i) { return capturedA->interleaved[i]; },
-                        [&] (size_t i) { return matched.alignedProbe[i]; });
-                    confirmedContinuity = capturedA->continuity;
-                }
-                // Silence or an ambiguous passage cannot replace a proven map.
-                // A positively detected timing change returns to A before rematching.
-                if (matched.reason != "reference_alignment_busy"
-                    && (!blind.ongoing() || (previous.eligible && !mappingChanged && !calibrationChanged)))
-                    blindPreparationKey = nextBlindKey;
-                if (!previous.eligible && !matched.established) next.rejectionCode = matched.reason;
-            }
-            else if (!libraryVersion)
-            {
-                if (blind.ongoing()) invalidateBlind();
-                if (blind.prepare (capturedA, candidate, cue, selectedSource, true)) blindPreparationKey = nextBlindKey;
-            }
+            } while (false);
         }
         const auto blindState = blind.snapshot();
         const auto nextContentMappingKey = blindState.eligible

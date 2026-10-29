@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferencePinnedSource.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceTestCommitObserver.h"
 #include <algorithm>
@@ -77,16 +78,28 @@ bool RuntimeV2Controller::servicePreparedWorkspace (const Configuration& configu
     // A withdrawn publication cannot gain authority by finishing an earlier preparation.
     const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
         : repository.refresh (configuration.identity.workId, workspace);
+    const auto preparedRevision = sourceRepository.checkSourceRevision (*prepared.source);
+    if (preparedRevision.state == SourceRevisionState::revalidate) return true;
     if (!loaded.workspace || loaded.rejectionCode.isNotEmpty()
         || loaded.workspace->publicationHash != workspace->publicationHash
-        || sourceRepository.verifySourceRevision (*prepared.source).isNotEmpty())
+        || preparedRevision.state == SourceRevisionState::refused)
     { clearPreparedWorkspace(); return false; }
-    if (audibleSource && audibleSource != prepared.source
-        && sourceRepository.verifySourceRevision (*audibleSource).isNotEmpty()) failClosedToA();
+    if (audibleSource && audibleSource != prepared.source)
+    {
+        const auto audibleRevision = sourceRepository.checkSourceRevision (*audibleSource);
+        if (audibleRevision.state == SourceRevisionState::revalidate) return true;
+        if (audibleRevision.state == SourceRevisionState::refused) failClosedToA();
+    }
     auto& staging = nextPages();
     const auto start = outputSample (prepared.cue.startSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);
     const auto end = outputSample (prepared.cue.endSample, prepared.cue.sampleRateHz, prepared.next.hostSampleRateHz);
     staging.service();
+    if (staging.sourceInvalidated())
+    {
+        auto rejected = prepared.next;
+        rejected.state = RuntimeState::rejected; rejected.rejectionCode = "reference_source_changed";
+        clearPreparedWorkspace(); failClosedToA(); publish (std::move (rejected)); return true;
+    }
     if (!staging.readyAt (start, static_cast<int> (std::min<std::int64_t> (8192, end - start)))) return true;
     if (!prepared.returnStarted)
     {
@@ -127,6 +140,11 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
         activePages.store (&nextPages(), std::memory_order_release);
         activeSourceKey = sourceKey;
     }
+    if (currentPages().sourceInvalidated() && prepared.staged)
+    {
+        failClosedToA(); next.state = RuntimeState::rejected;
+        next.rejectionCode = "reference_source_changed"; publish (std::move (next)); return;
+    }
     if (sourceKey != activeSourceKey || ! currentPages().sourceOpen())
     {
         revokeAuditionPublication();
@@ -136,18 +154,22 @@ void RuntimeV2Controller::finishWorkspaceSelection (WorkspaceSelection prepared)
             selectA();
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_close"); currentPages().close();
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open");
+        const auto pinned = std::make_shared<revision_detail::PinnedSource> (selectedSource);
         const auto openFailure = currentPages().open (*selectedSource, configuration.sampleRate,
-                                             configuration.channels, true);
-        if (openFailure.isNotEmpty())
+            configuration.channels, true, [this, pinned] (RuntimeFileRevision& revision) { return pinned->verified (sourceRepository, revision); },
+            pinned->input(), [pinned] { return pinned->sameIdentity(); }, [pinned] { return pinned->wasRejected(); },
+                pinned->authorityOwner(), pinned->invalidation(), pinned->initialInvalidation());
+        if (openFailure.isNotEmpty() || currentPages().sourceInvalidated())
         {
             next.state = RuntimeState::rejected;
-            next.rejectionCode = openFailure;
+            next.rejectionCode = openFailure.isNotEmpty() ? openFailure : "reference_source_changed";
             publish (std::move (next));
             return;
         }
         activeSourceKey = sourceKey;
     }
     KIRIN_REFERENCE_STAGE_FOR_TEST (this, "pages_open_done"); workerSource = selectedSource;
+    workerSourceGeneration = selection.generation;
 
     const auto cueKey = runtimeCuePlaybackIdentity (*cue);
     const auto mappingKey = activeSourceKey + ":" + cueKey;

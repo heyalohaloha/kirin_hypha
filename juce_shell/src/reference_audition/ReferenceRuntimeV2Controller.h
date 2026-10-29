@@ -304,6 +304,7 @@ namespace hypha::reference_audition
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
+        std::uint64_t workerSourceGeneration = 0;
         std::shared_ptr<const RuntimeSource> publishedSource;
         std::int64_t visualSourceCueStart = 0, visualSourceCueEnd = 0;
         juce::String activeSourceKey;

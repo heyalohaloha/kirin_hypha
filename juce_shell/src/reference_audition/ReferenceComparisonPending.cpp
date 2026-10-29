@@ -48,6 +48,20 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
     if (slot == 2 && preparingCheck()) return selectC (loudness, peak);
     const auto safety = pendingSafetyEpoch.load (std::memory_order_acquire);
     const auto state = snapshot();
+    const auto binding = slotController (slot).visualBinding();
+    if (binding.source)
+    {
+        RuntimeV2SourceRepository verifier (juce::File {});
+        const auto revision = verifier.checkSourceRevision (*binding.source);
+        if (revision.state == SourceRevisionState::revalidate) return queueAudition (slot, safety);
+        if (revision.state == SourceRevisionState::refused)
+        {
+            selectA();
+            const juce::ScopedLock lock (selectionLock);
+            pendingAudition.view = { slot, Stage::sourceChanged, revision.reason };
+            return false;
+        }
+    }
     // 仕様 C：C は A の直近が Cue の長さ（最長 30 秒）たまってから合わせる。足りないあいだは押した選択を
     // 待たせ、たまったら鳴らす（A のまま。待ちの上限を超えたら理由を出す）。
     const bool waitForLevel = slot == 2 && state.checkSelection != nullptr && state.checkReady
@@ -196,8 +210,11 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     if (state.state == RuntimeState::ready && binding.source)
     {
         RuntimeV2SourceRepository verifier (juce::File {});
-        if (const auto failure = verifier.verifySourceRevision (*binding.source); failure.isNotEmpty())
-        { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, false, failure); return; }
+        const auto revision = verifier.checkSourceRevision (*binding.source);
+        if (revision.state == SourceRevisionState::revalidate)
+        { publish (Stage::checking, callbackLive); return; }
+        if (revision.state == SourceRevisionState::refused)
+        { if (intent.resume || intent.switching) dropResume(); publish (Stage::sourceChanged, false, revision.reason); return; }
     }
     if (state.auditionPages == AuditionPageState::outsideSource || state.auditionPages == AuditionPageState::readFailed)
     {

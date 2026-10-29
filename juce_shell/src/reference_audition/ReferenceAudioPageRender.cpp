@@ -5,6 +5,11 @@
 
 namespace hypha::reference_audition
 {
+   #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+    namespace { std::atomic<AudioPages::RenderCopyHook> renderCopyHook { nullptr }; }
+    void AudioPages::setRenderCopyHookForTest (RenderCopyHook hook) noexcept
+    { renderCopyHook.store (hook, std::memory_order_release); }
+   #endif
    #if defined(KIRIN_REFERENCE_AUDIO_PAGES_TEST_HOOK)
     namespace
     {
@@ -74,7 +79,8 @@ namespace hypha::reference_audition
     {
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         const auto sourceFrames = sourceLength.load (std::memory_order_acquire);
-        if (! openState.load (std::memory_order_acquire) || sourcePosition < 0
+        if (! sourceVerified.load (std::memory_order_acquire)
+            || ! openState.load (std::memory_order_acquire) || sourcePosition < 0
             || frames < 0 || framesPerPage <= 0 || sourcePosition >= sourceFrames)
             return false;
         if (frames == 0)
@@ -127,6 +133,7 @@ namespace hypha::reference_audition
                                    std::int64_t regionStart, std::int64_t regionEnd,
                                    bool loopEnabled, float linearGain) noexcept
     {
+        if (!sourceVerified.load (std::memory_order_acquire)) return RenderResult::waitingForPages;
         const int frames = destination.getNumSamples();
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         const auto sourceFrames = sourceLength.load (std::memory_order_acquire);
@@ -194,6 +201,16 @@ namespace hypha::reference_audition
             }
             acquired[acquiredCount++] = page;
         }
+        const auto pagesRemainValid = [&]() noexcept
+        {
+            for (size_t index = 0; index < acquiredCount; ++index)
+                if (acquired[index]->invalidation != nullptr
+                    && acquired[index]->invalidation->load (std::memory_order_acquire) != acquired[index]->initialInvalidation)
+                    return false;
+            return true;
+        };
+        if (!sourceVerified.load (std::memory_order_acquire) || !pagesRemainValid())
+        { releaseAll(); return RenderResult::waitingForPages; }
         if (generation != activeGeneration.load (std::memory_order_acquire)
             || ! openState.load (std::memory_order_acquire))
         {
@@ -233,7 +250,11 @@ namespace hypha::reference_audition
             if (remaining > 0 && position == regionEnd)
                 position = regionStart;
         }
+       #if defined(KIRIN_REFERENCE_TEST_COMMIT_OBSERVER)
+        if (auto hook = renderCopyHook.exchange (nullptr, std::memory_order_acq_rel)) hook (*this);
+       #endif
+        const bool stillVerified = sourceVerified.load (std::memory_order_acquire) && pagesRemainValid();
         releaseAll();
-        return RenderResult::rendered;
+        return stillVerified ? RenderResult::rendered : RenderResult::waitingForPages;
     }
 }

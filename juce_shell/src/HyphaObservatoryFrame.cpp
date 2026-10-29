@@ -230,6 +230,7 @@ void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
     recordDisplay = value;
     recordDisplayAvailable = available;
     const auto showing = recordDisplayShowing();
+    if (previouslyShowing != showing) updateVuVisibility();
     if (previouslyShowing != showing && onRecordBodyOwnershipChange)
         onRecordBodyOwnershipChange (showing);
     if (previouslyShowing || showing)

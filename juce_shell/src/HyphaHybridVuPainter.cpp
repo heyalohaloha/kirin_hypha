@@ -1,4 +1,5 @@
 #include "HyphaHybridVuPainter.h"
+#include "HyphaVuNeedlePainter.h"
 
 #include <BinaryData.h>
 
@@ -245,40 +246,17 @@ void paintClipStatus (juce::Graphics& g, juce::Rectangle<float> face, const Stat
     }
 }
 
-struct DialGeometry
-{
-    juce::Point<float> pivot;
-    float radiusX;
-    float topRise;
-    float edgeFall;
-};
-
-DialGeometry dialGeometry (juce::Rectangle<float> face, int channel)
-{
-    const auto half = face.getWidth() * 0.5f;
-    return {
-        { face.getX() + half * (channel == 0 ? 0.515f : 1.475f),
-          face.getY() + face.getHeight() * 0.865f },
-        juce::jmin (half * 0.438f, face.getHeight() * 0.59f),
-        face.getHeight() * 0.483f,
-        face.getHeight() * 0.136f
-    };
-}
-
-juce::Point<float> dialPoint (const DialGeometry& dial, float normalized)
-{
-    const auto angle = juce::jmap (normalized, -2.48f, -0.74f);
-    const auto edge = std::abs (normalized * 2.0f - 1.0f);
-    return { dial.pivot.x + std::cos (angle) * dial.radiusX,
-             dial.pivot.y - dial.topRise + dial.edgeFall * std::pow (edge, 1.72f) };
-}
+using needle_painter::dialGeometry;
+using needle_painter::dialPoint;
 
 void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& state,
-                int channel, bool compact)
+                int channel, bool compact, bool geometry = true, bool needle = true, bool captions = true)
 {
     const auto width = face.getWidth();
     const auto dial = dialGeometry (face, channel);
     const auto pivot = dial.pivot;
+    if (geometry)
+    {
     juce::Path arc;
     for (int step = 0; step <= 80; ++step)
     {
@@ -325,25 +303,21 @@ void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& sta
         }
     }
 
+    }
     const auto channelAvailable = state.currentAvailable && channel < state.meter.channels
         && std::isfinite (state.meter.channel_vu_dbfs[channel]);
     const auto normalized = vuNormalized (channelAvailable ? state.meter.channel_vu_dbfs[channel]
         : std::numeric_limits<double>::quiet_NaN(), state.calibrationDbfs);
-    const auto scalePoint = dialPoint (dial, normalized);
-    const auto needleEnd = pivot + (scalePoint - pivot) * 1.11f;
-    g.setColour (COL_FLORA_BR.withAlpha (0.20f));
-    g.drawLine ({ pivot, needleEnd }, scaled (5.2f, width, 1.5f));
-    g.setColour (meterIvory.brighter (0.09f));
-    g.drawLine ({ pivot, needleEnd }, scaled (2.7f, width, 0.95f));
+    if (needle && state.drawNeedles) needle_painter::paint (g, face, channel, normalized);
 
-    if (! compact)
+    if (captions && ! compact)
         drawText (g, "VU", { pivot.x - dial.radiusX * 0.31f,
                               pivot.y - face.getHeight() * 0.405f,
                               dial.radiusX * 0.62f, scaled (28.0f, width, 10.0f) },
                   state.presentation, typography::TextRole::sectionTitle,
                   typography::Composition::instrument, meterIvory.withAlpha (0.94f),
                   juce::Justification::centred, false, 0.08f);
-    drawText (g, channel == 0 ? "L" : (state.meter.channels > 1 ? "R" : hypha::emDash()),
+    if (captions) drawText (g, channel == 0 ? "L" : (state.meter.channels > 1 ? "R" : hypha::emDash()),
               { pivot.x - dial.radiusX * 0.28f, pivot.y - face.getHeight() * 0.285f,
                 dial.radiusX * 0.56f, scaled (42.0f, width, 14.0f) },
               state.presentation, typography::TextRole::secondaryValue,
@@ -351,23 +325,30 @@ void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& sta
               juce::Justification::centred);
 }
 
-void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State& state)
+void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State& state,
+                     bool staticPart, bool dynamicPart)
 {
     const auto width = face.getWidth();
     const auto inner = face.reduced (scaled (12.0f, width, 3.0f));
     const bool compact = face.getWidth() < 410.0f;
-    paintPeakRail (g, inner, state, 0, compact);
-    paintPeakRail (g, inner, state, 1, compact);
-    drawText (g, compact ? "TP" : "TRUE PEAK (dBTP)",
+    if (dynamicPart)
+    {
+        paintPeakRail (g, inner, state, 0, compact);
+        paintPeakRail (g, inner, state, 1, compact);
+    }
+    if (dynamicPart) drawText (g, compact ? "TP" : "TRUE PEAK (dBTP)",
               { inner.getCentreX() - inner.getWidth() * 0.16f,
                 inner.getY() + inner.getHeight() * 0.005f,
                 inner.getWidth() * 0.32f, inner.getHeight() * 0.11f },
               state.presentation, typography::TextRole::metricLabel,
               typography::Composition::instrument, COL_MUTED.brighter (0.18f),
               juce::Justification::centred, false, compact ? 0.0f : 0.15f);
-    paintClipStatus (g, inner, state, compact);
-    paintDial (g, inner, state, 0, compact);
-    paintDial (g, inner, state, 1, compact);
+    if (dynamicPart) paintClipStatus (g, inner, state, compact);
+    if (staticPart && dynamicPart)
+    {
+        paintDial (g, inner, state, 0, compact);
+        paintDial (g, inner, state, 1, compact);
+    }
 }
 
 void paintMetric (juce::Graphics& g, juce::Rectangle<float> area, const char* label,
@@ -427,9 +408,12 @@ float truePeakNormalized (double dbtp) noexcept
     return static_cast<float> (juce::jlimit (0.0, 1.0, (dbtp - floorDbtp) / -floorDbtp));
 }
 
-void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& state)
+static void paintParts (juce::Graphics& g, juce::Rectangle<int> requested, const State& state,
+                        bool staticPart, bool dynamicPart)
 {
     auto bounds = requested.toFloat();
+    if (staticPart)
+    {
     const auto& chassis = chassisImage();
     if (chassis.isValid())
         g.drawImage (chassis, bounds, juce::RectanglePlacement::stretchToFit);
@@ -440,6 +424,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
     }
     if (state.jungle)
         jungle_material::paintVuAcceleration (g, bounds, state.role);
+    }
     auto header = juce::Rectangle<float> (
         bounds.getX() + bounds.getWidth() * 0.020f,
         bounds.getY() + bounds.getHeight() * 0.018f,
@@ -452,8 +437,9 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
         bounds.getX() + bounds.getWidth() * 0.021f,
         bounds.getY() + bounds.getHeight() * 0.721f,
         bounds.getWidth() * 0.958f, bounds.getHeight() * 0.151f);
-    paintHeader (g, header, state);
-    paintMeterFace (g, face, state);
+    if (dynamicPart) paintHeader (g, header, state);
+    paintMeterFace (g, face, state, staticPart, dynamicPart);
+    if (! dynamicPart) return;
 
     const auto metricGap = scaled (8.0f, bounds.getWidth(), 2.0f);
     const auto metricWidth = (metrics.getWidth() - metricGap * 2.0f) / 3.0f;
@@ -474,4 +460,19 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
     metrics.removeFromLeft (metricGap);
     paintMetric (g, metrics, "CREST", crest, "dB", false, state.presentation);
 }
+
+void paintDialLayer (juce::Graphics& g, juce::Rectangle<int> bounds, const State& state, bool captions)
+{
+    const auto face = needle_painter::faceBounds (bounds);
+    const bool compact = bounds.getWidth() * 0.964f < 410.0f;
+    for (int channel = 0; channel < 2; ++channel)
+        paintDial (g, face, state, channel, compact, ! captions, false, captions);
+}
+
+void paint (juce::Graphics& g, juce::Rectangle<int> bounds, const State& state)
+{ paintParts (g, bounds, state, true, true); }
+void paintStatic (juce::Graphics& g, juce::Rectangle<int> bounds, const State& state)
+{ paintParts (g, bounds, state, true, false); }
+void paintDynamic (juce::Graphics& g, juce::Rectangle<int> bounds, const State& state)
+{ paintParts (g, bounds, state, false, true); }
 }

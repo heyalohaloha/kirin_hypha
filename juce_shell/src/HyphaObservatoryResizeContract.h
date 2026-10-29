@@ -31,6 +31,10 @@ constexpr std::array<SizePreset, 5> sizePresets {{
     { 900, 600, Density::inspection, "300%" },
 }};
 
+// A new editor, and a state that holds no size, opens at 200%: the Observatory rather than the
+// compact meter. A saved size always comes back as it was.
+constexpr uint8_t defaultSizePresetIndex = 3;
+
 // Above 300% the editor shows the Inspection View magnified: the 900 x 600 layout drawn larger,
 // never a sixth layout. Every layout rule and check stays at the five sizes above; a magnified
 // size only scales them. The cap bounds what a paint can ask of the renderer (1200%).
@@ -165,6 +169,11 @@ constexpr EditorSize unpackEditorSize (uint32_t packed) noexcept
              static_cast<int> (packed & 0xffffu) };
 }
 
+constexpr EditorSize defaultEditorSize() noexcept
+{
+    return { sizePresets[defaultSizePresetIndex].width, sizePresets[defaultSizePresetIndex].height };
+}
+
 constexpr EditorSize editorSizeFromState (int stateVersion,
                                            uint8_t presetIndex,
                                            int storedWidth,
@@ -230,4 +239,7 @@ static_assert (unpackEditorSize (packEditorSize ({ 720, 480 })).height == 480);
 static_assert (editorSizeFromState (2, 3, 720, 480).width == 600);
 static_assert (editorSizeFromState (3, 3, 720, 480).width == 720);
 static_assert (editorSizeFromState (3, 3, 720, 400).width == 600);
+// PluginProcessor.h spells the same default as literals; keep the two in step.
+static_assert (sizePresets[defaultSizePresetIndex].density == Density::observatory);
+static_assert (packEditorSize (defaultEditorSize()) == ((600u << 16u) | 400u));
 }

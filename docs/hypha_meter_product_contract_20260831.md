@@ -702,7 +702,7 @@ Work添付はv1を維持し、必要なtyped metadataをv1で保持できない�
 
 新しいdomain、subview、size、POST/Δ選択は末尾追加の表示stateとして扱う。
 
-旧state、legacy nih-plug state、不正な新規値は、POSTのLEVEL、100%、POST perspectiveへ安全にfallbackする。
+旧state、legacy nih-plug state（大きさを持たないstate）は、POSTのLEVEL、POST perspective、新しいinstanceと同じ既定の200%で開く。不正な新規値は、POSTのLEVEL、100%、POST perspectiveへ安全にfallbackする。保存された大きさは、hostがeditorを先に開いてからstateを戻す順でも、既定の大きさに負けない。
 
 表示stateの復元は計測、pairing、plugin dataのschemaを変更しない。
 

@@ -1,4 +1,6 @@
 #pragma once
+#include "ReferenceSourceCtimeTest.h"
+#include "ReferenceSourceAuthorityTest.h"
 #include "ReferenceVersionPositionTest.h"
 #include "ReferenceVersionLoopTest.h"
 #include "ReferenceVersionSwitchTest.h"
@@ -12,7 +14,18 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
 {
     if (argc != 2) return false;
     const juce::String mode (argv[1]);
-    if (mode == "--position-repairs-only") testReferenceVersionPosition (sandbox);
+    if (mode == "--source-ctime-only") testReferenceSourceCtime (sandbox);
+    else if (mode == "--source-authority-only") testReferenceSourceAuthorityPerObject();
+    else if (mode == "--source-observed-swap-only") testReferenceSourceCtime (sandbox, SourceChange::observedSwap);
+    else if (mode == "--source-mtime-only") testReferenceSourceCtime (sandbox, SourceChange::modifiedTime);
+    else if (mode == "--source-page-race-only") testReferenceSourceCtime (sandbox, SourceChange::duringPageRead);
+    else if (mode == "--source-render-race-only") testReferenceSourceCtime (sandbox, SourceChange::duringRender);
+    else if (mode == "--source-reader-swap-only") testReferenceSourceCtime (sandbox, SourceChange::readerSwap);
+    else if (mode == "--source-pending-only") testReferenceSourceCtime (sandbox, SourceChange::startPending);
+    else if (mode == "--source-hash-race-only") testReferenceSourceCtime (sandbox, SourceChange::duringHash);
+    else if (mode == "--source-contents-only") testReferenceSourceCtime (sandbox, SourceChange::contents);
+    else if (mode == "--source-replacement-only") testReferenceSourceCtime (sandbox, SourceChange::replacement);
+    else if (mode == "--position-repairs-only") testReferenceVersionPosition (sandbox);
     else if (mode == "--version-loop-only") testReferenceVersionLoop (sandbox);
     else if (mode == "--version-splice-proof-only") testReferenceVersionLoop (sandbox, false, false, true);
     else if (mode == "--version-fresh-proof-only") testReferenceVersionLoop (sandbox, false, true);

@@ -340,8 +340,9 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(writes_ready < engine_ready && engine_ready < apply_requested);
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
     assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
-    assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
-    assert!(processor_header.contains("preferredEditorSize { (300u << 16u) | 200u }"));
+    // A new editor opens at 200% (600 x 400); a saved size still comes back as it was.
+    assert!(processor_header.contains("preferredSpectrumSize { 3 }"));
+    assert!(processor_header.contains("preferredEditorSize { (600u << 16u) | 400u }"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");

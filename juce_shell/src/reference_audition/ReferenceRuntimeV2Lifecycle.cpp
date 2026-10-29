@@ -33,7 +33,7 @@ namespace hypha::reference_audition
         contentMappingContinuity.store (0, std::memory_order_release);
         copyCorrespondence.store (false, std::memory_order_release);
         activePublishedSelectionKey.clear();
-        workerSource.reset();
+        workerSource.reset(); workerSourceGeneration = 0;
         sourceCache.clear();
         {
             const juce::ScopedLock mappingLock (mappingWriteLock);

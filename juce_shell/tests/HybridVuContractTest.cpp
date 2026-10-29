@@ -2,11 +2,15 @@
 #include "HybridVuCalibrationContract.h"
 
 #include "../src/HyphaHybridVuPainter.h"
+#include "../src/HyphaVuLayerCache.h"
+#include "../src/HyphaVuNeedleAnimator.h"
 #include "../src/HyphaObservatoryView.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 namespace hypha::tests
 {
@@ -196,4 +200,264 @@ void verifyHybridVuContract()
         }
     std::cout << "Hybrid VU: PASS (PRE/POST, five sizes, preference, manual override)\n";
 }
+
+// Exercise the actual offscreen painter with one 100 ms publication step. The trace
+// reports dial coordinates as well as producing an optional contact sheet.
+void verifyVuFrameTrace()
+{
+    auto meter = meterFixture();
+    auto watch = watchFixture();
+    juce::Image sheet (juce::Image::ARGB, 1200, 600, true);
+    juce::Graphics sheetGraphics (sheet);
+    double previous = 0.0, largest = 0.0;
+    bool intermediate = false;
+    const bool legacy = juce::SystemStats::getEnvironmentVariable ("KIRIN_VU_TRACE_LEGACY", {}) == "1";
+    observatory::View view (observatory::Role::pre);
+    view.setSize (300, 200);
+    meter.channel_vu_dbfs[0] = meter.channel_vu_dbfs[1] = -58.0;
+    view.setMeterSnapshot (meter, true);
+    view.setWatchDisplay (watch, true);
+    view.setConnection ({}, COL_NORMAL, observatory::ConnectionState::source);
+    view.setManualHybridVuVisible (true);
+    if (! legacy) view.setVuFrameTestMode (true);
+    for (int frame = 0; frame < 12; ++frame)
+    {
+        meter.channel_vu_dbfs[0] = frame < 6 ? -38.0 : -28.0;
+        meter.channel_vu_dbfs[1] = meter.channel_vu_dbfs[0];
+        const auto goal = hybrid_vu::vuNormalized (meter.channel_vu_dbfs[0]);
+        if (! legacy)
+        {
+            view.setMeterSnapshot (meter, true);
+            juce::Image update (juce::Image::ARGB, 300, 200, true);
+            juce::Graphics updateGraphics (update);
+            view.paint (updateGraphics);
+            view.tickVuForTest (1.0 / 60.0);
+        }
+        const auto position = legacy ? static_cast<double> (goal) : view.vuPositionForTest (0);
+        largest = std::max (largest, std::abs (position - previous));
+        const auto published = static_cast<double> (hybrid_vu::vuNormalized (meter.channel_vu_dbfs[0]));
+        intermediate |= std::abs (position - published) > 1.0e-6;
+        previous = position;
+        std::cout << "frame=" << frame << " time_ms=" << (frame + 1) * 1000.0 / 60.0
+                  << " published_dbfs=" << meter.channel_vu_dbfs[0]
+                  << " needle=" << position << '\n';
+        juce::Image image (juce::Image::ARGB, 300, 200, true);
+        juce::Graphics graphics (image);
+        if (legacy)
+        {
+            hybrid_vu::State state { observatory::Role::pre, meter, watch, true, true, true,
+                false, false, {}, COL_NORMAL, false, presentation::defaultContext(), -18 };
+            hybrid_vu::paint (graphics, image.getBounds(), state);
+        }
+        else view.paint (graphics);
+        sheetGraphics.drawImageAt (image, (frame % 4) * 300, (frame / 4) * 200);
+    }
+    const auto destination = juce::SystemStats::getEnvironmentVariable ("KIRIN_VU_TRACE_IMAGE", {});
+    if (destination.isNotEmpty())
+    {
+        auto output = juce::File (destination).createOutputStream();
+        KIRIN_HYBRID_VU_REQUIRE (output != nullptr);
+        KIRIN_HYBRID_VU_REQUIRE (juce::PNGImageFormat().writeImageToStream (sheet, *output));
+    }
+    std::cout << "max_frame_jump=" << largest << " intermediate=" << intermediate << std::endl;
+    KIRIN_HYBRID_VU_REQUIRE (intermediate && largest < 0.06);
+}
+
+
+void verifyVuLayerParity()
+{
+    auto meter = meterFixture();
+    auto watch = watchFixture();
+    const hybrid_vu::State state { observatory::Role::pre, meter, watch,
+        true, true, true, false, false, {}, COL_NORMAL, false,
+        presentation::forEditor (900, 600), -18 };
+    juce::Image direct (juce::Image::ARGB, 900, 600, true);
+    juce::Graphics directGraphics (direct);
+    hybrid_vu::paint (directGraphics, direct.getBounds(), state);
+    juce::Image layered (juce::Image::ARGB, 900, 600, true);
+    hybrid_vu::LayerCache cache;
+    {
+        juce::Graphics layeredGraphics (layered);
+        cache.paint (layeredGraphics, layered.getBounds(), state, 1.0f,
+                     hybrid_vu::vuNormalized (meter.channel_vu_dbfs[0]),
+                     hybrid_vu::vuNormalized (meter.channel_vu_dbfs[1]));
+    }
+    const auto differences = differentPixels (direct, layered);
+    int maxChannelDifference = 0, overOne = 0;
+    for (int y = 0; y < direct.getHeight(); ++y)
+        for (int x = 0; x < direct.getWidth(); ++x)
+        {
+            const auto a = direct.getPixelAt (x, y), b = layered.getPixelAt (x, y);
+            const auto delta = juce::jmax (std::abs ((int) a.getRed() - (int) b.getRed()),
+                std::abs ((int) a.getGreen() - (int) b.getGreen()),
+                std::abs ((int) a.getBlue() - (int) b.getBlue()),
+                std::abs ((int) a.getAlpha() - (int) b.getAlpha()));
+            maxChannelDifference = juce::jmax (maxChannelDifference, delta);
+            overOne += delta > 1;
+        }
+    const auto dir = juce::SystemStats::getEnvironmentVariable ("KIRIN_VU_PARITY_DIR", {});
+    if (dir.isNotEmpty())
+        for (const auto& image : { std::make_pair ("direct.png", direct), std::make_pair ("layered.png", layered) })
+        {
+            auto output = juce::File (dir).getChildFile (image.first).createOutputStream();
+            KIRIN_HYBRID_VU_REQUIRE (output != nullptr);
+            KIRIN_HYBRID_VU_REQUIRE (juce::PNGImageFormat().writeImageToStream (image.second, *output));
+        }
+    std::cout << "layered_vs_direct_different_pixels=" << differences
+              << " max_channel_delta=" << maxChannelDifference << " over_one=" << overOne << std::endl;
+    // Separately composited 8-bit alpha can round a channel by up to two levels.
+    KIRIN_HYBRID_VU_REQUIRE (maxChannelDifference <= 2 && differences <= 2700);
+    KIRIN_HYBRID_VU_REQUIRE (cache.staticBuildsForTest() == 1);
+    meter.channel_vu_dbfs[0] = -25.0;
+    { juce::Graphics g (layered); cache.paint (g, layered.getBounds(), state, 1.0f, 0.3f, 0.3f); }
+    KIRIN_HYBRID_VU_REQUIRE (cache.staticBuildsForTest() == 1);
+    meter.channels = 1;
+    { juce::Graphics g (layered); cache.paint (g, layered.getBounds(), state, 1.0f, 0.3f, 0.0f); }
+    KIRIN_HYBRID_VU_REQUIRE (cache.staticBuildsForTest() == 1);
+    auto calibrated = state;
+    calibrated.calibrationDbfs = -20;
+    { juce::Graphics g (layered); cache.paint (g, layered.getBounds(), calibrated, 1.0f, 0.3f, 0.0f); }
+    KIRIN_HYBRID_VU_REQUIRE (cache.staticBuildsForTest() == 2);
+    meter.channels = 2;
+
+    for (const auto& pair : { std::make_pair (0.0f, 0.02f), std::make_pair (0.25f, 0.3f),
+                              std::make_pair (0.5f, 0.7f), std::make_pair (0.0f, 1.0f) })
+    {
+        juce::Image before (juce::Image::ARGB, 900, 600, true), after (juce::Image::ARGB, 900, 600, true);
+        { juce::Graphics g (before); cache.paint (g, before.getBounds(), state, 1.0f, pair.first, pair.first); }
+        { juce::Graphics g (after); cache.paint (g, after.getBounds(), state, 1.0f, pair.second, pair.second); }
+        auto dirty = hybrid_vu::needle_painter::dirtyRegions (before.getBounds(), 0, pair.first, pair.second);
+        dirty.add (hybrid_vu::needle_painter::dirtyRegions (before.getBounds(), 1, pair.first, pair.second));
+        for (int y = 0; y < before.getHeight(); ++y)
+            for (int x = 0; x < before.getWidth(); ++x)
+                if (before.getPixelAt (x, y).getARGB() != after.getPixelAt (x, y).getARGB())
+                    KIRIN_HYBRID_VU_REQUIRE (dirty.containsPoint (x, y));
+    }
+}
+
+
+void measureVuFramePerformance()
+{
+    auto meter = meterFixture();
+    auto watch = watchFixture();
+    const hybrid_vu::State state { observatory::Role::pre, meter, watch,
+        true, true, true, false, false, {}, COL_NORMAL, false,
+        presentation::forEditor (900, 600), -18 };
+    const juce::Rectangle<int> bounds (0, 0, 900, 600);
+    for (const auto scale : { 1.0f, 1.5f, 2.0f, 3.0f })
+    {
+        juce::Image image (juce::Image::ARGB, juce::roundToInt (900 * scale),
+                           juce::roundToInt (600 * scale), true);
+        hybrid_vu::LayerCache cache;
+        auto draw = [&] (bool cached, int frame)
+        {
+            juce::Graphics g (image);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            if (cached)
+            {
+                const auto next = static_cast<float> (frame % 60) / 60.0f;
+                const auto previous = static_cast<float> (juce::jmax (0, frame - 1) % 60) / 60.0f;
+                auto dirty = hybrid_vu::needle_painter::dirtyRegions (bounds, 0, previous, next);
+                dirty.add (hybrid_vu::needle_painter::dirtyRegions (bounds, 1, previous, next));
+                g.reduceClipRegion (dirty);
+                cache.paint (g, bounds, state, scale, next, next);
+            }
+            else hybrid_vu::paint (g, bounds, state);
+        };
+        draw (true, 0);
+        draw (false, 0);
+        // Full and needle frames take turns over seven rounds and the medians are compared, so a
+        // pause in one stretch of the run can neither fail the check nor hide a slow return.
+        std::vector<double> full, cached;
+        for (int round = 0; round < 7; ++round)
+        {
+            auto begin = juce::Time::getMillisecondCounterHiRes();
+            for (int frame = 0; frame < 6; ++frame) draw (false, frame);
+            full.push_back ((juce::Time::getMillisecondCounterHiRes() - begin) / 6.0);
+            begin = juce::Time::getMillisecondCounterHiRes();
+            for (int frame = 0; frame < 12; ++frame) draw (true, round * 12 + frame + 1);
+            cached.push_back ((juce::Time::getMillisecondCounterHiRes() - begin) / 12.0);
+        }
+        std::sort (full.begin(), full.end());
+        std::sort (cached.begin(), cached.end());
+        const auto before = full[3], after = cached[3];
+        std::cout << "scale=" << scale << " full_ms=" << before
+                  << " cached_ms=" << after << std::endl;
+        // Measured in the same run, so a slow machine slows both: the needle frame must stay a
+        // small part of a full redraw (about a tenth when measured; a third still passes).
+        KIRIN_HYBRID_VU_REQUIRE (after <= before * 0.35);
+    }
+}
+
+
+void verifyVuAnimatorLifecycle()
+{
+    juce::Component parent;
+    juce::Component owner;
+    parent.addAndMakeVisible (owner);
+    parent.setVisible (true);
+    int repaints = 0;
+    hybrid_vu::NeedleAnimator animator (owner, [&repaints] { ++repaints; });
+    animator.setVisible (true);
+    KIRIN_HYBRID_VU_REQUIRE (animator.isVisible());
+    animator.setTarget (0, 1.0);
+    for (int frame = 0; frame < 120; ++frame) animator.tickForTest (1.0 / 60.0);
+    const auto settled = repaints;
+    for (int frame = 0; frame < 30; ++frame) animator.tickForTest (1.0 / 60.0);
+    KIRIN_HYBRID_VU_REQUIRE (settled > 0 && repaints == settled);
+    animator.setTarget (1, 0.5);
+    parent.setVisible (false);
+    KIRIN_HYBRID_VU_REQUIRE (! animator.isVisible());
+    parent.setVisible (true);
+    animator.setVisible (true);
+    KIRIN_HYBRID_VU_REQUIRE (animator.isVisible());
+    animator.setVisible (false);
+    KIRIN_HYBRID_VU_REQUIRE (! animator.isVisible());
+    for (int frame = 0; frame < 30; ++frame) animator.tickForTest (1.0 / 60.0);
+    KIRIN_HYBRID_VU_REQUIRE (repaints == settled);
+    observatory::View view (observatory::Role::pre);
+    view.setSize (900, 600);
+    view.setMeterSnapshot (meterFixture(), true);
+    view.setWatchDisplay (watchFixture(), true);
+    view.setManualHybridVuVisible (true);
+    const auto first = render (view);
+    KIRIN_HYBRID_VU_REQUIRE (differentPixels (first, render (view)) == 0);
+    const auto capture = view.createCaptureImage (900, 600, false, "fixed", "test");
+    const auto repeated = view.createCaptureImage (900, 600, false, "fixed", "test");
+    KIRIN_HYBRID_VU_REQUIRE (differentPixels (capture, repeated) == 0);
+}
+
+
+// This diagnostic requires a real interactive desktop and runs in its own process.
+void verifyVuVBlankInteractive()
+{
+    juce::Component owner;
+    owner.setSize (300, 200);
+    owner.addToDesktop (juce::ComponentPeer::windowIsTemporary);
+    owner.setVisible (true);
+    int frames = 0, repaints = 0, settled = -1, idle = -1, hidden = -1;
+    hybrid_vu::NeedleAnimator animator (owner, [&repaints] { ++repaints; });
+    animator.setVisible (true);
+    juce::VBlankAttachment probe (&owner, [&frames] { ++frames; });
+    juce::Timer::callAfterDelay (100, [&] { animator.setTarget (0, 1.0); });
+    juce::Timer::callAfterDelay (500, [&] { settled = repaints; });
+    juce::Timer::callAfterDelay (900, [&]
+    {
+        idle = repaints;
+        animator.setTarget (0, 0.0);
+        animator.setVisible (false);
+        owner.setVisible (false);
+    });
+    juce::Timer::callAfterDelay (1200, [&]
+    {
+        hidden = repaints;
+        juce::MessageManager::getInstance()->stopDispatchLoop();
+    });
+    juce::MessageManager::getInstance()->runDispatchLoop();
+    std::cout << "vblank_frames=" << frames << " settled_repaints=" << settled
+              << " idle_repaints=" << idle << " hidden_repaints=" << hidden << std::endl;
+    KIRIN_HYBRID_VU_REQUIRE (frames > 0 && settled > 0 && idle == settled && hidden == idle);
+    KIRIN_HYBRID_VU_REQUIRE (! animator.isVisible());
+}
+
 }

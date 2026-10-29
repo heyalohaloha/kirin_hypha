@@ -247,6 +247,17 @@ void verifyVst3HostStatePersistence (juce::AudioPluginFormat& format,
     auto fresh = readVst3State (*source);
     if (fresh.plugin->getIntAttribute ("meter_context", -1) != 1)
         fail (description.name.toStdString() + " fresh instance did not default to 2MIX");
+    if (fresh.plugin->getIntAttribute ("observatory_size", -1) != 3
+        || fresh.plugin->getIntAttribute ("observatory_width", -1) != 600
+        || fresh.plugin->getIntAttribute ("observatory_height", -1) != 400)
+        fail (description.name.toStdString() + " fresh instance did not default to the 200% editor");
+    {
+        auto freshHost = createInstance (format, description);
+        auto* freshEditor = freshHost->createEditorIfNeeded();
+        if (freshEditor == nullptr || freshEditor->getWidth() != 600 || freshEditor->getHeight() != 400)
+            fail (description.name.toStdString() + " fresh editor did not open at 200%");
+        delete freshEditor;
+    }
     fresh.plugin->setAttribute ("display_state_version", 5);
     fresh.plugin->setAttribute ("meter_context", 0);
     fresh.plugin->setAttribute ("scale_mode", 0);

@@ -26,9 +26,13 @@ struct State
     bool jungle = false;
     presentation::Context presentation = presentation::defaultContext();
     int calibrationDbfs = vu_calibration::defaultDbfs;
+    bool drawNeedles = true;
 };
 
 float vuNormalized (double dbfs, int calibrationDbfs = vu_calibration::defaultDbfs) noexcept;
 float truePeakNormalized (double dbtp) noexcept;
 void paint (juce::Graphics&, juce::Rectangle<int>, const State&);
+void paintStatic (juce::Graphics&, juce::Rectangle<int>, const State&);
+void paintDynamic (juce::Graphics&, juce::Rectangle<int>, const State&);
+void paintDialLayer (juce::Graphics&, juce::Rectangle<int>, const State&, bool captions);
 }

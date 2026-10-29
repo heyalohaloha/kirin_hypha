@@ -21,6 +21,7 @@ ShellLayout withoutFoldedTarget (ShellLayout layout)
 }
 void View::resized()
 {
+    updateVuVisibility();
     levelHistoryArea = timeHistoryArea = {};
     statusStrip = {};
     statusStripOverBody = false;

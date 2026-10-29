@@ -4,6 +4,7 @@
 // Windows and Pro Tools give a plug-in window no frame to drag, so this is the corner a user holds.
 #include "EditorProductChecks.h"
 #include "../src/HyphaEditorResizeGrip.h"
+#include "EditorSizeRestoreCheck.h"
 
 namespace hypha::tests::editor_product
 {
@@ -64,5 +65,6 @@ inline void verifyResizeGrip()
     processor.editorBeingDeleted (editor.get());
     editor.reset();
     processor.releaseResources();
+    verifyEditorSizeRestore(); // and the size a new editor opens at, against a saved one
 }
 }
