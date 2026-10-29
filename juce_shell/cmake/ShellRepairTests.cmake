@@ -40,6 +40,11 @@ if(TARGET KirinReferenceAuditionRuntimeTests)
     set_tests_properties(kirin_reference_page_seek_publication kirin_reference_page_switch kirin_reference_page_first kirin_reference_page_range kirin_reference_page_wait PROPERTIES TIMEOUT 60)
     # Several real captures share this suite; allow slow CI consumers to finish.
     set_tests_properties(kirin_reference_source_repairs PROPERTIES TIMEOUT 300)
+    # The source-revision checks wait for hash workers; bound a stuck worker instead of the whole run.
+    set_tests_properties(kirin_reference_source_ctime kirin_reference_source_observed_swap kirin_reference_source_mtime
+        kirin_reference_source_page_race kirin_reference_source_render_race kirin_reference_source_reader_swap
+        kirin_reference_source_pending kirin_reference_source_hash_race kirin_reference_source_contents
+        kirin_reference_source_replacement kirin_reference_source_authority PROPERTIES TIMEOUT 300)
     set_tests_properties(kirin_reference_event_repairs PROPERTIES TIMEOUT 90)
 endif()
 if(TARGET KirinEditorSurfaceProductTests)
