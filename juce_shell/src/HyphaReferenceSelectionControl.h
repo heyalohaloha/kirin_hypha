@@ -14,9 +14,12 @@ public:
         if (id != getSelectedId()) setSelectedId (id, juce::sendNotificationSync);
         else if (onChange) onChange();
     }
+    // A mouse click or Return marks the base ComboBox's list active and opens it only while it is
+    // not; hidePopup() clears that mark, as the base class does when its own list closes.
     void showPopup() override
     {
-        if (showing || ! isEnabled() || getNumItems() == 0) return;
+        if (showing) return;
+        if (! isEnabled() || getNumItems() == 0) { hidePopup(); return; }
         showing = true;
         juce::PopupMenu menu;
         std::vector<juce::String> labels;
@@ -33,6 +36,7 @@ public:
             [safe, offeredLabels = std::move (labels)] (int id) {
                 if (safe == nullptr) return;
                 safe->showing = false;
+                safe->hidePopup();
                 const auto index = safe->indexOfItemId (id);
                 if (index >= 0 && index < static_cast<int> (offeredLabels.size())
                     && safe->getItemText (index) == offeredLabels[static_cast<std::size_t> (index)])
