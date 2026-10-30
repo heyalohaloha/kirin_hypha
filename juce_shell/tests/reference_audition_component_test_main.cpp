@@ -9,6 +9,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "ReferenceSelectionReopenTest.h" // last: it brings in CoreFoundation on macOS
+
 int main (int argc, char** argv)
 {
     ValidationStorageSandbox storage;
@@ -28,6 +30,9 @@ int main (int argc, char** argv)
     if (mode == "--reference-c-match-fit-only") { repairs::verifyCMatchFit(); return 0; }
     if (mode == "--reference-onset-only") { repairs::verifyOnsetMeaning(); return 0; }
     if (mode == "--reference-cue-label-only") { repairs::verifyCueLabels(); return 0; }
+    if (mode == "--reference-selection-reopen-only") { hypha::tests::verifyReferenceSelectionReopens(); return 0; }
+    // First, while the message queue holds only what start-up posted: this test delivers it.
+    hypha::tests::verifyReferenceSelectionReopens();
     hypha::tests::verifyMissingCheckNavigation();
     hypha::tests::verifyMissingCheckText();
     repairs::verifyVersionStopText();
