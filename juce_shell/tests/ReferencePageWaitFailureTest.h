@@ -64,6 +64,8 @@ inline void testReferencePageWaitFailure (
     c.observeAInput (input, cursor, true, true, true);
     // Pin a stable published map after a complete, contiguous A observation.
     // The separate seek case exercises the real offset and its interrupted publication.
+    // 範囲外で断るのは、内容で確かめた写像の上だけ（確かめる前の推測の写像は testReferencePageWaitBeforeAlignment）。
+    if (outside) require (runtime.snapshot().blindEligible, "the boundary fixture refuses only on a map proven by content");
     if (outside) control::pinFixturePosition (runtime, cursor, position, {});
     require (control::mappedPositionFor (runtime, cursor, {}) == position, "the boundary fixture publishes the requested source position");
     if (!switching) c.requestAudition (1, -22, -6);
@@ -170,5 +172,74 @@ inline void testReferencePageWaitFailure (
     for (int n = 0; n < 3; ++n) c.servicePendingAudition (-22, -6, true, 170.0 + n);
     require (!c.snapshot().bSelected && control::pageIntentFactsFor (c, {}).active == 0,
              "moving back or repairing the reader cannot resurrect a terminal intent");
+    c.selectA();
+}
+
+// 1.1.54（B-1608）の後退：版を選んだ後、内容で位置を確かめる前に、選んだ時より前の位置から再生して V を押すと、
+// 推測の写像（選んだ瞬間の DAW 位置を版の頭に置く）が負になり「PLAYHEAD OUTSIDE VERSION」で押下が消えた。
+// 1.1.53 と同じく待ちに入り、位置が合えば押し直し無しで鳴る。確かめた写像で範囲外のときだけ断る（上の outside）。
+inline void testReferencePageWaitBeforeAlignment (hypha::tests::reference_control::Comparison& c,
+    const juce::File& root, const juce::String& versionId, const juce::AudioBuffer<float>& source)
+{
+    namespace control = hypha::tests::reference_control;
+    const std::int64_t chosenAt = 96000;  // 版を選んだ瞬間の DAW 位置（2 秒）。その後 0 秒から再生し直す。
+    c.observeTransport (chosenAt, true, true);
+    require (c.selectVersion (versionId), "choose the version while the DAW sits at two seconds");
+    c.setPresented (true); control::service (c);
+    auto& runtime = control::roleFor (c, { 1 });
+    const auto before = runtime.snapshot();
+    require (control::mappedPositionFor (runtime, 0, {}) < 0, "the guessed map puts the song start before the version");
+    require (! before.blindEligible && before.state == ref::RuntimeState::waiting
+                 && before.rejectionCode == "reference_alignment_waiting_for_content",
+             "no content alignment exists before the first capture");
+    // 押した時の音源の確かめは済ませておく（確かめ直し中なら押下は別の道で待つ）。
+    ref::RuntimeV2SourceRepository verifier (root);
+    auto revision = verifier.checkSourceRevision (*runtime.visualBinding().source);
+    if (revision.state == ref::SourceRevisionState::revalidate)
+    {
+        require (ref::revision_detail::service().waitForCompletion (*runtime.visualBinding().source, std::chrono::seconds (30)),
+                 "the fixture source verification completes");
+        revision = verifier.checkSourceRevision (*runtime.visualBinding().source);
+    }
+    require (revision.state == ref::SourceRevisionState::matched, "the fixture source is verified before the press");
+    juce::AudioBuffer<float> input (2, 256), original (2, 256);
+    int cursor = 0;
+    const auto feed = [&] (bool render)
+    {
+        for (int ch = 0; ch < 2; ++ch) input.copyFrom (ch, 0, source, ch, cursor, 256);
+        original.makeCopyOf (input, true);
+        c.observeTransport (cursor, true, true);
+        c.observeAInput (input, cursor, true, true, true);
+        const bool sounded = render && c.renderSelectedB (input, cursor, true, true, true);
+        if (! sounded) for (int ch = 0; ch < 2; ++ch)
+            require (std::memcmp (input.getReadPointer (ch), original.getReadPointer (ch), 256 * sizeof (float)) == 0,
+                     "waiting preserves A bit for bit");
+        cursor += 256;
+        control::service (c);
+        return sounded;
+    };
+    for (int n = 0; n < 8; ++n) feed (false);
+    require (runtime.snapshot().auditionPages != ref::AuditionPageState::outsideSource,
+             "a guessed position before the version is unknown, not outside");
+    const bool pressed = c.requestAudition (1, -22, -6);
+    c.servicePendingAudition (-22, -6, true);
+    const auto pending = c.snapshot().pendingAudition;
+    std::cout << "PAGE_WAIT phase=before-alignment pressed=" << pressed << " stage=" << int (pending.stage)
+              << " waiting=" << pending.waiting() << " reason=" << pending.reasonCode
+              << " pages=" << int (runtime.snapshot().auditionPages) << std::endl;
+    require (pending.reasonCode != "reference_position_outside_source",
+             "a guessed position cannot refuse the press as outside the version");
+    require (pressed && pending.waiting(), "V pressed before the alignment waits instead of being dropped");
+    bool sounded = false;
+    for (int n = 0; n < 2 * 192000 / 256 && ! sounded; ++n)
+    {
+        c.servicePendingAudition (-22, -6, true);
+        sounded = feed (true);
+    }
+    const auto after = runtime.snapshot();
+    std::cout << "PAGE_WAIT phase=aligned eligible=" << after.blindEligible << " sounded=" << sounded
+              << " cursor=" << cursor << " position=" << control::mappedPositionFor (runtime, cursor, {}) << std::endl;
+    require (after.blindEligible, "the same playback establishes the alignment");
+    require (sounded && c.snapshot().bSelected, "the waiting press sounds once V is aligned, without a second press");
     c.selectA();
 }

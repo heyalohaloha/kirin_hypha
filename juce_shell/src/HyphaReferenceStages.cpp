@@ -36,8 +36,9 @@ const std::array<Stage, stageCount> stages { {
     // playDaw
     { K::waiting, W::none, "%1 WAITS FOR THE DAW / PLAY A TO AUDITION", "", "Ready when the DAW plays",
       "Play the song in your DAW", "B: Reference song / C: Check source / V: another Version of this song" },
-    // aligning
-    { K::waiting, W::alignmentPlay, "ALIGNING VERSION V / KEEP PLAYING", "CHECKING",
+    // aligning（30 秒再生しても合わないときは、黙って待たせず何が起きているかと直し方を言う。段は待機のまま：
+    // 合えば選び直し無しで鳴る）
+    { K::waiting, W::alignmentPlay, "ALIGNING VERSION V / KEEP PLAYING", "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
       "Aligning with A. Keep playing", "Aligning V with A", "Keep playing. V must be a Version of the song you are playing." },
     // noMatchingPassage
     { K::unable, W::none, "NO VERIFIED MATCH / CHECK VERSION V", "", "No verified match here; check Version",

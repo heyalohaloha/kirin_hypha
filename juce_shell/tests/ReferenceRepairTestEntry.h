@@ -41,7 +41,8 @@ inline bool runReferenceRepairTests (int argc, char** argv, const juce::File& sa
     else if (mode == "--page-seek-publication-only")
     { for (bool switching : { false, true }) testReferencePageStart (sandbox, switching, false, false, false, PageWaitChange::seekPublication); }
     else if (mode == "--page-range-only")
-    { for (bool switching : { false, true }) for (auto change : { PageWaitChange::negative, PageWaitChange::atEnd, PageWaitChange::pastEnd }) testReferencePageStart (sandbox, switching, false, false, false, change); }
+    { for (bool switching : { false, true }) for (auto change : { PageWaitChange::negative, PageWaitChange::atEnd, PageWaitChange::pastEnd }) testReferencePageStart (sandbox, switching, false, false, false, change);
+      testReferencePageStart (sandbox, false, false, false, false, PageWaitChange::beforeAlignment); }
     else if (mode == "--page-read-wait-only")
     { for (bool switching : { false, true }) for (auto change : { PageWaitChange::slowPages, PageWaitChange::readFailure, PageWaitChange::sourceGone }) testReferencePageStart (sandbox, switching, false, false, false, change); }
     else if (mode == "--page-switch-only") { testReferencePageStart (sandbox, true); testReferencePageStart (sandbox, true, false, true); testReferencePageStart (sandbox, true, false, false, true); testReferencePageStart (sandbox, true, false, false, false, PageWaitChange::transportStop); testReferencePageStart (sandbox, true, false, false, false, PageWaitChange::newSelection); }

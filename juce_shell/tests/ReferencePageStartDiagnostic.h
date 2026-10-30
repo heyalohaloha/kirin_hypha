@@ -3,7 +3,7 @@
 #include "ReferencePageWaitTestAccess.h"
 #include "reference_rt_probe.h"
 
-enum class PageWaitChange { none, transportStop, newSelection, negative, atEnd, pastEnd, slowPages, readFailure, sourceGone, seekPublication };
+enum class PageWaitChange { none, transportStop, newSelection, negative, atEnd, pastEnd, slowPages, readFailure, sourceGone, seekPublication, beforeAlignment };
 namespace hypha::tests::reference_control
 {
 struct PageIntentFacts { std::uint64_t active = 0, intent = 0, generation = 0; int switchingSlot = 0; };
@@ -64,6 +64,8 @@ inline void testReferencePageStart (const juce::File& sandbox, bool switching, b
     control::stopWorkers (c);
     c.configure ({ "page-start-post", {}, 42, true }, 48000, 2);
     control::service (c);
+    if (change == PageWaitChange::beforeAlignment)
+    { testReferencePageWaitBeforeAlignment (c, root, ids[0], base.audio); return; }
     require (c.selectVersion (ids[0]), "choose initial version");
     c.setPresented (true); control::service (c);
     if (!switching && !approvalDiagnostic) require (c.requestAudition (1, -22, -6), "queue first V while stopped");
