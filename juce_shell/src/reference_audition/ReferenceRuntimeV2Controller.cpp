@@ -139,11 +139,14 @@ namespace hypha::reference_audition
             else if (! currentPages().sourceOpen() || currentPages().lengthInSamples() <= 0)
                 result.auditionPages = AuditionPageState::positionUnknown;
             else if (versionComparison && (sourcePosition < 0 || sourcePosition >= currentPages().lengthInSamples()))
+                // 内容で確かめた写像が無い間（位置合わせ前）の位置は、版を選んだ瞬間の DAW 位置を頭に置いた推測。
+                // 推測の範囲外で「範囲外」と断らず、位置合わせを待つ（1.1.53 と同じ。B-1608 の後退の直し）。
                 // A stale copy map cannot prove that a position is permanently unusable.
                 // In-range candidates retain the existing per-block output confirmation.
-                result.auditionPages = referenceCopyProofCurrent (versionComparison,
-                    copyCorrespondence.load (std::memory_order_acquire),
-                    contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity())
+                result.auditionPages = ! blindState.eligible ? AuditionPageState::positionUnknown
+                    : referenceCopyProofCurrent (versionComparison,
+                        copyCorrespondence.load (std::memory_order_acquire),
+                        contentMappingContinuity.load (std::memory_order_acquire), aCapture.continuity())
                         ? AuditionPageState::outsideSource : AuditionPageState::mappingUnstable;
             else
                 result.auditionPages = pageReady ? AuditionPageState::ready

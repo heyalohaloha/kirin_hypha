@@ -283,8 +283,9 @@ inline void verifyReferenceStatusLine()
     for (double now = 200.0; now <= 260.0; now += 0.5)  // 位置合わせ：再生していない間は数えない
         require (watch.observe (1, Step::aligning, false, true, now > 230.0, now).isEmpty(),
                  "aligning counts only the time the DAW plays");
-    require (watch.observe (1, Step::aligning, false, true, true, 261.0) == "CHECKING",
-             "30 s of play without a match remains checking");
+    // 30 秒再生しても合わないときは、黙って待たせず 1.1.53 の文で何が起きているかと直し方を言う（待ちは続ける）。
+    require (watch.observe (1, Step::aligning, false, true, true, 261.0) == "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+             "30 s of play without a match says so and what to do");
     require (watch.observe (2, Step::waitingForKirinOs, false, false, false, 300.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, false, false, 320.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0).isEmpty()
@@ -302,10 +303,10 @@ inline void verifyReferenceStatusLine()
     require (watch.observe (2, Step::playDaw, false, true, false, 400.0).isEmpty()
                  && watch.observe (2, Step::playDaw, false, true, false, 900.0).isEmpty(),
              "waiting for the user's own action has no time limit");
-    for (const auto* reason : { "CHECKING" })
+    for (const auto* reason : { "CHECKING", "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN" })
         require (i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese) != juce::String ("V: ") + reason
                      && ! i18n::translate (juce::String ("V: ") + reason, i18n::Language::japanese).containsIgnoreCase ("NOT"),
-                 "the checking label reads in Japanese");
+                 "every overdue text reads in Japanese");
     auto overdue = named ("ready");
     overdue.separateComparisons = true;
     overdue.comparisonSlot = 1;
@@ -314,6 +315,13 @@ inline void verifyReferenceStatusLine()
     const auto overdueLine = reference_ui::referenceStatusLine (overdue);
     require (overdueLine.kind == StatusKind::waiting && overdueLine.text == "V: CHECKING",
              "an overdue wait remains checking");
+    // 位置合わせの 30 秒超え：段階の表の文を状態の行に出し、段は待機のまま（選び直し無しで、合えば鳴る）。
+    overdue.preparationOverdue = reference_ui::stageOf (Step::aligning).overdue;
+    const auto alignmentOverdue = reference_ui::referenceStatusLine (overdue);
+    require (alignmentOverdue.kind == StatusKind::waiting
+                 && alignmentOverdue.text == "V: NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+             "an overdue alignment says what happened and what to do, and keeps waiting");
+    overdue.preparationOverdue = "CHECKING";
     for (const bool preset : { false, true })
     for (const auto* failure : { "timed_out", "storage_unavailable", "publication_failed" })
     {
