@@ -340,40 +340,28 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.view().onLiveCompareMatch(); r.advance (0.2);
     for (int n = 0; n < 20 && ! r.post->liveCompareStatus().matched; ++n) r.advance (0.1);
     require (r.post->liveCompareStatus().matched, "actual MATCH qualifies the AUTO notice session");
-    // Exercise the native ancestor/peer path as well as the editor visibilityChanged path.
-    // Both preserve LISTEN; hidden AUTO still stops following as before.
+    // Hiding or closing the window rests AUTO (INV-LC16): it keeps following the same MATCH when the
+    // window shows again, and a reopened window of the same LISTEN continues it. LISTEN stays.
     juce::Component host;
     host.setBounds (-10'000, -10'000, 1, 1); host.addToDesktop (0);
     host.addAndMakeVisible (*r.editor); host.setVisible (true);
     require (r.editor->getPeer() != nullptr && r.editor->isShowing(), "native retained-editor host");
-    const auto hiddenWithAction = [&]
-    {
-        enableHiddenAuto (*r.editor, {});
-        host.setVisible (false); r.advance (0.03);
-        require (! hiddenAutoOn (*r.editor, {}) && hiddenAutoNotice (*r.editor, {}), "hidden AUTO stops and queues once");
-        require (r.editor->isVisible() && ! r.editor->isShowing() && r.post->liveCompareStatus().active,
-                 "ancestor hide retains actual LISTEN and stops only AUTO follow");
-        (r.editor.get()->*privateMember (ShowToast {})) ("Capture could not be attached");
-        host.setVisible (true); r.advance (0.03);
-        if (! hiddenAutoNotice (*r.editor, {}) || r.view().feedback() != "Capture could not be attached")
-            std::cerr << "Hidden AUTO state: pending=" << hiddenAutoNotice (*r.editor, {})
-                      << " on=" << hiddenAutoOn (*r.editor, {}) << " active=" << r.post->liveCompareStatus().active
-                      << " reason=" << static_cast<int> (r.post->liveCompareStatus().reason)
-                      << " feedback=" << r.view().feedback() << '\n';
-        require (hiddenAutoNotice (*r.editor, {}) && r.view().feedback() == "Capture could not be attached",
-                 "current hidden AUTO notice waits behind an explicit failure");
-    };
-    const auto expireAction = [&]
-    { r.editor.get()->*privateMember (HiddenToastUntil {}) = 0.0; r.advance (0.03); };
-    hiddenWithAction(); expireAction();
-    require (! hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {})
-        && r.view().feedback() == "AUTO stopped: editor hidden", "current hidden AUTO result is delivered once");
-    r.advance (3.1);
-    hiddenWithAction();
-    enableHiddenAuto (*r.editor, {}); r.advance (0.03); // eligible new AUTO command supersedes the queued result
-    require (hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {}), "resumed AUTO retires its previous stop notice");
-    expireAction();
-    require (r.view().feedback() != "AUTO stopped: editor hidden", "old AUTO stop cannot return after newer AUTO");
+    (r.editor.get()->*privateMember (NoticeFollowChoice {})) (3);
+    require (hiddenAutoOn (*r.editor, {}), "AUTO starts after the actual MATCH");
+    host.setVisible (false); r.advance (0.03);
+    require (hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {})
+                 && r.editor->isVisible() && ! r.editor->isShowing() && r.post->liveCompareStatus().active,
+             "ancestor hide retains actual LISTEN and rests AUTO without a stop notice");
+    host.setVisible (true); r.advance (0.03);
+    require (hiddenAutoOn (*r.editor, {}) && r.view().feedback() != "AUTO stopped: editor hidden",
+             "shown again, AUTO continues");
+    host.removeChildComponent (r.editor.get());
+    r.close(); r.advance (0.1); r.open(); r.advance (0.1);
+    require (hiddenAutoOn (*r.editor, {}) && r.post->liveCompareStatus().active,
+             "a reopened window continues the AUTO of the same LISTEN");
+    (r.editor.get()->*privateMember (NoticeFollowChoice {})) (2);
+    require (! hiddenAutoOn (*r.editor, {}), "Stop AUTO ends the continued AUTO");
+    r.editor.get()->*privateMember (HiddenToastUntil {}) = 0.0; r.advance (0.03); // let "AUTO off" pass
     // 2026-10-13 decision: a short stop plays POST silently; only a wait beyond 3 seconds explains
     // the cause and how to return.
     r.clock.playing = false; r.advance (0.4);
@@ -383,11 +371,9 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.clock.playing = true; r.advance (0.6);
     require (r.view().feedback().isEmpty(), "waiting remedy clears when verified PRE resumes");
     // An unexpected pair change during actual LISTEN remains a bounded terminal notice.
-    hiddenWithAction();
     r.post->clearPairCandidate(); r.advance (0.15);
     require (! r.post->liveCompareStatus().active && r.view().feedback().startsWith ("PRE changed:"),
              "actual comparison interruption is explained");
-    require (! hiddenAutoNotice (*r.editor, {}), "actual interruption supersedes the queued hidden AUTO result");
     r.expectOrdinaryAudio = true;
     r.advance (3.2); r.silentOrdinary();
     r.selectPair(); r.advance (0.15); r.silentOrdinary();

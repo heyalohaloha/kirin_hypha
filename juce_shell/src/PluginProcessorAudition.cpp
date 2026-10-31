@@ -88,3 +88,12 @@ int KirinHyphaProcessorBase::referenceOutputSlot() const noexcept
     return 0;
 #endif
 }
+
+hypha::output_owner::States KirinHyphaProcessorBase::referenceOwnOutputStates() const
+{
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr ? referenceAuditionController->ownOutputStates() : 0;
+#else
+    return 0;
+#endif
+}

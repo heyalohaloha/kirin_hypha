@@ -5,6 +5,7 @@
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceSongChoice.h"
+#include "HyphaReferenceRematchWait.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。REFERENCE SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
@@ -14,6 +15,7 @@ void KirinHyphaEditor::wireReferenceRoles()
     referenceView.onOpenLarge = [this] (int slot) { openReferenceLarge (slot); };
     referenceView.onSelectRef = [this]
     {
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
         if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (3);
         if (processorRef.selectReferenceRef()) return;
@@ -30,13 +32,19 @@ void KirinHyphaEditor::wireReferenceRoles()
     referenceView.onMatch = [this]
     {
         using Result = hypha::reference_audition::RematchResult;
+        referenceRematchUntil = 0.0;
         switch (processorRef.rematchReferenceCheck())
         {
             case Result::matched: break;
             case Result::notPlaying: showToast ("C is not playing. Press C to play it matched."); break;
             case Result::original: showToast ("This Check plays at its original level."); break;
             case Result::peakMatch: showToast ("This Check matches True Peak when C starts. Press A, then C."); break;
-            case Result::levelUnavailable: showToast ("Play A for the Cue length (up to 30 s), then MATCH again."); break;
+            case Result::levelUnavailable:  // 断らずに待たせ、A がたまったら合わせる（2026-10-31）
+                referenceRematchUntil = nowSecs() + 40.0;
+                referenceRematchNextAt = nowSecs() + 1.0;
+                referenceRematchKey = referenceRematchTarget();
+                showToast ("MATCH waits until A has played the Cue length (up to 30 s).");
+                break;
             case Result::ceilingExceeded:  // 承認すれば A を下げて合わせ直す（C は今の gain のまま鳴っている）
             {
                 const auto latest = processorRef.referenceAuditionSnapshot();
@@ -50,10 +58,19 @@ void KirinHyphaEditor::wireReferenceRoles()
 
 bool KirinHyphaEditor::ensureReferenceRoom()
 {
+    if (getWidth() >= 900 && getHeight() >= 600) return true;  // 広い窓は縮めない
     updateResizeLimits();
     const auto size = sizeConstrainer.allowedSize ({ 900, 600 });
+    // 広げた大きさは REF の頁の物。利用者の大きさとして保存せず、頁を離れたら元へ戻す。
+    if (referenceReturnSize.isOrigin())
+    {
+        referenceReturnSize = { getWidth(), getHeight() };
+        referenceReturnOnBlindEnd = referenceBlindSeen = false;
+    }
+    referenceHeldSize = { size.width, size.height };
     setSize (size.width, size.height);
     if (getWidth() >= 900 && getHeight() >= 600) return true;
+    returnToHeldSize (referenceReturnSize);
     showToast ("This display cannot fit the Reference controls. Move the window to a larger display.");
     return false;
 }
@@ -204,5 +221,37 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     // （直し方は曲の側から）。
     if (runtime.comparisonSlot == 3) { state.actionText.clear(); state.action = {}; }
     applyReferenceLowerA (state, runtime);  // 上限超えの承認（B の画面でも出す）と、下げている量
+}
+
+// 待たせた C の MATCH が向く先：鳴っている C（役）、その Check・Cue、選択の世代。どれかが変われば別の要求。
+juce::String KirinHyphaEditor::referenceRematchTarget() const
+{
+    return hypha::reference_ui::rematchTarget (processorRef.referenceAuditionSnapshot());
+}
+
+// 待たせた C の MATCH を 1 秒ごとに読み直す。合えば黙って（状態の行が言う）、上限超えは押したときと同じ承認、
+// C を止めた・替えたら捨てる。上限まで A がたまらなければ、今までの理由を言う。
+void KirinHyphaEditor::serviceReferenceRematch()
+{
+    if (referenceRematchUntil <= 0.0 || nowSecs() < referenceRematchNextAt) return;
+    referenceRematchNextAt = nowSecs() + 1.0;
+    // Target and deadline first: a MATCH for another C, or past its wait, never changes a gain.
+    if (referenceRematchTarget() != referenceRematchKey) { referenceRematchUntil = 0.0; return; }
+    if (nowSecs() >= referenceRematchUntil)
+    {
+        referenceRematchUntil = 0.0;
+        showToast ("Play A for the Cue length (up to 30 s), then MATCH again.");
+        return;
+    }
+    using hypha::reference_ui::RematchWait;
+    const auto next = hypha::reference_ui::rematchWait (processorRef.rematchReferenceCheck());
+    if (next == RematchWait::wait) return;
+    referenceRematchUntil = 0.0;
+    if (next == RematchWait::offerLowerA)
+    {
+        const auto latest = processorRef.referenceAuditionSnapshot();
+        if (! offerReferenceLowerA (2, latest.checkSelection ? *latest.checkSelection : latest))
+            showToast ("MATCH exceeds the safe level. The current gain is kept.");
+    }
 }
 #endif

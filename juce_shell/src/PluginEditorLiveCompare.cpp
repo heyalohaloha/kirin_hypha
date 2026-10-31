@@ -3,6 +3,7 @@
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
 #include "HyphaLocalBlindAdmissionText.h"
+#include "HyphaLiveStartAfterReturn.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 
@@ -85,12 +86,15 @@ void KirinHyphaEditor::configureLiveCompare()
 {
     observatoryView.onLiveCompareStart = [this]
     {
+        // INV-LC14: a press that waited starts with the ticket of its press; a new press takes the latest one.
+        const auto waited = std::exchange (liveCompareStartPressed, std::nullopt);
+        const auto pressTicket = waited.value_or (processorRef.restoreOrPairTicket());
         StartResult result = StartResult::notReady;
         std::uint64_t generation = 0;
         hypha::live_compare_ui::performAction (hypha::live_compare_ui::ActionFaultScope::duringAction,
-            [this, &result, &generation]
+            [this, &result, &generation, waited]
             {
-                result = processorRef.startLiveCompare();
+                result = processorRef.startLiveCompare (waited);
                 generation = processorRef.liveCompareStatus().sessionGeneration;
                 liveCompareMatched = liveCompareLimited = liveCompareInterruptSeen = false;
                 liveCompareActiveSeen = result == StartResult::started;
@@ -100,8 +104,21 @@ void KirinHyphaEditor::configureLiveCompare()
             }, [this] { return refreshLiveCompare(); },
             [this, &generation]
             { return hypha::live_compare_ui::currentNamedAction (processorRef.liveCompareStatus(), generation, false); },
-            [this, &result]
+            [this, &result, waited, pressTicket]
             {
+                using hypha::live_compare_ui::StartAfterReturn;
+                if (waited && result != StartResult::started && processorRef.restoreOrPairTicket() != *waited)
+                    return;  // restored or re-paired since the press: the press is dropped, not refused
+                if (! waited && result != StartResult::started
+                    && hypha::live_compare_ui::onStartPressed (result) == StartAfterReturn::returnFirst)
+                {
+                    observatoryView.onLiveCompareReturn();  // the same RETURN, then LISTEN on this press
+                    liveCompareStartAfterReturnUntil = nowSecs() + 10.0;
+                    liveCompareStartAfterReturnKey = waitingPairKey();
+                    liveCompareStartAfterReturnTicket = pressTicket;
+                    showToast ("Returning POST to normal, then LISTEN");
+                    return;
+                }
                 if (result != StartResult::started) showToast (startFailure (result));
                 if (hypha::live_compare_ui::startNeedsPreChoice (result)) showCandidateMenu();
             });
@@ -112,6 +129,13 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareInterruptSeen = false;
         refreshLiveCompare();
     };
+    // INV-LC16: a window that shows the same session again continues the AUTO that rested.
+    const auto rest = std::exchange (processorRef.liveCompareAutoRest(), {});
+    const auto current = processorRef.liveCompareStatus();
+    if (isPost && rest.on && current.active && ! current.finishing && current.sessionGeneration == rest.session
+        && (current.matched || current.matchHeld) && ! current.matchLimited)
+        liveCompareAuto = { true, false, rest.approvedPreDb, rest.ceilingDbtp,
+                            nowSecs() + hypha::live_compare::followIntervalSeconds };
     // Once matched, MATCH offers MATCH again and AUTO (INV-LC16); the first MATCH measures at once.
     observatoryView.onLiveCompareMatch = [this]
     {
@@ -122,6 +146,7 @@ void KirinHyphaEditor::configureLiveCompare()
     };
     observatoryView.onLiveCompareEnd = [this]
     {
+        liveCompareStartAfterReturnUntil = 0.0;
         processorRef.finishLiveCompare();
         liveCompareFinishingSeen = true;
         liveCompareMatched = false;
@@ -318,7 +343,7 @@ bool KirinHyphaEditor::refreshLiveCompare()
     newFault = followLiveCompare (status, now) || newFault;
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported()
-        && processorRef.liveCompareAdmission (false) == StartResult::started;
+        && hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false));
     footer.active = status.active;
     footer.finishing = status.finishing;
     footer.blindAvailable = processorRef.liveCompareAdmission (true) == StartResult::started;
@@ -339,4 +364,32 @@ bool KirinHyphaEditor::refreshLiveCompare()
     return newFault;
 }
 
+
+// INV-LC14 (2026-10-31): the LISTEN press waits while POST returns to normal and starts once it is back.
+void KirinHyphaEditor::serviceLiveCompareStartAfterReturn()
+{
+    if (liveCompareStartAfterReturnUntil <= 0.0) return;
+    // Deadline, target and other activities first; only then may the press start LISTEN. The role its own
+    // RETURN still fades out is not another comparison (the audio start guard is unchanged).
+    using hypha::live_compare_ui::StartAfterReturn;
+    const auto admission = processorRef.liveCompareAdmission (false);
+    const auto next = hypha::live_compare_ui::whileReturning (admission, processorRef.referenceOwnOutputStates());
+    if (waitingPairKey() != liveCompareStartAfterReturnKey || processorRef.liveCompareStatus().active
+        || next == StartAfterReturn::drop || localBlindOpen || liveBlindOpen)
+    {
+        liveCompareStartAfterReturnUntil = 0.0;  // PRE, state or another comparison changed
+        return;
+    }
+    if (nowSecs() >= liveCompareStartAfterReturnUntil)
+    {
+        liveCompareStartAfterReturnUntil = 0.0;
+        showToast (startFailure (admission));
+        return;
+    }
+    if (next != StartAfterReturn::start) return;
+    liveCompareStartAfterReturnUntil = 0.0;
+    liveCompareStartPressed = liveCompareStartAfterReturnTicket;  // the processor checks it under the pair lock
+    if (observatoryView.onLiveCompareStart) observatoryView.onLiveCompareStart();
+    liveCompareStartPressed.reset();
+}
 #endif

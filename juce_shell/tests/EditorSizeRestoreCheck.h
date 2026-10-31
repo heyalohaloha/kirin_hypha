@@ -32,6 +32,30 @@ struct ReturnFromLocalBlind
     friend Type privateMember (ReturnFromLocalBlind);
 };
 template struct PrivateAccess<ReturnFromLocalBlind, &KirinHyphaEditor::returnFromLocalBlindSize>;
+struct EnsureReferenceRoom
+{
+    using Type = bool (KirinHyphaEditor::*)();
+    friend Type privateMember (EnsureReferenceRoom);
+};
+template struct PrivateAccess<EnsureReferenceRoom, &KirinHyphaEditor::ensureReferenceRoom>;
+struct EditorDomain
+{
+    using Type = observatory::Domain KirinHyphaEditor::*;
+    friend Type privateMember (EditorDomain);
+};
+template struct PrivateAccess<EditorDomain, &KirinHyphaEditor::observatoryDomain>;
+struct ReferencePane
+{
+    using Type = reference_ui::Component KirinHyphaEditor::*;
+    friend Type privateMember (ReferencePane);
+};
+template struct PrivateAccess<ReferencePane, &KirinHyphaEditor::referenceView>;
+struct EditorToast
+{
+    using Type = juce::String KirinHyphaEditor::*;
+    friend Type privateMember (EditorToast);
+};
+template struct PrivateAccess<EditorToast, &KirinHyphaEditor::toastText>;
 
 inline juce::MemoryBlock editorSizeState (int version, observatory::Domain domain, int preset,
                                           int width, int height)
@@ -60,6 +84,47 @@ inline bool savesEditorSize (Processor& processor, int width, int height)
     const auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
     return xml != nullptr && xml->getIntAttribute ("observatory_width") == width
         && xml->getIntAttribute ("observatory_height") == height;
+}
+
+// The REF page widens a small editor to 900 x 600 for C, V and VERSION BLIND. That size is the
+// page's, not the user's: it is not saved, leaving the page returns to the size before, and a
+// larger editor is never shrunk to 900 x 600. VERSION BLIND starts on the same press that widens.
+inline void verifyReferenceRoomSize()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    hypha::tests::prepareFixtureProcessor (processor, 48'000, 960);
+    std::unique_ptr<KirinHyphaEditor> editor (dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+    require (editor != nullptr && editor->getWidth() == 600, "a new editor opens at 200% before REF");
+    auto& domain = editor.get()->*privateMember (EditorDomain {});
+    domain = observatory::Domain::reference;
+    require ((editor.get()->*privateMember (EnsureReferenceRoom {})) ()
+                 && editor->getWidth() == 900 && editor->getHeight() == 600, "C / V widen a small editor to 900 x 600");
+    require (savesEditorSize (processor, 600, 400), "the size the REF page widened to is not saved as the user's");
+    (editor.get()->*privateMember (LayoutLocalBlind {})) ();
+    require (editor->getWidth() == 900, "the widened size stays while the REF page is shown");
+    domain = observatory::Domain::level;
+    (editor.get()->*privateMember (LayoutLocalBlind {})) ();
+    require (editor->getWidth() == 600 && editor->getHeight() == 400, "leaving the REF page returns to the size before");
+    require (savesEditorSize (processor, 600, 400), "and the user's size stays saved");
+
+    editor->setSize (1350, 900);
+    require (savesEditorSize (processor, 1350, 900), "a user enlargement is saved");
+    domain = observatory::Domain::reference;
+    require ((editor.get()->*privateMember (EnsureReferenceRoom {})) () && editor->getWidth() == 1350,
+             "a larger editor is not shrunk to 900 x 600");
+
+    editor->setSize (600, 400);
+    auto& pane = editor.get()->*privateMember (ReferencePane {});
+    require (static_cast<bool> (pane.onStartBlind), "VERSION BLIND has a start action");
+    pane.onStartBlind();
+    const auto toast = editor.get()->*privateMember (EditorToast {});
+    require (! toast.contains ("Press VERSION BLIND to start"), "VERSION BLIND starts on the press that widens");
+    require (editor->getWidth() == 600 && editor->getHeight() == 400 && savesEditorSize (processor, 600, 400),
+             "a VERSION BLIND that could not start returns to the size before, unsaved");
+    processor.editorBeingDeleted (editor.get());
+    editor.reset();
+    processor.releaseResources();
 }
 
 inline void verifyEditorSizeRestore()
@@ -141,5 +206,6 @@ inline void verifyEditorSizeRestore()
         editor.reset();
         processor.releaseResources();
     }
+    verifyReferenceRoomSize();
 }
 }

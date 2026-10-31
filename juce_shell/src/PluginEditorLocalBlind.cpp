@@ -158,12 +158,15 @@ void KirinHyphaEditor::closeLocalBlindProduct()
 // Blind held the editor at 900 x 600 without saving it. A state the host restored meanwhile (the
 // stored size is no longer the one this editor wrote, even a restored 300%) wins over the size
 // Blind kept to return to, and is applied here, before the relayout that follows saves a size.
-void KirinHyphaEditor::returnFromLocalBlindSize()
+void KirinHyphaEditor::returnFromLocalBlindSize() { returnToHeldSize (localBlindReturnSize); }
+
+// The same return for the size the REF page held (C, V, VERSION BLIND).
+void KirinHyphaEditor::returnToHeldSize (juce::Point<int>& held)
 {
-    if (localBlindReturnSize.isOrigin())
+    if (held.isOrigin())
         return;
-    hypha::observatory::EditorSize size { localBlindReturnSize.x, localBlindReturnSize.y };
-    localBlindReturnSize = {};
+    hypha::observatory::EditorSize size { held.x, held.y };
+    held = {};
     const auto stored = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
     if ((stored.width != editorSizeWritten.width || stored.height != editorSizeWritten.height)
@@ -217,8 +220,15 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
     if ((localBlindOpen || referenceBlind) && (getWidth() < 900 || getHeight() < 600))
     {
         if (localBlindOpen && localBlindReturnSize.isOrigin()) localBlindReturnSize = { getWidth(), getHeight() };
+        else if (! localBlindOpen && referenceReturnSize.isOrigin())
+        {
+            referenceReturnSize = { getWidth(), getHeight() };
+            referenceReturnOnBlindEnd = referenceBlindSeen = true;
+        }
+        referenceHeldSize = { 900, 600 };
         setSize (900, 600);
     }
+    releaseReferenceRoom (referenceBlind);
     setResizable (! localBlindOpen && ! referenceBlind, false);
     resizeGrip.setVisible (isResizable());
     localBlindView.setBounds (scaleRoot.getLocalBounds());
@@ -277,4 +287,23 @@ void KirinHyphaEditor::setLocalBlindIsolation (bool active)
     }
 }
 
+
+// REF の C・V が広げた大きさは REF の頁を離れるまで、VERSION BLIND が広げた大きさは Blind の終わりまで持つ。
+// その間に利用者や host が変えた大きさはその人の物で、戻さない。
+void KirinHyphaEditor::releaseReferenceRoom (bool referenceBlind)
+{
+    if (referenceReturnSize.isOrigin()) return;
+    if (! referenceHoldsEditorSize())
+    {
+        referenceReturnSize = {};
+        referenceReturnOnBlindEnd = referenceBlindSeen = false;
+        return;
+    }
+    if (referenceBlind) { referenceBlindSeen = true; return; }
+    if ((referenceReturnOnBlindEnd && referenceBlindSeen) || observatoryDomain != hypha::observatory::Domain::reference)
+    {
+        referenceReturnOnBlindEnd = referenceBlindSeen = false;
+        returnToHeldSize (referenceReturnSize);
+    }
+}
 #endif

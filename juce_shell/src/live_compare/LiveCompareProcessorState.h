@@ -164,5 +164,7 @@ struct ProcessorState
     // cannot verify PRE timing, so a missing clock there is not a transient to restart out of.
     std::atomic<bool> clockSeen { false }, outputLatencySeen { false };
     AaxGroupMembership aaxGroup;                  // INV-LC9: the host's AAX instance group
+    // INV-LC16: AUTO rests while no window shows it (message thread only); the same session continues it.
+    struct AutoRest { bool on = false; double approvedPreDb = 0.0, ceilingDbtp = 0.0; std::uint64_t session = 0; } autoRest;
 };
 }

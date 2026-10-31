@@ -15,7 +15,10 @@ KirinHyphaEditor::~KirinHyphaEditor()
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
-        // LISTEN and live BLIND belong to the processor; closing its window is not END.
+        // LISTEN and live BLIND belong to the processor; closing its window is not END. AUTO rests
+        // with the processor and a window of the same session continues it (INV-LC16).
+        processorRef.liveCompareAutoRest() = { liveCompareAuto.on, liveCompareAuto.approvedPreDb,
+            liveCompareAuto.ceilingDbtp, processorRef.liveCompareStatus().sessionGeneration };
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -40,11 +43,9 @@ void KirinHyphaEditor::timerCallback()
         processorRef.setReferenceViewPresented (false);
         processorRef.vuLive().setEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (isPost && liveCompareAuto.on)
-        {
-            stopLiveCompareAuto ({});
-            liveCompareAuto.hiddenStopNoticePending = true;
-        }
+        // AUTO rests while hidden: nothing below runs, so it neither measures nor moves (INV-LC16).
+        // A Keep, LISTEN or MATCH press that has not started yet is dropped, never run later.
+        dropWaitingRequests();
         syncAnalysisDemand();
        #endif
         return;
@@ -85,6 +86,7 @@ void KirinHyphaEditor::timerCallback()
     refreshObservatory();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const bool liveFault = isPost && refreshLiveCompare();
+    if (isPost) { serviceLiveCompareStartAfterReturn(); serviceReferenceRematch(); requestKeepPair (true); }
    #endif
     refreshPairPreview (false);
     updateHelpLine();

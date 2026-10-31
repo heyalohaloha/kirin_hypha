@@ -17,6 +17,12 @@ struct FeedbackUpdate
     friend Type privateMember (FeedbackUpdate);
 };
 template struct PrivateAccess<FeedbackUpdate, &KirinHyphaEditor::updateFeedback>;
+struct PreInactiveSince
+{
+    using Type = double KirinHyphaEditor::*;
+    friend Type privateMember (PreInactiveSince);
+};
+template struct PrivateAccess<PreInactiveSince, &KirinHyphaEditor::comparisonPreInactiveSince>;
 
 // Real editor arbitration, with independent measurement and listening observations. No PCM
 // mapping or host connection is needed: this tests presentation, not timing acceptance.
@@ -56,6 +62,11 @@ inline void verifyReaperListenFeedback()
         };
         // A stopped pair can report inactive before playback starts. Its queued toast must not
         // keep claiming PRE is stopped once LISTEN is measuring the first loop.
+        // A PRE that is still starting (its first Active publication lags POST) is not called
+        // stopped at once; the notice appears only once PRE has stayed inactive for the grace.
+        deliver();
+        check (! view->feedback().contains ("PRE NOT RUNNING"), "a starting PRE is not called stopped at once");
+        editor.get()->*privateMember (PreInactiveSince {}) -= 3.0;
         deliver();
         check (view->feedback().contains ("PRE NOT RUNNING"), "inactive pair keeps its existing notice outside LISTEN");
         for (auto reason : { Reason::reaperFirstCycle, Reason::reaperDelayUnverified,
