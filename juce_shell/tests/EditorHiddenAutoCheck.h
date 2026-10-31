@@ -139,6 +139,36 @@ inline void verifyWaitingRequests()
     processor.releaseResources();
 }
 
+// INV-LC16 with an actual LISTEN (the notice rig): a closed window's AUTO belongs to its LISTEN. A loop
+// wrap and a playback gap while it is closed move sessionGeneration, not the LISTEN: the reopened
+// window continues AUTO.
+template <typename Rig> void verifyClosedAutoAcrossTimeline (Rig& r)
+{
+    require (hiddenAutoOn (*r.editor, {}), "AUTO is on as the window closes");
+    const auto before = r.post->liveCompareStatus().sessionGeneration;
+    r.close();
+    r.clock.position = 0; r.advance (0.2);  // the host's loop returns to its start
+    r.clock.playing = false; r.advance (0.05); r.clock.playing = true; r.advance (0.3);
+    const auto closed = r.post->liveCompareStatus();
+    require (closed.active && closed.sessionGeneration != before,
+             "a loop wrap and a playback gap keep LISTEN and move sessionGeneration");
+    r.open(); r.advance (0.03);
+    require (hiddenAutoOn (*r.editor, {}) && ! hiddenAutoNotice (*r.editor, {}),
+             "a reopened window continues AUTO across a loop wrap and a playback gap");
+}
+
+// END while the window is closed ends AUTO with the LISTEN; the reopened window says AUTO stopped
+// instead of showing MATCH silently.
+template <typename Rig> void verifyClosedAutoEnded (Rig& r)
+{
+    enableHiddenAuto (*r.editor, {});
+    r.close(); r.post->finishLiveCompare(); r.advance (3.3);
+    r.open(); r.advance (0.03);
+    require (! hiddenAutoOn (*r.editor, {}) && r.view().feedback() == "AUTO stopped: editor hidden",
+             "END while closed does not continue AUTO, and the reopened window says AUTO stopped");
+    r.editor.get()->*privateMember (HiddenToastUntil {}) = 0.0; r.advance (0.03);
+}
+
 inline void verifyHiddenAutoStops()
 {
     juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);

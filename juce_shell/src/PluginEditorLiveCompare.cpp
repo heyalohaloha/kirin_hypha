@@ -129,13 +129,17 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareInterruptSeen = false;
         refreshLiveCompare();
     };
-    // INV-LC16: a window that shows the same session again continues the AUTO that rested.
+    // INV-LC16: a window that shows the same LISTEN again continues the AUTO that rested. Loop wraps and
+    // playback gaps move sessionGeneration, not the LISTEN; a rest that cannot continue says so.
     const auto rest = std::exchange (processorRef.liveCompareAutoRest(), {});
     const auto current = processorRef.liveCompareStatus();
-    if (isPost && rest.on && current.active && ! current.finishing && current.sessionGeneration == rest.session
+    if (isPost && rest.on && current.active && ! current.finishing
+        && rest.session == processorRef.liveCompareListenSession() && rest.ticket == processorRef.restoreOrPairTicket()
         && (current.matched || current.matchHeld) && ! current.matchLimited)
         liveCompareAuto = { true, false, rest.approvedPreDb, rest.ceilingDbtp,
                             nowSecs() + hypha::live_compare::followIntervalSeconds };
+    else if (isPost && rest.on)
+        liveCompareAuto.hiddenStopNoticePending = true;
     // Once matched, MATCH offers MATCH again and AUTO (INV-LC16); the first MATCH measures at once.
     observatoryView.onLiveCompareMatch = [this]
     {

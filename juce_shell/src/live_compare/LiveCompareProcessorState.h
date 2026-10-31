@@ -127,6 +127,7 @@ struct ProcessorState
     TimingPreparation preparation;
     ChainTimingMeter chain; // POST, display only: the host work between PRE's callback and its own
     std::atomic<bool> sessionActive { false }; // user session, independent of the ring's fade/ramp lease
+    std::atomic<std::uint64_t> listenSession { 0 }; // moves only when LISTEN starts or ends, never on a loop or a gap
     std::atomic<bool> preAudible { false };
     std::atomic<bool> preWaiting { false };
     std::atomic<bool> preWaitSeen { false }; // any waiting block since the editor last looked
@@ -165,6 +166,7 @@ struct ProcessorState
     std::atomic<bool> clockSeen { false }, outputLatencySeen { false };
     AaxGroupMembership aaxGroup;                  // INV-LC9: the host's AAX instance group
     // INV-LC16: AUTO rests while no window shows it (message thread only); the same session continues it.
-    struct AutoRest { bool on = false; double approvedPreDb = 0.0, ceilingDbtp = 0.0; std::uint64_t session = 0; } autoRest;
+    // The rest is bound to the LISTEN (listenSession) and to the restore and pair ticket, not to sessionGeneration.
+    struct AutoRest { bool on = false; double approvedPreDb = 0.0, ceilingDbtp = 0.0; std::uint64_t session = 0, ticket = 0; } autoRest;
 };
 }

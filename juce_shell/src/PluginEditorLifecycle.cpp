@@ -16,9 +16,10 @@ KirinHyphaEditor::~KirinHyphaEditor()
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
         // LISTEN and live BLIND belong to the processor; closing its window is not END. AUTO rests
-        // with the processor and a window of the same session continues it (INV-LC16).
+        // with the processor and a window of the same LISTEN continues it (INV-LC16). The rest is
+        // keyed to the LISTEN and the restore and pair ticket: a loop wrap or a playback gap keeps it.
         processorRef.liveCompareAutoRest() = { liveCompareAuto.on, liveCompareAuto.approvedPreDb,
-            liveCompareAuto.ceilingDbtp, processorRef.liveCompareStatus().sessionGeneration };
+            liveCompareAuto.ceilingDbtp, processorRef.liveCompareListenSession(), processorRef.restoreOrPairTicket() };
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -94,9 +95,9 @@ void KirinHyphaEditor::timerCallback()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost && liveCompareAuto.hiddenStopNoticePending)
     {
-        // A queued notice describes this still-active, still-stopped AUTO. A newer action,
-        // interruption or completed session supersedes it while another toast has priority.
-        if (liveFault || ! liveCompareActiveSeen || liveCompareAuto.on)
+        // Queued when a reopened window could not continue the AUTO that rested (INV-LC16). It waits
+        // for another toast; a newer action, AUTO again or an interruption notice supersedes it.
+        if (liveFault || liveCompareAuto.on)
             liveCompareAuto.hiddenStopNoticePending = false;
         else if (toastText.isEmpty())
         {

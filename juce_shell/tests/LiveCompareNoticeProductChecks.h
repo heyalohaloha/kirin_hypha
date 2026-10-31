@@ -359,6 +359,7 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.close(); r.advance (0.1); r.open(); r.advance (0.1);
     require (hiddenAutoOn (*r.editor, {}) && r.post->liveCompareStatus().active,
              "a reopened window continues the AUTO of the same LISTEN");
+    verifyClosedAutoAcrossTimeline (r);
     (r.editor.get()->*privateMember (NoticeFollowChoice {})) (2);
     require (! hiddenAutoOn (*r.editor, {}), "Stop AUTO ends the continued AUTO");
     r.editor.get()->*privateMember (HiddenToastUntil {}) = 0.0; r.advance (0.03); // let "AUTO off" pass
@@ -379,7 +380,7 @@ inline void verifyNoticeLifecycle (const juce::File& sandbox)
     r.selectPair(); r.advance (0.15); r.silentOrdinary();
     require (r.post->startLiveCompare() == live_compare::StartResult::started, "new LISTEN after terminal notice");
     r.expectOrdinaryAudio = false; r.advance (0.5);
-    r.post->finishLiveCompare(); r.advance (3.3);
+    verifyClosedAutoEnded (r);  // END while the window is closed
     r.expectOrdinaryAudio = true; r.block(); r.silentOrdinary();
     r.post->clearPairCandidate(); r.advance (0.15); r.silentOrdinary();
     host.removeChildComponent (r.editor.get()); host.setVisible (false);

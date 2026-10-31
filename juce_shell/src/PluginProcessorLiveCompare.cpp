@@ -152,6 +152,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
                 ? liveCompare.blindPreparationReason : reason);
     }
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // a new LISTEN begins after this stop
     liveCompare.namedMatchPending = liveCompare.namedMatchReady = false;
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();
