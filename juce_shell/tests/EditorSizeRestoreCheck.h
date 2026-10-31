@@ -149,7 +149,7 @@ inline void verifyReferenceRoomSize()
     editor->setSize (600, 400);  // the host restores its own size
     openedAt -= 0.2;              // 0.2 s later
     (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
-    require (opened == "C and V open at 300%. Choose 300% or a floating window.",
+    require (opened == "C and V open at 300%. Choose 300% from the size menu.",
              "a window back at its size (the host or a drag) says what C needs, not that C opened or why");
     opened = {};
     pane.onOpenLarge (2);
@@ -198,7 +198,7 @@ inline void verifyReferenceRoomSize()
         pane.onOpenLarge (1);
     };
     pressV(); editor->setSize (600, 400); tickLater (0.2);
-    require (opened == "C and V open at 300%. Choose 300% or a floating window.",
+    require (opened == "C and V open at 300%. Choose 300% from the size menu.",
              "a V window back at its size says what V needs, not that V opened at 300%");
     pressV(); tickLater (0.2);
     require (editor->getWidth() == 900 && opened.startsWith ("V opened at 300%"), "a V window that stayed wide says V opened");

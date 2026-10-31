@@ -49,7 +49,6 @@ const Entry entries[] = {
     { "Click to connect", u8"押して接続" },
     { u8"▼ All PREs", u8"▼ 候補一覧" },
     { "NO PRE", u8"PREなし" },
-    { "+ PRE", u8"+ PRE" },
     { "Choose PRE", u8"PREを選ぶ" },
     { "SELECT PRE", u8"PREを選択" },
     { "PAIR SELECT PRE", u8"PAIR PREを選択" },
