@@ -82,6 +82,7 @@ public:
             audible.compare_exchange_strong (heard, 0, std::memory_order_acq_rel);
             return;
         }
+        fallbackRun = 0; // the requested source is audible again: a later fallback is counted from zero
         const auto prior = played.load (std::memory_order_relaxed);
         const auto mask = (prior >> 32) == cmd.epoch() ? (prior & 3u) : 0u;
         played.store ((static_cast<std::uint64_t> (cmd.epoch()) << 32)
@@ -91,11 +92,23 @@ public:
 
     // The hidden assignment and played receipts survive temporary POST. A fallback is never
     // credited as hearing PRE; the result may disclose it without revealing the current side.
-    void fallback (BlindCommand cmd) noexcept
+    // Audio Thread only. POST sounded for `frames` of a block that requested PRE. Only a
+    // contiguous run of at least `audibleFallbackMs` is disclosed after REVEAL: a shorter,
+    // level-matched substitute (one callback at a loop wrap, up to 1024 frames at 44.1/48 kHz or
+    // 2048 at 96 kHz, plus the 5 ms return fade) is below the ~25 ms at which a brief change in a
+    // continuous signal is heard as its own event, so the listener did not hear "the other
+    // source". A stable block of the requested source ends the run; separate short runs never add
+    // up to a disclosure. 2048 frames at 48 kHz (43 ms) and any longer run are disclosed.
+    void fallback (BlindCommand cmd, int frames, double sampleRate) noexcept
     {
         observe (cmd, false);
-        if (valid (cmd) && cmd.pre()) fallbackEpoch.store (cmd.epoch(), std::memory_order_release);
+        if (! valid (cmd) || ! cmd.pre()) { fallbackRun = 0; return; }
+        if (fallbackRunEpoch != cmd.epoch()) { fallbackRunEpoch = cmd.epoch(); fallbackRun = 0; }
+        fallbackRun += static_cast<std::int64_t> (frames > 0 ? frames : 0);
+        if (static_cast<double> (fallbackRun) * 1000.0 >= audibleFallbackMs * sampleRate)
+            fallbackEpoch.store (cmd.epoch(), std::memory_order_release);
     }
+    static constexpr double audibleFallbackMs = 25.0;
 
     // Audio Thread or message thread. A concurrent reveal can be invalidated, but a newer trial
     // cannot. Bounded retries handle the single reveal transition, never wait for a UI thread.
@@ -155,6 +168,8 @@ private:
     static constexpr std::uint64_t invalidBit = 8u;
     static constexpr std::uint64_t endedBit = 16u;
     std::atomic<std::uint32_t> fallbackEpoch { 0 };
+    std::int64_t fallbackRun = 0; // audio thread only: contiguous POST frames while PRE was requested
+    std::uint32_t fallbackRunEpoch = 0; // audio thread only
     std::uint32_t serial = 0; // message thread only
     std::atomic<std::uint64_t> request { 0 }, terminal { 0 }, played { 0 }, audible { 0 };
 };

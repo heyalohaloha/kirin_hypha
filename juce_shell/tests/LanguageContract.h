@@ -1,5 +1,6 @@
 #pragma once
 #include "../src/AtomicFile.h"
+#include "../src/HyphaTextLookAndFeel.h"
 #include "TestTemporaryDirectory.h"
 #include "AbsoluteAnalysisHelpContract.h"
 #include "JapaneseSentenceContract.h"
@@ -141,6 +142,7 @@ inline void verifyCatalog()
             KIRIN_LANGUAGE_REQUIRE (! requiresJapaneseGlyphs (english));
             KIRIN_LANGUAGE_REQUIRE (requiresJapaneseGlyphs (translation)
                 || (keptEnglishFactsLabel (english) && translation == english));
+            KIRIN_LANGUAGE_REQUIRE (text_style::shownText (translation, text_style::LabelPolicy::fixed) == translation);
             for (int slot = 1; slot <= 3; ++slot)
             {
                 const auto placeholder = "%" + juce::String (slot);
@@ -376,6 +378,45 @@ inline void verifyLookAndFeel()
 
 inline void verifyLanguageContract()
 {
+    // 補助平面の字：CJK 拡張 B の漢字（𠮷）は日本語の font で描き、絵文字など font に無い字は表示だけ「□」にする
+    // （macOS の JUCE 7 は別の font の字形番号で描くので 🎧 が全角「４」に見えた。GLYPH/DIAG.md）。値は変えない。
+    KIRIN_LANGUAGE_REQUIRE (requiresJapaneseGlyphs (language_contract::utf8 (u8"\U00020BB7")));
+    KIRIN_LANGUAGE_REQUIRE (requiresJapaneseGlyphs (language_contract::utf8 (u8"\U00020BB7 Mix")) && ! requiresJapaneseGlyphs ("Mix"));
+    KIRIN_LANGUAGE_REQUIRE (text_style::shownText (language_contract::utf8 (u8"A\U0001F3A7B"), text_style::LabelPolicy::fixed) == language_contract::utf8 (u8"A\u25A1B"));
+    KIRIN_LANGUAGE_REQUIRE (text_style::shownText (language_contract::utf8 (u8"\U00020BB7 Mix"), text_style::LabelPolicy::fixed) == language_contract::utf8 (u8"\U00020BB7 Mix"));
+    KIRIN_LANGUAGE_REQUIRE (text_style::shownText (language_contract::utf8 (u8"\U0001F3A7 \u66F2")) == language_contract::utf8 (u8"\u25A1 \u66F2"));
+    KIRIN_LANGUAGE_REQUIRE (! requiresJapaneseGlyphs (text_style::shownText (language_contract::utf8 (u8"\U0001F3A7"), text_style::LabelPolicy::fixed)));
+    // 日本語の無い Label・TextButton でも表示のコピー（「□」）を描く（元の「🎧 Mix」を JUCE の標準描画に渡さない）。
+    {
+        hypha::TextLookAndFeel lookAndFeel;
+        const auto pixels = [] (juce::Component& component)
+        {
+            component.setBounds (0, 0, 160, 24);
+            juce::Image image (juce::Image::ARGB, 160, 24, true);
+            juce::Graphics g (image);
+            component.paintEntireComponent (g, true);
+            std::vector<juce::uint32> result;
+            for (int y = 0; y < image.getHeight(); ++y)
+                for (int x = 0; x < image.getWidth(); ++x) result.push_back (image.getPixelAt (x, y).getARGB());
+            return result;
+        };
+        const auto label = [&] (const juce::String& text)
+        {
+            juce::Label component; component.setLookAndFeel (&lookAndFeel);
+            component.setText (text, juce::dontSendNotification);
+            const auto result = pixels (component); component.setLookAndFeel (nullptr); return result;
+        };
+        const auto button = [&] (const juce::String& text)
+        {
+            juce::TextButton component (text); component.setLookAndFeel (&lookAndFeel);
+            const auto result = pixels (component); component.setLookAndFeel (nullptr); return result;
+        };
+        KIRIN_LANGUAGE_REQUIRE (label (language_contract::utf8 (u8"A\U0001F3A7B")) == label (language_contract::utf8 (u8"A\u25A1B")));
+        KIRIN_LANGUAGE_REQUIRE (label (language_contract::utf8 (u8"A\U0001F3A7B")) != label ("AB"));
+        KIRIN_LANGUAGE_REQUIRE (button (language_contract::utf8 (u8"A\U0001F3A7B")) == button (language_contract::utf8 (u8"A\u25A1B")));
+        KIRIN_LANGUAGE_REQUIRE (button (language_contract::utf8 (u8"A\U0001F3A7B")) != button ("AB"));
+    }
+
     verifyJapaneseWording();
     verifyJapaneseTerms();
     verifyJapanesePhrases();

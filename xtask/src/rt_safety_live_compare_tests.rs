@@ -277,7 +277,9 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
     assert!(ring_section < held);
     assert!(rt.contains("liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, postTarget);"));
     assert!(rt.contains("|| report.guardTripped"));
-    assert!(rt.contains("liveCompare.blind.fallback (blindCommand)"));
+    assert!(
+        rt.contains("liveCompare.blind.fallback (blindCommand, frames, preparedFormat.sampleRate)")
+    );
     let apply = function_body(
         PROCESSOR_CPP,
         "hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch",

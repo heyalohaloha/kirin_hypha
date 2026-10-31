@@ -76,6 +76,9 @@ namespace hypha
     // Japanese screen text (INV-S40): kana, kanji and full-width forms, which the label fonts do
     // not carry. Only such text changes font, so English is drawn exactly as before.
     bool requiresJapaneseGlyphs (const juce::String& text) noexcept;
+    // Screen copy of a value: characters no shipped font carries (emoji and other non-CJK characters
+    // above the BMP) become "□" so they are never drawn as another character. Display only.
+    juce::String displayableText (const juce::String& text);
     // The system's Japanese-capable text font at the height of a font the contract already chose.
     juce::Font nativeTextFontLike (const juce::Font& contracted);
     bool usingKimeraTypography() noexcept;

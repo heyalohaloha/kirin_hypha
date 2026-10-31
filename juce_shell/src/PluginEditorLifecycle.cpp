@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    processorRef.vuLive().setEnabled (false);
     setConstrainer (nullptr); // the size rule is a member and goes before the base editor
     pairPreview.reset();
     processorRef.setReferenceViewPresented (false);
@@ -37,6 +38,7 @@ void KirinHyphaEditor::timerCallback()
         pairPreviewShown = {};
         pairPreviewObservedGeneration = 0;
         processorRef.setReferenceViewPresented (false);
+        processorRef.vuLive().setEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (isPost && liveCompareAuto.on)
         {
@@ -48,6 +50,11 @@ void KirinHyphaEditor::timerCallback()
         return;
     }
     observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
+    // The Hybrid VU needle follows the audio thread's own 300 ms integration at frame rate
+    // (HyphaVuLiveTap.h); the 100 ms meter publication stays the footer's and Capture's source.
+    processorRef.vuLive().setEnabled (observatoryView.hybridVuVisible());
+    if (! observatoryView.onVuLiveLevel)
+        observatoryView.onVuLiveLevel = [this] (int channel) { return processorRef.vuLive().level (channel); };
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);

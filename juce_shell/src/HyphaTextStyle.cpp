@@ -30,7 +30,7 @@ ShownTextLog::~ShownTextLog()
 
 juce::String shownText (const juce::String& text, LabelPolicy policy)
 {
-    return policy == LabelPolicy::fixed ? text : i18n::tr (text);
+    return displayableText (policy == LabelPolicy::fixed ? text : i18n::tr (text));
 }
 
 float shownWidth (const juce::Font& font, const juce::String& text, LabelPolicy policy)

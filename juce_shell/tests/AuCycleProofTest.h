@@ -118,9 +118,9 @@ inline void verifyAuCycleProof()
             BlindSession blind; blind.start (true);
             BlindPreparation preparation; preparation.begin (1);
             preparation.observe (preparation.command(), true, RecoveryReason::none, 1);
-            blind.fallback (blind.command());
+            blind.fallback (blind.command(), 2048, 48000.0);
             preparation.observe (preparation.command(), false, RecoveryReason::cycleUnverified, 1);
-            blind.fallback (blind.command());
+            blind.fallback (blind.command(), 2048, 48000.0);
             preparation.observe (preparation.command(), true, RecoveryReason::none, 1);
             require (!blind.view().invalidated && blind.view().usedPostFallback
                 && preparation.failure() == RecoveryReason::none, "fresh Cycle proof continues the same Blind request");

@@ -286,6 +286,31 @@ inline void verifyReferenceStatusLine()
     // 30 秒再生しても合わないときは、黙って待たせず 1.1.53 の文で何が起きているかと直し方を言う（待ちは続ける）。
     require (watch.observe (1, Step::aligning, false, true, true, 261.0) == "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
              "30 s of play without a match says so and what to do");
+    // 合わない音では 4 秒の録りごとに「一致未確認」と「位置合わせ中」が入れ替わる。段が入れ替わっても再生 30 秒の
+    // 数えは続き、超えたらどちらの段でも同じ文を出したまま待つ（2026-10-31 Mac REAPER V3：案内が一度も出なかった）。
+    {
+        reference_ui::PreparationWatch alternating;
+        for (double now = 0.0; now <= 29.0; now += 0.5)
+            require (alternating.observe (1, static_cast<int> (now) % 8 < 6 ? Step::aligning : Step::noMatchingPassage,
+                                          false, true, true, now).isEmpty(),
+                     "under 30 s of play neither step is overdue");
+        for (double now = 29.5; now <= 30.0; now += 0.5) alternating.observe (1, Step::aligning, false, true, true, now);
+        require (alternating.observe (1, Step::noMatchingPassage, false, true, true, 30.5)
+                     == "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+                 "a transient no-match does not restart the 30 s count");
+        require (alternating.observe (1, Step::aligning, false, true, true, 31.0)
+                     == "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+                 "the alignment overdue stays while the steps keep alternating");
+        auto flipped = named ("ready");
+        flipped.separateComparisons = true;
+        flipped.comparisonSlot = 1;
+        flipped.versionStep = Step::noMatchingPassage;
+        flipped.preparationOverdue = reference_ui::stageOf (Step::aligning).overdue;
+        const auto flippedLine = reference_ui::referenceStatusLine (flipped);
+        require (flippedLine.kind == StatusKind::waiting
+                     && flippedLine.text == "V: NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN",
+                 "the status line keeps the overdue text during the no-match step instead of flipping");
+    }
     require (watch.observe (2, Step::waitingForKirinOs, false, false, false, 300.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, false, false, 320.0).isEmpty()
                  && watch.observe (2, Step::waitingForKirinOs, false, true, false, 326.0).isEmpty()

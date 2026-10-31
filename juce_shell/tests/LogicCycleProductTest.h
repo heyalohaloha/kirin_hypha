@@ -57,6 +57,9 @@ inline void verifyLogicCycleProduct (content_analysis_product::Fixture& fixture,
         fixture.block(); post.serviceLiveBlind(); fixture.noDelta (spectrum);
         require (post.liveBlindStatus().stage == BlindStage::active && !post.liveCompareStatus().preAudible,
                  "missing presentation proof uses bit-identical POST without ending BLIND");
+        // One 256-frame callback (5.3 ms) of POST is too brief to hear; REVEAL discloses a run of 20 ms or more.
+        require (! post.liveBlindStatus().trial.usedPostFallback, "a single brief callback of POST is not disclosed");
+        for (int n = 0; n < 4; ++n) { fixture.block(); post.serviceLiveBlind(); fixture.noDelta (spectrum); }  // 26.7 ms in all
         fixture.postClock.reported = true; fixture.auditionAllowed = true;
         fixture.until ([&] { post.serviceLiveBlind(); return post.liveCompareStatus().preAudible; },
                        "fresh Logic proof automatically resumes anonymous PRE");

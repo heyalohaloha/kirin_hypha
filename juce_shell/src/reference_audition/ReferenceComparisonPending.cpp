@@ -220,6 +220,11 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     }
     if (state.auditionPages == AuditionPageState::outsideSource || state.auditionPages == AuditionPageState::readFailed)
     {
+        // 停止の後に同じ V へ戻る自動の戻し（resume）は、再生位置が版の範囲外でも捨てない。範囲外のあいだは A のまま
+        // 待ち（確かめた写像で範囲外の位置は鳴らさない）、範囲内に入れば押し直し無しで戻す（1.1.53 と同じ）。
+        // 利用者が押した初回と選択の替えは、確かめた写像の上で範囲外なら今までどおり理由を出して断る。
+        if (intent.resume && state.auditionPages == AuditionPageState::outsideSource)
+        { publish (state.transportPlaying ? Stage::checking : Stage::play, callbackLive); return; }
         if (intent.resume || intent.switching) dropResume();
         publish (state.auditionPages == AuditionPageState::outsideSource ? Stage::startFailed : Stage::sourceChanged,
                  callbackLive, state.auditionPages == AuditionPageState::outsideSource

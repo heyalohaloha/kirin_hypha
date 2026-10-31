@@ -73,7 +73,8 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     if (state.readiness == Readiness::rejected && (step == SourceStep::waitingForKirinOs || step == SourceStep::attention))
         return { StatusKind::unable, state.status };
     const auto kind = kindOf (step);
-    if (kind == StatusKind::waiting && state.preparationOverdue.isNotEmpty())
+    // 位置合わせの 30 秒超えは、一時的な「一致未確認」の段でも同じ文を出したまま待つ（数秒ごとに入れ替えない）。
+    if ((kind == StatusKind::waiting || step == SourceStep::noMatchingPassage) && state.preparationOverdue.isNotEmpty())
         return { StatusKind::waiting, letter + ": " + state.preparationOverdue };
     // Kirin OS へ頼んだこと（Preset・曲の準備、Kirin OS で開く、Blind の承認）の途中は、その文（直し方はボタン）。
     if (state.kirinOsRequest) return { kind, state.status };
