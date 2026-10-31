@@ -65,6 +65,7 @@ public:
     }
     ~Lifecycle() override { stopTimer(); running.store (false); audio.join(); }
     bool passed = false;
+    bool staleChecked = false;
 
 private:
     template <typename Predicate> void waitWithoutMessageService (Predicate&& ready, int timeoutMs = 350)
@@ -196,6 +197,18 @@ private:
                 {
                     require (post->startLiveCompare() == StartResult::started, "named fade fixture starts");
                     post->selectLiveComparePre (true); stage = 9; break;
+                }
+                if (mode == "held" && ! staleChecked)
+                {   // A waiting LISTEN keeps the ticket of its press: a restore of the same state after the
+                    // editor checked it refuses the start under the pair lock; a new press then starts.
+                    const auto pressed = post->restoreOrPairTicket();
+                    juce::MemoryBlock same;
+                    post->getStateInformation (same);
+                    post->setStateInformation (same.getData(), static_cast<int> (same.getSize()));
+                    require (post->startLiveCompare (pressed) != StartResult::started && ! post->liveCompareStatus().active,
+                             "a LISTEN press from before a restore of the same state does not start");
+                    staleChecked = true;
+                    break;
                 }
                 if (mode == "held" || mode == "finishing" || mode == "out-of-range"
                     || mode == "reuse-held" || mode == "restore-matched-listen")

@@ -96,7 +96,7 @@ int main()
             const auto report = renderer.render (*ring, pair, rate, post, out, channels,
                 blind.valid (command), 1.0f, level, 1.0f, 1.0f, command.active());
             require (report.verdict != Verdict::accepted, "every injected fault rejects this block");
-            if (report.verdict != Verdict::accepted) blind.fallback (command);
+            if (report.verdict != Verdict::accepted) blind.fallback (command, blockFrames, static_cast<double> (rate));
             if (report.timelineChanged) reentry.lost (report.loss, true);
             require (!blind.view().invalidated && !report.preAudible, "unverified Logic callback keeps POST and the same BLIND");
             for (const auto& channel : output) for (auto sample : channel) require (sample == -0.25f, "fault block keeps original POST");

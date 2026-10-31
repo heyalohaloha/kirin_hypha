@@ -198,7 +198,10 @@ mod tests {
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_ARMED 2u"));
         assert!(FFI_HEADER.contains("uint8_t kirin_hypha_keep_phase(KirinHypha* handle);"));
         assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_keep_phase (hyphaHandle)"));
-        assert!(body.contains("const bool keepActive = recording || preparing || armed;"));
+        // 2026-10-31: a Keep that waits for PRE also shows the Stop that cancels it.
+        assert!(body.contains(
+            "const bool keepActive = recording || preparing || armed || keepPreWaitSince > 0.0;"
+        ));
         assert!(body.contains("\"Preparing pairs...\""));
         assert!(body.contains("\"Ready to bounce\""));
         assert!(body.contains("observatoryView.setKeepActive (keepActive);"));
@@ -355,7 +358,13 @@ mod tests {
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (",
         );
-        let keep_body = between(menu_body, "else if (result == 4)", "else if (result == 5)");
+        let keep_menu = between(menu_body, "else if (result == 4)", "else if (result == 5)");
+        assert!(keep_menu.contains("requestKeepPair (false)"));
+        // 2026-10-31: the menu Keep goes through requestKeepPair, which may wait for a paired PRE.
+        let keep_body = cpp_body(
+            PLUGIN_EDITOR_CPP,
+            "void KirinHyphaEditor::requestKeepPair (",
+        );
 
         assert!(
             !keep_body.contains("recordExclusionConflict()"),

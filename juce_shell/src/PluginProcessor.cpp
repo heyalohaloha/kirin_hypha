@@ -302,7 +302,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     }
     else
     {
-        kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
+        feedNoMeasurement ((uint32_t) numCh);
     }
 
     processComparisonPaths (buffer, processClock, measurementTimelineActive, bypassed, nonRealtimeMode);

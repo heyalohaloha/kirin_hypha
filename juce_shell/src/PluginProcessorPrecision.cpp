@@ -32,7 +32,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<double>& buffer, j
         if (channels > 0)
         {
             kirin_hypha_note_oversized_drop (hyphaHandle, static_cast<uint64_t> (frames) * static_cast<uint64_t> (channels));
-            kirin_hypha_push_samples (hyphaHandle, nullptr, 0, static_cast<uint32_t> (channels));
+            feedNoMeasurement (static_cast<uint32_t> (channels));
         }
         return;
     }

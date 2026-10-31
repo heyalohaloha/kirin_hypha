@@ -131,10 +131,34 @@ bool requiresJapaneseGlyphs (const juce::String& text) noexcept
             || (character >= 0x31f0 && character <= 0x31ff)   // katakana extensions
             || (character >= 0x3400 && character <= 0x4dbf)   // CJK extension A
             || (character >= 0x4e00 && character <= 0x9fff)   // CJK unified ideographs
-            || (character >= 0xff00 && character <= 0xffef))  // full-width and half-width forms
+            || (character >= 0xf900 && character <= 0xfaff)   // CJK compatibility ideographs
+            || (character >= 0xff00 && character <= 0xffef)   // full-width and half-width forms
+            || (character >= 0x20000 && character <= 0x3134f) // CJK extensions B to G (𠮷 is U+20BB7)
+            || (character >= 0x2f800 && character <= 0x2fa1f)) // CJK compatibility supplement
             return true;
     }
     return false;
+}
+
+// JUCE 7 on macOS draws a character the chosen font lacks with another font's glyph number, so an
+// emoji such as 🎧 came out as the full-width "４" (GLYPH/DIAG.md). Every character above the
+// BMP that is not a kanji the Japanese font carries is shown as "□" instead; the stored value
+// and every comparison keep the original text.
+juce::String displayableText (const juce::String& text)
+{
+    bool needed = false;
+    for (auto cursor = text.getCharPointer(); ! cursor.isEmpty(); ++cursor)
+        if (*cursor >= 0x10000 && ! requiresJapaneseGlyphs (juce::String::charToString (*cursor))) { needed = true; break; }
+    if (! needed) return text;
+    juce::String shown;
+    shown.preallocateBytes (static_cast<std::size_t> (text.getNumBytesAsUTF8()));
+    for (auto cursor = text.getCharPointer(); ! cursor.isEmpty(); ++cursor)
+    {
+        const auto character = *cursor;
+        shown += character >= 0x10000 && ! requiresJapaneseGlyphs (juce::String::charToString (character))
+            ? juce::String::charToString (static_cast<juce::juce_wchar> (0x25a1)) : juce::String::charToString (character);
+    }
+    return shown;
 }
 
 juce::Font nativeTextFontLike (const juce::Font& contracted)

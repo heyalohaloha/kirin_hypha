@@ -148,7 +148,25 @@ private:
     void wireReferenceRoles();  // B（REF）の押し方と B の曲・B SET（PluginEditorReferenceRoles.cpp）
     void applyReferenceRoles (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     bool ensureReferenceRoom();
+    // REF の C・V・VERSION BLIND が 900 x 600 に広げた大きさは利用者の物ではない。戻る大きさを覚えて保存しない。
+    juce::Point<int> referenceReturnSize, referenceHeldSize;
+    bool referenceReturnOnBlindEnd = false, referenceBlindSeen = false;
+    bool referenceHoldsEditorSize() const noexcept
+    { return ! referenceReturnSize.isOrigin() && getWidth() == referenceHeldSize.x && getHeight() == referenceHeldSize.y; }
+    void releaseReferenceRoom (bool referenceBlind);
+    double referenceRematchUntil = 0.0, referenceRematchNextAt = 0.0;  // 待たせた C の MATCH（2026-10-31）
+    juce::String referenceRematchKey;  // 押した C の選択と再生の意図（役・Check・Cue・選択の世代）
+    juce::String referenceRematchTarget() const;
+    void serviceReferenceRematch();
     void openReferenceLarge (int slot);
+    // A host may put the widened window back (REAPER's FX chain). The page-opened notice waits for a
+    // tick 0.2 s later, only for the press it answers (its role, selection and page, no later notice).
+    int referenceOpenedSlot = 0;
+    double referenceOpenedAt = 0.0, referenceOpenedToastUntil = 0.0;
+    juce::Point<int> referenceOpenedFrom;
+    juce::String referenceOpenedKey;
+    juce::String referenceOpenedTarget (int slot) const;
+    void serviceReferenceOpenedNotice();
     // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
     double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）
     bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);
@@ -164,6 +182,7 @@ private:
     void closeLocalBlindProduct();
     void refreshLocalBlindProduct();
     void returnFromLocalBlindSize();
+    void returnToHeldSize (juce::Point<int>& held);
     void layoutLocalBlindProduct();
     void setLocalBlindIsolation (bool active);
     void configureLiveBlind();
@@ -182,6 +201,11 @@ private:
     void handleLiveCompareMatchChoice (const hypha::live_compare::MatchPlan&, int result);
     bool followLiveCompare (const hypha::live_compare::Status&, double now);
     void stopLiveCompareAuto (const juce::String& notice);
+    double liveCompareStartAfterReturnUntil = 0.0;  // INV-LC14：RETURN してから始める LISTEN の押し
+    juce::String liveCompareStartAfterReturnKey;     // 押したときの組み（PRE が替われば捨てる）
+    std::uint64_t liveCompareStartAfterReturnTicket = 0;     // 押したときの復元・組みの世代（開始の入口まで渡す）
+    std::optional<std::uint64_t> liveCompareStartPressed;    // 待たせた押しを始めるあいだだけ持つ
+    void serviceLiveCompareStartAfterReturn();
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -371,7 +395,7 @@ private:
     bool blindHoldsEditorSize() const noexcept
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        return ! localBlindReturnSize.isOrigin();
+        return ! localBlindReturnSize.isOrigin() || referenceHoldsEditorSize();
        #else
         return false;
        #endif
@@ -385,6 +409,12 @@ private:
     std::uint64_t comparisonObservedGeneration = 0;
     std::uint64_t comparisonActionAfterGeneration = 0;
     bool comparisonActionAwaitingResult = false;
+    double comparisonPreInactiveSince = 0.0; // a starting PRE is not called stopped at once
+    double keepPreWaitSince = 0.0, keepPreWaitNextAt = 0.0;  // PRE の応答を待たせた Keep（2026-10-31）
+    juce::String keepPreWaitPair;  // 押したときの組み。同じ組みだけを確かめ直す
+    juce::String waitingPairKey() const;
+    void dropWaitingRequests();    // 隠す・Stop・組み／state の変更・別の試聴で、まだ始めていない要求を捨てる
+    void requestKeepPair (bool retry);
     uint8_t comparisonNoticeReason = KIRIN_COMPARISON_REASON_NONE;
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};

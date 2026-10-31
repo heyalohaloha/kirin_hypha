@@ -30,7 +30,7 @@ void View::updateVuVisibility()
                         repaint (area);
                 vuRepaintPositions[channel] = next;
             }
-        });
+        }, [this] { refreshVuTargets(); });
     if (visible && ! vuAnimator->isVisible())
         for (int channel = 0; channel < 2; ++channel)
         {
@@ -39,6 +39,30 @@ void View::updateVuVisibility()
             vuAnimator->snap (channel, vuRepaintPositions[channel]);
         }
     vuAnimator->setVisible (visible);
+}
+
+// One needle target per channel: the audio thread's live integration while the tap has a whole
+// window, otherwise the 100 ms publication (tests, offscreen paint, the first 300 ms after the
+// tap was enabled). Same calibration and the same availability gate as the published value.
+void View::refreshVuTargets()
+{
+    if (! vuAnimator) return;
+    const auto& meter = observatoryFrame.meter;
+    const bool available = currentFactsAvailable();
+    bool usedLive = false;
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        const bool channelAvailable = available && channel < meter.channels;
+        const auto liveValue = channelAvailable && onVuLiveLevel ? onVuLiveLevel (channel)
+                                                                : std::numeric_limits<double>::quiet_NaN();
+        if (channelAvailable && std::isfinite (liveValue))
+        {
+            usedLive = true;
+            vuAnimator->setTarget (channel, hybrid_vu::vuNormalized (liveValue, vuCalibration()));
+        }
+        else vuAnimator->setTarget (channel, targetFor (meter, available, channel, vuCalibration()));
+    }
+    vuAnimator->setLive (usedLive);
 }
 
 void View::setVuFrameTestMode (bool enabled) { vuFrameTestMode = enabled; updateVuVisibility(); }
@@ -62,9 +86,7 @@ void View::paintHybridVu (juce::Graphics& g)
     updateVuVisibility();
     // Offscreen rendering uses the published values and has no dependency on frame timing.
     if (! vuAnimator->isVisible()) { hybrid_vu::paint (g, getLocalBounds(), state); return; }
-    for (int channel = 0; channel < 2; ++channel)
-        vuAnimator->setTarget (channel, targetFor (state.meter, state.currentAvailable,
-                                                   channel, state.calibrationDbfs));
+    refreshVuTargets();
     // The cache is drawn at the pixels it lands on: the editor's magnification and a Retina or
     // high-DPI display both count, so the face stays as sharp as the needle drawn over it.
     vuLayerCache.paint (g, getLocalBounds(), state,

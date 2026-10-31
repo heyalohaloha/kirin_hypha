@@ -58,10 +58,12 @@ public:
         Decision decision;
         TimingSnapshot runtimePeer;
         const bool runtimeProof = preparedKind == LoopEntryKind::reaperBound || preparedKind == LoopEntryKind::logicPresentation;
-        bool runtimeVerified = false;
+        bool runtimeVerified = false, peerTokenAbsent = false;
         if (runtimeProof && kValid)
         {
-            if (!sameClockProof (admittedPostProof, block))
+            // An absent token exempts only the token and its bound; the block itself stays unverified.
+            auto compared = block; retainReaperToken (compared, admittedPostProof);
+            if (!sameClockProof (admittedPostProof, compared))
             {
                 invalidate(); initialAdmission = false;
                 decision.timelineChanged = true; decision.loss = TimelineBreak::clockProofChanged;
@@ -87,6 +89,8 @@ public:
             TimingSnapshot peer;
             if (!readTiming (ring.header.timing, peer))
             { decision.verdict = Verdict::writing; return fill (decision); }
+            peerTokenAbsent = reaperTokenAbsent (peer.block);
+            if (! peerTokenAbsent && ! reaperTokenAbsent (block)) runtimeTokenSeen = true;
             const auto loss = reaperContinuity.observe (peer, block);
             const auto runtimeAge = reaperRuntimeAge (peer.block, block);
             std::int64_t preEnd = 0, address = 0, age = 0;
@@ -223,6 +227,10 @@ public:
             decision.verdict = block.loop.active ? Verdict::loopUnproven : Verdict::calibrating;
             return fill (decision);
         }
+        // Neither side's token may be absent for a PRE block, in linear playback as well: the
+        // proven K waits for the same token instead of admitting an unverified block.
+        if (runtimeTokenSeen && (reaperTokenAbsent (block) || peerTokenAbsent))
+        { decision.verdict = Verdict::loopWaiting; return fill (decision); }
         decision.preStart = block.clock - k;
         if ((block.loop.active || runtimeProof) && (! loopVerified || decision.loopFailure != LoopEntryFailure::none))
         {
@@ -362,6 +370,7 @@ private:
     void invalidate() noexcept
     {
         kValid = false;
+        runtimeTokenSeen = false;
         streak = 0;
         last = noCandidate;
     }
@@ -464,6 +473,7 @@ private:
 
     CalibrationProfile profile;
     bool kValid = false;
+    bool runtimeTokenSeen = false; // both sides supplied a token under this K
     std::int64_t k = 0;
     std::int64_t last = noCandidate;
     std::int32_t streak = 0;

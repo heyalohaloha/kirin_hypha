@@ -2,6 +2,8 @@
 // 状態ごとに書いた期待と突き合わせる。活動・状態の種類を足すと、ここの列を書き足すまで通らない。
 #include "../src/OutputOwnership.h"
 #include "../src/live_compare/LiveCompareAuthority.h"
+#include "../src/HyphaLiveStartAfterReturn.h"
+#include "../src/HyphaKeepPreWait.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -121,6 +123,48 @@ void decisionsCombineStates()
     require (entryAdmission (true, true, false, false, false, 0.5f, 0.5f) == StartResult::started
                  && entryAdmission (false, true, false, false, false, 0.5f, 0.5f) == StartResult::returnRequired,
              "only LIVE BLIND carries its session's attenuation");
+    // INV-LC14（2026-10-31）：下げているあいだに押した LISTEN は断らずに RETURN し、戻り終えたら同じ押しで始める。
+    using hypha::live_compare_ui::StartAfterReturn;
+    using hypha::live_compare_ui::onStartPressed;
+    using hypha::live_compare_ui::whileReturning;
+    require (onStartPressed (StartResult::returnRequired) == StartAfterReturn::returnFirst,
+             "LISTEN pressed while POST is lowered returns POST first instead of refusing");
+    require (whileReturning (StartResult::returnRequired) == StartAfterReturn::waitForReturn
+                 && whileReturning (StartResult::returnPending) == StartAfterReturn::waitForReturn
+                 && whileReturning (StartResult::started) == StartAfterReturn::start,
+             "the press waits while POST returns and starts LISTEN once it is back");
+    // The role this press's own RETURN still fades out is not a new audition: the press waits. A role the
+    // user chose again (or pressed and waiting), VERSION BLIND or PRE/POST Blind drops the press.
+    {
+        using hypha::output_owner::bit;
+        using hypha::output_owner::State;
+        require (whileReturning (StartResult::returnRequired, bit (State::audition) | bit (State::referenceLowered))
+                         == StartAfterReturn::waitForReturn
+                     && whileReturning (StartResult::returnPending, bit (State::audition) | bit (State::referenceReturning))
+                         == StartAfterReturn::waitForReturn
+                     && whileReturning (StartResult::started, 0) == StartAfterReturn::start,
+                 "the fade of this press's own RETURN keeps the LISTEN press waiting");
+        require (whileReturning (StartResult::started, bit (State::auditionHeld)) == StartAfterReturn::drop
+                     && whileReturning (StartResult::returnRequired, bit (State::audition) | bit (State::auditionHeld))
+                         == StartAfterReturn::drop
+                     && whileReturning (StartResult::comparisonBusy, bit (State::versionBlind)) == StartAfterReturn::drop
+                     && whileReturning (StartResult::comparisonBusy, bit (State::localBlind)) == StartAfterReturn::drop,
+                 "a new audition by the user drops the waiting LISTEN press");
+    }
+    require (onStartPressed (StartResult::comparisonBusy) == StartAfterReturn::refuse
+                 && onStartPressed (StartResult::noPair) == StartAfterReturn::refuse,
+             "other refusals still say why");
+    // Keep（2026-10-31）：組んだ PRE がまだ応答しないだけなら、押した Keep を待たせ、上限まで応答しない時だけ選び直しを言う。
+    using hypha::keep_ui::KeepWait;
+    using hypha::keep_ui::keepWait;
+    require (keepWait (false, hypha::keep_ui::preUnavailableNotice, 0.0) == KeepWait::wait
+                 && keepWait (false, hypha::keep_ui::preUnavailableNotice, hypha::keep_ui::preWaitSeconds - 0.1) == KeepWait::wait,
+             "Keep waits for a paired PRE that has not answered yet");
+    require (keepWait (false, hypha::keep_ui::preUnavailableNotice, hypha::keep_ui::preWaitSeconds) == KeepWait::notify,
+             "a PRE that never answers asks to choose PRE again");
+    require (keepWait (true, {}, 0.0) == KeepWait::done && keepWait (false, "Keep storage is full. Free disk space.", 0.0) == KeepWait::notify
+                 && keepWait (false, "Choose a PRE before Keep.", 0.0) == KeepWait::notify,
+             "a started Keep and every other refusal answer at once");
 }
 }
 

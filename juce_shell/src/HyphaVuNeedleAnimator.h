@@ -13,8 +13,10 @@ namespace hypha::hybrid_vu
 class NeedleAnimator : private juce::AsyncUpdater, private juce::ComponentListener
 {
 public:
-    NeedleAnimator (juce::Component& ownerIn, std::function<void()> repaintIn)
-        : owner (ownerIn), repaint (std::move (repaintIn)) {}
+    // `refreshIn` runs at the start of every frame while showing, so the owner can pull the
+    // audio thread's live VU values and retarget before the needles advance.
+    NeedleAnimator (juce::Component& ownerIn, std::function<void()> repaintIn, std::function<void()> refreshIn = {})
+        : owner (ownerIn), repaint (std::move (repaintIn)), refresh (std::move (refreshIn)) {}
     ~NeedleAnimator() override { setVisible (false); }
 
     bool isVisible() const noexcept { return static_cast<bool> (attachment); }
@@ -48,6 +50,7 @@ public:
     }
 
     void snap (int channel, double target) noexcept { motion.snap (channel, target); }
+    void setLive (bool live) noexcept { motion.setLive (live); }
     double position (int channel) const noexcept { return motion.position (channel); }
     void tickForTest (double dt) { dispatch (dt); }
 
@@ -69,6 +72,7 @@ private:
     void onFrame()
     {
         if (! owner.isShowing()) { triggerAsyncUpdate(); return; }
+        if (refresh) refresh();
         if (! motion.active()) return;
         const auto now = juce::Time::getMillisecondCounterHiRes();
         const auto dt = (now - lastTime) / 1000.0;
@@ -81,7 +85,7 @@ private:
     }
 
     juce::Component& owner;
-    std::function<void()> repaint;
+    std::function<void()> repaint, refresh;
     NeedleMotionPair motion;
     double lastTime = 0.0;
     std::unique_ptr<juce::VBlankAttachment> attachment;

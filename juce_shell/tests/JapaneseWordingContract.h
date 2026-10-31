@@ -56,8 +56,6 @@ inline void verifyJapaneseWording()
         { "The comparison ownership changed.", u8"出力が別の試聴に移りました。" },
         { "Keep setup failed. Select PRE again.",
           u8"Keepの準備失敗。PREを選び直してください。" },
-        { "Blind view opened. Press VERSION BLIND to start after checking the level.",
-          u8"Blind画面です。音量を見てVERSION BLINDを押す" },
         { "Capture attached to Work", u8"画像をWorkに添付しました" },
         { "PRE is multi-mono: insert it as stereo", u8"PREがMulti-monoです。Stereoで挿してください" },
         { "Hypha v1.2.3 available; open PRE / POST for downloads",

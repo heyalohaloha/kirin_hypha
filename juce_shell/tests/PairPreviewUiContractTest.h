@@ -117,5 +117,35 @@ inline void verifyPairPreviewUiContract()
     name.paint (graphics); require (name.paintedSelectionGeneration() == 0,"resize invalidates a preview before the next timer update");
     require (!name.setSelectionPreview ("+ PRE 76543210",8),"narrow labels retain the ordinary menu instead of truncating identity");
     name.paint (graphics); require (name.paintedSelectionGeneration() == 0,"a clipped preview cannot be selected as displayed");
+    // The editor's real badge widths (status slot less LED, menu target and gap): a candidate whose
+    // name does not fit still reads as a connectable PRE, never as NO PRE, and is not a receipt.
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        i18n::ScopedLanguage scoped (language);
+        for (const auto [percent, width] : { std::pair { 100, 62 }, { 125, 68 }, { 150, 68 }, { 200, 104 }, { 300, 174 } })
+        {
+            EditableName badge;
+            badge.setPresentationContext (presentation::forEditor (3 * percent, 2 * percent));
+            badge.setSize (width, 24 * percent / 100);
+            badge.setFallback (pair_labels::unpaired); badge.onSelect = [] {};
+            for (const auto& label : { pair_labels::candidateLabel ({}, "80f7f102aa"),
+                                       pair_labels::candidateLabel ("0123456789ABCDEF", "80f7f102aa") })
+            {
+                const bool full = badge.setSelectionPreview (label, 9);
+                require (full || badge.setSelectionPreview (pair_labels::candidateShort, 0), "a candidate always has a label that fits");
+                juce::Image pixels (juce::Image::ARGB, badge.getWidth(), badge.getHeight(), true);
+                juce::Graphics g (pixels); text_style::ShownTextLog shown; badge.paint (g);
+                require (! shown.texts().contains ("NO PRE") && ! shown.texts().contains (juce::String::fromUTF8 (u8"PREなし")),
+                         "a connectable PRE is never shown as no PRE");
+                require (full == (badge.paintedSelectionGeneration() == 9), "only a full identity is a painted receipt");
+            }
+        }
+    }
+    {
+        EditableName badge; badge.setPresentationContext (presentation::forEditor (450, 300)); badge.setSize (68, 36);
+        badge.setFallback (pair_labels::unpaired); badge.onSelect = [] {};
+        require (! badge.setSelectionPreview (pair_labels::candidateLabel ({}, "80f7f102aa"), 9), "at 150% an identity does not fit the badge");
+        require (badge.setSelectionPreview (pair_labels::candidateShort, 0), "the short candidate label fits at 150%");
+    }
 }
 }

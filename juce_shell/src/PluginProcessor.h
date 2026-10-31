@@ -22,6 +22,7 @@
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaVuCalibrationPreference.h"
+#include "HyphaVuLiveTap.h"
 #include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -80,8 +81,7 @@ public:
     // Editor (message thread) reads the latest RT result. Null handle / lock contention -> false.
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
-    bool pollRecordDisplay (KirinRecordDisplay& out) const;
-    bool pollMeterSession (KirinMeterSession& out) const;
+    bool pollRecordDisplay (KirinRecordDisplay& out) const; bool pollMeterSession (KirinMeterSession& out) const;
     bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
     bool pollLevelSnapshot (KirinLevelSnapshot& out,
                             std::vector<KirinMeterHistoryEntry>& history,

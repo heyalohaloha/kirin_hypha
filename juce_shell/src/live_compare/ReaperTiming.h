@@ -25,6 +25,27 @@ inline bool reaperProcessing (const BlockClock& block) noexcept
         && block.clockAuthority == static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
 }
 
+// The mailbox supplies no token for a callback that a publication raced (or one read torn).
+// An absent token is not a changed one: that block is unverified and sounds POST, but the
+// proven K, the PRE generation and a Blind trial are not revoked. A different token still is
+// a changed proof.
+inline bool reaperTokenAbsent (const BlockClock& block) noexcept
+{
+    return reaperProcessing (block) && block.runtimeChainA == 0 && block.runtimeChainB == 0
+        && block.runtimeRevision == 0;
+}
+
+// Carries the last supplied token across an absent block, so the next supplied token is
+// compared with the proven one rather than with the gap.
+inline void retainReaperToken (BlockClock& block, const BlockClock& previous) noexcept
+{
+    if (! reaperTokenAbsent (block)) return;
+    block.runtimeChainA = previous.runtimeChainA;
+    block.runtimeChainB = previous.runtimeChainB;
+    block.runtimeRevision = previous.runtimeRevision;
+    block.maximumDelaySamples = previous.maximumDelaySamples;
+}
+
 // A burst pause is only a scheduling observation. Defer a raw wall gap to the pair
 // check when this side's actual project movement and counter are continuous. A
 // whole-lap pause cannot use repeated project positions as that witness.

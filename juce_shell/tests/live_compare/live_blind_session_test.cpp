@@ -114,5 +114,41 @@ int main()
         trial.start (firstPre);
         require (! trial.select (0) && ! trial.select (3) && ! trial.reveal(), "bad commands are refused");
     }
-    std::cout << "Live Blind session: PASS (both mappings, late receipts, faults, END, restart)\n";
+    // POST の代替は、聞こえる長さ（連続 25 ms 以上）だけ REVEAL で知らせる（折り返しの 1 callback、1024@44.1/48k や
+    // 2048@96k の単発は知らせない。2048@48k や連続 25 ms 以上は知らせる）。
+    {
+        BlindSession brief; brief.start (true);          // SOURCE 1 = PRE が要求されている
+        const auto cmd = brief.command();
+        brief.observe (cmd, true);
+        brief.fallback (cmd, 512, 48000.0);              // 10.7 ms
+        require (! brief.view().usedPostFallback, "one short callback of POST during PRE is not disclosed");
+        brief.observe (cmd, true);                       // PRE に戻った：次の倒れは別の run
+        brief.fallback (cmd, 512, 48000.0);
+        brief.observe (cmd, false);                      // 戻りの crossfade は run を切らない
+        brief.fallback (cmd, 687, 48000.0);              // 1199 frames = 24.98 ms
+        require (! brief.view().usedPostFallback, "separate short runs never add up; just under 25 ms stays undisclosed");
+        brief.fallback (cmd, 1, 48000.0);                // 1200 frames = 25 ms
+        require (brief.view().usedPostFallback, "25 ms of contiguous POST during PRE is disclosed");
+        for (const auto [frames, rate] : { std::pair { 1024, 48000.0 }, std::pair { 1024, 44100.0 }, std::pair { 2048, 96000.0 } })
+        {
+            BlindSession single; single.start (true);
+            single.fallback (single.command(), frames, rate);
+            require (! single.view().usedPostFallback, "a single callback shorter than 25 ms is not disclosed");
+            single.observe (single.command(), true);
+            single.fallback (single.command(), frames, rate);
+            require (! single.view().usedPostFallback, "two runs separated by audible PRE are not added together");
+        }
+        BlindSession one; one.start (true);
+        one.fallback (one.command(), 2048, 48000.0);     // 42.7 ms の 1 callback
+        require (one.view().usedPostFallback, "a single long callback is disclosed");
+        BlindSession postSide; postSide.start (false);   // SOURCE 1 = POST
+        postSide.fallback (postSide.command(), 96000, 48000.0);
+        require (! postSide.view().usedPostFallback, "POST while POST is requested is not a fallback");
+        BlindSession across; across.start (true);
+        across.fallback (across.command(), 512, 48000.0);
+        across.reset(); across.start (true);
+        across.fallback (across.command(), 512, 48000.0);
+        require (! across.view().usedPostFallback, "a new trial starts its own run");
+    }
+    std::cout << "Live Blind session: PASS (both mappings, late receipts, faults, END, restart, brief fallback)\n";
 }
