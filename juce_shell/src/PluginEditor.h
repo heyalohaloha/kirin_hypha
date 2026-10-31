@@ -159,6 +159,14 @@ private:
     juce::String referenceRematchTarget() const;
     void serviceReferenceRematch();
     void openReferenceLarge (int slot);
+    // A host may put the widened window back (REAPER's FX chain). The page-opened notice waits for a
+    // tick 0.2 s later, only for the press it answers (its role, selection and page, no later notice).
+    int referenceOpenedSlot = 0;
+    double referenceOpenedAt = 0.0, referenceOpenedToastUntil = 0.0;
+    juce::Point<int> referenceOpenedFrom;
+    juce::String referenceOpenedKey;
+    juce::String referenceOpenedTarget (int slot) const;
+    void serviceReferenceOpenedNotice();
     // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
     double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）
     bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);

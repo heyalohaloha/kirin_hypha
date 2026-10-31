@@ -56,6 +56,26 @@ struct EditorToast
     friend Type privateMember (EditorToast);
 };
 template struct PrivateAccess<EditorToast, &KirinHyphaEditor::toastText>;
+struct ReferenceOpenedAt
+{
+    using Type = double KirinHyphaEditor::*;
+    friend Type privateMember (ReferenceOpenedAt);
+};
+template struct PrivateAccess<ReferenceOpenedAt, &KirinHyphaEditor::referenceOpenedAt>;
+struct ReferenceOpenedTick  // what each REF refresh of the timer runs first
+{
+    using Type = void (KirinHyphaEditor::*)();
+    friend Type privateMember (ReferenceOpenedTick);
+};
+template struct PrivateAccess<ReferenceOpenedTick, &KirinHyphaEditor::serviceReferenceOpenedNotice>;
+struct ReferenceLaterNotice
+{
+    using Type = void (KirinHyphaEditor::*) (const juce::String&);
+    friend Type privateMember (ReferenceLaterNotice);
+};
+template struct PrivateAccess<ReferenceLaterNotice, &KirinHyphaEditor::showToast>;
+struct ReferenceEditorTimer { using Type = void (KirinHyphaEditor::*)(); friend Type privateMember (ReferenceEditorTimer); };
+template struct PrivateAccess<ReferenceEditorTimer, &KirinHyphaEditor::timerCallback>;
 
 inline juce::MemoryBlock editorSizeState (int version, observatory::Domain domain, int preset,
                                           int width, int height)
@@ -114,8 +134,76 @@ inline void verifyReferenceRoomSize()
     require ((editor.get()->*privateMember (EnsureReferenceRoom {})) () && editor->getWidth() == 1350,
              "a larger editor is not shrunk to 900 x 600");
 
+    // C from a small window: "opened at 300%" waits for a tick 0.2 s later. A host that puts the window
+    // back (REAPER's FX chain) gets the fact instead; a window that stayed wide gets "opened at 300%".
     editor->setSize (600, 400);
     auto& pane = editor.get()->*privateMember (ReferencePane {});
+    auto& opened = editor.get()->*privateMember (EditorToast {});
+    auto& openedAt = editor.get()->*privateMember (ReferenceOpenedAt {});
+    require (static_cast<bool> (pane.onOpenLarge), "C has an open-at-300% action");
+    opened = {};
+    pane.onOpenLarge (2);
+    (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
+    require (editor->getWidth() == 900 && ! opened.contains ("opened at 300%"),
+             "the page-opened notice waits until the host has had time to put the window back");
+    editor->setSize (600, 400);  // the host restores its own size
+    openedAt -= 0.2;              // 0.2 s later
+    (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
+    require (opened == "C and V open at 300%. Choose 300% or a floating window.",
+             "a window back at its size (the host or a drag) says what C needs, not that C opened or why");
+    opened = {};
+    pane.onOpenLarge (2);
+    openedAt -= 0.2;
+    (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
+    require (editor->getWidth() == 900 && opened.startsWith ("C opened at 300%"),
+             "a window that stayed wide says C opened at 300%");
+    // The wait belongs to its press. The user's own size, another role, a later notice, another page
+    // or a hidden window drops it without a word; a size the host may not have chosen gets no cause.
+    auto& sizeView = *component<observatory::View> (*editor);
+    const auto pressC = [&]
+    {
+        editor->setSize (600, 400); opened = {};
+        pane.onOpenLarge (2);
+    };
+    const auto tickLater = [&] (double seconds)
+    {
+        openedAt -= seconds;
+        (editor.get()->*privateMember (ReferenceOpenedTick {})) ();
+    };
+    pressC(); sizeView.onSizeChange (observatory::sizePresets[3]); tickLater (0.2);  // 200%, the size before
+    require (opened.isEmpty(), "the user's own size after C says neither C opened nor the window did not widen");
+    pressC(); editor->setSize (750, 500); tickLater (0.2);
+    require (opened.isEmpty(), "a size neither widened nor the size before says no cause");
+    pressC(); pane.onOpenLarge (1); tickLater (0.2);
+    require (! opened.startsWith ("C "), "another role drops the notice for C");
+    pressC(); (editor.get()->*privateMember (ReferenceLaterNotice {})) ("Reference is not ready"); tickLater (0.2);
+    require (opened == "Reference is not ready", "a later operation's notice is not overwritten by the wait for C");
+    pressC(); domain = observatory::Domain::level; tickLater (0.2); domain = observatory::Domain::reference;
+    require (opened.isEmpty(), "leaving the REF page drops the notice for C");
+    pressC(); editor->setVisible (false); tickLater (2.0); editor->setVisible (true);
+    require (opened.isEmpty(), "a window hidden past the wait drops the notice for C");
+    for (const auto& press : { std::function<void()> (pressC), std::function<void()> ([&] { processor.selectReferenceVisualSlot (1);
+                                                                                          editor->setSize (600, 400); opened = {}; pane.onOpenLarge (1); }) })
+    {
+        press(); editor->setVisible (false); (editor.get()->*privateMember (ReferenceEditorTimer {})) ();
+        editor->setVisible (true); tickLater (0.2);
+        require (opened.isEmpty(), "a window hidden for a moment drops the notice for C and V");
+    }
+    processor.selectReferenceVisualSlot (2);
+    // V widens on the same path (a host at 200% keeps it small too): the same fact, never "V opened".
+    const auto pressV = [&]
+    {
+        editor->setSize (600, 400); opened = {};
+        processor.selectReferenceVisualSlot (1);  // the V press shows the V page (an OS license), then widens
+        pane.onOpenLarge (1);
+    };
+    pressV(); editor->setSize (600, 400); tickLater (0.2);
+    require (opened == "C and V open at 300%. Choose 300% or a floating window.",
+             "a V window back at its size says what V needs, not that V opened at 300%");
+    pressV(); tickLater (0.2);
+    require (editor->getWidth() == 900 && opened.startsWith ("V opened at 300%"), "a V window that stayed wide says V opened");
+    processor.selectReferenceVisualSlot (2);
+    editor->setSize (600, 400);
     require (static_cast<bool> (pane.onStartBlind), "VERSION BLIND has a start action");
     pane.onStartBlind();
     const auto toast = editor.get()->*privateMember (EditorToast {});

@@ -300,6 +300,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
             && ! (state.kirinOsRequest && state.action.kind != hypha::reference_ui::ActionKind::none))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
+    serviceReferenceOpenedNotice();  // C・V を開いて 0.2 秒後、今の状態で窓と押下を確かめて言う
     if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};
     versionBlindView.setScreen (hypha::reference_ui::versionBlindScreen (referenceView.state(), versionBlindNotice));
     referenceAccessView.setOwned (processorRef.licenseIsOs());

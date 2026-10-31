@@ -75,4 +75,10 @@ inline juce::String pageOpened (int slot, bool playable)
     const juce::String letter (roleLetter (slot));
     return playable ? letter + " opened at 300%. Press " + letter + " to listen." : letter + " opened at 300%.";
 }
+
+// C・V を押して広げた窓が、押す前の大きさに戻っていた（host が戻した・利用者が戻した）。原因は言わず、今の事実と次の手。
+inline juce::String roomRequired()
+{
+    return "C and V open at 300%. Choose 300% or a floating window.";
+}
 }

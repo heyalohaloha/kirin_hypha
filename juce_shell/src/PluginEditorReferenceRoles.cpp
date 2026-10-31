@@ -13,6 +13,12 @@ using namespace hypha::reference_ui::runtime_view;
 void KirinHyphaEditor::wireReferenceRoles()
 {
     referenceView.onOpenLarge = [this] (int slot) { openReferenceLarge (slot); };
+    // A size the user chooses ends the wait for the page-opened notice (it is not the host's).
+    observatoryView.onSizeChange = [this, choose = std::move (observatoryView.onSizeChange)] (hypha::observatory::SizePreset preset)
+    {
+        referenceOpenedSlot = 0;
+        if (choose) choose (preset);
+    };
     referenceView.onSelectRef = [this]
     {
         referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
@@ -82,8 +88,55 @@ void KirinHyphaEditor::openReferenceLarge (int slot)
     const auto& state = referenceView.state();
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
                                     : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    const juce::Point<int> from { getWidth(), getHeight() };
+    referenceOpenedSlot = 0;  // a new press replaces the wait of the last one
     if (! ensureReferenceRoom()) return;
-    showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
+    if (from.x >= 900 && from.y >= 600)
+    {
+        showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
+        return;
+    }
+    // 広げた窓は host が後から戻すことがある。知らせは 0.2 秒後の REF の timer まで待つ。
+    referenceOpenedSlot = slot == 1 ? 1 : 2;
+    referenceOpenedAt = nowSecs();
+    referenceOpenedToastUntil = toastUntil;
+    referenceOpenedFrom = from;
+    referenceOpenedKey = referenceOpenedTarget (referenceOpenedSlot);
+}
+
+// 待ちが答える押下：見ている頁と役、その役の選択、鳴っている役と待たせた試聴、Blind。
+juce::String KirinHyphaEditor::referenceOpenedTarget (int slot) const
+{
+    if (observatoryDomain != hypha::observatory::Domain::reference || localBlindOpen || liveBlindOpen) return {};
+    const auto latest = processorRef.referenceAuditionSnapshot();
+    if (latest.blindPhase != hypha::reference_audition::BlindPhase::inactive) return {};
+    const auto& role = slot == 1 ? (latest.versionSelection ? *latest.versionSelection : latest)
+                                 : (latest.checkSelection ? *latest.checkSelection : latest);
+    return juce::String (slot) + "|" + juce::String (latest.comparisonSlot)
+         + "|" + (slot == 1 ? role.selectedVersionId : role.checkId + "/" + role.cueId)
+         + "|" + juce::String (latest.audibleComparisonSlot) + "|" + juce::String ((int) latest.bSelected)
+         + "|" + juce::String (latest.pendingAudition.slot) + "|" + juce::String ((int) latest.pendingAudition.waiting());
+}
+
+void KirinHyphaEditor::serviceReferenceOpenedNotice()
+{
+    if (referenceOpenedSlot == 0) return;
+    const auto waited = nowSecs() - referenceOpenedAt;
+    if (waited < 0.2) return;
+    const auto slot = std::exchange (referenceOpenedSlot, 0);
+    // Past 1 s (a hidden window, a stalled timer), after another notice, or for another role, selection,
+    // audition, page or Blind, the wait is dropped without a word.
+    const auto target = referenceOpenedTarget (slot);
+    if (waited > 1.0 || toastUntil != referenceOpenedToastUntil || target.isEmpty() || target != referenceOpenedKey)
+        return;
+    const auto& state = referenceView.state();  // whether pressing again plays, as it is now
+    const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
+                                    : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    if (getWidth() >= 900 && getHeight() >= 600)
+        showToast (hypha::reference_ui::notice::pageOpened (slot, playable));
+    else if (getWidth() == referenceOpenedFrom.x && getHeight() == referenceOpenedFrom.y)
+        showToast (hypha::reference_ui::notice::roomRequired());  // back at the size before: say what C and V need
+    // Any other size is the user's own or the host's: nothing is said.
 }
 
 void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,

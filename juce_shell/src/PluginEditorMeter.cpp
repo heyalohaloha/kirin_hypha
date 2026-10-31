@@ -188,5 +188,6 @@ void KirinHyphaEditor::dropWaitingRequests()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     liveCompareStartAfterReturnUntil = 0.0;
     referenceRematchUntil = 0.0;
+    referenceOpenedSlot = 0;  // the page-opened notice of a C or V press
    #endif
 }
