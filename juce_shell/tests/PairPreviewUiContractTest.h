@@ -142,9 +142,9 @@ inline void verifyPairPreviewUiContract()
         }
     }
     {
+        // Whether an identity fits depends on the platform font; the short label must fit either way.
         EditableName badge; badge.setPresentationContext (presentation::forEditor (450, 300)); badge.setSize (68, 36);
         badge.setFallback (pair_labels::unpaired); badge.onSelect = [] {};
-        require (! badge.setSelectionPreview (pair_labels::candidateLabel ({}, "80f7f102aa"), 9), "at 150% an identity does not fit the badge");
         require (badge.setSelectionPreview (pair_labels::candidateShort, 0), "the short candidate label fits at 150%");
     }
 }
