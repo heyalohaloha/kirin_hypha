@@ -106,7 +106,9 @@ public:
         auto movement = timeline.observe (block, rate);
         const auto cycle = logicRender (block) ? LoopCycleReading {} : cycles.observe (block, rate);
         const auto proof = proofWord (block);
-        const bool proofChanged = havePrevious && ! sameClockProof (previousBlock, block);
+        // An absent token exempts only the token and its bound; every other proof item is compared.
+        auto compared = block; retainReaperToken (compared, previousBlock);
+        const bool proofChanged = havePrevious && ! sameClockProof (previousBlock, compared);
         observeReaperIntervals (intervals, previousBlock, block, rate,
             !havePrevious || movement.broken || cycle.changed || proofChanged);
         if (! havePrevious || movement.broken || cycle.changed || proofChanged)
@@ -162,7 +164,7 @@ public:
         h.thread.store (block.thread, std::memory_order_relaxed);
         h.sequence.store (seq + 2, std::memory_order_release);
         havePrevious = active;
-        previousBlock = block;
+        previousBlock = compared;
         // The PCM run and MATCH history must end at the same proof boundary as metadata.
         // A still-continuous render counter cannot carry old samples into a new certificate.
         if ((proofChanged || cycle.changed) && (reaperProcessing (block) || logicRender (block)))

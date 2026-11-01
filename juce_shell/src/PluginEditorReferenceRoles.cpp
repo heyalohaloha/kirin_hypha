@@ -5,6 +5,7 @@
 #include "reference_audition/ReferenceWholeSongSpectrum.h"
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceSongChoice.h"
+#include "HyphaReferenceRematchWait.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。REFERENCE SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
@@ -12,8 +13,15 @@ using namespace hypha::reference_ui::runtime_view;
 void KirinHyphaEditor::wireReferenceRoles()
 {
     referenceView.onOpenLarge = [this] (int slot) { openReferenceLarge (slot); };
+    // A size the user chooses ends the wait for the page-opened notice (it is not the host's).
+    observatoryView.onSizeChange = [this, choose = std::move (observatoryView.onSizeChange)] (hypha::observatory::SizePreset preset)
+    {
+        referenceOpenedSlot = 0;
+        if (choose) choose (preset);
+    };
     referenceView.onSelectRef = [this]
     {
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
         if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (3);
         if (processorRef.selectReferenceRef()) return;
@@ -30,13 +38,19 @@ void KirinHyphaEditor::wireReferenceRoles()
     referenceView.onMatch = [this]
     {
         using Result = hypha::reference_audition::RematchResult;
+        referenceRematchUntil = 0.0;
         switch (processorRef.rematchReferenceCheck())
         {
             case Result::matched: break;
             case Result::notPlaying: showToast ("C is not playing. Press C to play it matched."); break;
             case Result::original: showToast ("This Check plays at its original level."); break;
             case Result::peakMatch: showToast ("This Check matches True Peak when C starts. Press A, then C."); break;
-            case Result::levelUnavailable: showToast ("Play A for the Cue length (up to 30 s), then MATCH again."); break;
+            case Result::levelUnavailable:  // 断らずに待たせ、A がたまったら合わせる（2026-10-31）
+                referenceRematchUntil = nowSecs() + 40.0;
+                referenceRematchNextAt = nowSecs() + 1.0;
+                referenceRematchKey = referenceRematchTarget();
+                showToast ("MATCH waits until A has played the Cue length (up to 30 s).");
+                break;
             case Result::ceilingExceeded:  // 承認すれば A を下げて合わせ直す（C は今の gain のまま鳴っている）
             {
                 const auto latest = processorRef.referenceAuditionSnapshot();
@@ -50,10 +64,19 @@ void KirinHyphaEditor::wireReferenceRoles()
 
 bool KirinHyphaEditor::ensureReferenceRoom()
 {
+    if (getWidth() >= 900 && getHeight() >= 600) return true;  // 広い窓は縮めない
     updateResizeLimits();
     const auto size = sizeConstrainer.allowedSize ({ 900, 600 });
+    // 広げた大きさは REF の頁の物。利用者の大きさとして保存せず、頁を離れたら元へ戻す。
+    if (referenceReturnSize.isOrigin())
+    {
+        referenceReturnSize = { getWidth(), getHeight() };
+        referenceReturnOnBlindEnd = referenceBlindSeen = false;
+    }
+    referenceHeldSize = { size.width, size.height };
     setSize (size.width, size.height);
     if (getWidth() >= 900 && getHeight() >= 600) return true;
+    returnToHeldSize (referenceReturnSize);
     showToast ("This display cannot fit the Reference controls. Move the window to a larger display.");
     return false;
 }
@@ -65,8 +88,55 @@ void KirinHyphaEditor::openReferenceLarge (int slot)
     const auto& state = referenceView.state();
     const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
                                     : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    const juce::Point<int> from { getWidth(), getHeight() };
+    referenceOpenedSlot = 0;  // a new press replaces the wait of the last one
     if (! ensureReferenceRoom()) return;
-    showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
+    if (from.x >= 900 && from.y >= 600)
+    {
+        showToast (hypha::reference_ui::notice::pageOpened (slot == 1 ? 1 : 2, playable));
+        return;
+    }
+    // 広げた窓は host が後から戻すことがある。知らせは 0.2 秒後の REF の timer まで待つ。
+    referenceOpenedSlot = slot == 1 ? 1 : 2;
+    referenceOpenedAt = nowSecs();
+    referenceOpenedToastUntil = toastUntil;
+    referenceOpenedFrom = from;
+    referenceOpenedKey = referenceOpenedTarget (referenceOpenedSlot);
+}
+
+// 待ちが答える押下：見ている頁と役、その役の選択、鳴っている役と待たせた試聴、Blind。
+juce::String KirinHyphaEditor::referenceOpenedTarget (int slot) const
+{
+    if (observatoryDomain != hypha::observatory::Domain::reference || localBlindOpen || liveBlindOpen) return {};
+    const auto latest = processorRef.referenceAuditionSnapshot();
+    if (latest.blindPhase != hypha::reference_audition::BlindPhase::inactive) return {};
+    const auto& role = slot == 1 ? (latest.versionSelection ? *latest.versionSelection : latest)
+                                 : (latest.checkSelection ? *latest.checkSelection : latest);
+    return juce::String (slot) + "|" + juce::String (latest.comparisonSlot)
+         + "|" + (slot == 1 ? role.selectedVersionId : role.checkId + "/" + role.cueId)
+         + "|" + juce::String (latest.audibleComparisonSlot) + "|" + juce::String ((int) latest.bSelected)
+         + "|" + juce::String (latest.pendingAudition.slot) + "|" + juce::String ((int) latest.pendingAudition.waiting());
+}
+
+void KirinHyphaEditor::serviceReferenceOpenedNotice()
+{
+    if (referenceOpenedSlot == 0) return;
+    const auto waited = nowSecs() - referenceOpenedAt;
+    if (waited < 0.2) return;
+    const auto slot = std::exchange (referenceOpenedSlot, 0);
+    // Past 1 s (a hidden window, a stalled timer), after another notice, or for another role, selection,
+    // audition, page or Blind, the wait is dropped without a word.
+    const auto target = referenceOpenedTarget (slot);
+    if (waited > 1.0 || toastUntil != referenceOpenedToastUntil || target.isEmpty() || target != referenceOpenedKey)
+        return;
+    const auto& state = referenceView.state();  // whether pressing again plays, as it is now
+    const bool playable = slot == 1 ? hypha::reference_ui::canHearVersion (state) || hypha::reference_ui::canQueueSource (state, true)
+                                    : hypha::reference_ui::canHearCheck (state) || hypha::reference_ui::canQueueSource (state, false);
+    if (getWidth() >= 900 && getHeight() >= 600)
+        showToast (hypha::reference_ui::notice::pageOpened (slot, playable));
+    else if (getWidth() == referenceOpenedFrom.x && getHeight() == referenceOpenedFrom.y)
+        showToast (hypha::reference_ui::notice::roomRequired());  // back at the size before: say what C and V need
+    // Any other size is the user's own or the host's: nothing is said.
 }
 
 void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
@@ -204,5 +274,37 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     // （直し方は曲の側から）。
     if (runtime.comparisonSlot == 3) { state.actionText.clear(); state.action = {}; }
     applyReferenceLowerA (state, runtime);  // 上限超えの承認（B の画面でも出す）と、下げている量
+}
+
+// 待たせた C の MATCH が向く先：鳴っている C（役）、その Check・Cue、選択の世代。どれかが変われば別の要求。
+juce::String KirinHyphaEditor::referenceRematchTarget() const
+{
+    return hypha::reference_ui::rematchTarget (processorRef.referenceAuditionSnapshot());
+}
+
+// 待たせた C の MATCH を 1 秒ごとに読み直す。合えば黙って（状態の行が言う）、上限超えは押したときと同じ承認、
+// C を止めた・替えたら捨てる。上限まで A がたまらなければ、今までの理由を言う。
+void KirinHyphaEditor::serviceReferenceRematch()
+{
+    if (referenceRematchUntil <= 0.0 || nowSecs() < referenceRematchNextAt) return;
+    referenceRematchNextAt = nowSecs() + 1.0;
+    // Target and deadline first: a MATCH for another C, or past its wait, never changes a gain.
+    if (referenceRematchTarget() != referenceRematchKey) { referenceRematchUntil = 0.0; return; }
+    if (nowSecs() >= referenceRematchUntil)
+    {
+        referenceRematchUntil = 0.0;
+        showToast ("Play A for the Cue length (up to 30 s), then MATCH again.");
+        return;
+    }
+    using hypha::reference_ui::RematchWait;
+    const auto next = hypha::reference_ui::rematchWait (processorRef.rematchReferenceCheck());
+    if (next == RematchWait::wait) return;
+    referenceRematchUntil = 0.0;
+    if (next == RematchWait::offerLowerA)
+    {
+        const auto latest = processorRef.referenceAuditionSnapshot();
+        if (! offerReferenceLowerA (2, latest.checkSelection ? *latest.checkSelection : latest))
+            showToast ("MATCH exceeds the safe level. The current gain is kept.");
+    }
 }
 #endif

@@ -11,6 +11,7 @@ int main (int argc, char** argv)
     reaper_boundary::negative();
     reaper_boundary::callbackGrids();
     loop_review::reaper();
+    loop_review::absentTokenProof();
     loop_review::otherHosts();
     loop_review::copyOverlap();
     hypha::tests::ProductTestClock time;

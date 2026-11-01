@@ -11,6 +11,7 @@
 #include "../src/reference_audition/ReferenceSourceRanges.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Repository.h"
 #include "../src/reference_audition/ReferenceTrackingGain.h"
+#include "../src/HyphaReferenceRematchWait.h"
 
 void testReferenceTrackingRules();
 void testReferenceCueMatch (const juce::File&);
@@ -337,6 +338,12 @@ void matchesAndFollows (const juce::File& sandbox)
                  && controller.rematch (std::numeric_limits<double>::quiet_NaN(), -2.0) == ref::RematchResult::levelUnavailable
                  && closeTo (controller.snapshot().appliedGainDb, 2.5),
              "a MATCH over the ceiling or without an A window keeps the gain and says why");
+    // 2026-10-31：A の窓が足りないあいだの MATCH は断らずに待ち、たまったら合わせる。C が鳴っていない・元の音量は待ちを捨てる。
+    require (hypha::reference_ui::rematchWait (ref::RematchResult::levelUnavailable) == hypha::reference_ui::RematchWait::wait
+                 && hypha::reference_ui::rematchWait (ref::RematchResult::matched) == hypha::reference_ui::RematchWait::done
+                 && hypha::reference_ui::rematchWait (ref::RematchResult::ceilingExceeded) == hypha::reference_ui::RematchWait::offerLowerA
+                 && hypha::reference_ui::rematchWait (ref::RematchResult::notPlaying) == hypha::reference_ui::RematchWait::drop,
+             "a MATCH pressed before A has the Cue length waits and matches once A has it");
     const auto refusedAgain = controller.snapshot();
     require (refusedAgain.matchFailure == ref::MatchFailure::ceilingExceeded && refusedAgain.neededAttenuationDb < 0.0,
              "the refused MATCH again offers how far A must be lowered");

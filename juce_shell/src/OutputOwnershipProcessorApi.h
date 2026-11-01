@@ -5,3 +5,5 @@ hypha::output_owner::Decision outputDecision (hypha::output_owner::Activity) con
 // Reference の外の状態（形式・書き出し・bypass・live 比較・PRE/POST Blind・Keep／Record）。Reference の controller が
 // 自分の入口で聞く。
 hypha::output_owner::States externalOutputStates() const;
+// Reference の中の出力の状態（選んだ役・Blind・下げた A）。待たせた LISTEN が自分の RETURN と新しい試聴を分ける。
+hypha::output_owner::States referenceOwnOutputStates() const;

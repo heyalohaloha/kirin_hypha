@@ -43,10 +43,13 @@
         );
         assert!(
             PLUGIN_EDITOR_CPP
-                .contains("observatoryView.onStop = [this] { processorRef.stopPair(); };"),
+                .contains("observatoryView.onStop = [this] { dropWaitingRequests(); processorRef.stopPair(); };"),
             "manual POST Stop must remain the UI path into stopPair"
         );
-        assert!(PLUGIN_EDITOR_CPP.contains("else if (result == 5)\n        processorRef.stopPair();"));
+        assert!(
+            between(PLUGIN_EDITOR_CPP, "else if (result == 5)", "else if (result == 10)")
+                .contains("processorRef.stopPair();")
+        );
         assert_eq!(
             count_occurrences(PLUGIN_EDITOR_CPP, "processorRef.stopPair();"),
             2,

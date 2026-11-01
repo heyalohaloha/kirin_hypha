@@ -22,12 +22,13 @@ void KirinHyphaEditor::configureReferenceAudition()
         referenceAccessView.setRecheckUnconfirmed (! processorRef.licenseIsOs());
     };
     scaleRoot.addChildComponent (referenceAccessView);
-    referenceView.onSelectA = [this] { processorRef.selectReferenceA(); };
+    referenceView.onSelectA = [this] { referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0; processorRef.selectReferenceA(); };
     referenceView.onSelectVisualSlot = [this] (int slot) { processorRef.selectReferenceVisualSlot (slot); };
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
     wireReferenceRoles();
     referenceView.onSelectB = [this]
     {
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;  // 別の役は待たせた C の MATCH・LISTEN を捨てる
         if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (1);  // 押した役の画面にする
         if (! processorRef.selectReferenceB())
@@ -40,6 +41,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onSelectC = [this]
     {
+        referenceRematchUntil = liveCompareStartAfterReturnUntil = 0.0;
         if (outputRefused (hypha::output_owner::Activity::audition)) return;
         processorRef.selectReferenceVisualSlot (2);
         if (! processorRef.selectReferenceC())
@@ -53,11 +55,13 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectVersion = [this](const juce::String& id){if(!processorRef.selectReferenceVersion(id))showToast("Version selection was not changed");};
     referenceView.onSelectPreset = [this] (const juce::String& id)
     {
+        referenceRematchUntil = 0.0;
         if (! processorRef.selectReferencePreset (id))
             showToast ("Check Preset selection was not changed");
     };
     referenceView.onSelectCheck = [this] (const juce::String& id)
     {
+        referenceRematchUntil = 0.0;
         if (! processorRef.selectReferenceCheck (id))
             showToast ("Check selection was not changed");
     };
@@ -68,6 +72,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onSelectCue = [this] (const juce::String& id)
     {
+        referenceRematchUntil = 0.0;
         if (! processorRef.selectReferenceCue (id))
             showToast ("Cue selection was not changed");
     };
@@ -97,16 +102,17 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onStartBlind = [this]
     {
         if (outputRefused (hypha::output_owner::Activity::versionBlind)) return;  // A を下げている・ほかの比較のあいだは断る
-        if (getWidth() < 900 || getHeight() < 600)
-        {
-            if (! ensureReferenceRoom()) return;
-            showToast ("Blind view opened. Press VERSION BLIND to start after checking the level.");
-            return;
-        }
+        // 小さい窓は広げてそのまま始める（一押し）。広げた大きさは Blind の終わりで元へ戻す。
+        const bool widened = getWidth() < 900 || getHeight() < 600;
+        if (widened && ! ensureReferenceRoom()) return;
         const auto& state = referenceView.state();
         if (! processorRef.startReferenceBlind (state.aIntegratedLoudness,
                                                  state.aMaximumTruePeakDbtp))
+        {
+            if (widened) returnToHeldSize (referenceReturnSize);
             showToast ("Blind Compare could not start");
+        }
+        else if (widened) referenceReturnOnBlindEnd = true;
     };
     // 始めた VERSION BLIND は PRE/POST Blind と同じ画面（versionBlindView）が窓全体に出して操作を受ける。失敗は Blind の画面が言う。
     hypha::reference_ui::wireVersionBlindScreen (versionBlindView,
@@ -294,6 +300,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
             && ! (state.kirinOsRequest && state.action.kind != hypha::reference_ui::ActionKind::none))
         state.status = pending;  // 見ている役に上限超えの承認を出していれば、承認の文を残す
     referenceView.setState (std::move (state));
+    serviceReferenceOpenedNotice();  // C・V を開いて 0.2 秒後、今の状態で窓と押下を確かめて言う
     if (juce::Time::getMillisecondCounter() > versionBlindNoticeUntil) versionBlindNotice = {};
     versionBlindView.setScreen (hypha::reference_ui::versionBlindScreen (referenceView.state(), versionBlindNotice));
     referenceAccessView.setOwned (processorRef.licenseIsOs());

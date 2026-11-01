@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 namespace hypha::live_compare
 {

@@ -77,7 +77,7 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.onGuideDetails = [this] { showGuideInformationMenu(); };
     observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
     observatoryView.onTimeRangeMenu = [this] { showTimeRangeMenu(); };
-    observatoryView.onStop = [this] { processorRef.stopPair(); };
+    observatoryView.onStop = [this] { dropWaitingRequests(); processorRef.stopPair(); };
     observatoryView.onReset = [this]
     {
         if (! processorRef.resetMeterSession())
@@ -436,6 +436,7 @@ void KirinHyphaEditor::refreshComparisonNotice (const KirinObservatoryFrame& fra
 {
     comparisonObservedGeneration = juce::jmax (
         comparisonObservedGeneration, frame.comparison_generation);
+    if (frame.comparison_reason != KIRIN_COMPARISON_REASON_PRE_INACTIVE) comparisonPreInactiveSince = 0.0;
     if (comparisonActionAwaitingResult
         && frame.comparison_generation > comparisonActionAfterGeneration)
     {
@@ -451,6 +452,14 @@ void KirinHyphaEditor::refreshComparisonNotice (const KirinObservatoryFrame& fra
             {
                 comparisonActionAwaitingResult = false; // LISTEN owns the remedy; do not defer it past END.
                 return;
+            }
+            // PRE's first Active publication can trail POST's (a project just opened, PLAY just pressed,
+            // a quiet passage). Say PRE is stopped only once it has stayed inactive for 2 s.
+            if (frame.comparison_reason == KIRIN_COMPARISON_REASON_PRE_INACTIVE)
+            {
+                const auto now = nowSecs();
+                if (comparisonPreInactiveSince <= 0.0) comparisonPreInactiveSince = now;
+                if (now - comparisonPreInactiveSince < 2.0) return;
             }
             showToast (hypha::comparison_presentation::statusText (
                 frame.comparison_state,

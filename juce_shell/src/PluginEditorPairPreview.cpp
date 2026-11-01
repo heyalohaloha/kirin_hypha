@@ -90,6 +90,16 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
                         hypha::pair_labels::candidateTooltip (name, id));
                     return;
                 }
+                // The name does not fit this size; still say that a PRE can be connected. The short
+                // label names no PRE, so it is never a painted receipt and a click opens the menu.
+                if (nameField.setSelectionPreview (hypha::pair_labels::candidateShort, 0))
+                {
+                    pairPreviewShown = {};
+                    pairPreviewRetrySeconds = firstRetrySeconds;
+                    pairPreviewNextDemandAt = now + exactCandidateRefreshSeconds;
+                    nameField.setEnabledTooltip (hypha::pair_labels::choose);
+                    return;
+                }
             }
 
             pairPreviewShown = {};

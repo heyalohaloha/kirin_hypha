@@ -9,6 +9,7 @@ inline constexpr auto choose = "Choose PRE";
 inline constexpr auto locked = "Locked during playback";
 inline constexpr auto changed = "PRE changed";
 inline constexpr auto candidatePrefix = "+ ";
+inline constexpr auto candidateShort = "+ PRE"; // a candidate whose name does not fit the badge
 inline constexpr auto menuPrefix = "PRE: ";
 inline constexpr auto candidateHelp = u8"Click to connect\n▼ All PREs";
 inline juce::String candidateLabel (const juce::String& name, const juce::String& id)

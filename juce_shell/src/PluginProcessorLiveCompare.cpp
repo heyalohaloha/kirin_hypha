@@ -77,16 +77,16 @@ void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
     }
 }
 
-hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
+hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare (std::optional<std::uint64_t> pressedTicket)
 {
     const juce::ScopedLock pairLock (automaticPair.lock);
     using hypha::live_compare::StartResult;
-    const auto permission = liveCompare.authority.ticket();
+    const auto permission = pressedTicket.value_or (liveCompare.authority.ticket());  // arm below uses this same one
     serviceLiveCompare();
     if (role != Role::Post)
         return StartResult::notPost;
-    if (! writesEnabled.load (std::memory_order_acquire))
-        return StartResult::notReady;
+    if (! writesEnabled.load (std::memory_order_acquire) || permission != liveCompare.authority.ticket())
+        return StartResult::notReady;  // a restore or pair change since the press, checked under the pair lock
     if (! liveCompareSupported())
         return StartResult::unsupportedLayout;
     const auto admission = liveCompareAdmission (false);
@@ -152,6 +152,7 @@ void KirinHyphaProcessorBase::stopLiveCompare (hypha::live_compare::RecoveryReas
                 ? liveCompare.blindPreparationReason : reason);
     }
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // a new LISTEN begins after this stop
     liveCompare.namedMatchPending = liveCompare.namedMatchReady = false;
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();

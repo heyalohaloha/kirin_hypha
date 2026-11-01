@@ -128,7 +128,7 @@ void KirinHyphaEditor::showOperationsMenu()
 juce::PopupMenu KirinHyphaEditor::operationsMenu()
 {
     const bool recording = processorRef.isRecording();
-    const bool keepActive = recording
+    const bool keepActive = recording || keepPreWaitSince > 0.0  // a Keep waiting for PRE offers Stop
         || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
     const bool osOwned = processorRef.licenseIsOs();
     const bool stereoWorkflows = processorRef.stereoWorkflowsSupported();
@@ -427,21 +427,17 @@ void KirinHyphaEditor::handleCandidateMenu (
         }
     }
     else if (result == 2)
-        processorRef.stopAll();
-    else if (result == 4)
     {
-        if (! processorRef.keepPair())
-        {
-            const juce::String notice = processorRef.drainKeepActionNotice();
-            if (notice.isNotEmpty()) { showToast (notice); return; }
-            const juce::String err = processorRef.recordErrorMessage();
-            if (err.isNotEmpty()) { showToast (err); return; }
-            showToast (processorRef.licenseIsOs()
-                           ? "No PRE Paired" : "Record requires Kirin OS license");
-        }
+        dropWaitingRequests();
+        processorRef.stopAll();
     }
+    else if (result == 4)
+        requestKeepPair (false);
     else if (result == 5)
+    {
+        dropWaitingRequests(); // Stop also ends a Keep that waits for PRE
         processorRef.stopPair();
+    }
     else if (result == 10)
     {
         auto& preference = hypha::HoverHelpPreference::shared();

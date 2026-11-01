@@ -125,10 +125,10 @@ mod tests {
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
         );
-        assert!(
-            body.find("kirin_hypha_push_samples").unwrap()
-                < body.find(PROCESS_COMPARISON_CALL).unwrap()
-        );
+        // Both measurement transactions (fed, or the heartbeat-only keepalive) precede the output.
+        for transaction in ["feedMeasurementInput (", "feedNoMeasurement ("] {
+            assert!(body.find(transaction).unwrap() < body.find(PROCESS_COMPARISON_CALL).unwrap());
+        }
         let output = function_body(AUDITION_OUTPUT_CPP, PROCESS_COMPARISON_SIGNATURE);
         assert!(LOCAL_PRODUCT_SESSION_H.contains("block.epochs = epochs.read()"));
         assert!(output

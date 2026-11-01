@@ -62,7 +62,11 @@ inline void verifyReferenceStageTable()
             juce::String overdue;
             for (double now = 0.0; now <= 600.0 && overdue.isEmpty(); now += 0.5)
                 overdue = watch.observe (slot, step, false, true, true, now);
-            require (overdue == juce::String (stage.overdue), "the wait limit belongs to the stage: " + letter + " " + name);
+            // 「一致未確認」は位置合わせの途中の一時的な段：位置合わせと同じ再生 30 秒の数えを続け、同じ文を出す
+            // （HyphaReferencePreparationWatch.cpp）。表の行そのものは利用者に向けた「できない」のまま。
+            const auto expected = step == SourceStep::noMatchingPassage
+                ? juce::String (reference_ui::stageOf (SourceStep::aligning).overdue) : juce::String (stage.overdue);
+            require (overdue == expected, "the wait limit belongs to the stage: " + letter + " " + name);
         }
     }
 

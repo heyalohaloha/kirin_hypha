@@ -6,9 +6,21 @@
 
 namespace hypha::reference_ui
 {
-juce::String PreparationWatch::observe (int slot, SourceStep step, bool measuringA, bool kirinOsOnline, bool playing,
+namespace
+{
+// 位置合わせ中は、合わない音で 4 秒の録りごとに「一致未確認」（noMatchingPassage）と「位置合わせ中」が入れ替わる。
+// どちらも同じ待ち（合えば鳴る）なので、再生 30 秒の数えは段が入れ替わっても続け、超えたらどちらの段でも位置合わせの
+// 文を出したまま待つ（2026-10-31：案内が出ず表示だけが数秒ごとに入れ替わった）。
+SourceStep alignmentPhase (SourceStep step) noexcept
+{
+    return step == SourceStep::noMatchingPassage ? SourceStep::aligning : step;
+}
+}
+
+juce::String PreparationWatch::observe (int slot, SourceStep rawStep, bool measuringA, bool kirinOsOnline, bool playing,
                                         double nowSeconds)
 {
+    const auto step = alignmentPhase (rawStep);
     if (slot != watchedSlot || step != watchedStep || measuringA != watchedA || kirinOsOnline != watchedOnline)
     {
         watchedSlot = slot;

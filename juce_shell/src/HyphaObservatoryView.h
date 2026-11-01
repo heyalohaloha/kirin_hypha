@@ -92,7 +92,7 @@ public:
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
-    std::function<void()> onVuCalibrationMenu;
+    std::function<void()> onVuCalibrationMenu; std::function<double (int)> onVuLiveLevel; // needle's live VU per channel (HyphaVuLiveTap.h); NaN = use the publication
     std::function<void()> onClearPeakClipHolds;
     std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
@@ -345,7 +345,7 @@ private:
     void cycleSize();
     void toggleHybridVu();
     void initializeVuCalibrationControl();
-    void updateVuVisibility();
+    void updateVuVisibility(); void refreshVuTargets();
     void paintHybridVu (juce::Graphics&);
     bool recordingHybridVuRequested() const noexcept
     {

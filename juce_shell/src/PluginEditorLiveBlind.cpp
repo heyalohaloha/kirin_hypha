@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "HyphaLiveCompareRecoveryText.h"
 #include "HyphaReferenceAuditionRecoveryText.h"
+#include "HyphaLiveStartAfterReturn.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 using hypha::live_compare::BlindStage;
@@ -96,7 +97,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     const auto recovery = hypha::live_compare_ui::currentListenPresentation (
         live, processorRef.liveCompareAdmission (false), processorRef.referenceOutputSlot());
     if (*recovery.instruction != 0) menu.addSectionHeader (recovery.instruction);
-    if (! live.active) menu.addItem (40, "LISTEN", processorRef.liveCompareAdmission (false) == StartResult::started);
+    if (! live.active) menu.addItem (40, "LISTEN", hypha::live_compare_ui::entryOffered (processorRef.liveCompareAdmission (false)));
     else
     {
         menu.addItem (41, "MATCH", ! live.finishing);

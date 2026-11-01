@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    processorRef.vuLive().setEnabled (false);
     setConstrainer (nullptr); // the size rule is a member and goes before the base editor
     pairPreview.reset();
     processorRef.setReferenceViewPresented (false);
@@ -14,7 +15,11 @@ KirinHyphaEditor::~KirinHyphaEditor()
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
-        // LISTEN and live BLIND belong to the processor; closing its window is not END.
+        // LISTEN and live BLIND belong to the processor; closing its window is not END. AUTO rests
+        // with the processor and a window of the same LISTEN continues it (INV-LC16). The rest is
+        // keyed to the LISTEN and the restore and pair ticket: a loop wrap or a playback gap keeps it.
+        processorRef.liveCompareAutoRest() = { liveCompareAuto.on, liveCompareAuto.approvedPreDb,
+            liveCompareAuto.ceilingDbtp, processorRef.liveCompareListenSession(), processorRef.restoreOrPairTicket() };
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -37,17 +42,21 @@ void KirinHyphaEditor::timerCallback()
         pairPreviewShown = {};
         pairPreviewObservedGeneration = 0;
         processorRef.setReferenceViewPresented (false);
+        processorRef.vuLive().setEnabled (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (isPost && liveCompareAuto.on)
-        {
-            stopLiveCompareAuto ({});
-            liveCompareAuto.hiddenStopNoticePending = true;
-        }
+        // AUTO rests while hidden: nothing below runs, so it neither measures nor moves (INV-LC16).
+        // A Keep, LISTEN or MATCH press that has not started yet is dropped, never run later.
+        dropWaitingRequests();
         syncAnalysisDemand();
        #endif
         return;
     }
     observatoryView.advanceTimePresentation (juce::Time::getMillisecondCounterHiRes());
+    // The Hybrid VU needle follows the audio thread's own 300 ms integration at frame rate
+    // (HyphaVuLiveTap.h); the 100 ms meter publication stays the footer's and Capture's source.
+    processorRef.vuLive().setEnabled (observatoryView.hybridVuVisible());
+    if (! observatoryView.onVuLiveLevel)
+        observatoryView.onVuLiveLevel = [this] (int channel) { return processorRef.vuLive().level (channel); };
     syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);
@@ -78,6 +87,7 @@ void KirinHyphaEditor::timerCallback()
     refreshObservatory();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const bool liveFault = isPost && refreshLiveCompare();
+    if (isPost) { serviceLiveCompareStartAfterReturn(); serviceReferenceRematch(); requestKeepPair (true); }
    #endif
     refreshPairPreview (false);
     updateHelpLine();
@@ -85,9 +95,9 @@ void KirinHyphaEditor::timerCallback()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost && liveCompareAuto.hiddenStopNoticePending)
     {
-        // A queued notice describes this still-active, still-stopped AUTO. A newer action,
-        // interruption or completed session supersedes it while another toast has priority.
-        if (liveFault || ! liveCompareActiveSeen || liveCompareAuto.on)
+        // Queued when a reopened window could not continue the AUTO that rested (INV-LC16). It waits
+        // for another toast; a newer action, AUTO again or an interruption notice supersedes it.
+        if (liveFault || liveCompareAuto.on)
             liveCompareAuto.hiddenStopNoticePending = false;
         else if (toastText.isEmpty())
         {

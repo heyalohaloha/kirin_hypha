@@ -91,7 +91,7 @@ struct Pair
         if (result.verdict == Verdict::accepted) renewal.accepted();
         if (cmd.active())
         {
-            if (result.verdict != Verdict::accepted || result.guardTripped) blind.fallback (cmd);
+            if (result.verdict != Verdict::accepted || result.guardTripped) blind.fallback (cmd, frames, 48000.0);
             else blind.observe (cmd, result.stableSource && result.preAudible);
             require (blind.valid (cmd), "timing loss preserves trial identity");
         }

@@ -118,7 +118,7 @@ struct Host
         if (cmd.active() && report.verdict != Verdict::accepted)
         {
             if (endsComparison (report.reason)) blind.invalidate (cmd, report.reason);
-            else blind.fallback (cmd);
+            else blind.fallback (cmd, postFrames, static_cast<double> (rate));
         }
         if (report.stableSource && report.preAudible)
             for (int c = 0; c < channels; ++c) for (int i = 0; i < postFrames; ++i)

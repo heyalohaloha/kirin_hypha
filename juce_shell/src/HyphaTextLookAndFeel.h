@@ -61,10 +61,13 @@ public:
                                    getPopupMenuFont(), idealWidth, idealHeight);
     }
 
+    // JUCE's own drawing gets the stored text; it is used only when the display copy is that text
+    // (English without a substituted character). Japanese, and a copy with "□" for a character no
+    // shipped font carries, are drawn here from the display copy. Editing keeps the value itself.
     void drawLabel (juce::Graphics& g, juce::Label& label) override
     {
-        if (label.isBeingEdited()
-            || ! requiresJapaneseGlyphs (text_style::shownText (label.getText())))
+        const auto shown = text_style::shownText (label.getText());
+        if (label.isBeingEdited() || (! requiresJapaneseGlyphs (shown) && shown == label.getText()))
         {
             juce::LookAndFeel_V4::drawLabel (g, label);
             return;
@@ -73,7 +76,7 @@ public:
         const auto alpha = label.isEnabled() ? 1.0f : 0.5f;
         const auto height = getLabelFont (label).getHeight();
         g.setColour (label.findColour (juce::Label::textColourId).withMultipliedAlpha (alpha));
-        g.setFont (nativeTextFontLike (getLabelFont (label)));
+        g.setFont (requiresJapaneseGlyphs (shown) ? nativeTextFontLike (getLabelFont (label)) : getLabelFont (label));
         const auto area = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
         text_style::drawLines (g, label.getText(), area, label.getJustificationType(),
                                juce::jmax (1, (int) ((float) area.getHeight() / height)));
@@ -93,14 +96,16 @@ public:
     void drawButtonText (juce::Graphics& g, juce::TextButton& button,
                          bool highlighted, bool down) override
     {
-        if (! requiresJapaneseGlyphs (text_style::shownText (button.getButtonText())))
+        const auto shown = text_style::shownText (button.getButtonText());
+        if (! requiresJapaneseGlyphs (shown) && shown == button.getButtonText())
         {
             juce::LookAndFeel_V4::drawButtonText (g, button, highlighted, down);
             return;
         }
         // The geometry of LookAndFeel_V2::drawButtonText, with two lines at most as there.
-        const auto height = getTextButtonFont (button, button.getHeight()).getHeight();
-        g.setFont (nativeTextFontLike (getTextButtonFont (button, button.getHeight())));
+        const auto font = getTextButtonFont (button, button.getHeight());
+        const auto height = font.getHeight();
+        g.setFont (requiresJapaneseGlyphs (shown) ? nativeTextFontLike (font) : font);
         g.setColour (button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId
                                                                 : juce::TextButton::textColourOffId)
                          .withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));

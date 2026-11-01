@@ -52,6 +52,46 @@ inline void reaper()
         for (int i = 0; i < 40; ++i) host.consume();
         require (host.report.preAudible && !host.blind.view().invalidated, "fresh proof resumes the same trial");
     }
+    // The mailbox supplies no token for one callback when a publication races it. That block
+    // stays POST, but the proven K, the PRE generation and the trial survive; the next supplied
+    // token resumes PRE without a new admission or a disclosed fallback.
+    for (int absentSide : { 0, 1 })
+    {
+        Host host; host.length = 384000; host.runtimeBound = true;
+        for (int i = 0; i < 100; ++i) host.consume();
+        host.blind.start (true);
+        for (int i = 0; i < 4; ++i) host.consume();
+        require (host.report.stableSource && host.report.preAudible, "absence fixture begins with audible PRE");
+        const auto k = host.decision.k;
+        const auto generation = host.ring->header.timing.generation.load();
+        host.missingSide = absentSide;
+        host.consume();
+        host.missingSide = -1;
+        require (!host.report.preAudible && host.decision.kValid && host.decision.k == k
+                 && !host.report.timelineChanged, "an absent token withholds one block without revoking K");
+        require (host.ring->header.timing.generation.load() == generation, "an absent token is not a new PRE generation");
+        host.consume();
+        require (host.report.preAudible && host.decision.k == k, "the next supplied token resumes PRE on the same K");
+        host.consume();
+        require (host.report.stableSource && host.report.preAudible, "PRE is stable again after the return fade");
+        require (!host.blind.view().invalidated && !host.blind.view().usedPostFallback,
+                 "one absent callback is neither a lost trial nor a disclosed fallback");
+    }
+    // Linear playback as well: a block whose own or whose peer's token is absent is entirely
+    // POST while the linear K survives, and only the same token resumes PRE.
+    for (int absentSide : { 0, 1 })
+    {
+        Host host; host.runtimeBound = true;
+        host.warm();
+        const auto k = host.decision.k;
+        host.missingSide = absentSide;
+        host.consume();
+        host.missingSide = -1;
+        require (!host.report.preAudible && host.decision.verdict != Verdict::accepted
+                 && host.decision.kValid && host.decision.k == k, "a linear block with an absent token is POST without revoking K");
+        host.consume();
+        require (host.report.preAudible && host.decision.k == k, "the same token resumes linear PRE");
+    }
     Host unsplit; unsplit.length = 384123; unsplit.runtimeBound = true;
     for (int i = 0; i < 1550; ++i)
     {
@@ -121,6 +161,39 @@ inline void copyOverlap()
         require (!host.report.preAudible && host.decision.verdict == Verdict::torn, "copy overlap never plays scratch PCM");
         require (host.decision.kValid == (fault == 0), "only sequence overlap retains the calibrated K");
         if (fault == 0) { host.consume(); require (host.report.preAudible, "next coherent block resumes PRE"); }
+    }
+}
+// An absent token exempts only the token and its bound. Another proof item that changes during
+// the absence still revokes the PRE generation and the PCM run, and a different token after the
+// absence is still a change.
+inline void absentTokenProof()
+{
+    for (int variant : { 0, 1 })
+    {
+        auto ring = std::make_unique<Ring>(); ring->initialise (pair, rate); ring->header.demand.store (1);
+        PreFeeder feeder;
+        std::array<float, frames> input {}; const float* in[] { input.data(), input.data() };
+        BlockClock block; block.playing = block.clockValid = block.projectValid = true; block.frames = frames;
+        block.clockBasis = static_cast<std::uint8_t> (ClockBasis::reaperProcessing);
+        block.clockAuthority = static_cast<std::uint8_t> (ClockAuthority::certifiedProject);
+        block.outputPresentationValid = true; block.outputPresentationSamples = 100;
+        block.runtimeChainA = 12; block.runtimeChainB = 34; block.runtimeRevision = 1;
+        const auto feed = [&] { feeder.feed (*ring, block, in, 2); block.clock += frames; block.project += frames; };
+        for (int i = 0; i < 8; ++i) feed();
+        const auto generation = ring->header.timing.generation.load();
+        const auto run = ring->header.run.load();
+        block.runtimeChainA = block.runtimeChainB = block.runtimeRevision = 0;
+        if (variant == 0) block.outputPresentationSamples = 200;
+        feed();
+        require ((ring->header.timing.generation.load() != generation) == (variant == 0),
+                 "another proof item changing during an absent token still revokes the generation");
+        require ((ring->header.run.load() != run) == (variant == 0),
+                 "another proof item changing during an absent token still fences the PCM run");
+        const auto resumed = ring->header.timing.generation.load();
+        block.runtimeChainA = 12; block.runtimeChainB = 34; block.runtimeRevision = variant == 0 ? 1 : 2;
+        feed();
+        require ((ring->header.timing.generation.load() != resumed) == (variant == 1),
+                 "the same token continues the generation; a different token after the absence is a change");
     }
 }
 inline void otherHosts()

@@ -54,14 +54,16 @@ try
         "exactly one ordinary 2048-frame callback at 96 kHz, without a wall gap");
     require (post.liveCompareStatus().observation == RecoveryReason::projectClockMissing,
              "the callback records the missing project witness as a recoverable observation");
+    // One 2048-frame callback at 96 kHz (21.3 ms) of POST is too brief to disclose; the second (42.7 ms in all) is.
     for (int i = 0; i < 2; ++i)
     {
         const auto waiting = post.liveBlindStatus();
         require (waiting.stage == BlindStage::active && waiting.trial.epoch == trial.epoch
             && waiting.trial.selected == trial.selected && waiting.trial.firstPre == trial.firstPre
-            && waiting.trial.usedPostFallback && !post.liveCompareStatus().preAudible,
-            "missing proof outputs POST while preserving the anonymous assignment and fallback fact");
+            && waiting.trial.usedPostFallback == (i == 1) && !post.liveCompareStatus().preAudible,
+            "missing proof outputs POST while preserving the anonymous assignment; only an audible run is a fallback fact");
         post.serviceLiveBlind();
+        if (i == 0) fixture.block();
     }
     fixture.postClock.positionAvailable = true;
     fixture.auditionAllowed = true;

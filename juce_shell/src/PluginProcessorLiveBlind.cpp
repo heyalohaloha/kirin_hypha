@@ -11,6 +11,7 @@ void KirinHyphaProcessorBase::finishLiveCompare()
     if (role != Role::Post) return;
     // End logical ownership now. The published mapping remains leased for the RT fade/ramp.
     liveCompare.sessionActive.store (false, std::memory_order_release);
+    liveCompare.listenSession.fetch_add (1, std::memory_order_acq_rel); // END ends this LISTEN
     liveCompare.blindTiming.end();
     liveCompare.cancelTimingAdmission();
     ++liveCompare.blindPreparation;
