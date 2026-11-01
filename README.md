@@ -13,7 +13,7 @@ A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (
 ![Kirin Hypha POST: the Hybrid VU with true-peak bars, clip lamps and the latest loudness, true peak and crest](docs/media/readme/vu.jpg)
 
 <p align="center">
-<a href="#download"><b>Download 1.1.53</b></a> &nbsp;·&nbsp;
+<a href="#download"><b>Download 1.1.54</b></a> &nbsp;·&nbsp;
 <a href="#start-in-under-a-minute"><b>Start in a minute</b></a> &nbsp;·&nbsp;
 <a href="#what-you-can-do"><b>What you can do</b></a> &nbsp;·&nbsp;
 <a href="#building-from-source"><b>Build from source</b></a>
@@ -25,7 +25,8 @@ A free, open-source metering plug-in for macOS (AU · VST3 · AAX) and Windows (
 Normal measurement passes the audio through unchanged, with zero added latency. 64-bit
 floating-point audio keeps its full precision.</td>
 <td width="50%" valign="top"><b>Before and after</b><br>
-PRE before your chain, POST after it. POST shows its own reading, or the difference as Δ.</td>
+PRE before your chain, POST after it, and they pair on their own. POST shows its own reading, or
+the difference as Δ.</td>
 </tr>
 <tr>
 <td width="50%" valign="top"><b>A fair listen</b><br>
@@ -50,7 +51,9 @@ Commands and prerequisites are in [Building from source](#building-from-source).
 2. Open **LEVEL** to read loudness, true peak and crest. POST works on its own; Kirin OS is not
    required for real-time measurement.
 3. To compare your processing, insert **PRE Kirin Hypha** before the processors and keep POST
-   after them. Click POST's pair selector or arrow, then choose that exact PRE under **PRE connection**.
+   after them. With POST's window open, POST pairs with that PRE on its own and says **Paired with
+   PRE**; **Unpair** is right there if you did not want it. When more than one PRE is free, click
+   the badge at POST's top right, then choose that exact PRE under **PRE connection**.
 4. Choose **POST** for the output's own readings or **Δ** for the difference from PRE. Explore
    **TIME**, **FREQ** and **SPACE** as you need them; **REF** compares references from Kirin OS.
 
@@ -132,16 +135,16 @@ library, and Keep / Record saves a playback's measurements with the song. See [M
 
 ## Download
 
-**Hypha 1.1.53 is available for macOS and Windows.** Both installers include PRE and POST.
+**Hypha 1.1.54 is available for macOS and Windows.** Both installers include PRE and POST.
 
 | Platform | Installer | Plug-in formats |
 |---|---|---|
-| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.53/Kirin-Hypha-1.1.53-macOS-Universal.pkg) | AU · VST3 · AAX Native |
-| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.53/Kirin-Hypha-1.1.53-Windows-x64-Setup.exe) | VST3 · AAX Native |
+| macOS 12+, Intel and Apple Silicon | [Download Universal PKG](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.54/Kirin-Hypha-1.1.54-macOS-Universal.pkg) | AU · VST3 · AAX Native |
+| Windows 10/11 x64 | [Download Windows EXE](https://github.com/heyalohaloha/kirin_hypha/releases/download/v1.1.54/Kirin-Hypha-1.1.54-Windows-x64-Setup.exe) | VST3 · AAX Native |
 
 The macOS installer and plug-ins are signed and notarized. The Windows installer and plug-ins are
 Authenticode-signed. Close your DAW, run the installer, then reopen the DAW.
-[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.53).
+[Installation details](#installation) · [Release notes, checksums, source and recovery ZIP](https://github.com/heyalohaloha/kirin_hypha/releases/tag/v1.1.54).
 
 <details>
 <summary>Download verification and release provenance</summary>
@@ -838,7 +841,7 @@ Switching views retires the previous view's missing-latency flag. Format support
 prove PRE/POST timing alignment.
 
 <a id="optional-update-information"></a>
-### Update information in 1.1.53
+### Update information in 1.1.54
 
 **Automatic update checking is disabled in this release.** Use the Information menu's English or
 Japanese official download link to get a newer version. Hypha does not install updates automatically.
@@ -863,13 +866,21 @@ protocol, clock handling, storage failures and service qualification requirement
 
 ## Pairing PRE and POST
 
-Pairing is an explicit selection of one exact PRE instance. It is not inferred from track position or
-matching names.
+A new POST pairs with its PRE automatically. A pair is always one exact PRE instance; it is never
+inferred from track position or matching names.
 
 1. Insert PRE before the processors and POST after them.
-2. In POST, click the read-only pair selector or its arrow.
-3. Under **PRE connection**, select the intended PRE.
+2. Open POST's window. If exactly one PRE in the project is not already paired with another POST,
+   POST pairs with it, shows **Paired with PRE** and the PRE's name, and offers **Unpair**. After you
+   unpair, that POST is not paired automatically again. Opening a saved project never pairs
+   automatically.
+3. To choose a PRE yourself, click the badge at POST's top right or its arrow, then select the
+   intended PRE under **PRE connection**.
 4. POST keeps that exact PRE identity and begins displaying Δ values.
+
+The badge shows the pair at a glance: **NO PRE** when unpaired, **+** and the PRE's name when one PRE
+is available (click it to pair), and **PRE** with its name when paired. When the name does not fit,
+the badge shows **+ PRE**; hover over it to read a long name.
 
 Giving PRE a name such as `Mix`, `Drum`, or `Vocal` makes the menu easier to scan, but naming is
 optional. UTF-8 labels, including Japanese, are supported. An unnamed PRE can still be selected by
