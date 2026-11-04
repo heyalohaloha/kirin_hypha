@@ -209,7 +209,7 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
                 }
             state.preparationOverdue.clear();
             for (const auto stage : { Stage::play, Stage::checking, Stage::level, Stage::sourceChanged, Stage::safetyChanged,
-                                      Stage::startFailed, Stage::sourceLevelUnavailable, Stage::ceilingExceeded })
+                                      Stage::startFailed, Stage::sourceLevelUnavailable })
             {
                 state.pendingAudition = { slot, stage };
                 add (state);
@@ -225,7 +225,7 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
         auto playing = base;
         playing.bSelected = true; playing.audibleComparisonSlot = playing.comparisonSlot = slot;
         playing.appliedGainDb = 1.5;
-        for (const auto tracking : { Tracking::following, Tracking::stoppedCeiling, Tracking::stoppedRange, Tracking::fixed })
+        for (const auto tracking : { Tracking::following, Tracking::stoppedRange, Tracking::fixed })
             for (const bool original : { false, true })
                 for (const double shortfall : { 0.0, 0.3 })
                     for (const double held : { 0.0, -2.5 })
@@ -236,9 +236,9 @@ inline void addStatusLines (std::set<juce::String>& texts, const std::set<juce::
                         texts.insert (reference_ui::gainReadout (playing));
                     }
         auto offered = base;
-        offered.comparisonSlot = slot;
-        offered.status = reference_ui::notice::lowerAOfferStatus (slot, -2.5);
-        texts.insert (reference_ui::notice::lowerAOfferAction (slot, -2.5));
+        offered.comparisonSlot = offered.audibleComparisonSlot = slot;
+        offered.bSelected = true; offered.peakShortfallDb = 2.5;
+        texts.insert (reference_ui::notice::lowerAOfferAction (-2.5));
         offered.action = { reference_ui::ActionKind::lowerAAndPlay, { slot, -2.5, "id", 1, 1 } };
         add (offered);
     }
@@ -274,9 +274,7 @@ inline void addGuidesAndNotices (std::set<juce::String>& texts)
                 texts.insert (reference_ui::unavailableText (state, false));
             }
     }
-    for (const int slot : { 1, 2, 3 }) texts.insert (reference_ui::notice::lowerANeeded (slot, -2.5));
-    texts.insert (reference_ui::notice::lowerAAgain (-3.5));
-    for (const bool ceiling : { true, false }) texts.insert (reference_ui::notice::trackingStopped (ceiling));
+    texts.insert (reference_ui::notice::trackingStopped());
     for (const int slot : { 1, 2 })
         for (const bool playable : { true, false }) texts.insert (reference_ui::notice::pageOpened (slot, playable));
     using Skipped = reference_audition::RuntimeSkippedItem;  // 名前は Kirin OS の中身（訳さない）なので、英字の無い名前で試す

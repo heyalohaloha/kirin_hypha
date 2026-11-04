@@ -62,8 +62,8 @@ bool ReferenceComparisonController::requestAudition (int slot, double loudness, 
             return false;
         }
     }
-    // 仕様 C：C は A の直近が Cue の長さ（最長 30 秒）たまってから合わせる。足りないあいだは押した選択を
-    // 待たせ、たまったら鳴らす（A のまま。待ちの上限を超えたら理由を出す）。
+    // C は A の音量が何も無いときだけ待たせる（A のまま。待ちの上限を超えたら理由を出す）。A の直近が Cue の長さに
+    // 足りないあいだは、今ある A で合わせて鳴らし、たまったら合わせ直す（KirinHyphaEditor::serviceReferenceRematch）。
     const bool waitForLevel = slot == 2 && state.checkSelection != nullptr && state.checkReady
         && state.checkSelection->comparisonMode == "loudness_match" && ! std::isfinite (loudness);
     // A を下げている途中（承認・bypass の後）は鳴らし始めない（下げ終わる前に鳴ると一瞬大きく聴こえる）。待たせる。
@@ -115,8 +115,7 @@ bool ReferenceComparisonController::waitWhilePreparing (int slot)
         pendingAudition.view = { slot, Stage::startFailed, "reference_position_outside_source" };
         return false;
     }
-    const bool settles = now.matchFailure != MatchFailure::ceilingExceeded
-        && now.matchFailure != MatchFailure::sourceLevelUnavailable && ! now.auditionOutsideCue
+    const bool settles = now.matchFailure != MatchFailure::sourceLevelUnavailable && ! now.auditionOutsideCue
         && now.state != RuntimeState::rejected && now.state != RuntimeState::disconnected
         && (target.requestedGeneration() != now.selectionGeneration || now.state == RuntimeState::verifying
             || (now.state == RuntimeState::ready && ! now.auditionBuffered)
@@ -281,28 +280,9 @@ void ReferenceComparisonController::servicePendingAudition (double loudness, dou
     }
     if (result != Result::started)
     {
-        const auto failed = target.snapshot();
-        // 承認は「A を差だけ下げて合わせる」。承認の後に A が大きくなって、鳴らす時点でまだ上限を超えるなら、その時点の
-        // 差まで下げ直して合わせ直す（下げる向きだけ、2 回まで。2026-10-04、再生を始めた直後の見積もりが小さかった）。
-        if (intent.approvedLowerA && intent.lowerRetries < 2 && failed.matchFailure == MatchFailure::ceilingExceeded
-            && failed.neededAttenuationDb < heldA.targetDb() - 0.05)
-        {
-            heldA.hold (failed.neededAttenuationDb);
-            for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
-            const juce::ScopedLock lock (selectionLock);
-            if (pendingAudition.intentId == intent.intentId)
-            {
-                ++pendingAudition.lowerRetries;
-                pendingAudition.view.stage = Stage::checking;
-                activePendingIntent.store (intent.intentId, std::memory_order_release);
-            }
-            return;
-        }
+        const auto failure = target.snapshot().matchFailure;
         if (intent.switching) dropResume();  // 新しい MATCH ができない：選択を手放して理由を出す（R-28）
-        const auto failure = failed.matchFailure;
-        publish (failure == MatchFailure::ceilingExceeded ? Stage::ceilingExceeded
-            : failure == MatchFailure::sourceLevelUnavailable ? Stage::sourceLevelUnavailable
-            : Stage::startFailed, true);
+        publish (failure == MatchFailure::sourceLevelUnavailable ? Stage::sourceLevelUnavailable : Stage::startFailed, true);
         return;
     }
     normalOutputSlot.store (intent.view.slot, std::memory_order_release);

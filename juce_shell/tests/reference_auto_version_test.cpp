@@ -131,11 +131,38 @@ void preparing (const juce::File& sandbox)
     identifier.prepare (root, *loaded.workspace, 1'000 + VersionIdentifier::retryMs + 1);
     check (identifier.candidateCount() == 1, "after 5 seconds the Version's own fingerprint is read");
 }
+
+// AUTO の印は選択と同じ決まりで動く：近い Version の間で 3 秒ごとに行を移らない（2026-11-04）。
+void markStaysPut()
+{
+    const auto identity = [] (const char* id, double agreement)
+    {
+        VersionIdentity result;
+        result.autoId = id; result.autoAgreement = agreement;
+        result.matches.push_back ({ id, agreement, FingerprintMatch::Relation::sameSong, 0.9, false, true });
+        return result;
+    };
+    AutoVersionChooser mark;
+    juce::String shown;
+    const auto next = [&] (const VersionIdentity& round)
+    { if (const auto id = mark.next (round, shown, true); id.isNotEmpty()) shown = id; };
+    next (identity ("v2", 0.98));
+    check (shown.isEmpty(), "the mark waits for a second round");
+    next (identity ("v2", 0.98));
+    check (shown == "v2", "two rounds place the mark");
+    for (int round = 0; round < 6; ++round) next (identity (round % 2 == 0 ? "v1" : "v2", round % 2 == 0 ? 0.99 : 0.97));
+    check (shown == "v2", "close Versions taking turns leave the mark where it is");
+    next (VersionIdentity {});
+    check (shown == "v2", "a round with nothing heard leaves the mark");
+    next (identity ("v1", 0.995)); next (identity ("v1", 0.995));
+    check (shown == "v1", "a Version that stays clearly closer takes the mark");
+}
 }
 
 void testReferenceAutoVersion (const juce::File& sandbox)
 {
     thresholds();
     choosing();
+    markStaysPut();
     preparing (sandbox);
 }

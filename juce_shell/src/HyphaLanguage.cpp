@@ -270,7 +270,8 @@ juce::String translateStateWord (const Catalog& catalog, const juce::String& tex
     const auto split = text.lastIndexOf ("   ");
     if (split <= 0) return {};
     const auto word = text.substring (split + 3);
-    if (word != "NOT FOUND" && word != "PREPARING" && word != "NOT SENT TO HYPHA")
+    if (word != "NOT FOUND" && word != "PREPARING" && word != "NOT SENT TO HYPHA"
+        && word != "ADOPTED" && word != "ADOPTED / AUTO")
         return {};
     const auto entry = catalog.exact.find (word);
     return entry != catalog.exact.end() ? text.substring (0, split + 3) + entry->second : juce::String {};

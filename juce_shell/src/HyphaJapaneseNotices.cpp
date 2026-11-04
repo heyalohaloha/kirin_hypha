@@ -85,8 +85,6 @@ const Entry entries[] = {
       u8"音源の計測値なし。Kirin OSで準備し直してください" },
     { "Level match exceeds the safe ceiling. A stays live.",
       u8"MATCHが安全上限を超えます。音はAのままです。" },
-    { "Level follow stopped at the safe ceiling. The current gain is kept.",
-      u8"音量の追従は安全上限で停止。今のGainを保ちます。" },
     { "Version selection was not changed", u8"Versionの選択は変わっていません" },
     { "Check Preset selection was not changed", u8"Check Presetの選択は変わっていません" },
     { "Check selection was not changed", u8"Checkの選択は変わっていません" },

@@ -32,7 +32,7 @@ struct ActionIntent
     LowerAOffer offer;  // lowerAAndPlay のとき
 };
 
-// 見ているページの役の、A を下げる承認の申し出。その役の MATCH が上限を超えていて、ほかの役が鳴っていないときだけ
+// 見ているページの役の、A を下げる承認の申し出。その役が上限で A に届かず鳴っているときだけ
 // （申し出はページの役から作る：別の役の申し出を、このページのボタンで承認しない）。
 inline std::optional<LowerAOffer> lowerAOfferFor (const reference_audition::Snapshot& runtime, int slot)
 {
@@ -40,7 +40,7 @@ inline std::optional<LowerAOffer> lowerAOfferFor (const reference_audition::Snap
                      : slot == 2 ? runtime.checkSelection : nullptr;
     if (role == nullptr || role->matchFailure != reference_audition::MatchFailure::ceilingExceeded
         || ! (role->neededAttenuationDb < 0.0) || role->playbackIdentity.isEmpty()
-        || (runtime.bSelected && runtime.audibleComparisonSlot != slot))
+        || ! runtime.bSelected || runtime.audibleComparisonSlot != slot)
         return std::nullopt;
     return LowerAOffer { slot, role->neededAttenuationDb, role->playbackIdentity, role->selectionGeneration,
                          role->matchFailureSerial };

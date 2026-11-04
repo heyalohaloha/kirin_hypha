@@ -39,16 +39,14 @@ double referenceAttenuationToMatch (double requiredGainDb) noexcept
 TrackingStep trackingStep (double requiredGainDb, double currentGainDb, double sourcePeakDbtp, double aPeakDbtp,
                            double anchorGainDb, double heldAttenuationDb) noexcept
 {
-    if (! std::isfinite (requiredGainDb) || requiredGainDb < -100.0 || requiredGainDb > 100.0
-        || ! std::isfinite (currentGainDb) || std::abs (requiredGainDb - currentGainDb) < trackingToleranceDb)
+    if (! std::isfinite (requiredGainDb) || requiredGainDb < -100.0 || requiredGainDb > 100.0 || ! std::isfinite (currentGainDb))
         return {};
-    // 上限で届かない量が 0.5 dB 以下なら上限まで上げて追従を続ける（止めない）。
+    // 上限で届かないときは上限まで上げて追従を続ける（止めない）。gain が動かなくても届かない量は今の A で言う。
     const auto shortfall = referencePeakShortfallDb (requiredGainDb, sourcePeakDbtp, aPeakDbtp, heldAttenuationDb);
-    if (shortfall > peakShortfallToleranceDb + 1.0e-9)
-        return { TrackingAction::stopCeiling, requiredGainDb };
+    if (std::abs (requiredGainDb - currentGainDb) < trackingToleranceDb) return { TrackingAction::keep, currentGainDb, shortfall };
     const auto target = requiredGainDb - shortfall;
     if (std::isfinite (anchorGainDb) && std::abs (target - anchorGainDb) > trackingRangeDb + 1.0e-9)
-        return { TrackingAction::stopRange, target };
+        return { TrackingAction::stopRange, target, shortfall };
     return { TrackingAction::move, target, shortfall };
 }
 

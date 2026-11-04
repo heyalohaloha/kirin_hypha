@@ -5,6 +5,8 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include <juce_core/juce_core.h>
@@ -178,6 +180,15 @@ namespace hypha::reference_audition
             const auto found = songs.find (candidateId);
             return found != songs.end() ? found->second : RuntimeSongPreparation {};
         }
+    };
+
+    // library/version_status.json（Kirin OS が書く）。曲ごとの採用の Version。work_id と version_id の組。
+    // manifest と別のファイルなので、読まない古い Hypha には影響しない。無ければ採用の印を出さないだけ。
+    struct RuntimeAdoptedVersions
+    {
+        std::set<std::pair<juce::String, juce::String>> versions;
+        bool adopted (const juce::String& workId, const juce::String& versionId) const
+        { return versions.count ({ workId, versionId }) != 0; }
     };
 
     // Kirin OS の項目のうち、Hypha が受け付けずに外したもの（ほかの項目は使う。2026-10-06：1 つの名前のせいで

@@ -183,7 +183,8 @@ namespace hypha::reference_audition
             bool comparisonFallbackOriginal = false;
             TrackingState tracking = TrackingState::none;
             double anchorGainDb = 0.0; // 利用者の MATCH の gain。追従はここから ±6 dB まで（戻すときも同じ値）
-            double peakShortfallDb = 0.0;  // 上限まで上げて止めた量（0.5 dB 以下）
+            double peakShortfallDb = 0.0;  // 上限で届かない量
+            double requiredGainDb = 0.0;   // 上限が無ければ掛ける gain（A を下げる申し出の量）
             bool valid = false;
         };
 
@@ -299,6 +300,7 @@ namespace hypha::reference_audition
         std::uint64_t appliedConfigurationGeneration = 0;
         std::atomic<std::uint64_t> appliedSelectionGeneration { 0 }; // 作業スレッドが書き、公開の状態に写す
         std::shared_ptr<const RuntimeWorkspace> workspace;
+        std::shared_ptr<const RuntimeAdoptedVersions> adoptedVersions; // stateLock
         std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // stateLock：Kirin OS の準備の状態
         VersionIdentifier versionIdentifier; // Version の指紋（作業スレッドが読み、メッセージスレッドが照合する）
         std::optional<RuntimeABinding> activeABinding;
@@ -333,6 +335,7 @@ namespace hypha::reference_audition
         // 失敗が残ると、古い量の承認が出る）。stateLock を持って呼ぶ。
         void beginMatchLocked() noexcept;
         void failMatchLocked (MatchFailure, double neededAttenuationDb) noexcept;
+        void noteShortfallLocked (double shortfallDb, double requiredGainDb) noexcept;
         // 決めた gain を掛け、状態の値（A・調整後・差）を合わせる。stateLock を持って呼ぶ。
         void applyMatchedGainLocked (double gainDb, double aLoudness, double aPeakDbtp,
                                      double sourceLoudness, double sourcePeakDbtp) noexcept;

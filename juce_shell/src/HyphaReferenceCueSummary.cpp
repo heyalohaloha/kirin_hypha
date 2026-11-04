@@ -155,10 +155,6 @@ juce::String matchReadout (const State& state)
 {
     if (state.comparisonMode == "original") return "ORIGINAL LEVEL";
     const auto gain = comparisonGainDb (state);
-    // 仕様 C：A が Cue の長さ（最長 30 秒）たまるまでは合わせない。進み具合を出す（たまれば押してすぐ合う）。
-    if (! std::isfinite (gain) && state.comparisonMode == "loudness_match" && state.aWindowNeededBlocks > 0
-        && state.aWindowBlocks < state.aWindowNeededBlocks)
-        return "A " + juce::String (state.aWindowBlocks / 10) + " / " + juce::String (state.aWindowNeededBlocks / 10) + " S";
     if (! std::isfinite (gain)) return {};
     const auto value = "C " + gainText (displayGainDb (state, gain)) + " dB";
     // 合わせ方（MATCHED AND FIXED）は状態の行が言い、鳴っていることは色で分かる。2 度言うと読みが切れた（「MATCHED / C

@@ -254,7 +254,7 @@ void versionBlindWaitsForReturn (const juce::File& sandbox)
     };
     hypha::tests::reference_control::await ([&] { host(); return controller.snapshot().referenceReady; });
     require (controller.snapshot().referenceReady && controller.snapshot().versionReady, "the quiet B song prepares next to V");
-    require (! controller.requestAudition (3, -10.0, -12.0), "a B MATCH over the ceiling does not play B");
+    require (controller.requestAudition (3, -10.0, -12.0), "a B MATCH over the ceiling plays B at the ceiling");
     const auto needed = controller.snapshot().referenceSelection->neededAttenuationDb;
     const auto b = *controller.snapshot().referenceSelection;
     require (needed < 0.0 && controller.approveLowerAAndPlay ({ 3, needed, b.playbackIdentity, b.selectionGeneration, b.matchFailureSerial })

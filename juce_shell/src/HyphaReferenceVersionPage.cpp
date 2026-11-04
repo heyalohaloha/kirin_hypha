@@ -86,8 +86,7 @@ bool sameSectionReady (const reference_audition::VisualTimeline* timeline) noexc
 
 juce::String listeningGuide (char role)
 {
-    return "Compared by listening. Hypha shows no result it has not measured. Press A and "
-        + juce::String::charToString (static_cast<juce::juce_wchar> (role)) + " to switch at the same level.";
+    return "BY EAR / PRESS A AND " + juce::String::charToString (static_cast<juce::juce_wchar> (role));
 }
 
 void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, const reference_audition::VisualTimeline* timeline,

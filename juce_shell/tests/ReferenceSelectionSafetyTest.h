@@ -89,16 +89,17 @@ void verifyReferenceSelectionSafety (const juce::File& sandbox)
     const auto fromB = *controller.snapshot().checkSelection;
     require (!fromB.comparisonFallbackOriginal && std::abs (fromB.appliedGainDb + 6) < 1e-9, "B to C applies exact -6 dB MATCH");
     controller.selectA(); for (int i = 0; i < 12; ++i) host (true);
-    // 仕様 C：A の窓の音量が無い（表示用の値でも NaN）あいだ、C は合わせずに押した選択を待たせる。鳴らさない。
+    // 仕様 C：A の音量が何も無い（表示用の値でも NaN）あいだ、C は合わせずに押した選択を待たせる。鳴らさない。
     require (controller.requestAudition (2, b.aIntegratedLoudness, b.aMaximumTruePeakDbtp)
         && controller.snapshot().pendingAudition.waiting() && controller.snapshot().pendingAudition.slot == 2 && !host (true),
         "even accidental frozen display input cannot select unmatched C");
     controller.servicePendingAudition (b.aIntegratedLoudness, b.aMaximumTruePeakDbtp, true);
     require (controller.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::level && !host (true),
-        "C waits for the A window instead of playing unmatched");
-    require (!controller.requestAudition (2, -1, -2)
-        && controller.snapshot().checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded && !host (true),
-        "manual clicks enforce the same ceiling as queued selection");
+        "C waits for an A level instead of playing unmatched");
+    require (controller.requestAudition (2, -1, -2) && controller.snapshot().audibleComparisonSlot == 2
+        && controller.snapshot().checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded,
+        "manual clicks play at the same ceiling as queued selection");
+    controller.selectA(); for (int i = 0; i < 12; ++i) host (true);
     require (controller.requestAudition (2, level.loudness, level.peak), "A to C uses the same control-plane level");
     require (controller.snapshot().checkSelection->appliedGainDb == fromB.appliedGainDb,
         "A to C and B to C have identical gain with the same live A observation");

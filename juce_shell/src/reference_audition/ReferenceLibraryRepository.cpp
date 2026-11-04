@@ -179,6 +179,27 @@ std::shared_ptr<const RuntimeLibraryPreparation> RuntimeV2Repository::libraryPre
     return result;
 }
 
+std::shared_ptr<const RuntimeAdoptedVersions> RuntimeV2Repository::adoptedVersions() const
+{
+    juce::MemoryBlock bytes;
+    juce::var json;
+    const auto* object = readJson (root.getChildFile ("library/version_status.json"), 256 * 1024, bytes, json) ? json.getDynamicObject() : nullptr;
+    const auto* adopted = json["adopted"].getArray();
+    if (object == nullptr || ! exactProperties (*object, { "format", "version", "adopted" })
+        || json["format"] != "kirin_hypha_reference_library_version_status" || json["version"] != "1.0"
+        || adopted == nullptr || adopted->size() > 4096)
+        return nullptr;
+    auto result = std::make_shared<RuntimeAdoptedVersions>();
+    for (const auto& value : *adopted)
+    {
+        const auto* item = value.getDynamicObject();
+        const auto work = value["work_id"].toString(), version = value["version_id"].toString();
+        if (item != nullptr && exactProperties (*item, { "work_id", "version_id" }) && uuidV4 (work) && uuidV4 (version))
+            result->versions.insert ({ work, version });
+    }
+    return result;
+}
+
 bool RuntimeV2Repository::libraryOnline (std::int64_t nowMs) const
 {
     juce::MemoryBlock bytes;

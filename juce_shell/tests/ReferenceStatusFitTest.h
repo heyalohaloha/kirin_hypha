@@ -45,21 +45,22 @@ inline void verifyReferenceStatusFits()
     {
         auto offer = base;
         offer.comparisonSlot = 3;
+        offer.bSelected = true; offer.audibleComparisonSlot = 3; offer.tracking = Tracking::following;
+        offer.peakShortfallDb = 0.8;
         offer.action = { reference_ui::ActionKind::lowerAAndPlay, { 3, -0.8, "b-song", 1, 1 } };
-        offer.status = "B NEEDS A 0.8 DB LOWER";
-        offer.actionText = "LOWER A 0.8 DB & PLAY B";
+        offer.actionText = "LOWER A 0.8 DB";
         cases.push_back ({ "B approval", offer });
     }
-    for (const auto tracking : { Tracking::following, Tracking::stoppedCeiling })
+    for (const double shortfall : { 0.0, 0.4 })
     {
         auto playing = base;
         playing.comparisonSlot = playing.audibleComparisonSlot = 3;
         playing.bSelected = true;
-        playing.tracking = tracking;
+        playing.tracking = Tracking::following;
         playing.appliedGainDb = 0.0;
         playing.heldAttenuationDb = -0.8;  // 足元の RETURN +0.8 dB が言う
-        playing.peakShortfallDb = tracking == Tracking::stoppedCeiling ? 0.4 : 0.0;
-        cases.push_back ({ tracking == Tracking::following ? "B following, A held" : "B stopped at the ceiling, under A", playing });
+        playing.peakShortfallDb = shortfall;
+        cases.push_back ({ shortfall > 0.0 ? "B at the ceiling, under A" : "B following, A held", playing });
     }
     {
         auto version = base;

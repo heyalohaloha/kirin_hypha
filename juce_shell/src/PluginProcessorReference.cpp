@@ -36,8 +36,8 @@ hypha::reference_audition::LiveALevel KirinHyphaProcessorBase::referenceLiveALev
     if (! std::isfinite (level.loudness)) return level;
     // A の音量は直近の窓（B・V は 10 秒、C は Cue と同じ長さ）のゲートつき音量（積算の Integrated は
     // 使わない）。Peak と上限はセッションの max TP のまま。窓が 3 秒に満たないあいだ（再生を始めた直後・
-    // シークの後）は、選ぶときは積算の値を使い、追従と C（windowOnly）では値なしにして待たせる・直前の gain を
-    // 保たせる。C は窓に minimumBlocks（Cue の長さ、最長 30 秒）たまるまで値なし（仕様 C）。
+    // シークの後）は、選ぶときは積算の値を使い、追従と C の合わせ直し（windowOnly）では値なしにして直前の gain を
+    // 保たせる。C の合わせ直しは窓に minimumBlocks（Cue の長さ、最長 30 秒）たまるまで値なし（仕様 C）。
    #if ! KIRIN_HYPHA_PRE_DISPLAY  // Reference の試聴は POST だけ（PRE は窓の計算を持たない）
     const auto blocks = static_cast<size_t> (juce::jmax (1, windowBlocks));
     std::vector<KirinMeterHistoryEntry> history;
@@ -86,6 +86,16 @@ hypha::reference_audition::WindowLoudnessCache KirinHyphaProcessorBase::referenc
    #else
     juce::ignoreUnused (slot);
     return {};
+   #endif
+}
+
+bool KirinHyphaProcessorBase::takeReferenceCheckAttempt (std::uint64_t attempt) noexcept
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr && referenceAuditionController->takeCheckAttempt (attempt);
+   #else
+    juce::ignoreUnused (attempt);
+    return false;
    #endif
 }
 
@@ -152,7 +162,7 @@ bool KirinHyphaProcessorBase::requestReferenceAudition (int slot)
     }
     const auto blocks = referenceAuditionController != nullptr ? referenceAuditionController->liveWindowBlocks (slot)
                                                                : hypha::reference_audition::liveWindowBlocks;
-    const auto level = referenceLiveALevel (slot == 2, blocks, hypha::reference_audition::matchMinimumBlocks (slot, blocks));
+    const auto level = referenceLiveALevel (false, blocks, 0);  // 今ある A で合わせる（C は窓がたまったら合わせ直す）
     const bool accepted = referenceAuditionController != nullptr
         && referenceAuditionController->requestAudition (slot, level.loudness, level.peak);
     if (accepted && (referencePendingAuditionNeedsService() || referenceTrackingNeedsService())) requestServiceTimer();

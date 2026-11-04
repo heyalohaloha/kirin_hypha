@@ -11,6 +11,7 @@
 #include "../src/reference_audition/ReferenceTextEdges.h"
 #include "../src/AtomicFile.h"
 void testReferenceLibrarySkipped (const juce::File&);
+void testReferenceAdoptedVersions (const juce::File&);
 
 namespace
 {
@@ -149,4 +150,40 @@ void testReferenceLibrarySkipped (const juce::File& sandbox)
     require (kanjiRead.has_value() && rejection.isEmpty() && skipped.empty() && kanjiRead->songSets[0].songs.size() == 2
                  && kanjiRead->songSets[0].songs[1].displayName == kanji,
              "a name with a character beyond the BMP at either end is read whole");
+}
+
+// 採用の Version（library/version_status.json）。manifest と別のファイルで、無ければ印を出さないだけ。読めない行は飛ばす。
+void testReferenceAdoptedVersions (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("library-version-status");
+    require (root.getChildFile ("library").createDirectory().wasOk(), "a library folder");
+    hypha::reference_audition::RuntimeV2Repository repository (root);
+    require (repository.adoptedVersions() == nullptr, "an older Kirin OS writes no file");
+    const auto file = root.getChildFile ("library/version_status.json");
+    const auto row = [] (const char* work, const char* version)
+    {
+        auto* item = new juce::DynamicObject();
+        item->setProperty ("work_id", work); item->setProperty ("version_id", version);
+        return juce::var (item);
+    };
+    const auto write = [&] (const juce::String& format, const juce::var& extra)
+    {
+        auto* object = new juce::DynamicObject();
+        object->setProperty ("format", format); object->setProperty ("version", "1.0");
+        object->setProperty ("adopted", juce::Array<juce::var> { row ("9778424c-4ec2-4f87-bb33-7a55985df147", "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d"),
+                                                                 row ("not-a-uuid", "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d") });
+        if (! extra.isVoid()) object->setProperty ("extra", extra);
+        require (writeJson (file, juce::var (object)), "write the status file");
+    };
+    write ("kirin_hypha_reference_library_version_status", {});
+    const auto read = repository.adoptedVersions();
+    require (read != nullptr && read->versions.size() == 1
+                 && read->adopted ("9778424c-4ec2-4f87-bb33-7a55985df147", "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d"),
+             "the adopted Version is read and a row with a bad id is skipped");
+    require (! read->adopted ("9778424c-4ec2-4f87-bb33-7a55985df147", "00000000-0000-4000-8000-000000000000"),
+             "another Version of the song is not adopted");
+    write ("another_format", {});
+    require (repository.adoptedVersions() == nullptr, "a file of another format is not used");
+    write ("kirin_hypha_reference_library_version_status", 1);
+    require (repository.adoptedVersions() == nullptr, "a file with unknown fields is not used");
 }

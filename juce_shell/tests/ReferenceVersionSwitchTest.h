@@ -93,5 +93,13 @@ inline void testReferenceVersionSwitch (const juce::File& sandbox, bool edited =
     const auto alignment = control::calibrationFor (control::roleFor (c, {1}), {});
     require (alignment.bStartSample - alignment.aStartSample == 6576,
              "the independent 137 ms fixture construction determines the expected FLAC position");
+    // 鳴っている V の替え先が Library から消えたら、替えている印を手放す（A のボタンが消えたまま残らない）。
+    require (c.selectVersion (ids[0]) && c.snapshot().switchingSlot == 1, "the switch shows while the new Version prepares");
+    entries.remove (0);
+    manifest.getDynamicObject()->setProperty ("versions", entries);
+    manifest.getDynamicObject()->setProperty ("revision", static_cast<int> (manifest["revision"]) + 1);
+    require (writeJson (root.getChildFile ("library/manifest.json"), manifest), "the Version leaves the library");
+    for (int n = 0; n < 16 && c.snapshot().switchingSlot != 0; ++n) feed (true);
+    require (c.snapshot().switchingSlot == 0, "a switch to a Version that left the library ends");
     c.selectA();
 }

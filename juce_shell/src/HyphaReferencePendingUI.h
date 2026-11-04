@@ -49,7 +49,6 @@ inline juce::String pendingAuditionReason (const State& state)
         case Stage::safetyChanged: return "PLAYBACK CHANGED";
         case Stage::startFailed: return "SAFE SWITCH UNAVAILABLE";
         case Stage::sourceLevelUnavailable: return "PREPARE SOURCE LEVEL IN KIRIN OS";
-        case Stage::ceilingExceeded: return "MATCH EXCEEDS SAFE LEVEL";
         case Stage::none: break;
     }
     return {};
@@ -98,8 +97,6 @@ inline juce::String versionStoppedText (const State& state)
         case Stage::safetyChanged: reason = "PLAYBACK INTERRUPTED"; break;
         case Stage::sourceLevelUnavailable:
             reason = "V LEVEL NOT MEASURED"; action = "PREPARE V AGAIN IN KIRIN OS"; break;
-        case Stage::ceilingExceeded:
-            reason = "MATCH EXCEEDS SAFE LEVEL"; action = "USE LOWER A TO LISTEN"; break;
         case Stage::startFailed:
             if (code == "reference_position_outside_source")
             { reason = "PLAYHEAD OUTSIDE VERSION"; action = "MOVE INSIDE VERSION, THEN PRESS V"; }

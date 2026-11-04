@@ -43,6 +43,7 @@ namespace hypha::reference_audition
         // A CHECK target's two parts. The CHECK page reads these, never a split of `label`: a
         // Kirin OS label may itself contain the separator.
         juce::String checkLabel {}, itemLabel {};
+        juce::String workId {}, versionId {}; // a Version's song and its version in Kirin OS
     };
 
     // Hypha に届いた B セット（順位順、最大 3）と、その曲（B の一覧）。曲の id は選択の ID。
@@ -65,6 +66,7 @@ namespace hypha::reference_audition
         juce::String title;
         juce::String sourceKind;
         juce::String rejectionCode;
+        int switchingSlot = 0;  // 選択を替えた・押した役。新しい選択が鳴るまで（その間、音は A）
         MatchFailure matchFailure = MatchFailure::none;
         // 上限超え（ceilingExceeded）のとき、承認すれば合わせられる A の下げ幅（0 以下。2026-10-03）。
         double neededAttenuationDb = 0.0;
@@ -74,8 +76,6 @@ namespace hypha::reference_audition
         // 承認して A（POST の出力全体）を下げている量（0 以下）。比較の制御が出す（役の値ではない）。
         double heldAttenuationDb = 0.0;
         // 窓に一度出した承認の申し出（役と失敗の番号）。窓を開き直しても出し直さない。比較の制御が出す。
-        int lowerAOfferShownSlot = 0;
-        std::uint64_t lowerAOfferShownSerial = 0;
         juce::String playbackIdentity; // Worker-published, same complete condition used to revoke audio.
         std::uint64_t selectionGeneration = 0; // 作業スレッドがこの状態を出したときに反映していた選択の世代
         AlignmentMode alignmentMode = AlignmentMode::referenceCue;
@@ -145,6 +145,7 @@ namespace hypha::reference_audition
         std::vector<RuntimeSongSetOption> songSets;
         juce::String songSetsIssue; // sets.json を読めなかった・一部を飛ばした理由（空なら無し）
         std::vector<RuntimeSkippedItem> librarySkipped; // Kirin OS の項目のうち受け付けずに外したもの（名前と理由）
+        std::shared_ptr<const RuntimeAdoptedVersions> adoptedVersions; // 採用の Version（Kirin OS が言わなければ無し）
         std::shared_ptr<const RuntimeLibraryPreparation> libraryPreparation; // Kirin OS の準備の状態（無ければ null）
         std::vector<RuntimeCheckSetRank> checkSetRanks; // Kirin OS で「Hypha に出す」順位を付けた CHECK セット
         std::shared_ptr<const Snapshot> checkSelection, versionSelection;

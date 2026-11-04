@@ -73,6 +73,19 @@ void RuntimeV2Controller::failMatchLocked (MatchFailure reason, double neededAtt
     ++currentSnapshot.matchFailureSerial;
 }
 
+// 上限で届かない量と、A を下げて合わせる申し出（0.5 dB を超えるときだけ）。番号は申し出が出た・消えたときだけ変わり、
+// 量が動くだけなら押したときの申し出は生きている（追従は毎秒ここを通る）。
+void RuntimeV2Controller::noteShortfallLocked (double shortfallDb, double requiredGainDb) noexcept
+{
+    currentSnapshot.peakShortfallDb = shortfallDb;
+    const bool offered = shortfallDb > peakShortfallToleranceDb + 1.0e-9;
+    const auto failure = offered ? MatchFailure::ceilingExceeded : MatchFailure::none;
+    if (failure != currentSnapshot.matchFailure) ++currentSnapshot.matchFailureSerial;
+    currentSnapshot.matchFailure = failure;
+    currentSnapshot.neededAttenuationDb = offered ? referenceAttenuationToMatch (requiredGainDb) : 0.0;
+    if (heldSelection.valid) heldSelection.facts.requiredGainDb = requiredGainDb;  // 戻したときも同じ申し出
+}
+
 void RuntimeV2Controller::holdCurrentGainLocked() noexcept
 {
     if (! heldSelection.valid) return;

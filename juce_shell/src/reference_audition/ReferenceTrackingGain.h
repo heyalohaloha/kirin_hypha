@@ -14,8 +14,8 @@ struct VisualBinding;
 
 // B・V の追従 gain。live PRE/POST 比較の AUTO（INV-LC16）と同じ値で動かす：1 秒ごとに測り直し、
 // 0.5 dB 以内は動かさず、動かすときは Audio Thread で 50 ms の直線の ramp。上限（True Peak）を超える
-// gain と、利用者の MATCH の gain から ±6 dB を超える gain には動かさず、追従を止めて理由を出す
-// （R-28：利用者が選んだ試聴のことは黙らない）。
+// gain は上限まで上げて追従を続け、届かない量を言う。利用者の MATCH の gain から ±6 dB を超える gain には
+// 動かさず、追従を止めて理由を出す（R-28：利用者が選んだ試聴のことは黙らない）。
 // 動かすのは参照の試聴コピーだけで、A は動かさない。C は Match の後に固定で、追従しない。
 inline constexpr double trackingIntervalSeconds = 1.0;
 inline constexpr double trackingToleranceDb = 0.5;
@@ -26,7 +26,6 @@ enum class TrackingAction : std::uint8_t
 {
     keep,        // 0.5 dB 以内、または測れていない（窓が足りない・無音）。今の gain を保つ
     move,        // gainDb へ動かす
-    stopCeiling, // gainDb にすると上限を超える。動かさず、追従を止める
     stopRange    // gainDb が MATCH の gain から ±6 dB を超える。動かさず、追従を止める
 };
 
@@ -37,34 +36,33 @@ enum class RematchResult : std::uint8_t
     notPlaying,        // C が鳴っていない（押すと C を鳴らす。選ぶときに合わせる）
     original,          // Kirin OS で「元の音量」にした Check（合わせない）
     peakMatch,         // True Peak で合わせる Check（選ぶときに合わせる。A を押してから C でやり直す）
-    levelUnavailable,  // A の窓（Cue と同じ長さ）が足りない・Cue の値が無い
-    ceilingExceeded    // 上限（True Peak）を超える。今の gain を保つ
+    levelUnavailable   // A の窓（Cue と同じ長さ）が足りない・Cue の値が無い
 };
 
 struct TrackingStep
 {
     TrackingAction action = TrackingAction::keep;
     double gainDb = 0.0;
-    double shortfallDb = 0.0;  // 上限まで上げて止めた量（0.5 dB 以下）
+    double shortfallDb = 0.0;  // 上限で届かない量
 };
 
 // 選ぶときと同じ上限：gain を掛けた参照の peak は max(−1 dBTP, A の max TP, 参照の max TP) を超えない。
 // 上げられる幅（0 以上）を返す。参照の peak が分からなければ 0（上げない）。
 double referenceGainHeadroomDb (double sourcePeakDbtp, double aPeakDbtp) noexcept;
 
-// 2026-10-03：上限を超える MATCH は、利用者が承認すれば A（POST の出力全体）を下げて合わせる。
+// 2026-10-03：上限を超える MATCH は上限まで上げて鳴らし、利用者が承認すれば A（POST の出力全体）を下げて合わせる。
 // heldAttenuationDb は承認して下げている量（0 以下）。参照の gain は今までどおり「A − 参照の値」で、出力では
 // 下げた量が足される。上限は下げた後の音で見る：参照の peak ＋ gain ＋ 下げた量が max(−1 dBTP, 下げた A の
 // max TP, 参照の max TP) を超えるなら超える。
 bool referenceGainExceedsCeiling (double requiredGainDb, double sourcePeakDbtp, double aPeakDbtp,
                                   double heldAttenuationDb = 0.0) noexcept;
-// 超えるときに承認を求める下げ幅（0 以下）：差の全部（参照は元の音量のまま、A を差だけ下げる。live 比較・
+// 超えるときに申し出る下げ幅（0 以下）：差の全部（参照は元の音量のまま、A を差だけ下げる。live 比較・
 // ローカル Blind と同じ）。上げなくてよい（requiredGainDb が 0 以下）なら 0。
 double referenceAttenuationToMatch (double requiredGainDb) noexcept;
 
-// 2026-10-04（なるべく参照の側を A に合わせる）：上限で届かない量が 0.5 dB 以下（聞いて分からない差）
-// なら、承認を求めず上限まで上げて鳴らし、足りない量を状態の行で言う。それより大きいときは今どおり A を下げる
-// 承認を出す（大きく小さい参照曲を、音量差のまま比べさせない）。押したときの MATCH・追従・C の MATCH のやり直しで同じ。
+// 2026-11-04（押した役を止めない）：上限で届かないときも上限まで上げて鳴らし、足りない量を状態の行で言う。
+// 0.5 dB（聞いて分からない差）を超えるときは、A を下げて合わせるボタンを状態の行に足す。押したときの MATCH・
+// 追従・C の MATCH のやり直しで同じ。
 inline constexpr double peakShortfallToleranceDb = 0.5;
 // requiredGainDb を掛けると上限をどれだけ超えるか（0 以上。超えなければ 0）。heldAttenuationDb は承認して下げている量。
 double referencePeakShortfallDb (double requiredGainDb, double sourcePeakDbtp, double aPeakDbtp,

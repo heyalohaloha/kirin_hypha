@@ -25,8 +25,8 @@ const std::array<Stage, stageCount> stages { {
       "Register a Version of this song in Kirin OS",
       "V plays another Version of the song you are playing, registered in Kirin OS." },
     // chooseVersion
-    { K::unable, W::none, "NO VERSION CHOSEN / CHOOSE VERSION V", "", "Choose a Version", "Choose a Version for V",
-      "Choose it in V / VERSION above. V plays another Version of the song you are playing." },
+    { K::unable, W::none, "NO VERSION CHOSEN / PLAY A OR CHOOSE VERSION V", "", "Play A or choose a Version", "Play A or choose a Version for V",
+      "AUTO finds it while A plays, or choose it in V / VERSION above. V plays another Version of the song you are playing." },
     // enableCheck
     { K::unable, W::none, "NO CHECK FOR C / ENABLE A CHECK IN KIRIN OS", "", "Enable a Check in Kirin OS",
       "No Check is enabled in Kirin OS", "C plays the source a Check compares your mix with." },

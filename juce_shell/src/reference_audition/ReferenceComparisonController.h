@@ -47,6 +47,9 @@ public:
     bool selectRef (double, double) noexcept;              // B（REF）を鳴らす
     bool selectSong (const juce::String& songId);          // B の曲。B が鳴っていれば即切替
     bool selectSongSet (const juce::String& songSetId);    // B SET（Hypha に届いた順位 1〜3）
+    // C の MATCH の試みを 1 度だけ見る（窓を開き直しても、同じ試みの合わせ直しを立て直さない）。メッセージスレッド。
+    bool takeCheckAttempt (std::uint64_t attempt) noexcept
+    { if (attempt == checkAttemptSeen) return false; checkAttemptSeen = attempt; return true; }
     bool requestAudition (int slot, double, double); // Explicit click; stopped transport queues, playing waits while preparing.
     // Control-thread clock, in monotonic seconds; callers may supply it for deterministic scheduling.
     void servicePendingAudition (double, double, bool callbackLive,
@@ -90,7 +93,6 @@ public:
     // 2026-10-03（R-12）：上限を超えた MATCH の役を、承認した量だけ A を下げて合わせる。下げ終わってから鳴らす。
     LowerAApproval approveLowerAAndPlay (const LowerAOffer&);
     // 承認の申し出を窓に出した（一度だけ）。窓を開き直しても出し直さないために持つ。
-    void markLowerAOfferShown (int slot, std::uint64_t failureSerial);
     // RETURN：役を止めてから A を通常の音量へ（0.5 秒で上げる）。下げた量で合わせた保留も戻さない。
     void returnAToNormalLevel();
     double heldAttenuationDb() const noexcept { return heldA.targetDb(); }
@@ -142,8 +144,6 @@ private:
         bool sawPlayback = false;
         bool resume = false; // 利用者の選択を同じ音・同じ gain で戻す（新しい MATCH はしない）
         bool switching = false; // 鳴っていた役の選択の替え（停止をまたいで待ち、失敗したら選択を手放す）
-        bool approvedLowerA = false; // 承認して A を下げて鳴らす待ち（鳴らす時点の差まで下げ直せる）
-        int lowerRetries = 0;
     } pendingAudition; // selectionLock; control thread only.
     bool resumeWanted() const;
     bool armResume();
@@ -152,6 +152,7 @@ private:
     // その役のまま鳴らす（押せば即切替）。ほかの役は止めない。continues が false（新しい選択が Kirin OS の
     // 準備待ちで、まだ世代が進んでいない）なら、その役の保留と待ちを手放すだけ。
     void continueAfterSwitch (int slot, bool continues = true);
+    std::uint64_t checkAttemptSeen = 0;
     // 鳴っている役の印（normalOutputSlot）を役の実際（出力・戻す控え・選択の替え・待ち）に合わせる。控えが消えて出力も
     // 終わった役の印を残すと、選択を替えただけで鳴り出し、timer が回り続け、V の AUTO が止まる。ライブラリが公開を
     // 引っ込めて控えが消えたときは、その役を「音源が変わった」で止めたと言う。
@@ -166,8 +167,6 @@ private:
     juce::String songSetId, songId; // selectionLock
     std::atomic<int> switchSlot { 0 };        // 選択を替えた役（1〜3）。公開されたら新しい MATCH で鳴らす
     std::uint64_t switchGeneration = 0;        // selectionLock：その役の替えた後の選択の世代
-    int offerShownSlot = 0;                     // selectionLock：窓に出した承認の申し出
-    std::uint64_t offerShownSerial = 0;
     std::atomic<bool> offlineRenderSeen { false };
     std::uint64_t pendingSequence = 0;
     std::atomic<std::uint64_t> activePendingIntent { 0 };

@@ -88,10 +88,11 @@ void verifyCeilingRules()
              "lowering A by the difference keeps the reference at its own level within the ceiling");
     require (closeTo (ref::referenceAttenuationToMatch (8.0), -8.0) && ref::referenceAttenuationToMatch (-3.0) == 0.0,
              "the approval asks for the whole difference, and never for a match that lowers the reference");
-    // 追従も下げた後の音で上限を見る：下げた A に対して +1 dB までは動き、それを超えると止まる。
+    // 追従も下げた後の音で上限を見る：下げた A に対して +1 dB までは動き、それを超えると上限で止まって足りない量を持つ。
     using Action = ref::TrackingAction;
+    const auto atCeiling = ref::trackingStep (10.0, 8.0, -2.0, -20.0, 8.0, -8.0);
     require (ref::trackingStep (9.0, 8.0, -2.0, -20.0, 8.0, -8.0).action == Action::move
-                 && ref::trackingStep (10.0, 8.0, -2.0, -20.0, 8.0, -8.0).action == Action::stopCeiling,
+                 && atCeiling.action == Action::move && closeTo (atCeiling.gainDb, 9.0) && closeTo (atCeiling.shortfallDb, 1.0),
              "following A checks the ceiling after the held attenuation");
     // 掛ける部品：bypass・書き出し（usable でない）には掛けない。戻すときは 0.5 秒の直線で上げる。
     ref::HeldAttenuation held;
@@ -195,8 +196,8 @@ void testReferenceLowerA (const juce::File& sandbox)
     };
     until ([&] { const auto s = controller.snapshot(); return s.referenceReady && s.checkReady; }, "the quiet B song prepares");
 
-    // 押したときも 0.5 dB の決まり（B の peak −2 dBTP、上限 −1 dBTP）：上限に 0.3 dB 届かないなら上限まで上げて鳴らし
-    // 届かない量を持つ。0.6 dB なら断り、承認すれば合う下げ幅を言う。B と C で同じ。
+    // 押したときの決まり（B の peak −2 dBTP、上限 −1 dBTP）：上限で届かなくても上限まで上げて鳴らし、届かない量を持つ。
+    // 0.5 dB を超えたら、承認すれば合う下げ幅も持つ。B と C で同じ。
     for (const int slot : { 3, 2 })
     {
         const auto role = [&] { const auto s = controller.snapshot(); return slot == 3 ? *s.referenceSelection : *s.checkSelection; };
@@ -204,9 +205,12 @@ void testReferenceLowerA (const juce::File& sandbox)
         require (closeTo (role().appliedGainDb, 1.0, 1.0e-6) && closeTo (role().peakShortfallDb, 0.3, 1.0e-6),
                  "it says how far short of A it plays");
         controller.selectA(); host(); host();
-        require (! controller.requestAudition (slot, -16.4, -12.0) && role().matchFailure == ref::MatchFailure::ceilingExceeded
-                     && closeTo (role().neededAttenuationDb, -1.6, 1.0e-6),
-                 "a role 0.6 dB short is refused with the amount A must be lowered");
+        require (role().matchFailure == ref::MatchFailure::none, "0.3 dB short offers nothing");
+        require (controller.requestAudition (slot, -16.4, -12.0) && role().matchFailure == ref::MatchFailure::ceilingExceeded
+                     && closeTo (role().neededAttenuationDb, -1.6, 1.0e-6) && closeTo (role().appliedGainDb, 1.0, 1.0e-6)
+                     && closeTo (role().peakShortfallDb, 0.6, 1.0e-6),
+                 "a role 0.6 dB short plays at the ceiling and names the amount A must be lowered");
+        controller.selectA(); host(); host();
     }
 
     // 停止・シークで戻しても、追従で変わった「上限で届かない量」まで同じに戻る。
@@ -257,10 +261,13 @@ void testReferenceLowerA (const juce::File& sandbox)
              "a republished B never plays on its own; the selection ends as a source change");
 
     // A −10 LUFS（peak −12 dBTP）に −18 LUFS の参照：+8 dB が要り、参照の peak −2 dBTP で上限を超える。
-    require (! controller.requestAudition (3, -10.0, -12.0), "a MATCH over the ceiling does not play B");
+    require (controller.requestAudition (3, -10.0, -12.0) && controller.snapshot().audibleComparisonSlot == 3,
+             "a MATCH over the ceiling plays B at the ceiling");
     const auto refused = *controller.snapshot().referenceSelection;
-    require (refused.matchFailure == ref::MatchFailure::ceilingExceeded && closeTo (refused.neededAttenuationDb, -8.0),
-             "the refusal names how far A must be lowered to match");
+    require (refused.matchFailure == ref::MatchFailure::ceilingExceeded && closeTo (refused.neededAttenuationDb, -8.0)
+                 && closeTo (refused.appliedGainDb, 1.0, 1.0e-6) && closeTo (refused.peakShortfallDb, 7.0, 1.0e-6),
+             "B plays short of A, and the offer names how far A must be lowered to match");
+    controller.selectA(); host(); host();
 
     // 承認はボタンに出した申し出（その役・その音・その選択・その MATCH の失敗）を、出した量で受ける。量の無い承認・
     // 鳴らす待ちを立てられない承認（ローカル Blind の準備中）・別の役や古い申し出では A を下げない。
@@ -276,9 +283,10 @@ void testReferenceLowerA (const juce::File& sandbox)
                  && controller.heldAttenuationDb() == 0.0,
              "B's offer cannot be approved as another role's");
     const auto stale = offerFor (3, refused.neededAttenuationDb);
-    require (! controller.requestAudition (3, -10.0, -12.0)
+    require (controller.requestAudition (3, -10.0, -12.0)
                  && controller.approveLowerAAndPlay (stale) == Approval::stale && controller.heldAttenuationDb() == 0.0,
              "an offer from before pressing the role again is not approved");
+    controller.selectA(); host(); host();
     require (controller.reserveLocalBlind(), "a local Blind takes the audition gate");
     require (controller.approveLowerAAndPlay (offerFor (3, refused.neededAttenuationDb)) != Approval::lowered
                  && controller.heldAttenuationDb() == 0.0,
@@ -353,24 +361,32 @@ void testReferenceLowerA (const juce::File& sandbox)
     for (int index = 0; index < 60; ++index) host();
     require (closeTo (block.getSample (0, 479), aLevel), "A is back at its normal level");
 
-    // 待たせた役：A の音量がまだ無いときに押した B は待ち、合わせる時点で上限を超えて止まる。そのときも
-    // 下げ幅が状態に残り、承認から鳴らせる（画面は押し直させずに承認を出す。2026-10-04）。
+    // 鳴っている役の申し出：B は上限で鳴ったまま。承認すると A を下げ、B は元の音量で鳴り直す。
+    until ([&] { return controller.snapshot().referenceReady; }, "B is ready for the offer while it plays");
+    require (controller.requestAudition (3, -10.0, -12.0) && controller.snapshot().audibleComparisonSlot == 3, "B plays at the ceiling");
+    host(); host();
+    require (controller.approveLowerAAndPlay (offerFor (3, -8.0)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -8.0),
+             "the offer is approved while B plays");
+    until ([&] { const auto s = *controller.snapshot().referenceSelection;
+                 return controller.snapshot().audibleComparisonSlot == 3 && closeTo (s.appliedGainDb, 8.0, 1.0e-6) && s.peakShortfallDb == 0.0; },
+           "B plays again matched to the lowered A");
+    require (controller.snapshot().referenceSelection->matchFailure == ref::MatchFailure::none, "the offer is gone once B matches");
+    controller.returnAToNormalLevel();
+    for (int index = 0; index < 60; ++index) host();
+
+    // 待たせた役：A の音量がまだ無いときに押した B は待ち、A の音量が来たら上限で鳴る。承認から合わせられる。
+    until ([&] { return controller.snapshot().referenceReady; }, "B is ready for the waiting press");
     require (controller.requestAudition (3, std::numeric_limits<double>::quiet_NaN(), -12.0)
                  && controller.snapshot().audibleComparisonSlot == 0,
              "a role pressed before A has a level waits (A stays live)");
-    until ([&] { return controller.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::ceilingExceeded; },
-           "the waiting role reaches the ceiling");
-    const auto stopped = controller.snapshot();
-    require (stopped.pendingAudition.stage == ref::PendingAuditionView::Stage::ceilingExceeded
-                 && stopped.referenceSelection->matchFailure == ref::MatchFailure::ceilingExceeded
-                 && closeTo (stopped.referenceSelection->neededAttenuationDb, -8.0),
-             "a waiting role stopped by the ceiling still names how far A must be lowered");
-    // 承認の量が鳴らす時点の差より小さかった（再生を始めた直後の見積もり）ときは、その時点の差まで下げ直して鳴らす。
-    require (controller.approveLowerAAndPlay (offerFor (3, -5.0)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -5.0),
-             "the waiting role can be approved without pressing it again, first by the offered amount");
-    until ([&] { return controller.snapshot().audibleComparisonSlot == 3; }, "the approved role plays");
-    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -8.0),
-             "an approval smaller than the difference at play time lowers A to that difference and plays");
+    until ([&] { return controller.snapshot().audibleComparisonSlot == 3; }, "the waiting role plays at the ceiling");
+    require (closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -8.0),
+             "a waiting role at the ceiling names how far A must be lowered");
+    require (controller.approveLowerAAndPlay (offerFor (3, -8.0)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -8.0),
+             "the waiting role can be approved without pressing it again");
+    until ([&] { const auto s = *controller.snapshot().referenceSelection;
+                 return controller.snapshot().audibleComparisonSlot == 3 && closeTo (s.appliedGainDb, 8.0, 1.0e-6); },
+           "the approved role plays");
 
     // RETURN を B が鳴っているときに押す：B を止めてから A を上げる。B が出力を持つあいだ、出力は下げた A と B の
     // 音量を超えない（先に上げると B が自分の音量より大きく鳴る）。
@@ -402,50 +418,27 @@ void testReferenceLowerA (const juce::File& sandbox)
     for (int index = 0; index < 20; ++index) { host(); controller.servicePendingAudition (-10.0, -12.0, true); }
     require (controller.snapshot().audibleComparisonSlot == 0 && ! controller.auditionHeld(), "after RETURN, stop and play keep A");
 
-    // 下げ直しは深くする向きだけ、2 回まで（2026-10-06）。承認の後に A が大きくなり続けると、その時点の差まで 2 回下げ
-    // 直し、3 回目は鳴らさずに理由を言う（下げた量はそのまま）。B の要る下げ幅は −(A の音量 + 18)。
+    // 承認の後に A が大きくなっても、A を勝手に下げ直さない：上限で鳴らし、足りない量と新しい申し出を出す。
     until ([&] { return controller.snapshot().referenceReady; }, "B is ready again");
-    require (! controller.requestAudition (3, -16.4, -12.0) && closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -1.6, levelTolerance),
-             "B is refused 1.6 dB short");
+    require (controller.requestAudition (3, -16.4, -12.0) && closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -1.6, levelTolerance),
+             "B plays 0.6 dB short");
+    controller.selectA(); host(); host();
     require (controller.approveLowerAAndPlay (offerFor (3, -1.6)) == Approval::lowered && closeTo (controller.heldAttenuationDb(), -1.6),
              "the offered amount is approved");
-    const auto pendingStage = [&] { return controller.snapshot().pendingAudition.stage; };
-    const auto state = [&] (const char* what)
+    for (int attempt = 0; attempt < 400 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
     {
-        return (juce::String (what) + " (held " + juce::String (controller.heldAttenuationDb(), 4)
-                + ", slot " + juce::String (controller.snapshot().audibleComparisonSlot)
-                + ", stage " + juce::String (static_cast<int> (pendingStage())) + ", needed "
-                + juce::String (controller.snapshot().referenceSelection->neededAttenuationDb, 4) + ")").toStdString();
-    };
-    // 下げ終わってから鳴らす（50 ms の直線）。鳴らす前の条件（B の音の用意は別のスレッド）がそろうまで、ブロックを
-    // 流して少し待ちながら呼び直す。下げ幅が変わった（または止まった）ところで抜けるので、余計には下げない。
-    const auto serviceUntil = [&] (double loudness, const std::function<bool()>& done)
-    {
-        hypha::tests::reference_control::await ([&] {
-            if (done()) return true;
-            for (int index = 0; index < 8; ++index) host();
-            controller.servicePendingAudition (loudness, -12.0, true);
-            return done();
-        });
-    };
-    for (const auto& [loudness, held] : { std::pair { -14.0, -4.0 }, std::pair { -12.0, -6.0 } })
-    {
-        serviceUntil (loudness, [&, expected = held] { return closeTo (controller.heldAttenuationDb(), expected, levelTolerance); });
-        const auto message = state ("A grew louder after the approval: A is lowered again to the difference at play time");
-        require (closeTo (controller.heldAttenuationDb(), held, levelTolerance) && controller.snapshot().audibleComparisonSlot == 0
-                     && pendingStage() == ref::PendingAuditionView::Stage::checking,
-                 message.c_str());
+        host();
+        controller.servicePendingAudition (-12.0, -12.0, true);
     }
-    serviceUntil (-10.0, [&] { return pendingStage() == ref::PendingAuditionView::Stage::ceilingExceeded; });
-    const auto notChased = state ("a third deeper difference is not chased: B stops with its reason and A stays where it was");
-    require (closeTo (controller.heldAttenuationDb(), -6.0, levelTolerance) && controller.snapshot().audibleComparisonSlot == 0
-                 && pendingStage() == ref::PendingAuditionView::Stage::ceilingExceeded,
-             notChased.c_str());
+    require (controller.snapshot().audibleComparisonSlot == 3 && closeTo (controller.heldAttenuationDb(), -1.6, levelTolerance)
+                 && closeTo (controller.snapshot().referenceSelection->neededAttenuationDb, -6.0, levelTolerance),
+             "A got louder after the approval: B plays at the ceiling, A stays at the approved amount, and the new offer names the rest");
     controller.returnAToNormalLevel();
     for (int index = 0; index < 60; ++index) host();
     // 浅くはしない：鳴らす時点の差が承認した量より小さければ、承認した量のまま鳴らす。
     until ([&] { return controller.snapshot().referenceReady; }, "B is ready after RETURN");
-    require (! controller.requestAudition (3, -14.0, -12.0), "B is refused 4 dB short");
+    require (controller.requestAudition (3, -14.0, -12.0), "B plays 3 dB short");
+    controller.selectA(); host(); host();
     require (controller.approveLowerAAndPlay (offerFor (3, -4.0)) == Approval::lowered, "4 dB is approved");
     for (int attempt = 0; attempt < 400 && controller.snapshot().audibleComparisonSlot != 3; ++attempt)
     {

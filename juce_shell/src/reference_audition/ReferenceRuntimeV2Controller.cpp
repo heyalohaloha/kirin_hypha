@@ -108,6 +108,7 @@ namespace hypha::reference_audition
         result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
         result.osOnline = libraryOnline.load (std::memory_order_acquire);
         result.libraryPreparation = libraryPreparation;
+        result.adoptedVersions = adoptedVersions;
         const auto blindState = blind.snapshot();
         result.bSelected = bSelected.load (std::memory_order_acquire);
         result.transportPlaying = latestPlaying.load (std::memory_order_acquire);

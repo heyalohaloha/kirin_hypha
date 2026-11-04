@@ -375,10 +375,11 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                     { "peakMinus3", std::abs (state.sourceMaximumTruePeakDbtp + 3.0) < 1.0e-12 }});
             }), "the measured replacement configuration publishes the exact rate and revision before the worker watchdog");
             require (! controller.snapshot().bSelected, "preparing the measured replacement never starts B");
-            require (!controller.selectB (-11.0, -2.0), "a headroom-limited match must not choose original volume");
+            require (controller.selectB (-11.0, -2.0), "a headroom-limited match plays at the ceiling");
             runtime = controller.snapshot();
-            require (!runtime.bSelected && runtime.matchFailure == ref::MatchFailure::ceilingExceeded,
-                     "MATCH failure preserves A and exposes the actual headroom reason");
+            require (runtime.bSelected && runtime.matchFailure == ref::MatchFailure::ceilingExceeded
+                         && std::abs (runtime.adjustedBMaximumTruePeakDbtp + 1.0) < 1.0e-9 && runtime.peakShortfallDb > 0.5,
+                     "a headroom-limited match stops at the ceiling and exposes the rest");
             controller.selectA();
             require (controller.selectB (-11.0, 0.2),
                      "a pre-existing A peak above -1 dBTP must not make a safe exact match unavailable");

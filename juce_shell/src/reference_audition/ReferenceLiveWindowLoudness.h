@@ -32,8 +32,8 @@ struct WindowLoudnessCache
     int blocks = 0, neededBlocks = 0;  // 窓に入った点の数と、その役の MATCH に要る数（C だけ。ほかは 0）
 };
 inline constexpr int liveWindowMinimumGatedBlocks = 30; // 3 秒に満たない窓は使わない
-// 仕様 C：C（固定）の MATCH は、A の直近が Cue の長さ（最長 30 秒）たまってから。固定する gain を短い窓の
-// 揺れで決めない。B・V（追従）は 3 秒から始めて追従で直す（0 は長さを問わない）。
+// 仕様 C：C は押したらすぐ今ある A で合わせて鳴らし、A の直近が Cue の長さ（最長 30 秒）たまったら 1 度だけ合わせ直して
+// 固定する（固定する gain を短い窓の揺れで決めない）。B・V（追従）は 3 秒から始めて追従で直す（0 は長さを問わない）。
 inline constexpr int checkMatchMinimumBlocks = 300;
 inline int matchMinimumBlocks (int slot, int windowBlocks) noexcept
 { return slot == 2 ? (windowBlocks < checkMatchMinimumBlocks ? windowBlocks : checkMatchMinimumBlocks) : 0; }

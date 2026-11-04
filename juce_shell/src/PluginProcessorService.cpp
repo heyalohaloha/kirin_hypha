@@ -74,7 +74,7 @@ void KirinHyphaProcessorBase::serviceReferencePendingAudition()
     const int slot = referenceAuditionController->pendingSlot();
     const int blocks = referenceAuditionController->pendingLiveWindowBlocks();
     const auto level = referenceAuditionController->pendingAuditionNeedsLevel()
-        ? referenceLiveALevel (slot == 2, blocks, hypha::reference_audition::matchMinimumBlocks (slot, blocks))
+        ? referenceLiveALevel (false, blocks, 0)
         : hypha::reference_audition::LiveALevel {};
     referenceAuditionController->servicePendingAudition (level.loudness, level.peak, live);
    #endif

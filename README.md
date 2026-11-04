@@ -926,25 +926,23 @@ playing. Receiving or restoring settings never starts a role.
 "A − the source's level" with a 50 ms ramp, ignoring changes within 0.5 dB. B uses its Cue's
 Integrated loudness from Kirin OS (the whole song when the Cue has no value); V pairs A with the
 aligned V content over the same window. Following never raises the copy above
-max(−1 dBTP, A's maximum true peak, the source's maximum true peak) and never moves more than 6 dB
-from the gain of the MATCH you started (as AUTO in the live PRE/POST compare); at either limit it
-stops, keeps the current gain and says so. After stopping at the ceiling, following resumes as soon
-as A gets quieter and the copy needs to come down, because lowering never crosses the ceiling; it
-stops again if A gets louder, and the notice is shown once while you listen to the same role. C matches once and stays fixed: it compares A's gated
-loudness over the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated
-loudness, and waits until A has played for the Cue's length (at most 30 s) so that a fixed gain is
-not set from a few seconds; pressing C earlier queues it and C starts once A is measured, and until
-then the C page shows how much of A it has (for example A 12 / 30 S) instead of a gain. **MATCH** on
-the C page matches again from the current A window. A match without enough A keeps the current gain
-and says why. A Check set to original level in Kirin OS plays as is.
+max(−1 dBTP, A's maximum true peak, the source's maximum true peak): at the ceiling it stays there,
+keeps following and says how far under A it plays. It never moves more than 6 dB from the gain of
+the MATCH you started (as AUTO in the live PRE/POST compare); at that limit it stops, keeps the
+current gain and says so, once while you listen to the same role. C compares A's gated loudness over
+the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated loudness. Pressing C
+plays it at once, matched to the A heard so far, and when A has played for the Cue's length (at most
+30 s) C matches once more and stays fixed, so that a fixed gain is not set from a few seconds; until
+then the status line shows how much of A it has (C MATCHING A (12 / 30 S)). C waits only while there
+is no A level at all. **MATCH** on the C page matches again from the current A window. A match without
+enough A keeps the current gain and says why. A Check set to original level in Kirin OS plays as is.
 
 **Lowering A to match.** A loud master and a quieter reference cannot be matched by raising the
-reference past the ceiling. When the reference falls short by 0.5 dB or less, which the ear cannot
-tell, Hypha plays it at the ceiling without asking, and the status line says how far it is under A
-(0.1 DB UNDER A (PEAK LIMIT)); following and MATCH again do the same. Beyond that Hypha offers, on the
-page of that role, to lower A by the difference: the line says the amount (B NEEDS A 8.0 DB LOWER) and
-its button the fix (LOWER A 8.0 DB & PLAY B), sized to what it says. The reference then plays at
-its own level and A is lowered to it. Nothing is lowered without that approval. A stays lowered after the audition, through the other
+reference past the ceiling. Pressing the role still plays it: Hypha raises it to the ceiling and the
+status line says how far it is under A (2.4 DB UNDER A (PEAK LIMIT)); following and MATCH again do the
+same. When the difference is more than 0.5 dB, the page of that role also offers to lower A by the
+difference with a button (LOWER A 8.0 DB) at 300 %. The reference then plays at its own level and A
+is lowered to it. Nothing is lowered without that press. A stays lowered after the audition, through the other
 roles, until RETURN in the footer; RETURN stops the role and raises A over half a second. The roles'
 readouts then name the gain against the lowered A, and RETURN in the footer says how far A is lowered
 (the status line says it below 150 %, where the footer has no RETURN).
@@ -971,7 +969,7 @@ match exceeds the ceiling still requires explicit approval. Offline render, a mi
 source, or a failed check leaves A playing.
 
 **Status.** The status line says one of three things, with a dot: ready (cyan: what plays
-and how its level is held — following A, matched and fixed, stopped at the ceiling, or original
+and how its level is held — following A, matched and fixed, stopped 6 dB from the match, or original
 level), waiting (gold: what it waits for and how it proceeds, such as playing the DAW), or
 unavailable (grey: the reason and its one fix, such as ranking a Reference set in Kirin OS). Its parts are in
 order of importance — how the role plays, how far it is under A, then the rest — and where the line is
@@ -1052,7 +1050,10 @@ shows the song and the status; songs are switched from 125%.
   fingerprint (the definition Kirin OS uses) and compares the last 30 seconds with each Version's
   fingerprint, first within ±30 s of the DAW position, then anywhere in the song, so a song that
   starts later on the timeline (an album session) is found too. The best Version that Kirin OS would
-  call the same song is marked AUTO with its agreement — another mix of your song counts. Because 30
+  call the same song is marked AUTO — another mix of your song counts. The mark moves as the choice
+  does, so close Versions do not trade it every few seconds. The list shows the Versions of that song
+  and of the chosen Version, with the Version adopted in Kirin OS marked ADOPTED; other songs sit under
+  OTHER SONGS, and until a song is known every Version shows, song by song. Because 30
   seconds can resemble another song by chance, a match also needs A's loudness contour to follow the
   Version (correlation 0.3 or more), and away from the DAW position only a strong match (agreement 0.70
   or more) counts. When no Version is chosen,

@@ -35,7 +35,6 @@ void KirinHyphaEditor::configureReferenceAudition()
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.versionSelection ? *latest.versionSelection : latest;
-            if (offerReferenceLowerA (1, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
             showToast (hypha::reference_ui::notice::roleUnavailable (1, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
         }
     };
@@ -48,7 +47,6 @@ void KirinHyphaEditor::configureReferenceAudition()
         {
             const auto latest = processorRef.referenceAuditionSnapshot();
             const auto& slot = latest.checkSelection ? *latest.checkSelection : latest;
-            if (offerReferenceLowerA (2, slot)) return;
             showToast (hypha::reference_ui::notice::roleUnavailable (2, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
         }
     };
@@ -178,9 +176,9 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     // （止まっているかは状態の行が言う）。
     // 鍵は役と MATCH の試みの番号：停止・シーク・ループで自動に戻っても同じ試みなので、知らせは出し直さない。
     using Tracking = hypha::reference_audition::TrackingState;
-    const bool trackingStopped = audible.tracking == Tracking::stoppedCeiling || audible.tracking == Tracking::stoppedRange;
-    if (referenceTrackingStop.update (runtime.bSelected, runtime.audibleComparisonSlot, audible.matchAttempt, trackingStopped))
-        showToast (hypha::reference_ui::notice::trackingStopped (audible.tracking == Tracking::stoppedCeiling));
+    if (referenceTrackingStop.update (runtime.bSelected, runtime.audibleComparisonSlot, audible.matchAttempt,
+                                      audible.tracking == Tracking::stoppedRange))
+        showToast (hypha::reference_ui::notice::trackingStopped());
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
     const bool connected = runtime.libraryReceived;
@@ -194,6 +192,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.versionArmable = runtime.versionArmable;
     state.checkArmable = runtime.checkArmable;
     state.pendingAudition = runtime.pendingAudition;
+    state.switchingSlot = runtime.switchingSlot;
     state.versionId = runtime.selectedVersionId;
     state.versions = selectionOptions (runtime.versions);
     state.versionReady = callbackLive && runtime.versionReady;
@@ -263,7 +262,17 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.checkViewBindings = checkSelection.checkViewBindings;
     state.listeningChecks = checkSelection.listeningChecks;
     state.detailedMeasurement = runtime.detailedMeasurement;
-    state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
+    // 鳴っている V の Version を替えるあいだは図を前のまま保つ（位置が合うまでの約 1 秒、曲の頭の図へ跳ばない）。
+    const auto timelineNow = juce::Time::getMillisecondCounterHiRes();
+    if (runtime.switchingSlot == 1 && referenceSwitchTimeline != nullptr && timelineNow < referenceSwitchHoldUntilMs)
+        state.visualTimeline = referenceSwitchTimeline;
+    else
+    {
+        state.visualTimeline = runtime.visualTimeline;
+        referenceSwitchTimeline = runtime.visualTimeline;
+        referenceSwitchHoldUntilMs = timelineNow + 3000.0;
+    }
+    state.visualPositionSeconds = runtime.visualPositionSeconds;
     state.visualPreferences = runtime.visualPreferences;
     state.profiles = runtime.profiles;
     state.candidatePreparationPending = checkSelection.candidatePreparationStatus == "pending";

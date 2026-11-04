@@ -58,9 +58,8 @@ void rampsAndSteps()
     require (down.action == r::TrackingAction::move && closeTo (down.gainDb, -10.0)
                  && up.action == r::TrackingAction::move && closeTo (up.gainDb, 4.5) && closeTo (up.shortfallDb, 0.0)
                  && withinShortfall.action == r::TrackingAction::move && closeTo (withinShortfall.gainDb, 5.0, 1.0e-9) && closeTo (withinShortfall.shortfallDb, 0.5, 1.0e-9)
-                 && over.action == r::TrackingAction::stopCeiling,
-             "lowering always moves; raising moves within the ceiling, stops at the ceiling 0.5 dB short at most, "
-             "and otherwise stops following");
+                 && over.action == r::TrackingAction::move && closeTo (over.gainDb, 5.0, 1.0e-9) && closeTo (over.shortfallDb, 0.6, 1.0e-9),
+             "lowering always moves; raising moves within the ceiling and otherwise stays at the ceiling, following");
     require (closeTo (r::referencePeakShortfallDb (5.5, -6.0, -2.0), 0.5, 1.0e-9) && r::referencePeakShortfallDb (4.0, -6.0, -2.0) == 0.0
                  && closeTo (r::referencePeakShortfallDb (10.0, -2.0, -20.0, -8.0), 1.0, 1.0e-9),
              "the shortfall is how far the gain would pass the ceiling, after any A lowering");
@@ -334,19 +333,20 @@ void matchesAndFollows (const juce::File& sandbox)
              "C matched again 0.3 dB short of the ceiling plays at the ceiling and says how far short");
     require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched && closeTo (controller.snapshot().peakShortfallDb, 0.0),
              "a full match again clears the shortfall");
-    require (controller.rematch (-10.0, -2.0) == ref::RematchResult::ceilingExceeded
-                 && controller.rematch (std::numeric_limits<double>::quiet_NaN(), -2.0) == ref::RematchResult::levelUnavailable
-                 && closeTo (controller.snapshot().appliedGainDb, 2.5),
-             "a MATCH over the ceiling or without an A window keeps the gain and says why");
+    require (controller.rematch (-10.0, -2.0) == ref::RematchResult::matched
+                 && closeTo (controller.snapshot().appliedGainDb, 3.0, 1.0e-6) && closeTo (controller.snapshot().peakShortfallDb, 3.0, 1.0e-6),
+             "a MATCH over the ceiling plays at the ceiling and says how far short");
+    require (controller.rematch (std::numeric_limits<double>::quiet_NaN(), -2.0) == ref::RematchResult::levelUnavailable
+                 && closeTo (controller.snapshot().appliedGainDb, 3.0, 1.0e-6),
+             "a MATCH without an A window keeps the gain and says why");
     // 2026-10-31：A の窓が足りないあいだの MATCH は断らずに待ち、たまったら合わせる。C が鳴っていない・元の音量は待ちを捨てる。
     require (hypha::reference_ui::rematchWait (ref::RematchResult::levelUnavailable) == hypha::reference_ui::RematchWait::wait
                  && hypha::reference_ui::rematchWait (ref::RematchResult::matched) == hypha::reference_ui::RematchWait::done
-                 && hypha::reference_ui::rematchWait (ref::RematchResult::ceilingExceeded) == hypha::reference_ui::RematchWait::offerLowerA
                  && hypha::reference_ui::rematchWait (ref::RematchResult::notPlaying) == hypha::reference_ui::RematchWait::drop,
              "a MATCH pressed before A has the Cue length waits and matches once A has it");
     const auto refusedAgain = controller.snapshot();
     require (refusedAgain.matchFailure == ref::MatchFailure::ceilingExceeded && refusedAgain.neededAttenuationDb < 0.0,
-             "the refused MATCH again offers how far A must be lowered");
+             "a MATCH short of A offers how far A must be lowered");
     require (controller.rematch (-13.5, -2.0) == ref::RematchResult::matched
                  && controller.snapshot().matchFailure == ref::MatchFailure::none
                  && ! (controller.snapshot().neededAttenuationDb < 0.0)
@@ -380,32 +380,32 @@ void matchesAndFollows (const juce::File& sandbox)
     for (std::size_t n = 1; n < heard.size(); ++n)
         require (heard[n] <= heard[n - 1] + 1.0e-7f, "a falling gain never rises on the way");
 
-    // 上げると上限（max(−1, A の −2, Cue の −4) = −1 dBTP）を超える：動かさず止めて、知らせる状態にする。
-    require (controller.followSelection (steady (-8.0), -2.0) == ref::TrackingAction::stopCeiling
-                 && controller.snapshot().tracking == ref::TrackingState::stoppedCeiling
-                 && closeTo (controller.snapshot().appliedGainDb, -4.0),
-             "a gain over the ceiling stops following and keeps the current gain");
-    require (controller.followSelection (steady (-18.0), -2.0) == ref::TrackingAction::keep, "a stopped follow stays stopped");
-    render();
-    require (std::abs (buffer.getSample (0, 0) - target) < 1.0e-6f, "the kept gain keeps sounding");
-    // 2026-10-05：上限で止めた後でも、A が静かになって下げる向きなら追従を再開する。
-    // （上の B は MATCH の +2 dB から −6 dB の端にいるので、MATCH し直して下げる余地のある所で確かめる。）
-    controller.selectA();
-    require (controller.selectB (-16.0, -2.0) && closeTo (controller.snapshot().appliedGainDb, 0.0), "B matches again at 0 dB");
-    render(); render();
-    require (controller.followSelection (steady (-9.0), -2.0) == ref::TrackingAction::stopCeiling
-                 && controller.snapshot().tracking == ref::TrackingState::stoppedCeiling,
-             "a louder A stops the follow at the ceiling");
-    require (controller.followSelection (steady (-16.3), -2.0) == ref::TrackingAction::keep
-                 && controller.snapshot().tracking == ref::TrackingState::stoppedCeiling,
-             "an A asking for a higher gain keeps the follow stopped at the ceiling");
-    require (controller.followSelection (steady (-17.0), -2.0) == ref::TrackingAction::move
+    // 上げると上限（max(−1, A の −2, Cue の −4) = −1 dBTP）を超える：上限まで上げて追従を続け、足りない量と A を下げる
+    // 申し出を持つ。A が静かになれば、申し出を消して下げる。
+    require (controller.followSelection (steady (-8.0), -2.0) == ref::TrackingAction::move
                  && controller.snapshot().tracking == ref::TrackingState::following
-                 && closeTo (controller.snapshot().appliedGainDb, -1.0),
-             "a quieter A resumes the follow downwards after a ceiling stop");
-    require (controller.followSelection (steady (-9.0), -2.0) == ref::TrackingAction::stopCeiling
-                 && closeTo (controller.snapshot().appliedGainDb, -1.0),
-             "the resumed follow stops at the ceiling again");
+                 && closeTo (controller.snapshot().appliedGainDb, 3.0, 1.0e-6) && closeTo (controller.snapshot().peakShortfallDb, 5.0, 1.0e-6)
+                 && controller.snapshot().matchFailure == ref::MatchFailure::ceilingExceeded
+                 && closeTo (controller.snapshot().neededAttenuationDb, -8.0, 1.0e-6),
+             "a gain over the ceiling keeps following at the ceiling and offers the rest");
+    require (controller.followSelection (steady (-12.8), -2.0) == ref::TrackingAction::keep
+                 && closeTo (controller.snapshot().appliedGainDb, 3.0, 1.0e-6) && closeTo (controller.snapshot().peakShortfallDb, 0.2, 1.0e-6)
+                 && controller.snapshot().matchFailure == ref::MatchFailure::none,
+             "a gain that stays put still says how far short it is now, and withdraws the offer");
+    require (controller.followSelection (steady (-8.0), -2.0) == ref::TrackingAction::move, "the offer comes back");
+    require ([&, offerSerial = controller.snapshot().matchFailureSerial] { return controller.followSelection (steady (-7.0), -2.0) == ref::TrackingAction::move && controller.snapshot().matchFailureSerial == offerSerial; }()
+                 && closeTo (controller.snapshot().neededAttenuationDb, -9.0, 1.0e-6), "the offer stays the same offer while its amount moves");
+    require (controller.followSelection (steady (-17.0), -2.0) == ref::TrackingAction::move
+                 && closeTo (controller.snapshot().appliedGainDb, -1.0) && controller.snapshot().peakShortfallDb == 0.0
+                 && controller.snapshot().matchFailure == ref::MatchFailure::none
+                 && ! (controller.snapshot().neededAttenuationDb < 0.0),
+             "a quieter A moves down and withdraws the offer");
+    controller.selectA(); render(); render();
+    require (controller.selectB (-8.0, -2.0) && controller.snapshot().matchFailure == ref::MatchFailure::ceilingExceeded, "an offer at the start");
+    render(); render();
+    require (controller.followSelection (steady (-20.0), -2.0) == ref::TrackingAction::stopRange
+                 && controller.snapshot().matchFailure == ref::MatchFailure::none && controller.snapshot().peakShortfallDb == 0.0,
+             "a follow stopped 6 dB from the MATCH withdraws an offer it no longer needs");
     controller.selectA();
     require (controller.selectB (-18.0, -2.0) && controller.snapshot().tracking == ref::TrackingState::following,
              "choosing B again follows again");

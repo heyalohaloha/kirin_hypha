@@ -211,8 +211,9 @@ void testReferencePendingAudition (const juce::File& sandbox)
     require (controller.snapshot().pendingAudition.stage == Stage::level && !host (true),
         "unknown live A loudness cannot silently choose original C volume");
     controller.servicePendingAudition (-1, -2, true);
-    require (controller.snapshot().pendingAudition.stage == Stage::ceilingExceeded && !host (true),
-        "ceiling-limited MATCH cancels instead of falling back to original volume");
+    require (controller.snapshot().pendingAudition.stage == Stage::none && controller.snapshot().audibleComparisonSlot == 2
+                 && controller.snapshot().checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded,
+        "ceiling-limited MATCH plays at the ceiling and offers the rest, never at the original volume");
     controller.selectA(); host (false);
     preset["checks"][1].getDynamicObject()->setProperty ("comparison_mode", "original");
     require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 3)),

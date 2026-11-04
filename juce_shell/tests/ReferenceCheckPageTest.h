@@ -101,14 +101,16 @@ inline void verifyReferenceCheckPage()
     require (std::abs (reference_ui::comparisonGainDb (state) + 3.0) < 1.0e-9
                  && reference_ui::matchReadout (state) == juce::String (juce::CharPointer_UTF8 ("ON PLAY / C \xe2\x88\x92" "3.0 dB")),
              "before C plays, the page says the gain C will play at");
-    // 仕様 C：A が Cue の長さ（最長 30 秒）たまるまでは合わせない。gain の代わりに進み具合を出す。
+    // 仕様 C：C は待たない。押す前に数えるものは無く、鳴らしてから状態の行が進み具合を言う。
     {
         auto waiting = state;
         waiting.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
         waiting.aWindowBlocks = 120; waiting.aWindowNeededBlocks = 300;
-        require (reference_ui::matchReadout (waiting) == "A 12 / 30 S"
-                     && i18n::translate (reference_ui::matchReadout (waiting), i18n::Language::japanese) != "A 12 / 30 S",
-                 "while A fills the Cue's window, the page says how far it has come");
+        require (reference_ui::matchReadout (waiting).isEmpty(), "before C plays, nothing counts up");
+        waiting.bSelected = waiting.matchProvisional = true; waiting.audibleComparisonSlot = waiting.comparisonSlot = 2;
+        waiting.tracking = reference_audition::TrackingState::fixed;
+        require (reference_ui::referenceStatusLine (waiting).text.startsWith ("C MATCHING A (12 / 30 S)"),
+                 "while C plays and A fills the Cue's window, the status line says how far it has come");
     }
     // 2026-10-04：凡例は比べる側が曲のどの部分かを言う。B は時刻も添える。
     {
