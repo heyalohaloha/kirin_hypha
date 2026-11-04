@@ -83,7 +83,10 @@ pub(super) fn scan_catalog<R: Read + Seek>(
         let data_start = file
             .data_start()
             .ok_or_else(|| format!("ZIP member has no data offset: {}", entry.raw_name))?;
-        if file.name().as_bytes() != entry.raw_name.as_bytes()
+        let name = file
+            .name()
+            .map_err(|error| format!("cannot decode ZIP member {index} name: {error}"))?;
+        if name.as_bytes() != entry.raw_name.as_bytes()
             || file.name_raw() != entry.raw_name.as_bytes()
             || file.header_start() != entry.local_header_offset
             || file.size() != entry.uncompressed_size

@@ -187,7 +187,10 @@ fn scan_catalog<R: Read + std::io::Seek>(
             .by_index(index)
             .map_err(|error| format!("cannot inspect ZIP member {index}: {error}"))?;
         let raw_name = central.raw_name.as_str();
-        if file.name().as_bytes() != raw_name.as_bytes()
+        let name = file
+            .name()
+            .map_err(|error| format!("cannot decode ZIP member {index} name: {error}"))?;
+        if name.as_bytes() != raw_name.as_bytes()
             || file.name_raw() != raw_name.as_bytes()
             || file.header_start() != central.local_header_offset
         {

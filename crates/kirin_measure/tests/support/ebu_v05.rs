@@ -92,11 +92,10 @@ pub fn archive_wav_names(path: &Path) -> BTreeSet<String> {
     (0..archive.len())
         .filter_map(|index| {
             let entry = archive.by_index(index).expect("read EBU archive entry");
-            entry
-                .name()
-                .to_ascii_lowercase()
+            let name = entry.name().expect("decode EBU archive entry name");
+            name.to_ascii_lowercase()
                 .ends_with(".wav")
-                .then(|| entry.name().to_owned())
+                .then(|| name.into_owned())
         })
         .collect()
 }
