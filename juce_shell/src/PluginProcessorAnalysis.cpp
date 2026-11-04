@@ -262,6 +262,16 @@ bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
     return true;
 }
 
+bool KirinHyphaProcessorBase::spectrumLowScope() const noexcept
+{
+    return preferredSpectrumLowScope.load (std::memory_order_acquire);
+}
+
+void KirinHyphaProcessorBase::setSpectrumLowScope (bool low) noexcept
+{
+    preferredSpectrumLowScope.store (low, std::memory_order_release);
+}
+
 bool KirinHyphaProcessorBase::setSpectrumDisplaySelection (
     uint8_t selection, bool absoluteTarget)
 {

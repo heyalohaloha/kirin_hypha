@@ -28,6 +28,12 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
     if (psbObservation) return;
+    if (spectrum_geometry::lowBoundsFor (outerPlot, scale).contains (event.position))
+    {
+        if (onScopeChange && onScopeChange (! lowScope))
+            setLowScope (! lowScope);
+        return;
+    }
     const auto plot = spectrum_geometry::dataPlotBoundsFor (
         bounds, ! absoluteObservation && focusFrequencyHz > 0.0f);
     for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)

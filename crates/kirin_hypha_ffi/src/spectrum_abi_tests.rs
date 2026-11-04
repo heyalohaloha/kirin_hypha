@@ -192,6 +192,7 @@ fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
         post_spectrum: Some(SpectrumFrame {
             schema_version: kirin_measure::SPECTRUM_SCHEMA_VERSION,
             sample_rate: 48_000,
+            scope: Default::default(),
             aperture_samples: 4_096,
             fft_size: 8_192,
             band_count: SPECTRUM_BAND_COUNT as u16,

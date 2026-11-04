@@ -1,4 +1,5 @@
 #include "HyphaReferenceVisuals.h"
+#include "HyphaReferenceChartReading.h"
 #include "HyphaReferenceWindowMaterial.h"
 
 #include "HyphaReferenceComponent.h"
@@ -120,6 +121,33 @@ juce::Path nullableSpectrumPath (const std::vector<double>& frequencies,
     return path;
 }
 
+// The curves of the chart that are not profile summaries, as it draws them.
+std::vector<ReadCurve> readableCurves (const State& state, double minimumHz, double maximumHz)
+{
+    std::vector<ReadCurve> curves;
+    if (const auto count = state.liveSpectrumDbfs.size(); count > 0u
+        && state.liveSpectrumMinimumHz > 0.0f && state.liveSpectrumMaximumHz > state.liveSpectrumMinimumHz)
+    {
+        std::vector<double> centers;
+        for (size_t index = 0; index < count; ++index)
+            centers.push_back (state.liveSpectrumMinimumHz * std::pow (
+                state.liveSpectrumMaximumHz / state.liveSpectrumMinimumHz,
+                (static_cast<double> (index) + 0.5) / static_cast<double> (count)));
+        curves.push_back (drawnCurve ("A", COL_FLORA_BR, centers, state.liveSpectrumDbfs, 0.0,
+                                      minimumHz, maximumHz));
+    }
+    if (state.detailedMeasurement && state.detailedMeasurement->spectrum)
+    {
+        const auto& spectrum = *state.detailedMeasurement->spectrum;
+        std::vector<float> levels;
+        for (const auto level : spectrum.medianMillidbfs)
+            levels.push_back (static_cast<float> (level) / 1000.0f);
+        curves.push_back (drawnCurve ("TRACK", COL_SPECTRUM_DELTA, spectrum.bandCentersHz, levels, 0.0,
+                                      minimumHz, maximumHz));
+    }
+    return curves;
+}
+
 bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
                    const State& state, bool lowOnly, presentation::Context presentation,
                    juce::Rectangle<float> window)
@@ -177,7 +205,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
         const auto count = state.liveSpectrumDbfs.size();
         for (size_t index = 0; index < count; ++index)
         {
-            const auto fraction = count > 1 ? static_cast<double> (index) / (count - 1) : 0.0;
+            const auto fraction = (static_cast<double> (index) + 0.5) / static_cast<double> (count);
             const auto frequency = state.liveSpectrumMinimumHz
                 * std::pow (state.liveSpectrumMaximumHz / state.liveSpectrumMinimumHz, fraction);
             if (frequency < minimumHz || frequency > maximumHz) continue;
@@ -193,6 +221,10 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
         drew = true;
     }
     if (! drew) unavailable (g, area, presentation);
+    else
+        paintChartReading (g, area, minimumHz, maximumHz, state.chartPointer,
+                           readableCurves (state, minimumHz, maximumHz),
+                           [area] (float level) { return dbY (level, area); }, presentation);
     return drew;
 }
 

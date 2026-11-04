@@ -1,4 +1,5 @@
 #include "HyphaReferenceCueSummary.h"
+#include "HyphaReferenceChartReading.h"
 
 #include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceBlauertZones.h"
@@ -105,6 +106,14 @@ bool paintCueSpectrum (juce::Graphics& g, juce::Rectangle<float> area, const Sta
     }
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
     g.strokePath (median, juce::PathStrokeType (1.4f));
+    std::vector<ReadCurve> curves;
+    if (aReady)
+        curves.push_back (drawnCurve ("A", COL_FLORA_BR, state.aKirin->centersHz, state.aKirin->medianDb,
+                                      0.0, minimumHz, maximumHz));
+    curves.push_back (drawnCurve ("C", COL_SPECTRUM_DELTA, cue.centersHz, cue.medianDb, shift,
+                                  minimumHz, maximumHz));
+    paintChartReading (g, area, minimumHz, maximumHz, state.chartPointer, curves,
+                       [area] (float level) { return dbY (level, area); }, context);
     if (aReady)  // 曲の中の帯どうしの差なので、音量を合わせていなくても出せる
         paintBlauertReadout (g, area, 'C', blauertVersus (state.aKirin->centersHz, state.aKirin->medianDb,
                                                          cue.centersHz, cue.medianDb),

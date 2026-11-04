@@ -2,6 +2,7 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumPresentation.h"
+#include "HyphaSpectrumScope.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,23 +21,10 @@ namespace
 
     bool validSnapshot (const KirinSpectrumView& view, bool absoluteObservation) noexcept
     {
-        const uint64_t apertureNumerator = static_cast<uint64_t> (view.sample_rate) * 4'096u
-                                         + 24'000u;
-        const uint32_t expectedAperture = static_cast<uint32_t> (
-            apertureNumerator / 48'000u);
-        uint32_t expectedFft = 1u;
-        while (expectedFft < expectedAperture * 2u && expectedFft <= 65'536u)
-            expectedFft <<= 1u;
-        const float expectedApproximateBelow = expectedAperture > 0u
-            ? 3.0f * static_cast<float> (view.sample_rate)
-                / static_cast<float> (expectedAperture)
-            : 0.0f;
         const bool validLayout = view.sample_rate >= 8000u
             && view.sample_rate <= 384000u
-            && view.aperture_samples == expectedAperture
-            && view.fft_size == expectedFft
-            && std::isfinite (view.approximate_below_hz)
-            && std::abs (view.approximate_below_hz - expectedApproximateBelow) < 0.001f
+            && spectrum_scope::validLayout (view.sample_rate, view.aperture_samples, view.fft_size,
+                                            view.approximate_below_hz)
             && std::isfinite (view.min_hz)
             && std::isfinite (view.max_hz)
             && view.min_hz > 0.0f
@@ -356,10 +344,21 @@ void SpectrumComponent::presentationTickAt (double nowMs)
             / (double) ui_contract::spectrumCurvePresentationHz;
         const double elapsedMs = std::max (0.0, nowMs - lastCurvePresentationMs);
         snapshot = pendingSnapshot;
-        spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs);
-        spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs);
-        spectrum_presentation::advanceSignedDeltaCurve (
-            displayedDelta, pendingDelta, elapsedMs);
+        if (lowScope)
+        {
+            // The long LOW window is its own smoothing. A slow fall on top of it would leave the
+            // curve above the numbers read from the same frames.
+            displayedPre = pendingPre;
+            displayedPost = pendingPost;
+            displayedDelta = pendingDelta;
+        }
+        else
+        {
+            spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs);
+            spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs);
+            spectrum_presentation::advanceSignedDeltaCurve (
+                displayedDelta, pendingDelta, elapsedMs);
+        }
         displayedDeltaValid = pendingDeltaValid;
         curveDirty = false;
         lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs

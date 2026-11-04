@@ -23,6 +23,12 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
         }
         return accepted;
     };
+    spectrumView.onScopeChange = [this] (bool low)
+    {
+        processorRef.setSpectrumLowScope (low);
+        syncAnalysisDemand();
+        return true;
+    };
     spectrumView.onSubviewChange = [this]
     {
         observatoryView.setDeltaTargetEnabled (spectrumView.isPsbObservation()
@@ -145,7 +151,10 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
     const bool midSide = ! spectrumView.isPsbObservation() && absolute
         && processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
     if (! spectrumView.isPsbObservation())
+    {
         spectrumView.setDisplaySelection (processorRef.spectrumDisplaySelection());
+        spectrumView.setLowScope (processorRef.spectrumLowScope());
+    }
     observatoryView.setDeltaTargetEnabled (! midSide || spectrumView.isPsbObservation());
     spectrumView.setAbsoluteObservation (absolute);
     syncAnalysisDemand();
@@ -158,7 +167,8 @@ hypha::analysis::Demand KirinHyphaEditor::desiredAnalysisDemand() const noexcept
         observatoryView.target() == hypha::observatory::ObservationTarget::absolute,
         processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE,
         sharpnessUsesAbsolute, processorRef.spectrumSingleChannelMode(),
-        hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()) });
+        hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()),
+        processorRef.spectrumLowScope() });
 }
 
 bool KirinHyphaEditor::analysisSurfaceShowing() const noexcept

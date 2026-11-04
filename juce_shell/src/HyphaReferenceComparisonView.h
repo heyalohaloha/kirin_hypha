@@ -56,6 +56,7 @@ private:
     std::vector<juce::String> sameSectionViews;
     bool sameSectionListening = false;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
+    juce::Point<float> pointer { -1.0f, -1.0f };  // what a V Check chart reads
     bool following = true, showingCrest = false, hidden = false;
     std::shared_ptr<reference_audition::VisualPreferences> preferences;
     void saveView();

@@ -22,6 +22,15 @@ pub struct KirinMidSideSpectrumView {
 }
 
 impl KirinHyphaEngine {
+    pub fn set_spectrum_scope(&self, scope: u8) -> bool {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        let Ok(scope) = kirin_measure::spectrum::SpectrumScope::try_from(scope) else {
+            return false;
+        };
+        is_post && self.supports_optional_analysis() && self.spectrum.set_post_spectrum_scope(scope)
+    }
+
     pub fn set_mid_side_spectrum_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
@@ -118,6 +127,25 @@ pub unsafe extern "C" fn kirin_hypha_poll_mid_side_spectrum(
         };
         unsafe { *out = to_c_view(snapshot) };
         true
+    }))
+    .unwrap_or(false)
+}
+
+/// Select FULL (0) or LOW (1) for one POST Spectrum. The edge performs no filesystem access and
+/// invalidates prior presentation frames, as a channel edge does.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_spectrum_scope(
+    handle: *mut KirinHyphaEngine,
+    scope: u8,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).set_spectrum_scope(scope) }
     }))
     .unwrap_or(false)
 }

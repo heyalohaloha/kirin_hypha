@@ -227,6 +227,8 @@ public:
     { return analysisDemandOwner.requested(); }
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool setSpectrumDisplaySelection (uint8_t selection, bool absoluteTarget);
+    bool spectrumLowScope() const noexcept;
+    void setSpectrumLowScope (bool low) noexcept;
     uint8_t spectrumDisplaySelection() const noexcept
     { return preferredSpectrumDisplaySelection.load (std::memory_order_acquire); }
     uint8_t spectrumSingleChannelMode() const noexcept
@@ -479,8 +481,8 @@ private:
     hypha::vu_calibration::Preference hybridVuCalibration;
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
+    std::atomic<bool> preferredSpectrumLowScope { false }; // like M/S: this instance only
     std::atomic<uint8_t> preferredAttackBand { 0 };        // editor-lifetime; not persisted
-
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
@@ -492,9 +494,7 @@ private:
     hypha::CaptureStateNotification captureStateNotification{[this]{ updateHostDisplay(ChangeDetails{}.withNonParameterStateChanged(true)); }};
     std::shared_ptr<hypha::reference_audition::ReferenceComparisonController> referenceAuditionController;
    #endif
-
     void configureReferenceAudition();
     void configureWorkTransports();
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

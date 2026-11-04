@@ -184,6 +184,7 @@ fn transient_exchange_gap_holds_freq_and_sharp_presentations_until_the_lease_bou
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Spectrum,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: None,
     };
     let now = Instant::now();
@@ -271,6 +272,7 @@ fn repeated_stale_exact_endpoint_does_not_extend_the_gap_hold() {
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Spectrum,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: None,
     };
     let now = Instant::now();
@@ -328,6 +330,7 @@ fn stationary_exact_endpoint_remains_visible_when_both_sides_stop() {
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Spectrum,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: None,
     };
     let now = Instant::now();

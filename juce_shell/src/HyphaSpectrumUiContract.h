@@ -97,7 +97,7 @@ namespace hypha::ui_contract
     constexpr float spectrumPostLegendAlpha = 0.90f;
     constexpr int spectrumHoverReadoutWidth = 130;
     constexpr int spectrumFocusReadoutWidth = 142;
-    constexpr int spectrumExpandedReadoutWidth = 242;
+    constexpr int spectrumExpandedReadoutWidth = 256;
     constexpr int spectrumHoverReadoutHeight = 15;
     constexpr int spectrumHoverReadoutInset = 2;
     constexpr int spectrumHoverFrequencyX = 6;
@@ -105,12 +105,12 @@ namespace hypha::ui_contract
     constexpr int spectrumHoverDeltaX = 68;
     constexpr int spectrumHoverDeltaWidth = 52;
     constexpr int spectrumExpandedFrequencyX = 6;
-    constexpr int spectrumExpandedFrequencyWidth = 52;
-    constexpr int spectrumExpandedPreX = 60;
+    constexpr int spectrumExpandedFrequencyWidth = 66;
+    constexpr int spectrumExpandedPreX = 74;
     constexpr int spectrumExpandedPreWidth = 60;
-    constexpr int spectrumExpandedPostX = 122;
+    constexpr int spectrumExpandedPostX = 136;
     constexpr int spectrumExpandedPostWidth = 66;
-    constexpr int spectrumExpandedDeltaX = 190;
+    constexpr int spectrumExpandedDeltaX = 204;
     constexpr int spectrumExpandedDeltaWidth = 40;
     constexpr float spectrumHoverReadoutRadius = 4.5f;
     constexpr float spectrumHoverLineWidth = 0.75f;
@@ -125,7 +125,8 @@ namespace hypha::ui_contract
     constexpr int spectrumLegendAfterChannelModes = 84;
     constexpr int spectrumMarkWidth = 42;
     constexpr int spectrumMarkClearWidth = 11;
-    constexpr int spectrumSubviewWidth = 64;
+    constexpr int spectrumSubviewWidth = 44;
+    constexpr int spectrumLowWidth = 24;
     constexpr int spectrumSubviewGap = 4;
     // MARK is one frozen full-band reference. It must remain visibly distinct from PRE/POST
     // while staying below the live 2.15 px Δ curve, which also owns fill and glow.

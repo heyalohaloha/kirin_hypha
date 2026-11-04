@@ -42,6 +42,10 @@ impl SpectrumAssembler {
         }
     }
 
+    pub(super) fn window_is_short(&self) -> bool {
+        self.filled < self.window_size
+    }
+
     pub(super) fn begin_block(&mut self, start: i64, generation: u64) -> bool {
         if generation == 0 {
             self.reset();

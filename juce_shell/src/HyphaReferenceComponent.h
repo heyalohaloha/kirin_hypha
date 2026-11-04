@@ -165,6 +165,7 @@ struct State
     double visualPositionSeconds = -1.0;
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
+    juce::Point<float> chartPointer { -1.0f, -1.0f };  // where the pointer reads a spectrum chart
     std::vector<float> liveSpectrumDbfs;
     float liveSpectrumMinimumHz = 0.0f;
     float liveSpectrumMaximumHz = 0.0f;
@@ -323,6 +324,8 @@ public:
     juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6); }
 
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void resized() override;
 
     // 300% の B・C・V で指している項目の説明（英語。HyphaReferenceHelp.h・HyphaReferenceHoverHelp.cpp）。エディターの

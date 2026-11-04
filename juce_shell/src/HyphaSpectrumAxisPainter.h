@@ -1,6 +1,7 @@
 #pragma once
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumMagnitudeChrome.h"
+#include "HyphaSpectrumScope.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 #include <cmath>
@@ -16,6 +17,41 @@ namespace hypha::spectrum_axes
         return std::abs (khz - rounded) < 0.05f
                  ? juce::String (juce::roundToInt (rounded)) + "k"
                  : juce::String (khz, 1) + "k";
+    }
+
+    // LOW spends the whole width on 20-300 Hz, so its lines fall where bass decisions are made.
+    inline void paintLowFrequencyAxis (juce::Graphics& g,
+                                       juce::Rectangle<float> plot,
+                                       float scale,
+                                       float minimumHz,
+                                       float maximumHz)
+    {
+        const auto scaledInt = [scale] (int value) {
+            return juce::roundToInt ((float) value * scale);
+        };
+        const auto drawLabel = [&] (float hz, int x, juce::Justification justification)
+        {
+            text_style::drawText (g, axisFrequencyText (hz), x,
+                                  juce::roundToInt (plot.getBottom()) + scaledInt (1),
+                                  scaledInt (30), scaledInt (10), justification);
+        };
+        for (float hz : { 30.0f, 40.0f, 50.0f, 60.0f, 80.0f, 100.0f, 150.0f, 200.0f })
+        {
+            const bool named = hz == 50.0f || hz == 100.0f || hz == 200.0f;
+            const float x = spectrum_geometry::xForFrequency (hz, minimumHz, maximumHz, plot);
+            g.setColour (COL_MUTED.withAlpha (named ? 0.16f : 0.09f));
+            g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
+            if ((named && scale > 1.125f) || scale > 1.375f)
+            {
+                g.setColour (COL_MUTED.withAlpha (named ? 0.72f : 0.5f));
+                drawLabel (hz, juce::roundToInt (x) - scaledInt (15),
+                           juce::Justification::centred);
+            }
+        }
+        g.setColour (COL_MUTED.withAlpha (0.9f));
+        drawLabel (minimumHz, juce::roundToInt (plot.getX()), juce::Justification::centredLeft);
+        drawLabel (maximumHz, juce::roundToInt (plot.getRight()) - scaledInt (30),
+                   juce::Justification::centredRight);
     }
 
     inline void paintAxes (juce::Graphics& g,
@@ -53,6 +89,11 @@ namespace hypha::spectrum_axes
             // PRE and POST's absolute axis stands right of the plot, which takes that room at 100%.
             if (! spectrum_geometry::viewOnly (scale))
                 spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
+        }
+        if (maximumHz <= spectrum_scope::lowMaximumHz)
+        {
+            paintLowFrequencyAxis (g, plot, scale, minimumHz, maximumHz);
+            return;
         }
         for (float hz : { 100.0f, 1'000.0f, 10'000.0f })
         {

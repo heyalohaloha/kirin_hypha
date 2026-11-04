@@ -232,7 +232,7 @@ void ComparisonView::paint (juce::Graphics& g)
     if (hidden) return;
     const key_light::Scope light (*this);
     if (sameSection.isNotEmpty())
-    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context); return; }
+    { paintVersionSameSection (g, getLocalBounds(), data.get(), sameSection, sameSectionGain, sameSectionViews, sameSectionListening, context, pointer); return; }
     surface_material::paintObservationWell (g, getLocalBounds().toFloat(), false); // framed by the page
     window_material::paintInterior (g, getLocalBounds().toFloat(), getLocalBounds().toFloat());
     g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
@@ -352,11 +352,12 @@ void ComparisonView::mouseUp (const juce::MouseEvent&)
 }
 void ComparisonView::mouseMove (const juce::MouseEvent& event)
 {
+    pointer = event.position;
     pointedTime = graph.contains (event.position) && graph.getWidth() > 0
         ? start + (end-start) * (event.position.x-graph.getX()) / graph.getWidth() : -1;
     repaint();
 }
-void ComparisonView::mouseExit (const juce::MouseEvent&) { pointedTime = -1; repaint(); }
+void ComparisonView::mouseExit (const juce::MouseEvent&) { pointedTime = -1; pointer = { -1.0f, -1.0f }; repaint(); }
 bool ComparisonView::keyPressed (const juce::KeyPress& keypress)
 {
     if (hidden || !data || sameSection.isNotEmpty()) return false;

@@ -12,6 +12,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::absolute_timeline::AbsoluteTimeline;
 use crate::channel_layout::{ChannelLayout, SpectrumView};
+use crate::spectrum::SpectrumScope;
 use crate::spectrum::{
     AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
@@ -81,6 +82,8 @@ pub struct SpectrumRuntime {
     /// Mode, view, Mid/Side, and monotonic generation published as one identity.
     selection: AtomicU64,
     selection_update: Mutex<()>,
+    spectrum_scope_edge: AtomicU64,
+    spectrum_window_short: AtomicBool,
     analysis_commands: AnalysisCommands,
     requested_perceptual_state_epoch: AtomicI64,
     applied_selection: AtomicU64,
@@ -141,6 +144,8 @@ impl SpectrumRuntime {
             selection: AtomicU64::new(initial_selection.encode()),
             selection_update: Mutex::new(()),
             analysis_commands: AnalysisCommands::new(initial_selection.generation),
+            spectrum_scope_edge: AtomicU64::new(0),
+            spectrum_window_short: AtomicBool::new(false),
             requested_perceptual_state_epoch: AtomicI64::new(NO_PRESENTATION_POSITION),
             applied_selection: AtomicU64::new(0),
             stream_generation: AtomicU64::new(1),
@@ -225,6 +230,10 @@ impl SpectrumRuntime {
         self.selection().channel_mode()
     }
 
+    pub fn spectrum_scope(&self) -> SpectrumScope {
+        self.selection().scope
+    }
+
     pub fn analysis_mode(&self) -> AnalysisViewMode {
         self.selection().mode
     }
@@ -291,6 +300,37 @@ impl SpectrumRuntime {
             SpectrumChannelMode::Side => SpectrumView::Side,
         };
         self.set_view(view)
+    }
+
+    /// Control/worker thread only. Like a channel edge: the old frames cannot be compared with
+    /// the new aperture, so PRE and POST warm up again on one exact definition.
+    pub fn set_spectrum_scope(&self, scope: SpectrumScope) -> bool {
+        let Some(changed) =
+            self.update_selection(|current| Some(AnalysisSelection { scope, ..current }))
+        else {
+            return false;
+        };
+        if changed {
+            self.spectrum_scope_edge
+                .store(self.selection().generation, Ordering::Release);
+            if let Ok(mut history) = self.history.lock() {
+                history.clear_to(SpectrumHistory::with_capacity());
+            }
+            self.clear_mid_side_frame();
+            self.wake.1.notify_all();
+        }
+        true
+    }
+
+    /// The generation of the last scope edge. A frame analysed before it belongs to a definition
+    /// that has ended, even after FULL, LOW and FULL again.
+    pub(crate) fn spectrum_scope_edge(&self) -> u64 {
+        self.spectrum_scope_edge.load(Ordering::Acquire)
+    }
+
+    /// True while the unbroken run of input is still shorter than the analysis window.
+    pub(crate) fn spectrum_window_short(&self) -> bool {
+        self.spectrum_window_short.load(Ordering::Acquire)
     }
 
     /// 観測対象を選ぶ。この layout が提供しない view は拒否する。
@@ -413,6 +453,10 @@ mod tests;
 #[cfg(test)]
 #[path = "spectrum_runtime_view_tests.rs"]
 mod view_tests;
+
+#[cfg(test)]
+#[path = "spectrum_runtime_scope_tests.rs"]
+mod scope_tests;
 
 #[cfg(test)]
 #[path = "spectrum_runtime_snapshot_tests.rs"]

@@ -9,7 +9,8 @@ template <auto SpectrumVisible,
           auto ChannelMode,
           auto MidSideVisible,
           auto AbsoluteVisible,
-          auto PerceptualVisible>
+          auto PerceptualVisible,
+          auto SpectrumScope>
 struct BasicFfiAdapter
 {
     KirinHypha* handle = nullptr;
@@ -31,6 +32,9 @@ struct BasicFfiAdapter
 
     bool setPerceptualVisible (bool value) const
     { return PerceptualVisible (handle, value); }
+
+    bool setSpectrumScope (std::uint8_t value) const
+    { return SpectrumScope (handle, value); }
 };
 
 using ShippingFfiAdapter = BasicFfiAdapter<
@@ -39,5 +43,6 @@ using ShippingFfiAdapter = BasicFfiAdapter<
     &kirin_hypha_set_spectrum_channel_mode,
     &kirin_hypha_set_mid_side_spectrum_visible,
     &kirin_hypha_set_absolute_visible,
-    &kirin_hypha_set_perceptual_visible>;
+    &kirin_hypha_set_perceptual_visible,
+    &kirin_hypha_set_spectrum_scope>;
 }

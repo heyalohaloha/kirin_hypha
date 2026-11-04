@@ -1,4 +1,5 @@
 #include "HyphaSpectrumChromePainter.h"
+#include "HyphaSpectrumPeakTags.h"
 #include "HyphaSpectrumProbePainter.h"
 
 #include "HyphaSpectrumGeometry.h"
@@ -15,6 +16,7 @@
 #include "HyphaTextStyle.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace hypha::spectrum_chrome
@@ -26,6 +28,14 @@ juce::String frequencyReadoutText (float hz, float approximateBelowHz)
         return prefix + juce::String (juce::roundToInt (hz)) + " Hz";
     const int decimals = hz < 10'000.0f ? 2 : 1;
     return prefix + juce::String (hz / 1'000.0f, decimals) + " kHz";
+}
+
+juce::String frequencyAndNoteText (float hz, float approximateBelowHz)
+{
+    const auto text = frequencyReadoutText (hz, approximateBelowHz);
+    if (hz < approximateBelowHz || hz >= 1'000.0f)
+        return text;
+    return text + " " + juce::String (spectrum_peaks::noteName (hz));
 }
 
 namespace
@@ -95,6 +105,20 @@ namespace
             text_style::drawText (g, channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
+        if (const auto low = spectrum_geometry::lowBoundsFor (outerPlot, scale); ! low.isEmpty())
+        {
+            if (state.lowScope)
+            {
+                const auto radius = scaled (3.0f);
+                surface_material::paintControl (g, low, false, false, true,
+                                                 COL_SPECTRUM_DELTA_BR, radius);
+                g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.58f));
+                g.drawRoundedRectangle (low.reduced (0.35f), radius, scaled (0.65f));
+            }
+            g.setColour (state.lowScope ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
+                                        : COL_TEXT_SECONDARY);
+            text_style::drawText (g, "LOW", low.toNearestInt(), juce::Justification::centred);
+        }
         if (! viewOnly && ! state.absoluteObservation && ! state.midSideObservation)
             spectrum_delta_mode::paint (g, outerPlot, scale, state.shapeObservation,
                                         state.presentation);
@@ -112,6 +136,7 @@ namespace
             // A state chosen at a larger size is named, not operated: MID, SIDE, SHAPE, a held MARK.
             const auto chosen = juce::String (state.channelMode == KIRIN_SPECTRUM_CHANNEL_MID ? "MID"
                                             : state.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE ? "SIDE" : "")
+                              + (state.lowScope ? "  LOW" : "")
                               + (state.shapeObservation && ! state.absoluteObservation ? "  SHAPE" : "")
                               + (state.haveMark && ! state.absoluteObservation ? "  MARK" : "");
             g.setFont (monoFont (state.presentation, typography::TextRole::legend,
@@ -244,6 +269,45 @@ namespace
     }
 }
 
+namespace
+{
+    // The three highest notes of the POST curve, named where they stand. The readout arrays move
+    // at the numeric rate, so a tag can be read before it changes.
+    void paintPeakTags (juce::Graphics& g,
+                        juce::Rectangle<float> plot,
+                        float scale,
+                        const spectrum_painter::SpectrumBins& read,
+                        const spectrum_painter::SpectrumBins& drawn,
+                        float minimumHz,
+                        float maximumHz,
+                        presentation::Context presentation)
+    {
+        std::array<float, KIRIN_SPECTRUM_BAND_COUNT> hz {};
+        for (size_t index = 0; index < hz.size(); ++index)
+            hz[index] = spectrum_geometry::frequencyForNormalisedX (
+                ((float) index + 0.5f) / (float) hz.size(), minimumHz, maximumHz);
+        g.setFont (monoFont (presentation, typography::TextRole::legend,
+                             typography::Composition::visualization));
+        spectrum_peaks::paintTags (
+            g, plot, scale, spectrum_peaks::find (hz.data(), read.data(), hz.size()),
+            [&] (float frequency)
+            { return spectrum_geometry::xForFrequency (frequency, minimumHz, maximumHz, plot); },
+            [&] (const spectrum_peaks::Peak& peak)
+            {
+                // The numbers change slowly enough to read. The tag follows the curve meanwhile.
+                const auto band = std::lower_bound (hz.begin(), hz.end(), peak.hz) - hz.begin();
+                return spectrum_painter::yForMagnitude (
+                    drawn[(size_t) juce::jmin (band, (std::ptrdiff_t) hz.size() - 1)], plot);
+            },
+            [] (const spectrum_peaks::Peak& peak)
+            {
+                return juce::String (spectrum_peaks::noteName (peak.hz)) + " "
+                    + juce::String (juce::roundToInt (peak.hz)) + " "
+                    + juce::String (peak.level, 1);
+            });
+    }
+}
+
 void paint (juce::Graphics& g,
             juce::Rectangle<float> bounds,
             const PaintState& state)
@@ -252,9 +316,13 @@ void paint (juce::Graphics& g,
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
     const bool focusLocked = ! state.absoluteObservation && state.focusFrequencyHz > 0.0f;
     const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, focusLocked);
-    const float minimumHz = state.haveSnapshot && state.snapshot.min_hz > 0.0f
+    // LOW keeps its own axis while it waits for a frame.
+    const bool lowWithoutFrame = state.lowScope && ! state.snapshotValid;
+    const float minimumHz = lowWithoutFrame ? spectrum_scope::lowMinimumHz
+                          : state.haveSnapshot && state.snapshot.min_hz > 0.0f
                           ? state.snapshot.min_hz : 10.0f;
-    const float maximumHz = state.haveSnapshot && state.snapshot.max_hz > minimumHz
+    const float maximumHz = lowWithoutFrame ? spectrum_scope::lowMaximumHz
+                          : state.haveSnapshot && state.snapshot.max_hz > minimumHz
                           ? state.snapshot.max_hz : 22'000.0f;
     const float probeNormalisedX = state.snapshotValid && state.hoverNormalisedX >= 0.0f
         ? spectrum_geometry::clampToBandCentreRange (state.hoverNormalisedX)
@@ -294,7 +362,7 @@ void paint (juce::Graphics& g,
             && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
             stopped_history::paintDimmed (g, [&] {
                 spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory); });
-        const auto text = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
+        const auto status = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
                             : ! state.signalActive ? juce::String ("INACTIVE")
                             : ! state.absoluteObservation && ! state.haveSnapshot
@@ -303,6 +371,10 @@ void paint (juce::Graphics& g,
                             ? statusText (state.snapshot.status, state.analysisOwnerNames,
                                 state.absoluteObservation ? live_compare::LoopPairingBlock::none : state.pairingLoopBlock)
                                              : juce::String ("PREPARING ANALYSIS");
+        // A loop shorter than the LOW window never fills it, so the wait names what it needs.
+        const bool waiting = status == "PREPARING ANALYSIS" || status == "WARMING UP";
+        const juce::String text = state.lowScope && waiting
+            ? juce::String ("LOW NEEDS 0.4 SEC OF UNBROKEN AUDIO") : status;
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);
@@ -329,6 +401,9 @@ void paint (juce::Graphics& g,
                                        state.delta, state.deltaValid,
                                        state.haveMark ? &state.mark : nullptr,
                                        state.haveMark ? &state.markValid : nullptr);
+    if (state.lowScope && ! state.midSideObservation && ! spectrum_geometry::viewOnly (scale))
+        paintPeakTags (g, plot, scale, state.readoutPost, state.post, minimumHz, maximumHz,
+                       state.presentation);
     if (! state.midSideObservation)
         spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
                                                 state.presentation, state.shapeObservation);

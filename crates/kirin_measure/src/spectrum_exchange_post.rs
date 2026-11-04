@@ -82,8 +82,10 @@ impl SpectrumCoordinator {
         };
 
         let channel_mode = self.runtime.channel_mode();
+        let spectrum_scope = self.runtime.spectrum_scope();
         let now = self.clock_now();
-        let Some(prepared) = self.prepare_post_session(&target, analysis_mode, channel_mode, now)
+        let Some(prepared) =
+            self.prepare_post_session(&target, analysis_mode, channel_mode, spectrum_scope, now)
         else {
             return false;
         };
@@ -225,11 +227,13 @@ impl SpectrumCoordinator {
         target: &SpectrumTarget,
         analysis_mode: AnalysisViewMode,
         channel_mode: SpectrumChannelMode,
+        spectrum_scope: SpectrumScope,
         now: Instant,
     ) -> Option<PreparedPostSession> {
         let mut slot = self.try_post_session()?;
         if self.runtime.analysis_mode() != analysis_mode
             || self.runtime.channel_mode() != channel_mode
+            || self.runtime.spectrum_scope() != spectrum_scope
         {
             return None;
         }
@@ -242,7 +246,8 @@ impl SpectrumCoordinator {
             || session.attack_origin != origin
             || session.target.as_ref() != Some(target)
             || session.analysis_mode != analysis_mode
-            || session.channel_mode != channel_mode;
+            || session.channel_mode != channel_mode
+            || session.spectrum_scope != spectrum_scope;
         // A band change is not a new definition: the session keeps its request id and its
         // history, and the next renewal tells PRE the band.
         if self.post_attack_band() != self.sent_attack_band() {
@@ -265,6 +270,7 @@ impl SpectrumCoordinator {
             session.last_presented_end_samples = None;
             session.analysis_mode = analysis_mode;
             session.channel_mode = channel_mode;
+            session.spectrum_scope = spectrum_scope;
             session.state_epoch_samples = None;
         }
         let renewal_due = session

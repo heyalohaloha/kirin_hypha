@@ -111,6 +111,11 @@ namespace
     }
 }
 
+float yForMagnitude (float dbfs, juce::Rectangle<float> plot) noexcept
+{
+    return yForMagnitudeDbfs (dbfs, plot);
+}
+
 void paintPostCurve (juce::Graphics& g, juce::Rectangle<float> plot,
                      float visualScale, const SpectrumBins& post)
 {

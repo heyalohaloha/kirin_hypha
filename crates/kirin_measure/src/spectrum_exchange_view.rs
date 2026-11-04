@@ -143,7 +143,7 @@ impl SpectrumCoordinator {
             Err(poisoned) => poisoned.into_inner(),
         };
         *view = SpectrumViewSnapshot {
-            status: SpectrumViewStatus::Unavailable,
+            status: self.spectrum_gap_status(),
             analysis_mode: AnalysisViewMode::Spectrum,
             channel_mode: self.runtime.channel_mode(),
             channels: self.runtime.num_channels() as u8,
@@ -243,7 +243,17 @@ impl SpectrumCoordinator {
         } else {
             spectrum_timeline.clear();
         }
-        let post_spectrum_history = post_history.cloned().unwrap_or_default();
+        // Checked inside the view lock: the scope edge changes the runtime and then clears this
+        // view, so a history cloned before that edge cannot come back after the clear.
+        let edge = self.runtime.spectrum_scope_edge();
+        let post_spectrum_history = post_history
+            .filter(|history| {
+                history
+                    .newest()
+                    .is_none_or(|frame| frame.generation >= edge)
+            })
+            .cloned()
+            .unwrap_or_default();
         let post_spectrum = post_spectrum_history.newest().cloned();
         *view = SpectrumViewSnapshot {
             status,

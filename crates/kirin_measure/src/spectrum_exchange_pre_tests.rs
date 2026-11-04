@@ -87,6 +87,7 @@ fn fixture() -> (
             sample_rate: 48_000,
             analysis_mode: AnalysisViewMode::Attack as u8,
             channel_mode: SpectrumChannelMode::Lr as u8,
+            spectrum_scope: 0,
             state_epoch_samples: None,
             expires_at_unix_ms: unix_ms_now() + 60_000,
             attack_band: None,

@@ -25,7 +25,7 @@ const VersionTab* findVersionTab (const juce::String& id);
 bool sameSectionReady (const reference_audition::VisualTimeline*) noexcept;
 void paintVersionSameSection (juce::Graphics&, juce::Rectangle<int>, const reference_audition::VisualTimeline*,
                               const juce::String& checkLabel, double gainDb, const std::vector<juce::String>& views,
-                              bool listening, presentation::Context);
+                              bool listening, presentation::Context, juce::Point<float> pointer = { -1.0f, -1.0f });
 // 耳で聴き比べる Check の案内（V と C の画面。2026-10-04、図の代わりに。Tone と同じ図を出さない）。
 juce::String listeningGuide (char role);
 }

@@ -95,14 +95,14 @@ void paintProbe (juce::Graphics& g,
     };
     if (state.midSideObservation)
     {
-        drawText (frequencyReadoutText (frequency, state.snapshot.approximate_below_hz),
-                  COL_NORMAL.withAlpha (0.94f), 6, expanded ? 52 : 62,
+        drawText (frequencyAndNoteText (frequency, state.snapshot.approximate_below_hz),
+                  COL_NORMAL.withAlpha (0.94f), 6, expanded ? 66 : 62,
                   juce::Justification::centredLeft);
         drawText ("M " + juce::String (preDbfs, 1), COL_SPECTRUM_MID.withAlpha (0.98f),
-                  expanded ? 58 : 72, expanded ? 84 : 72,
+                  72, expanded ? 84 : 72,
                   juce::Justification::centredRight);
         drawText ("S " + juce::String (postDbfs, 1), COL_SPECTRUM_SIDE.withAlpha (0.98f),
-                  expanded ? 144 : 148, expanded ? 84 : 70,
+                  expanded ? 158 : 148, expanded ? 84 : 70,
                   juce::Justification::centredRight);
         if (focusLocked)
         {
@@ -115,7 +115,7 @@ void paintProbe (juce::Graphics& g,
     }
     if (state.absoluteObservation)
     {
-        drawText (frequencyReadoutText (
+        drawText (frequencyAndNoteText (
                       frequency, state.snapshot.approximate_below_hz),
                   COL_NORMAL.withAlpha (0.94f),
                   expanded ? ui_contract::spectrumExpandedFrequencyX
@@ -142,7 +142,7 @@ void paintProbe (juce::Graphics& g,
     }
     if (expanded)
     {
-        drawText (frequencyReadoutText (
+        drawText (frequencyAndNoteText (
                       frequency, state.snapshot.approximate_below_hz),
                   COL_NORMAL.withAlpha (0.94f),
                   ui_contract::spectrumExpandedFrequencyX,
@@ -166,7 +166,7 @@ void paintProbe (juce::Graphics& g,
     }
     else
     {
-        drawText (frequencyReadoutText (
+        drawText (frequencyAndNoteText (
                       frequency, state.snapshot.approximate_below_hz),
                   COL_NORMAL.withAlpha (0.94f),
                   ui_contract::spectrumHoverFrequencyX,
