@@ -15,6 +15,7 @@
 #include "../src/AtomicFile.h"
 #include <algorithm>
 void testReferenceLibrarySets (const juce::File&);
+void testReferenceAdoptedVersions (const juce::File&);
 void testReferenceLibrarySetsOsFixture (const juce::File& root, int minimumVerified = 0);
 
 namespace
@@ -437,6 +438,7 @@ void testReferenceLibrarySets (const juce::File& sandbox)
     refusesWhatItCannotTrust (sandbox);
     keepsSetsUntilTheyCatchUp (sandbox);
     readsKirinOsPreparation (sandbox);
+    testReferenceAdoptedVersions (sandbox);
     followsTheHandoffLifecycle (sandbox);
     followsKirinOsReconnect (sandbox);
     // The source identity, the Cue range and the Cue values of every prepared B song, as Kirin OS 1.2.0

@@ -48,7 +48,8 @@ namespace hypha::reference_audition
                             && versions.insert (candidate.sourceIdentityKey).second)
                             snapshot.versions.push_back ({ preset.sourcePresetArtifact.presetId
                                 + "/" + check.checkId + "/" + candidate.candidateId,
-                                candidate.displayName, {}, ! candidate.prepared });
+                                candidate.displayName, {}, ! candidate.prepared, {}, {},
+                                candidate.sourceWorkId, candidate.sourceVersionId });
         for (const auto& global : workspace.globalPresetCatalog.presets)
         {
             const bool ready = std::any_of (workspace.presets.begin(), workspace.presets.end(), [&] (const auto& item) {

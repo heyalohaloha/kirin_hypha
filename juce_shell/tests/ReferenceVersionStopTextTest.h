@@ -89,7 +89,7 @@ inline void verifyVersionStopText()
     require (missing.contains ("FILE") && missing.contains ("CHECK") && missing != changed,
              "an unavailable file asks the user to check it");
     for (const auto stage : {Stage::sourceChanged, Stage::safetyChanged, Stage::startFailed,
-                            Stage::sourceLevelUnavailable, Stage::ceilingExceeded})
+                            Stage::sourceLevelUnavailable})
         for (const auto* code : {"", "reference_alignment_no_match", "reference_source_changed",
             "reference_selection_unavailable", "reference_source_unavailable", "reference_library_rejected",
             "reference_source_contract_rejected", "reference_source_receipt_rejected", "channel_layout_unsupported",

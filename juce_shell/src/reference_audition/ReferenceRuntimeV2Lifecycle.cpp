@@ -55,6 +55,7 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             publishedSource.reset();
             libraryPreparation.reset();
+            adoptedVersions.reset();
             // Audible receipts own their original immutable context across reprepare.
             // The worker completes their journal after the confirmed A return.
             blindEventSession.reset();

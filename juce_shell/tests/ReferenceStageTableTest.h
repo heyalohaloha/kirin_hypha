@@ -141,7 +141,7 @@ inline void verifyReferenceStageTable()
         auto state = stageState (3, SourceStep::ready);
         state.bSelected = true;
         state.audibleComparisonSlot = 3;
-        state.tracking = reference_audition::TrackingState::stoppedCeiling;
+        state.tracking = reference_audition::TrackingState::following;
         state.peakShortfallDb = 0.4;
         state.heldAttenuationDb = -3.2;
         state.appliedGainDb = 1.0;

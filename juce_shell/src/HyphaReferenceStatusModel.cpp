@@ -22,27 +22,27 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
     if (state.readiness == Readiness::rejected
         && runtime_view::formatUnreadableCode (formatCode))
         return {StatusKind::unable, runtime_view::rejectedStatus (formatCode)};
-    // 2026-10-03（R-12）：上限超えで、承認すれば A を下げて合わせられる（直し方はアクションの LOWER A）。
-    if (state.action.kind == ActionKind::lowerAAndPlay && state.action.offer.slot == state.comparisonSlot)
-        return { StatusKind::unable, state.status };
     if (state.bSelected)
     {
         // 聴いているあいだは、どう合わせているか（追従か固定か）を言う。PRE の Δ は止まっている。
         const auto role = state.separateComparisons ? juce::String (roleLetter (state.audibleComparisonSlot)) : juce::String ("B");
         const auto how = state.originalAudition ? role + " ORIGINAL LEVEL"
             : state.tracking == Tracking::following ? role + " FOLLOWING A (LAST 10 S)"
-            : state.tracking == Tracking::stoppedCeiling ? role + " FOLLOW STOPPED AT THE CEILING"
             : state.tracking == Tracking::stoppedRange ? role + " FOLLOW STOPPED 6 DB FROM MATCH"
+            : state.tracking == Tracking::fixed && state.matchProvisional && state.aWindowNeededBlocks > 0
+                ? role + " MATCHING A " + juce::String (state.aWindowBlocks / 10) + " OF " + juce::String (state.aWindowNeededBlocks / 10) + " S"
             : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
         // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。足元に RETURN（+x dB）が
         // 出ていれば言わない（2 度言うと 300% の足元で切れた。2026-10-05）。
         const auto lowered = state.heldAttenuationDb < -0.05 && ! returnInFooter
             ? "  /  A LOWERED " + juce::String (-state.heldAttenuationDb, 1) + " DB" : juce::String {};
-        // ピークの上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしている（2026-10-04、承認を求めない）。
+        // ピークの上限で届かず、上限まで上げて鳴らしている（0.5 dB を超えれば A を下げるボタンが出る）。
         const auto under = state.peakShortfallDb > 0.05
             ? "  /  " + juce::String (state.peakShortfallDb, 1) + " DB UNDER A (PEAK LIMIT)" : juce::String {};
         // 大事な順（入りきらなければ後ろから区切りごとに省く、HyphaReferenceStatusRow.cpp）：合わせ方、A との差、
-        // 下げた A、PRE の Δ。
+        // 下げた A、PRE の Δ。A を下げるボタンの横では行が狭いので、ボタンが直す差だけを言う。
+        if (state.action.kind == ActionKind::lowerAAndPlay && under.isNotEmpty())
+            return { StatusKind::ready, juce::String (state.peakShortfallDb, 1) + " DB UNDER A" };
         return { StatusKind::ready, how + under + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (state.kirinOsRequest && state.action.kind != ActionKind::none)

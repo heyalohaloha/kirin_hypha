@@ -64,7 +64,8 @@ inline std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
     {
         const juce::String preparing (item.requiresPreparation ? "  /  PREPARE" : "");
         output.push_back ({ item.id, item.label + preparing, item.checkLabel,
-                            item.itemLabel.isEmpty() ? juce::String() : item.itemLabel + preparing });
+                            item.itemLabel.isEmpty() ? juce::String() : item.itemLabel + preparing,
+                            item.workId, item.versionId });
     }
     return output;
 }

@@ -23,17 +23,21 @@ inline void verifyReferenceActionIntent()
     runtime.versionSelection = v; runtime.checkSelection = c; runtime.referenceSelection = b;
     b->matchFailure = MatchFailure::ceilingExceeded; b->neededAttenuationDb = -8.0; b->playbackIdentity = "b-song";
     b->selectionGeneration = 4; b->matchFailureSerial = 7;
+    runtime.bSelected = true; runtime.audibleComparisonSlot = 3;
     const auto onB = reference_ui::lowerAOfferFor (runtime, 3);
     check (onB && onB->slot == 3 && onB->db < -7.9 && onB->playbackIdentity == "b-song" && onB->selectionGeneration == 4
                && onB->failureSerial == 7,
-           "B's page offers B's own approval, bound to its source, selection and failure");
+           "B's page offers B's own approval while B sounds, bound to its source, selection and failure");
     check (! reference_ui::lowerAOfferFor (runtime, 1) && ! reference_ui::lowerAOfferFor (runtime, 2),
            "B's offer never appears on the V or C page");
     runtime.bSelected = true; runtime.audibleComparisonSlot = 2;
     check (! reference_ui::lowerAOfferFor (runtime, 3), "no offer while another role sounds");
-    runtime.bSelected = false;
+    runtime.bSelected = false; runtime.audibleComparisonSlot = 0;
+    check (! reference_ui::lowerAOfferFor (runtime, 3), "no offer once B stops: pressing it plays at the ceiling again");
+    runtime.bSelected = true; runtime.audibleComparisonSlot = 3;
     b->matchFailure = MatchFailure::none;
     check (! reference_ui::lowerAOfferFor (runtime, 3), "a later MATCH that fits withdraws the offer");
+    runtime.bSelected = false; runtime.audibleComparisonSlot = 0;
 
     runtime.libraryReceived = true; runtime.presetId = "preset"; runtime.state = RuntimeState::waiting;
     runtime.comparisonSlot = 2;

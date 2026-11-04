@@ -8,7 +8,7 @@ struct PendingAuditionView
 {
     static constexpr double pageNoticeSeconds = 3.0;
     enum class Stage { none, play, checking, level, sourceChanged, safetyChanged, startFailed,
-                       sourceLevelUnavailable, ceilingExceeded };
+                       sourceLevelUnavailable };
     int slot = 0;
     Stage stage = Stage::none;
     juce::String reasonCode {}; // Preserve the reason at the stop, even if the next snapshot is ready.

@@ -92,7 +92,7 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
         const bool rendered = c.renderSelectedB (block, cursor, true, true, true);
         require (endReferenceRtProbe() == 0, "Check switches allocate nothing on the callback");
         for (int ch = 0; ch < channels; ++ch) for (int f = 0; f < 512; ++f)
-            require (block.getSample (ch, f) >= 0.125f && block.getSample (ch, f) <= 0.500001f,
+            require (block.getSample (ch, f) >= 0.125f && block.getSample (ch, f) <= (rejectGain ? 0.891252f : 0.500001f),  // −1 dBTP
                      "preparation and fades preserve audible A and bounded reference PCM");
         cursor += 512; if (prepare) control::service (c);
         c.servicePendingAudition (levelAvailable ? (rejectGain ? -2 : -25)
@@ -149,13 +149,18 @@ inline void testReferencePreparedCheckSwitch (const juce::File& sandbox, int cha
     control::service (c);
     feed(); // The bounded return fade, followed by publication and the new MATCH.
     const bool rendered = feed();
-    if (cancel || rejectGain || invalidateSource)
+    if (rejectGain)
+    {
+        const auto after = c.snapshot();
+        require (rendered && after.audibleComparisonSlot == 2
+                     && after.checkSelection->matchFailure == ref::MatchFailure::ceilingExceeded,
+                 "a new Cue over the ceiling plays at the ceiling and offers the rest");
+    }
+    else if (cancel || invalidateSource)
     {
         require (!rendered && c.snapshot().audibleComparisonSlot == 0, "cancelled or unsafe new C never acquires output");
         for (int ch = 0; ch < channels; ++ch) for (int f = 0; f < 512; ++f)
             require (block.getSample (ch, f) == 0.125f, "refused new gain preserves live A bit for bit");
-        if (rejectGain) require (c.snapshot().pendingAudition.stage == ref::PendingAuditionView::Stage::ceilingExceeded,
-                                 "a new Cue requires its own safe MATCH");
         if (invalidateSource) require (c.snapshot().checkSelection->rejectionCode == "reference_source_changed",
                                       "a decoded bank never outlives verification of its source revision");
     }

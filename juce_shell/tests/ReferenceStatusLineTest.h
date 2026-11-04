@@ -42,7 +42,6 @@ inline void verifyReferenceStatusLine()
     for (const auto& [slot, tracking, original, expected] : {
              std::tuple { 1, Tracking::following, false, "V FOLLOWING A (LAST 10 S)" },
              std::tuple { 2, Tracking::fixed, false, "C MATCHED AND FIXED" },
-             std::tuple { 3, Tracking::stoppedCeiling, false, "B FOLLOW STOPPED AT THE CEILING" },
              std::tuple { 1, Tracking::stoppedRange, false, "V FOLLOW STOPPED 6 DB FROM MATCH" },
              std::tuple { 2, Tracking::none, true, "C ORIGINAL LEVEL" } })
     {
@@ -89,24 +88,18 @@ inline void verifyReferenceStatusLine()
              "A lowered after a role still says how far, in both languages: " + heldLine.text);
     require (reference_ui::referenceStatusLine (heldReady, true).text == "READY",
              "with RETURN in the footer a held A is not said again");
-    // 上限超えの承認を出している役を見ているときは、「できない」と量。直し方はボタンが言う（2026-10-05、2 度言うと
-    // 300% の足元で両方切れた）。
+    // 上限で届かない役は鳴ったまま、足りない量を言う。直し方はボタンが言う（2 度言うと 300% の足元で両方切れた）。
     auto offered = named ("ready");
     offered.separateComparisons = true;
-    offered.comparisonSlot = 3;
+    offered.comparisonSlot = offered.audibleComparisonSlot = 3;
+    offered.bSelected = true;
+    offered.tracking = Tracking::following;
+    offered.peakShortfallDb = 7.0;
     offered.action = { reference_ui::ActionKind::lowerAAndPlay, { 3, -8.0, "b-song", 1, 1 } };
-    offered.status = "B NEEDS A 8.0 DB LOWER";
     const auto offerLine = reference_ui::referenceStatusLine (offered);
-    require (offerLine.kind == StatusKind::unable && offerLine.text == offered.status
-                 && i18n::translate (offerLine.text, i18n::Language::japanese)
-                        == juce::String (juce::CharPointer_UTF8 ("B\xe3\x81\xaf" "A\xe3\x82\x92" "8.0 dB\xe4\xb8\x8b\xe3\x81\x92\xe3\x82\x8b\xe3\x81\xa8\xe5\x90\x88\xe3\x81\x86"))
-                 && i18n::translate ("LOWER A 8.0 DB & PLAY B", i18n::Language::japanese) != "LOWER A 8.0 DB & PLAY B",
-             "an approval to lower A reads as unavailable with the amount, and its button says the fix, in both languages: "
-                 + i18n::translate (offerLine.text, i18n::Language::japanese));
-    offered.comparisonSlot = 2;  // ほかの役を見ているとき（画面は承認の文を入れない）は、その役の行のまま
-    offered.status = "READY / A REMAINS LIVE";
-    require (reference_ui::referenceStatusLine (offered).kind != StatusKind::unable,
-             "the approval belongs to the role it was offered for");
+    require (offerLine.kind == StatusKind::ready && offerLine.text.contains ("7.0 DB UNDER A")
+                 && i18n::translate ("LOWER A 8.0 DB", i18n::Language::japanese) != "LOWER A 8.0 DB",
+             "a role short of A keeps playing, says how far short, and its button says the fix: " + offerLine.text);
 
     // 2026-10-04：上限で 0.5 dB 以下だけ届かず、上限まで上げて鳴らしているときは、その量を言う。
     {
@@ -124,7 +117,7 @@ inline void verifyReferenceStatusLine()
     playing.audibleComparisonSlot = 1;
     playing.appliedGainDb = 4.0;
     playing.heldAttenuationDb = -2.5;
-    for (const auto tracking : { Tracking::following, Tracking::fixed, Tracking::stoppedRange, Tracking::stoppedCeiling })
+    for (const auto tracking : { Tracking::following, Tracking::fixed, Tracking::stoppedRange })
     {
         playing.tracking = tracking;
         require (reference_ui::gainReadout (playing) == "V +1.5 dB", "the gain readout is the playing role's gain only");

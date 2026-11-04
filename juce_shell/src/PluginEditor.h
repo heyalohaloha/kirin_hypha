@@ -158,6 +158,10 @@ private:
     juce::String referenceRematchKey;  // 押した C の選択と再生の意図（役・Check・Cue・選択の世代）
     juce::String referenceRematchTarget() const;
     void serviceReferenceRematch();
+    void armCheckRematch (const hypha::reference_audition::Snapshot& runtime, const hypha::reference_audition::Snapshot& check);
+    bool referenceRematchQuiet = false;  // 押した MATCH ではなく、窓がたまった時の合わせ直し
+    std::shared_ptr<const hypha::reference_audition::VisualTimeline> referenceSwitchTimeline;
+    double referenceSwitchHoldUntilMs = 0.0;
     void openReferenceLarge (int slot);
     // A host may put the widened window back (REAPER's FX chain). The page-opened notice waits for a
     // tick 0.2 s later, only for the press it answers (its role, selection and page, no later notice).
@@ -168,14 +172,12 @@ private:
     juce::String referenceOpenedTarget (int slot) const;
     void serviceReferenceOpenedNotice();
     // 2026-10-03（R-12）：上限超えの MATCH を、承認して A を下げて合わせる（PluginEditorReferenceLowerA.cpp）。
-    double referenceLowerAApprovedDb = 0.0; // 承認した量（鳴らす時点で深く下げ直したら一度だけ知らせる）
-    bool offerReferenceLowerA (int slot, const hypha::reference_audition::Snapshot& role);
     void approveOfferedLowerA (const hypha::reference_audition::LowerAOffer&);
     void applyReferenceLowerA (hypha::reference_ui::State&, const hypha::reference_audition::Snapshot&);
     bool returnReferenceLevelIfHeld();
     int referenceHeldTenthsDb() const;
     hypha::reference_ui::PreparationWatch referencePreparationWatch;
-    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser;
+    hypha::reference_audition::VersionIdentity referenceVersionIdentity; double referenceIdentifyAtMs = 0.0; hypha::reference_audition::AutoVersionChooser referenceAutoChooser, referenceAutoMark; juce::String referenceAutoMarkId;
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
     void beginLocalBlindProductCapture();

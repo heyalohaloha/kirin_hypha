@@ -191,8 +191,6 @@ Snapshot ReferenceComparisonController::snapshot()
     const auto slot = viewedSlot.load (std::memory_order_acquire);
     auto result = slot == 1 ? b : slot == 3 ? r : c;
     result.heldAttenuationDb = heldA.targetDb();
-    result.lowerAOfferShownSlot = offerShownSlot;
-    result.lowerAOfferShownSerial = offerShownSerial;
     result.visualTimeline = visual.snapshot();
     result.visualPreferences = visualPreferences;
     const auto viewedMap = slotController (slot).visualBinding();
@@ -222,6 +220,8 @@ Snapshot ReferenceComparisonController::snapshot()
     result.checkSelection = std::make_shared<const Snapshot> (c);
     result.versionSelection = std::make_shared<const Snapshot> (b);
     result.versions = b.versions;
+    result.adoptedVersions = b.adoptedVersions;
+    result.switchingSlot = switchSlot.load (std::memory_order_acquire);
     result.versionAuto = versionAuto;
     result.selectedVersionId = b.migratedVersionChoice == versionId && versionId.isNotEmpty()
         ? b.presetId + "/" + b.checkId + "/" + b.candidateId : versionId;

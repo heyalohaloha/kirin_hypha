@@ -93,12 +93,14 @@ inline void testReferencePageStart (const juce::File& sandbox, bool switching, b
     require (c.snapshot().versionReady, "real capture and calibration are ready");
     if (approvalDiagnostic)
     {
-        require (!c.requestAudition (1, -22, -6), "louder live A requires explicit approval for V");
+        require (c.requestAudition (1, -22, -6), "louder live A plays V at the ceiling");
         const auto role = *c.snapshot().versionSelection;
         require (role.matchFailure == ref::MatchFailure::ceilingExceeded, "real V MATCH creates a ceiling offer");
         const ref::LowerAOffer shown { 1, role.neededAttenuationDb, role.playbackIdentity,
                                       role.selectionGeneration, role.matchFailureSerial };
-        require (!c.requestAudition (1, -22, -6), "a later V MATCH fails at the same ceiling");
+        c.selectA();
+        for (int n = 0; n < 8; ++n) feed (false, true);
+        require (c.requestAudition (1, -22, -6), "a later V MATCH reaches the same ceiling");
         const auto updated = *c.snapshot().versionSelection;
         const auto stale = c.approveLowerAAndPlay (shown);
         require (stale == ref::LowerAApproval::stale && c.heldAttenuationDb() == 0.0,

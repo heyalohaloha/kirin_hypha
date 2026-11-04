@@ -56,7 +56,7 @@ inline void verifyGuideStates()
                  && shown.check == Step::enableCheck,
              "C's guide names C's available action rather than the hidden V selector");
     state = named ("no_check"); state.comparisonSlot = 1;
-    require (guide (state).heading == "Choose a Version for V",
+    require (guide (state).heading == "Play A or choose a Version for V",
              "V's guide names the Version selector shown on V");
     require (! guide (named ("ready")).shown, "B and C audible: no guide");
     for (const auto* name : { "stopped", "no_check", "no_library" })
@@ -81,7 +81,7 @@ inline void verifyGuideStates()
     require (reference_ui::unavailableText (named ("no_library"), true) == "V: Open Kirin OS"
                  && reference_ui::unavailableText (named ("receiving"), false)
                         == "C: Waiting for Kirin OS"
-                 && reference_ui::unavailableText (named ("stopped"), true) == "V: Choose a Version"
+                 && reference_ui::unavailableText (named ("stopped"), true) == "V: Play A or choose a Version"
                  && reference_ui::unavailableText (named ("stopped"), false)
                         == "C: Ready when the DAW plays"
                  && reference_ui::unavailableText (named ("loading_audio"), true)
@@ -152,11 +152,11 @@ inline void verifyUnavailableButtons()
     require (b != nullptr && c != nullptr, "B and C buttons");
     component.setState (named ("no_version"));
     // 聴ける C は理由でなく、V・B と同じく何を聴くかを言う（300% では下の行の説明にもなる。2026-10-04）。
-    require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "V: Choose a Version"
+    require (b->isEnabled() && c->isEnabled() && b->getTooltip() == "V: Play A or choose a Version"
                  && c->getTooltip() == "Audition the Check's song from Kirin OS (C).",
              "an unready B stays clickable and names its step on hover; a ready C says what it plays");
     b->onClick();
-    require (explained == "V: Choose a Version" && ! selectedB,
+    require (explained == "V: Play A or choose a Version" && ! selectedB,
              "a click on an unready B explains instead of selecting");
     c->onClick();
     require (selectedC, "a ready C is selected as before");
@@ -277,7 +277,7 @@ inline void verifyActionFits()
         const auto context = presentation::forEditor (preset.width, preset.height);
         component.setPresentationContext (context);
         component.setSize (body.getWidth(), body.getHeight());
-        for (const auto* text : { "RETRY PREPARATION", "LOWER A 8.0 DB & PLAY B" })
+        for (const auto* text : { "RETRY PREPARATION", "LOWER A 8.0 DB" })
         {
             auto state = named ("loading_audio");
             state.actionText = text;

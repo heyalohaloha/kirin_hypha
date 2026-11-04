@@ -22,15 +22,6 @@ hypha::reference_audition::LowerAApproval KirinHyphaProcessorBase::approveRefere
    #endif
 }
 
-void KirinHyphaProcessorBase::markReferenceLowerAOfferShown (int slot, std::uint64_t failureSerial)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr) referenceAuditionController->markLowerAOfferShown (slot, failureSerial);
-   #else
-    juce::ignoreUnused (slot, failureSerial);
-   #endif
-}
-
 void KirinHyphaProcessorBase::returnReferenceLevelToNormal()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY

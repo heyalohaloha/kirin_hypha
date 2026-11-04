@@ -24,7 +24,6 @@ const Entry entries[] = {
     { "This Check plays at its original level.", u8"このCheckは元の音量で鳴らします。" },
     { "Play A for the Cue length (up to 30 s), then MATCH again.", u8"Cueの長さ（最長30秒）だけAを再生してから、もう一度MATCHを押してください。" },
     { "This Check matches True Peak when C starts. Press A, then C.", u8"このCheckはCを鳴らすときにTrue Peakで合わせます。Aを押してからCを押してください。" },
-    { "MATCH exceeds the safe level. The current gain is kept.", u8"MATCHが安全上限を超えます。今のGainを保ちます。" },
     { "PLAY A WITH V ALIGNED", u8"Vを位置合わせしてAを再生" },
     // 位置合わせの待ちが 30 秒を超えたときの理由と直し方（「V: %1」の %1 にそのまま入る）。
     { "NO MATCH IN 30 S OF PLAY / CHOOSE THE VERSION AGAIN", u8"30秒再生しても位置が合いません / Versionを選び直す" },
@@ -109,11 +108,14 @@ const Entry entries[] = {
     // Kirin OS の組み込みの名前は、ここ（綴りで画面全体を訳す辞書）に置かない。組み込みの ID の項目だけを名前の欄で
     // 日本語名にする（HyphaReferenceDisplayText.h。2026-10-18：同じ綴りの自作の名前を訳さない）。
     { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（Peak上限）" },
+    { "%1 DB UNDER A", u8"Aより%1 dB小さい" },
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
-    { "Compared by listening. Hypha shows no result it has not measured. Press A and %1 to switch at the same level.",
-      u8"この項目は耳で聴き比べます。Hyphaは測っていない結果を出しません。Aと%1を押して、同じ音量で切り替えてください。" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
+    { "BY EAR / PRESS A AND %1", u8"耳で比べる / Aと%1を押す" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
     // Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。
     { "NOT FOUND", u8"見つからない" },
+    { "ADOPTED", u8"採用" },
+    { "ADOPTED / AUTO", u8"採用 / AUTO" },
+    { "OTHER SONGS", u8"他の曲" },
     { "NOT SENT TO HYPHA", u8"Hyphaに出していない" },  // Kirin OS で外した CHECK セット（2026-10-18）
     { "CHECKING", u8"確認中" },
     { "%1 AHEAD", u8"前に%1曲" },
@@ -129,12 +131,9 @@ const Entry entries[] = {
     { "PREVIEW / DAW INPUT NOT AVAILABLE", u8"プレビュー / DAWの入力はありません" },
     { "KIRIN OS PREVIEW", u8"Kirin OSのプレビュー" },
     // 2026-10-03（R-12）：上限超えの MATCH は、承認して A を下げて合わせる。
-    { "%1 NEEDS A %2 DB LOWER", u8"%1はAを%2 dB下げると合う" },
-    { "LOWER A %1 DB & PLAY %2", u8"Aを%1 dB下げて%2を鳴らす" },
+    { "LOWER A %1 DB", u8"Aを%1 dB下げる" },
     { "A LOWERED %1 DB", u8"Aを%1 dB下げ中" },
-    { "%1 needs A %2 dB lower to match. Press LOWER A.", u8"%1はAを%2 dB下げると合います。Aを下げるボタンを押してください。" },
     { "A was not lowered. Press the role again.", u8"Aは下げていません。もう一度同じボタンを押してください。" },
-    { "A lowered %1 dB to match: A got louder after the offer.", u8"提示後にAが大きくなったため、Aを%1 dB下げて合わせました。" },
     { "PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.",
       u8"PRE / POST LISTENがPOSTを使用中です。終了かRETURNの後、同じボタンを押してください。" },
 

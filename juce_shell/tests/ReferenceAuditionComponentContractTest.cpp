@@ -11,6 +11,7 @@
 #include "ReferenceActionIntentTest.h"
 #include "ReferenceLightContractTest.h"
 #include "ReferencePageWaitStatusTest.h"
+#include "ReferenceVersionRowsTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -114,6 +115,7 @@ static void verifyTrackingStopNoticeOnce()
 void verifyReferenceAuditionComponentContract()
 {
     verifyReferencePageWaitStatus();
+    verifyReferenceVersionRows();
     verifyTrackingStopNoticeOnce();
     verifyReferenceActionIntent();
     verifyReferenceVisualNavigation();

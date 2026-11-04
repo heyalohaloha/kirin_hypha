@@ -18,6 +18,12 @@ void Component::syncSelectionControl (juce::ComboBox& box,
         for (size_t index = 0; index < options.size(); ++index)
             box.addItem (options[index].label, static_cast<int> (index) + 1);
     }
+    if (auto* control = dynamic_cast<SelectionControl*> (&box))
+    {
+        std::vector<SelectionControl::Row> rows;
+        for (const auto& option : options) rows.push_back ({ option.id, option.elsewhere });
+        control->setRows (std::move (rows));
+    }
     int selected = 0;
     for (size_t index = 0; index < options.size(); ++index)
         if (options[index].id == selectedId)

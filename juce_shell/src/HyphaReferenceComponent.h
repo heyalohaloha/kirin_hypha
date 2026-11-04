@@ -80,6 +80,8 @@ struct SelectionOption
     juce::String id;
     juce::String label;
     juce::String checkLabel {}, itemLabel {}; // a CHECK target's two parts, when the runtime gives them
+    juce::String workId {}, versionId {};     // a Version's song and its version in Kirin OS
+    bool elsewhere = false;                   // a Version of another song (HyphaReferenceVersionRows.h)
 };
 
 // B の曲の Kirin OS の値（既定の Cue）。B の一覧と Balance に出す。
@@ -110,6 +112,8 @@ struct State
     juce::String versionRejectionCode, checkRejectionCode, referenceRejectionCode;
     int comparisonSlot = 2, audibleComparisonSlot = 0;
     bool transportPlaying = false, versionArmable = false, checkArmable = false;
+    int switchingSlot = 0;  // 新しい選択が鳴るのを待っている役（ボタンは待ちの色、A は点けない）
+    bool matchProvisional = false;  // C は今ある A で合わせて鳴っている（窓がたまったら合わせ直す）
     reference_audition::PendingAuditionView pendingAudition;
     juce::String versionId;
     std::vector<SelectionOption> versions;

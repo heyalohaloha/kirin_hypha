@@ -91,8 +91,6 @@ inline void verifyJapaneseWording()
     for (const auto* english : {
         "Hypha v2147483647.2147483647.2147483647 available; open PRE / POST for downloads",
         u8"TP limit: PRE \u221224.0 dB, need +24.0 dB",
-        "C needs A 24.0 dB lower to match. Press LOWER A.",
-        "A lowered 24.0 dB to match: A got louder after the offer.",
         "PRE / POST LISTEN is using POST. End it or press RETURN, then press the role again.",
         "C could not switch at this playhead. A remains live; retry when C is ready.",
         "Some Kirin OS sets were not read. Update Kirin OS and Hypha." })

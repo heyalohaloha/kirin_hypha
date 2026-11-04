@@ -6,6 +6,7 @@
 #include "HyphaReferencePendingUI.h"
 #include "HyphaReferenceSongChoice.h"
 #include "HyphaReferenceRematchWait.h"
+#include "HyphaReferenceVersionRows.h"
 
 // A／B／C／V の B（REF）。B を押すと B の画面にして B を鳴らす。REFERENCE SET と曲は B の画面で選ぶ。
 using namespace hypha::reference_ui::runtime_view;
@@ -27,7 +28,6 @@ void KirinHyphaEditor::wireReferenceRoles()
         if (processorRef.selectReferenceRef()) return;
         const auto latest = processorRef.referenceAuditionSnapshot();
         const auto& slot = latest.referenceSelection ? *latest.referenceSelection : latest;
-        if (offerReferenceLowerA (3, slot)) return;  // 上限超え：A を下げて合わせる承認を出す
         showToast (hypha::reference_ui::notice::roleUnavailable (3, slotStep (slot, latest.transportPlaying), slot.matchFailure, rejectionCodeOf (slot)));
     };
     referenceView.onSelectSong = [this] (const juce::String& id)
@@ -49,15 +49,9 @@ void KirinHyphaEditor::wireReferenceRoles()
                 referenceRematchUntil = nowSecs() + 40.0;
                 referenceRematchNextAt = nowSecs() + 1.0;
                 referenceRematchKey = referenceRematchTarget();
+                referenceRematchQuiet = false;
                 showToast ("MATCH waits until A has played the Cue length (up to 30 s).");
                 break;
-            case Result::ceilingExceeded:  // 承認すれば A を下げて合わせ直す（C は今の gain のまま鳴っている）
-            {
-                const auto latest = processorRef.referenceAuditionSnapshot();
-                if (! offerReferenceLowerA (2, latest.checkSelection ? *latest.checkSelection : latest))
-                    showToast ("MATCH exceeds the safe level. The current gain is kept.");
-                break;
-            }
         }
     };
 }
@@ -239,11 +233,13 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
     state.aWindowLoudness = aWindow.loudness;
     state.aWindowBlocks = aWindow.blocks;
     state.aWindowNeededBlocks = aWindow.neededBlocks;
+    armCheckRematch (runtime, checkRole);
+    state.matchProvisional = referenceRematchQuiet && referenceRematchUntil > 0.0;
     rankCheckSets (state, checkRole.checkSetRanks);
     // V の自動特定（Reference を開いているあいだ、どの画面でも 3 秒ごと）。Kirin OS の「同じ曲」以上で一致率の
-    // 最も高い Version に AUTO と一致率を添え、V を選んでいなければ（または AUTO の選んだものより明らかに合えば）
+    // 最も高い Version に AUTO の印を付け、V を選んでいなければ（または AUTO の選んだものより明らかに合えば）
     // V の選択だけを替える（鳴っている B・C は止めない。V が鳴っている・待っているあいだは替えない）。
-    // 利用者が選んだ Version は替えない。
+    // 利用者が選んだ Version は替えない。印も選択と同じ決まりで動かす（近い Version の間で行を行き来しない）。
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
     if (nowMs >= referenceIdentifyAtMs)
     {
@@ -252,10 +248,14 @@ void KirinHyphaEditor::applyReferenceRoles (hypha::reference_ui::State& state,
         if (const auto next = referenceAutoChooser.next (referenceVersionIdentity, runtime.selectedVersionId, runtime.versionAuto);
             next.isNotEmpty())
             processorRef.selectReferenceVersion (next, true);
+        if (const auto next = referenceAutoMark.next (referenceVersionIdentity, referenceAutoMarkId, true); next.isNotEmpty())
+            referenceAutoMarkId = next;
     }
-    for (auto& option : state.versions)
-        if (option.id == referenceVersionIdentity.autoId)
-            option.label += "   AUTO " + juce::String (referenceVersionIdentity.autoAgreement, 2);
+    if (std::none_of (state.versions.begin(), state.versions.end(),
+                      [this] (const auto& option) { return option.id == referenceAutoMarkId; }))
+        referenceAutoMarkId.clear();
+    hypha::reference_ui::arrangeVersionRows (state.versions, state.versionId, referenceAutoMarkId);
+    hypha::reference_ui::markVersionRows (state.versions, referenceAutoMarkId, runtime.adoptedVersions.get());
     // 待っている役（押した後の待ちがあればその役、無ければ見ている役）の待ちが上限を超えたら、状態の行で
     // 「できない」と理由・直し方を出す。
     const bool pendingWaiting = state.pendingAudition.waiting();
@@ -282,6 +282,19 @@ juce::String KirinHyphaEditor::referenceRematchTarget() const
     return hypha::reference_ui::rematchTarget (processorRef.referenceAuditionSnapshot());
 }
 
+// C は押したらすぐ今ある A で合わせて鳴る。A の直近が Cue の長さに足りなければ、たまり次第 1 度だけ黙って合わせ直す。
+void KirinHyphaEditor::armCheckRematch (const hypha::reference_audition::Snapshot& runtime,
+                                        const hypha::reference_audition::Snapshot& check)
+{
+    if (! runtime.bSelected || runtime.audibleComparisonSlot != 2 || ! processorRef.takeReferenceCheckAttempt (check.matchAttempt)) return;
+    if (referenceRematchUntil > 0.0 || check.comparisonMode != "loudness_match") return;
+    if (std::isfinite (processorRef.referenceWindowLoudness (2).loudness)) return;  // 窓の値で合わせてある
+    referenceRematchUntil = nowSecs() + 40.0;
+    referenceRematchNextAt = nowSecs() + 1.0;
+    referenceRematchKey = referenceRematchTarget();
+    referenceRematchQuiet = true;
+}
+
 // 待たせた C の MATCH を 1 秒ごとに読み直す。合えば黙って（状態の行が言う）、上限超えは押したときと同じ承認、
 // C を止めた・替えたら捨てる。上限まで A がたまらなければ、今までの理由を言う。
 void KirinHyphaEditor::serviceReferenceRematch()
@@ -293,18 +306,11 @@ void KirinHyphaEditor::serviceReferenceRematch()
     if (nowSecs() >= referenceRematchUntil)
     {
         referenceRematchUntil = 0.0;
-        showToast ("Play A for the Cue length (up to 30 s), then MATCH again.");
+        if (! referenceRematchQuiet) showToast ("Play A for the Cue length (up to 30 s), then MATCH again.");
         return;
     }
     using hypha::reference_ui::RematchWait;
     const auto next = hypha::reference_ui::rematchWait (processorRef.rematchReferenceCheck());
-    if (next == RematchWait::wait) return;
-    referenceRematchUntil = 0.0;
-    if (next == RematchWait::offerLowerA)
-    {
-        const auto latest = processorRef.referenceAuditionSnapshot();
-        if (! offerReferenceLowerA (2, latest.checkSelection ? *latest.checkSelection : latest))
-            showToast ("MATCH exceeds the safe level. The current gain is kept.");
-    }
+    if (next != RematchWait::wait) referenceRematchUntil = 0.0;
 }
 #endif

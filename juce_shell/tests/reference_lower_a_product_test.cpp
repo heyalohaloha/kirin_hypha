@@ -104,7 +104,7 @@ private:
         {
             case 0:  // B の曲が準備でき、A の 4 秒が測れてから B を押す
                 if (! state.referenceReady || blocks.load() < 48000 * 4 / frames) break;
-                require (! post->selectReferenceRef(), "a B MATCH over the ceiling does not play B");
+                require (post->selectReferenceRef(), "a B MATCH over the ceiling plays B at the ceiling");
                 stage = 1;
                 break;
             case 1:
@@ -112,7 +112,7 @@ private:
                 const auto& b = state.referenceSelection ? *state.referenceSelection : state;
                 if (b.matchFailure != hypha::reference_audition::MatchFailure::ceilingExceeded) break;
                 needed = b.neededAttenuationDb;
-                require (needed < -10.0, "the refusal names how far A must be lowered");
+                require (needed < -10.0, "the offer names how far A must be lowered");
                 KirinMeterSession meter {};
                 require (post->pollMeterSession (meter) && std::isfinite (meter.lufs_m), "A is measured before the approval");
                 beforeLufs = meter.lufs_m;
@@ -123,7 +123,8 @@ private:
                 break;
             }
             case 2:  // 下げ終わって B が鳴る
-                if (state.audibleComparisonSlot != 3) break;
+                if (state.audibleComparisonSlot != 3 || state.referenceSelection == nullptr
+                    || state.referenceSelection->matchFailure != hypha::reference_audition::MatchFailure::none) break;
                 stageBlocks = blocks.load();
                 stage = 3;
                 break;

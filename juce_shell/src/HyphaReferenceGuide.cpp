@@ -145,8 +145,6 @@ Guide guide (const State& state)
         }
         result.detail = state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable
             ? juce::String ("Prepare this source in Kirin OS. A stays live.")
-            : state.pendingAudition.stage == reference_audition::PendingAuditionView::Stage::ceilingExceeded
-            ? juce::String ("MATCH exceeds the safe level. A stays live.")
             : pendingAuditionReason (state) + " / "
             + (state.pendingAudition.waiting() ? "A stays live until ready. Press A to cancel."
                                               : "A stays live. Choose the source again.");
@@ -181,8 +179,8 @@ void Component::syncSourceButtons()
     // 予約（DAW の再生を待つ）は色で示し、何を待つかは状態の行が言う（「V...」は文字が切れたように見えた。2026-10-04）。
     bButton.setButtonText ("V");
     cButton.setButtonText ("C");
-    bButton.setAttention (waiting && current.pendingAudition.slot == 1);
-    cButton.setAttention (waiting && current.pendingAudition.slot == 2);
+    bButton.setAttention ((waiting && current.pendingAudition.slot == 1) || current.switchingSlot == 1);
+    cButton.setAttention ((waiting && current.pendingAudition.slot == 2) || current.switchingSlot == 2);
     // 300% 未満の C と V は薄く、押すと 300% に広げる（openLarge）。
     const bool opensLarge = current.separateComparisons && ! current.blindLargeScreen;
     bButton.setEnabled (current.separateComparisons || versionAudible);

@@ -26,7 +26,9 @@ bool ReferenceComparisonController::armResume()
         std::uint64_t wanted = 0;
         { const juce::ScopedLock lock (selectionLock); wanted = switchGeneration; }
         if (state.selectionGeneration < wanted) return true;  // まだ新しい選択が公開されていない。timer は回し続ける
-        if (state.state == RuntimeState::rejected) { dropResume(); return false; }
+        if (state.state == RuntimeState::rejected
+            || state.rejectionCode == "reference_selection_unavailable" || state.rejectionCode == "reference_version_unselected")
+        { dropResume(); return false; }                        // 待っても鳴らない（選んだものが消えた）
         if (state.playbackIdentity.isEmpty()) return true;     // 準備中
         next.identity = state.playbackIdentity;
         next.switching = true;

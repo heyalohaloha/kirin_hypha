@@ -25,8 +25,7 @@ int RuntimeV2Controller::matchWindowBlocks() const
 // 選んでいるあいだ 1 秒ごとに、A の直近の窓から gain を求め直す（メッセージスレッド）。
 // B は「A の直近 10 秒 − 鳴らしている Cue の値（無ければ曲全体）」、V は「A の直近 10 秒 − 位置合わせで
 // 対応する V の同じ内容」。窓が足りない（再生直後・シークの後・無音）ときは今の gain を保つ。
-// 2026-10-05：上限で止めた後も、A が静かになって gain を下げる向きなら追従を再開する
-// （下げても上限は越えない。上げる向きは止めたまま。±6 dB で止めたものは今までどおり再開しない）。
+// 上限で届かないあいだも追従を続ける（±6 dB で止めたものは今までどおり再開しない）。
 TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMeterHistoryEntry>& history,
                                                      double aSessionPeakDbtp) noexcept
 {
@@ -35,11 +34,10 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
     std::shared_ptr<const RuntimeSource> source;
     juce::String mode;
     double currentGain = 0.0, anchorGain = unavailable, selectionAPeak = unavailable, cueLoudness = unavailable, cuePeak = unavailable, loudnessOffset = 0.0;
-    bool cueLevel = false, resuming = false;
+    bool cueLevel = false;
     {
         const juce::ScopedLock lock (stateLock);
-        resuming = currentSnapshot.tracking == TrackingState::stoppedCeiling;
-        if (currentSnapshot.tracking != TrackingState::following && ! resuming) return TrackingAction::keep;
+        if (currentSnapshot.tracking != TrackingState::following) return TrackingAction::keep;
         source = publishedSource;
         mode = currentSnapshot.comparisonMode;
         currentGain = currentSnapshot.appliedGainDb;
@@ -73,25 +71,33 @@ TrackingAction RuntimeV2Controller::followSelection (const std::vector<KirinMete
         aLoudness = window.lufs;
         required = aLoudness - sourceLoudness;
     }
-    if (resuming && ! (required < currentGain - trackingToleranceDb)) return TrackingAction::keep;
     const auto step = trackingStep (required, currentGain, sourcePeak, louder (aSessionPeakDbtp, selectionAPeak), anchorGain,
                                     heldAttenuationDb.load (std::memory_order_acquire));
-    if (step.action == TrackingAction::keep) return TrackingAction::keep;
+    if (step.action == TrackingAction::keep)
+    {
+        const juce::ScopedLock lock (stateLock);
+        if (std::isfinite (required) && normalSelectionGeneration.load (std::memory_order_acquire) == generation
+            && bSelected.load (std::memory_order_acquire) && currentSnapshot.tracking == TrackingState::following)
+        {
+            noteShortfallLocked (step.shortfallDb, required);
+            holdCurrentGainLocked();
+        }
+        return TrackingAction::keep;
+    }
 
     const juce::ScopedLock lock (stateLock);
-    const auto expected = resuming ? TrackingState::stoppedCeiling : TrackingState::following;
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation
-        || ! bSelected.load (std::memory_order_acquire) || currentSnapshot.tracking != expected)
+        || ! bSelected.load (std::memory_order_acquire) || currentSnapshot.tracking != TrackingState::following)
         return TrackingAction::keep;
-    if (step.action == TrackingAction::stopCeiling || step.action == TrackingAction::stopRange)
+    if (step.action == TrackingAction::stopRange)
     {
-        currentSnapshot.tracking = step.action == TrackingAction::stopCeiling ? TrackingState::stoppedCeiling
-                                                                             : TrackingState::stoppedRange;
+        currentSnapshot.tracking = TrackingState::stoppedRange;
+        // gain は動かないので、足りない量は今の gain からの差。上限に当たらないなら A を下げる話ではない。
+        noteShortfallLocked (step.shortfallDb > 0.0 ? required - currentGain : 0.0, required);
         holdCurrentGainLocked();
         return step.action;
     }
-    currentSnapshot.tracking = TrackingState::following;
-    currentSnapshot.peakShortfallDb = step.shortfallDb;  // 先に書く：戻す控え（applyMatchedGainLocked）にも同じ量が入る
+    noteShortfallLocked (step.shortfallDb, required);  // 先に書く：戻す控え（applyMatchedGainLocked）にも同じ量が入る
     applyMatchedGainLocked (step.gainDb, versionComparison ? currentSnapshot.aIntegratedLoudness : aLoudness,
                             louder (aSessionPeakDbtp, selectionAPeak), sourceLoudness, sourcePeak);
     return TrackingAction::move;
@@ -156,21 +162,14 @@ RematchResult RuntimeV2Controller::rematch (double aLoudness, double aSessionPea
     if (! std::isfinite (required) || required < -100.0 || required > 100.0) return RematchResult::levelUnavailable;
     const auto aPeak = louder (aSessionPeakDbtp, selectionAPeak);
     const auto shortfall = referencePeakShortfallDb (required, sourcePeak, aPeak, heldAttenuationDb.load (std::memory_order_acquire));
-    if (shortfall > peakShortfallToleranceDb + 1.0e-9)
-    {
-        const juce::ScopedLock lock (stateLock);
-        beginMatchLocked();
-        failMatchLocked (MatchFailure::ceilingExceeded, referenceAttenuationToMatch (required));  // 承認すれば合わせられる下げ幅
-        return RematchResult::ceilingExceeded;
-    }
 
     const juce::ScopedLock lock (stateLock);
     if (normalSelectionGeneration.load (std::memory_order_acquire) != generation || ! bSelected.load (std::memory_order_acquire))
         return RematchResult::notPlaying;
     beginMatchLocked();  // 成功は前の失敗と承認の下げ幅を必ず消す
     currentSnapshot.tracking = TrackingState::fixed;
-    currentSnapshot.peakShortfallDb = shortfall;  // 先に書く：戻す控えにも同じ量が入る
-    applyMatchedGainLocked (required - shortfall, aLoudness, aPeak, sourceLoudness, sourcePeak);  // 0.5 dB 以下は上限まで
+    noteShortfallLocked (shortfall, required);  // 先に書く：戻す控えにも同じ量が入る
+    applyMatchedGainLocked (required - shortfall, aLoudness, aPeak, sourceLoudness, sourcePeak);  // 届かなければ上限まで
     trackingAnchorDb = required - shortfall;
     if (heldSelection.valid) heldSelection.facts.anchorGainDb = required - shortfall;
     return RematchResult::matched;

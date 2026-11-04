@@ -11,6 +11,7 @@
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 #include "HyphaReferenceHelpText.h"
+#include "HyphaReferenceVersionRows.h"
 
 #include <algorithm>
 #include <utility>
@@ -56,6 +57,7 @@ Component::Component()
     configureSelector (versionBox, "reference-version", "V Version",
                        "Choose the registered Version for V. A stays the current DAW input.");
     versionBox.setTextWhenNothingSelected ("Choose Version");
+    versionBox.setElsewhereTitle (versionsElsewhereTitle);
     configureSelector (checkBox, "reference-check", "Check",
                        "Temporarily call a Check received from Kirin OS.");
     configureSelector (candidateBox, "reference-candidate", "B Source",
@@ -160,7 +162,7 @@ void Component::setState (State next)
     connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_LED_BLUE : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
     connectionStatus.setVisible (! blindSession);
-    aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
+    aButton.setToggleState (! current.bSelected && current.switchingSlot == 0, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected && (! current.separateComparisons
         || current.audibleComparisonSlot == 1), juce::dontSendNotification);
     cButton.setToggleState (current.bSelected && current.audibleComparisonSlot == 2, juce::dontSendNotification);

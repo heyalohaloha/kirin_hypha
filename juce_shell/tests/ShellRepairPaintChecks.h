@@ -43,7 +43,7 @@ inline void verifyReferenceStatusPaint (const char* lang)
         state.referenceStep = reference_ui::SourceStep::ready;
         state.blindLargeScreen = width >= 900;
         state.comparisonSlot = state.audibleComparisonSlot = 3;
-        state.tracking = reference_audition::TrackingState::stoppedCeiling;
+        state.tracking = reference_audition::TrackingState::following;
         state.peakShortfallDb = 0.4;
         state.heldAttenuationDb = -0.8;
         panel.setStatusInFooter (true);

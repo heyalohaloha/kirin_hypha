@@ -88,8 +88,10 @@ namespace hypha::reference_audition
                              std::memory_order_release);
         {
             auto preparation = configuration.identity.library ? repository.libraryPreparation (nowMs) : nullptr;
+            auto adopted = configuration.identity.library && versionComparison ? repository.adoptedVersions() : nullptr;
             const juce::ScopedLock lock (stateLock);
             libraryPreparation = std::move (preparation);
+            adoptedVersions = std::move (adopted);
         }
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "authority_load"); activeABinding = aBindingRepository.loadCurrent (configuration.identity);
         KIRIN_REFERENCE_STAGE_FOR_TEST (this, "authority_load_done");

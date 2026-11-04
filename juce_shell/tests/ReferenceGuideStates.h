@@ -67,9 +67,6 @@ inline std::vector<Case> cases()
         state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::safetyChanged;
         state.status = reference_ui::pendingAuditionText (state);
         result.push_back ({ slot == 1 ? "queued_b_cancelled" : "queued_c_cancelled", state });
-        state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::ceilingExceeded;
-        state.status = reference_ui::pendingAuditionText (state);
-        result.push_back ({ slot == 1 ? "queued_b_ceiling" : "queued_c_ceiling", state });
         state.pendingAudition.stage = reference_audition::PendingAuditionView::Stage::sourceLevelUnavailable;
         state.status = reference_ui::pendingAuditionText (state);
         result.push_back ({ slot == 1 ? "queued_b_no_level" : "queued_c_no_level", state });

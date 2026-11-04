@@ -21,34 +21,16 @@ inline juce::String roleUnavailable (int slot, SourceStep step, reference_auditi
                                      : letter + ": " + stepText (step);
 }
 
-// 上限を超えた MATCH：A を下げれば合うことと、押すボタン。
-inline juce::String lowerANeeded (int slot, double neededAttenuationDb)
+// 申し出のボタンの文。足りない量は状態の行が言う。
+inline juce::String lowerAOfferAction (double neededAttenuationDb)
 {
-    return juce::String (roleLetter (slot)) + " needs A " + juce::String (-neededAttenuationDb, 1) + " dB lower to match. Press LOWER A.";
+    return "LOWER A " + juce::String (-neededAttenuationDb, 1) + " DB";
 }
 
-// 申し出の状態の文（量だけ。直し方はボタンが言う）と、ボタンの文。
-inline juce::String lowerAOfferStatus (int slot, double neededAttenuationDb)
+// 追従が止まった（MATCH から ±6 dB）。
+inline juce::String trackingStopped()
 {
-    return juce::String (roleLetter (slot)) + " NEEDS A " + juce::String (-neededAttenuationDb, 1) + " DB LOWER";
-}
-
-inline juce::String lowerAOfferAction (int slot, double neededAttenuationDb)
-{
-    return "LOWER A " + juce::String (-neededAttenuationDb, 1) + " DB & PLAY " + juce::String (roleLetter (slot));
-}
-
-// 承認の後に A が大きくなり、承認した量より深く下げ直した。
-inline juce::String lowerAAgain (double heldAttenuationDb)
-{
-    return "A lowered " + juce::String (-heldAttenuationDb, 1) + " dB to match: A got louder after the offer.";
-}
-
-// 追従が止まった（上限、または MATCH から ±6 dB）。
-inline juce::String trackingStopped (bool atCeiling)
-{
-    return atCeiling ? "Level follow stopped at the safe ceiling. The current gain is kept."
-                     : "Level follow stopped 6 dB from the MATCH. The current gain is kept.";
+    return "Level follow stopped 6 dB from the MATCH. The current gain is kept.";
 }
 
 // Kirin OS の項目を外した：最初の名前と数、なぜ（名前の字）と直し方（Kirin OS で名前を直す。ほかは準備し直す）。

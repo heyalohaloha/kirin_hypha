@@ -4,10 +4,10 @@
 
 // C の MATCH（2026-10-31）：A の直近が Cue の長さ（最長 30 秒）に足りないあいだに押された MATCH は断らずに
 // 待たせ、たまり次第合わせる（押した C の MATCH を捨てない）。C を止めた・
-// 替えた・元の音量の C は待ちを捨てる。上限を超えるなら押したときと同じく A を下げる承認を出す。
+// 替えた・元の音量の C は待ちを捨てる。
 namespace hypha::reference_ui
 {
-enum class RematchWait : std::uint8_t { done, wait, offerLowerA, drop };
+enum class RematchWait : std::uint8_t { done, wait, drop };
 
 constexpr RematchWait rematchWait (reference_audition::RematchResult result) noexcept
 {
@@ -15,7 +15,6 @@ constexpr RematchWait rematchWait (reference_audition::RematchResult result) noe
     switch (result)
     {
         case R::matched:          return RematchWait::done;
-        case R::ceilingExceeded:  return RematchWait::offerLowerA;
         case R::levelUnavailable: return RematchWait::wait;
         case R::notPlaying:
         case R::original:

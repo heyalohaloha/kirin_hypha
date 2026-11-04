@@ -37,7 +37,7 @@ bool ReferenceComparisonController::selectRef (double loudness, double peak) noe
 void ReferenceComparisonController::selectA() noexcept
 { clearPendingAudition(); dropResume(); version.selectA(); check.selectA(); reference.selectA(); }
 
-// 2026-10-03（R-12）：上限を超えた MATCH の役を、承認して A を差だけ下げて合わせる（参照は元の音量）。
+// 2026-10-03（R-12）：上限で届かない役を、承認して A を差だけ下げて合わせる（参照は元の音量）。
 // 下げ終わってから、押したのと同じ待ちで鳴らす（再生中でも止まっていても）。深くするだけで、浅くするのは RETURN。
 // 下げるのは利用者が承認した量（承認のボタンに出した量）。鳴らす待ちを立てられなければ下げない。
 LowerAApproval ReferenceComparisonController::approveLowerAAndPlay (const LowerAOffer& offer)
@@ -54,22 +54,10 @@ LowerAApproval ReferenceComparisonController::approveLowerAAndPlay (const LowerA
     const auto before = heldA.targetDb();
     heldA.hold (approvedDb);
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
-    if (queueAudition (slot, pendingSafetyEpoch.load (std::memory_order_acquire)))
-    {
-        const juce::ScopedLock lock (selectionLock);
-        pendingAudition.approvedLowerA = true;
-        return LowerAApproval::lowered;
-    }
+    if (queueAudition (slot, pendingSafetyEpoch.load (std::memory_order_acquire))) return LowerAApproval::lowered;
     heldA.restore (before);
     for (auto* role : { &version, &check, &reference }) role->setHeldAttenuation (heldA.targetDb());
     return LowerAApproval::refused;
-}
-
-void ReferenceComparisonController::markLowerAOfferShown (int slot, std::uint64_t failureSerial)
-{
-    const juce::ScopedLock lock (selectionLock);
-    offerShownSlot = slot;
-    offerShownSerial = failureSerial;
 }
 
 // RETURN：鳴っている役を止めてから A を通常の音量へ（0.5 秒で上げる）。役の gain は下げた A に合わせてあり、
