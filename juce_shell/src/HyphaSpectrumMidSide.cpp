@@ -2,6 +2,7 @@
 #include "HyphaAnalysisUiText.h"
 
 #include "HyphaSpectrumPresentation.h"
+#include "HyphaSpectrumScope.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,24 +21,13 @@ bool finiteValues (const float (&values)[Size]) noexcept
 
 bool validMidSideSnapshot (const KirinMidSideSpectrumView& view) noexcept
 {
-    const uint64_t apertureNumerator = static_cast<uint64_t> (view.sample_rate) * 4'096u
-                                     + 24'000u;
-    const uint32_t expectedAperture = static_cast<uint32_t> (apertureNumerator / 48'000u);
-    uint32_t expectedFft = 1u;
-    while (expectedFft < expectedAperture * 2u && expectedFft <= 65'536u)
-        expectedFft <<= 1u;
-    const float expectedApproximateBelow = expectedAperture > 0u
-        ? 3.0f * static_cast<float> (view.sample_rate) / static_cast<float> (expectedAperture)
-        : 0.0f;
     return view.status == KIRIN_SPECTRUM_ACTIVE
         && view.has_data == 1u
         && view.channels == 2u
         && view.sample_rate >= 8'000u
         && view.sample_rate <= 384'000u
-        && view.aperture_samples == expectedAperture
-        && view.fft_size == expectedFft
-        && std::isfinite (view.approximate_below_hz)
-        && std::abs (view.approximate_below_hz - expectedApproximateBelow) < 0.001f
+        && spectrum_scope::validLayout (view.sample_rate, view.aperture_samples, view.fft_size,
+                                        view.approximate_below_hz)
         && std::isfinite (view.min_hz)
         && std::isfinite (view.max_hz)
         && view.min_hz > 0.0f
@@ -95,6 +85,15 @@ void SpectrumComponent::setAbsoluteObservation (bool absolute)
     }
     else
         repaint();
+}
+
+void SpectrumComponent::setLowScope (bool low)
+{
+    if (lowScope == low)
+        return;
+    clearSnapshot();
+    lowScope = low;
+    repaint();
 }
 
 void SpectrumComponent::setDisplaySelection (uint8_t selection)

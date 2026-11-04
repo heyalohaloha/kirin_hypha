@@ -1,6 +1,9 @@
 #include "SpectrumPresentationContractTest.h"
+#include "SpectrumLowScopeContract.h"
 
+#include "../src/HyphaSpectrumPeaks.h"
 #include "../src/HyphaSpectrumPresentation.h"
+#include "../src/HyphaSpectrumScope.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumChromePainter.h"
 #include "kirin_hypha_ffi.h"
@@ -9,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -79,6 +83,7 @@ namespace
 
 void verifySpectrumPresentationContract()
 {
+    verifySpectrumLowScopeContract();
     // The host-rate aperture keeps the zero-padded bin below 10 Hz at common rates.
     verifyWeightSpan (10.0f, 22'000.0f);
     verifyWeightSpan (96'000.0f / 16'384.0f, 22'000.0f);
@@ -101,6 +106,67 @@ void verifySpectrumPresentationContract()
         spectrum_chrome::frequencyReadoutText (30.0f, 35.15625f) == "~30 Hz");
     KIRIN_SPECTRUM_REQUIRE (
         spectrum_chrome::frequencyReadoutText (36.0f, 35.15625f) == "36 Hz");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_chrome::frequencyAndNoteText (41.2f, 8.8f) == "41 Hz E1");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_chrome::frequencyAndNoteText (30.0f, 35.2f) == "~30 Hz");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_chrome::frequencyAndNoteText (1'000.0f, 35.2f) == "1.00 kHz");
+
+    KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::noteName (440.0f) == "A4");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::noteName (27.5f) == "A0");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::noteName (261.63f) == "C4");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::noteName (46.25f) == "F#1");
+    KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::noteName (0.0f).empty());
+
+    {
+        // Three notes over a falling slope with 1 dB of ripple: the ripple names nothing.
+        constexpr size_t count = 256u;
+        std::array<float, count> hz {};
+        std::array<float, count> level {};
+        const auto bump = [] (float position, float centreHz, float height)
+        {
+            const auto distance = std::log2 (position / centreHz) * 12.0f;
+            return height * std::exp (-distance * distance);
+        };
+        for (size_t index = 0; index < count; ++index)
+        {
+            hz[index] = 20.0f * std::pow (15.0f, ((float) index + 0.5f) / (float) count);
+            level[index] = -50.0f - 0.05f * (float) index + 0.5f * std::sin ((float) index)
+                + bump (hz[index], 41.2f, 30.0f) + bump (hz[index], 55.0f, 24.0f)
+                + bump (hz[index], 98.0f, 12.0f) + bump (hz[index], 150.0f, 2.0f);
+        }
+        const auto peaks = spectrum_peaks::find (hz.data(), level.data(), count);
+        KIRIN_SPECTRUM_REQUIRE (peaks.count == 3u);
+        KIRIN_SPECTRUM_REQUIRE (std::abs (peaks.found[0].hz - 41.2f) < 0.6f);
+        KIRIN_SPECTRUM_REQUIRE (std::abs (peaks.found[1].hz - 55.0f) < 0.8f);
+        KIRIN_SPECTRUM_REQUIRE (std::abs (peaks.found[2].hz - 98.0f) < 1.5f);
+
+        // A flat top is one peak at its centre, at its own height.
+        std::array<float, 7> flatHz { 40.0f, 42.0f, 44.0f, 46.0f, 48.0f, 50.0f, 52.0f };
+        std::array<float, 7> flatLevel { -40.0f, -30.0f, -10.0f, -10.0f, -10.0f, -30.0f, -40.0f };
+        const auto flat = spectrum_peaks::find (flatHz.data(), flatLevel.data(), flatHz.size());
+        KIRIN_SPECTRUM_REQUIRE (flat.count == 1u);
+        KIRIN_SPECTRUM_REQUIRE (flat.found[0].level == -10.0f);
+        KIRIN_SPECTRUM_REQUIRE (std::abs (flat.found[0].hz - 45.96f) < 0.05f);
+
+        // A peak 25 dB under the highest is tagged. One 35 dB under it is the window's ripple.
+        std::array<float, 9> rippleHz { 40.0f, 45.0f, 50.0f, 55.0f, 60.0f, 65.0f, 70.0f, 75.0f, 80.0f };
+        std::array<float, 9> rippleLevel { -70.0f, -10.0f, -70.0f, -35.0f, -70.0f, -45.0f, -70.0f,
+                                           -70.0f, -70.0f };
+        KIRIN_SPECTRUM_REQUIRE (
+            spectrum_peaks::find (rippleHz.data(), rippleLevel.data(), rippleHz.size()).count == 2u);
+
+        // A band with nothing to measure is no peak and no valley either.
+        level[120] = std::numeric_limits<float>::quiet_NaN();
+        KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::find (hz.data(), level.data(), count).count >= 2u);
+        level.fill (-120.0f);
+        level[100] = -100.0f;
+        KIRIN_SPECTRUM_REQUIRE (spectrum_peaks::find (hz.data(), level.data(), count).count == 0u);
+    }
+
+    KIRIN_SPECTRUM_REQUIRE (spectrum_scope::validLayout (48'000u, 4'096u, 8'192u, 35.15625f));
+    KIRIN_SPECTRUM_REQUIRE (spectrum_scope::validLayout (48'000u, 16'384u, 32'768u, 8.7890625f));
+    KIRIN_SPECTRUM_REQUIRE (spectrum_scope::validLayout (384'000u, 131'072u, 262'144u, 8.7890625f));
+    KIRIN_SPECTRUM_REQUIRE (! spectrum_scope::validLayout (48'000u, 16'384u, 8'192u, 8.7890625f));
+    KIRIN_SPECTRUM_REQUIRE (! spectrum_scope::validLayout (48'000u, 8'192u, 16'384u, 17.578125f));
 
     const auto weights = spectrum_presentation::lowFrequencyCalmWeights<bandCount> (
         10.0f, 22'000.0f);

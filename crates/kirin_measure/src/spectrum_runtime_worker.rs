@@ -10,6 +10,7 @@ use super::{AnalysisSelection, SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
 use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS};
 use crate::perceptual::PerceptualFrame;
+use crate::spectrum::SpectrumScope;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
 use crate::MidSideSpectrumFrame;
 
@@ -40,8 +41,11 @@ struct Assemblers {
 
 impl SpectrumRuntime {
     /// 解析チャンネル数ぶんの組立器を作る。`SpectrumAnalyzer` が作れなければ worker は止まる。
-    fn build_assemblers(&self, analysis_channels: usize) -> Option<Assemblers> {
-        let analyzer = SpectrumAnalyzer::new(self.sample_rate).ok()?;
+    fn build_assemblers(
+        &self,
+        (analysis_channels, scope): (usize, SpectrumScope),
+    ) -> Option<Assemblers> {
+        let analyzer = SpectrumAnalyzer::new_for_scope(self.sample_rate, scope).ok()?;
         Some(Assemblers {
             spectrum: SpectrumAssembler::new(analyzer, analysis_channels),
             perceptual: PerceptualAssembler::new(self.sample_rate, analysis_channels).ok(),
@@ -71,7 +75,8 @@ impl SpectrumRuntime {
     }
 
     pub(super) fn run_worker(&self, consumers: &mut SpectrumConsumers) {
-        let mut built_for = self.selection().analysis_channels(self.layout);
+        let initial = self.selection();
+        let mut built_for = (initial.analysis_channels(self.layout), initial.scope);
         let Some(mut assemblers) = self.build_assemblers(built_for) else {
             return;
         };
@@ -148,13 +153,13 @@ impl SpectrumRuntime {
             }
             // The assembler width, mode, input positions, and frame label all come from the same
             // selection word captured by the audio thread.
-            let analysis_channels = selection.analysis_channels(self.layout);
-            if analysis_channels != built_for {
-                let Some(rebuilt) = self.build_assemblers(analysis_channels) else {
+            let wanted = (selection.analysis_channels(self.layout), selection.scope);
+            if wanted != built_for {
+                let Some(rebuilt) = self.build_assemblers(wanted) else {
                     return;
                 };
                 assemblers = rebuilt;
-                built_for = analysis_channels;
+                built_for = wanted;
             }
             let (spectrum, perceptual, absolute) = (
                 &mut assemblers.spectrum,
@@ -212,6 +217,8 @@ impl SpectrumRuntime {
                     self.require_perceptual_rearm();
                 }
             }
+            self.spectrum_window_short
+                .store(spectrum.window_is_short(), Ordering::Release);
         }
     }
 
@@ -375,13 +382,15 @@ impl SpectrumRuntime {
     pub(super) fn frame_is_current(&self, frame: &SpectrumFrame, stream_generation: u64) -> bool {
         let selection = self.selection();
         let layout_matches =
-            crate::spectrum::SpectrumLayout::new(self.sample_rate).is_ok_and(|layout| {
-                frame.sample_rate == layout.sample_rate
-                    && frame.aperture_samples as usize == layout.aperture_samples
-                    && frame.fft_size as usize == layout.fft_size
-                    && frame.min_hz.to_bits() == layout.min_hz.to_bits()
-                    && frame.max_hz.to_bits() == layout.max_hz.to_bits()
-            });
+            crate::spectrum::SpectrumLayout::for_scope(self.sample_rate, selection.scope)
+                .is_ok_and(|layout| {
+                    frame.scope == selection.scope
+                        && frame.sample_rate == layout.sample_rate
+                        && frame.aperture_samples as usize == layout.aperture_samples
+                        && frame.fft_size as usize == layout.fft_size
+                        && frame.min_hz.to_bits() == layout.min_hz.to_bits()
+                        && frame.max_hz.to_bits() == layout.max_hz.to_bits()
+                });
         self.enabled.load(Ordering::Acquire)
             && stream_generation != 0
             && stream_generation == self.stream_generation.load(Ordering::Acquire)
@@ -407,6 +416,7 @@ impl SpectrumRuntime {
             && selection.mid_side
             && frame.generation() == selection.generation
             && frame.has_valid_layout()
+            && frame.mid.scope == selection.scope
             && frame.mid.sample_rate == self.sample_rate
             && frame.mid.channels as usize == selection.analysis_channels(self.layout)
     }

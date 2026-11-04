@@ -12,6 +12,7 @@ pub(super) fn frame(end: i64, value: f32) -> SpectrumFrame {
     SpectrumFrame {
         schema_version: SPECTRUM_SCHEMA_VERSION,
         sample_rate: 48_000,
+        scope: Default::default(),
         aperture_samples: SPECTRUM_WINDOW_SIZE as u32,
         fft_size: SPECTRUM_FFT_SIZE as u32,
         band_count: SPECTRUM_BAND_COUNT as u16,

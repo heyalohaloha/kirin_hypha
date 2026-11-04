@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::attack_perception::band::AttackBand;
+use crate::spectrum::SpectrumScope;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode};
 
 pub(super) const REQUEST_SCHEMA: &str = "kirin_hypha_analysis_request_v4";
@@ -20,6 +21,9 @@ pub(super) struct AnalysisRequest {
     pub(super) sample_rate: u32,
     pub(super) analysis_mode: u8,
     pub(super) channel_mode: u8,
+    /// FULL or LOW. A PRE that predates it reads FULL, and POST then finds no exact LOW pair.
+    #[serde(default)]
+    pub(super) spectrum_scope: u8,
     pub(super) state_epoch_samples: Option<i64>,
     pub(super) expires_at_unix_ms: i64,
     /// The DRUM band POST shows (B-1096), 1 to 8, only with the ATTACK mode. It is optional so
@@ -34,6 +38,7 @@ pub(super) struct ValidatedRequest {
     pub(super) request_id: Uuid,
     pub(super) analysis_mode: AnalysisViewMode,
     pub(super) channel_mode: SpectrumChannelMode,
+    pub(super) spectrum_scope: SpectrumScope,
     pub(super) state_epoch_samples: Option<i64>,
     pub(super) attack_band: Option<AttackBand>,
 }
@@ -104,6 +109,7 @@ pub(super) fn validated_request(
         return None;
     }
     let channel_mode = SpectrumChannelMode::try_from(request.channel_mode).ok()?;
+    let spectrum_scope = SpectrumScope::try_from(request.spectrum_scope).ok()?;
     (request.schema == REQUEST_SCHEMA
         && request.target_pre_instance_id == pre_instance_id
         && request.sample_rate == sample_rate
@@ -130,6 +136,7 @@ pub(super) fn validated_request(
         request_id,
         analysis_mode,
         channel_mode,
+        spectrum_scope,
         state_epoch_samples: request.state_epoch_samples,
         attack_band,
     })
@@ -236,6 +243,7 @@ mod tests {
             sample_rate: 48_000,
             analysis_mode: AnalysisViewMode::Perceptual as u8,
             channel_mode: SpectrumChannelMode::Lr as u8,
+            spectrum_scope: 0,
             state_epoch_samples: Some(9_600),
             expires_at_unix_ms: 10_000,
             attack_band: None,
@@ -247,6 +255,7 @@ mod tests {
                 request_id,
                 analysis_mode: AnalysisViewMode::Perceptual,
                 channel_mode: SpectrumChannelMode::Lr,
+                spectrum_scope: SpectrumScope::Full,
                 state_epoch_samples: Some(9_600),
                 attack_band: None,
             })
@@ -274,6 +283,7 @@ mod tests {
             sample_rate: 48_000,
             analysis_mode: AnalysisViewMode::Attack as u8,
             channel_mode: SpectrumChannelMode::Lr as u8,
+            spectrum_scope: 0,
             state_epoch_samples: None,
             expires_at_unix_ms: 10_000,
             attack_band: Some(3),

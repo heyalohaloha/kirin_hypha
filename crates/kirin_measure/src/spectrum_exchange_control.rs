@@ -113,6 +113,42 @@ impl SpectrumCoordinator {
         true
     }
 
+    /// UI/control thread only. The guard is the same one the channel edge holds: a tick that
+    /// cloned FULL frames before this edge can no longer publish them after it.
+    pub fn set_post_spectrum_scope(&self, scope: SpectrumScope) -> bool {
+        let mut session = match self.post_session.lock() {
+            Ok(session) => session,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if self.runtime.spectrum_scope() == scope {
+            return true;
+        }
+        if session.is_none() && self.post_visible() {
+            *session = Some(self.new_post_session());
+        }
+        if !self.runtime.set_spectrum_scope(scope) {
+            return false;
+        }
+        // The session ends here rather than at the next tick: one that cloned it before this edge
+        // carries the old id, and PRE answers only the new one, even after FULL, LOW, FULL again.
+        if let Some(session) = session.as_mut() {
+            session.request_id = Uuid::new_v4();
+            session.last_renewed = None;
+            session.last_renewal_attempt = None;
+            session.started_at = None;
+            session.last_presented_at = None;
+            session.last_presented_end_samples = None;
+        }
+        let status = if self.post_visible() {
+            SpectrumViewStatus::WarmingUp
+        } else {
+            SpectrumViewStatus::Hidden
+        };
+        self.store_view(status, None, None);
+        self.exchange_worker.notify();
+        true
+    }
+
     pub fn shutdown(&self) {
         self.post_visible.store(false, Ordering::Release);
         self.exchange_worker.shutdown_and_join();
@@ -155,6 +191,7 @@ impl SpectrumCoordinator {
             last_presented_end_samples: None,
             analysis_mode: self.runtime.analysis_mode(),
             channel_mode: self.runtime.channel_mode(),
+            spectrum_scope: self.runtime.spectrum_scope(),
             state_epoch_samples: None,
         }
     }

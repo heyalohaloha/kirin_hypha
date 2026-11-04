@@ -333,6 +333,7 @@ fn stale_generation_channel_mode_or_view_can_never_be_republished() {
     let frame = SpectrumFrame {
         schema_version: crate::SPECTRUM_SCHEMA_VERSION,
         sample_rate: 48_000,
+        scope: Default::default(),
         aperture_samples: crate::SPECTRUM_WINDOW_SIZE as u32,
         fft_size: crate::SPECTRUM_FFT_SIZE as u32,
         band_count: crate::SPECTRUM_BAND_COUNT as u16,

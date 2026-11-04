@@ -13,6 +13,8 @@
 namespace hypha::spectrum_chrome
 {
     juce::String frequencyReadoutText (float hz, float approximateBelowHz);
+    // The same, with the note below 1 kHz where the position is exact enough to name one.
+    juce::String frequencyAndNoteText (float hz, float approximateBelowHz);
 
     struct PaintState
     {
@@ -48,6 +50,7 @@ namespace hypha::spectrum_chrome
         presentation::Context presentation = presentation::defaultContext();
         live_compare::LoopPairingBlock pairingLoopBlock = live_compare::LoopPairingBlock::none;
         bool postSnapshotValid = false;
+        bool lowScope = false;
     };
 
     void paint (juce::Graphics& graphics,

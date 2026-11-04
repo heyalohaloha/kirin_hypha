@@ -120,6 +120,10 @@ impl SpectrumCoordinator {
             });
         drop(presentation);
         let mut view = self.mid_side_view.lock().unwrap_or_else(|p| p.into_inner());
+        // Inside the view lock, as for the local Spectrum: see `store_view_with_post_spectrum`.
+        let edge = self.runtime.spectrum_scope_edge();
+        let frame = frame.filter(|frame| frame.generation() >= edge);
+        let fresh = fresh && frame.is_some();
         *view = MidSideSpectrumViewSnapshot {
             status: if fresh {
                 SpectrumViewStatus::Active

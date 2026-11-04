@@ -47,6 +47,10 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
         return;
     }
 
+    if (spectrum_geometry::lowBoundsFor (outer, scale).contains (position))
+        tip = lowScope ? "Back to the full range"
+                       : "LOW: 20-300 Hz with a longer window, so close bass notes separate";
+
     for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)
         if (spectrum_geometry::displayModeBoundsFor (index, outer, scale).contains (position))
             tip = index == KIRIN_SPECTRUM_SELECTION_MID_SIDE

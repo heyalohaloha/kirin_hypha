@@ -124,7 +124,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
             presentationContext, pairingLoopBlock == live_compare::LoopPairingBlock::auCycle
                 ? pairingLoopBlock : live_compare::LoopPairingBlock::none,
-            signalActive && currentPostSnapshotValid()
+            signalActive && currentPostSnapshotValid(), lowScope
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }

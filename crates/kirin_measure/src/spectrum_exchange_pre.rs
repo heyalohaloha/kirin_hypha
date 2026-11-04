@@ -34,6 +34,7 @@ impl SpectrumCoordinator {
             request_id,
             analysis_mode,
             channel_mode,
+            spectrum_scope,
             state_epoch_samples: requested_epoch,
             attack_band,
         }) = request
@@ -47,6 +48,7 @@ impl SpectrumCoordinator {
             instance_dir,
             analysis_mode,
             channel_mode,
+            spectrum_scope,
             attack_band,
         ) {
             return false;
@@ -80,6 +82,7 @@ impl SpectrumCoordinator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn prepare_pre_session(
         &self,
         read_revision: u64,
@@ -87,6 +90,7 @@ impl SpectrumCoordinator {
         instance_dir: &Path,
         analysis_mode: AnalysisViewMode,
         channel_mode: SpectrumChannelMode,
+        spectrum_scope: SpectrumScope,
         attack_band: Option<AttackBand>,
     ) -> bool {
         let mut slot = match self.try_pre_session() {
@@ -99,6 +103,7 @@ impl SpectrumCoordinator {
         // The descriptor's mode and epoch owner cannot change separately from its session.
         if !self.runtime.set_analysis_mode(analysis_mode)
             || !self.runtime.set_channel_mode(channel_mode)
+            || !self.runtime.set_spectrum_scope(spectrum_scope)
         {
             if !slot.as_ref().is_some_and(|current| current.awaiting_rearm) {
                 let _ = slot.take();

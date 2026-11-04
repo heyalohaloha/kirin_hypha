@@ -17,6 +17,7 @@ fn confirmed_backwards_transport_boundary_restarts_the_freq_timeline() {
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Spectrum,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: None,
     };
     let now = Instant::now();
@@ -85,6 +86,7 @@ fn staggered_backwards_transport_workers_restart_freq_at_their_exact_intersectio
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Spectrum,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: None,
     };
     let now = Instant::now();
@@ -146,6 +148,7 @@ fn one_sided_lower_freq_result_cannot_move_the_presentation_backwards() {
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Spectrum,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: None,
     };
     let now = Instant::now();
@@ -204,6 +207,7 @@ fn repeated_stale_sharpness_endpoint_does_not_extend_the_gap_hold() {
         last_presented_end_samples: None,
         analysis_mode: AnalysisViewMode::Perceptual,
         channel_mode: SpectrumChannelMode::Lr,
+        spectrum_scope: SpectrumScope::Full,
         state_epoch_samples: Some(0),
     };
     let now = Instant::now();

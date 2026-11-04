@@ -88,6 +88,8 @@ impl SpectrumCoordinator {
                 && current.target.as_ref() == Some(target)
                 && current.analysis_mode == session.analysis_mode
                 && current.channel_mode == session.channel_mode
+                && current.spectrum_scope == session.spectrum_scope
+                && self.runtime.spectrum_scope() == session.spectrum_scope
                 && current.state_epoch_samples == session.state_epoch_samples
         }) else {
             return false;
@@ -112,11 +114,7 @@ impl SpectrumCoordinator {
             // An old exact fact's lease cannot cross incompatible coordinate meanings.
             current.last_presented_at = None;
             current.last_presented_end_samples = None;
-            self.store_spectrum_view(
-                SpectrumViewStatus::Unavailable,
-                None,
-                spectrum_local.as_ref(),
-            );
+            self.store_spectrum_view(self.spectrum_gap_status(), None, spectrum_local.as_ref());
             return true;
         }
         if session.analysis_mode == AnalysisViewMode::Perceptual && perceptual_clock_mismatch {

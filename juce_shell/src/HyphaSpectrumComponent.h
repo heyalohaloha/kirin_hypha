@@ -62,6 +62,8 @@ public:
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
     void setDisplaySelection (uint8_t selection);
+    void setLowScope (bool low);
+    bool isLowScope() const noexcept { return lowScope; }
     void setPsbSnapshot (const KirinPsbView&);
     bool isPsbObservation() const noexcept { return psbObservation; }
     bool isShapeObservationForTest() const noexcept { return shapeObservation; }
@@ -111,6 +113,7 @@ public:
     }
 
     std::function<bool(uint8_t)> onChannelModeChange;
+    std::function<bool(bool)> onScopeChange;
 
 private:
     void clearInteractionState() noexcept;
@@ -172,6 +175,7 @@ private:
     absolute_spectrum::History absoluteHistory;
     bool absoluteObservation = false;
     bool midSideObservation = false;
+    bool lowScope = false;
     bool midSideSnapshotValid = false;
     std::array<double, 20> absolutePsb {};
     std::array<double, 20> deltaPsb {};

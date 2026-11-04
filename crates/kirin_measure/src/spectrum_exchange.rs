@@ -51,6 +51,7 @@ use crate::attack_perception::band::AttackBand;
 use crate::attack_runtime::{AttackBandResults, AttackPreBand};
 use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
+use crate::spectrum::SpectrumScope;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference, SpectrumFrame};
 use crate::spectrum_exchange_worker::SpectrumExchangeWorker;
 #[cfg(test)]
@@ -158,6 +159,7 @@ struct PostSession {
     last_presented_end_samples: Option<i64>,
     analysis_mode: AnalysisViewMode,
     channel_mode: SpectrumChannelMode,
+    spectrum_scope: SpectrumScope,
     state_epoch_samples: Option<i64>,
 }
 
@@ -370,6 +372,7 @@ fn renew_request(
             sample_rate,
             analysis_mode: session.analysis_mode as u8,
             channel_mode: session.channel_mode as u8,
+            spectrum_scope: session.spectrum_scope as u8,
             state_epoch_samples: session.state_epoch_samples,
             expires_at_unix_ms: now_unix_ms.saturating_add(REQUEST_LEASE_MS),
             attack_band: attack_band.map(AttackBand::index),
@@ -422,6 +425,10 @@ mod tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_view_tests.rs"]
 mod view_tests;
+
+#[cfg(test)]
+#[path = "spectrum_exchange_scope_tests.rs"]
+mod scope_tests;
 
 #[cfg(test)]
 #[path = "spectrum_exchange_clock_tests.rs"]

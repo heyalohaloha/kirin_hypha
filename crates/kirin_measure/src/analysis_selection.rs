@@ -8,13 +8,15 @@ use std::sync::atomic::Ordering;
 
 use super::SpectrumRuntime;
 use crate::channel_layout::{ChannelLayout, SpectrumView};
+use crate::spectrum::SpectrumScope;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode};
 
 const VIEW_MASK: u64 = 0xff;
 const MODE_SHIFT: u32 = 8;
 const MODE_MASK: u64 = 0x3;
 const MID_SIDE_SHIFT: u32 = 10;
-const GENERATION_SHIFT: u32 = 11;
+const SCOPE_SHIFT: u32 = 11;
+const GENERATION_SHIFT: u32 = 12;
 pub(super) const MAX_SELECTION_GENERATION: u64 = u64::MAX >> GENERATION_SHIFT;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,6 +25,7 @@ pub(super) struct AnalysisSelection {
     pub mode: AnalysisViewMode,
     pub view: SpectrumView,
     pub mid_side: bool,
+    pub scope: SpectrumScope,
 }
 
 impl AnalysisSelection {
@@ -32,12 +35,14 @@ impl AnalysisSelection {
             mode: AnalysisViewMode::Spectrum,
             view: SpectrumView::default_for(layout),
             mid_side: false,
+            scope: SpectrumScope::Full,
         }
     }
 
     pub fn encode(self) -> u64 {
         debug_assert!(self.generation > 0 && self.generation <= MAX_SELECTION_GENERATION);
         (self.generation << GENERATION_SHIFT)
+            | ((self.scope as u64) << SCOPE_SHIFT)
             | ((self.mid_side as u64) << MID_SIDE_SHIFT)
             | ((self.mode as u64) << MODE_SHIFT)
             | u64::from(self.view.to_abi())
@@ -48,11 +53,13 @@ impl AnalysisSelection {
         let mode = AnalysisViewMode::try_from(((encoded >> MODE_SHIFT) & MODE_MASK) as u8).ok()?;
         let view = SpectrumView::from_abi((encoded & VIEW_MASK) as u8)?;
         let mid_side = ((encoded >> MID_SIDE_SHIFT) & 1) != 0;
+        let scope = SpectrumScope::try_from(((encoded >> SCOPE_SHIFT) & 1) as u8).ok()?;
         let selection = Self {
             generation,
             mode,
             view,
             mid_side,
+            scope,
         };
         (generation != 0 && selection.is_valid_for(layout)).then_some(selection)
     }
@@ -72,7 +79,10 @@ impl AnalysisSelection {
     }
 
     pub fn same_configuration(self, other: Self) -> bool {
-        self.mode == other.mode && self.view == other.view && self.mid_side == other.mid_side
+        self.mode == other.mode
+            && self.view == other.view
+            && self.mid_side == other.mid_side
+            && self.scope == other.scope
     }
 
     pub fn channel_mode(self) -> SpectrumChannelMode {
@@ -176,6 +186,7 @@ mod tests {
                         mode,
                         view,
                         mid_side: false,
+                        scope: SpectrumScope::Full,
                     };
                     assert_eq!(
                         AnalysisSelection::decode(selection.encode(), layout),
@@ -203,6 +214,7 @@ mod tests {
                 mode: AnalysisViewMode::Spectrum,
                 view,
                 mid_side: false,
+                scope: SpectrumScope::Full,
             };
             assert_eq!(selection.channel_mode(), expected);
             assert_eq!(
@@ -216,6 +228,7 @@ mod tests {
             mode: AnalysisViewMode::Spectrum,
             view: SpectrumView::Lr,
             mid_side: true,
+            scope: SpectrumScope::Full,
         };
         assert_eq!(
             AnalysisSelection::decode(mid_side.encode(), stereo),
@@ -231,6 +244,7 @@ mod tests {
             mode: AnalysisViewMode::Spectrum,
             view: SpectrumView::Lr,
             mid_side: false,
+            scope: SpectrumScope::Full,
         };
         assert!(at_limit.next_generation().is_none());
         assert!(AnalysisSelection::decode(at_limit.encode(), ChannelLayout::stereo()).is_some());
@@ -245,6 +259,7 @@ mod tests {
             mode: AnalysisViewMode::Spectrum,
             view: SpectrumView::Lr,
             mid_side: false,
+            scope: SpectrumScope::Full,
         };
         runtime
             .selection

@@ -130,8 +130,26 @@ Component::Component()
     configureCheckPage();
 }
 
+void Component::mouseMove (const juce::MouseEvent& event)
+{
+    const auto local = event.getEventRelativeTo (this).position;
+    const auto next = observationArea.toFloat().contains (local) ? local : juce::Point<float> { -1.0f, -1.0f };
+    if (next != current.chartPointer)
+    {
+        current.chartPointer = next;
+        repaint (observationArea);
+    }
+}
+
+void Component::mouseExit (const juce::MouseEvent&)
+{
+    current.chartPointer = { -1.0f, -1.0f };
+    repaint (observationArea);
+}
+
 void Component::setState (State next)
 {
+    next.chartPointer = current.chartPointer;
     current = std::move (next);
     prepareDisplayNames (current);
     setTitle (current.title);

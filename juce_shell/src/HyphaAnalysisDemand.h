@@ -24,10 +24,12 @@ struct Demand
 {
     Kind kind = Kind::none;
     std::uint8_t channelMode = 0;
+    std::uint8_t spectrumScope = 0;  // FULL or LOW, for the two Spectrum kinds only
 
     constexpr bool operator== (const Demand& other) const noexcept
     {
-        return kind == other.kind && channelMode == other.channelMode;
+        return kind == other.kind && channelMode == other.channelMode
+            && spectrumScope == other.spectrumScope;
     }
 
     constexpr bool operator!= (const Demand& other) const noexcept
@@ -46,6 +48,7 @@ struct SurfaceState
     bool sharpAbsolute = false;
     std::uint8_t channelMode = 0;
     bool attackAvailable = true;
+    bool lowScope = false;
 };
 
 constexpr Demand forSurface (SurfaceState state) noexcept
@@ -57,9 +60,10 @@ constexpr Demand forSurface (SurfaceState state) noexcept
     {
         if (state.psb)
             return { state.absoluteTarget ? Kind::psbAbsolute : Kind::psbDelta, 0u };
+        const std::uint8_t scope = state.lowScope ? 1u : 0u;
         if (state.midSideSpectrum)
-            return { Kind::midSideSpectrum, 0u };
-        return { Kind::spectrum, state.channelMode };
+            return { Kind::midSideSpectrum, 0u, scope };
+        return { Kind::spectrum, state.channelMode, scope };
     }
     if (state.page == Page::perceptual)
         return { state.sharpAbsolute ? Kind::sharpAbsolute : Kind::sharpDelta,
@@ -77,11 +81,17 @@ constexpr bool usesChannelMode (Kind kind) noexcept
         || kind == Kind::sharpDelta;
 }
 
+constexpr bool usesSpectrumScope (Kind kind) noexcept
+{
+    return kind == Kind::spectrum || kind == Kind::midSideSpectrum;
+}
+
 constexpr bool valid (Demand demand) noexcept
 {
     return demand.kind <= Kind::attack
         && (usesChannelMode (demand.kind) ? demand.channelMode <= 2u
-                                         : demand.channelMode == 0u);
+                                         : demand.channelMode == 0u)
+        && demand.spectrumScope <= (usesSpectrumScope (demand.kind) ? 1u : 0u);
 }
 
 constexpr bool active (Demand demand) noexcept
@@ -97,13 +107,15 @@ constexpr bool isAttack (Demand demand) noexcept
 constexpr std::uint16_t encode (Demand demand) noexcept
 {
     return static_cast<std::uint16_t> (demand.kind)
-         | static_cast<std::uint16_t> (demand.channelMode << 8u);
+         | static_cast<std::uint16_t> (demand.channelMode << 8u)
+         | static_cast<std::uint16_t> (demand.spectrumScope << 12u);
 }
 
 constexpr Demand decode (std::uint16_t encoded) noexcept
 {
     return { static_cast<Kind> (encoded & 0xffu),
-             static_cast<std::uint8_t> ((encoded >> 8u) & 0xffu) };
+             static_cast<std::uint8_t> ((encoded >> 8u) & 0xfu),
+             static_cast<std::uint8_t> ((encoded >> 12u) & 0xfu) };
 }
 
 class OwnerState
@@ -255,10 +267,12 @@ bool apply (Demand previous, Demand requested, Adapter& adapter)
             return isAttack (previous) ? adapter.setAttackEnabled (false)
                                        : adapter.setSpectrumVisible (false);
         case Kind::spectrum:
-            return adapter.setChannelMode (requested.channelMode)
+            return adapter.setSpectrumScope (requested.spectrumScope)
+                && adapter.setChannelMode (requested.channelMode)
                 && adapter.setSpectrumVisible (true);
         case Kind::midSideSpectrum:
-            return adapter.setMidSideSpectrumVisible (true);
+            return adapter.setSpectrumScope (requested.spectrumScope)
+                && adapter.setMidSideSpectrumVisible (true);
         case Kind::psbAbsolute:
             return adapter.setChannelMode (0u) && adapter.setAbsoluteVisible (true);
         case Kind::psbDelta:

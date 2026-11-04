@@ -1,4 +1,5 @@
 #include "HyphaReferenceVersionPage.h"
+#include "HyphaReferenceChartReading.h"
 #include "HyphaReferenceAComparison.h"
 #include "HyphaReferenceBlauertZones.h"
 #include "HyphaReferenceFrequencyTicks.h"
@@ -91,7 +92,7 @@ juce::String listeningGuide (char role)
 
 void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, const reference_audition::VisualTimeline* timeline,
                               const juce::String& checkLabel, double gainDb, const std::vector<juce::String>& views,
-                              bool listening, presentation::Context context)
+                              bool listening, presentation::Context context, juce::Point<float> pointer)
 {
     // 耳で聴き比べる Check（Kirin OS の audition_only）は図を出さず案内（Tone と同じ図を出していた）。表示の分からない
     // Check（古い Kirin OS が表示を送らない）は今までどおり全帯域のスペクトル。
@@ -145,6 +146,14 @@ void paintVersionSameSection (juce::Graphics& g, juce::Rectangle<int> area, cons
         g.strokePath (medianPath (*timeline->aPairKirin, 0.0, chart, maximumHz), juce::PathStrokeType (2.8f));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.95f));
         g.strokePath (medianPath (*timeline->vPairKirin, shift, chart, maximumHz), juce::PathStrokeType (1.4f));
+        // The line runs on to the band just past the edge, drawn at the edge (see medianPath).
+        const auto curve = [maximumHz] (const char* name, juce::Colour colour,
+                                        const reference_audition::KirinSpectrumWindow& window, double gain)
+        { return drawnCurve (name, colour, window.centersHz, window.medianDb, gain, 0.0, maximumHz * 1.12, maximumHz); };
+        paintChartReading (g, chart, 20.0, maximumHz, pointer,
+                           { curve ("A", COL_FLORA_BR, *timeline->aPairKirin, 0.0),
+                             curve ("V", COL_SPECTRUM_DELTA, *timeline->vPairKirin, shift) },
+                           [chart] (float level) { return dbY (level, chart); }, context);
         paintBlauertReadout (g, chart, 'V', blauertVersus (timeline->aPairKirin->centersHz, timeline->aPairKirin->medianDb,
                                                           timeline->vPairKirin->centersHz, timeline->vPairKirin->medianDb),
                              20.0, maximumHz, context);

@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::snapshot_path;
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
+use crate::spectrum::SpectrumScope;
 use crate::spectrum::{
     SpectrumChannelMode, SpectrumFrame, SpectrumLayout, SPECTRUM_BAND_COUNT,
     SPECTRUM_SCHEMA_VERSION,
@@ -94,7 +95,8 @@ pub(super) fn encode_snapshot(
         // 予約 u16 の 1 バイトを view に使う。フレーム長は変わらない。
         // **どの観測対象で測ったかを運ばないと、L の PRE と C の POST が引き算される。**
         bytes.push(frame.view);
-        bytes.push(0);
+        // The other reserved byte. FULL stays 0, so the frame length and a FULL wire do not change.
+        bytes.push(frame.scope as u8);
         bytes.extend_from_slice(&frame.min_hz.to_le_bytes());
         bytes.extend_from_slice(&frame.max_hz.to_le_bytes());
         bytes.extend_from_slice(&frame.windowed_energy.to_le_bytes());
@@ -111,11 +113,16 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
     (cursor.u16()? == SPECTRUM_SCHEMA_VERSION).then_some(())?;
     (cursor.u16()? as usize == SPECTRUM_BAND_COUNT).then_some(())?;
     let sample_rate = cursor.u32()?;
-    let layout = SpectrumLayout::new(sample_rate).ok()?;
     let aperture_samples = cursor.u32()?;
-    (aperture_samples as usize == layout.aperture_samples).then_some(())?;
     let fft_size = cursor.u32()?;
-    (fft_size as usize == layout.fft_size).then_some(())?;
+    // The header names one layout; every frame below must then carry that same scope.
+    let layout = [SpectrumScope::Full, SpectrumScope::Low]
+        .into_iter()
+        .filter_map(|scope| SpectrumLayout::for_scope(sample_rate, scope).ok())
+        .find(|layout| {
+            layout.aperture_samples == aperture_samples as usize
+                && layout.fft_size == fft_size as usize
+        })?;
     let frame_count = cursor.u16()? as usize;
     (frame_count <= SPECTRUM_HISTORY_CAPACITY).then_some(())?;
     let clock_kind = SpectrumClockKind::decode(cursor.u16()?)?;
@@ -133,7 +140,8 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
             return None;
         }
         let view = cursor.u8()?;
-        let _reserved = cursor.u8()?;
+        let scope = SpectrumScope::try_from(cursor.u8()?).ok()?;
+        (scope == layout.scope).then_some(())?;
         let min_hz = cursor.f32()?;
         let max_hz = cursor.f32()?;
         if min_hz.to_bits() != layout.min_hz.to_bits()
@@ -155,6 +163,7 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
         history.push(SpectrumFrame {
             schema_version: SPECTRUM_SCHEMA_VERSION,
             sample_rate,
+            scope,
             aperture_samples,
             fft_size,
             band_count: SPECTRUM_BAND_COUNT as u16,

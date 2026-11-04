@@ -11,6 +11,10 @@ use crate::log_bands::log_band_edges;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
+#[path = "spectrum_scope.rs"]
+mod scope;
+pub use scope::{SpectrumScope, SPECTRUM_LOW_MAX_HZ, SPECTRUM_LOW_MIN_HZ};
+
 /// Same-candidate PRE/POST exchange. Older wire is rejected rather than mixed with SHAPE.
 pub const SPECTRUM_SCHEMA_VERSION: u16 = 5;
 pub const SPECTRUM_REFERENCE_SAMPLE_RATE: u32 = 48_000;
@@ -35,6 +39,7 @@ pub const SPECTRUM_APPROXIMATE_CYCLES: f32 = 3.0;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpectrumLayout {
     pub sample_rate: u32,
+    pub scope: SpectrumScope,
     pub aperture_samples: usize,
     pub fft_size: usize,
     pub bin_hz: f32,
@@ -47,10 +52,14 @@ pub struct SpectrumLayout {
 
 impl SpectrumLayout {
     pub fn new(sample_rate: u32) -> Result<Self, SpectrumError> {
+        Self::for_scope(sample_rate, SpectrumScope::Full)
+    }
+
+    pub fn for_scope(sample_rate: u32, scope: SpectrumScope) -> Result<Self, SpectrumError> {
         if !(8_000..=384_000).contains(&sample_rate) {
             return Err(SpectrumError::InvalidSampleRate);
         }
-        let numerator = u64::from(sample_rate) * SPECTRUM_WINDOW_SIZE as u64
+        let numerator = u64::from(sample_rate) * scope.window_size() as u64
             + u64::from(SPECTRUM_REFERENCE_SAMPLE_RATE / 2);
         let aperture_samples =
             usize::try_from(numerator / u64::from(SPECTRUM_REFERENCE_SAMPLE_RATE))
@@ -60,13 +69,14 @@ impl SpectrumLayout {
             .and_then(usize::checked_next_power_of_two)
             .ok_or(SpectrumError::InvalidSampleRate)?;
         let bin_hz = sample_rate as f32 / fft_size as f32;
-        let min_hz = SPECTRUM_MIN_HZ.max(bin_hz);
-        let max_hz = SPECTRUM_MAX_HZ.min(sample_rate as f32 * 0.5 - bin_hz);
+        let min_hz = scope.min_hz().max(bin_hz);
+        let max_hz = scope.max_hz().min(sample_rate as f32 * 0.5 - bin_hz);
         if !(max_hz > min_hz && max_hz.is_finite()) {
             return Err(SpectrumError::InvalidSampleRate);
         }
         Ok(Self {
             sample_rate,
+            scope,
             aperture_samples,
             fft_size,
             bin_hz,
@@ -128,6 +138,7 @@ impl TryFrom<u8> for SpectrumChannelMode {
 pub struct SpectrumFrame {
     pub schema_version: u16,
     pub sample_rate: u32,
+    pub scope: SpectrumScope,
     pub aperture_samples: u32,
     pub fft_size: u32,
     pub band_count: u16,
@@ -155,7 +166,7 @@ impl SpectrumFrame {
     pub fn has_valid_layout(&self) -> bool {
         self.schema_version == SPECTRUM_SCHEMA_VERSION
             && self.band_count as usize == SPECTRUM_BAND_COUNT
-            && SpectrumLayout::new(self.sample_rate).is_ok_and(|layout| {
+            && SpectrumLayout::for_scope(self.sample_rate, self.scope).is_ok_and(|layout| {
                 self.aperture_samples as usize == layout.aperture_samples
                     && self.fft_size as usize == layout.fft_size
                     && self.min_hz.to_bits() == layout.min_hz.to_bits()
@@ -171,6 +182,7 @@ impl SpectrumFrame {
             && other.has_valid_layout()
             && self.schema_version == other.schema_version
             && self.sample_rate == other.sample_rate
+            && self.scope == other.scope
             && self.aperture_samples == other.aperture_samples
             && self.fft_size == other.fft_size
             && self.band_count == other.band_count
@@ -243,7 +255,11 @@ pub struct SpectrumAnalyzer {
 
 impl SpectrumAnalyzer {
     pub fn new(sample_rate: u32) -> Result<Self, SpectrumError> {
-        let layout = SpectrumLayout::new(sample_rate)?;
+        Self::new_for_scope(sample_rate, SpectrumScope::Full)
+    }
+
+    pub fn new_for_scope(sample_rate: u32, scope: SpectrumScope) -> Result<Self, SpectrumError> {
+        let layout = SpectrumLayout::for_scope(sample_rate, scope)?;
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(layout.fft_size);
         let window = (0..layout.aperture_samples)
@@ -408,6 +424,7 @@ impl SpectrumAnalyzer {
         Ok(SpectrumFrame {
             schema_version: SPECTRUM_SCHEMA_VERSION,
             sample_rate: self.layout.sample_rate,
+            scope: self.layout.scope,
             aperture_samples: self.layout.aperture_samples as u32,
             fft_size: self.layout.fft_size as u32,
             band_count: SPECTRUM_BAND_COUNT as u16,

@@ -583,6 +583,7 @@ output-presentation sample endpoint.
 | Hover / click | Reads frequency and the selected RAW/SHAPE value; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only reference in the selected mode; × clears it |
 | PSB | Perceptual share by Bark band: how the loudness is shared across 20 Bark bands |
+| LOW | Replaces the 10 Hz–22 kHz view with 20–300 Hz at a four times longer aperture (about 341 ms), so close bass notes separate; the highest peaks of the POST curve are tagged with note, frequency and level. It is the same analysis on the same exact PRE/POST pairing, never a second one, and needs about 0.4 seconds of unbroken audio |
 | Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Drag the editor's own bottom-right grip in any host (Studio One on Windows and Pro Tools have no window frame to drag) or choose a size from the size menu. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%; none fits a 1920×1080 display at 125%) |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
@@ -622,7 +623,7 @@ M/S creates no PRE request, six-second field, peak hold, MARK, or Focus Trail, a
 leaks into SHARP. The loaded plug-in instance remembers the choice across editor close/reopen, but
 new instances and restored DAW sessions start from the existing LR default.
 
-Hovering the plot shows frequency and the selected RAW/SHAPE value; larger views also show PRE and POST values.
+Hovering the plot shows frequency, the note below 1 kHz, and the selected RAW/SHAPE value; larger views also show PRE and POST values.
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
 an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
@@ -1068,7 +1069,11 @@ when the pointer leaves. The controls' own help goes to the same line instead of
 
 A is gold and the compared role is cyan on every page; colour never scores a result. A is drawn as
 the thicker line underneath, so both lines stay visible where they agree. Spectrum charts carry
-frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Full-range spectrum charts
+frequency ticks (50 Hz to 10 kHz, or 30 to 200 Hz for a low-band Check). Pointing at a chart reads
+the frequency, the note below 1 kHz and the value of A and of the compared curve as they are drawn,
+gain included; where a curve has no band there is no number. A low-band chart also tags the highest
+peaks of A with frequency and level. Its bands are too wide to name a note at a peak. Full-range
+spectrum charts
 (B's Balance, C, and V's TONE) also shade Blauert's directional bands — 300–400 Hz, around 1 kHz
 (891–1122 Hz) and 3–4 kHz — and read at the top right how A's 1 kHz sits against the mean of the
 other two compared with the other role (1k vs 300-400·3-4k / A 1.2 dB LOWER;

@@ -6,7 +6,7 @@ use super::{
 use crate::perceptual::{
     difference_post_minus_pre as perceptual_difference_post_minus_pre, PerceptualDifference,
 };
-use crate::spectrum::{difference_post_minus_pre, SpectrumDifference};
+use crate::spectrum::{difference_post_minus_pre, SpectrumDifference, SpectrumScope};
 use crate::spectrum_runtime::{PerceptualHistory, SpectrumHistory};
 
 #[cfg(test)]
@@ -106,6 +106,36 @@ fn joined_status<T>(
     }
 }
 
+impl SpectrumCoordinator {
+    /// What a spectrum view with no exact frame says. A loop shorter than the LOW window never
+    /// finishes a frame, and a host may renew its clock at every wrap. Longer unbroken audio ends
+    /// that wait, so it stays a wait and the view can say what LOW needs.
+    pub(super) fn spectrum_gap_status(&self) -> SpectrumViewStatus {
+        if self.runtime.spectrum_scope() == SpectrumScope::Low
+            && self.runtime.spectrum_window_short()
+        {
+            SpectrumViewStatus::WarmingUp
+        } else {
+            SpectrumViewStatus::Unavailable
+        }
+    }
+}
+
+fn joined_spectrum_status(
+    coordinator: &SpectrumCoordinator,
+    session: &PostSession,
+    now: Instant,
+    local: Option<&SpectrumHistory>,
+    remote: Option<&SpectrumHistory>,
+) -> SpectrumViewStatus {
+    if coordinator.spectrum_gap_status() == SpectrumViewStatus::WarmingUp {
+        return SpectrumViewStatus::WarmingUp;
+    }
+    joined_status(session, now, local, remote, |history| {
+        history.newest().is_some()
+    })
+}
+
 pub(super) fn store_joined_spectrum(
     coordinator: &SpectrumCoordinator,
     session: &mut PostSession,
@@ -152,9 +182,7 @@ pub(super) fn store_joined_spectrum(
                 {
                     return;
                 }
-                let status = joined_status(session, now, local, remote, |history| {
-                    history.newest().is_some()
-                });
+                let status = joined_spectrum_status(coordinator, session, now, local, remote);
                 coordinator.store_spectrum_view(status, None, local);
                 return;
             }
@@ -172,9 +200,7 @@ pub(super) fn store_joined_spectrum(
     {
         return;
     }
-    let status = joined_status(session, now, local, remote, |history| {
-        history.newest().is_some()
-    });
+    let status = joined_spectrum_status(coordinator, session, now, local, remote);
     coordinator.store_spectrum_view(status, None, local);
 }
 

@@ -4,7 +4,7 @@ use std::thread;
 /// Upper bound for an eventual state produced by real worker threads. Each wait returns as soon as
 /// the state holds; the bound only catches a stalled worker. A virtual CI machine can stretch
 /// short sleeps tenfold, so the bound is not a performance budget.
-const EVENTUAL: Duration = Duration::from_secs(30);
+pub(super) const EVENTUAL: Duration = Duration::from_secs(30);
 
 /// Sole producer, between blocks: wake the analysis worker and wait until it has completed (and
 /// published) every accepted block, instead of sleeping and hoping its ring has room.

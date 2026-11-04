@@ -18,6 +18,7 @@ struct RecordingAdapter
     int spectrumStops = 0;
     int attackStops = 0;
     int channelMode = -1;
+    int spectrumScope = -1;
     Route enabledRoute = Route::none;
     bool acceptChannel = true;
     bool acceptEnable = true;
@@ -36,6 +37,8 @@ struct RecordingAdapter
     }
     bool setChannelMode (std::uint8_t value)
     { channelMode = value; return acceptChannel; }
+    bool setSpectrumScope (std::uint8_t value)
+    { spectrumScope = value; return true; }
     bool setMidSideSpectrumVisible (bool)
     { ++enabledCalls; enabledRoute = Route::midSide; return acceptEnable; }
     bool setAbsoluteVisible (bool)
@@ -66,6 +69,7 @@ struct CAbiRecorder
 {
     RecordingAdapter::Route route = RecordingAdapter::Route::none;
     int channelMode = -1;
+    int spectrumScope = -1;
 };
 
 inline CAbiRecorder& cAbiRecorder (KirinHypha* handle)
@@ -85,10 +89,12 @@ inline bool recordAbsolute (KirinHypha* handle, bool)
 { cAbiRecorder (handle).route = RecordingAdapter::Route::absolute; return true; }
 inline bool recordPerceptual (KirinHypha* handle, bool)
 { cAbiRecorder (handle).route = RecordingAdapter::Route::perceptual; return true; }
+inline bool recordScope (KirinHypha* handle, std::uint8_t value)
+{ cAbiRecorder (handle).spectrumScope = value; return true; }
 
 using RecordingFfiAdapter = analysis::BasicFfiAdapter<
     &recordSpectrum, &recordAttack, &recordChannel, &recordMidSide,
-    &recordAbsolute, &recordPerceptual>;
+    &recordAbsolute, &recordPerceptual, &recordScope>;
 
 using ExpectedShippingFfiAdapter = analysis::BasicFfiAdapter<
     &kirin_hypha_set_spectrum_visible,
@@ -96,7 +102,8 @@ using ExpectedShippingFfiAdapter = analysis::BasicFfiAdapter<
     &kirin_hypha_set_spectrum_channel_mode,
     &kirin_hypha_set_mid_side_spectrum_visible,
     &kirin_hypha_set_absolute_visible,
-    &kirin_hypha_set_perceptual_visible>;
+    &kirin_hypha_set_perceptual_visible,
+    &kirin_hypha_set_spectrum_scope>;
 static_assert (std::is_same_v<analysis::ShippingFfiAdapter,
                               ExpectedShippingFfiAdapter>);
 
@@ -198,6 +205,27 @@ inline void verify()
              && cAbi.route == RecordingAdapter::Route::perceptual);
     require (ffiAdapter.setAttackEnabled (true)
              && cAbi.route == RecordingAdapter::Route::attack);
+    require (ffiAdapter.setSpectrumScope (1u) && cAbi.spectrumScope == 1);
+
+    // LOW is part of what FREQ asks for, so an engine rebuilt under it asks for LOW again.
+    analysis::SurfaceState freqLow { true, analysis_navigation::Page::spectrum };
+    freqLow.lowScope = true;
+    const auto low = analysis::forSurface (freqLow);
+    require (low == analysis::Demand { Kind::spectrum, 0u, 1u });
+    require (low != analysis::Demand { Kind::spectrum, 0u, 0u });
+    require (analysis::decode (analysis::encode (low)) == low);
+    RecordingAdapter lowAdapter;
+    require (analysis::apply ({ Kind::spectrum, 0u, 0u }, low, lowAdapter));
+    require (lowAdapter.spectrumScope == 1 && lowAdapter.enabledCalls == 1);
+
+    freqLow.midSideSpectrum = true;
+    require (analysis::forSurface (freqLow) == analysis::Demand { Kind::midSideSpectrum, 0u, 1u });
+
+    // Another page keeps LOW for FREQ without asking anything of the analysis it runs.
+    freqLow.page = analysis_navigation::Page::absolute;
+    require (analysis::forSurface (freqLow).spectrumScope == 0u);
+    require (! analysis::valid ({ Kind::liveAbsolute, 0u, 1u }));
+    require (! analysis::valid ({ Kind::spectrum, 0u, 2u }));
 
     analysis::ApplicationState application;
     application.engineCreated();

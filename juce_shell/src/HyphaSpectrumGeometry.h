@@ -187,6 +187,23 @@ namespace hypha::spectrum_geometry
                  (float) ui_contract::spectrumChannelModeHeight * scale };
     }
 
+    // LOW stands left of PSB: it changes what the same plot covers, as PSB changes what it shows.
+    inline juce::Rectangle<float> lowBoundsFor (juce::Rectangle<float> outerPlot,
+                                                 float scale) noexcept
+    {
+        if (viewOnly (scale))
+            return {};
+        return { outerPlot.getRight()
+                    - (float) (ui_contract::spectrumMarkWidth
+                             + ui_contract::spectrumSubviewGap
+                             + ui_contract::spectrumSubviewWidth
+                             + ui_contract::spectrumSubviewGap
+                             + ui_contract::spectrumLowWidth) * scale,
+                 outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
+                 (float) ui_contract::spectrumLowWidth * scale,
+                 (float) ui_contract::spectrumChannelModeHeight * scale };
+    }
+
     inline juce::Rectangle<float> markClearBoundsFor (juce::Rectangle<float> mark,
                                                        float scale) noexcept
     {
