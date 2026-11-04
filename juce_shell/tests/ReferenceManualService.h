@@ -15,12 +15,13 @@ template <auto Once> struct PageServiceAccess
 };
 template struct PageServiceAccess<&reference_audition::AudioPages::serviceOnce>;
 template <auto Requested, auto Applied, auto Apply, auto Refresh, auto Prepared, auto Pages, auto StagingPages,
-          auto Deferred, auto Retirement, auto Fading> struct ManualServiceAccess
+          auto Deferred, auto Retirement, auto Fading, auto Capture> struct ManualServiceAccess
 {
     friend void serviceFor (Runtime& r, ServiceTag)
     {
         const auto configuration = r.*Requested;
         if (configuration.generation != r.*Applied) (r.*Apply) (configuration);
+        (r.*Capture) (configuration);
         (r.*Deferred)();
         (r.*Retirement)();
         if (! (r.*Fading)()) (r.*Refresh) (configuration, juce::Time::currentTimeMillis());
@@ -33,8 +34,13 @@ template struct ManualServiceAccess<&Runtime::requestedConfiguration,
     &Runtime::appliedConfigurationGeneration, &Runtime::applyConfiguration,
     &Runtime::refreshWorkspace, &Runtime::servicePreparedWorkspace, &Runtime::pages, &Runtime::preparedPages,
     &Runtime::serviceDeferredAudioThreadActions, &Runtime::serviceOutputRetirement,
-    &Runtime::deferredRevokeWaiting>;
+    &Runtime::deferredRevokeWaiting, &Runtime::serviceACapture>;
 
+struct StagedLaunchTag {};
+std::launch& stagedLaunchFor (Runtime&, StagedLaunchTag);
+template <auto Member> struct StagedLaunchAccess
+{ friend std::launch& stagedLaunchFor (Runtime& r, StagedLaunchTag) { return r.*Member; } };
+template struct StagedLaunchAccess<&Runtime::stagedSearchLaunch>;
 struct StopTag {};
 bool stopFor (Runtime&, StopTag);
 template <auto Stop> struct StopAccess
@@ -49,6 +55,7 @@ inline void stopWorkers (Comparison& c)
     {
         auto& r = roleFor (c, { slot });
         if (! stopFor (r, {})) throw std::runtime_error ("Reference worker did not stop");
+        stagedLaunchFor (r, {}) = std::launch::deferred;  // 位置の探索も block ごとに同期で回す
     }
 }
 inline void service (Comparison& c)

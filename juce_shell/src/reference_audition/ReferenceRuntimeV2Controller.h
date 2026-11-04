@@ -3,6 +3,7 @@
 #include <atomic>
 #include <deque>
 #include <functional>
+#include <future>
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
@@ -23,6 +24,7 @@
 #include "ReferenceVersionIdentify.h"
 #include "ReferenceRuntimeV2SourceCache.h"
 #include "ReferenceCalibrationObservation.h"
+#include "ReferenceContentAlignment.h"
 #include "ReferenceDeferredControl.h"
 #include "ReferenceVisualTimeline.h"
 
@@ -188,6 +190,31 @@ namespace hypha::reference_audition
             bool valid = false;
         };
 
+        // V を鳴らしたまま確かめた、新しい Version の位置。替えた後に同じ A の窓を探し直さない。
+        // 探すのは別の thread（作業スレッドを止めると A の窓を受け取れず、窓が消えて探し直しになる）。
+        struct StagedVersionPosition
+        {
+            std::shared_ptr<const RuntimeACaptureAudio> capture;
+            std::shared_ptr<const RuntimeContentAlignment> match;
+            std::future<RuntimeContentAlignment> search;
+            int misses = 0;
+        };
+        // 鳴っている間の定期の位置の確かめ。これも別の thread で探し、終わるまで今の写像のまま鳴らす。
+        struct PositionSearch
+        {
+            std::shared_ptr<const RuntimeACaptureAudio> capture;
+            std::optional<std::int64_t> expected;
+            std::future<RuntimeContentAlignment> search;
+            juce::String reason;  // 合わなかった理由。次の探索の間も同じ理由を見せる
+            bool announced = false;
+        };
+        // 初めて選ぶ音源の確かめ（file 全体の hash）。数秒かかるので、これも作業スレッドで計算しない。
+        struct SourceVerification
+        {
+            juce::String key;
+            std::uint64_t generation = 0;
+            std::future<juce::String> check;
+        };
         struct WorkspaceSelection
         {
             Configuration configuration;
@@ -201,19 +228,35 @@ namespace hypha::reference_audition
             juce::String sourceKey, adoptionKey;
             std::int64_t preparedAtMs = 0;
             bool staged = false, returnStarted = false, songEntry = false;
+            StagedVersionPosition versionPosition;
         };
         bool beginSelectionPreparationLocked() noexcept;
         void clearPreparedWorkspace();
         bool servicePreparedWorkspace (const Configuration&);
+        bool stagedVersionReady (WorkspaceSelection&, AudioPages&);
+        void serviceVersionHold();
+        std::future<RuntimeContentAlignment> searchAlignment (std::shared_ptr<const RuntimeACaptureAudio>, std::shared_ptr<const RuntimeSource>,
+                                                              std::shared_ptr<const RuntimeDetailedMeasurement>, std::optional<std::int64_t>);
+        void retireVersionSearch (std::future<RuntimeContentAlignment>&);
+        void retirePositionSearch();
+        bool finishPositionSearch (const std::shared_ptr<const RuntimeACaptureAudio>&, const std::shared_ptr<const RuntimeSource>&,
+                                   const std::shared_ptr<const RuntimeDetailedMeasurement>&, std::optional<std::int64_t>, RuntimeContentAlignment&);
+        bool positionSearchJustFinished();
+        juce::String verifySourceBehindWorker (const std::shared_ptr<const RuntimeSource>&, const juce::String& key,
+                                               std::uint64_t generation, bool freshAttempt);
+        bool verifyingSource (std::uint64_t generation) const;
+        void retireSourceVerification();
         void finishWorkspaceSelection (WorkspaceSelection);
         AudioPages& currentPages() const noexcept { return *activePages.load (std::memory_order_acquire); }
         AudioPages& nextPages() noexcept { return &currentPages() == &pages ? preparedPages : pages; }
 
         void run() override;
+        void serviceACapture (const Configuration&);
         void applyConfiguration (const Configuration&);
         void refreshWorkspace (const Configuration&, std::int64_t nowMs);
         void serviceBlindPreparation (const Configuration&, const RuntimeCandidate&, const RuntimeCue&,
-                                      const std::shared_ptr<const RuntimeSource>&, Snapshot&);
+                                      const std::shared_ptr<const RuntimeSource>&, Snapshot&,
+                                      const StagedVersionPosition* = nullptr);
         void publish (Snapshot);
         void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>, const RuntimeCue&);
         void publishLocked (Snapshot);
@@ -284,6 +327,13 @@ namespace hypha::reference_audition
         std::atomic<AudioPages*> activePages { &pages };
         std::atomic<bool> prepareBeforeReturn { false };
         std::optional<WorkspaceSelection> preparedWorkspace; // Worker-owned; never read by the callback.
+        std::uint32_t stagedVersionLimitMs = 20'000;  // 替えられないまま前の V を保つ上限。過ぎたら A で待つ
+        std::launch stagedSearchLaunch = std::launch::async;
+        PositionSearch positionSearch;  // Worker-owned.
+        SourceVerification sourceVerification;  // Worker-owned.
+        std::vector<std::future<juce::String>> retiredSourceVerifications;  // Worker-owned.
+        std::vector<std::future<RuntimeContentAlignment>> retiredVersionSearches;  // Worker-owned.
+        std::atomic<std::uint32_t> versionHoldSinceMs { 0 };  // 0 は保っていない
         enum class PreparedLevel { none, loudness, peak };
         struct PreparedReturn
         {

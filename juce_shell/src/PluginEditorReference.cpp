@@ -262,9 +262,10 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.checkViewBindings = checkSelection.checkViewBindings;
     state.listeningChecks = checkSelection.listeningChecks;
     state.detailedMeasurement = runtime.detailedMeasurement;
-    // 鳴っている V の Version を替えるあいだは図を前のまま保つ（位置が合うまでの約 1 秒、曲の頭の図へ跳ばない）。
+    // V の Version を替えて A へ戻った一瞬は図を前のまま保つ（曲の頭の図へ跳ばない）。前の V が鳴っているあいだは今の図。
     const auto timelineNow = juce::Time::getMillisecondCounterHiRes();
-    if (runtime.switchingSlot == 1 && referenceSwitchTimeline != nullptr && timelineNow < referenceSwitchHoldUntilMs)
+    if (runtime.switchingSlot == 1 && runtime.audibleComparisonSlot != 1
+        && referenceSwitchTimeline != nullptr && timelineNow < referenceSwitchHoldUntilMs)
         state.visualTimeline = referenceSwitchTimeline;
     else
     {
