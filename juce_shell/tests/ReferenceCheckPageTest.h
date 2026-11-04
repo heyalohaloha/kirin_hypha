@@ -104,13 +104,13 @@ inline void verifyReferenceCheckPage()
     // 仕様 C：C は待たない。押す前に数えるものは無く、鳴らしてから状態の行が進み具合を言う。
     {
         auto waiting = state;
-        waiting.aWindowLoudness = std::numeric_limits<double>::quiet_NaN();
-        waiting.aWindowBlocks = 120; waiting.aWindowNeededBlocks = 300;
+        waiting.aWindowLoudness = std::numeric_limits<double>::quiet_NaN(); waiting.aWindowBlocks = 120; waiting.aWindowNeededBlocks = 300;
         require (reference_ui::matchReadout (waiting).isEmpty(), "before C plays, nothing counts up");
         waiting.bSelected = waiting.matchProvisional = true; waiting.audibleComparisonSlot = waiting.comparisonSlot = 2;
         waiting.tracking = reference_audition::TrackingState::fixed;
-        require (reference_ui::referenceStatusLine (waiting).text.startsWith ("C MATCHING A (12 / 30 S)"),
-                 "while C plays and A fills the Cue's window, the status line says how far it has come");
+        const auto line = reference_ui::referenceStatusLine (waiting).text.upToFirstOccurrenceOf ("  /  ", false, false);
+        require (line == "C MATCHING A 12 OF 30 S" && i18n::translate (line, i18n::Language::japanese) != line,
+                 "while C plays and A fills the Cue's window, the status line says how far it has come, in both languages");
     }
     // 2026-10-04：凡例は比べる側が曲のどの部分かを言う。B は時刻も添える。
     {

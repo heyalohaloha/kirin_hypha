@@ -65,7 +65,7 @@ const Entry entries[] = {
     { "REVEALED", u8"答え表示中" },
     { "%1 AUDITION", u8"%1を試聴中" },
     { "%1 FOLLOWING A (LAST 10 S)", u8"%1はA直近10秒に追従" },  // 凡例・B の一覧と同じ「A直近10秒」。300% の足元に入る
-    { "%1 MATCHING A (%2 / %3 S)", u8"%1はAに合わせ中（%2 / %3秒）" },
+    { "%1 MATCHING A %2 OF %3 S", u8"%1はAに合わせ中（%2 / %3秒）" },
     { "%1 MATCHED AND FIXED", u8"%1はMATCH済み・固定" },
     { "%1 ORIGINAL LEVEL", u8"%1は元の音量" },
     { "Open V at 300%", u8"Vを300%で開く" }, { "Open C at 300%", u8"Cを300%で開く" },

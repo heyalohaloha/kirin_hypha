@@ -108,6 +108,7 @@ const Entry entries[] = {
     // Kirin OS の組み込みの名前は、ここ（綴りで画面全体を訳す辞書）に置かない。組み込みの ID の項目だけを名前の欄で
     // 日本語名にする（HyphaReferenceDisplayText.h。2026-10-18：同じ綴りの自作の名前を訳さない）。
     { "%1 DB UNDER A (PEAK LIMIT)", u8"Aより%1 dB小さい（Peak上限）" },
+    { "%1 DB UNDER A", u8"Aより%1 dB小さい" },
     // 耳で聴き比べる Check（V と C の画面。Kirin OS の「この項目は耳で聴き比べます」と同じ言い方）。
     { "BY EAR / PRESS A AND %1", u8"耳で比べる / Aと%1を押す" },  // V の Check のタブの凡例（A と V の色は線の見本で示す）
     // Kirin OS の準備の状態（B の一覧の短い語と、状態の行の「理由 / 直し方」）。

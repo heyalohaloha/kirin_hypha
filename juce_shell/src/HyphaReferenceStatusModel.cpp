@@ -30,7 +30,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
             : state.tracking == Tracking::following ? role + " FOLLOWING A (LAST 10 S)"
             : state.tracking == Tracking::stoppedRange ? role + " FOLLOW STOPPED 6 DB FROM MATCH"
             : state.tracking == Tracking::fixed && state.matchProvisional && state.aWindowNeededBlocks > 0
-                ? role + " MATCHING A (" + juce::String (state.aWindowBlocks / 10) + " / " + juce::String (state.aWindowNeededBlocks / 10) + " S)"
+                ? role + " MATCHING A " + juce::String (state.aWindowBlocks / 10) + " OF " + juce::String (state.aWindowNeededBlocks / 10) + " S"
             : state.tracking == Tracking::fixed ? role + " MATCHED AND FIXED" : role + " AUDITION";
         // 承認して A を下げているなら、その量も言う（足元の RETURN で戻すまで下がったまま）。足元に RETURN（+x dB）が
         // 出ていれば言わない（2 度言うと 300% の足元で切れた。2026-10-05）。
@@ -42,7 +42,7 @@ static StatusLine composeStatusLine (const State& state, bool returnInFooter)
         // 大事な順（入りきらなければ後ろから区切りごとに省く、HyphaReferenceStatusRow.cpp）：合わせ方、A との差、
         // 下げた A、PRE の Δ。A を下げるボタンの横では行が狭いので、ボタンが直す差だけを言う。
         if (state.action.kind == ActionKind::lowerAAndPlay && under.isNotEmpty())
-            return { StatusKind::ready, under.fromFirstOccurrenceOf ("  /  ", false, false) };
+            return { StatusKind::ready, juce::String (state.peakShortfallDb, 1) + " DB UNDER A" };
         return { StatusKind::ready, how + under + lowered + juce::String (juce::CharPointer_UTF8 ("  /  PRE \xce\x94 PAUSED")) };
     }
     if (state.kirinOsRequest && state.action.kind != ActionKind::none)

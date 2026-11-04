@@ -933,7 +933,7 @@ current gain and says so, once while you listen to the same role. C compares A's
 the Cue's length (at least 10 s, at most 10 minutes) with the Cue's Integrated loudness. Pressing C
 plays it at once, matched to the A heard so far, and when A has played for the Cue's length (at most
 30 s) C matches once more and stays fixed, so that a fixed gain is not set from a few seconds; until
-then the status line shows how much of A it has (C MATCHING A (12 / 30 S)). C waits only while there
+then the status line shows how much of A it has (C MATCHING A 12 OF 30 S). C waits only while there
 is no A level at all. **MATCH** on the C page matches again from the current A window. A match without
 enough A keeps the current gain and says why. A Check set to original level in Kirin OS plays as is.
 
